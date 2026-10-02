@@ -69,6 +69,7 @@ import {
 import { resolveDualScopeDbPath } from './dual-scope-db.js';
 import {
   CONFIG_HOME_RULES,
+  clearSnapshotColumns,
   countRows,
   GLOBAL_HOME_RULES,
   LEGACY_STORE_BASENAMES,
@@ -177,6 +178,30 @@ export interface ExportPortableBundleInput {
   configHome?: string;
   /** Machine scope: predicate for temp/fixture paths (defaults to {@link isTempProjectPath}). */
   isTempPath?: (absPath: string) => boolean;
+  /**
+   * Extra exclusions for the global home, on top of {@link GLOBAL_HOME_RULES}
+   * (relative paths mapped to the reason recorded in the manifest). The cloud
+   * vault uses this to leave machine-local state out (T12336).
+   */
+  globalHomeExclusions?: {
+    dirs?: Readonly<Record<string, string>>;
+    files?: Readonly<Record<string, string>>;
+  };
+  /** Stage the config home with the global home (default `true`). */
+  includeConfigHome?: boolean;
+  /**
+   * Columns cleared in every primary store snapshot, on top of an unencrypted
+   * bundle's credential columns (table to column names). The cloud vault
+   * passes the classification registry's `strip` columns, such as a git
+   * remote URL, which can embed a token (T13007). Rows are kept.
+   */
+  stripColumns?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Paths of the exported project's section (relative to its `.cleo/`) that
+   * its git checkout tracks; their file entries are marked `gitTracked`. The
+   * cloud vault leaves tracked files to git (T13019). Project scope only.
+   */
+  gitTrackedFiles?: ReadonlySet<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +334,8 @@ interface StagingState {
   passphrase: string | null;
   /** Source CLEO home, whose machine-key decrypts the credentials being sealed. */
   cleoHome: string;
+  /** Columns cleared in every primary store snapshot ({@link ExportPortableBundleInput.stripColumns}). */
+  stripColumns: Readonly<Record<string, readonly string[]>> | null;
 }
 
 /** Credential tables whose rows {@link listCredentialsForReentry} enumerates, by store. */
@@ -377,6 +404,7 @@ async function stageSection(
   rules: SectionRules,
   tier: 'project' | 'global' | 'config',
   primaryRelPath: string | null,
+  gitTracked: ReadonlySet<string> | null = null,
 ): Promise<PortableSectionBase> {
   const scan = scanSection(root, rules, state.skipAbsolute);
   const section: PortableSectionBase = {
@@ -468,6 +496,16 @@ async function stageSection(
         );
       }
     }
+    if (isPrimary && state.stripColumns !== null) {
+      try {
+        clearSnapshotColumns(staged, state.stripColumns);
+      } catch (err) {
+        throw new PortableBundleError(
+          'E_REDACTION_FAILED',
+          `Cannot clear stripped columns in the snapshot of ${path.join(root, relPath)}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     const counts = countRows(staged);
     const entry: PortableDatabaseEntry = {
       relPath,
@@ -495,6 +533,7 @@ async function stageSection(
       size: fs.statSync(staged).size,
       sha256: await sha256File(staged),
       secret,
+      ...(gitTracked?.has(relPath) ? { gitTracked: true } : {}),
     };
     section.files.push(entry);
     state.archivePaths.push(archivePath);
@@ -572,6 +611,7 @@ async function stageProject(
   projectRoot: string,
   index: number,
   registryProjectId?: string,
+  gitTracked: ReadonlySet<string> | null = null,
 ): Promise<PortableProjectSection> {
   const cleoDir = path.join(projectRoot, '.cleo');
   if (!fs.existsSync(cleoDir)) {
@@ -588,6 +628,7 @@ async function stageProject(
     PROJECT_SECTION_RULES,
     'project',
     PRIMARY_STORE_BASENAME,
+    gitTracked,
   );
   const primary = base.databases.find((d) => d.role === 'primary');
   const projectId = info.projectId ?? (registryProjectId || null);
@@ -673,6 +714,7 @@ export async function exportPortableBundle(
     includeSecrets: encrypt,
     passphrase: encrypt && input.passphrase ? input.passphrase : null,
     cleoHome,
+    stripColumns: input.stripColumns ?? null,
   };
 
   try {
@@ -690,17 +732,26 @@ export async function exportPortableBundle(
           `Global CLEO home does not exist: ${cleoHome}`,
         );
       }
+      const homeRules = globalHomeRules(input.globalHomeExclusions);
       const home = await stageSection(
         state,
         cleoHome,
         'global/home',
-        GLOBAL_HOME_RULES,
+        homeRules,
         'global',
         primaryRel,
       );
-      const config = fs.existsSync(configHome)
-        ? await stageSection(state, configHome, 'global/config', CONFIG_HOME_RULES, 'config', null)
-        : null;
+      const config =
+        input.includeConfigHome !== false && fs.existsSync(configHome)
+          ? await stageSection(
+              state,
+              configHome,
+              'global/config',
+              CONFIG_HOME_RULES,
+              'config',
+              null,
+            )
+          : null;
       const primary = home.databases.find((d) => d.role === 'primary');
       if (primary) {
         await sealSectionCredentials(state, home, 'global-home', {
@@ -726,7 +777,15 @@ export async function exportPortableBundle(
     }
 
     if (withProject && input.projectRoot) {
-      projects.push(await stageProject(state, path.resolve(input.projectRoot), projects.length));
+      projects.push(
+        await stageProject(
+          state,
+          path.resolve(input.projectRoot),
+          projects.length,
+          undefined,
+          input.gitTrackedFiles ?? null,
+        ),
+      );
     }
 
     const manifest: PortableBundleManifest = {
@@ -859,6 +918,24 @@ function summarise(
     ...(keyCounts ? { keyCounts } : {}),
     excluded: section.excluded,
     requiresReentry: section.requiresReentry,
+  };
+}
+
+/**
+ * The walk rules of the global home, with extra exclusions on top of
+ * {@link GLOBAL_HOME_RULES} (the export's `globalHomeExclusions`).
+ *
+ * @param extra - Extra excluded directories and files, or none.
+ * @returns The rules a global-home walk uses.
+ */
+export function globalHomeRules(
+  extra?: ExportPortableBundleInput['globalHomeExclusions'],
+): SectionRules {
+  if (!extra) return GLOBAL_HOME_RULES;
+  return {
+    ...GLOBAL_HOME_RULES,
+    excludedDirs: { ...GLOBAL_HOME_RULES.excludedDirs, ...extra.dirs },
+    excludedFiles: { ...GLOBAL_HOME_RULES.excludedFiles, ...extra.files },
   };
 }
 

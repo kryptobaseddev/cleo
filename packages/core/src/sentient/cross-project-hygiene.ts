@@ -66,7 +66,7 @@ const LOG = 'cross-project-hygiene';
 
 /** Result of Step 1 — NEXUS integrity check. */
 export interface NexusIntegrityResult {
-  /** Total registered projects examined. */
+  /** Total registered projects examined (projects on another machine are not). */
   total: number;
   /** Projects whose tasks.db, brain.db, and project-info.json are all healthy. */
   healthy: number;
@@ -267,7 +267,8 @@ async function appendAuditLine(auditPath: string, record: unknown): Promise<void
 // ---------------------------------------------------------------------------
 
 /**
- * Check accessibility of every project registered in the global nexus registry.
+ * Check accessibility of every project registered in the global nexus registry
+ * that lives on this machine (a cloud vault placeholder row is skipped, T13006).
  *
  * Tests:
  *   • Project directory exists on disk.
@@ -292,7 +293,9 @@ export async function runNexusIntegrityCheck(): Promise<NexusIntegrityResult> {
   let projects: Array<{ hash: string; path: string }> = [];
   try {
     const rows = await nexusList();
-    projects = rows.map((r) => ({ hash: r.hash, path: r.path }));
+    // T13006: a project that lives on another machine (a cloud vault
+    // placeholder row) has nothing here to check; it is not unreachable.
+    projects = rows.filter((r) => !r.remote).map((r) => ({ hash: r.hash, path: r.path }));
   } catch (err) {
     log.warn({ err }, `${LOG}: step1 — failed to load nexus registry`);
     result.registryError = err instanceof Error ? err.message : String(err);

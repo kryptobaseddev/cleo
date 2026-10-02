@@ -135,6 +135,50 @@ export const ReplicaPresence = z.object({
 });
 export type ReplicaPresence = z.infer<typeof ReplicaPresence>;
 
+// ---------- home-stream replicas (T084) ----------
+
+/**
+ * `POST /v1/account/home/replicas`: the calling device attaches the replica of its global store (the one that
+ * writes `home:<userId>`) to the account. Like a project replica, the replica is pinned to one device for good.
+ */
+export const AttachHomeReplicaRequest = z.object({
+  /** The calling device. */
+  deviceId: DeviceId,
+  replicaId: ReplicaId,
+});
+export type AttachHomeReplicaRequest = z.infer<typeof AttachHomeReplicaRequest>;
+
+/** A home-stream replica as the account lists it (`GET /v1/account/home/replicas`). */
+export const HomeReplica = z.object({
+  replicaId: ReplicaId,
+  deviceId: DeviceId,
+  deviceState: z.enum(['active', 'signed-out', 'revoked']),
+  attachedAt: z.iso.datetime(),
+  /** The last segment this replica appended to the home stream. */
+  lastSyncAt: z.iso.datetime().nullable(),
+  presence: ReplicaPresence.nullable(),
+  presenceAt: z.iso.datetime().nullable(),
+});
+export type HomeReplica = z.infer<typeof HomeReplica>;
+
+/**
+ * `POST /v1/account/home/replicas`: the attached replica, flat like the project attach answer (`replicaId` at the
+ * top). 201 on the first attach, 200 when this device already holds it.
+ */
+export const AttachHomeReplicaResult = HomeReplica;
+export type AttachHomeReplicaResult = z.infer<typeof AttachHomeReplicaResult>;
+
+/** `PUT /v1/account/home/replicas/:replicaId/presence` (body: ReplicaPresence). */
+export const HomeReplicaPresenceResult = z.object({
+  replicaId: ReplicaId,
+  presenceAt: z.iso.datetime(),
+});
+export type HomeReplicaPresenceResult = z.infer<typeof HomeReplicaPresenceResult>;
+
+/** `GET /v1/account/home/replicas`: every home replica of the caller's account, oldest attachment first. */
+export const ListHomeReplicasResult = z.object({ replicas: z.array(HomeReplica) });
+export type ListHomeReplicasResult = z.infer<typeof ListHomeReplicasResult>;
+
 // ---------- journal segments ----------
 
 /**
@@ -360,8 +404,10 @@ export type BlobDownload = z.infer<typeof BlobDownload>;
  * Roles that must run on exactly one replica per stream (cleo-dev review R4). Consolidation
  * writes (invalid_at, citation_count), sentient proposals and checkpoint authoring would otherwise
  * produce op storms or duplicates. Ordinary journal appends are not leased, because merge handles concurrency.
+ * `writer` is the CLI's single-writer lease (T083): the one replica that pushes a stream while concurrent
+ * writers are not supported.
  */
-export const LeaseRole = z.enum(['consolidator', 'sentient', 'checkpointer']);
+export const LeaseRole = z.enum(['consolidator', 'sentient', 'checkpointer', 'writer']);
 export type LeaseRole = z.infer<typeof LeaseRole>;
 
 export const AcquireLeaseRequest = z.object({
@@ -383,7 +429,23 @@ export const Lease = z.object({
 });
 export type Lease = z.infer<typeof Lease>;
 
-// ---------- keys (E2E; the server stores wrapped keys only) ----------
+/** A live lease as `GET /v1/streams/:streamId/leases` lists it (T083). */
+export const ListedLease = Lease.extend({
+  /**
+   * The device holding the lease: the device that acquired it, else the device the replica is attached
+   * from (project streams). Null when neither is known (a lease from before this was recorded).
+   */
+  deviceId: DeviceId.nullable(),
+  /** When the current holder took the lease (a renewal keeps it). */
+  acquiredAt: z.iso.datetime(),
+});
+export type ListedLease = z.infer<typeof ListedLease>;
+
+/** `GET /v1/streams/:streamId/leases`: the stream's live leases, by role. Expired leases are omitted. */
+export const ListLeasesResult = z.object({ leases: z.array(ListedLease) });
+export type ListLeasesResult = z.infer<typeof ListLeasesResult>;
+
+// ---------- keys (wrapped project keys; the account master key is escrowed on the server, T082: encryption at rest, not end-to-end) ----------
 
 /**
  * Bounds on Argon2id parameters. The server stores the parameters, so a client must not trust them: too
@@ -445,6 +507,53 @@ export type PutDeviceWrappedKeyRequest = z.infer<typeof PutDeviceWrappedKeyReque
 export const DeviceKeyGrant = PutDeviceWrappedKeyRequest.extend({ deviceId: DeviceId });
 export type DeviceKeyGrant = z.infer<typeof DeviceKeyGrant>;
 
+// ---------- account key escrow (T082) ----------
+
+/** Unpadded base64url (RFC 4648 §5). */
+const Base64Url = z.string().regex(/^[A-Za-z0-9_-]*$/, 'expected unpadded base64url');
+
+/** Exactly 32 bytes as unpadded base64url: 43 characters, the last carrying 2 bits of padding. */
+const Key32Base64Url = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/, 'expected 32 bytes as unpadded base64url');
+
+/**
+ * `PUT /v1/account/keys/escrow`: a device that holds the master key escrows it with the server, so a new
+ * device needs only `cleo login` and its browser approval to receive it (owner decision, T082). The server
+ * stores it encrypted under a server-held key and hands it out only sealed to an active device of the account.
+ */
+export const PutKeyEscrowRequest = z.object({
+  /** The user master key, in clear over TLS: 32 bytes. */
+  masterKey: Key32Base64Url,
+  keyVersion: KeyVersion,
+  /** masterKeyVerifier(masterKey). The server recomputes it and refuses a mismatch. */
+  masterKeyVerifier: Sha256Hex,
+});
+export type PutKeyEscrowRequest = z.infer<typeof PutKeyEscrowRequest>;
+
+/** What the server returns for `PUT /v1/account/keys/escrow`: the stored escrow's identity, never the key. */
+export const PutKeyEscrowResult = z.object({
+  keyVersion: KeyVersion,
+  masterKeyVerifier: Sha256Hex,
+  updatedAt: z.iso.datetime(),
+});
+export type PutKeyEscrowResult = z.infer<typeof PutKeyEscrowResult>;
+
+/**
+ * What the server returns for `GET /v1/account/keys/escrow`: the master key sealed (sealTo) to the calling
+ * device's X25519 key, under the context `cleo-nexus/escrow/v1:<userId>:<deviceId>`. The device opens it
+ * and checks it against `masterKeyVerifier` before use.
+ */
+export const KeyEscrowGrant = z.object({
+  sealedMasterKey: Base64Url,
+  keyVersion: KeyVersion,
+  masterKeyVerifier: Sha256Hex,
+  /** The device the key is sealed to: the calling device. */
+  deviceId: DeviceId,
+  updatedAt: z.iso.datetime(),
+});
+export type KeyEscrowGrant = z.infer<typeof KeyEscrowGrant>;
+
 /**
  * Where a revoked signing key stops being trusted: per replica, the last replicaSeq it may have signed,
  * and per stream, the highest coversSeq of a checkpoint it may have signed. Keys are replica ids and
@@ -502,7 +611,7 @@ export const PutProjectKeyRequest = z.object({
   keyVersion: KeyVersion,
 });
 
-// ---------- conflicts (metadata only; the content stays E2E) ----------
+// ---------- conflicts (metadata only; the content stays encrypted) ----------
 
 export const ConflictSummary = z.object({
   replicaId: ReplicaId,

@@ -4,19 +4,24 @@
  * @epic T4540
  */
 
-import { realpathSync } from 'node:fs';
+import { readdirSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { readPortableProjectId, resolveProjectByCwd } from '@cleocode/paths';
+import {
+  readPortableProjectId,
+  resolveProjectByCwd,
+  VAULT_REMOTE_PATH_PREFIX,
+} from '@cleocode/paths';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
 import { awaitBackgroundOps } from '../../store/background-ops.js';
 import * as dataAccessors from '../../store/data-accessor.js';
+import { resolveDualScopeDbPath } from '../../store/dual-scope-db.js';
 import { getNexusDb, getNexusNativeDb } from '../../store/nexus-sqlite.js';
-import { projectIdAliases } from '../../store/schema/nexus-schema.js';
+import { projectIdAliases, projectRegistry } from '../../store/schema/nexus-schema.js';
 import { closeAllDatabases, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { generateProjectHash } from '../hash.js';
@@ -569,5 +574,95 @@ describe('nexusSyncAll', () => {
     const result = await nexusSyncAll();
     expect(result.synced).toBe(1);
     expect(result.failed).toBe(0);
+  });
+});
+
+describe('cloud vault placeholder rows (T13006)', () => {
+  const PLACEHOLDER = `${VAULT_REMOTE_PATH_PREFIX}nexus_project_registry:["remote-id"]:project_path`;
+
+  /** A registry row a cloud vault restore brought from another machine. */
+  async function insertRemoteRow(): Promise<void> {
+    const db = await getNexusDb();
+    const now = new Date().toISOString();
+    await db.insert(projectRegistry).values({
+      projectId: 'remote-id',
+      projectHash: 'remoteremote',
+      projectPath: PLACEHOLDER,
+      name: 'remote',
+      registeredAt: now,
+      lastSeen: now,
+      healthStatus: 'unknown',
+      healthLastCheck: null,
+      permissions: 'read',
+      lastSync: now,
+      taskCount: 0,
+      labelsJson: '[]',
+      brainDbPath: null,
+      tasksDbPath: null,
+      lastIndexed: null,
+      nodeCount: 0,
+      relationCount: 0,
+      fileCount: 0,
+    });
+  }
+
+  it('flags them in the registry read, and sync never opens or creates a store for them', async () => {
+    await nexusRegister(projectDir, 'test-proj', 'read');
+    await insertRemoteRow();
+    const accessor = vi.spyOn(dataAccessors, 'getTaskAccessor');
+
+    const remote = (await nexusList()).find((p) => p.projectId === 'remote-id');
+    expect(remote).toMatchObject({ remote: true, path: PLACEHOLDER, tasksDbPath: null });
+    expect((await nexusGetProject('remote-id'))?.remote).toBe(true);
+    expect((await nexusList()).find((p) => p.projectId !== 'remote-id')?.remote).toBeUndefined();
+
+    const result = await nexusSyncAll();
+    expect(result).toEqual({ synced: 1, failed: 0 });
+    expect(accessor.mock.calls.map((c) => c[0])).not.toContain(PLACEHOLDER);
+    expect(readdirSync(testDir).filter((n) => n.startsWith(VAULT_REMOTE_PATH_PREFIX))).toEqual([]);
+    await expect(nexusSync('remote-id')).rejects.toThrow(/another machine/);
+  });
+
+  it('the store opener refuses a placeholder instead of resolving it under the cwd', () => {
+    expect(() => resolveDualScopeDbPath('project', PLACEHOLDER)).toThrow(/cloud vault placeholder/);
+    // Already resolved against a working directory (T13021).
+    expect(() => resolveDualScopeDbPath('project', join(testDir, PLACEHOLDER))).toThrow(
+      /cloud vault placeholder/,
+    );
+    expect(readdirSync(testDir).filter((n) => n.startsWith(VAULT_REMOTE_PATH_PREFIX))).toEqual([]);
+  });
+
+  it('the task accessor refuses a placeholder, raw or resolved, and creates nothing (T13021)', async () => {
+    await expect(dataAccessors.getTaskAccessor(PLACEHOLDER)).rejects.toThrow(
+      /cloud vault placeholder/,
+    );
+    await expect(dataAccessors.createDataAccessor(join(testDir, PLACEHOLDER))).rejects.toThrow(
+      /cloud vault placeholder/,
+    );
+    expect(readdirSync(testDir).filter((n) => n.startsWith(VAULT_REMOTE_PATH_PREFIX))).toEqual([]);
+  });
+
+  it('workspace status, agents and routing skip it, and so do the registry roots (T13021)', async () => {
+    await nexusRegister(projectDir, 'test-proj', 'read');
+    await insertRemoteRow();
+    const accessor = vi.spyOn(dataAccessors, 'getTaskAccessor');
+    const { routeDirective, workspaceAgents, workspaceStatus } = await import('../workspace.js');
+    const status = await workspaceStatus();
+    expect(status.projectCount).toBe(1);
+    expect(status.projects.map((p) => p.path)).not.toContain(PLACEHOLDER);
+    await workspaceAgents();
+    await routeDirective({
+      verb: 'done',
+      taskRefs: ['T999'],
+      agentId: 'agent-t13021',
+      messageId: 'm-1',
+      timestamp: new Date().toISOString(),
+    });
+    expect(accessor.mock.calls.length).toBeGreaterThan(0);
+    expect(accessor.mock.calls.map((c) => c[0])).not.toContain(PLACEHOLDER);
+    const { listRegistryParentRoots, parentRootsOf } = await import('../registry-roots.js');
+    const local = (await nexusList()).filter((p) => !p.remote).map((p) => p.path);
+    expect(await listRegistryParentRoots()).toEqual(parentRootsOf(local));
+    expect(readdirSync(testDir).filter((n) => n.startsWith(VAULT_REMOTE_PATH_PREFIX))).toEqual([]);
   });
 });

@@ -39,6 +39,7 @@
 import { accessSync, existsSync, constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
 import {
+  type CloudStatusGlobalStore,
   type CloudStatusLocal,
   type CloudStatusOfflineDetails,
   type CloudStatusResult,
@@ -68,6 +69,7 @@ import {
 } from './nexus-cloud.js';
 import { FileNexusTokenStore, type NexusTokenStore, nexusOriginKey } from './nexus-credentials.js';
 import { NexusDeviceStore, UnreadableNexusDevice } from './nexus-device.js';
+import { nexusHomeReplicaListSchema } from './nexus-home.js';
 
 /** Warning: the server has no E3, so the status was composed from E2, E14 and E15. */
 export const W_NEXUS_STATUS_COMPOSED = 'W_NEXUS_STATUS_COMPOSED';
@@ -548,6 +550,7 @@ export async function getNexusCloudStatus(
       summary: summaryOf(remote, local, project, isLocal),
       local,
       remote,
+      global: await globalStoreOf(conn, warnings),
       warnings,
     };
   } catch (err) {
@@ -566,5 +569,43 @@ export async function getNexusCloudStatus(
       );
     }
     throw err;
+  }
+}
+
+/**
+ * This device's global store (the main brain) on the account's home stream
+ * (T12952): attached or not, its presence, and how many devices attach one.
+ * A server without the home-replica endpoints yields `supported: false`.
+ */
+async function globalStoreOf(
+  conn: NexusCloudConnection,
+  warnings: CloudWarning[],
+): Promise<CloudStatusGlobalStore> {
+  try {
+    const list = await conn.find('/v1/account/home/replicas', nexusHomeReplicaListSchema);
+    if (list === null) {
+      return { supported: false, attached: false, replicaId: null, presenceAt: null, devices: 0 };
+    }
+    const mine = list.replicas.find((r) => r.deviceId === conn.device.deviceId) ?? null;
+    if (mine === null) {
+      warnings.push({
+        code: 'W_NEXUS_GLOBAL_NOT_ATTACHED',
+        message:
+          "this device's global store is not attached to the account; run `cleo login nexus`",
+      });
+    }
+    return {
+      supported: true,
+      attached: mine !== null,
+      replicaId: mine?.replicaId ?? null,
+      presenceAt: mine?.presenceAt ?? null,
+      devices: new Set(list.replicas.map((r) => r.deviceId)).size,
+    };
+  } catch (err) {
+    warnings.push({
+      code: 'W_NEXUS_GLOBAL_UNREADABLE',
+      message: `could not read the global store attachments: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return { supported: false, attached: false, replicaId: null, presenceAt: null, devices: 0 };
   }
 }

@@ -10,6 +10,7 @@
  */
 
 import type { NexusDeviceLogoutResult, NexusLoginResult } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts';
 import { cliError, cliOutput, humanLine, isHumanOutput } from '../renderers/index.js';
 import {
   type DeviceCodePromptInfo,
@@ -42,8 +43,24 @@ export function nexusApiUrlArg(args: Readonly<Record<string, unknown>>): string 
 }
 
 /**
+ * Exit codes of the cloud vault refusals a script may want to branch on
+ * (T12976): each is distinct from a plain failure (1) and from the others.
+ */
+const VAULT_REFUSAL_EXIT_CODES: Readonly<Record<string, number>> = {
+  E_NEXUS_VAULT_LEASE_HELD: ExitCode.LOCK_TIMEOUT,
+  E_NEXUS_VAULT_STORE_BUSY: ExitCode.LOCK_TIMEOUT,
+  E_NEXUS_VAULT_BEHIND: ExitCode.VERSION_CONFLICT,
+  E_NEXUS_VAULT_LOCAL_CHANGES: ExitCode.CONCURRENT_MODIFICATION,
+  E_NEXUS_VAULT_VERIFY_FAILED: ExitCode.CHECKSUM_MISMATCH,
+  E_NEXUS_VAULT_TARGET_OCCUPIED: ExitCode.ID_COLLISION,
+};
+
+/**
  * Emit a Nexus flow failure (LAFS error envelope or a human line) and exit.
- * Invalid input exits 6; everything else exits 1.
+ * Invalid input exits 6; the vault refusals exit with their own codes
+ * (lease held / store busy 7, behind 23, local changes 21, verify failed 20,
+ * restore target holds another project 22);
+ * everything else exits 1.
  *
  * @param err - The thrown error.
  * @param operation - LAFS operation id.
@@ -59,7 +76,7 @@ export function failNexus(err: unknown, operation: string): never {
     code === 'E_NEXUS_DEVICE_REQUIRED' ||
     code === 'E_VALIDATION'
       ? 6
-      : 1;
+      : (VAULT_REFUSAL_EXIT_CODES[code ?? ''] ?? 1);
   // Only an error that opts in with an explicit, secret-free `publicDetails`
   // (`cleo cloud status` offline: the local facts, contract §4.4) has its
   // details forwarded; an arbitrary error's `details` never reaches the envelope.
@@ -169,6 +186,25 @@ export async function runNexusLogin(
         readOnly,
         ...(name !== undefined ? { name } : {}),
       });
+      if (!readOnly) {
+        // T12952: login is the only setup step, so it also attaches this
+        // device's global store (the main brain) to the account.
+        const { attachNexusGlobalStore } = await import(
+          /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-home.js'
+        );
+        try {
+          const global = await attachNexusGlobalStore({ apiUrl: hooks.apiUrl });
+          result = { ...result, warnings: [...result.warnings, ...global.warnings] };
+        } catch (err) {
+          result = {
+            ...result,
+            warnings: [
+              ...result.warnings,
+              `signed in, but attaching this device's global store failed (${err instanceof Error ? err.message : String(err)}); run \`cleo login nexus\` again`,
+            ],
+          };
+        }
+      }
     } else {
       if (name !== undefined) {
         process.stderr.write(

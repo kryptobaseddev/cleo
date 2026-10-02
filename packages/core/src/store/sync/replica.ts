@@ -40,7 +40,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { realpathSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import { uuidv7 } from '../../cloud/crypto.js';
 import { getStableDeviceId } from '../../llm/stable-device-id.js';
@@ -176,6 +176,29 @@ export function activeReplica(db: DatabaseSync, scope: ReplicaScope): ReplicaRow
   stmt.setReadBigInts(true);
   const r = stmt.get(scope) as Record<string, unknown> | undefined;
   return r ? rowFrom(r) : undefined;
+}
+
+/**
+ * The active replica id of `scope` in the store at `dbPath`, read without
+ * binding or migrating anything: a read-only open, `null` when the store or
+ * its replica table does not exist yet (T12336: vault reads never write).
+ *
+ * @param dbPath - The `cleo.db` file.
+ * @param scope - Which replica to read.
+ * @returns The replica id, or `null`.
+ */
+export async function readActiveReplicaId(
+  dbPath: string,
+  scope: ReplicaScope,
+): Promise<string | null> {
+  if (!existsSync(dbPath)) return null;
+  const { openNativeDatabase } = await import('../sqlite-native.js');
+  const db = openNativeDatabase(dbPath, { readonly: true, enableWal: false });
+  try {
+    return activeReplica(db, scope)?.replicaId ?? null;
+  } finally {
+    db.close();
+  }
 }
 
 /** Every replica row of a store, oldest first. Read-only. */
@@ -425,6 +448,32 @@ export function ensureProjectReplica(
   const result = bindPass(db, { ...opts, scope: 'project' });
   if (result.status !== 'bound' && result.status !== 'rebound') {
     throw new Error(`ensureProjectReplica: unexpected status ${result.status}`);
+  }
+  return {
+    replicaId: result.replicaId,
+    ...(result.previousReplicaId ? { reboundFrom: result.previousReplicaId } : {}),
+  };
+}
+
+/**
+ * {@link ensureProjectReplica} for the global store (`<cleoHome>/cleo.db`):
+ * bind it to one global-scope replica, with no `sync.*` flag set (T12952).
+ * The replica is what the account's `home:` stream knows this device's
+ * global store (the main brain) by.
+ *
+ * @param db - The canonical global store handle (opened through the chokepoint).
+ * @param opts - Store path and overrides; `scope` is always `global`.
+ * @returns The active replica id, and the retired id when this call rebound a copy.
+ * @throws {Error} With `mode: 'off'`.
+ */
+export function ensureGlobalReplica(
+  db: DatabaseSync,
+  opts: Omit<SyncOpenOptions, 'scope'>,
+): { replicaId: string; reboundFrom?: string } {
+  if (opts.mode === 'off') throw new Error('ensureGlobalReplica needs a live or test open');
+  const result = bindPass(db, { ...opts, scope: 'global' });
+  if (result.status !== 'bound' && result.status !== 'rebound') {
+    throw new Error(`ensureGlobalReplica: unexpected status ${result.status}`);
   }
   return {
     replicaId: result.replicaId,

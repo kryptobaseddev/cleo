@@ -113,6 +113,20 @@ export interface ImportPortableBundleInput {
     projectId: string | null,
     newRoot: string,
   ) => Promise<NonNullable<PortableImportSectionResult['registry']>>;
+  /**
+   * Called after the staged bundle is extracted and its integrity verified,
+   * before anything is placed (T12336). A throw aborts the import with
+   * nothing activated: the cloud vault checks the snapshot's per-table counts
+   * and hashes here.
+   */
+  onStaged?: (extractDir: string, manifest: PortableBundleManifest) => void | Promise<void>;
+  /**
+   * Plain files this machine keeps, by path in their section (T13005): `keep`
+   * leaves the destination's copy where it has one (the bundle's is placed
+   * only where it has none); `skip` never places the bundle's copy. Every
+   * other file is placed. The cloud vault keeps machine-local files this way.
+   */
+  machineLocalFile?: (relPath: string) => 'keep' | 'skip' | null;
 }
 
 /**
@@ -395,11 +409,21 @@ function relocateRegistryRows(
   return outcomes;
 }
 
-function placeSection(stagingDir: string, plan: Placement): { files: number; dbs: number } {
+function placeSection(
+  stagingDir: string,
+  plan: Placement,
+  machineLocalFile: ImportPortableBundleInput['machineLocalFile'],
+): { files: number; dbs: number; kept: string[] } {
   fs.mkdirSync(plan.destDir, { recursive: true });
+  const kept: string[] = [];
   for (const f of plan.section.files) {
     const src = path.join(stagingDir, f.bundlePath);
     const dst = path.join(plan.destDir, f.relPath);
+    const local = machineLocalFile?.(f.relPath) ?? null;
+    if (local === 'skip' || (local === 'keep' && fs.existsSync(dst))) {
+      kept.push(f.relPath);
+      continue;
+    }
     fs.mkdirSync(path.dirname(dst), { recursive: true });
     fs.copyFileSync(src, dst);
     fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
@@ -421,7 +445,11 @@ function placeSection(stagingDir: string, plan: Placement): { files: number; dbs
     fs.rmSync(dst, { force: true });
     fs.symlinkSync(link.target, dst);
   }
-  return { files: plan.section.files.length, dbs: plan.section.databases.length };
+  return {
+    files: plan.section.files.length - kept.length,
+    dbs: plan.section.databases.length,
+    kept,
+  };
 }
 
 /**
@@ -598,6 +626,7 @@ export async function importPortableBundle(
 
     // ----- 2. verify ------------------------------------------------------
     const manifest = await verifyStaged(extractDir);
+    if (input.onStaged) await input.onStaged(extractDir, manifest);
 
     // ----- 3. plan + pre-check -------------------------------------------
     const plans = planPlacements(manifest, input, cleoHome, configHome);
@@ -657,11 +686,11 @@ export async function importPortableBundle(
     // ----- 5. place + 6. verify counts ------------------------------------
     const sections: PortableImportSectionResult[] = [];
     for (const plan of plans) {
-      const written = placeSection(extractDir, plan);
+      const written = placeSection(extractDir, plan, input.machineLocalFile);
       const counts = compareCounts(plan);
       const hashes = await compareHashes(
         plan,
-        rewrittenEntries(plan, relocations, registryOutcomes),
+        new Set([...rewrittenEntries(plan, relocations, registryOutcomes), ...written.kept]),
       );
       // T12819: a placed project store gets cleo_trigger_suspend, after the
       // count and hash checks (they compare the bundle's own tables).

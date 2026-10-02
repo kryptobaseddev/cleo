@@ -263,7 +263,8 @@ export async function routeDirective(directive: ParsedDirective): Promise<RouteR
     return results;
   }
 
-  const projects = await nexusList();
+  // T13021: a project on another machine (a cloud vault placeholder row) has no store here.
+  const projects = (await nexusList()).filter((p) => !p.remote);
 
   for (const taskRef of directive.taskRefs) {
     const result = await routeSingleTask(taskRef, directive, operation, projects);
@@ -508,10 +509,12 @@ async function logRouteAudit(
  * Get aggregated task status across all registered projects.
  *
  * Returns per-project task counts and workspace-wide totals.
- * Respects project permissions — only includes readable projects.
+ * Respects project permissions — only includes readable projects. Projects
+ * that live on another machine (cloud vault placeholder rows) are left out.
  */
 export async function workspaceStatus(): Promise<WorkspaceStatus> {
-  const projects = await nexusList();
+  // T13021: a project on another machine (a cloud vault placeholder row) has no store here.
+  const projects = (await nexusList()).filter((p) => !p.remote);
   const summaries: WorkspaceProjectSummary[] = [];
   const totals = { pending: 0, active: 0, done: 0, total: 0 };
 
@@ -567,9 +570,12 @@ export async function workspaceStatus(): Promise<WorkspaceStatus> {
  * Get all agents registered across all projects.
  *
  * Queries each project's agent_instances table and returns a unified list.
+ * Projects that live on another machine (cloud vault placeholder rows) are
+ * left out.
  */
 export async function workspaceAgents(): Promise<WorkspaceAgent[]> {
-  const projects = await nexusList();
+  // T13021: a project on another machine (a cloud vault placeholder row) has no store here.
+  const projects = (await nexusList()).filter((p) => !p.remote);
   const agents: WorkspaceAgent[] = [];
 
   for (const project of projects) {

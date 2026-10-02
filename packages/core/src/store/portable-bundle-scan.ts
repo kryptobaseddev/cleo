@@ -96,6 +96,12 @@ const EXCLUDED_FILE_SUFFIXES: ReadonlyArray<readonly [string, string]> = [
 const IDENTITY_REMEDY =
   'Project signing identity (Ed25519). Without it, run any severity-signing command to mint a new key; previously signed audit lines keep verifying against their embedded public key.';
 
+/** The docs audit trail's HMAC key (`docs/docs-audit.ts`), a secret like the signing identity (T13007). */
+const AUDIT_SECRET_REL = 'audit/.audit-secret';
+
+const AUDIT_SECRET_REMEDY =
+  'Docs audit checkpoint key (HMAC). Without it, the next read or write of the docs audit trail mints a new key, and checkpoints written under the old key no longer verify on this machine.';
+
 /** Walk rules for a project `.cleo/` directory. */
 export const PROJECT_SECTION_RULES: SectionRules = {
   excludedDirs: {
@@ -110,7 +116,12 @@ export const PROJECT_SECTION_RULES: SectionRules = {
     node_modules: 'dependency install (regenerable)',
     __pycache__: 'Python bytecode cache (regenerable)',
   },
-  secretRemedy: (relPath) => (relPath.startsWith('keys/') ? IDENTITY_REMEDY : null),
+  secretRemedy: (relPath) =>
+    relPath.startsWith('keys/')
+      ? IDENTITY_REMEDY
+      : relPath === AUDIT_SECRET_REL
+        ? AUDIT_SECRET_REMEDY
+        : null,
 };
 
 /** Secret files in the global CLEO home and what losing each one costs. */
@@ -167,6 +178,10 @@ export const GLOBAL_HOME_RULES: SectionRules = {
     // suffix rule above.
     'nexus-device.json':
       'Nexus device credential and device keys; device-local, never exported, even encrypted. Run `cleo login nexus` on the target machine to enrol it as its own device',
+    // Machine-local cloud vault bookkeeping (T12336): which snapshot each local
+    // store last synced, and the signer trust this machine learned.
+    'nexus-vault.json':
+      'cloud vault state; machine-local (which snapshot each store on this machine last synced)',
   },
   secretRemedy: (relPath) => {
     const explicit = GLOBAL_SECRETS[relPath];
@@ -585,6 +600,17 @@ const CREDENTIAL_REMEDIES: Readonly<Record<string, string>> = {
   service_connections: 'Service connection credentials: reconnect the services.',
 };
 
+/**
+ * What losing one credential table's secrets costs, as re-entry advice.
+ *
+ * @param table - Table name.
+ * @returns The remedy text (a generic one for a table without its own).
+ * @task T12336
+ */
+export function credentialRemedy(table: string): string {
+  return CREDENTIAL_REMEDIES[table] ?? 'Re-enter the credentials.';
+}
+
 /** Memory (ADR-093 `portable`) tables whose counts are disclosed on export. */
 export const MEMORY_TABLES: readonly string[] = [
   'brain_observations',
@@ -617,11 +643,29 @@ export interface CredentialRedaction {
  *   not ship the snapshot.
  */
 export function redactCredentials(snapshotPath: string): CredentialRedaction[] {
+  return clearSnapshotColumns(snapshotPath, CREDENTIAL_COLUMNS);
+}
+
+/**
+ * Clear the given columns in a SNAPSHOT (never a live store), as
+ * {@link redactCredentials} does for the credential columns: NULL (or `''`
+ * when NOT NULL), then `secure_delete` + `VACUUM`. Rows are kept.
+ *
+ * @param snapshotPath - A VACUUM snapshot owned by the export staging area.
+ * @param columns - Table to column names; absent tables and columns are skipped.
+ * @returns Per-table clearings (tables with no values are omitted).
+ * @throws {Error} When a column cannot be cleared; the caller must not ship the snapshot.
+ * @task T13007
+ */
+export function clearSnapshotColumns(
+  snapshotPath: string,
+  columns: Readonly<Record<string, readonly string[]>>,
+): CredentialRedaction[] {
   const out: CredentialRedaction[] = [];
   const db = new DatabaseSync(snapshotPath); // schema-guard-exempt: a snapshot copy this step owns; credential redaction is DML only
   try {
     db.exec('PRAGMA secure_delete = ON');
-    for (const [table, wanted] of Object.entries(CREDENTIAL_COLUMNS)) {
+    for (const [table, wanted] of Object.entries(columns)) {
       const present = (
         db.prepare(`PRAGMA table_info("${table}")`).all() as Array<{
           name: string;
@@ -644,12 +688,13 @@ export function redactCredentials(snapshotPath: string): CredentialRedaction[] {
         (db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE ${cond}`).get() as { n: number }).n,
       );
       if (left !== 0)
+        // @sync-invariant none:local-only checks the redaction of a snapshot copy this export owns; it never writes a synced store
         throw new Error(`credential columns of ${table} were not cleared (${left} rows remain)`);
       out.push({
         table,
         columns: present.map((c) => c.name),
         rows,
-        remedy: CREDENTIAL_REMEDIES[table] ?? 'Re-enter the credentials.',
+        remedy: credentialRemedy(table),
       });
     }
     if (out.length > 0) db.exec('VACUUM');

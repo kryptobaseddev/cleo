@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loginToNexus = vi.fn();
 const loginToNexusDevice = vi.fn();
+const attachNexusGlobalStore = vi.fn();
 
 vi.mock('@cleocode/core/cloud/nexus-auth.js', () => ({ loginToNexus }));
 vi.mock('@cleocode/core/cloud/nexus-enrol.js', () => ({
@@ -19,6 +20,7 @@ vi.mock('@cleocode/core/cloud/nexus-enrol.js', () => ({
   NEXUS_TEST_BEARER_ENV: 'CLEO_NEXUS_TEST_BEARER',
   W_NEXUS_TEST_BEARER_IGNORED: 'W_NEXUS_TEST_BEARER_IGNORED',
 }));
+vi.mock('@cleocode/core/cloud/nexus-home.js', () => ({ attachNexusGlobalStore }));
 vi.mock('@cleocode/core/cloud/nexus-device.js', () => ({
   isNexusDeviceEnabled: () => process.env['CLEO_NEXUS_DEVICE'] !== '0',
 }));
@@ -45,6 +47,7 @@ beforeEach(() => {
   savedBearer = process.env['CLEO_NEXUS_TEST_BEARER'];
   delete process.env['CLEO_NEXUS_TEST_BEARER'];
   loginToNexus.mockReset().mockResolvedValue(RESULT);
+  attachNexusGlobalStore.mockReset().mockResolvedValue({ replica: null, warnings: [] });
   loginToNexusDevice.mockReset().mockResolvedValue({
     ...RESULT,
     device: {
@@ -92,6 +95,24 @@ describe('runNexusLogin', () => {
     }
     expect(loginToNexusDevice).toHaveBeenCalledTimes(3);
     expect(loginToNexus).not.toHaveBeenCalled();
+    // T12952: a device login also attaches this device's global store.
+    expect(attachNexusGlobalStore).toHaveBeenCalledTimes(3);
+  });
+
+  it('a failed global-store attach is a warning; the login still succeeds (T12952)', async () => {
+    delete process.env['CLEO_NEXUS_DEVICE'];
+    attachNexusGlobalStore.mockRejectedValueOnce(new Error('E_NEXUS_REPLICA_COPIED: copied'));
+    const result = await runNexusLogin({}, () => {});
+    expect(result.warnings.join('\n')).toMatch(
+      /attaching this device's global store failed.*cleo login nexus/,
+    );
+    expect(RESULT.warnings).toEqual([]);
+  });
+
+  it('a read-only device login does not attach the global store (T12952)', async () => {
+    process.env['CLEO_NEXUS_DEVICE'] = '1';
+    await runNexusLogin({ 'read-only': true }, () => {});
+    expect(attachNexusGlobalStore).not.toHaveBeenCalled();
   });
 
   it('with CLEO_NEXUS_DEVICE=0, --read-only is REFUSED, never a full-privilege login (review L1)', async () => {

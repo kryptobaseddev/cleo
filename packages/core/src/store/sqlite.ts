@@ -180,7 +180,11 @@ const MIN_BACKUP_TASK_COUNT = 10;
  * @task T11662
  * @see packages/core/src/store/exodus/on-open.ts — the exodus single-flight lock
  */
-const FIRST_OPEN_LOCK_SUFFIX = '.exodus-on-open.lock';
+/**
+ * Suffix of the lock file that serialises destructive whole-store operations
+ * on one `cleo.db` (first-open migration, auto-recovery, vault restore).
+ */
+export const FIRST_OPEN_LOCK_SUFFIX = '.exodus-on-open.lock';
 
 /**
  * Re-count `tasks_tasks` from a FRESH read-only handle on the on-disk `cleo.db`,

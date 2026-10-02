@@ -54,7 +54,9 @@ export function parentRootsOf(projectPaths: readonly string[]): string[] {
 }
 
 /**
- * Parent directories of every live project checkout in the nexus registry.
+ * Parent directories of every live project checkout in the nexus registry
+ * (a project that lives on another machine, a cloud vault placeholder row,
+ * has none here).
  *
  * An EMPTY registry yields `[]`, and callers choose their own fallback. An
  * UNREADABLE registry throws (T12512): falling back to a guessed root would
@@ -72,5 +74,6 @@ export function parentRootsOf(projectPaths: readonly string[]): string[] {
 export async function listRegistryParentRoots(): Promise<string[]> {
   const { nexusList } = await import('./registry.js');
   const projects = await nexusList();
-  return parentRootsOf(projects.map((p) => p.path));
+  // T13021: a project on another machine holds a placeholder, not a path.
+  return parentRootsOf(projects.filter((p) => !p.remote).map((p) => p.path));
 }

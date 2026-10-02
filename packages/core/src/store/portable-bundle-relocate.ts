@@ -125,6 +125,72 @@ export function relocatePath(value: string, from: string, to: string): string {
   return `${base}${sep}${segments.join(sep)}`;
 }
 
+/** How a relocation treats one column: a path locator, path keys inside JSON, or neither. */
+export type RelocatableColumn = 'path' | 'json' | null;
+
+/**
+ * Whether {@link relocateDatabase} rewrites `column` of `table`, and how.
+ * Historical tables and columns and `WITHOUT ROWID` tables are never
+ * rewritten.
+ *
+ * @param table - Table name.
+ * @param column - Column name.
+ * @param withoutRowid - The table is `WITHOUT ROWID`.
+ * @returns `path`, `json`, or `null` when the column is left alone.
+ * @task T12336
+ */
+export function relocatableColumn(
+  table: string,
+  column: string,
+  withoutRowid: boolean,
+): RelocatableColumn {
+  if (withoutRowid || HISTORICAL_TABLE.test(table) || HISTORICAL_COLUMN.test(column)) return null;
+  if (PATH_COLUMN.test(column)) return 'path';
+  if (/_json$/i.test(column)) return 'json';
+  return null;
+}
+
+/**
+ * The value {@link relocateDatabase} would write for one text cell of a
+ * relocatable column, or the value unchanged when it would not rewrite it.
+ * The cloud vault hashes cells through this, so a relocated store hashes
+ * exactly like its source.
+ *
+ * @param kind - The column's kind ({@link relocatableColumn}).
+ * @param value - Cell text.
+ * @param from - Old root.
+ * @param to - New root.
+ * @returns The relocated text.
+ * @task T12336
+ */
+export function relocateCell(
+  kind: 'path' | 'json',
+  value: string,
+  from: string,
+  to: string,
+): string {
+  if (kind === 'path') {
+    return isAbsolutePath(value) && isUnderRoot(value, from)
+      ? relocatePath(value, from, to)
+      : value;
+  }
+  if (!/^[[{]/.test(value)) return value;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return value;
+  }
+  const r = rewriteJson(
+    parsed,
+    from,
+    to,
+    () => {},
+    () => {},
+  );
+  return r.changed > 0 ? JSON.stringify(r.value) : value;
+}
+
 /** Recursively rewrite path-named string keys of a parsed JSON value. */
 function rewriteJson(
   node: unknown,
@@ -226,15 +292,14 @@ export function relocateDatabase(
       if (virtualNames.includes(table.name)) continue;
       if (virtualNames.some((v) => table.name.startsWith(`${v}_`))) continue;
       const withoutRowid = (table.sql ?? '').toUpperCase().includes('WITHOUT ROWID');
-      const historicalTable = HISTORICAL_TABLE.test(table.name);
       const columns = (
         db.prepare(`PRAGMA table_info(${quoteIdent(table.name)})`).all() as Array<{ name: string }>
       ).map((c) => c.name);
       for (const column of columns) {
         const location = `${dbLabel}:${table.name}.${column}`;
-        const eligible = !historicalTable && !withoutRowid && !HISTORICAL_COLUMN.test(column);
-        const pathColumn = eligible && PATH_COLUMN.test(column);
-        const jsonColumn = eligible && /_json$/i.test(column);
+        const kind = relocatableColumn(table.name, column, withoutRowid);
+        const pathColumn = kind === 'path';
+        const jsonColumn = kind === 'json';
         const col = quoteIdent(column);
         const rows = db
           .prepare(
@@ -298,7 +363,11 @@ export function relocateDatabase(
 }
 
 /** Project JSON files whose string values are relocated wholesale. */
-const RELOCATED_JSON_FILES = ['config.json', 'project-context.json', 'worktrees.json'];
+export const RELOCATED_JSON_FILES: readonly string[] = [
+  'config.json',
+  'project-context.json',
+  'worktrees.json',
+];
 
 /** Rewrite every string value under `from` in a parsed JSON value. */
 function rewriteAllStrings(
@@ -331,6 +400,26 @@ function rewriteAllStrings(
     return { value, changed };
   }
   return { value: node, changed: 0 };
+}
+
+/**
+ * A {@link RELOCATED_JSON_FILES} file's JSON with every string value that is
+ * an absolute path under `from` re-rooted onto `to`, serialised compactly, so
+ * two copies of one file relocated to different roots compare equal (the
+ * cloud vault hashes them this way, T13005).
+ *
+ * @param text - File content.
+ * @param from - Old root.
+ * @param to - New root.
+ * @returns Compact JSON, or `null` when `text` is not JSON.
+ * @task T13005
+ */
+export function relocatedJsonText(text: string, from: string, to: string): string | null {
+  try {
+    return JSON.stringify(rewriteAllStrings(JSON.parse(text), from, to).value);
+  } catch {
+    return null;
+  }
 }
 
 /**
