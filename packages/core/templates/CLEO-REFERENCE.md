@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.24.3 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.24.4 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -270,7 +270,7 @@ A merged PR and green CI provide provenance. For `implemented`, pair `pr:<number
 
 | Exit | Code | Fix |
 |:----:|------|-----|
-| — | `E_EVIDENCE_TESTS_FAILED` | Fix failing tests before re-verifying with `tool:pnpm-test` or `test-run:<json>` |
+| — | `E_EVIDENCE_TESTS_FAILED` | Fix failing tests before re-verifying with `tool:test-affected` (needs `testing.affectedCommand`), a targeted `test-run:<json>` or `tool:test`, or `ci:<pr>` once merged (needs `evidence.ciSatisfies`) |
 | — | `E_EVIDENCE_INVALID_DECISION` | `decision:<id>` atom — decision ID not found or not accepted/proposed in BRAIN |
 | — | `E_EVIDENCE_GIT_ROOT` | The CLEO root is not a git checkout — a LAYOUT fact, not a failing atom. One child repo, or a `commit:` SHA that exists in exactly one child, resolves automatically. Otherwise declare it: `"evidence": { "gitRoot": "<subdir>" }` in `.cleo/project-context.json`, or `CLEO_EVIDENCE_GIT_ROOT=<repo>` for one invocation |
 | — | `E_FLAG_REMOVED` | `cleo complete --force` removed per ADR-051. Use `--evidence` or `CLEO_OWNER_OVERRIDE=1` |
@@ -295,7 +295,11 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
 ### Tool resolution + result cache (ADR-061)
 
-`tool:<name>` resolves through `.cleo/project-context.json`, then the project's `package.json` script of that name (`<pm> run <name>`), then `primaryType` fallbacks (references-only tsconfig → `tsc -b`, which emits). A script that writes files (an auto-fixing `lint`) edits the checkout and later fails `E_EVIDENCE_STALE`; keep verification scripts read-only. Cache `.cleo/cache/evidence/<key>.json`: `(canonical, cmd, args, HEAD, dirty-tree fingerprint)`. Parallel verifies coalesce; cross-worktree semaphores: `~/.local/share/cleo/locks/tool-<canonical>/`, limit `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>`. Deadlines: **1800000 ms (30 min) for `test` and `build`**, otherwise 300000 ms (5 min). Positive-integer override: `CLEO_TOOL_TIMEOUT_<TOOL>=<ms>`; invalid values explicitly fail with the tool default. Timeouts cache nothing; increase the deadline before an unchanged retry (gh#1221).
+`tool:<name>` resolves through `.cleo/project-context.json`, then the project's `package.json` script of that name (`<pm> run <name>`), then `primaryType` fallbacks (references-only tsconfig → `tsc -b`, which emits). A script that writes files (an auto-fixing `lint`) edits the checkout and later fails `E_EVIDENCE_STALE`; keep verification scripts read-only. Cache `.cleo/cache/evidence/<key>.json`, keyed on the command `(canonical, cmd, args)` and the tree content under test: identical tree content shares one result across worktrees and commits, and a repeat verify on an unchanged tree never re-runs. After a failure the previously failing test files re-run first, and a failure that passes on its single rerun is recorded as `flaky`. Parallel verifies coalesce; cross-worktree semaphores: `~/.local/share/cleo/locks/tool-<canonical>/`, limit `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>`. Deadlines: **1800000 ms (30 min) for `test` and `build`**, otherwise 300000 ms (5 min). Positive-integer override: `CLEO_TOOL_TIMEOUT_<TOOL>=<ms>`; invalid values explicitly fail with the tool default. Timeouts cache nothing; increase the deadline before an unchanged retry (gh#1221). `cleo verify --fresh` (or `CLEO_EVIDENCE_FRESH=1`) bypasses the cache for one call.
+
+### Test evidence without churn (T12957)
+
+The evidence run is the one run. Start with `cleo done <id> --plan`, which picks affected → ci → full and shows each tool's cache state. When the PR has merged and the project sets `evidence.ciSatisfies`, record `testsPassed`/`qaPassed` with `ci:<pr>` and run nothing locally. Otherwise, when `testing.affectedCommand` is configured, use `tool:test-affected` (packages the diff touches plus dependents); a full `tool:test` is then only for changes to root config, which affected planning refuses. Without it, use a targeted `test-run:<json>` of the test files you changed, or `tool:test`. While iterating, run only the failing or changed test files; never run the suite by hand and then again through `tool:test`. On macOS heavy `test`/`build` runs take one machine-wide slot by default (`CLEO_TOOL_CONCURRENCY_TEST=<n>` raises it).
 
 ### `pr:<number>` retroactive atom (T9764)
 
@@ -307,5 +311,5 @@ A task PR merged into an integration branch is a component: `pr:<component>@<int
 
 With `evidence.ciSatisfies: true`, `ci:<number>` attests `testsPassed`/`qaPassed` from the required checks (`evidence.ciChecks`) green on the merged PR's merge commit, or on a final PR head whose tree equals it. When a concurrency group CANCELLED (or skipped) the merge commit's own push run, a later default-branch commit's green `push` run may stand in (T12742). That run proves the DESCENDANT's tree, not the merge tree, so it counts only when all of these hold: no merge-commit run or job failed; the PR's final head has a green latest `pull_request` run for every stood-in check; the commit descends from the merge commit and is one of the first 10 first-parent commits within 7 days; NO commit between them, merge commits included, touched the PR's changed files, a pinned workflow file or `.github/actions`; and it is the first candidate with a decisive verdict. A red first decisive candidate refuses, and a pending one refuses with "wait for <sha>"; only cancelled, skipped or never-started runs move on. The atom records `descendantSha`, `descendantRange` and `descendantPrHeadSha`, and `cleo complete` re-fetches both runs' latest attempts, because a re-run can turn a completed check red.
 
-Required checks: explicit configuration or target repository protection. `release.prRequiredWorkflows: []` requires no checks; it proves neither testing nor review. `.cleo/cache/evidence/pr-<num>.json` retains provenance and changed files; obsolete versions reject. Use `tool:test` or `test-run:<json>` plus appropriate QA tools, linking each result to verified criteria.
+Required checks: explicit configuration or target repository protection. `release.prRequiredWorkflows: []` requires no checks; it proves neither testing nor review. `.cleo/cache/evidence/pr-<num>.json` retains provenance and changed files; obsolete versions reject. Use `tool:test-affected` when `testing.affectedCommand` is configured (a full `tool:test` then only for root-config changes, which affected planning refuses), otherwise a targeted `test-run:<json>` or `tool:test`, plus appropriate QA tools, linking each result to verified criteria.
 <!-- /CLEO-INJECTION:section=evidence -->

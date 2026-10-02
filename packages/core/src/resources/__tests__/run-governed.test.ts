@@ -31,11 +31,18 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AdmissionResult, ResourceClass } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResourceSample } from '../backend.js';
 import { _resetGovernorStateForTest, governorSlotDir, ResourceGovernor } from '../governor.js';
 import { type RunJob, writeQueueTicket, writeRunJob } from '../run-admission.js';
 import { type GovernedChild, type RunGovernedDeps, runGoverned } from '../run-governed.js';
+import {
+  assessGovernorHolder,
+  lockSlot,
+  readGovernorHolder,
+  writeHolderRecord,
+} from '../slot-holder.js';
+import { _resetToolGroupsForTest } from '../tool-groups.js';
 
 type Level = 'ok' | 'hold' | 'backoff';
 
@@ -91,12 +98,18 @@ function harness(opts: {
   onAcquire?: (h: Harness) => void;
   acquireThrows?: Error;
   jobsDir?: string;
+  /** The fake child's pid. @defaultValue 500 */
+  childPid?: number;
 }): Harness {
   const clock = { t: 1_000_000 };
   let calls = 0;
   let sleeps = 0;
   let handler: ((s: NodeJS.Signals) => void) | null = null;
-  const child = Object.assign(new EventEmitter(), { pid: 500 }) as GovernedChild & { pid: number };
+  const child = Object.assign(new EventEmitter(), {
+    pid: opts.childPid ?? 500,
+  }) as GovernedChild & {
+    pid: number;
+  };
   const admissions = [...(opts.admissions ?? ['grant'])];
   const h: Harness = {
     child,
@@ -761,5 +774,81 @@ describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
     const h = harness({ groupOf: () => 777, onSample: (n, hh) => n === 2 && hh.exit(0) });
     await runGoverned(base(h, { notice: (m: string, l: string) => nested.push([l, m]) }));
     expect(nested).toEqual([['info', expect.stringContaining('nested in a running')]]);
+  });
+});
+
+describe('a SIGKILLed runner whose child still runs keeps its slot (T12963)', () => {
+  const CHILD = 4_000_020;
+  const GONE_RUNNER = 4_000_021;
+  const savedHome = process.env.CLEO_HOME;
+
+  beforeEach(() => {
+    process.env.CLEO_HOME = mkdtempSync(join(tmpdir(), 'cleo-run-governed-home-'));
+    _resetGovernorStateForTest();
+    _resetToolGroupsForTest();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    const home = process.env.CLEO_HOME;
+    if (savedHome === undefined) delete process.env.CLEO_HOME;
+    else process.env.CLEO_HOME = savedHome;
+    if (home !== undefined) rmSync(home, { recursive: true, force: true });
+    _resetGovernorStateForTest();
+    _resetToolGroupsForTest();
+  });
+
+  it("lists the child's group on the slot; a verify's lockSlot does not reap it while the group lives", async () => {
+    // process.kill is stubbed: this process and the groups in `live` answer
+    // alive, everything else ESRCH. Nothing real is ever signalled.
+    const live = new Set<number>();
+    vi.spyOn(process, 'kill').mockImplementation((pid: number, signal?: string | number) => {
+      if (signal !== 0) throw new Error(`test sent signal ${String(signal)} to ${pid}`);
+      if (pid === process.pid || (pid < 0 && live.has(-pid))) return true;
+      const err: NodeJS.ErrnoException = new Error('kill ESRCH');
+      err.code = 'ESRCH';
+      throw err;
+    });
+    const gov = new ResourceGovernor();
+    const slot = join(governorSlotDir('db-heavy'), 'slot-0.lock');
+    let check: Promise<void> | null = null;
+    const seen: { groups?: readonly number[]; whileLive?: unknown; onceGone?: string } = {};
+    const h = harness({
+      childPid: CHILD,
+      onSample: (n, hh) => {
+        if (n !== 2 || check !== null) return;
+        check = (async () => {
+          const record = readGovernorHolder(slot);
+          seen.groups = record?.toolGroups;
+          if (record === null) throw new Error('no holder record while the job runs');
+          // What a SIGKILL of the runner leaves: the record names a dead pid.
+          writeHolderRecord(slot, { ...record, pid: GONE_RUNNER });
+          live.add(CHILD);
+          seen.whileLive = await lockSlot(slot, 'db-heavy');
+          live.delete(CHILD);
+          seen.onceGone = assessGovernorHolder(readGovernorHolder(slot), slot);
+          hh.exit(0);
+        })();
+      },
+    });
+
+    const r = await runGoverned(
+      base(h, {
+        argv: ['pnpm', 'run', 'db:migrate'],
+        cls: 'db-heavy',
+        deps: {
+          ...h.deps,
+          tryAcquire: (cls: ResourceClass, sample: ResourceSample) =>
+            gov.tryAcquire(cls, { sample }),
+        },
+      }),
+    );
+    await check;
+
+    expect(r).toMatchObject({ kind: 'exited', exitCode: 0 });
+    expect(h.spawned[0]?.detached).toBe(true);
+    expect(seen.groups).toEqual([CHILD]);
+    expect(seen.whileLive).toBeNull();
+    expect(seen.onceGone).toBe('dead');
   });
 });

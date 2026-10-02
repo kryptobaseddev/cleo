@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.24.3 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.24.4 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -55,7 +55,7 @@ Discovery: `cleo focus <id>` to orient, `cleo find "query"` to search (default p
 | Task acceptance criterion contains "test" | Propose an `AcceptanceGate` with `kind:"test"` via `cleo req add` |
 | Session token budget ≈ 80% consumed | Run `cleo session end --note "..."` and hand off |
 | Multiple related tasks ready in parallel | Run `cleo orchestrate ready <epicId>` for the wave set |
-| About to call `cleo complete` | First: check gates via `cleo show <id> --full` → run tests → then complete |
+| About to call `cleo complete` | `cleo done <id> --plan`, record what it names, then complete |
 | Writing a canonical doc (spec/adr/research/handoff/note/llm-readme) | Use `cleo docs add --type <kind> --slug <kebab-handle>` — NEVER raw fs write to `.cleo/adrs/`, `.cleo/research/`, `.cleo/agent-outputs/`, or `docs/` |
 | Reading an ADR/spec/research note/handoff | `cleo docs fetch <slug>` — never grep the filesystem for canonical docs |
 | New device, restore or migration; known repo "Not inside a CLEO project"; unreachable registry path; nexus `ENOENT` | `cleo doctor global-delivery` (hub + skills resolve; `--repair`), `cleo doctor projects` (dry run; `--apply`/`--rollback <id>`), `cleo doctor project-identity`, `cleo doctor --all-projects`, `cleo nexus projects clean --orphans --dry-run` (`--dry-run` mandatory: it deletes moved projects), `cleo doctor credentials`; report. Never delete rows of projects that may have moved |
@@ -126,15 +126,15 @@ Before `cleo complete <id>`, every gate requires programmatic evidence validated
 | gate | evidence that satisfies it |
 |------|----------------------------|
 | `implemented` | `commit:<sha>;files:path/a.ts,path/b.ts` — or `pr:<number>` with `files:<changed-paths>`, or `decision:<id>` for decision-only tasks |
-| `testsPassed` | `tool:test` (canonical) or `test-run:<json>` |
-| `qaPassed` | `tool:lint;tool:typecheck` |
+| `testsPassed` | `ci:<pr>` if merged and `evidence.ciSatisfies`; else `tool:test-affected` (needs `testing.affectedCommand`), changed-file `test-run:<json>`, or `tool:test` |
+| `qaPassed` | `ci:<pr>` likewise, else `tool:lint;tool:typecheck` |
 | `documented` | `files:docs/spec.md` |
 | `securityPassed` | `tool:security-scan` |
 | `cleanupDone` | `note:removed dead branches` |
 
 Name the acceptance criteria each result proves: `cleo verify T1234 --gate implemented --evidence "commit:abc123;files:src/fix.ts;satisfies:T1234#AC1"`. Record `testsPassed` and `qaPassed` separately with actual verification results and explicit criterion links. Documentation-only PRs cannot implement a code-fix task; changed criteria require fresh evidence, and a child waiver does not waive parent criteria. Then `cleo complete T###` re-validates every hard atom (commit reachable, file sha256, test-run hash); tampering → `E_EVIDENCE_STALE`. Typed gates, `pr:` rules, tool timeouts and the audited owner override: `cleo briefing inject --section evidence`.
 
-Anti-patterns: completing without running tests · `cleo verify --all` without `--evidence` · self-attesting without programmatic proof · modifying files between `cleo verify` and `cleo complete`.
+Anti-patterns: completing without running tests · `cleo verify --all` without `--evidence` · self-attesting without programmatic proof · running tests by hand, then again via `tool:test` · modifying files between `cleo verify` and `cleo complete`.
 <!-- /CLEO-INJECTION:section=pre-complete-gate -->
 
 <!-- CLEO-INJECTION:section=rules -->

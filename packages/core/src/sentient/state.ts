@@ -34,6 +34,13 @@ export interface StuckTaskRecord {
   nextRetryAt: number;
   /** Last captured failure reason (truncated to 500 chars). */
   lastReason: string;
+  /**
+   * Consecutive re-verifications that could not run (test slot busy) since
+   * the worker last exited 0. While set, the next attempt re-runs only the
+   * verification, not the worker; past `MAX_PENDING_VERIFY` it counts as a
+   * failed attempt (T12962).
+   */
+  pendingVerify?: number;
 }
 
 /**

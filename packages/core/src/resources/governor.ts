@@ -20,7 +20,12 @@
  * `interactive-cli` is NEVER gated; `full-build` is pinned to one machine-wide
  * slot regardless of pressure.
  *
+ * A local slot whose holder process is provably gone is reaped at once instead
+ * of waiting out the 10 min stale timeout (T12963), as the tool semaphore does
+ * for its slots (gh#1222).
+ *
  * @task T11999
+ * @task T12963
  * @epic T11992
  * @adr resource-governor-never-oom-architecture §3.4
  */
@@ -36,12 +41,12 @@ import {
   type ResourceDeferral,
   type ResourceGrant,
 } from '@cleocode/contracts';
-import lockfile from 'proper-lockfile';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
 import type { ResourceSample } from './backend.js';
 import { pressureScore, ResourceMonitor } from './monitor.js';
 import { parentRunJob } from './run-admission.js';
+import { _resetSlotHolderStateForTest, describeSlotHolders, lockSlot } from './slot-holder.js';
 import {
   resolveSupervisorSocketPath,
   sendResourceAdmit,
@@ -96,6 +101,7 @@ function logSupervisorDegradeOnce(reason: string): void {
 export function _resetGovernorStateForTest(): void {
   _cachedMode = null;
   _supervisorDegradeLogged = false;
+  _resetSlotHolderStateForTest();
 }
 
 // ---------------------------------------------------------------------------
@@ -230,14 +236,9 @@ function ensureSlotFiles(dir: string, count: number): string[] {
   return paths;
 }
 
-/** A slot lock older than this may be stolen (its holder presumed dead). */
-export const SLOT_LOCK_STALE_MS = 600_000;
-/**
- * How often a holder refreshes its slot lock. Short, so a holder frozen by a
- * job pause keeps its slot for nearly the whole stale window (#1777 round 6).
- */
-export const SLOT_LOCK_UPDATE_MS = 15_000;
-const STALE_MS = SLOT_LOCK_STALE_MS;
+// The slot timing constants live with the slot locks (T12963); re-exported
+// for existing importers.
+export { SLOT_LOCK_STALE_MS, SLOT_LOCK_UPDATE_MS } from './slot-holder.js';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -312,13 +313,6 @@ export async function admitFailOpen(
     if (io === null) throw err;
     return { admission: passThroughGrant(cls), ungoverned: io };
   }
-}
-
-/** proper-lockfile's "someone else holds this lock" code: the only failure that means busy. */
-const LOCK_HELD = 'ELOCKED';
-
-function isLockHeld(err: unknown): boolean {
-  return (err as NodeJS.ErrnoException | null)?.code === LOCK_HELD;
 }
 
 let _supervisorHolderSeq = 0;
@@ -425,41 +419,14 @@ export class ResourceGovernor {
         const path = slots[idx];
         if (!path) continue;
         try {
-          const release = await lockfile.lock(path, {
-            retries: 0,
-            stale: STALE_MS,
-            update: SLOT_LOCK_UPDATE_MS,
-            realpath: false,
-            // A long grant (cleo run) can outlive a lid-closed sleep; another
-            // process may then reclaim the "stale" slot. proper-lockfile's
-            // default throws from a timer and crashes the holder; log instead
-            // and keep running (#1777 round 3, L-7).
-            onCompromised: (err: Error) => {
-              getLogger('resource-governor').warn(
-                { cls, slot: idx, err: err.message },
-                'governor slot lock compromised (likely sleep or a stale reclaim); continuing',
-              );
-            },
-          });
-          let released = false;
-          return {
-            deferred: false,
-            class: cls,
-            slot: idx,
-            acquiredAtMs: Date.now(),
-            release: async () => {
-              if (released) return;
-              released = true;
-              try {
-                await release();
-              } catch {
-                // Already released (e.g. stale recovery) — post-condition holds.
-              }
-            },
-          };
+          // T12963: a busy slot whose holder is provably dead is reaped here.
+          const release = await lockSlot(path, cls);
+          if (release) {
+            return { deferred: false, class: cls, slot: idx, acquiredAtMs: Date.now(), release };
+          }
         } catch (err) {
-          // Held by someone else: try the next slot. Anything else is not "busy".
-          if (!isLockHeld(err)) lockError ??= { err };
+          // Anything but a held lock is not "busy" (#1777 round 8, R8-1).
+          lockError ??= { err };
         }
       }
       if (lockError !== null) throw lockError.err;
@@ -470,7 +437,8 @@ export class ResourceGovernor {
     return deferral(
       cls,
       `class '${cls}' is at capacity (${budget} slot(s)); ` +
-        (blocking ? `timed out after ${timeoutMs}ms` : 'no slot free'),
+        (blocking ? `timed out after ${timeoutMs}ms` : 'no slot free') +
+        describeSlotHolders(slots),
       Math.min(pollMs * 4, DEFAULT_RESOURCE_RETRY_AFTER_MS),
     );
   }
@@ -556,7 +524,8 @@ function shuffledIndices(n: number): number[] {
 /**
  * Count how many of `budget` slots are currently held, by probing each with a
  * non-blocking lock. A successful probe-lock is released immediately — it never
- * holds the slot, so it cannot starve a real acquirer.
+ * holds the slot, so it cannot starve a real acquirer. A slot held by a dead
+ * process is reaped, not counted (T12963).
  */
 async function countHeldSlots(cls: ResourceClass, budget: number): Promise<number> {
   const dir = governorSlotDir(cls);
@@ -565,11 +534,11 @@ async function countHeldSlots(cls: ResourceClass, budget: number): Promise<numbe
   let held = 0;
   for (const path of slots) {
     try {
-      const release = await lockfile.lock(path, { retries: 0, stale: STALE_MS, realpath: false });
-      await release();
-    } catch (err) {
+      const release = await lockSlot(path, cls);
+      if (release) await release();
+      else held++;
+    } catch {
       // Only a held lock is a holder; an unwritable slot dir is not (R8-1).
-      if (isLockHeld(err)) held++;
     }
   }
   return held;

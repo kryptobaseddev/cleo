@@ -86,7 +86,7 @@ export const verifyCommand = defineCommand({
     evidence: {
       type: 'string',
       description:
-        "Evidence for the gate (T832/ADR-051). Semicolon-separated atoms: 'commit:<sha>', 'files:<p1,p2>', 'test-run:<json>', 'tool:<name>', 'url:<url>', 'note:<text>', 'ci:<pr>' (required CI green on the merged PR's merge commit; testsPassed/qaPassed, opt-in via evidence.ciSatisfies).",
+        "Evidence for the gate (T832/ADR-051). Semicolon-separated atoms: 'commit:<sha>', 'files:<p1,p2>', 'test-run:<json>', 'tool:<name>' (e.g. tool:test, tool:test-affected, tool:lint), 'url:<url>', 'note:<text>', 'ci:<pr>' (required CI green on the merged PR's merge commit; testsPassed/qaPassed, opt-in via evidence.ciSatisfies).",
     },
     explain: {
       type: 'boolean',
@@ -111,6 +111,11 @@ export const verifyCommand = defineCommand({
       type: 'string',
       description: 'With --auto: the merged PR that implements the task',
     },
+    fresh: {
+      type: 'boolean',
+      description:
+        'Bypass the ADR-061 tool cache and re-run every tool: atom (same as CLEO_EVIDENCE_FRESH=1, which still works). Use only when a cached result is suspect, e.g. after adding an untracked file (T12964).',
+    },
     'shared-evidence': {
       type: 'boolean',
       description:
@@ -125,97 +130,109 @@ export const verifyCommand = defineCommand({
 
     const isWrite = !!(args.gate || args.all || args.reset);
 
-    // T12625: `--auto` is `cleo done` without the completion step.
-    if (args.auto === true) {
-      if (isWrite || args.evidence || args.run === true) {
+    // T12964: `--fresh` is the flag form of CLEO_EVIDENCE_FRESH=1. Dispatch runs
+    // in this process, so setting the variable reaches every runToolCached call;
+    // the prior value is restored when the command ends.
+    const priorFresh = process.env['CLEO_EVIDENCE_FRESH'];
+    if (args.fresh === true) process.env['CLEO_EVIDENCE_FRESH'] = '1';
+    try {
+      // T12625: `--auto` is `cleo done` without the completion step.
+      if (args.auto === true) {
+        if (isWrite || args.evidence || args.run === true) {
+          cliError(
+            '--auto derives its own evidence; drop --gate/--all/--reset/--evidence/--run',
+            'E_INVALID_INPUT',
+          );
+          process.exitCode = ExitCode.VALIDATION_ERROR;
+          return;
+        }
+        const { parseDoneOptions } = await import('@cleocode/core/tasks/done-plan.js');
+        const parsed = parseDoneOptions(args.satisfies, args.pr);
+        if (!parsed.ok) {
+          cliError(parsed.message, 'E_INVALID_INPUT');
+          process.exitCode = ExitCode.VALIDATION_ERROR;
+          return;
+        }
+        const { recordTaskDone } = await import('@cleocode/core/tasks/done-record.js');
+        const { getProjectRoot } = await import('@cleocode/core/paths.js');
+        const r = await recordTaskDone(args.taskId, {
+          projectRoot: getProjectRoot(),
+          ...parsed.options,
+          ...(args.agent ? { agent: args.agent as string } : {}),
+        });
+        if (!r.success) {
+          cliError(r.error.message, r.error.code, { fix: r.error.fix, details: r.error.details });
+          process.exitCode = r.error.exitCode ?? 1;
+          return;
+        }
+        const { plan: _plan, ...summary } = r.data;
+        cliOutput(summary, { command: 'verify', operation: 'check.gate.auto' });
+        return;
+      }
+      if (args.satisfies !== undefined || args.pr !== undefined) {
+        cliError('--satisfies and --pr apply only with --auto (or cleo done)', 'E_INVALID_INPUT');
+        process.exitCode = ExitCode.VALIDATION_ERROR;
+        return;
+      }
+
+      // T12308: `--run` executes typed gates and records nothing. Combining it
+      // with a write would blur exactly the line it exists to draw — the gates
+      // already run implicitly during an evidence write, and the reader would
+      // have no way to tell which results were attested and which were merely
+      // observed. Rejected rather than silently ignored.
+      if (args.run === true && isWrite) {
+        // ADR-086: a rejection is still one LAFS envelope on stdout. A raw
+        // stderr write here would hand a machine consumer an exit code with no
+        // parseable reason — which is what the JSON-stream-hygiene gate exists
+        // to stop, and it caught this line.
         cliError(
-          '--auto derives its own evidence; drop --gate/--all/--reset/--evidence/--run',
-          'E_INVALID_INPUT',
+          '--run reports typed gate results and records nothing; it cannot be combined with ' +
+            '--gate/--all/--reset.',
+          ExitCode.VALIDATION_ERROR,
+          {
+            name: 'E_VALIDATION',
+            fix: 'Run `cleo verify <id> --run` first, then attest with `cleo verify <id> --gate <name> --evidence <atoms>`',
+          },
+          { operation: 'check.gate.run' },
         );
         process.exitCode = ExitCode.VALIDATION_ERROR;
         return;
       }
-      const { parseDoneOptions } = await import('@cleocode/core/tasks/done-plan.js');
-      const parsed = parseDoneOptions(args.satisfies, args.pr);
-      if (!parsed.ok) {
-        cliError(parsed.message, 'E_INVALID_INPUT');
-        process.exitCode = ExitCode.VALIDATION_ERROR;
-        return;
-      }
-      const { recordTaskDone } = await import('@cleocode/core/tasks/done-record.js');
-      const { getProjectRoot } = await import('@cleocode/core/paths.js');
-      const r = await recordTaskDone(args.taskId, {
-        projectRoot: getProjectRoot(),
-        ...parsed.options,
-        ...(args.agent ? { agent: args.agent as string } : {}),
-      });
-      if (!r.success) {
-        cliError(r.error.message, r.error.code, { fix: r.error.fix, details: r.error.details });
-        process.exitCode = r.error.exitCode ?? 1;
-        return;
-      }
-      const { plan: _plan, ...summary } = r.data;
-      cliOutput(summary, { command: 'verify', operation: 'check.gate.auto' });
-      return;
-    }
-    if (args.satisfies !== undefined || args.pr !== undefined) {
-      cliError('--satisfies and --pr apply only with --auto (or cleo done)', 'E_INVALID_INPUT');
-      process.exitCode = ExitCode.VALIDATION_ERROR;
-      return;
-    }
 
-    // T12308: `--run` executes typed gates and records nothing. Combining it
-    // with a write would blur exactly the line it exists to draw — the gates
-    // already run implicitly during an evidence write, and the reader would
-    // have no way to tell which results were attested and which were merely
-    // observed. Rejected rather than silently ignored.
-    if (args.run === true && isWrite) {
-      // ADR-086: a rejection is still one LAFS envelope on stdout. A raw
-      // stderr write here would hand a machine consumer an exit code with no
-      // parseable reason — which is what the JSON-stream-hygiene gate exists
-      // to stop, and it caught this line.
-      cliError(
-        '--run reports typed gate results and records nothing; it cannot be combined with ' +
-          '--gate/--all/--reset.',
-        ExitCode.VALIDATION_ERROR,
+      // --explain is a read-only enrichment; writes ignore it and keep prior behavior.
+      const useExplain = !isWrite && args.explain === true;
+
+      const operation = isWrite
+        ? 'gate.set'
+        : args.run === true
+          ? 'gate.run'
+          : useExplain
+            ? 'verify.explain'
+            : 'gate.status';
+
+      await dispatchFromCli(
+        isWrite ? 'mutate' : 'query',
+        'check',
+        operation,
         {
-          name: 'E_VALIDATION',
-          fix: 'Run `cleo verify <id> --run` first, then attest with `cleo verify <id> --gate <name> --evidence <atoms>`',
+          taskId: args.taskId,
+          gate: args.gate as string | undefined,
+          value: args.value === 'false' ? false : args.gate ? true : undefined,
+          agent: args.agent as string | undefined,
+          all: args.all as boolean | undefined,
+          reset: args.reset as boolean | undefined,
+          evidence: args.evidence as string | undefined,
+          sharedEvidence: (args['shared-evidence'] as boolean | undefined) ?? false,
+          // T12621: citty turns `--no-run` into `run: false`; read it through the helper.
+          ...(isWrite && negatedFlag(args, 'run') ? { noRun: true } : {}),
         },
-        { operation: 'check.gate.run' },
+        { command: 'verify' },
       );
-      process.exitCode = ExitCode.VALIDATION_ERROR;
-      return;
+    } finally {
+      if (args.fresh === true) {
+        if (priorFresh === undefined) delete process.env['CLEO_EVIDENCE_FRESH'];
+        else process.env['CLEO_EVIDENCE_FRESH'] = priorFresh;
+      }
     }
-
-    // --explain is a read-only enrichment; writes ignore it and keep prior behavior.
-    const useExplain = !isWrite && args.explain === true;
-
-    const operation = isWrite
-      ? 'gate.set'
-      : args.run === true
-        ? 'gate.run'
-        : useExplain
-          ? 'verify.explain'
-          : 'gate.status';
-
-    await dispatchFromCli(
-      isWrite ? 'mutate' : 'query',
-      'check',
-      operation,
-      {
-        taskId: args.taskId,
-        gate: args.gate as string | undefined,
-        value: args.value === 'false' ? false : args.gate ? true : undefined,
-        agent: args.agent as string | undefined,
-        all: args.all as boolean | undefined,
-        reset: args.reset as boolean | undefined,
-        evidence: args.evidence as string | undefined,
-        sharedEvidence: (args['shared-evidence'] as boolean | undefined) ?? false,
-        // T12621: citty turns `--no-run` into `run: false`; read it through the helper.
-        ...(isWrite && negatedFlag(args, 'run') ? { noRun: true } : {}),
-      },
-      { command: 'verify' },
-    );
   },
 });

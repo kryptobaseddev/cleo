@@ -14,16 +14,24 @@
  * The fix decides liveness by process existence rather than by elapsed time,
  * and fails SAFE: an unknown holder, a holder on another host, or any error
  * counts as alive, because reaping a live holder's slot would let two heavy
- * suites run against one bound.
+ * suites run against one bound. Since T12963 a holder whose tool group still
+ * has a member is alive too (the tool runs detached and outlives a SIGKILLed
+ * cleo), and only a record that describes the slot's current lock is judged.
+ *
+ * `process.kill` is stubbed: this process and the groups in `liveGroups`
+ * answer alive, everything else ESRCH; the real `process.kill` is never
+ * reached.
  *
  * @task T12113 (gh#1222)
+ * @task T12963
  */
 
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import lockfile from 'proper-lockfile';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { currentLockId } from '../../resources/slot-holder.js';
 import {
   acquireGlobalSlot,
   isHolderAlive,
@@ -36,13 +44,25 @@ import {
 let originalCleoHome: string | undefined;
 let cleoHomeDir: string;
 
+/** Process groups the stubbed `kill(-pgid, 0)` reports as alive. */
+let liveGroups: Set<number>;
+
 beforeEach(() => {
+  liveGroups = new Set();
+  vi.spyOn(process, 'kill').mockImplementation((pid: number, signal?: string | number) => {
+    if (signal !== 0) throw new Error(`test sent signal ${String(signal)} to ${pid}`);
+    if (pid === process.pid || (pid < 0 && liveGroups.has(-pid))) return true;
+    const err: NodeJS.ErrnoException = new Error('kill ESRCH');
+    err.code = 'ESRCH';
+    throw err;
+  });
   originalCleoHome = process.env.CLEO_HOME;
   cleoHomeDir = mkdtempSync(join(tmpdir(), 'gh1222-cleohome-'));
   process.env.CLEO_HOME = cleoHomeDir;
   process.env.CLEO_TOOL_CONCURRENCY_TEST = '1'; // exactly one slot
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   delete process.env.CLEO_TOOL_CONCURRENCY_TEST;
   if (originalCleoHome === undefined) delete process.env.CLEO_HOME;
   else process.env.CLEO_HOME = originalCleoHome;
@@ -52,9 +72,13 @@ afterEach(() => {
 /**
  * Forge the exact on-disk state a killed holder leaves behind: the slot file,
  * a real proper-lockfile lock over it, and a holder record naming a pid that
- * no longer exists.
+ * no longer exists and the lock it describes.
  */
-function forgeOrphanedSlot(pid: number, host: string = hostname()): string {
+function forgeOrphanedSlot(
+  pid: number,
+  host: string = hostname(),
+  extra: Record<string, unknown> = {},
+): string {
   const dir = semaphoreDir('test');
   mkdirSync(dir, { recursive: true });
   const slot = join(dir, 'slot-0.lock');
@@ -68,15 +92,17 @@ function forgeOrphanedSlot(pid: number, host: string = hostname()): string {
       acquiredAt: new Date().toISOString(),
       canonical: 'test',
       slot,
+      startedAt: null,
+      lockId: currentLockId(slot),
+      ...extra,
     }),
     'utf-8',
   );
   return slot;
 }
 
-/** A pid that is guaranteed not to be running. */
+/** A pid the stubbed `process.kill` reports as gone. */
 function deadPid(): number {
-  // 0x7FFFFFFF is above any Linux pid_max; process.kill throws ESRCH.
   return 2_147_483_646;
 }
 
@@ -113,6 +139,29 @@ describe('gh#1222 — a dead holder must not hold a slot for staleMs', () => {
 
   it('treats an unknown holder as alive', () => {
     expect(isHolderAlive(null)).toBe(true);
+  });
+
+  it('does NOT reap a dead holder whose tool group still has a member (T12963)', () => {
+    liveGroups.add(4_000_010);
+    const slot = forgeOrphanedSlot(deadPid(), hostname(), { toolGroups: [4_000_010] });
+
+    expect(reapSlotIfOrphaned(slot)).toBe(false);
+    expect(existsSync(`${slot}.lock`)).toBe(true);
+    expect(listSlotHolders('test')[0]?.alive).toBe(true);
+
+    liveGroups.delete(4_000_010);
+    expect(reapSlotIfOrphaned(slot)).toBe(true);
+    expect(existsSync(`${slot}.lock`)).toBe(false);
+  });
+
+  it('does NOT reap on a record that names no lock, or another lock (T12963)', () => {
+    const legacy = forgeOrphanedSlot(deadPid(), hostname(), { lockId: undefined });
+    expect(reapSlotIfOrphaned(legacy)).toBe(false);
+    rmSync(`${legacy}.lock`, { recursive: true, force: true });
+
+    const other = forgeOrphanedSlot(deadPid(), hostname(), { lockId: '1:1' });
+    expect(reapSlotIfOrphaned(other)).toBe(false);
+    expect(existsSync(`${other}.lock`)).toBe(true);
   });
 
   it('records a holder while the slot is held, and clears it on release', async () => {

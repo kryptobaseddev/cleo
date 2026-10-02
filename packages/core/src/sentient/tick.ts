@@ -96,6 +96,17 @@ export const RETRY_BACKOFF_MS: readonly number[] = [30_000, 300_000, 1_800_000];
 export const MAX_TASK_ATTEMPTS = RETRY_BACKOFF_MS.length;
 
 /**
+ * Consecutive `pending` re-verifications (test slot busy) a task may collect
+ * before the next one counts as a failed attempt (T12962). Each waits twice
+ * as long as the one before, from `RETRY_BACKOFF_MS[0]`, capped at
+ * {@link PENDING_VERIFY_MAX_BACKOFF_MS}: 30 s, 1, 2, 4, 8, 16 min.
+ */
+export const MAX_PENDING_VERIFY = 6;
+
+/** Longest wait between two pending re-verifications of one task (T12962). */
+export const PENDING_VERIFY_MAX_BACKOFF_MS = 1_800_000;
+
+/**
  * Threshold for self-pause: if this many tasks become `stuck` within a
  * rolling 1-hour window, the daemon flips killSwitch=true and exits.
  */
@@ -225,14 +236,19 @@ export interface TickOptions {
   /**
    * Override for the orchestrator-side worker re-verification gate (T1589).
    *
-   * When omitted, the default {@link reVerifyWorkerReport} runs `tool:test`
-   * (project-resolved per ADR-061) and compares the worker's claimed
+   * When omitted, the default {@link reVerifyWorkerReport} runs the tests in
+   * the worker's worktree — affected scope first, the full `tool:test` on a
+   * planning refusal or in the project root when that tree is unknown
+   * (T12962) — and compares the worker's claimed
    * touched-files against `git status --porcelain`. Tests inject a stub to
    * force accept/reject without spawning real subprocesses.
    *
    * @task T1589
    */
-  reVerify?: (report: WorkerReport, options: ReVerifyOptions) => Promise<{ accepted: boolean }>;
+  reVerify?: (
+    report: WorkerReport,
+    options: ReVerifyOptions,
+  ) => Promise<{ accepted: boolean; pending?: true }>;
   /**
    * Disable the worker re-verification gate entirely. Defaults to `false`
    * (gate enabled). Only set to `true` for `--dry-run` ticks or controlled
@@ -838,11 +854,23 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
   await patchSentientState(statePath, { activeTaskId: task.id });
 
   // -- Spawn worker ---------------------------------------------------------
+  const skipReVerify = options.skipReVerify === true || options.dryRun === true;
+  // T12962: the worker already exited 0 and only its re-verification is
+  // outstanding (the test slot was busy): run the verification, not the
+  // worker. With the gate skipped there is nothing to re-run, so the worker
+  // runs and its own exit decides.
+  const pendingVerify = existingStuck?.pendingVerify ?? 0;
   let spawnResult: SpawnResult;
   if (options.dryRun === true) {
     spawnResult = {
       exitCode: 0,
       stdout: '[dry-run] spawn skipped',
+      stderr: '',
+    };
+  } else if (pendingVerify > 0 && !skipReVerify) {
+    spawnResult = {
+      exitCode: 0,
+      stdout: `[re-verify] worker exited 0 earlier; verification pending ${pendingVerify}x, re-running it only`,
       stderr: '',
     };
   } else {
@@ -883,7 +911,6 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
     // The previous conditional `options.reVerify !== undefined` made the gate a
     // no-op when callers omitted the override — the `?? reVerifyWorkerReport`
     // default makes it unconditional (T11498 AC1).
-    const skipReVerify = options.skipReVerify === true || options.dryRun === true;
     if (!skipReVerify) {
       const verifier = options.reVerify ?? reVerifyWorkerReport;
       const report: WorkerReport = {
@@ -893,10 +920,51 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
         touchedFiles: [],
       };
       const verdict = await verifier(report, { projectRoot });
+      const pendingCount = pendingVerify + 1;
+      const pendingExhausted = verdict.pending === true && pendingCount > MAX_PENDING_VERIFY;
+      if (!verdict.accepted && verdict.pending === true && !pendingExhausted) {
+        // T12962: the re-verification could not run yet (test slot busy). That
+        // says nothing about the worker, so it costs no attempt: keep the
+        // attempt count, and retry only the verification after an exponential
+        // backoff counted from the verdict (the spawn may have run long).
+        const backoff = Math.min(
+          (RETRY_BACKOFF_MS[0] ?? 30_000) * 2 ** (pendingCount - 1),
+          PENDING_VERIFY_MAX_BACKOFF_MS,
+        );
+        const retryAt = Date.now() + backoff;
+        const pendingReason =
+          `worker re-verify pending (T12962): test slot busy; ` +
+          `pending ${pendingCount}/${MAX_PENDING_VERIFY}, retry later`;
+        const postPending = await readSentientState(statePath);
+        await patchSentientState(statePath, {
+          stuckTasks: {
+            ...postPending.stuckTasks,
+            [task.id]: {
+              attempts: existingStuck?.attempts ?? 0,
+              lastFailureAt: existingStuck?.lastFailureAt ?? new Date(now).toISOString(),
+              nextRetryAt: retryAt,
+              lastReason: pendingReason,
+              pendingVerify: pendingCount,
+            },
+          },
+          activeTaskId: null,
+          lastTickAt: new Date(now).toISOString(),
+        });
+        await incrementStats(statePath, { ticksExecuted: 1 });
+        return {
+          kind: 'backoff',
+          taskId: task.id,
+          detail: `${pendingReason}; retry scheduled at ${new Date(retryAt).toISOString()}`,
+        };
+      }
       if (!verdict.accepted) {
         const currentAttempts = existingStuck?.attempts ?? 0;
         const nextAttempts = currentAttempts + 1;
-        const failureReason = `worker re-verify rejected (T1589/T11498): exit=0 but gates failed`;
+        // T12962: a verification that stayed pending past the cap is escalated
+        // as a failed attempt; the next attempt runs the worker again.
+        const failureReason = pendingExhausted
+          ? `worker re-verify rejected (T1589/T11498, T12962): verification still pending after ${MAX_PENDING_VERIFY} retries`
+          : `worker re-verify rejected (T1589/T11498): exit=0 but gates failed`;
         await writeFailureReceipt(
           projectRoot,
           task.id,

@@ -7,19 +7,46 @@ ship work that contains any of these.
 
 ## 1. Test Theater
 
-**Anti-pattern.** Claiming "tests pass" without actually running
-`pnpm run test`.
+**Anti-pattern.** Claiming "tests pass" without programmatic test
+evidence.
 
-**Detection.** Manifest reports `testsPassed: true` but no
-`tool:test` evidence atom; or evidence atom references a stale cache
-key.
+**Detection.** Manifest reports `testsPassed: true` but no `ci:`,
+`tool:test-affected`, `tool:test` or `test-run:` evidence atom; or the
+atom references a stale cache key.
 
 **Cost.** Reviewer must reject and re-spawn the work, doubling the
 token spend on the task.
 
-**Correct pattern.** Always run tests, capture the exit code, and pass
-`--evidence "tool:test"` to `cleo verify`. The cache will skip re-running
-if state is unchanged; running it is free.
+**Correct pattern.** Let the evidence run be the one run:
+
+1. Start with `cleo done <TASK_ID> --plan`. It picks the cheapest valid
+   evidence (affected, then CI, then full) and shows each tool's cache
+   state.
+2. After the PR merges, when the project sets `evidence.ciSatisfies`,
+   record `testsPassed` and `qaPassed` with `ci:<pr>`. No local run is
+   needed.
+3. Otherwise use `tool:test-affected` when `testing.affectedCommand` is
+   configured, else `test-run:<json>` from a targeted run of the test
+   files you changed (or `tool:test`).
+4. While iterating, run only the failing or changed test files.
+
+## 1a. Double Test Runs
+
+**Anti-pattern.** Running `pnpm run test` by hand, then passing
+`tool:test`, which runs the suite again.
+
+**Detection.** A full manual run in the transcript followed by a
+`tool:test` evidence write on the same change.
+
+**Cost.** The manual run records nothing, so the evidence run repeats
+it; only the evidence run's result is cached (and reused for the same
+tree content). With several agents working at once, each double run is
+another full suite competing for CPU and RAM.
+
+**Correct pattern.** Never run the full suite manually. With
+`testing.affectedCommand` configured, run a full `tool:test` only when the
+change touches root config (lockfile, root tsconfig or vitest config),
+which `tool:test-affected` refuses.
 
 ## 2. Workaround Over Root Cause
 

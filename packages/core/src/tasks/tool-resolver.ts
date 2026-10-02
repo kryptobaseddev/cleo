@@ -199,14 +199,26 @@ const PROJECT_CONTEXT_KEY_MAP: Record<CanonicalTool, string[] | null> = {
 };
 
 /**
- * Set of all valid `tool:<name>` payloads — canonical names plus legacy
- * aliases. Returned by {@link listValidToolNames} for help / validation
- * surfaces.
+ * `tool:<name>` payloads that are valid evidence but not resolvable through
+ * {@link resolveToolCommand}: `test-affected` plans its command from the branch
+ * diff (`planAffectedTestRun`) and runs under the canonical `test` class.
+ *
+ * @task T12964
+ */
+const PLANNED_TOOLS = ['test-affected'] as const;
+
+/**
+ * Set of all valid `tool:<name>` payloads — canonical names, legacy aliases,
+ * and the diff-planned `test-affected`. Returned by {@link listValidToolNames}
+ * for help / validation surfaces.
  *
  * @task T1534
+ * @task T12964
  */
 export function listValidToolNames(): string[] {
-  return [...new Set([...CANONICAL_TOOLS, ...Object.keys(LEGACY_TOOL_ALIASES)])].sort();
+  return [
+    ...new Set([...CANONICAL_TOOLS, ...Object.keys(LEGACY_TOOL_ALIASES), ...PLANNED_TOOLS]),
+  ].sort();
 }
 
 // ---------------------------------------------------------------------------

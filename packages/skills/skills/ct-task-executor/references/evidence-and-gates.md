@@ -14,8 +14,8 @@ task; the standard set is non-negotiable.
 | Gate | Meaning | Evidence kind |
 |------|---------|---------------|
 | implemented | Code change exists | `commit:<sha>` + `files:<list>` |
-| testsPassed | Tests green | `tool:test` or `test-run:<json>` |
-| qaPassed | Lint + typecheck clean | `tool:lint` + `tool:typecheck` |
+| testsPassed | Tests green | `ci:<pr>` after merge (with `evidence.ciSatisfies`); else `tool:test-affected` (with `testing.affectedCommand`), a targeted `test-run:<json>`, or `tool:test` |
+| qaPassed | Lint + typecheck clean | `ci:<pr>` under the same conditions; else `tool:lint` + `tool:typecheck` |
 | documented | Docs updated | `files:<docs-paths>` |
 | securityPassed | Security scan or waiver | `tool:security-scan` or `note:<rationale>` |
 | cleanupDone | Branch/cleanup summary | `note:<text>` |
@@ -79,13 +79,31 @@ per-`primaryType` fallbacks. Canonical names:
 Legacy aliases still work: `pnpm-test`, `tsc`, `biome`, `cargo-test`,
 `pytest` all map to canonical names.
 
+`tool:test-affected` runs `testing.affectedCommand` over the packages the
+branch diff touches plus their dependents. It refuses (use `tool:test`)
+when the change touches root config or no workspace package. Prefer it
+to `tool:test` before merge. `cleo verify --fresh` bypasses the result
+cache when a cached result is suspect.
+
+### `ci:<pr>`
+
+The merged PR's required CI checks, green on its merge commit (needs
+`evidence.ciSatisfies: true`). Satisfies `testsPassed` and `qaPassed`
+with no local run, so it is the default once the PR has merged.
+
+```bash
+cleo verify T### --gate testsPassed --evidence "ci:1234"
+cleo verify T### --gate qaPassed --evidence "ci:1234"
+```
+
 ### `test-run:<json-path>`
 
 Path to a vitest JSON output file. Re-validated by hash. Preferred for
-sharing test evidence across sibling tasks in the same wave.
+sharing test evidence across sibling tasks in the same wave, and for a
+targeted run of only the test files your change touches.
 
 ```bash
-pnpm vitest run --reporter=json --outputFile=/tmp/vitest-out.json
+pnpm vitest run path/to/changed.test.ts --reporter=json --outputFile=/tmp/vitest-out.json
 cleo verify T### --gate testsPassed --evidence "test-run:/tmp/vitest-out.json"
 ```
 
@@ -108,19 +126,19 @@ they document, they do not prove. Reserve for `cleanupDone`,
 The full per-task ritual, in order:
 
 ```bash
-# 1. Implement and verify locally
+# 1. Implement and verify locally (run only the failing/changed test files)
 pnpm biome check --write .
 pnpm run build && pnpm run typecheck
-pnpm run test
 git add -p && git commit -m "feat(T###): <slug>"
+cleo done T### --plan   # shows the evidence it will use: affected → ci → full
 
 # 2. Capture evidence for each gate (commit SHA from step 1)
 SHA=$(git rev-parse HEAD)
 FILES=$(git diff-tree --no-commit-id --name-only -r HEAD | paste -sd,)
 
 cleo verify T### --gate implemented --evidence "commit:$SHA;files:$FILES"
-cleo verify T### --gate testsPassed --evidence "tool:test"
-cleo verify T### --gate qaPassed --evidence "tool:lint;tool:typecheck"
+cleo verify T### --gate testsPassed --evidence "tool:test-affected"   # needs testing.affectedCommand (else tool:test); merged + evidence.ciSatisfies: ci:<pr>
+cleo verify T### --gate qaPassed --evidence "tool:lint;tool:typecheck"   # merged + evidence.ciSatisfies: ci:<pr>
 cleo verify T### --gate documented --evidence "files:docs/path/to/note.md"
 cleo verify T### --gate securityPassed --evidence "note:no network surface"
 cleo verify T### --gate cleanupDone --evidence "note:branch task/T### ready for merge"
@@ -148,7 +166,9 @@ cleo memory observe "..." --title "..."
 ## Cache Behavior
 
 Tool-evidence results are cached under `.cleo/cache/evidence/<key>.json`,
-keyed on (canonical, cmd, args, HEAD, dirty-tree fingerprint). Parallel
+keyed on (canonical, cmd, args) and the tracked tree content under test:
+two worktrees holding the same content, or a commit, rebase or amend that
+leaves the tree unchanged, share one result. Parallel
 verifies against identical state coalesce to one execution via a per-key
 lock. Cross-worktree parallelism is bounded by a machine-wide per-tool
 semaphore at `~/.local/share/cleo/locks/tool-<canonical>/`.

@@ -72,6 +72,7 @@ import {
   writeQueueTicket,
   writeRunJob,
 } from './run-admission.js';
+import { trackToolGroup } from './tool-groups.js';
 
 /** Niceness applied to the command (children inherit it). */
 export const RUN_NICENESS = 10;
@@ -483,6 +484,10 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     job = { ...job, childPid, childStart: d.start(childPid) };
     if (!exited) writeRunJob(job, d.jobsDir);
   }
+  // T12963: the slot this runner holds lists the child's group, so a SIGKILLed
+  // runner's slot stays held while the child runs. A nested or foreground
+  // child leads no group of its own.
+  const untrackGroup = leadsGroup ? trackToolGroup(childPid) : () => {};
 
   // A nested or foreground child is not a group leader (it lives in the
   // enclosing job's or the terminal's group): signal the process itself, or
@@ -551,6 +556,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
 
   const result = await exit;
   exited = true;
+  untrackGroup();
   await supervisor;
   uninstall();
   // Workers of a killed (or paused) leader must never stay stopped.
