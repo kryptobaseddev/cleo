@@ -384,7 +384,16 @@ export function atomicDdl<T>(db: DatabaseSync, fn: () => T): T {
       db.exec('RELEASE cleo_atomic_ddl');
       return out;
     } catch (err) {
-      db.exec('ROLLBACK TO cleo_atomic_ddl; RELEASE cleo_atomic_ddl');
+      // SQLite may already have rolled the caller's transaction back (FULL,
+      // IOERR, interrupt): then there is no savepoint, and the original error
+      // is the one to report.
+      if (db.isTransaction) {
+        try {
+          db.exec('ROLLBACK TO cleo_atomic_ddl; RELEASE cleo_atomic_ddl');
+        } catch {
+          // keep the original error
+        }
+      }
       throw err;
     }
   }

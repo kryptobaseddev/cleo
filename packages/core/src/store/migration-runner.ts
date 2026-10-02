@@ -191,7 +191,6 @@ export function rebuiltTables(statements: readonly string[]): string[] {
   return [...out].sort();
 }
 
-/** The tables a migration's DML writes (INSERT / UPDATE / DELETE / REPLACE). */
 /**
  * Where each table a migration file renames ends up: every `ALTER TABLE a RENAME TO b`, in statement
  * order and composed, so `a → b` then `b → c` gives `a → c` (T13027). Unrenamed tables are absent.
@@ -215,6 +214,7 @@ export function renamedTables(statements: readonly string[]): Map<string, string
   return out;
 }
 
+/** The tables a migration's DML writes (INSERT / UPDATE / DELETE / REPLACE). */
 export function dmlTables(statements: readonly string[]): string[] {
   const out = new Set<string>();
   for (const s of statements.map(code)) {

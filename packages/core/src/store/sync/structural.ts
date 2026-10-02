@@ -85,10 +85,8 @@ export function withSyncTriggersSuspended<T>(db: DatabaseSync, scope: TableScope
         db.exec('ROLLBACK');
       } else if (capture) {
         // The body committed the drop: never leave the store without its
-        // capture triggers. Reinstall them in a transaction of their own.
-        db.exec('BEGIN IMMEDIATE');
+        // capture triggers. The install is its own atomic unit (atomicDdl).
         installCaptureTriggers(db, scope);
-        db.exec('COMMIT');
       }
       throw err;
     }
