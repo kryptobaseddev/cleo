@@ -205,9 +205,20 @@ describe('sync schema journal', () => {
     expect(err).toBeInstanceOf(SyncSchemaHashDriftError);
     expect(err).toMatchObject({ code: 'E_SYNC_SCHEMA_HASH_DRIFT', folder: FOLDER });
     // Enabling a flag hits the same check.
-    expect(() => setSyncFlag(db, 'sync.seal', true, { schemaRoot: root })).toThrow(
-      SyncSchemaHashDriftError,
-    );
+    expect(() =>
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: root, allowUnreleased: true }),
+    ).toThrow(SyncSchemaHashDriftError);
+  });
+
+  it('an unreleased flag cannot be turned on (T13032): sync.seal waits for S3b–S3d', () => {
+    const { db } = freshStore();
+    for (const flag of ['sync.seal', 'sync.push', 'sync.pull', 'sync.strict'] as const) {
+      expect(() => setSyncFlag(db, flag, true, { schemaRoot: SCHEMA_ROOT })).toThrow(
+        /E_SYNC_FLAG_UNRELEASED/,
+      );
+    }
+    expect(setSyncFlag(db, 'sync.capture', true, { schemaRoot: SCHEMA_ROOT })).toBe(true);
+    expect(setSyncFlag(db, 'sync.seal', false, { schemaRoot: SCHEMA_ROOT })).toBe(false);
   });
 
   it('two connections enabling at once apply each folder once (re-read under the lock)', () => {

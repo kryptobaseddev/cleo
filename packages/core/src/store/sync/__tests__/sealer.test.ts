@@ -32,7 +32,16 @@ import {
   setCaptureEnabled,
 } from '../capture.js';
 import { setSyncFlag } from '../flags.js';
-import { canonicalJson, decodeEnc, rowChash, type SealedOp, sealPending } from '../sealer.js';
+import { ensureProjectReplica } from '../replica.js';
+import { ReplicaRegistry } from '../replica-registry.js';
+import {
+  canonicalJson,
+  decodeEnc,
+  rowChash,
+  type SealedOp,
+  sealBacklog,
+  sealPending,
+} from '../sealer.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
 const REPLICA = '01929a3e-7f00-7000-8000-000000000001';
@@ -61,7 +70,9 @@ async function store(opts: { seal?: boolean } = {}): Promise<DatabaseSync> {
   const handle = await openDualScopeDbAtPath('project', dbPath);
   const db = handle.db.$client as DatabaseSync;
   setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA });
-  if (opts.seal !== false) setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_SCHEMA });
+  if (opts.seal !== false) {
+    setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_SCHEMA, allowUnreleased: true });
+  }
   return db;
 }
 
@@ -183,7 +194,7 @@ describe('sealPending', () => {
     const m = meta(db, 'tasks_tasks', 'uid-T1');
     expect(m).toMatchObject({ origin: REPLICA, version: 1, deleted: 0, fhlc: null });
     const def = captureTableDef(db, 'project', 'tasks_tasks');
-    expect(m?.chash).toBe(def ? rowChash(db, def, 'uid-T1') : 'missing-def');
+    expect(m?.chash).toBe(def ? rowChash(db, 'project', def, 'uid-T1') : 'missing-def');
     expect(m?.chash).toMatch(/^[0-9a-f]{64}$/);
     expect(db.prepare("SELECT live FROM _sync_ledger WHERE tbl = 'tasks_tasks'").get()).toEqual({
       live: (db.prepare('SELECT count(*) AS n FROM tasks_tasks').get() as { n: number }).n,
@@ -261,7 +272,7 @@ describe('sealPending', () => {
     expect(liveCaptures(db)).toBe(0);
   });
 
-  it('a K on a sent uid is kept and moves row meta to the new uid, keeping chash', async () => {
+  it('a K on a sent uid is kept and moves row meta to the new uid, keeping hlc, version and chash (§2.5, T13031)', async () => {
     const db = await store();
     framed(db, () => addTask(db, 'T1'));
     seal(db);
@@ -277,8 +288,9 @@ describe('sealPending', () => {
     expect(newUid).toBeTruthy();
     expect(meta(db, 'tasks_tasks', 'uid-T1')).toBeUndefined();
     const moved = meta(db, 'tasks_tasks', newUid);
-    expect(moved?.version).toBe((was?.version ?? 0) + 1);
-    expect(moved?.chash).toBeTruthy();
+    expect(moved?.version).toBe(was?.version);
+    expect(moved?.hlc).toBe(was?.hlc);
+    expect(moved?.chash).toBe(was?.chash);
   });
 
   it('netting in a frame: I then U seals one I; an insert then delete seals nothing', async () => {
@@ -354,5 +366,139 @@ describe('sealPending', () => {
     });
     const r = seal(db, 1);
     expect(r).toMatchObject({ txns: 1, captures: 3 }); // the whole frame, not 1 capture
+  });
+});
+
+describe('#1779 review fixes (T13029–T13033)', () => {
+  const opsOf = (db: DatabaseSync, t: string) => ops(db).filter((o) => o.t === t);
+  const capture = (db: DatabaseSync) =>
+    db.exec(
+      "DELETE FROM cleo_trigger_suspend; INSERT INTO cleo_trigger_suspend (scope) VALUES ('capture')",
+    );
+  const uncapture = (db: DatabaseSync) => db.exec('DELETE FROM cleo_trigger_suspend');
+
+  it('an I whose uid comes from the live row takes birth_fp from there too, and seals before a later U (T13029)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1', null)); // captured before the identity fill
+    db.exec('BEGIN IMMEDIATE');
+    capture(db);
+    db.exec("UPDATE tasks_tasks SET uid = 'uid-T1', birth_fp = 'fp-T1' WHERE id = 'T1'");
+    uncapture(db);
+    db.exec('COMMIT');
+    framed(db, () => db.prepare("UPDATE tasks_tasks SET title = 'second' WHERE id = 'T1'").run());
+    const r = seal(db);
+    expect(r.pending).toEqual([]);
+    expect(txns(db).map((t) => t.local_seq)).toEqual([1, 2]);
+    const [i, u] = opsOf(db, 'tasks_tasks');
+    expect(i).toMatchObject({ o: 'I', u: 'uid-T1', bfp: 'fp-T1' });
+    expect(u).toMatchObject({ o: 'U', u: 'uid-T1', bfp: 'fp-T1' });
+  });
+
+  it('a group that cannot seal stops the batch: nothing after it gets an HLC first (§2.9)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1', null)); // no uid anywhere yet
+    framed(db, () => addTask(db, 'T2'));
+    const r = seal(db);
+    expect(r.txns).toBe(0);
+    expect(r.pending).toHaveLength(1);
+    expect(r.pending[0]?.reason).toMatch(/no uid/);
+    expect(liveCaptures(db)).toBe(2);
+  });
+
+  it('an unreadable capture is reported, never aborts the batch (T13029)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    db.prepare(
+      "INSERT INTO _sync_capture (seq, tbl, op, rk, uid, img, at_ms, state) VALUES ((SELECT max(seq) + 1 FROM _sync_capture), 'not_a_sync_table', 'I', '[\"\\u0027x\\u0027\"]', 'u-x', '{}', 1, 'live')",
+    ).run();
+    let r: ReturnType<typeof seal> | undefined;
+    expect(() => {
+      r = seal(db);
+    }).not.toThrow();
+    expect(r?.txns).toBe(1); // T1 seals; the poison capture holds the head after it
+    expect(r?.pending[0]?.reason).toMatch(/not in the sync set/);
+  });
+
+  it('stored ref uids stay in the image; only uid and birth_fp move to u/bfp (T13030)', async () => {
+    const db = await store();
+    const hist = 'tasks_task_acceptance_criteria_history';
+    framed(db, () =>
+      db
+        .prepare(
+          `INSERT INTO ${hist} (ac_id, previous_text, reason, uid, birth_fp, ac_uid) VALUES ('AC1', 'old', 'edit', 'uid-H1', 'fp-H1', 'uid-AC1')`,
+        )
+        .run(),
+    );
+    seal(db);
+    const [i] = opsOf(db, hist);
+    expect(i?.a).toMatchObject({ ac_uid: 'uid-AC1' });
+    expect(i?.a).not.toHaveProperty('uid');
+    expect(i?.a).not.toHaveProperty('birth_fp');
+  });
+
+  it('a U sealed after its row was deleted still carries bfp (T13030)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    seal(db);
+    framed(db, () => db.prepare("UPDATE tasks_tasks SET title = 'x' WHERE id = 'T1'").run());
+    framed(db, () => db.prepare("DELETE FROM tasks_tasks WHERE id = 'T1'").run());
+    seal(db);
+    const u = opsOf(db, 'tasks_tasks').find((o) => o.o === 'U');
+    expect(u).toMatchObject({ u: 'uid-T1', bfp: 'fp-T1' });
+  });
+
+  it('a U sealed alone after its row was deleted takes bfp from row meta (T13030)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    seal(db);
+    framed(db, () => db.prepare("UPDATE tasks_tasks SET title = 'x' WHERE id = 'T1'").run());
+    framed(db, () => db.prepare("DELETE FROM tasks_tasks WHERE id = 'T1'").run());
+    // The batch holds only the U: the row is gone and the D is not read yet.
+    expect(seal(db, 1)).toMatchObject({ txns: 1, captures: 1 });
+    const u = opsOf(db, 'tasks_tasks').find((o) => o.o === 'U');
+    expect(u).toMatchObject({ u: 'uid-T1', bfp: 'fp-T1' });
+  });
+
+  it('chash hashes the wire image: the same row under another display id hashes alike (T13031)', async () => {
+    const db = await store();
+    addTask(db, 'T1');
+    const def = captureTableDef(db, 'project', 'tasks_tasks');
+    if (!def) throw new Error('no def');
+    const before = rowChash(db, 'project', def, 'uid-T1');
+    db.prepare("UPDATE tasks_tasks SET id = 'T777' WHERE id = 'T1'").run();
+    expect(rowChash(db, 'project', def, 'uid-T1')).toBe(before);
+  });
+
+  it('the transaction counter only rises: no txn id is reused after old rows are collected (T13033)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    seal(db);
+    db.exec('DELETE FROM _sync_op; DELETE FROM _sync_txn');
+    framed(db, () => addTask(db, 'T2'));
+    seal(db);
+    expect(txns(db).map((t) => t.local_seq)).toEqual([2]);
+  });
+
+  it('the replica defaults to the bound one, and nothing seals without one', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    expect(sealPending(db, { scope: 'project', env: {} }).refused).toBe('no bound replica');
+    expect(liveCaptures(db)).toBeGreaterThan(0);
+    const { replicaId } = ensureProjectReplica(db, {
+      dbPath,
+      mode: 'test',
+      registry: new ReplicaRegistry(join(dir, 'registry.json'), 'host-1'),
+    });
+    const r = sealPending(db, { scope: 'project', env: {} });
+    expect(r.refused).toBeNull();
+    expect(txns(db)[0]?.txn).toBe(`${replicaId}:1`);
+  });
+
+  it('sealBacklog reports the live head for the doctor', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1', null));
+    const b = sealBacklog(db);
+    expect(b.live).toBeGreaterThan(0);
+    expect(b.oldestSeq).toBeTypeOf('number');
   });
 });
