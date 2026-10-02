@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AcceptanceGate } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   captureProjectScope,
   readProjectInfoAtDirectorySync,
@@ -23,6 +23,20 @@ import { validateGateVerify } from '../../validation/engine-ops.js';
 import { buildFreshAcRows } from '../ac-table.js';
 import { completeTask, completeTaskStrict, withTaskWriteTransaction } from '../complete.js';
 import { reqAdd } from '../req.js';
+
+/** T12960: a switchable `ci:<pr>` resolver; null delegates to the real one. */
+const ciResolver = vi.hoisted(() => ({
+  impl: null as null | typeof import('../../release/ci-evidence.js')['resolveCiEvidenceAtom'],
+}));
+
+vi.mock('../../release/ci-evidence.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../release/ci-evidence.js')>();
+  return {
+    ...actual,
+    resolveCiEvidenceAtom: (...args: Parameters<typeof actual.resolveCiEvidenceAtom>) =>
+      (ciResolver.impl ?? actual.resolveCiEvidenceAtom)(...args),
+  };
+});
 
 describe('completeTask', () => {
   let env: TestDbEnv;
@@ -782,7 +796,7 @@ describe('completeTask', () => {
     it('refuses completion once the PR has merged and only tool:test-affected backs testsPassed', async () => {
       await seedMerged([affected]);
       await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow(
-        /testsPassed \(testsPassed was recorded from an affected-scope run; the merged change needs merged CI/,
+        /testsPassed \(testsPassed was recorded from a scoped run .*the merged change needs merged CI/,
       );
       expect((await accessor.loadSingleTask('T001'))?.status).toBe('active');
     });
@@ -791,6 +805,90 @@ describe('completeTask', () => {
       await seedMerged([affected, { kind: 'tool', tool: 'test', exitCode: 0 }]);
       const result = await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
       expect(result.task.status).toBe('done');
+    });
+
+    it('refuses a test-run whose tree no longer matches (T12965)', async () => {
+      await seedMerged([
+        {
+          kind: 'test-run',
+          path: 'reports/vitest.json',
+          sha256: 'c'.repeat(64),
+          passCount: 1,
+          failCount: 0,
+          skipCount: 0,
+          treeHash: '1'.repeat(40),
+        },
+      ]);
+      await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow(
+        /testsPassed \(testsPassed rests on test-run:reports\/vitest\.json/,
+      );
+      expect((await accessor.loadSingleTask('T001'))?.status).toBe('active');
+    });
+
+    describe('merged CI stands in at complete (T12960)', () => {
+      const greenCi = {
+        kind: 'ci' as const,
+        prNumber: 42,
+        mergeCommitSha: 'a'.repeat(40),
+        checks: [{ name: 'CI', conclusion: 'SUCCESS', sha: 'a'.repeat(40) }],
+        taskId: 'T001',
+        requiredSource: 'project-context',
+      };
+      beforeEach(async () => {
+        await writeFile(
+          join(env.cleoDir, 'project-context.json'),
+          JSON.stringify({ evidence: { ciSatisfies: true } }),
+        );
+      });
+      afterEach(() => {
+        ciResolver.impl = null;
+      });
+
+      it('merged and green: an affected-only testsPassed is replaced by ci:<pr> and the task completes', async () => {
+        const seen: number[] = [];
+        ciResolver.impl = async (prNumber) => {
+          seen.push(prNumber);
+          return { ok: true, atom: greenCi };
+        };
+        await seedMerged([affected]);
+        const result = await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
+        expect(result.task.status).toBe('done');
+        expect(seen).toContain(42);
+        const atoms = result.task.verification?.evidence?.testsPassed?.atoms ?? [];
+        expect(atoms.map((a) => a.kind)).toEqual(['ci', 'note']);
+        expect(atoms[1]).toMatchObject({ note: expect.stringMatching(/cleo complete.*PR #42/) });
+      });
+
+      it('red or pending CI refuses with wait-for-CI, never a local run', async () => {
+        ciResolver.impl = async () => ({
+          ok: false,
+          codeName: 'E_EVIDENCE_TESTS_FAILED',
+          reason: "Required CI on PR #42's merge commit is not green: CI pending",
+        });
+        await seedMerged([affected]);
+        const refusal = completeTask({ taskId: 'T001' }, env.tempDir, accessor);
+        await expect(refusal).rejects.toThrow(/ci:42 does not hold.*CI pending/);
+        await expect(refusal).rejects.toMatchObject({
+          fix: expect.stringMatching(
+            /Wait for the PR's required CI.*Do not run the test suite locally/,
+          ),
+        });
+        expect((await accessor.loadSingleTask('T001'))?.status).toBe('active');
+      });
+
+      it('a final red CI refuses with fix-CI-or-run-full, never a wait', async () => {
+        ciResolver.impl = async () => ({
+          ok: false,
+          codeName: 'E_EVIDENCE_TESTS_FAILED',
+          reason: "Required CI on PR #42's merge commit is not green:\n  - CI: failure",
+        });
+        await seedMerged([affected]);
+        const refusal = completeTask({ taskId: 'T001' }, env.tempDir, accessor);
+        await expect(refusal).rejects.toThrow(/ci:42 does not hold.*CI: failure/s);
+        await expect(refusal).rejects.toMatchObject({
+          fix: expect.stringMatching(/fix CI .*tool:test.*tool:lint;tool:typecheck/),
+        });
+      });
     });
   });
 

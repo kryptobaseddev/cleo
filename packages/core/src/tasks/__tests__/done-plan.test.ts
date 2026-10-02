@@ -38,6 +38,7 @@ import { resetDbState } from '../../store/sqlite.js';
 import { validateGateVerify } from '../../validation/engine-ops.js';
 import { addTask } from '../add.js';
 import type { ChangeSetDeps } from '../change-set.js';
+import { satisfyGatesFromMergedCi } from '../complete-ci.js';
 import { type DeriveTaskEvidenceOptions, deriveTaskEvidence } from '../done-plan.js';
 import { recordTaskDone } from '../done-record.js';
 import {
@@ -46,7 +47,7 @@ import {
   parseEvidence,
   validateAtom,
 } from '../evidence.js';
-import { runToolCached } from '../tool-cache.js';
+import { captureTreeHash, runToolCached } from '../tool-cache.js';
 import { resolveToolCommand } from '../tool-resolver.js';
 import { acquireGlobalSlot } from '../tool-semaphore.js';
 
@@ -56,6 +57,7 @@ function git(dir: string, args: string[]): string {
 
 const deps: ChangeSetDeps = {
   listMergedPrs: async () => ({ ok: true, prs: [] }),
+  listPrsForCommit: async () => [],
   listTaskDocs: async () => [],
   listTaskDecisions: async () => [],
   env: {},
@@ -618,13 +620,196 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     const tests = plan.gates.find((g) => g.gate === 'testsPassed');
     expect(tests?.passed).toBe(false);
     expect(tests?.evidence).toBe(`ci:42;satisfies:${plan.taskId}#AC1`);
-    expect(plan.changeSet.warnings.join(' ')).toMatch(/affected-scope run/);
+    expect(plan.changeSet.warnings.join(' ')).toMatch(/scoped run/);
   });
 
   it('without the opt-in, the same PR still plans local tool runs', async () => {
     const plan = await mergedPrPlan(false);
     expect(plan.toolRuns.map((r) => r.tool)).toEqual(['test', 'lint', 'typecheck']);
     expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toMatch(/^tool:test;/);
+  });
+});
+
+describe('cleo done and cleo complete judge the merge alike (T12656 AC2, T12959 review)', () => {
+  it('a fix commit made after the task PR merged: neither plans nor records ci:<that PR>', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    const first = commitOnTaskBranch(id);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', `task/${id}`]);
+    git(root, ['commit', '-q', '-m', `${id}: squash (#42)`]);
+    const merge = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['push', '-q', 'origin', 'main']);
+    // New work on top of #42's merge, not merged anywhere.
+    git(root, ['switch', '-q', '-c', `task/${id}-fix`]);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 3;\n');
+    git(root, ['commit', '-q', '-am', `${id}: fix`]);
+    const fix = git(root, ['rev-parse', 'HEAD']);
+    const ctxPath = join(root, '.cleo', 'project-context.json');
+    const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as Record<string, unknown>;
+    writeFileSync(
+      ctxPath,
+      JSON.stringify({
+        ...ctx,
+        evidence: {
+          ciSatisfies: true,
+          ciChecks: {
+            tests: ['CI'],
+            qa: ['CI'],
+            jobs: { tests: ['Unit Tests*'], qa: ['Type Check'] },
+          },
+        },
+      }),
+    );
+    await env.accessor.updateTaskFields(id, {
+      verificationJson: JSON.stringify({
+        passed: false,
+        round: 1,
+        gates: { implemented: true },
+        failureLog: [],
+        lastAgent: null,
+        lastUpdated: null,
+        evidence: {
+          implemented: {
+            atoms: [{ kind: 'commit', sha: fix, shortSha: fix.slice(0, 7) }],
+            capturedAt: '2026-09-28T00:00:00Z',
+            capturedBy: 'test',
+          },
+        },
+      }),
+    });
+    const prDeps: ChangeSetDeps = {
+      ...deps,
+      listMergedPrs: async () => ({
+        ok: true,
+        prs: [{ number: 42, title: `${id}: work`, body: '', headRefName: `task/${id}` }],
+      }),
+      viewPr: async (n) => ({
+        number: n,
+        title: '',
+        headRefName: `task/${id}`,
+        baseRefName: 'main',
+        state: 'MERGED',
+        mergedAt: '2026-09-28T00:00:00Z',
+        headRefOid: first,
+        mergeCommitSha: merge,
+        commits: [first],
+      }),
+      findPrByHead: async () => null,
+      resolvePr: async (n) => ({
+        ok: true,
+        prNumber: n,
+        mergeCommitSha: merge,
+        mergedAt: '2026-09-28T00:00:00Z',
+        successCount: 1,
+        totalChecks: 1,
+        cacheHit: false,
+        title: '',
+        body: '',
+        headRefName: `task/${id}`,
+        changedPaths: ['src/a.ts'],
+        changedFileCount: 1,
+      }),
+    };
+
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      deps: prDeps,
+    });
+    expect(plan.changeSet.prNumber).toBe(42);
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toMatch(/^tool:test;/);
+
+    const task = await env.accessor.loadSingleTask(id);
+    if (!task) throw new Error('fixture task vanished');
+    const ci = await satisfyGatesFromMergedCi(task, root, ['implemented', 'testsPassed'], {
+      ciSatisfies: () => true,
+      merge: { changeSet: prDeps },
+      recordGates: async () => {
+        throw new Error('must not record ci:42 for a fix #42 never ran');
+      },
+    });
+    expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null });
+  });
+});
+
+describe('a worktree-bound test-run is judged in one root (T12965 review M2)', () => {
+  it('bound in the task worktree; done --plan and complete, run from the main checkout, agree it stands', async () => {
+    writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "pkgs/*"\n');
+    mkdirSync(join(root, 'pkgs', 'a'), { recursive: true });
+    writeFileSync(join(root, 'pkgs', 'a', 'package.json'), JSON.stringify({ name: '@w/a' }));
+    writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 1;\n');
+    writeFileSync(join(root, 'pkgs', 'a', 'a.test.ts'), 'export {};\n');
+    writeFileSync(join(root, '.gitignore'), '.cleo/\n.cleo-home/\nreports/\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'workspace']);
+    git(root, ['push', '-q', 'origin', 'main']);
+    const id = await seedTask(['Change pkgs/a/i.ts']);
+    git(root, ['branch', `task/${id}`]);
+    const wt = `${root}-wt`;
+    git(root, ['worktree', 'add', '-q', wt, `task/${id}`]);
+    try {
+      writeFileSync(join(wt, 'pkgs', 'a', 'i.ts'), 'export const x = 2;\n');
+      git(wt, ['commit', '-q', '-am', `${id}: a`]);
+      mkdirSync(join(wt, 'reports'), { recursive: true });
+      const reportPath = join(wt, 'reports', 'vitest.json');
+      writeFileSync(
+        reportPath,
+        JSON.stringify({
+          startTime: Date.now() + 5_000,
+          numTotalTests: 1,
+          numPassedTests: 1,
+          numFailedTests: 0,
+          testResults: [
+            {
+              name: join(wt, 'pkgs', 'a', 'a.test.ts'),
+              status: 'passed',
+              assertionResults: [{ fullName: 'x', status: 'passed' }],
+            },
+          ],
+        }),
+      );
+      const wtTree = await captureTreeHash(wt);
+      expect(wtTree).not.toBe(await captureTreeHash(root));
+
+      // Bound from the main checkout: the task's worktree is the tree bound.
+      const bound = await validateAtom({ kind: 'test-run', path: reportPath }, root, id);
+      expect(bound.ok, JSON.stringify(bound)).toBe(true);
+      if (!bound.ok) return;
+      expect(bound.atom).toMatchObject({ treeHash: wtTree });
+      const verification = {
+        passed: false,
+        round: 1,
+        gates: { testsPassed: true },
+        failureLog: [],
+        lastAgent: null,
+        lastUpdated: null,
+        evidence: {
+          testsPassed: {
+            atoms: [bound.atom],
+            capturedAt: '2026-10-01T00:00:00Z',
+            capturedBy: 'test',
+          },
+        },
+      };
+      await env.accessor.updateTaskFields(id, { verificationJson: JSON.stringify(verification) });
+
+      const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+      expect(plan.changeSet.rootSource).toBe('task-worktree');
+      expect(plan.gates.find((g) => g.gate === 'testsPassed')?.passed).toBe(true);
+      expect(plan.changeSet.warnings.join(' ')).not.toMatch(/no longer describes/);
+
+      const task = await env.accessor.loadSingleTask(id);
+      if (!task) throw new Error('fixture task vanished');
+      const ci = await satisfyGatesFromMergedCi(task, root, ['testsPassed'], {
+        ciSatisfies: () => false,
+        merge: { changeSet: deps },
+      });
+      expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null });
+    } finally {
+      git(root, ['worktree', 'remove', '--force', wt]);
+      rmSync(wt, { recursive: true, force: true });
+    }
   });
 });
 
@@ -684,6 +869,30 @@ describe('affected-scope test runs (T12635, D11150)', () => {
     });
     expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
       `tool:test-affected;satisfies:${id}#AC1`,
+    );
+  });
+
+  it('T12959 review (L4): testing.preferAffected false plans the full tool:test, as tool:test runs it', async () => {
+    workspaceWithPackages();
+    const ctxPath = join(root, '.cleo', 'project-context.json');
+    const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as { testing: Record<string, unknown> };
+    writeFileSync(
+      ctxPath,
+      JSON.stringify({ ...ctx, testing: { ...ctx.testing, preferAffected: false } }),
+    );
+    const id = await seedTask(['Change pkgs/a/i.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
+      `tool:test;satisfies:${id}#AC1`,
     );
   });
 

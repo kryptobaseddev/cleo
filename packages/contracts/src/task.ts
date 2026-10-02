@@ -288,6 +288,30 @@ export type EvidenceAtom =
       passCount: number;
       failCount: number;
       skipCount: number;
+      /**
+       * HEAD of the checkout the report was bound to at verify time (T12965):
+       * the task's change-set root (its worktree when one is registered), the
+       * root `cleo done` and `cleo complete` recompute the tree in. Absent when
+       * that root is not a git checkout, and on atoms recorded before T12965.
+       */
+      headSha?: string;
+      /**
+       * Git tree of that checkout at verify time, as the tool cache computes
+       * it (T12958): HEAD's tree with every uncommitted, not-ignored change
+       * applied (T12965). `cleo complete` refuses the atom once the tree no
+       * longer matches, unless `ci:<pr>` or a full tool run carries the gate.
+       */
+      treeHash?: string;
+      /** Test files the report covered, relative to the bound checkout (capped, T12965). */
+      testFiles?: string[];
+      /** Total test files the report covered; exceeds `testFiles.length` when capped. */
+      testFileCount?: number;
+      /**
+       * Affected packages (changed, or depending on a changed one) with no
+       * test file, so no report could cover them — recorded like
+       * `tool:test-affected`'s `untestedPackages` (T12965 review).
+       */
+      untestedPackages?: string[];
     }
   | {
       kind: 'tool';
@@ -309,8 +333,19 @@ export type EvidenceAtom =
        * `affected`: the run covered only the packages the branch diff touches
        * plus their dependents (D11150, T12635). It satisfies testsPassed before
        * merge; merged CI (`ci:`) or a full `tool:test` supersedes it.
+       *
+       * `full`: a scope-aware `tool:test` ran the whole suite (T12959) —
+       * no affected template is declared, the project opted out
+       * (`testing.preferAffected: false`), the change has merged, or the
+       * affected planner refused; `scopeReason` says which when known.
        */
-      scope?: 'affected';
+      scope?: 'affected' | 'full';
+      /**
+       * With `scope: 'full'`: why a scope-aware `tool:test` ran the full suite.
+       * With `scope: 'affected'`: what the scope rests on — dependents come
+       * only from declared workspace package dependencies (T12959).
+       */
+      scopeReason?: string;
       /** The packages the affected run covered (with `scope: 'affected'`). */
       affectedPackages?: string[];
       /** The test projects the affected run actually selected (incl. non-package projects). */

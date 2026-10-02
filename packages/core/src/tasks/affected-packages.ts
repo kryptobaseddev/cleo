@@ -28,6 +28,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { isCiDocumentPath } from '../release/ci-evidence.js';
+import type { MergeVerdict } from './affected-scope.js';
 import { splitCommandLine } from './command-line.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
 import { acquireGlobalSlot, type ReleaseSlotFn } from './tool-semaphore.js';
@@ -477,6 +478,25 @@ function git(cwd: string, args: readonly string[]): string | null {
 }
 
 /**
+ * The merge-base of HEAD and origin's default branch — where the branch's own
+ * commits begin.
+ *
+ * @param root - Execution root.
+ * @returns The merge-base commit, or null when no origin default branch
+ *   exists or git fails.
+ * @task T12965
+ */
+export function originDefaultMergeBase(root: string): string | null {
+  const symbolic = git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
+  const base =
+    symbolic?.replace(/^refs\/remotes\//, '') ??
+    ['origin/main', 'origin/master'].find(
+      (ref) => git(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${ref}`]) !== null,
+    );
+  return base ? git(root, ['merge-base', base, 'HEAD']) || null : null;
+}
+
+/**
  * Paths the tree under test changed relative to origin's default branch:
  * committed (`merge-base(origin/<default>, HEAD)..HEAD`), uncommitted tracked
  * edits and untracked files — the tests run on the working tree, so all matter.
@@ -487,14 +507,7 @@ function git(cwd: string, args: readonly string[]): string | null {
  * @task T12635
  */
 export function changedPathsSinceDefault(root: string): string[] | null {
-  const symbolic = git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
-  const base =
-    symbolic?.replace(/^refs\/remotes\//, '') ??
-    ['origin/main', 'origin/master'].find(
-      (ref) => git(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${ref}`]) !== null,
-    );
-  if (!base) return null;
-  const mergeBase = git(root, ['merge-base', base, 'HEAD']);
+  const mergeBase = originDefaultMergeBase(root);
   if (!mergeBase) return null;
   // A git failure is not an empty diff (T12657): no answer, so no scoped run.
   const committed = git(root, ['diff', '--name-only', '--no-renames', mergeBase, 'HEAD']);
@@ -624,4 +637,92 @@ export async function planAffectedTestRun(
     projects,
     untested,
   };
+}
+
+/** How a scope-aware `tool:test` will run (T12959). */
+export type ScopedTestRun =
+  | {
+      /** Only the affected packages and their dependents. */
+      scope: 'affected';
+      /** The planned affected run. */
+      run: Extract<AffectedTestRun, { ok: true }>;
+    }
+  | {
+      /** The whole suite (`testing.command`). */
+      scope: 'full';
+      /** Why the affected scope was not used; null when none is declared. */
+      reason: string | null;
+    }
+  | {
+      /** Unresolved: the `test` slot was busy while listing test projects. */
+      scope: 'pending';
+      /** The planner's reason. */
+      reason: string;
+    };
+
+/**
+ * Decide how `tool:test` runs (T12959): the affected packages first whenever
+ * `testing.affectedCommand` is declared, the full suite only when that scope
+ * cannot be trusted. Full when the project opts out
+ * (`testing.preferAffected: false`), declares no template, or the change is
+ * not known to be unmerged (a scoped run counts before merge only, D11150);
+ * otherwise whatever {@link planAffectedTestRun} decides, its refusal (root
+ * config changed, no origin, nothing touched, …) becoming the full run's
+ * recorded reason. An affected plan that would leave a dependent package
+ * untested (no test project) also runs the full suite.
+ *
+ * @param storeRoot - CLEO store root (project context).
+ * @param root - Execution root whose diff defines the set.
+ * @param opts - `wait` queues for the `test` slot; `mergeState` resolves the
+ *   task's merge state lazily, with why a lookup failed when one did (omitted
+ *   when no task is in context).
+ * @returns The scope and the plan, or why the full suite runs.
+ * @example
+ * ```ts
+ * const plan = await planScopedTestRun(storeRoot, executionRoot, { wait: true });
+ * if (plan.scope === 'affected') console.log(plan.run.packages);
+ * ```
+ * @task T12959
+ */
+export async function planScopedTestRun(
+  storeRoot: string,
+  root: string,
+  opts: { wait?: boolean; mergeState?: () => Promise<MergeVerdict> } = {},
+): Promise<ScopedTestRun> {
+  const { readRawProjectContext } = await import('./tool-resolver.js');
+  const testing = (
+    readRawProjectContext(storeRoot) as {
+      testing?: { affectedCommand?: unknown; preferAffected?: unknown };
+    } | null
+  )?.testing;
+  if (typeof testing?.affectedCommand !== 'string' || testing.affectedCommand.trim() === '') {
+    return { scope: 'full', reason: null };
+  }
+  if (testing.preferAffected === false) {
+    return { scope: 'full', reason: 'testing.preferAffected is false' };
+  }
+  if (opts.mergeState) {
+    const { state, lookupFailed } = await opts.mergeState();
+    if (state !== 'unmerged') {
+      return {
+        scope: 'full',
+        reason:
+          state === 'merged'
+            ? 'the change has merged; an affected run counts before merge only'
+            : `whether the change has merged cannot be determined (${lookupFailed ?? 'gh unreachable'}); an affected run counts before merge only`,
+      };
+    }
+  }
+  const run = await planAffectedTestRun(storeRoot, root, { wait: opts.wait === true });
+  // T12959 review: an affected dependent with no test project would go
+  // untested — the canonical tool:test fails closed to the full suite.
+  if (run.ok && run.untested.length > 0) {
+    return {
+      scope: 'full',
+      reason: `affected dependent package(s) ${run.untested.join(', ')} have no test project; an affected run would leave them untested`,
+    };
+  }
+  if (run.ok) return { scope: 'affected', run };
+  if (run.pending) return { scope: 'pending', reason: run.reason };
+  return { scope: 'full', reason: run.reason };
 }

@@ -13,6 +13,7 @@ import type {
   Task,
   TaskRecord,
   TaskRef,
+  TaskVerification,
   VerificationGate,
 } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
@@ -474,14 +475,16 @@ export async function completeTask(
   const capturedExecution = worktreeScope.getStore()?.execution;
   const completionRoot = resolve(resolveOrCwd(cwd));
   const acc = accessor ?? (await getTaskAccessor(completionRoot));
-  const task = await acc.loadSingleTask(options.taskId);
-  if (!task) {
+  const loaded = await acc.loadSingleTask(options.taskId);
+  if (!loaded) {
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`, {
       fix: `Use 'cleo find "${options.taskId}"' to search`,
     });
   }
-
-  const initialTask = structuredClone(task);
+  // T12960: reassigned once, when merged CI is recorded for testsPassed/qaPassed
+  // below, so the completion write is built from the task as it now stands.
+  let task: Task = loaded;
+  let initialTask = structuredClone(task);
 
   // ---- T12102 (gh#1196): idempotent complete ----
   // Re-running `cleo complete` on an already-done task is a no-op SUCCESS,
@@ -613,12 +616,50 @@ export async function completeTask(
       );
     }
 
+    // T12960: once the change has merged, its required CI proves testsPassed
+    // and qaPassed. Missing gates, a scoped testsPassed after merge (T12656)
+    // and a test-run whose tree moved (T12965) are satisfied from ci:<pr> here,
+    // never by sending the agent to run the whole suite locally. Gates recorded
+    // here persist if a later check below refuses (see complete-ci.ts).
+    let verification: TaskVerification = task.verification;
+    const { satisfyGatesFromMergedCi } = await import('./complete-ci.js');
+    const mergedCi = await satisfyGatesFromMergedCi(
+      task,
+      completionRoot,
+      enforcement.verificationRequiredGates,
+    );
+    if (mergedCi.kind === 'wait-for-ci' || mergedCi.kind === 'ci-red') {
+      // @sync-invariant none:local-only completion-time evidence gate on the local verification record; nothing is written
+      throw new CleoError(
+        enforcement.lifecycleMode === 'strict'
+          ? ExitCode.LIFECYCLE_GATE_FAILED
+          : ExitCode.GATE_DEPENDENCY,
+        `Task ${options.taskId} failed verification gates: testsPassed/qaPassed (${mergedCi.reason})`,
+        {
+          fix:
+            mergedCi.kind === 'wait-for-ci'
+              ? `Wait for the PR's required CI to finish on the merge commit, then re-run 'cleo complete ${options.taskId}'. Do not run the test suite locally — merged CI is the evidence.`
+              : `Merged CI concluded without proving the gates: fix CI (re-run or fix the red/skipped required check), or record a full local run: cleo verify ${options.taskId} --gate testsPassed --evidence "tool:test" and --gate qaPassed --evidence "tool:lint;tool:typecheck".`,
+        },
+      );
+    }
+    if (mergedCi.kind === 'recorded') {
+      const reloaded = await acc.loadSingleTask(options.taskId);
+      if (!reloaded?.verification) {
+        // @sync-invariant none:local-only re-read of the row this completion just verified; a vanished row is a local race
+        throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${options.taskId}`);
+      }
+      task = reloaded;
+      verification = reloaded.verification;
+      initialTask = structuredClone(task);
+    }
+
     const missingRequiredGates = findMissingRequiredGates(
-      task.verification.gates,
+      verification.gates,
       enforcement.verificationRequiredGates,
     );
 
-    if (missingRequiredGates.length > 0 || task.verification.passed !== true) {
+    if (missingRequiredGates.length > 0 || verification.passed !== true) {
       const exitCode =
         enforcement.lifecycleMode === 'strict'
           ? ExitCode.LIFECYCLE_GATE_FAILED
@@ -626,28 +667,30 @@ export async function completeTask(
 
       throw new CleoError(
         exitCode,
-        `Task ${options.taskId} failed verification gates: ${missingRequiredGates.join(', ') || 'verification.passed=false'}`,
+        `Task ${options.taskId} failed verification gates: ${missingRequiredGates.join(', ') || 'verification.passed=false'}` +
+          (mergedCi.kind === 'skipped' && mergedCi.ciUnavailable
+            ? ` (merged CI could not stand in: ${mergedCi.ciUnavailable})`
+            : ''),
         {
           fix: `Set required verification gates before completion: ${enforcement.verificationRequiredGates.join(', ')}`,
         },
       );
     }
 
-    // T12656 (D11150): an affected-scope testsPassed counts before merge only.
-    if (enforcement.verificationRequiredGates.includes('testsPassed')) {
-      const { taskAffectedScopeSupersededReason } = await import('./affected-scope.js');
-      const superseded = await taskAffectedScopeSupersededReason(task, completionRoot);
-      if (superseded) {
-        throw new CleoError(
-          enforcement.lifecycleMode === 'strict'
-            ? ExitCode.LIFECYCLE_GATE_FAILED
-            : ExitCode.GATE_DEPENDENCY,
-          `Task ${options.taskId} failed verification gates: testsPassed (${superseded})`,
-          {
-            fix: `cleo done ${options.taskId} --plan  # plans ci:<pr> or tool:test for testsPassed`,
-          },
-        );
-      }
+    // T12656 (D11150): a scoped testsPassed counts before merge only;
+    // T12965: a tree-bound test-run counts only while its tree stands. Merged
+    // CI already replaced either above when it could.
+    if (mergedCi.kind === 'skipped' && mergedCi.testsPassedReason) {
+      // @sync-invariant none:local-only completion-time evidence gate on the local verification record; nothing is written
+      throw new CleoError(
+        enforcement.lifecycleMode === 'strict'
+          ? ExitCode.LIFECYCLE_GATE_FAILED
+          : ExitCode.GATE_DEPENDENCY,
+        `Task ${options.taskId} failed verification gates: testsPassed (${mergedCi.testsPassedReason}${mergedCi.ciUnavailable ? ` Merged CI could not stand in: ${mergedCi.ciUnavailable}` : ''})`,
+        {
+          fix: `cleo done ${options.taskId} --plan  # plans ci:<pr> or tool:test for testsPassed`,
+        },
+      );
     }
   }
 

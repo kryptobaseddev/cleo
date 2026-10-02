@@ -20,7 +20,7 @@ import type { EvidenceAtom } from '@cleocode/contracts';
 import { validateEvidenceForGate } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { PrAtomResolution } from '../../release/pr-evidence.js';
-import { affectedScopeSupersededReason, mergeStateOfChangeSet } from '../affected-scope.js';
+import { mergeStateOfChangeSet, scopedRunSupersededReason } from '../affected-scope.js';
 import {
   type ChangeSetDeps,
   type ChangeSetTask,
@@ -740,7 +740,7 @@ describe('stacked and reverted PRs', () => {
     expect(cs.mergeState).toBe('merged');
     expect(mergeStateOfChangeSet(cs)).toBe('merged');
     expect(
-      affectedScopeSupersededReason(
+      scopedRunSupersededReason(
         [{ kind: 'tool', tool: 'test-affected', exitCode: 0, scope: 'affected' }],
         mergeStateOfChangeSet(cs),
       ),

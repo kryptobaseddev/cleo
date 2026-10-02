@@ -931,8 +931,15 @@ function defaultOnDefaultBranch(sha: string, cwd: string): { ref: string | null;
   return { ref, landed: defaultIsAncestor(sha, ref, cwd) };
 }
 
-/** Default branch name from `gh repo view --json defaultBranchRef`, or null. */
-function ghDefaultBranch(cwd: string): string | null {
+/**
+ * Default branch name from `gh repo view --json defaultBranchRef`.
+ *
+ * @param cwd - Repository `gh` runs in.
+ * @returns The branch name, or null when `gh` is unavailable, failed, or
+ *   answered something that is not a branch name.
+ * @task T12959
+ */
+export function ghDefaultBranch(cwd: string): string | null {
   if (!isGhCliAvailable()) return null;
   try {
     const name = execFileSync(

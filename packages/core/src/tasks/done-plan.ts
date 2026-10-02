@@ -50,8 +50,12 @@ import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-e
 import { readRequiredCheckPins } from '../release/pr-evidence.js';
 
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { planAffectedTestRun } from './affected-packages.js';
-import { affectedScopeSupersededReason, mergeStateOfChangeSet } from './affected-scope.js';
+import { planScopedTestRun } from './affected-packages.js';
+import {
+  type TaskMergeInfo,
+  taskChangeMergeState,
+  testsPassedSupersededReason,
+} from './affected-scope.js';
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
 import {
   checkGateEvidenceMinimumDetailed,
@@ -666,12 +670,30 @@ export async function deriveTaskEvidence(
     opts.deps,
   );
   const root = changeSet.executionRoot;
-  // T12635 (D11150): a scope:affected testsPassed only stands before merge.
-  // Once the change set is a merged PR, merged CI or a full run supersedes it.
-  // T12656: the same rule `cleo complete` enforces (one shared function).
-  const supersededReason = affectedScopeSupersededReason(
+  // T12656 AC2: whether the LATEST implementation merged, and through which
+  // PR, is judged by the one function `cleo complete` and `tool:test` use —
+  // on the change set derived above, resolved only when needed.
+  let merge: Promise<TaskMergeInfo> | undefined;
+  const mergeInfo = (): Promise<TaskMergeInfo> => {
+    merge ??= taskChangeMergeState(task, storeRoot, {
+      derived: changeSet,
+      executionRoot: root,
+      ...(opts.deps ? { changeSet: opts.deps } : {}),
+    });
+    return merge;
+  };
+  // T12635 (D11150): a scoped testsPassed only stands before merge. Once the
+  // change has merged, merged CI or a full run supersedes it; a tree-bound
+  // test-run also stops standing once its tree moves (T12965). T12656: the
+  // same rule `cleo complete` enforces (one shared function).
+  const supersededReason = await testsPassedSupersededReason(
     task.verification?.evidence?.testsPassed?.atoms ?? [],
-    mergeStateOfChangeSet(changeSet),
+    {
+      mergeState: mergeInfo,
+      // T12965 review M2: the change-set root, as `cleo complete` and the
+      // `test-run:` binding compute it.
+      currentTree: () => captureTreeHash(root),
+    },
   );
   const superseded = supersededReason !== null;
   if (supersededReason) changeSet.warnings.push(supersededReason);
@@ -681,49 +703,49 @@ export async function deriveTaskEvidence(
   const decisionOnly =
     changeSet.source === 'docs' && (changeSet.implementedEvidence ?? '').startsWith('decision:');
 
-  // T12634 (D11149): a change set from a merged PR (not stacked) proves
-  // testsPassed/qaPassed by its merge-commit CI when the project opts in, so
-  // no local tool run is planned for them.
+  // T12634 (D11149): a merged PR (not stacked) proves testsPassed/qaPassed by
+  // its merge-commit CI when the project opts in, so no local tool run is
+  // planned for them. T12959 review: only the PR that carries the latest
+  // implementation (as `cleo complete` records it), never one that merely
+  // cites the task. T12671: a component landed by an integration PR is judged
+  // on the integration PR's CI, linked through the component (`<c>@<n>`).
   const ciPr =
-    changeSet.source === 'pr' &&
-    changeSet.prNumber !== undefined &&
-    changeSet.stackedOn === undefined &&
     readCiSatisfies(storeRoot) &&
     ciPlannable(
       storeRoot,
       ![...changeSet.files, ...changeSet.deletedFiles].every(isCiDocumentPath),
       [...changeSet.files, ...changeSet.deletedFiles],
     )
-      ? // T12671: a component landed by an integration PR is judged on the
-        // integration PR's CI, linked through the component.
-        changeSet.componentPrNumber !== undefined
-        ? `${changeSet.componentPrNumber}@${changeSet.prNumber}`
-        : String(changeSet.prNumber)
+      ? await mergeInfo().then((info) => (info.state === 'merged' ? info.prRef : null))
       : null;
   const toolRuns: DonePlanToolRun[] = [];
   if (!decisionOnly && ciPr === null) {
     for (const gate of pending) {
       for (const tool of GATE_TOOLS[gate] ?? []) {
         // T12635: before merge, test only the affected packages when declared.
-        // T12656 review: only when the change is KNOWN unmerged — an unknown
-        // merge state (gh unreachable) plans the full run complete accepts.
-        const affected =
-          tool === 'test' &&
-          changeSet.source === 'branch' &&
-          mergeStateOfChangeSet(changeSet) === 'unmerged'
-            ? await planAffectedTestRun(storeRoot, root, { wait: opts.waitForTestSlot === true })
+        // T12959 review: the plan asks the one planner a scope-aware tool:test
+        // asks (`testing.preferAffected`, the merge state — an unknown one
+        // plans the full run complete accepts — and untested dependents), so
+        // the run `cleo done` makes is the run validation repeats, never a
+        // second one with another scope.
+        const scoped =
+          tool === 'test'
+            ? await planScopedTestRun(storeRoot, root, {
+                wait: opts.waitForTestSlot === true,
+                mergeState: mergeInfo,
+              })
             : null;
         toolRuns.push(
-          affected?.ok
-            ? await planToolRun('test-affected', gate, storeRoot, root, affected.command)
-            : affected?.pending
+          scoped?.scope === 'affected'
+            ? await planToolRun('test-affected', gate, storeRoot, root, scoped.run.command)
+            : scoped?.scope === 'pending'
               ? {
                   tool: 'test-affected',
                   gate,
                   command: null,
                   source: 'project-context',
                   cache: 'miss',
-                  reason: affected.reason,
+                  reason: scoped.reason,
                 }
               : await planToolRun(tool, gate, storeRoot, root),
         );

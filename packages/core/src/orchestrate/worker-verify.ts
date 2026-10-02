@@ -159,7 +159,16 @@ export interface TestRunResult {
  * Default `tool:test` runner. Reuses {@link validateAtom} so the same
  * project-context.json resolution + ADR-061 evidence cache applies.
  *
+ * No task is passed, so the scope-aware `tool:test` (T12959) runs WITHOUT a
+ * merge check: when `testing.affectedCommand` is declared it runs the affected
+ * packages of the checkout's diff against origin's default branch (the full
+ * suite only when that scope is refused), whether or not the work has merged.
+ * That fits a pre-merge re-verify of a worker's report; it is not
+ * `testsPassed` evidence for a merged change, which `cleo complete` judges
+ * separately.
+ *
  * @task T1589
+ * @task T12959
  * @adr ADR-061
  */
 export async function defaultRunProjectTests(projectRoot: string): Promise<TestRunResult> {

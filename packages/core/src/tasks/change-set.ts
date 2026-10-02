@@ -119,6 +119,17 @@ export interface ChangeSetDeps {
   ) => Promise<{ ok: true; prs: MergedPrSummary[] } | { ok: false; reason: string }>;
   /** One PR's base branch, state and commits (`gh pr view`); null when unknown. */
   viewPr?: (prNumber: number, executionRoot: string) => Promise<PrDetails | null>;
+  /**
+   * PRs GitHub associates with a commit, whatever they cite (T12959): empty
+   * when GitHub has none (or does not know the commit), null when the lookup
+   * failed.
+   */
+  listPrsForCommit?: (sha: string, executionRoot: string) => Promise<CommitPr[] | null>;
+  /**
+   * The repository's default branch from `gh`, asked only when origin has no
+   * default ref (T12959 review); null when unknown.
+   */
+  defaultBranch?: (executionRoot: string) => string | null;
   /** The PR whose head is `branch` — merged first, else newest; null when none. */
   findPrByHead?: (branch: string, executionRoot: string) => Promise<PrDetails | null>;
   /** Verify one PR through the existing `pr:` provenance code. */
@@ -245,8 +256,14 @@ function parseNameStatus(output: string): { files: string[]; deleted: string[] }
   return { files, deleted };
 }
 
-/** `origin/<default>` from `origin/HEAD`, never from a possibly stale local branch. */
-function resolveOriginDefault(root: string): string | null {
+/**
+ * `origin/<default>` from `origin/HEAD`, never from a possibly stale local branch.
+ *
+ * @param root - Repository to ask.
+ * @returns The remote-tracking ref (e.g. `origin/main`), or null when none exists.
+ * @task T12624
+ */
+export function resolveOriginDefault(root: string): string | null {
   const symbolic = git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
   if (symbolic) return symbolic.replace(/^refs\/remotes\//, '');
   for (const candidate of ['origin/main', 'origin/master']) {
@@ -254,6 +271,104 @@ function resolveOriginDefault(root: string): string | null {
       return candidate;
   }
   return null;
+}
+
+/**
+ * Whether `sha` has landed on origin's default branch in `root`.
+ *
+ * @param root - Repository to ask.
+ * @param sha - Commit to test.
+ * @returns True when it is an ancestor of `origin/<default>`; false when it is
+ *   not, or when no default branch or the commit is unknown here.
+ * @task T12960
+ */
+export function isLandedOnOriginDefault(root: string, sha: string): boolean {
+  const base = resolveOriginDefault(root);
+  return base !== null && isAncestorCommit(root, sha, base);
+}
+
+/**
+ * Whether `ancestor` is contained in `descendant` in `root`.
+ *
+ * @param root - Repository to ask.
+ * @param ancestor - Commit that should be contained.
+ * @param descendant - Commit or ref that should contain it.
+ * @returns True when it is; false when it is not or either is unknown here.
+ * @task T12960
+ */
+export function isAncestorCommit(root: string, ancestor: string, descendant: string): boolean {
+  return git(root, ['merge-base', '--is-ancestor', ancestor, descendant]) !== null;
+}
+
+/** Why {@link hasPatchEquivalent} could not decide: commits git does not have here. */
+export interface PatchEquivalenceUnknown {
+  /** Commits missing from the local object store (`git fetch` brings them). */
+  missing: string[];
+}
+
+/**
+ * Whether `sha` has a patch-equivalent (`git patch-id --stable`) among
+ * `candidates` — a commit rebased or cherry-picked before it merged keeps its
+ * patch but not its SHA (T12959 review). The candidates present locally are
+ * compared first, so one missing candidate does not hide a match among the
+ * others.
+ *
+ * @param root - Repository to ask.
+ * @param sha - The recorded commit.
+ * @param candidates - Commits that may carry its patch (a PR's own commits).
+ * @returns True on a match; false when every candidate was compared and none
+ *   matched; `{ missing }` when no present candidate matched and `sha` or
+ *   some candidate is not in the local object store; null when git failed.
+ * @task T12959
+ */
+export function hasPatchEquivalent(
+  root: string,
+  sha: string,
+  candidates: readonly string[],
+): boolean | null | PatchEquivalenceUnknown {
+  const resolve = (rev: string): string | null =>
+    git(root, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`]);
+  const own = resolve(sha);
+  if (own === null) return { missing: [sha] };
+  const others = new Set<string>();
+  const missing: string[] = [];
+  for (const candidate of candidates) {
+    const full = resolve(candidate);
+    if (full === null) missing.push(candidate);
+    else if (full !== own) others.add(full);
+  }
+  const noMatch = missing.length > 0 ? { missing } : false;
+  if (others.size === 0) return noMatch;
+  let ids: string;
+  try {
+    const patches = execFileSync(
+      'git',
+      ['log', '--no-walk=unsorted', '-p', '--format=commit %H', own, ...others],
+      {
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 64 * 1024 * 1024,
+      },
+    );
+    ids = execFileSync('git', ['patch-id', '--stable'], {
+      cwd: root,
+      input: patches,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+  } catch {
+    return null;
+  }
+  const byCommit = new Map<string, string>();
+  for (const line of ids.split('\n')) {
+    const [patchId, commit] = line.trim().split(/\s+/);
+    if (patchId && commit) byCommit.set(commit, patchId);
+  }
+  const target = byCommit.get(own);
+  // An empty or merge commit has no patch of its own to carry.
+  if (target === undefined) return false;
+  return [...others].some((c) => byCommit.get(c) === target) || noMatch;
 }
 
 /**
@@ -356,11 +471,102 @@ function ghJson(args: readonly string[], cwd: string): unknown {
   }
 }
 
-/** Default {@link ChangeSetDeps.viewPr}: `gh pr view <n>`. */
-async function defaultViewPr(prNumber: number, executionRoot: string): Promise<PrDetails | null> {
+/**
+ * Default {@link ChangeSetDeps.viewPr}: `gh pr view <n>`.
+ *
+ * @param prNumber - PR to view.
+ * @param executionRoot - Repository `gh` runs in.
+ * @returns The PR's base, state, merge commit and commits, or null when `gh` failed.
+ * @task T12624
+ */
+export async function defaultViewPr(
+  prNumber: number,
+  executionRoot: string,
+): Promise<PrDetails | null> {
   return toPrDetails(
     ghJson(['pr', 'view', String(prNumber), '--json', PR_DETAIL_FIELDS], executionRoot),
   );
+}
+
+/** A PR GitHub associates with a commit. */
+export interface CommitPr {
+  /** PR number. */
+  number: number;
+  /** Merge time, or null when the PR has not merged. */
+  mergedAt: string | null;
+  /** Branch the PR merged (or will merge) into. */
+  baseRefName: string;
+  /** The PR's merge commit, when GitHub reports one. */
+  mergeCommitSha?: string | null;
+}
+
+/**
+ * The PRs GitHub associates with a commit
+ * (`GET /repos/{owner}/{repo}/commits/<sha>/pulls`): the merged PR that
+ * introduced it to the default branch, or — for a commit a squash or rebase
+ * merge rewrote — the PRs it was pushed in, whatever they cite (T12959
+ * review). Candidates only: a caller checks that a PR carries the commit.
+ * Read-only.
+ *
+ * @param sha - The commit.
+ * @param executionRoot - Repository `gh` runs in.
+ * @returns The PRs; empty when GitHub has none, or does not know the commit
+ *   (never pushed: HTTP 422); null when the lookup failed (`gh` missing,
+ *   unauthenticated, unreachable or timed out), which is not "no PRs".
+ * @task T12959
+ */
+export async function defaultListPrsForCommit(
+  sha: string,
+  executionRoot: string,
+): Promise<CommitPr[] | null> {
+  if (!/^[0-9a-f]{7,40}$/i.test(sha)) return [];
+  const { isGhCliAvailable } = await import('../release/github-pr.js');
+  if (!isGhCliAvailable()) return null;
+  let out: string;
+  try {
+    out = execFileSync(
+      'gh',
+      [
+        'api',
+        `repos/{owner}/{repo}/commits/${sha}/pulls`,
+        '--jq',
+        '[.[] | {number, mergedAt: .merged_at, baseRefName: .base.ref, mergeCommitSha: .merge_commit_sha}]',
+      ],
+      {
+        cwd: executionRoot,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: ghQueryTimeoutMs(),
+      },
+    );
+  } catch (err) {
+    const stderr = String((err as { stderr?: unknown }).stderr ?? '');
+    // GitHub answers 422 for a commit it has never seen: no PR carries it.
+    return /HTTP 422|No commit found/i.test(stderr) ? [] : null;
+  }
+  let rows: unknown;
+  try {
+    rows = JSON.parse(out);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(rows)) return null;
+  return rows.flatMap((row: unknown) => {
+    const r = (row ?? {}) as Record<string, unknown>;
+    return typeof r.number === 'number'
+      ? [
+          {
+            number: r.number,
+            mergedAt: typeof r.mergedAt === 'string' && r.mergedAt !== '' ? r.mergedAt : null,
+            baseRefName: typeof r.baseRefName === 'string' ? r.baseRefName : '',
+            mergeCommitSha:
+              typeof r.mergeCommitSha === 'string' && r.mergeCommitSha !== ''
+                ? r.mergeCommitSha
+                : null,
+          },
+        ]
+      : [];
+  });
 }
 
 /** Default {@link ChangeSetDeps.findPrByHead}: `gh pr list --head <branch> --state all`. */
