@@ -372,6 +372,36 @@ export async function unlockNexusAccountKey(
 }
 
 /**
+ * Why Cleo Nexus refused this device's first key for a project (403), as an
+ * account error with a remedy, or `null` for any other failure. A device may
+ * create only version 1, of a keyless project its own user registered
+ * (cleo-nexus #33); this function is reached only when this account holds no
+ * key for the project (T13098).
+ */
+function refusedFirstKey(err: unknown, projectId: string): NexusAccountError | null {
+  if (!(err instanceof NexusError) || err.status !== 403) return null;
+  switch (err.details?.['reason']) {
+    case 'not-registrant':
+      return keyUnavailable(
+        `project ${projectId} has no key yet, and only a device of the account that registered it may create the first one`,
+        'run the first `cleo cloud push` from a device of the account that first ran `cleo project link` for this project',
+      );
+    case 'session-required':
+      return keyUnavailable(
+        `project ${projectId} already has a key, but it has not been shared with this account`,
+        'ask the project owner to share the project key with this account',
+      );
+    case 'project-role':
+      return keyUnavailable(
+        `only a project owner can create the first key of project ${projectId}`,
+        'ask an owner of the project to run the first `cleo cloud push`',
+      );
+    default:
+      return null;
+  }
+}
+
+/**
  * The data key of a project stream: unwrap the newest wrapped key, or mint
  * and store one when the project has none yet (its first push).
  *
@@ -413,6 +443,8 @@ export async function nexusProjectDataKey(
     });
     return pdk;
   } catch (err) {
+    const refused = refusedFirstKey(err, projectId);
+    if (refused) throw refused;
     if (isConflict(err, 'rotation-stale') || isConflict(err, 'keys-exist')) {
       // Another device created version 1 first: use its key (T13098).
       const won = await read();
