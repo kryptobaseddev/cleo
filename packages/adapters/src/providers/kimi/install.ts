@@ -27,6 +27,21 @@ import { getCleoTemplatesTildePath } from '../shared/paths.js';
  * project produces the same result. Only AGENTS.md is managed; Kimi does
  * not have an MCP or plugin registration mechanism.
  *
+ * The heavy-command hook (T12983) is NOT installed for Kimi: Kimi reads
+ * `[[hooks]]` only from the user-global `~/.kimi/config.toml` (no project
+ * config, and CLEO installs this hook per project only), and its
+ * `PreToolUse` answer cannot rewrite the command. `cleo hook heavy-command
+ * --provider kimi` speaks Kimi's protocol (deny with the governed command as
+ * the reason) for a manual entry:
+ *
+ * ```toml
+ * [[hooks]]
+ * event = "PreToolUse"
+ * matcher = "Shell"
+ * command = "cleo hook heavy-command --provider kimi"
+ * timeout = 20
+ * ```
+ *
  * @task T163
  * @epic T134
  */

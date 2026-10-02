@@ -24,9 +24,21 @@ export const CLEO_ARTIFACT_BUDGETS: Readonly<PackageArtifactBudgets> = Object.fr
   fileCount: 800,
 });
 
+/**
+ * The JavaScript files `build.mjs` declares for the published CLI: the CLI
+ * bundle, and the provider hook runtime that `bin/cleo.js` imports directly for
+ * `cleo hook heavy-command` (T12983), skipping the CLI bootstrap. Any other
+ * `.js` under `dist/` is development output.
+ */
+const CLEO_SHIPPED_JS_ENTRIES: ReadonlySet<string> = new Set([
+  'dist/cli/index.js',
+  'dist/cli/hook-entry.js',
+]);
+
 /** Required CLI and adapter-node resources, independent of historical byte/file-count floors. */
 export const CLEO_ARTIFACT_REQUIREMENTS: readonly PackageArtifactRequirement[] = Object.freeze([
   { id: 'cli-entry', path: 'dist/cli/index.js', match: 'exact' },
+  { id: 'cli-hook-entry', path: 'dist/cli/hook-entry.js', match: 'exact' },
   { id: 'studio-server-entry', path: 'studio-dist/index.js', match: 'exact' },
   { id: 'studio-handler', path: 'studio-dist/handler.js', match: 'exact' },
   { id: 'studio-server', path: 'studio-dist/server/index.js', match: 'exact' },
@@ -255,7 +267,9 @@ export function validatePackageArtifact(
 }
 
 /**
- * Reject declaration and stray JavaScript output absent from the published CLI bundle.
+ * Reject declaration and stray JavaScript output absent from the published CLI
+ * bundle: only `build.mjs`'s declared entries (the CLI bundle and the hook
+ * runtime) may ship as `.js` under `dist/`.
  *
  * @param files - Actual selected package files, not a development directory listing.
  * @returns Concrete build-shape failures; this does not load the bundle.
@@ -275,11 +289,11 @@ export function assertCleoShippedBuildShape(files: readonly PackageArtifactFile[
       `${declarations.length} declaration file(s) under dist/ — the esbuild bundle emits none`,
     );
   const stray = dist.filter(
-    (file) => file.path.endsWith('.js') && file.path !== 'dist/cli/index.js',
+    (file) => file.path.endsWith('.js') && !CLEO_SHIPPED_JS_ENTRIES.has(file.path),
   );
   if (stray.length)
     reasons.push(
-      `${stray.length} .js file(s) under dist/ outside the declared entry dist/cli/index.js, e.g. ${stray[0]?.path}`,
+      `${stray.length} .js file(s) under dist/ outside the declared entries ${[...CLEO_SHIPPED_JS_ENTRIES].join(', ')}, e.g. ${stray[0]?.path}`,
     );
   return reasons;
 }

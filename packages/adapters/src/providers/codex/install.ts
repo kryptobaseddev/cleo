@@ -3,15 +3,19 @@
  *
  * Handles CLEO installation into Codex CLI environments:
  * - Ensures AGENTS.md has CLEO @-references via CAAMP
+ * - Installs the heavy-command `PreToolUse` hook in the project's
+ *   `.codex/hooks.json` (T12983)
  *
  * @task T162
  * @task T9019
+ * @task T12983
  * @epic T134
  */
 
 import { join } from 'node:path';
 import { ensureProviderInstructionFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
+import { isUserHomeDir, syncJsonHeavyCommandHook } from '../shared/heavy-command-hook-install.js';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
 
 /**
@@ -20,11 +24,14 @@ import { getCleoTemplatesTildePath } from '../shared/paths.js';
  * Manages CLEO's integration with Codex CLI by:
  * 1. Ensuring AGENTS.md contains @-references to CLEO instruction files
  *    (delegated to CAAMP's canonical {@link ensureProviderInstructionFile}).
+ * 2. Installing the heavy-command `PreToolUse` hook (matcher `Bash`) in the
+ *    project's `.codex/hooks.json`, when `options.heavyCommandHook` is set.
+ *    Codex asks the user to review and trust a new project hook (`/hooks`)
+ *    before it runs it.
  *
  * @remarks
  * Installation is idempotent — running install multiple times on the same
- * project produces the same result. Only AGENTS.md is managed; Codex CLI
- * does not have an MCP or plugin registration mechanism.
+ * project produces the same result.
  *
  * @task T162
  * @epic T134
@@ -53,8 +60,25 @@ export class CodexInstallProvider implements AdapterInstallProvider {
       details.instructionFile = join(projectDir, result.instructFile);
     }
 
+    // T12983: route heavy shell commands through `cleo run`.
+    let success = true;
+    if (options.heavyCommandHook !== undefined && isUserHomeDir(projectDir)) {
+      details.heavyCommandHook = 'skipped';
+    } else if (options.heavyCommandHook !== undefined) {
+      try {
+        details.heavyCommandHook = await syncJsonHeavyCommandHook(
+          join(projectDir, '.codex', 'hooks.json'),
+          'codex',
+          options.heavyCommandHook,
+        );
+      } catch (err) {
+        details.settingsErrors = [err instanceof Error ? err.message : String(err)];
+        success = false;
+      }
+    }
+
     return {
-      success: true,
+      success,
       installedAt,
       instructionFileUpdated,
       details,

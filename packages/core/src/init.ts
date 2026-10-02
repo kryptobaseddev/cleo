@@ -1859,12 +1859,21 @@ async function scaffoldInitTarget(
       if (detected.length > 0) {
         created.push(`adapters: active provider detected (${detected.join(', ')})`);
 
-        // Activate and install detected adapters
+        // Activate and install detected adapters. T12983: the heavy-command
+        // hook mode comes from `resources.heavyCommandHook` (default rewrite).
+        const { configuredHeavyHookMode, resolveHeavyHookMode } = await import(
+          './resources/heavy-command.js'
+        );
+        const heavyCommandHook = resolveHeavyHookMode(
+          undefined,
+          await configuredHeavyHookMode(projRoot),
+        );
         for (const adapterId of detected) {
           try {
             const adapter = await mgr.activate(adapterId);
             const installResult = await adapter.install.install({
               projectDir: projRoot,
+              heavyCommandHook,
             });
             if (installResult.success) {
               created.push(`adapter install (${adapterId}): installed`);

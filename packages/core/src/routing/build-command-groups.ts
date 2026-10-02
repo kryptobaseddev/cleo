@@ -195,6 +195,7 @@ export const CLI_COMMAND_CATEGORIES: Readonly<Record<string, CliCategory>> = {
   caamp: 'System & Admin',
   provider: 'System & Admin',
   adapter: 'System & Admin',
+  hook: 'System & Admin',
   'install-global': 'System & Admin',
   'agents-v2': 'System & Admin',
   dynamic: 'System & Admin',
