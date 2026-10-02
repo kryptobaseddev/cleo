@@ -222,6 +222,8 @@ class FakeNexus {
   escrow: { mk: Buffer; keyVersion: number; verifier: string; updatedAt: string } | null = null;
   /** `false` plays a server older than account key escrow (cleo-nexus T082): no escrow routes (T13049). */
   escrowRoutes = true;
+  /** `true` answers the escrow route with a bare HTML 404, as a proxy or a wrong URL would (T13049). */
+  escrowHtml404 = false;
   /** Runs before an escrow PUT is applied (simulates a concurrent first device). */
   beforeEscrowPut: (() => void) | null = null;
   projectKeys = new Map<string, Array<{ wrappedProjectKey: string; keyVersion: number }>>();
@@ -297,6 +299,12 @@ class FakeNexus {
   readonly fetch: FetchLike = async (input, init) => {
     const url = new URL(input);
     const method = init?.method ?? 'GET';
+    if (this.escrowHtml404 && url.pathname.endsWith('/v1/account/keys/escrow')) {
+      return new Response('<html><body>Not Found</body></html>', {
+        status: 404,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
     try {
       if (url.origin === BLOB_HOST) return this.blob(method, url, init);
       const token = (new Headers(init?.headers).get('authorization') ?? '').replace(/^Bearer /, '');
@@ -1674,6 +1682,20 @@ describe('cloud vault key escrow', () => {
     }
     expect(fake.escrow).toBeNull();
     expect(fake.certificates).toEqual([]);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it('a 404 page that is not from Cleo Nexus is a failed request, not an empty vault (T13049)', async () => {
+    fake.escrowHtml404 = true;
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    link(a);
+    for (const run of [() => verifyNexusVault(vopts(a)), () => pushNexusVault(vopts(a))]) {
+      const err = await failure(on(a, run));
+      expect(err.code).toBe('E_NEXUS_REQUEST_FAILED');
+    }
+    expect(fake.escrow).toBeNull();
     expect(fake.writes).toEqual([]);
   });
 

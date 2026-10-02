@@ -229,8 +229,10 @@ async function openEscrow(conn: NexusVaultConnection): Promise<{ mk: Buffer; kv:
     grant = await conn.raw('GET', '/v1/account/keys/escrow', KeyEscrowGrant);
   } catch (err) {
     if (isRouteMissing(err)) throw vaultUnsupported();
-    // A supporting server with nothing escrowed yet: the account has no vault key.
-    if (err instanceof NexusError && err.status === 404) return null;
+    // A supporting server with nothing escrowed yet: the account has no vault key. Only the
+    // server's own E_NOT_FOUND counts; a 404 page from something else (a proxy, a wrong
+    // --api-url) is a failed request, never an empty vault.
+    if (err instanceof NexusError && err.status === 404 && err.code === 'E_NOT_FOUND') return null;
     throw nexusApiErrorToAccountError(err);
   }
   if (grant.deviceId !== conn.deviceId) {
@@ -272,6 +274,8 @@ async function mintEscrow(conn: NexusVaultConnection): Promise<{ mk: Buffer; kv:
     });
     return { mk, kv: 1 };
   } catch (err) {
+    // Backstop: unreachable while GET and PUT escrow ship together (cleo-nexus #24), since
+    // openEscrow already refused; kept for a server that exposes one without the other.
     if (isRouteMissing(err)) throw vaultUnsupported();
     if (!isConflict(err)) throw nexusApiErrorToAccountError(err);
     // Another device escrowed first: use its key.
