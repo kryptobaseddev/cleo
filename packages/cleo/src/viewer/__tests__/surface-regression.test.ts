@@ -80,6 +80,12 @@ beforeEach(async () => {
   tmpProjectRoot = await mkdtemp(join(tmpdir(), 'cleo-viewer-regression-'));
   prevCleoHome = process.env.CLEO_HOME;
   process.env.CLEO_HOME = join(tmpProjectRoot, 'cleo-home');
+  // T13095: create CLEO_HOME up front, as an installed CLEO has it. Otherwise the
+  // tests that write viewer.pid directly depend on a side effect of getDb(): the
+  // governor's db-heavy slot setup creates CLEO_HOME/locks, or else the detached
+  // project-registration op opens the global registry. Under memory pressure the
+  // slot defers and the detached op may not have run yet (ENOENT on macOS CI).
+  await mkdir(process.env.CLEO_HOME, { recursive: true });
   prevCwd = process.cwd();
   await mkdir(join(tmpProjectRoot, '.cleo'), { recursive: true });
   // Create a proper git repo so CLEO project resolution works.
