@@ -43,6 +43,7 @@ import { create as tarCreate, extract as tarExtract } from 'tar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetDualScopeDbCache, openDualScopeDb } from '../../store/dual-scope-db.js';
 import { computeManifestHash, exportPortableBundle } from '../../store/portable-bundle.js';
+import { ensureSyncSchema } from '../../store/sync/schema.js';
 import {
   emptyVaultTableHash,
   VAULT_FORMAT_KEY,
@@ -1913,6 +1914,70 @@ describe('cloud vault global scope', () => {
       db.close();
     }
   }
+
+  it('a vault snapshot carries no local change journal: capture, undo, frame, quarantine (T13042)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    await seedHome(a, ['p1']);
+    const journal = ['_sync_capture', '_sync_undo', '_sync_frame', '_sync_quarantine'];
+    const sentinel = 'JOURNAL-IMAGE-SENTINEL-T13042';
+    const live = new DatabaseSync(path.join(a.home, 'cleo.db'));
+    ensureSyncSchema(live, {
+      root: path.resolve(import.meta.dirname, '../../../migrations/sync-journal'),
+    });
+    const img = JSON.stringify({ name: sentinel });
+    live
+      .prepare(
+        "INSERT INTO _sync_capture (tbl, op, rk, img, at_ms, frame) VALUES ('nexus_project_registry', 'U', 'p1', ?, 0, 'f1')",
+      )
+      .run(img);
+    live.exec("INSERT INTO _sync_frame (frame, kind) VALUES ('f1', 'test')");
+    live
+      .prepare(
+        "INSERT INTO _sync_undo (seq, tbl, rk, op, before_full) VALUES (1, 'nexus_project_registry', 'p1', 'U', ?)",
+      )
+      .run(img);
+    live
+      .prepare(
+        "INSERT INTO _sync_quarantine (seq, tbl, op, rk, img, at_ms, reason, quarantined_at_ms) VALUES (1, 'nexus_project_registry', 'U', 'p1', ?, 0, 'test', 0)",
+      )
+      .run(img);
+    live.close();
+    await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
+    const head = fake.stream(HOME_STREAM).checkpoints.at(-1);
+    if (!head || !fake.escrow) throw new Error('fixture');
+    const dir = path.join(base, 'opened');
+    fs.mkdirSync(dir, { recursive: true });
+    const gz = path.join(base, 'opened.tar.gz');
+    fs.writeFileSync(
+      gz,
+      openAead(
+        nexusHomeDataKey(fake.escrow.mk),
+        fake.blobs.get(head.blobSha256)?.bytes ?? Buffer.alloc(0),
+        'checkpoint',
+        `checkpoint/v2\n${head.streamId}\n${head.checkpointId}\n${head.coversSeq}`,
+      ),
+    );
+    expect(gunzipSync(fs.readFileSync(gz)).includes(Buffer.from(sentinel))).toBe(false);
+    await tarExtract({ file: gz, cwd: dir });
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'),
+    ) as PortableBundleManifest;
+    const entry = manifest.global?.home.databases.find((d) => d.relPath === 'cleo.db');
+    if (!entry) throw new Error('fixture: no cleo.db in the snapshot');
+    const shipped = new DatabaseSync(path.join(dir, entry.bundlePath), { readOnly: true });
+    try {
+      for (const t of journal) {
+        const n = (shipped.prepare(`SELECT count(*) AS n FROM ${t}`).get() as { n: number }).n;
+        expect({ t, n }).toEqual({ t, n: 0 });
+      }
+    } finally {
+      shipped.close();
+    }
+    // The live journal is this device's and stays.
+    for (const t of journal) {
+      expect(homeSql<{ n: number }>(a, `SELECT count(*) AS n FROM ${t}`)).toEqual([{ n: 1 }]);
+    }
+  });
 
   it('i: pushes the home stream and restores it on another device, keeping machine-local state', async () => {
     const a = await machine('a', DEVICE_A, REPLICA_A);
