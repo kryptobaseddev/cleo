@@ -1,0 +1,759 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.2",
+  "resolvedVersion": "v2026.10.2",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12956",
+  "releaseKind": "regular",
+  "createdAt": "2026-10-02T17:45:00.878Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.1",
+  "previousTag": "v2026.10.1",
+  "previousShippedAt": "2026-10-01T05:41:52.968Z",
+  "tasks": [
+    {
+      "id": "T12958",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Tool cache keyed on tree content, not HEAD+worktree path: same tree shares results across worktrees and commits",
+      "evidenceAtoms": [
+        "pr:1774",
+        "files:.changeset/tree-keyed-tool-cache.md,packages/contracts/src/task.ts,packages/contracts/src/tasks.ts,packages/core/src/internal.ts,packages/core/src/store/lock.ts,packages/core/src/tasks/__tests__/gate-notes.test.ts,packages/core/src/tasks/__tests__/tool-cache-failed-first.test.ts,packages/core/src/tasks/__tests__/tool-cache-gh1221.test.ts,packages/core/src/tasks/__tests__/tool-cache-signal-kill.test.ts,packages/core/src/tasks/__tests__/tool-cache-tree-identity.test.ts,packages/core/src/tasks/__tests__/tool-cache-unrotatable-key.test.ts,packages/core/src/tasks/__tests__/tool-cache.test.ts,packages/core/src/tasks/compute-task-view.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/gate-notes.ts,packages/core/src/tasks/index.ts,packages/core/src/tasks/tool-cache-env.ts,packages/core/src/tasks/tool-cache-failed-first.ts,packages/core/src/tasks/tool-cache.ts,packages/core/src/validation/engine-ops.ts",
+        "ci:1774"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12961",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Failed-first reruns: record failing test files in the cache entry and re-run only those first after a fix",
+      "evidenceAtoms": [
+        "pr:1774",
+        "files:.changeset/tree-keyed-tool-cache.md,packages/contracts/src/task.ts,packages/contracts/src/tasks.ts,packages/core/src/internal.ts,packages/core/src/store/lock.ts,packages/core/src/tasks/__tests__/gate-notes.test.ts,packages/core/src/tasks/__tests__/tool-cache-failed-first.test.ts,packages/core/src/tasks/__tests__/tool-cache-gh1221.test.ts,packages/core/src/tasks/__tests__/tool-cache-signal-kill.test.ts,packages/core/src/tasks/__tests__/tool-cache-tree-identity.test.ts,packages/core/src/tasks/__tests__/tool-cache-unrotatable-key.test.ts,packages/core/src/tasks/__tests__/tool-cache.test.ts,packages/core/src/tasks/compute-task-view.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/gate-notes.ts,packages/core/src/tasks/index.ts,packages/core/src/tasks/tool-cache-env.ts,packages/core/src/tasks/tool-cache-failed-first.ts,packages/core/src/tasks/tool-cache.ts,packages/core/src/validation/engine-ops.ts",
+        "ci:1774"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12989",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Tool cache: never reuse a resource-killed result; key on the effective heap and worker env (NODE_OPTIONS etc.)",
+      "evidenceAtoms": [
+        "pr:1783",
+        "files:.changeset/t12989-tool-cache-resource-kills.md,packages/core/src/internal.ts,packages/core/src/tasks/__tests__/tool-cache-resource-kill.test.ts,packages/core/src/tasks/__tests__/tool-cache-signal-kill.test.ts,packages/core/src/tasks/__tests__/tool-cache-tree-identity.test.ts,packages/core/src/tasks/__tests__/tool-cache-unrotatable-key.test.ts,packages/core/src/tasks/__tests__/tool-cache.test.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/index.ts,packages/core/src/tasks/tool-cache-env.ts,packages/core/src/tasks/tool-cache.ts",
+        "ci:1783"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13008",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Map cleo-nexus #24's new 403 reasons (device-flow-session-required, device-not-enrolled) to typed errors with a cleo login fix",
+      "evidenceAtoms": [
+        "pr:1784",
+        "files:.changeset/t13008-nexus-403-reasons.md,packages/contracts/src/nexus-cloud.ts,packages/core/src/cloud/__tests__/nexus-enrol.test.ts,packages/core/src/cloud/nexus-enrol.ts",
+        "ci:1784"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12959",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "tool:test is scope-aware: run affected packages when testing.affectedCommand is set, full suite only when root config changed",
+      "evidenceAtoms": [
+        "pr:1776",
+        "files:.changeset/t12959-scope-aware-test-evidence.md,packages/contracts/src/task.ts,packages/core/src/orchestrate/worker-verify.ts,packages/core/src/release/ci-evidence.ts,packages/core/src/tasks/__tests__/affected-packages.test.ts,packages/core/src/tasks/__tests__/affected-scope.test.ts,packages/core/src/tasks/__tests__/change-set.test.ts,packages/core/src/tasks/__tests__/complete-ci.test.ts,packages/core/src/tasks/__tests__/complete.test.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/test-run-binding.test.ts,packages/core/src/tasks/affected-packages.ts,packages/core/src/tasks/affected-scope.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/complete-ci.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/test-run-binding.ts,scripts/.lint-sync-write-invariants-baseline.json,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts",
+        "ci:1776"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12960",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo complete resolves ci:<pr> itself instead of demanding a local full run after merge (reconcile T12656)",
+      "evidenceAtoms": [
+        "pr:1776",
+        "files:.changeset/t12959-scope-aware-test-evidence.md,packages/contracts/src/task.ts,packages/core/src/orchestrate/worker-verify.ts,packages/core/src/release/ci-evidence.ts,packages/core/src/tasks/__tests__/affected-packages.test.ts,packages/core/src/tasks/__tests__/affected-scope.test.ts,packages/core/src/tasks/__tests__/change-set.test.ts,packages/core/src/tasks/__tests__/complete-ci.test.ts,packages/core/src/tasks/__tests__/complete.test.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/test-run-binding.test.ts,packages/core/src/tasks/affected-packages.ts,packages/core/src/tasks/affected-scope.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/complete-ci.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/test-run-binding.ts,scripts/.lint-sync-write-invariants-baseline.json,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts",
+        "ci:1776"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12965",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Targeted test-run evidence bound to HEAD, tree hash and covered files",
+      "evidenceAtoms": [
+        "pr:1776",
+        "files:.changeset/t12959-scope-aware-test-evidence.md,packages/contracts/src/task.ts,packages/core/src/orchestrate/worker-verify.ts,packages/core/src/release/ci-evidence.ts,packages/core/src/tasks/__tests__/affected-packages.test.ts,packages/core/src/tasks/__tests__/affected-scope.test.ts,packages/core/src/tasks/__tests__/change-set.test.ts,packages/core/src/tasks/__tests__/complete-ci.test.ts,packages/core/src/tasks/__tests__/complete.test.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/test-run-binding.test.ts,packages/core/src/tasks/affected-packages.ts,packages/core/src/tasks/affected-scope.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/complete-ci.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/test-run-binding.ts,scripts/.lint-sync-write-invariants-baseline.json,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts",
+        "ci:1776"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12336",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Snapshot vault protocol: E2E encryption key hierarchy, per-device generation lineage, plaintext minimal manifest, recovery key",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12337",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "CLI: cleo cloud push | pull | restore (snapshot vault), on top of the shipped login/logout/status/devices/projects",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12950",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo cloud verify: compare this machine's checkpoint and checksums with the server and other devices",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12951",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo cloud activity: which device changed what, and when (E18/E19)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12966",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Vault pull/restore must never wipe this machine's credentials (sessions owner_auth_token, agent credentials, global account/registry/service secrets)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12967",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Vault manifest and restore honour column-level local-only classes (nexus_project_registry paths etc.)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12968",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Vault global scope excludes machine identity and runtime state (device-id, state/, keys/, runtime files, nexus.db, config home)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12969",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Vault up-to-date and local-changes checks cover the whole bundle (docs blobs, attachments, config), not just cleo.db",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12970",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Vault wording and trust: say 'encrypted, key escrowed on Cleo Nexus', not end-to-end; document what escrow gives up",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12971",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Vault lease: release after a successful or up-to-date push; up-to-date never takes the lease",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12972",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Vault state file: never silently reset trust; refuse or move aside unparseable/newer files; write under a lock",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12973",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Vault restore takes the store's exclusive guard before replacing a live store (no lost writes from daemons/sessions)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12974",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Vault read paths stay read-only: global vault/verify never bind a replica; pull/restore never mint or escrow keys",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12975",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Vault push: a segment landing mid-push maps to BEHIND (retry), not REFUSED",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12976",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Vault LOW follow-ups from #1773 review: refusal exit codes, restore --project into another project's store, stale fork warning, brittle relink hint",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13004",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault pull/restore propagates deletions: files and databases the snapshot no longer lists are removed (#1773 r3 N1)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13005",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault pull never silently overwrites unhashed local files (config.json, project-context.json, worktrees.json, dotfiles) (#1773 r3 N2)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13006",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault placeholder registry rows (cleo-vault-remote:) never reach store openers (#1773 r3 N3)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13007",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault LOWs from #1773 r3: persistent fork label, pusher-local state on fresh restore, crash after checkpoint, untrusted verify, exit codes (#1773 r3 N4-N6)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13019",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault never places over or removes git-tracked .cleo/ paths in a git checkout; git syncs them (#1773 r4 R1)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13020",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault restore never deletes never-synced local files without --force when the store has no synced rows (#1773 r4 R2/R3)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13021",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault placeholder rows: reject cleo-vault-remote: paths before resolve() and skip remote rows in workspace and registry-roots (#1773 r4 N3 remainder)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13022",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault LOWs from #1773 r4: global CLEO-installed content, config key order, installId, project-info.json, tree_id carry (#1773 r4 R4/R5)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13038",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault git-tracked marks never hide local edits: per-path digests without git, no marks for global scope, marks converge across checkouts (#1773 r5 R5-1/R5-2)",
+      "evidenceAtoms": [
+        "pr:1773",
+        "files:.changeset/t12336-cloud-vault.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/cloud/api.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-cloud.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/portable-bundle.ts,packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-home.test.ts,packages/core/src/cloud/__tests__/nexus-vault-state.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-attach.ts,packages/core/src/cloud/nexus-cloud-activity.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-home.ts,packages/core/src/cloud/nexus-vault-keys.ts,packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/nexus/__tests__/projects-clean-T9117.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-roots.ts,packages/core/src/nexus/registry.ts,packages/core/src/nexus/workspace.ts,packages/core/src/sentient/cross-project-hygiene.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/data-accessor.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/portable-bundle-relocate.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/sqlite.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/writer-lease.ts,packages/core/src/system/project-health.ts,packages/paths/src/__tests__/abs-path.test.ts,packages/paths/src/abs-path.ts,packages/paths/src/cleo-paths.ts,packages/paths/src/index.ts",
+        "ci:1773"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12979",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo run --class <test|build|typecheck|install|scan> [--scope] -- <cmd>: governed heavy-command front door (cleo-nexus lead)",
+      "evidenceAtoms": [
+        "pr:1777",
+        "files:.changeset/t12978-cleo-run-governor.md,packages/cleo/src/cli/__tests__/run-command.test.ts,packages/cleo/src/cli/__tests__/run-passthrough-cli.test.ts,packages/cleo/src/cli/commands/run.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/idempotency-context.ts,packages/cleo/src/cli/index.ts,packages/cleo/src/cli/renderers/index.ts,packages/contracts/src/index.ts,packages/contracts/src/resource-governor.ts,packages/core/src/orchestrate/__tests__/agent-admission.test.ts,packages/core/src/orchestrate/spawn-ops.ts,packages/core/src/resources/__tests__/darwin-backend.test.ts,packages/core/src/resources/__tests__/governor-lock-options.test.ts,packages/core/src/resources/__tests__/governor.test.ts,packages/core/src/resources/__tests__/monitor.test.ts,packages/core/src/resources/__tests__/run-admission.test.ts,packages/core/src/resources/__tests__/run-class.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/backend.ts,packages/core/src/resources/darwin-backend.ts,packages/core/src/resources/governor.ts,packages/core/src/resources/monitor.ts,packages/core/src/resources/run-admission.ts,packages/core/src/resources/run-class.ts,packages/core/src/resources/run-governed.ts,packages/core/src/sentient/__tests__/tick-admission.test.ts,packages/core/src/sentient/tick.ts",
+        "ci:1777"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12980",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "E_RESOURCE_DEFERRED soft-stop LAFS envelope: queue position, ETA, holders, ways forward (cache hit, ci:<pr>, narrower scope, --wait) (cleo-nexus lead)",
+      "evidenceAtoms": [
+        "pr:1777",
+        "files:.changeset/t12978-cleo-run-governor.md,packages/cleo/src/cli/__tests__/run-command.test.ts,packages/cleo/src/cli/__tests__/run-passthrough-cli.test.ts,packages/cleo/src/cli/commands/run.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/idempotency-context.ts,packages/cleo/src/cli/index.ts,packages/cleo/src/cli/renderers/index.ts,packages/contracts/src/index.ts,packages/contracts/src/resource-governor.ts,packages/core/src/orchestrate/__tests__/agent-admission.test.ts,packages/core/src/orchestrate/spawn-ops.ts,packages/core/src/resources/__tests__/darwin-backend.test.ts,packages/core/src/resources/__tests__/governor-lock-options.test.ts,packages/core/src/resources/__tests__/governor.test.ts,packages/core/src/resources/__tests__/monitor.test.ts,packages/core/src/resources/__tests__/run-admission.test.ts,packages/core/src/resources/__tests__/run-class.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/backend.ts,packages/core/src/resources/darwin-backend.ts,packages/core/src/resources/governor.ts,packages/core/src/resources/monitor.ts,packages/core/src/resources/run-admission.ts,packages/core/src/resources/run-class.ts,packages/core/src/resources/run-governed.ts,packages/core/src/sentient/__tests__/tick-admission.test.ts,packages/core/src/sentient/tick.ts",
+        "ci:1777"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12981",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Darwin pressure backend for ResourceMonitor (kern.memorystatus_level, vm_stat/compressor, loadavg, per-process RSS) feeding pressureScaleSlots; yellow narrows, red pauses heavy jobs (cleo-nexus lead)",
+      "evidenceAtoms": [
+        "pr:1777",
+        "files:.changeset/t12978-cleo-run-governor.md,packages/cleo/src/cli/__tests__/run-command.test.ts,packages/cleo/src/cli/__tests__/run-passthrough-cli.test.ts,packages/cleo/src/cli/commands/run.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/idempotency-context.ts,packages/cleo/src/cli/index.ts,packages/cleo/src/cli/renderers/index.ts,packages/contracts/src/index.ts,packages/contracts/src/resource-governor.ts,packages/core/src/orchestrate/__tests__/agent-admission.test.ts,packages/core/src/orchestrate/spawn-ops.ts,packages/core/src/resources/__tests__/darwin-backend.test.ts,packages/core/src/resources/__tests__/governor-lock-options.test.ts,packages/core/src/resources/__tests__/governor.test.ts,packages/core/src/resources/__tests__/monitor.test.ts,packages/core/src/resources/__tests__/run-admission.test.ts,packages/core/src/resources/__tests__/run-class.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/backend.ts,packages/core/src/resources/darwin-backend.ts,packages/core/src/resources/governor.ts,packages/core/src/resources/monitor.ts,packages/core/src/resources/run-admission.ts,packages/core/src/resources/run-class.ts,packages/core/src/resources/run-governed.ts,packages/core/src/sentient/__tests__/tick-admission.test.ts,packages/core/src/sentient/tick.ts",
+        "ci:1777"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13001",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "cleo run: orphan recovery never group-signals a nested (non-leader) job record (#1777 r5 N3)",
+      "evidenceAtoms": [
+        "pr:1777",
+        "files:packages/core/src/resources/__tests__/run-admission.test.ts,packages/core/src/resources/run-admission.ts",
+        "ci:1777"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13010",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "cleo run fails open: governor I/O errors run the command ungoverned with a notice (#1781 HIGH-2)",
+      "evidenceAtoms": [
+        "pr:1777",
+        "files:packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/governor.ts,packages/core/src/resources/run-governed.ts",
+        "ci:1777"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12983",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Provider hooks route heavy commands through cleo run (Claude Code PreToolUse Bash rewrite + pressure context line; Codex/Kimi/opencode adapters where hooks exist)",
+      "evidenceAtoms": [
+        "pr:1781",
+        "files:.changeset/t12983-heavy-command-hook.md,build.mjs,packages/adapters/src/providers/claude-code/install.ts,packages/adapters/src/providers/claude-code/paths.ts,packages/adapters/src/providers/codex/install.ts,packages/adapters/src/providers/kimi/install.ts,packages/adapters/src/providers/opencode/install.ts,packages/adapters/src/providers/shared/__tests__/heavy-command-hook-install.test.ts,packages/adapters/src/providers/shared/heavy-command-hook-install.ts,packages/adapters/src/providers/shared/hook-config.ts,packages/caamp/src/core/artifacts/validation.ts,packages/caamp/tests/unit/package-artifact.test.ts,packages/cleo/bin/cleo.js,packages/cleo/src/cli/__tests__/hook-entry.test.ts,packages/cleo/src/cli/__tests__/run-hook-contract.test.ts,packages/cleo/src/cli/commands/hook.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/hook-entry.ts,packages/contracts/src/config.ts,packages/contracts/src/heavy-command-hook.ts,packages/contracts/src/index.ts,packages/contracts/src/install.ts,packages/core/src/init.ts,packages/core/src/resources/__tests__/heavy-command.test.ts,packages/core/src/resources/__tests__/hook-run-contract.test.ts,packages/core/src/resources/heavy-command.ts,packages/core/src/routing/build-command-groups.ts,packages/core/src/upgrade.ts,scripts/__tests__/assert-cleo-tarball.test.mjs",
+        "ci:1781"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13009",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Heavy-command hook wraps the heavy element in place, never via sh -c (#1781 HIGH-1)",
+      "evidenceAtoms": [
+        "pr:1781",
+        "files:packages/core/src/resources/__tests__/heavy-command.test.ts,packages/core/src/resources/heavy-command.ts",
+        "ci:1781"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12957",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Agent instructions: CI-first + affected evidence; drop 'pnpm run test then tool:test' (injection, spawn prompt, ct-task-executor/ct-orchestrator/ct-ivt-looper, CLEO-REFERENCE)",
+      "evidenceAtoms": [
+        "pr:1775",
+        "files:.changeset/t12957-ci-first-test-evidence.md,packages/cleo/src/cli/commands/__tests__/verify-fresh.test.ts,packages/cleo/src/cli/commands/verify.ts,packages/core/src/orchestrate/__tests__/worker-verify-scope.test.ts,packages/core/src/orchestrate/worker-verify.ts,packages/core/src/orchestration/__tests__/spawn-prompt-test-evidence.test.ts,packages/core/src/orchestration/spawn-prompt.ts,packages/core/src/resources/__tests__/governor-reap.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/governor.ts,packages/core/src/resources/run-governed.ts,packages/core/src/resources/slot-holder.ts,packages/core/src/resources/tool-groups.ts,packages/core/src/sentient/__tests__/re-verify-gate.test.ts,packages/core/src/sentient/state.ts,packages/core/src/sentient/tick.ts,packages/core/src/tasks/__tests__/done-record-execution-root.test.ts,packages/core/src/tasks/__tests__/evidence-tool-names.test.ts,packages/core/src/tasks/__tests__/tool-group-tracking.test.ts,packages/core/src/tasks/__tests__/tool-semaphore-admission.test.ts,packages/core/src/tasks/__tests__/tool-semaphore-gh1222.test.ts,packages/core/src/tasks/__tests__/tool-semaphore.test.ts,packages/core/src/tasks/done-record.ts,packages/core/src/tasks/tool-cache.ts,packages/core/src/tasks/tool-resolver.ts,packages/core/src/tasks/tool-semaphore.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/ct-ivt-looper/SKILL.md,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/ct-task-executor/references/acceptance-criteria-mapping.md,packages/skills/skills/ct-task-executor/references/anti-patterns.md,packages/skills/skills/ct-task-executor/references/evidence-and-gates.md,packages/skills/skills/ct-task-executor/references/implementation-patterns.md,packages/skills/skills/manifest.json",
+        "ci:1775"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12962",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Worker re-verification uses the worker's evidence or affected tests, never a blind full suite (worker-verify.ts, sentient daemon)",
+      "evidenceAtoms": [
+        "pr:1775",
+        "files:.changeset/t12957-ci-first-test-evidence.md,packages/cleo/src/cli/commands/__tests__/verify-fresh.test.ts,packages/cleo/src/cli/commands/verify.ts,packages/core/src/orchestrate/__tests__/worker-verify-scope.test.ts,packages/core/src/orchestrate/worker-verify.ts,packages/core/src/orchestration/__tests__/spawn-prompt-test-evidence.test.ts,packages/core/src/orchestration/spawn-prompt.ts,packages/core/src/resources/__tests__/governor-reap.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/governor.ts,packages/core/src/resources/run-governed.ts,packages/core/src/resources/slot-holder.ts,packages/core/src/resources/tool-groups.ts,packages/core/src/sentient/__tests__/re-verify-gate.test.ts,packages/core/src/sentient/state.ts,packages/core/src/sentient/tick.ts,packages/core/src/tasks/__tests__/done-record-execution-root.test.ts,packages/core/src/tasks/__tests__/evidence-tool-names.test.ts,packages/core/src/tasks/__tests__/tool-group-tracking.test.ts,packages/core/src/tasks/__tests__/tool-semaphore-admission.test.ts,packages/core/src/tasks/__tests__/tool-semaphore-gh1222.test.ts,packages/core/src/tasks/__tests__/tool-semaphore.test.ts,packages/core/src/tasks/done-record.ts,packages/core/src/tasks/tool-cache.ts,packages/core/src/tasks/tool-resolver.ts,packages/core/src/tasks/tool-semaphore.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/ct-ivt-looper/SKILL.md,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/ct-task-executor/references/acceptance-criteria-mapping.md,packages/skills/skills/ct-task-executor/references/anti-patterns.md,packages/skills/skills/ct-task-executor/references/evidence-and-gates.md,packages/skills/skills/ct-task-executor/references/implementation-patterns.md,packages/skills/skills/manifest.json",
+        "ci:1775"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12963",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Machine-wide heavy-run admission on macOS: governor test-run class wired into runToolCached; darwin default 1 test slot",
+      "evidenceAtoms": [
+        "pr:1775",
+        "files:.changeset/t12957-ci-first-test-evidence.md,packages/cleo/src/cli/commands/__tests__/verify-fresh.test.ts,packages/cleo/src/cli/commands/verify.ts,packages/core/src/orchestrate/__tests__/worker-verify-scope.test.ts,packages/core/src/orchestrate/worker-verify.ts,packages/core/src/orchestration/__tests__/spawn-prompt-test-evidence.test.ts,packages/core/src/orchestration/spawn-prompt.ts,packages/core/src/resources/__tests__/governor-reap.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/governor.ts,packages/core/src/resources/run-governed.ts,packages/core/src/resources/slot-holder.ts,packages/core/src/resources/tool-groups.ts,packages/core/src/sentient/__tests__/re-verify-gate.test.ts,packages/core/src/sentient/state.ts,packages/core/src/sentient/tick.ts,packages/core/src/tasks/__tests__/done-record-execution-root.test.ts,packages/core/src/tasks/__tests__/evidence-tool-names.test.ts,packages/core/src/tasks/__tests__/tool-group-tracking.test.ts,packages/core/src/tasks/__tests__/tool-semaphore-admission.test.ts,packages/core/src/tasks/__tests__/tool-semaphore-gh1222.test.ts,packages/core/src/tasks/__tests__/tool-semaphore.test.ts,packages/core/src/tasks/done-record.ts,packages/core/src/tasks/tool-cache.ts,packages/core/src/tasks/tool-resolver.ts,packages/core/src/tasks/tool-semaphore.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/ct-ivt-looper/SKILL.md,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/ct-task-executor/references/acceptance-criteria-mapping.md,packages/skills/skills/ct-task-executor/references/anti-patterns.md,packages/skills/skills/ct-task-executor/references/evidence-and-gates.md,packages/skills/skills/ct-task-executor/references/implementation-patterns.md,packages/skills/skills/manifest.json",
+        "ci:1775"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12964",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence ergonomics: test-affected in valid tool names and help, cleo verify --fresh, done-record passes executionRoot",
+      "evidenceAtoms": [
+        "pr:1775",
+        "files:.changeset/t12957-ci-first-test-evidence.md,packages/cleo/src/cli/commands/__tests__/verify-fresh.test.ts,packages/cleo/src/cli/commands/verify.ts,packages/core/src/orchestrate/__tests__/worker-verify-scope.test.ts,packages/core/src/orchestrate/worker-verify.ts,packages/core/src/orchestration/__tests__/spawn-prompt-test-evidence.test.ts,packages/core/src/orchestration/spawn-prompt.ts,packages/core/src/resources/__tests__/governor-reap.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/governor.ts,packages/core/src/resources/run-governed.ts,packages/core/src/resources/slot-holder.ts,packages/core/src/resources/tool-groups.ts,packages/core/src/sentient/__tests__/re-verify-gate.test.ts,packages/core/src/sentient/state.ts,packages/core/src/sentient/tick.ts,packages/core/src/tasks/__tests__/done-record-execution-root.test.ts,packages/core/src/tasks/__tests__/evidence-tool-names.test.ts,packages/core/src/tasks/__tests__/tool-group-tracking.test.ts,packages/core/src/tasks/__tests__/tool-semaphore-admission.test.ts,packages/core/src/tasks/__tests__/tool-semaphore-gh1222.test.ts,packages/core/src/tasks/__tests__/tool-semaphore.test.ts,packages/core/src/tasks/done-record.ts,packages/core/src/tasks/tool-cache.ts,packages/core/src/tasks/tool-resolver.ts,packages/core/src/tasks/tool-semaphore.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/ct-ivt-looper/SKILL.md,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/ct-task-executor/references/acceptance-criteria-mapping.md,packages/skills/skills/ct-task-executor/references/anti-patterns.md,packages/skills/skills/ct-task-executor/references/evidence-and-gates.md,packages/skills/skills/ct-task-executor/references/implementation-patterns.md,packages/skills/skills/manifest.json",
+        "ci:1775"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13034",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleocode mirror of cleo-nexus segment/v3 + checkpoint/v3: vault verifies v3 checkpoints/segments and handles a v3-ratcheted stream (cleo-nexus #30 MED-1)",
+      "evidenceAtoms": [
+        "pr:1785",
+        "files:.changeset/t13034-vault-v3-mirror.md,packages/contracts/src/cloud/api.ts,packages/contracts/src/cloud/envelope.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/contracts/src/nexus-vault.ts,packages/contracts/src/sync-schema.ts,packages/core/src/cloud/__tests__/journal.test.ts,packages/core/src/cloud/__tests__/manifest-check-v3.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/__tests__/signing.test.ts,packages/core/src/cloud/journal.ts,packages/core/src/cloud/manifest-check.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/cloud/signing.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/vault-manifest.ts",
+        "ci:1785"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T12958",
+      "T12961",
+      "T12989",
+      "T13008",
+      "T12959",
+      "T12960",
+      "T12965",
+      "T12336",
+      "T12337",
+      "T12950",
+      "T12951",
+      "T12966",
+      "T12967",
+      "T12968",
+      "T12969",
+      "T12970",
+      "T12971",
+      "T12972",
+      "T12973",
+      "T12974",
+      "T12975",
+      "T12976",
+      "T12979",
+      "T12980",
+      "T12981",
+      "T12983",
+      "T12957",
+      "T12962",
+      "T12963",
+      "T12964",
+      "T13034"
+    ],
+    "fixes": [
+      "T13004",
+      "T13005",
+      "T13006",
+      "T13007",
+      "T13019",
+      "T13020",
+      "T13021",
+      "T13022",
+      "T13038",
+      "T13001",
+      "T13010",
+      "T13009"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-02T17:45:00.878Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-02T17:45:00.878Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-02T17:45:00.878Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-02T17:45:00.878Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-02T17:45:00.878Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-02T17:45:00.878Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 454 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.2 — 2026-10-02\n\n### Added\n\n- cleo cloud push, pull, restore, verify, vault, lease release and activity back up and recover project and global stores as encrypted snapshots on Cleo Nexus (the key is escrowed on Cleo Nexus, released only to your approved devices), with lineage, a single-writer lease, verified restore that keeps this machine's own state and credentials, and a per-device integrity check; cleo login nexus also hands the device the encryption key and attaches its global store _(provenance: [T12336](https://github.com/kryptobaseddev/cleo/search?q=T12336&type=commits), [T12337](https://github.com/kryptobaseddev/cleo/search?q=T12337&type=commits), [T12338](https://github.com/kryptobaseddev/cleo/search?q=T12338&type=commits), [T12950](https://github.com/kryptobaseddev/cleo/search?q=T12950&type=commits), [T12951](https://github.com/kryptobaseddev/cleo/search?q=T12951&type=commits), [T12952](https://github.com/kryptobaseddev/cleo/search?q=T12952&type=commits), [T12966](https://github.com/kryptobaseddev/cleo/search?q=T12966&type=commits), [T12967](https://github.com/kryptobaseddev/cleo/search?q=T12967&type=commits), [T12968](https://github.com/kryptobaseddev/cleo/search?q=T12968&type=commits), [T12969](https://github.com/kryptobaseddev/cleo/search?q=T12969&type=commits), [T12970](https://github.com/kryptobaseddev/cleo/search?q=T12970&type=commits), [T12971](https://github.com/kryptobaseddev/cleo/search?q=T12971&type=commits), [T12972](https://github.com/kryptobaseddev/cleo/search?q=T12972&type=commits), [T12973](https://github.com/kryptobaseddev/cleo/search?q=T12973&type=commits), [T12974](https://github.com/kryptobaseddev/cleo/search?q=T12974&type=commits), [T12975](https://github.com/kryptobaseddev/cleo/search?q=T12975&type=commits), [T12976](https://github.com/kryptobaseddev/cleo/search?q=T12976&type=commits), [T13004](https://github.com/kryptobaseddev/cleo/search?q=T13004&type=commits), [T13005](https://github.com/kryptobaseddev/cleo/search?q=T13005&type=commits), [T13006](https://github.com/kryptobaseddev/cleo/search?q=T13006&type=commits), [T13007](https://github.com/kryptobaseddev/cleo/search?q=T13007&type=commits), [T13019](https://github.com/kryptobaseddev/cleo/search?q=T13019&type=commits), [T13020](https://github.com/kryptobaseddev/cleo/search?q=T13020&type=commits), [T13021](https://github.com/kryptobaseddev/cleo/search?q=T13021&type=commits), [T13022](https://github.com/kryptobaseddev/cleo/search?q=T13022&type=commits), [T13038](https://github.com/kryptobaseddev/cleo/search?q=T13038&type=commits))_\n- Agent instructions recommend cleo done --plan, ci:<pr> after merge and tool:test-affected before it; worker re-verification runs affected tests first in the worker's (or adopted) worktree, and a busy test slot costs no attempt; heavy tool runs take a governor slot and default to one machine-wide slot on macOS; a governor or tool slot whose holder process and tool are both gone is reaped at once, and a terminating signal is passed on to running tools; cleo verify --fresh; test-affected is a listed tool name. _(provenance: [T12957](https://github.com/kryptobaseddev/cleo/search?q=T12957&type=commits), [T12962](https://github.com/kryptobaseddev/cleo/search?q=T12962&type=commits), [T12963](https://github.com/kryptobaseddev/cleo/search?q=T12963&type=commits), [T12964](https://github.com/kryptobaseddev/cleo/search?q=T12964&type=commits))_\n- tool:test runs affected packages first, cleo complete resolves ci:<pr> itself after merge, test-run evidence is bound to fresh, relevant reports and its tree _(provenance: [T12959](https://github.com/kryptobaseddev/cleo/search?q=T12959&type=commits), [T12960](https://github.com/kryptobaseddev/cleo/search?q=T12960&type=commits), [T12965](https://github.com/kryptobaseddev/cleo/search?q=T12965&type=commits), [T12656](https://github.com/kryptobaseddev/cleo/search?q=T12656&type=commits))_\n- cleo run: the governed front door for heavy commands, with a machine-wide budget per class, a soft stop (E_RESOURCE_DEFERRED, exit 75), pause-instead-of-kill under pressure, a macOS pressure backend and --passthrough for the provider hook _(provenance: [T12979](https://github.com/kryptobaseddev/cleo/search?q=T12979&type=commits), [T12980](https://github.com/kryptobaseddev/cleo/search?q=T12980&type=commits), [T12981](https://github.com/kryptobaseddev/cleo/search?q=T12981&type=commits); [#1777](https://github.com/kryptobaseddev/cleo/pull/1777))_\n- a provider hook that CLEO installs routes agents' heavy shell commands (tests, builds, typechecks, installs) through `cleo run`, so agents share one machine-wide budget without being told to _(provenance: [T12983](https://github.com/kryptobaseddev/cleo/search?q=T12983&type=commits))_\n- Cloud vault reads segment/v3 and checkpoint/v3, refuses to push onto a v3 stream, and stamps a shared SYNC_SCHEMA_VERSION _(provenance: [T13034](https://github.com/kryptobaseddev/cleo/search?q=T13034&type=commits))_\n- the evidence tool cache is keyed on source tree content plus an environment fingerprint, so equally built worktrees and commits with the same content share one run and concurrent identical runs coalesce; a failing `tool:test` is re-run in full once (a pass then is marked `flaky`) and, after a change, re-runs only its failing files first _(provenance: [T12958](https://github.com/kryptobaseddev/cleo/search?q=T12958&type=commits), [T12961](https://github.com/kryptobaseddev/cleo/search?q=T12961&type=commits))_\n\n### Fixed\n\n- the evidence tool cache never reuses a run that was killed for resources (an OOM, a heap limit, exit 137/143, a signal), and its key now includes the heap and worker limits the run was spawned with, so a retry with more memory always runs _(provenance: [T12989](https://github.com/kryptobaseddev/cleo/search?q=T12989&type=commits))_\n- Cleo Nexus refusals `device-flow-session-required` and `device-not-enrolled` now report a typed error with a `cleo login nexus` fix instead of a bare server message _(provenance: [T13008](https://github.com/kryptobaseddev/cleo/search?q=T13008&type=commits))_\n",
+    "changesetEntryCount": 9,
+    "changesetIds": [
+      "t12336-cloud-vault",
+      "t12957-ci-first-test-evidence",
+      "t12959-scope-aware-test-evidence",
+      "t12978-cleo-run-governor",
+      "t12983-heavy-command-hook",
+      "t12989-tool-cache-resource-kills",
+      "t13008-nexus-403-reasons",
+      "t13034-vault-v3-mirror",
+      "tree-keyed-tool-cache"
+    ],
+    "taskIds": [
+      "T12958",
+      "T12961",
+      "T12989",
+      "T13008",
+      "T12959",
+      "T12960",
+      "T12965",
+      "T12336",
+      "T12337",
+      "T12950",
+      "T12951",
+      "T12966",
+      "T12967",
+      "T12968",
+      "T12969",
+      "T12970",
+      "T12971",
+      "T12972",
+      "T12973",
+      "T12974",
+      "T12975",
+      "T12976",
+      "T13004",
+      "T13005",
+      "T13006",
+      "T13007",
+      "T13019",
+      "T13020",
+      "T13021",
+      "T13022",
+      "T13038",
+      "T12979",
+      "T12980",
+      "T12981",
+      "T13001",
+      "T13010",
+      "T12983",
+      "T13009",
+      "T12957",
+      "T12962",
+      "T12963",
+      "T12964",
+      "T13034"
+    ]
+  }
+}
