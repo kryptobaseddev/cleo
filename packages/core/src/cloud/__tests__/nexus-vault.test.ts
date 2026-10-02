@@ -25,6 +25,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
+import type { PortableBundleManifest } from '@cleocode/contracts';
 import type {
   Checkpoint,
   DeviceCertificateRecord,
@@ -33,9 +34,10 @@ import type {
   Segment,
   TableDeltas,
 } from '@cleocode/contracts/cloud';
+import { create as tarCreate, extract as tarExtract } from 'tar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetDualScopeDbCache, openDualScopeDb } from '../../store/dual-scope-db.js';
-import { exportPortableBundle } from '../../store/portable-bundle.js';
+import { computeManifestHash, exportPortableBundle } from '../../store/portable-bundle.js';
 import {
   generateEd25519,
   generateX25519,
@@ -1889,6 +1891,7 @@ describe('cloud vault global scope', () => {
       'llm-catalog/latest.json',
       '.migrations/m1.done',
       'CLEOOS-IDENTITY.md',
+      'cant/starter/team.cant',
     ];
     const config = (m: Machine, model: string, installId: string | null) =>
       fs.writeFileSync(
@@ -1963,6 +1966,72 @@ describe('cloud vault global scope', () => {
       llm: { model: 'model-a2' },
       telemetry: { enabled: false },
     });
+  });
+
+  it('a global snapshot never carries git marks: a crafted flag hides nothing (T13038)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    await seedHome(a, ['p1']);
+    await seedHome(b, ['p1']);
+    fs.mkdirSync(path.join(a.home, 'notes'), { recursive: true });
+    fs.writeFileSync(path.join(a.home, 'notes', 'global.md'), 'g1\n');
+    await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
+    const head = fake.stream(HOME_STREAM).checkpoints.at(-1);
+    if (!head || !fake.escrow) throw new Error('fixture');
+    const homeKey = nexusHomeDataKey(fake.escrow.mk);
+
+    // A key holder re-pushes the same bundle with the file flagged as git-tracked.
+    const work = path.join(base, 'crafted');
+    const dir = path.join(work, 'x');
+    fs.mkdirSync(dir, { recursive: true });
+    const gz = path.join(work, 'in.tar.gz');
+    fs.writeFileSync(
+      gz,
+      openAead(
+        homeKey,
+        fake.blobs.get(head.blobSha256)?.bytes ?? Buffer.alloc(0),
+        'checkpoint',
+        `checkpoint/v2\n${head.streamId}\n${head.checkpointId}\n${head.coversSeq}`,
+      ),
+    );
+    await tarExtract({ file: gz, cwd: dir });
+    const manifestFile = path.join(dir, 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as PortableBundleManifest;
+    const entry = manifest.global?.home.files.find((f) => f.relPath === 'notes/global.md');
+    if (!entry) throw new Error('fixture');
+    entry.gitTracked = true;
+    manifest.integrity.manifestHash = computeManifestHash(manifest);
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2));
+    const out = path.join(work, 'out.tar.gz');
+    await tarCreate({ gzip: true, file: out, cwd: dir }, fs.readdirSync(dir));
+    const journal = new Journal({
+      http: new Http({ baseUrl: API, token: a.token, deviceId: a.deviceId, fetch: fake.fetch }),
+      streamId: HOME_STREAM,
+      replicaId: head.replicaId,
+      deviceId: DEVICE_A,
+      signing: a.keys.signing,
+      key: homeKey,
+      fetch: fake.fetch,
+    });
+    await journal.pushCheckpoint({
+      bundle: fs.readFileSync(out),
+      manifest: structuredClone(head.manifest),
+      cursor: cursorFromCheckpoint(head),
+      parentCheckpointId: head.checkpointId,
+    });
+
+    // The flag is ignored: the snapshot verifies with the file counted, and B owns its copy.
+    const pulled = await on(b, () =>
+      restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull', force: true })),
+    );
+    expect(pulled.status).toBe('restored');
+    expect(fs.readFileSync(path.join(b.home, 'notes', 'global.md'), 'utf8')).toBe('g1\n');
+    expect(b.state.stream(API, USER, HOME_STREAM, b.home)?.gitTracked).toBeUndefined();
+    fs.writeFileSync(path.join(b.home, 'notes', 'global.md'), 'b edit\n');
+    const vb = await on(b, () => verifyNexusVault(vopts(b, { scope: 'global' })));
+    expect(vb.verdict).toBe('ahead');
+    const pushed = await on(b, () => pushNexusVault(vopts(b, { scope: 'global' })));
+    expect(pushed.status).toBe('pushed');
   });
 });
 
@@ -2354,6 +2423,14 @@ describe('cloud vault round 4 (#1773)', () => {
     expect(read(b, 'adrs/shared.md')).toBe('B branch\n');
     expect(git(b, 'status', '--porcelain', '--', '.cleo/rcasd', '.cleo/adrs')).toBe('');
     expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+    // And the next round still works: A pushes, B's plain pull lands (T13038).
+    insertTask(a, 'A2');
+    await on(a, () => pushNexusVault(vopts(a)));
+    expect((await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })))).status).toBe(
+      'restored',
+    );
+    expect(read(b, 'rcasd/T1/research.md')).toBe('# research\n');
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
   });
 
   it('a directory that is not a git checkout gets the tracked files, and both sides keep pulling (T13019)', async () => {
@@ -2469,5 +2546,67 @@ describe('cloud vault round 4 (#1773)', () => {
       'restored',
     );
     expect(read(b, 'project-info.json')).toBe(info);
+  });
+
+  it('R5PROBE-1: on a machine without git, an edit to a marked file is a local change (T13038)', async () => {
+    const { a, b } = await twoMachines();
+    write(a, 'adrs/tracked.md', 'v1\n');
+    commit(a, 'adrs/tracked.md');
+    await on(a, () => pushNexusVault(vopts(a)));
+    // The documented new-machine flow: B restores into a directory with no git.
+    await restoreOntoB(b);
+    expect(read(b, 'adrs/tracked.md')).toBe('v1\n');
+    write(b, 'adrs/tracked.md', 'b edit\n');
+    const vb = await on(b, () => verifyNexusVault(vopts(b)));
+    expect(vb.verdict).toBe('ahead');
+    expect(vb.tables.find((x) => x.table === 'zz_vault_files')?.match).toBe(false);
+    const pushed = await on(b, () => pushNexusVault(vopts(b)));
+    expect(pushed.status).toBe('pushed');
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+
+    // A's checkout leaves the tracked file to git and keeps going.
+    expect((await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })))).status).toBe(
+      'restored',
+    );
+    expect(read(a, 'adrs/tracked.md')).toBe('v1\n');
+    write(b, 'adrs/tracked.md', 'b edit 2\n');
+    insertTask(a, 'A1');
+    await on(a, () => pushNexusVault(vopts(a)));
+    const refused = await failure(on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' }))));
+    expect(refused.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    expect(refused.message).toContain('adrs/tracked.md');
+    expect(read(b, 'adrs/tracked.md')).toBe('b edit 2\n');
+  });
+
+  it('R5PROBE-2: checkouts that track different files reach match and keep pulling (T13038)', async () => {
+    const { a, b } = await twoMachines();
+    write(a, 'notes/y.md', 'y\n');
+    write(a, 'notes/z.md', 'z\n');
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    // Both hold both files; A's git tracks y, B's tracks z.
+    commit(a, 'notes/y.md');
+    commit(b, 'notes/z.md');
+    insertTask(a, 'A1');
+    await on(a, () => pushNexusVault(vopts(a)));
+    expect((await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })))).status).toBe(
+      'restored',
+    );
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+    insertTask(b, 'B1');
+    await on(b, () => pushNexusVault(vopts(b)));
+    expect((await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })))).status).toBe(
+      'restored',
+    );
+    expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+    insertTask(a, 'A2');
+    await on(a, () => pushNexusVault(vopts(a)));
+    expect((await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })))).status).toBe(
+      'restored',
+    );
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+    expect(taskCount(b)).toBe(8);
+    expect([read(a, 'notes/y.md'), read(a, 'notes/z.md')]).toEqual(['y\n', 'z\n']);
+    expect([read(b, 'notes/y.md'), read(b, 'notes/z.md')]).toEqual(['y\n', 'z\n']);
   });
 });

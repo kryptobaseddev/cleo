@@ -1,6 +1,6 @@
 ---
 id: t12336-cloud-vault
-tasks: [T12336, T12337, T12338, T12950, T12951, T12952, T12966, T12967, T12968, T12969, T12970, T12971, T12972, T12973, T12974, T12975, T12976, T13004, T13005, T13006, T13007, T13019, T13020, T13021, T13022]
+tasks: [T12336, T12337, T12338, T12950, T12951, T12952, T12966, T12967, T12968, T12969, T12970, T12971, T12972, T12973, T12974, T12975, T12976, T13004, T13005, T13006, T13007, T13019, T13020, T13021, T13022, T13038]
 kind: feat
 summary: cleo cloud push, pull, restore, verify, vault, lease release and activity back up and recover project and global stores as encrypted snapshots on Cleo Nexus (the key is escrowed on Cleo Nexus, released only to your approved devices), with lineage, a single-writer lease, verified restore that keeps this machine's own state and credentials, and a per-device integrity check; cleo login nexus also hands the device the encryption key and attaches its global store
 ---
@@ -20,16 +20,22 @@ matches its source; the global `config.json` is hashed without
 `telemetry.installId`, which a restore never changes. Files that belong to
 the machine (`nexus-link.json`, `project-info.json`, `worktrees.json`,
 `memory-bridge.md`, top-level dotfiles, `tmp/`, `state/`) are outside it, and
-a restore keeps this machine's copy. In a git checkout, paths git tracks are
-git's: they are left out of the comparison on both sides (each side asks its
-own git; a snapshot records which paths its checkout tracked, and a machine
-without git carries those marks on), and a restore never overwrites or
+a restore keeps this machine's copy. Each sync records every file's digest,
+so later comparisons judge files path by path. In a git checkout, paths git
+tracks are git's: they are left out of the comparison (tracked by this
+checkout, or marked tracked by the snapshot; marks carry forward on every
+push, so they converge across checkouts), and a restore never overwrites or
 removes them; they are placed only into a directory that is not a checkout.
+On a machine without git every path is compared, so an edit to a file
+another checkout tracks is a local change there. A global snapshot never
+carries git marks; a flag in one is ignored.
 When git cannot answer, no file under `.cleo/` is compared, overwritten or
 removed (`W_NEXUS_VAULT_GIT_UNKNOWN`). A global snapshot leaves out what
 CLEO's installer writes for its own version (`templates/`, `skills/`,
 `hooks/`, `extensions/`, `pi-extensions/`, `llm-catalog/`, `.migrations/`,
-`CLEOOS-IDENTITY.md`). Cells that never sync (credentials, machine-local
+`cant/starter/`, `CLEOOS-IDENTITY.md`). Carrying this machine's values into
+a staged snapshot runs with the capture and side-effect triggers suspended
+(journal S2); guards stay on. Cells that never sync (credentials, machine-local
 columns such as registry paths) are hashed as NULL; the registry's `strip`
 columns (a git remote URL can embed a token, a derived `tree_id`) are never in
 a snapshot and are NULL after a restore, for this machine to recompute, and

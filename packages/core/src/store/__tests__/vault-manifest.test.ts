@@ -809,3 +809,28 @@ describe('round 4 (#1773)', () => {
     db.close();
   });
 });
+
+describe('carry and the journal triggers (#1778)', () => {
+  it('suspends capture and side-effect triggers while carrying, and leaves the flag table empty', () => {
+    const f = path.join(tmp, 'staged.db');
+    const db = new DatabaseSync(f);
+    db.exec(`
+      CREATE TABLE cleo_trigger_suspend (scope TEXT PRIMARY KEY NOT NULL);
+      CREATE TABLE brain_observations (id TEXT PRIMARY KEY, narrative TEXT, tree_id INTEGER);
+      CREATE TABLE zz_captured (id TEXT);
+      CREATE TRIGGER _sync_cap_brain_observations_u AFTER UPDATE ON brain_observations
+        WHEN NOT EXISTS (SELECT 1 FROM cleo_trigger_suspend WHERE scope IN ('capture', 'all'))
+        BEGIN INSERT INTO zz_captured VALUES (NEW.id); END;
+      INSERT INTO brain_observations VALUES ('O1', 'n', 7);
+    `);
+    db.close();
+    carryMachineState(f, null, 'project', { snapshotRoot: '/A/root' });
+    const read = new DatabaseSync(f, { readOnly: true });
+    expect(read.prepare('SELECT tree_id FROM brain_observations').all()).toEqual([
+      { tree_id: null },
+    ]);
+    expect(read.prepare('SELECT * FROM zz_captured').all()).toEqual([]);
+    expect(read.prepare('SELECT * FROM cleo_trigger_suspend').all()).toEqual([]);
+    read.close();
+  });
+});

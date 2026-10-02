@@ -56,6 +56,12 @@ const streamStateSchema = z.looseObject({
    * with it, and a machine without git carries the marks on (T13019).
    */
   gitTracked: z.array(z.string()).optional(),
+  /**
+   * The last synced snapshot's plain files, path to digest (a prefix of the
+   * vault file digest), so a later comparison judges each file on its own,
+   * whatever either side's git tracks (T13038).
+   */
+  files: z.record(z.string(), z.string()).optional(),
 });
 
 const accountStateSchema = z.looseObject({
@@ -287,16 +293,23 @@ export class NexusVaultState {
     userId: string,
     streamId: string,
     storeRoot: string,
-    value: { lastCheckpointId: string; lastCoversSeq: number; gitTracked?: readonly string[] },
+    value: {
+      lastCheckpointId: string;
+      lastCoversSeq: number;
+      gitTracked?: readonly string[];
+      files?: Readonly<Record<string, string>>;
+    },
   ): void {
-    const { gitTracked, ...rest } = value;
+    const { gitTracked, files, ...rest } = value;
     this.update((s) => {
+      // In the schema's key order, so a later read-modify-write keeps the bytes.
       this.account(s, apiUrl, userId).streams[vaultStreamKey(streamId, storeRoot)] = {
         ...rest,
+        updatedAt: new Date().toISOString(),
         ...(gitTracked !== undefined && gitTracked.length > 0
           ? { gitTracked: [...gitTracked].sort() }
           : {}),
-        updatedAt: new Date().toISOString(),
+        ...(files !== undefined ? { files: { ...files } } : {}),
       };
     });
   }
