@@ -44,6 +44,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetDualScopeDbCache, openDualScopeDb } from '../../store/dual-scope-db.js';
 import { computeManifestHash, exportPortableBundle } from '../../store/portable-bundle.js';
 import {
+  emptyVaultTableHash,
   VAULT_FORMAT_KEY,
   VAULT_MANIFEST_FORMAT_VERSION,
   vaultFormatEntry,
@@ -3136,7 +3137,8 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     // A restore says why it cannot verify the snapshot, and places nothing.
     const refused = await failure(restoreOntoB(b));
     expect(refused.code).toBe('E_NEXUS_VAULT_VERIFY_FAILED');
-    expect(refused.message).toContain('newer vault manifest format');
+    expect(refused.message).toContain('vault manifest format this CLEO does not recognise');
+    expect(refused.message).toContain(`this CLEO hashes format ${VAULT_MANIFEST_FORMAT_VERSION}`);
     expect(refused.message).not.toContain('does not match its manifest');
     expect(refused.fix).toContain('upgrade CLEO');
     expect(fs.existsSync(path.join(b.root, '.cleo', 'cleo.db'))).toBe(false);
@@ -3150,8 +3152,54 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     const writes = fake.writes.length;
     const pushed = await failure(on(a, () => pushNexusVault(vopts(a, { force: true }))));
     expect(pushed.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
-    expect(pushed.message).toContain('newer vault manifest format');
+    expect(pushed.message).toContain('vault manifest format this CLEO does not recognise');
     expect(streamWrites(writes)).toEqual([]);
+  });
+
+  it('a head whose format record a pre-record build carried forward as an emptied table restores and pushes (#1785 LOW-3)', async () => {
+    const { a, b } = await twoMachines();
+    const s = fake.stream(STREAM);
+    await on(a, () => pushNexusVault(vopts(a)));
+    const genesis = s.checkpoints[0];
+    if (!genesis) throw new Error('fixture');
+    const hashKey = deriveKey(projectDataKey(), 'vault-manifest');
+    // A build from before the record pushes next: it carries every parent table forward as an
+    // emptied one, the format record included (it skipped only the fork label).
+    const signers = await certify(a, b);
+    const j = journalOf(b);
+    const { bundle } = await j.restoreCheckpoint(genesis.checkpointId, signers);
+    const carried = await j.pushCheckpoint({
+      bundle,
+      manifest: {
+        schemaVersion: SYNC_SCHEMA_VERSION,
+        tables: {
+          ...genesis.manifest.tables,
+          [VAULT_FORMAT_KEY]: { rows: 0, hash: emptyVaultTableHash(hashKey, VAULT_FORMAT_KEY) },
+        },
+      },
+      cursor: cursorFromCheckpoint(genesis),
+      parentCheckpointId: genesis.checkpointId,
+    });
+    expect(s.headCheckpointId).toBe(carried.checkpointId);
+
+    // It reads as format 2: a new machine restores and verifies it.
+    const { result } = await restoreOntoB(b);
+    expect(result.status).toBe('restored');
+    expect(result.verified).toBe(true);
+    const vb = await on(b, () => verifyNexusVault(vopts(b)));
+    expect(vb.verdict).toBe('match');
+    expect(vb.warnings.some((w) => w.code === 'W_NEXUS_VAULT_FORMAT')).toBe(false);
+
+    // A pulls it and pushes a change over it; the new head records the format again.
+    const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    insertTask(a, 'A1');
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    expect(pushed.parentCheckpointId).toBe(carried.checkpointId);
+    expect(s.checkpoints.at(-1)?.manifest.tables[VAULT_FORMAT_KEY]).toEqual(
+      vaultFormatEntry(hashKey),
+    );
   });
 
   it('the fake holds the server v3 rules: a v2 checkpoint after a v3 one is E_STREAM_VERSION', async () => {

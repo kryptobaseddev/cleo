@@ -516,7 +516,7 @@ function isJournalSnapshot(cp: Checkpoint | null | undefined): boolean {
  * stream holds data of a newer sync schema (a segment, or the head snapshot,
  * above {@link SYNC_SCHEMA_VERSION}), so a snapshot stamped with the older
  * schema would sit below what the stream already reached; or the head
- * snapshot was hashed under a newer vault manifest format, so this store
+ * snapshot records a vault manifest format this CLEO does not recognise, so this store
  * cannot even tell whether it changed. Checked on the stream head before the
  * export and the lease (`maxSchemaVersion`, which the server raises on every
  * append), and on the replayed window again before the delta segment, for a
@@ -533,10 +533,10 @@ function aheadOfThisCleo(
       'nothing was written; upgrade CLEO on this machine, then push again',
     );
   }
-  if (parent && vaultManifestFormat(parent.manifest, hashKeyOf(t.dataKey)) === 'newer') {
+  if (parent && vaultManifestFormat(parent.manifest, hashKeyOf(t.dataKey)) === 'unknown') {
     return streamUpgradedError(
-      `the head snapshot ${parent.checkpointId} was hashed under a newer vault manifest format than this CLEO's (${VAULT_MANIFEST_FORMAT_VERSION})`,
-      'nothing was written; upgrade CLEO on this machine, then push again',
+      `the head snapshot ${parent.checkpointId} records a vault manifest format this CLEO does not recognise (this CLEO hashes format ${VAULT_MANIFEST_FORMAT_VERSION}; a different vault format wrote it, most likely a newer CLEO)`,
+      'nothing was written; if a newer CLEO pushed it, upgrade CLEO on this machine, then push again (`cleo cloud vault` shows which device pushed it)',
     );
   }
   return null;
@@ -577,8 +577,8 @@ function formatWarning(t: VaultTarget, cp: Checkpoint | null | undefined): Cloud
   return {
     code: 'W_NEXUS_VAULT_FORMAT',
     message:
-      format === 'newer'
-        ? `snapshot ${cp.checkpointId} was hashed under a newer vault manifest format than this CLEO's (${VAULT_MANIFEST_FORMAT_VERSION}), so tables compared with it read as changed; upgrade CLEO on this machine`
+      format === 'unknown'
+        ? `snapshot ${cp.checkpointId} records a vault manifest format this CLEO does not recognise (this CLEO hashes format ${VAULT_MANIFEST_FORMAT_VERSION}; a different vault format wrote it, most likely a newer CLEO), so tables compared with it read as changed; if a newer CLEO pushed it, upgrade CLEO on this machine`
         : `snapshot ${cp.checkpointId} was hashed under vault manifest format ${format}, older than this CLEO's (${VAULT_MANIFEST_FORMAT_VERSION}), so tables compared with it read as changed; the next push records the current format`,
   };
 }
@@ -1613,11 +1613,11 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
   if (format !== null && format !== VAULT_MANIFEST_FORMAT_VERSION) {
     throw vaultError(
       'E_NEXUS_VAULT_VERIFY_FAILED',
-      format === 'newer'
-        ? `snapshot ${target} was hashed under a newer vault manifest format than this CLEO's (${VAULT_MANIFEST_FORMAT_VERSION}), so it cannot be verified here; nothing was restored`
+      format === 'unknown'
+        ? `snapshot ${target} records a vault manifest format this CLEO does not recognise (this CLEO hashes format ${VAULT_MANIFEST_FORMAT_VERSION}; a different vault format wrote it, most likely a newer CLEO), so it cannot be verified here; nothing was restored`
         : `snapshot ${target} was hashed under vault manifest format ${format}, older than this CLEO's (${VAULT_MANIFEST_FORMAT_VERSION}), so it cannot be verified here; nothing was restored`,
-      format === 'newer'
-        ? 'upgrade CLEO on this machine, then run the command again'
+      format === 'unknown'
+        ? 'if a newer CLEO pushed it, upgrade CLEO on this machine, then run the command again (`cleo cloud vault` shows which device pushed it)'
         : 'push a new snapshot from a device that holds this data with a current CLEO, then run the command again',
     );
   }
@@ -2025,8 +2025,8 @@ async function verifyNexusVaultImpl(
   const remedy =
     verdict === 'untrusted'
       ? `the newest snapshot ${head.headCheckpointId} is not signed by a device this account trusts: do not pull it; see which device pushed it with \`cleo cloud vault\` and \`cleo cloud activity\`, and revoke that device if you do not recognise it`
-      : headCp && vaultManifestFormat(headCp.manifest, hashKeyOf(t.dataKey)) === 'newer'
-        ? 'the newest snapshot was hashed under a newer vault manifest format: upgrade CLEO on this machine, then verify again'
+      : headCp && vaultManifestFormat(headCp.manifest, hashKeyOf(t.dataKey)) === 'unknown'
+        ? `the newest snapshot records a vault manifest format this CLEO does not recognise (this CLEO hashes format ${VAULT_MANIFEST_FORMAT_VERSION}): if a newer CLEO pushed it, upgrade CLEO on this machine, then verify again`
         : verdict === 'behind'
           ? 'run `cleo cloud pull` to bring this machine to the newest snapshot'
           : verdict === 'ahead'

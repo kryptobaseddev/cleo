@@ -49,4 +49,7 @@ and domain. Every signature check failed, so `cleo cloud pull`, `restore` and
   `zz_vault_format` entry: 0 rows, with a hash keyed so only key holders can
   read the version. A restore of a snapshot hashed under another format now
   says so and tells you what to do, instead of reporting a mismatch that looks
-  like tampering. Verify and status warn about it too.
+  like tampering. Verify and status warn about it too. Builds from before the
+  record carry it forward as an emptied table. That entry reads as the legacy
+  format 2, so a stream such a build pushed to stays restorable and
+  pushable.

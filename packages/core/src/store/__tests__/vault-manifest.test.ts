@@ -268,10 +268,10 @@ describe('the format record (T13034)', () => {
     expect(recorded.tables[VAULT_FORMAT_KEY]?.rows).toBe(0);
     expect(vaultManifestFormat(recorded, KEY)).toBe(VAULT_MANIFEST_FORMAT_VERSION);
     // Another key cannot read it: the version is not guessable from the plaintext manifest.
-    expect(vaultManifestFormat(recorded, crypto.randomBytes(32))).toBe('newer');
+    expect(vaultManifestFormat(recorded, crypto.randomBytes(32))).toBe('unknown');
     expect(sameVaultManifest(recorded, { schemaVersion: SYNC_SCHEMA_VERSION, tables })).toBe(true);
   });
-  it('reads a later format as newer, and a snapshot without a record by its old wire schemaVersion', () => {
+  it('reads a later format as unknown, and a snapshot without a record by its old wire schemaVersion', () => {
     const later = {
       schemaVersion: SYNC_SCHEMA_VERSION,
       tables: {
@@ -279,9 +279,19 @@ describe('the format record (T13034)', () => {
         [VAULT_FORMAT_KEY]: vaultFormatEntry(KEY, VAULT_MANIFEST_FORMAT_VERSION + 1),
       },
     };
-    expect(vaultManifestFormat(later, KEY)).toBe('newer');
+    expect(vaultManifestFormat(later, KEY)).toBe('unknown');
     expect(vaultManifestFormat({ schemaVersion: 1, tables }, KEY)).toBe(1);
     expect(vaultManifestFormat({ schemaVersion: 2, tables }, KEY)).toBe(2);
+  });
+  it('reads a record a pre-record build carried forward as an emptied table as format 2 (#1785 LOW-3)', () => {
+    const carried = {
+      schemaVersion: SYNC_SCHEMA_VERSION,
+      tables: {
+        ...tables,
+        [VAULT_FORMAT_KEY]: { rows: 0, hash: emptyVaultTableHash(KEY, VAULT_FORMAT_KEY) },
+      },
+    };
+    expect(vaultManifestFormat(carried, KEY)).toBe(2);
   });
 });
 

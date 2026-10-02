@@ -501,28 +501,36 @@ export function vaultFormatEntry(
 
 /**
  * The manifest format a snapshot's hashes were computed under (T13034): the
- * version its {@link VAULT_FORMAT_KEY} entry names, or `'newer'` when the
- * entry names no format this CLEO knows (a later CLEO wrote it). A snapshot
- * without the entry predates the record: vaults then stamped their format as
- * the wire `schemaVersion` (1 or 2), so it reads as 1 for `schemaVersion` 1
- * and as 2 otherwise.
+ * version its {@link VAULT_FORMAT_KEY} entry names, or `'unknown'` when the
+ * entry names no format this CLEO knows (a different vault format wrote it,
+ * most likely a newer CLEO). Read as the legacy format 2:
+ *
+ * - no entry: the snapshot predates the record, when vaults stamped their
+ *   format as the wire `schemaVersion` (1 or 2), so it reads as 1 for
+ *   `schemaVersion` 1 and as 2 otherwise;
+ * - an entry holding the empty-table hash: a build from before the record
+ *   carried the parent's entry forward as an emptied table (it only skipped
+ *   the fork label), over hashes it computed in format 2. Reading it as
+ *   unknown would leave the stream unrestorable and unpushable for every
+ *   later CLEO.
  *
  * @param manifest - A checkpoint's manifest.
  * @param hashKey - The manifest hash key.
- * @returns The format, or `'newer'`.
+ * @returns The format, or `'unknown'`.
  */
 export function vaultManifestFormat(
   manifest: Pick<VaultManifest, 'schemaVersion' | 'tables'>,
   hashKey: Uint8Array,
-): number | 'newer' {
+): number | 'unknown' {
   const entry = Object.hasOwn(manifest.tables, VAULT_FORMAT_KEY)
     ? manifest.tables[VAULT_FORMAT_KEY]
     : undefined;
   if (entry === undefined) return manifest.schemaVersion === 1 ? 1 : 2;
+  if (entry.hash === emptyVaultTableHash(hashKey, VAULT_FORMAT_KEY)) return 2;
   for (let format = 1; format <= VAULT_MANIFEST_FORMAT_VERSION; format++) {
     if (vaultFormatEntry(hashKey, format).hash === entry.hash) return format;
   }
-  return 'newer';
+  return 'unknown';
 }
 
 /**
