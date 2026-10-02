@@ -1025,14 +1025,12 @@ const TERMINATION_SIGNALS = ['SIGHUP', 'SIGINT', 'SIGTERM'] as const;
 /** A signal {@link terminateToolGroupsOnSignal} handles. */
 type TerminationSignal = (typeof TERMINATION_SIGNALS)[number];
 
-/** Exit status the default action of each termination signal produces (128 + signal number). */
-const TERMINATION_SIGNAL_EXIT: Readonly<Record<TerminationSignal, number>> = {
-  SIGHUP: 129,
-  SIGINT: 130,
-  SIGTERM: 143,
-};
-
 let terminationCleanupInstalled = false;
+
+/** SIGTERM every tool group this process started that is still running. */
+function terminateActiveToolGroups(): void {
+  for (const pgid of activeToolGroups()) killProcessTree(pgid, 'SIGTERM');
+}
 
 function onTerminationSignal(signal: NodeJS.Signals): void {
   if (signal === 'SIGHUP' || signal === 'SIGINT' || signal === 'SIGTERM') {
@@ -1040,7 +1038,11 @@ function onTerminationSignal(signal: NodeJS.Signals): void {
   }
 }
 
-/** Add or remove the signal listeners that pass a termination on to running tools. */
+/**
+ * Add or remove the listeners that pass the end of this process on to the
+ * tools it runs: the termination signals, and `exit` (a `process.exit()` or
+ * an uncaught exception, e.g. a lock's `onCompromised` throwing from a timer).
+ */
 function setTerminationCleanup(on: boolean): void {
   if (on === terminationCleanupInstalled) return;
   terminationCleanupInstalled = on;
@@ -1048,6 +1050,8 @@ function setTerminationCleanup(on: boolean): void {
     if (on) process.on(signal, onTerminationSignal);
     else process.off(signal, onTerminationSignal);
   }
+  if (on) process.on('exit', terminateToolGroupsOnExit);
+  else process.off('exit', terminateToolGroupsOnExit);
 }
 
 /** Install the cleanup while a tool group runs; remove it once none does. */
@@ -1056,14 +1060,18 @@ function syncTerminationCleanup(): void {
 }
 
 /**
- * SIGTERM every tool group this process started, then end the process as the
- * signal would have when nothing else handles it (T12963).
+ * SIGTERM every tool group this process started, then re-raise the signal to
+ * this process so it ends exactly as it would have without us (T12963).
  *
  * Tools run detached, in their own process group, so a signal that ends cleo
  * (Ctrl-C reaches only the terminal's foreground group) never reaches them:
  * the tool kept running, and the slot it held looked free once cleo was gone.
- * Installed only while a tool group runs. When another listener handles the
- * signal, that listener decides how the process ends.
+ *
+ * Any listener at all suppresses a signal's default action, and
+ * `proper-lockfile` loads `signal-exit`, which re-raises only when its own
+ * listeners are the last ones left. So ours removes itself and re-raises:
+ * `signal-exit` then releases its locks and the process dies by the signal.
+ * Another listener of the signal sees it twice.
  *
  * @param signal - The signal received.
  *
@@ -1071,11 +1079,20 @@ function syncTerminationCleanup(): void {
  * @task T12963
  */
 export function terminateToolGroupsOnSignal(signal: TerminationSignal): void {
-  for (const pgid of activeToolGroups()) killProcessTree(pgid, 'SIGTERM');
-  const ours = terminationCleanupInstalled ? 1 : 0;
-  if (process.listenerCount(signal) > ours) return;
+  terminateActiveToolGroups();
   setTerminationCleanup(false);
-  process.exit(TERMINATION_SIGNAL_EXIT[signal]);
+  process.kill(process.pid, signal);
+}
+
+/**
+ * The `exit` listener: SIGTERM every tool group still running. `exit`
+ * listeners must be synchronous, and `process.kill` is.
+ *
+ * @internal Exported for tests.
+ * @task T12963
+ */
+export function terminateToolGroupsOnExit(): void {
+  terminateActiveToolGroups();
 }
 
 function spawnCmd(

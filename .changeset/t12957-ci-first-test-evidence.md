@@ -61,9 +61,9 @@ recorded tool group is gone. It is then freed at once instead of after the
 describe the current lock (or a lock with no birth time), a lock close to
 proper-lockfile's own stale threshold, or a failed `kill`/`ps` probe is never
 reaped, and reaps run under a per-slot guard. Deferrals and timeout errors
-name each holder and its tool groups. While a tool runs, SIGTERM, SIGINT and
-SIGHUP are passed on to its process group, so ending cleo no longer leaves
-the tool running.
+name each holder and its tool groups. While a tool runs, SIGTERM, SIGINT,
+SIGHUP and process exit SIGTERM its process group, so ending cleo no longer
+leaves the tool running; a signal is then re-raised, so cleo still dies by it.
 
 **Evidence ergonomics (T12964).**
 - `cleo verify --fresh` bypasses the tool cache for one call. It sets

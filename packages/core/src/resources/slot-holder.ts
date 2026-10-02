@@ -407,7 +407,7 @@ export function assessGovernorHolder(
  * and every tool group it started gone.
  *
  * Runs under a per-slot guard and re-checks the holder inside it. The holder
- * record is removed before the lock, so a second reaper that takes the guard
+ * record is removed with the lock, so a second reaper that takes the guard
  * afterwards finds no record (or the next holder's) and stands down. A lock
  * within {@link STALE_TAKEOVER_MARGIN_MS} of `staleMs` is left to
  * `proper-lockfile`, and the lock identity is re-read immediately before the
@@ -445,8 +445,10 @@ export function reapSlotIfHolderDead(
     if (lock === null || Date.now() - lock.mtimeMs > staleMs - STALE_TAKEOVER_MARGIN_MS) {
       return false;
     }
-    rmSync(holderPathOf(slotPath), { force: true });
+    // Re-read the identity last: a lock replaced since the check, and the
+    // record its new holder wrote, are left alone.
     if (currentLockId(slotPath) !== holder.lockId) return false;
+    rmSync(holderPathOf(slotPath), { force: true });
     rmSync(`${slotPath}.lock`, { recursive: true, force: true });
     log().warn(
       { slot: slotPath, holderPid: holder.pid, toolGroups: holder.toolGroups ?? [] },

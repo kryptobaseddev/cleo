@@ -276,6 +276,17 @@ describe('re-verify gate — T11498 AC1', () => {
     expect(state.stuckTasks['T777']).toBeUndefined();
   });
 
+  it('RVG-9a: with the gate skipped, a pending task runs its worker; no synthetic success', async () => {
+    await seedPending(2);
+    const spawn = vi.fn(async () => ({ exitCode: 1, stdout: '', stderr: 'worker failed' }));
+    const outcome = await runTick(mkTickOpts(root, { spawn, skipReVerify: true }));
+
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(outcome.kind).not.toBe('success');
+    const state = await readSentientState(statePath);
+    expect(state.stats.tasksCompleted).toBe(0);
+  });
+
   it('RVG-9b: each pending verdict doubles the wait, capped', async () => {
     await seedPending(3);
     const started = Date.now();

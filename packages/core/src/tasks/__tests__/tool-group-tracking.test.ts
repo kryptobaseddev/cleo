@@ -6,25 +6,32 @@
  * that group running with PPID 1, so a slot must stay held while it lives:
  * the slot's holder record lists every group started while it is held. A
  * signal that ends cleo never reaches the detached group either, so while one
- * runs cleo passes SIGTERM/SIGINT/SIGHUP on to it.
+ * runs cleo passes SIGTERM/SIGINT/SIGHUP (and its own `exit`) on to it, then
+ * re-raises the signal so the process still dies by it.
  *
- * The signal tests stub `process.kill`, `process.exit` and
- * `process.listenerCount`; the real `process.kill` is never reached.
+ * The signal tests stub `process.kill` only; the real `process.kill` is never
+ * reached. `proper-lockfile` is loaded, as in every cleo process that runs a
+ * tool, so `signal-exit`'s own listeners are present and not stubbed away.
  *
  * @task T12963
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import lockfile from 'proper-lockfile';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _resetToolGroupsForTest,
   activeToolGroups,
   trackToolGroup,
 } from '../../resources/tool-groups.js';
-import { runToolCached, terminateToolGroupsOnSignal } from '../tool-cache.js';
+import {
+  runToolCached,
+  terminateToolGroupsOnExit,
+  terminateToolGroupsOnSignal,
+} from '../tool-cache.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
 import { semaphoreDir } from '../tool-semaphore.js';
 
@@ -79,13 +86,23 @@ describe.skipIf(process.platform === 'win32')(
         canonical: 'test',
         displayName: 'test',
         cmd: 'sh',
-        args: ['-c', `cat "${slot}.holder.json" > "${seen}"; ps -o pgid= -p $$ > "${pgid}"`],
+        args: [
+          '-c',
+          `cat "${slot}.holder.json" > "${seen}"; ps -o pgid= -p $$ > "${pgid}"; sleep 0.3`,
+        ],
         source: 'language-default',
         primaryType: 'unknown',
       };
       const sigtermListeners = process.listenerCount('SIGTERM');
+      const exitListeners = process.listenerCount('exit');
 
-      const r = await runToolCached(command, repo);
+      const running = runToolCached(command, repo);
+      // While the tool runs (it has written its pgid and is sleeping), the
+      // signal and exit cleanup is installed.
+      while (!existsSync(pgid)) await new Promise((r) => setTimeout(r, 10));
+      expect(process.listenerCount('SIGTERM')).toBe(sigtermListeners + 1);
+      expect(process.listenerCount('exit')).toBe(exitListeners + 1);
+      const r = await running;
 
       expect(r.exitCode).toBe(0);
       const record = JSON.parse(readFileSync(seen, 'utf-8')) as {
@@ -97,6 +114,7 @@ describe.skipIf(process.platform === 'win32')(
       // Once the tool exits it is no longer tracked, and the signal cleanup is gone.
       expect(activeToolGroups()).toEqual([]);
       expect(process.listenerCount('SIGTERM')).toBe(sigtermListeners);
+      expect(process.listenerCount('exit')).toBe(exitListeners);
     });
   },
 );
@@ -112,9 +130,11 @@ describe.skipIf(process.platform === 'win32')('terminateToolGroupsOnSignal (T129
     });
   });
 
-  it('SIGTERMs every running tool group, then exits as the signal would have', () => {
-    const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-    vi.spyOn(process, 'listenerCount').mockReturnValue(0);
+  it('SIGTERMs every running tool group, then re-raises the signal to this process', () => {
+    // proper-lockfile loads signal-exit, whose listener alone suppresses the
+    // default action: the handler must re-raise however many listeners exist.
+    expect(typeof lockfile.lock).toBe('function');
+    expect(process.listenerCount('SIGTERM')).toBeGreaterThan(0);
     trackToolGroup(4_000_005);
     trackToolGroup(4_000_006);
 
@@ -123,30 +143,36 @@ describe.skipIf(process.platform === 'win32')('terminateToolGroupsOnSignal (T129
     expect(kills).toEqual([
       [-4_000_005, 'SIGTERM'],
       [-4_000_006, 'SIGTERM'],
+      [process.pid, 'SIGTERM'],
     ]);
-    expect(exit).toHaveBeenCalledWith(143);
   });
 
-  it('leaves the exit to another listener of the signal', () => {
-    const exit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-    vi.spyOn(process, 'listenerCount').mockReturnValue(2);
+  it('re-raises the same signal it received', () => {
     trackToolGroup(4_000_007);
 
     terminateToolGroupsOnSignal('SIGINT');
 
-    expect(kills).toEqual([[-4_000_007, 'SIGTERM']]);
-    expect(exit).not.toHaveBeenCalled();
+    expect(kills).toEqual([
+      [-4_000_007, 'SIGTERM'],
+      [process.pid, 'SIGINT'],
+    ]);
   });
 
   it('never tracks, and so never signals, a group id of 1 or below', () => {
-    vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-    vi.spyOn(process, 'listenerCount').mockReturnValue(2);
     for (const id of [1, 0, -1]) trackToolGroup(id);
     trackToolGroup(undefined);
 
     terminateToolGroupsOnSignal('SIGHUP');
 
     expect(activeToolGroups()).toEqual([]);
-    expect(kills).toEqual([]);
+    expect(kills).toEqual([[process.pid, 'SIGHUP']]);
+  });
+
+  it('the exit hook SIGTERMs running tool groups and never signals this process', () => {
+    trackToolGroup(4_000_008);
+
+    terminateToolGroupsOnExit();
+
+    expect(kills).toEqual([[-4_000_008, 'SIGTERM']]);
   });
 });

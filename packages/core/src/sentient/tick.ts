@@ -854,8 +854,11 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
   await patchSentientState(statePath, { activeTaskId: task.id });
 
   // -- Spawn worker ---------------------------------------------------------
+  const skipReVerify = options.skipReVerify === true || options.dryRun === true;
   // T12962: the worker already exited 0 and only its re-verification is
-  // outstanding (the test slot was busy): run the verification, not the worker.
+  // outstanding (the test slot was busy): run the verification, not the
+  // worker. With the gate skipped there is nothing to re-run, so the worker
+  // runs and its own exit decides.
   const pendingVerify = existingStuck?.pendingVerify ?? 0;
   let spawnResult: SpawnResult;
   if (options.dryRun === true) {
@@ -864,7 +867,7 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
       stdout: '[dry-run] spawn skipped',
       stderr: '',
     };
-  } else if (pendingVerify > 0) {
+  } else if (pendingVerify > 0 && !skipReVerify) {
     spawnResult = {
       exitCode: 0,
       stdout: `[re-verify] worker exited 0 earlier; verification pending ${pendingVerify}x, re-running it only`,
@@ -908,7 +911,6 @@ export async function runTick(options: TickOptions): Promise<TickOutcome> {
     // The previous conditional `options.reVerify !== undefined` made the gate a
     // no-op when callers omitted the override — the `?? reVerifyWorkerReport`
     // default makes it unconditional (T11498 AC1).
-    const skipReVerify = options.skipReVerify === true || options.dryRun === true;
     if (!skipReVerify) {
       const verifier = options.reVerify ?? reVerifyWorkerReport;
       const report: WorkerReport = {
