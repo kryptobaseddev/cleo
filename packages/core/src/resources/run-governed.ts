@@ -14,7 +14,10 @@
  *    pressure each time, until admitted or `timeoutMs`.
  * 2. **Run.** The command is spawned as its own process group (so a pause or
  *    a cancel reaches its workers too), niced, with the caller's env. The job
- *    is recorded in the registry with its start times and a heartbeat.
+ *    is recorded in the registry with its start times and a heartbeat. Its
+ *    stdout goes to stderr, or with `passthrough` to the caller's stdout. A
+ *    `foreground` child (a terminal's job) and a nested one stay in their
+ *    group instead, are signalled by pid and are never paused.
  * 3. **Supervise.** One serialized poll loop (never overlapping) samples
  *    pressure and applies {@link decidePause}: SIGSTOP/SIGCONT to the group.
  *    Every await is followed by an exit check, so nothing is signalled or
@@ -51,6 +54,7 @@ import {
   listRunJobs,
   listVerifyHolders,
   parentRunJob,
+  processAncestors,
   processGroupOf,
   processStart,
   type RunAlternative,
@@ -77,14 +81,27 @@ export interface GovernedChild extends EventEmitter {
   readonly pid?: number | undefined;
 }
 
+/**
+ * How out of the ordinary a notice is. `warn`: the run is ungoverned, or was
+ * paused or resumed under pressure (`--passthrough` still prints these).
+ * `info`: progress such as a queue admission or a nested run (left out by
+ * `--passthrough`).
+ */
+export type RunNoticeLevel = 'info' | 'warn';
+
 /** Injectable effects. Defaults are the real process, governor and clock. */
 export interface RunGovernedDeps {
   readonly sample: () => Promise<ResourceSample>;
   readonly tryAcquire: (cls: ResourceClass, sample: ResourceSample) => Promise<AdmissionResult>;
+  /**
+   * Start the child. `passthrough`: it gets the runner's stdin, stdout and
+   * stderr; otherwise its stdout goes to stderr. `detached`: its own session
+   * and process group.
+   */
   readonly spawn: (
     file: string,
     args: readonly string[],
-    opts: { cwd: string; env: NodeJS.ProcessEnv; detached: boolean },
+    opts: { cwd: string; env: NodeJS.ProcessEnv; detached: boolean; passthrough: boolean },
   ) => GovernedChild;
   readonly signal: (pid: number, signal: NodeJS.Signals) => boolean;
   /** Signal a single process (a nested job's child shares its parent's group). */
@@ -105,6 +122,8 @@ export interface RunGovernedDeps {
   readonly pid: number;
   /** Process group of a pid (`ps -o pgid=`), or null when unknown. */
   readonly groupOf: (pid: number) => number | null;
+  /** Ancestors of a pid, nearest first (one `ps` of the process table), or null when unknown. */
+  readonly ancestorsOf: (pid: number) => readonly number[] | null;
 }
 
 /** Options for {@link runGoverned}. */
@@ -122,8 +141,22 @@ export interface RunGovernedOptions {
   readonly pollMs?: number;
   /** Queue cadence under `wait`. @defaultValue 1000 */
   readonly queuePollMs?: number;
-  /** One-line progress notices (stderr in the CLI). */
-  readonly notice?: (line: string) => void;
+  /**
+   * The child gets the runner's stdin, stdout and stderr (`cleo run
+   * --passthrough`), so its stdout reaches the caller byte for byte.
+   * @defaultValue false (stdout goes to stderr; the caller's stdout is reserved)
+   */
+  readonly passthrough?: boolean;
+  /**
+   * Keep the child in the runner's process group instead of a detached one:
+   * a terminal's foreground job, so reading or configuring the terminal never
+   * stops it (SIGTTIN/SIGTTOU) and Ctrl-C reaches it. Such a child is never
+   * paused, and runner signals are forwarded to it by pid.
+   * @defaultValue false
+   */
+  readonly foreground?: boolean;
+  /** One-line notices (stderr in the CLI); see {@link RunNoticeLevel}. */
+  readonly notice?: (line: string, level: RunNoticeLevel) => void;
   readonly deps?: Partial<RunGovernedDeps>;
 }
 
@@ -188,8 +221,9 @@ function defaultDeps(): RunGovernedDeps {
       nodeSpawn(file, [...args], {
         cwd: opts.cwd,
         env: opts.env,
-        // stdout is reserved for the caller's envelope: output goes to stderr.
-        stdio: ['inherit', 2, 2],
+        // Unless passed through, stdout is reserved for the caller's envelope:
+        // output goes to stderr.
+        stdio: opts.passthrough ? 'inherit' : ['inherit', 2, 2],
         detached: opts.detached,
       }),
     signal: signalGroup,
@@ -232,6 +266,7 @@ function defaultDeps(): RunGovernedDeps {
     verifyHolders: () => listVerifyHolders(),
     pid: process.pid,
     groupOf: processGroupOf,
+    ancestorsOf: processAncestors,
   };
 }
 
@@ -292,12 +327,14 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     jobsDir: d.jobsDir,
     probes: probesOf(d),
     groupOf: d.groupOf,
+    ancestorsOf: d.ancestorsOf,
   });
   const nested = enclosing !== null;
   const parent = enclosing !== null && enclosing.class === opts.cls ? enclosing : null;
   if (enclosing && !parent) {
     notice(
       `nested in a running ${enclosing.class} job (${enclosing.command}): admitted on its own ${opts.cls} slot, inside that job's process group`,
+      'info',
     );
   }
   // Fail open (#1781 review, HIGH): when the governor cannot write its slot locks (Codex's
@@ -314,6 +351,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       ungoverned = io;
       notice(
         `governor state is not writable (${io.code}${io.path ? ` ${io.path}` : ''}): running ungoverned`,
+        'warn',
       );
       return {
         deferred: false,
@@ -333,7 +371,10 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       acquiredAtMs: d.now(),
       release: async () => {},
     };
-    notice(`nested in a running ${parent.class} job (${parent.command}): running on its slot`);
+    notice(
+      `nested in a running ${parent.class} job (${parent.command}): running on its slot`,
+      'info',
+    );
   } else {
     const qdir = d.queueDir(opts.cls);
     const ticketId = `${d.pid}-${t0}`;
@@ -390,7 +431,10 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
           sample = await d.sample();
           admission = await tryAcquire(sample);
         }
-        notice(`admitted after ${Math.round((d.now() - t0) / 1000)}s in the ${opts.cls} queue`);
+        notice(
+          `admitted after ${Math.round((d.now() - t0) / 1000)}s in the ${opts.cls} queue`,
+          'info',
+        );
       }
     } finally {
       if (opts.wait) removeQueueTicket(ticketId, qdir);
@@ -404,9 +448,11 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
 
   // ---- 2. run -------------------------------------------------------------
   const startedAtMs = d.now();
-  // A nested job lives in its enclosing job's group: never paused on its own.
+  // A nested job lives in its enclosing job's group, a foreground job in its
+  // terminal's: neither leads a group, so neither is ever paused on its own.
+  const leadsGroup = !nested && opts.foreground !== true;
   // Ungoverned, it holds no slot and keeps no reliable record: never paused either.
-  const pausable = !nested && ungoverned === null && isPausable(opts.cls, opts.argv);
+  const pausable = leadsGroup && ungoverned === null && isPausable(opts.cls, opts.argv);
   const [file, ...args] = opts.argv as [string, ...string[]];
   // No inherited grant marker (#1777 round 2): every nested `cleo run` is
   // admitted on its own; verify joins the same budgets with #1775 (T12963).
@@ -428,6 +474,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     heartbeatAtMs: startedAtMs,
     parentJob: enclosing?.id ?? null,
     holdsSlot: parent === null,
+    leadsGroup,
   };
   writeRunJob(job, d.jobsDir);
 
@@ -439,7 +486,12 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
 
   let child: GovernedChild;
   try {
-    child = d.spawn(file, args, { cwd: opts.cwd, env, detached: !nested });
+    child = d.spawn(file, args, {
+      cwd: opts.cwd,
+      env,
+      detached: leadsGroup,
+      passthrough: opts.passthrough === true,
+    });
   } catch (err) {
     removeRunJob(job.id, d.jobsDir);
     await grant.release();
@@ -465,10 +517,11 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     if (!exited) writeRunJob(job, d.jobsDir);
   }
 
-  // A nested child is not a group leader (it lives in the enclosing job's
-  // group): signal the process itself, or kill(-pid) would hit ESRCH and the
-  // child would keep running (#1777 round 4, L-A).
-  const forwardTo = nested ? d.signalPid : d.signal;
+  // A nested or foreground child is not a group leader (it lives in the
+  // enclosing job's or the terminal's group): signal the process itself, or
+  // kill(-pid) would hit ESRCH and the child would keep running (#1777 round
+  // 4, L-A).
+  const forwardTo = leadsGroup ? d.signal : d.signalPid;
   const uninstall = d.onRunnerSignal((signal) => {
     if (childPid === undefined || exited) return;
     forwardTo(childPid, 'SIGCONT');
@@ -510,13 +563,14 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         pauses++;
         notice(
           `paused: machine at backoff (${classifyPressure(s).reason}); an older job keeps running. Resumes automatically.`,
+          'warn',
         );
       } else if (decision === 'run' && pausedAtMs !== null) {
         d.signal(childPid, 'SIGCONT');
         pausedTotalMs += now - pausedAtMs;
         pausedAtMs = null;
         if (reason === 'cap') capResumedAtMs = now;
-        notice(reason === 'cap' ? 'resumed: paused for the maximum time' : 'resumed.');
+        notice(reason === 'cap' ? 'resumed: paused for the maximum time' : 'resumed.', 'warn');
       }
       job = { ...job, pausedAtMs, heartbeatAtMs: now };
       if (!exited) writeRunJob(job, d.jobsDir);

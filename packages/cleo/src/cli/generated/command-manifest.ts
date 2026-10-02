@@ -1045,7 +1045,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'runCommand',
     name: 'run',
     description:
-      'Run a heavy command (tests, builds, installs) under the machine-wide resource budget: cleo run [--class test|build|full-build] [--wait] -- <command...>',
+      'Run a heavy command (tests, builds, installs) under the machine-wide resource budget: cleo run [--class test|build|full-build] [--wait] [--passthrough] -- <command...>',
     load: async () => (await import('../commands/run.js')).runCommand as CommandDef,
   },
   {

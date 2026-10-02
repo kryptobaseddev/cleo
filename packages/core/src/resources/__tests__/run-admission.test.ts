@@ -33,6 +33,7 @@ import {
   looksHeavy,
   MAX_PAUSE_MS,
   parentRunJob,
+  processAncestors,
   type RunJob,
   reapOrphans,
   redactCommand,
@@ -283,6 +284,37 @@ describe('job registry', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
+  it("a dead runner's FOREGROUND child (--passthrough in a terminal) is signalled by pid (R7)", () => {
+    deadRunner({ leadsGroup: false });
+    const r = recorder();
+    reapOrphans(dir, {
+      ...base,
+      alive: (pid) => pid === 77,
+      start: (pid) => (pid === 77 ? 'child-t0' : null),
+      signal: r.signal,
+      signalPid: r.signalPid,
+    });
+    expect(r.signals).toEqual([
+      [77, 'pid:SIGCONT'],
+      [77, 'pid:SIGTERM'],
+    ]);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('a foreground child that is gone gets no signal: it led no group (R7)', () => {
+    deadRunner({ leadsGroup: false, childPid: 78 });
+    const r = recorder();
+    reapOrphans(dir, {
+      ...base,
+      alive: () => false,
+      start: () => null,
+      signal: r.signal,
+      signalPid: r.signalPid,
+    });
+    expect(r.signals).toEqual([]);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
   it('a failed ps on a LIVE child is unknown: no signal, record kept for the next reap (H-1)', () => {
     deadRunner();
     const r = recorder();
@@ -449,6 +481,93 @@ describe('parentRunJob (nested runs, M-2)', () => {
         groupOf: () => 500,
       }),
     ).toBeNull();
+  });
+});
+
+describe('parentRunJob under a foreground job (ancestry, #1777 R7)', () => {
+  const NOW = 10_000_000;
+  const probes = {
+    alive: () => true,
+    start: (pid: number) => `start-${pid}`,
+    signal: () => true,
+    now: () => NOW,
+  };
+  const foreground = () =>
+    writeRunJob(
+      job({
+        id: 'fg',
+        startedAtMs: 2,
+        heartbeatAtMs: NOW,
+        childPid: 700,
+        childStart: 'start-700',
+        leadsGroup: false,
+      }),
+      dir,
+    );
+
+  it("a descendant of a foreground job's child is nested in it", () => {
+    foreground();
+    const ancestorsOf = () => [9000, 700, 650];
+    expect(
+      parentRunJob({ pid: 9001, jobsDir: dir, probes, groupOf: () => 650, ancestorsOf })?.id,
+    ).toBe('fg');
+  });
+
+  it('not a descendant, a reused ancestor pid or a failed ps: not nested', () => {
+    foreground();
+    const at = { pid: 9001, jobsDir: dir, groupOf: () => 650 };
+    expect(parentRunJob({ ...at, probes, ancestorsOf: () => [9000, 650] })).toBeNull();
+    expect(parentRunJob({ ...at, probes, ancestorsOf: () => null })).toBeNull();
+    expect(
+      parentRunJob({
+        ...at,
+        probes: { ...probes, start: (pid: number) => (pid === 700 ? 'reused' : `start-${pid}`) },
+        ancestorsOf: () => [700],
+      }),
+    ).toBeNull();
+  });
+
+  it('a pipeline neighbour in the same terminal group is not nested (same group, not a descendant)', () => {
+    foreground();
+    // The foreground runner leads the terminal job's group (pgid 690); a second
+    // `cleo run` in that pipeline shares the group but descends from the shell.
+    expect(
+      parentRunJob({
+        pid: 9001,
+        jobsDir: dir,
+        probes,
+        groupOf: () => 690,
+        ancestorsOf: () => [680],
+      }),
+    ).toBeNull();
+  });
+
+  it('the process table is read only while a job without its own group runs', () => {
+    writeRunJob(
+      job({
+        id: 'detached',
+        startedAtMs: 1,
+        heartbeatAtMs: NOW,
+        childPid: 500,
+        childStart: 'start-500',
+      }),
+      dir,
+    );
+    let reads = 0;
+    const ancestorsOf = () => {
+      reads++;
+      return [];
+    };
+    expect(
+      parentRunJob({ pid: 9001, jobsDir: dir, probes, groupOf: () => 650, ancestorsOf }),
+    ).toBeNull();
+    expect(reads).toBe(0);
+  });
+
+  it('processAncestors reads the real process table: the parent comes first', () => {
+    const chain = processAncestors(process.pid);
+    expect(chain?.[0]).toBe(process.ppid);
+    expect(chain?.every((p) => p > 1)).toBe(true);
   });
 });
 

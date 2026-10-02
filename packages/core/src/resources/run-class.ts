@@ -50,11 +50,51 @@ const LEADING_WATCH_WORD = /^(dev|start|preview)$/;
 /** Watch/serve words that count in any segment (`test:watch`, `docs:serve`). */
 const ANY_WATCH_WORD = /^(watch|serve)$/;
 /** Watch-mode flags (`-w` is per tool: maxWorkers for jest; `--ui` per tool: a value for turbo). */
-const WATCH_FLAGS = new Set(['--watch', '--watchAll']);
+const WATCH_FLAGS = new Set(['--watch', '--watchAll', '--serve']);
+/** Tools whose `-w` is `--watch` (for jest it is --maxWorkers, for prettier and gofmt --write). */
+const SHORT_WATCH_TOOLS =
+  /^(tsc|rollup|webpack|vite|vitest|mocha|ava|sass|babel|tailwindcss|swc|tsx)$/;
 /** Tools whose `--ui` opens a long-lived UI server. */
 const UI_SERVES = /^(vitest|playwright)$/;
 /** Subcommands that serve or watch (only as the first positional word). */
 const WATCH_SUBCOMMANDS = new Set(['watch', 'dev', 'serve', 'start', 'preview']);
+/**
+ * Known tools with no serve/watch subcommand: their first positional word is a
+ * path or a flag value, never a mode (`pytest -k dev`, `jest -t start`,
+ * `mocha -g watch`, `tsc -p dev`). Any other tool keeps the subcommand rule.
+ */
+const NO_WATCH_SUBCOMMAND =
+  /^(jest|mocha|ava|tap|playwright|pytest|rspec|phpunit|tsc|tsup|esbuild|rollup|eslint|biome|svelte-check|go|prettier|gofmt)$/;
+/** Short flags that take a value, for tools that do have serve/watch subcommands (`vitest -t serve`). */
+const SHORT_VALUE_FLAGS: Readonly<Record<string, readonly string[]>> = {
+  vitest: ['-t', '-c', '-r'],
+  vite: ['-c', '-m', '-l', '-f'],
+  webpack: ['-c', '-o', '-t', '-d', '-e'],
+  next: ['-p', '-H'],
+};
+/** `next` subcommands that run once (`next lint`); with no subcommand, `dev` or `start` it serves. */
+const NEXT_ONESHOT = /^(build|lint|info|export|telemetry|typegen|experimental-[\w-]+)$/;
+/** `next` subcommands that build nothing either: never heavy. */
+const NEXT_ADMIN = /^(info|telemetry)$/;
+/** `vite` subcommands that run once; anything else serves (`vite`, `vite dev`, `vite preview`). */
+const VITE_ONESHOT = /^(build|optimize)$/;
+/**
+ * CLEO's own CLI as a command word: `cleo`, `ct`, a versioned package
+ * (`@cleocode/cleo@latest`), or a script path (`…/bin/cleo.js`,
+ * `packages/cleo/dist/cli/index.js`).
+ */
+const CLEO_BIN = /^(cleo|ct)(@[\w.-]+|\.[cm]?js)?$/;
+const CLEO_SCRIPT = /(^|\/)(cleo|ct)(\.[cm]?js)?$|(^|\/)cleo\/dist\/cli\/index\.js$/;
+/** node flags that take a value, so the value is never read as the script. */
+const NODE_VALUE_FLAGS = new Set([
+  '-r',
+  '--require',
+  '--import',
+  '--loader',
+  '--experimental-loader',
+  '-C',
+  '--conditions',
+]);
 const INFO_FLAGS = new Set(['--version', '--help', '-h']);
 /**
  * Short flags that mean `--version`, per tool; any other tool: both. `-v` is
@@ -331,17 +371,35 @@ function infoOnly(t: CommandTarget): boolean {
 /**
  * Positional words of `rest`: not flags, and not the value right after a
  * long `--flag` given without `=` (so `--mode dev`, `--project dev`,
- * `--profile dev` never read as a `dev` subcommand).
+ * `--profile dev` never read as a `dev` subcommand), nor after one of the
+ * tool's value-taking short flags (`vitest -t serve`).
  */
-function positionals(rest: readonly string[]): string[] {
+function positionals(
+  rest: readonly string[],
+  shortTakesValue: (flag: string) => boolean = () => false,
+): string[] {
   const out: string[] = [];
   rest.forEach((w, x) => {
     if (w.startsWith('-')) return;
     const prev = rest[x - 1];
     if (prev?.startsWith('--') && !prev.includes('=')) return;
+    if (prev !== undefined && shortTakesValue(prev)) return;
     out.push(w);
   });
   return out;
+}
+
+/**
+ * The first positional word after the tool or script. A package-manager
+ * script hands its arguments to a command we cannot see, so the word after
+ * any single-letter flag is read as that flag's value (`pnpm test -t serve`).
+ */
+function subcommand(t: CommandTarget): string | undefined {
+  if (t.script !== null) return positionals(t.rest, (f) => /^-[A-Za-z]$/.test(f))[0];
+  const short = Object.hasOwn(SHORT_VALUE_FLAGS, t.tool)
+    ? (SHORT_VALUE_FLAGS[t.tool] as readonly string[])
+    : [];
+  return positionals(t.rest, (f) => short.includes(f))[0];
 }
 
 /**
@@ -444,21 +502,26 @@ function orchestratorTasks(t: CommandTarget): OrchestratorTasks | null {
 
 /** A watcher or server: never heavy, never admitted (it would hold a slot forever). */
 function watching(t: CommandTarget): boolean {
+  // `next --help`, `vite --version` print and exit. Not for a package-manager
+  // script, which passes the flag on to whatever the script runs.
+  if (t.script === null && infoOnly(t)) return false;
   // `pnpm dev`, `npm run test:watch`, `pnpm build:watch`, `pnpm run serve:docs`.
   if (t.script !== null && isWatchName(t.script)) return true;
-  if (t.rest.some((w) => WATCH_FLAGS.has(w))) return true;
+  if (t.rest.some((w) => WATCH_FLAGS.has(w) || w.startsWith('--serve='))) return true;
   // `vitest --ui`, `playwright test --ui`; for turbo `--ui` takes a value (`--ui stream`).
   if (UI_SERVES.test(t.tool) && t.rest.includes('--ui')) return true;
-  // `-w` is watch for tsc, rollup, vitest…; for jest it is --maxWorkers.
-  if (t.script === null && t.tool !== 'jest' && t.rest.includes('-w')) return true;
+  // `tsc -w`, `rollup -c -w`; never `jest -w 2`, `prettier -w .` or `gofmt -w .`.
+  if (SHORT_WATCH_TOOLS.test(t.tool) && t.rest.includes('-w')) return true;
   // `turbo run dev`, `nx run-many -t serve`, `nx affected -t dev`, `nx run app:serve`.
   const orch = orchestratorTasks(t);
   if (orch) return orch.watch || orch.tasks.some(isWatchName);
-  const pos = positionals(t.rest);
-  // `vitest watch`, `next dev`.
-  if (pos[0] !== undefined && WATCH_SUBCOMMANDS.has(pos[0])) return true;
-  // `vite` / `next` without a build subcommand serve.
-  if ((t.tool === 'vite' || t.tool === 'next') && !pos.includes('build')) return true;
+  if (NO_WATCH_SUBCOMMAND.test(t.tool)) return false;
+  const sub = subcommand(t);
+  // `vitest watch`, `next dev`, `webpack serve`.
+  if (sub !== undefined && WATCH_SUBCOMMANDS.has(sub)) return true;
+  // `next` and `vite` serve unless told to do a one-shot job (`vite preview` serves).
+  if (t.tool === 'next') return sub === undefined || !NEXT_ONESHOT.test(sub);
+  if (t.tool === 'vite') return sub === undefined || !VITE_ONESHOT.test(sub);
   return false;
 }
 
@@ -480,6 +543,7 @@ export function looksHeavy(argv: readonly string[]): boolean {
   const t = commandTarget(argv);
   if (infoOnly(t) || watching(t)) return false;
   if (orchestratorTasks(t)?.admin === true) return false;
+  if (t.tool === 'next' && NEXT_ADMIN.test(subcommand(t) ?? '')) return false;
   if (TEST_RUNNERS.test(t.tool) || BUILD_TOOLS.test(t.tool)) return true;
   if (t.pm !== null) {
     if (t.script === null) return false;
@@ -491,8 +555,10 @@ export function looksHeavy(argv: readonly string[]): boolean {
 
 /**
  * Whether `argv` is a watcher or server (`pnpm dev`, `turbo run dev`,
- * `vitest --ui`): it never exits, so `cleo run` refuses it rather than let it
- * hold a slot forever.
+ * `vitest --ui`, `vite preview`): it never exits, so `cleo run` refuses it
+ * rather than let it hold a slot forever (an explicit `--class` overrides).
+ * Never `--version`/`--help`, a flag value (`pytest -k dev`, `vitest -t serve`)
+ * or a `-w` that means something else (`jest -w 2`, `prettier -w .`).
  */
 export function isWatchCommand(argv: readonly string[]): boolean {
   return watching(commandTarget(argv));
@@ -563,16 +629,49 @@ export function canonicalForClass(cls: ResourceClass): CanonicalTool {
   return cls === 'test-run' ? 'test' : 'build';
 }
 
+/** The script a `node` command runs (`node --max-old-space-size=4096 bin/cleo.js`), else null. */
+function nodeScript(rest: readonly string[]): string | null {
+  for (let x = 0; x < rest.length; x++) {
+    const w = rest[x] as string;
+    if (w === '-e' || w === '--eval' || w === '-p' || w === '--print') return null;
+    if (NODE_VALUE_FLAGS.has(w)) {
+      x++;
+      continue;
+    }
+    if (!w.startsWith('-')) return w;
+  }
+  return null;
+}
+
+/**
+ * Whether the command word is CLEO's own CLI: `cleo …`, `ct …`, `npx cleo`,
+ * `pnpm exec cleo`, `pnpm cleo`, `node …/bin/cleo.js`.
+ */
+function isCleoCommand(t: CommandTarget): boolean {
+  if (CLEO_BIN.test(t.tool)) return true;
+  if (t.script !== null && CLEO_SCRIPT.test(t.script)) return true;
+  if (t.tool !== 'node') return false;
+  const script = nodeScript(t.rest);
+  return script !== null && CLEO_SCRIPT.test(script);
+}
+
 /**
  * Whether a job may be SIGSTOPped under pressure. Installs, db-heavy work and
  * cargo (which holds the registry cache and target-dir locks) hold shared
  * locks the oldest job may need, so pausing them can stall the one job that
  * is meant to keep the machine moving.
+ *
+ * CLEO's own commands are never paused either (#1777 R7-1): `cleo verify
+ * --evidence tool:test` holds the tool-semaphore and tool-cache locks and
+ * spawns its heavy tool DETACHED, out of the paused group. A pause would
+ * freeze only the lock holder while the test keeps running; its locks stop
+ * refreshing, go stale and are taken, and it crashes on resume.
  */
 export function isPausable(cls: ResourceClass, argv: readonly string[]): boolean {
   if (cls === 'db-heavy') return false;
   const t = commandTarget(argv);
   if (t.pm !== null && t.script !== null && INSTALL_VERBS.test(t.script)) return false;
   if (t.tool === 'cargo') return false;
+  if (isCleoCommand(t)) return false;
   return true;
 }

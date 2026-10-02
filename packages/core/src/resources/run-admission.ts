@@ -197,6 +197,18 @@ export interface RunJob {
   readonly parentJob?: string | null;
   /** Whether this job holds a slot of its own (a same-class nested run does not). */
   readonly holdsSlot?: boolean;
+  /**
+   * Whether the child leads its own process group (spawned detached). False
+   * for a nested run and for a `--passthrough` run in a terminal's foreground
+   * group: those are signalled by pid, never by group. Absent in records from
+   * older builds, where only a nested run (`parentJob`) shares a group.
+   */
+  readonly leadsGroup?: boolean;
+}
+
+/** Whether a record's child leads its own process group (see {@link RunJob.leadsGroup}). */
+function leadsOwnGroup(job: Pick<RunJob, 'leadsGroup' | 'parentJob'>): boolean {
+  return job.leadsGroup ?? typeof job.parentJob !== 'string';
 }
 
 /** A record whose heartbeat is older than this is checked for a dead runner. */
@@ -295,17 +307,17 @@ function heartbeatStale(at: number, now: number): boolean {
  */
 function recoverOrphan(job: RunJob, probes: RegistryProbes): 'done' | 'retry' {
   if (!isSignalablePid(job.childPid) || job.childStart === null) return 'done';
-  // A nested job's child leads no group: signal the process itself, and only
-  // while it is provably the same process (T13001).
-  const nested = typeof job.parentJob === 'string';
+  // A nested or foreground job's child leads no group: signal the process
+  // itself, and only while it is provably the same process (T13001).
+  const byPid = !leadsOwnGroup(job);
   if (probes.alive(job.childPid)) {
     const start = probes.start(job.childPid);
     if (start === null) return 'retry';
     if (start !== job.childStart) return 'done';
-  } else if (nested) {
+  } else if (byPid) {
     return 'done';
   }
-  const signal = nested ? probes.signalPid : probes.signal;
+  const signal = byPid ? probes.signalPid : probes.signal;
   signal(job.childPid, 'SIGCONT');
   signal(job.childPid, 'SIGTERM');
   return 'done';
@@ -413,16 +425,58 @@ export function processGroupOf(pid: number): number | null {
   }
 }
 
+/** Ancestry walks stop after this many parents (a cycle or a runaway table). */
+const MAX_ANCESTRY = 64;
+
+/**
+ * The ancestors of a pid, nearest first, from ONE `ps` of the process table
+ * (pid 1 and below excluded); null when `ps` fails.
+ */
+export function processAncestors(pid: number): number[] | null {
+  let out: string;
+  try {
+    out = execFileSync('/bin/ps', ['-A', '-o', 'pid=,ppid='], {
+      encoding: 'utf-8',
+      timeout: 2000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: PS_ENV,
+    });
+  } catch {
+    return null;
+  }
+  const parent = new Map<number, number>();
+  for (const line of out.split('\n')) {
+    const [child, ppid] = line.trim().split(/\s+/).map(Number);
+    if (Number.isInteger(child) && Number.isInteger(ppid))
+      parent.set(child as number, ppid as number);
+  }
+  const chain: number[] = [];
+  let at = parent.get(pid);
+  while (at !== undefined && isSignalablePid(at) && chain.length < MAX_ANCESTRY) {
+    if (chain.includes(at)) break;
+    chain.push(at);
+    at = parent.get(at);
+  }
+  return chain;
+}
+
 /**
  * The running `cleo run` job whose process tree `pid` belongs to, or null.
  *
- * A governed child is spawned detached, so it leads its own session and
- * process group (pgid = its pid). A process whose group id equals a live
+ * A governed child is normally spawned detached, so it leads its own session
+ * and process group (pgid = its pid). A process whose group id equals a live
  * job's `childPid`, with the leader's start time matching the record, runs
  * inside that job. This cannot be forged from outside: a session leader's
  * group can only be joined by processes in its own session, and the
- * start-time check rules out a reused pid. Any failure to read `ps` returns
- * null (normal admission).
+ * start-time check rules out a reused pid.
+ *
+ * A child that leads no group (a `--passthrough` run in a terminal's
+ * foreground group, or a nested run) is found by ancestry instead: `pid`
+ * descends from it. Ancestry can't be forged either (the kernel sets the
+ * parent; an orphan is reparented away from the job), and it costs one `ps`
+ * of the process table, read only while such a job is running.
+ *
+ * Any failure to read `ps` returns null (normal admission).
  */
 export function parentRunJob(input: {
   readonly pid: number;
@@ -431,18 +485,31 @@ export function parentRunJob(input: {
   readonly jobsDir?: string;
   readonly probes?: Partial<RegistryProbes>;
   readonly groupOf?: (pid: number) => number | null;
+  readonly ancestorsOf?: (pid: number) => readonly number[] | null;
 }): RunJob | null {
+  const p: RegistryProbes = { ...DEFAULT_PROBES, ...input.probes };
   const pgid = (input.groupOf ?? processGroupOf)(input.pid);
   if (pgid !== null && !isSignalablePid(pgid)) return null;
+  const jobs = listRunJobs(input.jobsDir ?? runJobsDir(), p).filter(
+    (j) => input.cls === undefined || j.class === input.cls,
+  );
+  /** The job whose child is `leader`, while that pid is provably its child. */
+  const childOf = (candidates: readonly RunJob[], leader: number): RunJob | null => {
+    const job = candidates.find((j) => j.childPid === leader);
+    if (!job || job.childStart === null) return null;
+    return p.start(leader) === job.childStart ? job : null;
+  };
   // pgid === pid is fine: `cleo run -- cleo run -- …` makes the inner runner
   // the outer job's child and its group leader, and it is nested.
-  if (pgid === null) return null;
-  const p: RegistryProbes = { ...DEFAULT_PROBES, ...input.probes };
-  const job = listRunJobs(input.jobsDir ?? runJobsDir(), p).find(
-    (j) => j.childPid === pgid && (input.cls === undefined || j.class === input.cls),
-  );
-  if (!job || job.childStart === null) return null;
-  return p.start(pgid) === job.childStart ? job : null;
+  const byGroup = pgid === null ? null : childOf(jobs, pgid);
+  if (byGroup) return byGroup;
+  const groupless = jobs.filter((j) => !leadsOwnGroup(j));
+  if (groupless.length === 0) return null;
+  for (const ancestor of (input.ancestorsOf ?? processAncestors)(input.pid) ?? []) {
+    const job = childOf(groupless, ancestor);
+    if (job) return job;
+  }
+  return null;
 }
 
 /** A job waiting in the `--wait` queue. */

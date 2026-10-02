@@ -61,6 +61,7 @@ interface Harness {
     args: readonly string[];
     env: NodeJS.ProcessEnv;
     detached: boolean;
+    passthrough: boolean;
   }>;
   acquires: number;
   released: number;
@@ -77,6 +78,7 @@ function harness(opts: {
   onSleep?: (n: number, h: Harness) => void;
   spawnThrows?: boolean;
   groupOf?: (pid: number) => number | null;
+  ancestorsOf?: (pid: number) => readonly number[] | null;
   onAcquire?: (h: Harness) => void;
   acquireThrows?: Error;
   jobsDir?: string;
@@ -127,7 +129,13 @@ function harness(opts: {
     },
     spawn: (file, args, o) => {
       if (opts.spawnThrows) throw new Error('ENOENT: no such file');
-      h.spawned.push({ file, args, env: o.env, detached: o.detached });
+      h.spawned.push({
+        file,
+        args,
+        env: o.env,
+        detached: o.detached,
+        passthrough: o.passthrough,
+      });
       return child;
     },
     signal: (pid, sig) => {
@@ -158,6 +166,7 @@ function harness(opts: {
     verifyHolders: () => [],
     pid: process.pid, // alive for the registry's liveness probe
     groupOf: opts.groupOf ?? (() => null),
+    ancestorsOf: opts.ancestorsOf ?? (() => []),
   };
   return h;
 }
@@ -568,5 +577,135 @@ describe('fail open when the governor cannot write its state (#1781 review, HIGH
     const r = await runGoverned(base(h));
     expect(r.kind).toBe('deferred');
     expect(h.spawned).toEqual([]);
+  });
+});
+
+describe('--passthrough and a terminal in the foreground (#1777 R7)', () => {
+  it('passthrough hands the child the stdio; without a terminal it stays detached and pausable', async () => {
+    writeRunJob(olderJob(), join(dir, 'jobs'));
+    const h = harness({
+      levels: ['ok', 'backoff', 'backoff'],
+      onSample: (n, hh) => n === 3 && hh.exit(0),
+    });
+    await runGoverned(base(h, { passthrough: true }));
+    expect(h.spawned[0]).toMatchObject({ passthrough: true, detached: true });
+    expect(h.signals).toEqual([
+      [500, 'SIGSTOP'],
+      [500, 'SIGCONT'],
+    ]);
+  });
+
+  it("without passthrough the child's stdout goes to stderr", async () => {
+    const h = harness({ onSample: (n, hh) => n === 2 && hh.exit(0) });
+    await runGoverned(base(h));
+    expect(h.spawned[0]).toMatchObject({ passthrough: false, detached: true });
+  });
+
+  it('foreground: not detached, never paused, signals forwarded by pid, recorded as leading no group', async () => {
+    writeRunJob(olderJob(), join(dir, 'jobs'));
+    let record: RunJob | undefined;
+    const h = harness({
+      levels: ['ok', 'backoff', 'backoff'],
+      onSample: (n, hh) => {
+        if (n === 2) {
+          const own = readdirSync(join(dir, 'jobs')).find((f) => f !== 'older.json');
+          record = JSON.parse(readFileSync(join(dir, 'jobs', own as string), 'utf8')) as RunJob;
+          hh.forward('SIGINT');
+        }
+        if (n === 3) hh.exit(null, 'SIGINT');
+      },
+    });
+    const r = await runGoverned(base(h, { passthrough: true, foreground: true }));
+    expect(h.spawned[0]).toMatchObject({ detached: false, passthrough: true });
+    expect(record).toMatchObject({ pausable: false, leadsGroup: false, holdsSlot: true });
+    // Younger at backoff and still never SIGSTOPped; the forward goes to the pid.
+    expect(h.signals).toEqual([
+      [500, 'pid:SIGCONT'],
+      [500, 'pid:SIGINT'],
+    ]);
+    expect(r).toMatchObject({ kind: 'exited', signal: 'SIGINT', pauses: 0, slot: 0 });
+  });
+
+  it('a detached run records that its child leads its group', async () => {
+    let record: RunJob | undefined;
+    const h = harness({
+      onSample: (n, hh) => {
+        if (n === 2) {
+          const own = readdirSync(join(dir, 'jobs'))[0] as string;
+          record = JSON.parse(readFileSync(join(dir, 'jobs', own), 'utf8')) as RunJob;
+          hh.exit(0);
+        }
+      },
+    });
+    await runGoverned(base(h));
+    expect(record).toMatchObject({ leadsGroup: true, pausable: true });
+  });
+
+  it('a run nested under a foreground job is found by ancestry and rides its slot', async () => {
+    writeRunJob(
+      { ...olderJob(), id: 'fg', childPid: 777, childStart: 'start-777', leadsGroup: false },
+      join(dir, 'jobs'),
+    );
+    const h = harness({
+      groupOf: () => 650, // the terminal's group: says nothing
+      ancestorsOf: () => [640, 777, 600],
+      onSample: (n, hh) => n === 2 && hh.exit(0),
+    });
+    const r = await runGoverned(base(h));
+    expect(r).toMatchObject({ kind: 'exited', exitCode: 0, slot: -1 });
+    expect(h.acquires).toBe(0);
+    expect(h.spawned[0]?.detached).toBe(false);
+  });
+});
+
+describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
+  it('a pause and its resume warn', async () => {
+    writeRunJob(olderJob(), join(dir, 'jobs'));
+    const notices: Array<[string, string]> = [];
+    const h = harness({
+      levels: ['ok', 'backoff', 'backoff', 'ok', 'ok'],
+      onSample: (n, hh) => n === 5 && hh.exit(0),
+    });
+    await runGoverned(base(h, { notice: (m: string, l: string) => notices.push([l, m]) }));
+    expect(notices.map(([l, m]) => [l, m.split(':')[0]])).toEqual([
+      ['warn', 'paused'],
+      ['warn', 'resumed.'],
+    ]);
+  });
+
+  it('an ungoverned run warns', async () => {
+    const notices: Array<[string, string]> = [];
+    const h = harness({
+      acquireThrows: Object.assign(new Error('EROFS'), { code: 'EROFS' }),
+      onSample: (n, hh) => n === 2 && hh.exit(0),
+    });
+    await runGoverned(base(h, { notice: (m: string, l: string) => notices.push([l, m]) }));
+    expect(notices).toEqual([['warn', expect.stringContaining('running ungoverned')]]);
+  });
+
+  it('a queue admission and a nested run are progress (info)', async () => {
+    const queued: Array<[string, string]> = [];
+    const q = harness({
+      admissions: ['deny', 'grant'],
+      onSample: (n, hh) => n === 3 && hh.exit(0),
+    });
+    await runGoverned(
+      base(q, {
+        wait: true,
+        queuePollMs: 1000,
+        timeoutMs: 60_000,
+        notice: (m: string, l: string) => queued.push([l, m]),
+      }),
+    );
+    expect(queued).toEqual([['info', expect.stringContaining('admitted after')]]);
+
+    writeRunJob(
+      { ...olderJob(), id: 'outer', childPid: 777, childStart: 'start-777' },
+      join(dir, 'jobs'),
+    );
+    const nested: Array<[string, string]> = [];
+    const h = harness({ groupOf: () => 777, onSample: (n, hh) => n === 2 && hh.exit(0) });
+    await runGoverned(base(h, { notice: (m: string, l: string) => nested.push([l, m]) }));
+    expect(nested).toEqual([['info', expect.stringContaining('nested in a running')]]);
   });
 });

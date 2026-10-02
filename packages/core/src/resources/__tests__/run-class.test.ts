@@ -336,3 +336,141 @@ describe('round 6 (R6-3): turbo value flags, --ui per tool, admin subcommands', 
     expect(isWatchCommand(['pnpm', 'build:dev'])).toBe(false);
   });
 });
+
+describe('round 7 (R7-1): CLEO commands are never paused', () => {
+  it('cleo, ct, npx/pnpm cleo and node …/cleo: a lock holder whose heavy tool runs detached', () => {
+    for (const argv of [
+      ['cleo', 'verify', 'T1', '--gate', 'testsPassed', '--evidence', 'tool:test'],
+      ['ct', 'verify', 'T1'],
+      ['/usr/local/bin/cleo', 'verify', 'T1'],
+      ['env', 'CLEO_SESSION_ID=s1', 'cleo', 'verify', 'T1'],
+      ['npx', 'cleo', 'verify', 'T1'],
+      ['npx', '-y', '@cleocode/cleo@latest', 'verify', 'T1'],
+      ['pnpm', 'exec', 'cleo', 'verify', 'T1'],
+      ['pnpm', 'dlx', '@cleocode/cleo', 'verify', 'T1'],
+      ['pnpm', 'cleo', 'verify', 'T1'],
+      ['node', '/opt/lib/node_modules/@cleocode/cleo/bin/cleo.js', 'verify', 'T1'],
+      ['node', '--max-old-space-size=4096', 'packages/cleo/dist/cli/index.js', 'verify'],
+      ['node', '-r', 'source-map-support/register', 'bin/cleo.js', 'verify'],
+    ]) {
+      expect(isPausable('test-run', argv), argv.join(' ')).toBe(false);
+      expect(isPausable('scoped-build', argv), argv.join(' ')).toBe(false);
+    }
+  });
+
+  it('cleo as an argument, a path segment or a package name changes nothing', () => {
+    for (const argv of [
+      ['npx', 'vitest', 'run', 'packages/cleo/src/cli/__tests__/run-command.test.ts'],
+      ['pnpm', '--filter', '@cleocode/cleo', 'run', 'build'],
+      ['node', 'scripts/build.mjs', 'cleo'],
+      ['node', '-e', 'require("cleo")'],
+      ['tsc', '-p', 'packages/cleo'],
+    ]) {
+      expect(isPausable('scoped-build', argv), argv.join(' ')).toBe(true);
+    }
+  });
+});
+
+describe('round 7 (R7-2): one-shot commands are not watchers', () => {
+  it('--version/--help and one-shot next/vite subcommands', () => {
+    for (const argv of [
+      ['next', 'info'],
+      ['next', 'telemetry'],
+      ['next', '--help'],
+      ['vite', '--version'],
+    ]) {
+      expect(isWatchCommand(argv), argv.join(' ')).toBe(false);
+      expect(looksHeavy(argv), argv.join(' ')).toBe(false);
+    }
+    for (const argv of [
+      ['next', 'lint'],
+      ['next', 'build'],
+      ['vite', 'build'],
+      ['vite', 'optimize'],
+      ['vite', '-c', 'vite.config.ts', 'build'],
+    ]) {
+      expect(isWatchCommand(argv), argv.join(' ')).toBe(false);
+      expect(looksHeavy(argv), argv.join(' ')).toBe(true);
+      expect(resolveRunClass(undefined, argv, dir), argv.join(' ')).toBe('scoped-build');
+    }
+  });
+
+  it('next with no subcommand, dev or start, and vite unless it builds, still serve', () => {
+    for (const argv of [
+      ['next'],
+      ['next', 'dev'],
+      ['next', 'start'],
+      ['npx', 'next', 'dev', '-p', '3000'],
+      ['vite'],
+      ['vite', 'dev'],
+      ['vite', 'serve'],
+      ['vite', 'preview'],
+      ['vite', '--port', '4000'],
+      ['vite', 'build', '--watch'],
+      ['vite', 'build', '-w'],
+    ]) {
+      expect(isWatchCommand(argv), argv.join(' ')).toBe(true);
+      expect(looksHeavy(argv), argv.join(' ')).toBe(false);
+    }
+  });
+
+  it('a short flag value is not a watch subcommand', () => {
+    for (const argv of [
+      ['pytest', '-k', 'dev'],
+      ['jest', '-t', 'start'],
+      ['npx', 'vitest', '-t', 'serve'],
+      ['vitest', 'run', '-t', 'dev'],
+      ['mocha', '-g', 'watch'],
+      ['pnpm', 'test', '-t', 'serve'],
+    ]) {
+      expect(isWatchCommand(argv), argv.join(' ')).toBe(false);
+      expect(looksHeavy(argv), argv.join(' ')).toBe(true);
+      expect(resolveRunClass(undefined, argv, dir), argv.join(' ')).toBe('test-run');
+    }
+    expect(isWatchCommand(['tsc', '-p', 'dev'])).toBe(false);
+    expect(looksHeavy(['tsc', '-p', 'dev'])).toBe(true);
+  });
+
+  it('a real watch subcommand still counts', () => {
+    for (const argv of [
+      ['vitest', 'watch'],
+      ['npx', 'vitest', '-t', 'x', 'dev'],
+      ['webpack', 'serve'],
+      ['cargo', 'watch'],
+      ['pnpm', 'test', 'watch'],
+      ['pnpm', 'dev', '--help'], // a script passes --help on to what it runs
+    ]) {
+      expect(isWatchCommand(argv), argv.join(' ')).toBe(true);
+      expect(looksHeavy(argv), argv.join(' ')).toBe(false);
+    }
+  });
+
+  it('-w is watch only for tools where it means --watch', () => {
+    for (const argv of [
+      ['npx', 'prettier', '-w', '.'],
+      ['gofmt', '-w', '.'],
+    ]) {
+      expect(isWatchCommand(argv), argv.join(' ')).toBe(false);
+      expect(looksHeavy(argv), argv.join(' ')).toBe(false);
+    }
+    expect(isWatchCommand(['jest', '-w', '2'])).toBe(false);
+    for (const argv of [
+      ['tsc', '-w'],
+      ['rollup', '-c', '-w'],
+      ['webpack', '-w'],
+      ['vitest', '-w'],
+      ['mocha', '-w'],
+      ['sass', '-w', 'in.scss:out.css'],
+      ['npx', 'tailwindcss', '-i', 'in.css', '-w'],
+    ]) {
+      expect(isWatchCommand(argv), argv.join(' ')).toBe(true);
+    }
+  });
+
+  it('esbuild --serve serves', () => {
+    expect(isWatchCommand(['esbuild', 'app.ts', '--serve'])).toBe(true);
+    expect(isWatchCommand(['esbuild', 'app.ts', '--bundle', '--serve=8000'])).toBe(true);
+    expect(looksHeavy(['esbuild', 'app.ts', '--serve=8000'])).toBe(false);
+    expect(looksHeavy(['esbuild', 'app.ts', '--bundle'])).toBe(true);
+  });
+});
