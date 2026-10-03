@@ -595,10 +595,13 @@ export async function deleteTokenUsage(
   const { eq } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
   // One transaction: a record is never left in one table only.
-  db.transaction((tx) => {
-    tx.delete(tokenUsage).where(eq(tokenUsage.id, params.id)).run();
-    tx.delete(legacyTokenUsage).where(eq(legacyTokenUsage.id, params.id)).run();
-  });
+  db.transaction(
+    (tx) => {
+      tx.delete(tokenUsage).where(eq(tokenUsage.id, params.id)).run();
+      tx.delete(legacyTokenUsage).where(eq(legacyTokenUsage.id, params.id)).run();
+    },
+    { behavior: 'immediate' },
+  );
   return { deleted: true, id: params.id };
 }
 
@@ -625,14 +628,20 @@ export async function clearTokenUsage(
       return { table, where };
     }),
   );
-  // One transaction: a clear never removes the rows of one table only.
+  // One transaction: a clear never removes the rows of one table only. It
+  // reads before it writes, so it takes the write lock first (IMMEDIATE): a
+  // deferred one fails with SQLITE_BUSY_SNAPSHOT when another process commits
+  // between the count and the delete.
   let deleted = 0;
-  db.transaction((tx) => {
-    for (const { table, where } of targets) {
-      deleted += tx.select({ count: count() }).from(table).where(where).get()?.count ?? 0;
-      tx.delete(table).where(where).run();
-    }
-  });
+  db.transaction(
+    (tx) => {
+      for (const { table, where } of targets) {
+        deleted += tx.select({ count: count() }).from(table).where(where).get()?.count ?? 0;
+        tx.delete(table).where(where).run();
+      }
+    },
+    { behavior: 'immediate' },
+  );
   return { deleted };
 }
 
