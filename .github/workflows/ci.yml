@@ -78,11 +78,12 @@ jobs:
       scripts: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.scripts }}
       schemas: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.schemas }}
       workflows: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.workflows }}
-      # `true` only for a pull request whose whole diff is `"version"` lines in
-      # package.json files, CHANGELOG.md and `.changeset/**` moves — the release
+      # `true` only for a pull request — or a `workflow_dispatch` run on a
+      # `release/v*` branch — whose whole diff is `"version"` lines in
+      # package.json files, CHANGELOG.md and `.changeset/**` moves: the release
       # bump-PR shape. Heavy jobs skip on it; lint + typecheck (and the separate
       # Lockfile Check workflow) still run. See scripts/ci-detect-version-only.mjs.
-      version_only: ${{ steps.version-only.outputs.version_only == 'true' && 'true' || 'false' }}
+      version_only: ${{ (steps.version-only.outputs.version_only == 'true' || steps.version-only-dispatch.outputs.version_only == 'true') && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -93,6 +94,29 @@ jobs:
         id: version-only
         if: github.event_name == 'pull_request'
         run: node scripts/ci-detect-version-only.mjs HEAD^1 HEAD
+      # T13141: the bump-PR's `pull_request` runs come back `action_required`
+      # (GITHUB_TOKEN-created), so its only CI is the `workflow_dispatch` run
+      # release-prepare starts on the `release/v*` branch. That run used to skip
+      # the detector and run the whole ~22 min suite on 21 one-line version
+      # bumps. It now diffs the branch against its merge-base with the default
+      # branch. Any doubt (a fetch or merge-base failure, an empty diff, another
+      # branch) leaves version_only false: the full run.
+      - name: Detect a version-only (release bump) dispatch
+        id: version-only-dispatch
+        if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/release/v')
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -u
+          git fetch --no-tags --quiet --depth=100 origin \
+            "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}" || true
+          git fetch --no-tags --quiet --deepen=100 origin "${GITHUB_REF}" || true
+          if BASE=$(git merge-base "origin/${DEFAULT_BRANCH}" HEAD 2>/dev/null); then
+            node scripts/ci-detect-version-only.mjs "$BASE" HEAD
+          else
+            echo "version_only=false" >> "$GITHUB_OUTPUT"
+            echo "No merge-base with origin/${DEFAULT_BRANCH}; running the full suite."
+          fi
       - uses: dorny/paths-filter@v3
         id: filter
         if: github.event_name != 'schedule'
