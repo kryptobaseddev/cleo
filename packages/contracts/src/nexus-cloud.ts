@@ -167,8 +167,15 @@ const projectFields = {
 export const nexusCloudProjectListItemSchema = z.object({
   ...projectFields,
   role: z.string(),
+  /**
+   * The project name sealed with the project data key (`Project.encryptedName`), base64;
+   * only a holder of the account key can open it (T13102).
+   */
+  encryptedName: z.string().nullable().optional(),
   streamId: z.string().optional(),
   headSeq: z.number().int().nonnegative().nullable().optional(),
+  /** The stream's head snapshot; null when nothing was ever pushed (T13102: restorable or not). */
+  headCheckpointId: z.string().nullable().optional(),
   openConflicts: z.number().int().nonnegative().optional(),
   replicas: z.array(nexusCloudReplicaSchema).default([]),
   devices: nexusCloudDeviceCountsSchema.optional(),
