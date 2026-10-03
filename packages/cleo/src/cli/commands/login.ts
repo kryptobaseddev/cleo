@@ -31,14 +31,23 @@
  * core, BEFORE any LLM registry lookup. With no target on a terminal, the
  * picker lists "Cleo Nexus account" first, then the LLM providers.
  *
+ * ## Guided first run (T13102)
+ *
+ * After a Cleo Nexus sign-in, login runs the guided first run
+ * (`../lib/nexus-first-run-cli.js`): inside an unlinked CLEO project it
+ * offers to link the project and take its first encrypted backup (`--yes`
+ * does it without asking; a non-interactive run never asks and prints the
+ * next command); outside a project it lists the account's projects with the
+ * exact `cleo cloud restore <name>` command for each.
+ *
  * @module cli/commands/login
  * @task T11725
  * @task T12712
+ * @task T13102
  * @epic T11671 (E6-ONBOARDING-FRONT-DOOR)
  */
 
 import type {
-  NexusLoginResult,
   OnboardingAuthMode,
   OnboardingResult,
   ProviderProfile,
@@ -50,13 +59,8 @@ import type {
   OAuthTokenAcquirer,
 } from '@cleocode/core/llm/onboarding/front-door.js';
 import { defineCommand } from '../lib/define-cli-command.js';
-import {
-  emitNexusResult,
-  failNexus,
-  NEXUS_API_URL_ARG,
-  nexusLoginSummary,
-  runNexusLogin,
-} from '../lib/nexus-account-cli.js';
+import { NEXUS_API_URL_ARG } from '../lib/nexus-account-cli.js';
+import { runNexusLoginCommand } from '../lib/nexus-first-run-cli.js';
 import { ReadlineWizardIO } from '../lib/readline-wizard-io.js';
 import { cliError, cliOutput, humanLine, isHumanOutput } from '../renderers/index.js';
 import { _tryOpenBrowser, runLlmLogin } from './llm-login.js';
@@ -394,13 +398,8 @@ export async function runLoginCommand(
     failLogin(err, operation);
   }
   if (target === NEXUS_LOGIN_TARGET) {
-    let nexus: NexusLoginResult;
-    try {
-      nexus = await runNexusLogin(args, _tryOpenBrowser);
-    } catch (err) {
-      failNexus(err, operation);
-    }
-    emitNexusResult(nexus, nexusLoginSummary(nexus), 'login', operation);
+    // Sign in, then the guided first run (T13102): link and back up, or list projects.
+    await runNexusLoginCommand(args, operation, _tryOpenBrowser);
     return;
   }
   let result: OnboardingResult;
@@ -510,6 +509,11 @@ export const LOGIN_ARGS = {
     description:
       'nexus: device name shown on cleocode.dev (default: OS, arch and a short id; never the hostname). Ignored with CLEO_NEXUS_DEVICE=0.',
   },
+  yes: {
+    type: 'boolean',
+    description:
+      'nexus: inside a CLEO project this machine has not linked, link it and take the first encrypted backup without asking. Without it a terminal is asked, and a non-interactive run only prints the next command.',
+  },
   auth: {
     type: 'string',
     description:
@@ -554,7 +558,7 @@ export const loginCommand = defineCommand({
     // captures only the first plain string literal (concatenations + backticks
     // truncate the `cleo --help` text mid-sentence).
     description:
-      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
+      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. After a Cleo Nexus sign-in inside an unlinked CLEO project it offers to link the project and back it up (--yes does it; a non-interactive run prints the next command); outside a project it lists your projects with the cleo cloud restore command for each. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
   },
   args: LOGIN_ARGS,
   async run({ args }) {

@@ -18,6 +18,7 @@ const nexusVaultStatus = vi.fn();
 const releaseNexusVaultLease = vi.fn();
 const nexusCloudActivity = vi.fn();
 const linkProjectToNexus = vi.fn();
+const resolveNexusProjectRef = vi.fn();
 
 vi.mock('@cleocode/core/cloud/nexus-vault.js', () => ({
   pushNexusVault,
@@ -28,6 +29,7 @@ vi.mock('@cleocode/core/cloud/nexus-vault.js', () => ({
 }));
 vi.mock('@cleocode/core/cloud/nexus-cloud-activity.js', () => ({ nexusCloudActivity }));
 vi.mock('@cleocode/core/cloud/nexus-link.js', () => ({ linkProjectToNexus }));
+vi.mock('@cleocode/core/cloud/nexus-project-names.js', () => ({ resolveNexusProjectRef }));
 vi.mock('@cleocode/core/cloud/nexus-cloud-status.js', () => ({
   NexusCloudOfflineError: class NexusCloudOfflineError extends Error {},
 }));
@@ -116,6 +118,9 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ apiUrl: API, projectId: null, items: [], nextBefore: null, warnings: [] });
   linkProjectToNexus.mockReset().mockResolvedValue({ warnings: ['linked with a note'] });
+  resolveNexusProjectRef
+    .mockReset()
+    .mockImplementation(async (ref: string) => ({ projectId: ref, name: null, matchedBy: 'id' }));
   stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   exits = [];
@@ -165,6 +170,7 @@ describe('flags reach the core calls', () => {
       into: '/tmp/target',
     });
     expect(typeof opts(restoreNexusVault)['relink']).toBe('function');
+    expect(resolveNexusProjectRef).toHaveBeenCalledWith('p-remote', { apiUrl: undefined });
   });
 
   it('pull ignores --checkpoint, --project and --into', async () => {
@@ -174,6 +180,7 @@ describe('flags reach the core calls', () => {
     expect(o).not.toHaveProperty('checkpointId');
     expect(o).not.toHaveProperty('projectId');
     expect(o).not.toHaveProperty('into');
+    expect(resolveNexusProjectRef).not.toHaveBeenCalled();
   });
 
   it('verify, vault and lease release pass scope and the API URL', async () => {
@@ -299,5 +306,75 @@ describe('restore relink callback', () => {
     await expect(relink('/r')).resolves.toEqual([
       'restored, but attaching this copy failed (boom); run `cleo project link`',
     ]);
+  });
+});
+
+describe('cleo cloud restore <name> (T13102)', () => {
+  it('resolves the positional name to the project id and restores that id', async () => {
+    resolveNexusProjectRef.mockResolvedValueOnce({
+      projectId: 'p-resolved',
+      name: 'Demo Board',
+      matchedBy: 'name',
+    });
+    await runCloudRestore({ name: 'demo board', 'api-url': API });
+    expect(resolveNexusProjectRef).toHaveBeenCalledWith('demo board', { apiUrl: API });
+    expect(opts(restoreNexusVault)).toMatchObject({ mode: 'restore', projectId: 'p-resolved' });
+    expect(written()).toContain('Restoring "Demo Board" (project p-resolved)');
+  });
+
+  it('the same name as positional and --project is accepted once', async () => {
+    await runCloudRestore({ name: 'demo', project: 'demo' });
+    expect(resolveNexusProjectRef).toHaveBeenCalledTimes(1);
+    expect(opts(restoreNexusVault)).toMatchObject({ projectId: 'demo' });
+  });
+
+  it('different values as positional and --project fail with E_VALIDATION before any call', async () => {
+    await expect(runCloudRestore({ name: 'a', project: 'b' })).rejects.toThrow(/^exit:/);
+    expect(exits[0]).toBe(6);
+    expect(written()).toContain('E_VALIDATION');
+    expect(resolveNexusProjectRef).not.toHaveBeenCalled();
+    expect(restoreNexusVault).not.toHaveBeenCalled();
+  });
+
+  it('a project name with --scope global fails with E_VALIDATION', async () => {
+    await expect(runCloudRestore({ name: 'demo', scope: 'global' })).rejects.toThrow(/^exit:/);
+    expect(exits[0]).toBe(6);
+    expect(resolveNexusProjectRef).not.toHaveBeenCalled();
+    expect(restoreNexusVault).not.toHaveBeenCalled();
+  });
+
+  it('an ambiguous name exits 6 with the candidates in error.details, restoring nothing', async () => {
+    const candidates = [
+      { projectId: 'p-1', name: 'demo', restoreCommand: 'cleo cloud restore p-1' },
+      { projectId: 'p-2', name: 'Demo', restoreCommand: 'cleo cloud restore p-2' },
+    ];
+    resolveNexusProjectRef.mockRejectedValueOnce(
+      Object.assign(new Error('"DEMO" matches 2 projects'), {
+        code: 'E_NEXUS_PROJECT_AMBIGUOUS',
+        fix: 'restore one by its id: cleo cloud restore p-1 | cleo cloud restore p-2',
+        publicDetails: { ref: 'DEMO', candidates },
+      }),
+    );
+    await expect(runCloudRestore({ name: 'DEMO' })).rejects.toThrow(/^exit:/);
+    expect(exits[0]).toBe(6);
+    const out = written();
+    expect(out).toContain('E_NEXUS_PROJECT_AMBIGUOUS');
+    expect(out).toContain('cleo cloud restore p-2');
+    // The candidates travel as error.details, not only in the message.
+    expect(out).toContain('"candidates"');
+    expect(restoreNexusVault).not.toHaveBeenCalled();
+  });
+
+  it('an unknown name exits 4 (E_NEXUS_PROJECT_NOT_FOUND)', async () => {
+    resolveNexusProjectRef.mockRejectedValueOnce(
+      Object.assign(new Error('no project is named "nope"'), {
+        code: 'E_NEXUS_PROJECT_NOT_FOUND',
+        fix: 'run `cleo cloud projects`',
+      }),
+    );
+    await expect(runCloudRestore({ name: 'nope' })).rejects.toThrow(/^exit:/);
+    expect(exits[0]).toBe(4);
+    expect(written()).toContain('E_NEXUS_PROJECT_NOT_FOUND');
+    expect(restoreNexusVault).not.toHaveBeenCalled();
   });
 });

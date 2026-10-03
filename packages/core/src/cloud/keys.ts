@@ -616,3 +616,53 @@ export function unwrapProjectKey(
 
 /** Key for the personal home stream. It is derived, so it never needs storing or sharing. */
 export const homeStreamKey = (mk: Buffer) => deriveKey(mk, 'home-stream');
+
+const projectNameContext = (projectId: string) => `project-name\n${projectId}`;
+
+/** Longest project name {@link openProjectName} accepts, in UTF-8 bytes. */
+export const PROJECT_NAME_MAX_BYTES = 1024;
+
+/**
+ * Seal a project's name with its data key, for `Project.encryptedName`
+ * (`RegisterProjectRequest.encryptedName`: "the project name, encrypted with
+ * the project data key"). The project id is bound as associated data, so a
+ * sealed name cannot be moved to another project.
+ *
+ * @param pdk - The project data key.
+ * @param projectId - The server's project id.
+ * @param name - The plaintext name.
+ * @returns The sealed name, base64.
+ * @task T13102
+ */
+export function sealProjectName(pdk: Buffer, projectId: string, name: string): string {
+  return seal(
+    pdk,
+    Buffer.from(name, 'utf8'),
+    'project-name',
+    projectNameContext(projectId),
+  ).toString('base64');
+}
+
+/**
+ * Open a project's `encryptedName` with its data key.
+ *
+ * @param pdk - The project data key.
+ * @param projectId - The server's project id.
+ * @param encryptedName - The sealed name, base64.
+ * @returns The plaintext name.
+ * @throws {DecryptError} When it does not open with this key and project, or is empty or
+ *   longer than {@link PROJECT_NAME_MAX_BYTES}.
+ * @task T13102
+ */
+export function openProjectName(pdk: Buffer, projectId: string, encryptedName: string): string {
+  const plain = open(
+    pdk,
+    Buffer.from(encryptedName, 'base64'),
+    'project-name',
+    projectNameContext(projectId),
+  );
+  if (plain.length === 0 || plain.length > PROJECT_NAME_MAX_BYTES) {
+    throw new DecryptError('project name out of range');
+  }
+  return plain.toString('utf8');
+}

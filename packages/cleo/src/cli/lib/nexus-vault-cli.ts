@@ -95,12 +95,49 @@ export async function runCloudPull(args: Args): Promise<void> {
 }
 
 /**
- * `cleo cloud restore [--scope] [--checkpoint <id>] [--project <id> --into <dir>] [--force]`.
+ * `cleo cloud restore [<name>] [--scope] [--checkpoint <id>] [--project <name|id> --into <dir>] [--force]`.
  *
  * @param args - Parsed args.
  */
 export async function runCloudRestore(args: Args): Promise<void> {
   await runCloudRestoreLike(args, 'cloud.restore', 'restore');
+}
+
+/**
+ * The project a restore names (the `<name>` positional or `--project`), as
+ * the server's project id: a name or label is resolved through the account's
+ * project list (T13102). `undefined` when none was given.
+ *
+ * @param args - Parsed args.
+ * @returns The project id, or `undefined`.
+ * @throws `E_VALIDATION` when both are given and differ, or with `--scope global`;
+ *   `E_NEXUS_PROJECT_AMBIGUOUS` / `E_NEXUS_PROJECT_NOT_FOUND` from the resolution.
+ */
+async function restoreProjectId(args: Args): Promise<string | undefined> {
+  const positional = stringArg(args, 'name');
+  const flag = stringArg(args, 'project');
+  if (positional !== undefined && flag !== undefined && positional !== flag) {
+    throw Object.assign(new Error('give the project once: as <name> or as --project'), {
+      code: 'E_VALIDATION',
+      fix: 'use `cleo cloud restore <name>` (or `--project <name>`), not both',
+    });
+  }
+  const ref = positional ?? flag;
+  if (ref === undefined) return undefined;
+  if (stringArg(args, 'scope') === 'global') {
+    throw Object.assign(new Error('a project name restores a project, not the global store'), {
+      code: 'E_VALIDATION',
+      fix: 'drop --scope global to restore the project, or drop the project to restore the global store',
+    });
+  }
+  const { resolveNexusProjectRef } = await import(
+    /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-project-names.js'
+  );
+  const resolved = await resolveNexusProjectRef(ref, { apiUrl: nexusApiUrlArg(args) });
+  if (resolved.matchedBy === 'name') {
+    process.stderr.write(`Restoring "${resolved.name}" (project ${resolved.projectId})...\n`);
+  }
+  return resolved.projectId;
 }
 
 async function runCloudRestoreLike(
@@ -112,7 +149,7 @@ async function runCloudRestoreLike(
     operation,
     async () => {
       const checkpointId = stringArg(args, 'checkpoint');
-      const projectId = stringArg(args, 'project');
+      const projectId = mode === 'restore' ? await restoreProjectId(args) : undefined;
       const into = stringArg(args, 'into');
       return (await vaultModule()).restoreNexusVault({
         ...common(args, operation),
