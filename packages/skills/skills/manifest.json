@@ -1150,7 +1150,7 @@
     },
     {
       "name": "ct-release-orchestrator",
-      "version": "3.0.2",
+      "version": "3.0.3",
       "description": "Orchestrates the canonical 4-verb release pipeline introduced by SPEC-T9345: cleo release plan, then cleo release open, then PR + GHA tag workflow, then cleo release reconcile. The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/release/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status.",
       "path": "skills/ct-release-orchestrator",
       "tier": 1,
@@ -1472,7 +1472,7 @@
     },
     {
       "name": "ct-task-executor",
-      "version": "2.7.7",
+      "version": "2.7.8",
       "description": "General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.",
       "path": "skills/ct-task-executor",
       "tier": 0,

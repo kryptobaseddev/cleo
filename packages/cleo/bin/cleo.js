@@ -65,9 +65,19 @@ import { fileURLToPath } from 'node:url';
  * Must be set before anything submits work to the pool — the pool is created
  * on first use and never resized — so it is set here, before the re-exec and
  * before the in-process import; the child inherits it through the environment.
+ *
+ * T13122: it is the CLI's tuning, not its children's. The marker names the value
+ * CLEO supplied, and the CLI removes both once its own pool exists
+ * (`src/cli/lib/cli-threadpool-env.ts`), so a test runner and each of its
+ * workers no longer start 64 pool threads apiece. An operator's own value
+ * carries no marker and is inherited as before.
  */
 const DEFAULT_UV_THREADPOOL_SIZE = '64';
-if (!process.env.UV_THREADPOOL_SIZE) process.env.UV_THREADPOOL_SIZE = DEFAULT_UV_THREADPOOL_SIZE;
+const CLI_THREADPOOL_MARKER = 'CLEO_CLI_UV_THREADPOOL_SIZE';
+if (!process.env.UV_THREADPOOL_SIZE) {
+  process.env.UV_THREADPOOL_SIZE = DEFAULT_UV_THREADPOOL_SIZE;
+  process.env[CLI_THREADPOOL_MARKER] = DEFAULT_UV_THREADPOOL_SIZE;
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliPath = resolve(__dirname, '../dist/cli/index.js');
