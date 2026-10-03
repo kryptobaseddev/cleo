@@ -622,21 +622,64 @@ function cleoCreatedConfig(config: unknown): boolean {
  */
 export function codexHooksSharedReason(projectDir: string, checkGit = true): string | null {
   const file = join(projectDir, CODEX_HOOKS_FILE);
-  if (!existsSync(file)) return null;
-  let config: unknown;
-  try {
-    config = JSON.parse(readFileSync(file, 'utf-8'));
-  } catch {
-    return null;
-  }
-  if (!cleoCreatedConfig(config)) return "is the project's own Codex hook config";
+  // Tracking first: a committed file is the team's whatever it holds, even
+  // empty (review MED-3a).
   if (
     checkGit &&
     gitOutput(projectDir, ['ls-files', '--error-unmatch', CODEX_HOOKS_FILE]) !== null
   ) {
     return 'is tracked by git (a shared team config)';
   }
-  return null;
+  if (!existsSync(file)) return null;
+  let config: unknown;
+  try {
+    config = JSON.parse(readFileSync(file, 'utf-8'));
+  } catch {
+    // Empty or not valid JSON: CLEO never writes such a file, so it is the user's.
+    return "is the project's own Codex hook config (empty or not valid JSON)";
+  }
+  return cleoCreatedConfig(config) ? null : "is the project's own Codex hook config";
+}
+
+/**
+ * Whether the committed (`HEAD`) version of Codex's `.codex/hooks.json` holds
+ * CLEO's hook: the team adopted it, so mode `off` on one machine must not
+ * remove it from the tracked file (review MED-3b).
+ *
+ * @param projectDir - the project root.
+ */
+export function committedCodexHookHoldsCleo(projectDir: string): boolean {
+  const committed = gitOutput(projectDir, ['show', `HEAD:./${CODEX_HOOKS_FILE}`]);
+  if (committed === null || committed === '') return false;
+  try {
+    const config: unknown = JSON.parse(committed);
+    if (!isPlainObject(config)) return false;
+    const groups = isPlainObject(config.hooks) ? config.hooks.PreToolUse : undefined;
+    return (
+      Array.isArray(groups) &&
+      groups.some(
+        (g) => isPlainObject(g) && Array.isArray(g.hooks) && g.hooks.some(isHeavyHookObject),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether CLEO's own marked `info/exclude` block names this project file
+ * (it hides the file from git).
+ *
+ * @param projectDir - the project root.
+ * @param relPath - the file, relative to the project (forward slashes).
+ */
+export function excludedByCleo(projectDir: string, relPath: string): boolean {
+  const exclude = excludeFile(projectDir);
+  if (exclude === null || !existsSync(exclude)) return false;
+  const lines = readFileSync(exclude, 'utf-8').split('\n');
+  const at = lines.indexOf(excludeLine(projectDir, relPath));
+  const above = lines[at - 1];
+  return at >= 1 && (above === LOCAL_SETTINGS_EXCLUDE_MARKER || above === HOOK_FILE_EXCLUDE_MARKER);
 }
 
 /**
@@ -677,7 +720,17 @@ export async function syncCodexHeavyCommandHook(
   const file = join(projectDir, CODEX_HOOKS_FILE);
   if (mode !== 'off') {
     const shared = codexHooksSharedReason(projectDir);
-    if (shared !== null) throw new HeavyHookSharedConfigError(file, shared);
+    if (shared !== null) {
+      // A file CLEO once created and excluded is now the user's: stop hiding
+      // it from git (review MED-3c). Only CLEO's own marked block goes.
+      unexcludeHookFileFromGit(projectDir, CODEX_HOOKS_FILE);
+      throw new HeavyHookSharedConfigError(file, shared);
+    }
+  } else if (committedCodexHookHoldsCleo(projectDir)) {
+    throw new HeavyHookSharedConfigError(
+      file,
+      "holds CLEO's hook as the team committed it (removing it is a team change)",
+    );
   }
   const result = await syncJsonHeavyCommandHook(file, 'codex', mode);
   if (mode === 'off') unexcludeHookFileFromGit(projectDir, CODEX_HOOKS_FILE);

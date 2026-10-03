@@ -42,6 +42,7 @@ import {
   CODEX_HOOKS_FILE,
   codexHookSnippet,
   codexHooksSharedReason,
+  excludedByCleo,
   HEAVY_COMMAND_HOOK_ID,
   HeavyHookPathBlockedError,
   HeavyHookSharedConfigError,
@@ -217,8 +218,12 @@ async function syncProvider(
         status: 'needs-consent',
         target,
         reason: err.message,
-        remedy: CODEX_SHARED_REMEDY,
-        snippet: codexHookSnippet(),
+        ...(mode === 'off'
+          ? {
+              remedy:
+                "the team committed CLEO's hook in .codex/hooks.json; remove it there in a team change if the team agrees",
+            }
+          : { remedy: CODEX_SHARED_REMEDY, snippet: codexHookSnippet() }),
       };
     }
     if (err instanceof HeavyHookPathBlockedError) {
@@ -414,6 +419,14 @@ function inspectProvider(
     // Codex's hooks.json may be a shared team config (review MED-3): CLEO's
     // per-machine hook there must not ride along in a commit.
     const shared = provider === 'codex' ? codexHooksSharedReason(projectDir, true) : null;
+    if (shared !== null && excludedByCleo(projectDir, CODEX_HOOKS_FILE)) {
+      return {
+        ...base,
+        state: 'outdated',
+        detail: `CLEO's info/exclude line hides ${target}, which ${shared}`,
+        remedy: `run: ${HEAVY_HOOK_FIX_COMMAND} (removes CLEO's exclude line)`,
+      };
+    }
     if (shared !== null) {
       const modified = trackedFileModified(projectDir, CODEX_HOOKS_FILE);
       if (modified || hookFileVisibleToGit(projectDir, CODEX_HOOKS_FILE)) {
@@ -443,6 +456,14 @@ function inspectProvider(
   // The briefing (no git checks) still reads the file: a project's own
   // hooks.json needs consent, it is not missing.
   const shared = provider === 'codex' ? codexHooksSharedReason(projectDir, gitChecks) : null;
+  if (shared !== null && gitChecks && excludedByCleo(projectDir, CODEX_HOOKS_FILE)) {
+    return {
+      ...base,
+      state: 'outdated',
+      detail: `CLEO's info/exclude line hides ${target}, which ${shared}`,
+      remedy: `run: ${HEAVY_HOOK_FIX_COMMAND} (removes CLEO's exclude line)`,
+    };
+  }
   if (shared !== null) {
     return {
       ...base,

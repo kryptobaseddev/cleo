@@ -28,10 +28,12 @@ time).
 - **Codex's `.codex/hooks.json` is the project's own config.** CLEO writes
   it, and excludes it from git, only when CLEO created it (absent, or nothing
   but CLEO's own hook) and git does not track it. Any other `hooks.json`
-  (tracked, holding team hooks, or even an empty `{}`) is never written or
+  (tracked, holding team hooks, empty, or not valid JSON) is never written or
   hidden. It is reported as `needs-consent`, with the exact JSON entry to add
-  by hand. Doctor also flags CLEO's hook left as an uncommitted change in a
-  tracked team file.
+  by hand. A CLEO-created file that later gains the user's own hook loses
+  CLEO's exclude line. Mode `off` leaves CLEO's hook alone when the team
+  committed it. Doctor also flags CLEO's hook left as an uncommitted change
+  in a tracked team file.
 - **Every file the hook writes stays out of git.** `.claude/settings.local.json`,
   `.codex/hooks.json` and the opencode plugin get a marked line in the
   repository's `info/exclude`, unless git already ignores or tracks the file.
@@ -65,16 +67,19 @@ Code's matching:
 
 - every token must fit a strict allowlist grammar: plain words of
   `[A-Za-z0-9_./:@%+=,-]`, or single- or double-quoted literals of printable
-  ASCII with no escapes, and only spaces between tokens. Any `$'…'`, `$"…"`,
+  ASCII with no escapes, and only spaces between tokens. A word may not
+  start with `=` (zsh's `=cmd` expands to a path). The grammar and the rule
+  matcher both run in linear time; Any `$'…'`, `$"…"`,
   backslash escape, expansion, substitution, glob (partly quoted ones too),
   brace, tilde, tab, control character, non-ASCII byte, comment or unknown
   operator means no `allow`. A property test and seeded fuzz tests (including
   random bytes) cover these constructs in every position;
 - every subcommand must match a rule;
-- the only rule-free subcommands accepted are a `cd` within the project and a
-  narrow form of Claude Code's read-only commands (`cat`, `echo`, `pwd`,
-  `head`, `tail`, `grep`, `wc`, `ls`, with no paths, and no glob or brace
-  character outside quotes, even in a partly quoted word);
+- the only rule-free subcommands accepted are a `cd` within the project and
+  read-only stdin filters: `cat`, `head`, `tail`, `wc` and `ls` with flags and
+  numbers only, `grep` with one pattern and no file, recursion or pattern-file
+  flag, plus `echo` and `pwd`. No file argument means no read through a
+  symlink;
 - there is no wrapper or assignment stripping;
 - the only redirections accepted are to `/dev/null` or a file descriptor.
 

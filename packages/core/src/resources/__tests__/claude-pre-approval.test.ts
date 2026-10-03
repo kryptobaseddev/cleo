@@ -9,7 +9,7 @@
  * @task T13124
  */
 
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -199,6 +199,59 @@ describe('claudePreApproval', () => {
     }
   });
 
+  it('accepts read-only commands only as stdin filters: no file, recursion or pattern-file arguments (review MED-2)', () => {
+    const rules = ['pnpm test *'];
+    writeFileSync(join(dir, 'pats'), 'x\n');
+    symlinkSync('/etc/hosts', join(dir, 'notes.txt'));
+    for (const command of [
+      'pnpm test && cat notes.txt', // a project symlink to /etc/hosts
+      'pnpm test | head notes.txt',
+      'pnpm test | grep x notes.txt',
+      'pnpm test && grep -R secret',
+      'pnpm test && grep -r secret',
+      'pnpm test && grep -rn secret',
+      'pnpm test | grep -f pats',
+      'pnpm test | grep --file=pats',
+      'pnpm test | grep -e a -e b x',
+      'pnpm test | wc --files0-from=pats',
+      'pnpm test && ls notes.txt',
+      'pnpm test && pwd x',
+    ]) {
+      expect(ok(command, rules).approved, command).toBe(false);
+    }
+    for (const command of [
+      'pnpm test | tail -20',
+      'pnpm test | tail -n +5',
+      'pnpm test | head -5',
+      'pnpm test | grep -c FAIL',
+      'pnpm test | grep -vE "PASS|skip"',
+      'pnpm test | wc -l',
+      'pnpm test && ls -la',
+      'pnpm test && pwd',
+      'pnpm test && echo done',
+    ]) {
+      expect(ok(command, rules), command).toEqual({ approved: true });
+    }
+  });
+
+  it('decides in linear time: no catastrophic backtracking (review HIGH-1)', () => {
+    // First a size where the old nested quantifier already took ~1 s, so a
+    // regression fails here fast instead of hanging the run on the sizes below.
+    const probe = performance.now();
+    expect(ok(`pnpm vitest run ${'a'.repeat(28)}*`, ['pnpm vitest *']).approved).toBe(false);
+    expect(performance.now() - probe).toBeLessThan(100);
+    const t0 = performance.now();
+    for (const n of [40, 60, 200, 2000]) {
+      expect(ok(`pnpm vitest run packages/${'a'.repeat(n)}*`, ['pnpm vitest *']).approved).toBe(
+        false,
+      );
+      expect(ok(`pnpm vitest run ${'a'.repeat(n)}`, ['pnpm vitest *']).approved).toBe(true);
+    }
+    // A rule with many wildcards against a long text that does not match.
+    expect(claudeBashRuleMatches('a*a*a*a*a*a*b', 'a'.repeat(5000))).toBe(false);
+    expect(performance.now() - t0).toBeLessThan(100);
+  });
+
   it('needs the stage as written and its words alone to match the same rule', () => {
     // An exact rule does not cover the command with a redirect added.
     expect(ok('pnpm test 2>&1', ['pnpm test']).approved).toBe(false);
@@ -280,6 +333,9 @@ describe('claudePreApproval is fail-closed', () => {
     '\u2215etc\u2215passwd', // a slash lookalike
     '"\u202e"', // a bidi override
     'CI=$x', // an assignment with an expansion
+    '=ls', // zsh EQUALS: a word-initial =cmd is the command's path
+    'x==ls', // zsh MAGIC_EQUAL_SUBST
+    'PATH=a:=ls',
     '\tx', // a tab between words
   ];
 
@@ -404,7 +460,8 @@ describe('claudePreApproval is fail-closed', () => {
       for (let k = 0; k < n; k++) parts.push(SAFE[rand(SAFE.length)] as string);
       const c = CONSTRUCTS[rand(CONSTRUCTS.length)] as string;
       parts.splice(2 + rand(parts.length - 1), 0, c);
-      const glued = rand(3) === 0;
+      // A word-initial construct (zsh's `=cmd`) is plain text once glued to a word.
+      const glued = rand(3) === 0 && !c.startsWith('=');
       const line = glued ? parts.join(' ').replace(` ${c}`, c) : parts.join(' ');
       if (claudePreApproval(line, RULES, opts).approved) approved.push(line);
     }

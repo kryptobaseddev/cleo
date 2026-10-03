@@ -476,6 +476,75 @@ describe("Codex's hooks.json is a shared project config (review MED-3)", () => {
     expect(readFileSync(hooksFile(), 'utf-8')).toBe(before);
   });
 
+  it.each([
+    ['empty', ''],
+    ['a newline', '\n'],
+  ])("a committed %s hooks.json is the team's: needs consent, never written (review MED-3a)", async (_name, body) => {
+    writeFileSync(hooksFile(), body);
+    git('add', '-f', '.codex/hooks.json');
+    git(
+      '-c',
+      'user.email=t@example.com',
+      '-c',
+      'user.name=t',
+      'commit',
+      '-qm',
+      'team',
+      '--no-verify',
+    );
+    const outcome = await codex();
+    expect(outcome?.status).toBe('needs-consent');
+    expect(readFileSync(hooksFile(), 'utf-8')).toBe(body);
+    expect(git('status', '--porcelain', '--', '.codex/hooks.json')).toBe('');
+  });
+
+  it("an untracked hooks.json that is not valid JSON is the user's: needs consent, untouched", async () => {
+    writeFileSync(hooksFile(), '{ broken');
+    expect((await codex())?.status).toBe('needs-consent');
+    expect(readFileSync(hooksFile(), 'utf-8')).toBe('{ broken');
+  });
+
+  it("mode off leaves CLEO's hook the team committed (review MED-3b)", async () => {
+    rmSync(join(project, '.codex'), { recursive: true });
+    await codex();
+    writeFileSync(join(project, '.git', 'info', 'exclude'), '');
+    git('add', '-f', '.codex/hooks.json');
+    git(
+      '-c',
+      'user.email=t@example.com',
+      '-c',
+      'user.name=t',
+      'commit',
+      '-qm',
+      'adopt cleo hook',
+      '--no-verify',
+    );
+    const committed = readFileSync(hooksFile(), 'utf-8');
+    const off = (
+      await syncProjectHeavyCommandHooks(project, 'off', { env, providers: ['codex'] })
+    )[0];
+    expect(off?.status).toBe('needs-consent');
+    expect(off?.remedy).toMatch(/team committed CLEO's hook/);
+    expect(readFileSync(hooksFile(), 'utf-8')).toBe(committed);
+    expect(git('status', '--porcelain', '--', '.codex/hooks.json')).toBe('');
+  });
+
+  it("a CLEO-created file that later holds the user's own hook stops being hidden (review MED-3c)", async () => {
+    rmSync(join(project, '.codex'), { recursive: true });
+    await codex();
+    const exclude = join(project, '.git', 'info', 'exclude');
+    expect(readFileSync(exclude, 'utf-8')).toContain('/.codex/hooks.json');
+    const withTeam = JSON.parse(readFileSync(hooksFile(), 'utf-8')) as typeof teamHook;
+    withTeam.hooks.PreToolUse.push(...teamHook.hooks.PreToolUse);
+    writeFileSync(hooksFile(), JSON.stringify(withTeam));
+    const flagged = inspectCodex();
+    expect(flagged?.state).toBe('outdated');
+    expect(flagged?.detail).toMatch(/info\/exclude line hides/);
+    expect((await codex())?.status).toBe('needs-consent');
+    expect(readFileSync(exclude, 'utf-8')).not.toContain('/.codex/hooks.json');
+    expect(git('status', '--porcelain', '--untracked-files=all')).toContain('.codex/hooks.json');
+  });
+
   it("flags CLEO's hook left as an uncommitted change in a tracked hooks.json; off removes only CLEO's", async () => {
     writeFileSync(hooksFile(), `${JSON.stringify(teamHook, null, 2)}\n`);
     git('add', '-f', '.codex/hooks.json');

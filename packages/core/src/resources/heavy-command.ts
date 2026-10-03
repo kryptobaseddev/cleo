@@ -733,6 +733,45 @@ const CLAUDE_PARSE_LIMIT = 10_000;
  */
 const CLAUDE_READ_ONLY = new Set(['cat', 'echo', 'pwd', 'head', 'tail', 'grep', 'wc', 'ls']);
 
+/** A flag cluster, a numeric flag, or a long flag with at most a numeric value (`-nv`, `-20`, `--lines=5`). */
+const PLAIN_FLAG = /^(?:-[A-Za-z]+|-\d+|--[a-z][a-z-]*(?:=\d+)?)$/;
+
+/** A numeric argument (`50`, `+5`): a flag's value, never a file. */
+const NUMERIC_ARG = /^\+?\d+$/;
+
+/** grep flags that read files or recurse (a cluster holding r, R, d, D or f; long forms). */
+const GREP_FILE_FLAG =
+  /^(?:-[A-Za-z]*[rRdDf][A-Za-z]*|--(?:recursive|dereference-recursive|directories|devices|file|include|exclude|exclude-dir|exclude-from)\b.*)$/;
+
+/**
+ * Why the arguments of a rule-free read-only command could make it read a
+ * file, or `null` when they cannot (T13124 review MED-2: a project symlink
+ * `notes.txt -> /etc/hosts` made `cat notes.txt` a read outside the project).
+ * Fail-closed: these commands only filter stdin. `cat`, `head`, `tail`, `wc`
+ * and `ls` take flags and numbers only; `grep` additionally takes ONE pattern
+ * and no file, recursion or pattern-file flag; `echo` prints its arguments;
+ * `pwd` takes none.
+ */
+function readOnlyArgsRefusal(cmd: string, args: readonly string[]): string | null {
+  if (cmd === 'echo') return null;
+  if (cmd === 'pwd') return args.length === 0 ? null : '`pwd` takes no arguments here';
+  let patterns = 0;
+  for (const arg of args) {
+    if (NUMERIC_ARG.test(arg)) continue;
+    if (arg.startsWith('-')) {
+      if (!PLAIN_FLAG.test(arg)) return `\`${cmd}\` has a flag with a value`;
+      if (cmd === 'grep' && GREP_FILE_FLAG.test(arg)) return '`grep` may read files or recurse';
+      continue;
+    }
+    if (cmd === 'grep' && patterns === 0) {
+      patterns++;
+      continue;
+    }
+    return `\`${cmd}\` names a file (only stdin filters are accepted without a rule)`;
+  }
+  return null;
+}
+
 /** Operators that end a line Claude Code then treats as unparseable. */
 const DANGLING = new Set(['&&', '||', '|', '|&']);
 
@@ -744,10 +783,20 @@ const DANGLING = new Set(['&&', '||', '|', '|&']);
  * newline, no non-ASCII). Everything else is refused: `$` in any form
  * (variables, `$'…'`, `$"…"`, substitutions), backticks, backslash escapes,
  * globs (`*?[`), braces, `~`, `!`, `#`, `^`, operators, whitespace and any
- * byte outside printable ASCII.
+ * byte outside printable ASCII. A word may not start with `=` (zsh EQUALS
+ * expansion). Each alternative consumes a single plain character or one whole
+ * quoted literal, so matching is linear (no nested quantifier; T13124 review
+ * HIGH-1: `[…]+` inside `(…)+` backtracked exponentially).
  */
 const STRICT_WORD =
-  /^(?:[A-Za-z0-9_./:@%+=,-]+|'[\x20-\x26\x28-\x7e]*'|"[\x20\x23\x25-\x5b\x5d-\x5f\x61-\x7e]*")+$/;
+  /^(?!=)(?:[A-Za-z0-9_./:@%+=,-]|'[\x20-\x26\x28-\x7e]*'|"[\x20\x23\x25-\x5b\x5d-\x5f\x61-\x7e]*")+$/;
+
+/**
+ * zsh EQUALS expansion: a word-initial `=cmd` becomes the command's absolute
+ * path, and with MAGIC_EQUAL_SUBST so does `=cmd` after `=` or `:` in an
+ * `x=…` word. {@link STRICT_WORD} refuses the first; this the others.
+ */
+const ZSH_EQUALS = /[=:]=/;
 
 /**
  * Operators a pre-approved line may hold: list and pipe separators, and the
@@ -786,16 +835,12 @@ function outsideStrictGrammar(lexed: Lexed): string | null {
       if (!STRICT_OPS.has(t.op)) return `it uses \`${t.op === '\n' ? 'newline' : t.op}\``;
       continue;
     }
-    if (!STRICT_WORD.test(lexed.src.slice(t.start, t.end))) {
+    const raw = lexed.src.slice(t.start, t.end);
+    if (!STRICT_WORD.test(raw) || ZSH_EQUALS.test(raw)) {
       return 'a word is not a plain or simply quoted literal (an expansion, escape, glob, brace or tilde)';
     }
   }
   return /^ *$/.test(lexed.src.slice(at)) ? null : 'it holds text after the last word';
-}
-
-/** Escape `text` for a `RegExp`. */
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -817,9 +862,41 @@ function escapeRegExp(text: string): string {
  */
 export function claudeBashRuleMatches(pattern: string, text: string): boolean {
   const normalized = pattern.endsWith(':*') ? `${pattern.slice(0, -2)} *` : pattern;
-  const parts = normalized.split('*');
-  if (new RegExp(`^${parts.map(escapeRegExp).join('[\\s\\S]*')}$`).test(text)) return true;
-  return parts.length === 2 && normalized.endsWith(' *') && text === normalized.slice(0, -2);
+  if (wildcardMatch(normalized, text)) return true;
+  return (
+    normalized.endsWith(' *') &&
+    normalized.indexOf('*') === normalized.length - 1 &&
+    text === normalized.slice(0, -2)
+  );
+}
+
+/**
+ * Whether `text` matches `pattern`, where `*` stands for any run of
+ * characters and everything else is literal. Iterative with one backtrack
+ * point, so it runs in O(pattern × text) at worst; a `RegExp` built from the
+ * pattern backtracks polynomially in the number of `*`s (T13124 review).
+ */
+function wildcardMatch(pattern: string, text: string): boolean {
+  let p = 0;
+  let t = 0;
+  let star = -1;
+  let mark = 0;
+  while (t < text.length) {
+    if (p < pattern.length && pattern[p] !== '*' && pattern[p] === text[t]) {
+      p++;
+      t++;
+    } else if (p < pattern.length && pattern[p] === '*') {
+      star = p++;
+      mark = t;
+    } else if (star !== -1) {
+      p = star + 1;
+      t = ++mark;
+    } else {
+      return false;
+    }
+  }
+  while (p < pattern.length && pattern[p] === '*') p++;
+  return p === pattern.length;
 }
 
 /** Options for {@link claudePreApproval}. */
@@ -1008,14 +1085,11 @@ export function claudePreApproval(
     const here = canonicalPath(cwd);
     if (here === null || !inside(workingDir, here))
       return no('it runs outside the working directory');
-    for (const arg of stage.words.slice(1)) {
-      // Any glob or brace character outside quotes, even in a partly quoted
-      // word (`""..*` expands to `..` on bash before 5.2; review MED-2).
-      if (arg.globby) return no(`\`${cmd}\` has a glob`);
-      if (arg.value.includes('/') || arg.value.startsWith('~') || arg.value === '..') {
-        return no(`\`${cmd}\` names a path`);
-      }
-    }
+    const refused = readOnlyArgsRefusal(
+      cmd,
+      stage.words.slice(1).map((w) => w.value),
+    );
+    if (refused !== null) return no(refused);
   }
   return { approved: true };
 }
