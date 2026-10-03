@@ -9,6 +9,8 @@
  * - `cleo cloud devices [--state <s>]` — E5, following cursors.
  * - `cleo cloud projects [--org <id>]` — E13, following cursors.
  * - `cleo cloud projects show [<id>]` — E14 (default: the current project).
+ * - `cleo cloud restore <name>` — a project onto this machine by name, label
+ *   or id (T13102).
  *
  * Every request these commands make is a GET. Getting the device credential
  * can still write, as every device-credential command does (contract §3.4,
@@ -169,14 +171,21 @@ const restoreSubCommand = defineCommand({
   meta: {
     name: 'restore',
     description:
-      'Restore a snapshot: the newest, or --checkpoint <id> (point in time); or a project this machine does not have yet with --project <id> [--into <dir>] (then it is linked to this device). Verified by count and hash before activation; a safety backup of existing data is taken first.',
+      'Restore a snapshot: the newest, or --checkpoint <id> (point in time); or a project this machine does not have yet by name, label or id: cleo cloud restore <name> [--into <dir>] (then it is linked to this device). A name several projects share lists them. Verified by count and hash before activation; a safety backup of existing data is taken first.',
   },
   args: {
+    name: {
+      type: 'positional',
+      description:
+        'Project to restore onto this machine: its name, label or id (see `cleo cloud projects`; the same as --project).',
+      required: false,
+    },
     scope: SCOPE_ARG,
     checkpoint: { type: 'string', description: 'Snapshot id to restore (see `cleo cloud vault`).' },
     project: {
       type: 'string',
-      description: 'Server project id to restore onto this machine (see `cleo cloud projects`).',
+      description:
+        'Project to restore onto this machine: its name, label or server id (see `cleo cloud projects`).',
     },
     into: {
       type: 'string',
