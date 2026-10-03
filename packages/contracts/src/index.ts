@@ -2270,7 +2270,6 @@ export * from './render/index.js';
 export type {
   AdmissionResult,
   GovernorMode,
-  MemoryPressureReading,
   ResourceClass,
   ResourceDeferral,
   ResourceGrant,

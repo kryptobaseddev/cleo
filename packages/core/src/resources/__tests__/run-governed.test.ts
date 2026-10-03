@@ -30,7 +30,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AdmissionResult, MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
+import type { AdmissionResult, ResourceClass } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResourceSample } from '../backend.js';
 import { _resetGovernorStateForTest, governorSlotDir, ResourceGovernor } from '../governor.js';
@@ -87,21 +87,9 @@ interface Harness {
   exit: (code: number | null, signal?: NodeJS.Signals | null) => void;
 }
 
-/** The memory gate's readings on a refused test run (T13127). */
-const PRESSURE_READING: MemoryPressureReading = {
-  score: 40,
-  fullStall: 0,
-  refuseAbove: 25,
-  resumeAtOrBelow: 15,
-  latched: false,
-  memAvailableBytes: 2 * 1024 ** 3,
-  summary:
-    'kernel level warning; 62% of RAM wired or compressed; swap 13.6 GiB used of 15.4 GiB (28% of RAM)',
-};
-
 function harness(opts: {
   levels?: Level[];
-  admissions?: Array<'grant' | 'deny' | 'pressure'>;
+  admissions?: Array<'grant' | 'deny'>;
   onSample?: (n: number, h: Harness) => void;
   onSleep?: (n: number, h: Harness) => void;
   spawnThrows?: boolean;
@@ -157,15 +145,6 @@ function harness(opts: {
       opts.onAcquire?.(h);
       if (opts.acquireThrows) throw opts.acquireThrows;
       const next = admissions.length > 1 ? admissions.shift() : admissions[0];
-      if (next === 'pressure') {
-        return {
-          deferred: true,
-          class: cls,
-          retryAfterMs: 10_000,
-          reason: `memory pressure 40 is above 25 (${PRESSURE_READING.summary})`,
-          memoryPressure: PRESSURE_READING,
-        };
-      }
       return next === 'grant'
         ? grant()
         : { deferred: true, class: cls, retryAfterMs: 1000, reason: 'no slot free' };
@@ -743,70 +722,6 @@ describe('--passthrough and a terminal in the foreground (#1777 R7)', () => {
     expect(r).toMatchObject({ kind: 'exited', exitCode: 0, slot: -1 });
     expect(h.acquires).toBe(0);
     expect(h.spawned[0]?.detached).toBe(false);
-  });
-});
-
-describe('memory pressure (T13127)', () => {
-  it('--wait says "waiting: memory pressure" with the readings, then starts when it falls', async () => {
-    const notices: Array<[string, string]> = [];
-    const h = harness({
-      admissions: ['pressure', 'pressure', 'pressure', 'grant'],
-      // samples 1-4: arrival and three tries; 5: supervision.
-      onSample: (n, hh) => n === 5 && hh.exit(0),
-    });
-    const r = await runGoverned(
-      base(h, {
-        wait: true,
-        queuePollMs: 1000,
-        timeoutMs: 600_000,
-        notice: (m: string, l: string) => notices.push([l, m]),
-      }),
-    );
-    expect(r.kind).toBe('exited');
-    expect(h.spawned).toHaveLength(1);
-    // A warning, so --passthrough (which drops info) still shows it; repeated
-    // at most once a minute, not on every poll.
-    const waiting = notices.filter(([, m]) => m.startsWith('waiting: memory pressure'));
-    expect(waiting).toEqual([['warn', expect.stringContaining(PRESSURE_READING.summary)]]);
-    expect(waiting[0]?.[1]).toContain(
-      'memory pressure 40 (refused above 25, resumes at 15 or below)',
-    );
-    expect(notices).toContainEqual([
-      'warn',
-      'memory pressure fell (now 0) after waiting 3s: admitting the test-run job.',
-    ]);
-  });
-
-  it('without --wait the refusal is a deferral carrying the readings and a memory remedy', async () => {
-    const h = harness({ admissions: ['pressure'] });
-    const r = await runGoverned(base(h));
-    expect(r.kind).toBe('deferred');
-    if (r.kind !== 'deferred') return;
-    expect(h.spawned).toEqual([]);
-    expect(r.details.memoryPressure).toEqual(PRESSURE_READING);
-    expect(r.reason).toMatch(/^memory pressure 40 is above 25/);
-    expect(r.fix).toContain('short of memory');
-    expect(r.fix).toContain('falls to 15 or below');
-  });
-
-  it('--wait under lasting pressure times out with the readings in the details', async () => {
-    const h = harness({ admissions: ['pressure'] });
-    const r = await runGoverned(base(h, { wait: true, queuePollMs: 1000, timeoutMs: 5000 }));
-    expect(r.kind).toBe('deferred');
-    if (r.kind !== 'deferred') return;
-    expect(r.reason).toMatch(
-      /timed out after \d+s in the test-run queue \(position 1\): memory pressure 40/,
-    );
-    expect(r.details.memoryPressure?.score).toBe(40);
-    expect(h.spawned).toEqual([]);
-  });
-
-  it('a capacity deferral carries no memory readings', async () => {
-    const h = harness({ admissions: ['deny'] });
-    const r = await runGoverned(base(h));
-    if (r.kind !== 'deferred') throw new Error('expected a deferral');
-    expect(r.details.memoryPressure).toBeNull();
-    expect(r.fix).not.toContain('short of memory');
   });
 });
 

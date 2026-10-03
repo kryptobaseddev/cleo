@@ -18,10 +18,7 @@
  * - `off` — pure pass-through.
  *
  * `interactive-cli` is NEVER gated; `full-build` is pinned to one machine-wide
- * slot. The heavy classes (`test-run`, `scoped-build`, `full-build`) are
- * refused outright while memory pressure is above the memory gate
- * (`pressure-gate.ts`, T13127); a blocking acquire waits for it to fall,
- * re-sampling as it waits.
+ * slot regardless of pressure.
  *
  * A local slot whose holder process is provably gone is reaped at once instead
  * of waiting out the 10 min stale timeout (T12963), as the tool semaphore does
@@ -29,7 +26,6 @@
  *
  * @task T11999
  * @task T12963
- * @task T13127
  * @epic T11992
  * @adr resource-governor-never-oom-architecture §3.4
  */
@@ -41,7 +37,6 @@ import {
   type AdmissionResult,
   DEFAULT_RESOURCE_RETRY_AFTER_MS,
   type GovernorMode,
-  type MemoryPressureReading,
   type ResourceClass,
   type ResourceDeferral,
   type ResourceGrant,
@@ -50,15 +45,7 @@ import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
 import type { ResourceSample } from './backend.js';
 import { pressureScore, ResourceMonitor } from './monitor.js';
-import {
-  _resetMemoryGateForTest,
-  checkMemoryGate,
-  isMemoryGated,
-  MEMORY_GATE_POLL_MS,
-  MEMORY_GATE_RETRY_AFTER_MS,
-  type MemoryGateReporter,
-} from './pressure-gate.js';
-import { insideRunJob, parentRunJob } from './run-admission.js';
+import { parentRunJob } from './run-admission.js';
 import { _resetSlotHolderStateForTest, describeSlotHolders, lockSlot } from './slot-holder.js';
 import {
   resolveSupervisorSocketPath,
@@ -115,7 +102,6 @@ export function _resetGovernorStateForTest(): void {
   _cachedMode = null;
   _supervisorDegradeLogged = false;
   _resetSlotHolderStateForTest();
-  _resetMemoryGateForTest();
 }
 
 // ---------------------------------------------------------------------------
@@ -159,16 +145,11 @@ function someAvg10(sample: ResourceSample): number {
  * Compute the slot budget for a class given a point-sample.
  *
  * - `interactive-cli` → `Infinity` (never gated).
- * - `full-build` → `1` machine-wide.
+ * - `full-build` → `1` machine-wide, pressure-independent.
  * - `agent-session` → `clamp(1, ⌊(MemAvailable − headroom)/estRamMb⌋, cpus−2)`.
  * - `test-run` / `scoped-build` → `clamp(1, ⌊(MemAvailable − headroom)/estRamMb⌋,
  *   ⌊cpus/4⌋)`, ×0.5 when `some>hold`, floored to 1 when `some>floor` (T12091:
  *   was core-only, which authorised 144 GiB of heap on a 62 GiB box).
- *
- * A budget only narrows. Refusing the heavy classes outright while memory is
- * short is the memory gate's job (`pressure-gate.ts`, T13127), applied by
- * {@link ResourceGovernor.acquire} and {@link ResourceGovernor.available} with
- * its hysteresis and the nested-run exemption.
  * - `llm-call` → `max(1, cpus−2)` (primarily gated by the llm-queue elsewhere).
  * - `db-heavy` → `1`, deferred (→0) under `backoff`-level pressure.
  * - `background-autonomous` → `1` only when pressure is `ok`, else `0`.
@@ -351,10 +332,8 @@ export interface AcquireOptions extends BudgetOptions {
   /**
    * When `false`, a single non-blocking pass — returns a {@link ResourceDeferral}
    * immediately if no slot is free (admission semantics; spawn/wave clamp).
-   * When `true` (default), polls until admitted or `timeoutMs` elapses
-   * (queue semantics; heavy ops), re-sampling pressure on each pass, so a
-   * memory-gate refusal or a zero budget is waited out too. On timeout,
-   * returns a deferral.
+   * When `true` (default), polls until a slot frees or `timeoutMs` elapses
+   * (queue semantics; heavy ops). On timeout, returns a deferral.
    */
   readonly blocking?: boolean;
   /** Max wall-clock to wait in blocking mode (ms). Default 3_600_000. */
@@ -363,66 +342,11 @@ export interface AcquireOptions extends BudgetOptions {
   readonly pollMs?: number;
   /**
    * Inject a pre-taken sample (tests, or to avoid re-sampling). When omitted,
-   * a fresh point-sample is taken on each pass of acquire.
+   * a fresh point-sample is taken inside acquire.
    */
   readonly sample?: ResourceSample;
   /** Inject a monitor (tests). Default a fresh {@link ResourceMonitor}. */
   readonly monitor?: ResourceMonitor;
-  /**
-   * Told when a blocking acquire waits on the memory gate, and when that wait
-   * ends in an admission (T13127).
-   */
-  readonly memoryPressure?: MemoryGateReporter;
-}
-
-/** A sample with no pressure signal: what a failed sample counts as. */
-const NO_SIGNAL_SAMPLE: ResourceSample = {
-  sampledAtMs: 0,
-  pressureAvailable: false,
-  memAvailableBytes: null,
-  globalPressure: null,
-  slicePressure: null,
-  walObservations: [],
-};
-
-/**
- * One sample for an admission pass: the injected one, else a fresh
- * point-sample. A sampling error counts as no signal, never as pressure.
- */
-async function sampleForAdmission(
-  opts: AcquireOptions,
-  monitor: () => ResourceMonitor,
-): Promise<ResourceSample> {
-  if (opts.sample) return opts.sample;
-  try {
-    return await monitor().sample();
-  } catch {
-    return NO_SIGNAL_SAMPLE;
-  }
-}
-
-/**
- * The deferral for a memory-gate refusal: the readings, and how long a
- * blocking caller waited.
- */
-function memoryPressureDeferral(
-  cls: ResourceClass,
-  reading: MemoryPressureReading,
-  waitedMs: number | null,
-): ResourceDeferral {
-  const above = reading.latched
-    ? `is still above ${reading.resumeAtOrBelow} (refused above ${reading.refuseAbove})`
-    : `is above ${reading.refuseAbove}`;
-  return {
-    deferred: true,
-    class: cls,
-    retryAfterMs: MEMORY_GATE_RETRY_AFTER_MS,
-    reason:
-      `memory pressure ${reading.score} ${above} (${reading.summary}); ` +
-      `'${cls}' starts when it falls to ${reading.resumeAtOrBelow} or below` +
-      (waitedMs === null ? '' : `; waited ${Math.round(waitedMs / 1000)}s`),
-    memoryPressure: reading,
-  };
 }
 
 /**
@@ -458,78 +382,36 @@ export class ResourceGovernor {
       return passThroughGrant(cls);
     }
 
-    let monitor: ResourceMonitor | null = opts.monitor ?? null;
-    const lazyMonitor = (): ResourceMonitor => {
-      monitor ??= new ResourceMonitor();
-      return monitor;
-    };
+    const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
+    const budget = computeClassBudget(cls, sample, opts);
+
+    if (!Number.isFinite(budget)) return passThroughGrant(cls);
+    if (budget <= 0) {
+      return deferral(
+        cls,
+        `class '${cls}' budget is 0 under current pressure (some avg10=${someAvg10(sample).toFixed(1)})`,
+        DEFAULT_RESOURCE_RETRY_AFTER_MS,
+      );
+    }
+
+    // Supervisor mode (T12001): route the count enforcement through the central
+    // Rust arbiter so heavy ops are bounded machine-wide. The client computes the
+    // budget (above) from its local pressure sample; the supervisor enforces the
+    // in-flight COUNT. An unreachable supervisor degrades to the local slot
+    // engine below — never a deadlock.
+    if (mode === 'supervisor') {
+      const viaSupervisor = await this.acquireViaSupervisor(cls, Math.floor(budget));
+      if (viaSupervisor !== null) return viaSupervisor;
+    }
+
+    const dir = governorSlotDir(cls);
+    const slots = ensureSlotFiles(dir, budget);
     const blocking = opts.blocking ?? true;
     const timeoutMs = opts.timeoutMs ?? 3_600_000;
     const pollMs = opts.pollMs ?? 200;
     const startedAt = Date.now();
-    const remaining = (): number => timeoutMs - (Date.now() - startedAt);
-    let waitedOnPressure = false;
-    // Work nested in an admitted `cleo run` job is part of that admission:
-    // never held back by the gate, or the job would wait on its own child.
-    // Looked up once, and only when the gate refuses.
-    let nested: boolean | null = null;
-    const nestedInRunJob = (): boolean => {
-      nested ??= insideRunJob();
-      return nested;
-    };
 
-    for (;;) {
-      const sample = await sampleForAdmission(opts, lazyMonitor);
-
-      // T13127: refused, not narrowed, while memory is short. The shared latch
-      // gives the gate its hysteresis across every waiting process.
-      if (isMemoryGated(cls)) {
-        const gate = checkMemoryGate(sample);
-        if (gate.refuse && gate.reading !== null && !nestedInRunJob()) {
-          const waitedMs = Date.now() - startedAt;
-          if (!blocking || remaining() <= 0) {
-            return memoryPressureDeferral(cls, gate.reading, blocking ? waitedMs : null);
-          }
-          opts.memoryPressure?.waiting(gate.reading, waitedMs);
-          waitedOnPressure = true;
-          // Pressure moves in seconds: re-sample once a second unless told otherwise.
-          await sleep(Math.min(opts.pollMs ?? MEMORY_GATE_POLL_MS, remaining()));
-          continue;
-        }
-      }
-
-      const budget = computeClassBudget(cls, sample, opts);
-      if (!Number.isFinite(budget)) return passThroughGrant(cls);
-      if (budget <= 0) {
-        if (!blocking || remaining() <= 0) {
-          return deferral(
-            cls,
-            `class '${cls}' budget is 0 under current pressure (some avg10=${someAvg10(sample).toFixed(1)})`,
-            DEFAULT_RESOURCE_RETRY_AFTER_MS,
-          );
-        }
-        await sleep(Math.min(pollMs, remaining()));
-        continue;
-      }
-      const admitted = (grant: AdmissionResult): AdmissionResult => {
-        if (!grant.deferred && waitedOnPressure) {
-          const mem = sample.globalPressure ?? sample.slicePressure;
-          opts.memoryPressure?.admitted(Date.now() - startedAt, mem ? mem.some.avg10 : null);
-        }
-        return grant;
-      };
-
-      // Supervisor mode (T12001): route the count enforcement through the central
-      // Rust arbiter so heavy ops are bounded machine-wide. The client computes the
-      // budget (above) from its local pressure sample; the supervisor enforces the
-      // in-flight COUNT. An unreachable supervisor degrades to the local slot
-      // engine below — never a deadlock.
-      if (mode === 'supervisor') {
-        const viaSupervisor = await this.acquireViaSupervisor(cls, Math.floor(budget));
-        if (viaSupervisor !== null) return admitted(viaSupervisor);
-      }
-
-      const slots = ensureSlotFiles(governorSlotDir(cls), budget);
+    do {
       // Re-shuffle each pass so concurrent acquirers don't collide on slot 0.
       const order = shuffledIndices(slots.length);
       let lockError: { readonly err: unknown } | null = null;
@@ -540,13 +422,7 @@ export class ResourceGovernor {
           // T12963: a busy slot whose holder is provably dead is reaped here.
           const release = await lockSlot(path, cls);
           if (release) {
-            return admitted({
-              deferred: false,
-              class: cls,
-              slot: idx,
-              acquiredAtMs: Date.now(),
-              release,
-            });
+            return { deferred: false, class: cls, slot: idx, acquiredAtMs: Date.now(), release };
           }
         } catch (err) {
           // Anything but a held lock is not "busy" (#1777 round 8, R8-1).
@@ -554,17 +430,17 @@ export class ResourceGovernor {
         }
       }
       if (lockError !== null) throw lockError.err;
-      if (!blocking || remaining() <= 0) {
-        return deferral(
-          cls,
-          `class '${cls}' is at capacity (${budget} slot(s)); ` +
-            (blocking ? `timed out after ${timeoutMs}ms` : 'no slot free') +
-            describeSlotHolders(slots),
-          Math.min(pollMs * 4, DEFAULT_RESOURCE_RETRY_AFTER_MS),
-        );
-      }
-      await sleep(Math.min(pollMs, remaining()));
-    }
+      if (!blocking) break;
+      await sleep(pollMs);
+    } while (Date.now() - startedAt < timeoutMs);
+
+    return deferral(
+      cls,
+      `class '${cls}' is at capacity (${budget} slot(s)); ` +
+        (blocking ? `timed out after ${timeoutMs}ms` : 'no slot free') +
+        describeSlotHolders(slots),
+      Math.min(pollMs * 4, DEFAULT_RESOURCE_RETRY_AFTER_MS),
+    );
   }
 
   /**
@@ -623,8 +499,6 @@ export class ResourceGovernor {
       return Number.POSITIVE_INFINITY;
     }
     const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
-    // T13127: nothing is grantable while the memory gate refuses the class.
-    if (isMemoryGated(cls) && checkMemoryGate(sample).refuse && !insideRunJob()) return 0;
     const budget = computeClassBudget(cls, sample, opts);
     if (!Number.isFinite(budget)) return Number.POSITIVE_INFINITY;
     if (budget <= 0) return 0;
