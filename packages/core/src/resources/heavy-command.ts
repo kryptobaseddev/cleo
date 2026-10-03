@@ -737,14 +737,17 @@ const CLAUDE_READ_ONLY = new Set(['cat', 'echo', 'pwd', 'head', 'tail', 'grep', 
 const DANGLING = new Set(['&&', '||', '|', '|&']);
 
 /**
- * The only word shapes a pre-approved line may hold (fail-closed, T13124
- * review): runs of plain characters, `'single-quoted'` literals, and
- * `"double-quoted"` literals with no `$`, backtick, backslash or `!`. Plain
- * characters exclude every expansion and quoting trigger: `$` (variables,
- * `$'…'`, `$"…"`, substitutions), backticks, backslash escapes, globs
- * (`*?[`), braces, `~`, `!`, `#`, `^`, operators and whitespace.
+ * The only word shapes a pre-approved line may hold (fail-closed allowlist,
+ * T13124 review): runs of `[A-Za-z0-9_./:@%+=,-]`, `'single-quoted'`
+ * literals, and `"double-quoted"` literals with no `$`, backtick, backslash or
+ * `!`. Quoted text is printable ASCII only (no control characters, no
+ * newline, no non-ASCII). Everything else is refused: `$` in any form
+ * (variables, `$'…'`, `$"…"`, substitutions), backticks, backslash escapes,
+ * globs (`*?[`), braces, `~`, `!`, `#`, `^`, operators, whitespace and any
+ * byte outside printable ASCII.
  */
-const STRICT_WORD = /^(?:[A-Za-z0-9_./:@%+=,-]+|'[^']*'|"[^"$`\\!]*")+$/;
+const STRICT_WORD =
+  /^(?:[A-Za-z0-9_./:@%+=,-]+|'[\x20-\x26\x28-\x7e]*'|"[\x20\x23\x25-\x5b\x5d-\x5f\x61-\x7e]*")+$/;
 
 /**
  * Operators a pre-approved line may hold: list and pipe separators, and the
@@ -768,14 +771,14 @@ const STRICT_OPS: ReadonlySet<string> = new Set([
 /**
  * Why a lexed line falls outside the strict pre-approval grammar, or `null`
  * when every token is in it: each word matches {@link STRICT_WORD}, each
- * operator is in {@link STRICT_OPS}, and nothing but spaces and tabs sits
- * between tokens (no comment, no line continuation). Fail-closed: a construct
+ * operator is in {@link STRICT_OPS}, and nothing but spaces sits between
+ * tokens (no tab, comment or line continuation). Fail-closed: a construct
  * this grammar does not name is refused, whatever the lexer made of it.
  */
 function outsideStrictGrammar(lexed: Lexed): string | null {
   let at = 0;
   for (const t of lexed.tokens) {
-    if (!/^[ \t]*$/.test(lexed.src.slice(at, t.start))) {
+    if (!/^ *$/.test(lexed.src.slice(at, t.start))) {
       return 'it holds text outside any word (a comment or line continuation)';
     }
     at = t.end;
@@ -787,7 +790,7 @@ function outsideStrictGrammar(lexed: Lexed): string | null {
       return 'a word is not a plain or simply quoted literal (an expansion, escape, glob, brace or tilde)';
     }
   }
-  return /^[ \t]*$/.test(lexed.src.slice(at)) ? null : 'it holds text after the last word';
+  return /^ *$/.test(lexed.src.slice(at)) ? null : 'it holds text after the last word';
 }
 
 /** Escape `text` for a `RegExp`. */

@@ -63,11 +63,13 @@ Code still applies deny and ask rules to the rewritten command, whatever the
 hook answers. The check is fail-closed and never more permissive than Claude
 Code's matching:
 
-- every token must fit a strict grammar: plain literal words, or simple
-  single- or double-quoted literals with no escapes. Any `$'…'`, `$"…"`,
+- every token must fit a strict allowlist grammar: plain words of
+  `[A-Za-z0-9_./:@%+=,-]`, or single- or double-quoted literals of printable
+  ASCII with no escapes, and only spaces between tokens. Any `$'…'`, `$"…"`,
   backslash escape, expansion, substitution, glob (partly quoted ones too),
-  brace, tilde, comment or unknown operator means no `allow`. A property
-  test and a seeded fuzz test cover these constructs in every position;
+  brace, tilde, tab, control character, non-ASCII byte, comment or unknown
+  operator means no `allow`. A property test and seeded fuzz tests (including
+  random bytes) cover these constructs in every position;
 - every subcommand must match a rule;
 - the only rule-free subcommands accepted are a `cd` within the project and a
   narrow form of Claude Code's read-only commands (`cat`, `echo`, `pwd`,

@@ -274,6 +274,13 @@ describe('claudePreApproval is fail-closed', () => {
     '\nid', // newline
     '\\\nid', // line continuation
     ';;',
+    "'a\nb'", // control characters, even quoted
+    '"a\tb"',
+    "'caf\u00e9'", // non-ASCII, even quoted
+    '\u2215etc\u2215passwd', // a slash lookalike
+    '"\u202e"', // a bidi override
+    'CI=$x', // an assignment with an expansion
+    '\tx', // a tab between words
   ];
 
   /** Where a construct can sit in an otherwise approvable line. */
@@ -295,6 +302,75 @@ describe('claudePreApproval is fail-closed', () => {
       for (const at of POSITIONS) {
         const line = at(c);
         if (claudePreApproval(line, RULES, opts).approved) approved.push(line);
+      }
+    }
+    expect(approved).toEqual([]);
+  });
+
+  it('nor do random bytes that include anything outside the grammar (seeded)', () => {
+    let seed = 0x1811;
+    const rand = (n: number): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed % n;
+    };
+    // Characters the grammar never allows bare: controls, shell metacharacters,
+    // quotes, and non-ASCII (Latin-1 and beyond).
+    const OUTSIDE = [
+      '\u0000',
+      '\u0007',
+      '\t',
+      '\n',
+      '\r',
+      ' ',
+      '!',
+      '"',
+      '#',
+      '$',
+      '&',
+      "'",
+      '(',
+      ')',
+      '*',
+      ';',
+      '<',
+      '>',
+      '?',
+      '[',
+      '\\',
+      ']',
+      '^',
+      '`',
+      '{',
+      '|',
+      '}',
+      '~',
+      '\u007f',
+      '\u00a0',
+      '\u00e9',
+      '\u2028',
+      '\u202e',
+      '\uff0f',
+    ];
+    const opts = { cwd: dir, workingDir: dir };
+    const approved: string[] = [];
+    for (let i = 0; i < 3000; i++) {
+      let junk = '';
+      const n = 1 + rand(8);
+      for (let k = 0; k < n; k++) {
+        junk +=
+          rand(2) === 0
+            ? String.fromCharCode(rand(0x3000))
+            : (OUTSIDE[rand(OUTSIDE.length)] as string);
+      }
+      junk += OUTSIDE[rand(OUTSIDE.length)] as string; // at least one character outside
+      const at = POSITIONS[rand(POSITIONS.length)] as (c: string) => string;
+      const line = at(junk);
+      if (!claudePreApproval(line, RULES, opts).approved) continue;
+      // The only way in is a quoted literal of printable ASCII holding the
+      // outside character; anything else approved is a hole.
+      const unquoted = line.replace(/'[\x20-\x26\x28-\x7e]*'/g, '').replace(/"[^"$`\\!]*"/g, '');
+      if (!/^[\x20-\x7e]*$/.test(line) || /[$`\\~*?{}#^!<>()&;\t\n]/.test(unquoted)) {
+        approved.push(JSON.stringify(line));
       }
     }
     expect(approved).toEqual([]);
