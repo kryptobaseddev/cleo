@@ -243,7 +243,22 @@ export function nexusLoginSummary(r: NexusLoginResult): string {
   const device = r.device
     ? ` This machine is device ${r.device.deviceId}${r.device.name ? ` (${r.device.name})` : ''}, profile ${r.device.profile ?? 'unknown'}.`
     : '';
-  return `Signed in to ${r.apiUrl} as ${who}${org}.${device}`;
+  return `Signed in to ${r.apiUrl} as ${who}${org}.${device}${nexusAccountSetupLine(r)}`;
+}
+
+/** The account-setup tail of {@link nexusLoginSummary} (T13100); the warnings carry the detail. */
+function nexusAccountSetupLine(r: NexusLoginResult): string {
+  const account = r.account;
+  if (account === undefined) return '';
+  switch (account.status) {
+    case 'ready':
+    case 'skipped':
+      return ` ${account.summary}`;
+    case 'unsupported':
+      return ' Encrypted backups are not available on this server (see warnings).';
+    case 'failed':
+      return ` Encrypted backups are NOT set up: step ${account.step} failed (see warnings for the fix).`;
+  }
 }
 
 /**

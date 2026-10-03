@@ -6,6 +6,7 @@
  * The core flows are mocked; nothing touches the network or a CLEO home.
  *
  * @task T12868
+ * @task T13100
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -169,6 +170,64 @@ describe('runNexusLogin: CLEO_NEXUS_TEST_BEARER (T12902)', () => {
     );
     await runNexusLogin({}, () => {});
     expect(written()).toContain('authorization approved');
+  });
+});
+
+describe('nexusLoginSummary: the account setup line (T13100)', () => {
+  const device = {
+    deviceId: 'd-1',
+    name: 'macOS arm64 · 0198',
+    state: 'active',
+    profile: 'device',
+    created: true,
+  };
+
+  it('says the account is ready for encrypted backups when the setup succeeded', () => {
+    const line = nexusLoginSummary({
+      ...RESULT,
+      device,
+      account: {
+        status: 'ready',
+        escrow: 'minted',
+        certificate: 'new',
+        keyVersion: 1,
+        summary: 'Your account is ready for encrypted backups: the account key was created.',
+      },
+    });
+    expect(line).toMatch(/device d-1 .*\. Your account is ready for encrypted backups/);
+  });
+
+  it('names the failed step and points at the warning that carries the fix', () => {
+    const line = nexusLoginSummary({
+      ...RESULT,
+      device,
+      account: {
+        status: 'failed',
+        step: 'certify',
+        code: 'E_NEXUS_REQUEST_FAILED',
+        message: 'boom',
+        fix: 'run `cleo login nexus` again',
+        summary: 'signed in, but encrypted backups are not set up: step certify failed',
+      },
+    });
+    expect(line).toContain('Encrypted backups are NOT set up: step certify failed (see warnings');
+  });
+
+  it('says a server without escrow cannot hold backups, and adds nothing for a 9.24 login', () => {
+    const line = nexusLoginSummary({
+      ...RESULT,
+      device,
+      account: {
+        status: 'unsupported',
+        code: 'E_NEXUS_VAULT_UNSUPPORTED',
+        fix: 'upgrade',
+        summary: 'not available',
+      },
+    });
+    expect(line).toContain('Encrypted backups are not available on this server (see warnings).');
+    expect(nexusLoginSummary(RESULT)).toBe(
+      'Signed in to https://api.nexus.test as dev@example.test.',
+    );
   });
 });
 

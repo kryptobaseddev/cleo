@@ -27,6 +27,13 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// These are dispatch wiring tests; identity validation has real-store coverage
+// in registry.test.ts. Keep the new boundary explicit for the mock checkout.
+vi.mock('@cleocode/core/nexus/registry.js', async (original) => ({
+  ...(await original<typeof import('@cleocode/core/nexus/registry.js')>()),
+  resolveNexusQueryProjectId: vi.fn(async () => 'mock-proj'),
+}));
+
 // Mock core internals
 // Mock the nexus-engine — stub all functions referenced by NexusHandler
 vi.mock('@cleocode/core/internal', async () => ({

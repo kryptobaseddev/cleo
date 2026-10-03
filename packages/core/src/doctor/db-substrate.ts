@@ -226,16 +226,13 @@ function composeSuggestedFix(role: string, quarantineDir: string | null): string
 }
 
 /**
- * Compute the stable project-id used to identify a project in
- * cross-project surveys. Matches the convention used by
- * `cleo nexus`: `base64url(path).slice(0, 32)`.
+ * Read the declared portable identity for a cross-project survey.
  *
- * @param projectRoot - Absolute path to the project root.
- * @returns A 32-character base64url-encoded slice of the path.
+ * @param projectRoot - Absolute checkout path.
+ * @returns The declared id, or null for an undeclared project. No identity is minted.
  */
-export function computeSubstrateProjectId(projectRoot: string): string {
-  // Buffer is available in Node — no need for `crypto`.
-  return Buffer.from(projectRoot).toString('base64url').slice(0, 32);
+export function computeSubstrateProjectId(projectRoot: string): string | null {
+  return readDeclaredProjectIdentity(projectRoot)?.projectId ?? null;
 }
 
 /**
@@ -1036,9 +1033,8 @@ export function checkInvariantI2(
  *
  * @remarks
  * The registry key is the project's declared identity (`.cleo/project-id`,
- * then `project-info.json`). Only a project that declares none falls back to
- * the legacy `base64url(path).slice(0, 32)`, which several projects under one
- * path prefix share (T12589). The invariant asserts that the nexus registry's
+ * then `project-info.json`). Undeclared identity is reported as incomplete;
+ * a path-derived alias cannot identify the project. The invariant asserts that the registry's
  * recorded `project_path` MATCHES the live project root for that id.
  *
  * Detected drift: a single nexus row whose `project_path` no longer
@@ -1069,11 +1065,10 @@ export function checkInvariantI3(
     );
   }
 
-  // T12589: registry rows are keyed by the DECLARED id. The legacy
-  // base64url(path) key encodes only 24 path bytes, so every project under a
-  // shared prefix derives it — look it up only when nothing is declared.
-  const expectedProjectId =
-    readDeclaredProjectIdentity(projectRoot)?.projectId ?? computeSubstrateProjectId(projectRoot);
+  const expectedProjectId = computeSubstrateProjectId(projectRoot);
+  if (expectedProjectId === null) {
+    return buildSkippedReport('I3', description, I3_FIX, 'project declares no portable identity');
+  }
 
   type RegistryRow = { project_id: string; project_path: string };
   let row: RegistryRow | undefined;

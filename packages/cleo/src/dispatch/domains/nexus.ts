@@ -1,3 +1,4 @@
+import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
 /**
  * Nexus Domain Handler (Dispatch Layer)
  *
@@ -306,8 +307,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
 
   'route-map': async (params) => {
     const projectRoot = getProjectRoot();
-    const projectId =
-      params.projectId ?? Buffer.from(projectRoot).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(projectRoot, params.projectId);
     return wrapCoreResult(await nexusRouteMap(projectId, projectRoot), 'route-map');
   },
 
@@ -315,8 +315,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     if (!params.routeSymbol)
       return lafsError('E_INVALID_INPUT', 'routeSymbol is required', 'shape-check');
     const projectRoot = getProjectRoot();
-    const projectId =
-      params.projectId ?? Buffer.from(projectRoot).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(projectRoot, params.projectId);
     return wrapCoreResult(
       await nexusShapeCheck(params.routeSymbol, projectId, projectRoot),
       'shape-check',
@@ -375,27 +374,21 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   clusters: async (params) => {
     const projectRoot = getProjectRoot();
     const repoPath = (params.repoPath as string | undefined) ?? projectRoot;
-    const projectId =
-      (params.projectId as string | undefined) ??
-      Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, params.projectId);
     return wrapCoreResult(await nexusClusters(projectId, repoPath), 'clusters');
   },
 
   flows: async (params) => {
     const projectRoot = getProjectRoot();
     const repoPath = (params.repoPath as string | undefined) ?? projectRoot;
-    const projectId =
-      (params.projectId as string | undefined) ??
-      Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, params.projectId);
     return wrapCoreResult(await nexusFlows(projectId, repoPath), 'flows');
   },
 
   context: async (params) => {
     if (!params.symbol) return lafsError('E_INVALID_INPUT', 'symbol is required', 'context');
     const projectRoot = getProjectRoot();
-    const projectId =
-      (params.projectId as string | undefined) ??
-      Buffer.from(projectRoot).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(projectRoot, params.projectId);
     const limit = typeof params.limit === 'number' ? params.limit : 20;
     const showContent = params.content === true;
     return wrapCoreResult(
@@ -613,14 +606,14 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   'contracts-sync': async (params) => {
     const projectRoot = getProjectRoot();
     const repoPath = params.repoPath ?? projectRoot;
-    const projectId = params.projectId ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, params.projectId);
     return wrapCoreResult(await nexusContractsSync(projectId, repoPath), 'contracts-sync');
   },
 
   'contracts-link-tasks': async (params) => {
     const projectRoot = getProjectRoot();
     const repoPath = params.repoPath ?? projectRoot;
-    const projectId = params.projectId ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, params.projectId);
     return wrapCoreResult(
       await nexusContractsLinkTasks(projectId, repoPath),
       'contracts-link-tasks',
