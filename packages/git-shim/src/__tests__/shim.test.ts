@@ -32,7 +32,9 @@ beforeAll(() => {
     format: 'esm',
     alias: {
       '@cleocode/paths': join(repo, 'packages/paths/src/index.ts'),
-      '@cleocode/contracts': join(repo, 'packages/contracts/src/index.ts'),
+      // The source DIRECTORY, not index.ts: esbuild aliases by prefix, so a leaf
+      // import ('@cleocode/contracts/branch-lock.js') must land on src/branch-lock.ts.
+      '@cleocode/contracts': join(repo, 'packages/contracts/src'),
     },
   });
   chmodSync(shim, 0o755);
