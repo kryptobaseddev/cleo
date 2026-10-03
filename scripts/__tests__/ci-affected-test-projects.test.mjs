@@ -6,11 +6,12 @@
  * @task T13142
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
+import { REPO_GUARD_TESTS } from '../../vitest.repo-guards.ts';
 import { projectArgs, selectTestProjects } from '../ci-affected-test-projects.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -108,5 +109,33 @@ describe('ci.yml wiring (T13142)', () => {
     expect(run.env?.AFFECTED_ARGS).toBe('${{ steps.affected.outputs.args }}');
     expect(run.run).toContain('SCOPE_FLAGS="$AFFECTED_ARGS --passWithNoTests"');
     expect(run.run).toContain('$RETRY_FLAG $SCOPE_FLAGS');
+  });
+});
+
+describe('repo-guard tests run in the always-selected repo-guards project (T13142 review)', () => {
+  const read = (p) => readFileSync(path.join(REPO_ROOT, p), 'utf8');
+
+  it('every listed guard test exists and is not quarantined', () => {
+    const quarantine = read('packages/cleo/vitest.quarantine.ts');
+    for (const file of REPO_GUARD_TESTS) {
+      expect(existsSync(path.join(REPO_ROOT, file)), file).toBe(true);
+      expect(quarantine.includes(file), file).toBe(false);
+    }
+  });
+
+  it('the root config declares the package-less repo-guards project from the list', () => {
+    const root = read('vitest.config.ts');
+    expect(root).toContain("name: 'repo-guards'");
+    expect(root).toContain('include: [...REPO_GUARD_TESTS]');
+  });
+
+  it("each guard test's home project excludes it", () => {
+    for (const file of REPO_GUARD_TESTS) {
+      const pkg = /^packages\/([^/]+)\//.exec(file)?.[1];
+      expect(pkg, file).toBeDefined();
+      expect(read(`packages/${pkg}/vitest.config.ts`), file).toContain(
+        `repoGuardsUnder('packages/${pkg}/')`,
+      );
+    }
   });
 });
