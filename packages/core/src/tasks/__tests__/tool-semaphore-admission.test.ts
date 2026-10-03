@@ -24,6 +24,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResourceSample } from '../../resources/backend.js';
 import { _resetGovernorStateForTest, governor, governorSlotDir } from '../../resources/governor.js';
 import { ResourceMonitor } from '../../resources/monitor.js';
+import {
+  processGroupOf,
+  processStart,
+  type RunJob,
+  removeRunJob,
+  writeRunJob,
+} from '../../resources/run-admission.js';
 import { currentLockId, writeGovernorHolder } from '../../resources/slot-holder.js';
 import {
   acquireGlobalSlot,
@@ -363,6 +370,48 @@ describe('evidence runs wait out memory pressure (T13127)', () => {
     await release();
     expect(samples()).toBe(0);
   });
+
+  // Real `ps` for our own group and its leader's start time (read-only).
+  const pgid = processGroupOf(process.pid);
+  const leaderStart = pgid === null ? null : processStart(pgid);
+  it.skipIf(leaderStart === null)(
+    'a run nested in an admitted cleo run job never waits on the gate (its job would wait on it)',
+    async () => {
+      const now = Date.now();
+      const record: RunJob = {
+        id: `${process.pid}-${now}`,
+        pid: process.pid,
+        runnerStart: null,
+        childPid: pgid,
+        childStart: leaderStart,
+        class: 'test-run',
+        command: 'cleo verify T1 --evidence tool:typecheck',
+        cwd: '/',
+        startedAtMs: now,
+        sessionId: null,
+        pausedAtMs: null,
+        pausable: true,
+        heartbeatAtMs: now,
+      };
+      writeRunJob(record);
+      const saved = process.env.CLEO_RUN_CLASS;
+      process.env.CLEO_RUN_CLASS = 'test-run';
+      try {
+        const samples = scriptPressure([90]);
+        const release = await acquireGlobalSlot('typecheck', {
+          ...live,
+          timeoutMs: 1_000,
+          notice: () => {},
+        });
+        await release();
+        expect(samples()).toBe(0);
+      } finally {
+        if (saved === undefined) delete process.env.CLEO_RUN_CLASS;
+        else process.env.CLEO_RUN_CLASS = saved;
+        removeRunJob(record.id);
+      }
+    },
+  );
 
   it('an explicit CLEO_TOOL_CONCURRENCY_TYPECHECK override skips the gate', async () => {
     process.env.CLEO_TOOL_CONCURRENCY_TYPECHECK = '4';

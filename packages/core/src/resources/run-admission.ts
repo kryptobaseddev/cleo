@@ -523,6 +523,19 @@ export function parentRunJob(input: {
   return null;
 }
 
+/**
+ * Whether this process runs inside a live `cleo run` job of any class. Work
+ * nested in an admitted job is part of that admission, so the memory gate
+ * never holds it back: the job would otherwise wait on its own child
+ * (T13127). `CLEO_RUN_CLASS` only says "look"; {@link parentRunJob}'s group,
+ * ancestry and start-time checks decide, so setting it by hand grants nothing.
+ *
+ * @param pid - the process to check. @defaultValue process.pid
+ */
+export function insideRunJob(pid: number = process.pid): boolean {
+  return process.env.CLEO_RUN_CLASS !== undefined && parentRunJob({ pid }) !== null;
+}
+
 /** A job waiting in the `--wait` queue. */
 export interface QueueTicket {
   readonly id: string;

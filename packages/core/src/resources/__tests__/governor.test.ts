@@ -9,7 +9,7 @@
  */
 
 import { chmodSync, existsSync } from 'node:fs';
-import { isResourceGrant, RESOURCE_DEFERRED_CODE } from '@cleocode/contracts';
+import { type AdmissionResult, isResourceGrant, RESOURCE_DEFERRED_CODE } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ResourceSample } from '../backend.js';
 import {
@@ -65,14 +65,12 @@ describe('computeClassBudget (T11999)', () => {
     );
   });
 
-  it('full-build is pinned to 1 machine-wide, and refused while memory is short (T13127)', () => {
+  it('full-build is pinned to 1 machine-wide regardless of pressure', () => {
     expect(computeClassBudget('full-build', makeSample({ someAvg10: 0 }), BUDGET_OPTS)).toBe(1);
-    expect(computeClassBudget('full-build', makeSample({ someAvg10: 25 }), BUDGET_OPTS)).toBe(1);
-    // Before T13127 this stayed 1 at any pressure: one more build was always admitted.
-    expect(computeClassBudget('full-build', makeSample({ someAvg10: 90 }), BUDGET_OPTS)).toBe(0);
+    expect(computeClassBudget('full-build', makeSample({ someAvg10: 90 }), BUDGET_OPTS)).toBe(1);
   });
 
-  it('test-run scales down under pressure: base → half (some>10), refused above the memory gate', () => {
+  it('test-run scales down under pressure: base → half (some>10) → 1 (some>25)', () => {
     // T12091: base is now clamped by MemAvailable too, so this case needs enough
     // free RAM for the core budget to be the binding constraint —
     // ⌊(128−2)/24⌋ = 5, clamped to ⌊16/4⌋ = 4.
@@ -82,24 +80,9 @@ describe('computeClassBudget (T11999)', () => {
     expect(
       computeClassBudget('test-run', makeSample({ ...ample, someAvg10: 15 }), BUDGET_OPTS),
     ).toBe(2); // halved
-    // T13127: memory above the gate refuses (it floored to 1, so it never refused).
     expect(
       computeClassBudget('test-run', makeSample({ ...ample, someAvg10: 30 }), BUDGET_OPTS),
-    ).toBe(0);
-    expect(
-      computeClassBudget('scoped-build', makeSample({ ...ample, fullAvg10: 11 }), BUDGET_OPTS),
-    ).toBe(0);
-  });
-
-  it('CPU saturation alone still floors test-run to 1 and never refuses it', () => {
-    const cpuBound: ResourceSample = {
-      ...makeSample({ memAvailableGb: 128 }),
-      cpuPressure: {
-        some: { avg10: 95, avg60: 95, avg300: 95, totalUs: 0 },
-        full: null,
-      },
-    };
-    expect(computeClassBudget('test-run', cpuBound, BUDGET_OPTS)).toBe(1);
+    ).toBe(1); // floor
   });
 
   it('test-run is bounded by MemAvailable, not just cores (T12091)', () => {
@@ -454,6 +437,92 @@ describe('the memory gate in acquire (T13127)', () => {
       },
     });
     const r = await gov.acquire('test-run', { ...BUDGET_OPTS, monitor, timeoutMs: 1_000 });
+    expect(isResourceGrant(r)).toBe(true);
+    if (isResourceGrant(r)) await r.release();
+  });
+
+  describe('work nested in an admitted cleo run job is never held back', () => {
+    // Real `ps` for our own group and its leader's start time (read-only).
+    const pgid = processGroupOf(process.pid);
+    const leaderStart = pgid === null ? null : processStart(pgid);
+
+    async function underJob(over: Partial<RunJob>, env: boolean): Promise<AdmissionResult> {
+      const now = Date.now();
+      const record: RunJob = {
+        id: `${process.pid}-${now}`,
+        pid: process.pid,
+        runnerStart: null,
+        childPid: pgid,
+        childStart: leaderStart,
+        class: 'test-run',
+        command: 'cleo verify T1 --evidence tool:test',
+        cwd: '/',
+        startedAtMs: now,
+        sessionId: null,
+        pausedAtMs: null,
+        pausable: true,
+        heartbeatAtMs: now,
+        ...over,
+      };
+      writeRunJob(record);
+      const saved = process.env.CLEO_RUN_CLASS;
+      if (env) process.env.CLEO_RUN_CLASS = 'test-run';
+      else delete process.env.CLEO_RUN_CLASS;
+      try {
+        return await gov.acquire('scoped-build', {
+          ...BUDGET_OPTS,
+          sample: makeSample({ memAvailableGb: 128, someAvg10: 40 }),
+          blocking: false,
+        });
+      } finally {
+        if (saved === undefined) delete process.env.CLEO_RUN_CLASS;
+        else process.env.CLEO_RUN_CLASS = saved;
+        removeRunJob(record.id);
+      }
+    }
+
+    it.skipIf(leaderStart === null)(
+      'a nested acquire of another class takes its own slot despite the pressure',
+      async () => {
+        const r = await underJob({}, true);
+        expect(r.deferred).toBe(false);
+        if (isResourceGrant(r)) {
+          expect(r.slot).toBeGreaterThanOrEqual(0); // its own slot, not a pass-through
+          await r.release();
+        }
+      },
+    );
+
+    it('a forged CLEO_RUN_CLASS (no live job owns our group) is refused', async () => {
+      const r = await underJob({ childStart: 'Thu Jan  1 00:00:00 1970' }, true);
+      expect(r.deferred).toBe(true);
+    });
+
+    it('a live job without CLEO_RUN_CLASS in our env is not looked up: refused', async () => {
+      const r = await underJob({}, false);
+      expect(r.deferred).toBe(true);
+    });
+  });
+
+  it('available() is 0 while the gate refuses, and recovers with it', async () => {
+    const at = (some: number) =>
+      gov.available('test-run', {
+        ...BUDGET_OPTS,
+        sample: makeSample({ memAvailableGb: 128, someAvg10: some }),
+      });
+    expect(await at(0)).toBe(4);
+    expect(await at(40)).toBe(0);
+    expect(await at(20)).toBe(0); // latched until it falls to 15
+    expect(await at(10)).toBe(4);
+  });
+
+  it('CPU saturation alone narrows test-run to 1 and never refuses it', async () => {
+    const cpuBound: ResourceSample = {
+      ...makeSample({ memAvailableGb: 128 }),
+      cpuPressure: { some: { avg10: 95, avg60: 95, avg300: 95, totalUs: 0 }, full: null },
+    };
+    expect(await gov.available('test-run', { ...BUDGET_OPTS, sample: cpuBound })).toBe(1);
+    const r = await gov.acquire('test-run', { ...BUDGET_OPTS, sample: cpuBound, blocking: false });
     expect(isResourceGrant(r)).toBe(true);
     if (isResourceGrant(r)) await r.release();
   });

@@ -53,13 +53,12 @@ import { pressureScore, ResourceMonitor } from './monitor.js';
 import {
   _resetMemoryGateForTest,
   checkMemoryGate,
-  evaluateMemoryGate,
   isMemoryGated,
   MEMORY_GATE_POLL_MS,
   MEMORY_GATE_RETRY_AFTER_MS,
   type MemoryGateReporter,
 } from './pressure-gate.js';
-import { parentRunJob } from './run-admission.js';
+import { insideRunJob, parentRunJob } from './run-admission.js';
 import { _resetSlotHolderStateForTest, describeSlotHolders, lockSlot } from './slot-holder.js';
 import {
   resolveSupervisorSocketPath,
@@ -160,15 +159,16 @@ function someAvg10(sample: ResourceSample): number {
  * Compute the slot budget for a class given a point-sample.
  *
  * - `interactive-cli` → `Infinity` (never gated).
- * - `test-run` / `scoped-build` / `full-build` → `0` while the memory gate
- *   refuses (memory `some avg10` above 25 or `full avg10` above 10, T13127).
- *   Point evaluation: the gate's hysteresis lives in {@link ResourceGovernor.acquire}.
- * - `full-build` → otherwise `1` machine-wide.
+ * - `full-build` → `1` machine-wide.
  * - `agent-session` → `clamp(1, ⌊(MemAvailable − headroom)/estRamMb⌋, cpus−2)`.
- * - `test-run` / `scoped-build` → otherwise `clamp(1, ⌊(MemAvailable −
- *   headroom)/estRamMb⌋, ⌊cpus/4⌋)`, ×0.5 when `some>hold`, floored to 1 when
- *   `some>floor` (only CPU saturation can reach the floor now; T12091: was
- *   core-only, which authorised 144 GiB of heap on a 62 GiB box).
+ * - `test-run` / `scoped-build` → `clamp(1, ⌊(MemAvailable − headroom)/estRamMb⌋,
+ *   ⌊cpus/4⌋)`, ×0.5 when `some>hold`, floored to 1 when `some>floor` (T12091:
+ *   was core-only, which authorised 144 GiB of heap on a 62 GiB box).
+ *
+ * A budget only narrows. Refusing the heavy classes outright while memory is
+ * short is the memory gate's job (`pressure-gate.ts`, T13127), applied by
+ * {@link ResourceGovernor.acquire} and {@link ResourceGovernor.available} with
+ * its hysteresis and the nested-run exemption.
  * - `llm-call` → `max(1, cpus−2)` (primarily gated by the llm-queue elsewhere).
  * - `db-heavy` → `1`, deferred (→0) under `backoff`-level pressure.
  * - `background-autonomous` → `1` only when pressure is `ok`, else `0`.
@@ -181,9 +181,6 @@ export function computeClassBudget(
   opts: BudgetOptions = {},
 ): number {
   if (cls === 'interactive-cli') return Number.POSITIVE_INFINITY;
-  // T13127: narrowing alone floors at one slot, so a heavy run was always
-  // admitted however short of memory the machine was.
-  if (isMemoryGated(cls) && evaluateMemoryGate(sample, false).refuse) return 0;
 
   const cpus = Math.max(1, opts.cpuCount ?? availableParallelism());
   const totalBytes = opts.totalMemBytes ?? totalmem();
@@ -472,6 +469,14 @@ export class ResourceGovernor {
     const startedAt = Date.now();
     const remaining = (): number => timeoutMs - (Date.now() - startedAt);
     let waitedOnPressure = false;
+    // Work nested in an admitted `cleo run` job is part of that admission:
+    // never held back by the gate, or the job would wait on its own child.
+    // Looked up once, and only when the gate refuses.
+    let nested: boolean | null = null;
+    const nestedInRunJob = (): boolean => {
+      nested ??= insideRunJob();
+      return nested;
+    };
 
     for (;;) {
       const sample = await sampleForAdmission(opts, lazyMonitor);
@@ -480,7 +485,7 @@ export class ResourceGovernor {
       // gives the gate its hysteresis across every waiting process.
       if (isMemoryGated(cls)) {
         const gate = checkMemoryGate(sample);
-        if (gate.refuse && gate.reading !== null) {
+        if (gate.refuse && gate.reading !== null && !nestedInRunJob()) {
           const waitedMs = Date.now() - startedAt;
           if (!blocking || remaining() <= 0) {
             return memoryPressureDeferral(cls, gate.reading, blocking ? waitedMs : null);
@@ -618,6 +623,8 @@ export class ResourceGovernor {
       return Number.POSITIVE_INFINITY;
     }
     const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
+    // T13127: nothing is grantable while the memory gate refuses the class.
+    if (isMemoryGated(cls) && checkMemoryGate(sample).refuse && !insideRunJob()) return 0;
     const budget = computeClassBudget(cls, sample, opts);
     if (!Number.isFinite(budget)) return Number.POSITIVE_INFINITY;
     if (budget <= 0) return 0;

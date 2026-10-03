@@ -13,7 +13,9 @@ summary: "Heavy work is now refused, not merely narrowed, while the machine is s
   the threshold. The refusing state is shared machine-wide through
   `<cleoHome>/locks/memory-gate.json`, so a newcomer cannot start while others
   wait. CPU saturation never refuses work. It still narrows budgets and pauses
-  younger `cleo run` jobs as before.
+  younger `cleo run` jobs as before. Work nested in an admitted `cleo run` job
+  (verified by process group or ancestry, not by the env var alone) is never
+  held back, because the job would otherwise wait on its own child.
 - **Waiting says why.** `cleo run --wait` (and the provider hook, which uses
   it) prints `waiting: memory pressure <score> (refused above 25, resumes at
   15 or below): <readings>` at most once a minute. When pressure falls it

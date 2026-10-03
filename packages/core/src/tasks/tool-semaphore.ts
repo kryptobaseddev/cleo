@@ -68,6 +68,7 @@ import {
   memoryGateReporter,
   waitForMemoryGate,
 } from '../resources/pressure-gate.js';
+import { insideRunJob } from '../resources/run-admission.js';
 import {
   assessSlotHolder,
   currentLockId,
@@ -398,13 +399,15 @@ function stderrNotice(line: string): void {
 /**
  * Whether the memory gate applies to a run: a gated tool, not opted out by
  * `skipGovernor` or an explicit `CLEO_TOOL_CONCURRENCY_<TOOL>` override (the
- * operator's count is authoritative).
+ * operator's count is authoritative), and not nested in an admitted `cleo run`
+ * job, whose admission covers its process tree.
  */
 function memoryGateApplies(canonical: CanonicalTool, opts: AcquireSlotOptions): boolean {
   return (
     MEMORY_GATED_TOOLS.has(canonical) &&
     opts.skipGovernor !== true &&
-    !hasConcurrencyOverride(canonical)
+    !hasConcurrencyOverride(canonical) &&
+    !insideRunJob()
   );
 }
 
