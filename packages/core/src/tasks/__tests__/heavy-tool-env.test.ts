@@ -338,9 +338,26 @@ describe('planHeavyToolEnv (T13122)', () => {
     expect(boundMakeflags('-j2', 3)).toBeNull(); // within the plan: kept
     expect(boundMakeflags('-k', 3)).toBeNull(); // serial: kept
     expect(boundMakeflags('-j --jobserver-auth=fifo:/tmp/GMfifo1', 3)).toBeNull();
+    // Short-flag clusters and make's dash-less first word (review NIT).
+    expect(boundMakeflags('-sj18', 3)).toBe('-s -j3');
+    expect(boundMakeflags('-kj', 3)).toBe('-k -j3');
+    expect(boundMakeflags('j18', 3)).toBe('-j3');
+    expect(boundMakeflags('kj --no-print-directory', 3)).toBe('-k --no-print-directory -j3');
+    expect(boundMakeflags('-sj2', 3)).toBeNull();
     const { overlay, resources } = planHeavyToolEnv('test', { MAKEFLAGS: '-j18' }, 64);
     expect(overlay.MAKEFLAGS).toBe('-j6');
     expect(resources?.clamped).toContainEqual({ name: 'MAKEFLAGS', from: '-j18', to: '-j6' });
+  });
+
+  it('bounds a dash spelling of the workspace variable too (review NIT)', () => {
+    const { overlay } = planHeavyToolEnv('test', { 'npm_config_workspace-concurrency': '16' }, 64);
+    expect(overlay['npm_config_workspace-concurrency']).toBe('1');
+  });
+
+  it('drops a coloured npm warning too: ANSI codes are stripped before matching (review NIT)', () => {
+    const esc = String.fromCharCode(27);
+    const coloured = `${esc}[33mnpm warn${esc}[39m Unknown env config "workspace-concurrency".`;
+    expect(withoutNpmEnvConfigWarnings(`${coloured}\nreal error`)).toBe('real error');
   });
 
   it("drops npm's unknown-env-config warnings from captured output, nothing else", () => {
