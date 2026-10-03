@@ -3096,6 +3096,7 @@ export {
 export {
   NEXUS_FIRST_RUN_STATES,
   type NexusFirstRunBackup,
+  type NexusFirstRunChoice,
   type NexusFirstRunOffer,
   type NexusFirstRunRestore,
   type NexusFirstRunResult,

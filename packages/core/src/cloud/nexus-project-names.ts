@@ -3,16 +3,20 @@
  * first run of `cleo login nexus` shows on a machine with no linked project,
  * and the name resolution behind `cleo cloud restore <name>`.
  *
- * - A project's display name is its `encryptedName` opened with the project
- *   data key (unwrapped with the account key, read-only: nothing is minted),
- *   else its plaintext label, else its id. A name that does not open falls
- *   back to the label with one warning; it never fails the list.
+ * - A project's display name is its plaintext label, else its id. Its
+ *   `encryptedName` is NOT opened by default: the format is not specified yet
+ *   (cleo-nexus T098: cipher, AAD with the key version, re-encryption on
+ *   rotation), and nothing in CLEO writes it. A caller may pass `openName`
+ *   (the seam the spec's reader will fill); a name that does not open falls
+ *   back to the label with one warning and never fails the list.
  * - Names are matched exactly first, then case-insensitively, against the
  *   display name, the label and the id. One match restores; several are
  *   refused with the candidates listed (`E_NEXUS_PROJECT_AMBIGUOUS`); none is
  *   `E_NEXUS_PROJECT_NOT_FOUND`. A UUID is taken as an id without listing.
- * - Names from the server are shown with control and bidirectional-override
- *   characters removed, and the restore command quotes them for a POSIX shell.
+ * - Names and organization names from the server are shown with control,
+ *   zero-width, separator and bidi characters removed; a listed id that is
+ *   not a CLEO `ProjectId` is left out; commands quote every word for a POSIX
+ *   shell, and the machine-read restore command names the immutable id.
  *
  * Every request is a `GET`. No function here logs, and no result or error
  * carries a key or a token.
@@ -21,24 +25,24 @@
  * @epic T12322
  */
 
+import os from 'node:os';
+import path from 'node:path';
 import type {
   CloudWarning,
   NexusCloudProjectListItem,
   NexusNamedProject,
   NexusProjectNameSource,
 } from '@cleocode/contracts';
-import { openProjectName } from './keys.js';
+import { ProjectId } from '@cleocode/contracts/cloud';
+import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { NexusAccountError, resolveNexusApiUrl } from './nexus-auth.js';
-import { listNexusCloudProjects } from './nexus-cloud.js';
-import {
-  connectNexusVault,
-  type NexusVaultOptions,
-  nexusProjectDataKey,
-  unlockNexusAccountKey,
-} from './nexus-vault-keys.js';
+import { listNexusCloudProjects, type NexusCloudProjectsOptions } from './nexus-cloud.js';
 
 /** Warning code: some project names are encrypted and could not be opened on this device. */
 export const W_NEXUS_PROJECT_NAME_LOCKED = 'W_NEXUS_PROJECT_NAME_LOCKED';
+
+/** Warning code: the server listed a project whose id is not a CLEO project id; it was left out. */
+export const W_NEXUS_PROJECT_ID_INVALID = 'W_NEXUS_PROJECT_ID_INVALID';
 
 /** A UUID project id: taken as an id without listing. */
 const UUID_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -46,8 +50,13 @@ const UUID_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** A legacy 12-hex project id (`ProjectId`): an id when no name matches it. */
 const LEGACY_ID = /^[0-9a-f]{12}$/;
 
-/** Control characters and bidirectional overrides: never echoed from a server-held name. */
-const UNSAFE_NAME_CHARS = /[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g;
+/**
+ * Never echoed from a server-held name: C0/C1 controls, the Arabic letter
+ * mark, zero-width characters, line/paragraph separators, bidirectional
+ * embeddings, overrides and isolates, and the byte-order mark.
+ */
+const UNSAFE_NAME_CHARS =
+  /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g;
 
 /** A word a POSIX shell takes literally without quotes. */
 const SHELL_SAFE = /^[A-Za-z0-9._@%+=:,/-]+$/;
@@ -56,10 +65,13 @@ const SHELL_SAFE = /^[A-Za-z0-9._@%+=:,/-]+$/;
 export type NexusProjectNameOpener = (projectId: string, encryptedName: string) => Promise<string>;
 
 /** Options of {@link listNexusNamedProjects} and {@link resolveNexusProjectRef}. */
-export interface NexusNamedProjectsOptions extends NexusVaultOptions {
+export interface NexusNamedProjectsOptions extends NexusCloudProjectsOptions {
   /** This machine's device id, to mark projects already here; `null`/absent marks none. */
   deviceId?: string | null;
-  /** Opener of `encryptedName` (tests); defaults to the account key, unlocked read-only. */
+  /**
+   * Opener of `encryptedName`. None by default: the format is not specified yet
+   * (cleo-nexus T098), so names show as their label or id until it is.
+   */
   openName?: NexusProjectNameOpener;
 }
 
@@ -139,33 +151,14 @@ export function shellQuoteWord(word: string): string {
   return SHELL_SAFE.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
 }
 
-/** The default opener: account key (read-only unlock), then each project's data key. */
-function accountKeyNameOpener(opts: NexusVaultOptions): NexusProjectNameOpener {
-  let unlocked: Promise<{
-    conn: Awaited<ReturnType<typeof connectNexusVault>>;
-    mk: Buffer;
-  }> | null = null;
-  return async (projectId, encryptedName) => {
-    unlocked ??= (async () => {
-      const conn = await connectNexusVault(opts);
-      // Read-only: listing names never mints, escrows or certifies (T12974).
-      const key = await unlockNexusAccountKey(conn, { readOnly: true });
-      return { conn, mk: key.masterKey };
-    })();
-    const { conn, mk } = await unlocked;
-    const pdk = await nexusProjectDataKey(conn, mk, projectId, false);
-    if (pdk === null) throw new Error(`project ${projectId} has no data key yet`);
-    return openProjectName(pdk, projectId, encryptedName);
-  };
-}
-
-/** Open every `encryptedName`; failures become one warning, never an error. */
+/** Open every `encryptedName` with `opener`, if any; failures become one warning, never an error. */
 async function openNames(
   items: readonly NexusCloudProjectListItem[],
-  opener: NexusProjectNameOpener,
+  opener: NexusProjectNameOpener | undefined,
   warnings: CloudWarning[],
 ): Promise<Map<string, string>> {
   const opened = new Map<string, string>();
+  if (opener === undefined) return opened;
   let failed = 0;
   let firstReason = '';
   for (const item of items) {
@@ -204,11 +197,12 @@ function namedProject(
     name,
     nameSource,
     label,
-    organizationName: item.organizationName ?? null,
+    organizationName: safeNexusProjectName(item.organizationName),
     lastSyncAt: item.lastSyncAt ?? null,
     hasBackup: item.headCheckpointId === undefined ? null : item.headCheckpointId !== null,
     onThisDevice: deviceId !== null && item.replicas.some((r) => r.deviceId === deviceId),
     restoreCommand: null,
+    restoreByNameCommand: null,
   };
 }
 
@@ -253,19 +247,32 @@ export function nexusApiUrlFlag(apiUrl: string): string {
 }
 
 /**
- * The exact `cleo cloud restore` command for a project: by name when the name
- * resolves to it alone (and cannot be read as a flag or an id), else by id.
+ * The exact `cleo cloud restore` command for a project, by its id: the id
+ * never changes, while a name can be renamed or matched by a newer project
+ * between printing and running (review LOW-4). For agents and scripts.
+ *
+ * @param project - The project (its id is a validated `ProjectId`).
+ * @param apiUrl - API origin (added as `--api-url` when not the default).
+ * @returns The command.
+ */
+export function nexusRestoreCommand(project: NexusNamedProject, apiUrl: string): string {
+  return `cleo cloud restore ${shellQuoteWord(project.projectId)}${nexusApiUrlFlag(apiUrl)}`;
+}
+
+/**
+ * The same restore by name, for a person to type: only when the name resolves
+ * to this project alone and cannot be read as a flag or an id; else `null`.
  *
  * @param project - The project.
  * @param all - Every project of the account, for the uniqueness check.
  * @param apiUrl - API origin (added as `--api-url` when not the default).
- * @returns The command.
+ * @returns The command, or `null`.
  */
-export function nexusRestoreCommand(
+export function nexusRestoreByNameCommand(
   project: NexusNamedProject,
   all: readonly NexusNamedProject[],
   apiUrl: string,
-): string {
+): string | null {
   const matches = matchNexusProjects(all, project.name);
   const byName =
     project.nameSource !== 'id' &&
@@ -273,13 +280,33 @@ export function nexusRestoreCommand(
     !UUID_ID.test(project.name) &&
     matches.length === 1 &&
     matches[0]?.projectId === project.projectId;
-  const ref = byName ? project.name : project.projectId;
-  return `cleo cloud restore ${shellQuoteWord(ref)}${nexusApiUrlFlag(apiUrl)}`;
+  return byName
+    ? `cleo cloud restore ${shellQuoteWord(project.name)}${nexusApiUrlFlag(apiUrl)}`
+    : null;
+}
+
+/**
+ * The list items whose id is a CLEO project id (a UUID or a legacy 12-hex
+ * id); any other id is left out with a warning, so a hostile or broken
+ * server cannot put arbitrary text into a printed command (review MED-1).
+ */
+function validItems(
+  items: readonly NexusCloudProjectListItem[],
+  warnings: CloudWarning[],
+): NexusCloudProjectListItem[] {
+  const valid = items.filter((item) => ProjectId.safeParse(item.projectId).success);
+  if (valid.length < items.length) {
+    warnings.push({
+      code: W_NEXUS_PROJECT_ID_INVALID,
+      message: `left out ${items.length - valid.length} project(s) whose id the server sent is not a CLEO project id`,
+    });
+  }
+  return valid;
 }
 
 /**
  * `GET /v1/projects` (E13, every page) with display names and, for each
- * project this machine can restore, the exact restore command.
+ * project this machine can restore, the exact restore commands.
  *
  * @param opts - Device id, name opener, API URL, stores and test overrides.
  * @returns The named projects, whether the list is complete, and warnings.
@@ -291,19 +318,19 @@ export async function listNexusNamedProjects(
   const { deviceId, openName, ...vault } = opts;
   const list = await listNexusCloudProjects(vault);
   const warnings = [...list.warnings];
-  const opened = await openNames(
-    list.projects,
-    openName ?? accountKeyNameOpener({ ...vault, apiUrl: list.apiUrl }),
-    warnings,
-  );
-  const named = list.projects.map((item) =>
+  const items = validItems(list.projects, warnings);
+  const opened = await openNames(items, openName, warnings);
+  const named = items.map((item) =>
     namedProject(item, opened.get(item.projectId) ?? null, deviceId ?? null),
   );
-  const projects = named.map((p) => ({
-    ...p,
-    restoreCommand:
-      p.hasBackup === false || p.onThisDevice ? null : nexusRestoreCommand(p, named, list.apiUrl),
-  }));
+  const projects = named.map((p) => {
+    const restorable = p.hasBackup !== false && !p.onThisDevice;
+    return {
+      ...p,
+      restoreCommand: restorable ? nexusRestoreCommand(p, list.apiUrl) : null,
+      restoreByNameCommand: restorable ? nexusRestoreByNameCommand(p, named, list.apiUrl) : null,
+    };
+  });
   return {
     apiUrl: list.apiUrl,
     projects,
@@ -347,7 +374,7 @@ export async function resolveNexusProjectRef(
   if (matches.length > 1) {
     const candidates = matches.map((p) => ({
       ...p,
-      restoreCommand: `cleo cloud restore ${p.projectId}${nexusApiUrlFlag(listed.apiUrl)}`,
+      restoreCommand: nexusRestoreCommand(p, listed.apiUrl),
     }));
     throw new NexusProjectRefError(
       'E_NEXUS_PROJECT_AMBIGUOUS',
@@ -363,4 +390,33 @@ export async function resolveNexusProjectRef(
     'run `cleo cloud projects` to list the projects, then pass a name or id from it',
     { ref: want, candidates: [] },
   );
+}
+
+/**
+ * Refuse to restore a project into a directory nested inside another CLEO
+ * project (review LOW-5): `cleo cloud restore <name>` without `--into`
+ * restores into the current directory, and from a subdirectory of a project
+ * that would create a second project inside the first. The directory itself
+ * may be a project root (the restore checks it holds the same project); the
+ * home directory never counts as an enclosing project.
+ *
+ * @param into - The restore target; defaults to the current directory.
+ * @throws {NexusAccountError} `E_NEXUS_VAULT_TARGET_OCCUPIED` naming the enclosing project.
+ */
+export function assertNexusRestoreTarget(into?: string): void {
+  const target = path.resolve(into ?? process.cwd()); // CWD-OK: restore target directory, not a project root lookup
+  const home = path.resolve(os.homedir());
+  let dir = path.dirname(target);
+  for (;;) {
+    if (dir !== home && readDeclaredProjectIdentity(dir)) {
+      throw new NexusAccountError(
+        'E_NEXUS_VAULT_TARGET_OCCUPIED',
+        `${target} is inside the CLEO project at ${dir}; restoring here would nest a second project in it`,
+        `run it in ${dir} (or pass --into ${shellQuoteWord(dir)}) to restore that project there, or pass --into an empty directory outside it`,
+      );
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return;
+    dir = parent;
+  }
 }

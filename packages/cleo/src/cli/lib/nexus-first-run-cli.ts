@@ -3,9 +3,11 @@
  * then run `@cleocode/core/cloud/nexus-first-run.js` and emit one envelope
  * (`data` = the login result plus `data.firstRun`) or one human summary.
  *
- * Consent: `--yes` links and backs up without asking; a terminal (stdin is a
- * TTY) is asked on stderr; anything else (an agent, a pipe) is never asked
- * and gets the exact next command, on stderr and in `data.firstRun.nextCommand`.
+ * Consent: `--yes` acts without asking; a terminal (stdin and stderr are both
+ * TTYs, and not under CI) is asked on stderr; anything else (an agent, a
+ * pipe, a redirected stderr, CI) is never asked and gets the exact next
+ * command, on stderr and in `data.firstRun.nextCommand` (or the choices, when
+ * the next step is the user's decision).
  * A first-run problem never fails the sign-in.
  *
  * No function here receives or prints a token.
@@ -35,10 +37,15 @@ const STEP_LINES = {
   projects: 'Looking up your Cleo Nexus projects...',
 } as const;
 
-/** How the run may act: `--yes`, a terminal, or never ask. */
+/**
+ * How the run may act: `--yes`, a terminal, or never ask. A prompt needs both
+ * stdin and stderr on a terminal (a prompt written to a redirected stderr is
+ * invisible and would wait on stdin), and never runs under CI (review LOW-3).
+ */
 function consentOf(args: Args): 'yes' | 'prompt' | 'never' {
   if (args['yes'] === true) return 'yes';
-  return process.stdin.isTTY ? 'prompt' : 'never';
+  const ci = (process.env['CI'] ?? '') !== '' && process.env['CI'] !== 'false';
+  return process.stdin.isTTY && process.stderr.isTTY && !ci ? 'prompt' : 'never';
 }
 
 /**
@@ -63,7 +70,11 @@ export async function runNexusFirstRunCli(
     return await runNexusFirstRun({
       apiUrl: login.apiUrl,
       consent,
-      ...(io ? { confirm: (question: string) => io.confirm(question, true) } : {}),
+      ...(io
+        ? {
+            confirm: (question: string, defaultYes: boolean) => io.confirm(question, defaultYes),
+          }
+        : {}),
       deviceId: login.device?.deviceId ?? null,
       readOnly: args['read-only'] === true,
       onStep: (step) => process.stderr.write(`${STEP_LINES[step]}\n`),
@@ -92,7 +103,8 @@ function projectLine(p: NexusNamedProject): string {
       : p.lastSyncAt
         ? `last sync ${p.lastSyncAt}`
         : 'backed up';
-  return `  ${p.name} (${where})${p.restoreCommand ? `: ${p.restoreCommand}` : ''}`;
+  const command = p.restoreByNameCommand ?? p.restoreCommand;
+  return `  ${p.name} (${where})${command ? `: ${command}` : ''}`;
 }
 
 /** The project list block of the human summary. */
@@ -135,7 +147,9 @@ export function nexusFirstRunSummary(login: NexusLoginResult, r: NexusFirstRunRe
       return `Signed in, restored, linked. ${signedIn} Project ${name} was restored from Cleo Nexus (${what}).`;
     }
     case 'restore-failed':
-      return `${signedIn} Restoring this project's backup failed (see warnings). Next: ${r.nextCommand}`;
+      return r.choices.length > 0
+        ? `${signedIn} This copy has rows it never synced, so the backup was not restored. Choose one:\n${r.choices.map((c) => `  ${c.command}  (${c.effect})`).join('\n')}`
+        : `${signedIn} Restoring this project's backup failed (see warnings). Next: ${r.nextCommand}`;
     case 'link-failed':
       return `${signedIn} Linking this project failed (see warnings). Next: ${r.nextCommand}`;
     case 'backup-failed':
@@ -177,8 +191,9 @@ export async function runNexusLoginCommand(
   }
   const firstRun = await runNexusFirstRunCli(args, login);
   for (const w of firstRun.warnings) process.stderr.write(`warning: ${w.message} (${w.code})\n`);
-  if (firstRun.nextCommand && !isHumanOutput()) {
-    process.stderr.write(`next: ${firstRun.nextCommand}\n`);
+  if (!isHumanOutput()) {
+    if (firstRun.nextCommand) process.stderr.write(`next: ${firstRun.nextCommand}\n`);
+    for (const c of firstRun.choices) process.stderr.write(`choice: ${c.command}  (${c.effect})\n`);
   }
   emitNexusResult(
     { ...login, firstRun },

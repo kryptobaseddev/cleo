@@ -12,8 +12,8 @@
  *   project that this copy never synced (a fresh clone on a new machine), the
  *   offer is to restore that backup here instead; a backup would be refused.
  * - Outside a CLEO project: it lists the account's projects, by name, with
- *   the exact `cleo cloud restore <name>` command for each one that has a
- *   backup this machine does not hold yet.
+ *   the exact `cleo cloud restore` command for each one that has a backup
+ *   this machine does not hold yet.
  *
  * `cleo cloud restore <name>` resolves a project name or label (or an id) to
  * the server's project id; an ambiguous name lists the candidates.
@@ -67,7 +67,10 @@ export type NexusProjectNameSource = 'encrypted-name' | 'label' | 'id';
 export interface NexusNamedProject {
   /** The server's project id (the tracked local project id of whoever linked it). */
   projectId: string;
-  /** Display name: the decrypted `encryptedName`, else the plaintext label, else the id. */
+  /**
+   * Display name: the plaintext label, else the id. (`encryptedName` is shown only through a
+   * reader for its format, which cleo-nexus T098 will specify; none is wired in yet.)
+   */
   name: string;
   /** Where {@link NexusNamedProject.name} came from. */
   nameSource: NexusProjectNameSource;
@@ -85,11 +88,16 @@ export interface NexusNamedProject {
   /** A replica of the project is attached from this device. */
   onThisDevice: boolean;
   /**
-   * The exact command that restores it into the current directory: by name when the name
-   * is unique on the account, else by id. `null` when there is nothing to restore here
-   * (no backup, or it is already on this device).
+   * The exact command that restores it into the current directory, by its id (an id never
+   * changes; for agents and scripts). `null` when there is nothing to restore here (no
+   * backup, or it is already on this device).
    */
   restoreCommand: string | null;
+  /**
+   * The same restore by name, for a person to type: set only when the name resolves to this
+   * project alone (and cannot be read as a flag or an id), else `null`.
+   */
+  restoreByNameCommand: string | null;
 }
 
 /** The first backup the guided run pushed. */
@@ -119,6 +127,14 @@ export interface NexusFirstRunRestore {
  */
 export type NexusFirstRunOffer = 'link-and-backup' | 'restore';
 
+/** One option of a choice the first run leaves to the user. */
+export interface NexusFirstRunChoice {
+  /** The exact command. */
+  command: string;
+  /** What it does, in one line. */
+  effect: string;
+}
+
 /** The guided first run's outcome, carried as `data.firstRun` of the `cleo login nexus` envelope. */
 export interface NexusFirstRunResult {
   /** How it ended. */
@@ -139,6 +155,11 @@ export interface NexusFirstRunResult {
   projects: NexusNamedProject[];
   /** The exact command to run next, when there is one (never asks: agents run it). */
   nextCommand: string | null;
+  /**
+   * When the next step is a choice only the user can make (`nextCommand` is `null`), each
+   * option as `{ command, effect }`; empty otherwise.
+   */
+  choices: NexusFirstRunChoice[];
   /** Non-fatal problems met on the way (secret-free). */
   warnings: CloudWarning[];
 }

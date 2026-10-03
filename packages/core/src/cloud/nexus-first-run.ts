@@ -107,8 +107,11 @@ export interface NexusCloudBackupQuery extends NexusVaultOptions {
 export interface NexusFirstRunOptions extends NexusVaultOptions {
   /** `yes` (`--yes`), `prompt` (a terminal) or `never` (non-interactive). */
   consent: NexusFirstRunConsent;
-  /** Asks a yes/no question (`prompt` only); without it, `prompt` acts as `never`. */
-  confirm?: (question: string) => Promise<boolean>;
+  /**
+   * Asks a yes/no question (`prompt` only); `defaultYes` is what an empty answer means
+   * (yes for link and back up, no for a restore). Without it, `prompt` acts as `never`.
+   */
+  confirm?: (question: string, defaultYes: boolean) => Promise<boolean>;
   /** The device login enrolled, to tell projects attached here from others. */
   deviceId?: string | null;
   /** The device signed in with the read-only profile: it cannot link or back up. */
@@ -148,6 +151,7 @@ export function nexusFirstRunResult(
     restore: null,
     projects: [],
     nextCommand: null,
+    choices: [],
     warnings: [],
     ...fields,
   };
@@ -157,6 +161,8 @@ export function nexusFirstRunResult(
 export interface NexusFirstRunCommands {
   /** Link the current project, then push its first backup. */
   linkAndBackUp: string;
+  /** Link the current project, then push it as a labelled fork over a newer cloud head. */
+  linkAndForkPush: string;
   /** Push the current project. */
   push: string;
   /** Pull the cloud's newest snapshot into the current project. */
@@ -177,6 +183,7 @@ export function nexusFirstRunCommands(apiUrl: string): NexusFirstRunCommands {
   const f = nexusApiUrlFlag(apiUrl);
   return {
     linkAndBackUp: `cleo project link${f} && cleo cloud push${f}`,
+    linkAndForkPush: `cleo project link${f} && cleo cloud push --force${f}`,
     push: `cleo cloud push${f}`,
     pull: `cleo cloud pull${f}`,
     projects: `cleo cloud projects${f}`,
@@ -205,11 +212,15 @@ function attachedHere(link: NexusProjectLink | null, deviceId: string | null): b
 }
 
 /** Ask, when asking is allowed; a failed or closed prompt answers no. */
-async function consented(opts: NexusFirstRunOptions, question: string): Promise<boolean> {
+async function consented(
+  opts: NexusFirstRunOptions,
+  question: string,
+  defaultYes: boolean,
+): Promise<boolean> {
   if (opts.consent === 'yes') return true;
   if (opts.consent !== 'prompt' || !opts.confirm) return false;
   try {
-    return await opts.confirm(question);
+    return await opts.confirm(question, defaultYes);
   } catch {
     return false;
   }
@@ -343,11 +354,29 @@ async function restoreHere(
       },
     });
   } catch (err) {
-    return nexusFirstRunResult('restore-failed', {
-      ...base,
-      nextCommand: nexusFirstRunCommands(vault.apiUrl).restore(projectId, projectRoot),
-      warnings: [{ code: W_NEXUS_FIRST_RUN_RESTORE, message: describeFailure(err) }],
-    });
+    const commands = nexusFirstRunCommands(vault.apiUrl);
+    const restoreCmd = commands.restore(projectId, projectRoot);
+    const warnings = [{ code: W_NEXUS_FIRST_RUN_RESTORE, message: describeFailure(err) }];
+    if (codeOf(err) === 'E_NEXUS_VAULT_LOCAL_CHANGES') {
+      // This copy has rows it never synced: rerunning the restore refuses the same way, so
+      // the user chooses which side wins (review LOW-2).
+      return nexusFirstRunResult('restore-failed', {
+        ...base,
+        choices: [
+          {
+            command: `${restoreCmd} --force`,
+            effect: "take the cloud's backup; this copy's rows are replaced after a safety backup",
+          },
+          {
+            command: commands.linkAndForkPush,
+            effect:
+              "keep this copy; it is pushed as a labelled fork over the cloud's newest backup",
+          },
+        ],
+        warnings,
+      });
+    }
+    return nexusFirstRunResult('restore-failed', { ...base, nextCommand: restoreCmd, warnings });
   }
   return nexusFirstRunResult('restored', {
     ...base,
@@ -400,7 +429,8 @@ async function offerInProject(
     projectId,
   });
   const question = restore ? NEXUS_FIRST_RUN_RESTORE_QUESTION : NEXUS_FIRST_RUN_QUESTION;
-  if (await consented(opts, question)) {
+  // A restore replaces what this copy holds, so an empty answer means no (review LOW-3).
+  if (await consented(opts, question, !restore)) {
     return restore
       ? restoreHere(opts, vault, project.root, projectId)
       : linkAndBackUp(opts, vault, project.root);

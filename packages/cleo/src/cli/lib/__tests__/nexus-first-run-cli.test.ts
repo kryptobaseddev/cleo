@@ -27,6 +27,7 @@ vi.mock('@cleocode/core/cloud/nexus-first-run.js', () => ({
     restore: null,
     projects: [],
     nextCommand: null,
+    choices: [],
     warnings: [],
     ...fields,
   }),
@@ -80,13 +81,16 @@ function firstRun(fields: Partial<NexusFirstRunResult>): NexusFirstRunResult {
     restore: null,
     projects: [],
     nextCommand: null,
+    choices: [],
     warnings: [],
     ...fields,
   };
 }
 
 const savedTTY = process.stdin.isTTY;
+const savedErrTTY = process.stderr.isTTY;
 const savedFormat = process.env['CLEO_FORMAT'];
+const savedCI = process.env['CI'];
 let stdout: ReturnType<typeof vi.spyOn>;
 let stderr: ReturnType<typeof vi.spyOn>;
 let exit: ReturnType<typeof vi.spyOn>;
@@ -102,8 +106,10 @@ const envelope = () =>
   );
 const firstRunOpts = () => runNexusFirstRun.mock.calls[0]?.[0] as Record<string, unknown>;
 
-function setTTY(value: boolean): void {
+/** stdin and stderr on a terminal (or not); `stderr` defaults to the same. */
+function setTTY(value: boolean, stderrValue: boolean = value): void {
   Object.defineProperty(process.stdin, 'isTTY', { value, configurable: true });
+  Object.defineProperty(process.stderr, 'isTTY', { value: stderrValue, configurable: true });
 }
 
 beforeEach(() => {
@@ -117,6 +123,8 @@ beforeEach(() => {
   close.mockReset();
   ioCreated.mockReset();
   process.env['CLEO_FORMAT'] = 'json';
+  // CI sets CI=true; the prompt tests stand for a person at a terminal.
+  delete process.env['CI'];
   setTTY(false);
   stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
@@ -129,7 +137,10 @@ afterEach(() => {
   stdout.mockRestore();
   stderr.mockRestore();
   exit.mockRestore();
-  setTTY(savedTTY);
+  Object.defineProperty(process.stdin, 'isTTY', { value: savedTTY, configurable: true });
+  Object.defineProperty(process.stderr, 'isTTY', { value: savedErrTTY, configurable: true });
+  if (savedCI === undefined) delete process.env['CI'];
+  else process.env['CI'] = savedCI;
   if (savedFormat === undefined) delete process.env['CLEO_FORMAT'];
   else process.env['CLEO_FORMAT'] = savedFormat;
 });
@@ -143,11 +154,12 @@ describe('consent', () => {
     expect(ioCreated).not.toHaveBeenCalled();
   });
 
-  it('a terminal: consent prompt, asked on stderr with yes as the default, and the prompt closed', async () => {
+  it('a terminal: consent prompt, asked on stderr with the default core chooses, and the prompt closed', async () => {
     setTTY(true);
     runNexusFirstRun.mockImplementationOnce(
-      async (o: { confirm: (q: string) => Promise<boolean> }) => {
-        await o.confirm('Link it?');
+      async (o: { confirm: (q: string, defaultYes: boolean) => Promise<boolean> }) => {
+        await o.confirm('Link it?', true);
+        await o.confirm('Restore it?', false);
         return firstRun({ state: 'declined', nextCommand: 'cleo project link && cleo cloud push' });
       },
     );
@@ -155,7 +167,43 @@ describe('consent', () => {
     expect(firstRunOpts()).toMatchObject({ consent: 'prompt' });
     expect(ioCreated).toHaveBeenCalledWith(process.stdin, process.stderr);
     expect(confirm).toHaveBeenCalledWith('Link it?', true);
+    expect(confirm).toHaveBeenCalledWith('Restore it?', false);
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('a terminal stdin with stderr redirected never prompts (the prompt would be invisible)', async () => {
+    setTTY(true, false);
+    await runNexusLoginCommand({ provider: 'nexus' }, 'login.run', vi.fn());
+    expect(firstRunOpts()).toMatchObject({ consent: 'never' });
+    expect(ioCreated).not.toHaveBeenCalled();
+  });
+
+  it('under CI a terminal never prompts', async () => {
+    setTTY(true);
+    process.env['CI'] = 'true';
+    await runNexusLoginCommand({ provider: 'nexus' }, 'login.run', vi.fn());
+    expect(firstRunOpts()).toMatchObject({ consent: 'never' });
+    expect(ioCreated).not.toHaveBeenCalled();
+  });
+
+  it('a choice left to the user is printed as choice lines on stderr, with no next line', async () => {
+    runNexusFirstRun.mockResolvedValueOnce(
+      firstRun({
+        state: 'restore-failed',
+        offer: 'restore',
+        choices: [
+          { command: 'cleo cloud restore p --into /r --force', effect: 'take the backup' },
+          { command: 'cleo project link && cleo cloud push --force', effect: 'keep this copy' },
+        ],
+      }),
+    );
+    await runNexusLoginCommand({ provider: 'nexus' }, 'login.run', vi.fn());
+    expect(err()).toContain('choice: cleo cloud restore p --into /r --force  (take the backup)\n');
+    expect(err()).toContain(
+      'choice: cleo project link && cleo cloud push --force  (keep this copy)\n',
+    );
+    expect(err()).not.toContain('next:');
+    expect(envelope().data.firstRun.choices).toHaveLength(2);
   });
 
   it('non-interactive: consent never, no prompt, and the next command on stderr and in the envelope', async () => {
@@ -287,6 +335,22 @@ describe('human summary', () => {
     ).toContain('Not restored');
   });
 
+  it('restore-failed with choices lists each command and its effect', () => {
+    const text = nexusFirstRunSummary(
+      LOGIN,
+      firstRun({
+        state: 'restore-failed',
+        choices: [
+          { command: 'CMD-A', effect: 'effect a' },
+          { command: 'CMD-B', effect: 'effect b' },
+        ],
+      }),
+    );
+    expect(text).toContain('Choose one:');
+    expect(text).toContain('  CMD-A  (effect a)');
+    expect(text).toContain('  CMD-B  (effect b)');
+  });
+
   it('offered, declined and failures name the next command', () => {
     for (const state of [
       'offered',
@@ -320,7 +384,17 @@ describe('human summary', () => {
             hasBackup: true,
             onThisDevice: false,
             lastSyncAt: '2026-10-01T00:00:00.000Z',
-            restoreCommand: "cleo cloud restore 'Demo Board'",
+            restoreCommand: 'cleo cloud restore p1',
+            restoreByNameCommand: "cleo cloud restore 'Demo Board'",
+          },
+          {
+            ...base,
+            projectId: 'p4',
+            name: 'twin',
+            hasBackup: true,
+            onThisDevice: false,
+            restoreCommand: 'cleo cloud restore p4',
+            restoreByNameCommand: null,
           },
           {
             ...base,
@@ -329,6 +403,7 @@ describe('human summary', () => {
             hasBackup: false,
             onThisDevice: false,
             restoreCommand: null,
+            restoreByNameCommand: null,
           },
           {
             ...base,
@@ -337,6 +412,7 @@ describe('human summary', () => {
             hasBackup: true,
             onThisDevice: true,
             restoreCommand: null,
+            restoreByNameCommand: null,
           },
         ],
       }),
@@ -344,6 +420,8 @@ describe('human summary', () => {
     expect(text).toContain(
       "  Demo Board (last sync 2026-10-01T00:00:00.000Z): cleo cloud restore 'Demo Board'",
     );
+    // A name several projects share falls back to the id for the person too.
+    expect(text).toContain('  twin (backed up): cleo cloud restore p4');
     expect(text).toContain('  empty (no backup yet)');
     expect(text).toContain('  here (already on this machine)');
   });

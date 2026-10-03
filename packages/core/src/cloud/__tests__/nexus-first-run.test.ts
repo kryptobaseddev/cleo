@@ -220,7 +220,8 @@ function named(extra: Partial<NexusNamedProject> = {}): NexusNamedProject {
     lastSyncAt: NOW,
     hasBackup: true,
     onThisDevice: false,
-    restoreCommand: 'cleo cloud restore demo',
+    restoreCommand: `cleo cloud restore ${PROJECT_ID}`,
+    restoreByNameCommand: 'cleo cloud restore demo',
     ...extra,
   };
 }
@@ -250,7 +251,7 @@ describe('guided first run inside an unlinked project', () => {
     const s = stubs();
     const r = await run(s, { consent: 'prompt' });
     expect(s.confirm).toHaveBeenCalledTimes(1);
-    expect(s.confirm).toHaveBeenCalledWith(NEXUS_FIRST_RUN_QUESTION);
+    expect(s.confirm).toHaveBeenCalledWith(NEXUS_FIRST_RUN_QUESTION, true);
     expect(r.state).toBe('backed-up');
     expect(s.push).toHaveBeenCalledTimes(1);
   });
@@ -450,7 +451,8 @@ describe('guided first run inside a project the cloud backs up and this copy nev
     s.cloudBackup.mockResolvedValueOnce(true);
     s.confirm.mockResolvedValueOnce(false);
     const r = await run(s, { consent: 'prompt' });
-    expect(s.confirm).toHaveBeenCalledWith(NEXUS_FIRST_RUN_RESTORE_QUESTION);
+    // A restore replaces this copy's state: an empty answer means no.
+    expect(s.confirm).toHaveBeenCalledWith(NEXUS_FIRST_RUN_RESTORE_QUESTION, false);
     expect(r.state).toBe('declined');
     expect(r.offer).toBe('restore');
     expect(r.nextCommand).toBe(restoreCmd());
@@ -469,7 +471,7 @@ describe('guided first run inside a project the cloud backs up and this copy nev
     expect(s.link).not.toHaveBeenCalled();
   });
 
-  it('a refused restore (local rows it would overwrite) reports its remedy and the command', async () => {
+  it('a restore refused for local rows it never synced leaves the choice to the user, not a loop', async () => {
     const s = stubs();
     s.cloudBackup.mockResolvedValueOnce(true);
     s.restore.mockRejectedValueOnce(
@@ -481,7 +483,12 @@ describe('guided first run inside a project the cloud backs up and this copy nev
     );
     const r = await run(s, { consent: 'yes' });
     expect(r.state).toBe('restore-failed');
-    expect(r.nextCommand).toBe(restoreCmd());
+    // Rerunning the same restore would refuse the same way: no single next command.
+    expect(r.nextCommand).toBeNull();
+    expect(r.choices.map((c) => c.command)).toEqual([
+      `${restoreCmd()} --force`,
+      'cleo project link && cleo cloud push --force',
+    ]);
     expect(r.warnings).toEqual([
       {
         code: W_NEXUS_FIRST_RUN_RESTORE,
@@ -489,6 +496,16 @@ describe('guided first run inside a project the cloud backs up and this copy nev
           'E_NEXUS_VAULT_LOCAL_CHANGES: this store has local changes; pass --force (a safety backup is taken first)',
       },
     ]);
+  });
+
+  it('any other restore failure names the same restore command to retry', async () => {
+    const s = stubs();
+    s.cloudBackup.mockResolvedValueOnce(true);
+    s.restore.mockRejectedValueOnce(new NexusAccountError('E_NEXUS_UNREACHABLE', 'no answer'));
+    const r = await run(s, { consent: 'yes' });
+    expect(r.state).toBe('restore-failed');
+    expect(r.nextCommand).toBe(restoreCmd());
+    expect(r.choices).toEqual([]);
   });
 });
 
@@ -538,7 +555,8 @@ describe('guided first run outside a project', () => {
       expect.objectContaining({ apiUrl: API, deviceId: DEVICE }),
     );
     expect(r.projects.map((p) => p.name)).toEqual(['demo', 'old']);
-    expect(r.nextCommand).toBe('cleo cloud restore demo');
+    // The machine-read command is by id; the name is for the human line.
+    expect(r.nextCommand).toBe(`cleo cloud restore ${PROJECT_ID}`);
     expect(s.link).not.toHaveBeenCalled();
     expect(s.confirm).not.toHaveBeenCalled();
   });

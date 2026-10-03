@@ -69,7 +69,7 @@ import {
   replicasHash,
   segmentMetaHash,
 } from '../journal.js';
-import { masterKeyVerifier, sealProjectName, unwrapProjectKey } from '../keys.js';
+import { masterKeyVerifier, unwrapProjectKey } from '../keys.js';
 import {
   checkManifestV3,
   type DeclaredTxn,
@@ -3475,16 +3475,9 @@ describe('guided first run against the fake server (T13102)', () => {
     return { a, b, result };
   }
 
-  /** Seal the project's name with its real data key, as a client that sets `encryptedName` would. */
-  function sealNameOnServer(name: string): void {
-    const wrapped = fake.projectKeys.get(REMOTE_PROJECT)?.[0];
-    const mk = fake.escrow?.mk;
-    if (!wrapped || !mk) throw new Error('the project has no key yet');
-    const pdk = unwrapProjectKey(mk, wrapped.wrappedProjectKey, REMOTE_PROJECT, wrapped.keyVersion);
-    fake.projectNames.set(REMOTE_PROJECT, {
-      label: 'demo',
-      encryptedName: sealProjectName(pdk, REMOTE_PROJECT, name),
-    });
+  /** The server's label and an opaque encryptedName (its format is not specified yet: T098). */
+  function nameOnServer(label: string): void {
+    fake.projectNames.set(REMOTE_PROJECT, { label, encryptedName: 'c2VhbGVkLW5hbWU=' });
   }
 
   it('--yes links, then takes the first encrypted backup with the real push', async () => {
@@ -3499,9 +3492,9 @@ describe('guided first run against the fake server (T13102)', () => {
     expect(fake.projectKeys.get(REMOTE_PROJECT)).toHaveLength(1);
   });
 
-  it('on a machine with no linked project, login lists the project by its decrypted name with the restore command, writing nothing', async () => {
+  it('on a machine with no linked project, login lists the project by name with the restore command, writing nothing', async () => {
     const { b } = await firstRunOnA();
-    sealNameOnServer('Demo Board');
+    nameOnServer('Demo Board');
     const emptyDir = path.join(base, 'b', 'empty');
     fs.mkdirSync(emptyDir, { recursive: true });
     const writesBefore = fake.writes.length;
@@ -3516,15 +3509,18 @@ describe('guided first run against the fake server (T13102)', () => {
     expect(result.projects).toHaveLength(1);
     expect(result.projects[0]).toMatchObject({
       projectId: REMOTE_PROJECT,
+      // The encryptedName is not opened: no reader for its format exists yet.
       name: 'Demo Board',
-      nameSource: 'encrypted-name',
+      nameSource: 'label',
       hasBackup: true,
       onThisDevice: false,
-      // The fake API is not the default origin, so the command names it.
-      restoreCommand: `cleo cloud restore 'Demo Board' --api-url ${API}`,
+      // The fake API is not the default origin, so the commands name it. The machine-read
+      // command is by id; the by-name one is for a person.
+      restoreCommand: `cleo cloud restore ${REMOTE_PROJECT} --api-url ${API}`,
+      restoreByNameCommand: `cleo cloud restore 'Demo Board' --api-url ${API}`,
     });
-    expect(result.nextCommand).toBe(`cleo cloud restore 'Demo Board' --api-url ${API}`);
-    // Listing and opening the name are reads: no mint, escrow, certify or key write.
+    expect(result.nextCommand).toBe(`cleo cloud restore ${REMOTE_PROJECT} --api-url ${API}`);
+    // Listing is a read: no mint, escrow, certify or key write.
     expect(fake.writes.slice(writesBefore)).toEqual([]);
     // A, which holds the project, is told it is already there.
     const onA = await listNexusNamedProjects(vopts(b, { deviceId: DEVICE_A }));
@@ -3534,7 +3530,7 @@ describe('guided first run against the fake server (T13102)', () => {
 
   it('cleo cloud restore <name> resolves the name and restores the project onto the new machine', async () => {
     const { b } = await firstRunOnA();
-    sealNameOnServer('Demo Board');
+    nameOnServer('Demo Board');
     const ref = await on(b, () => resolveNexusProjectRef('demo board', vopts(b)));
     expect(ref).toEqual({ projectId: REMOTE_PROJECT, name: 'Demo Board', matchedBy: 'name' });
     const restored = await on(b, () =>
@@ -3552,9 +3548,9 @@ describe('guided first run against the fake server (T13102)', () => {
     );
     expect(restored.status).toBe('restored');
     expect(taskCount(b)).toBe(5);
-    // The label resolves too.
-    expect((await on(b, () => resolveNexusProjectRef('demo', vopts(b)))).projectId).toBe(
-      REMOTE_PROJECT,
+    // The id resolves without listing.
+    expect((await on(b, () => resolveNexusProjectRef(REMOTE_PROJECT, vopts(b)))).matchedBy).toBe(
+      'id',
     );
   });
 

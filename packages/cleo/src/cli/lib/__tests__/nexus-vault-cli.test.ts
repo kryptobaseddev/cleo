@@ -19,6 +19,7 @@ const releaseNexusVaultLease = vi.fn();
 const nexusCloudActivity = vi.fn();
 const linkProjectToNexus = vi.fn();
 const resolveNexusProjectRef = vi.fn();
+const assertNexusRestoreTarget = vi.fn();
 
 vi.mock('@cleocode/core/cloud/nexus-vault.js', () => ({
   pushNexusVault,
@@ -29,7 +30,10 @@ vi.mock('@cleocode/core/cloud/nexus-vault.js', () => ({
 }));
 vi.mock('@cleocode/core/cloud/nexus-cloud-activity.js', () => ({ nexusCloudActivity }));
 vi.mock('@cleocode/core/cloud/nexus-link.js', () => ({ linkProjectToNexus }));
-vi.mock('@cleocode/core/cloud/nexus-project-names.js', () => ({ resolveNexusProjectRef }));
+vi.mock('@cleocode/core/cloud/nexus-project-names.js', () => ({
+  assertNexusRestoreTarget,
+  resolveNexusProjectRef,
+}));
 vi.mock('@cleocode/core/cloud/nexus-cloud-status.js', () => ({
   NexusCloudOfflineError: class NexusCloudOfflineError extends Error {},
 }));
@@ -118,6 +122,7 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ apiUrl: API, projectId: null, items: [], nextBefore: null, warnings: [] });
   linkProjectToNexus.mockReset().mockResolvedValue({ warnings: ['linked with a note'] });
+  assertNexusRestoreTarget.mockReset();
   resolveNexusProjectRef
     .mockReset()
     .mockImplementation(async (ref: string) => ({ projectId: ref, name: null, matchedBy: 'id' }));
@@ -362,6 +367,27 @@ describe('cleo cloud restore <name> (T13102)', () => {
     expect(out).toContain('cleo cloud restore p-2');
     // The candidates travel as error.details, not only in the message.
     expect(out).toContain('"candidates"');
+    expect(restoreNexusVault).not.toHaveBeenCalled();
+  });
+
+  it('without --into the current directory is checked for an enclosing project; with --into it is not', async () => {
+    await runCloudRestore({ name: 'demo' });
+    expect(assertNexusRestoreTarget).toHaveBeenCalledTimes(1);
+    expect(assertNexusRestoreTarget).toHaveBeenCalledWith();
+    await runCloudRestore({ name: 'demo', into: '/tmp/x' });
+    expect(assertNexusRestoreTarget).toHaveBeenCalledTimes(1);
+  });
+
+  it('a nested target exits 22 (E_NEXUS_VAULT_TARGET_OCCUPIED) before resolving or restoring', async () => {
+    assertNexusRestoreTarget.mockImplementationOnce(() => {
+      throw Object.assign(new Error('inside the CLEO project at /p'), {
+        code: 'E_NEXUS_VAULT_TARGET_OCCUPIED',
+        fix: 'pass --into /p',
+      });
+    });
+    await expect(runCloudRestore({ name: 'demo' })).rejects.toThrow(/^exit:/);
+    expect(exits[0]).toBe(22);
+    expect(resolveNexusProjectRef).not.toHaveBeenCalled();
     expect(restoreNexusVault).not.toHaveBeenCalled();
   });
 

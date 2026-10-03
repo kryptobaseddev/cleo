@@ -111,7 +111,9 @@ export async function runCloudRestore(args: Args): Promise<void> {
  * @param args - Parsed args.
  * @returns The project id, or `undefined`.
  * @throws `E_VALIDATION` when both are given and differ, or with `--scope global`;
- *   `E_NEXUS_PROJECT_AMBIGUOUS` / `E_NEXUS_PROJECT_NOT_FOUND` from the resolution.
+ *   `E_NEXUS_VAULT_TARGET_OCCUPIED` when, without `--into`, the current directory is
+ *   inside another CLEO project; `E_NEXUS_PROJECT_AMBIGUOUS` / `E_NEXUS_PROJECT_NOT_FOUND`
+ *   from the resolution.
  */
 async function restoreProjectId(args: Args): Promise<string | undefined> {
   const positional = stringArg(args, 'name');
@@ -130,9 +132,11 @@ async function restoreProjectId(args: Args): Promise<string | undefined> {
       fix: 'drop --scope global to restore the project, or drop the project to restore the global store',
     });
   }
-  const { resolveNexusProjectRef } = await import(
+  const { assertNexusRestoreTarget, resolveNexusProjectRef } = await import(
     /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-project-names.js'
   );
+  // Without --into the restore lands in the current directory: never inside another project.
+  if (stringArg(args, 'into') === undefined) assertNexusRestoreTarget();
   const resolved = await resolveNexusProjectRef(ref, { apiUrl: nexusApiUrlArg(args) });
   if (resolved.matchedBy === 'name') {
     process.stderr.write(`Restoring "${resolved.name}" (project ${resolved.projectId})...\n`);
