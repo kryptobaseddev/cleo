@@ -32,6 +32,7 @@ import { diffNexusIndex } from '../diff.js';
 import { getProjectFlows } from '../flows.js';
 import { generateProjectHash } from '../hash.js';
 import { canonicalProjectId, legacyProjectId, projectPathFingerprint } from '../identity.js';
+import { generateNexusBridgeContent } from '../nexus-bridge.js';
 import {
   nexusGetProject,
   nexusGetProjectById,
@@ -274,7 +275,7 @@ describe('portable query identity (T12472)', () => {
     expect(unresolved.success).toBe(false);
   });
 
-  it('reads clusters, flows and diff counts from the supplied checkout, preserving the other graph', async () => {
+  it('reads clusters, flows, bridge and diff counts from the supplied checkout, preserving the other graph', async () => {
     const second = join(testDir, 'graph-b');
     await createTestProjectDb(second, []);
     for (const [index, root] of [projectDir, second].entries()) {
@@ -295,6 +296,9 @@ describe('portable query identity (T12472)', () => {
       expect((await getProjectFlows(id, root)).flows.map((entry) => entry.id)).toEqual([
         `process-${index}`,
       ]);
+      const bridge = await generateNexusBridgeContent(id, root);
+      expect(bridge).toContain(`community-${index}`);
+      expect(bridge).not.toContain(`community-${1 - index}`);
       const result = await diffNexusIndex(root, { beforeRef: 'HEAD', afterRef: 'HEAD' });
       expect(result.projectId).toBe(id);
       expect(result.nodesBefore).toBe(2);

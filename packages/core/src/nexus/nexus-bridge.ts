@@ -240,7 +240,7 @@ export async function generateNexusBridgeContent(
 
   // Ensure DB is initialized
   await getNexusDb(repoPath);
-  const nativeDb = getNexusNativeDb();
+  const nativeDb = getNexusNativeDb(repoPath);
 
   if (!nativeDb) {
     return buildEmptyBridge(repoPath);
