@@ -2097,3 +2097,37 @@ export function classifyTable(scope: TableScope, name: string): TableClassificat
 export function isPortableTableClass(tableClass: TableClass): boolean {
   return TABLE_CLASS_POLICY[tableClass].sync;
 }
+
+/**
+ * The `local-only` tables whose rows record the schema state of the database
+ * file itself: migration journals and schema-version sentinels.
+ *
+ * They never sync (each device migrates its own file), but they are not
+ * machine state either: they describe the file they sit in. A vault restore
+ * therefore keeps the snapshot's rows for them, because the snapshot's file is
+ * the one placed. Carrying another file's journal (or none, on a new machine)
+ * makes the migrator stamp migrations applied without running them and re-run
+ * old ones (T13104).
+ *
+ * Every name here is classified `local-only` in its scope (asserted by the
+ * classification tests).
+ *
+ * @task T13104
+ */
+export const SCHEMA_STATE_TABLES: Readonly<Record<TableScope, readonly string[]>> = {
+  project: ['__drizzle_migrations', '_conduit_migrations', '_conduit_meta'],
+  global: ['__drizzle_migrations', '_agent_registry_migrations', '_agent_registry_meta'],
+};
+
+/**
+ * Whether a table records the schema state of its database file
+ * ({@link SCHEMA_STATE_TABLES}).
+ *
+ * @param scope - Which `cleo.db` the table lives in.
+ * @param name - The physical name as `sqlite_master` reports it.
+ * @returns `true` for a migration journal or schema-version sentinel.
+ * @task T13104
+ */
+export function isSchemaStateTable(scope: TableScope, name: string): boolean {
+  return SCHEMA_STATE_TABLES[scope].includes(name);
+}

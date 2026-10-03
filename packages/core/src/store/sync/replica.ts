@@ -74,7 +74,14 @@ export type RebindReason =
    * re-enrolled this machine: the server never re-pins a replica, so the
    * store takes a new id (device contract §3.7, R6).
    */
-  | 'device-reenrolled';
+  | 'device-reenrolled'
+  /**
+   * A vault restore or pull placed a snapshot at this store's path: a new
+   * file holding another device's data, or this store rolled back (§1.5
+   * rules 1 and 3). The old replica is retired at the same path, so it is a
+   * retire candidate for S4, unlike a copy (T13109).
+   */
+  | 'vault-restore';
 
 /** What `stat` reports about a store file, in nanoseconds. */
 export interface FileStat {
@@ -517,7 +524,12 @@ function bindPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenResult {
       registryWritten =
         registry.upsert(
           outcome.previous.replicaId,
-          { ...prev, retiredAt: now.toISOString(), successor: outcome.row.replicaId },
+          {
+            ...prev,
+            retiredAt: now.toISOString(),
+            successor: outcome.row.replicaId,
+            retireReason: outcome.reasons.join(','),
+          },
           now,
         ) || registryWritten;
     }
@@ -533,6 +545,24 @@ function bindPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenResult {
   };
 }
 
+/** Options of {@link rebindReplica}. */
+export interface RebindReplicaOptions {
+  /**
+   * Record the retired replica as a retire candidate in the device registry
+   * (default `true`). Even then it is recorded only when it was this device's
+   * own replica of this file: registered here at this path with this nonce,
+   * or, when the registry lost it, bound by this device (T13109 review MED-1).
+   */
+  readonly recordRetirement?: boolean;
+  /**
+   * The caller proved the store file is the one this replica was bound to
+   * (the vault compares the replaced file's identity), so a registry entry
+   * at another path is this file after a rename: the nonce must still match,
+   * the path need not, and the entry moves to this path (review LOW-A).
+   */
+  readonly identityProven?: boolean;
+}
+
 /**
  * Force a rebind of a bound store: the hook S4 uses when the server answers a
  * push with "seq exists, hash differs" (N6: the server hwm is authoritative).
@@ -543,29 +573,113 @@ export function rebindReplica(
   db: DatabaseSync,
   opts: SyncOpenOptions,
   reason: RebindReason = 'server-seq-conflict',
+  rebindOpts: RebindReplicaOptions = {},
 ): { replicaId: string; previousReplicaId: string } {
   const now = opts.now?.() ?? new Date();
   const { deviceId, registry } = resolveContext(opts);
   const identity = fileIdentity(opts.dbPath, opts.stat);
   const realpath = realpathSync(opts.dbPath);
-  const { previous, current } = withImmediateTransaction(db, () => {
+  const { previous, current, hwm } = withImmediateTransaction(db, () => {
     const row = activeReplica(db, opts.scope);
     if (!row) throw new Error(`no active ${opts.scope} replica to rebind`);
+    const persisted = storeHwm(db, row.replicaId);
     return {
       previous: row,
+      hwm: persisted,
       current: rebindInTransaction(db, row, identity, deviceId, [reason], now),
     };
   });
+  // The retired replica is a retire candidate (§1.5 "Retirement"; T13109) only
+  // when it was this device's own replica of this file: registered here at
+  // this path with this nonce, or, when the registry lost it, bound by this
+  // device. A copy (another path) or another device's store retires nothing.
   const prev = registry.get(previous.replicaId);
-  if (prev) {
+  const own = prev
+    ? (rebindOpts.identityProven === true || prev.dbRealpath === realpath) &&
+      prev.nonce === previous.nonce
+    : previous.deviceId === deviceId;
+  if (own && rebindOpts.recordRetirement !== false) {
     registry.upsert(
       previous.replicaId,
-      { ...prev, retiredAt: now.toISOString(), successor: current.replicaId },
+      {
+        ...(prev ?? { nonce: previous.nonce, scope: previous.scope, hwm }),
+        dbRealpath: realpath,
+        retiredAt: now.toISOString(),
+        successor: current.replicaId,
+        retireReason: reason,
+      },
       now,
     );
   }
   register(registry, db, current, realpath, now);
   return { replicaId: current.replicaId, previousReplicaId: previous.replicaId };
+}
+
+/** What {@link rebindAfterVaultRestore} did. */
+export interface VaultRestoreRebind {
+  readonly replicaId: string;
+  readonly previousReplicaId: string;
+  /**
+   * `vault-restore` when the retired replica was this device's replica of the
+   * file the snapshot replaced (a retire candidate); otherwise the open-pass
+   * reason the store carried anyway: `foreign-device` (another device bound
+   * it) or `file-identity` (a copy, bound to another file).
+   */
+  readonly reason: Extract<RebindReason, 'vault-restore' | 'foreign-device' | 'file-identity'>;
+}
+
+/**
+ * After a vault restore or pull placed a snapshot at `dbPath`, retire the
+ * store's replica and bind a new one. The placed file is a new store instance
+ * (another device's data, or this store rolled back), so it may not continue
+ * the old replica's `replicaSeq` stream (§1.5 rules 1 and 3, N6). Rebinding
+ * here, before any open pass sees the new inode, records why; the server keeps
+ * the retired replica as history until S4 announces its retirement (T13109).
+ *
+ * The retired replica is recorded as `vault-restore` (a retire candidate) only
+ * when it was bound to the file the snapshot replaced (`before`) by this
+ * device. A store that was itself a copy (bound to another file) or came from
+ * another device is rebound for that reason, `file-identity` or
+ * `foreign-device`, and retires nothing (review MED-1).
+ *
+ * A store with no bound replica (a project restored onto this machine for the
+ * first time) is left alone: its first link binds it.
+ *
+ * @param dbPath - The placed `cleo.db`.
+ * @param scope - Which store it is.
+ * @param before - The identity of the file at `dbPath` before the placement, or `null` when there was none.
+ * @param opts - Device id, registry, stat and clock overrides (tests).
+ * @returns What was rebound, or `null` when the store had no replica.
+ */
+export async function rebindAfterVaultRestore(
+  dbPath: string,
+  scope: ReplicaScope,
+  before: FileIdentity | null,
+  opts: Pick<SyncOpenOptions, 'deviceId' | 'registry' | 'stat' | 'now'> = {},
+): Promise<VaultRestoreRebind | null> {
+  if (!existsSync(dbPath)) return null;
+  const { openNativeDatabase } = await import('../sqlite-native.js');
+  const { installSchemaWriteGuard } = await import('../worktree-build-guard.js');
+  const db = openNativeDatabase(dbPath);
+  try {
+    installSchemaWriteGuard(db); // T12687: the rebind is DML only
+    const row = activeReplica(db, scope);
+    if (!row) return null;
+    const deviceId = opts.deviceId ?? opts.registry?.deviceId ?? getStableDeviceId();
+    const boundHere =
+      before !== null &&
+      row.fileIno === before.ino &&
+      (row.fileBirth === null || before.birth === null || row.fileBirth === before.birth);
+    const reason: VaultRestoreRebind['reason'] =
+      row.deviceId !== deviceId ? 'foreign-device' : boundHere ? 'vault-restore' : 'file-identity';
+    const out = rebindReplica(db, { ...opts, deviceId, dbPath, scope, mode: 'live' }, reason, {
+      recordRetirement: reason === 'vault-restore',
+      identityProven: reason === 'vault-restore',
+    });
+    return { ...out, reason };
+  } finally {
+    db.close();
+  }
 }
 
 /** The current clock of the store's active replica, for diagnostics. Read-only. */

@@ -48,7 +48,12 @@ import {
   TRIGGER_SUSPEND_TABLE,
   withTriggersSuspended,
 } from './sync/trigger-classes.js';
-import { classifyTable, getTableRegistry, isPortableTableClass } from './table-classification.js';
+import {
+  classifyTable,
+  getTableRegistry,
+  isPortableTableClass,
+  isSchemaStateTable,
+} from './table-classification.js';
 
 // node:sqlite interop (createRequire — Vitest strips `node:` prefix)
 const _require = createRequire(import.meta.url);
@@ -697,7 +702,11 @@ function stableKey(
  * (or with the empty cells an unencrypted bundle carries):
  *
  * - `local-only` tables: all rows come from the live store (replica binding,
- *   machine state); a table absent here is emptied.
+ *   machine state); a table absent here is emptied. The exception is the
+ *   file's own schema state (`SCHEMA_STATE_TABLES`: migration journals,
+ *   schema-version sentinels), which stays as the snapshot has it: it
+ *   describes the staged file, so the migrator that opens the restored store
+ *   reads the journal of that file, not this machine's old one or none (T13104).
  * - `portable-secret` tables: live rows are upserted by a stable key (the
  *   snapshot's copies arrive with their secrets cleared). Without a stable
  *   key the live table is kept whole.
@@ -804,6 +813,8 @@ export function carryMachineState(
           // The trigger-suspension flags are transient machinery the carry itself
           // holds: carrying the live (empty) table would lift its own suspension.
           if (t === TRIGGER_SUSPEND_TABLE) continue;
+          // The file's own schema state travels with the file (T13104).
+          if (isSchemaStateTable(scope, t)) continue;
           const c = classifyTable(scope, t);
           if (c.kind !== 'entry' && c.kind !== 'pattern') continue;
           const credentialCols = CREDENTIAL_COLUMNS[t] ?? [];

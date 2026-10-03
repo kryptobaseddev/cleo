@@ -39,10 +39,16 @@ import {
   type Segment,
   type TableDeltas,
 } from '@cleocode/contracts/cloud';
+import { drizzle } from 'drizzle-orm/node-sqlite';
 import { create as tarCreate, extract as tarExtract } from 'tar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { _resetDeviceIdCacheForTests } from '../../llm/stable-device-id.js';
 import { _resetDualScopeDbCache, openDualScopeDb } from '../../store/dual-scope-db.js';
+import { runBracketedMigrations } from '../../store/migration-runner.js';
 import { computeManifestHash, exportPortableBundle } from '../../store/portable-bundle.js';
+import { resolveCorePackageMigrationsFolder } from '../../store/resolve-migrations-folder.js';
+import { ensureProjectReplica } from '../../store/sync/replica.js';
+import { readDeviceRegistry } from '../../store/sync/replica-registry.js';
 import { ensureSyncSchema } from '../../store/sync/schema.js';
 import {
   emptyVaultTableHash,
@@ -80,6 +86,7 @@ import {
   windowOf,
 } from '../manifest-check.js';
 import { NexusAccountError } from '../nexus-auth.js';
+import { retiredReplicasAmong, retiredReplicasOfProject } from '../nexus-cloud.js';
 import { nexusCloudActivity } from '../nexus-cloud-activity.js';
 import { FileNexusTokenStore } from '../nexus-credentials.js';
 import {
@@ -120,6 +127,36 @@ vi.mock('../../store/portable-bundle-import.js', async (importOriginal) => {
       return mod.importPortableBundle(input);
     },
   };
+});
+
+/**
+ * Error and warning lines the code under test logs, from a subsystem logger or
+ * any child of one (still written by the real logger; T13104).
+ */
+const logged = vi.hoisted(() => ({
+  lines: [] as Array<{ level: string; subsystem: string; msg: string }>,
+}));
+vi.mock('../../logger.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../logger.js')>();
+  type Logger = ReturnType<typeof mod.getLogger>;
+  const capture = (logger: Logger, subsystem: string): Logger =>
+    new Proxy(logger, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value !== 'function') return value;
+        if (prop === 'child') {
+          return (...args: Parameters<Logger['child']>) =>
+            capture(value.apply(target, args), subsystem);
+        }
+        if (prop !== 'error' && prop !== 'warn') return value;
+        return (...args: Array<object | string>) => {
+          const msg = args.find((a): a is string => typeof a === 'string') ?? '';
+          logged.lines.push({ level: prop, subsystem, msg });
+          return value.apply(target, args);
+        };
+      },
+    });
+  return { ...mod, getLogger: (subsystem: string) => capture(mod.getLogger(subsystem), subsystem) };
 });
 
 const _require = createRequire(import.meta.url);
@@ -2233,6 +2270,7 @@ describe('cloud vault global scope', () => {
       homeSql(m, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = '${t}'`).length >
       0;
 
+    _resetDeviceIdCacheForTests(); // A's host device id (each machine writes its own)
     const pushed = await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
     expect(pushed.status).toBe('pushed');
     expect(pushed.scope).toBe('global');
@@ -2264,6 +2302,7 @@ describe('cloud vault global scope', () => {
     expect(again.status).toBe('up-to-date');
 
     // Reads never write (T12974): B's status binds no replica.
+    _resetDeviceIdCacheForTests(); // B's host device id from here on
     await on(b, () => nexusVaultStatus(vopts(b, { scope: 'global' })));
     expect(tableExists(b, '_sync_replica')).toBe(false);
 
@@ -2336,6 +2375,7 @@ describe('cloud vault global scope', () => {
     const pushedB = await on(b, () => pushNexusVault(vopts(b, { scope: 'global' })));
     expect(pushedB.status).toBe('pushed');
     expect(pushedB.parentCheckpointId).toBe(cp?.checkpointId);
+    _resetDeviceIdCacheForTests(); // A's own host device id (T13109 review LOW-3)
     const pulled = await on(a, () =>
       restoreNexusVault(vopts(a, { scope: 'global', mode: 'pull' })),
     );
@@ -2348,7 +2388,37 @@ describe('cloud vault global scope', () => {
     expect(homeSql(a, 'SELECT remote_url FROM nexus_project_git_state')).toEqual([
       { remote_url: null },
     ]);
-    expect(replicaRows(a)).toEqual(replicasA);
+    // A's own replica rows are carried, never B's; the placed file is a new store
+    // instance, so A's replica is retired and a new one bound (T13109).
+    expect(pulled.replica).toEqual({
+      retired: cp?.replicaId,
+      current: expect.any(String),
+      reason: 'vault-restore',
+    });
+    // Recorded in A's own replica registry as a retire candidate for S4.
+    const candidates = await on(a, async () => readDeviceRegistry()?.retireCandidates() ?? []);
+    expect(candidates).toEqual([
+      expect.objectContaining({
+        replicaId: cp?.replicaId,
+        successor: pulled.replica?.current,
+        reason: 'vault-restore',
+        scope: 'global',
+      }),
+    ]);
+    const afterPull = homeSql<{ replica_id: string; bound_why: string; successor: string | null }>(
+      a,
+      'SELECT replica_id, bound_why, successor FROM _sync_replica ORDER BY bound_at',
+    );
+    expect(afterPull.map((r) => r.replica_id).sort()).toEqual(
+      [...replicasA.map((r) => r.replica_id), pulled.replica?.current].sort(),
+    );
+    expect(afterPull.find((r) => r.replica_id === cp?.replicaId)).toMatchObject({
+      successor: pulled.replica?.current,
+    });
+    expect(afterPull.find((r) => r.replica_id === pulled.replica?.current)).toMatchObject({
+      bound_why: 'rebind:vault-restore',
+      successor: null,
+    });
     expect(fs.readFileSync(path.join(a.home, 'device-id'), 'utf8')).toBe('device-a\n');
     // A's agent key had nowhere to go (B deleted the agent): reported with its remedy.
     const lost = pulled.warnings.find((w) => w.code === 'W_NEXUS_VAULT_CREDENTIALS_LOST');
@@ -3569,5 +3639,279 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     expect(err?.code).toBe('E_STREAM_VERSION');
     expect(err?.details?.['verdict']).toMatchObject({ reason: 'stream-v3' });
     expect(s.headCheckpointId).toBe(v3.checkpointId);
+  });
+});
+
+describe("cloud vault restore keeps the store's migration journal (T13104)", () => {
+  /** A project store built by the real migrations. */
+  async function seedMigratedProject(m: Machine): Promise<void> {
+    const cleo = path.join(m.root, '.cleo');
+    fs.mkdirSync(cleo, { recursive: true });
+    fs.writeFileSync(path.join(cleo, 'project-id'), `${LOCAL_PROJECT}\n`);
+    fs.writeFileSync(
+      path.join(cleo, 'project-info.json'),
+      JSON.stringify({ projectId: LOCAL_PROJECT, name: 'demo' }),
+    );
+    await openStore(m);
+  }
+
+  /** Open `m`'s project store the way every command does: migrations and journal reconcile run. */
+  async function openStore(m: Machine): Promise<void> {
+    await on(m, async () => {
+      await openDualScopeDb('project', m.root);
+      _resetDualScopeDbCache();
+    });
+  }
+
+  /** A built store whose migrations stop before the newest one, as an older CLI leaves it. */
+  async function seedOlderProject(m: Machine): Promise<string> {
+    const cleo = path.join(m.root, '.cleo');
+    fs.mkdirSync(cleo, { recursive: true });
+    fs.writeFileSync(path.join(cleo, 'project-id'), `${LOCAL_PROJECT}\n`);
+    fs.writeFileSync(
+      path.join(cleo, 'project-info.json'),
+      JSON.stringify({ projectId: LOCAL_PROJECT, name: 'demo' }),
+    );
+    const current = resolveCorePackageMigrationsFolder('drizzle-cleo-project');
+    const older = path.join(base, `older-${m.name}`);
+    fs.cpSync(current, older, { recursive: true });
+    const newest = fs
+      .readdirSync(older)
+      .filter((d) => fs.existsSync(path.join(older, d, 'migration.sql')))
+      .sort()
+      .at(-1);
+    if (!newest) throw new Error('fixture: no migrations');
+    fs.rmSync(path.join(older, newest), { recursive: true });
+    const db = new DatabaseSync(path.join(cleo, 'cleo.db'));
+    try {
+      runBracketedMigrations(db, drizzle({ client: db }), [{ folder: older }]);
+    } finally {
+      db.close();
+    }
+    return newest;
+  }
+
+  interface JournalRow {
+    id: number;
+    hash: string;
+    created_at: number | string;
+    name: string | null;
+    applied_at: string | null;
+  }
+  const journalOf = (m: Machine) =>
+    sql<JournalRow>(
+      m,
+      'SELECT id, hash, created_at, name, applied_at FROM __drizzle_migrations ORDER BY id',
+    );
+  const schemaOf = (m: Machine) =>
+    sql(
+      m,
+      "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
+    );
+  /** Lines the migration reconciler logs when it stamps or patches a migration instead of running it. */
+  const stamped = () =>
+    logged.lines.filter((l) => /WITHOUT running|partially-applied|partial migration/.test(l.msg));
+
+  it('a new machine gets the source journal and schema, and opens without stamping a migration', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A, [REPLICA_B]: DEVICE_B });
+    await seedMigratedProject(a);
+    link(a);
+    await on(a, () => pushNexusVault(vopts(a)));
+    const journal = journalOf(a);
+    const schema = schemaOf(a);
+    expect(journal.length).toBeGreaterThan(10);
+
+    logged.lines.length = 0;
+    const { result } = await restoreOntoB(b);
+    expect(result.status).toBe('restored');
+    expect(journalOf(b)).toEqual(journal);
+    expect(schemaOf(b)).toEqual(schema);
+
+    // The first open after the restore finds nothing to reconcile.
+    await openStore(b);
+    expect(stamped()).toEqual([]);
+    expect(journalOf(b)).toEqual(journal);
+    expect(schemaOf(b)).toEqual(schema);
+  });
+
+  it('positive control: the capture sees the reconciler stamp migrations into an emptied journal', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    await seedMigratedProject(a);
+    exec(a, 'DELETE FROM __drizzle_migrations');
+    logged.lines.length = 0;
+    await openStore(a);
+    expect(stamped().length).toBeGreaterThan(0);
+    expect(journalOf(a).some((r) => r.applied_at === null)).toBe(true);
+  });
+
+  it('an older snapshot onto a newer CLI: the migration it lacks runs on open, never stamped', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A, [REPLICA_B]: DEVICE_B });
+    const withheld = await seedOlderProject(a);
+    link(a);
+    await on(a, () => pushNexusVault(vopts(a)));
+    const journal = journalOf(a);
+    expect(journal.some((r) => r.name === withheld)).toBe(false);
+
+    await restoreOntoB(b);
+    expect(journalOf(b)).toEqual(journal);
+    logged.lines.length = 0;
+    await openStore(b);
+    expect(stamped()).toEqual([]);
+    const after = journalOf(b);
+    // The snapshot's rows stay as they were, and the newer migration ran (it has its applied_at).
+    expect(after.slice(0, journal.length)).toEqual(journal);
+    expect(after.find((r) => r.name === withheld)?.applied_at).toEqual(expect.any(String));
+  });
+
+  it('a newer snapshot onto an older CLI: rows this build does not know are kept, nothing is stamped', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A, [REPLICA_B]: DEVICE_B });
+    await seedMigratedProject(a);
+    // A migration from a build newer than this one.
+    exec(
+      a,
+      "INSERT INTO __drizzle_migrations (hash, created_at, name, applied_at) VALUES ('newer-build', 32503680000000, '30000101000000_from-a-newer-build', '2999-01-01T00:00:00.000Z')",
+    );
+    link(a);
+    await on(a, () => pushNexusVault(vopts(a)));
+    const journal = journalOf(a);
+
+    await restoreOntoB(b);
+    logged.lines.length = 0;
+    await openStore(b);
+    expect(stamped()).toEqual([]);
+    expect(journalOf(b)).toEqual(journal);
+  });
+
+  it("a pull places the snapshot's journal, not the one this machine had", async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A, [REPLICA_B]: DEVICE_B });
+    await seedMigratedProject(a);
+    link(a);
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    const journal = journalOf(a);
+    // B's own journal diverges (as one rebuilt before T13104 does): the next pull replaces it.
+    exec(b, 'UPDATE __drizzle_migrations SET applied_at = NULL');
+    exec(
+      b,
+      "INSERT INTO __drizzle_migrations (hash, created_at, name) VALUES ('b-only', 1, 'b-only')",
+    );
+    expect(journalOf(b)).not.toEqual(journal);
+
+    logged.lines.length = 0;
+    const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull', force: true })));
+    expect(pulled.status).toBe('restored');
+    expect(journalOf(b)).toEqual(journal);
+    await openStore(b);
+    expect(stamped()).toEqual([]);
+    expect(journalOf(b)).toEqual(journal);
+  });
+});
+
+describe('cloud vault pull rebinds the store as vault-restore (T13109)', () => {
+  /** Make `m` its own host device for the replica registry (the id is cached per process). */
+  function hostDevice(m: Machine): void {
+    fs.writeFileSync(path.join(m.home, 'device-id'), `host-${m.name}\n`);
+    _resetDeviceIdCacheForTests();
+  }
+  /** Bind `m`'s project replica, as `cleo project link` does (ensureProjectReplica). */
+  async function bindReplica(m: Machine): Promise<string> {
+    hostDevice(m);
+    return on(m, async () => {
+      const dbPath = path.join(m.root, '.cleo', 'cleo.db');
+      const db = new DatabaseSync(dbPath);
+      try {
+        return ensureProjectReplica(db, { dbPath, mode: 'live' }).replicaId;
+      } finally {
+        db.close();
+      }
+    });
+  }
+  /** Two machines whose stores carry the real sync schema, as linked projects do. */
+  async function linkedMachines(): Promise<{ a: Machine; b: Machine }> {
+    const { a, b } = await twoMachines();
+    // The fixture's simplified `_sync_replica` stands in for the real table: replace it.
+    exec(a, 'DROP TABLE _sync_replica');
+    await bindReplica(a);
+    return { a, b };
+  }
+  const replicaRows = (m: Machine) =>
+    sql<{
+      replica_id: string;
+      bound_why: string;
+      retired_at: string | null;
+      successor: string | null;
+    }>(
+      m,
+      'SELECT replica_id, bound_why, retired_at, successor FROM _sync_replica ORDER BY bound_at',
+    );
+
+  it('a pull retires the replica, binds a new one, records the candidate and labels it', async () => {
+    const { a, b } = await linkedMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    const first = await restoreOntoB(b);
+    // A project new to this machine has no replica to retire.
+    expect(first.result.replica).toBeNull();
+    const r1 = await bindReplica(b);
+
+    exec(a, "INSERT INTO tasks_tasks (id, title) VALUES ('T100', 'new')");
+    hostDevice(a);
+    await on(a, () => pushNexusVault(vopts(a)));
+    hostDevice(b);
+    const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    const r2 = pulled.replica?.current;
+    expect(pulled.replica).toEqual({
+      retired: r1,
+      current: expect.any(String),
+      reason: 'vault-restore',
+    });
+    expect(r2).not.toBe(r1);
+    expect(replicaRows(b)).toEqual([
+      { replica_id: r1, bound_why: 'genesis', retired_at: expect.any(String), successor: r2 },
+      { replica_id: r2, bound_why: 'rebind:vault-restore', retired_at: null, successor: null },
+    ]);
+    // The next link finds the placed file bound already: no second, unlabelled rebind.
+    expect(await bindReplica(b)).toBe(r2);
+
+    // Recorded for S4's retire transaction, and labelled for status and projects show.
+    const candidates = await on(b, async () => readDeviceRegistry()?.retireCandidates() ?? []);
+    expect(candidates).toEqual([
+      expect.objectContaining({ replicaId: r1, successor: r2, reason: 'vault-restore' }),
+    ]);
+    const label = [
+      { replicaId: r1, successor: r2, retiredAt: expect.any(String), reason: 'vault-restore' },
+    ];
+    expect(await on(b, () => retiredReplicasOfProject(b.root))).toEqual(label);
+    expect(await on(b, () => retiredReplicasAmong([REPLICA_A, r1, r2 ?? '']))).toEqual(label);
+  });
+
+  it('every pull retires the previous replica; the labels list them newest first', async () => {
+    const { a, b } = await linkedMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    const r1 = await bindReplica(b);
+    const pulls: string[] = [];
+    for (const id of ['T101', 'T102']) {
+      exec(a, `INSERT INTO tasks_tasks (id, title) VALUES ('${id}', 'new')`);
+      hostDevice(a);
+      await on(a, () => pushNexusVault(vopts(a)));
+      hostDevice(b);
+      const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+      pulls.push(pulled.replica?.current ?? '');
+    }
+    const [r2, r3] = pulls;
+    const retired = await on(b, () => retiredReplicasOfProject(b.root));
+    expect(retired.map((r) => [r.replicaId, r.successor])).toEqual([
+      [r2, r3],
+      [r1, r2],
+    ]);
   });
 });

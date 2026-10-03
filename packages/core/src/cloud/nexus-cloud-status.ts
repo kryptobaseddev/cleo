@@ -66,6 +66,7 @@ import {
   type NexusCloudOptions,
   type NexusCloudProject,
   nexusQueryPath,
+  retiredReplicasOfProject,
 } from './nexus-cloud.js';
 import { FileNexusTokenStore, type NexusTokenStore, nexusOriginKey } from './nexus-credentials.js';
 import { NexusDeviceStore, UnreadableNexusDevice } from './nexus-device.js';
@@ -509,9 +510,11 @@ export async function getNexusCloudStatus(
   // about by its linked remote id, like the bare command.
   const projectId = isLocal ? projectHere : (opts.projectId ?? null);
   let replica: NexusLocalReplicaRead = { replicaId: null, unreadable: false, warning: null };
+  let retiredReplicas: CloudStatusLocal['retiredReplicas'] = [];
   if (isLocal && project !== null) {
     replica = await readNexusLocalReplicaId(project.root);
     if (replica.warning) warnings.push(replica.warning);
+    retiredReplicas = await retiredReplicasOfProject(project.root);
   }
   const replicaId = replica.replicaId;
   const local: CloudStatusLocal = {
@@ -521,6 +524,7 @@ export async function getNexusCloudStatus(
     profile: null,
     projectId,
     replicaId,
+    retiredReplicas,
     linkPath: isLocal && project?.link ? project.linkPath : null,
     credentialsPath: devices.location,
   };
