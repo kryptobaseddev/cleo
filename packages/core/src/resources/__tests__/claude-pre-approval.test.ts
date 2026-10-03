@@ -147,6 +147,43 @@ describe('claudePreApproval', () => {
     expect(claudePreApproval('pnpm test | tail -5', rules, elsewhere).approved).toBe(false);
   });
 
+  it('refuses ANSI-C quoting, whose escapes hide the real argument (review HIGH-1)', () => {
+    const rules = ['pnpm test *'];
+    for (const command of [
+      "pnpm test && cat $'\\x2fetc\\x2fpasswd'",
+      "pnpm test && cat $'\\057etc\\057passwd'",
+      "pnpm test | grep --file=$'\\x2fetc\\x2fpasswd' x",
+      "pnpm test | grep -r secret $'\\x2e\\x2e'",
+      "pnpm test && ls $'\\x2e\\x2e'",
+      "cd $'\\x2e\\x2e' && pnpm test",
+      "pnpm test $'--run'",
+    ]) {
+      expect(ok(command, rules), command).toEqual({
+        approved: false,
+        reason: "it has ANSI-C quoting ($'…')",
+      });
+    }
+  });
+
+  it('refuses glob and brace characters outside quotes, even in a partly quoted word (review MED-2)', () => {
+    const rules = ['pnpm test *'];
+    for (const command of [
+      'pnpm test && grep -r secret ""..*',
+      'pnpm test | grep x ""*',
+      'pnpm test | cat ""{..,.}',
+      'pnpm test | grep x a?b',
+      'pnpm test | grep x ab[c]',
+      'pnpm test | grep -E ^FAIL', // zsh EXTENDED_GLOB
+      'cd ""..* && pnpm test',
+    ]) {
+      expect(ok(command, rules).approved, command).toBe(false);
+    }
+    // Quoted or escaped, they are plain text.
+    expect(ok('pnpm test | grep -E "^FAIL|x*"', rules).approved).toBe(true);
+    expect(ok("pnpm test | grep 'a?b'", rules).approved).toBe(true);
+    expect(ok('pnpm test | grep a\\*b', rules).approved).toBe(true);
+  });
+
   it('needs the stage as written and its words alone to match the same rule', () => {
     // An exact rule does not cover the command with a redirect added.
     expect(ok('pnpm test 2>&1', ['pnpm test']).approved).toBe(false);

@@ -40,8 +40,10 @@ import { findOnPath } from '@cleocode/paths';
 import {
   CLAUDE_LOCAL_SETTINGS,
   CODEX_HOOKS_FILE,
+  codexHooksSharedReason,
   HEAVY_COMMAND_HOOK_ID,
   HeavyHookPathBlockedError,
+  HeavyHookSharedConfigError,
   heavyCommandHookObject,
   hookFileVisibleToGit,
   isHeavyHookObject,
@@ -53,6 +55,7 @@ import {
   syncClaudeCodeHeavyCommandHook,
   syncCodexHeavyCommandHook,
   syncOpencodeHeavyCommandPlugin,
+  trackedFileModified,
 } from './heavy-command-hook-install.js';
 import { isPlainObject } from './hook-config.js';
 
@@ -68,6 +71,10 @@ export const HEAVY_HOOK_DELIVERY_PROVIDERS: readonly HeavyCommandHookProvider[] 
 export const HEAVY_HOOK_FIX_COMMAND = 'cleo doctor heavy-command-hook --fix';
 
 type Env = Readonly<Record<string, string | undefined>>;
+
+/** What to do when Codex's `hooks.json` is a shared team config (review MED-3). */
+const CODEX_SHARED_REMEDY =
+  'if the team wants Codex governed here, add a PreToolUse hook that runs `cleo hook heavy-command --provider codex` to .codex/hooks.json yourself and commit it deliberately';
 
 /** Kimi has no project-level hook config, so CLEO cannot install for it. */
 const KIMI_REASON =
@@ -203,6 +210,15 @@ async function syncProvider(
           : syncOpencodeHeavyCommandPlugin(projectDir, mode);
     return { provider, status: result, target };
   } catch (err) {
+    if (err instanceof HeavyHookSharedConfigError) {
+      return {
+        provider,
+        status: 'blocked',
+        target,
+        reason: err.message,
+        remedy: CODEX_SHARED_REMEDY,
+      };
+    }
     if (err instanceof HeavyHookPathBlockedError) {
       return {
         provider,
@@ -345,6 +361,7 @@ function inspectProvider(
   projectDir: string,
   mode: HeavyCommandHookMode,
   env: Env,
+  gitChecks: boolean,
 ): HeavyHookInspection {
   const target = heavyHookTarget(provider, projectDir, env);
   const { detected, why } = detectHeavyHookProvider(provider, projectDir, env);
@@ -391,6 +408,23 @@ function inspectProvider(
         remedy: `run: ${HEAVY_HOOK_FIX_COMMAND}`,
       };
     }
+    if (!gitChecks) return { ...base, state: 'installed', detail: `installed in ${target}` };
+    // Codex's hooks.json may be a shared team config (review MED-3): CLEO's
+    // per-machine hook there must not ride along in a commit.
+    const shared = provider === 'codex' ? codexHooksSharedReason(projectDir) : null;
+    if (shared !== null) {
+      const modified = trackedFileModified(projectDir, CODEX_HOOKS_FILE);
+      if (modified || hookFileVisibleToGit(projectDir, CODEX_HOOKS_FILE)) {
+        return {
+          ...base,
+          state: 'outdated',
+          detail: `CLEO's per-machine hook sits in ${target}, which ${shared}, as ${modified ? 'an uncommitted change' : 'an untracked file'}: one \`git commit -a\` ships it to the team, and it widens evidence scope`,
+          remedy:
+            "remove CLEO's entry from .codex/hooks.json, or commit it deliberately if the team wants Codex governed",
+        };
+      }
+      return { ...base, state: 'installed', detail: `installed in ${target}, which ${shared}` };
+    }
     // A per-machine hook file git can see shows in `git status` and widens
     // `cleo verify`'s evidence scope (gh#1805); the fix excludes it.
     if (hookFileVisibleToGit(projectDir, HOOK_FILES[provider])) {
@@ -404,6 +438,15 @@ function inspectProvider(
     return { ...base, state: 'installed', detail: `installed in ${target}` };
   }
   if (!detected) return { ...base, state: 'not-detected', detail: why };
+  const shared = provider === 'codex' && gitChecks ? codexHooksSharedReason(projectDir) : null;
+  if (shared !== null) {
+    return {
+      ...base,
+      state: 'blocked',
+      detail: `${target} ${shared}, so CLEO does not add its per-machine hook to it (${why})`,
+      remedy: CODEX_SHARED_REMEDY,
+    };
+  }
   const blocked = nonDirectoryAncestor(dirname(target));
   if (blocked !== null) {
     return {
@@ -446,7 +489,8 @@ export function inspectProjectHeavyCommandHooks(
       detail: 'the project is your home directory; CLEO installs this hook per project only',
     }));
   }
-  return providers.map((provider) => inspectProvider(provider, projectDir, mode, env));
+  const gitChecks = options.gitChecks ?? true;
+  return providers.map((provider) => inspectProvider(provider, projectDir, mode, env, gitChecks));
 }
 
 /** How long the hook trusts its "this cleo predates `cleo hook`" marker. */

@@ -622,6 +622,17 @@ describe('heavyCommandHook in Claude Code prompting modes (T13124)', () => {
     );
     const other = await answer('pnpm build', 'acceptEdits');
     expect(other.updatedInput).toBeUndefined();
+    // ANSI-C quoting hides an absolute path from the read-only check (review HIGH-1),
+    // and a partly quoted glob still expands (review MED-2): neither is pre-approved.
+    for (const command of [
+      "pnpm test && cat $'\\x2fetc\\x2fpasswd'",
+      'pnpm test && grep -r secret ""..*',
+    ]) {
+      for (const mode of ['default', 'auto']) {
+        const out = await answer(command, mode);
+        expect(out.permissionDecision, `${mode}: ${command}`).toBeUndefined();
+      }
+    }
     // auto mode still rewrites an unapproved command, without deciding (owner decision 2026-10-01).
     const auto = await answer('pnpm build', 'auto');
     expect(auto.updatedInput.command).toMatch(/^cleo run --wait/);

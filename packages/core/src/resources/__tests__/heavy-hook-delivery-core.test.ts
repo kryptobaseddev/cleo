@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import type {
   HeavyCommandHookMode,
   HeavyHookDeliveryApi,
+  HeavyHookDeliveryOptions,
   HeavyHookDeliveryOutcome,
   HeavyHookInspection,
 } from '@cleocode/contracts';
@@ -43,16 +44,22 @@ const env = () => ({ HOME: join(dir, 'home'), PATH: join(dir, 'bin') });
 function fakeApi(
   outcomes: readonly HeavyHookDeliveryOutcome[],
   inspections: readonly HeavyHookInspection[],
-): HeavyHookDeliveryApi & { modes: HeavyCommandHookMode[] } {
+): HeavyHookDeliveryApi & {
+  modes: HeavyCommandHookMode[];
+  inspectOptions: Array<HeavyHookDeliveryOptions | undefined>;
+} {
   const modes: HeavyCommandHookMode[] = [];
+  const inspectOptions: Array<HeavyHookDeliveryOptions | undefined> = [];
   return {
     modes,
+    inspectOptions,
     syncProjectHeavyCommandHooks: async (_dir, mode) => {
       modes.push(mode);
       return outcomes;
     },
-    inspectProjectHeavyCommandHooks: (_dir, mode) => {
+    inspectProjectHeavyCommandHooks: (_dir, mode, options) => {
       modes.push(mode);
+      inspectOptions.push(options);
       return inspections;
     },
     probeHeavyHookCli: () => ({ state: 'current', path: '/bin/cleo', detail: 'd' }),
@@ -146,6 +153,8 @@ describe('heavyHookBriefingWarning', () => {
     expect(warning).toMatch(/claude-code \(missing\), codex \(blocked\):/);
     expect(warning).not.toMatch(/kimi|opencode/);
     expect(warning).toMatch(/Remedy: cleo doctor heavy-command-hook --fix/);
+    // The briefing skips the git checks (review LOW-5); doctor keeps them.
+    expect(api.inspectOptions).toEqual([{ gitChecks: false }]);
   });
 
   it('says nothing when every provider in use is covered, or when the check fails', async () => {

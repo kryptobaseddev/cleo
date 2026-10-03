@@ -69,6 +69,17 @@ interface Word {
   readonly assignment: boolean;
   /** Entirely unquoted and unescaped (a reserved word can only be bare). */
   readonly bare: boolean;
+  /**
+   * Holds an ANSI-C `$'…'` segment, kept verbatim in `value`: the shell
+   * decodes its escapes (`$'\x2f'` is `/`), so `value` does not show what
+   * the command receives (T13124).
+   */
+  readonly ansiC: boolean;
+  /**
+   * A glob or brace character (`*`, `?`, `[`, `{`, and zsh EXTENDED_GLOB's
+   * `^`, `~`, `#`) appeared outside quotes (T13124).
+   */
+  readonly globby: boolean;
 }
 
 /** A control or redirection operator. */
@@ -131,6 +142,8 @@ interface Draft {
   expands: boolean;
   assignment: boolean;
   bare: boolean;
+  ansiC: boolean;
+  globby: boolean;
 }
 
 /** A heredoc whose body starts after the next newline. */
@@ -161,6 +174,8 @@ function lexShell(src: string, from: number, mode: 'top' | 'paren'): Lexed {
       expands: false,
       assignment: false,
       bare: true,
+      ansiC: false,
+      globby: false,
     };
     return cur;
   };
@@ -174,6 +189,8 @@ function lexShell(src: string, from: number, mode: 'top' | 'paren'): Lexed {
       expands: cur.expands,
       assignment: cur.assignment,
       bare: cur.bare,
+      ansiC: cur.ansiC,
+      globby: cur.globby,
     };
     tokens.push(word);
     cur = null;
@@ -228,6 +245,7 @@ function lexShell(src: string, from: number, mode: 'top' | 'paren'): Lexed {
       if (j >= src.length) return fail("unterminated $'");
       draft.value += src.slice(at + 2, j);
       draft.bare = false;
+      draft.ansiC = true;
       return j + 1;
     }
     const name = /^(?:[A-Za-z_][A-Za-z0-9_]*|[0-9?$!#@*-])/.exec(src.slice(at + 1));
@@ -351,6 +369,8 @@ function lexShell(src: string, from: number, mode: 'top' | 'paren'): Lexed {
     } else {
       const d = begin(i);
       d.value += ch;
+      // zsh's EXTENDED_GLOB adds `^`, `~` and a mid-word `#` to `*?[` and braces.
+      if ('*?[{^~#'.includes(ch)) d.globby = true;
       i++;
     }
   }
@@ -883,6 +903,11 @@ export function claudePreApproval(
   const lexed = lexShell(command, 0, 'top');
   if (lexed.error !== null) return no('it does not parse');
   if (lexed.substitutions.length > 0) return no('it has a command or process substitution');
+  // `$'…'` decodes escapes the lexer keeps verbatim (`$'\x2fetc'` is `/etc`):
+  // no check below could see the real argument (review HIGH-1).
+  if (lexed.tokens.some((t) => t.kind === 'word' && t.ansiC)) {
+    return no("it has ANSI-C quoting ($'…')");
+  }
   const last = lexed.tokens[lexed.tokens.length - 1];
   if (last?.kind === 'op' && DANGLING.has(last.op)) return no('it ends in an operator');
   const stages: ClaudeSubcommand[] = [];
@@ -919,7 +944,8 @@ export function claudePreApproval(
         stage.words.length !== 2 ||
         target === undefined ||
         target === '-' ||
-        target.startsWith('~')
+        target.startsWith('~') ||
+        stage.words[1]?.globby === true
       ) {
         return no('its `cd` is not a plain path');
       }
@@ -936,7 +962,9 @@ export function claudePreApproval(
     if (here === null || !inside(workingDir, here))
       return no('it runs outside the working directory');
     for (const arg of stage.words.slice(1)) {
-      if (arg.bare && /[*?[\]{}]/.test(arg.value)) return no(`\`${cmd}\` has a glob`);
+      // Any glob or brace character outside quotes, even in a partly quoted
+      // word (`""..*` expands to `..` on bash before 5.2; review MED-2).
+      if (arg.globby) return no(`\`${cmd}\` has a glob`);
       if (arg.value.includes('/') || arg.value.startsWith('~') || arg.value === '..') {
         return no(`\`${cmd}\` names a path`);
       }

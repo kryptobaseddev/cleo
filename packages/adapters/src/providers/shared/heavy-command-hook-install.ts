@@ -560,19 +560,104 @@ export function unexcludeLocalSettingsFromGit(projectDir: string): boolean {
 }
 
 /**
+ * A hook config CLEO will not add its per-machine hook to, because it is a
+ * shared project config: Codex's `.codex/hooks.json` is committable, unlike
+ * Claude Code's `settings.local.json`. Writing there would put a per-machine
+ * hook into a team file (or hide the team's own file behind `info/exclude`).
+ * Nothing is written; the delivery reports the provider as `blocked`.
+ */
+export class HeavyHookSharedConfigError extends Error {
+  /** The shared config file. */
+  readonly path: string;
+
+  /**
+   * @param path - the config file.
+   * @param why - what makes it shared.
+   */
+  constructor(path: string, why: string) {
+    super(`${path} ${why}, so CLEO does not add its per-machine hook to it`);
+    this.name = 'HeavyHookSharedConfigError';
+    this.path = path;
+  }
+}
+
+/** Whether a parsed hooks config holds any hook that is not CLEO's own. */
+function holdsForeignHooks(config: unknown): boolean {
+  if (!isPlainObject(config) || !isPlainObject(config.hooks)) return false;
+  for (const groups of Object.values(config.hooks)) {
+    if (!Array.isArray(groups)) return true;
+    for (const group of groups) {
+      if (!isPlainObject(group) || !Array.isArray(group.hooks)) return true;
+      for (const hook of group.hooks) {
+        if (
+          !isPlainObject(hook) ||
+          typeof hook.command !== 'string' ||
+          !hook.command.includes(CLEO_HOOK_MARKER)
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Why Codex's `.codex/hooks.json` in `projectDir` is a shared project config
+ * CLEO must not write to, or `null` when it is absent or holds only CLEO's
+ * own hooks and git does not track it (review MED-3). An unreadable file is
+ * left to the sync, which refuses it.
+ *
+ * @param projectDir - the project root.
+ */
+export function codexHooksSharedReason(projectDir: string): string | null {
+  if (gitOutput(projectDir, ['ls-files', '--error-unmatch', CODEX_HOOKS_FILE]) !== null) {
+    return 'is tracked by git (a shared team config)';
+  }
+  const file = join(projectDir, CODEX_HOOKS_FILE);
+  if (!existsSync(file)) return null;
+  try {
+    return holdsForeignHooks(JSON.parse(readFileSync(file, 'utf-8')))
+      ? "holds hooks that are not CLEO's (a shared project config)"
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether git tracks a project file and it has uncommitted changes.
+ *
+ * @param projectDir - the project root.
+ * @param relPath - the file, relative to the project (forward slashes).
+ */
+export function trackedFileModified(projectDir: string, relPath: string): boolean {
+  if (gitOutput(projectDir, ['ls-files', '--error-unmatch', relPath]) === null) return false;
+  return (gitOutput(projectDir, ['diff', '--name-only', 'HEAD', '--', relPath]) ?? '') !== '';
+}
+
+/**
  * Codex: sync the hook in `<project>/.codex/hooks.json` and keep that file out
  * of git (T13124), as {@link syncClaudeCodeHeavyCommandHook} does for Claude
- * Code's settings.
+ * Code's settings. A shared `hooks.json` (tracked, or holding hooks that are
+ * not CLEO's) is never written: {@link HeavyHookSharedConfigError}. Mode `off`
+ * still removes CLEO's own hook object from it.
  *
  * @param projectDir - the project root.
  * @param mode - the resolved hook mode.
  * @returns what changed in `hooks.json`.
+ * @throws {HeavyHookSharedConfigError} when `hooks.json` is shared.
  */
 export async function syncCodexHeavyCommandHook(
   projectDir: string,
   mode: HeavyCommandHookMode,
 ): Promise<HeavyHookSyncResult> {
-  const result = await syncJsonHeavyCommandHook(join(projectDir, CODEX_HOOKS_FILE), 'codex', mode);
+  const file = join(projectDir, CODEX_HOOKS_FILE);
+  if (mode !== 'off') {
+    const shared = codexHooksSharedReason(projectDir);
+    if (shared !== null) throw new HeavyHookSharedConfigError(file, shared);
+  }
+  const result = await syncJsonHeavyCommandHook(file, 'codex', mode);
   if (mode === 'off') unexcludeHookFileFromGit(projectDir, CODEX_HOOKS_FILE);
   else excludeHookFileFromGit(projectDir, CODEX_HOOKS_FILE);
   return result;

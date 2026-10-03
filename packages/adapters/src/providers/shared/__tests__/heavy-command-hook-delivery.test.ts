@@ -353,16 +353,116 @@ describe('every hook file stays out of git (T13124, gh#1805)', () => {
     ).toBe('installed');
   });
 
-  it('leaves a hook file the repository tracks alone', async () => {
+  it('never adds an exclude line for a hook file the repository tracks', async () => {
+    git('init', '-q');
+    mkdirSync(join(project, '.opencode'));
+    await syncProjectHeavyCommandHooks(project, 'rewrite', { env, providers: ['opencode'] });
+    // Drop CLEO's block, then commit the plugin as a team would.
+    writeFileSync(join(project, '.git', 'info', 'exclude'), '');
+    git('add', '-f', '.opencode/plugins/cleo-heavy-command.js');
+    await syncProjectHeavyCommandHooks(project, 'rewrite', { env, providers: ['opencode'] });
+    expect(readFileSync(join(project, '.git', 'info', 'exclude'), 'utf-8')).toBe('');
+  });
+
+  it("mode off keeps a user's own identical exclude line (only CLEO's marked block goes)", async () => {
+    git('init', '-q');
+    mkdirSync(join(project, '.opencode', 'plugins'), { recursive: true });
+    const exclude = join(project, '.git', 'info', 'exclude');
+    writeFileSync(exclude, '# mine\n/.opencode/plugins/cleo-heavy-command.js\n');
+    await syncProjectHeavyCommandHooks(project, 'off', { env, providers: ['opencode'] });
+    expect(readFileSync(exclude, 'utf-8')).toBe(
+      '# mine\n/.opencode/plugins/cleo-heavy-command.js\n',
+    );
+  });
+
+  it('a hook file alone makes its provider in use, so mode off always reaches it', async () => {
+    useAll();
+    await syncProjectHeavyCommandHooks(project, 'rewrite', { env });
+    // Every machine-level signal gone: the hook files still count.
+    rmSync(join(home, '.codex'), { recursive: true });
+    rmSync(join(home, '.kimi'), { recursive: true });
+    for (const provider of ['claude-code', 'codex', 'opencode'] as const) {
+      expect(detectHeavyHookProvider(provider, project, env).detected, provider).toBe(true);
+    }
+    const off = await syncProjectHeavyCommandHooks(project, 'off', { env });
+    expect(off.filter((o) => o.status === 'removed').map((o) => o.provider)).toEqual([
+      'claude-code',
+      'codex',
+      'opencode',
+    ]);
+  });
+});
+
+describe("Codex's hooks.json is a shared project config (review MED-3)", () => {
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-C', project, ...args], { encoding: 'utf-8' });
+  const hooksFile = () => join(project, '.codex', 'hooks.json');
+  const teamHook = {
+    hooks: {
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'team-lint-hook' }] }],
+    },
+  };
+  const codex = async () =>
+    (await syncProjectHeavyCommandHooks(project, 'rewrite', { env, providers: ['codex'] }))[0];
+  const inspectCodex = () =>
+    inspectProjectHeavyCommandHooks(project, 'rewrite', { env, providers: ['codex'] })[0];
+
+  beforeEach(() => {
     git('init', '-q');
     mkdirSync(join(home, '.codex'));
-    await syncProjectHeavyCommandHooks(project, 'rewrite', { env, providers: ['codex'] });
-    // Undo CLEO's block, then commit the file as a team would.
-    await syncProjectHeavyCommandHooks(project, 'off', { env, providers: ['codex'] });
-    await syncProjectHeavyCommandHooks(project, 'rewrite', { env, providers: ['codex'] });
-    writeFileSync(join(project, '.git', 'info', 'exclude'), '');
+    mkdirSync(join(project, '.codex'));
+  });
+
+  it('an untracked hooks.json with a team hook: blocked, untouched, never excluded', async () => {
+    const body = `${JSON.stringify(teamHook, null, 2)}\n`;
+    writeFileSync(hooksFile(), body);
+    const outcome = await codex();
+    expect(outcome?.status).toBe('blocked');
+    expect(outcome?.reason).toMatch(/holds hooks that are not CLEO's/);
+    expect(outcome?.remedy).toMatch(/cleo hook heavy-command --provider codex/);
+    expect(readFileSync(hooksFile(), 'utf-8')).toBe(body);
+    expect(
+      existsSync(join(project, '.git', 'info', 'exclude'))
+        ? readFileSync(join(project, '.git', 'info', 'exclude'), 'utf-8')
+        : '',
+    ).not.toContain('.codex/hooks.json');
+    expect(inspectCodex()?.state).toBe('blocked');
+  });
+
+  it('a tracked hooks.json: blocked and untouched, even with no other hook', async () => {
+    writeFileSync(hooksFile(), '{}\n');
     git('add', '-f', '.codex/hooks.json');
-    await syncProjectHeavyCommandHooks(project, 'rewrite', { env, providers: ['codex'] });
-    expect(readFileSync(join(project, '.git', 'info', 'exclude'), 'utf-8')).toBe('');
+    const outcome = await codex();
+    expect(outcome?.status).toBe('blocked');
+    expect(outcome?.reason).toMatch(/is tracked by git/);
+    expect(readFileSync(hooksFile(), 'utf-8')).toBe('{}\n');
+  });
+
+  it("flags CLEO's hook left as an uncommitted change in a tracked hooks.json; off removes only CLEO's", async () => {
+    writeFileSync(hooksFile(), `${JSON.stringify(teamHook, null, 2)}\n`);
+    git('add', '-f', '.codex/hooks.json');
+    git(
+      '-c',
+      'user.email=t@example.com',
+      '-c',
+      'user.name=t',
+      'commit',
+      '-qm',
+      'team hooks',
+      '--no-verify',
+    );
+    // An earlier hand install wrote CLEO's hook into the committed team file.
+    const withCleo = structuredClone(teamHook);
+    withCleo.hooks.PreToolUse.push(
+      heavyCommandHookEntry('codex') as (typeof teamHook.hooks.PreToolUse)[number],
+    );
+    writeFileSync(hooksFile(), JSON.stringify(withCleo));
+    const flagged = inspectCodex();
+    expect(flagged?.state).toBe('outdated');
+    expect(flagged?.detail).toMatch(
+      /an uncommitted change: one `git commit -a` ships it to the team/,
+    );
+    await syncProjectHeavyCommandHooks(project, 'off', { env, providers: ['codex'] });
+    expect(JSON.parse(readFileSync(hooksFile(), 'utf-8'))).toEqual(teamHook);
   });
 });

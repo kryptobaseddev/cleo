@@ -255,6 +255,12 @@ export interface HeavyHookDeliveryOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Providers to consider. Default: every provider CLEO knows. */
   readonly providers?: readonly HeavyCommandHookProvider[];
+  /**
+   * Inspection only: run the git checks (a hook file git can see, a shared
+   * Codex `hooks.json`). Default `true`; the session briefing passes `false`
+   * to skip their git spawns (`cleo doctor` keeps them).
+   */
+  readonly gitChecks?: boolean;
 }
 
 /**

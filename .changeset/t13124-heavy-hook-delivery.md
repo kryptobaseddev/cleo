@@ -25,6 +25,11 @@ time).
   reported as `blocked`, with the exact remedy, and Claude Code and opencode
   still install. A malformed settings file is `failed` and left untouched.
   Kimi, which only reads its global config, is `unsupported`.
+- **Codex's `.codex/hooks.json` is treated as a shared project config.**
+  CLEO writes it only when it is absent, or holds nothing but CLEO's own
+  hook, and git does not track it. A tracked `hooks.json`, or one with team
+  hooks, is reported as `blocked` with a remedy and left untouched. Doctor
+  flags CLEO's hook left as an uncommitted change in a tracked team file.
 - **Every file the hook writes stays out of git.** `.claude/settings.local.json`,
   `.codex/hooks.json` and the opencode plugin get a marked line in the
   repository's `info/exclude`, unless git already ignores or tracks the file.
@@ -55,10 +60,12 @@ prompt still do, and nothing else does; they now queue for the budget. Claude
 Code still applies deny and ask rules to the rewritten command, whatever the
 hook answers. The check is never more permissive than Claude Code's matching:
 
-- every subcommand must match a rule;
+- every subcommand must match a rule, with no ANSI-C `$'…'` quoting
+  anywhere, since its escapes would hide the real argument;
 - the only rule-free subcommands accepted are a `cd` within the project and a
   narrow form of Claude Code's read-only commands (`cat`, `echo`, `pwd`,
-  `head`, `tail`, `grep`, `wc`, `ls`, with no paths or globs);
+  `head`, `tail`, `grep`, `wc`, `ls`, with no paths, and no glob or brace
+  character outside quotes, even in a partly quoted word);
 - there is no wrapper or assignment stripping;
 - the only redirections accepted are to `/dev/null` or a file descriptor.
 

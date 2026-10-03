@@ -250,7 +250,8 @@ export async function heavyHookBriefingWarning(
 ): Promise<string | null> {
   let report: HeavyHookInspectionReport;
   try {
-    report = await inspectHeavyCommandHooks(projectRoot, options);
+    // No git spawns on the briefing path (review LOW-5); `cleo doctor` runs them.
+    report = await inspectHeavyCommandHooks(projectRoot, { gitChecks: false, ...options });
   } catch {
     return null;
   }
