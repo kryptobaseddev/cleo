@@ -1,3 +1,4 @@
+import { resolveNexusQueryProjectId } from './registry.js';
 /**
  * NEXUS index diff — compare relation/node counts between two git commits.
  *
@@ -24,7 +25,7 @@ export interface NexusDiffOptions {
   beforeRef?: string;
   /** Git ref for the "after" snapshot (default: 'HEAD'). */
   afterRef?: string;
-  /** Override the project ID (default: derived from repoPath). */
+  /** Override the project ID (default: declared portable identity; legacy aliases are resolved). */
   projectIdOverride?: string;
 }
 
@@ -85,8 +86,7 @@ export async function diffNexusIndex(
   repoPath: string,
   opts: NexusDiffOptions = {},
 ): Promise<NexusDiffResult> {
-  const projectId =
-    opts.projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+  const projectId = await resolveNexusQueryProjectId(repoPath, opts.projectIdOverride);
   const { execFile: execFileNode } = await import('node:child_process');
   const { promisify } = await import('node:util');
   const execFileAsync = promisify(execFileNode);

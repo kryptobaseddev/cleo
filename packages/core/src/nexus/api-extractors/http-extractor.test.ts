@@ -4,7 +4,7 @@
  * @task T1065
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HttpContract } from '@cleocode/contracts/nexus-contract-ops.js';
@@ -178,5 +178,27 @@ describe('HTTP Contract Extractor', () => {
     expect(contracts[0].path).toBe('/api/v1/tasks');
     expect(contracts[1].method).toBe('POST');
     expect(contracts[2].path).toBe('/api/v1/tasks/:id');
+  });
+  it('reads each explicit project graph rather than relabeling the ambient graph', async () => {
+    delete process.env['CLEO_DIR'];
+    const roots = [join(tmpDir, 'project-a'), join(tmpDir, 'project-b')];
+    for (const [index, root] of roots.entries()) {
+      mkdirSync(join(root, '.cleo'), { recursive: true });
+      const db = await getNexusDb(root);
+      db.insert(nexusSchema.nexusNodes)
+        .values({
+          id: `route-${index}`,
+          kind: 'route',
+          label: `route-${index}`,
+          metaJson: JSON.stringify({ method: 'GET', path: `/project-${index}` }),
+        })
+        .run();
+    }
+    const first = await extractHttpContracts('portable-a', roots[0]!);
+    const second = await extractHttpContracts('portable-b', roots[1]!);
+    expect(first.map((contract) => contract.path)).toEqual(['/project-0']);
+    expect(second.map((contract) => contract.path)).toEqual(['/project-1']);
+    expect(first[0]?.projectId).toBe('portable-a');
+    expect(second[0]?.projectId).toBe('portable-b');
   });
 });

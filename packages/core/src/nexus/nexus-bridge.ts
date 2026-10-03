@@ -27,6 +27,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { pushWarning } from '@cleocode/lafs';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { resolveBridgeMode } from '../system/bridge-mode.js';
+import { resolveNexusQueryProjectId } from './registry.js';
 
 // ============================================================================
 // Types
@@ -365,10 +366,6 @@ export async function writeNexusBridge(
   const cleoDir = join(projectRoot, '.cleo');
   const bridgePath = join(cleoDir, 'nexus-bridge.md');
 
-  // Derive project ID from path if not provided (matches nexus analyze convention)
-  const resolvedProjectId =
-    projectId ?? Buffer.from(projectRoot).toString('base64url').slice(0, 32);
-
   try {
     // Mode gate (T999 · T1013, extended in T9425): only write when mode='file'.
     // Aligns nexus-bridge with the existing memory-bridge gate so both siblings
@@ -380,6 +377,7 @@ export async function writeNexusBridge(
       return { path: bridgePath, written: false };
     }
 
+    const resolvedProjectId = await resolveNexusQueryProjectId(projectRoot, projectId);
     const content = await generateNexusBridgeContent(resolvedProjectId, projectRoot);
 
     if (!existsSync(cleoDir)) {
@@ -475,7 +473,7 @@ export async function nexusRefreshBridge(
 ): Promise<EngineResult<{ path: string; written: boolean; projectId: string; repoPath: string }>> {
   try {
     const result = await writeNexusBridge(repoPath, projectId);
-    const resolvedProjectId = projectId ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const resolvedProjectId = await resolveNexusQueryProjectId(repoPath, projectId);
     return engineSuccess({
       path: result.path,
       written: result.written,

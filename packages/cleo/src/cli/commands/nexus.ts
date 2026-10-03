@@ -41,11 +41,13 @@ import {
   withNexusFreshnessMeta,
 } from '@cleocode/core/nexus/freshness.js';
 import { KnowledgeSymbolAmbiguityError } from '@cleocode/core/nexus/knowledge.js';
+import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
 import { runNexusWiki } from '@cleocode/core/nexus/wiki-orchestrator.js';
 import { getCleoStateDir } from '@cleocode/paths';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { buildNexusMetaExtensions } from '../../dispatch/nexus-decorator.js';
+import { asCleoErrorLike, cleoErrorCodeName } from '../cleo-error-like.js';
 import { getFormatContext, setFormatContext } from '../format-context.js';
 import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
 
@@ -274,32 +276,32 @@ const statusCommand = defineCommand({
       }
     }
 
-    // gh#1329 — the SAME defect reached by the other flag. `--project-id`
-    // overrides the id we report while `getNexusDb()` still opens THIS
-    // project's store, so a foreign id is printed alongside this project's
-    // counts. `getIndexStats` documents its `_projectId` parameter as unused
-    // since ADR-090 · T11648 for exactly that reason: the graph DB is
-    // project-scoped, so the id cannot select anything.
-    //
-    // The id is derived from the path, so an override that MATCHES the derived
-    // id is a no-op and stays allowed — it is only a foreign id that asks a
-    // question this process cannot answer.
-    const derivedProjectId = Buffer.from(repoPath).toString('base64url').slice(0, 32);
-    if (projectIdOverride !== undefined && projectIdOverride !== derivedProjectId) {
+    // Resolve identity before querying the project-scoped store. A legacy alias
+    // may identify this checkout, but a foreign id cannot select another graph.
+    let projectId: string;
+    try {
+      projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
+    } catch (error) {
+      const typed = asCleoErrorLike(error);
+      const code = typed?.code ?? ExitCode.INVALID_INPUT;
+      const name =
+        code === ExitCode.INVALID_INPUT && !typed?.codeName
+          ? 'E_NEXUS_CROSS_PROJECT_STATUS'
+          : typed
+            ? cleoErrorCodeName(typed)
+            : 'E_NEXUS_IDENTITY';
       cliError(
-        `nexus status cannot report on project '${projectIdOverride}' from this project.\n` +
-          'The code-intelligence graph is project-scoped (ADR-090 · T11648), so the counts ' +
-          'always describe the store that is open — passing a different --project-id would ' +
-          "relabel this project's index as another's, which is the confident-but-wrong " +
-          'answer this guard exists to prevent.',
-        ExitCode.INVALID_INPUT,
+        error instanceof Error ? error.message : String(error),
+        code,
         {
-          name: 'E_NEXUS_CROSS_PROJECT_STATUS',
-          fix: `cd <that project> && cleo nexus status   (this project's id is ${derivedProjectId})`,
+          name,
+          fix: typed
+            ? typed.fix
+            : 'Run nexus status from the intended project using its portable project id.',
         },
         { operation: 'nexus.status' },
       );
-      process.exitCode = ExitCode.INVALID_INPUT;
+      process.exitCode = code;
       return;
     }
 
@@ -354,8 +356,6 @@ const statusCommand = defineCommand({
         import('@cleocode/core/nexus/knowledge' as string),
       ]);
 
-      const projectId =
-        projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
       const db = await getNexusDb();
       const tables = {
         nexusNodes: nexusSchema.nexusNodes,
@@ -961,7 +961,7 @@ const clustersCommand = defineCommand({
     const startTime = Date.now();
     const projectIdOverride = args['project-id'] as string | undefined;
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
-    const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
     const response = await dispatchRaw('query', 'nexus', 'clusters', { projectId, repoPath });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
@@ -1007,7 +1007,7 @@ const flowsCommand = defineCommand({
     const startTime = Date.now();
     const projectIdOverride = args['project-id'] as string | undefined;
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
-    const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
     const response = await dispatchRaw('query', 'nexus', 'flows', { projectId, repoPath });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
@@ -1054,7 +1054,7 @@ const contextCommand = defineCommand({
     const startTime = Date.now();
     const projectIdOverride = args['project-id'] as string | undefined;
     const repoPath = getProjectRoot();
-    const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
     const limit = parseInt(args.limit as string, 10);
     const symbolName = args.symbol as string;
     const showContent = !!args.content;
@@ -1120,7 +1120,7 @@ const impactCommand = defineCommand({
     const whyFlag = !!args.why;
     const projectIdOverride = args['project-id'] as string | undefined;
     const repoPath = getProjectRoot();
-    const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
     const maxDepth = Math.min(parseInt(args.depth as string, 10), 5);
     const symbolName = args.symbol as string;
     try {
@@ -1946,7 +1946,7 @@ const refreshBridgeCommand = defineCommand({
     const startTime = Date.now();
     const projectIdOverride = args['project-id'] as string | undefined;
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
-    const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
 
     const response = await dispatchRaw('mutate', 'nexus', 'refresh-bridge', {
       repoPath,
@@ -2225,7 +2225,7 @@ const routeMapCommand = defineCommand({
     const startTime = Date.now();
     const projectIdOverride = args['project-id'] as string | undefined;
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
-    const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
     const response = await dispatchRaw('query', 'nexus', 'route-map', { projectId });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
@@ -2285,7 +2285,7 @@ const shapeCheckCommand = defineCommand({
     const routeSymbol = args.routeSymbol as string;
     const projectIdOverride = args['project-id'] as string | undefined;
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
-    const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
     const response = await dispatchRaw('query', 'nexus', 'shape-check', { routeSymbol, projectId });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
@@ -2762,7 +2762,7 @@ const contractsSyncCommand = defineCommand({
     const startTime = Date.now();
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
     const projectIdOverride = args['project-id'] as string | undefined;
-    const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
     const response = await dispatchRaw('mutate', 'nexus', 'contracts-sync', {
       projectId,
       repoPath,
@@ -2875,7 +2875,7 @@ const contractsLinkTasksCommand = defineCommand({
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
     const repoPath = args.path ? path.resolve(args.path as string) : getProjectRoot();
-    const projectId = Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath);
     const response = await dispatchRaw('mutate', 'nexus', 'contracts-link-tasks', {
       projectId,
       repoPath,
