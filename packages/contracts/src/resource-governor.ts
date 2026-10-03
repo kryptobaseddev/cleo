@@ -139,6 +139,65 @@ export function isResourceGrant(r: AdmissionResult): r is ResourceGrant {
   return r.deferred === false;
 }
 
+/**
+ * Where the heap ceiling of a heavy tool run came from (T13122).
+ *
+ * - `default` — no heap in the caller's `NODE_OPTIONS`; CLEO's default applies.
+ * - `inherited` — the caller's `NODE_OPTIONS` heap fits the run's budget and is
+ *   kept; the worker count shrinks so the run still fits.
+ * - `clamped` — the caller's `NODE_OPTIONS` heap exceeds the run's budget (a
+ *   shell-profile export is not a per-project choice) and was lowered to it.
+ * - `override` — `CLEO_HEAVY_HEAP_MB` set it explicitly; never clamped.
+ */
+export type HeavyHeapSource = 'default' | 'inherited' | 'clamped' | 'override';
+
+/** One inherited environment value CLEO replaced because it exceeded the plan (T13122). */
+export interface HeavyLeverChange {
+  /** Variable name, e.g. `VITEST_MAX_WORKERS` or `NODE_OPTIONS`. */
+  readonly name: string;
+  /** The inherited value, as the caller's environment carried it. */
+  readonly from: string;
+  /** The value the tool was spawned with. */
+  readonly to: string;
+}
+
+/**
+ * The resource plan a heavy tool (`test`, `build`) was spawned with, and why
+ * (T13122). Reported by `cleo verify` (on the `tool` evidence atom and in a
+ * resource-kill message) and by `cleo run`, so an operator can see when an
+ * inherited value was clamped.
+ *
+ * The invariant it describes: `workspaceConcurrency × workers × heapMb` stays
+ * within `budgetMb`, unless an explicit `CLEO_HEAVY_*` override asked for more
+ * (`overBudget`).
+ */
+export interface HeavyToolResourcePlan {
+  /** V8 old-space ceiling given to every Node process in the tool's tree, in MiB. */
+  readonly heapMb: number;
+  /** Where {@link heapMb} came from. */
+  readonly heapSource: HeavyHeapSource;
+  /** The heap the caller's `NODE_OPTIONS` asked for, in MiB; `null` when it set none. */
+  readonly inheritedHeapMb: number | null;
+  /** Worker count given to every runner that reads one (`VITEST_MAX_WORKERS`, `GOMAXPROCS`, …). */
+  readonly workers: number;
+  /** `plan` when derived from the heap and budget; `override` when `CLEO_HEAVY_WORKERS` set it. */
+  readonly workersSource: 'plan' | 'override';
+  /** Workspace packages allowed to run their script at once (`npm_config_workspace_concurrency`). */
+  readonly workspaceConcurrency: number;
+  /** Heap budget for the whole run, in MiB: the default worker count times the default heap. */
+  readonly budgetMb: number;
+  /** Total RAM the budget derives from, in MiB. */
+  readonly totalRamMb: number;
+  /** Inherited values replaced because they exceeded the plan. Empty when nothing was clamped. */
+  readonly clamped: readonly HeavyLeverChange[];
+  /** Inherited worker or concurrency values kept because they were within the plan, as `NAME=value`. */
+  readonly kept: readonly string[];
+  /** `true` when explicit `CLEO_HEAVY_*` overrides put the run over {@link budgetMb}. */
+  readonly overBudget: boolean;
+  /** One line naming the heap and worker count chosen and why. */
+  readonly summary: string;
+}
+
 /** Explicit local user-manager connection for resource-controlled process launch. */
 export interface SystemdControlContext {
   /** Absolute existing runtime directory used only by the manager probe and launcher. */
