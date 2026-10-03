@@ -563,8 +563,10 @@ export function boundMakeflags(raw: string | undefined, workers: number): string
     const word = words[i] ?? '';
     const long = /^--jobs(?:=(\d*))?$/.exec(word);
     // A short-flag cluster ending in j (`-j18`, `-sj18`, `-kj`), or make's own
-    // dash-less letter form as the first word (`j18`, `kj`).
-    const short = long === null ? /^(-?)([A-Za-z]*)j(\d*)$/.exec(word) : null;
+    // dash-less letter form as the first word (`j18`, `kj`). Only make's
+    // argument-less short flags may precede the j: in `-Ij18` the `j18` is
+    // -I's directory, and splitting it would hand -I the `-j` (review of #1824).
+    const short = long === null ? /^(-?)([BbdehikLnpqrRsStvw]*)j(\d*)$/.exec(word) : null;
     const isShort = short !== null && (short[1] === '-' || i === 0);
     if (long === null && !isShort) {
       kept.push(word);

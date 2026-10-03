@@ -344,6 +344,10 @@ describe('planHeavyToolEnv (T13122)', () => {
     expect(boundMakeflags('j18', 3)).toBe('-j3');
     expect(boundMakeflags('kj --no-print-directory', 3)).toBe('-k --no-print-directory -j3');
     expect(boundMakeflags('-sj2', 3)).toBeNull();
+    // A flag that takes an argument owns the rest of the cluster: -Ij18 is
+    // `-I j18`, -Cj is `-C j`; neither is a job count, so neither is split.
+    expect(boundMakeflags('-Ij18', 3)).toBeNull();
+    expect(boundMakeflags('-Cj', 3)).toBeNull();
     const { overlay, resources } = planHeavyToolEnv('test', { MAKEFLAGS: '-j18' }, 64);
     expect(overlay.MAKEFLAGS).toBe('-j6');
     expect(resources?.clamped).toContainEqual({ name: 'MAKEFLAGS', from: '-j18', to: '-j6' });
