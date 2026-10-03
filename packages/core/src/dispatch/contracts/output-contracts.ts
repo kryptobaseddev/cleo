@@ -31,7 +31,8 @@
  * @task T11762 ST-3 — generic per-op output schema coverage backfill
  */
 
-import { type OperationOutputContract, OUTPUT_CONTRACTS } from '@cleocode/contracts';
+import type { OperationOutputContract } from '@cleocode/contracts';
+import { OUTPUT_CONTRACTS } from '@cleocode/contracts/operations/output-contracts-data.js';
 import { deriveOutputContract } from './derive-output-contract.js';
 
 export { OUTPUT_CONTRACTS };
