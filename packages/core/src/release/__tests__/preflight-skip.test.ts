@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   decidePreflightSkips,
+  MAX_EQUIVALENT_ANCESTORS,
   PREFLIGHT_CHECK_TIMEOUT_MS,
   type PreflightGhRunner,
 } from '../preflight-skip.js';
@@ -32,6 +33,8 @@ interface StubOptions {
   jobs?: Record<number, Array<{ name: string; conclusion: string | null }>>;
   /** Override `total_count` per run id (default: the number of jobs). */
   jobTotals?: Record<number, number>;
+  /** First parent per commit (`commits/<sha> --jq .parents[0].sha`); absent → the call fails. */
+  parents?: Record<string, string>;
 }
 
 /** Every Linux Unit Tests shard green — what a push run that TESTED the tree carries. */
@@ -65,6 +68,12 @@ function makeGh(opts: StubOptions): PreflightGhRunner & { calls: string[][]; tim
     calls.push([...args]);
     timeouts.push(timeoutMs);
     const endpoint = args[1] ?? '';
+    if (endpoint.includes('/commits/') && args.includes('.parents[0].sha')) {
+      const child = endpoint.slice(endpoint.lastIndexOf('/') + 1);
+      const parent = opts.parents?.[child];
+      if (parent === undefined) throw new Error(`no parent stubbed for ${child}`);
+      return `${parent}\n`;
+    }
     if (endpoint.includes('/commits/')) {
       if (opts.sha instanceof Error) throw opts.sha;
       return `${opts.sha ?? SHA}\n`;
@@ -154,6 +163,151 @@ describe('decidePreflightSkips — Linux shards', () => {
       'main',
     );
     expect(d.skipTests).toBe(false);
+  });
+});
+
+/**
+ * T13140: the release's HEAD is the merge of the release-plan PR (plan file,
+ * CHANGELOG, changesets). Its push run is green but CI gated every Unit Tests
+ * shard off, so the tested run belongs to an ancestor CI judged equivalent.
+ */
+describe('decidePreflightSkips — a tested ancestor CI judged equivalent (T13140)', () => {
+  /** What a push run CI judged test-irrelevant carries: Detect Changes green, the matrix skipped. */
+  const GATED_OFF = [
+    { name: 'Detect Changes', conclusion: 'success' },
+    { name: 'Lint & Format', conclusion: 'success' },
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: the literal name GitHub renders for a matrix job its `if:` skipped
+    { name: 'Unit Tests (${{ matrix.os }}, shard ${{ matrix.shard }})', conclusion: 'skipped' },
+  ];
+  const P1 = 'c'.repeat(40);
+  const P2 = 'd'.repeat(40);
+
+  it("skips on the parent's tested run when HEAD's push CI ran no Unit Tests, and names both commits", () => {
+    const d = decidePreflightSkips(
+      makeGh({
+        pushRuns: [
+          { id: 10, head_sha: SHA },
+          { id: 9, head_sha: P1 },
+        ],
+        jobs: { 10: GATED_OFF, 9: LINUX_GREEN },
+        parents: { [SHA]: P1 },
+      }),
+      '/repo',
+      'main',
+    );
+    expect(d).toMatchObject({ verifiedSha: SHA, skipTests: true, testedSha: P1 });
+    expect(d.reason).toContain('Linux tests skipped');
+    expect(d.reason).toContain(`${P1.slice(0, 12)} (an ancestor of ${SHA.slice(0, 12)})`);
+    expect(d.reason).toContain('differs from it only by 1 commit(s)');
+  });
+
+  it('walks several non-code commits, but stops at a step CI did not judge test-irrelevant', () => {
+    const walked = decidePreflightSkips(
+      makeGh({
+        pushRuns: [
+          { id: 10, head_sha: SHA },
+          { id: 9, head_sha: P1 },
+          { id: 8, head_sha: P2 },
+        ],
+        jobs: { 10: GATED_OFF, 9: GATED_OFF, 8: LINUX_GREEN },
+        parents: { [SHA]: P1, [P1]: P2 },
+      }),
+      '/repo',
+      'main',
+    );
+    expect(walked).toMatchObject({ skipTests: true, testedSha: P2 });
+
+    // No Detect Changes job: nothing says the skipped matrix was CI's own judgment.
+    const noGate = decidePreflightSkips(
+      makeGh({
+        pushRuns: [
+          { id: 10, head_sha: SHA },
+          { id: 9, head_sha: P1 },
+        ],
+        jobs: { 10: GATED_OFF.filter((j) => j.name !== 'Detect Changes'), 9: LINUX_GREEN },
+        parents: { [SHA]: P1 },
+      }),
+      '/repo',
+      'main',
+    );
+    expect(noGate).toMatchObject({ skipTests: false, testedSha: null });
+    expect(noGate.reason).toContain('Linux tests run');
+  });
+
+  it("runs when the ancestor's run failed, has no run, or the parent cannot be resolved", () => {
+    const cases: Array<[string, Parameters<typeof makeGh>[0]]> = [
+      [
+        'ancestor failed',
+        {
+          pushRuns: [
+            { id: 10, head_sha: SHA },
+            { id: 9, head_sha: P1, conclusion: 'failure' },
+          ],
+          jobs: { 10: GATED_OFF, 9: LINUX_GREEN },
+          parents: { [SHA]: P1 },
+        },
+      ],
+      [
+        'ancestor has no push run',
+        { pushRuns: [{ id: 10, head_sha: SHA }], jobs: { 10: GATED_OFF }, parents: { [SHA]: P1 } },
+      ],
+      ['parent unresolvable', { pushRuns: [{ id: 10, head_sha: SHA }], jobs: { 10: GATED_OFF } }],
+    ];
+    for (const [label, opts] of cases) {
+      const d = decidePreflightSkips(makeGh(opts), '/repo', 'main');
+      expect(d.skipTests, label).toBe(false);
+      expect(d.testedSha, label).toBeNull();
+      expect(d.reason, label).toContain('Linux tests run');
+    }
+  });
+
+  it(`gives up after ${MAX_EQUIVALENT_ANCESTORS} non-code commits`, () => {
+    const chain = Array.from({ length: MAX_EQUIVALENT_ANCESTORS + 2 }, (_, i) =>
+      i === 0 ? SHA : i.toString(16).padStart(40, '0'),
+    );
+    const pushRuns = chain.map((sha, i) => ({ id: 100 - i, head_sha: sha }));
+    const jobs = Object.fromEntries(
+      pushRuns.map((r, i) => [r.id, i === chain.length - 1 ? LINUX_GREEN : GATED_OFF]),
+    );
+    const parents = Object.fromEntries(chain.slice(0, -1).map((sha, i) => [sha, chain[i + 1]]));
+    const d = decidePreflightSkips(makeGh({ pushRuns, jobs, parents }), '/repo', 'main');
+    expect(d.skipTests).toBe(false);
+    expect(d.reason).toContain(`within ${MAX_EQUIVALENT_ANCESTORS} non-code commits`);
+  });
+
+  it('accepts a green nightly macOS run of an equivalent ancestor, never of one past the tested commit', () => {
+    const macosGreen = [{ name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' }];
+    const onParent = decidePreflightSkips(
+      makeGh({
+        pushRuns: [
+          { id: 10, head_sha: SHA },
+          { id: 9, head_sha: P1 },
+        ],
+        scheduleRuns: [{ id: 30, head_sha: P1, event: 'schedule' }],
+        jobs: { 10: GATED_OFF, 9: LINUX_GREEN, 30: macosGreen },
+        parents: { [SHA]: P1 },
+      }),
+      '/repo',
+      'main',
+    );
+    expect(onParent.skipMacosTests).toBe(true);
+    expect(onParent.reason).toContain(`schedule run for ${P1.slice(0, 12)}`);
+
+    // P2 is older than the tested commit P1: code changed in between.
+    const pastTested = decidePreflightSkips(
+      makeGh({
+        pushRuns: [
+          { id: 10, head_sha: SHA },
+          { id: 9, head_sha: P1 },
+        ],
+        scheduleRuns: [{ id: 30, head_sha: P2, event: 'schedule' }],
+        jobs: { 10: GATED_OFF, 9: LINUX_GREEN, 30: macosGreen },
+        parents: { [SHA]: P1, [P1]: P2 },
+      }),
+      '/repo',
+      'main',
+    );
+    expect(pastTested.skipMacosTests).toBe(false);
   });
 });
 

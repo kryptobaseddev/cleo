@@ -10,12 +10,25 @@
  * release: when the nightly macOS jobs for the exact commit are green, the
  * release has nothing left to learn from them.
  *
- * Every check is keyed on ONE commit SHA, resolved here and forwarded to the
- * workflow as `verified-sha`. The workflow honours a skip only when it checked
+ * Every decision is forwarded to the workflow with ONE commit SHA, main's
+ * HEAD, as `verified-sha`. The workflow honours a skip only when it checked
  * out that same commit, so a push to main between this check and the dispatch
  * cannot borrow a green result from a different tree. Any failure to answer —
  * `gh` error, timeout, unparseable output, no run, a run still in progress —
  * resolves to "run the tests", never to "skip".
+ *
+ * T13140: the release's own HEAD is usually the merge of the release-plan PR,
+ * whose diff (the plan file, CHANGELOG.md, `.changeset/` moves) is not code.
+ * Main's push CI for it is green but its `Detect Changes` gate skipped every
+ * `Unit Tests` shard, so HEAD itself never carries a tested run, and every
+ * release re-ran the whole suite. A test result is therefore borrowed from an
+ * ANCESTOR when CI itself says the tree is equivalent: walking first parents
+ * from HEAD, each step is taken only from a commit whose push run is green,
+ * whose `Detect Changes` job succeeded and whose every `Unit Tests` job was
+ * skipped (CI judged the push test-irrelevant), until a commit whose push run
+ * ran every Linux shard green. The walk is bounded by
+ * {@link MAX_EQUIVALENT_ANCESTORS}, and the commits it took are named in the
+ * reason. A nightly macOS run counts for any commit on that walk.
  *
  * Each `gh` call is bounded by {@link PREFLIGHT_CHECK_TIMEOUT_MS}.
  *
@@ -32,6 +45,16 @@ export const MAIN_CI_WORKFLOW = 'ci.yml' as const;
 const MAX_MACOS_CANDIDATE_RUNS = 5;
 
 /**
+ * Most first-parent steps taken from HEAD to a commit whose push CI tested the
+ * tree (each step through a push run CI judged test-irrelevant). Bounds `gh`
+ * calls; a longer run of non-code commits simply runs the tests.
+ */
+export const MAX_EQUIVALENT_ANCESTORS = 10;
+
+/** The `ci.yml` job that decides whether a push changed anything the tests read. */
+const CHANGES_JOB = 'Detect Changes';
+
+/**
  * Runs `gh <args>` in `cwd` with a timeout and returns stdout. Throws on a
  * non-zero exit or timeout.
  */
@@ -42,11 +65,20 @@ export type PreflightGhRunner = (args: readonly string[], cwd: string, timeoutMs
  * returned in the `cleo release open` result.
  */
 export interface PreflightSkipDecision {
-  /** Commit every check was made against (main's HEAD), or `null` if unresolved. */
+  /** Commit the decisions hold for and are forwarded with (main's HEAD), or `null` if unresolved. */
   verifiedSha: string | null;
-  /** True iff main's push CI for {@link verifiedSha} is green AND ran every Linux Unit Tests shard green. */
+  /**
+   * True iff main's push CI ran every Linux Unit Tests shard green for
+   * {@link verifiedSha}, or for {@link testedSha}, an ancestor CI judged
+   * test-equivalent (T13140).
+   */
   skipTests: boolean;
-  /** True iff every macOS job of a nightly (or push) run for {@link verifiedSha} succeeded. */
+  /**
+   * The commit whose push run proved the Linux shards: {@link verifiedSha}
+   * itself, an equivalent ancestor, or `null` when the tests run.
+   */
+  testedSha: string | null;
+  /** True iff every macOS job of a nightly (or push) run for {@link verifiedSha} or an equivalent ancestor succeeded. */
   skipMacosTests: boolean;
   /** Human-readable account of both decisions (lands in the run summary). */
   reason: string;
@@ -168,6 +200,22 @@ function judgeLinuxUnitTests(jobs: JobSummary[] | null): string | null {
   return null;
 }
 
+/**
+ * Whether CI itself judged a green push run test-irrelevant: its
+ * `Detect Changes` job succeeded and every `Unit Tests` job it lists (the
+ * gated-off matrix renders as one skipped job) was skipped.
+ */
+function unitTestsGatedOff(jobs: JobSummary[] | null): boolean {
+  if (jobs === null) return false;
+  const changes = jobs.find((j) => j.name === CHANGES_JOB);
+  const unit = jobs.filter((j) => isUnitTestJob(j.name));
+  return (
+    changes?.conclusion === 'success' &&
+    unit.length > 0 &&
+    unit.every((j) => j.conclusion === 'skipped')
+  );
+}
+
 function shortSha(sha: string): string {
   return sha.slice(0, 12);
 }
@@ -179,10 +227,13 @@ function shortSha(sha: string): string {
  * - Linux: skipped iff the newest `push` run of {@link MAIN_CI_WORKFLOW} on
  *   `branch` for HEAD's SHA is `completed` + `success` AND its Linux
  *   `Unit Tests` jobs exist, cover shards `1..N`, and all succeeded. A green
- *   run whose tests were skipped (docs-only push) does not qualify.
- * - macOS: skipped iff a completed `schedule` (nightly) run — or the push run
- *   above — for HEAD's SHA has at least one macOS job and every macOS job
- *   concluded `success`.
+ *   run whose tests CI gated off (`Detect Changes` succeeded and every
+ *   `Unit Tests` job was skipped) does not qualify by itself; the same check
+ *   then runs on its first parent, up to {@link MAX_EQUIVALENT_ANCESTORS}
+ *   steps (T13140).
+ * - macOS: skipped iff a completed `schedule` (nightly) run — or a push run
+ *   above — for HEAD or a commit that walk took has at least one macOS job and
+ *   every macOS job concluded `success`.
  *
  * Never throws: any error resolves to running the suite.
  *
@@ -216,29 +267,51 @@ export function decidePreflightSkips(
     return {
       verifiedSha: null,
       skipTests: false,
+      testedSha: null,
       skipMacosTests: false,
       reason: `Could not resolve the HEAD of ${branch} via gh; running every preflight suite.`,
     };
   }
 
-  // ── Linux: main's own push CI for this exact commit ─────────────────────
-  const pushRaw = gh([
-    'api',
-    `repos/{owner}/{repo}/actions/workflows/${MAIN_CI_WORKFLOW}/runs?head_sha=${sha}&event=push&branch=${branch}&per_page=20`,
-  ]);
-  const pushRuns = pushRaw === null ? [] : parseRuns(pushRaw).filter((r) => r.headSha === sha);
-  const pushRun = pushRuns[0];
+  // ── Linux: main's push CI for HEAD, or for an ancestor CI judged equivalent ──
+  const pushRunFor = (
+    commit: string,
+  ): { ok: true; run: WorkflowRunSummary | undefined } | { ok: false } => {
+    const raw = gh([
+      'api',
+      `repos/{owner}/{repo}/actions/workflows/${MAIN_CI_WORKFLOW}/runs?head_sha=${commit}&event=push&branch=${branch}&per_page=20`,
+    ]);
+    if (raw === null) return { ok: false };
+    return { ok: true, run: parseRuns(raw).find((r) => r.headSha === commit) };
+  };
+  /** Commits whose tree CI judged test-equivalent to HEAD's, HEAD first. */
+  const equivalent: string[] = [sha];
+  const pushRuns: WorkflowRunSummary[] = [];
   let skipTests = false;
-  let linuxReason: string;
-  if (pushRaw === null) {
-    linuxReason = `Linux tests run: could not query ${MAIN_CI_WORKFLOW} runs for ${shortSha(sha)}.`;
-  } else if (pushRun === undefined) {
-    linuxReason = `Linux tests run: no ${MAIN_CI_WORKFLOW} push run on ${branch} for ${shortSha(sha)}.`;
-  } else if (pushRun.status !== 'completed') {
-    linuxReason = `Linux tests run: ${MAIN_CI_WORKFLOW} push run for ${shortSha(sha)} is ${pushRun.status} (${pushRun.url}).`;
-  } else if (pushRun.conclusion !== 'success') {
-    linuxReason = `Linux tests run: ${MAIN_CI_WORKFLOW} push run for ${shortSha(sha)} concluded ${pushRun.conclusion ?? 'without a conclusion'} (${pushRun.url}).`;
-  } else {
+  let testedSha: string | null = null;
+  let linuxReason = '';
+  let cur = sha;
+  for (;;) {
+    const at = cur === sha ? shortSha(sha) : `${shortSha(cur)} (an ancestor of ${shortSha(sha)})`;
+    const found = pushRunFor(cur);
+    if (!found.ok) {
+      linuxReason = `Linux tests run: could not query ${MAIN_CI_WORKFLOW} runs for ${at}.`;
+      break;
+    }
+    const pushRun = found.run;
+    if (pushRun === undefined) {
+      linuxReason = `Linux tests run: no ${MAIN_CI_WORKFLOW} push run on ${branch} for ${at}.`;
+      break;
+    }
+    pushRuns.push(pushRun);
+    if (pushRun.status !== 'completed') {
+      linuxReason = `Linux tests run: ${MAIN_CI_WORKFLOW} push run for ${at} is ${pushRun.status} (${pushRun.url}).`;
+      break;
+    }
+    if (pushRun.conclusion !== 'success') {
+      linuxReason = `Linux tests run: ${MAIN_CI_WORKFLOW} push run for ${at} concluded ${pushRun.conclusion ?? 'without a conclusion'} (${pushRun.url}).`;
+      break;
+    }
     // A green run is not a tested run: a docs-only push skips `Unit Tests`
     // (the `changes` gate) and still concludes `success`. Only green Linux
     // `Unit Tests` jobs — every shard present and successful — prove the
@@ -251,24 +324,49 @@ export function decidePreflightSkips(
     const verdict = judgeLinuxUnitTests(jobs);
     if (verdict === null) {
       skipTests = true;
-      linuxReason = `Linux tests skipped: every Linux Unit Tests shard of the ${MAIN_CI_WORKFLOW} push run for ${shortSha(sha)} is green (${pushRun.url}).`;
-    } else {
-      linuxReason = `Linux tests run: ${MAIN_CI_WORKFLOW} push run for ${shortSha(sha)} is green but ${verdict} (${pushRun.url}).`;
+      testedSha = cur;
+      const via =
+        cur === sha
+          ? ''
+          : ` ${shortSha(sha)} differs from it only by ${equivalent.length - 1} commit(s) whose push CI ran no Unit Tests because Detect Changes found no test-relevant change (${equivalent
+              .slice(0, -1)
+              .map(shortSha)
+              .join(', ')}).`;
+      linuxReason = `Linux tests skipped: every Linux Unit Tests shard of the ${MAIN_CI_WORKFLOW} push run for ${at} is green (${pushRun.url}).${via}`;
+      break;
     }
+    if (!unitTestsGatedOff(jobs)) {
+      linuxReason = `Linux tests run: ${MAIN_CI_WORKFLOW} push run for ${at} is green but ${verdict} (${pushRun.url}).`;
+      break;
+    }
+    if (equivalent.length > MAX_EQUIVALENT_ANCESTORS) {
+      linuxReason = `Linux tests run: no tested ${MAIN_CI_WORKFLOW} push run within ${MAX_EQUIVALENT_ANCESTORS} non-code commits of ${shortSha(sha)}.`;
+      break;
+    }
+    const parentRaw = gh(['api', `repos/{owner}/{repo}/commits/${cur}`, '--jq', '.parents[0].sha']);
+    const parent = parentRaw?.trim() ?? '';
+    if (!/^[0-9a-f]{40}$/.test(parent) || equivalent.includes(parent)) {
+      linuxReason = `Linux tests run: ${MAIN_CI_WORKFLOW} push run for ${at} ran no Unit Tests, and its parent commit could not be resolved.`;
+      break;
+    }
+    equivalent.push(parent);
+    cur = parent;
   }
 
-  // ── macOS: nightly (schedule) runs, or the push run, for this commit ─────
-  const scheduleRaw = gh([
-    'api',
-    `repos/{owner}/{repo}/actions/runs?head_sha=${sha}&event=schedule&per_page=20`,
-  ]);
-  const scheduleRuns =
-    scheduleRaw === null ? [] : parseRuns(scheduleRaw).filter((r) => r.headSha === sha);
-  const candidates = [...scheduleRuns, ...(pushRun ? [pushRun] : [])]
+  // ── macOS: nightly (schedule) runs, or the push runs, for any equivalent commit ──
+  const scheduleRuns: WorkflowRunSummary[] = [];
+  for (const commit of equivalent) {
+    const raw = gh([
+      'api',
+      `repos/{owner}/{repo}/actions/runs?head_sha=${commit}&event=schedule&per_page=20`,
+    ]);
+    if (raw !== null) scheduleRuns.push(...parseRuns(raw).filter((r) => r.headSha === commit));
+  }
+  const candidates = [...scheduleRuns, ...pushRuns]
     .filter((r) => r.status === 'completed')
     .slice(0, MAX_MACOS_CANDIDATE_RUNS);
   let skipMacosTests = false;
-  let macosReason = `macOS tests run: no completed nightly run with macOS jobs for ${shortSha(sha)}.`;
+  let macosReason = `macOS tests run: no completed nightly run with macOS jobs for ${shortSha(sha)}${equivalent.length > 1 ? ` or the ${equivalent.length - 1} equivalent ancestor(s)` : ''}.`;
   for (const run of candidates) {
     const jobsRaw = gh(['api', `repos/{owner}/{repo}/actions/runs/${run.id}/jobs?per_page=100`]);
     const jobs = jobsRaw === null ? null : parseJobs(jobsRaw);
@@ -278,15 +376,16 @@ export function decidePreflightSkips(
     const failed = macosJobs.filter((j) => j.conclusion !== 'success');
     if (failed.length === 0) {
       skipMacosTests = true;
-      macosReason = `macOS tests skipped: all ${macosJobs.length} macOS job(s) of the ${run.event} run for ${shortSha(sha)} are green (${run.url}).`;
+      macosReason = `macOS tests skipped: all ${macosJobs.length} macOS job(s) of the ${run.event} run for ${shortSha(run.headSha)} are green (${run.url}).`;
       break;
     }
-    macosReason = `macOS tests run: ${failed.length} macOS job(s) of the ${run.event} run for ${shortSha(sha)} did not succeed (${run.url}).`;
+    macosReason = `macOS tests run: ${failed.length} macOS job(s) of the ${run.event} run for ${shortSha(run.headSha)} did not succeed (${run.url}).`;
   }
 
   return {
     verifiedSha: sha,
     skipTests,
+    testedSha,
     skipMacosTests,
     reason: `${linuxReason} ${macosReason}`,
   };
