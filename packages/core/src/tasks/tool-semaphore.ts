@@ -25,12 +25,15 @@
  *   | audit          | max(2, cpus/2)                   | network-bound, small RAM  |
  *   | security-scan  | max(2, cpus/2)                   | network-bound, small RAM  |
  *
- * On darwin `test`/`build` default to ONE slot machine-wide (T12963): macOS has
- * no PSI, so {@link pressureScaleSlots} can never shrink the budget there and
- * the RAM bound is the only guard left. Heavy runs additionally take a slot of
- * the matching {@link ResourceGovernor} class (`test` → `test-run`, `build` →
- * `scoped-build`), so evidence runs and other governed heavy work share one
- * machine-wide budget.
+ * On darwin `test`/`build` default to ONE slot machine-wide (T12963). Heavy runs
+ * additionally take a slot of the matching {@link ResourceGovernor} class
+ * (`test` → `test-run`, `build` → `scoped-build`), so evidence runs and other
+ * governed heavy work share one machine-wide budget.
+ *
+ * Heavy runs and typecheck runs are refused outright while memory pressure is
+ * above the memory gate (T13127, `resources/pressure-gate.ts`), on every
+ * platform: the run waits, prints "waiting: memory pressure" with the readings
+ * on stderr, and starts when pressure falls (or gives up at its timeout).
  *
  * T12091: `test`/`build` were `max(1, cpus/4)` — 6 slots on a 24-core box. Since
  * each `pnpm run test` is itself allowed 6 vitest forks × 4 GiB, the two bounds
@@ -47,6 +50,7 @@
  * @task T1534
  * @task T12091
  * @task T12963
+ * @task T13127
  * @adr ADR-061
  */
 
@@ -59,6 +63,11 @@ import { getCleoHome } from '../paths.js';
 import type { ResourceSample } from '../resources/backend.js';
 import { governor } from '../resources/governor.js';
 import { ResourceMonitor } from '../resources/monitor.js';
+import {
+  type MemoryGateReporter,
+  memoryGateReporter,
+  waitForMemoryGate,
+} from '../resources/pressure-gate.js';
 import {
   assessSlotHolder,
   currentLockId,
@@ -154,6 +163,13 @@ export interface AcquireSlotOptions {
    * @internal
    */
   skipGovernor?: boolean;
+  /**
+   * Where a progress line goes while the run waits on memory pressure
+   * ("waiting: memory pressure …", then "memory pressure fell …"), T13127.
+   *
+   * @defaultValue one `[cleo] <line>` per notice on stderr (stdout carries the envelope)
+   */
+  notice?: (line: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -205,11 +221,12 @@ export const HEAVY_TOOL_FOOTPRINT_GIB = 24;
  * ## Why darwin gets one heavy slot (T12963)
  *
  * Linux shrinks the heavy budget under memory pressure through PSI
- * ({@link pressureScaleSlots}). macOS exposes no PSI, so that reactive layer
- * never fires there, and a 64 GiB Mac would admit two full suites with nothing
- * to back them off. Concurrent agents on a laptop are the common case, so the
- * default is one heavy run at a time; `CLEO_TOOL_CONCURRENCY_TEST` /
- * `_BUILD` still raise it.
+ * ({@link pressureScaleSlots}). macOS has no PSI: its pressure signal is
+ * derived from the kernel level, RAM squeeze and swap (T12981, T13127), and
+ * like PSI it only reports a fork fleet after it has grown, so a 64 GiB Mac
+ * would admit two full suites before anything backs them off. Concurrent
+ * agents on a laptop are the common case, so the default is one heavy run at
+ * a time; `CLEO_TOOL_CONCURRENCY_TEST` / `_BUILD` still raise it.
  *
  * @param canonical - the canonical tool class.
  * @param cpuCount  - logical cores available.
@@ -362,9 +379,72 @@ export function governorClassFor(canonical: CanonicalTool): ResourceClass | null
 }
 
 /**
+ * Tools whose runs are refused while memory is short (T13127): the heavy
+ * `test`/`build`, and `typecheck`, since a large-monorepo `tsc` holds 2–5 GiB.
+ * Only the heavy ones also take a governor slot; typecheck's count stays the
+ * tool semaphore's.
+ */
+const MEMORY_GATED_TOOLS: ReadonlySet<CanonicalTool> = new Set<CanonicalTool>([
+  'test',
+  'build',
+  'typecheck',
+]);
+
+/** The default {@link AcquireSlotOptions.notice}: one stderr line. */
+function stderrNotice(line: string): void {
+  process.stderr.write(`[cleo] ${line}\n`); // json-stream-hygiene-allowed: progress while waiting; stdout carries the envelope
+}
+
+/**
+ * Whether the memory gate applies to a run: a gated tool, not opted out by
+ * `skipGovernor` or an explicit `CLEO_TOOL_CONCURRENCY_<TOOL>` override (the
+ * operator's count is authoritative).
+ */
+function memoryGateApplies(canonical: CanonicalTool, opts: AcquireSlotOptions): boolean {
+  return (
+    MEMORY_GATED_TOOLS.has(canonical) &&
+    opts.skipGovernor !== true &&
+    !hasConcurrencyOverride(canonical)
+  );
+}
+
+/**
+ * Wait out memory pressure BEFORE queueing for a tool slot (T13127), so every
+ * waiting run says why it waits, not only the one holding the slot. Throws
+ * with the readings when pressure outlasts `timeoutMs`. A run that waited for
+ * a slot afterwards is checked again by the governor (test/build).
+ */
+async function waitOutMemoryPressure(
+  canonical: CanonicalTool,
+  opts: AcquireSlotOptions,
+  timeoutMs: number,
+  reporter: MemoryGateReporter,
+): Promise<void> {
+  if (!memoryGateApplies(canonical, opts)) return;
+  const sample = opts.pressureSample;
+  const gate = await waitForMemoryGate({
+    timeoutMs: Math.max(1, timeoutMs),
+    sample: async () => (sample !== undefined ? sample : samplePressureSafe()),
+    reporter,
+    ...(opts.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
+  });
+  if (!gate.admitted) {
+    // @sync-invariant none:local-only machine-wide admission timeout; no store write
+    throw new Error(
+      `Timed out after ${Math.round(gate.waitedMs / 1000)}s waiting for memory pressure to fall ` +
+        `before a '${canonical}' run: memory pressure ${gate.reading.score} ` +
+        `(${gate.reading.summary}); it starts at ${gate.reading.resumeAtOrBelow} or below. ` +
+        `Override with CLEO_TOOL_CONCURRENCY_${canonical.toUpperCase().replace(/-/g, '_')}=<n>.`,
+    );
+  }
+}
+
+/**
  * Take the governor slot for a heavy run that already holds its tool slot.
  * Returns the grant's release, a no-op when no admission applies, or throws
- * when the governor defers within the remaining wait budget.
+ * when the governor defers within the remaining wait budget. The governor
+ * re-checks the memory gate (pressure may have risen while the run waited for
+ * its tool slot) and reports a wait through `reporter`.
  *
  * Skipped under an explicit `CLEO_TOOL_CONCURRENCY_<TOOL>` override: the
  * operator's count is authoritative, and the governor's own budget would
@@ -374,6 +454,7 @@ async function admitThroughGovernor(
   canonical: CanonicalTool,
   opts: AcquireSlotOptions,
   remainingMs: number,
+  reporter: MemoryGateReporter,
 ): Promise<ReleaseSlotFn> {
   const cls = governorClassFor(canonical);
   if (cls === null || opts.skipGovernor === true || hasConcurrencyOverride(canonical)) {
@@ -381,6 +462,7 @@ async function admitThroughGovernor(
   }
   const admission = await governor.acquire(cls, {
     timeoutMs: Math.max(1, remainingMs),
+    memoryPressure: reporter,
     ...(opts.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
     ...(opts.cpuCount !== undefined ? { cpuCount: opts.cpuCount } : {}),
     ...(opts.totalRamGib !== undefined ? { totalMemBytes: opts.totalRamGib * 1024 ** 3 } : {}),
@@ -690,6 +772,11 @@ export async function acquireGlobalSlot(
   const staleMs = opts.staleMs ?? 600_000;
   const startedAt = Date.now();
 
+  // T13127: refused, not merely narrowed, while memory is short. One reporter
+  // for the whole acquire, so the notices read as one wait.
+  const reporter = memoryGateReporter(opts.notice ?? stderrNotice, `'${canonical}' run`);
+  await waitOutMemoryPressure(canonical, opts, timeoutMs, reporter);
+
   // Randomise slot order so concurrent acquirers don't collide on slot 0.
   // The Fisher–Yates shuffle is fine for small N.
   const order = [...usableSlots.keys()];
@@ -753,6 +840,7 @@ export async function acquireGlobalSlot(
             canonical,
             opts,
             timeoutMs - (Date.now() - startedAt),
+            reporter,
           );
         } catch (err) {
           await releaseSlot();

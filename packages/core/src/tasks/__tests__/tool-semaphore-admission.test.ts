@@ -8,17 +8,22 @@
  *   governor, whose budget would otherwise cap them.
  * - A SIGKILLed run leaves both slots held by a dead pid; the next run reaps
  *   both instead of waiting out the governor's 10 min stale timeout.
+ * - Under memory pressure a test, build or typecheck evidence run waits, says
+ *   "waiting: memory pressure" with the readings, and starts when it falls;
+ *   lint never waits; an explicit override skips the gate (T13127).
  *
  * @task T12963
+ * @task T13127
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ResourceSample } from '../../resources/backend.js';
 import { _resetGovernorStateForTest, governor, governorSlotDir } from '../../resources/governor.js';
+import { ResourceMonitor } from '../../resources/monitor.js';
 import { currentLockId, writeGovernorHolder } from '../../resources/slot-holder.js';
 import {
   acquireGlobalSlot,
@@ -256,5 +261,117 @@ describe('a killed heavy run frees both slots (T12963)', () => {
       await release();
     }
     expect(await governor.available('test-run', { cpuCount: 16, sample: sample(26) })).toBe(1);
+  });
+});
+
+describe('evidence runs wait out memory pressure (T13127)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Live samples follow a script of memory `some avg10` values (then stay on the last). */
+  function scriptPressure(series: readonly number[]): () => number {
+    let n = 0;
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockImplementation(async () => {
+      const some = series[Math.min(n++, series.length - 1)] ?? 0;
+      const line = { avg10: some, avg60: some, avg300: some, totalUs: 0 };
+      return {
+        sampledAtMs: 1,
+        pressureAvailable: true,
+        memAvailableBytes: 128 * GIB,
+        globalPressure: { some: line, full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 } },
+        slicePressure: null,
+        walObservations: [],
+      };
+    });
+    return () => n;
+  }
+
+  const live = { platform: 'linux' as const, cpuCount: 16, totalRamGib: 1024, pollMs: 5 };
+
+  it('a test run waits, saying so with the readings, and starts when pressure falls', async () => {
+    scriptPressure([40, 40, 30, 20, 10]);
+    const lines: string[] = [];
+    const release = await acquireGlobalSlot('test', {
+      ...live,
+      timeoutMs: 10_000,
+      notice: (l) => lines.push(l),
+    });
+    try {
+      expect(await governor.available('test-run', { cpuCount: 16, sample: sample(128) })).toBe(3);
+    } finally {
+      await release();
+    }
+    expect(lines[0]).toMatch(
+      /^waiting: memory pressure 40 \(refused above 25, resumes at 15 or below\): /,
+    );
+    expect(lines[0]).toContain("The 'test' run starts when pressure falls");
+    expect(lines.at(-1)).toMatch(
+      /^memory pressure fell \(now 10\) after waiting \d+s: admitting the 'test' run\.$/,
+    );
+  });
+
+  it('a test run under lasting pressure gives up with the readings, holding no slot', async () => {
+    scriptPressure([50]);
+    await expect(
+      acquireGlobalSlot('test', { ...live, timeoutMs: 80, notice: () => {} }),
+    ).rejects.toThrow(
+      /waiting for memory pressure to fall before a 'test' run: memory pressure 50 \(memory PSI some avg10 50\.0%/,
+    );
+    vi.restoreAllMocks();
+    const free = await acquireGlobalSlot('test', {
+      platform: 'darwin',
+      skipGovernor: true,
+      timeoutMs: 200,
+    });
+    await free();
+  });
+
+  it('a typecheck run waits on the gate too, without taking a governor slot', async () => {
+    const samples = scriptPressure([40, 12]);
+    const lines: string[] = [];
+    const release = await acquireGlobalSlot('typecheck', {
+      ...live,
+      timeoutMs: 10_000,
+      notice: (l) => lines.push(l),
+    });
+    await release();
+    expect(samples()).toBe(2);
+    expect(lines[0]).toMatch(/^waiting: memory pressure 40 /);
+    expect(lines.at(-1)).toMatch(
+      /^memory pressure fell \(now 12\) after waiting \d+s: admitting the 'typecheck' run\.$/,
+    );
+    expect(existsSync(governorSlotDir('scoped-build'))).toBe(false);
+  });
+
+  it('a typecheck run under lasting pressure times out with the readings', async () => {
+    scriptPressure([50]);
+    await expect(
+      acquireGlobalSlot('typecheck', { ...live, timeoutMs: 80, notice: () => {} }),
+    ).rejects.toThrow(
+      /waiting for memory pressure to fall before a 'typecheck' run: memory pressure 50/,
+    );
+  });
+
+  it('lint never waits on memory pressure', async () => {
+    const samples = scriptPressure([90]);
+    const release = await acquireGlobalSlot('lint', {
+      ...live,
+      timeoutMs: 1_000,
+      notice: () => {},
+    });
+    await release();
+    expect(samples()).toBe(0);
+  });
+
+  it('an explicit CLEO_TOOL_CONCURRENCY_TYPECHECK override skips the gate', async () => {
+    process.env.CLEO_TOOL_CONCURRENCY_TYPECHECK = '4';
+    scriptPressure([90]);
+    const release = await acquireGlobalSlot('typecheck', {
+      ...live,
+      timeoutMs: 1_000,
+      notice: () => {},
+    });
+    await release();
   });
 });

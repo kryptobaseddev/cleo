@@ -27,6 +27,7 @@
  * @module resources/run-admission
  * @task T12979
  * @task T12980
+ * @task T13127
  * @epic T12978
  */
 
@@ -43,7 +44,7 @@ import {
 } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import type { ResourceClass } from '@cleocode/contracts';
+import type { MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
 import type { PressureState } from './monitor.js';
 
@@ -759,6 +760,11 @@ export interface RunDeferralDetails {
     readonly reason: string;
     readonly memAvailableBytes: number | null;
   };
+  /**
+   * The memory gate's readings when the job was refused for memory pressure
+   * (T13127), else `null`.
+   */
+  readonly memoryPressure: MemoryPressureReading | null;
   /** Live `cleo run` jobs and `cleo verify` tool slots, oldest first. */
   readonly running: readonly RunningEntry[];
 }
@@ -807,6 +813,8 @@ export function buildRunDeferral(input: {
   readonly queuePosition?: number | null;
   readonly pressure: RunDeferralDetails['pressure'];
   readonly running: readonly RunningEntry[];
+  /** Set when the refusal was the memory gate's (T13127). */
+  readonly memoryPressure?: MemoryPressureReading | null;
 }): { details: RunDeferralDetails; alternatives: RunAlternative[]; fix: string } {
   const cmd = input.argv.map(shellQuote).join(' ');
   const alternatives: RunAlternative[] = [];
@@ -844,12 +852,28 @@ export function buildRunDeferral(input: {
       retryAfterMs: input.retryAfterMs,
       queuePosition: input.queuePosition ?? null,
       pressure: input.pressure,
+      memoryPressure: input.memoryPressure ?? null,
       running: input.running,
     },
     alternatives,
-    fix:
-      input.pressure.state === 'ok'
-        ? `The ${input.cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue.`
-        : `The machine is under pressure (${input.pressure.state}) and the ${input.cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue.`,
+    fix: deferralFix(input.cls, input.pressure.state, input.memoryPressure ?? null),
   };
+}
+
+/** The one-line remedy for a deferral. */
+function deferralFix(
+  cls: ResourceClass,
+  state: PressureState,
+  memory: MemoryPressureReading | null,
+): string {
+  if (memory !== null) {
+    return (
+      `The machine is short of memory (${memory.summary}); nothing was started. ` +
+      `Heavy work starts again once memory pressure falls to ${memory.resumeAtOrBelow} or below ` +
+      `(now ${memory.score}): continue other work, close memory-heavy apps, or re-run with --wait to start automatically.`
+    );
+  }
+  return state === 'ok'
+    ? `The ${cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue.`
+    : `The machine is under pressure (${state}) and the ${cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue.`;
 }
