@@ -1,0 +1,117 @@
+/**
+ * T13111 — token usage is recorded in `tasks_token_usage`, so a row naming a
+ * bound session is stored. The bare `token_usage` table is left as it is: its
+ * rows stay there for the T12535 collapse to fold (T13115).
+ *
+ * Production opens enforce foreign keys; the tasks bind turns them off under
+ * VITEST (sqlite.ts), so every test here turns them back on first. Without
+ * that, the bare table's FK to the empty bare `sessions` twin, the cause of
+ * the loss, would never fire.
+ *
+ * @task T13111
+ * @epic T12323
+ */
+
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { listTokenUsage, recordTokenExchange } from '../../metrics/token-service.js';
+import { bindTasksDomain, closeDb } from '../sqlite.js';
+import { sessions } from '../tasks-schema.js';
+
+const SESSION = 'ses_20261003000000_t13111';
+
+let root: string;
+let savedCleoDir: string | undefined;
+
+beforeEach(() => {
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-token-twin-T13111-')));
+  mkdirSync(join(root, '.cleo'), { recursive: true });
+  savedCleoDir = process.env['CLEO_DIR'];
+  process.env['CLEO_DIR'] = join(root, '.cleo');
+});
+
+afterEach(() => {
+  closeDb();
+  if (savedCleoDir === undefined) delete process.env['CLEO_DIR'];
+  else process.env['CLEO_DIR'] = savedCleoDir;
+  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+});
+
+/** Open the project's tasks domain (migrating it) with foreign keys enforced, as production does. */
+async function open(): Promise<DatabaseSync> {
+  const binding = await bindTasksDomain(root);
+  binding.native.exec('PRAGMA foreign_keys=ON');
+  return binding.native;
+}
+
+const count = (db: DatabaseSync, table: string): number =>
+  (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+
+/** A row of the bare table, as a build before this one wrote it. */
+function bareRow(db: DatabaseSync, id: string, fields: Record<string, string | number> = {}): void {
+  const row = {
+    id,
+    transport: 'cli',
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'add',
+    ...fields,
+  };
+  const cols = Object.keys(row);
+  db.prepare(
+    `INSERT INTO token_usage (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+  ).run(...Object.values(row));
+}
+
+describe('token usage in tasks_token_usage (T13111)', () => {
+  it('a token row naming a bound session is stored, where the bare table refused it', async () => {
+    const db = await open();
+    const drizzle = (await bindTasksDomain(root)).db;
+    await drizzle.insert(sessions).values({ id: SESSION, name: 'bound', status: 'active' }).run();
+    expect(count(db, 'tasks_sessions')).toBe(1);
+    expect(count(db, 'sessions')).toBe(0);
+
+    // The old path: the bare table's FK points at the empty bare `sessions` twin.
+    expect(() => bareRow(db, 'bare-1', { session_id: SESSION })).toThrow(/FOREIGN KEY/);
+
+    const row = await recordTokenExchange(root, {
+      requestPayload: { title: 'x' },
+      responsePayload: { data: { id: 'T001' } },
+      transport: 'cli',
+      gateway: 'mutate',
+      domain: 'tasks',
+      operation: 'add',
+      sessionId: SESSION,
+      taskId: 'T001',
+      requestId: 'req-1',
+    });
+    expect(row).toMatchObject({ sessionId: SESSION, taskId: 'T001', gateway: 'mutate' });
+    expect(count(db, 'tasks_token_usage')).toBe(1);
+    expect(count(db, 'token_usage')).toBe(0);
+    expect((await listTokenUsage(root, { sessionId: SESSION })).records.map((r) => r.id)).toEqual([
+      row.id,
+    ]);
+  });
+
+  it('reads come from the twin only, and the bare table is left as it is', async () => {
+    const db = await open();
+    db.exec('PRAGMA foreign_keys=OFF');
+    bareRow(db, 'bare-old-1', { total_tokens: 7 });
+    db.exec('PRAGMA foreign_keys=ON');
+    const row = await recordTokenExchange(root, {
+      requestPayload: {},
+      responsePayload: {},
+      transport: 'cli',
+      gateway: 'mutate',
+      domain: 'tasks',
+      operation: 'add',
+      requestId: 'req-2',
+    });
+    expect((await listTokenUsage(root)).records.map((r) => r.id)).toEqual([row.id]);
+    expect(count(db, 'token_usage')).toBe(1);
+    expect(count(db, 'tasks_token_usage')).toBe(1);
+  });
+});
