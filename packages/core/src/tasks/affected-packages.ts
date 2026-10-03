@@ -28,6 +28,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { isCiDocumentPath } from '../release/ci-evidence.js';
+import { LIGHT_FOOTPRINT_BYTES } from '../resources/admission-ledger.js';
 import type { MergeVerdict } from './affected-scope.js';
 import { splitCommandLine } from './command-line.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
@@ -258,9 +259,10 @@ function treeStateKey(root: string): string | null {
  * unnamed projects and every future config shape are named exactly as
  * `--project` will match them. No config parsing happens here.
  *
- * The child runs asynchronously under the heavy-tool `test` semaphore (loading
- * a workspace's configs is test tooling), and results are memoized per tree
- * state, so `cleo done` planning and recording resolve once (T12657).
+ * The child runs asynchronously under machine-wide admission as a light `test`
+ * run (loading a workspace's configs is test tooling, but one small process),
+ * and results are memoized per tree state, so `cleo done` planning and
+ * recording resolve once (T12657, T13133).
  *
  * @param root - Workspace root.
  * @param opts - Slot acquisition override.
@@ -275,11 +277,19 @@ export function listVitestProjects(
   const key = treeStateKey(root);
   const hit = key === null ? undefined : vitestProjectsMemo.get(key);
   if (hit) return hit;
+  // Loading a workspace's vitest configs is one small process: it asks the
+  // admission ledger for a light footprint, not a whole test run's (T13133).
   const acquire =
     opts.acquireSlot ??
     (opts.wait === true
-      ? acquireGlobalSlot
-      : (canonical: 'test') => acquireGlobalSlot(canonical, { timeoutMs: 1, pollMs: 1 }));
+      ? (canonical: 'test') =>
+          acquireGlobalSlot(canonical, { footprintBytes: LIGHT_FOOTPRINT_BYTES })
+      : (canonical: 'test') =>
+          acquireGlobalSlot(canonical, {
+            footprintBytes: LIGHT_FOOTPRINT_BYTES,
+            timeoutMs: 1,
+            pollMs: 1,
+          }));
   const pending = resolveVitestProjects(root, acquire);
   if (key !== null) {
     vitestProjectsMemo.set(key, pending);

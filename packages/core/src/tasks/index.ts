@@ -314,19 +314,11 @@ export {
   type ResolveToolResult,
   resolveToolCommand,
 } from './tool-resolver.js';
-// Cross-process global per-tool concurrency semaphore (T1534 / ADR-061)
+// Machine-wide evidence-run admission over the admission ledger (T1534 / ADR-061, T13133)
 export {
   type AcquireSlotOptions,
   acquireGlobalSlot,
-  defaultMaxConcurrent,
-  isHolderAlive,
-  listSlotHolders,
+  legacyConcurrencyOverride,
   type ReleaseSlotFn,
-  readHolder,
-  reapOrphanedSlots,
-  reapSlotIfOrphaned,
-  resolveMaxConcurrent,
-  type SlotHolder,
-  semaphoreDir,
 } from './tool-semaphore.js';
 export { taskUpdate, type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';

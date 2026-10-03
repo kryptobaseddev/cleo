@@ -1,85 +1,46 @@
 /**
- * Cross-process global concurrency limit for evidence-tool runs (T1534 / ADR-061).
+ * Machine-wide admission for evidence-tool runs (T1534 / ADR-061, T13133).
  *
  * The cache layer ({@link runToolCached}) coalesces *identical* parallel runs
- * via a per-key file lock — when 10 sibling tasks against the same git HEAD
- * call `tool:test`, only one spawns. But orchestrator-spawned worktree
- * agents each operate on a *different* HEAD (one branch per worktree per
- * ADR-055), so their cache keys differ and the per-key lock does NOT
- * coalesce them. Without an additional bound, N worktree agents would each
- * spawn the full toolchain, multiplying CPU and resident memory by N.
+ * via a per-key file lock. Orchestrator-spawned worktree agents each operate
+ * on a *different* HEAD, so their cache keys differ and the per-key lock does
+ * not coalesce them; without a machine-wide bound, N worktree agents would
+ * each spawn the full toolchain, multiplying CPU and resident memory by N.
  *
- * This module bounds *total* concurrent runs of a canonical tool across
- * the whole machine — independent of which project, worktree, or PID
- * issues the call. It uses a slot directory under
- * `~/.local/share/cleo/locks/tool-<canonical>/` with `slot-0.lock` …
- * `slot-(N-1).lock` files; each slot is held by `proper-lockfile` so a
- * crashed process auto-releases via the standard stale-lock recovery.
+ * Since T13133 that bound is the admission ledger (`resources/admission-ledger.ts`):
+ * one budget in bytes and one FIFO queue shared by every evidence run, every
+ * `cleo run` job and the vitest project probe, machine-wide. An evidence run
+ * asks for its footprint (`footprintForTool`: a heavy test/build run is
+ * charged its worker count × 6 GiB, typecheck 5 GiB, lint and the rest 1 GiB),
+ * waits its turn, and exports the grant's `CLEO_ADMISSION` token to the tool
+ * it spawns, so a `cleo verify` or `cleo run` the tool starts rides the grant
+ * instead of waiting for the budget its own ancestor holds.
  *
- * Defaults (configurable via env):
+ * What it replaced: per-tool slot directories under `<cleoHome>/locks/tool-*`,
+ * core- and RAM-derived slot counts (`defaultMaxConcurrent`), PSI slot scaling
+ * (`pressureScaleSlots`), the darwin one-slot rule (T12963) and a second,
+ * separate governor slot taken after the tool slot, the order that could
+ * deadlock against `cleo run` (T13133). Memory pressure now narrows the one
+ * budget, and the memory gate (T13127) refuses heavy work outright while
+ * memory is short; a waiting run says so on stderr with the readings.
  *
- *   | Tool           | Default                          | Binding constraint        |
- *   |----------------|----------------------------------|---------------------------|
- *   | test, build    | min(RAM/24GiB, cpus/4), min 1    | MEMORY (each run forks)   |
- *   | lint, typecheck| max(2, cpus/2)                   | CPU (single-process)      |
- *   | audit          | max(2, cpus/2)                   | network-bound, small RAM  |
- *   | security-scan  | max(2, cpus/2)                   | network-bound, small RAM  |
- *
- * On darwin `test`/`build` default to ONE slot machine-wide (T12963). Heavy runs
- * additionally take a slot of the matching {@link ResourceGovernor} class
- * (`test` → `test-run`, `build` → `scoped-build`), so evidence runs and other
- * governed heavy work share one machine-wide budget.
- *
- * Heavy runs and typecheck runs are refused outright while memory pressure is
- * above the memory gate (T13127, `resources/pressure-gate.ts`), on every
- * platform: the run waits, prints "waiting: memory pressure" with the readings
- * on stderr, and starts when pressure falls (or gives up at its timeout).
- *
- * T12091: `test`/`build` were `max(1, cpus/4)` — 6 slots on a 24-core box. Since
- * each `pnpm run test` is itself allowed 6 vitest forks × 4 GiB, the two bounds
- * composed to 144 GiB of permitted heap on 62 GiB of RAM. Neither layer was
- * individually violated, which is exactly why the machine froze without any
- * guard firing. Heavy tools are now bounded by the dimension that actually
- * limits them — see {@link defaultMaxConcurrent}.
- *
- * Override via `CLEO_TOOL_CONCURRENCY_<CANONICAL>` (e.g.
- * `CLEO_TOOL_CONCURRENCY_TEST=2`). Set to `0` or a negative number to
- * disable the limit for that tool — which also disables the RAM bound, so it is
- * the one setting that can still oversubscribe the machine.
+ * `CLEO_TOOL_CONCURRENCY_<TOOL>` no longer counts runs: `0` (or below) still
+ * bypasses admission for that tool, any other value is ignored, and either
+ * prints one deprecation line per process on stderr. `CLEO_RESOURCES_MODE=off`
+ * is the supported switch.
  *
  * @task T1534
  * @task T12091
  * @task T12963
  * @task T13127
+ * @task T13133
  * @adr ADR-061
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { availableParallelism, hostname, totalmem } from 'node:os';
-import { join } from 'node:path';
-import type { ResourceClass } from '@cleocode/contracts';
-import lockfile from 'proper-lockfile';
-import { getCleoHome } from '../paths.js';
+import { admissionCapacityBytes, admit, footprintForTool } from '../resources/admission-ledger.js';
 import type { ResourceSample } from '../resources/backend.js';
-import { governor } from '../resources/governor.js';
 import { ResourceMonitor } from '../resources/monitor.js';
-import {
-  type MemoryGateReporter,
-  memoryGateReporter,
-  waitForMemoryGate,
-} from '../resources/pressure-gate.js';
-import { insideRunJob } from '../resources/run-admission.js';
-import {
-  assessSlotHolder,
-  currentLockId,
-  ownProcessStartedAt,
-  reapSlotIfHolderDead,
-  recordToolGroupsWhileHeld,
-  SLOT_LOCK_STALE_MS,
-  type SlotHolderIdentity,
-  writeHolderRecord,
-} from '../resources/slot-holder.js';
-import { isHeavyTool } from './heavy-tool-env.js';
+import { memoryGateReporter } from '../resources/pressure-gate.js';
 import type { CanonicalTool } from './tool-resolver.js';
 
 // ---------------------------------------------------------------------------
@@ -87,12 +48,15 @@ import type { CanonicalTool } from './tool-resolver.js';
 // ---------------------------------------------------------------------------
 
 /**
- * Function returned by {@link acquireGlobalSlot} that must be called to
- * release the held slot. Always-callable; idempotent against re-entry.
+ * Function returned by {@link acquireGlobalSlot} that must be called to give
+ * the admission back. Always-callable; idempotent against re-entry. `admission`
+ * is the `CLEO_ADMISSION` value to export to the tool's environment (empty
+ * when the run was not admitted through the ledger).
  *
  * @task T1534
+ * @task T13133
  */
-export type ReleaseSlotFn = () => Promise<void>;
+export type ReleaseSlotFn = (() => Promise<void>) & { readonly admission?: string };
 
 /**
  * Options for {@link acquireGlobalSlot}.
@@ -101,789 +65,176 @@ export type ReleaseSlotFn = () => Promise<void>;
  */
 export interface AcquireSlotOptions {
   /**
-   * Maximum wall-clock time to wait for a free slot before throwing. The
-   * default — 60 minutes — covers a long-running monorepo test suite that
-   * can leave the semaphore held for a while.
+   * Maximum wall-clock time to wait for admission before throwing. The
+   * default — 60 minutes — covers a long-running monorepo test suite ahead in
+   * the queue.
    *
    * @defaultValue `3_600_000` (60 min)
    */
   timeoutMs?: number;
   /**
-   * Sleep between acquire attempts when all slots are busy. Smaller values
-   * burn more CPU on the polling loop; larger values delay the next worker.
+   * How often a waiting run re-reads the ledger.
    *
-   * @defaultValue `100`
+   * @defaultValue `250`
    */
   pollMs?: number;
   /**
-   * Stale-lock window passed to `proper-lockfile`. A slot held by a
-   * process that exited without releasing is reaped after this many
-   * milliseconds.
-   *
-   * @defaultValue `600_000` (10 min)
-   */
-  staleMs?: number;
-  /**
-   * Override `os.availableParallelism()` for tests.
-   *
-   * @internal
-   */
-  cpuCount?: number;
-  /**
-   * Override `os.totalmem()` (in GiB) for tests.
-   *
-   * T12091 made the heavy-tool budget RAM-derived, which would otherwise make
-   * the slot count depend on whatever host the suite runs on — a 16 GiB CI
-   * runner and a 62 GiB workstation resolve different budgets for identical
-   * inputs. Injecting it keeps semaphore behaviour deterministic.
+   * Override `os.totalmem()` (in GiB) for the budget and the footprint, so a
+   * test resolves the same budget on every host.
    *
    * @internal
    */
   totalRamGib?: number;
   /**
-   * Memory-pressure sample used to scale the effective slot count for the
-   * pressure-sensitive `test`/`build` tools (T12001, Epic T11992). When
-   * omitted, a best-effort live sample is taken (fail-open to the static slot
-   * count on any error). Pass `null` to disable pressure scaling explicitly.
-   * Tests inject a synthetic sample for determinism.
+   * A fixed memory-pressure sample for every admission decision (tests). When
+   * omitted, a live sample is taken; `null` disables pressure (no signal).
    *
    * @internal
    */
   pressureSample?: ResourceSample | null;
   /**
-   * Override `process.platform` for tests. On `darwin` the heavy `test`/`build`
-   * budget defaults to one slot (T12963).
+   * Bytes to ask for instead of the tool's default footprint: a vitest config
+   * probe asks for 1 GiB, not a whole test run's.
+   */
+  footprintBytes?: number;
+  /**
+   * Skip admission altogether (tests that exercise only the cache layer).
    *
    * @internal
    */
-  platform?: NodeJS.Platform;
+  skipAdmission?: boolean;
   /**
-   * Skip the {@link ResourceGovernor} admission a heavy run takes after its
-   * tool slot (T12963). Tests that exercise only slot files set this.
-   *
-   * @internal
-   */
-  skipGovernor?: boolean;
-  /**
-   * Where a progress line goes while the run waits on memory pressure
-   * ("waiting: memory pressure …", then "memory pressure fell …"), T13127.
+   * Where a progress line goes while the run waits ("waiting: memory pressure
+   * …", the holder report after a minute), T13127/T13133.
    *
    * @defaultValue one `[cleo] <line>` per notice on stderr (stdout carries the envelope)
    */
   notice?: (line: string) => void;
 }
 
-// ---------------------------------------------------------------------------
-// Concurrency-limit defaults + override resolution
-// ---------------------------------------------------------------------------
-
-/**
- * Worst-case resident footprint of ONE `tool:test` / `tool:build` invocation,
- * in GiB.
- *
- * This is not a guess. `vitest.memory-safe.ts` permits
- * `MEMORY_SAFE_MAX_WORKERS` forks (up to 6) each capped at `FORK_HEAP_MB`
- * (4096), so a single `pnpm run test` may legitimately hold ~24 GiB before any
- * guard fires. Keep this in step with that file if either bound changes.
- *
- * @task T12091
- */
-export const HEAVY_TOOL_FOOTPRINT_GIB = 24;
-
-/**
- * Compute the default max-concurrency for a canonical tool.
- *
- * ## Why this is RAM-derived, not core-derived (T12091)
- *
- * This returned `floor(cpus / 4)` for `test`/`build`, which on a 24-core box is
- * **6 concurrent full test suites**. Each of those is itself allowed 6 vitest
- * forks × a 4 GiB heap cap, so the composed permission was
- *
- *     6 runs × 6 forks × 4 GiB = 144 GiB
- *
- * on a 62 GiB machine. Both layers were individually "bounded" and their
- * composition was 2.3× the hardware — which is precisely how this box froze
- * repeatedly: no single guard was violated. The per-invocation cap (T12087) and
- * this cross-invocation cap were written independently and never multiplied out.
- *
- * The dimensional error is the root of it: what limits a test run is MEMORY, and
- * core count says nothing about memory. A 24-core/16 GiB VM got the same 6 slots
- * as a 24-core/256 GiB server. So heavy tools now divide TOTAL RAM by
- * {@link HEAVY_TOOL_FOOTPRINT_GIB} and are additionally capped by cores, never
- * exceeding what the machine can actually hold.
- *
- * Reactive pressure scaling ({@link pressureScaleSlots}) is not a substitute:
- * PSI `some avg10` is a ten-second average, and a fork fleet can exhaust RAM
- * faster than that window can report it. Admission has to be right up front.
- *
- * Light tools (lint, typecheck, audit, security-scan) are single-process and
- * short, and keep the core-derived half-of-cores budget.
- *
- * ## Why darwin gets one heavy slot (T12963)
- *
- * Linux shrinks the heavy budget under memory pressure through PSI
- * ({@link pressureScaleSlots}). macOS has no PSI: its pressure signal is
- * derived from the kernel level, RAM squeeze and swap (T12981, T13127), and
- * like PSI it only reports a fork fleet after it has grown, so a 64 GiB Mac
- * would admit two full suites before anything backs them off. Concurrent
- * agents on a laptop are the common case, so the default is one heavy run at
- * a time; `CLEO_TOOL_CONCURRENCY_TEST` / `_BUILD` still raise it.
- *
- * @param canonical - the canonical tool class.
- * @param cpuCount  - logical cores available.
- * @param totalRamGib - total machine RAM in GiB; defaults to a live reading.
- * @param platform - OS platform; defaults to `process.platform`.
- * @returns the machine-wide slot count, always ≥ 1.
- *
- * @example
- * ```ts
- * // 24 cores, 62 GiB → floor(62/24) = 2 (was 6, permitting 144 GiB of heap)
- * defaultMaxConcurrent('test', 24, 62); // → 2
- * // 24 cores, 16 GiB → 1: one suite is already more than this box can hold
- * defaultMaxConcurrent('test', 24, 16); // → 1
- * // macOS: no PSI to back off with, so one heavy run at a time
- * defaultMaxConcurrent('test', 12, 64, 'darwin'); // → 1
- * ```
- *
- * @task T1534
- * @task T12091
- * @task T12963
- */
-export function defaultMaxConcurrent(
-  canonical: CanonicalTool,
-  cpuCount: number,
-  totalRamGib: number = totalmem() / 1024 ** 3,
-  platform: NodeJS.Platform = process.platform,
-): number {
-  const cpus = Math.max(1, cpuCount);
-  switch (canonical) {
-    case 'test':
-    case 'build': {
-      if (platform === 'darwin') return 1;
-      const byRam = Math.floor(totalRamGib / HEAVY_TOOL_FOOTPRINT_GIB);
-      const byCpu = Math.floor(cpus / 4);
-      return Math.max(1, Math.min(byRam, byCpu));
-    }
-    case 'lint':
-    case 'typecheck':
-    case 'audit':
-    case 'security-scan':
-      return Math.max(2, Math.floor(cpus / 2));
-    default:
-      return 1;
-  }
-}
-
-/**
- * Resolve the active per-tool concurrency limit, honouring the
- * `CLEO_TOOL_CONCURRENCY_<CANONICAL>` env override when set. A value of
- * `0` (or any non-positive number) disables the bound and returns
- * `Number.POSITIVE_INFINITY`, in which case {@link acquireGlobalSlot}
- * returns a no-op release.
- *
- * @task T1534
- * @task T12963
- */
-export function resolveMaxConcurrent(
-  canonical: CanonicalTool,
-  cpuCount?: number,
-  totalRamGib?: number,
-  platform?: NodeJS.Platform,
-): number {
-  const envKey = `CLEO_TOOL_CONCURRENCY_${canonical.toUpperCase().replace(/-/g, '_')}`;
-  const raw = process.env[envKey];
-  if (raw !== undefined && raw !== '') {
-    const parsed = Number.parseInt(raw, 10);
-    if (Number.isFinite(parsed)) {
-      if (parsed <= 0) return Number.POSITIVE_INFINITY;
-      return parsed;
-    }
-  }
-  return defaultMaxConcurrent(
-    canonical,
-    cpuCount ?? availableParallelism(),
-    totalRamGib ?? totalmem() / 1024 ** 3,
-    platform ?? process.platform,
-  );
-}
-
-/**
- * Whether a canonical tool's slot budget shrinks under memory pressure.
- * Only the heavy `test`/`build` classes scale; lint/typecheck/audit are light
- * and single-threaded, so they keep their static budget.
- */
-function isPressureSensitive(canonical: CanonicalTool): boolean {
-  // Delegates rather than repeating the literal. This was the third
-  // independent definition of "heavy"; all three agreed by coincidence, and a
-  // fifth heavy tool would have needed three coordinated edits — with a missed
-  // one producing a SILENT asymmetry (a tool granted the long deadline and the
-  // worker caps but not a semaphore slot, or the reverse).
-  return isHeavyTool(canonical);
-}
-
-/**
- * Scale a static slot budget down under memory pressure (T12001 · choke-point
- * #6). Mirrors the governor's `test-run` budget: halve when `some avg10` exceeds
- * the hold threshold, floor to 1 when it exceeds the backoff/floor threshold.
- * Recovers automatically as pressure clears. `full-build` is not represented as
- * a canonical tool here; the dedicated `full-build` governor class (T11999)
- * pins that to one machine-wide slot.
- *
- * @task T12001
- */
-export function pressureScaleSlots(
-  canonical: CanonicalTool,
-  staticMax: number,
-  sample: ResourceSample,
-  thresholds: { holdSomeAvg10?: number; floorSomeAvg10?: number } = {},
-): number {
-  if (!Number.isFinite(staticMax) || !isPressureSensitive(canonical)) return staticMax;
-  const hold = thresholds.holdSomeAvg10 ?? 10;
-  const floor = thresholds.floorSomeAvg10 ?? 25;
-  const some = sample.globalPressure?.some?.avg10 ?? sample.slicePressure?.some?.avg10 ?? 0;
-  if (some > floor) return 1;
-  if (some > hold) return Math.max(1, Math.floor(staticMax / 2));
-  return staticMax;
-}
-
-/**
- * Best-effort point-sample for slot scaling. NEVER throws — on any error (no
- * `/proc`, non-Linux, read failure) returns `null` so the caller fails open to
- * the static slot count. The PSI + meminfo reads are sub-5ms.
- */
-async function samplePressureSafe(): Promise<ResourceSample | null> {
-  try {
-    return await new ResourceMonitor().sample();
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Whether an explicit `CLEO_TOOL_CONCURRENCY_<TOOL>` override is set — when so,
- * the operator's intent is authoritative and pressure scaling is bypassed.
- */
-function hasConcurrencyOverride(canonical: CanonicalTool): boolean {
-  const raw = process.env[`CLEO_TOOL_CONCURRENCY_${canonical.toUpperCase().replace(/-/g, '_')}`];
-  return raw !== undefined && raw !== '';
-}
-
-/**
- * The {@link ResourceGovernor} class a heavy tool run is admitted under, or
- * `null` for light tools. `test` and `build` are the classes the governor
- * budgets as `test-run` / `scoped-build` (T12963).
- */
-export function governorClassFor(canonical: CanonicalTool): ResourceClass | null {
-  if (canonical === 'test') return 'test-run';
-  if (canonical === 'build') return 'scoped-build';
-  return null;
-}
-
-/**
- * Tools whose runs are refused while memory is short (T13127): the heavy
- * `test`/`build`, and `typecheck`, since a large-monorepo `tsc` holds 2–5 GiB.
- * Only the heavy ones also take a governor slot; typecheck's count stays the
- * tool semaphore's.
- */
-const MEMORY_GATED_TOOLS: ReadonlySet<CanonicalTool> = new Set<CanonicalTool>([
-  'test',
-  'build',
-  'typecheck',
-]);
-
 /** The default {@link AcquireSlotOptions.notice}: one stderr line. */
 function stderrNotice(line: string): void {
   process.stderr.write(`[cleo] ${line}\n`); // json-stream-hygiene-allowed: progress while waiting; stdout carries the envelope
 }
 
-/**
- * Whether the memory gate applies to a run: a gated tool, not opted out by
- * `skipGovernor` or an explicit `CLEO_TOOL_CONCURRENCY_<TOOL>` override (the
- * operator's count is authoritative), and not nested in an admitted `cleo run`
- * job, whose admission covers its process tree.
- */
-function memoryGateApplies(canonical: CanonicalTool, opts: AcquireSlotOptions): boolean {
-  return (
-    MEMORY_GATED_TOOLS.has(canonical) &&
-    opts.skipGovernor !== true &&
-    !hasConcurrencyOverride(canonical) &&
-    !insideRunJob()
-  );
-}
+/** Tools whose deprecated `CLEO_TOOL_CONCURRENCY_<TOOL>` notice was printed in this process. */
+const _deprecationNoticed = new Set<string>();
 
 /**
- * Wait out memory pressure BEFORE queueing for a tool slot (T13127), so every
- * waiting run says why it waits, not only the one holding the slot. Throws
- * with the readings when pressure outlasts `timeoutMs`. A run that waited for
- * a slot afterwards is checked again by the governor (test/build).
+ * The deprecated `CLEO_TOOL_CONCURRENCY_<TOOL>` override: `bypass` for `0` or
+ * below, `ignored` for any other number, `null` when unset. Prints one
+ * deprecation line per tool per process on stderr, never on stdout.
+ *
+ * @param canonical - the canonical tool.
+ * @param notice - where the line goes.
+ * @returns what the override does now.
+ *
+ * @task T13133
  */
-async function waitOutMemoryPressure(
+export function legacyConcurrencyOverride(
   canonical: CanonicalTool,
-  opts: AcquireSlotOptions,
-  timeoutMs: number,
-  reporter: MemoryGateReporter,
-): Promise<void> {
-  if (!memoryGateApplies(canonical, opts)) return;
-  const sample = opts.pressureSample;
-  const gate = await waitForMemoryGate({
-    timeoutMs: Math.max(1, timeoutMs),
-    sample: async () => (sample !== undefined ? sample : samplePressureSafe()),
-    reporter,
-    ...(opts.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
-  });
-  if (!gate.admitted) {
-    // @sync-invariant none:local-only machine-wide admission timeout; no store write
-    throw new Error(
-      `Timed out after ${Math.round(gate.waitedMs / 1000)}s waiting for memory pressure to fall ` +
-        `before a '${canonical}' run: memory pressure ${gate.reading.score} ` +
-        `(${gate.reading.summary}); it starts at ${gate.reading.resumeAtOrBelow} or below. ` +
-        `Override with CLEO_TOOL_CONCURRENCY_${canonical.toUpperCase().replace(/-/g, '_')}=<n>.`,
+  notice: (line: string) => void = stderrNotice,
+): 'bypass' | 'ignored' | null {
+  const key = `CLEO_TOOL_CONCURRENCY_${canonical.toUpperCase().replace(/-/g, '_')}`;
+  const raw = process.env[key];
+  if (raw === undefined || raw === '') return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return null;
+  const effect = parsed <= 0 ? 'bypass' : 'ignored';
+  if (!_deprecationNoticed.has(key)) {
+    _deprecationNoticed.add(key);
+    notice(
+      `${key} is deprecated: heavy runs now share one machine-wide memory budget and no ` +
+        `longer count slots (T13133). ${effect === 'bypass' ? `${key}=${raw} still bypasses admission for now;` : `${key}=${raw} is ignored;`} ` +
+        'use CLEO_RESOURCES_MODE=off to turn admission off.',
     );
   }
+  return effect;
 }
+
+/** Forget which deprecation notices were printed. Tests only. @internal */
+export function _resetToolSemaphoreForTest(): void {
+  _deprecationNoticed.clear();
+}
+
+function withAdmission(release: () => Promise<void>, admission: string): ReleaseSlotFn {
+  return Object.assign(release, { admission });
+}
+
+const NOOP_RELEASE: ReleaseSlotFn = withAdmission(async () => {
+  /* nothing was admitted */
+}, '');
 
 /**
- * Take the governor slot for a heavy run that already holds its tool slot.
- * Returns the grant's release, a no-op when no admission applies, or throws
- * when the governor defers within the remaining wait budget. The governor
- * re-checks the memory gate (pressure may have risen while the run waited for
- * its tool slot) and reports a wait through `reporter`.
+ * Wait for admission of one evidence run of a canonical tool, machine-wide.
+ * Blocks until the ledger admits it or `timeoutMs` elapses.
  *
- * Skipped under an explicit `CLEO_TOOL_CONCURRENCY_<TOOL>` override: the
- * operator's count is authoritative, and the governor's own budget would
- * silently cap it.
- */
-async function admitThroughGovernor(
-  canonical: CanonicalTool,
-  opts: AcquireSlotOptions,
-  remainingMs: number,
-  reporter: MemoryGateReporter,
-): Promise<ReleaseSlotFn> {
-  const cls = governorClassFor(canonical);
-  if (cls === null || opts.skipGovernor === true || hasConcurrencyOverride(canonical)) {
-    return NOOP_RELEASE;
-  }
-  const admission = await governor.acquire(cls, {
-    timeoutMs: Math.max(1, remainingMs),
-    memoryPressure: reporter,
-    ...(opts.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
-    ...(opts.cpuCount !== undefined ? { cpuCount: opts.cpuCount } : {}),
-    ...(opts.totalRamGib !== undefined ? { totalMemBytes: opts.totalRamGib * 1024 ** 3 } : {}),
-    ...(opts.pressureSample ? { sample: opts.pressureSample } : {}),
-  });
-  if (admission.deferred) {
-    // @sync-invariant none:local-only machine-wide admission timeout; no store write
-    throw new Error(
-      `Timed out waiting for the '${cls}' resource budget for a '${canonical}' run: ` +
-        `${admission.reason}. Override with ` +
-        `CLEO_TOOL_CONCURRENCY_${canonical.toUpperCase().replace(/-/g, '_')}=<n>.`,
-    );
-  }
-  return admission.release;
-}
-
-// ---------------------------------------------------------------------------
-// Slot-directory layout
-// ---------------------------------------------------------------------------
-
-/**
- * Path to the global slot directory for a canonical tool. Sits under
- * `getCleoHome()/locks/tool-<canonical>/` so all CLEO-driven processes
- * on a machine share the same semaphore — across projects, worktrees,
- * and PIDs.
- *
- * @task T1534
- */
-export function semaphoreDir(canonical: CanonicalTool): string {
-  return join(getCleoHome(), 'locks', `tool-${canonical}`);
-}
-
-/**
- * Identity of the process currently holding a semaphore slot.
- *
- * `proper-lockfile` decides staleness from the lock's **mtime**, which it
- * refreshes on a timer while the holder lives. That makes a slot held by a
- * process which died without releasing indistinguishable from one held by a
- * legitimately long-running suite: both simply wait out `staleMs` (10 min by
- * default). On a box where evidence runs are frequent, one orphan therefore
- * blocks every later verify for ten minutes with `E_EVIDENCE_TOOL_BUSY` and
- * no indication of who is holding it (gh#1222).
- *
- * Recording the holder turns that into a decidable question: a slot whose
- * owner is a dead pid on this host is orphaned NOW, not in ten minutes, and
- * the operator can be told which process to look at.
- *
- * Since T12963 the record also carries the holder's process start time, the
- * lock directory it describes and the process groups of the tools it started
- * ({@link SlotHolderIdentity}): a slot is orphaned only when the holder pid
- * AND those tool groups are gone, because a tool spawned detached keeps
- * running after a SIGKILLed cleo.
- *
- * @task T12113 (gh#1222)
- * @task T12963
- */
-export interface SlotHolder extends SlotHolderIdentity {
-  /** OS process id of the holder. */
-  pid: number;
-  /** Host that pid is meaningful on. Liveness is only decided on a match. */
-  host: string;
-  /** ISO 8601 timestamp of acquisition — lets the operator judge "stuck vs slow". */
-  acquiredAt: string;
-  /** Canonical tool the slot belongs to. */
-  canonical: string;
-  /** Slot file this holder record describes. */
-  slot: string;
-}
-
-/**
- * Path of the sidecar holder record for a slot.
- *
- * Deliberately a SIBLING of the lock rather than a file inside it:
- * `proper-lockfile` removes its lock directory with `rmdir`, which fails if we
- * have put anything inside it.
- *
- * @internal
- * @task T12113 (gh#1222)
- */
-function holderPath(slotPath: string): string {
-  return `${slotPath}.holder.json`;
-}
-
-/**
- * Record who holds a slot, and keep the record listing every tool group this
- * process starts while it holds the slot (T12963). Best-effort: a failure here
- * must never fail an acquire that has already succeeded, because the slot IS
- * held at that point and throwing would leak it.
- *
- * @returns Stops recording tool groups; call it on release.
- *
- * @internal
- * @task T12113 (gh#1222)
- * @task T12963
- */
-function writeHolder(slotPath: string, canonical: string): () => void {
-  let holder: SlotHolder;
-  const recording = recordToolGroupsWhileHeld(slotPath, () => holder);
-  holder = {
-    pid: process.pid,
-    host: hostname(),
-    acquiredAt: new Date().toISOString(),
-    canonical,
-    slot: slotPath,
-    startedAt: ownProcessStartedAt(),
-    lockId: currentLockId(slotPath),
-    toolGroups: [...recording.groups],
-  };
-  writeHolderRecord(slotPath, holder);
-  return recording.stop;
-}
-
-/**
- * Read a slot's holder record. Returns `null` when absent or unparseable —
- * both mean "we cannot say who holds this", which is treated as alive.
- *
- * @internal
- * @task T12113 (gh#1222)
- */
-export function readHolder(slotPath: string): SlotHolder | null {
-  try {
-    const parsed = JSON.parse(readFileSync(holderPath(slotPath), 'utf-8')) as Partial<SlotHolder>;
-    if (typeof parsed.pid !== 'number' || typeof parsed.host !== 'string') return null;
-    return parsed as SlotHolder;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Is a slot's recorded holder still running?
- *
- * Fails SAFE: an unknown holder, a holder on another host, or any error is
- * reported as ALIVE. Reaping a live holder's slot would let two heavy suites
- * run against one bound — the exact oversubscription the semaphore exists to
- * prevent — so uncertainty must never authorise a reap. A holder whose pid is
- * gone but whose tool group still has a member is ALIVE (T12963).
- *
- * @param holder - Holder record, or `null` when none could be read.
- * @param slotPath - The slot the record belongs to. With it, a record that
- *   does not describe the slot's current lock (or one written before T12963,
- *   which names no lock) is alive, and a recycled pid is dead.
- * @returns `true` when the slot must be treated as legitimately held.
- *
- * @task T12113 (gh#1222)
- * @task T12963
- */
-export function isHolderAlive(holder: SlotHolder | null, slotPath?: string): boolean {
-  return assessSlotHolder(holder, slotPath) !== 'dead';
-}
-
-/**
- * Release a slot whose recorded holder is gone.
- *
- * Removes `proper-lockfile`'s lock directory directly — the same thing its own
- * stale recovery does, but decided by process liveness instead of by a 10
- * minute mtime timeout. Since T12963 the holder's tool groups must be gone
- * too, the record must describe the current lock, and the reap runs under a
- * per-slot guard ({@link reapSlotIfHolderDead}).
- *
- * @param slotPath - Slot lock file path.
- * @param staleMs - The slot's `proper-lockfile` stale threshold.
- * @returns `true` when an orphaned slot was actually reaped.
- *
- * @task T12113 (gh#1222)
- * @task T12963
- */
-export function reapSlotIfOrphaned(
-  slotPath: string,
-  staleMs: number = SLOT_LOCK_STALE_MS,
-): boolean {
-  return reapSlotIfHolderDead(slotPath, readHolder, { staleMs });
-}
-
-/**
- * Enumerate every slot of a canonical tool with its holder and liveness.
- *
- * Backs the operator-facing lock inspection surface requested in gh#1222 —
- * "who is holding this, and is it even alive?" — which previously required
- * reading `~/.local/share/cleo/locks/` by hand.
- *
- * @param canonical - Canonical tool name.
- * @returns One row per existing slot file.
- *
- * @task T12113 (gh#1222)
- */
-export function listSlotHolders(
-  canonical: CanonicalTool,
-): Array<{ slot: string; held: boolean; holder: SlotHolder | null; alive: boolean }> {
-  const dir = semaphoreDir(canonical);
-  if (!existsSync(dir)) return [];
-  const rows: Array<{
-    slot: string;
-    held: boolean;
-    holder: SlotHolder | null;
-    alive: boolean;
-  }> = [];
-  for (let i = 0; ; i++) {
-    const slotPath = join(dir, `slot-${i}.lock`);
-    if (!existsSync(slotPath)) break;
-    const holder = readHolder(slotPath);
-    rows.push({
-      slot: slotPath,
-      held: existsSync(`${slotPath}.lock`),
-      holder,
-      alive: isHolderAlive(holder, slotPath),
-    });
-  }
-  return rows;
-}
-
-/**
- * Reap every orphaned slot of a canonical tool.
- *
- * @param canonical - Canonical tool name.
- * @returns Paths of the slots actually reaped.
- *
- * @task T12113 (gh#1222)
- */
-export function reapOrphanedSlots(canonical: CanonicalTool): string[] {
-  const reaped: string[] = [];
-  for (const row of listSlotHolders(canonical)) {
-    if (row.held && !row.alive && reapSlotIfOrphaned(row.slot)) reaped.push(row.slot);
-  }
-  return reaped;
-}
-
-function ensureSlotFiles(dir: string, count: number): string[] {
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  const paths: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const p = join(dir, `slot-${i}.lock`);
-    if (!existsSync(p)) {
-      writeFileSync(p, '', 'utf-8');
-    }
-    paths.push(p);
-  }
-  return paths;
-}
-
-// ---------------------------------------------------------------------------
-// Acquire / release
-// ---------------------------------------------------------------------------
-
-const NOOP_RELEASE: ReleaseSlotFn = async () => {
-  /* no-op when concurrency is disabled */
-};
-
-/**
- * Acquire one slot from the global semaphore for a canonical tool. Blocks
- * until a slot becomes free or `timeoutMs` elapses.
- *
- * Implementation detail: tries each slot file in turn with `retries: 0`
- * (proper-lockfile non-blocking acquire). When all are busy, sleeps for
- * `pollMs` and retries. This avoids the thundering-herd cost of having
- * many retriers wake at the exact same moment.
+ * Re-entrant: inside an admitted run's process tree (a `cleo verify` that a
+ * `cleo run` job or another evidence run started) it is admitted at once on
+ * that grant. While it waits on memory pressure it says so through
+ * {@link AcquireSlotOptions.notice}, and after a minute it names the holders.
  *
  * @param canonical - Canonical tool name from the resolver.
  * @param opts - Acquisition options.
- * @returns A release function. Idempotent.
- * @throws When `timeoutMs` elapses without acquiring a slot.
+ * @returns A release function carrying the `CLEO_ADMISSION` token. Idempotent.
+ * @throws When `timeoutMs` elapses without admission, naming the reason and
+ *   the holders.
  *
  * @example
  * ```ts
  * const release = await acquireGlobalSlot('test');
  * try {
- *   await runTheTool();
+ *   await runTheTool({ env: { CLEO_ADMISSION: release.admission } });
  * } finally {
  *   await release();
  * }
  * ```
  *
  * @task T1534
+ * @task T13133
  */
 export async function acquireGlobalSlot(
   canonical: CanonicalTool,
   opts: AcquireSlotOptions = {},
 ): Promise<ReleaseSlotFn> {
-  const max = resolveMaxConcurrent(canonical, opts.cpuCount, opts.totalRamGib, opts.platform);
-  if (!Number.isFinite(max) || max <= 0) {
+  const notice = opts.notice ?? stderrNotice;
+  if (opts.skipAdmission === true || legacyConcurrencyOverride(canonical, notice) === 'bypass') {
     return NOOP_RELEASE;
   }
-
-  // T12001 / choke-point #6: shrink the EFFECTIVE slot count for the heavy
-  // test/build classes under memory pressure so builds/tests can't co-schedule
-  // into an OOM. The static slot FILES are still created (stable dir across
-  // pressure swings) — only the acquirable window shrinks, and it recovers as
-  // pressure clears. An explicit CLEO_TOOL_CONCURRENCY_* override is honored
-  // verbatim, and any sampling failure fails OPEN to the static count.
-  let effectiveMax = max;
-  if (isPressureSensitive(canonical) && !hasConcurrencyOverride(canonical)) {
-    const sample =
-      opts.pressureSample !== undefined ? opts.pressureSample : await samplePressureSafe();
-    if (sample) effectiveMax = pressureScaleSlots(canonical, max, sample);
-  }
-
-  const dir = semaphoreDir(canonical);
-  // Create the full static slot set so the directory is stable; only the first
-  // `effectiveMax` are eligible this acquire.
-  const slots = ensureSlotFiles(dir, max);
-  const usableSlots = slots.slice(0, Math.max(1, effectiveMax));
-
-  const timeoutMs = opts.timeoutMs ?? 3_600_000;
-  const pollMs = opts.pollMs ?? 100;
-  const staleMs = opts.staleMs ?? 600_000;
-  const startedAt = Date.now();
-
-  // T13127: refused, not merely narrowed, while memory is short. One reporter
-  // for the whole acquire, so the notices read as one wait.
-  const reporter = memoryGateReporter(opts.notice ?? stderrNotice, `'${canonical}' run`);
-  await waitOutMemoryPressure(canonical, opts, timeoutMs, reporter);
-
-  // Randomise slot order so concurrent acquirers don't collide on slot 0.
-  // The Fisher–Yates shuffle is fine for small N.
-  const order = [...usableSlots.keys()];
-  for (let i = order.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const a = order[i];
-    const b = order[j];
-    if (a !== undefined && b !== undefined) {
-      order[i] = b;
-      order[j] = a;
-    }
-  }
-
-  // At least one pass, however small the budget: the memory-gate sample above
-  // may already have used it, and a probe (`timeoutMs: 1`) must still see a
-  // free slot.
-  for (;;) {
-    for (const idx of order) {
-      const path = slots[idx];
-      if (!path) continue;
-      let acquired: (() => Promise<void>) | null = null;
-      try {
-        acquired = await lockfile.lock(path, { retries: 0, stale: staleMs, realpath: false });
-      } catch {
-        // gh#1222: the slot is held — but by whom? proper-lockfile decides
-        // staleness from mtime, so a process that died without releasing
-        // holds the slot for the full staleMs (10 min) and is
-        // indistinguishable from a legitimately slow suite. Ask the holder
-        // record instead: a dead pid on this host is orphaned NOW. Fails
-        // safe — an unknown or remote holder is treated as alive.
-        if (reapSlotIfOrphaned(path, staleMs)) {
-          try {
-            acquired = await lockfile.lock(path, { retries: 0, stale: staleMs, realpath: false });
-          } catch {
-            acquired = null; // someone else won the race for the reaped slot
-          }
-        }
-      }
-      if (acquired) {
-        const release = acquired;
-        const stopRecording = writeHolder(path, canonical);
-        const releaseSlot = async (): Promise<void> => {
-          stopRecording();
-          // Record first, lock second: once the lock is gone the next holder
-          // writes its own record, which ours must not delete (T12963).
-          try {
-            rmSync(holderPath(path), { force: true });
-          } catch {
-            /* best-effort — a stale holder record is only ever advisory */
-          }
-          try {
-            await release();
-          } catch {
-            // proper-lockfile throws if the lock was already released
-            // (e.g. via stale recovery). Swallow — the post-condition
-            // is "slot is free", which is true either way.
-          }
-        };
-        // T12963: the governor slot is taken AFTER the tool slot, so a run
-        // queued on the tool semaphore holds no governor budget while it waits.
-        let releaseGrant: ReleaseSlotFn;
-        try {
-          releaseGrant = await admitThroughGovernor(
-            canonical,
-            opts,
-            timeoutMs - (Date.now() - startedAt),
-            reporter,
-          );
-        } catch (err) {
-          await releaseSlot();
-          throw err;
-        }
-        let released = false;
-        return async () => {
-          if (released) return;
-          released = true;
-          await releaseGrant();
-          await releaseSlot();
-        };
-      }
-    }
-    // All slots busy — sleep and retry.
-    if (Date.now() - startedAt >= timeoutMs) break;
-    await sleep(pollMs);
-  }
-
-  // gh#1222: name the holders. "Everything is busy" with no way to see WHO is
-  // what made an orphaned slot look like a broken semaphore.
-  const holders = listSlotHolders(canonical)
-    .filter((r) => r.held)
-    .map((r) => {
-      const h = r.holder;
-      if (!h) return `${r.slot}: holder unknown`;
-      const groups = h.toolGroups?.length ? ` with tool group(s) ${h.toolGroups.join(',')}` : '';
-      return `${r.slot}: pid ${h.pid} on ${h.host}${groups} since ${h.acquiredAt}${r.alive ? '' : ' (DEAD)'}`;
-    });
-  throw new Error(
-    `Timed out after ${timeoutMs}ms waiting for a free '${canonical}' tool slot ` +
-      `(max ${max} concurrent).` +
-      (holders.length > 0 ? ` Current holders — ${holders.join('; ')}.` : '') +
-      ` Override with CLEO_TOOL_CONCURRENCY_${canonical.toUpperCase().replace(/-/g, '_')}=<n>.`,
+  const totalBytes = opts.totalRamGib !== undefined ? opts.totalRamGib * 1024 ** 3 : undefined;
+  const fixed = opts.pressureSample;
+  const outcome = await admit(
+    {
+      label: `tool:${canonical}`,
+      footprintBytes: opts.footprintBytes ?? footprintForTool(canonical, totalBytes),
+    },
+    {
+      wait: true,
+      timeoutMs: opts.timeoutMs ?? 3_600_000,
+      ...(opts.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
+      ...(totalBytes !== undefined ? { capacityBytes: admissionCapacityBytes(totalBytes) } : {}),
+      sample: async () => {
+        if (fixed === null) throw new Error('pressure disabled');
+        return fixed ?? new ResourceMonitor().sample();
+      },
+      memoryPressure: memoryGateReporter(notice, `'${canonical}' run`),
+      notice,
+    },
   );
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+  if (!outcome.admitted) {
+    const { refusal } = outcome;
+    // @sync-invariant none:local-only machine-wide admission timeout; no store write
+    throw new Error(
+      `Timed out waiting for admission of a '${canonical}' run: ${refusal.reason}.` +
+        (refusal.holders.length > 0 ? ` Current holders — ${refusal.holders.join('; ')}.` : '') +
+        ' Use CI as test evidence (ci:<pr>), narrow the run, or set CLEO_RESOURCES_MODE=off.',
+    );
+  }
+  const { grant } = outcome;
+  if (grant.ungoverned) {
+    notice(
+      `admission ledger is not writable (${grant.ungoverned.code}${grant.ungoverned.path ? ` ${grant.ungoverned.path}` : ''}): running the '${canonical}' run ungoverned`,
+    );
+  }
+  return withAdmission(() => grant.release(), grant.token);
 }

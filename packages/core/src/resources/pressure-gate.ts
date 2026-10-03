@@ -2,13 +2,13 @@
  * The memory gate: heavy work is refused, not merely narrowed, while the
  * machine is short of memory (T13127).
  *
- * Budgets alone can only narrow: the governor's heavy classes floor at one
+ * Budgets alone can only narrow: the governor's heavy classes floored at one
  * slot, so under any pressure one more test suite or build was always
- * admitted, however full swap was. This gate refuses the heavy classes
- * ({@link MEMORY_GATED_CLASSES}, plus typecheck evidence runs) while memory
- * pressure is above {@link MEMORY_GATE_REFUSE_ABOVE}. Callers that wait
- * (`cleo run --wait`, evidence runs) report "waiting: memory pressure" with
- * the readings and start when it falls.
+ * admitted, however full swap was. This gate refuses heavy work (everything
+ * the admission ledger admits, `admission-ledger.ts`) while memory pressure is
+ * above {@link MEMORY_GATE_REFUSE_ABOVE}. Callers that wait (`cleo run
+ * --wait`, evidence runs) report "waiting: memory pressure" with the readings
+ * and start when it falls.
  *
  * ## One signal on every platform
  *
@@ -43,7 +43,7 @@
 
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
+import type { MemoryPressureReading } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
 import type { ResourceSample } from './backend.js';
 
@@ -65,34 +65,11 @@ export const MEMORY_GATE_LATCH_TTL_MS = 60_000;
 /** A refusing latch is rewritten when it is this old, so active waiters keep it alive. */
 const LATCH_REFRESH_MS = 10_000;
 
-/** How often a waiter re-samples while the gate refuses. */
-export const MEMORY_GATE_POLL_MS = 1_000;
-
 /** Back-off hint on a memory-pressure deferral: pressure does not clear in seconds. */
 export const MEMORY_GATE_RETRY_AFTER_MS = 10_000;
 
 /** A waiter repeats its "waiting: memory pressure" notice at most this often. */
 export const MEMORY_GATE_NOTICE_INTERVAL_MS = 60_000;
-
-/**
- * Governor classes the gate refuses: the test, build, typecheck and install
- * work `cleo run` admits (typecheck/install/scan map to `scoped-build`), and
- * the machine-wide full build.
- */
-export const MEMORY_GATED_CLASSES: ReadonlySet<ResourceClass> = new Set<ResourceClass>([
-  'test-run',
-  'scoped-build',
-  'full-build',
-]);
-
-/**
- * Whether the memory gate applies to a governor class.
- *
- * @param cls - the governor class.
- */
-export function isMemoryGated(cls: ResourceClass): boolean {
-  return MEMORY_GATED_CLASSES.has(cls);
-}
 
 /** The gate's decision for one sample. */
 export interface MemoryGateVerdict {
@@ -357,76 +334,4 @@ export function memoryGateReporter(
       );
     },
   };
-}
-
-// ---------------------------------------------------------------------------
-// Waiting on the gate alone (no governor slot)
-// ---------------------------------------------------------------------------
-
-/** Options for {@link waitForMemoryGate}. */
-export interface MemoryGateWaitOptions {
-  /** Give up after this long. */
-  readonly timeoutMs: number;
-  /** One sample; `null` (or a throw) means no signal, which admits. */
-  readonly sample: () => Promise<ResourceSample | null>;
-  /** Re-sample cadence while refused. @defaultValue {@link MEMORY_GATE_POLL_MS} */
-  readonly pollMs?: number;
-  /** Notices while waiting. */
-  readonly reporter?: MemoryGateReporter;
-  /** Clock. @defaultValue Date.now */
-  readonly now?: () => number;
-  /** Wait. @defaultValue setTimeout */
-  readonly sleep?: (ms: number) => Promise<void>;
-  /** Latch file. @defaultValue {@link memoryGatePath} */
-  readonly path?: string;
-}
-
-/** Result of {@link waitForMemoryGate}. */
-export type MemoryGateWaitResult =
-  | { readonly admitted: true; readonly waitedMs: number }
-  | {
-      readonly admitted: false;
-      readonly waitedMs: number;
-      readonly reading: MemoryPressureReading;
-    };
-
-/**
- * Wait until the gate admits, or the timeout passes. For heavy work that takes
- * no governor slot (typecheck evidence runs); governed classes are gated
- * inside the governor's acquire.
- *
- * @param opts - timeout, sampler and reporting.
- */
-export async function waitForMemoryGate(
-  opts: MemoryGateWaitOptions,
-): Promise<MemoryGateWaitResult> {
-  const now = opts.now ?? Date.now;
-  const sleep =
-    opts.sleep ??
-    ((ms: number) =>
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, ms);
-      }));
-  const startedAt = now();
-  for (;;) {
-    let sample: ResourceSample | null;
-    try {
-      sample = await opts.sample();
-    } catch {
-      sample = null;
-    }
-    const waitedMs = now() - startedAt;
-    const verdict =
-      sample === null
-        ? { refuse: false, reading: null }
-        : checkMemoryGate(sample, { now, ...(opts.path ? { path: opts.path } : {}) });
-    if (!verdict.refuse || verdict.reading === null) {
-      opts.reporter?.admitted(waitedMs, verdict.reading?.score ?? null);
-      return { admitted: true, waitedMs };
-    }
-    const remaining = opts.timeoutMs - waitedMs;
-    if (remaining <= 0) return { admitted: false, waitedMs, reading: verdict.reading };
-    opts.reporter?.waiting(verdict.reading, waitedMs);
-    await sleep(Math.min(opts.pollMs ?? MEMORY_GATE_POLL_MS, remaining));
-  }
 }

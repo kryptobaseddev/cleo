@@ -662,10 +662,10 @@ function isCleoCommand(t: CommandTarget): boolean {
  * is meant to keep the machine moving.
  *
  * CLEO's own commands are never paused either (#1777 R7-1): `cleo verify
- * --evidence tool:test` holds the tool-semaphore and tool-cache locks and
- * spawns its heavy tool DETACHED, out of the paused group. A pause would
- * freeze only the lock holder while the test keeps running; its locks stop
- * refreshing, go stale and are taken, and it crashes on resume.
+ * --evidence tool:test` holds the tool-cache lock and spawns its heavy tool
+ * DETACHED, out of the paused group. A pause would freeze only the lock
+ * holder while the test keeps running; its lock stops refreshing, goes stale
+ * and is taken, and it crashes on resume.
  */
 export function isPausable(cls: ResourceClass, argv: readonly string[]): boolean {
   if (cls === 'db-heavy') return false;

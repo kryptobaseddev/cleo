@@ -10,8 +10,6 @@
  *     touched by a sample without a signal, and degrades when unwritable
  *   - describeMemoryPressure: darwin readings and Linux PSI in one line
  *   - memoryGateReporter: first notice at once, repeats throttled, resume line
- *   - waitForMemoryGate: waits and starts when pressure falls; times out with
- *     the readings; a failing sampler admits
  *
  * @task T13127
  */
@@ -27,7 +25,6 @@ import {
   evaluateMemoryGate,
   MEMORY_GATE_LATCH_TTL_MS,
   memoryGateReporter,
-  waitForMemoryGate,
 } from '../pressure-gate.js';
 
 const GIB = 1024 ** 3;
@@ -260,71 +257,5 @@ describe('memoryGateReporter', () => {
     expect(lines[2]).toBe(
       'memory pressure fell (now 12) after waiting 1m 05s: admitting the test run.',
     );
-  });
-});
-
-describe('waitForMemoryGate', () => {
-  function clock() {
-    const c = { t: 1_000_000 };
-    return {
-      c,
-      now: () => c.t,
-      sleep: async (ms: number) => {
-        c.t += ms;
-      },
-    };
-  }
-
-  it('waits while refused and starts when pressure falls, reporting both', async () => {
-    const { now, sleep } = clock();
-    const series = [40, 30, 20, 12];
-    let i = 0;
-    const lines: string[] = [];
-    const result = await waitForMemoryGate({
-      timeoutMs: 60_000,
-      sample: async () => sampleAt(series[Math.min(i++, series.length - 1)] ?? 0),
-      reporter: memoryGateReporter((l) => lines.push(l), 'typecheck run', {
-        now,
-        intervalMs: 1_000,
-      }),
-      now,
-      sleep,
-      path: latch,
-    });
-    expect(result).toEqual({ admitted: true, waitedMs: 3_000 });
-    expect(lines.filter((l) => l.startsWith('waiting: memory pressure'))).toHaveLength(3);
-    expect(lines.at(-1)).toBe(
-      'memory pressure fell (now 12) after waiting 3s: admitting the typecheck run.',
-    );
-  });
-
-  it('gives up at the timeout with the readings', async () => {
-    const { now, sleep } = clock();
-    const result = await waitForMemoryGate({
-      timeoutMs: 5_000,
-      sample: async () => sampleAt(50),
-      now,
-      sleep,
-      path: latch,
-    });
-    expect(result.admitted).toBe(false);
-    if (result.admitted) return;
-    expect(result.waitedMs).toBe(5_000);
-    expect(result.reading.score).toBe(50);
-  });
-
-  it('a failing sampler admits at once: a broken signal never blocks work', async () => {
-    const { now, sleep } = clock();
-    checkMemoryGate(sampleAt(50), { path: latch, now });
-    const result = await waitForMemoryGate({
-      timeoutMs: 60_000,
-      sample: async () => {
-        throw new Error('sysctl unavailable');
-      },
-      now,
-      sleep,
-      path: latch,
-    });
-    expect(result).toEqual({ admitted: true, waitedMs: 0 });
   });
 });

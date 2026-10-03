@@ -1,6 +1,7 @@
 /**
- * Holder records for local lock slots: the governor's class slots and the
- * tool semaphore's per-tool slots (T12963, gh#1222).
+ * Holder records for the governor's local class slots (T12963, gh#1222). The
+ * heavy classes and evidence runs moved to the admission ledger (T13133); the
+ * classes left (`agent-session`, `db-heavy`, …) still use slots.
  *
  * `proper-lockfile` frees a slot whose holder died only after
  * {@link SLOT_LOCK_STALE_MS} (10 min) of mtime staleness. With a one-slot
@@ -36,8 +37,7 @@ function log(): ReturnType<typeof getLogger> {
 
 /**
  * A slot lock older than this may be stolen (its holder presumed dead): the
- * `proper-lockfile` stale window of every governor slot, and the default of
- * every tool-semaphore slot.
+ * `proper-lockfile` stale window of every governor slot.
  */
 export const SLOT_LOCK_STALE_MS = 600_000;
 
@@ -129,11 +129,10 @@ export type GovernorHolderState = 'alive' | 'dead' | 'unknown';
 
 /**
  * A lock mtime younger than this was refreshed by a live holder, which is
- * then taken as the holder without spawning `ps`. It must cover the slowest
- * refresher among the slots judged here: governor slots refresh every
- * {@link SLOT_LOCK_UPDATE_MS} (15 s), tool-semaphore slots at
- * `proper-lockfile`'s default of half their stale window (5 min); plus slack
- * for a busy event loop. A holder frozen by a paused `cleo run` job stops
+ * then taken as the holder without spawning `ps`. Governor slots refresh every
+ * {@link SLOT_LOCK_UPDATE_MS} (15 s); the window stays at half the stale
+ * window (as for the tool semaphore's slots, which it once also covered),
+ * plus slack for a busy event loop. A holder frozen by a paused `cleo run` job stops
  * refreshing but keeps its pid and start time, so it stays alive after the
  * window too.
  */
@@ -184,8 +183,14 @@ export function ownProcessStartedAt(): string | null {
   return _ownStartedAt;
 }
 
-/** Default probe: `kill(pid, 0)`, `kill(-pgid, 0)` and a cached `ps` start time. */
-const defaultPidProbe: PidProbe = {
+/**
+ * The system probe: `kill(pid, 0)`, `kill(-pgid, 0)` and a cached `ps` start
+ * time (the same format {@link ownProcessStartedAt} writes).
+ *
+ * @task T12963
+ * @task T13133
+ */
+export const systemPidProbe: PidProbe = {
   liveness(pid) {
     if (!isProbeableId(pid)) return 'unknown';
     try {
@@ -392,7 +397,7 @@ function assessToolGroups(groups: unknown, probe: PidProbe): GovernorHolderState
 export function assessSlotHolder(
   holder: SlotHolderIdentity | null,
   slotPath?: string,
-  probe: PidProbe = defaultPidProbe,
+  probe: PidProbe = systemPidProbe,
 ): GovernorHolderState {
   if (holder === null || holder.host !== hostname() || !isProbeableId(holder.pid)) {
     return 'unknown';
@@ -420,7 +425,7 @@ export function assessSlotHolder(
 export function assessGovernorHolder(
   holder: GovernorSlotHolder | null,
   slotPath: string,
-  probe: PidProbe = defaultPidProbe,
+  probe: PidProbe = systemPidProbe,
 ): GovernorHolderState {
   return assessSlotHolder(holder, slotPath, probe);
 }
@@ -449,7 +454,7 @@ export function reapSlotIfHolderDead(
   opts: { staleMs?: number; probe?: PidProbe } = {},
 ): boolean {
   const staleMs = opts.staleMs ?? SLOT_LOCK_STALE_MS;
-  const probe = opts.probe ?? defaultPidProbe;
+  const probe = opts.probe ?? systemPidProbe;
   if (assessSlotHolder(readHolder(slotPath), slotPath, probe) !== 'dead') return false;
   let releaseGuard: () => void;
   try {

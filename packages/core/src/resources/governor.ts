@@ -14,14 +14,14 @@
  *   `getCleoHome()/locks/resource-<class>/` arbitrated by `proper-lockfile`
  *   (crash-stale auto-release ⇒ genuinely cross-process without a daemon),
  *   plus a point-sample of the {@link ResourceMonitor} taken INSIDE acquire.
- *   Generalizes the tool-semaphore engine (`tool-semaphore.ts`).
  * - `off` — pure pass-through.
  *
- * `interactive-cli` is NEVER gated; `full-build` is pinned to one machine-wide
- * slot. The heavy classes (`test-run`, `scoped-build`, `full-build`) are
- * refused outright while memory pressure is above the memory gate
- * (`pressure-gate.ts`, T13127); a blocking acquire waits for it to fall,
- * re-sampling as it waits.
+ * `interactive-cli` is NEVER gated. The heavy classes (`test-run`,
+ * `scoped-build`, `full-build`) are not slot classes any more: they are
+ * admitted by the admission ledger (`admission-ledger.ts`, T13133), one byte
+ * budget and one FIFO queue shared with evidence runs, gated by memory
+ * pressure (T13127) and re-entrant for nested runs. The governor delegates to
+ * it, so there is one admission point for heavy work.
  *
  * A local slot whose holder process is provably gone is reaped at once instead
  * of waiting out the 10 min stale timeout (T12963), as the tool semaphore does
@@ -30,6 +30,7 @@
  * @task T11999
  * @task T12963
  * @task T13127
+ * @task T13133
  * @epic T11992
  * @adr resource-governor-never-oom-architecture §3.4
  */
@@ -41,24 +42,32 @@ import {
   type AdmissionResult,
   DEFAULT_RESOURCE_RETRY_AFTER_MS,
   type GovernorMode,
-  type MemoryPressureReading,
   type ResourceClass,
   type ResourceDeferral,
   type ResourceGrant,
 } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
+import {
+  _resetAdmissionLedgerForTest,
+  type AdmissionIoError,
+  admissionCapacityBytes,
+  admissionIoError,
+  admit,
+  budgetShare,
+  footprintForClass,
+  isLedgerClass,
+  readLedger,
+} from './admission-ledger.js';
 import type { ResourceSample } from './backend.js';
 import { pressureScore, ResourceMonitor } from './monitor.js';
 import {
   _resetMemoryGateForTest,
   checkMemoryGate,
-  isMemoryGated,
-  MEMORY_GATE_POLL_MS,
-  MEMORY_GATE_RETRY_AFTER_MS,
+  evaluateMemoryGate,
   type MemoryGateReporter,
 } from './pressure-gate.js';
-import { insideRunJob, parentRunJob } from './run-admission.js';
+import { parentRunJob } from './run-admission.js';
 import { _resetSlotHolderStateForTest, describeSlotHolders, lockSlot } from './slot-holder.js';
 import {
   resolveSupervisorSocketPath,
@@ -116,6 +125,7 @@ export function _resetGovernorStateForTest(): void {
   _supervisorDegradeLogged = false;
   _resetSlotHolderStateForTest();
   _resetMemoryGateForTest();
+  _resetAdmissionLedgerForTest();
 }
 
 // ---------------------------------------------------------------------------
@@ -128,18 +138,9 @@ export interface BudgetOptions {
   readonly headroomMb?: number;
   /** Estimated RAM per agent session (incl. ~300 MB MCP suite), MiB. Default 4096. */
   readonly agentEstRamMb?: number;
-  /**
-   * Estimated worst-case RAM for ONE `test-run` / `scoped-build`, in MiB.
-   * Default 24576 (24 GiB) — a full `pnpm run test` is permitted 6 vitest forks
-   * × a 4 GiB heap cap by `vitest.memory-safe.ts`, and the governor has to
-   * admit against what a run may actually hold, not what it usually holds.
-   *
-   * @task T12091
-   */
-  readonly testRunEstRamMb?: number;
-  /** `some avg10` (pp) at/above which test/build budgets halve. Default 10. */
+  /** `some avg10` (pp) above which background work is refused. Default 10. */
   readonly holdSomeAvg10?: number;
-  /** `some avg10` (pp) at/above which test/build budgets floor to 1. Default 25. */
+  /** `some avg10` (pp) above which db-heavy work is refused. Default 25. */
   readonly floorSomeAvg10?: number;
   /** Override CPU count (tests). Default {@link availableParallelism}. */
   readonly cpuCount?: number;
@@ -159,16 +160,12 @@ function someAvg10(sample: ResourceSample): number {
  * Compute the slot budget for a class given a point-sample.
  *
  * - `interactive-cli` → `Infinity` (never gated).
- * - `full-build` → `1` machine-wide.
+ * - `test-run` / `scoped-build` / `full-build` → admitted by the admission
+ *   ledger in bytes (T13133); the number here is a count view of that budget:
+ *   how many default-footprint runs it holds under the current pressure share
+ *   (`0` while the memory gate refuses, `1` when CPU-saturated, half at hold,
+ *   at least `1` otherwise).
  * - `agent-session` → `clamp(1, ⌊(MemAvailable − headroom)/estRamMb⌋, cpus−2)`.
- * - `test-run` / `scoped-build` → `clamp(1, ⌊(MemAvailable − headroom)/estRamMb⌋,
- *   ⌊cpus/4⌋)`, ×0.5 when `some>hold`, floored to 1 when `some>floor` (T12091:
- *   was core-only, which authorised 144 GiB of heap on a 62 GiB box).
- *
- * A budget only narrows. Refusing the heavy classes outright while memory is
- * short is the memory gate's job (`pressure-gate.ts`, T13127), applied by
- * {@link ResourceGovernor.acquire} and {@link ResourceGovernor.available} with
- * its hysteresis and the nested-run exemption.
  * - `llm-call` → `max(1, cpus−2)` (primarily gated by the llm-queue elsewhere).
  * - `db-heavy` → `1`, deferred (→0) under `backoff`-level pressure.
  * - `background-autonomous` → `1` only when pressure is `ok`, else `0`.
@@ -193,9 +190,17 @@ export function computeClassBudget(
   const fullStall = sample.globalPressure?.full?.avg10 ?? sample.slicePressure?.full?.avg10 ?? 0;
   const backoff = some > floor || fullStall > 10;
 
+  if (isLedgerClass(cls)) {
+    const share = budgetShare(sample, evaluateMemoryGate(sample, false).refuse);
+    if (share === 'none') return 0;
+    if (share === 'one') return 1;
+    const capacity = admissionCapacityBytes(totalBytes);
+    const footprint = Math.min(footprintForClass(cls, totalBytes), capacity);
+    const budget = share === 'half' ? capacity / 2 : capacity;
+    return Math.max(1, Math.floor(budget / footprint));
+  }
+
   switch (cls) {
-    case 'full-build':
-      return 1;
     case 'agent-session': {
       const estRamBytes = (opts.agentEstRamMb ?? 4096) * MB;
       const byMem = Math.floor((availBytes - headroomBytes) / estRamBytes);
@@ -203,21 +208,6 @@ export function computeClassBudget(
     }
     case 'llm-call':
       return Math.max(1, cpus - 2);
-    case 'test-run':
-    case 'scoped-build': {
-      // T12091: this was core-only — `max(1, ⌊cpus/4⌋)` — which on a 24-core
-      // box admitted 6 concurrent runs. Each run is itself allowed 6 vitest
-      // forks × 4 GiB, so the governor was authorising 144 GiB of heap on a
-      // 62 GiB machine and the box froze without any single bound being
-      // violated. What limits a test run is MEMORY; cores say nothing about it.
-      // Mirrors the `agent-session` shape, which had this right all along.
-      const estRamBytes = (opts.testRunEstRamMb ?? 24576) * MB;
-      const byMem = Math.floor((availBytes - headroomBytes) / estRamBytes);
-      const base = clamp(1, byMem, Math.max(1, Math.floor(cpus / 4)));
-      if (some > floor) return 1;
-      if (some > hold) return Math.max(1, Math.floor(base / 2));
-      return base;
-    }
     case 'db-heavy':
       return backoff ? 0 : 1;
     case 'background-autonomous':
@@ -232,7 +222,7 @@ function clamp(lo: number, v: number, hi: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Local-mode slot engine (generalizes tool-semaphore.ts)
+// Local-mode slot engine (classes outside the admission ledger)
 // ---------------------------------------------------------------------------
 
 /**
@@ -278,33 +268,18 @@ function deferral(cls: ResourceClass, reason: string, retryAfterMs: number): Res
   return { deferred: true, class: cls, retryAfterMs, reason };
 }
 
-/** Filesystem errors meaning the governor's state can't be written here. */
-const GOVERNOR_IO_CODES = new Set([
-  'EACCES',
-  'EPERM',
-  'EROFS',
-  'ENOSPC',
-  'EDQUOT',
-  'ENOTDIR',
-  'ELOOP',
-]);
-
 /** Why the governor could not keep its state: the errno code and the path, when known. */
-export interface GovernorIoError {
-  readonly code: string;
-  readonly path: string | null;
-}
+export type GovernorIoError = AdmissionIoError;
 
 /**
  * The code and path of an error that means "the governor cannot keep state here" (a sandbox that
  * blocks writes to the CLEO home, a read-only or full disk, a broken CLEO home), or null for any
- * other error, which is a bug and must not be hidden.
+ * other error, which is a bug and must not be hidden. The same rule as the admission ledger's.
+ *
+ * @param err - a caught error.
  */
 export function governorIoError(err: unknown): GovernorIoError | null {
-  const e = err as NodeJS.ErrnoException | null;
-  if (!e || typeof e !== 'object' || typeof e.code !== 'string') return null;
-  if (!GOVERNOR_IO_CODES.has(e.code)) return null;
-  return { code: e.code, path: typeof e.path === 'string' ? e.path : null };
+  return admissionIoError(err);
 }
 
 /**
@@ -375,16 +350,6 @@ export interface AcquireOptions extends BudgetOptions {
   readonly memoryPressure?: MemoryGateReporter;
 }
 
-/** A sample with no pressure signal: what a failed sample counts as. */
-const NO_SIGNAL_SAMPLE: ResourceSample = {
-  sampledAtMs: 0,
-  pressureAvailable: false,
-  memAvailableBytes: null,
-  globalPressure: null,
-  slicePressure: null,
-  walObservations: [],
-};
-
 /**
  * One sample for an admission pass: the injected one, else a fresh
  * point-sample. A sampling error counts as no signal, never as pressure.
@@ -397,31 +362,72 @@ async function sampleForAdmission(
   try {
     return await monitor().sample();
   } catch {
-    return NO_SIGNAL_SAMPLE;
+    return {
+      sampledAtMs: 0,
+      pressureAvailable: false,
+      memAvailableBytes: null,
+      globalPressure: null,
+      slicePressure: null,
+      walObservations: [],
+    };
   }
 }
 
 /**
- * The deferral for a memory-gate refusal: the readings, and how long a
- * blocking caller waited.
+ * Admit a ledger class (`test-run`, `scoped-build`, `full-build`) through the
+ * admission ledger, as a governor {@link AdmissionResult}.
  */
-function memoryPressureDeferral(
+async function admitThroughLedger(
   cls: ResourceClass,
-  reading: MemoryPressureReading,
-  waitedMs: number | null,
-): ResourceDeferral {
-  const above = reading.latched
-    ? `is still above ${reading.resumeAtOrBelow} (refused above ${reading.refuseAbove})`
-    : `is above ${reading.refuseAbove}`;
+  opts: AcquireOptions,
+): Promise<AdmissionResult> {
+  const fixed = opts.sample;
+  const monitor = opts.monitor;
+  const out = await admit(
+    { label: `class:${cls}`, footprintBytes: footprintForClass(cls, opts.totalMemBytes) },
+    {
+      wait: opts.blocking ?? true,
+      timeoutMs: opts.timeoutMs ?? 3_600_000,
+      ...(opts.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
+      ...(opts.totalMemBytes !== undefined
+        ? { capacityBytes: admissionCapacityBytes(opts.totalMemBytes) }
+        : {}),
+      ...(fixed
+        ? { sample: async () => fixed }
+        : monitor
+          ? { sample: () => monitor.sample() }
+          : {}),
+      ...(opts.memoryPressure ? { memoryPressure: opts.memoryPressure } : {}),
+    },
+  );
+  if (!out.admitted) {
+    return {
+      ...deferral(
+        cls,
+        out.refusal.holders.length > 0
+          ? `${out.refusal.reason}; held by ${out.refusal.holders.join('; ')}`
+          : out.refusal.reason,
+        out.refusal.retryAfterMs,
+      ),
+      ...(out.refusal.memoryPressure ? { memoryPressure: out.refusal.memoryPressure } : {}),
+    };
+  }
+  const { grant } = out;
+  if (grant.ungoverned) {
+    // Same contract as a local slot dir that cannot be written: callers fail open.
+    const err: NodeJS.ErrnoException = new Error(
+      `admission ledger not writable: ${grant.ungoverned.code}`,
+    );
+    err.code = grant.ungoverned.code;
+    if (grant.ungoverned.path) err.path = grant.ungoverned.path;
+    throw err;
+  }
   return {
-    deferred: true,
+    deferred: false,
     class: cls,
-    retryAfterMs: MEMORY_GATE_RETRY_AFTER_MS,
-    reason:
-      `memory pressure ${reading.score} ${above} (${reading.summary}); ` +
-      `'${cls}' starts when it falls to ${reading.resumeAtOrBelow} or below` +
-      (waitedMs === null ? '' : `; waited ${Math.round(waitedMs / 1000)}s`),
-    memoryPressure: reading,
+    slot: grant.id === null ? -1 : 0,
+    acquiredAtMs: Date.now(),
+    release: () => grant.release(),
   };
 }
 
@@ -448,6 +454,9 @@ export class ResourceGovernor {
     if (mode === 'off' || cls === 'interactive-cli') {
       return passThroughGrant(cls);
     }
+    // T13133: test, build and full-build runs share the admission ledger's
+    // one byte budget and FIFO queue; its re-entrancy covers nested runs.
+    if (isLedgerClass(cls)) return admitThroughLedger(cls, opts);
     // Inside a running `cleo run` job (e.g. `cleo run -- cleo verify`), the
     // job's slot already covers this process tree: waiting for another slot
     // of a budget-1 class would wait on ourselves (#1777 round 3, M-2). The
@@ -468,36 +477,9 @@ export class ResourceGovernor {
     const pollMs = opts.pollMs ?? 200;
     const startedAt = Date.now();
     const remaining = (): number => timeoutMs - (Date.now() - startedAt);
-    let waitedOnPressure = false;
-    // Work nested in an admitted `cleo run` job is part of that admission:
-    // never held back by the gate, or the job would wait on its own child.
-    // Looked up once, and only when the gate refuses.
-    let nested: boolean | null = null;
-    const nestedInRunJob = (): boolean => {
-      nested ??= insideRunJob();
-      return nested;
-    };
 
     for (;;) {
       const sample = await sampleForAdmission(opts, lazyMonitor);
-
-      // T13127: refused, not narrowed, while memory is short. The shared latch
-      // gives the gate its hysteresis across every waiting process.
-      if (isMemoryGated(cls)) {
-        const gate = checkMemoryGate(sample);
-        if (gate.refuse && gate.reading !== null && !nestedInRunJob()) {
-          const waitedMs = Date.now() - startedAt;
-          if (!blocking || remaining() <= 0) {
-            return memoryPressureDeferral(cls, gate.reading, blocking ? waitedMs : null);
-          }
-          opts.memoryPressure?.waiting(gate.reading, waitedMs);
-          waitedOnPressure = true;
-          // Pressure moves in seconds: re-sample once a second unless told otherwise.
-          await sleep(Math.min(opts.pollMs ?? MEMORY_GATE_POLL_MS, remaining()));
-          continue;
-        }
-      }
-
       const budget = computeClassBudget(cls, sample, opts);
       if (!Number.isFinite(budget)) return passThroughGrant(cls);
       if (budget <= 0) {
@@ -511,13 +493,6 @@ export class ResourceGovernor {
         await sleep(Math.min(pollMs, remaining()));
         continue;
       }
-      const admitted = (grant: AdmissionResult): AdmissionResult => {
-        if (!grant.deferred && waitedOnPressure) {
-          const mem = sample.globalPressure ?? sample.slicePressure;
-          opts.memoryPressure?.admitted(Date.now() - startedAt, mem ? mem.some.avg10 : null);
-        }
-        return grant;
-      };
 
       // Supervisor mode (T12001): route the count enforcement through the central
       // Rust arbiter so heavy ops are bounded machine-wide. The client computes the
@@ -526,7 +501,7 @@ export class ResourceGovernor {
       // engine below — never a deadlock.
       if (mode === 'supervisor') {
         const viaSupervisor = await this.acquireViaSupervisor(cls, Math.floor(budget));
-        if (viaSupervisor !== null) return admitted(viaSupervisor);
+        if (viaSupervisor !== null) return viaSupervisor;
       }
 
       const slots = ensureSlotFiles(governorSlotDir(cls), budget);
@@ -540,13 +515,7 @@ export class ResourceGovernor {
           // T12963: a busy slot whose holder is provably dead is reaped here.
           const release = await lockSlot(path, cls);
           if (release) {
-            return admitted({
-              deferred: false,
-              class: cls,
-              slot: idx,
-              acquiredAtMs: Date.now(),
-              release,
-            });
+            return { deferred: false, class: cls, slot: idx, acquiredAtMs: Date.now(), release };
           }
         } catch (err) {
           // Anything but a held lock is not "busy" (#1777 round 8, R8-1).
@@ -623,8 +592,7 @@ export class ResourceGovernor {
       return Number.POSITIVE_INFINITY;
     }
     const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
-    // T13127: nothing is grantable while the memory gate refuses the class.
-    if (isMemoryGated(cls) && checkMemoryGate(sample).refuse && !insideRunJob()) return 0;
+    if (isLedgerClass(cls)) return ledgerRunsAvailable(cls, sample, opts);
     const budget = computeClassBudget(cls, sample, opts);
     if (!Number.isFinite(budget)) return Number.POSITIVE_INFINITY;
     if (budget <= 0) return 0;
@@ -645,6 +613,30 @@ function shuffledIndices(n: number): number[] {
     }
   }
   return order;
+}
+
+/**
+ * How many more default-footprint runs of a ledger class the admission
+ * ledger would admit now (read without its lock): the free share of the byte
+ * budget under the current pressure, `1` when nothing is running and the
+ * memory gate is open, `0` while it refuses.
+ */
+function ledgerRunsAvailable(
+  cls: ResourceClass,
+  sample: ResourceSample,
+  opts: AcquireOptions,
+): number {
+  const totalBytes = opts.totalMemBytes ?? totalmem();
+  const share = budgetShare(sample, checkMemoryGate(sample).refuse);
+  if (share === 'none') return 0;
+  const capacity = admissionCapacityBytes(totalBytes);
+  const admitted = readLedger().filter((e) => e.state === 'admitted');
+  if (admitted.length === 0) return Math.max(1, computeClassBudget(cls, sample, opts));
+  if (share === 'one') return 0;
+  const used = admitted.reduce((n, e) => n + Math.min(e.footprintBytes, capacity), 0);
+  const budget = share === 'half' ? capacity / 2 : capacity;
+  const footprint = Math.min(footprintForClass(cls, totalBytes), capacity);
+  return Math.max(0, Math.floor((budget - used) / footprint));
 }
 
 /**

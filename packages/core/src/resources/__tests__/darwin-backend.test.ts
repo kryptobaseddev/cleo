@@ -425,7 +425,7 @@ describe('pressureScore (memory scale)', () => {
 });
 
 describe('governor budgets react to cpu saturation', () => {
-  const opts = { cpuCount: 18, totalMemBytes: 256 * GB, testRunEstRamMb: 1024 };
+  const opts = { cpuCount: 18, totalMemBytes: 256 * GB };
   it('test-run narrows to 1 when cores are 2.5x oversubscribed', () => {
     const calm = computeClassBudget('test-run', sample(0, 0), opts);
     expect(calm).toBeGreaterThan(1);
