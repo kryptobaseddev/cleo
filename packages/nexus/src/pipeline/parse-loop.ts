@@ -599,7 +599,8 @@ function hasIconDirectory(bytes: Buffer): boolean {
         image.readUInt32BE(16) !== width ||
         image.readUInt32BE(20) !== height ||
         image.readUInt32BE(size - 12) !== 0 ||
-        image.toString('ascii', size - 8, size - 4) !== 'IEND'
+        image.toString('ascii', size - 8, size - 4) !== 'IEND' ||
+        !hasBoundedIconPngChunks(image)
       )
         return false;
       continue;
@@ -624,6 +625,23 @@ function hasIconDirectory(bytes: Buffer): boolean {
     if (headerSize + colors * 4 + pixelBytes + maskBytes > size) return false;
   }
   return true;
+}
+
+/** Require bounded PNG chunks and image data; this does not decode pixels or verify CRCs. */
+function hasBoundedIconPngChunks(image: Buffer): boolean {
+  let offset = 33; // Signature and the already checked 13-byte IHDR chunk.
+  let dataBytes = 0;
+  while (offset + 12 <= image.length) {
+    const size = image.readUInt32BE(offset);
+    const end = offset + 12 + size;
+    if (end > image.length) return false;
+    const type = image.toString('ascii', offset + 4, offset + 8);
+    if (type === 'IHDR') return false;
+    if (type === 'IDAT') dataBytes += size;
+    if (type === 'IEND') return size === 0 && end === image.length && dataBytes > 0;
+    offset = end;
+  }
+  return false;
 }
 
 /** Configuration paths whose documented syntax permits JSON comments and trailing commas. */

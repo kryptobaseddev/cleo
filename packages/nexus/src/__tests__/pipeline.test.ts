@@ -604,6 +604,8 @@ describe('capability-specific file evidence (T12289)', () => {
     'zero-images',
     'wrong-depth',
     'wrong-plane',
+    'png-without-data',
+    'png-chunk-overrun',
   ])('keeps defective ICO %s out of completed resource evidence', async (defect) => {
     const directory = makeTempDir();
     try {
@@ -616,6 +618,15 @@ describe('capability-specific file evidence (T12289)', () => {
       if (defect === 'zero-images') bytes.writeUInt16LE(0, 4);
       if (defect === 'wrong-depth') bytes.writeUInt16LE(24, 12);
       if (defect === 'wrong-plane') bytes.writeUInt16LE(2, 10);
+      if (defect === 'png-without-data') {
+        const full = iconFixture(true);
+        bytes = Buffer.concat([full.subarray(0, 55), full.subarray(full.length - 12)]);
+        bytes.writeUInt32LE(bytes.length - 22, 14);
+      }
+      if (defect === 'png-chunk-overrun') {
+        bytes = iconFixture(true);
+        bytes.writeUInt32BE(0xffffffff, 55);
+      }
       writeFileSync(join(directory, 'favicon.ico'), bytes);
       const reports: GraphIndexFileReport[] = [];
       await runParseLoop(
