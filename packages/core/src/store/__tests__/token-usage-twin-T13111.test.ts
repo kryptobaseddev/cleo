@@ -17,7 +17,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { listTokenUsage, recordTokenExchange } from '../../metrics/token-service.js';
+import {
+  clearTokenUsage,
+  deleteTokenUsage,
+  listTokenUsage,
+  recordTokenExchange,
+} from '../../metrics/token-service.js';
 import { bindTasksDomain, closeDb } from '../sqlite.js';
 import { sessions, tasks } from '../tasks-schema.js';
 
@@ -120,5 +125,34 @@ describe('token usage in tasks_token_usage (T13111)', () => {
     expect((await listTokenUsage(root)).records.map((r) => r.id)).toEqual([row.id]);
     expect(count(db, 'token_usage')).toBe(1);
     expect(count(db, 'tasks_token_usage')).toBe(1);
+  });
+  it('delete and clear also remove what the bare twin still holds, until T13115 folds it', async () => {
+    const db = await open();
+    db.exec('PRAGMA foreign_keys=OFF');
+    bareRow(db, 'bare-a', { domain: 'tasks' });
+    bareRow(db, 'bare-b', { domain: 'memory' });
+    bareRow(db, 'bare-c', { domain: 'tasks' });
+    db.exec('PRAGMA foreign_keys=ON');
+    const twin = await recordTokenExchange(root, {
+      requestPayload: {},
+      responsePayload: {},
+      transport: 'cli',
+      gateway: 'mutate',
+      domain: 'tasks',
+      operation: 'add',
+      requestId: 'req-3',
+    });
+
+    await deleteTokenUsage(root, { id: 'bare-a' });
+    expect(count(db, 'token_usage')).toBe(2);
+
+    // A filtered clear removes the matching rows of both tables, and counts them all.
+    expect(await clearTokenUsage(root, { domain: 'tasks' })).toEqual({ deleted: 2 });
+    expect(db.prepare('SELECT id FROM token_usage').all()).toEqual([{ id: 'bare-b' }]);
+    expect(count(db, 'tasks_token_usage')).toBe(0);
+    expect((await listTokenUsage(root)).records.map((r) => r.id)).not.toContain(twin.id);
+
+    expect(await clearTokenUsage(root)).toEqual({ deleted: 1 });
+    expect(count(db, 'token_usage')).toBe(0);
   });
 });

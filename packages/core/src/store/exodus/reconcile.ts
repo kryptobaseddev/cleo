@@ -469,17 +469,33 @@ async function revertReconcile(liveStorePath: string, stagingDir: string): Promi
 }
 
 /**
+ * Legacy tasks tables whose rows are append-only history, wherever the runtime
+ * reads them: a missing legacy row was never written live, so an additive run
+ * may fill it in, even after the runtime re-points the table at its prefixed
+ * twin (`token_usage` → `tasks_token_usage`, T13111). Named, not inferred from
+ * the rename.
+ */
+const APPEND_ONLY_HISTORY: ReadonlySet<string> = new Set([
+  'audit_log',
+  'pipeline_manifest',
+  'token_usage',
+]);
+
+/**
  * Whether a legacy table's runtime home belongs to the task graph the project
  * edits live — derived, like every target, from the runtime bindings: a tasks
  * table the runtime re-points at a prefixed twin (`tasks`, `task_dependencies`,
  * `task_acceptance_criteria`, `lifecycle_*`, …). A missing legacy row there may
  * have been deleted or rewritten since the cutover, so an additive run never
- * writes it. History tables the runtime reads under their own name
- * (`audit_log`, `token_usage`, `pipeline_manifest`, …) and brain/conduit rows
- * are append-only and may be filled in.
+ * writes it. History tables ({@link APPEND_ONLY_HISTORY}, read under their own
+ * name or not) and brain/conduit rows are append-only and may be filled in.
  */
 function isLiveAuthoritative(sourceName: string, legacyTable: string, target: string): boolean {
-  return sourceName.toLowerCase().startsWith('tasks') && target !== legacyTable;
+  return (
+    sourceName.toLowerCase().startsWith('tasks') &&
+    target !== legacyTable &&
+    !APPEND_ONLY_HISTORY.has(legacyTable)
+  );
 }
 
 /** Every legacy row set an assessment shows as still missing, as conflicts. */

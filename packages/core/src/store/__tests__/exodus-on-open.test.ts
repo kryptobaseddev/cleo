@@ -244,6 +244,8 @@ describe('exodus-on-open data-continuity (T11553)', () => {
         `${table}: expected ${expected} rows after auto-migration`,
       ).toBe(expected);
     }
+    // …and only there: the bare token_usage twin the runtime no longer reads gets none (T13111).
+    expect(countRows(fx.projectDbPath, 'token_usage')).toBe(0);
   });
 
   it('T12535: a legacy task-id counter lands in tasks_schema_meta, replacing the fresh seed', async () => {
