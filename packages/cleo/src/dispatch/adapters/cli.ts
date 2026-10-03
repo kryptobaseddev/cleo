@@ -434,6 +434,7 @@ export async function dispatchFromCli(
     });
 
   if (response.success) {
+    // Records mutations only: a read must not write a portable row (T13106).
     await autoRecordDispatchTokenUsage({
       requestPayload: mergedParams,
       responsePayload: { data: response.data, page: response.page },
