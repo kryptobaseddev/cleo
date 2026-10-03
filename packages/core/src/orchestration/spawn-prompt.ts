@@ -1106,17 +1106,30 @@ function buildEvidenceGateBlock(taskId: string): string {
 // briefly restored this function as an orphan unused declaration. Removed
 // here per T10452's design intent — the single inlined version is the SSoT.
 
+/**
+ * The one governed path for heavy work (T13134), in every spawn prompt and on
+ * every agent surface (CLEO-INJECTION.md, ct-cleo). The P0 of 2026-10-03
+ * showed agents improvising: private wrapper queues, wrappers nested inside
+ * `cleo run` (a deadlock, T13133), explicit `NODE_OPTIONS` heap overrides and
+ * whole-suite runs as evidence. `spawn-prompt-governed-heavy.test.ts` asserts
+ * the markers on every surface.
+ */
+export const GOVERNED_HEAVY_WORK_LINE =
+  'Heavy work (tests, typechecks, builds, installs): one command at a time through `cleo run --wait --class <test|build|full-build> -- <command>` (the heavy-command hook rewrites it for you where installed; exit 75 means it was not admitted before the wait ran out: wait and retry). Never wrap `cleo run` or `cleo verify` in another queue or wrapper script, never put one inside them (the two lock systems deadlock), and never set heap or worker overrides (`NODE_OPTIONS=--max-old-space-size=…`, `--maxWorkers`): CLEO sizes them.';
+
 /** Build the quality-gate block — biome + build + scoped test evidence + changeset hygiene. */
 function buildQualityGateBlock(): string {
   return [
     '## Quality Gates (run before every `cleo complete`)',
     '',
     '```bash',
-    'pnpm biome ci .        # full repo, strict — same as CI',
-    'pnpm run build         # full dep graph build',
+    'cleo run --wait --class build -- pnpm biome ci .       # full repo, strict — same as CI',
+    'cleo run --wait --class full-build -- pnpm run build   # full dep graph build',
     'node scripts/lint-changesets.mjs  # validate .changeset/*.md entries (T10448)',
     'git diff --stat HEAD   # verify the diff matches the story',
     '```',
+    '',
+    GOVERNED_HEAVY_WORK_LINE,
     '',
     'Tests (zero new failures vs main): while iterating, run only the failing or changed test files. Record evidence once (`cleo done <id> --plan` picks for you): `ci:<pr>` when the PR merged and the project sets `evidence.ciSatisfies`; otherwise `tool:test-affected` when `testing.affectedCommand` is configured, else a targeted `test-run:<json>` or `tool:test`. Never run the full suite manually; with `testing.affectedCommand` configured, a full `tool:test` is only for root-config changes.',
     '',

@@ -2,14 +2,14 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.24.4
+  version: 2.24.5
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/session.ts
     - packages/cleo/src/cli/commands/focus.ts
     - packages/cleo/src/cli/commands/sticky.ts
-  lastReviewed: 2026-10-01
+  lastReviewed: 2026-10-03
   stability: stable
 ---
 
@@ -464,4 +464,4 @@ BRAIN ID going forward.
 
 ## Evidence must prove task criteria
 
-Merged PRs and passing CI are provenance. Implementation requires changed artifacts related to the task; testing and review require their own actual results (`ci:<pr>` once the PR merged and the project sets `evidence.ciSatisfies`; else `tool:test-affected` when `testing.affectedCommand` is configured, otherwise a targeted `test-run:<json>` or `tool:test`; plan with `cleo done <id> --plan`, never run the suite by hand and again via `tool:test`). For tasks with canonical criteria, append explicit links such as `satisfies:T1234#AC1` to each relevant gate's evidence. Fetch the PR merge commit so artifact hashes can be inspected. A changed criterion invalidates its recorded proof. Completing a child preserves an open parent whose own criteria remain unproven; child waivers never transfer to parent criteria.
+Merged PRs and passing CI are provenance. Implementation requires changed artifacts related to the task; testing and review require their own actual results (`ci:<pr>` once the PR merged and the project sets `evidence.ciSatisfies`; else `tool:test-affected` when `testing.affectedCommand` is configured, otherwise a targeted `test-run:<json>` or `tool:test`; plan with `cleo done <id> --plan`, never run the suite by hand and again via `tool:test`). Run tests, typechecks and builds one at a time through `cleo run --wait --class <test|build|full-build> -- <cmd>` (exit 75: not admitted yet, wait and retry); never wrap `cleo run` or `cleo verify` in another queue or wrapper, and never override heap or workers (`NODE_OPTIONS`, `--maxWorkers`). For tasks with canonical criteria, append explicit links such as `satisfies:T1234#AC1` to each relevant gate's evidence. Fetch the PR merge commit so artifact hashes can be inspected. A changed criterion invalidates its recorded proof. Completing a child preserves an open parent whose own criteria remain unproven; child waivers never transfer to parent criteria.
