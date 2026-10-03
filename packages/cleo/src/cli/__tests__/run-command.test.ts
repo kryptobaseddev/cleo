@@ -237,7 +237,7 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     expect(opts().env.NODE_OPTIONS).toMatch(/^--enable-source-maps --max-old-space-size=\d+$/);
     expect(out).toEqual([]);
     expect(err).toHaveLength(1);
-    expect(err[0]).toMatch(/^\[cleo run\] resources: heap \d+ MiB .*clamped NODE_OPTIONS/);
+    expect(err[0]).toMatch(/^\[cleo run\] planned resources: heap \d+ MiB .*clamped NODE_OPTIONS/);
   });
 
   it('T13122: the envelope names the heap and worker plan the child got', async () => {
@@ -249,10 +249,10 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     expect(envelope.data.resources.heapSource).toBe('default');
     expect(opts().env.NODE_OPTIONS).toBe(`--max-old-space-size=${envelope.data.resources.heapMb}`);
     expect(opts().env.VITEST_MAX_WORKERS).toBe(String(envelope.data.resources.workers));
-    // The launcher is npx: npm would warn about the pnpm 10 spelling on every run.
+    // Both spellings, whatever the launcher (an npx-run script may call pnpm -r).
     expect(opts().env.pnpm_config_workspace_concurrency).toBe('1');
-    expect(opts().env.npm_config_workspace_concurrency).not.toBe('1');
-    expect(err[0]).toMatch(/^\[cleo run\] resources: heap \d+ MiB \(CLEO default\)/);
+    expect(opts().env.npm_config_workspace_concurrency).toBe('1');
+    expect(err[0]).toMatch(/^\[cleo run\] planned resources: heap \d+ MiB \(CLEO default\)/);
   });
 
   it('without --passthrough every notice is printed', async () => {

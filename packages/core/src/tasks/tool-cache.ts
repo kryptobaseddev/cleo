@@ -65,7 +65,11 @@ import { ExitCode, type HeavyToolResourcePlan } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { activeToolGroups, trackToolGroup } from '../resources/tool-groups.js';
 import { isLocked, withLock } from '../store/lock.js';
-import { type HeavyToolEnv, overlayForLauncher, planHeavyToolEnv } from './heavy-tool-env.js';
+import {
+  type HeavyToolEnv,
+  planHeavyToolEnv,
+  withoutNpmEnvConfigWarnings,
+} from './heavy-tool-env.js';
 import {
   confinementStartupFailure,
   isSystemdRunCommand,
@@ -1153,7 +1157,9 @@ function spawnCmd(
       clearTimers();
       untrackGroup();
       syncTerminationCleanup();
-      const stderr = stderrBuf.toString();
+      // T13122: npm's per-run `Unknown env config` warnings (the overlay's
+      // pnpm spellings) never reach the failure tail CLEO quotes.
+      const stderr = withoutNpmEnvConfigWarnings(stderrBuf.toString());
       resolve({
         exitCode,
         signal,
@@ -1705,12 +1711,7 @@ export async function runToolCached(
   // keyed on, so the key describes the heap and worker limits the run actually
   // got; the plan behind it rides on every result, hit or miss.
   const spawnPlan = planHeavyToolEnv(command.canonical);
-  const result = await runToolCachedWithEnv(
-    command,
-    projectRoot,
-    opts,
-    overlayForLauncher(spawnPlan.overlay, command.cmd),
-  );
+  const result = await runToolCachedWithEnv(command, projectRoot, opts, spawnPlan.overlay);
   return spawnPlan.resources === null ? result : { ...result, resources: spawnPlan.resources };
 }
 

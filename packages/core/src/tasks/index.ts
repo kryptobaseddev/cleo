@@ -195,11 +195,12 @@ export {
   MIN_HEAVY_HEAP_MB,
   MIN_HEAVY_WORKERS,
   mergeNodeOptions,
-  overlayForLauncher,
   planHeavyToolEnv,
   WORKSPACE_CONCURRENCY,
   WORKSPACE_CONCURRENCY_VARS,
   withHeapCeiling,
+  withSemiSpaceCap,
+  workspaceConcurrencyNames,
 } from './heavy-tool-env.js';
 // Pre-dispatch inference for cleo add (T1490)
 export {
