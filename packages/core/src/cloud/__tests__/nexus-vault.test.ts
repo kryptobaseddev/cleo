@@ -122,6 +122,29 @@ vi.mock('../../store/portable-bundle-import.js', async (importOriginal) => {
   };
 });
 
+/** Error and warning lines the code under test logs (still written by the real logger; T13104). */
+const logged = vi.hoisted(() => ({
+  lines: [] as Array<{ level: string; subsystem: string; msg: string }>,
+}));
+vi.mock('../../logger.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../logger.js')>();
+  return {
+    ...mod,
+    getLogger: (subsystem: string) =>
+      new Proxy(mod.getLogger(subsystem), {
+        get(target, prop, receiver) {
+          const value = Reflect.get(target, prop, receiver);
+          if ((prop !== 'error' && prop !== 'warn') || typeof value !== 'function') return value;
+          return (...args: Array<object | string>) => {
+            const msg = args.find((a): a is string => typeof a === 'string') ?? '';
+            logged.lines.push({ level: prop, subsystem, msg });
+            return value.apply(target, args);
+          };
+        },
+      }),
+  };
+});
+
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
 const { DatabaseSync } = _require('node:sqlite') as {
@@ -3360,5 +3383,88 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     expect(err?.code).toBe('E_STREAM_VERSION');
     expect(err?.details?.['verdict']).toMatchObject({ reason: 'stream-v3' });
     expect(s.headCheckpointId).toBe(v3.checkpointId);
+  });
+});
+
+describe("cloud vault restore keeps the store's migration journal (T13104)", () => {
+  /** A project store built by the real migrations. */
+  async function seedMigratedProject(m: Machine): Promise<void> {
+    const cleo = path.join(m.root, '.cleo');
+    fs.mkdirSync(cleo, { recursive: true });
+    fs.writeFileSync(path.join(cleo, 'project-id'), `${LOCAL_PROJECT}\n`);
+    fs.writeFileSync(
+      path.join(cleo, 'project-info.json'),
+      JSON.stringify({ projectId: LOCAL_PROJECT, name: 'demo' }),
+    );
+    await openStore(m);
+  }
+
+  /** Open `m`'s project store the way every command does: migrations and journal reconcile run. */
+  async function openStore(m: Machine): Promise<void> {
+    await on(m, async () => {
+      await openDualScopeDb('project', m.root);
+      _resetDualScopeDbCache();
+    });
+  }
+
+  const journalOf = (m: Machine) =>
+    sql(m, 'SELECT id, hash, created_at, name, applied_at FROM __drizzle_migrations ORDER BY id');
+  const schemaOf = (m: Machine) =>
+    sql(
+      m,
+      "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
+    );
+  /** Lines the migration reconciler logs when it stamps or patches a migration instead of running it. */
+  const stamped = () =>
+    logged.lines.filter((l) => /WITHOUT running|partially-applied|partial migration/.test(l.msg));
+
+  it('a new machine gets the source journal and schema, and opens without stamping a migration', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A, [REPLICA_B]: DEVICE_B });
+    await seedMigratedProject(a);
+    link(a);
+    await on(a, () => pushNexusVault(vopts(a)));
+    const journal = journalOf(a);
+    const schema = schemaOf(a);
+    expect(journal.length).toBeGreaterThan(10);
+
+    logged.lines.length = 0;
+    const { result } = await restoreOntoB(b);
+    expect(result.status).toBe('restored');
+    expect(journalOf(b)).toEqual(journal);
+    expect(schemaOf(b)).toEqual(schema);
+
+    // The first open after the restore finds nothing to reconcile.
+    await openStore(b);
+    expect(stamped()).toEqual([]);
+    expect(journalOf(b)).toEqual(journal);
+    expect(schemaOf(b)).toEqual(schema);
+  });
+
+  it("a pull places the snapshot's journal, not the one this machine had", async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A, [REPLICA_B]: DEVICE_B });
+    await seedMigratedProject(a);
+    link(a);
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    const journal = journalOf(a);
+    // B's own journal diverges (as one rebuilt before T13104 does): the next pull replaces it.
+    exec(b, 'UPDATE __drizzle_migrations SET applied_at = NULL');
+    exec(
+      b,
+      "INSERT INTO __drizzle_migrations (hash, created_at, name) VALUES ('b-only', 1, 'b-only')",
+    );
+    expect(journalOf(b)).not.toEqual(journal);
+
+    logged.lines.length = 0;
+    const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull', force: true })));
+    expect(pulled.status).toBe('restored');
+    expect(journalOf(b)).toEqual(journal);
+    await openStore(b);
+    expect(stamped()).toEqual([]);
+    expect(journalOf(b)).toEqual(journal);
   });
 });
