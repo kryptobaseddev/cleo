@@ -35,8 +35,10 @@ import {
   buildAffectedTestCommand,
   changedPathsSinceDefault,
   deriveAffectedPackages,
+  isScopeExcluded,
   listVitestProjects,
   listWorkspacePackages,
+  scopedChangedPaths,
 } from '../affected-packages.js';
 import { validateAtom } from '../evidence.js';
 
@@ -380,23 +382,98 @@ describe('tool:test-affected evidence', () => {
     expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ affectedPackages: ['@x/c'] });
   });
 
-  it('T13135 (gh#1805): evidence.scopeExcludes keeps declared runtime state out of scope', async () => {
+  it('T13135 (gh#1805): evidence.scopeExcludes on the default branch keeps declared runtime state out of scope', async () => {
     initRepo(`node -e "process.exit(process.argv.slice(1).join(',')==='@x/c'?0:3)" {packages}`);
+    // Declared on the DEFAULT BRANCH (the merge-base), as an exclude must be.
+    git(root, ['switch', '-q', 'main']);
     const ctx = join(root, '.cleo', 'project-context.json');
     const context = JSON.parse(readFileSync(ctx, 'utf-8')) as Record<string, unknown>;
     writeFileSync(
       ctx,
       JSON.stringify({ ...context, evidence: { scopeExcludes: ['.opencode/goals/**'] } }),
     );
+    git(root, ['add', '-f', '.cleo/project-context.json']);
+    git(root, ['commit', '-q', '-m', 'declare excludes']);
+    git(root, ['push', '-q', 'origin', 'main']);
+    git(root, ['switch', '-q', 'task/T1']);
+    git(root, ['merge', '-q', 'main']);
     mkdirSync(join(root, '.opencode', 'goals', 'dogfood'), { recursive: true });
     writeFileSync(join(root, '.opencode', 'goals', 'dogfood', 'goal.yaml'), 'goal: x\n');
     writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
-    expect(changedPathsSinceDefault(root)).toEqual(['packages/c/src/new.ts']);
-    // Without the declaration the same file is workspace-wide.
-    writeFileSync(ctx, JSON.stringify(context));
-    expect(deriveAffectedPackages(root, changedPathsSinceDefault(root) ?? [])).toMatchObject({
-      scope: 'full',
+    expect(scopedChangedPaths(root)).toEqual({
+      paths: ['packages/c/src/new.ts'],
+      excluded: ['.opencode/goals/dogfood/goal.yaml'],
     });
+  });
+
+  it('T13135 (review of #1823): a change cannot declare its own excludes, nor exclude package code', async () => {
+    initRepo(`node -e 0 {packages}`);
+    writeFileSync(join(root, 'packages/a/src/index.ts'), "export const n = 'changed';\n");
+    // review-p0's probe: the SAME change declares packages/a and .cleo out of scope.
+    const ctx = join(root, '.cleo', 'project-context.json');
+    const context = JSON.parse(readFileSync(ctx, 'utf-8')) as Record<string, unknown>;
+    writeFileSync(
+      ctx,
+      JSON.stringify({
+        ...context,
+        evidence: { scopeExcludes: ['packages/a/**', '.cleo/**', '.opencode/goals/**'] },
+      }),
+    );
+    mkdirSync(join(root, '.opencode', 'goals'), { recursive: true });
+    writeFileSync(join(root, '.opencode', 'goals', 'goal.yaml'), 'goal: x\n');
+    git(root, ['add', '-f', '.cleo/project-context.json', '.opencode/goals/goal.yaml']);
+    git(root, ['commit', '-q', '-am', 'T1: change a, and exclude it']);
+    const scoped = scopedChangedPaths(root);
+    // Not on the default branch, so not one of these excludes counts — not even
+    // the runtime-state one that would be legitimate there.
+    expect(scoped?.paths).toEqual([
+      '.cleo/project-context.json',
+      '.opencode/goals/goal.yaml',
+      'packages/a/src/index.ts',
+    ]);
+    expect(scoped?.excluded).toEqual([]);
+    // Even declared on the default branch, a pattern never removes package code
+    // or the project context file.
+    expect(isScopeExcluded('packages/a/src/index.ts', ['packages/a/**'], ['packages/a'])).toBe(
+      false,
+    );
+    expect(isScopeExcluded('.cleo/project-context.json', ['.cleo/**'], [])).toBe(false);
+    expect(isScopeExcluded('.opencode/goals/x.yaml', ['.opencode/goals/**'], ['packages/a'])).toBe(
+      true,
+    );
+  });
+
+  it('T13135 (review of #1823): hook files are excluded at a CLEO root in a subdirectory too', async () => {
+    // The CLEO root is <repo>/app; git diff names paths from the repo top.
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), 'scope-subdir-')));
+    try {
+      const app = join(repo, 'app');
+      mkdirSync(join(app, 'src'), { recursive: true });
+      writeFileSync(join(app, 'src', 'x.ts'), 'export const x = 1;\n');
+      git(repo, ['init', '-q', '-b', 'main']);
+      git(repo, ['config', 'user.name', 'T']);
+      git(repo, ['config', 'user.email', 't@e.x']);
+      git(repo, ['add', '.']);
+      git(repo, ['commit', '-q', '-m', 'init']);
+      const origin = `${repo}-origin.git`;
+      execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
+      git(repo, ['remote', 'add', 'origin', origin]);
+      git(repo, ['push', '-q', '-u', 'origin', 'main']);
+      git(repo, ['remote', 'set-head', 'origin', 'main']);
+      git(repo, ['switch', '-q', '-c', 'task/T1']);
+      mkdirSync(join(app, '.claude'), { recursive: true });
+      writeFileSync(join(app, '.claude', 'settings.local.json'), '{}\n');
+      writeFileSync(join(app, 'src', 'x.ts'), 'export const x = 2;\n');
+      git(repo, ['add', '.']);
+      git(repo, ['commit', '-q', '-m', 'T1: change']);
+      expect(scopedChangedPaths(app)).toEqual({
+        paths: ['app/src/x.ts'],
+        excluded: ['app/.claude/settings.local.json'],
+      });
+      rmSync(origin, { recursive: true, force: true });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   it('T12657: an untracked new file in a package selects that package', async () => {

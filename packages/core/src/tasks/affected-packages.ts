@@ -31,6 +31,7 @@ import { isCiDocumentPath } from '../release/ci-evidence.js';
 import type { MergeVerdict } from './affected-scope.js';
 import { splitCommandLine } from './command-line.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
+import { parseRawProjectContext } from './tool-resolver.js';
 import { acquireGlobalSlot, type ReleaseSlotFn } from './tool-semaphore.js';
 
 /**
@@ -512,50 +513,111 @@ export const CLEO_MANAGED_SCOPE_EXCLUDES: readonly string[] = Object.freeze([
 ]);
 
 /**
- * The paths and globs evidence scoping ignores in `root`:
- * {@link CLEO_MANAGED_SCOPE_EXCLUDES} plus the project's
- * `evidence.scopeExcludes` (runtime state such as `.opencode/goals/**`), read
- * from the checkout's `.cleo/project-context.json`.
+ * The project's declared `evidence.scopeExcludes`, read from the MERGE-BASE
+ * version of `.cleo/project-context.json` (`git show <mergeBase>:…`) — never
+ * the working copy. A change could otherwise declare its own excludes and
+ * drop its own code from evidence scope (review of #1823); an exclude counts
+ * only once it is on the default branch.
  *
- * @param root - Execution root.
- * @returns The exclude patterns.
+ * @param root - Execution root (the CLEO root of the checkout).
+ * @param mergeBase - `merge-base(origin/<default>, HEAD)`.
+ * @returns The declared patterns; none when the file or key is absent there.
  * @task T13135
  */
-export function evidenceScopeExcludes(root: string): string[] {
-  let declared: unknown;
-  try {
-    const context = JSON.parse(
-      readFileSync(join(root, '.cleo', 'project-context.json'), 'utf-8'),
-    ) as { evidence?: { scopeExcludes?: unknown } };
-    declared = context.evidence?.scopeExcludes;
-  } catch {
-    declared = undefined;
-  }
-  const project = Array.isArray(declared)
+export function declaredScopeExcludes(root: string, mergeBase: string): string[] {
+  const raw = git(root, ['show', `${mergeBase}:./.cleo/project-context.json`]);
+  const evidence = raw === null ? null : parseRawProjectContext(raw)?.['evidence'];
+  const declared =
+    evidence !== null && typeof evidence === 'object' && !Array.isArray(evidence)
+      ? (evidence as { scopeExcludes?: unknown }).scopeExcludes
+      : undefined;
+  return Array.isArray(declared)
     ? declared.filter((p): p is string => typeof p === 'string' && p.trim() !== '')
     : [];
-  return [...CLEO_MANAGED_SCOPE_EXCLUDES, ...project];
 }
 
+/** The project context file: a declared exclude never removes it from scope. */
+const PROJECT_CONTEXT_PATH = '.cleo/project-context.json';
+
 /**
- * Whether a repo-relative path matches one of the scope excludes: an exact
- * path, or a glob (`path.matchesGlob`; `**` crosses directories).
+ * Whether a root-relative path is out of evidence scope: one of
+ * {@link CLEO_MANAGED_SCOPE_EXCLUDES}, or a match for a declared pattern (exact
+ * path, or `path.matchesGlob` with `**` crossing directories). A declared
+ * pattern never removes `.cleo/project-context.json` or a path inside a
+ * workspace package — code always stays in scope (review of #1823).
  *
- * @param path - Repo-relative path with `/` separators.
- * @param patterns - From {@link evidenceScopeExcludes}.
+ * @param rel - Path relative to the CLEO root, `/` separators.
+ * @param declared - From {@link declaredScopeExcludes}.
+ * @param packageDirs - Workspace package directories, relative to the root.
  * @returns `true` when the path never counts as part of a change.
  * @task T13135
  */
-export function isScopeExcluded(path: string, patterns: readonly string[]): boolean {
-  return patterns.some((pattern) => pattern === path || matchesGlob(path, pattern));
+export function isScopeExcluded(
+  rel: string,
+  declared: readonly string[],
+  packageDirs: readonly string[],
+): boolean {
+  if (CLEO_MANAGED_SCOPE_EXCLUDES.includes(rel)) return true;
+  if (rel === PROJECT_CONTEXT_PATH) return false;
+  if (packageDirs.some((dir) => rel === dir || rel.startsWith(`${dir}/`))) return false;
+  return declared.some((pattern) => pattern === rel || matchesGlob(rel, pattern));
+}
+
+/** The changed paths evidence scoping counts, and the ones it set aside. */
+export interface ScopedChangedPaths {
+  /** Paths that count, as {@link changedPathsSinceDefault} returns them. */
+  readonly paths: string[];
+  /** Changed paths set aside as out of scope (managed hook files, declared excludes). */
+  readonly excluded: string[];
 }
 
 /**
  * Paths the tree under test changed relative to origin's default branch:
  * committed (`merge-base(origin/<default>, HEAD)..HEAD`), uncommitted tracked
  * edits and untracked files — the tests run on the working tree, so all matter
- * — minus the scope excludes (CLEO's own hook files and the project's
- * `evidence.scopeExcludes`, T13135).
+ * — split into the ones that count and the ones set aside as out of scope
+ * ({@link isScopeExcluded}, T13135).
+ *
+ * Excludes are anchored at the CLEO root: diff paths are relative to the git
+ * top level, so a CLEO root in a subdirectory strips its prefix before
+ * matching; untracked paths are already root-relative.
+ *
+ * @param root - Execution root.
+ * @returns The split, or null when no origin default branch exists or git fails.
+ * @task T12635
+ * @task T13135
+ */
+export function scopedChangedPaths(root: string): ScopedChangedPaths | null {
+  const mergeBase = originDefaultMergeBase(root);
+  if (!mergeBase) return null;
+  // A git failure is not an empty diff (T12657): no answer, so no scoped run.
+  const committed = git(root, ['diff', '--name-only', '--no-renames', mergeBase, 'HEAD']);
+  const uncommitted = git(root, ['diff', '--name-only', '--no-renames', 'HEAD']);
+  const untracked = git(root, ['ls-files', '--others', '--exclude-standard']);
+  const prefix = git(root, ['rev-parse', '--show-prefix']);
+  if (committed === null || uncommitted === null || untracked === null || prefix === null) {
+    return null;
+  }
+  const declared = declaredScopeExcludes(root, mergeBase);
+  const packageDirs = listWorkspacePackages(root).map((p) => p.dir);
+  const out = (path: string, anchor: string): boolean => {
+    const slashed = slashSeparated(path);
+    if (!slashed.startsWith(anchor)) return false; // outside the CLEO root
+    return isScopeExcluded(slashed.slice(anchor.length), declared, packageDirs);
+  };
+  const lines = (text: string): string[] => text.split('\n').filter(Boolean);
+  const paths = new Set<string>();
+  const excluded = new Set<string>();
+  for (const path of [...lines(committed), ...lines(uncommitted)]) {
+    (out(path, prefix) ? excluded : paths).add(path);
+  }
+  for (const path of lines(untracked)) (out(path, '') ? excluded : paths).add(path);
+  return { paths: [...paths].sort(), excluded: [...excluded].sort() };
+}
+
+/**
+ * Paths the tree under test changed relative to origin's default branch that
+ * count for evidence scope: {@link scopedChangedPaths}' `paths`.
  *
  * @param root - Execution root.
  * @returns The paths (committed, uncommitted and untracked), or null when no
@@ -564,17 +626,7 @@ export function isScopeExcluded(path: string, patterns: readonly string[]): bool
  * @task T13135
  */
 export function changedPathsSinceDefault(root: string): string[] | null {
-  const mergeBase = originDefaultMergeBase(root);
-  if (!mergeBase) return null;
-  // A git failure is not an empty diff (T12657): no answer, so no scoped run.
-  const committed = git(root, ['diff', '--name-only', '--no-renames', mergeBase, 'HEAD']);
-  const uncommitted = git(root, ['diff', '--name-only', '--no-renames', 'HEAD']);
-  const untracked = git(root, ['ls-files', '--others', '--exclude-standard']);
-  if (committed === null || uncommitted === null || untracked === null) return null;
-  const excludes = evidenceScopeExcludes(root);
-  return [...new Set(`${committed}\n${uncommitted}\n${untracked}`.split('\n').filter(Boolean))]
-    .filter((path) => !isScopeExcluded(slashSeparated(path), excludes))
-    .sort();
+  return scopedChangedPaths(root)?.paths ?? null;
 }
 
 /** A planned affected-scope run, or why only the full suite will do. */
