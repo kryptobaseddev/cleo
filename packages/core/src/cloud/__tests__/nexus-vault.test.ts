@@ -130,6 +130,8 @@ const { DatabaseSync } = _require('node:sqlite') as {
 const API = 'https://api.nexus.test';
 const BLOB_HOST = 'https://blobs.nexus.test';
 const USER = '0198a1b2-0000-7000-8000-0000000000aa';
+/** Another account, e.g. an owner who keyed a project and did not share it (T13098). */
+const OTHER_USER = '0198a1b2-0000-7000-8000-0000000000bb';
 const DEVICE_A = '0198a1b2-0000-7000-8000-0000000000d1';
 const DEVICE_B = '0198a1b2-0000-7000-8000-0000000000d2';
 const REPLICA_A = '0198a1b2-0000-7000-8000-0000000000e1';
@@ -232,7 +234,16 @@ class FakeNexus {
   projectKeyPuts: Array<Record<string, unknown>> = [];
   /** The user who registered each project (cleo-nexus #33: only they may create v1 from a device). */
   registrants = new Map<string, string>();
-  projectKeys = new Map<string, Array<{ wrappedProjectKey: string; keyVersion: number }>>();
+  /** Projects on which USER is a writer, not an owner (cleo-nexus T12860: only owners create key versions). */
+  writerProjects = new Set<string>();
+  /**
+   * Every user's wrapped keys of each project, one row per (user, version), as cleo-nexus stores them.
+   * The fake has no grants, so each row's user also created it.
+   */
+  projectKeys = new Map<
+    string,
+    Array<{ userId: string; wrappedProjectKey: string; keyVersion: number }>
+  >();
   /** projectId -> replicaId -> deviceId. */
   replicas = new Map<string, Map<string, string>>();
   streams = new Map<string, FakeStream>();
@@ -477,7 +488,12 @@ class FakeNexus {
     }
     m = route.match(/^GET \/v1\/projects\/([^/]+)\/keys$/);
     if (m) {
-      return this.ok({ keys: this.projectKeys.get(decodeURIComponent(m[1] ?? '')) ?? [] });
+      // The caller's own wraps only, newest first.
+      const keys = (this.projectKeys.get(decodeURIComponent(m[1] ?? '')) ?? [])
+        .filter((k) => k.userId === USER)
+        .sort((x, y) => y.keyVersion - x.keyVersion)
+        .map(({ wrappedProjectKey, keyVersion }) => ({ wrappedProjectKey, keyVersion }));
+      return this.ok({ keys });
     }
     m = route.match(/^PUT \/v1\/projects\/([^/]+)\/keys\/([^/]+)$/);
     if (m) {
@@ -485,11 +501,21 @@ class FakeNexus {
       if (decodeURIComponent(m[2] ?? '') !== USER) throw new ApiFail(403, 'E_FORBIDDEN');
       this.projectKeyPuts.push(body);
       this.beforeProjectKeyPut?.(projectId);
+      // cleo-nexus T12860 checks the role before it reads the project's keys.
+      if (body['rotate'] === true && this.writerProjects.has(projectId)) {
+        throw new ApiFail(
+          403,
+          'E_FORBIDDEN',
+          { reason: 'project-role' },
+          'rotating the project key needs the project owner role (organization owners and admins, or a project owner override)',
+        );
+      }
       // As cleo-nexus does (T12856): a new key version, the first included, is accepted only as a
-      // rotation naming the current highest version (T13098).
+      // rotation naming the current highest version (T13098). The versions span every user's rows.
       const existing = this.projectKeys.get(projectId) ?? [];
       const max = existing.reduce((acc, k) => Math.max(acc, k.keyVersion), 0);
       const kv = body['keyVersion'] as number;
+      const atVersion = existing.filter((k) => k.keyVersion === kv);
       if (body['rotate'] === true) {
         if (kv !== max + 1 || body['expectedMax'] !== max) {
           throw new ApiFail(409, 'E_CONFLICT', { reason: 'rotation-stale', max });
@@ -512,24 +538,26 @@ class FakeNexus {
             "only the project's registrant may create its first key from a device; use a signed-in session",
           );
         }
-      } else if (!existing.some((k) => k.keyVersion === kv)) {
+      } else if (atVersion.length === 0) {
         throw new ApiFail(
           409,
           'E_CONFLICT',
           { reason: kv === max + 1 ? 'rotation-required' : 'key-version-gap', max },
           max === 0 ? 'the first project key version must be 1, as a rotation' : undefined,
         );
+      } else if (atVersion.some((k) => k.userId !== USER)) {
+        // Only the user who created a version may add to it.
+        throw new ApiFail(409, 'E_CONFLICT', { reason: 'key-version-not-creator', max });
       }
-      if (existing.some((k) => k.keyVersion === kv)) {
+      // Insert-only per (project, user, version).
+      if (atVersion.some((k) => k.userId === USER)) {
         throw new ApiFail(409, 'E_CONFLICT', { reason: 'keys-exist' });
       }
       this.projectKeys.set(projectId, [
-        {
-          wrappedProjectKey: body['wrappedProjectKey'] as string,
-          keyVersion: body['keyVersion'] as number,
-        },
+        ...existing,
+        { userId: USER, wrappedProjectKey: body['wrappedProjectKey'] as string, keyVersion: kv },
       ]);
-      return this.ok({ projectId, keyVersion: body['keyVersion'] as number });
+      return this.ok({ projectId, keyVersion: kv });
     }
     if (route === 'GET /v1/account/activity') {
       const limit = Math.min(Number(url.searchParams.get('limit') ?? 50), this.activityPageSize);
@@ -1800,7 +1828,11 @@ describe('cloud vault key escrow', () => {
       fake.beforeProjectKeyPut = null;
       if (!fake.escrow) throw new Error('fixture: escrow first');
       fake.projectKeys.set(projectId, [
-        { wrappedProjectKey: wrapProjectKey(fake.escrow.mk, winner, projectId, 1), keyVersion: 1 },
+        {
+          userId: USER,
+          wrappedProjectKey: wrapProjectKey(fake.escrow.mk, winner, projectId, 1),
+          keyVersion: 1,
+        },
       ]);
     };
     const pushed = await on(a, () => pushNexusVault(vopts(a)));
@@ -1817,7 +1849,7 @@ describe('cloud vault key escrow', () => {
 
   it("a project another account registered: the device's first key is refused with a remedy (T13098)", async () => {
     const a = await machine('a', DEVICE_A, REPLICA_A);
-    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A }, 'another-user');
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A }, OTHER_USER);
     seedProject(a, 2);
     link(a);
     const err = await failure(on(a, () => pushNexusVault(vopts(a))));
@@ -1827,11 +1859,55 @@ describe('cloud vault key escrow', () => {
     expect(fake.projectKeys.size).toBe(0);
   });
 
-  it('a project whose key exists but was not shared: session-required explains it (T13098)', async () => {
+  it('a project another account keyed and did not share: the lost rotation explains it (T13098)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A }, OTHER_USER);
+    seedProject(a, 2);
+    link(a);
+    const theirs = {
+      userId: OTHER_USER,
+      wrappedProjectKey: wrapProjectKey(randomBytes(32), randomBytes(32), REMOTE_PROJECT, 1),
+      keyVersion: 1,
+    };
+    fake.projectKeys.set(REMOTE_PROJECT, [theirs]);
+    const err = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(err.code).toBe('E_NEXUS_VAULT_KEY_UNAVAILABLE');
+    expect(err.message).toMatch(/was created by another account and has not been shared/);
+    expect(err.fix).toMatch(/share the project with this account/);
+    expect(fake.projectKeyPuts).toEqual([
+      expect.objectContaining({ keyVersion: 1, rotate: true, expectedMax: 0 }),
+    ]);
+    expect(fake.projectKeys.get(REMOTE_PROJECT)).toEqual([theirs]);
+  });
+
+  it('a writer without a key: project-role asks for a share, or the first push (T13098)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A }, OTHER_USER);
+    fake.writerProjects.add(REMOTE_PROJECT);
+    seedProject(a, 2);
+    link(a);
+    // The owner already created version 1: the server refuses the role before it sees the version.
+    const theirs = {
+      userId: OTHER_USER,
+      wrappedProjectKey: wrapProjectKey(randomBytes(32), randomBytes(32), REMOTE_PROJECT, 1),
+      keyVersion: 1,
+    };
+    fake.projectKeys.set(REMOTE_PROJECT, [theirs]);
+    const err = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(err.code).toBe('E_NEXUS_VAULT_KEY_UNAVAILABLE');
+    expect(err.message).toMatch(/holds no key for project .*only a project owner can create one/);
+    expect(err.fix).toMatch(/share the project key with this account/);
+    expect(err.fix).toMatch(/if the project has no key yet, to run the first `cleo cloud push`/);
+    expect(fake.projectKeys.get(REMOTE_PROJECT)).toEqual([theirs]);
+  });
+
+  it('a session-required refusal, a backstop the first key cannot meet, explains it (T13098)', async () => {
     const a = await machine('a', DEVICE_A, REPLICA_A);
     fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
     seedProject(a, 2);
     link(a);
+    // cleo-nexus answers rotation-stale first whenever a key exists, so only a server change could
+    // send this for version 1.
     fake.beforeProjectKeyPut = () => {
       fake.beforeProjectKeyPut = null;
       throw new ApiFail(

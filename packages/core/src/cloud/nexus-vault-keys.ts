@@ -392,9 +392,11 @@ function refusedFirstKey(err: unknown, projectId: string): NexusAccountError | n
         'ask the project owner to share the project key with this account',
       );
     case 'project-role':
+      // Checked before the server knows whether the project has a key, so an owner may already
+      // have created one and not shared it with this account.
       return keyUnavailable(
-        `only a project owner can create the first key of project ${projectId}`,
-        'ask an owner of the project to run the first `cleo cloud push`',
+        `this account holds no key for project ${projectId}, and only a project owner can create one`,
+        'ask a project owner to share the project key with this account, or, if the project has no key yet, to run the first `cleo cloud push`',
       );
     default:
       return null;
