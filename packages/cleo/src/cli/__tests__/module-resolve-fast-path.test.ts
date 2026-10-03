@@ -10,13 +10,25 @@
  * @task T13126
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import type { ResolveFnOutput, ResolveHookContext } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createFastResolve, installModuleResolveFastPath } from '../module-resolve-fast-path.js';
+import {
+  createFastResolve,
+  installModuleResolveFastPath,
+  NODE_EXPORTS_REPARSE_FIXED_IN,
+} from '../module-resolve-fast-path.js';
 
 const IMPORT_CONDITIONS = ['node', 'import', 'module-sync', 'node-addons'];
 const REQUIRE_CONDITIONS = ['require', 'node', 'node-addons', 'module-sync'];
@@ -218,5 +230,39 @@ describe('installModuleResolveFastPath', () => {
       if (previous === undefined) delete process.env['CLEO_RESOLVE_FAST_PATH'];
       else process.env['CLEO_RESOLVE_FAST_PATH'] = previous;
     }
+  });
+});
+
+describe('the workaround stays until nodejs/node#66485 is fixed AND the floor includes the fix', () => {
+  /** `[major, minor, patch]` of a `x.y.z` version (leading `>=`/`v` ignored). */
+  function parseVersion(raw: string): [number, number, number] {
+    const match = /(\d+)\.(\d+)\.(\d+)/.exec(raw);
+    if (!match) throw new Error(`not a version: ${raw}`);
+    return [Number(match[1]), Number(match[2]), Number(match[3])];
+  }
+
+  /** True when version `a` is lower than version `b`. */
+  function lowerThan(a: string, b: string): boolean {
+    const [x, y] = [parseVersion(a), parseVersion(b)];
+    for (let i = 0; i < 3; i++) {
+      if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0);
+    }
+    return false;
+  }
+
+  it('cli/index.ts still installs the fast path while a supported Node lacks the fix', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const rootPackage = JSON.parse(
+      readFileSync(join(here, '..', '..', '..', '..', '..', 'package.json'), 'utf8'),
+    ) as { engines?: { node?: string } };
+    const floor = rootPackage.engines?.node;
+    expect(floor, 'root package.json declares engines.node').toBeTypeOf('string');
+    const stillNeeded =
+      NODE_EXPORTS_REPARSE_FIXED_IN === null ||
+      lowerThan(floor ?? '0.0.0', NODE_EXPORTS_REPARSE_FIXED_IN);
+    if (!stillNeeded) return;
+    const entry = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    expect(entry).toMatch(/^installModuleResolveFastPath\(\);$/m);
+    expect(entry).toContain("from './module-resolve-fast-path.js'");
   });
 });

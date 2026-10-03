@@ -41,6 +41,16 @@
  *
  * Disable with `CLEO_RESOLVE_FAST_PATH=0` to compare against Node's resolver.
  *
+ * ## When to remove it
+ *
+ * This is a workaround for nodejs/node#66485 (upstream issue, filed 2026-10-03).
+ * Remove the hook only when BOTH hold: Node has shipped the fix (record the
+ * first fixed version in {@link NODE_EXPORTS_REPARSE_FIXED_IN}), and the root
+ * `package.json` `engines.node` floor is at or above that version, so no
+ * supported Node still re-parses `exports` per edge. Until then
+ * `module-resolve-fast-path.test.ts` fails if the hook or its install call in
+ * `cli/index.ts` is removed.
+ *
  * @task T13126
  */
 
@@ -52,6 +62,13 @@ import type { ResolveFnOutput, ResolveHookContext, ResolveHookSync } from 'node:
 import * as nodeModule from 'node:module';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+/**
+ * First Node release that fixes nodejs/node#66485, or `null` while no release
+ * does. The fast path may be removed only once the `engines.node` floor
+ * reaches this version (see "When to remove it" above).
+ */
+export const NODE_EXPORTS_REPARSE_FIXED_IN: string | null = null;
 
 /** Module format a fast-path resolution can assert, or `null` when Node must decide. */
 type ScopeFormat = 'module' | 'commonjs' | null;

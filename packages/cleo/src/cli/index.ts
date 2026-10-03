@@ -69,9 +69,11 @@ import { setSummaryMode } from './summary-context.js';
 enforceNodeVersion();
 
 // T13126 — answer the module resolutions that dominate CLI startup without
-// Node re-parsing each package's whole `exports` map per import edge. Every
-// command module and all of CORE arrive through dynamic `import()` after this
-// line, so registering here covers them. See module-resolve-fast-path.ts.
+// Node re-parsing each package's whole `exports` map per import edge
+// (nodejs/node#66485). Every command module and all of CORE arrive through
+// dynamic `import()` after this line, so registering here covers them. Keep it
+// until Node fixes #66485 AND engines.node includes the fix; see
+// module-resolve-fast-path.ts ("When to remove it").
 installModuleResolveFastPath();
 
 function getPackageVersion(): string {
