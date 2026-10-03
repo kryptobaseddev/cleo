@@ -655,6 +655,52 @@ function buildPkg(filter, label) {
   });
 }
 
+/**
+ * esbuild plugin for Wave 7.5 (T13129): inline `@cleocode/utils` and nothing
+ * else. Every other import of an entry stays external, verbatim, so the
+ * re-emitted file imports the same canonical dist modules its tsc twin did.
+ *
+ * @returns {esbuild.Plugin}
+ */
+function inlineOnlyUtilsPlugin() {
+  const utilsSrc = resolve(__dirname, 'packages/utils/src');
+  return {
+    name: 'wave75-inline-only-utils',
+    setup(pluginBuild) {
+      pluginBuild.onResolve({ filter: /.*/ }, (args) => {
+        if (args.kind === 'entry-point') return undefined;
+        if (args.path === '@cleocode/utils') return { path: join(utilsSrc, 'index.ts') };
+        if (args.path.startsWith('@cleocode/utils/')) {
+          return { path: join(utilsSrc, `${args.path.slice('@cleocode/utils/'.length)}.ts`) };
+        }
+        // utils' own relative imports are part of the inlined leaf.
+        if (args.importer.startsWith(utilsSrc)) return undefined;
+        return { path: args.path, external: true };
+      });
+    },
+  };
+}
+
+/**
+ * Inputs Wave 7.5 inlined that are neither the output's own entry nor
+ * `@cleocode/utils` source (T13129). Empty when every output is per-file.
+ *
+ * @param {esbuild.Metafile} metafile - The Wave 7.5 build's metafile.
+ * @returns {{ output: string, input: string }[]}
+ */
+function wave75InlinedStrays(metafile) {
+  const utilsPrefix = 'packages/utils/src/';
+  const strays = [];
+  for (const [output, meta] of Object.entries(metafile.outputs)) {
+    if (!output.endsWith('.js')) continue;
+    for (const input of Object.keys(meta.inputs)) {
+      if (input === meta.entryPoint || input.startsWith(utilsPrefix)) continue;
+      strays.push({ output, input });
+    }
+  }
+  return strays;
+}
+
 async function build() {
   // Assert every non-wildcard subpath export in packages/core/package.json
   // has a matching entry in coreBuildOptions.entryPoints. Exits non-zero if
@@ -914,9 +960,19 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
   //
   // Re-running the FULL core esbuild here would self-contain all ~625 entry
   // points and blow the dist size budget (T11582 — observed 1 GB). Instead,
-  // surgically re-emit ONLY the utils-consuming source files with esbuild
-  // (utils inlined per the coreBuildOptions alias), overwriting the tsc output
-  // for just those files.
+  // surgically re-emit ONLY the utils-consuming source files with esbuild,
+  // overwriting the tsc output for just those files.
+  //
+  // PER-FILE, NOT SELF-CONTAINED (T13129). This pass used to reuse
+  // coreBuildOptions, whose `bundle: true` inlined every relative import and
+  // @cleocode/contracts too: docs/export-document.js (2.3 MB),
+  // llm/plugin-facade.js (3.6 MB) and selfimprove/fix-gen.js (3.6 MB) each
+  // carried a private copy of part of core. A process that loaded one held two
+  // instances of that core module state — export-document's own copy of the
+  // store/data-accessor registry, say — plus duplicate zod schemas. Now only
+  // @cleocode/utils is inlined; every other import stays a real import of the
+  // canonical dist file, exactly as tsc emitted it. The metafile check below
+  // fails the build if any other module is ever inlined again.
   //
   // DERIVED LIST (T12012): the set of files is scanned from source at build
   // time rather than maintained as a hardcoded list. This prevents the class of
@@ -983,11 +1039,22 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
   if (wave75Entries.length === 0) {
     console.log('  (no utils consumers found — Wave 7.5 is a no-op)');
   } else {
-    await esbuild.build({
+    const wave75 = await esbuild.build({
       ...coreBuildOptions,
       entryPoints: wave75Entries,
+      metafile: true,
+      plugins: [inlineOnlyUtilsPlugin()],
     });
     await sanitizeSourcemaps('packages/core/dist'); // T9184
+    const strays = wave75InlinedStrays(wave75.metafile);
+    if (strays.length > 0) {
+      console.error(
+        '\n[build] FATAL: Wave 7.5 inlined modules other than @cleocode/utils (T13129). ' +
+          'Each inlined core module is a second instance of its module state:',
+      );
+      for (const { output, input } of strays) console.error(`  ${output} <- ${input}`);
+      process.exit(1);
+    }
     console.log('  Wave 7.5 complete — @cleocode/utils inlined into all consumers above.');
   }
 
