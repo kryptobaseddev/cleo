@@ -12,7 +12,8 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ExitCode, MANIFEST_STATUSES } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { MANIFEST_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { CleoError } from '../../errors.js';
 import { getAgentOutputsAbsolute, getAgentOutputsDir, getManifestPath } from '../../paths.js';
 import type { ManifestEntry } from '../types.js';

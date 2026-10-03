@@ -25,7 +25,7 @@ import type {
   NexusCteResult,
   NexusQueryCteResult,
 } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';

@@ -13,8 +13,9 @@
  */
 
 import type { Session, SessionSummaryInput, TaskWorkState } from '@cleocode/contracts';
-import { ExitCode, SESSION_JOURNAL_SCHEMA_VERSION } from '@cleocode/contracts';
 import type { GlobalInstructionRefreshReport } from '@cleocode/contracts/caamp-markers';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { SESSION_JOURNAL_SCHEMA_VERSION } from '@cleocode/contracts/session-journal.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { pushWarning } from '../output.js';
 import { paginate } from '../pagination.js';

@@ -62,7 +62,9 @@ import type {
   WorktreeLockHolder,
   WorktreeLockRecord,
 } from '@cleocode/contracts';
-import { BRANCH_LOCK_ERROR_CODES, ExitCode, PS_STABLE_ENV } from '@cleocode/contracts';
+import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { PS_STABLE_ENV } from '@cleocode/contracts/process-probe.js';
 import { resolveStableDeviceIdPath, resolveWorktreeTaskLockPath } from '@cleocode/paths';
 
 /** Default heartbeat TTL: 4 hours. Override with `CLEO_WORKTREE_LOCK_TTL_MS`. */

@@ -38,22 +38,22 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import {
-  type CredentialReentry,
-  type CredentialStoreKind,
-  ExitCode,
-  type PortableBundleManifest,
-  type PortableBundleScope,
-  type PortableDatabaseEntry,
-  type PortableExportResult,
-  type PortableFileEntry,
-  type PortableImportResult,
-  type PortableProjectSection,
-  type PortableSectionBase,
-  type PortableSkippedProject,
-  type PortableSkipReason,
-  type PortableUnmigratedLegacyReport,
+import type {
+  CredentialReentry,
+  CredentialStoreKind,
+  PortableBundleManifest,
+  PortableBundleScope,
+  PortableDatabaseEntry,
+  PortableExportResult,
+  PortableFileEntry,
+  PortableImportResult,
+  PortableProjectSection,
+  PortableSectionBase,
+  PortableSkippedProject,
+  PortableSkipReason,
+  PortableUnmigratedLegacyReport,
 } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { create as tarCreate } from 'tar';
 import { isEphemeralPath } from '../nexus/registry-hygiene.js';
 import { getCleoConfigDir, getCleoHome } from '../paths.js';

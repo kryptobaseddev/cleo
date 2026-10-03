@@ -25,12 +25,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import {
-  blobAttachmentSchema,
-  DOCS_LIFECYCLE_STATUSES,
-  type DocsLifecycleStatus,
-  type DocsUpdateParams,
-} from '@cleocode/contracts';
+import type { DocsLifecycleStatus, DocsUpdateParams } from '@cleocode/contracts';
+import { blobAttachmentSchema } from '@cleocode/contracts/attachment-schema.js';
+import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js';
 import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute } from '../paths.js';

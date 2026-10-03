@@ -4,7 +4,7 @@
  * @task T4458
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { Ajv as AjvInstance, ValidateFunction } from 'ajv';
 import { default as AjvImport } from 'ajv';
 import { default as addFormatsImport } from 'ajv-formats';

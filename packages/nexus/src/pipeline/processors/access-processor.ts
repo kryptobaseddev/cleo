@@ -33,8 +33,8 @@
 
 import { createHash } from 'node:crypto';
 import type { GraphIndexReferenceReport, GraphRelation } from '@cleocode/contracts';
-import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import type { GraphLexicalResolution, GraphSourceSpan } from '@cleocode/contracts/graph';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts/graph.js';
 import type Parser from 'tree-sitter';
 import type { BarrelExportMap, NamedImportMap } from '../import-processor.js';
 import type { KnowledgeGraph } from '../knowledge-graph.js';

@@ -10,7 +10,7 @@
  * @epic T4545
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 
 /** Minimal task shape needed for topological sorting. */

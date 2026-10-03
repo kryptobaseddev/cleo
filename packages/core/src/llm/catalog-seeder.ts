@@ -25,7 +25,8 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type CuratedCatalog, curatedCatalogSchema } from '@cleocode/contracts';
+import type { CuratedCatalog } from '@cleocode/contracts';
+import { curatedCatalogSchema } from '@cleocode/contracts/llm/catalog-schema.js';
 import { sql } from 'drizzle-orm';
 import { getLogger } from '../logger.js';
 import {

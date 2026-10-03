@@ -9,19 +9,21 @@
  * @epic T12486
  */
 
+import type {
+  DecideProfileListResult,
+  DecideProfileProbe,
+  DecideProfileSummary,
+  DecideProviderState as DecideProviderStateContract,
+  DecisionAnswer,
+  DecisionProviderCapabilities,
+  DecisionProviderKind,
+  DecisionProviderUsage,
+} from '@cleocode/contracts';
 import {
   DECIDE_DEFAULT_PROFILE_NAME,
   DECIDE_PROFILE_DEFAULT_URL,
-  type DecideProfileListResult,
-  type DecideProfileProbe,
-  type DecideProfileSummary,
-  type DecideProviderState as DecideProviderStateContract,
-  type DecisionAnswer,
-  type DecisionProviderCapabilities,
-  type DecisionProviderKind,
-  type DecisionProviderUsage,
   JEV_MINIMUM_CAPABILITIES,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/decide.js';
 import { getProjectRoot } from '../paths.js';
 import {
   createJsonlDecisionAudit,

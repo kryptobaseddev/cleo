@@ -20,7 +20,7 @@ import type {
 // BRAIN_OBSERVATION_SOURCE_TYPES const is re-exported from contracts so the
 // derived `BrainObservationSourceType` union has a single source of truth
 // (T9956 — Phase 0e of SG-ARCH-SOLID).
-import { BRAIN_OBSERVATION_SOURCE_TYPES } from '@cleocode/contracts';
+import { BRAIN_OBSERVATION_SOURCE_TYPES } from '@cleocode/contracts/memory/observe.js';
 import { sql } from 'drizzle-orm';
 import {
   type AnySQLiteColumn,

@@ -40,7 +40,7 @@ import type {
   RoleSystem,
   SystemResolverInput,
 } from '@cleocode/contracts';
-import { SYSTEM_ROLE_MAP } from '@cleocode/contracts';
+import { SYSTEM_ROLE_MAP } from '@cleocode/contracts/llm/system-resolver.js';
 import { getLogger } from '../logger.js';
 import { proposeRoleForPrompt } from './complexity-classifier.js';
 import {

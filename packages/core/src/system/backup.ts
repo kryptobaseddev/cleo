@@ -57,7 +57,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { formatBackupTimestamp, rotateBackupDir } from '../store/backup-sidecar.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';

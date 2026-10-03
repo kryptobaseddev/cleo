@@ -11,12 +11,9 @@
  * @adr 076
  */
 
-import {
-  ExitCode,
-  TEMPLATE_KINDS,
-  type TemplateKind,
-  type TemplateManifestEntry,
-} from '@cleocode/contracts';
+import type { TemplateKind, TemplateManifestEntry } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { TEMPLATE_KINDS } from '@cleocode/contracts/templates/manifest.js';
 import { getTemplateManifest, getTemplatesByKind } from '@cleocode/core/templates/registry';
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../../renderers/index.js';

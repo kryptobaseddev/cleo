@@ -23,7 +23,8 @@
  */
 
 import type { TaskKind, TaskSeverity } from '@cleocode/contracts';
-import { ExitCode, TASK_KINDS, TASK_SEVERITIES } from '@cleocode/contracts';
+import { TASK_KINDS, TASK_SEVERITIES } from '@cleocode/contracts/enums.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 
 /** Shape accepted by {@link assertTaskAxisFilters} — one axis value or a list. */

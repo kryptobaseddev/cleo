@@ -28,11 +28,8 @@
  */
 
 import { isAbsolute, relative, resolve } from 'node:path';
-import {
-  type BoundaryContract,
-  ISOLATION_ENV_KEYS,
-  validateAbsolutePath,
-} from '@cleocode/contracts';
+import type { BoundaryContract } from '@cleocode/contracts';
+import { ISOLATION_ENV_KEYS, validateAbsolutePath } from '@cleocode/contracts/branch-lock.js';
 import type { BoundaryViolation } from './boundary.js';
 
 /**
