@@ -600,7 +600,8 @@ export async function clearTokenUsage(
  * a `cleo show`, `cleo cloud verify` turned from `match` to `ahead`, and with
  * change capture on every read would become a sync op (T13106). So a query
  * (any gateway but `mutate`) records nothing. A mutation changes synced state
- * anyway, and its cost row travels with that change.
+ * anyway, and its cost row travels with that change. Read cost comes back
+ * through a device-local ledger folded into `token_usage` at push (T13114).
  *
  * Never throws: token telemetry must not break a command.
  *
