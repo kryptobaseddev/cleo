@@ -216,6 +216,21 @@ describe('claudePreApproval', () => {
       'pnpm test | wc --files0-from=pats',
       'pnpm test && ls notes.txt',
       'pnpm test && pwd x',
+      // Abbreviated long flags and BSD symlink flags (review MED-2b).
+      'pnpm test | grep --rec -S FAIL',
+      'pnpm test | grep --recursiv -S FAIL',
+      'pnpm test | grep --dir recurse -S -eFAIL',
+      'pnpm test | grep --der FAIL',
+      'pnpm test | grep --dereference FAIL',
+      'pnpm test | grep -e FAIL',
+      'pnpm test | grep -- FAIL x',
+      'pnpm test | wc --files 5',
+      'pnpm test | wc --files0-from=5',
+      'pnpm test | tail --lin 5',
+      'pnpm test | cat 5', // a bare number is a file name
+      'pnpm test && ls -LR', // review LOW-2
+      'pnpm test && ls -R',
+      'pnpm test && ls -H',
     ]) {
       expect(ok(command, rules).approved, command).toBe(false);
     }
@@ -225,6 +240,10 @@ describe('claudePreApproval', () => {
       'pnpm test | head -5',
       'pnpm test | grep -c FAIL',
       'pnpm test | grep -vE "PASS|skip"',
+      'pnpm test | grep -A3 -B 2 --max-count=5 --context 1 FAIL',
+      'pnpm test | tail --lines=20',
+      'pnpm test | head --lines 5',
+      'pnpm test | cat -n',
       'pnpm test | wc -l',
       'pnpm test && ls -la',
       'pnpm test && pwd',
@@ -370,6 +389,9 @@ describe('claudePreApproval is fail-closed', () => {
     '"\u202e"', // a bidi override
     'CI=$x', // an assignment with an expansion
     '=ls', // zsh EQUALS: a word-initial =cmd is the command's path
+    '""=ls', // ... also after quote removal (review LOW-1)
+    "''=ls",
+    'x=""=ls',
     'x==ls', // zsh MAGIC_EQUAL_SUBST
     'PATH=a:=ls',
     '\tx', // a tab between words
@@ -386,6 +408,45 @@ describe('claudePreApproval is fail-closed', () => {
     (c) => `cd ${c} && pnpm test`,
     (c) => `${c} pnpm test`,
   ];
+
+  it('no grep flag outside the exact allowlist makes grep a pre-approved stage (review MED-2b)', () => {
+    const opts = { cwd: dir, workingDir: dir };
+    const approved: string[] = [];
+    for (const flags of [
+      '--rec -S',
+      '--recursiv',
+      '--recursive',
+      '--der',
+      '--dereference',
+      '--dereference-recursive',
+      '--dir recurse -S',
+      '--dir=recurse',
+      '--devices=read',
+      '--file=pats',
+      '--include=x',
+      '--exclude-dir=x',
+      '-S',
+      '-O',
+      '-p',
+      '-r',
+      '-R',
+      '-d recurse',
+      '-D read',
+      '-f pats',
+      '-e X',
+      '-eX',
+      '-l',
+      '-L',
+      '--',
+      '-A x',
+      '--max-count=x',
+      '--context',
+    ]) {
+      const line = `pnpm test | grep ${flags} FAIL`;
+      if (claudePreApproval(line, ['pnpm test *'], opts).approved) approved.push(line);
+    }
+    expect(approved).toEqual([]);
+  });
 
   it('no construct, in any position, yields an approval', () => {
     const opts = { cwd: dir, workingDir: dir };

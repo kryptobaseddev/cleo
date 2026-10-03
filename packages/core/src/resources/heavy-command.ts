@@ -741,43 +741,151 @@ const CLAUDE_PARSE_LIMIT = 10_000;
  */
 const CLAUDE_READ_ONLY = new Set(['cat', 'echo', 'pwd', 'head', 'tail', 'grep', 'wc', 'ls']);
 
-/** A flag cluster, a numeric flag, or a long flag with at most a numeric value (`-nv`, `-20`, `--lines=5`). */
-const PLAIN_FLAG = /^(?:-[A-Za-z]+|-\d+|--[a-z][a-z-]*(?:=\d+)?)$/;
-
-/** A numeric argument (`50`, `+5`): a flag's value, never a file. */
-const NUMERIC_ARG = /^\+?\d+$/;
-
-/** grep long flags that read files or recurse. */
-const GREP_FILE_LONG =
-  /^--(?:recursive|dereference-recursive|directories|devices|file|include|exclude)/;
-
-/** Whether a grep flag reads files or recurses: a short cluster holding r, R, d, D or f, or {@link GREP_FILE_LONG}. */
-function grepFileFlag(arg: string): boolean {
-  return arg.startsWith('--') ? GREP_FILE_LONG.test(arg) : /[rRdDf]/.test(arg);
+/** The flags a rule-free read-only command may take: an exact allowlist, never a prefix. */
+interface ReadOnlyFlags {
+  /** Short flags that take no value (combinable in one cluster). */
+  readonly short: string;
+  /** Short flags that take a numeric value, glued (`-n5`) or as the next word. */
+  readonly numericShort: string;
+  /** Exact long flags that take no value. */
+  readonly long: readonly string[];
+  /** Exact long flags that take a numeric value (`--lines=5` or `--lines 5`). */
+  readonly numericLong: readonly string[];
+  /** `-20`: a bare count (head and tail). */
+  readonly bareCount: boolean;
+  /** How many non-flag arguments it takes (grep: its one pattern). */
+  readonly positionals: number;
 }
+
+/**
+ * Exact flag allowlists for the rule-free read-only commands (fail-closed,
+ * T13124 review MED-2b). getopt_long accepts any unique prefix (`grep --rec`
+ * is `--recursive`, `--der` `--dereference-recursive`, GNU `wc --files` is
+ * `--files0-from`), so a denylist of long flags cannot hold: only these exact
+ * spellings pass. Nothing here reads a file, recurses, follows a symlink or
+ * takes a non-numeric value; `ls` has no `-R`, `-L` or `-H`.
+ */
+const READ_ONLY_FLAGS: Readonly<Record<string, ReadOnlyFlags>> = {
+  cat: {
+    short: 'benstuv',
+    numericShort: '',
+    long: ['--number', '--number-nonblank', '--squeeze-blank', '--show-ends', '--show-tabs'],
+    numericLong: [],
+    bareCount: false,
+    positionals: 0,
+  },
+  head: {
+    short: 'qv',
+    numericShort: 'nc',
+    long: ['--quiet', '--silent', '--verbose'],
+    numericLong: ['--lines', '--bytes'],
+    bareCount: true,
+    positionals: 0,
+  },
+  tail: {
+    short: 'qv',
+    numericShort: 'nc',
+    long: ['--quiet', '--silent', '--verbose'],
+    numericLong: ['--lines', '--bytes'],
+    bareCount: true,
+    positionals: 0,
+  },
+  wc: {
+    short: 'clmw',
+    numericShort: '',
+    long: ['--bytes', '--chars', '--lines', '--words'],
+    numericLong: [],
+    bareCount: false,
+    positionals: 0,
+  },
+  ls: {
+    short: 'aAdFhilnpstu1',
+    numericShort: '',
+    long: ['--all', '--almost-all', '--human-readable'],
+    numericLong: [],
+    bareCount: false,
+    positionals: 0,
+  },
+  grep: {
+    short: 'EFGHIVabchinoqsvwxz',
+    numericShort: 'ABCm',
+    long: [
+      '--ignore-case',
+      '--invert-match',
+      '--count',
+      '--line-number',
+      '--word-regexp',
+      '--line-regexp',
+      '--only-matching',
+      '--quiet',
+      '--silent',
+      '--extended-regexp',
+      '--fixed-strings',
+      '--no-filename',
+      '--with-filename',
+    ],
+    numericLong: ['--max-count', '--after-context', '--before-context', '--context'],
+    bareCount: false,
+    positionals: 1,
+  },
+};
 
 /**
  * Why the arguments of a rule-free read-only command could make it read a
  * file, or `null` when they cannot (T13124 review MED-2: a project symlink
  * `notes.txt -> /etc/hosts` made `cat notes.txt` a read outside the project).
- * Fail-closed: these commands only filter stdin. `cat`, `head`, `tail`, `wc`
- * and `ls` take flags and numbers only; `grep` additionally takes ONE pattern
- * and no file, recursion or pattern-file flag; `echo` prints its arguments;
- * `pwd` takes none.
+ * Fail-closed: these commands only filter stdin. Every flag must be in
+ * {@link READ_ONLY_FLAGS} exactly, a numeric value may follow only a flag that
+ * takes one, and only grep takes a positional (its one pattern). `echo`
+ * prints its arguments; `pwd` takes none. Anything unrecognised refuses.
  */
 function readOnlyArgsRefusal(cmd: string, args: readonly string[]): string | null {
   if (cmd === 'echo') return null;
   if (cmd === 'pwd') return args.length === 0 ? null : '`pwd` takes no arguments here';
-  let patterns = 0;
-  for (const arg of args) {
-    if (NUMERIC_ARG.test(arg)) continue;
-    if (arg.startsWith('-')) {
-      if (!PLAIN_FLAG.test(arg)) return `\`${cmd}\` has a flag with a value`;
-      if (cmd === 'grep' && grepFileFlag(arg)) return '`grep` may read files or recurse';
+  const spec = READ_ONLY_FLAGS[cmd];
+  if (spec === undefined) return `\`${cmd}\` is not a known stdin filter`;
+  const refuse = (arg: string) =>
+    `\`${cmd}\` takes \`${arg}\`, which is not in its stdin-filter allowlist`;
+  let positionals = 0;
+  for (let k = 0; k < args.length; k++) {
+    const arg = args[k] as string;
+    const numericNext = (): boolean => {
+      const value = args[k + 1];
+      if (value === undefined || !/^\+?\d+$/.test(value)) return false;
+      k++;
+      return true;
+    };
+    if (arg.startsWith('--')) {
+      if (spec.long.includes(arg)) continue;
+      const eq = arg.indexOf('=');
+      if (
+        eq === -1
+          ? spec.numericLong.includes(arg) && numericNext()
+          : spec.numericLong.includes(arg.slice(0, eq)) && /^\d+$/.test(arg.slice(eq + 1))
+      ) {
+        continue;
+      }
+      return refuse(arg);
+    }
+    if (arg.startsWith('-') && arg.length > 1) {
+      if (spec.bareCount && /^-\d+$/.test(arg)) continue;
+      let ok = true;
+      for (let c = 1; c < arg.length; c++) {
+        const ch = arg[c] as string;
+        if (spec.short.includes(ch)) continue;
+        if (spec.numericShort.includes(ch)) {
+          const glued = arg.slice(c + 1);
+          ok = glued === '' ? numericNext() : /^\d+$/.test(glued);
+          break;
+        }
+        ok = false;
+        break;
+      }
+      if (!ok) return refuse(arg);
       continue;
     }
-    if (cmd === 'grep' && patterns === 0) {
-      patterns++;
+    if (positionals < spec.positionals) {
+      positionals++;
       continue;
     }
     return `\`${cmd}\` names a file (only stdin filters are accepted without a rule)`;
@@ -849,7 +957,14 @@ function outsideStrictGrammar(lexed: Lexed): string | null {
       continue;
     }
     const raw = lexed.src.slice(t.start, t.end);
-    if (!STRICT_WORD.test(raw) || ZSH_EQUALS.test(raw)) {
+    // zsh EQUALS also fires on the quote-removed word (`""=ls` is `/bin/ls`;
+    // review LOW-1), so check the value as well as the raw text.
+    if (
+      !STRICT_WORD.test(raw) ||
+      ZSH_EQUALS.test(raw) ||
+      t.value.startsWith('=') ||
+      ZSH_EQUALS.test(t.value)
+    ) {
       return 'a word is not a plain or simply quoted literal (an expansion, escape, glob, brace or tilde)';
     }
   }

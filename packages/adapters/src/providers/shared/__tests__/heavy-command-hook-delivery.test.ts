@@ -546,7 +546,9 @@ describe("Codex's hooks.json is a shared project config (review MED-3)", () => {
   });
 
   it("flags CLEO's hook left as an uncommitted change in a tracked hooks.json; off removes only CLEO's", async () => {
-    writeFileSync(hooksFile(), `${JSON.stringify(teamHook, null, 2)}\n`);
+    // The team's own formatting (4-space indent), which off must give back byte for byte.
+    const committedBytes = `${JSON.stringify(teamHook, null, 4)}\n`;
+    writeFileSync(hooksFile(), committedBytes);
     git('add', '-f', '.codex/hooks.json');
     git(
       '-c',
@@ -569,7 +571,10 @@ describe("Codex's hooks.json is a shared project config (review MED-3)", () => {
     expect(flagged?.detail).toMatch(
       /an uncommitted change: one `git commit -a` ships it to the team/,
     );
-    await syncProjectHeavyCommandHooks(project, 'off', { env, providers: ['codex'] });
-    expect(JSON.parse(readFileSync(hooksFile(), 'utf-8'))).toEqual(teamHook);
+    const off = await syncProjectHeavyCommandHooks(project, 'off', { env, providers: ['codex'] });
+    expect(off[0]?.status).toBe('removed');
+    // Back to HEAD's exact bytes (review LOW-3): no reformatting diff left behind.
+    expect(readFileSync(hooksFile(), 'utf-8')).toBe(committedBytes);
+    expect(git('status', '--porcelain', '--', '.codex/hooks.json')).toBe('');
   });
 });

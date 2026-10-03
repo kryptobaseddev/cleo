@@ -76,10 +76,11 @@ Code's matching:
   random bytes) cover these constructs in every position;
 - every subcommand must match a rule;
 - the only rule-free subcommands accepted are a `cd` within the project and
-  read-only stdin filters: `cat`, `head`, `tail`, `wc` and `ls` with flags and
-  numbers only, `grep` with one pattern and no file, recursion or pattern-file
-  flag, plus `echo` and `pwd`. No file argument means no read through a
-  symlink;
+  read-only stdin filters: `cat`, `head`, `tail`, `wc`, `ls` and `grep`.
+  Their flags come from an exact per-command allowlist, never a prefix,
+  since getopt accepts `grep --rec` as `--recursive`. Only numeric flags take
+  values, and only `grep` takes a positional (its one pattern). `echo` and
+  `pwd` are also accepted. No file argument means no read through a symlink;
 - there is no wrapper or assignment stripping;
 - the only redirections accepted are to `/dev/null` or a file descriptor.
 

@@ -666,6 +666,62 @@ export function committedCodexHookHoldsCleo(projectDir: string): boolean {
   }
 }
 
+/** Structural equality of two parsed JSON values (key order ignored). */
+function jsonEqual(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((v, i) => jsonEqual(v, b[i]))
+    );
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const keys = Object.keys(a);
+    return (
+      keys.length === Object.keys(b).length &&
+      keys.every((k) => Object.hasOwn(b, k) && jsonEqual(a[k], b[k]))
+    );
+  }
+  return a === b;
+}
+
+/**
+ * Mode `off` on a TRACKED `hooks.json` whose only change from `HEAD` is
+ * CLEO's hook: write `HEAD`'s exact bytes back, so the file returns to its
+ * committed state instead of being re-serialised with CLEO's formatting
+ * (review LOW-3). Returns whether it did.
+ *
+ * @param projectDir - the project root.
+ */
+export function restoreCommittedCodexHooks(projectDir: string): boolean {
+  if (gitOutput(projectDir, ['ls-files', '--error-unmatch', CODEX_HOOKS_FILE]) === null)
+    return false;
+  const file = join(projectDir, CODEX_HOOKS_FILE);
+  let committed: string;
+  let working: unknown;
+  try {
+    committed = execFileSync('git', ['-C', projectDir, 'show', `HEAD:./${CODEX_HOOKS_FILE}`], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000,
+    });
+    working = JSON.parse(readFileSync(file, 'utf-8'));
+  } catch {
+    return false;
+  }
+  if (!isPlainObject(working)) return false;
+  const hooks = hookMap(working);
+  if (!placeHeavyHook(hooks, null).changed) return false;
+  try {
+    if (!jsonEqual(working, JSON.parse(committed))) return false;
+  } catch {
+    return false;
+  }
+  writeFileSync(file, committed);
+  return true;
+}
+
 /**
  * Whether CLEO's own marked `info/exclude` block names this project file
  * (it hides the file from git).
@@ -731,6 +787,9 @@ export async function syncCodexHeavyCommandHook(
       file,
       "holds CLEO's hook as the team committed it (removing it is a team change)",
     );
+  } else if (restoreCommittedCodexHooks(projectDir)) {
+    unexcludeHookFileFromGit(projectDir, CODEX_HOOKS_FILE);
+    return 'removed';
   }
   const result = await syncJsonHeavyCommandHook(file, 'codex', mode);
   if (mode === 'off') unexcludeHookFileFromGit(projectDir, CODEX_HOOKS_FILE);
