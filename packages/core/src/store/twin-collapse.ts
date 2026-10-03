@@ -134,23 +134,35 @@
  *   `cleo doctor` reports them missing. The (b) defences above cover the time
  *   a freeze is missing.
  *
+ * `token_usage` → `tasks_token_usage` (T13115) is a DRAIN, not a mirror: token
+ * rows are append-only telemetry with random ids, and since T13111 this build
+ * reads and writes only the twin. Every merge moves each bare row into the twin
+ * (only the columns both tables hold) and deletes it from the bare table, so
+ * the bare table is the empty inbox of whatever an older build writes. A row
+ * the twin cannot hold verbatim, or holds a different copy of, stays there,
+ * listed as a conflict, and is not decided again unless it changes. The drain
+ * deletes a bare row only when the twin holds every value of it, so it is
+ * lossless and takes no snapshot. See `TOKEN_USAGE`.
+ *
  * ## Contract
  *
  * 1. **Snapshot first** (initial collapse only, only when the merge changes
- *    the twin). The free space is checked before the `VACUUM INTO`. One
- *    snapshot covers every pair collapsing in this open, registered as a
- *    PINNED `migration` backup: `cleo backup list` shows it, rotation never
- *    deletes it, and a snapshot an earlier build wrote unpinned is pinned at
- *    the next open (`cleo doctor` lists an unpinned one).
+ *    the twin; never for the lossless `token_usage` drain). The free space is
+ *    checked before the `VACUUM INTO`. One snapshot covers every pair
+ *    collapsing in this open, registered as a PINNED `migration` backup:
+ *    `cleo backup list` shows it, rotation never deletes it, and a snapshot
+ *    an earlier build wrote unpinned is pinned at the next open (`cleo
+ *    doctor` lists an unpinned one).
  * 2. **Atomic.** Each pair merges, verifies and writes its marker in one
  *    `BEGIN IMMEDIATE` transaction, the marker re-read under the write lock.
  *    Any failure rolls back: both tables byte-identical.
  * 3. **Verified.** Every row the merge decided is re-read and compared before
  *    the marker is written; a mismatch rolls back.
- * 4. **The bare table is never written**, with one sanctioned exception:
- *    {@link mirrorCounterToBare}. When this build writes a counter key
- *    (`task_id_sequence`, `sqlite_snapshot_gate`, `file_meta`) it raises the
- *    bare row's counter field to the twin's in the same transaction, and the
+ * 4. **The bare table is never written**, with two sanctioned exceptions:
+ *    the `token_usage` drain (above), and {@link mirrorCounterToBare}. When
+ *    this build writes a counter key (`task_id_sequence`,
+ *    `sqlite_snapshot_gate`, `file_meta`) it raises the bare row's counter
+ *    field to the twin's in the same transaction, and the
  *    allocation floors on the bare counter ({@link bareCounterOf}). The
  *    2026.9.20 build still allocates ids from the bare counter; without the
  *    mirror, an id one build reserved but had not stored yet could be issued
@@ -340,6 +352,11 @@ interface TwinPair {
   readonly kvTable: string;
   /** Every table the pair reads or writes. */
   readonly tables: readonly string[];
+  /**
+   * The merge never discards a value (the `token_usage` drain): its initial
+   * collapse takes no snapshot, and its marker never names one.
+   */
+  readonly lossless?: boolean;
   /** Current hashes of the bare side (per key / sticky id). */
   bareHashes(db: DatabaseSync): Record<string, string>;
   /** Current hashes of the twin side (per key / sticky id), read from `main`. */
@@ -1675,8 +1692,234 @@ const DOCS: TwinPair = {
   },
 };
 
+// ── token_usage (T13115) ─────────────────────────────────────────────────────
+
+/** The bare token table and its twin (the runtime has written the twin since T13111). */
+const TOKEN_BARE = 'token_usage';
+const TOKEN_TWIN = 'tasks_token_usage';
+
+/** One bare token row, as the drain sees it. */
+interface BareTokenRow {
+  /** JSON of the columns both tables hold: the carried payload. */
+  readonly json: string;
+  /** JSON of every bare column: its change hash covers the columns the twin lacks too. */
+  readonly full: string;
+  /**
+   * Why the row can never be drained without losing a value (a bare-only
+   * column holds one, or a cut-down table without a key holds the id twice),
+   * or `null`.
+   */
+  readonly blocked: string | null;
+}
+
+/** The token columns both tables hold (a cut-down legacy shape carries what it has). */
+const tokenColumns = (db: DatabaseSync): string[] => sharedColumns(db, TOKEN_BARE, TOKEN_TWIN);
+
+/**
+ * Bare token rows by id. A row with no id cannot be keyed and is never
+ * touched; nor is any row when the shapes share no `id` column.
+ */
+function bareTokenRows(db: DatabaseSync): Map<string, BareTokenRow> {
+  const shared = tokenColumns(db);
+  if (!shared.includes('id')) return new Map();
+  const all = columnsOf(db, 'main', TOKEN_BARE);
+  const bareOnly = all.filter((c) => !shared.includes(c));
+  const rows = db
+    .prepare(
+      `SELECT ${all.map(quoteIdent).join(', ')} FROM main.${TOKEN_BARE} WHERE "id" IS NOT NULL`,
+    )
+    .all() as Array<Record<string, unknown>>;
+  const byId = new Map<string, BareTokenRow>();
+  for (const r of rows) {
+    const id = String(r['id']);
+    const full = JSON.stringify(all.map((c) => r[c] ?? null));
+    const twice = byId.get(id);
+    if (twice !== undefined) {
+      byId.set(id, {
+        json: twice.json,
+        full: JSON.stringify([twice.full, full]),
+        blocked: `${TOKEN_BARE} holds this id more than once`,
+      });
+      continue;
+    }
+    const extra = bareOnly.filter((c) => (r[c] ?? null) !== null);
+    byId.set(id, {
+      json: JSON.stringify(shared.map((c) => r[c] ?? null)),
+      full,
+      blocked: extra.length > 0 ? `${TOKEN_TWIN} has no column ${extra.join(', ')}` : null,
+    });
+  }
+  return byId;
+}
+
+/** One twin token row as the JSON of the shared columns, or `undefined` when absent. */
+function twinTokenRow(
+  db: DatabaseSync,
+  schema: string,
+  cols: readonly string[],
+  id: string,
+): string | undefined {
+  const row = db
+    .prepare(
+      `SELECT ${cols.map(quoteIdent).join(', ')} FROM ${schema}.${TOKEN_TWIN} WHERE "id" = ?`,
+    )
+    .get(id) as Record<string, unknown> | undefined;
+  return row === undefined ? undefined : JSON.stringify(cols.map((c) => row[c] ?? null));
+}
+
+/**
+ * Plan the drain of the bare token table. Every bare row an earlier merge did
+ * not leave behind is decided:
+ *
+ * - the twin lacks it → carried (`set`), then removed from the bare table;
+ * - the twin holds an identical copy (a store an older build reconciled holds
+ *   the same rows in both tables) → only removed from the bare table (`del`),
+ *   so each row lands once;
+ * - the twin holds a different copy → the twin wins, and the bare copy stays
+ *   where it is, listed as a conflict;
+ * - a bare-only column holds a value, or a cut-down table without a key holds
+ *   the id twice → the row cannot leave without losing a value, so it stays,
+ *   listed as a conflict.
+ *
+ * A row an earlier merge left behind (same hash as then) is never decided
+ * again, so a twin row deleted since cannot come back from it. Nothing is
+ * removed from the bare table unless the twin holds every value of it, which
+ * is why the drain needs no snapshot ({@link TwinPair.lossless}).
+ */
+function planTokenUsage(db: DatabaseSync, state: CollapseState | undefined): Plan {
+  const plan = emptyPlan();
+  const cols = tokenColumns(db);
+  const last = state?.hashes?.bare ?? {};
+  for (const [id, row] of bareTokenRows(db)) {
+    if (last[id] === sha(row.full)) {
+      plan.skipped++;
+      plan.conflicts.push(
+        state?.conflicts.find((c) => c.startsWith(`${id}: `)) ??
+          `${id}: left in ${TOKEN_BARE} by an earlier merge`,
+      );
+      continue;
+    }
+    if (row.blocked !== null) {
+      plan.skipped++;
+      plan.conflicts.push(`${id}: not carried (${row.blocked})`);
+      continue;
+    }
+    const twin = twinTokenRow(db, 'main', cols, id);
+    if (twin === undefined) plan.set.set(id, row.json);
+    else if (twin === row.json) plan.del.push(id);
+    else {
+      plan.skipped++;
+      plan.conflicts.push(`${id}: kept in ${TOKEN_BARE} (${TOKEN_TWIN} holds another copy)`);
+    }
+  }
+  return plan;
+}
+
+/**
+ * Carry a token plan into `<schema>.tasks_token_usage`, one row at a time, each
+ * in its own savepoint and re-read before it counts. A row the twin refuses (a
+ * CHECK, NOT NULL or type mismatch from a differing shape) is rolled back,
+ * listed as a conflict and left where it is: one bad row never fails the
+ * merge, so the open is never blocked by it. With `drain`, a carried row and
+ * every row of `del` are then deleted from the bare table.
+ */
+function applyTokenUsage(
+  db: DatabaseSync,
+  schema: string,
+  plan: Plan,
+  drain: boolean,
+): { inserted: number; replaced: number; deleted: number; refused: Set<string> } {
+  const cols = tokenColumns(db);
+  const insert = db.prepare(
+    `INSERT INTO ${schema}.${TOKEN_TWIN} (${cols.map(quoteIdent).join(', ')}) ` +
+      `VALUES (${cols.map(() => '?').join(', ')})`,
+  );
+  const removeBare = db.prepare(`DELETE FROM main.${TOKEN_BARE} WHERE "id" = ?`);
+  let inserted = 0;
+  let deleted = 0;
+  const refused = new Set<string>();
+  for (const [id, json] of plan.set) {
+    db.exec('SAVEPOINT token_usage_row');
+    try {
+      insert.run(...(JSON.parse(json) as Array<string | number | null>));
+      if (twinTokenRow(db, schema, cols, id) !== json)
+        // @sync-invariant none:local-only re-reads a row this device's own drain just inserted; the savepoint rolls it back and the row stays in the bare table
+        throw new Error('the stored row differs');
+      db.exec('RELEASE token_usage_row');
+      inserted++;
+    } catch (error) {
+      db.exec('ROLLBACK TO token_usage_row');
+      db.exec('RELEASE token_usage_row');
+      plan.conflicts.push(`${id}: not carried (${error instanceof Error ? error.message : error})`);
+      plan.skipped++;
+      refused.add(id);
+      continue;
+    }
+    if (drain) deleted += Number(removeBare.run(id).changes);
+  }
+  if (drain) for (const id of plan.del) deleted += Number(removeBare.run(id).changes);
+  return { inserted, replaced: 0, deleted, refused };
+}
+
+/**
+ * `token_usage` → `tasks_token_usage`, a DRAIN rather than a mirror. Token rows
+ * are append-only telemetry with random ids, and since T13111 this build reads
+ * and writes only the twin. So each merge moves the bare rows into the twin
+ * and deletes them from the bare table, the second sanctioned bare write after
+ * {@link mirrorCounterToBare}: the bare table becomes the inbox of rows an
+ * older build writes, empty after every open unless a row is left behind (see
+ * {@link planTokenUsage}). `cleo token` reports then cover all history, and
+ * `cleo token delete` / `clear` need to touch the twin only.
+ *
+ * - Lossless: a bare row is deleted only when the twin holds every value of
+ *   it, so no snapshot is taken and no marker names one.
+ * - Only the columns both tables hold are carried, so a cut-down legacy shape
+ *   on either side drains what it can and never fails the open.
+ * - Rows the twin refuses stay in the bare table, listed as conflicts
+ *   (`cleo doctor twin-collapse`), and are not tried again unless they change.
+ * - A failure of the whole merge degrades as every pair does: reads see the
+ *   twin with the planned rows, token writes are refused at the accessor
+ *   (`assertTwinCollapseWritable`), and no dispatch domain is blocked.
+ */
+const TOKEN_USAGE: TwinPair = {
+  table: TOKEN_BARE,
+  twin: TOKEN_TWIN,
+  kvTable: 'tasks_schema_meta',
+  tables: [TOKEN_BARE, TOKEN_TWIN, 'tasks_schema_meta'],
+  lossless: true,
+  bareHashes: (db) => hashMap(new Map([...bareTokenRows(db)].map(([id, r]) => [id, r.full]))),
+  // The twin is not tracked: the bare side is drained, never compared.
+  twinHashes: () => ({}),
+  plan: (db, state) => planTokenUsage(db, state),
+  apply(db, plan) {
+    const { refused, ...counts } = applyTokenUsage(db, 'main', plan, true);
+    const cols = tokenColumns(db);
+    const left = db.prepare(`SELECT 1 FROM main.${TOKEN_BARE} WHERE "id" = ?`);
+    for (const [id, json] of plan.set) {
+      if (refused.has(id)) continue;
+      if (twinTokenRow(db, 'main', cols, id) !== json)
+        // @sync-invariant none:local-only verifies this device's own collapse transaction before commit; a mismatch rolls the whole drain back
+        throw new Error(`token_usage collapse did not verify the carried row ${id}`);
+    }
+    for (const id of [...plan.set.keys(), ...plan.del]) {
+      if (!refused.has(id) && left.get(id) !== undefined)
+        // @sync-invariant none:local-only verifies this device's own collapse transaction before commit; a mismatch rolls the whole drain back
+        throw new Error(`token_usage collapse did not verify the drain of ${id}`);
+    }
+    return counts;
+  },
+  shadow(db, plan) {
+    db.exec(
+      `CREATE TEMP TABLE IF NOT EXISTS ${TOKEN_TWIN} AS SELECT * FROM main.${TOKEN_TWIN} WHERE 0`,
+    );
+    db.exec(`DELETE FROM temp.${TOKEN_TWIN}`);
+    db.exec(`INSERT INTO temp.${TOKEN_TWIN} SELECT * FROM main.${TOKEN_TWIN}`);
+    applyTokenUsage(db, 'temp', plan, false);
+  },
+};
+
 /** The pairs this build collapses, in order. */
-const PAIRS: readonly TwinPair[] = [SCHEMA_META, STICKY_TAGS, DOCS];
+const PAIRS: readonly TwinPair[] = [SCHEMA_META, STICKY_TAGS, DOCS, TOKEN_USAGE];
 
 // ── failure, read-only-for-users mode ────────────────────────────────────────
 
@@ -1741,7 +1984,7 @@ export function assertTwinCollapseWritable(
 }
 
 /** The bare tables a failed collapse can block writes for. */
-export type TwinCollapseTable = 'schema_meta' | 'sticky_tags' | 'attachments';
+export type TwinCollapseTable = 'schema_meta' | 'sticky_tags' | 'attachments' | 'token_usage';
 
 /**
  * Build the `E_TWIN_COLLAPSE_FAILED` error for a failure.
@@ -1881,7 +2124,12 @@ function collapsePair(
       return receipt(pair, 'unchanged', state?.snapshot ?? null);
     }
     const plan = pair.plan(db, state);
-    if (state === undefined && snapshotPath === null && (plan.set.size > 0 || plan.del.length > 0))
+    if (
+      state === undefined &&
+      snapshotPath === null &&
+      !pair.lossless &&
+      (plan.set.size > 0 || plan.del.length > 0)
+    )
       throw new Error(`bare ${pair.table} changed after the snapshot decision; retry the open`);
     const counts = pair.apply(db, plan);
     const now = new Date().toISOString();
@@ -1893,8 +2141,9 @@ function collapsePair(
       // Only an initial collapse records the snapshot it took. A later one
       // keeps what the marker holds, including `null` after an owner
       // released it (T12767): the snapshot another pair's initial collapse
-      // took is not this pair's pre-collapse store.
-      snapshot: state === undefined ? snapshotPath : state.snapshot,
+      // took is not this pair's pre-collapse store. A lossless pair never
+      // names one, so it never holds a snapshot release back.
+      snapshot: state === undefined ? (pair.lossless ? null : snapshotPath) : state.snapshot,
       hashes: { bare: pair.bareHashes(db), twin: pair.twinHashes(db) },
       dropped: state === undefined ? plan.dropped : state.dropped,
       kept: state === undefined ? plan.kept.slice(0, MAX_CONFLICTS) : state.kept,
@@ -2035,9 +2284,10 @@ export function collapseTwinTables(
       byTable.set(pair.table, receipt(pair, 'degraded', failure.snapshotPath));
   };
 
-  // One snapshot covers every pair whose INITIAL collapse changes its twin.
+  // One snapshot covers every pair whose INITIAL collapse changes its twin
+  // (a lossless pair discards nothing, so it needs none).
   const needSnapshot = pending.filter((p) => {
-    if (readState(nativeDb, p) !== undefined) return false;
+    if (p.lossless || readState(nativeDb, p) !== undefined) return false;
     const plan = p.plan(nativeDb, undefined);
     return plan.set.size > 0 || plan.del.length > 0;
   });
@@ -2116,7 +2366,10 @@ export interface TwinCollapseStatus {
    * served, writes refused. `no-bare-table`: nothing to collapse.
    */
   readonly state: 'collapsed' | 'bare-changed' | 'pending' | 'failed' | 'no-bare-table';
-  /** Whether a pending initial collapse would change the twin (and so needs a snapshot). */
+  /**
+   * Whether a pending initial collapse would change the twin and so needs a
+   * snapshot (never for a lossless pair, which takes none).
+   */
   readonly wouldChangeTwin: boolean;
   /** The initial collapse's snapshot (or the planned one of a failed attempt). */
   readonly snapshotPath: string | null;
@@ -2208,7 +2461,7 @@ export function inspectTwinCollapse(db: DatabaseSync): TwinCollapseStatus[] {
       if (now[k] !== prev[k]) changed++;
     }
     let wouldChangeTwin = false;
-    if (state === undefined) {
+    if (state === undefined && !pair.lossless) {
       const plan = pair.plan(db, undefined);
       wouldChangeTwin = plan.set.size > 0 || plan.del.length > 0;
     }
