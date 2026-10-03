@@ -32,6 +32,7 @@ import type {
   EvidenceMergeAnchor,
   EvidenceValidationContext,
   GateEvidence,
+  HeavyToolResourcePlan,
   EvidenceAtomInput as ParsedEvidenceAtom,
   VerificationGate,
 } from '@cleocode/contracts';
@@ -58,6 +59,7 @@ import { getEffectiveHead } from '../worktree/effective-head.js';
 import type { AffectedTestRun } from './affected-packages.js';
 import type { ViewComponentPr } from './component-pr.js';
 import { loadRecordedProjectRoots, rebaseLegacyEvidencePath } from './evidence-paths.js';
+import { HEAVY_HEAP_ENV, HEAVY_WORKERS_ENV } from './heavy-tool-env.js';
 import { DISABLE_ENV, describeMemoryLimit } from './heavy-tool-limit.js';
 import {
   computeCommitRevalidationKey,
@@ -1541,12 +1543,141 @@ async function validateFiles(
   return { ok: true, atom: { kind: 'files', files } };
 }
 
-interface VitestJsonLike extends TestRunReport {
-  numTotalTests?: number;
-  numPassedTests?: number;
-  numFailedTests?: number;
-  numPendingTests?: number;
-  numTodoTests?: number;
+/** A parsed `test-run:` report: the binding's fields plus whatever counters it carries. */
+type TestRunReportJson = TestRunReport & Readonly<Record<string, unknown>>;
+
+/**
+ * The counter sets a `test-run:` report may carry (gh#1804), tried in order;
+ * the first whose total key is present is read. `failed` and `notRun` sum
+ * their keys, and an absent count is 0.
+ *
+ * | Shape | Total | Passed | Failed | Skipped / todo |
+ * |---|---|---|---|---|
+ * | vitest `--reporter=json`, jest `--json` | `numTotalTests` | `numPassedTests` | `numFailedTests` | `numPendingTests`, `numTodoTests` |
+ * | a runner's summary output (bun test, tsx --test) | `total` | `passed` | `failed` | `skipped`, `todo` |
+ * | node --test summary (`# tests`, `# pass`, ...) | `tests` | `pass` | `fail`, `cancelled` | `skipped`, `todo` |
+ *
+ * Integrity (T13136 review): every count is a non-negative integer;
+ * passed + failed + skipped/todo equals the total; a failure under ANY key
+ * ({@link TEST_RUN_FAILURE_KEYS}) refuses, whichever set supplied the total;
+ * a report's `exit` / `exitCode` must be a number, and a non-zero one is
+ * refused. A `test-run:` atom proves only what its file says; `tool:test` and
+ * `ci:<pr>` are what prove the run. `cleo verify --help` documents the same
+ * sets.
+ *
+ * @task T13136
+ */
+const TEST_RUN_COUNTER_SHAPES = [
+  {
+    name: 'vitest/jest',
+    total: 'numTotalTests',
+    passed: 'numPassedTests',
+    failed: ['numFailedTests'],
+    notRun: ['numPendingTests', 'numTodoTests'],
+  },
+  {
+    name: 'summary',
+    total: 'total',
+    passed: 'passed',
+    failed: ['failed'],
+    notRun: ['skipped', 'todo'],
+  },
+  {
+    name: 'node --test',
+    total: 'tests',
+    passed: 'pass',
+    failed: ['fail', 'cancelled'],
+    notRun: ['skipped', 'todo'],
+  },
+] as const;
+
+/** The keys of each counter set, as the refusals name them. */
+const TEST_RUN_SHAPE_HINT = TEST_RUN_COUNTER_SHAPES.map(
+  (s) => `${[s.total, s.passed, ...s.failed, ...s.notRun].join('/')} (${s.name})`,
+).join(', ');
+
+/** The counts a `test-run:` report states, and the counter set they came from. */
+interface TestRunCounts {
+  readonly shape: (typeof TEST_RUN_COUNTER_SHAPES)[number];
+  readonly total: number;
+  readonly passed: number;
+  readonly failed: number;
+  readonly notRun: number;
+}
+
+/**
+ * Keys that name failures in any counter set, plus jest/vitest suite failures
+ * and the mocha / JUnit spellings: a positive value under any of them refuses
+ * the report, whichever set supplied the total.
+ */
+const TEST_RUN_FAILURE_KEYS = [
+  'numFailedTests',
+  'numFailedTestSuites',
+  'numRuntimeErrorTestSuites',
+  'failed',
+  'fail',
+  'cancelled',
+  'failures',
+  'errors',
+] as const;
+
+/** A refusal while reading a report's counts. */
+interface TestRunCountsRefusal {
+  readonly reason: string;
+  readonly codeName: 'E_EVIDENCE_INVALID' | 'E_EVIDENCE_TESTS_FAILED';
+}
+
+/** A present, non-null JSON value. */
+const present = (value: unknown): boolean => value !== undefined && value !== null;
+
+/** A non-negative integer, or `undefined` when the value is anything else. */
+const countOf = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
+
+/**
+ * Read a report's counts from the first counter set it carries, enforcing
+ * their integrity; `null` when it carries none.
+ */
+function testRunCounts(report: TestRunReportJson): TestRunCounts | TestRunCountsRefusal | null {
+  const shape = TEST_RUN_COUNTER_SHAPES.find((s) => present(report[s.total]));
+  if (shape === undefined) return null;
+  const invalid = (key: string): TestRunCountsRefusal => ({
+    reason: `test-run report's "${key}" is ${JSON.stringify(report[key])}; every count must be a non-negative integer`,
+    codeName: 'E_EVIDENCE_INVALID',
+  });
+  const read = (key: string): number | TestRunCountsRefusal => {
+    if (!present(report[key])) return 0;
+    return countOf(report[key]) ?? invalid(key);
+  };
+  const total = read(shape.total);
+  if (typeof total !== 'number') return total;
+  const keys = [shape.passed, ...shape.failed, ...shape.notRun];
+  const values: number[] = [];
+  for (const key of keys) {
+    const v = read(key);
+    if (typeof v !== 'number') return v;
+    values.push(v);
+  }
+  for (const key of TEST_RUN_FAILURE_KEYS) {
+    if (!present(report[key])) continue;
+    const v = countOf(report[key]);
+    if (v === undefined) return invalid(key);
+    if (v > 0) {
+      return { reason: `test-run reports ${key} = ${v}`, codeName: 'E_EVIDENCE_TESTS_FAILED' };
+    }
+  }
+  const [passed = 0, ...rest] = values;
+  const failed = rest.slice(0, shape.failed.length).reduce((a, b) => a + b, 0);
+  const notRun = rest.slice(shape.failed.length).reduce((a, b) => a + b, 0);
+  if (passed + failed + notRun !== total) {
+    return {
+      reason:
+        `test-run report's counts do not add up: ${shape.total} is ${total}, but ` +
+        `${shape.passed} + ${[...shape.failed, ...shape.notRun].join(' + ')} = ${passed + failed + notRun}`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  return { shape, total, passed, failed, notRun };
 }
 
 /**
@@ -1593,7 +1724,9 @@ async function runAffectedTests(
     return {
       ok: false,
       codeName: result.timedOut ? 'E_EVIDENCE_TOOL_TIMEOUT' : 'E_EVIDENCE_TOOL_FAILED',
-      reason: `tool:${tool} (affected: ${[run.command.cmd, ...run.command.args].join(' ')}) exited ${result.exitCode}: ${(result.stderrTail || result.stdoutTail).trim().slice(-300)}`,
+      reason:
+        `tool:${tool} (affected: ${[run.command.cmd, ...run.command.args].join(' ')}) exited ${result.exitCode}: ${(result.stderrTail || result.stdoutTail).trim().slice(-300)}` +
+        (result.signal !== null || result.resourceKill !== null ? resourcePlanNote(result) : ''),
     };
   }
   return {
@@ -1782,7 +1915,7 @@ async function validateTestRun(
   }
   const sha256 = createHash('sha256').update(content).digest('hex');
 
-  let parsed: VitestJsonLike;
+  let parsed: TestRunReportJson;
   try {
     parsed = JSON.parse(content.toString('utf-8'));
   } catch (err) {
@@ -1793,15 +1926,61 @@ async function validateTestRun(
     };
   }
 
-  const total = parsed.numTotalTests ?? 0;
-  const failed = parsed.numFailedTests ?? 0;
-  const passed = parsed.numPassedTests ?? 0;
-  const pending = (parsed.numPendingTests ?? 0) + (parsed.numTodoTests ?? 0);
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      reason: `test-run file is not a JSON object. Expected test counts: ${TEST_RUN_SHAPE_HINT}`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  if (
+    present(parsed.testResults) &&
+    (!Array.isArray(parsed.testResults) ||
+      parsed.testResults.some((tr) => tr === null || typeof tr !== 'object' || Array.isArray(tr)))
+  ) {
+    return {
+      ok: false,
+      reason: 'test-run report\'s "testResults" must be an array of objects',
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  const counts = testRunCounts(parsed);
+  if (counts !== null && !('shape' in counts)) {
+    return { ok: false, reason: counts.reason, codeName: counts.codeName };
+  }
+  if (counts === null) {
+    return {
+      ok: false,
+      reason:
+        `test-run report has no test counts. Expected one of: ${TEST_RUN_SHAPE_HINT}; ` +
+        "e.g. vitest's --reporter=json --outputFile, or " +
+        '{"total":43,"passed":42,"failed":0,"skipped":1}',
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  const { total, failed, passed, notRun: pending } = counts;
+  const exitKey = present(parsed['exit']) ? 'exit' : 'exitCode';
+  const exitValue = parsed[exitKey];
+  if (present(exitValue) && !(typeof exitValue === 'number' && Number.isInteger(exitValue))) {
+    return {
+      ok: false,
+      reason: `test-run report's "${exitKey}" is ${JSON.stringify(exitValue)}; an exit code must be a number`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  const exit = typeof exitValue === 'number' ? exitValue : undefined;
 
   if (total === 0) {
     return {
       ok: false,
-      reason: 'test-run reports zero total tests (no tests were executed)',
+      reason: `test-run reports zero total tests (no tests were executed): ${counts.shape.total} is 0`,
+      codeName: 'E_EVIDENCE_TESTS_FAILED',
+    };
+  }
+  if (exit !== undefined && exit !== 0) {
+    return {
+      ok: false,
+      reason: `test-run reports exit code ${exit}`,
       codeName: 'E_EVIDENCE_TESTS_FAILED',
     };
   }
@@ -2021,7 +2200,7 @@ async function validateTool(
         `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
         `RAN for ${Math.round(result.durationMs / 1000)}s in ${result.executionRoot} and was ` +
         `KILLED by ${result.signal}. The binary is present and the command started — ` +
-        `this is not a resolution problem.${limit} ` +
+        `this is not a resolution problem.${limit}${resourcePlanNote(result)} ` +
         `Nothing was cached, so a retry re-runs the tool from scratch and will be killed ` +
         `identically unless the cause is addressed.` +
         (result.stdoutTail || result.stderrTail
@@ -2042,9 +2221,10 @@ async function validateTool(
         `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
         `RAN for ${Math.round(result.durationMs / 1000)}s in ${result.executionRoot} and was ` +
         `KILLED for resources (${result.resourceKill}). This is not a verdict on the code, ` +
-        `and nothing was cached. Raise the heap (NODE_OPTIONS=--max-old-space-size=<MiB>) or lower the worker count ` +
-        `(VITEST_MAX_WORKERS=<n>) and verify again — both are part of the cache key, so the ` +
-        `retry runs fresh.` +
+        `and nothing was cached.${resourcePlanNote(result)} Raise the heap with ` +
+        `${HEAVY_HEAP_ENV}=<MiB> (an inherited NODE_OPTIONS heap above the run's budget is ` +
+        `clamped, T13122) or lower the worker count with ${HEAVY_WORKERS_ENV}=<n>, and verify ` +
+        `again — both are part of the cache key, so the retry runs fresh.` +
         (result.stdoutTail || result.stderrTail
           ? ` Last output: ${tailString(`${result.stdoutTail}\n${result.stderrTail}`, 512)}`
           : ''),
@@ -2140,12 +2320,24 @@ function toolRunAtomFields(result: ToolRunResult): {
   treeHash?: string;
   cacheHit: boolean;
   flaky?: string[];
+  resources?: HeavyToolResourcePlan;
 } {
   return {
     ...(result.treeHash ? { treeHash: result.treeHash } : {}),
     cacheHit: result.cacheHit,
     ...(result.flaky ? { flaky: result.flaky } : {}),
+    // T13122: the heap and worker count the run got, and why — including an
+    // inherited NODE_OPTIONS heap or worker count clamped to the budget.
+    ...(result.resources ? { resources: result.resources } : {}),
   };
+}
+
+/**
+ * One sentence naming the heap and worker plan a memory-bound tool ran under
+ * (T13122), for a message about a kill; `''` for any other tool.
+ */
+function resourcePlanNote(result: ToolRunResult): string {
+  return result.resources ? ` It ran with ${result.resources.summary}.` : '';
 }
 
 // Re-export so downstream code can keep importing the canonical-tools list

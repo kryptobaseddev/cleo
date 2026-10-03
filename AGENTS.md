@@ -272,7 +272,7 @@ Runbooks: `docs/release/merge-queue-runbook.md`, `docs/release/verb-matrix.md`, 
 
 ### Memory guard — what CLEO bounds, and what it CANNOT (T12096 · T12097)
 
-CLEO caps heap, workers and `pnpm -r` fan-out ONLY for evidence runs (`cleo verify --evidence "tool:test"`, via `resources/heavy-tool-env.ts`). A test an agent starts itself (`pnpm test`, `npx vitest run`, `cargo test`) gets no CLEO bound, and environment variables bind only shells started after they are set — a cgroup limit on the enclosing slice is the only layer that binds running processes. A freeze with no OOM kill is throttle-and-thrash: diagnose with `journalctl -b -1 -k | grep -i oom-kill` FIRST (empty = throttling, not OOM).
+CLEO caps heap, workers and `pnpm -r` fan-out ONLY for evidence runs (`cleo verify --evidence "tool:test"`; `tool:typecheck`/`tool:lint` get the heap cap and RAM-derived slots, T13123) and `cleo run`, via `tasks/heavy-tool-env.ts`: one RAM-derived budget, which an inherited `NODE_OPTIONS` heap or worker count can tighten but never raise (only `CLEO_HEAVY_HEAP_MB` / `CLEO_HEAVY_WORKERS` ask for more, T13122). A test an agent starts itself (`pnpm test`, `npx vitest run`, `cargo test`) gets no CLEO bound, and environment variables bind only shells started after they are set — a cgroup limit on the enclosing slice is the only layer that binds running processes. A freeze with no OOM kill is throttle-and-thrash: diagnose with `journalctl -b -1 -k | grep -i oom-kill` FIRST (empty = throttling, not OOM).
 
 ```bash
 cleo doctor memory-guard          # audit (read-only)

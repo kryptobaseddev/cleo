@@ -101,6 +101,11 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_VAULT_STORE_BUSY',
   /** A project restore target already holds a different project. */
   'E_NEXUS_VAULT_TARGET_OCCUPIED',
+  // Projects by name (`cleo cloud restore <name>`, T13102).
+  /** No project of the account has that name, label or id. */
+  'E_NEXUS_PROJECT_NOT_FOUND',
+  /** Several of the account's projects have that name or label; the error lists them. */
+  'E_NEXUS_PROJECT_AMBIGUOUS',
 ] as const;
 
 /** One of {@link NEXUS_ACCOUNT_ERROR_CODES}. */

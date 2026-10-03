@@ -144,12 +144,9 @@ export interface ReleaseOpenResult {
   /** True iff this invocation was a no-op because status was already `pr-opened`. */
   idempotent?: boolean;
   /**
-   * Plan file sha256, computed for downstream provenance tracking and
-   * returned in the result envelope. Per T10105 this is NO LONGER passed
-   * as a `--field` to `gh workflow run`, because the
-   * `release-prepare.yml workflow_dispatch.inputs` block does not declare
-   * the field and the GitHub Actions API rejected the dispatch with
-   * HTTP 422 "Unexpected inputs provided" during the v2026.5.100 ship.
+   * Plan file sha256. Forwarded as the workflow's `plan-blob-sha256` input
+   * once the same bytes are verified on the dispatch branch (T12092, T13050);
+   * a dispatch never goes out without it.
    */
   planBlobSha256: string;
   /**
@@ -254,19 +251,34 @@ function loadPlanForOpen(
       },
     );
   }
+  return validatePlanBody(rawBody, planPath, planPath, version);
+}
+
+/**
+ * Parse and schema-validate a plan body read from `source` (the local file, or
+ * the dispatch branch's copy: T13050).
+ *
+ * @internal
+ */
+function validatePlanBody(
+  rawBody: string,
+  planPath: string,
+  source: string,
+  version: string,
+): EngineResult<{ rawBody: string; planPath: string }> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawBody);
   } catch (err) {
     return engineError<{ rawBody: string; planPath: string }>(
       E_RELEASE_PLAN_INVALID,
-      `Plan file at ${planPath} is not valid JSON: ${
+      `Plan file at ${source} is not valid JSON: ${
         err instanceof Error ? err.message : String(err)
       }`,
       {
         exitCode: ExitCode.VALIDATION_ERROR,
         fix: `Re-run cleo release plan ${version} --epic <id>`,
-        details: { planPath },
+        details: { planPath: source },
       },
     );
   }
@@ -274,11 +286,11 @@ function loadPlanForOpen(
   if (!validation.success) {
     return engineError<{ rawBody: string; planPath: string }>(
       E_RELEASE_PLAN_INVALID,
-      `Plan schema validation failed for ${planPath}`,
+      `Plan schema validation failed for ${source}`,
       {
         exitCode: ExitCode.VALIDATION_ERROR,
         fix: `Re-run cleo release plan ${version} --epic <id>`,
-        details: { planPath, issues: validation.error.issues },
+        details: { planPath: source, issues: validation.error.issues },
       },
     );
   }
@@ -577,7 +589,28 @@ export async function releaseOpen(
   const runner: ReleaseOpenRunner = runnerOverride ?? makeDefaultRunner();
 
   // ── R-050: plan file must exist + parse + schema-validate ─────────────
-  const planLoad = loadPlanForOpen(opts.version, projectRoot);
+  // T13050: `--no-commit-plan` dispatches the plan already on the dispatch
+  // branch (merged through a plan PR), so a checkout that has not pulled it
+  // reads that copy instead of refusing; the guard below still checks it.
+  let planLoad = loadPlanForOpen(opts.version, projectRoot);
+  let dispatchBranch: string | null = null;
+  /** The dispatch branch's plan bytes, when the fallback read them (reused by the guard). */
+  let remotePlan: Buffer | null = null;
+  if (!planLoad.success && !commitPlan && planLoad.error.code === E_PLAN_NOT_FOUND) {
+    dispatchBranch = resolveDispatchBranch(runner, projectRoot);
+    const relPath = `${PLAN_DIR_REL}/${opts.version}.plan.json`;
+    const remote =
+      dispatchBranch === null ? null : readPlanBlobOnRemote(relPath, projectRoot, dispatchBranch);
+    if (remote !== null) {
+      remotePlan = remote;
+      planLoad = validatePlanBody(
+        remote.toString('utf-8'),
+        join(projectRoot, relPath),
+        `origin/${dispatchBranch}:${relPath}`,
+        opts.version,
+      );
+    }
+  }
   if (!planLoad.success) {
     return engineError<ReleaseOpenResult>(planLoad.error.code, planLoad.error.message, {
       exitCode: planLoad.error.exitCode,
@@ -586,7 +619,10 @@ export async function releaseOpen(
     });
   }
   const { rawBody, planPath } = planLoad.data;
-  const planBlobSha256 = createHash('sha256').update(rawBody).digest('hex');
+  // The workflow hashes the file's bytes: hash those whenever we hold them.
+  const planBlobSha256 = createHash('sha256')
+    .update(remotePlan ?? rawBody)
+    .digest('hex');
 
   // ── R-051: releases.status MUST be 'planned' (or already pr-opened ⇒ idempotent) ──
   const current = await readReleaseStatus(opts.version, projectRoot);
@@ -694,16 +730,15 @@ export async function releaseOpen(
   // Keep this `--field` set in lockstep with the YAML inputs declaration and
   // the `release-open-field-schema.test.ts` parity check.
   const dispatchFields = ['--field', `version=${opts.version}`];
-  // Resolved once, by the plan guard below when it runs, else for the
-  // preflight-skip check.
-  let dispatchBranch: string | null = null;
-  // T12092: forward the plan hash ONLY when the plan was committed. The
-  // workflow's verify branch reads the plan FILE from its checkout, so the hash
-  // is meaningful exactly when the file is present there — and committing is a
-  // NECESSARY step toward that, since `.cleo/` is gitignored. It is not a
-  // sufficient one (gh#1375): a local commit is invisible to the runner, so the
-  // guard below checks the remote ref rather than trusting the commit.
-  if (commitPlan) {
+  // T12092 / T13050: the plan hash is forwarded once the plan FILE is verified
+  // on the ref the workflow checks out. The workflow's verify branch reads it
+  // from its checkout, and `.cleo/` is gitignored, so it is there only when it
+  // was committed AND reached that ref: by `--commit-plan` plus a push, or by
+  // a merged plan PR (`--no-commit-plan`). Without the hash the workflow
+  // regenerates the plan, which cannot work on a runner (T12309): v2026.10.2
+  // died at "No release scope supplied", and v2026.10.3 was dispatched by hand,
+  // dropping the preflight skips and re-running the whole suite.
+  {
     // gh#1375: committing is NECESSARY and NOT SUFFICIENT. `commitPlanFile`
     // runs `git add -f` and `git commit` and nothing else — there is no push
     // anywhere in this module — so the plan sits in a LOCAL commit while the
@@ -717,7 +752,7 @@ export async function releaseOpen(
     // proxy for it (that a commit command exited 0). The two differ exactly in
     // the case that has been failing.
     const relPath = toRepoRelative(planPath, projectRoot);
-    dispatchBranch = resolveDispatchBranch(runner, projectRoot);
+    dispatchBranch ??= resolveDispatchBranch(runner, projectRoot);
     if (dispatchBranch === null) {
       return engineError<ReleaseOpenResult>(
         E_INVALID_STATE,
@@ -730,18 +765,26 @@ export async function releaseOpen(
         },
       );
     }
-    const remoteBlob = readPlanBlobOnRemote(relPath, projectRoot, dispatchBranch);
+    // The fallback's read is reused: a push landing between two reads would
+    // otherwise surface as a confusing mismatch (T13140 review).
+    const remoteBlob = remotePlan ?? readPlanBlobOnRemote(relPath, projectRoot, dispatchBranch);
     if (remoteBlob === null) {
       return engineError<ReleaseOpenResult>(
         E_INVALID_STATE,
-        `--commit-plan committed ${relPath} locally, but it is absent from ` +
-          `origin/${dispatchBranch} — the ref workflow_dispatch checks out. The dispatch ` +
-          'would fail its plan-verify step after a full preflight.',
+        commitPlan
+          ? `--commit-plan committed ${relPath} locally, but it is absent from ` +
+              `origin/${dispatchBranch} — the ref workflow_dispatch checks out. The dispatch ` +
+              'would fail its plan-verify step after a full preflight.'
+          : `--no-commit-plan dispatches the plan already on origin/${dispatchBranch} — the ref ` +
+              `workflow_dispatch checks out — and ${relPath} is absent there. Without it the ` +
+              'workflow regenerates the plan, which cannot work on a runner.',
         {
           exitCode: ExitCode.VALIDATION_ERROR,
-          fix:
-            `Get the plan commit onto ${dispatchBranch} first — open a PR carrying ${relPath}, ` +
-            `or push the branch that holds it — then re-run 'cleo release open ${opts.version}'.`,
+          fix: commitPlan
+            ? `Get the plan commit onto ${dispatchBranch} first — open a PR carrying ${relPath}, ` +
+              `or push the branch that holds it — then re-run 'cleo release open ${opts.version}'.`
+            : `Merge the release-plan PR carrying ${relPath} into ${dispatchBranch}, then re-run ` +
+              `'cleo release open ${opts.version} --no-commit-plan'.`,
           details: {
             version: opts.version,
             planPath: relPath,
@@ -794,6 +837,7 @@ export async function releaseOpen(
       ? {
           verifiedSha: null,
           skipTests: false,
+          testedSha: null,
           skipMacosTests: false,
           reason: 'Could not determine the dispatch branch; running every preflight suite.',
         }

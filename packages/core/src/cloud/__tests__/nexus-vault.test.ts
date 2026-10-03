@@ -99,6 +99,8 @@ import {
   NexusDeviceStore,
 } from '../nexus-device.js';
 import { loginToNexusDevice } from '../nexus-enrol.js';
+import { hasUnsyncedNexusBackup, runNexusFirstRun } from '../nexus-first-run.js';
+import { listNexusNamedProjects, resolveNexusProjectRef } from '../nexus-project-names.js';
 import {
   nexusVaultStatus,
   pushNexusVault,
@@ -286,6 +288,8 @@ class FakeNexus {
     string,
     Array<{ userId: string; wrappedProjectKey: string; keyVersion: number }>
   >();
+  /** projectId -> what `GET /v1/projects` (E13) reports as its label and encrypted name (T13102). */
+  projectNames = new Map<string, { label: string | null; encryptedName: string | null }>();
   /** projectId -> replicaId -> deviceId. */
   replicas = new Map<string, Map<string, string>>();
   streams = new Map<string, FakeStream>();
@@ -614,6 +618,29 @@ class FakeNexus {
         .map(({ wrappedProjectKey, keyVersion }) => ({ wrappedProjectKey, keyVersion }));
       return this.ok({ keys });
     }
+    m = route.match(/^GET \/v1\/projects\/([^/]+)$/);
+    if (m) {
+      // E14 (T13102): enough of the project detail for the first run's unsynced-backup check.
+      const projectId = decodeURIComponent(m[1] ?? '');
+      const replicas = this.replicas.get(projectId);
+      if (!replicas) throw new ApiFail(404, 'E_NOT_FOUND');
+      const s = this.streams.get(`project:${projectId}`);
+      return this.ok({
+        project: {
+          projectId,
+          label: this.projectNames.get(projectId)?.label ?? null,
+          organizationId: ORG,
+        },
+        role: 'owner',
+        openConflicts: 0,
+        replicas: [],
+        devices: { active: replicas.size, total: replicas.size },
+        truncated: false,
+        stream: s
+          ? { streamId: s.streamId, headSeq: s.headSeq, headCheckpointId: s.headCheckpointId }
+          : null,
+      });
+    }
     m = route.match(/^PUT \/v1\/projects\/([^/]+)\/keys\/([^/]+)$/);
     if (m) {
       const projectId = decodeURIComponent(m[1] ?? '');
@@ -677,6 +704,42 @@ class FakeNexus {
         { userId: USER, wrappedProjectKey: body['wrappedProjectKey'] as string, keyVersion: kv },
       ]);
       return this.ok({ projectId, keyVersion: kv });
+    }
+    if (route === 'GET /v1/projects') {
+      return this.ok({
+        projects: [...this.replicas].map(([projectId, replicas]) => {
+          const s = this.streams.get(`project:${projectId}`);
+          const names = this.projectNames.get(projectId);
+          return {
+            projectId,
+            label: names?.label ?? null,
+            encryptedName: names?.encryptedName ?? null,
+            remoteUrl: null,
+            organizationId: ORG,
+            organizationName: 'Personal',
+            createdByUserId: USER,
+            createdAt: NOW,
+            role: 'owner',
+            streamId: `project:${projectId}`,
+            headSeq: s?.headSeq ?? 0,
+            headCheckpointId: s?.headCheckpointId ?? null,
+            openConflicts: 0,
+            replicas: [...replicas].map(([replicaId, deviceId]) => ({
+              projectId,
+              replicaId,
+              deviceId,
+              deviceName: this.devices.get(deviceId)?.name ?? 'device',
+              attachedAt: NOW,
+              lastSyncAt: null,
+              presence: null,
+              presenceAt: null,
+            })),
+            replicasTruncated: false,
+          };
+        }),
+        nextCursor: null,
+        truncated: false,
+      });
     }
     if (route === 'GET /v1/account/activity') {
       const limit = Math.min(Number(url.searchParams.get('limit') ?? 50), this.activityPageSize);
@@ -3743,6 +3806,264 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     expect(err?.code).toBe('E_STREAM_VERSION');
     expect(err?.details?.['verdict']).toMatchObject({ reason: 'stream-v3' });
     expect(s.headCheckpointId).toBe(v3.checkpointId);
+  });
+});
+
+describe('guided first run against the fake server (T13102)', () => {
+  /** The first run's link step for machine `m`: the binding `cleo project link` would write. */
+  function linkStep(m: Machine) {
+    return async () => {
+      link(m);
+      return {
+        link: {
+          apiUrl: API,
+          localProjectId: LOCAL_PROJECT,
+          remoteProjectId: REMOTE_PROJECT,
+          organizationId: ORG,
+          label: 'demo',
+          streamId: STREAM,
+          linkedAt: NOW,
+          replicaId: m.replicaId,
+          nexusDeviceId: m.deviceId,
+          attachedAt: NOW,
+        },
+        alreadyLinked: false,
+        linkPath: path.join(m.root, '.cleo', 'nexus-link.json'),
+        replica: {
+          replicaId: m.replicaId,
+          deviceId: m.deviceId,
+          reboundFrom: null,
+          presenceAt: NOW,
+        },
+        attachError: null,
+        warnings: [],
+      };
+    };
+  }
+
+  /** A: `cleo login nexus --yes` inside its unlinked project; B: an empty folder outside any project. */
+  async function firstRunOnA() {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 5);
+    const result = await on(a, () =>
+      runNexusFirstRun({
+        ...vopts(a),
+        consent: 'yes',
+        deviceId: DEVICE_A,
+        link: linkStep(a),
+      }),
+    );
+    return { a, b, result };
+  }
+
+  /** The server's label and an opaque encryptedName (its format is not specified yet: T098). */
+  function nameOnServer(label: string): void {
+    fake.projectNames.set(REMOTE_PROJECT, { label, encryptedName: 'c2VhbGVkLW5hbWU=' });
+  }
+
+  it('--yes links, then takes the first encrypted backup with the real push', async () => {
+    const { result } = await firstRunOnA();
+    expect(result.state).toBe('backed-up');
+    expect(result.backup?.status).toBe('pushed');
+    const head = fake.streams.get(STREAM)?.headCheckpointId ?? null;
+    expect(head).not.toBeNull();
+    expect(result.backup?.snapshot?.checkpointId).toBe(head);
+    // The push minted the account and project keys (the fallback path until onboarding A/B land).
+    expect(fake.escrow).not.toBeNull();
+    expect(fake.projectKeys.get(REMOTE_PROJECT)).toHaveLength(1);
+  });
+
+  it('on a machine with no linked project, login lists the project by name with the restore command, writing nothing', async () => {
+    const { b } = await firstRunOnA();
+    nameOnServer('Demo Board');
+    const emptyDir = path.join(base, 'b', 'empty');
+    fs.mkdirSync(emptyDir, { recursive: true });
+    const writesBefore = fake.writes.length;
+    const result = await on(b, () =>
+      runNexusFirstRun({
+        ...vopts(b, { projectRoot: emptyDir }),
+        consent: 'never',
+        deviceId: DEVICE_B,
+      }),
+    );
+    expect(result.state).toBe('projects');
+    expect(result.projects).toHaveLength(1);
+    expect(result.projects[0]).toMatchObject({
+      projectId: REMOTE_PROJECT,
+      // The encryptedName is not opened: no reader for its format exists yet.
+      name: 'Demo Board',
+      nameSource: 'label',
+      hasBackup: true,
+      onThisDevice: false,
+      // The fake API is not the default origin, so the commands name it. The machine-read
+      // command is by id; the by-name one is for a person.
+      restoreCommand: `cleo cloud restore ${REMOTE_PROJECT} --api-url ${API}`,
+      restoreByNameCommand: `cleo cloud restore 'Demo Board' --api-url ${API}`,
+    });
+    expect(result.nextCommand).toBe(`cleo cloud restore ${REMOTE_PROJECT} --api-url ${API}`);
+    // Listing is a read: no mint, escrow, certify or key write.
+    expect(fake.writes.slice(writesBefore)).toEqual([]);
+    // A, which holds the project, is told it is already there.
+    const onA = await listNexusNamedProjects(vopts(b, { deviceId: DEVICE_A }));
+    expect(onA.projects[0]?.onThisDevice).toBe(true);
+    expect(onA.projects[0]?.restoreCommand).toBeNull();
+  });
+
+  it('cleo cloud restore <name> resolves the name and restores the project onto the new machine', async () => {
+    const { b } = await firstRunOnA();
+    nameOnServer('Demo Board');
+    const ref = await on(b, () => resolveNexusProjectRef('demo board', vopts(b)));
+    expect(ref).toEqual({ projectId: REMOTE_PROJECT, name: 'Demo Board', matchedBy: 'name' });
+    const restored = await on(b, () =>
+      restoreNexusVault(
+        vopts(b, {
+          mode: 'restore',
+          projectId: ref.projectId,
+          into: b.root,
+          relink: async () => {
+            link(b);
+            return [];
+          },
+        }),
+      ),
+    );
+    expect(restored.status).toBe('restored');
+    expect(taskCount(b)).toBe(5);
+    // The id resolves without listing.
+    expect((await on(b, () => resolveNexusProjectRef(REMOTE_PROJECT, vopts(b)))).matchedBy).toBe(
+      'id',
+    );
+  });
+
+  it('a non-interactive run inside the unlinked project pushes nothing and prints the next command', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    const result = await on(a, () =>
+      runNexusFirstRun({ ...vopts(a), consent: 'never', deviceId: DEVICE_A }),
+    );
+    expect(result.state).toBe('offered');
+    expect(result.nextCommand).toBe(
+      `cleo project link --api-url ${API} && cleo cloud push --api-url ${API}`,
+    );
+    expect(fake.writes).toEqual([]);
+    expect(fs.existsSync(path.join(a.root, '.cleo', 'nexus-link.json'))).toBe(false);
+  });
+  /** This project's link with the server id equal to the tracked local id, as in production. */
+  function linkSameId(m: Machine): void {
+    fs.mkdirSync(path.join(m.root, '.cleo'), { recursive: true });
+    fs.writeFileSync(
+      path.join(m.root, '.cleo', 'nexus-link.json'),
+      JSON.stringify({
+        version: 1,
+        links: {
+          [API]: {
+            apiUrl: API,
+            localProjectId: LOCAL_PROJECT,
+            remoteProjectId: LOCAL_PROJECT,
+            organizationId: ORG,
+            label: 'demo',
+            streamId: `project:${LOCAL_PROJECT}`,
+            linkedAt: NOW,
+            replicaId: m.replicaId,
+            nexusDeviceId: m.deviceId,
+            attachedAt: NOW,
+          },
+        },
+      }),
+    );
+  }
+
+  /** A pushed the project (server id = local id); B holds a fresh git clone: the tracked id, no store. */
+  async function backedUpAndCloned() {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.addProject(LOCAL_PROJECT, { [REPLICA_A]: DEVICE_A, [REPLICA_B]: DEVICE_B });
+    seedProject(a, 5);
+    linkSameId(a);
+    await on(a, () => pushNexusVault(vopts(a)));
+    fs.mkdirSync(path.join(b.root, '.cleo'), { recursive: true });
+    fs.writeFileSync(path.join(b.root, '.cleo', 'project-id'), `${LOCAL_PROJECT}\n`);
+    return { a, b };
+  }
+
+  function sameIdLinkResult(m: Machine) {
+    return async () => {
+      linkSameId(m);
+      return {
+        link: {
+          apiUrl: API,
+          localProjectId: LOCAL_PROJECT,
+          remoteProjectId: LOCAL_PROJECT,
+          organizationId: ORG,
+          label: 'demo',
+          streamId: `project:${LOCAL_PROJECT}`,
+          linkedAt: NOW,
+        },
+        alreadyLinked: true,
+        linkPath: path.join(m.root, '.cleo', 'nexus-link.json'),
+        replica: {
+          replicaId: m.replicaId,
+          deviceId: m.deviceId,
+          reboundFrom: null,
+          presenceAt: NOW,
+        },
+        attachError: null,
+        warnings: [],
+      };
+    };
+  }
+
+  it('the unsynced-backup check: true for a fresh clone, false for the copy that pushed it', async () => {
+    const { a, b } = await backedUpAndCloned();
+    const query = (m: Machine) => ({
+      ...vopts(m),
+      apiUrl: API,
+      projectRoot: m.root,
+      projectId: LOCAL_PROJECT,
+    });
+    expect(await on(b, () => hasUnsyncedNexusBackup(query(b)))).toBe(true);
+    expect(await on(a, () => hasUnsyncedNexusBackup(query(a)))).toBe(false);
+    // A project the server does not have, or with no snapshot, needs a backup, not a restore.
+    expect(
+      await on(b, () => hasUnsyncedNexusBackup({ ...query(b), projectId: OTHER_PROJECT })),
+    ).toBe(false);
+  });
+
+  it('a fresh clone on a new machine: --yes restores the backup there and links it, pushing nothing', async () => {
+    const { b } = await backedUpAndCloned();
+    const writesBefore = fake.writes.length;
+    const result = await on(b, () =>
+      runNexusFirstRun({
+        ...vopts(b),
+        consent: 'yes',
+        deviceId: DEVICE_B,
+        link: sameIdLinkResult(b),
+      }),
+    );
+    expect(result.state).toBe('restored');
+    expect(result.offer).toBe('restore');
+    expect(result.restore?.status).toBe('restored');
+    expect(result.link?.remoteProjectId).toBe(LOCAL_PROJECT);
+    expect(taskCount(b)).toBe(5);
+    // Restoring reads the snapshot; it never pushes a segment or checkpoint.
+    expect(
+      fake.writes.slice(writesBefore).filter((w) => /segments|checkpoints|blobs/.test(w)),
+    ).toEqual([]);
+  });
+
+  it('a fresh clone, non-interactive: restores nothing and names the restore command', async () => {
+    const { b } = await backedUpAndCloned();
+    const result = await on(b, () =>
+      runNexusFirstRun({ ...vopts(b), consent: 'never', deviceId: DEVICE_B }),
+    );
+    expect(result.state).toBe('offered');
+    expect(result.offer).toBe('restore');
+    expect(result.nextCommand).toContain(`cleo cloud restore ${LOCAL_PROJECT} --into `);
+    expect(result.nextCommand).toContain(`--api-url ${API}`);
+    expect(fs.existsSync(path.join(b.root, '.cleo', 'cleo.db'))).toBe(false);
   });
 });
 
