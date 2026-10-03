@@ -29,9 +29,6 @@ const WRITE_SCOPE: Readonly<Record<string, '*' | readonly string[]>> = {
   schema_meta: '*',
   sticky_tags: ['sticky'],
   attachments: ['docs'],
-  // Token writes are refused at the accessor only (`token-service.ts`): a failed
-  // token drain must not block any command (T13115).
-  token_usage: [],
 };
 
 /** The operation asking to write, as the dispatch pipeline names it. */

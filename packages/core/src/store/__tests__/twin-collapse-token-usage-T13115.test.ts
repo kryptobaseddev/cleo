@@ -29,6 +29,7 @@ import { storeWriteBlock } from '../store-write-guard.js';
 import {
   collapseTwinTables,
   inspectTwinCollapse,
+  setTokenDrainChunkForTests,
   TWIN_COLLAPSE_MARKER_PREFIX,
   twinCollapseFailureOf,
 } from '../twin-collapse.js';
@@ -285,7 +286,7 @@ describe('token_usage drain into tasks_token_usage (T13115)', () => {
     expect(marker(db)?.conflicts[0]).toMatch(/^uuid-like-1: not carried/);
   });
 
-  it('a failed drain degrades: reads include the planned rows, token writes are refused, nothing else is blocked', async () => {
+  it('a failed drain degrades nothing: the twin serves reads, token writes go on, the next open retries', async () => {
     let db = await open();
     row(db, 'tasks_token_usage', 'held-1');
     row(db, 'token_usage', 'deg-1', { total_tokens: 8 });
@@ -294,32 +295,150 @@ describe('token_usage drain into tasks_token_usage (T13115)', () => {
     );
 
     db = await reopen();
-    expect(twinCollapseFailureOf(db)?.tables).toEqual(['token_usage']);
-    expect(inspectTwinCollapse(db)[TOKEN]?.state).toBe('failed');
-    // Reads see the twin with the planned rows (the TEMP shadow) …
-    expect((await listTokenUsage(root)).records.map((r) => r.id).sort()).toEqual([
-      'deg-1',
-      'held-1',
-    ]);
-    // … main is untouched …
-    expect(ids(db, 'tasks_token_usage')).toEqual(['held-1']);
-    expect(ids(db, 'token_usage')).toEqual(['deg-1']);
-    // … token writes are refused at the accessor, and no dispatch domain is blocked.
-    await expect(
-      recordTokenExchange(root, { transport: 'cli', gateway: 'mutate', requestId: 'r' }),
-    ).rejects.toThrow(/Twin collapse of token_usage failed/);
-    expect(await storeWriteBlock(root, { domain: 'tasks', operation: 'add' })).toBeNull();
-    expect(await storeWriteBlock(root, { domain: 'admin', operation: 'token.record' })).toBeNull();
-
-    // Once the cause is gone, the retry drains and drops the shadow.
-    db.exec('DROP TRIGGER main.t13115_block');
-    const receipts = collapseTwinTables(db, dbPath(), { onFailure: 'throw' });
-    expect(receipts[TOKEN]).toMatchObject({ status: 'incremental', inserted: 1, deleted: 1 });
+    // Recorded for cleo doctor, but no shadow, no refused write, no degraded connection.
     expect(twinCollapseFailureOf(db)).toBeUndefined();
+    expect(inspectTwinCollapse(db)[TOKEN]?.state).toBe('failed');
     expect(
       db.prepare("SELECT 1 FROM temp.sqlite_master WHERE name = 'tasks_token_usage'").get(),
     ).toBeUndefined();
-    expect(ids(db, 'tasks_token_usage')).toEqual(['deg-1', 'held-1']);
+    expect((await listTokenUsage(root)).records.map((r) => r.id)).toEqual(['held-1']);
+    await recordTokenExchange(root, { transport: 'cli', gateway: 'mutate', requestId: 'r' });
+    expect(ids(db, 'tasks_token_usage')).toHaveLength(2);
+    expect(await storeWriteBlock(root, { domain: 'tasks', operation: 'add' })).toBeNull();
+    expect(ids(db, 'token_usage')).toEqual(['deg-1']);
+
+    // Once the cause is gone, the next open drains it and clears the failure.
+    db.exec('DROP TRIGGER main.t13115_block');
+    db = await reopen();
     expect(ids(db, 'token_usage')).toEqual([]);
+    expect(ids(db, 'tasks_token_usage')).toContain('deg-1');
+    expect(inspectTwinCollapse(db)[TOKEN]?.state).toBe('collapsed');
+    // An explicit retry has nothing left to do.
+    const receipts = collapseTwinTables(db, dbPath(), { onFailure: 'throw' });
+    expect(receipts[TOKEN]?.status).toBe('unchanged');
+  });
+
+  it('a long backlog drains in bounded transactions, all in one open', async () => {
+    setTokenDrainChunkForTests(2);
+    try {
+      let db = await open();
+      for (let i = 1; i <= 5; i++) row(db, 'token_usage', `bulk-${i}`);
+      forgetMarker(db);
+      db = await reopen();
+      expect(ids(db, 'token_usage')).toEqual([]);
+      expect(ids(db, 'tasks_token_usage')).toEqual([
+        'bulk-1',
+        'bulk-2',
+        'bulk-3',
+        'bulk-4',
+        'bulk-5',
+      ]);
+      expect(marker(db)?.conflicts).toEqual([]);
+    } finally {
+      setTokenDrainChunkForTests(undefined);
+    }
+  });
+
+  it('a row left behind before a long backlog stays left behind through every chunk', async () => {
+    let db = await open();
+    // The bare copy differs from the twin's: left behind by the first merge.
+    row(db, 'token_usage', 'diff-1', { total_tokens: 1 });
+    row(db, 'tasks_token_usage', 'diff-1', { total_tokens: 99 });
+    forgetMarker(db);
+    db = await reopen();
+    expect(ids(db, 'token_usage')).toEqual(['diff-1']);
+    await deleteTokenUsage(root, { id: 'diff-1' });
+
+    setTokenDrainChunkForTests(2);
+    try {
+      // A backlog that takes three chunks; diff-1 comes first in the scan, the
+      // undecided rows after it.
+      for (let i = 1; i <= 5; i++) row(db, 'token_usage', `late-${i}`);
+      db = await reopen();
+      expect(ids(db, 'token_usage')).toEqual(['diff-1']);
+      expect(ids(db, 'tasks_token_usage')).toEqual([
+        'late-1',
+        'late-2',
+        'late-3',
+        'late-4',
+        'late-5',
+      ]);
+      // Nothing waiting was ever recorded as left behind, and diff-1 never came back.
+      expect(marker(db)?.conflicts).toEqual([
+        'diff-1: kept in token_usage (tasks_token_usage holds another copy)',
+      ]);
+    } finally {
+      setTokenDrainChunkForTests(undefined);
+    }
+  });
+
+  it('a left-behind row the bounded scan does not reach is still left behind', async () => {
+    let db = await open();
+    // diff-1 sits at rowid 1000, so a bounded scan stops before it.
+    db.prepare(
+      `INSERT INTO main.token_usage (rowid, id, created_at, transport, total_tokens) VALUES (1000, 'diff-1', ?, 'cli', 1)`,
+    ).run(AT);
+    row(db, 'tasks_token_usage', 'diff-1', { total_tokens: 99 });
+    forgetMarker(db);
+    db = await reopen();
+    expect(ids(db, 'token_usage')).toEqual(['diff-1']);
+    await deleteTokenUsage(root, { id: 'diff-1' });
+
+    setTokenDrainChunkForTests(2);
+    try {
+      for (let i = 1; i <= 5; i++) {
+        db.prepare(
+          `INSERT INTO main.token_usage (rowid, id, created_at, transport) VALUES (?, ?, ?, 'cli')`,
+        ).run(i, `early-${i}`, AT);
+      }
+      db = await reopen();
+      expect(ids(db, 'token_usage')).toEqual(['diff-1']);
+      expect(ids(db, 'tasks_token_usage')).not.toContain('diff-1');
+      expect(ids(db, 'tasks_token_usage')).toHaveLength(5);
+    } finally {
+      setTokenDrainChunkForTests(undefined);
+    }
+  });
+
+  it("another pair's initial snapshot is never named by the token marker", async () => {
+    let db = await open();
+    // schema_meta's initial collapse changes its twin (a bare-only key), so this open takes a snapshot.
+    db.prepare(`DELETE FROM main.tasks_schema_meta WHERE key = ?`).run(
+      `${TWIN_COLLAPSE_MARKER_PREFIX}schema_meta`,
+    );
+    db.prepare(`INSERT INTO main.schema_meta (key, value) VALUES ('t13115_probe', '1')`).run();
+    row(db, 'token_usage', 'snap-1');
+    forgetMarker(db);
+    const before = snapshots();
+
+    db = await reopen();
+    const schemaMeta = db
+      .prepare('SELECT value FROM main.tasks_schema_meta WHERE key = ?')
+      .get(`${TWIN_COLLAPSE_MARKER_PREFIX}schema_meta`) as { value: string };
+    expect(JSON.parse(schemaMeta.value).snapshot).toBeTruthy();
+    expect(snapshots().length).toBe(before.length + 1);
+    expect(marker(db)?.snapshot).toBeNull();
+    expect(ids(db, 'tasks_token_usage')).toEqual(['snap-1']);
+  });
+
+  it('a value the twin would store differently is not carried, and the open is not failed', async () => {
+    let db = await open();
+    db.exec('DROP TABLE main.token_usage');
+    db.exec(
+      'CREATE TABLE main.token_usage (id TEXT PRIMARY KEY, transport TEXT, total_tokens TEXT)',
+    );
+    // The twin's INTEGER affinity stores '0012' as 12 (and '7' as 7): carried rows that do not read back.
+    db.exec("INSERT INTO main.token_usage VALUES ('pad-1', 'cli', '0012'), ('pad-2', 'cli', '7')");
+    forgetMarker(db);
+
+    db = await reopen();
+    // Refused one by one inside the merge, so the drain itself succeeds.
+    expect(inspectTwinCollapse(db)[TOKEN]?.state).toBe('collapsed');
+    expect(ids(db, 'token_usage')).toEqual(['pad-1', 'pad-2']);
+    expect(ids(db, 'tasks_token_usage')).toEqual([]);
+    expect(marker(db)?.conflicts).toEqual([
+      'pad-1: not carried (the stored row differs)',
+      'pad-2: not carried (the stored row differs)',
+    ]);
   });
 });

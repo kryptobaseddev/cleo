@@ -14,7 +14,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { getCleoHome } from '../paths.js';
 import {
   type NewTokenUsageRow,
@@ -416,16 +415,6 @@ export async function measureTokenExchange(input: TokenExchangeInput): Promise<T
   );
 }
 
-/**
- * Refuse a token write while the store's token drain failed (T13115): reads
- * are then served from a TEMP shadow, so a write would be lost. Dispatch's
- * automatic recording swallows the refusal; `cleo token` commands report it.
- */
-async function assertTokenUsageWritable(db: NodeSQLiteDatabase): Promise<void> {
-  const { assertTwinCollapseWritable } = await import('../store/twin-collapse.js');
-  assertTwinCollapseWritable(db, 'token_usage');
-}
-
 async function whereClauses(filters: TokenUsageFilters): Promise<unknown[]> {
   const { eq, gte, lte } = await import('drizzle-orm');
   const clauses: unknown[] = [];
@@ -452,7 +441,6 @@ export async function recordTokenExchange(
   const { eq } = await import('drizzle-orm');
   const measurement = await measureTokenExchange(params);
   const db = await getDb(projectRoot);
-  await assertTokenUsageWritable(db);
 
   const row: NewTokenUsageRow = {
     id: randomUUID(),
@@ -594,7 +582,6 @@ export async function deleteTokenUsage(
   const { getDb } = await import('../store/sqlite.js');
   const { eq } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
-  await assertTokenUsageWritable(db);
   await db.delete(tokenUsage).where(eq(tokenUsage.id, params.id));
   return { deleted: true, id: params.id };
 }
@@ -614,7 +601,6 @@ export async function clearTokenUsage(
   const { getDb } = await import('../store/sqlite.js');
   const { and, count } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
-  await assertTokenUsageWritable(db);
   const clauses = await whereClauses(params);
   const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
   const countRows = await db.select({ count: count() }).from(tokenUsage).where(where);
