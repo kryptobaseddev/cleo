@@ -250,6 +250,8 @@ class FakeNexus {
   features: string[] | undefined = undefined;
   /** `false` plays a server without E3 (`GET /v1/status` is not a route). */
   statusRoute = true;
+  /** An HTTP status E3 fails with (a transient server error), or `null`. */
+  statusFailure: number | null = null;
   /** Every POST /v1/projects body, in order (T13101). */
   projectPosts: Array<Record<string, unknown>> = [];
   /** Runs before a POST /v1/projects is judged, e.g. to register the id concurrently (T13101). */
@@ -411,6 +413,7 @@ class FakeNexus {
   /** E3 `GET /v1/status`, as far as link reads it. */
   private status(dev: FakeDevice, url: URL): Response {
     if (!this.statusRoute) throw new ApiFail(404, 'E_NOT_FOUND', undefined, 'route not found');
+    if (this.statusFailure !== null) throw new ApiFail(this.statusFailure, 'E_INTERNAL');
     const projectId = url.searchParams.get('projectId');
     const visible = projectId !== null && this.registrants.get(projectId) === USER;
     return this.ok({
@@ -3858,5 +3861,68 @@ describe('cloud project link stores a new project key with its registration (onb
     expect(linked.alreadyLinked).toBe(true);
     expect(linked.initialKeyVersion).toBe(1);
     expect(fake.projectKeys.get(LOCAL_PROJECT)).toHaveLength(1);
+  });
+
+  it.each([
+    ['keyed', true],
+    ['keyless', false],
+  ])('a project-id-taken race won by a %s registration: the key is never stored twice', async (_name, keyed) => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.features = FEATURES;
+    const mk = escrowed();
+    seedProject(a, 2);
+    const winner = wrapProjectKey(mk, randomBytes(32), LOCAL_PROJECT, 1);
+    fake.beforeProjectPost = () => {
+      fake.beforeProjectPost = null;
+      fake.addProject(LOCAL_PROJECT, {});
+      if (keyed)
+        fake.projectKeys.set(LOCAL_PROJECT, [{ wrappedProjectKey: winner, keyVersion: 1 }]);
+      throw new ApiFail(409, 'E_CONFLICT', { reason: 'project-id-taken' });
+    };
+    const linked = await linkOn(a);
+    // The project-id-taken retry repeats the same body; a keyed winner then refuses the key once more.
+    expect(sentKey(1)).toEqual(sentKey(0));
+    expect(fake.projectPosts).toHaveLength(keyed ? 3 : 2);
+    if (keyed) expect(fake.projectPosts[2]).not.toHaveProperty('initialKey');
+    expect(linked.alreadyLinked).toBe(true);
+    expect(linked.initialKeyVersion).toBeNull();
+    expect(fake.projectKeys.get(LOCAL_PROJECT) ?? []).toEqual(
+      keyed ? [{ wrappedProjectKey: winner, keyVersion: 1 }] : [],
+    );
+  });
+
+  it.each([
+    [
+      'fails (a transient 503)',
+      (_m: Machine) => {
+        fake.statusFailure = 503;
+        return {};
+      },
+    ],
+    [
+      'stalls past its timeout',
+      (_m: Machine) => {
+        const stalling: FetchLike = (input, init) =>
+          new URL(input).pathname === '/v1/status'
+            ? new Promise<Response>((_resolve, reject) => {
+                init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+              })
+            : fake.fetch(input, init);
+        return { fetch: stalling, probeTimeoutMs: 50 };
+      },
+    ],
+  ])('a probe that %s: registered without a key, and a warning says so', async (_name, arrange) => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.features = FEATURES;
+    escrowed();
+    seedProject(a, 2);
+    const linked = await linkOn(a, arrange(a));
+    expect(linked.alreadyLinked).toBe(false);
+    expect(linked.initialKeyVersion).toBeNull();
+    expect(linked.warnings.join('\n')).toMatch(
+      /could not ask Cleo Nexus whether it stores a new project's encryption key with its registration .*first `cleo cloud push` creates the key/,
+    );
+    expect(fake.projectPosts).toEqual([{ projectId: LOCAL_PROJECT, label: 'demo' }]);
+    expect(fake.calls.some((c) => c.includes('/v1/account/keys'))).toBe(false);
   });
 });

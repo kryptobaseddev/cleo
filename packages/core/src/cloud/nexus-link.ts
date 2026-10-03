@@ -59,7 +59,7 @@ import { z } from 'zod';
 import { getCleoDirAbsolute, resolveOrCwd } from '../paths.js';
 import { getProjectDisplayName } from '../project-info.js';
 import { withLock } from '../store/file-utils.js';
-import { Http, NexusError } from './http.js';
+import { type FetchLike, Http, NexusError } from './http.js';
 import { newProjectKey, wrapProjectKey } from './keys.js';
 import { attachProjectReplica, type ProjectReplicaBinder } from './nexus-attach.js';
 import {
@@ -79,6 +79,9 @@ export const NEXUS_LINK_FILE = 'nexus-link.json';
 
 /** Longest label the server accepts (`RegisterProjectRequest.label`). */
 export const NEXUS_LABEL_MAX = 120;
+
+/** Timeout of the E3 probe that decides whether a registration carries the project key. */
+export const NEXUS_LINK_PROBE_TIMEOUT_MS = 15_000;
 
 const linkSchema = z.looseObject({
   apiUrl: z.string(),
@@ -174,6 +177,8 @@ export interface NexusLinkOptions extends NexusFlowOptions {
   rebind?: boolean;
   /** Vault state (trust pins read while unlocking the account key); defaults to `<cleoHome>/nexus-vault.json`. */
   vaultState?: NexusVaultState;
+  /** Timeout of the E3 probe; default {@link NEXUS_LINK_PROBE_TIMEOUT_MS}. */
+  probeTimeoutMs?: number;
 }
 
 /**
@@ -348,25 +353,32 @@ async function registerLinkedProject(
   }
 }
 
+/** What the E3 probe found: the registration carries the key, it does not, or the probe failed (why). */
+type InitialKeyProbe = 'key' | 'no-key' | { failed: string };
+
 /**
  * Whether this registration may carry the project's first data key: E3 lists
  * {@link NEXUS_FEATURE_PROJECT_INITIAL_KEY}, the credential is a full-profile
- * device (`keys:write`), and this account does not see the project yet. Any
- * failure (a server without E3, a refused or malformed answer) answers
- * `false`, so the registration is the one older servers get. One attempt: a
- * server that does not answer fails the registration itself.
+ * device (`keys:write`), and this account does not see the project yet. A
+ * server without E3 (404) takes no key. Any other failure (a refused, late or
+ * malformed answer) is reported as such, and the registration is then the
+ * one older servers get. One attempt, bounded by
+ * {@link NexusLinkOptions.probeTimeoutMs}.
  */
-async function serverTakesInitialKey(
+async function probeInitialKey(
   opts: NexusLinkOptions,
   apiUrl: string,
   bearer: string,
   projectId: string,
-): Promise<boolean> {
+): Promise<InitialKeyProbe> {
+  const base: FetchLike =
+    opts.fetch ?? ((input: string, init?: RequestInit) => globalThis.fetch(input, init));
+  const timeoutMs = opts.probeTimeoutMs ?? NEXUS_LINK_PROBE_TIMEOUT_MS;
   const http = new Http({
     baseUrl: apiUrl,
     token: bearer,
     maxAttempts: 1,
-    ...(opts.fetch ? { fetch: opts.fetch } : {}),
+    fetch: (input, init) => base(input, { ...init, signal: AbortSignal.timeout(timeoutMs) }),
   });
   try {
     const status = await http.request(
@@ -374,13 +386,16 @@ async function serverTakesInitialKey(
       `/v1/status?projectId=${encodeURIComponent(projectId)}`,
       nexusCloudStatusSchema,
     );
-    return (
-      (status.features ?? []).includes(NEXUS_FEATURE_PROJECT_INITIAL_KEY) &&
+    return (status.features ?? []).includes(NEXUS_FEATURE_PROJECT_INITIAL_KEY) &&
       status.credential.profile === 'device' &&
       status.project?.registered === false
-    );
-  } catch {
-    return false;
+      ? 'key'
+      : 'no-key';
+  } catch (err) {
+    if (err instanceof NexusError && err.status === 404 && err.code === 'E_NOT_FOUND') {
+      return 'no-key';
+    }
+    return { failed: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -489,10 +504,15 @@ export async function linkProjectToNexus(
   // Onboarding B: a new project is registered with its first data key. A 9.24
   // session has no account key, so it never sends one.
   let initialKey: InitialProjectKey | undefined;
-  if (handle && (await serverTakesInitialKey(opts, apiUrl, bearer, projectId))) {
+  const probe = handle ? await probeInitialKey(opts, apiUrl, bearer, projectId) : 'no-key';
+  if (probe === 'key') {
     const minted = await newInitialProjectKey(opts, apiUrl, projectId);
     if ('initialKey' in minted) initialKey = minted.initialKey;
     else warnings.push(minted.warning);
+  } else if (probe !== 'no-key') {
+    warnings.push(
+      `could not ask Cleo Nexus whether it stores a new project's encryption key with its registration (${probe.failed}), so none was sent; if the project is new, its first \`cleo cloud push\` creates the key`,
+    );
   }
 
   const http = new Http({
