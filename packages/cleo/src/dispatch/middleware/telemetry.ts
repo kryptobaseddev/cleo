@@ -12,7 +12,7 @@
  * @task T624
  */
 
-import { isTelemetryEnabled, recordTelemetryEvent } from '@cleocode/core/internal';
+import { isTelemetryEnabled, recordTelemetryEvent } from '@cleocode/core/telemetry/index';
 import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
 /**

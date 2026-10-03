@@ -18,13 +18,13 @@
  * @task T9931
  */
 
+import type { ProjectionMode } from '@cleocode/core';
 import {
   applyMutateProjection,
-  isJsonPointer,
   MUTATE_PROJECTION_PLANS,
-  type ProjectionMode,
-  resolveProjectionMode,
-} from '@cleocode/core';
+} from '@cleocode/core/dispatch/mutate-projection';
+import { resolveProjectionMode } from '@cleocode/core/dispatch/mvi-projection';
+import { isJsonPointer } from '@cleocode/core/dispatch/projection';
 import { getFieldContext } from '../../cli/field-context.js';
 import { getProjectionOptOut } from '../../cli/projection-context.js';
 import type { DispatchRequest, DispatchResponse, Middleware } from '../types.js';

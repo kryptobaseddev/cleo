@@ -18,6 +18,10 @@
       "types": "./dist/gateway/index.d.ts",
       "import": "./dist/gateway/index.js"
     },
+    "./gateway/dispatch": {
+      "types": "./dist/gateway/dispatch.d.ts",
+      "import": "./dist/gateway/dispatch.js"
+    },
     "./gateway/mcp": {
       "types": "./dist/gateway/mcp/index.d.ts",
       "import": "./dist/gateway/mcp/index.js"
