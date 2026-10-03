@@ -65,7 +65,11 @@ import { ExitCode, type HeavyToolResourcePlan } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { activeToolGroups, trackToolGroup } from '../resources/tool-groups.js';
 import { isLocked, withLock } from '../store/lock.js';
-import { type HeavyToolSpawnPlan, overlayForLauncher, planHeavyToolEnv } from './heavy-tool-env.js';
+import {
+  type HeavyToolSpawnPlan,
+  planHeavyToolEnv,
+  withoutNpmEnvConfigWarnings,
+} from './heavy-tool-env.js';
 import {
   confinementStartupFailure,
   isSystemdRunCommand,
@@ -1153,7 +1157,9 @@ function spawnCmd(
       clearTimers();
       untrackGroup();
       syncTerminationCleanup();
-      const stderr = stderrBuf.toString();
+      // T13122: npm's per-run `Unknown env config` warnings (the overlay's
+      // pnpm spellings) never reach the failure tail CLEO quotes.
+      const stderr = withoutNpmEnvConfigWarnings(stderrBuf.toString());
       resolve({
         exitCode,
         signal,
@@ -1716,7 +1722,7 @@ async function runToolCachedWithPlan(
   opts: RunToolOptions,
   spawnPlan: HeavyToolSpawnPlan,
 ): Promise<ToolRunResult> {
-  const toolEnv = overlayForLauncher(spawnPlan.overlay, command.cmd);
+  const toolEnv = spawnPlan.overlay;
   const callStartedAt = Date.now();
   const tailBytes = opts.tailBytes ?? 512;
   const lockStaleMs = opts.lockStaleMs ?? 600_000;

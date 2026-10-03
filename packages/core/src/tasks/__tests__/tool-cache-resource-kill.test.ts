@@ -153,14 +153,14 @@ describe('captureResourceEnv', () => {
   it('every variable heavyToolEnv sets is keyed for a heavy tool', () => {
     // Derived from heavyToolEnv itself, so this fails if a lever is added there
     // and somehow left out of the key. Each value is one the plan KEEPS (a
-    // lower heap or count; MAKEFLAGS is never rewritten): a value it clamps is
-    // spawned, and keyed, as the plan's own (T13122).
+    // lower heap, count or make job count): a value it clamps is spawned, and
+    // keyed, as the plan's own (T13122).
     const levers = Object.keys(heavyToolEnv('test', {}));
     expect(levers).toEqual(expect.arrayContaining(['VITEST_MAX_WORKERS', 'JEST_MAX_WORKERS']));
     const reference = keyed('test', {});
     for (const name of levers) {
       const value =
-        name === 'NODE_OPTIONS' ? '--max-old-space-size=1234' : name === 'MAKEFLAGS' ? '-j97' : '1';
+        name === 'NODE_OPTIONS' ? '--max-old-space-size=1234' : name === 'MAKEFLAGS' ? '-j1' : '1';
       if (
         name === 'npm_config_workspace_concurrency' ||
         name === 'pnpm_config_workspace_concurrency'
@@ -469,6 +469,17 @@ describe('runToolCached — resource kills and resource limits (T12989)', () => 
     } finally {
       delete process.env['CLEO_HEAVY_HEAP_MB'];
     }
+  });
+
+  it("T13122: npm's unknown-env-config warning never reaches the quoted stderr tail", async () => {
+    const cmd = testCommand(
+      `echo 'npm warn Unknown env config "workspace-concurrency". This will stop working.' >&2; ` +
+        `echo 'error TS2322: the real failure' >&2; exit 1`,
+    );
+    const result = await run(cmd);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderrTail).toContain('error TS2322: the real failure');
+    expect(result.stderrTail).not.toContain('Unknown env config');
   });
 
   it('T13122: an inherited heap above the budget reaches the tool clamped, and the result says so', async () => {

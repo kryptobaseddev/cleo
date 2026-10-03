@@ -17,8 +17,13 @@ cheap. One TypeScript program on a large monorepo holds 2–5 GB (a live `tsc --
 - They shrink under memory pressure like test and build.
 - Evidence typecheck and lint runs get the same heap ceiling and workspace concurrency as test and build
   (T13122's plan, as one process, no worker variables), so a profile-wide `NODE_OPTIONS` heap no longer
-  reaches every `tsc` CLEO starts unbounded. The cache key for these tools now includes those limits, so
-  their cached results re-run once after upgrading.
+  reaches every `tsc` CLEO starts unbounded. Their default ceiling is Node's own default for the machine
+  (a quarter of RAM below 16 GiB, 4 GiB above), so it never raises a `tsc`'s heap. The cache key for these
+  tools now includes those limits, so their cached results re-run once after upgrading.
+- Behaviour change: with workspace concurrency 1, a `pnpm -r typecheck` / `pnpm -r lint` evidence run checks
+  one package at a time (pnpm's own default is 4): slower on large workspaces, bounded in memory. `lint` is
+  sized like `tsc`, so a cheap native linter (biome) also takes a slot.
 
-No new governor class or admission layer: cross-surface admission (evidence runs and agent-run `cleo run
-tsc`) belongs to the single footprint-based scheduler (T13132).
+This closes a hole in the existing tool semaphore and evidence environment; it adds no admission layer and
+no governor class. Cross-surface admission (evidence runs and agent-run `cleo run tsc`) belongs to the single
+footprint-based scheduler, T13132, which supersedes these slot counts.

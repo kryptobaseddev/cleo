@@ -153,6 +153,12 @@ describe('defaultMaxConcurrent — typecheck/lint are RAM-derived (T13123)', () 
     expect(defaultMaxConcurrent('typecheck', 0, 0, 'linux')).toBe(1);
   });
 
+  it('fails closed to one slot on a non-finite input (a NaN count would mean no bound)', () => {
+    expect(defaultMaxConcurrent('typecheck', 18, 48, 'linux', Number.NaN)).toBe(1);
+    expect(defaultMaxConcurrent('typecheck', Number.NaN, 48, 'linux')).toBe(1);
+    expect(defaultMaxConcurrent('lint', 18, Number.NaN, 'linux')).toBe(1);
+  });
+
   it('uses RAM/2 at heap + PROCESS_OVERHEAD_MB a run', () => {
     expect(PROCESS_OVERHEAD_MB).toBe(2048);
     expect(MEMORY_BOUND_RAM_FRACTION).toBe(0.5);

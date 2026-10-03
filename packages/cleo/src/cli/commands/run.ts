@@ -60,7 +60,7 @@ import {
   type RunNoticeLevel,
   runGoverned,
 } from '@cleocode/core/resources/run-governed.js';
-import { overlayForLauncher, planHeavyToolEnv } from '@cleocode/core/tasks/heavy-tool-env.js';
+import { planHeavyToolEnv } from '@cleocode/core/tasks/heavy-tool-env.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -205,12 +205,13 @@ export const runCommand = defineCommand({
       if (passthrough && level === 'info') return;
       process.stderr.write(`[cleo run] ${line}\n`); // json-stream-hygiene-allowed: progress notices, not data
     };
-    // T13122: the heap and worker plan, and why. A clamped inherited value is
-    // a warning, so it reaches the operator even under --passthrough.
+    // T13122: the heap and worker plan, and why — printed before admission, so
+    // it is labelled as planned (a deferred run never starts). A clamped
+    // inherited value is a warning, so it shows even under --passthrough.
     const { overlay, resources } = planHeavyToolEnv(canonicalForClass(cls));
     if (resources !== null) {
       notice(
-        `resources: ${resources.summary}`,
+        `planned resources: ${resources.summary}`,
         resources.clamped.length > 0 || resources.overBudget ? 'warn' : 'info',
       );
     }
@@ -221,7 +222,7 @@ export const runCommand = defineCommand({
         argv,
         cls,
         cwd: process.cwd(),
-        env: { ...process.env, ...overlayForLauncher(overlay, argv[0] ?? '') },
+        env: { ...process.env, ...overlay },
         sessionId: process.env.CLEO_SESSION_ID ?? process.env.CLAUDE_CODE_SESSION_ID ?? null,
         wait: Boolean(args.wait),
         timeoutMs,

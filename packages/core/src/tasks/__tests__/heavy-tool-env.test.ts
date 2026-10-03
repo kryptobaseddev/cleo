@@ -13,7 +13,9 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  boundMakeflags,
   defaultHeavyHeapMb,
+  defaultSingleProcessHeapMb,
   GIB_PER_WORKER,
   HEAVY_TOOL_HEAP_MB,
   heavyRunBudgetMb,
@@ -21,12 +23,13 @@ import {
   heavyToolWorkers,
   inheritedHeapMb,
   MAX_HEAVY_WORKERS,
+  MAX_SEMI_SPACE_MB,
   MIN_HEAVY_WORKERS,
   mergeNodeOptions,
-  overlayForLauncher,
   planHeavyToolEnv,
   WORKSPACE_CONCURRENCY,
   withHeapCeiling,
+  withoutNpmEnvConfigWarnings,
 } from '../heavy-tool-env.js';
 
 describe('heavyToolWorkers (T12096)', () => {
@@ -291,16 +294,78 @@ describe('planHeavyToolEnv (T13122)', () => {
     expect(asked.resources?.overBudget).toBe(false);
   });
 
-  it('an npm launcher does not get the pnpm-only variable npm would warn about', () => {
+  it('every launcher gets both workspace spellings: an npm test script may run pnpm -r (review of #1808)', () => {
+    // `npm test` → `pnpm -r test` on pnpm 10 reads only the npm_config_
+    // spelling: dropping it for npm launchers unbounded exactly that chain.
     const { overlay } = planHeavyToolEnv('test', {}, 64);
-    for (const npm of ['npm', 'npx', '/usr/local/bin/npx', 'C:/node/npm.cmd']) {
-      const forNpm = overlayForLauncher(overlay, npm);
-      expect(forNpm.npm_config_workspace_concurrency, npm).toBeUndefined();
-      expect(forNpm.pnpm_config_workspace_concurrency, npm).toBe('1');
-      expect(forNpm.NODE_OPTIONS, npm).toBe(overlay.NODE_OPTIONS);
-    }
-    expect(overlayForLauncher(overlay, 'pnpm')).toBe(overlay);
-    expect(overlayForLauncher(overlay, 'sh')).toBe(overlay);
+    expect(overlay.npm_config_workspace_concurrency).toBe('1');
+    expect(overlay.pnpm_config_workspace_concurrency).toBe('1');
+  });
+
+  it('bounds an uppercase workspace spelling, which outranks the lowercase one', () => {
+    const { overlay, resources } = planHeavyToolEnv(
+      'test',
+      { NPM_CONFIG_WORKSPACE_CONCURRENCY: '16', PNPM_CONFIG_WORKSPACE_CONCURRENCY: '16' },
+      64,
+    );
+    expect(overlay.NPM_CONFIG_WORKSPACE_CONCURRENCY).toBe('1');
+    expect(overlay.PNPM_CONFIG_WORKSPACE_CONCURRENCY).toBe('1');
+    expect(resources?.workspaceConcurrency).toBe(1);
+    expect(resources?.clamped.map((c) => c.name)).toEqual([
+      'NPM_CONFIG_WORKSPACE_CONCURRENCY',
+      'PNPM_CONFIG_WORKSPACE_CONCURRENCY',
+    ]);
+  });
+
+  it('caps an inherited semi-space: three of them count toward the heap limit', () => {
+    // node 24: --max-old-space-size=4096 with --max-semi-space-size=4096 is a
+    // 16384 MiB heap_size_limit, four times the plan.
+    const { overlay, resources } = planHeavyToolEnv(
+      'test',
+      { NODE_OPTIONS: '--max-semi-space-size=4096 --enable-source-maps' },
+      64,
+    );
+    expect(overlay.NODE_OPTIONS).toBe(
+      `--enable-source-maps --max-semi-space-size=${MAX_SEMI_SPACE_MB} --max-old-space-size=4096`,
+    );
+    expect(resources?.clamped).toContainEqual({
+      name: 'NODE_OPTIONS',
+      from: '--max-semi-space-size=4096',
+      to: `--max-semi-space-size=${MAX_SEMI_SPACE_MB}`,
+    });
+    // At or under Node's own default it is left alone.
+    expect(
+      planHeavyToolEnv('test', { NODE_OPTIONS: '--max-semi-space-size=32' }, 64).overlay
+        .NODE_OPTIONS,
+    ).toBe('--max-semi-space-size=32 --max-old-space-size=4096');
+  });
+
+  it('bounds an inherited MAKEFLAGS -j unless it carries a jobserver', () => {
+    expect(boundMakeflags(undefined, 3)).toBe('-j3');
+    expect(boundMakeflags('-j18', 3)).toBe('-j3');
+    expect(boundMakeflags('-j', 3)).toBe('-j3'); // bare -j is unlimited
+    expect(boundMakeflags('--no-print-directory -j 18', 3)).toBe('--no-print-directory -j3');
+    expect(boundMakeflags('--jobs=18 -k', 3)).toBe('-k -j3');
+    expect(boundMakeflags('-j2', 3)).toBeNull(); // within the plan: kept
+    expect(boundMakeflags('-k', 3)).toBeNull(); // serial: kept
+    expect(boundMakeflags('-j --jobserver-auth=fifo:/tmp/GMfifo1', 3)).toBeNull();
+    const { overlay, resources } = planHeavyToolEnv('test', { MAKEFLAGS: '-j18' }, 64);
+    expect(overlay.MAKEFLAGS).toBe('-j6');
+    expect(resources?.clamped).toContainEqual({ name: 'MAKEFLAGS', from: '-j18', to: '-j6' });
+  });
+
+  it("drops npm's unknown-env-config warnings from captured output, nothing else", () => {
+    const stderr = [
+      'npm warn Unknown env config "workspace-concurrency". This will stop working in the next major version of npm.',
+      "src/a.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+      'npm warn deprecated something',
+    ].join('\n');
+    expect(withoutNpmEnvConfigWarnings(stderr)).toBe(
+      [
+        "src/a.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+        'npm warn deprecated something',
+      ].join('\n'),
+    );
   });
 
   it('ignores an unusable override and notes it', () => {
@@ -309,30 +374,81 @@ describe('planHeavyToolEnv (T13122)', () => {
     expect(resources?.summary).toContain('ignored CLEO_HEAVY_HEAP_MB="lots"');
   });
 
-  it('an inherited value never takes the run over budget, on any machine', () => {
+  it('an inherited value never takes the run over budget, on any machine, as the child sees it', () => {
+    // Evaluated on the environment the CHILD receives (env + overlay), not on
+    // the plan's own numbers: every spelling a package manager may read, the
+    // full V8 limit (old + 3 × semi) and make's job count.
     // 18-core 48/64 GiB desktops, a 16 GiB CI runner, a 7 GiB macOS runner, an
     // 8 GiB 4-core laptop, a 4 GiB box.
+    const jobs = (makeflags: string | undefined): number => {
+      const words = (makeflags ?? '').split(/\s+/);
+      if (words.some((w) => w.startsWith('--jobserver-'))) return 0;
+      const counts = words.flatMap((w) => /^-j(\d+)$/.exec(w)?.[1] ?? []).map(Number);
+      return words.includes('-j') ? Number.POSITIVE_INFINITY : Math.max(0, ...counts);
+    };
     for (const ram of [4, 7, 8, 16, 48, 64]) {
-      for (const heap of [undefined, '512', '2048', '4096', '8192', '16384', '65536']) {
-        for (const workers of [undefined, '1', '4', '17', 'x']) {
-          for (const packages of [undefined, '1', '4', '0']) {
-            const env: NodeJS.ProcessEnv = {
-              ...(heap ? { NODE_OPTIONS: `--max-old-space-size=${heap}` } : {}),
-              ...(workers ? { VITEST_MAX_WORKERS: workers } : {}),
-              ...(packages ? { npm_config_workspace_concurrency: packages } : {}),
-            };
-            const { overlay, resources } = planHeavyToolEnv('test', env, ram);
-            const r = resources!;
-            const effectiveWorkers = Number(overlay.VITEST_MAX_WORKERS ?? env.VITEST_MAX_WORKERS);
-            expect(r.workspaceConcurrency * effectiveWorkers * r.heapMb).toBeLessThanOrEqual(
-              r.budgetMb,
-            );
-            expect(r.overBudget).toBe(false);
-            expect(effectiveWorkers).toBeLessThanOrEqual(heavyToolWorkers(ram));
+      for (const heap of [undefined, '512', '4096', '8192', '65536']) {
+        for (const semi of [undefined, '16', '4096']) {
+          for (const workers of [undefined, '1', '17', 'x']) {
+            for (const packages of [undefined, '1', '4', '0']) {
+              for (const upper of [false, true]) {
+                const env: NodeJS.ProcessEnv = {
+                  ...(heap || semi
+                    ? {
+                        NODE_OPTIONS: [
+                          heap ? `--max-old-space-size=${heap}` : '',
+                          semi ? `--max-semi-space-size=${semi}` : '',
+                        ].join(' '),
+                      }
+                    : {}),
+                  ...(workers ? { VITEST_MAX_WORKERS: workers, MAKEFLAGS: `-j${workers}` } : {}),
+                  ...(packages
+                    ? upper
+                      ? { NPM_CONFIG_WORKSPACE_CONCURRENCY: packages }
+                      : { npm_config_workspace_concurrency: packages }
+                    : {}),
+                };
+                const { overlay, resources } = planHeavyToolEnv('test', env, ram);
+                const r = resources!;
+                const child: NodeJS.ProcessEnv = { ...env, ...overlay };
+                const childPackages = Math.max(
+                  ...Object.keys(child)
+                    .filter((k) =>
+                      [
+                        'npm_config_workspace_concurrency',
+                        'pnpm_config_workspace_concurrency',
+                      ].includes(k.toLowerCase()),
+                    )
+                    .map((k) => Number(child[k])),
+                );
+                const childWorkers = Number(child.VITEST_MAX_WORKERS);
+                const childHeap = inheritedHeapMb(child.NODE_OPTIONS, Math.floor(ram * 1024)) ?? 0;
+                const childSemi = Number(
+                  /--max-semi-space-size=(\d+)/.exec(child.NODE_OPTIONS ?? '')?.[1] ?? 0,
+                );
+                const label = JSON.stringify({ ram, env });
+                expect(childPackages, label).toBe(r.workspaceConcurrency);
+                expect(childWorkers, label).toBeLessThanOrEqual(r.workers);
+                expect(childHeap, label).toBe(r.heapMb);
+                expect(childSemi, label).toBeLessThanOrEqual(MAX_SEMI_SPACE_MB);
+                expect(jobs(child.MAKEFLAGS), label).toBeLessThanOrEqual(r.workers);
+                expect(childPackages * childWorkers * childHeap, label).toBeLessThanOrEqual(
+                  r.budgetMb,
+                );
+                expect(r.overBudget, label).toBe(false);
+                expect(childWorkers, label).toBeLessThanOrEqual(heavyToolWorkers(ram));
+              }
+            }
           }
         }
       }
     }
+  });
+
+  it('cuts heap flags out without touching the rest: quoted whitespace survives', () => {
+    expect(
+      withHeapCeiling('--require "/tmp/a  b.js" --max-old-space-size=8192 --trace-gc', 4096),
+    ).toBe('--require "/tmp/a  b.js" --trace-gc --max-old-space-size=4096');
   });
 
   it('plans nothing for a network-bound tool', () => {
@@ -340,6 +456,20 @@ describe('planHeavyToolEnv (T13122)', () => {
       overlay: {},
       resources: null,
     });
+  });
+
+  it("never raises a single process's heap above Node's own default on a small machine", () => {
+    // V8 defaults old space to a quarter of RAM below 16 GiB; the heavy default
+    // (half of RAM, up to 4 GiB) would have doubled an 8 GiB laptop's tsc.
+    expect(defaultSingleProcessHeapMb(64)).toBe(4096);
+    expect(defaultSingleProcessHeapMb(16)).toBe(4096);
+    expect(defaultSingleProcessHeapMb(8)).toBe(2048);
+    expect(defaultSingleProcessHeapMb(2)).toBe(1024);
+    expect(planHeavyToolEnv('typecheck', {}, 8).overlay.NODE_OPTIONS).toBe(
+      '--max-old-space-size=2048',
+    );
+    // A forking tool keeps the heavy default.
+    expect(planHeavyToolEnv('test', {}, 8).overlay.NODE_OPTIONS).toBe('--max-old-space-size=4096');
   });
 
   it('plans a typecheck as one process under the same budget (T13123)', () => {

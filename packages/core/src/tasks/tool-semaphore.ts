@@ -74,7 +74,7 @@ import {
   writeHolderRecord,
 } from '../resources/slot-holder.js';
 import {
-  defaultHeavyHeapMb,
+  defaultSingleProcessHeapMb,
   GIB_PER_WORKER,
   HEAVY_TOOL_HEAP_MB,
   isMemoryBoundTool,
@@ -169,7 +169,7 @@ export interface AcquireSlotOptions {
    * T13122). A `typecheck`/`lint` slot is sized from it, so a run planned with
    * a larger inherited heap counts against more of the budget (T13123).
    *
-   * @defaultValue {@link defaultHeavyHeapMb} for the machine's RAM
+   * @defaultValue {@link defaultSingleProcessHeapMb} for the machine's RAM
    */
   heapMb?: number;
 }
@@ -216,7 +216,18 @@ export const DARWIN_MEMORY_BOUND_SLOTS = 2;
  * Machine-wide slot count for a single-process memory-bound tool
  * (`typecheck`, `lint`): as many runs as fit in {@link MEMORY_BOUND_RAM_FRACTION}
  * of RAM at `heap + PROCESS_OVERHEAD_MB` each, at most half the cores, at most
- * {@link DARWIN_MEMORY_BOUND_SLOTS} on darwin, never fewer than one.
+ * {@link DARWIN_MEMORY_BOUND_SLOTS} on darwin, never fewer than one. A
+ * non-finite input fails closed to one slot: a NaN count would read as "no
+ * bound" in {@link acquireGlobalSlot}.
+ *
+ * `lint` is sized like `tsc`: a canonical-level approximation, since `biome`
+ * is a small native binary while type-aware `eslint` builds a TS program.
+ *
+ * Each acquirer sizes the shared slot directory from its own heap, so with
+ * mixed heaps the bound is as tight as the most permissive acquirer (one large
+ * run can be over), and a large-heap acquirer, eligible for fewer slots, waits
+ * longer under steady small-heap load — pressure until T13132's footprint
+ * scheduler, never a deadlock (the wait times out naming the holders).
  */
 function memoryBoundSlots(
   cpus: number,
@@ -225,10 +236,11 @@ function memoryBoundSlots(
   heapMb: number,
 ): number {
   const byRam = Math.floor(
-    (totalRamGib * 1024 * MEMORY_BOUND_RAM_FRACTION) / (heapMb + PROCESS_OVERHEAD_MB),
+    (totalRamGib * 1024 * MEMORY_BOUND_RAM_FRACTION) / (Math.max(0, heapMb) + PROCESS_OVERHEAD_MB),
   );
   const byCpu = Math.floor(cpus / 2);
-  const slots = Math.max(1, Math.min(byRam, byCpu));
+  const slots = Math.min(byRam, byCpu);
+  if (!Number.isFinite(slots) || slots < 1) return 1;
   return platform === 'darwin' ? Math.min(DARWIN_MEMORY_BOUND_SLOTS, slots) : slots;
 }
 
@@ -279,7 +291,7 @@ function memoryBoundSlots(
  * @param totalRamGib - total machine RAM in GiB; defaults to a live reading.
  * @param platform - OS platform; defaults to `process.platform`.
  * @param heapMb - heap ceiling of the run, for `typecheck`/`lint`; defaults to
- *   {@link defaultHeavyHeapMb} for `totalRamGib`.
+ *   {@link defaultSingleProcessHeapMb} for `totalRamGib`.
  * @returns the machine-wide slot count, always ≥ 1.
  *
  * @example
@@ -307,9 +319,9 @@ export function defaultMaxConcurrent(
   cpuCount: number,
   totalRamGib: number = totalmem() / 1024 ** 3,
   platform: NodeJS.Platform = process.platform,
-  heapMb: number = defaultHeavyHeapMb(totalRamGib),
+  heapMb: number = defaultSingleProcessHeapMb(totalRamGib),
 ): number {
-  const cpus = Math.max(1, cpuCount);
+  const cpus = Number.isFinite(cpuCount) ? Math.max(1, cpuCount) : 1;
   switch (canonical) {
     case 'test':
     case 'build': {
@@ -362,7 +374,7 @@ export function resolveMaxConcurrent(
     cpuCount ?? availableParallelism(),
     ram,
     platform ?? process.platform,
-    heapMb ?? defaultHeavyHeapMb(ram),
+    heapMb ?? defaultSingleProcessHeapMb(ram),
   );
 }
 

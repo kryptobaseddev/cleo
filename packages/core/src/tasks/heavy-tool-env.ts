@@ -151,7 +151,11 @@ export const HEAVY_WORKSPACE_CONCURRENCY_ENV = 'CLEO_HEAVY_WORKSPACE_CONCURRENCY
  * `pnpm_config_workspace_concurrency` (measured: pnpm 10.30.0 and 12.6.0 each
  * report `undefined` for the other spelling). Setting one bounded `pnpm -r`
  * fan-out on one pnpm major and silently nothing on the other, so the overlay
- * sets both.
+ * sets both — for every launcher, because an `npm test` script that runs
+ * `pnpm -r` still reads them. Both are read case-insensitively, and an
+ * uppercase spelling outranks the lowercase one, so an inherited
+ * `NPM_CONFIG_WORKSPACE_CONCURRENCY` is planned and overlaid as well
+ * ({@link workspaceConcurrencyNames}).
  *
  * @task T13122
  */
@@ -159,6 +163,36 @@ export const WORKSPACE_CONCURRENCY_VARS = [
   'npm_config_workspace_concurrency',
   'pnpm_config_workspace_concurrency',
 ] as const;
+
+/**
+ * Every environment name that sets pnpm's workspace concurrency in `env`: the
+ * two canonical spellings, plus any case variant of them present (pnpm reads
+ * these case-insensitively, uppercase first).
+ *
+ * @param env - The caller's environment.
+ * @returns The names to plan and overlay, canonical first.
+ * @task T13122
+ */
+export function workspaceConcurrencyNames(env: NodeJS.ProcessEnv): string[] {
+  const canonical: string[] = [...WORKSPACE_CONCURRENCY_VARS];
+  const wanted = new Set<string>(canonical);
+  const variants = Object.keys(env).filter(
+    (name) => !wanted.has(name) && wanted.has(name.toLowerCase()),
+  );
+  return [...canonical, ...variants.sort()];
+}
+
+/**
+ * V8 young-generation (semi-space) ceiling a plan allows, in MiB: Node 24's own
+ * default on a 64-bit host. `heap_size_limit` is old space plus three
+ * semi-spaces (measured on Node 24: `--max-old-space-size=4096` with
+ * `--max-semi-space-size=4096` reports 16384 MiB), so an inherited large
+ * semi-space would multiply the planned heap without touching the old-space
+ * flag; above this it is clamped.
+ *
+ * @task T13122
+ */
+export const MAX_SEMI_SPACE_MB = 64;
 
 /** Environment overlay to merge into a heavy tool's spawn env. */
 export type HeavyToolEnv = Readonly<Record<string, string>>;
@@ -220,8 +254,8 @@ const MEMORY_BOUND_TOOLS = new Set<CanonicalTool>(['test', 'build', 'typecheck',
 
 /**
  * Whether a canonical tool's memory is bounded: a heap ceiling and workspace
- * concurrency in its spawn env, a RAM-derived machine-wide slot count that
- * shrinks under pressure, and a {@link ResourceGovernor} class.
+ * concurrency in its spawn env, and a RAM-derived machine-wide slot count that
+ * shrinks under pressure.
  *
  * A superset of {@link isHeavyTool}. `typecheck` and `lint` were treated as
  * cheap (`max(2, cpus/2)` slots, no ceiling) until T13123: nine concurrent
@@ -309,6 +343,30 @@ export function defaultHeavyHeapMb(totalRamGib: number = totalmem() / 1024 ** 3)
 }
 
 /**
+ * Default heap ceiling for a single-process tool (`typecheck`, `lint`), in MiB:
+ * {@link defaultHeavyHeapMb}, but never above a quarter of RAM — V8's own
+ * default old space on a machine under 16 GiB (measured 4288 MiB with no flags
+ * on a 64 GiB host, the capped default) — so the plan never RAISES a `tsc`'s
+ * ceiling on a small machine (review of #1810). Never below
+ * {@link MIN_HEAVY_HEAP_MB}.
+ *
+ * @param totalRamGib - total RAM in GiB; defaults to a live reading.
+ * @returns the default heap in MiB.
+ *
+ * @example
+ * ```ts
+ * defaultSingleProcessHeapMb(64); // → 4096
+ * defaultSingleProcessHeapMb(8);  // → 2048
+ * ```
+ *
+ * @task T13123
+ */
+export function defaultSingleProcessHeapMb(totalRamGib: number = totalmem() / 1024 ** 3): number {
+  const quarter = Math.max(MIN_HEAVY_HEAP_MB, Math.floor((totalRamGib * 1024) / 4));
+  return Math.min(defaultHeavyHeapMb(totalRamGib), quarter);
+}
+
+/**
  * Heap budget for one heavy run, in MiB: the default worker count times the
  * default heap. `workspace concurrency × workers × heap` must fit in it.
  *
@@ -335,7 +393,8 @@ export function heavyRunBudgetMb(totalRamGib: number = totalmem() / 1024 ** 3): 
 /**
  * `NODE_OPTIONS` flags that set a V8 heap limit. `max-old-space-size` and its
  * percentage form decide the old-space ceiling; `max-semi-space-size` sizes the
- * young generation and is only ever read, never rewritten.
+ * young generation, three of which count toward the limit, and is capped at
+ * {@link MAX_SEMI_SPACE_MB}.
  *
  * @task T12989
  * @task T13122
@@ -352,6 +411,9 @@ const OLD_SPACE_FLAGS: ReadonlySet<string> = new Set([
   'max-old-space-size-percentage',
 ]);
 
+/** The young-generation flag, capped at {@link MAX_SEMI_SPACE_MB}. */
+const SEMI_SPACE_FLAG: ReadonlySet<string> = new Set(['max-semi-space-size']);
+
 /** A `NODE_OPTIONS` token split into a heap flag, or `null` when it is not one. */
 interface HeapToken {
   /** Flag name with underscores read as dashes. */
@@ -360,6 +422,47 @@ interface HeapToken {
   readonly value: string;
   /** Tokens consumed: 2 for the space-separated spelling. */
   readonly width: 1 | 2;
+}
+
+/** One whitespace-separated word of a `NODE_OPTIONS` value, with its offsets. */
+interface SpannedWord {
+  readonly text: string;
+  readonly start: number;
+  readonly end: number;
+}
+
+function spannedWords(text: string): SpannedWord[] {
+  return [...text.matchAll(/\S+/g)].map((m) => ({
+    text: m[0],
+    start: m.index,
+    end: m.index + m[0].length,
+  }));
+}
+
+/**
+ * Remove the heap flags named in `names` from a `NODE_OPTIONS` value, cutting
+ * their spans (and the whitespace before each) out of the original string, so
+ * every other byte — quoted paths with runs of spaces included — is kept.
+ */
+function cutHeapFlags(text: string, names: ReadonlySet<string>): string {
+  const words = spannedWords(text);
+  const tokens = words.map((w) => w.text);
+  let out = '';
+  let cursor = 0;
+  for (let i = 0; i < words.length; i++) {
+    const flag = heapTokenAt(tokens, i);
+    if (flag === null || !names.has(flag.name)) continue;
+    const first = words[i];
+    const last = words[i + flag.width - 1];
+    if (first === undefined || last === undefined) continue;
+    // Drop the whitespace before the flag along with it.
+    let from = first.start;
+    while (from > cursor && /\s/.test(text[from - 1] ?? '')) from--;
+    out += text.slice(cursor, from);
+    cursor = last.end;
+    i += flag.width - 1;
+  }
+  return (out + text.slice(cursor)).trim();
 }
 
 function heapTokenAt(tokens: readonly string[], i: number): HeapToken | null {
@@ -438,9 +541,9 @@ export function inheritedHeapMb(
 
 /**
  * Set the old-space heap ceiling in a `NODE_OPTIONS` value: every existing
- * `--max-old-space-size` and `--max-old-space-size-percentage` is removed and one
- * `--max-old-space-size=<heapMb>` appended. Every other flag survives in order —
- * a project may rely on `--experimental-*` or `--require` there.
+ * `--max-old-space-size` and `--max-old-space-size-percentage` is cut out and
+ * one `--max-old-space-size=<heapMb>` appended. Every other byte survives — a
+ * project may rely on `--experimental-*` or a quoted `--require` path there.
  *
  * Removing the percentage form is required, not tidiness: it outranks the size
  * form whatever the order, so leaving it would silently undo the ceiling.
@@ -458,18 +561,103 @@ export function inheritedHeapMb(
  * @task T13122
  */
 export function withHeapCeiling(existing: string | undefined, heapMb: number): string {
-  const tokens = (existing ?? '').trim().split(/\s+/).filter(Boolean);
+  const rest = cutHeapFlags(existing ?? '', OLD_SPACE_FLAGS);
+  const flag = `--max-old-space-size=${heapMb}`;
+  return rest.length > 0 ? `${rest} ${flag}` : flag;
+}
+
+/**
+ * Cap the semi-space (young generation) flag of a `NODE_OPTIONS` value at
+ * {@link MAX_SEMI_SPACE_MB}: a larger `--max-semi-space-size` is cut out and the
+ * cap appended. A value at or under the cap is left alone.
+ *
+ * @param existing - `NODE_OPTIONS`, if any.
+ * @returns The value to use, and the inherited semi-space it clamped (or `null`).
+ *
+ * @example
+ * ```ts
+ * withSemiSpaceCap('--max-semi-space-size=4096'); // → { value: '--max-semi-space-size=64', clampedFrom: 4096 }
+ * ```
+ *
+ * @task T13122
+ */
+export function withSemiSpaceCap(existing: string | undefined): {
+  value: string | undefined;
+  clampedFrom: number | null;
+} {
+  const raw = parseHeapFlags(existing).get('max-semi-space-size');
+  const semi = Number(raw ?? Number.NaN);
+  if (raw === undefined || (Number.isFinite(semi) && semi <= MAX_SEMI_SPACE_MB)) {
+    return { value: existing, clampedFrom: null };
+  }
+  const rest = cutHeapFlags(existing ?? '', SEMI_SPACE_FLAG);
+  const flag = `--max-semi-space-size=${MAX_SEMI_SPACE_MB}`;
+  return {
+    value: rest.length > 0 ? `${rest} ${flag}` : flag,
+    clampedFrom: Number.isFinite(semi) ? semi : null,
+  };
+}
+
+/**
+ * Bound an inherited `MAKEFLAGS` to `workers` jobs.
+ *
+ * Absent: `-j<workers>` (GNU make sizes a bare `-j` off nproc). Carrying a
+ * jobserver (`--jobserver-auth=` / `--jobserver-fds=`): kept, since inside a
+ * `make` recipe the parent's jobserver already bounds the jobs. Otherwise any
+ * `-j`, `-jN` or `--jobs[=N]` above `workers` (a bare one is unlimited) is
+ * replaced by `-j<workers>`, keeping every other flag — a profile-wide
+ * `export MAKEFLAGS=-j18` no longer outruns the plan.
+ *
+ * @param raw - The inherited `MAKEFLAGS`.
+ * @param workers - The planned worker count.
+ * @returns The value to set, or `null` to keep the inherited one.
+ * @task T13122
+ */
+export function boundMakeflags(raw: string | undefined, workers: number): string | null {
+  if (raw === undefined || raw.trim() === '') return `-j${workers}`;
+  const words = raw.trim().split(/\s+/);
+  if (words.some((w) => /^--jobserver-(auth|fds)=/.test(w))) return null;
   const kept: string[] = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const flag = heapTokenAt(tokens, i);
-    if (flag !== null && OLD_SPACE_FLAGS.has(flag.name)) {
-      i += flag.width - 1;
+  let over = false;
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i] ?? '';
+    const flag = /^(-j|--jobs)(=?)(\d*)$/.exec(word);
+    if (flag === null) {
+      kept.push(word);
       continue;
     }
-    kept.push(tokens[i] ?? '');
+    let count = flag[3] ?? '';
+    const next = words[i + 1];
+    if (count === '' && flag[2] === '' && next !== undefined && /^\d+$/.test(next)) {
+      count = next;
+      i++;
+    }
+    if (count === '' || Number(count) > workers) over = true;
+    else kept.push(`-j${count}`);
   }
-  kept.push(`--max-old-space-size=${heapMb}`);
-  return kept.join(' ');
+  return over ? [...kept.filter((w) => !/^-j\d+$/.test(w)), `-j${workers}`].join(' ') : null;
+}
+
+/**
+ * Remove npm's `Unknown env config` warnings from captured output.
+ *
+ * npm warns once per run for every `npm_config_*` variable it does not know,
+ * including `npm_config_workspace_concurrency`, which the overlay sets for the
+ * `pnpm -r` an `npm test` script may run. The warning would otherwise sit in
+ * the stderr tail CLEO quotes when a tool fails and push the real error out of
+ * it; the variable itself stays, because dropping it for npm unbounded those
+ * child `pnpm -r` runs (review of #1808).
+ *
+ * @param text - Captured stderr.
+ * @returns The text without those warning lines.
+ * @task T13122
+ */
+export function withoutNpmEnvConfigWarnings(text: string): string {
+  if (!text.includes('Unknown env config')) return text;
+  return text
+    .split('\n')
+    .filter((line) => !/^npm (warn|WARN) Unknown env config\b/.test(line))
+    .join('\n');
 }
 
 /**
@@ -609,10 +797,14 @@ function planWorkers(
     );
   }
   // GNU make sizes `-j` off nproc when told `-j` with no argument; an explicit
-  // job count here bounds a Makefile-driven test/build target too. An inherited
-  // MAKEFLAGS is left alone: inside a `make` recipe it carries the parent's
-  // jobserver, which already bounds the jobs this run may take.
-  if (!env.MAKEFLAGS) ledger.overlay.MAKEFLAGS = `-j${workers}`;
+  // job count bounds a Makefile-driven test/build target too.
+  const makeflags = boundMakeflags(env.MAKEFLAGS, workers);
+  if (makeflags !== null) {
+    ledger.overlay.MAKEFLAGS = makeflags;
+    if (env.MAKEFLAGS && env.MAKEFLAGS.trim() !== '' && override === null) {
+      ledger.clamped.push({ name: 'MAKEFLAGS', from: env.MAKEFLAGS, to: makeflags });
+    }
+  }
   if (override !== null) return { workers, source: 'override', reason: HEAVY_WORKERS_ENV };
   return {
     workers,
@@ -682,8 +874,12 @@ export function planHeavyToolEnv(
 
   const totalRamMb = Math.floor(totalRamGib * 1024);
   const defaultWorkers = heavyToolWorkers(totalRamGib);
-  const defaultHeapMb = defaultHeavyHeapMb(totalRamGib);
-  const budgetMb = defaultWorkers * defaultHeapMb;
+  // A single process starts from Node's own default ceiling on its machine; a
+  // forking tool from the heavy default. Both share the heavy run's budget.
+  const defaultHeapMb = isHeavyTool(canonical)
+    ? defaultHeavyHeapMb(totalRamGib)
+    : defaultSingleProcessHeapMb(totalRamGib);
+  const budgetMb = defaultWorkers * defaultHeavyHeapMb(totalRamGib);
   const overlay: Record<string, string> = {};
   const clamped: HeavyLeverChange[] = [];
   const kept: string[] = [];
@@ -693,16 +889,15 @@ export function planHeavyToolEnv(
   // the budget shared between them.
   const packagesOverride = readOverride(env, HEAVY_WORKSPACE_CONCURRENCY_ENV, ignored);
   const packages = packagesOverride ?? WORKSPACE_CONCURRENCY;
-  for (const name of WORKSPACE_CONCURRENCY_VARS) {
+  const packageNames = workspaceConcurrencyNames(env);
+  for (const name of packageNames) {
     planCount(name, env[name], packages, packagesOverride !== null, overlay, clamped, kept);
   }
   // What the child gets: the overlay's value, or the inherited one it kept —
-  // the larger of the two spellings, since which one pnpm reads depends on its
-  // version.
+  // the largest across every spelling, since which one pnpm reads depends on
+  // its version and the case.
   const packagesInFlight = Math.max(
-    ...WORKSPACE_CONCURRENCY_VARS.map(
-      (name) => positiveInt(overlay[name] ?? env[name]) ?? packages,
-    ),
+    ...packageNames.map((name) => positiveInt(overlay[name] ?? env[name]) ?? packages),
   );
 
   const heap = chooseHeap(
@@ -712,7 +907,16 @@ export function planHeavyToolEnv(
     totalRamMb,
     defaultHeapMb,
   );
-  overlay.NODE_OPTIONS = withHeapCeiling(env.NODE_OPTIONS, heap.heapMb);
+  // Young generation first: three semi-spaces count toward the heap limit.
+  const semi = withSemiSpaceCap(env.NODE_OPTIONS);
+  if (semi.clampedFrom !== null) {
+    clamped.push({
+      name: 'NODE_OPTIONS',
+      from: `--max-semi-space-size=${semi.clampedFrom}`,
+      to: `--max-semi-space-size=${MAX_SEMI_SPACE_MB}`,
+    });
+  }
+  overlay.NODE_OPTIONS = withHeapCeiling(semi.value, heap.heapMb);
   if (heap.source === 'clamped') {
     clamped.push({
       name: 'NODE_OPTIONS',
@@ -765,41 +969,6 @@ export function planHeavyToolEnv(
       summary: parts.join('; '),
     },
   };
-}
-
-/** Launchers that are npm itself: they warn about every unknown `npm_config_*` and read none of the pnpm ones. */
-const NPM_LAUNCHERS = new Set(['npm', 'npx']);
-
-/**
- * The overlay a given launcher should actually receive (T13122).
- *
- * npm prints `npm warn Unknown env config "workspace-concurrency"` on every run
- * when `npm_config_workspace_concurrency` is set, and that line lands in the
- * output tail CLEO quotes when a tool fails, pushing the real error out of it.
- * npm never reads the variable (it runs workspace scripts one at a time), so
- * for an `npm`/`npx` launcher it is dropped. Every other launcher gets the
- * overlay unchanged.
- *
- * @param overlay - the planned overlay.
- * @param cmd - the executable about to be spawned (a path or a bare name).
- * @returns the overlay for that launcher.
- *
- * @example
- * ```ts
- * overlayForLauncher({ npm_config_workspace_concurrency: '1' }, 'npx'); // → {}
- * overlayForLauncher({ npm_config_workspace_concurrency: '1' }, 'pnpm'); // unchanged
- * ```
- *
- * @task T13122
- */
-export function overlayForLauncher(overlay: HeavyToolEnv, cmd: string): HeavyToolEnv {
-  const launcher = (cmd.split('/').pop() ?? cmd).replace(/\.(cmd|exe)$/i, '');
-  if (!NPM_LAUNCHERS.has(launcher) || overlay.npm_config_workspace_concurrency === undefined) {
-    return overlay;
-  }
-  return Object.fromEntries(
-    Object.entries(overlay).filter(([name]) => name !== 'npm_config_workspace_concurrency'),
-  );
 }
 
 /**
