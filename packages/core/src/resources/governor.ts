@@ -43,6 +43,7 @@ import {
 } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
+import { GIB_PER_WORKER } from '../tasks/heavy-tool-env.js';
 import type { ResourceSample } from './backend.js';
 import { pressureScore, ResourceMonitor } from './monitor.js';
 import { parentRunJob } from './run-admission.js';
@@ -123,6 +124,15 @@ export interface BudgetOptions {
    * @task T12091
    */
   readonly testRunEstRamMb?: number;
+  /**
+   * Estimated worst-case RAM for ONE `typecheck` run, in MiB. Default 6144
+   * (`GIB_PER_WORKER`): one TypeScript program under the default 4 GiB heap
+   * ceiling plus ~2 GiB of native memory (a live `tsc --noEmit` held 4.7 GB on
+   * 2026-10-03).
+   *
+   * @task T13123
+   */
+  readonly typecheckEstRamMb?: number;
   /** `some avg10` (pp) at/above which test/build budgets halve. Default 10. */
   readonly holdSomeAvg10?: number;
   /** `some avg10` (pp) at/above which test/build budgets floor to 1. Default 25. */
@@ -150,6 +160,9 @@ function someAvg10(sample: ResourceSample): number {
  * - `test-run` / `scoped-build` → `clamp(1, ⌊(MemAvailable − headroom)/estRamMb⌋,
  *   ⌊cpus/4⌋)`, ×0.5 when `some>hold`, floored to 1 when `some>floor` (T12091:
  *   was core-only, which authorised 144 GiB of heap on a 62 GiB box).
+ * - `typecheck` → `clamp(1, ⌊(MemAvailable − headroom)/typecheckEstRamMb⌋,
+ *   ⌊cpus/2⌋)`, scaled under pressure the same way (T13123): one process per
+ *   run, so cores bind later than for a forking test run.
  * - `llm-call` → `max(1, cpus−2)` (primarily gated by the llm-queue elsewhere).
  * - `db-heavy` → `1`, deferred (→0) under `backoff`-level pressure.
  * - `background-autonomous` → `1` only when pressure is `ok`, else `0`.
@@ -195,6 +208,17 @@ export function computeClassBudget(
       const estRamBytes = (opts.testRunEstRamMb ?? 24576) * MB;
       const byMem = Math.floor((availBytes - headroomBytes) / estRamBytes);
       const base = clamp(1, byMem, Math.max(1, Math.floor(cpus / 4)));
+      if (some > floor) return 1;
+      if (some > hold) return Math.max(1, Math.floor(base / 2));
+      return base;
+    }
+    case 'typecheck': {
+      // T13123: typecheck and lint had no governor class at all, and nine
+      // tool slots on an 18-core box. A run is one TypeScript program, so the
+      // estimate is per process and cores bind at half, not a quarter.
+      const estRamBytes = (opts.typecheckEstRamMb ?? GIB_PER_WORKER * 1024) * MB;
+      const byMem = Math.floor((availBytes - headroomBytes) / estRamBytes);
+      const base = clamp(1, byMem, Math.max(1, Math.floor(cpus / 2)));
       if (some > floor) return 1;
       if (some > hold) return Math.max(1, Math.floor(base / 2));
       return base;

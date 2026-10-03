@@ -33,8 +33,12 @@
  * Together these bound the product the semaphore could not see:
  * `packages in flight × workers per run × heap per worker`.
  *
- * Applied ONLY to `test` / `build`. Capping `lint` or `typecheck` would
- * serialise cheap single-process work for no benefit.
+ * The worker levers apply ONLY to `test` / `build`, the tools that fork.
+ * `typecheck` and `lint` are single processes, but not cheap ones: one
+ * TypeScript program on a large monorepo holds 2–5 GB (a live `tsc --noEmit`
+ * held 4.7 GB on 2026-10-03), so since T13123 they get the heap ceiling and the
+ * workspace-concurrency bound too ({@link isMemoryBoundTool}), and no worker
+ * variables, which nothing they run reads.
  *
  * ## An inherited value can tighten the plan, never loosen it (T13122)
  *
@@ -66,6 +70,7 @@
  *
  * @task T12096
  * @task T13122
+ * @task T13123
  */
 
 import { totalmem } from 'node:os';
@@ -159,9 +164,11 @@ export const WORKSPACE_CONCURRENCY_VARS = [
 export type HeavyToolEnv = Readonly<Record<string, string>>;
 
 /**
- * The overlay for one heavy tool spawn, with the plan behind it (T13122).
+ * The overlay for one heavy or memory-bound tool spawn, with the plan behind it
+ * (T13122).
  *
- * `resources` is `null` for light tools, whose overlay is empty.
+ * `resources` is `null` for a tool that is not memory-bound, whose overlay is
+ * empty.
  */
 export interface HeavyToolSpawnPlan {
   /** Variables to merge over the caller's environment. */
@@ -203,6 +210,37 @@ const HEAVY_TOOLS = new Set<CanonicalTool>(['test', 'build']);
  */
 export function isHeavyTool(canonical: CanonicalTool): boolean {
   return HEAVY_TOOLS.has(canonical);
+}
+
+/**
+ * Canonical tools whose memory must be bounded: the heavy ones, plus the
+ * single-process tools that build a whole TypeScript program (T13123).
+ */
+const MEMORY_BOUND_TOOLS = new Set<CanonicalTool>(['test', 'build', 'typecheck', 'lint']);
+
+/**
+ * Whether a canonical tool's memory is bounded: a heap ceiling and workspace
+ * concurrency in its spawn env, a RAM-derived machine-wide slot count that
+ * shrinks under pressure, and a {@link ResourceGovernor} class.
+ *
+ * A superset of {@link isHeavyTool}. `typecheck` and `lint` were treated as
+ * cheap (`max(2, cpus/2)` slots, no ceiling) until T13123: nine concurrent
+ * `tsc` runs of 2–5 GB each on an 18-core box is most of 48 GB. `audit` and
+ * `security-scan` stay unbounded — they are network-bound and small.
+ *
+ * @param canonical - the tool in question.
+ * @returns `true` for `test`, `build`, `typecheck` and `lint`.
+ *
+ * @example
+ * ```ts
+ * isMemoryBoundTool('typecheck'); // true
+ * isMemoryBoundTool('audit');     // false
+ * ```
+ *
+ * @task T13123
+ */
+export function isMemoryBoundTool(canonical: CanonicalTool): boolean {
+  return MEMORY_BOUND_TOOLS.has(canonical);
 }
 
 /**
@@ -523,6 +561,69 @@ function planCount(
   }
 }
 
+/** The worker pool a plan gives a tool, and why. */
+interface WorkerChoice {
+  readonly workers: number;
+  readonly source: HeavyToolResourcePlan['workersSource'];
+  readonly reason: string;
+}
+
+/** A tool that runs as one process: nothing to size. */
+const SINGLE_PROCESS: WorkerChoice = {
+  workers: 1,
+  source: 'plan',
+  reason: 'one process, no worker pool',
+};
+
+/** Where a plan records what it overlaid, clamped, kept and ignored. */
+interface PlanLedger {
+  readonly overlay: Record<string, string>;
+  readonly clamped: HeavyLeverChange[];
+  readonly kept: string[];
+  readonly ignored: string[];
+}
+
+/**
+ * The worker count of a forking tool — `CLEO_HEAVY_WORKERS`, else as many as
+ * fit (`fit`, the budget over packages × heap), never above the default — written
+ * to every runner variable and to `MAKEFLAGS`.
+ */
+function planWorkers(
+  env: NodeJS.ProcessEnv,
+  fit: number,
+  defaultWorkers: number,
+  ledger: PlanLedger,
+): WorkerChoice {
+  const override = readOverride(env, HEAVY_WORKERS_ENV, ledger.ignored);
+  const workers =
+    override ?? Math.max(MIN_HEAVY_WORKERS, Math.min(defaultWorkers, Math.floor(fit)));
+  for (const key of WORKER_COUNT_VARS) {
+    planCount(
+      key,
+      env[key],
+      workers,
+      override !== null,
+      ledger.overlay,
+      ledger.clamped,
+      ledger.kept,
+    );
+  }
+  // GNU make sizes `-j` off nproc when told `-j` with no argument; an explicit
+  // job count here bounds a Makefile-driven test/build target too. An inherited
+  // MAKEFLAGS is left alone: inside a `make` recipe it carries the parent's
+  // jobserver, which already bounds the jobs this run may take.
+  if (!env.MAKEFLAGS) ledger.overlay.MAKEFLAGS = `-j${workers}`;
+  if (override !== null) return { workers, source: 'override', reason: HEAVY_WORKERS_ENV };
+  return {
+    workers,
+    source: 'plan',
+    reason:
+      workers < defaultWorkers
+        ? `fewer than the default ${defaultWorkers} so the run fits its budget`
+        : 'default for this RAM',
+  };
+}
+
 function heapReason(choice: HeapChoice): string {
   switch (choice.source) {
     case 'override':
@@ -537,8 +638,8 @@ function heapReason(choice: HeapChoice): string {
 }
 
 /**
- * Plan a heavy tool spawn: the environment overlay, and the resource plan
- * behind it (T13122).
+ * Plan a heavy or memory-bound tool spawn: the environment overlay, and the
+ * resource plan behind it (T13122, T13123).
  *
  * The heap is chosen first — `CLEO_HEAVY_HEAP_MB`, else the inherited
  * `NODE_OPTIONS` heap when it fits the budget (clamped to it otherwise), else
@@ -549,10 +650,15 @@ function heapReason(choice: HeapChoice): string {
  * are kept at or below the plan and clamped above it; `CLEO_HEAVY_WORKERS` and
  * `CLEO_HEAVY_WORKSPACE_CONCURRENCY` override.
  *
+ * A single-process memory-bound tool (`typecheck`, `lint`) gets the same heap
+ * ceiling and workspace concurrency, and no worker variables: its plan is one
+ * process (T13123).
+ *
  * @param canonical - the canonical tool about to be spawned.
  * @param env - the environment the child would otherwise inherit.
  * @param totalRamGib - total RAM in GiB; injectable for deterministic tests.
- * @returns the overlay and plan; an empty overlay and `null` plan for light tools.
+ * @returns the overlay and plan; an empty overlay and `null` plan for a tool
+ *          that is not memory-bound (`audit`, `security-scan`).
  *
  * @example
  * ```ts
@@ -565,13 +671,14 @@ function heapReason(choice: HeapChoice): string {
  *
  * @task T12096
  * @task T13122
+ * @task T13123
  */
 export function planHeavyToolEnv(
   canonical: CanonicalTool,
   env: NodeJS.ProcessEnv = process.env,
   totalRamGib: number = totalmem() / 1024 ** 3,
 ): HeavyToolSpawnPlan {
-  if (!isHeavyTool(canonical)) return { overlay: {}, resources: null };
+  if (!isMemoryBoundTool(canonical)) return { overlay: {}, resources: null };
 
   const totalRamMb = Math.floor(totalRamGib * 1024);
   const defaultWorkers = heavyToolWorkers(totalRamGib);
@@ -614,28 +721,21 @@ export function planHeavyToolEnv(
     });
   }
 
-  const workersOverride = readOverride(env, HEAVY_WORKERS_ENV, ignored);
-  const fitted = Math.floor(budgetMb / (packagesInFlight * heap.heapMb));
-  const workers = workersOverride ?? Math.max(MIN_HEAVY_WORKERS, Math.min(defaultWorkers, fitted));
-  for (const key of WORKER_COUNT_VARS) {
-    planCount(key, env[key], workers, workersOverride !== null, overlay, clamped, kept);
-  }
-  // GNU make sizes `-j` off nproc when told `-j` with no argument; an explicit
-  // job count here bounds a Makefile-driven test/build target too. An inherited
-  // MAKEFLAGS is left alone: inside a `make` recipe it carries the parent's
-  // jobserver, which already bounds the jobs this run may take.
-  if (!env.MAKEFLAGS) overlay.MAKEFLAGS = `-j${workers}`;
+  // A single-process tool (typecheck, lint) has no worker pool to size.
+  const pool = isHeavyTool(canonical)
+    ? planWorkers(env, budgetMb / (packagesInFlight * heap.heapMb), defaultWorkers, {
+        overlay,
+        clamped,
+        kept,
+        ignored,
+      })
+    : SINGLE_PROCESS;
+  const { workers } = pool;
 
   const product = packagesInFlight * workers * heap.heapMb;
   const overBudget = product > budgetMb;
-  const workersReason =
-    workersOverride !== null
-      ? HEAVY_WORKERS_ENV
-      : workers < defaultWorkers
-        ? `fewer than the default ${defaultWorkers} so the run fits its budget`
-        : 'default for this RAM';
   const parts = [
-    `heap ${heap.heapMb} MiB (${heapReason(heap)}) × ${workers} worker(s) (${workersReason}) × ` +
+    `heap ${heap.heapMb} MiB (${heapReason(heap)}) × ${workers} worker(s) (${pool.reason}) × ` +
       `${packagesInFlight} workspace package(s) at once = ${product} MiB of a ${budgetMb} MiB budget ` +
       `(${Math.round(totalRamMb / 1024)} GiB RAM)`,
   ];
@@ -655,7 +755,7 @@ export function planHeavyToolEnv(
       heapSource: heap.source,
       inheritedHeapMb: heap.inherited,
       workers,
-      workersSource: workersOverride !== null ? 'override' : 'plan',
+      workersSource: pool.source,
       workspaceConcurrency: packagesInFlight,
       budgetMb,
       totalRamMb,
@@ -703,11 +803,11 @@ export function overlayForLauncher(overlay: HeavyToolEnv, cmd: string): HeavyToo
 }
 
 /**
- * Build the environment overlay for a heavy tool spawn: the `overlay` of
- * {@link planHeavyToolEnv}.
+ * Build the environment overlay for a heavy or memory-bound tool spawn: the
+ * `overlay` of {@link planHeavyToolEnv}.
  *
- * Returns an empty object for non-heavy tools, so the caller can merge
- * unconditionally.
+ * Returns an empty object for a tool that is not memory-bound, so the caller
+ * can merge unconditionally.
  *
  * @param canonical - the canonical tool about to be spawned.
  * @param env - the environment the child would otherwise inherit.
@@ -720,11 +820,15 @@ export function overlayForLauncher(overlay: HeavyToolEnv, cmd: string): HeavyToo
  * // { NODE_OPTIONS: '--max-old-space-size=4096',
  * //   VITEST_MAX_WORKERS: '6',
  * //   npm_config_workspace_concurrency: '1', … }
- * heavyToolEnv('lint', process.env, 62); // → {}
+ * heavyToolEnv('typecheck', {}, 62);
+ * // { NODE_OPTIONS: '--max-old-space-size=4096',
+ * //   npm_config_workspace_concurrency: '1', pnpm_config_workspace_concurrency: '1' }
+ * heavyToolEnv('audit', process.env, 62); // → {}
  * ```
  *
  * @task T12096
  * @task T13122
+ * @task T13123
  */
 export function heavyToolEnv(
   canonical: CanonicalTool,

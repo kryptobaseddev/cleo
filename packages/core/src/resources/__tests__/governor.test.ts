@@ -93,6 +93,28 @@ describe('computeClassBudget (T11999)', () => {
     expect(computeClassBudget('test-run', makeSample({ memAvailableGb: 8 }), opts)).toBe(1);
   });
 
+  it('typecheck is budgeted per process: RAM at 6 GiB a run, half the cores, scaled under pressure (T13123)', () => {
+    // 18-core 48 GiB box with 40 GiB available: ⌊(40−2)/6⌋ = 6, cores ⌊18/2⌋ = 9.
+    const desktop = { cpuCount: 18, totalMemBytes: 48 * GB } as const;
+    expect(computeClassBudget('typecheck', makeSample({ memAvailableGb: 40 }), desktop)).toBe(6);
+    expect(
+      computeClassBudget('typecheck', makeSample({ memAvailableGb: 40, someAvg10: 15 }), desktop),
+    ).toBe(3);
+    expect(
+      computeClassBudget('typecheck', makeSample({ memAvailableGb: 40, someAvg10: 30 }), desktop),
+    ).toBe(1);
+    // 4-core 8 GiB laptop with 5 GiB available: none fits, still 1 (never 0).
+    const laptop = { cpuCount: 4, totalMemBytes: 8 * GB } as const;
+    expect(computeClassBudget('typecheck', makeSample({ memAvailableGb: 5 }), laptop)).toBe(1);
+    // Cores bind a big box: ⌊(250−2)/6⌋ = 41, ⌊4/2⌋ = 2.
+    expect(
+      computeClassBudget('typecheck', makeSample({ memAvailableGb: 250 }), {
+        cpuCount: 4,
+        totalMemBytes: 256 * GB,
+      }),
+    ).toBe(2);
+  });
+
   it('scoped-build shares the test-run memory bound', () => {
     const opts = { cpuCount: 24, totalMemBytes: 62 * GB } as const;
     expect(computeClassBudget('scoped-build', makeSample({ memAvailableGb: 60 }), opts)).toBe(2);

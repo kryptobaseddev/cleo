@@ -2158,8 +2158,8 @@ function toolRunAtomFields(result: ToolRunResult): {
 }
 
 /**
- * One sentence naming the heap and worker plan a heavy tool ran under
- * (T13122), for a message about a kill; `''` for a light tool.
+ * One sentence naming the heap and worker plan a memory-bound tool ran under
+ * (T13122), for a message about a kill; `''` for any other tool.
  */
 function resourcePlanNote(result: ToolRunResult): string {
   return result.resources ? ` It ran with ${result.resources.summary}.` : '';

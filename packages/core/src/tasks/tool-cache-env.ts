@@ -39,15 +39,18 @@
  *
  *   - the V8 heap flags in `NODE_OPTIONS` ({@link effectiveHeapFlags}), for
  *     every tool, because every Node process a tool starts inherits them;
- *   - for heavy tools, every variable `heavyToolEnv` manages (the per-runner
- *     worker counts, `npm_config_workspace_concurrency`, `MAKEFLAGS`) and the
- *     cgroup ceiling overrides (`CLEO_TOOL_MEMORY_MAX_MB`, `CLEO_NO_TOOL_CGROUP`).
+ *   - every variable `heavyToolEnv` manages for the tool (for heavy tools the
+ *     per-runner worker counts, `npm_config_workspace_concurrency` and
+ *     `MAKEFLAGS`; for `typecheck`/`lint` the workspace concurrency, T13123);
+ *   - for heavy tools, the cgroup ceiling overrides (`CLEO_TOOL_MEMORY_MAX_MB`,
+ *     `CLEO_NO_TOOL_CGROUP`).
  *
- * The heavy variable list is derived from `heavyToolEnv` itself, so a lever
- * added there is keyed with no second list to keep in step.
+ * The variable list is derived from `heavyToolEnv` itself, so a lever added
+ * there is keyed with no second list to keep in step.
  *
  * @task T12958
  * @task T12989
+ * @task T13123
  */
 
 import { execFileSync } from 'node:child_process';
@@ -228,9 +231,11 @@ function resourceValue(name: string, raw: string | undefined): string {
  *
  *   - `NODE_OPTIONS`, reduced to its heap flags ({@link effectiveHeapFlags}),
  *     for every tool;
- *   - for heavy tools only, every variable `heavyToolEnv` can set (derived by
- *     asking it what it sets for an empty environment) plus the cgroup
- *     ceiling overrides `CLEO_TOOL_MEMORY_MAX_MB` and `CLEO_NO_TOOL_CGROUP`.
+ *   - every variable `heavyToolEnv` can set for the tool (derived by asking it
+ *     what it sets for an empty environment): a heavy tool's worker counts,
+ *     and the workspace concurrency of every memory-bound tool (T13123);
+ *   - for heavy tools only, the cgroup ceiling overrides
+ *     `CLEO_TOOL_MEMORY_MAX_MB` and `CLEO_NO_TOOL_CGROUP`.
  *
  * A variable outside this set does not move the key; force a fresh run with
  * `CLEO_EVIDENCE_FRESH=1` when one matters.
@@ -251,8 +256,11 @@ export function captureResourceEnv(
 ): string {
   const effective: NodeJS.ProcessEnv = { ...env, ...overlay };
   const names = new Set<string>(['NODE_OPTIONS']);
+  // Every lever the overlay manages for this tool: a heavy tool's worker
+  // counts, and since T13123 a memory-bound typecheck/lint's workspace
+  // concurrency.
+  for (const name of Object.keys(heavyToolEnv(canonical, {}))) names.add(name);
   if (isHeavyTool(canonical)) {
-    for (const name of Object.keys(heavyToolEnv(canonical, {}))) names.add(name);
     names.add(MEMORY_MAX_ENV);
     names.add(DISABLE_ENV);
   }

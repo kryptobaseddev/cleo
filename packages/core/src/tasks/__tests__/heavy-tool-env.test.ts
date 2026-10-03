@@ -78,11 +78,21 @@ describe('heavyToolEnv (T12096)', () => {
     expect(heavyToolEnv('build', {}, 62).NODE_OPTIONS).toBeDefined();
   });
 
-  it('leaves LIGHT tools completely alone', () => {
-    // Serialising lint/typecheck would cost time and buy nothing — they are
-    // single-process.
-    for (const t of ['lint', 'typecheck', 'audit', 'security-scan'] as const) {
+  it('leaves network-bound tools completely alone', () => {
+    for (const t of ['audit', 'security-scan'] as const) {
       expect(heavyToolEnv(t, {}, 62)).toEqual({});
+    }
+  });
+
+  it('gives typecheck and lint a heap ceiling and workspace concurrency, no worker variables (T13123)', () => {
+    // One TypeScript program holds 2–5 GB on a large monorepo; a profile heap
+    // reached every tsc CLEO started, with no ceiling of its own.
+    for (const t of ['lint', 'typecheck'] as const) {
+      expect(heavyToolEnv(t, {}, 62)).toEqual({
+        NODE_OPTIONS: `--max-old-space-size=${HEAVY_TOOL_HEAP_MB}`,
+        npm_config_workspace_concurrency: String(WORKSPACE_CONCURRENCY),
+        pnpm_config_workspace_concurrency: String(WORKSPACE_CONCURRENCY),
+      });
     }
   });
 
@@ -325,9 +335,29 @@ describe('planHeavyToolEnv (T13122)', () => {
     }
   });
 
-  it('plans nothing for a light tool', () => {
-    expect(
-      planHeavyToolEnv('typecheck', { NODE_OPTIONS: '--max-old-space-size=8192' }, 64),
-    ).toEqual({ overlay: {}, resources: null });
+  it('plans nothing for a network-bound tool', () => {
+    expect(planHeavyToolEnv('audit', { NODE_OPTIONS: '--max-old-space-size=8192' }, 64)).toEqual({
+      overlay: {},
+      resources: null,
+    });
+  });
+
+  it('plans a typecheck as one process under the same budget (T13123)', () => {
+    const kept = planHeavyToolEnv('typecheck', { NODE_OPTIONS: '--max-old-space-size=8192' }, 64);
+    expect(kept.resources?.heapMb).toBe(8192);
+    expect(kept.resources?.heapSource).toBe('inherited');
+    expect(kept.resources?.workers).toBe(1);
+    expect(kept.resources?.summary).toContain('one process');
+    expect(kept.overlay.VITEST_MAX_WORKERS).toBeUndefined();
+    expect(kept.overlay.MAKEFLAGS).toBeUndefined();
+
+    // An 8 GiB laptop: a profile-wide 8 GiB heap is above the budget.
+    const laptop = planHeavyToolEnv('lint', { NODE_OPTIONS: '--max-old-space-size=8192' }, 8);
+    expect(laptop.resources?.heapSource).toBe('clamped');
+    expect(laptop.overlay.NODE_OPTIONS).toBe('--max-old-space-size=4096');
+
+    // CLEO_HEAVY_WORKERS means nothing to a single process and is not read.
+    const ignored = planHeavyToolEnv('typecheck', { CLEO_HEAVY_WORKERS: 'x' }, 64);
+    expect(ignored.resources?.summary).not.toContain('ignored');
   });
 });

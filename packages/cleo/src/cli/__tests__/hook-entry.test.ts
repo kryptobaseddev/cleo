@@ -475,7 +475,7 @@ describe('heavyCommandHook', () => {
     const out = JSON.parse(await heavyCommandHook('codex', payload('npx tsc --noEmit'), io()));
     expect(out.hookSpecificOutput.additionalContext).toMatch(/\n\[cleo\] Machine pressure is red/);
     expect(out.hookSpecificOutput.updatedInput.command).toBe(
-      'cleo run --wait --passthrough --timeout 60 --class build -- npx tsc --noEmit',
+      'cleo run --wait --passthrough --timeout 60 --class typecheck -- npx tsc --noEmit',
     );
   });
 });

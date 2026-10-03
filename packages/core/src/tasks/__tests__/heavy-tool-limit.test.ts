@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { heavyToolEnv, isHeavyTool } from '../heavy-tool-env.js';
+import { heavyToolEnv, isHeavyTool, isMemoryBoundTool } from '../heavy-tool-env.js';
 import {
   HEAVY_TOOL_MEMORY_CEILING_MB,
   HEAVY_TOOL_MEMORY_FLOOR_MB,
@@ -127,8 +127,12 @@ describe('heavyToolEnv beyond vitest', () => {
     expect(overlay.GOMAXPROCS).toBe(overlay.VITEST_MAX_WORKERS);
   });
 
-  it('still leaves cheap tools alone', () => {
-    expect(heavyToolEnv('lint', {}, 62)).toEqual({});
+  it('gives single-process tools no worker variables (T13123)', () => {
+    const lint = heavyToolEnv('lint', {}, 62);
+    expect(lint.VITEST_MAX_WORKERS).toBeUndefined();
+    expect(lint.GOMAXPROCS).toBeUndefined();
+    expect(lint.MAKEFLAGS).toBeUndefined();
+    expect(heavyToolEnv('audit', {}, 62)).toEqual({});
   });
 });
 
@@ -159,10 +163,14 @@ describe('isHeavyTool — one definition, not four', () => {
     // without the other — which is worse than neither, because a tool with a
     // raised worker cap and no memory ceiling is unbounded by construction.
     const confined = withMemoryLimit(c, 'pnpm', [], { available: true, env: {} }).confined;
-    const capped = Object.keys(heavyToolEnv(c, {}, 62)).length > 0;
+    const overlay = heavyToolEnv(c, {}, 62);
+    const capped = overlay.VITEST_MAX_WORKERS !== undefined;
 
     expect(confined).toBe(isHeavyTool(c));
     expect(capped).toBe(isHeavyTool(c));
+    // T13123: the heap ceiling reaches every memory-bound tool, a superset.
+    expect(overlay.NODE_OPTIONS !== undefined).toBe(isMemoryBoundTool(c));
+    if (isHeavyTool(c)) expect(isMemoryBoundTool(c)).toBe(true);
   });
 });
 

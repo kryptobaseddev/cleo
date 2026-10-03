@@ -36,6 +36,10 @@ export type GovernorMode = 'supervisor' | 'local' | 'off';
 /**
  * Priority classes (highest priority first). `interactive-cli` is NEVER gated;
  * `full-build` is pinned to one machine-wide slot regardless of pressure.
+ * `typecheck` (T13123) is one single-process TypeScript program — `tsc`,
+ * `eslint`, `svelte-check`, `tool:typecheck` / `tool:lint` evidence — whose
+ * memory (2–5 GB on a large monorepo) is a constant per run, not a product of
+ * workers.
  *
  * @adr resource-governor-never-oom-architecture §3.4 (classes)
  */
@@ -44,6 +48,7 @@ export type ResourceClass =
   | 'agent-session'
   | 'llm-call'
   | 'test-run'
+  | 'typecheck'
   | 'scoped-build'
   | 'full-build'
   | 'db-heavy'
@@ -58,6 +63,7 @@ export const RESOURCE_CLASSES: readonly ResourceClass[] = Object.freeze([
   'agent-session',
   'llm-call',
   'test-run',
+  'typecheck',
   'scoped-build',
   'full-build',
   'db-heavy',
@@ -162,10 +168,11 @@ export interface HeavyLeverChange {
 }
 
 /**
- * The resource plan a heavy tool (`test`, `build`) was spawned with, and why
- * (T13122). Reported by `cleo verify` (on the `tool` evidence atom and in a
- * resource-kill message) and by `cleo run`, so an operator can see when an
- * inherited value was clamped.
+ * The resource plan a memory-bound tool (`test`, `build`, and since T13123
+ * `typecheck`, `lint`) was spawned with, and why (T13122). Reported by
+ * `cleo verify` (on the `tool` evidence atom and in a resource-kill message)
+ * and by `cleo run`, so an operator can see when an inherited value was
+ * clamped. A single-process tool's plan has one worker.
  *
  * The invariant it describes: `workspaceConcurrency × workers × heapMb` stays
  * within `budgetMb`, unless an explicit `CLEO_HEAVY_*` override asked for more

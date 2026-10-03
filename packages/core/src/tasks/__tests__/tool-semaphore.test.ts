@@ -26,7 +26,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ResourceSample } from '../../resources/backend.js';
 import {
   acquireGlobalSlot,
+  DARWIN_MEMORY_BOUND_SLOTS,
   defaultMaxConcurrent,
+  HEAVY_TOOL_FOOTPRINT_GIB,
+  MEMORY_BOUND_RAM_FRACTION,
+  PROCESS_OVERHEAD_MB,
   pressureScaleSlots,
   resolveMaxConcurrent,
   semaphoreDir,
@@ -112,20 +116,47 @@ describe('defaultMaxConcurrent', () => {
     }
   });
 
-  it('leaves light tools on the core-derived budget — RAM does not bind them', () => {
-    // lint/typecheck are single-process; bounding them by RAM would serialise
-    // cheap work for no reason.
-    expect(defaultMaxConcurrent('lint', 16, 8)).toBe(8);
-    expect(defaultMaxConcurrent('typecheck', 16, 8)).toBe(8);
-  });
-
-  it('returns max(2, cpus/2) for lint/typecheck/audit/security-scan', () => {
-    expect(defaultMaxConcurrent('lint', 16)).toBe(8);
-    expect(defaultMaxConcurrent('typecheck', 16)).toBe(8);
+  it('returns max(2, cpus/2) for audit/security-scan — network-bound, small RAM', () => {
     expect(defaultMaxConcurrent('audit', 16)).toBe(8);
     expect(defaultMaxConcurrent('security-scan', 16)).toBe(8);
-    expect(defaultMaxConcurrent('lint', 2)).toBe(2);
-    expect(defaultMaxConcurrent('lint', 1)).toBe(2);
+    expect(defaultMaxConcurrent('audit', 2)).toBe(2);
+    expect(defaultMaxConcurrent('audit', 1)).toBe(2);
+  });
+});
+
+describe('defaultMaxConcurrent — typecheck/lint are RAM-derived (T13123)', () => {
+  // One TypeScript program on a large monorepo holds 2–5 GB. These tools had
+  // max(2, cpus/2) slots: 9 on an 18-core box, ~45 GB of tsc.
+  it('the 18-core 48 GiB desktop: 4 typechecks on Linux (was 9), 2 on darwin', () => {
+    // ⌊48 GiB × 0.5 / (4096 heap + 2048 overhead MiB)⌋ = 4
+    expect(defaultMaxConcurrent('typecheck', 18, 48, 'linux')).toBe(4);
+    expect(defaultMaxConcurrent('lint', 18, 48, 'linux')).toBe(4);
+    expect(defaultMaxConcurrent('typecheck', 18, 48, 'darwin')).toBe(DARWIN_MEMORY_BOUND_SLOTS);
+    expect(defaultMaxConcurrent('lint', 18, 48, 'darwin')).toBe(DARWIN_MEMORY_BOUND_SLOTS);
+  });
+
+  it('the 4-core 8 GiB laptop: one at a time, on either OS', () => {
+    expect(defaultMaxConcurrent('typecheck', 4, 8, 'linux')).toBe(1);
+    expect(defaultMaxConcurrent('typecheck', 4, 8, 'darwin')).toBe(1);
+    expect(defaultMaxConcurrent('lint', 4, 8, 'linux')).toBe(1);
+  });
+
+  it('a larger heap per run means fewer runs', () => {
+    // An inherited 8 GiB heap the plan keeps counts as 10 GiB a run.
+    expect(defaultMaxConcurrent('typecheck', 18, 48, 'linux', 8192)).toBe(2);
+    expect(defaultMaxConcurrent('typecheck', 18, 48, 'linux', 24576)).toBe(1);
+  });
+
+  it('cores still bind a big-RAM box, and never fewer than one slot', () => {
+    expect(defaultMaxConcurrent('typecheck', 4, 256, 'linux')).toBe(2);
+    expect(defaultMaxConcurrent('typecheck', 1, 256, 'linux')).toBe(1);
+    expect(defaultMaxConcurrent('typecheck', 0, 0, 'linux')).toBe(1);
+  });
+
+  it('uses RAM/2 at heap + PROCESS_OVERHEAD_MB a run', () => {
+    expect(PROCESS_OVERHEAD_MB).toBe(2048);
+    expect(MEMORY_BOUND_RAM_FRACTION).toBe(0.5);
+    expect(HEAVY_TOOL_FOOTPRINT_GIB).toBe(24);
   });
 });
 
@@ -296,9 +327,16 @@ describe('pressureScaleSlots (T12001 — pressure-dynamic slots)', () => {
     expect(pressureScaleSlots('build', 4, makeSample(30))).toBe(1);
   });
 
-  it('leaves light tools (lint/typecheck) unscaled under pressure', () => {
-    expect(pressureScaleSlots('lint', 8, makeSample(30))).toBe(8);
-    expect(pressureScaleSlots('typecheck', 8, makeSample(30))).toBe(8);
+  it('scales typecheck/lint under pressure too (T13123)', () => {
+    expect(pressureScaleSlots('typecheck', 4, makeSample(0))).toBe(4);
+    expect(pressureScaleSlots('typecheck', 4, makeSample(15))).toBe(2);
+    expect(pressureScaleSlots('typecheck', 4, makeSample(30))).toBe(1);
+    expect(pressureScaleSlots('lint', 4, makeSample(30))).toBe(1);
+  });
+
+  it('leaves network-bound tools (audit/security-scan) unscaled under pressure', () => {
+    expect(pressureScaleSlots('audit', 8, makeSample(30))).toBe(8);
+    expect(pressureScaleSlots('security-scan', 8, makeSample(30))).toBe(8);
   });
 });
 

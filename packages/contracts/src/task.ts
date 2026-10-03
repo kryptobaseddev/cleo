@@ -367,10 +367,10 @@ export type EvidenceAtom =
       /** `true` when the result was served from the tool cache (no spawn). */
       cacheHit?: boolean;
       /**
-       * The heap, worker count and workspace concurrency a heavy tool (`test`,
-       * `build`) was spawned with, and why (T13122) — including any inherited
-       * `NODE_OPTIONS` heap or worker count that was clamped to the budget.
-       * Absent for light tools.
+       * The heap, worker count and workspace concurrency a memory-bound tool
+       * (`test`, `build`, `typecheck`, `lint`) was spawned with, and why
+       * (T13122, T13123) — including any inherited `NODE_OPTIONS` heap or
+       * worker count that was clamped to the budget. Absent for other tools.
        */
       resources?: HeavyToolResourcePlan;
     }

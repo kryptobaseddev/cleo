@@ -133,7 +133,7 @@ export const runCommand = defineCommand({
     class: {
       type: 'string',
       description:
-        'Resource class: test, build, typecheck, install, scan, full-build, db (default: inferred from the command)',
+        'Resource class: test, build, typecheck, lint, install, scan, full-build, db (default: inferred from the command)',
     },
     wait: {
       type: 'boolean',
