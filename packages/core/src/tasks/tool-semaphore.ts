@@ -793,7 +793,10 @@ export async function acquireGlobalSlot(
     }
   }
 
-  while (Date.now() - startedAt < timeoutMs) {
+  // At least one pass, however small the budget: the memory-gate sample above
+  // may already have used it, and a probe (`timeoutMs: 1`) must still see a
+  // free slot.
+  for (;;) {
     for (const idx of order) {
       const path = slots[idx];
       if (!path) continue;
@@ -859,6 +862,7 @@ export async function acquireGlobalSlot(
       }
     }
     // All slots busy — sleep and retry.
+    if (Date.now() - startedAt >= timeoutMs) break;
     await sleep(pollMs);
   }
 

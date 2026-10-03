@@ -360,6 +360,22 @@ describe('evidence runs wait out memory pressure (T13127)', () => {
     );
   });
 
+  it('a 1 ms probe still takes a free slot after the gate has sampled (listVitestProjects)', async () => {
+    // A slow sample used to eat the whole budget, so the slot loop never ran
+    // and a free slot read as busy.
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      return sample(128);
+    });
+    const release = await acquireGlobalSlot('test', {
+      ...live,
+      timeoutMs: 1,
+      pollMs: 1,
+      notice: () => {},
+    });
+    await release();
+  });
+
   it('lint never waits on memory pressure', async () => {
     const samples = scriptPressure([90]);
     const release = await acquireGlobalSlot('lint', {
