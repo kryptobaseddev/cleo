@@ -469,11 +469,17 @@ async function revertReconcile(liveStorePath: string, stagingDir: string): Promi
 }
 
 /**
- * Legacy tasks tables whose rows are append-only history, wherever the runtime
- * reads them: a missing legacy row was never written live, so an additive run
+ * Legacy tasks tables whose rows are history, wherever the runtime reads them:
+ * a missing legacy row was, as a rule, never written live, so an additive run
  * may fill it in, even after the runtime re-points the table at its prefixed
  * twin (`token_usage` → `tasks_token_usage`, T13111). Named, not inferred from
  * the rename.
+ *
+ * Not strictly append-only: `pipeline.manifest.compact` deletes duplicate
+ * `pipeline_manifest` rows (same content hash, the newest kept), and
+ * `cleo token delete` / `clear` delete token rows. An additive reconcile can
+ * bring such a deleted row back from the legacy store; for a compacted
+ * duplicate that is one extra copy of an entry the live table still holds.
  */
 const APPEND_ONLY_HISTORY: ReadonlySet<string> = new Set([
   'audit_log',

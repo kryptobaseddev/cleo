@@ -594,8 +594,11 @@ export async function deleteTokenUsage(
   const { getDb } = await import('../store/sqlite.js');
   const { eq } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
-  await db.delete(tokenUsage).where(eq(tokenUsage.id, params.id));
-  await db.delete(legacyTokenUsage).where(eq(legacyTokenUsage.id, params.id));
+  // One transaction: a record is never left in one table only.
+  db.transaction((tx) => {
+    tx.delete(tokenUsage).where(eq(tokenUsage.id, params.id)).run();
+    tx.delete(legacyTokenUsage).where(eq(legacyTokenUsage.id, params.id)).run();
+  });
   return { deleted: true, id: params.id };
 }
 
@@ -615,14 +618,21 @@ export async function clearTokenUsage(
   const { getDb } = await import('../store/sqlite.js');
   const { and, count } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
+  const targets = await Promise.all(
+    [tokenUsage, legacyTokenUsage].map(async (table) => {
+      const clauses = await whereClauses(params, table);
+      const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
+      return { table, where };
+    }),
+  );
+  // One transaction: a clear never removes the rows of one table only.
   let deleted = 0;
-  for (const table of [tokenUsage, legacyTokenUsage] as const) {
-    const clauses = await whereClauses(params, table);
-    const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
-    const countRows = await db.select({ count: count() }).from(table).where(where);
-    await db.delete(table).where(where);
-    deleted += countRows[0]?.count ?? 0;
-  }
+  db.transaction((tx) => {
+    for (const { table, where } of targets) {
+      deleted += tx.select({ count: count() }).from(table).where(where).get()?.count ?? 0;
+      tx.delete(table).where(where).run();
+    }
+  });
   return { deleted };
 }
 

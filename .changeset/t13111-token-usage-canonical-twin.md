@@ -15,8 +15,8 @@ Every token usage reader and writer now uses the prefixed twin `tasks_token_usag
 columns, and its session and task ids are plain text with no cross-table foreign key. The twin
 classification is unchanged (portable-personal, journal spec Q9). Exodus reconcile now lands legacy
 token rows in the twin too, because its targets follow the runtime binding (T12355). An additive
-reconcile still fills them in: token, audit and pipeline-manifest rows are named as append-only
-history instead of being inferred from the table rename.
+reconcile still fills them in: token, audit and pipeline-manifest rows are named as history tables
+instead of being inferred from the table rename.
 
 No data moves yet. Rows the bare table already holds stay there and are still synced as the bare
 twin; only commands run with no session bound ever reached it. Until T13115 folds those rows in

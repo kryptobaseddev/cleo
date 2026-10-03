@@ -166,4 +166,31 @@ describe('token usage in tasks_token_usage (T13111)', () => {
     expect(count(db, 'token_usage')).toBe(0);
     expect(count(db, 'tasks_token_usage')).toBe(0);
   });
+
+  it('delete and clear touch both tables in one transaction: a refused bare delete leaves the twin row', async () => {
+    const db = await open();
+    const row = await recordTokenExchange(root, {
+      requestPayload: {},
+      responsePayload: {},
+      transport: 'cli',
+      gateway: 'mutate',
+      domain: 'tasks',
+      operation: 'add',
+      requestId: 'req-5',
+    });
+    db.exec(
+      "CREATE TRIGGER t13111_refuse_bare_delete BEFORE DELETE ON token_usage BEGIN SELECT RAISE(ABORT, 'bare delete refused'); END",
+    );
+    db.exec('PRAGMA foreign_keys=OFF');
+    bareRow(db, row.id);
+    db.exec('PRAGMA foreign_keys=ON');
+
+    // The bare delete runs second and fails (drizzle names the failed query).
+    await expect(deleteTokenUsage(root, { id: row.id })).rejects.toThrow(
+      /delete from "token_usage"/,
+    );
+    await expect(clearTokenUsage(root)).rejects.toThrow(/delete from "token_usage"/);
+    expect(db.prepare('SELECT id FROM tasks_token_usage').all()).toEqual([{ id: row.id }]);
+    expect(count(db, 'token_usage')).toBe(1);
+  });
 });
