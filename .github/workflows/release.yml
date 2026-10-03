@@ -1,4 +1,8 @@
 name: Release
+# Names the version on every run, including a break-glass dispatch (which runs
+# on main, so its branch does not name the tag). release-promote.mjs finds the
+# run whose verdict it reads by this title (T13144).
+run-name: Release ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
 
 # @task release-pipeline (foundational — see T9540 / Saga T9787 release-system).
 # Triggers:
@@ -83,13 +87,18 @@ jobs:
           else
             VERSION="${REF_NAME#v}"
           fi
-          # Determine npm dist-tag from version suffix
+          # Determine npm dist-tag from version suffix. A stable version
+          # publishes under `canary`, never `latest` (T13144): users install
+          # `latest`, which moves only through release-promote.yml, after the
+          # canary soaks and the owner approves. Everything below this step
+          # (execute-payload, release-verdict, the installability watch)
+          # verifies the tag this step chose.
           if [[ "$VERSION" == *"-alpha"* ]] || [[ "$VERSION" == *"-dev"* ]]; then
             DIST_TAG="dev"
           elif [[ "$VERSION" == *"-beta"* ]] || [[ "$VERSION" == *"-rc"* ]]; then
             DIST_TAG="beta"
           else
-            DIST_TAG="latest"
+            DIST_TAG="canary"
           fi
           IS_PRERELEASE=$([[ "$VERSION" == *"-"* ]] && echo "true" || echo "false")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -843,7 +852,7 @@ jobs:
 
           # Returns 0 if @cleocode/$1@$VERSION is already on npm (idempotent re-runs).
           # Uses explicit @VERSION qualifier so the check is correct regardless of
-          # which dist-tag (latest/beta/dev) was used and regardless of npm registry
+          # which dist-tag (canary/beta/dev) was used and regardless of npm registry
           # cache state for the "latest" pointer.
           already_published() {
             local pkg="$1"
@@ -1155,7 +1164,7 @@ jobs:
       # NOTE: there is deliberately no `Get version` step here. It used to
       # re-derive VERSION with a copy of the release job's shell that dropped
       # the dist-tag branch, so this job could not know whether it was verifying
-      # a `latest`, `beta` or `dev` release. Both values now come from
+      # a `canary`, `beta` or `dev` release. Both values now come from
       # needs.build-verify.outputs.
 
       # Run the post-deploy payload script:

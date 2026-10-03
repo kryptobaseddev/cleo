@@ -1,0 +1,108 @@
+# Release Promote: move npm `latest` to a soaked canary, or back (T13144).
+#
+# release.yml publishes every stable version under the `canary` dist-tag, so a
+# release reaches nobody who installs `latest` (`npm i -g @cleocode/cleo`)
+# until this workflow moves `latest`. Rollback is this same workflow run with
+# the previous version: the old tarballs are still on the registry, so
+# `latest` flips back without republishing anything.
+#
+#   plan     Read-only, no environment. Checks that every package resolves at
+#            the version, that its canary is the version (for a promotion), and
+#            that the release's installability verdict is green, then installs
+#            the version into a sandbox and runs health checks
+#            (scripts/release-canary-soak.mjs). Both are blocking: there is no
+#            continue-on-error anywhere in this file (gh#1474).
+#   promote  Runs in the `npm-promote` environment, which waits for the owner's
+#            approval and is the ONLY holder of NPM_TOKEN. It re-checks the plan,
+#            moves `latest` package by package with `npm dist-tag add`, and waits
+#            until `latest` resolves everywhere.
+#
+# npm's trusted publishing (OIDC) covers `npm publish` only; a dist-tag move
+# needs a token, which is why that token lives behind an approval gate rather
+# than in release.yml. No other workflow may reference the `npm-promote`
+# environment or NPM_TOKEN (scripts/__tests__/release-promote.test.mjs).
+#
+# Runbook: docs/release/merge-queue-runbook.md, "Canary soak and promotion".
+name: Release Promote
+run-name: Promote v${{ inputs.version }} to latest
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to point latest at (e.g. 2026.10.5). For a rollback, the previous version.'
+        required: true
+        type: string
+
+# One promotion at a time, and never cancelled halfway through its moves.
+concurrency:
+  group: release-promote
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Plan v${{ inputs.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read  # the release run's verdict job
+      issues: read   # the installability tracking issue
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check canary, verdict and latest
+        id: plan
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node scripts/release-promote.mjs plan --version "$VERSION"
+      - name: Soak the version in a sandbox
+        env:
+          VERSION: ${{ inputs.version }}
+        run: node scripts/release-canary-soak.mjs --version "$VERSION" --out "$RUNNER_TEMP/canary-soak.json"
+      - name: Upload soak report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canary-soak-${{ inputs.version }}
+          path: ${{ runner.temp }}/canary-soak.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  promote:
+    name: ${{ needs.plan.outputs.mode == 'rollback' && 'ROLLBACK latest to' || 'Move latest to' }} v${{ inputs.version }}
+    needs: [plan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The approval gate. Required reviewer: the owner. Deployment branches: main
+    # only, so a workflow edited on a branch never sees the token.
+    environment:
+      name: npm-promote
+      url: https://www.npmjs.com/package/@cleocode/cleo/v/${{ inputs.version }}
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          # Writes an .npmrc that reads the token from NODE_AUTH_TOKEN.
+          registry-url: 'https://registry.npmjs.org'
+      - name: Re-check, move latest, wait for latest to resolve
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/release-promote.mjs promote --version "$VERSION"
