@@ -40,6 +40,7 @@ import { findOnPath } from '@cleocode/paths';
 import {
   CLAUDE_LOCAL_SETTINGS,
   CODEX_HOOKS_FILE,
+  codexHookSnippet,
   codexHooksSharedReason,
   HEAVY_COMMAND_HOOK_ID,
   HeavyHookPathBlockedError,
@@ -72,9 +73,9 @@ export const HEAVY_HOOK_FIX_COMMAND = 'cleo doctor heavy-command-hook --fix';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
-/** What to do when Codex's `hooks.json` is a shared team config (review MED-3). */
+/** What to do when Codex's `hooks.json` is the project's own (review MED-3). */
 const CODEX_SHARED_REMEDY =
-  'if the team wants Codex governed here, add a PreToolUse hook that runs `cleo hook heavy-command --provider codex` to .codex/hooks.json yourself and commit it deliberately';
+  "if the team wants Codex governed here, add CLEO's PreToolUse entry (the snippet) to .codex/hooks.json yourself and commit it deliberately; CLEO never writes or hides a project's own hook config";
 
 /** Kimi has no project-level hook config, so CLEO cannot install for it. */
 const KIMI_REASON =
@@ -213,10 +214,11 @@ async function syncProvider(
     if (err instanceof HeavyHookSharedConfigError) {
       return {
         provider,
-        status: 'blocked',
+        status: 'needs-consent',
         target,
         reason: err.message,
         remedy: CODEX_SHARED_REMEDY,
+        snippet: codexHookSnippet(),
       };
     }
     if (err instanceof HeavyHookPathBlockedError) {
@@ -411,7 +413,7 @@ function inspectProvider(
     if (!gitChecks) return { ...base, state: 'installed', detail: `installed in ${target}` };
     // Codex's hooks.json may be a shared team config (review MED-3): CLEO's
     // per-machine hook there must not ride along in a commit.
-    const shared = provider === 'codex' ? codexHooksSharedReason(projectDir) : null;
+    const shared = provider === 'codex' ? codexHooksSharedReason(projectDir, true) : null;
     if (shared !== null) {
       const modified = trackedFileModified(projectDir, CODEX_HOOKS_FILE);
       if (modified || hookFileVisibleToGit(projectDir, CODEX_HOOKS_FILE)) {
@@ -438,13 +440,16 @@ function inspectProvider(
     return { ...base, state: 'installed', detail: `installed in ${target}` };
   }
   if (!detected) return { ...base, state: 'not-detected', detail: why };
-  const shared = provider === 'codex' && gitChecks ? codexHooksSharedReason(projectDir) : null;
+  // The briefing (no git checks) still reads the file: a project's own
+  // hooks.json needs consent, it is not missing.
+  const shared = provider === 'codex' ? codexHooksSharedReason(projectDir, gitChecks) : null;
   if (shared !== null) {
     return {
       ...base,
-      state: 'blocked',
-      detail: `${target} ${shared}, so CLEO does not add its per-machine hook to it (${why})`,
+      state: 'needs-consent',
+      detail: `${target} ${shared}, so CLEO does not write or hide it; Codex runs ungoverned here until the team adds the entry (${why})`,
       remedy: CODEX_SHARED_REMEDY,
+      snippet: codexHookSnippet(),
     };
   }
   const blocked = nonDirectoryAncestor(dirname(target));

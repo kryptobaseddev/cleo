@@ -156,6 +156,9 @@ export interface PreToolUseHookOutput {
  *   directory (a stray `.codex` file, say); nothing was written.
  * - `unsupported` — the provider cannot take a project-level hook (Kimi reads
  *   hooks only from its global config).
+ * - `needs-consent` — the config is the project's own (Codex's committable
+ *   `.codex/hooks.json`, tracked or holding anything CLEO did not write), so
+ *   CLEO does not write or hide it; `snippet` is the entry to add by hand.
  * - `failed` — any other error, such as a config file that is not valid JSON
  *   (left untouched).
  */
@@ -167,6 +170,7 @@ export type HeavyHookDeliveryStatus =
   | 'skipped'
   | 'blocked'
   | 'unsupported'
+  | 'needs-consent'
   | 'failed';
 
 /** One provider's result from syncing the hook into a project. */
@@ -179,8 +183,10 @@ export interface HeavyHookDeliveryOutcome {
   readonly target: string;
   /** Why it was skipped, blocked, unsupported or failed. */
   readonly reason?: string;
-  /** The exact step that fixes a `blocked`, `unsupported` or `failed` outcome. */
+  /** The exact step that fixes a `blocked`, `unsupported`, `needs-consent` or `failed` outcome. */
   readonly remedy?: string;
+  /** `needs-consent`: the exact JSON entry to add to the config by hand. */
+  readonly snippet?: string;
 }
 
 /**
@@ -194,6 +200,7 @@ export interface HeavyHookDeliveryOutcome {
  * - `blocked` — see {@link HeavyHookDeliveryStatus}.
  * - `unreadable` — the config file exists but cannot be read or parsed.
  * - `unsupported` — the provider cannot take a project-level hook.
+ * - `needs-consent` — see {@link HeavyHookDeliveryStatus}; `snippet` holds the entry.
  * - `disabled` — `resources.heavyCommandHook` is `off`, and no CLEO hook is left.
  * - `not-detected` — the provider is not in use here; nothing is expected.
  */
@@ -204,6 +211,7 @@ export type HeavyHookInstallState =
   | 'blocked'
   | 'unreadable'
   | 'unsupported'
+  | 'needs-consent'
   | 'disabled'
   | 'not-detected';
 
@@ -221,6 +229,8 @@ export interface HeavyHookInspection {
   readonly detail: string;
   /** The exact step that fixes the state, when one is needed. */
   readonly remedy?: string;
+  /** `needs-consent`: the exact JSON entry to add to the config by hand. */
+  readonly snippet?: string;
 }
 
 /**

@@ -200,6 +200,7 @@ export function heavyHookReportLines(
         break;
       case 'blocked':
       case 'unsupported':
+      case 'needs-consent':
       case 'failed':
         lines.push({
           status: 'skipped',
@@ -221,6 +222,7 @@ const PROBLEM_STATES: ReadonlySet<HeavyHookInspection['state']> = new Set([
   'outdated',
   'blocked',
   'unreadable',
+  'needs-consent',
 ]);
 
 /**
@@ -237,8 +239,9 @@ export function isHeavyHookProblem(inspection: HeavyHookInspection): boolean {
 /**
  * The one-line briefing warning when a provider in use has no working hook,
  * or `null` when every provider in use is covered (or the check itself
- * fails; doctor reports that). Kimi's permanent `unsupported` state is left to
- * `cleo doctor`, so the briefing does not repeat it every session.
+ * fails; doctor reports that). Kimi's permanent `unsupported` state and a
+ * team's `needs-consent` are left to `cleo doctor`, so the briefing does not
+ * repeat them every session. It makes no git spawns (`gitChecks: false`).
  *
  * @param projectRoot - the project root.
  * @param options - environment and provider list (tests); `api` replaces the
@@ -255,7 +258,11 @@ export async function heavyHookBriefingWarning(
   } catch {
     return null;
   }
-  const problems = report.inspections.filter(isHeavyHookProblem);
+  // `needs-consent` is a team's standing decision about its own config: doctor
+  // reports it, the briefing does not repeat it every session.
+  const problems = report.inspections.filter(
+    (i) => isHeavyHookProblem(i) && i.state !== 'needs-consent',
+  );
   if (problems.length === 0) return null;
   const list = problems.map((p) => `${p.provider} (${p.state})`).join(', ');
   return (

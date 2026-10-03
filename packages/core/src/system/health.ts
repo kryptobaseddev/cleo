@@ -851,7 +851,12 @@ export async function checkHeavyCommandHooks(projectRoot: string): Promise<Docto
         check: `heavy_command_hook_${inspection.provider.replace(/-/g, '_')}`,
         status: problem ? 'warning' : 'ok',
         message: `heavy-command hook (${inspection.provider}): ${inspection.state}, ${inspection.detail}${governs}`,
-        details: { mode, target: inspection.target, state: inspection.state },
+        details: {
+          mode,
+          target: inspection.target,
+          state: inspection.state,
+          ...(inspection.snippet === undefined ? {} : { snippet: inspection.snippet }),
+        },
         ...(inspection.remedy === undefined ? {} : { fix: inspection.remedy }),
       });
     }

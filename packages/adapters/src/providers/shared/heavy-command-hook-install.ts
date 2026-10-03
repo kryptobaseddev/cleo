@@ -560,69 +560,91 @@ export function unexcludeLocalSettingsFromGit(projectDir: string): boolean {
 }
 
 /**
- * A hook config CLEO will not add its per-machine hook to, because it is a
- * shared project config: Codex's `.codex/hooks.json` is committable, unlike
- * Claude Code's `settings.local.json`. Writing there would put a per-machine
- * hook into a team file (or hide the team's own file behind `info/exclude`).
- * Nothing is written; the delivery reports the provider as `blocked`.
+ * A hook config CLEO will not add its per-machine hook to, because it is the
+ * project's own: Codex's `.codex/hooks.json` is committable, unlike Claude
+ * Code's `settings.local.json`. Writing there would put a per-machine hook
+ * into a team file, and excluding it would hide the team's file from git.
+ * Nothing is written; the delivery reports `needs-consent` with the entry to
+ * add by hand.
  */
 export class HeavyHookSharedConfigError extends Error {
-  /** The shared config file. */
+  /** The project's own config file. */
   readonly path: string;
 
   /**
    * @param path - the config file.
-   * @param why - what makes it shared.
+   * @param why - what makes it the project's own.
    */
   constructor(path: string, why: string) {
-    super(`${path} ${why}, so CLEO does not add its per-machine hook to it`);
+    super(`${path} ${why}, so CLEO does not write or hide it`);
     this.name = 'HeavyHookSharedConfigError';
     this.path = path;
   }
 }
 
-/** Whether a parsed hooks config holds any hook that is not CLEO's own. */
-function holdsForeignHooks(config: unknown): boolean {
-  if (!isPlainObject(config) || !isPlainObject(config.hooks)) return false;
+/**
+ * Whether a parsed hooks config is one CLEO created: nothing but a `hooks`
+ * map whose every hook object is CLEO's own (`# cleo-hook`), with at least
+ * one. An empty `{}` is the user's, not CLEO's.
+ */
+function cleoCreatedConfig(config: unknown): boolean {
+  if (!isPlainObject(config) || Object.keys(config).some((k) => k !== 'hooks')) return false;
+  if (!isPlainObject(config.hooks)) return false;
+  let mine = 0;
   for (const groups of Object.values(config.hooks)) {
-    if (!Array.isArray(groups)) return true;
+    if (!Array.isArray(groups)) return false;
     for (const group of groups) {
-      if (!isPlainObject(group) || !Array.isArray(group.hooks)) return true;
+      if (!isPlainObject(group) || !Array.isArray(group.hooks)) return false;
       for (const hook of group.hooks) {
         if (
           !isPlainObject(hook) ||
           typeof hook.command !== 'string' ||
           !hook.command.includes(CLEO_HOOK_MARKER)
         ) {
-          return true;
+          return false;
         }
+        mine++;
       }
     }
   }
-  return false;
+  return mine > 0;
 }
 
 /**
- * Why Codex's `.codex/hooks.json` in `projectDir` is a shared project config
- * CLEO must not write to, or `null` when it is absent or holds only CLEO's
- * own hooks and git does not track it (review MED-3). An unreadable file is
- * left to the sync, which refuses it.
+ * Why Codex's `.codex/hooks.json` in `projectDir` is the project's own config
+ * that CLEO must not write or hide, or `null` when CLEO may: the file is
+ * absent, or is one CLEO created and git does not track (review MED-3). An
+ * unreadable file is left to the sync, which refuses it.
  *
  * @param projectDir - the project root.
+ * @param checkGit - also ask git whether the file is tracked (one spawn);
+ *   `false` reads the file only (the session briefing).
  */
-export function codexHooksSharedReason(projectDir: string): string | null {
-  if (gitOutput(projectDir, ['ls-files', '--error-unmatch', CODEX_HOOKS_FILE]) !== null) {
-    return 'is tracked by git (a shared team config)';
-  }
+export function codexHooksSharedReason(projectDir: string, checkGit = true): string | null {
   const file = join(projectDir, CODEX_HOOKS_FILE);
   if (!existsSync(file)) return null;
+  let config: unknown;
   try {
-    return holdsForeignHooks(JSON.parse(readFileSync(file, 'utf-8')))
-      ? "holds hooks that are not CLEO's (a shared project config)"
-      : null;
+    config = JSON.parse(readFileSync(file, 'utf-8'));
   } catch {
     return null;
   }
+  if (!cleoCreatedConfig(config)) return "is the project's own Codex hook config";
+  if (
+    checkGit &&
+    gitOutput(projectDir, ['ls-files', '--error-unmatch', CODEX_HOOKS_FILE]) !== null
+  ) {
+    return 'is tracked by git (a shared team config)';
+  }
+  return null;
+}
+
+/**
+ * The exact `PreToolUse` entry to add to Codex's `.codex/hooks.json` by hand,
+ * for a project whose own config CLEO does not write (`needs-consent`).
+ */
+export function codexHookSnippet(): string {
+  return JSON.stringify(heavyCommandHookEntry('codex'));
 }
 
 /**

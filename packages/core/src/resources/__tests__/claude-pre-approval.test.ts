@@ -158,10 +158,7 @@ describe('claudePreApproval', () => {
       "cd $'\\x2e\\x2e' && pnpm test",
       "pnpm test $'--run'",
     ]) {
-      expect(ok(command, rules), command).toEqual({
-        approved: false,
-        reason: "it has ANSI-C quoting ($'…')",
-      });
+      expect(ok(command, rules).approved, command).toBe(false);
     }
   });
 
@@ -181,12 +178,160 @@ describe('claudePreApproval', () => {
     // Quoted or escaped, they are plain text.
     expect(ok('pnpm test | grep -E "^FAIL|x*"', rules).approved).toBe(true);
     expect(ok("pnpm test | grep 'a?b'", rules).approved).toBe(true);
-    expect(ok('pnpm test | grep a\\*b', rules).approved).toBe(true);
+    // Fail-closed: an escape is outside the strict grammar even when harmless.
+    expect(ok('pnpm test | grep a\\*b', rules).approved).toBe(false);
+  });
+
+  it('still approves the plain and simply quoted forms agents use', () => {
+    const rules = ['pnpm test *', 'pnpm vitest *', 'pnpm --filter *'];
+    for (const command of [
+      'pnpm test',
+      'pnpm vitest run src/a.test.ts src/b.test.ts',
+      'pnpm test 2>&1 | tail -50',
+      'pnpm test > /dev/null 2>&1',
+      'cd packages/core && pnpm vitest run src/x.test.ts',
+      'pnpm --filter @cleocode/core exec vitest run "src/with space.test.ts"',
+      'pnpm test -t \'a && b\' | grep -E "FAIL|Error" | wc -l',
+      'pnpm test --reporter=verbose; pnpm test --run',
+      'pnpm test | tail -n +5',
+    ]) {
+      expect(ok(command, rules), command).toEqual({ approved: true });
+    }
   });
 
   it('needs the stage as written and its words alone to match the same rule', () => {
     // An exact rule does not cover the command with a redirect added.
     expect(ok('pnpm test 2>&1', ['pnpm test']).approved).toBe(false);
     expect(ok('pnpm test', ['pnpm test'])).toEqual({ approved: true });
+  });
+});
+
+/**
+ * Fail-closed property (T13124 review): no construct outside the strict
+ * grammar can yield an approval, wherever it sits, even under rules whose
+ * trailing `*` matches any text. Every construct is tried in every position,
+ * then a seeded random mix of several at once.
+ */
+describe('claudePreApproval is fail-closed', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'cleo-pre-approval-fuzz-'));
+    mkdirSync(join(dir, 'packages', 'core'), { recursive: true });
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Rules a permissive user might hold: each matches anything after its prefix. */
+  const RULES = ['pnpm test *', 'pnpm test:*', 'grep *', 'cd *', 'echo *'];
+
+  /** Constructs outside the strict grammar (each must forbid approval). */
+  const CONSTRUCTS: readonly string[] = [
+    "$'\\x2fetc\\x2fpasswd'", // ANSI-C escapes
+    "$'\\057etc'",
+    '$"locale"', // locale translation
+    '\\/etc/passwd', // backslash escape
+    'a\\ b',
+    '"a\\"b"',
+    '$HOME', // parameter expansion
+    '$\u{7B}HOME}', // ${HOME}, spelled so no lint reads it as a template
+    '$\u{7B}HOME:-/}',
+    '"$HOME"',
+    '$1',
+    '$(cat /etc/passwd)', // command substitution
+    '`id`',
+    '"$(id)"',
+    '<(id)', // process substitution
+    '>(id)',
+    '$((1+1))', // arithmetic expansion
+    '*', // globs, bare and partly quoted
+    '""*',
+    '""..*',
+    'a?b',
+    '[ab]',
+    'x[a]',
+    '{a,b}', // brace expansion
+    '""{..,.}',
+    '{1..3}',
+    '~', // tilde
+    '~/.ssh/id_rsa',
+    '~root',
+    '!x', // history / negation
+    '^x', // zsh EXTENDED_GLOB
+    'a#b',
+    '# comment', // comment
+    '> out.txt', // redirections outside /dev/null and fds
+    '>> /tmp/x',
+    '< /etc/passwd',
+    '2> err.log',
+    '&> all.log',
+    '<<< here',
+    '<<EOF',
+    '&', // background
+    '|& cat',
+    '(id)', // subshell
+    '{ id; }',
+    '\nid', // newline
+    '\\\nid', // line continuation
+    ';;',
+  ];
+
+  /** Where a construct can sit in an otherwise approvable line. */
+  const POSITIONS: ReadonlyArray<(c: string) => string> = [
+    (c) => `pnpm test ${c}`,
+    (c) => `pnpm test --x=${c}`,
+    (c) => `pnpm test${c}`,
+    (c) => `pnpm test | grep ${c}`,
+    (c) => `pnpm test && echo ${c}`,
+    (c) => `pnpm test && ${c}`,
+    (c) => `cd ${c} && pnpm test`,
+    (c) => `${c} pnpm test`,
+  ];
+
+  it('no construct, in any position, yields an approval', () => {
+    const opts = { cwd: dir, workingDir: dir };
+    const approved: string[] = [];
+    for (const c of CONSTRUCTS) {
+      for (const at of POSITIONS) {
+        const line = at(c);
+        if (claudePreApproval(line, RULES, opts).approved) approved.push(line);
+      }
+    }
+    expect(approved).toEqual([]);
+  });
+
+  it('nor does any random mix of them (seeded)', () => {
+    let seed = 0x13124;
+    const rand = (n: number): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed % n;
+    };
+    const SAFE = [
+      'pnpm',
+      'test',
+      '--run',
+      'src/a.test.ts',
+      '"quoted words"',
+      "'single'",
+      '|',
+      'grep',
+      'FAIL',
+      '&&',
+      'echo',
+      'ok',
+    ];
+    const opts = { cwd: dir, workingDir: dir };
+    const approved: string[] = [];
+    for (let i = 0; i < 2000; i++) {
+      const parts = ['pnpm', 'test'];
+      const n = 1 + rand(5);
+      for (let k = 0; k < n; k++) parts.push(SAFE[rand(SAFE.length)] as string);
+      const c = CONSTRUCTS[rand(CONSTRUCTS.length)] as string;
+      parts.splice(2 + rand(parts.length - 1), 0, c);
+      const glued = rand(3) === 0;
+      const line = glued ? parts.join(' ').replace(` ${c}`, c) : parts.join(' ');
+      if (claudePreApproval(line, RULES, opts).approved) approved.push(line);
+    }
+    expect(approved).toEqual([]);
   });
 });

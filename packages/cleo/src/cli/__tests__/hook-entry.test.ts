@@ -627,6 +627,13 @@ describe('heavyCommandHook in Claude Code prompting modes (T13124)', () => {
     for (const command of [
       "pnpm test && cat $'\\x2fetc\\x2fpasswd'",
       'pnpm test && grep -r secret ""..*',
+      'pnpm test \\/etc/passwd',
+      'pnpm test "$HOME"',
+      'pnpm test $(id)',
+      'pnpm test | grep x ~/.ssh/id_rsa',
+      'pnpm test > out.txt',
+      'pnpm test {a,b}',
+      'pnpm test # trailing comment',
     ]) {
       for (const mode of ['default', 'auto']) {
         const out = await answer(command, mode);

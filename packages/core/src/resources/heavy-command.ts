@@ -70,12 +70,6 @@ interface Word {
   /** Entirely unquoted and unescaped (a reserved word can only be bare). */
   readonly bare: boolean;
   /**
-   * Holds an ANSI-C `$'…'` segment, kept verbatim in `value`: the shell
-   * decodes its escapes (`$'\x2f'` is `/`), so `value` does not show what
-   * the command receives (T13124).
-   */
-  readonly ansiC: boolean;
-  /**
    * A glob or brace character (`*`, `?`, `[`, `{`, and zsh EXTENDED_GLOB's
    * `^`, `~`, `#`) appeared outside quotes (T13124).
    */
@@ -142,7 +136,6 @@ interface Draft {
   expands: boolean;
   assignment: boolean;
   bare: boolean;
-  ansiC: boolean;
   globby: boolean;
 }
 
@@ -174,7 +167,6 @@ function lexShell(src: string, from: number, mode: 'top' | 'paren'): Lexed {
       expands: false,
       assignment: false,
       bare: true,
-      ansiC: false,
       globby: false,
     };
     return cur;
@@ -189,7 +181,6 @@ function lexShell(src: string, from: number, mode: 'top' | 'paren'): Lexed {
       expands: cur.expands,
       assignment: cur.assignment,
       bare: cur.bare,
-      ansiC: cur.ansiC,
       globby: cur.globby,
     };
     tokens.push(word);
@@ -245,7 +236,6 @@ function lexShell(src: string, from: number, mode: 'top' | 'paren'): Lexed {
       if (j >= src.length) return fail("unterminated $'");
       draft.value += src.slice(at + 2, j);
       draft.bare = false;
-      draft.ansiC = true;
       return j + 1;
     }
     const name = /^(?:[A-Za-z_][A-Za-z0-9_]*|[0-9?$!#@*-])/.exec(src.slice(at + 1));
@@ -746,6 +736,60 @@ const CLAUDE_READ_ONLY = new Set(['cat', 'echo', 'pwd', 'head', 'tail', 'grep', 
 /** Operators that end a line Claude Code then treats as unparseable. */
 const DANGLING = new Set(['&&', '||', '|', '|&']);
 
+/**
+ * The only word shapes a pre-approved line may hold (fail-closed, T13124
+ * review): runs of plain characters, `'single-quoted'` literals, and
+ * `"double-quoted"` literals with no `$`, backtick, backslash or `!`. Plain
+ * characters exclude every expansion and quoting trigger: `$` (variables,
+ * `$'…'`, `$"…"`, substitutions), backticks, backslash escapes, globs
+ * (`*?[`), braces, `~`, `!`, `#`, `^`, operators and whitespace.
+ */
+const STRICT_WORD = /^(?:[A-Za-z0-9_./:@%+=,-]+|'[^']*'|"[^"$`\\!]*")+$/;
+
+/**
+ * Operators a pre-approved line may hold: list and pipe separators, and the
+ * redirections {@link claudeSubcommands} narrows to `/dev/null` and file
+ * descriptors. Anything else (`&`, `|&`, subshell parentheses, heredocs,
+ * newlines, case terminators) is refused.
+ */
+const STRICT_OPS: ReadonlySet<string> = new Set([
+  '&&',
+  '||',
+  ';',
+  '|',
+  '>',
+  '>>',
+  '&>',
+  '&>>',
+  '>&',
+  '<&',
+]);
+
+/**
+ * Why a lexed line falls outside the strict pre-approval grammar, or `null`
+ * when every token is in it: each word matches {@link STRICT_WORD}, each
+ * operator is in {@link STRICT_OPS}, and nothing but spaces and tabs sits
+ * between tokens (no comment, no line continuation). Fail-closed: a construct
+ * this grammar does not name is refused, whatever the lexer made of it.
+ */
+function outsideStrictGrammar(lexed: Lexed): string | null {
+  let at = 0;
+  for (const t of lexed.tokens) {
+    if (!/^[ \t]*$/.test(lexed.src.slice(at, t.start))) {
+      return 'it holds text outside any word (a comment or line continuation)';
+    }
+    at = t.end;
+    if (t.kind === 'op') {
+      if (!STRICT_OPS.has(t.op)) return `it uses \`${t.op === '\n' ? 'newline' : t.op}\``;
+      continue;
+    }
+    if (!STRICT_WORD.test(lexed.src.slice(t.start, t.end))) {
+      return 'a word is not a plain or simply quoted literal (an expansion, escape, glob, brace or tilde)';
+    }
+  }
+  return /^[ \t]*$/.test(lexed.src.slice(at)) ? null : 'it holds text after the last word';
+}
+
 /** Escape `text` for a `RegExp`. */
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -903,11 +947,11 @@ export function claudePreApproval(
   const lexed = lexShell(command, 0, 'top');
   if (lexed.error !== null) return no('it does not parse');
   if (lexed.substitutions.length > 0) return no('it has a command or process substitution');
-  // `$'…'` decodes escapes the lexer keeps verbatim (`$'\x2fetc'` is `/etc`):
-  // no check below could see the real argument (review HIGH-1).
-  if (lexed.tokens.some((t) => t.kind === 'word' && t.ansiC)) {
-    return no("it has ANSI-C quoting ($'…')");
-  }
+  // Fail-closed (review HIGH-1): every token must be a plain or simply quoted
+  // literal, so the values checked below are exactly what the shell passes.
+  // `$'\x2fetc'` is `/etc` to the shell but `\x2fetc` to the lexer.
+  const outside = outsideStrictGrammar(lexed);
+  if (outside !== null) return no(outside);
   const last = lexed.tokens[lexed.tokens.length - 1];
   if (last?.kind === 'op' && DANGLING.has(last.op)) return no('it ends in an operator');
   const stages: ClaudeSubcommand[] = [];

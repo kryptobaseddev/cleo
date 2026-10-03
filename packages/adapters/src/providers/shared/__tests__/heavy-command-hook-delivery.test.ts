@@ -375,6 +375,18 @@ describe('every hook file stays out of git (T13124, gh#1805)', () => {
     );
   });
 
+  it('mode off cleans a provider no longer in use (a vanished plugin left its exclude block)', async () => {
+    git('init', '-q');
+    mkdirSync(join(project, '.opencode'));
+    await syncProjectHeavyCommandHooks(project, 'rewrite', { env, providers: ['opencode'] });
+    const exclude = join(project, '.git', 'info', 'exclude');
+    expect(readFileSync(exclude, 'utf-8')).toContain('/.opencode/plugins/cleo-heavy-command.js');
+    rmSync(join(project, '.opencode'), { recursive: true });
+    expect(detectHeavyHookProvider('opencode', project, env).detected).toBe(false);
+    await syncProjectHeavyCommandHooks(project, 'off', { env, providers: ['opencode'] });
+    expect(readFileSync(exclude, 'utf-8')).not.toContain('cleo-heavy-command.js');
+  });
+
   it('a hook file alone makes its provider in use, so mode off always reaches it', async () => {
     useAll();
     await syncProjectHeavyCommandHooks(project, 'rewrite', { env });
@@ -413,29 +425,55 @@ describe("Codex's hooks.json is a shared project config (review MED-3)", () => {
     mkdirSync(join(project, '.codex'));
   });
 
-  it('an untracked hooks.json with a team hook: blocked, untouched, never excluded', async () => {
+  it('an untracked hooks.json with a team hook: needs consent (with the exact entry), untouched, never excluded', async () => {
     const body = `${JSON.stringify(teamHook, null, 2)}\n`;
     writeFileSync(hooksFile(), body);
     const outcome = await codex();
-    expect(outcome?.status).toBe('blocked');
-    expect(outcome?.reason).toMatch(/holds hooks that are not CLEO's/);
-    expect(outcome?.remedy).toMatch(/cleo hook heavy-command --provider codex/);
+    expect(outcome?.status).toBe('needs-consent');
+    expect(outcome?.reason).toMatch(/is the project's own Codex hook config/);
+    expect(outcome?.remedy).toMatch(/add CLEO's PreToolUse entry \(the snippet\)/);
+    expect(JSON.parse(outcome?.snippet ?? 'null')).toEqual(heavyCommandHookEntry('codex'));
     expect(readFileSync(hooksFile(), 'utf-8')).toBe(body);
     expect(
       existsSync(join(project, '.git', 'info', 'exclude'))
         ? readFileSync(join(project, '.git', 'info', 'exclude'), 'utf-8')
         : '',
     ).not.toContain('.codex/hooks.json');
-    expect(inspectCodex()?.state).toBe('blocked');
+    const inspected = inspectCodex();
+    expect(inspected?.state).toBe('needs-consent');
+    expect(inspected?.snippet).toBe(outcome?.snippet);
   });
 
-  it('a tracked hooks.json: blocked and untouched, even with no other hook', async () => {
+  it("an empty hooks.json the user made is theirs too: needs consent, even in the briefing's no-git mode", async () => {
     writeFileSync(hooksFile(), '{}\n');
-    git('add', '-f', '.codex/hooks.json');
-    const outcome = await codex();
-    expect(outcome?.status).toBe('blocked');
-    expect(outcome?.reason).toMatch(/is tracked by git/);
+    expect((await codex())?.status).toBe('needs-consent');
     expect(readFileSync(hooksFile(), 'utf-8')).toBe('{}\n');
+    const quick = inspectProjectHeavyCommandHooks(project, 'rewrite', {
+      env,
+      providers: ['codex'],
+      gitChecks: false,
+    })[0];
+    expect(quick?.state).toBe('needs-consent');
+  });
+
+  it('a CLEO-created, untracked hooks.json is refreshed and excluded', async () => {
+    rmSync(join(project, '.codex'), { recursive: true });
+    expect((await codex())?.status).toBe('installed');
+    expect(readFileSync(join(project, '.git', 'info', 'exclude'), 'utf-8')).toContain(
+      '/.codex/hooks.json',
+    );
+    expect((await codex())?.status).toBe('unchanged');
+  });
+
+  it('a tracked hooks.json holding only CLEO hooks still needs consent, untouched', async () => {
+    rmSync(join(project, '.codex'), { recursive: true });
+    await codex();
+    git('add', '-f', '.codex/hooks.json');
+    const before = readFileSync(hooksFile(), 'utf-8');
+    const outcome = await codex();
+    expect(outcome?.status).toBe('needs-consent');
+    expect(outcome?.reason).toMatch(/is tracked by git/);
+    expect(readFileSync(hooksFile(), 'utf-8')).toBe(before);
   });
 
   it("flags CLEO's hook left as an uncommitted change in a tracked hooks.json; off removes only CLEO's", async () => {

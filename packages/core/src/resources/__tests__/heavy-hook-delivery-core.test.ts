@@ -149,6 +149,9 @@ describe('heavyHookBriefingWarning', () => {
         inspection('kimi', 'unsupported'),
       ],
     );
+    const consent = fakeApi([], [inspection('codex', 'needs-consent')]);
+    // A team's needs-consent is doctor's to report, not every briefing's.
+    expect(await heavyHookBriefingWarning(project, { api: consent })).toBeNull();
     const warning = await heavyHookBriefingWarning(project, { api });
     expect(warning).toMatch(/claude-code \(missing\), codex \(blocked\):/);
     expect(warning).not.toMatch(/kimi|opencode/);
