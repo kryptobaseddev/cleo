@@ -17,15 +17,19 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { getTableName } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { generateProjectHash } from '../../nexus/hash.js';
 import { exportPortableBundle } from '../../store/portable-bundle.js';
 import { importPortableBundle } from '../../store/portable-bundle-import.js';
 import { closeDb, getDb } from '../../store/sqlite.js';
+import { tokenUsage } from '../../store/tasks-schema.js';
 import { buildVaultManifest, type VaultManifest } from '../../store/vault-manifest.js';
 import { autoRecordDispatchTokenUsage, listTokenUsage } from '../token-service.js';
 
 const HASH_KEY = randomBytes(32);
+/** The physical table the runtime records token usage in (bare today, the prefixed twin after T13111). */
+const TOKEN_TABLE = getTableName(tokenUsage);
 const ENV_KEYS = ['CLEO_DIR', 'CLEO_HOME', 'CLEO_CONFIG_HOME'] as const;
 
 let tmp: string;
@@ -123,7 +127,7 @@ describe('dispatch token usage on read-only commands (T13106)', () => {
       domain: 'tasks',
       operation: 'add',
     });
-    expect(changedTables(before, manifest(root))).toEqual(['token_usage']);
+    expect(changedTables(before, manifest(root))).toEqual([TOKEN_TABLE]);
   });
 
   it('on a store freshly restored from a bundle, reads keep the manifest verify compares unchanged', async () => {
@@ -160,6 +164,6 @@ describe('dispatch token usage on read-only commands (T13106)', () => {
 
     // The control: the same manifest does see a mutation's row.
     await autoRecordDispatchTokenUsage(exchange('mutate', target));
-    expect(changedTables(restored, manifest(target))).toEqual(['token_usage']);
+    expect(changedTables(restored, manifest(target))).toEqual([TOKEN_TABLE]);
   });
 });
