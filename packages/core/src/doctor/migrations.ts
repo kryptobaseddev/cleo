@@ -9,9 +9,9 @@
  * migration's name but a different hash, the #1719 condition). Rows no known
  * lineage explains are listed too.
  *
- * A journal rebuilt from empty on a store that already held its schema (a
- * vault restore before T13104 emptied it) is named, with how many rows the
- * migrator stamped applied without running their SQL.
+ * A journal rebuilt from empty on a store that already held its schema (most
+ * likely by a vault restore before T13104, which emptied it) is named, with
+ * how many rows the migrator stamped applied without running their SQL.
  *
  * The store is opened as a read-only snapshot; nothing is written.
  *
@@ -247,9 +247,10 @@ function rebuiltJournal(
     stamped,
     detail:
       `the journal was rebuilt on a store that already held its schema: ${stamped} migration(s) ` +
-      'are recorded applied without their SQL having run on this file. A vault restore or pull ' +
-      'before T13104 did this (it emptied the journal). Such a store got its schema whole with ' +
-      'the snapshot, so the stamps hold; the rebuild may also have re-run old migrations, which ' +
+      'are recorded applied without their SQL having run on this file. This is most likely a ' +
+      'vault restore or pull before T13104, which emptied the journal; a journal emptied any ' +
+      'other way leaves the same mark. A store restored that way got its schema whole with the ' +
+      'snapshot, so the stamps hold; the rebuild may also have re-run old migrations, which ' +
       "can leave an extra index on a legacy table. Otherwise the stamped migrations' indexes, " +
       'triggers and CHECK constraints were never verified here.',
   };

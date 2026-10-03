@@ -6,8 +6,9 @@
  * lineage sharing it, the applied and pending migration files and any drift
  * (a row named like a local migration with a different hash). Acceptance
  * runs read the live journal count through this report, never a literal. A
- * journal rebuilt on a store that already held its schema (a vault restore
- * before T13104) is reported as `rebuilt`, with its stamped row count.
+ * journal rebuilt on a store that already held its schema (most likely by a
+ * vault restore before T13104) is reported as `rebuilt`, with its stamped row
+ * count.
  *
  * Exits non-zero when a journal shows drift. Writes nothing.
  *
