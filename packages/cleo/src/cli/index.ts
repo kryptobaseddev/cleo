@@ -50,6 +50,7 @@ import { COMMAND_MANIFEST } from './generated/command-manifest.js';
 import { buildAliasMap, createCustomShowUsage } from './help-renderer.js';
 import { extractIdempotencyKeyArg, setIdempotencyKeyContext } from './idempotency-context.js';
 import { lazyCommand } from './lazy-command.js';
+import { releaseCliThreadpoolEnv } from './lib/cli-threadpool-env.js';
 import { didYouMean } from './lib/did-you-mean.js';
 import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { isInteractiveInvocation } from './lib/interactive-commands.js';
@@ -66,6 +67,9 @@ import { setSummaryMode } from './summary-context.js';
 // above are CLI-local + @cleocode/paths (a zero-dep leaf that does not eagerly
 // load node:sqlite). See @cleocode/paths node-version-gate for the SSoT floor.
 enforceNodeVersion();
+// T13122: the shim's UV_THREADPOOL_SIZE=64 is for this process. Once its pool
+// exists, drop it from the environment so no spawned tool inherits it.
+releaseCliThreadpoolEnv();
 
 function getPackageVersion(): string {
   const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');

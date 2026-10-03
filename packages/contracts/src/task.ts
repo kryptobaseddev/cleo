@@ -23,6 +23,7 @@
 
 import type { AcceptanceGate, AcceptanceGateResult } from './acceptance-gate.js';
 import type { AcRow } from './data-accessor.js';
+import type { HeavyToolResourcePlan } from './resource-governor.js';
 import type { TaskStatus } from './status-registry.js';
 
 export type { TaskStatus };
@@ -365,6 +366,13 @@ export type EvidenceAtom =
       treeHash?: string;
       /** `true` when the result was served from the tool cache (no spawn). */
       cacheHit?: boolean;
+      /**
+       * The heap, worker count and workspace concurrency a heavy tool (`test`,
+       * `build`) was spawned with, and why (T13122) — including any inherited
+       * `NODE_OPTIONS` heap or worker count that was clamped to the budget.
+       * Absent for light tools.
+       */
+      resources?: HeavyToolResourcePlan;
     }
   | { kind: 'url'; url: string }
   | { kind: 'note'; note: string }
