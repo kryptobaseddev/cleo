@@ -51,6 +51,7 @@ import type {
   GraphFileClassification,
   GraphFileRole,
 } from '@cleocode/contracts/graph';
+import { type ParseError, parseTree, printParseErrorCode } from 'jsonc-parser';
 import type Parser from 'tree-sitter';
 import { parseOriginalSource } from '../code/parser.js';
 import { extractGo } from './extractors/go-extractor.js';
@@ -553,6 +554,7 @@ function roleCoverage(
 
 /** Identify known binary resources from both their extension and observed bytes. */
 function hasResourceSignature(extension: string, bytes: Buffer): boolean {
+  if (extension === '.ico') return hasIconDirectory(bytes);
   const prefix = bytes.subarray(0, 12);
   if (extension === '.png')
     return prefix.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'));
@@ -567,6 +569,69 @@ function hasResourceSignature(extension: string, bytes: Buffer): boolean {
   if (extension === '.woff') return prefix.subarray(0, 4).toString('ascii') === 'wOFF';
   if (extension === '.woff2') return prefix.subarray(0, 4).toString('ascii') === 'wOF2';
   return false;
+}
+
+/** Verify an ICO directory and bounded, recognizable image payloads (T13103). */
+function hasIconDirectory(bytes: Buffer): boolean {
+  if (bytes.length < 6 || bytes.readUInt16LE(0) !== 0 || bytes.readUInt16LE(2) !== 1) return false;
+  const count = bytes.readUInt16LE(4);
+  const directoryEnd = 6 + count * 16;
+  if (count === 0 || directoryEnd > bytes.length) return false;
+  for (let index = 0; index < count; index++) {
+    const entry = 6 + index * 16;
+    const width = bytes[entry] || 256;
+    const height = bytes[entry + 1] || 256;
+    const size = bytes.readUInt32LE(entry + 8);
+    const offset = bytes.readUInt32LE(entry + 12);
+    if (
+      bytes[entry + 3] !== 0 ||
+      size < 40 ||
+      offset < directoryEnd ||
+      offset + size > bytes.length
+    )
+      return false;
+    const image = bytes.subarray(offset, offset + size);
+    if (hasResourceSignature('.png', image)) {
+      if (
+        size < 45 ||
+        image.readUInt32BE(8) !== 13 ||
+        image.toString('ascii', 12, 16) !== 'IHDR' ||
+        image.readUInt32BE(16) !== width ||
+        image.readUInt32BE(20) !== height ||
+        image.readUInt32BE(size - 12) !== 0 ||
+        image.toString('ascii', size - 8, size - 4) !== 'IEND'
+      )
+        return false;
+      continue;
+    }
+    const headerSize = image.readUInt32LE(0);
+    const bits = image.readUInt16LE(14);
+    if (
+      bytes.readUInt16LE(entry + 4) !== 1 ||
+      bytes.readUInt16LE(entry + 6) !== bits ||
+      ![40, 108, 124].includes(headerSize) ||
+      headerSize > size ||
+      image.readInt32LE(4) !== width ||
+      image.readInt32LE(8) !== height * 2 ||
+      image.readUInt16LE(12) !== 1 ||
+      ![1, 4, 8, 16, 24, 32].includes(bits) ||
+      image.readUInt32LE(16) !== 0
+    )
+      return false;
+    const colors = image.readUInt32LE(32) || (bits <= 8 ? 2 ** bits : 0);
+    const pixelBytes = Math.ceil((width * bits) / 32) * 4 * height;
+    const maskBytes = Math.ceil(width / 32) * 4 * height;
+    if (headerSize + colors * 4 + pixelBytes + maskBytes > size) return false;
+  }
+  return true;
+}
+
+/** Configuration paths whose documented syntax permits JSON comments and trailing commas. */
+function isJsoncConfigurationPath(path: string): boolean {
+  return (
+    /^(?:tsconfig|jsconfig)(?:\.[\w-]+)*\.jsonc?$/.test(basename(path)) ||
+    /(?:^|\/)\.vscode\/(?:settings|extensions|launch|tasks)\.jsonc?$/.test(path)
+  );
 }
 
 /** Classify only observed role evidence; unsupported or ambiguous code remains a gap. */
@@ -646,6 +711,39 @@ async function classifyFileCapabilities(
         'documentary-evidence',
       ),
     );
+  if (isJsoncConfigurationPath(path)) {
+    const errors: ParseError[] = [];
+    const tree = parseTree(content, errors, { allowTrailingComma: true });
+    if (errors.length > 0 || tree?.type !== 'object') {
+      return {
+        path,
+        status: 'failed',
+        reason: `Configuration evidence is malformed: ${errors.length ? errors.map((error) => `${printParseErrorCode(error.error)} at ${error.offset}`).join(', ') : 'Expected an object'}`,
+        capabilities: {
+          ...roleCoverage(
+            'configuration',
+            {
+              basis: 'path-and-content',
+              reason:
+                'Recognized JSONC configuration path; its required object syntax did not validate',
+            },
+            'configuration-evidence',
+          ),
+          completed: ['file-evidence'],
+        },
+      };
+    }
+    return report(
+      roleCoverage(
+        'configuration',
+        {
+          basis: 'path-and-content',
+          reason: `Recognized configuration path ${path} contains a valid JSONC object; it is not executed`,
+        },
+        'configuration-evidence',
+      ),
+    );
+  }
   if (extension === '.json') {
     let value: object | string | number | boolean | null;
     try {
@@ -707,12 +805,7 @@ async function classifyFileCapabilities(
             'data-evidence',
           ),
         );
-      if (
-        ['package.json', 'tsconfig.json', 'jsconfig.json', 'composer.json', 'deno.json'].includes(
-          basename(path),
-        ) ||
-        /(?:^|\/)\.vscode\/(?:settings|extensions|launch|tasks)\.json$/.test(path)
-      )
+      if (['package.json', 'composer.json', 'deno.json'].includes(basename(path)))
         return report(
           roleCoverage(
             'configuration',
