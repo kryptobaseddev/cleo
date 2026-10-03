@@ -1,0 +1,168 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.3",
+  "resolvedVersion": "v2026.10.3",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12323",
+  "releaseKind": "regular",
+  "createdAt": "2026-10-03T02:41:06.659Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.2",
+  "previousTag": "v2026.10.2",
+  "previousShippedAt": "2026-10-02T21:08:05.988Z",
+  "tasks": [
+    {
+      "id": "T13048",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "cleocode manifest-check mirror: floor a v3 genesis checkpoint's schemaVersion at the window's highest rise (mirror cleo-nexus #31 genesis fix)",
+      "evidenceAtoms": [
+        "pr:1787",
+        "files:.changeset/t13048-genesis-floor.md,packages/core/src/cloud/__tests__/manifest-check-v3.test.ts,packages/core/src/cloud/manifest-check.ts",
+        "ci:1787"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13049",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault: a Cleo Nexus server without key escrow gives an explicit 'server does not support the vault yet' error, not 'vault is empty' or 'route not found'",
+      "evidenceAtoms": [
+        "pr:1790",
+        "files:.changeset/t13049-vault-unsupported.md,packages/contracts/src/nexus-account.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/http.ts,packages/core/src/cloud/nexus-vault-keys.ts",
+        "ci:1790"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13042",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault snapshot redaction runs with capture triggers suspended; vault snapshots drop _sync_capture/_sync_undo/_sync_frame (#1773 r6 LOW)",
+      "evidenceAtoms": [
+        "pr:1791",
+        "files:.changeset/t13042-vault-snapshot-journal.md,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/store/__tests__/snapshot-redaction-capture.test.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts",
+        "ci:1791"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13098",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "cloud push: a project's first key must be sent as a rotation (rotate: true, expectedMax: 0); every first push fails against a real Cleo Nexus server",
+      "evidenceAtoms": [
+        "pr:1792",
+        "files:.changeset/t13098-first-key-rotation.md,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault-keys.ts",
+        "ci:1792"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [],
+    "fixes": [
+      "T13048",
+      "T13049",
+      "T13042",
+      "T13098"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-03T02:41:06.659Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-03T02:41:06.659Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-03T02:41:06.659Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-03T02:41:06.659Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-03T02:41:06.659Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-03T02:41:06.659Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 454 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.3 — 2026-10-03\n\n### Fixed\n\n- Vault snapshots no longer carry the local change journal, and snapshot redaction never re-journals what it clears _(provenance: [T13042](https://github.com/kryptobaseddev/cleo/search?q=T13042&type=commits))_\n- A v3 genesis checkpoint that covers segments must sit at or above their highest schema rise _(provenance: [T13048](https://github.com/kryptobaseddev/cleo/search?q=T13048&type=commits))_\n- The cloud vault names a Cleo Nexus server without key escrow instead of calling the vault empty _(provenance: [T13049](https://github.com/kryptobaseddev/cleo/search?q=T13049&type=commits))_\n- The first cloud push of a project works against Cleo Nexus (its key is minted as a rotation). It needs a Cleo Nexus server with cleo-nexus #33, live in production, which lets a device of the account that registered a keyless project create the project's first key. Against an older server every first push is refused, and the error wrongly says the project key exists but was not shared with this account _(provenance: [T13098](https://github.com/kryptobaseddev/cleo/search?q=T13098&type=commits))_\n",
+    "changesetEntryCount": 4,
+    "changesetIds": [
+      "t13042-vault-snapshot-journal",
+      "t13048-genesis-floor",
+      "t13049-vault-unsupported",
+      "t13098-first-key-rotation"
+    ],
+    "taskIds": [
+      "T13048",
+      "T13049",
+      "T13042",
+      "T13098"
+    ]
+  }
+}
