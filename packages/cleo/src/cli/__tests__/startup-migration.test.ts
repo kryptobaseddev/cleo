@@ -33,6 +33,7 @@ const {
   isCleanupMarkerSetMock,
   setCleanupMarkerMock,
   isMissingProjectErrorMock,
+  withWarningCollectorMock,
 } = vi.hoisted(() => {
   const logInstance = {
     info: vi.fn(),
@@ -69,6 +70,8 @@ const {
     isMissingProjectErrorMock: vi.fn(
       (err: unknown): boolean => err instanceof Error && err.message.includes('E_NO_PROJECT'),
     ),
+    // The last step of the background run (see the lafs mock below).
+    withWarningCollectorMock: vi.fn(async (): Promise<void> => {}),
   };
 });
 
@@ -104,6 +107,25 @@ vi.mock('@cleocode/core/internal', () => ({
 vi.mock('@cleocode/core/paths.js', () => ({
   runWithWorktreeScopeFromEnv: <T>(fn: () => T): T => fn(),
 }));
+
+// Importing index.ts starts a real CLI run in the background (`void bootstrap()`
+// with vitest's empty argv). Nothing awaits it, so any real module it loads
+// races the file's environment teardown ("Cannot load … after the environment
+// was torn down"). Its last imports are stubbed here, and the run ends at the
+// warning-collector scope without running a command; `settleBackgroundRun`
+// waits for that end before the next test resets the module registry.
+vi.mock('@cleocode/core/llm/ai-sdk-warnings', () => ({
+  installAiSdkWarningHandler: vi.fn(),
+}));
+vi.mock('@cleocode/lafs', () => ({
+  WarningCollector: class {},
+  withWarningCollector: withWarningCollectorMock,
+}));
+
+/** Wait until the background CLI run started by importing index.ts has ended. */
+async function settleBackgroundRun(): Promise<void> {
+  await vi.waitFor(() => expect(withWarningCollectorMock).toHaveBeenCalled());
+}
 
 // Stub out citty to prevent runMain from actually doing anything
 vi.mock('citty', () => ({
@@ -251,7 +273,8 @@ describe('CLI startup: T310 migration hook (T360)', () => {
     setCleanupMarkerMock.mockReset();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await settleBackgroundRun();
     vi.resetModules();
   });
 
@@ -429,7 +452,12 @@ describe('CLI startup: T310 migration hook (T360)', () => {
 // ---------------------------------------------------------------------------
 
 describe('CLI subCommands wiring (native citty)', () => {
-  afterEach(() => {
+  beforeEach(() => {
+    withWarningCollectorMock.mockClear();
+  });
+
+  afterEach(async () => {
+    await settleBackgroundRun();
     vi.resetModules();
   });
 
