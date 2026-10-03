@@ -11,10 +11,12 @@ new replica, and the retired replica stays on the server as history. That alread
 the next link rebound the store as a copied file (`file-identity`), so the project's replica list grew by
 one entry per pull with no explanation.
 
-The vault now rebinds the placed store itself, recorded as `vault-restore`. Restore reports it
-(`replica: { retired, current }`, "replica X retired → Y"). This device's replica registry keeps the retired
-replica with its successor, the reason and its last `replicaSeq` per stream. These are the retire candidates
-that S4's signed `retire` transaction will announce. A copy at another path still retires nothing.
+The vault now rebinds the placed store itself. Restore reports it (`replica: { retired, current, reason }`,
+"replica X retired → Y"). The reason is `vault-restore` when the retired replica was this device's replica of
+the file the snapshot replaced; only then does this device's replica registry keep it, with its successor, the
+reason and its last `replicaSeq` per stream. These are the retire candidates that S4's signed `retire`
+transaction will announce. A store that was a copy of another path, or another device's store, is rebound as
+`file-identity` or `foreign-device` and retires nothing, so the original's live replica is never a candidate.
 `cleo cloud status` (`local.retiredReplicas`) and `cleo cloud projects show` (`retiredHere`) list the replicas
 this device retired, so the server's longer list is explained. Retiring the replica on the server waits for
 S4. A project restored onto a machine for the first time has no replica to retire and is unchanged.

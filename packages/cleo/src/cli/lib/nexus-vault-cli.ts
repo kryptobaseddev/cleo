@@ -152,7 +152,15 @@ export function cloudRestoreSummary(r: CloudRestoreResult): string {
   }
   const backup = r.safetyBackup ? `; previous state saved to ${r.safetyBackup}` : '';
   // The placed file is a new store instance: its replica was retired (T13109).
-  const replica = r.replica ? `; replica ${r.replica.retired} retired → ${r.replica.current}` : '';
+  const why =
+    r.replica?.reason === 'file-identity'
+      ? ' (it belonged to a copied file)'
+      : r.replica?.reason === 'foreign-device'
+        ? " (it was another device's)"
+        : '';
+  const replica = r.replica
+    ? `; replica ${r.replica.retired} retired → ${r.replica.current}${why}`
+    : '';
   return `Restored ${r.scope} snapshot ${r.snapshot?.checkpointId} into ${r.target}: ${r.tables} table(s) verified by count and hash${backup}${replica}.`;
 }
 

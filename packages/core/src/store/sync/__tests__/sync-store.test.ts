@@ -14,6 +14,7 @@ import {
   copyFileSync,
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   renameSync,
@@ -675,12 +676,17 @@ describe('vault restore rebind (T13109)', () => {
     if (out.status !== 'bound') throw new Error(out.status);
     return { path, db, replicaId: out.replicaId };
   }
-  /** What a vault placement does: a new file at the same path, with this machine's replica rows. */
-  function placeNewFile(path: string): void {
+  /**
+   * What a vault placement does: a new file at the same path, carrying the
+   * replica rows of the file it replaces. Returns that file's identity.
+   */
+  function placeNewFile(path: string) {
+    const before = fileIdentity(path);
     const staged = join(dir, 'staged.db');
     copyFileSync(path, staged);
     rmSync(path);
     copyFileSync(staged, path);
+    return before;
   }
   const vaultOpts = () => ({ registry: registry(), deviceId: DEVICE, now: () => new Date(T0 + 1) });
 
@@ -689,10 +695,14 @@ describe('vault restore rebind (T13109)', () => {
     withImmediateTransaction(db, () => persistStoreSeq(db, original, STREAM, 4));
     registry().advanceHwm(original, STREAM, 4);
     close(db);
-    placeNewFile(path);
+    const before = placeNewFile(path);
 
-    const out = await rebindAfterVaultRestore(path, 'project', vaultOpts());
-    expect(out).toEqual({ replicaId: expect.any(String), previousReplicaId: original });
+    const out = await rebindAfterVaultRestore(path, 'project', before, vaultOpts());
+    expect(out).toEqual({
+      replicaId: expect.any(String),
+      previousReplicaId: original,
+      reason: 'vault-restore',
+    });
     const after = openDb(path);
     const rows = listReplicas(after);
     expect(rows.find((r) => r.replicaId === original)).toMatchObject({ successor: out?.replicaId });
@@ -722,7 +732,9 @@ describe('vault restore rebind (T13109)', () => {
   it('leaves a store with no replica alone (a first restore onto this machine)', async () => {
     const { path, db } = freshStore();
     close(db);
-    expect(await rebindAfterVaultRestore(path, 'project', vaultOpts())).toBeNull();
+    expect(
+      await rebindAfterVaultRestore(path, 'project', fileIdentity(path), vaultOpts()),
+    ).toBeNull();
     const after = openDb(path);
     expect(syncTables(after)).toEqual([]);
     expect(registry().read().replicas).toEqual({});
@@ -732,8 +744,8 @@ describe('vault restore rebind (T13109)', () => {
     const { path, db, replicaId: original } = bound();
     close(db);
     rmSync(registry().path);
-    placeNewFile(path);
-    const out = await rebindAfterVaultRestore(path, 'project', vaultOpts());
+    const before = placeNewFile(path);
+    const out = await rebindAfterVaultRestore(path, 'project', before, vaultOpts());
     const nonce = listReplicas(openDb(path)).find((r) => r.replicaId === original)?.nonce;
     expect(registry().get(original)).toMatchObject({
       nonce,
@@ -746,8 +758,7 @@ describe('vault restore rebind (T13109)', () => {
   it('an announced retirement is no longer a candidate, and retired() filters by store', async () => {
     const { path, db, replicaId: original } = bound();
     close(db);
-    placeNewFile(path);
-    await rebindAfterVaultRestore(path, 'project', vaultOpts());
+    await rebindAfterVaultRestore(path, 'project', placeNewFile(path), vaultOpts());
     const reg = registry();
     const entry = reg.get(original);
     if (!entry) throw new Error('fixture');
@@ -757,5 +768,64 @@ describe('vault restore rebind (T13109)', () => {
       original,
     ]);
     expect(reg.retired({ dbRealpath: '/elsewhere/cleo.db' })).toEqual([]);
+  });
+
+  it('review P1: a copy at another path, then a placement there, retires nothing of the original', async () => {
+    const { path, db, replicaId: original } = bound();
+    close(db);
+    // A duplicated project directory (cp -R, Finder): never opened live, so it
+    // still carries the original's replica rows.
+    const copyDir = join(dir, 'copy');
+    mkdirSync(copyDir);
+    const copyPath = join(copyDir, 'cleo.db');
+    copyFileSync(path, copyPath);
+    const before = placeNewFile(copyPath);
+
+    const out = await rebindAfterVaultRestore(copyPath, 'project', before, vaultOpts());
+    expect(out).toMatchObject({ previousReplicaId: original, reason: 'file-identity' });
+    // The original's registration is untouched: still live, never a candidate.
+    expect(registry().get(original)?.retiredAt).toBeUndefined();
+    expect(registry().retireCandidates()).toEqual([]);
+    expect(syncOpenPass(openDb(path), opts(path))).toMatchObject({
+      status: 'bound',
+      replicaId: original,
+    });
+  });
+
+  it("review P2: a store bound on another device, then a placement, never enters this device's candidates", async () => {
+    const { path, db } = freshStore();
+    enable(db);
+    const theirs = syncOpenPass(
+      db,
+      opts(path, { registry: registry(OTHER_DEVICE, 'theirs.json') }),
+    );
+    if (theirs.status !== 'bound') throw new Error(theirs.status);
+    close(db);
+    const before = placeNewFile(path);
+
+    const out = await rebindAfterVaultRestore(path, 'project', before, vaultOpts());
+    expect(out).toMatchObject({ previousReplicaId: theirs.replicaId, reason: 'foreign-device' });
+    expect(registry().get(theirs.replicaId)).toBeUndefined();
+    expect(registry().retireCandidates()).toEqual([]);
+  });
+
+  it('a placement over no prior file (before = null) retires nothing', async () => {
+    const { path, db, replicaId: original } = bound();
+    close(db);
+    placeNewFile(path);
+    const out = await rebindAfterVaultRestore(path, 'project', null, vaultOpts());
+    expect(out).toMatchObject({ previousReplicaId: original, reason: 'file-identity' });
+    expect(registry().retireCandidates()).toEqual([]);
+  });
+
+  it('rebindReplica never records a copy at another path or a foreign replica as a candidate', () => {
+    const { path, db, replicaId: original } = bound();
+    close(db);
+    const copyPath = join(dir, 'elsewhere.db');
+    copyFileSync(path, copyPath);
+    const copy = openDb(copyPath);
+    rebindReplica(copy, opts(copyPath, { mode: 'live', deviceId: DEVICE }), 'server-seq-conflict');
+    expect(registry().get(original)?.retiredAt).toBeUndefined();
+    expect(registry().retireCandidates()).toEqual([]);
   });
 });

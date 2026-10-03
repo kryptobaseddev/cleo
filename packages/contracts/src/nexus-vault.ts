@@ -200,8 +200,17 @@ export interface CloudRestoreResult {
    * retired and a new one bound (journal spec §1.5; T13109). The server keeps
    * the retired one as history until S4 announces its retirement. `null` when
    * nothing was placed or the store had no replica yet (a first restore here).
+   *
+   * `reason` is `vault-restore` when the retired replica was this device's
+   * replica of the replaced file (a retire candidate), `file-identity` or
+   * `foreign-device` when the store was a copy or another device's (nothing to
+   * retire), and `null` when the rebind's registry record failed.
    */
-  replica: { retired: string; current: string } | null;
+  replica: {
+    retired: string;
+    current: string;
+    reason: 'vault-restore' | 'file-identity' | 'foreign-device' | null;
+  } | null;
   warnings: CloudWarning[];
 }
 

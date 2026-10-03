@@ -309,11 +309,17 @@ describe('cloudRestoreSummary (T13109)', () => {
     const line = cloudRestoreSummary({
       ...restoreResult,
       status: 'restored',
-      replica: { retired: 'r-old', current: 'r-new' },
+      replica: { retired: 'r-old', current: 'r-new', reason: 'vault-restore' },
     });
     expect(line).toBe(
       'Restored project snapshot cp-1 into /x: 2 table(s) verified by count and hash; replica r-old retired → r-new.',
     );
+    const copied = cloudRestoreSummary({
+      ...restoreResult,
+      status: 'restored',
+      replica: { retired: 'r-old', current: 'r-new', reason: 'file-identity' },
+    });
+    expect(copied).toContain('replica r-old retired → r-new (it belonged to a copied file).');
   });
 
   it('says nothing about replicas when the store had none', () => {

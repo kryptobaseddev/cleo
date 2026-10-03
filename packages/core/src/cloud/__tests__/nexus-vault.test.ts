@@ -2061,6 +2061,7 @@ describe('cloud vault global scope', () => {
       homeSql(m, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = '${t}'`).length >
       0;
 
+    _resetDeviceIdCacheForTests(); // A's host device id (each machine writes its own)
     const pushed = await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
     expect(pushed.status).toBe('pushed');
     expect(pushed.scope).toBe('global');
@@ -2092,6 +2093,7 @@ describe('cloud vault global scope', () => {
     expect(again.status).toBe('up-to-date');
 
     // Reads never write (T12974): B's status binds no replica.
+    _resetDeviceIdCacheForTests(); // B's host device id from here on
     await on(b, () => nexusVaultStatus(vopts(b, { scope: 'global' })));
     expect(tableExists(b, '_sync_replica')).toBe(false);
 
@@ -2164,6 +2166,7 @@ describe('cloud vault global scope', () => {
     const pushedB = await on(b, () => pushNexusVault(vopts(b, { scope: 'global' })));
     expect(pushedB.status).toBe('pushed');
     expect(pushedB.parentCheckpointId).toBe(cp?.checkpointId);
+    _resetDeviceIdCacheForTests(); // A's own host device id (T13109 review LOW-3)
     const pulled = await on(a, () =>
       restoreNexusVault(vopts(a, { scope: 'global', mode: 'pull' })),
     );
@@ -2181,7 +2184,18 @@ describe('cloud vault global scope', () => {
     expect(pulled.replica).toEqual({
       retired: cp?.replicaId,
       current: expect.any(String),
+      reason: 'vault-restore',
     });
+    // Recorded in A's own replica registry as a retire candidate for S4.
+    const candidates = await on(a, async () => readDeviceRegistry()?.retireCandidates() ?? []);
+    expect(candidates).toEqual([
+      expect.objectContaining({
+        replicaId: cp?.replicaId,
+        successor: pulled.replica?.current,
+        reason: 'vault-restore',
+        scope: 'global',
+      }),
+    ]);
     const afterPull = homeSql<{ replica_id: string; bound_why: string; successor: string | null }>(
       a,
       'SELECT replica_id, bound_why, successor FROM _sync_replica ORDER BY bound_at',
@@ -3645,7 +3659,11 @@ describe('cloud vault pull rebinds the store as vault-restore (T13109)', () => {
     const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
     expect(pulled.status).toBe('restored');
     const r2 = pulled.replica?.current;
-    expect(pulled.replica).toEqual({ retired: r1, current: expect.any(String) });
+    expect(pulled.replica).toEqual({
+      retired: r1,
+      current: expect.any(String),
+      reason: 'vault-restore',
+    });
     expect(r2).not.toBe(r1);
     expect(replicaRows(b)).toEqual([
       { replica_id: r1, bound_why: 'genesis', retired_at: expect.any(String), successor: r2 },
