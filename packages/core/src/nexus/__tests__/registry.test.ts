@@ -26,7 +26,10 @@ import { nexusNodes, projectIdAliases, projectRegistry } from '../../store/schem
 import { closeAllDatabases, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import { nexusContractsShow } from '../api-contracts.js';
+import { getProjectClusters } from '../clusters.js';
 import { getSymbolContext } from '../context.js';
+import { diffNexusIndex } from '../diff.js';
+import { getProjectFlows } from '../flows.js';
 import { generateProjectHash } from '../hash.js';
 import { canonicalProjectId, legacyProjectId, projectPathFingerprint } from '../identity.js';
 import {
@@ -269,6 +272,33 @@ describe('portable query identity (T12472)', () => {
     expect(result.data.matches[0]?.contractB.sourceSymbolId).toBe('route-1');
     const unresolved = await nexusContractsShow('missing-project-id', portableId, testDir);
     expect(unresolved.success).toBe(false);
+  });
+
+  it('reads clusters, flows and diff counts from the supplied checkout, preserving the other graph', async () => {
+    const second = join(testDir, 'graph-b');
+    await createTestProjectDb(second, []);
+    for (const [index, root] of [projectDir, second].entries()) {
+      await writeFile(join(root, '.cleo/project-id'), `graph-project-${index}\n`);
+      const db = await getNexusDb(root);
+      db.insert(nexusNodes)
+        .values([
+          { id: `community-${index}`, kind: 'community', label: `community-${index}` },
+          { id: `process-${index}`, kind: 'process', label: `process-${index}` },
+        ])
+        .run();
+    }
+    for (const [index, root] of [projectDir, second].entries()) {
+      const id = `graph-project-${index}`;
+      expect((await getProjectClusters(id, root)).communities.map((entry) => entry.id)).toEqual([
+        `community-${index}`,
+      ]);
+      expect((await getProjectFlows(id, root)).flows.map((entry) => entry.id)).toEqual([
+        `process-${index}`,
+      ]);
+      const result = await diffNexusIndex(root, { beforeRef: 'HEAD', afterRef: 'HEAD' });
+      expect(result.projectId).toBe(id);
+      expect(result.nodesBefore).toBe(2);
+    }
   });
 });
 

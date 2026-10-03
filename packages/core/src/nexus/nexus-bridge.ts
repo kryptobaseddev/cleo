@@ -239,7 +239,7 @@ export async function generateNexusBridgeContent(
   const { getNexusDb, getNexusNativeDb } = await import('../store/nexus-sqlite.js');
 
   // Ensure DB is initialized
-  await getNexusDb();
+  await getNexusDb(repoPath);
   const nativeDb = getNexusNativeDb();
 
   if (!nativeDb) {

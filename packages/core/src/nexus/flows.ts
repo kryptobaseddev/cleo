@@ -51,7 +51,7 @@ export async function getProjectFlows(
   projectId: string,
   repoPath: string,
 ): Promise<NexusFlowsResult> {
-  const db = await getNexusDb();
+  const db = await getNexusDb(repoPath);
 
   let rows: Array<Record<string, unknown>> = [];
   try {

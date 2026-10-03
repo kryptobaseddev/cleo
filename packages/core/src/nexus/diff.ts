@@ -124,7 +124,7 @@ export async function diffNexusIndex(
   }
 
   const { getNexusDb, nexusSchema } = await import('@cleocode/core/store/nexus-sqlite' as string);
-  const db = await getNexusDb();
+  const db = await getNexusDb(repoPath);
 
   let relationsBefore = 0;
   let nodesBefore = 0;

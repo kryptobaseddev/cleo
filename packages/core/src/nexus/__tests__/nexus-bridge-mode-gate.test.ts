@@ -25,6 +25,7 @@ function writeConfigWithMode(cleoDir: string, mode: 'cli' | 'file'): void {
   const configPath = join(cleoDir, 'config.json');
   const config = { brain: { memoryBridge: { mode } } };
   writeFileSync(configPath, JSON.stringify(config), 'utf-8');
+  if (mode === 'file') writeFileSync(join(cleoDir, 'project-id'), 'bridge-mode-project\n');
 }
 
 let tempDir: string;

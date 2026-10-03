@@ -18,6 +18,13 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// These tests verify engine wiring with a mock checkout. Real-store identity
+// and alias validation are covered in registry.test.ts.
+vi.mock('@cleocode/core/nexus/registry.js', async (original) => ({
+  ...(await original<typeof import('@cleocode/core/nexus/registry.js')>()),
+  resolveNexusQueryProjectId: vi.fn(async () => 'canonical-ingestion-id'),
+}));
+
 // Mock core internals used by the handler
 // Mock the nexus-engine — stub all functions referenced by NexusHandler
 vi.mock('@cleocode/core/internal', async () => ({
@@ -323,7 +330,7 @@ describe('NexusHandler — T1117 Contracts + Ingestion Bridge', () => {
       );
     });
 
-    it('uses explicit projectId when provided', async () => {
+    it('uses the resolved canonical projectId for an explicit selector', async () => {
       vi.mocked(nexusContractsSync).mockResolvedValue({
         success: true,
         data: CONTRACTS_SYNC_FIXTURE,
@@ -334,7 +341,10 @@ describe('NexusHandler — T1117 Contracts + Ingestion Bridge', () => {
         repoPath: '/mock/project',
       });
 
-      expect(vi.mocked(nexusContractsSync)).toHaveBeenCalledWith('explicit-id', '/mock/project');
+      expect(vi.mocked(nexusContractsSync)).toHaveBeenCalledWith(
+        'canonical-ingestion-id',
+        '/mock/project',
+      );
     });
 
     it('propagates engine error to LAFS envelope', async () => {

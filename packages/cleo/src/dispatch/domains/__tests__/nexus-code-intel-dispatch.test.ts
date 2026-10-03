@@ -15,6 +15,13 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Engine wiring is tested here; registry.test.ts covers real identity reads,
+// aliases and refusals. The mock checkout has a controlled canonical identity.
+vi.mock('@cleocode/core/nexus/registry.js', async (original) => ({
+  ...(await original<typeof import('@cleocode/core/nexus/registry.js')>()),
+  resolveNexusQueryProjectId: vi.fn(async () => 'mock-project-id'),
+}));
+
 // Mock core internals used by the handler
 // Mock the nexus-engine — stub all functions referenced by NexusHandler
 vi.mock('@cleocode/core/internal', async () => ({
@@ -68,6 +75,7 @@ import {
   nexusShapeCheck,
   nexusWiki,
 } from '@cleocode/core/internal';
+import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
 import { NexusHandler } from '../nexus.js';
 
 // ---------------------------------------------------------------------------
@@ -154,11 +162,10 @@ describe('NexusHandler — T1116 Code Intelligence CLI surface', () => {
       expect(result.data).toMatchObject({
         routes: expect.arrayContaining([expect.objectContaining({ handlerName: 'getUserById' })]),
       });
-      // projectId auto-derived from projectRoot when not provided
-      expect(vi.mocked(nexusRouteMap)).toHaveBeenCalledWith(expect.any(String), '/mock/project');
+      expect(vi.mocked(nexusRouteMap)).toHaveBeenCalledWith('mock-project-id', '/mock/project');
     });
 
-    it('uses provided projectId when supplied', async () => {
+    it('resolves a provided selector before passing canonical identity to the engine', async () => {
       vi.mocked(nexusRouteMap).mockResolvedValue({
         success: true,
         data: ROUTE_MAP_RESULT_FIXTURE,
@@ -166,7 +173,8 @@ describe('NexusHandler — T1116 Code Intelligence CLI surface', () => {
 
       await handler.query('route-map', { projectId: 'explicit-id' });
 
-      expect(vi.mocked(nexusRouteMap)).toHaveBeenCalledWith('explicit-id', '/mock/project');
+      expect(resolveNexusQueryProjectId).toHaveBeenCalledWith('/mock/project', 'explicit-id');
+      expect(vi.mocked(nexusRouteMap)).toHaveBeenCalledWith('mock-project-id', '/mock/project');
     });
 
     it('propagates engine error to LAFS envelope', async () => {
@@ -179,6 +187,13 @@ describe('NexusHandler — T1116 Code Intelligence CLI surface', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INTERNAL');
+    });
+
+    it('does not call the graph engine when identity resolution refuses the selector', async () => {
+      vi.mocked(resolveNexusQueryProjectId).mockRejectedValueOnce(new Error('identity refused'));
+      const result = await handler.query('route-map', { projectId: 'foreign-selector' });
+      expect(result.success).toBe(false);
+      expect(nexusRouteMap).not.toHaveBeenCalled();
     });
   });
 
