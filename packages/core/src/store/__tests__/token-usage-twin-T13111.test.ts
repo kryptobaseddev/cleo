@@ -152,7 +152,18 @@ describe('token usage in tasks_token_usage (T13111)', () => {
     expect(count(db, 'tasks_token_usage')).toBe(0);
     expect((await listTokenUsage(root)).records.map((r) => r.id)).not.toContain(twin.id);
 
-    expect(await clearTokenUsage(root)).toEqual({ deleted: 1 });
+    // A full clear leaves no row in either table.
+    await recordTokenExchange(root, {
+      requestPayload: {},
+      responsePayload: {},
+      transport: 'cli',
+      gateway: 'mutate',
+      domain: 'memory',
+      operation: 'observe',
+      requestId: 'req-4',
+    });
+    expect(await clearTokenUsage(root)).toEqual({ deleted: 2 });
     expect(count(db, 'token_usage')).toBe(0);
+    expect(count(db, 'tasks_token_usage')).toBe(0);
   });
 });
