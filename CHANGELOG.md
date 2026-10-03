@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026.10.4] (2026-10-03)
+
+### Added
+
+- cleo login nexus sets up the account key and certifies the device, so the first push has nothing left to set up _(provenance: [T13100](https://github.com/kryptobaseddev/cleo/search?q=T13100&type=commits))_
+
+### Fixed
+
+- Nexus graph queries keep portable identity when projects move _(provenance: [T12472](https://github.com/kryptobaseddev/cleo/search?q=T12472&type=commits))_
+- Recognize ICO resources and supported JSONC configuration evidence _(provenance: [T13103](https://github.com/kryptobaseddev/cleo/search?q=T13103&type=commits))_
+- A vault restore keeps the snapshot's migration journal, so a restored store opens without stamping migrations it never ran _(provenance: [T13104](https://github.com/kryptobaseddev/cleo/search?q=T13104&type=commits))_
+- Dispatch token telemetry no longer writes a token_usage row when a command only reads _(provenance: [T13106](https://github.com/kryptobaseddev/cleo/search?q=T13106&type=commits))_
+
 ## [2026.10.3] (2026-10-03)
 
 ### Fixed

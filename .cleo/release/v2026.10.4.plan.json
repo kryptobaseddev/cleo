@@ -1,0 +1,185 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.4",
+  "resolvedVersion": "v2026.10.4",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12256",
+  "releaseKind": "regular",
+  "createdAt": "2026-10-03T16:22:59.887Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.3",
+  "previousTag": "v2026.10.3",
+  "previousShippedAt": "2026-10-03T14:24:42.051Z",
+  "tasks": [
+    {
+      "id": "T13103",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Classify verified ICO resources and supported JSONC configuration evidence",
+      "evidenceAtoms": [
+        "pr:1793",
+        "files:packages/nexus/package.json,packages/nexus/src/__tests__/pipeline.test.ts,packages/nexus/src/pipeline/parse-loop.ts,pnpm-lock.yaml",
+        "ci:1793"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12472",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Nexus project id = portable project_id: remove base64url(path) default id at every CLI/dispatch site",
+      "evidenceAtoms": [
+        "pr:1794",
+        "files:.changeset/t12472-nexus-portable-query.md,packages/cleo/src/cli/commands/__tests__/doctor-db-substrate.test.ts,packages/cleo/src/cli/commands/__tests__/nexus-status-files-bound.test.ts,packages/cleo/src/cli/commands/__tests__/nexus-status-scope.test.ts,packages/cleo/src/cli/commands/graph.ts,packages/cleo/src/cli/commands/nexus.ts,packages/cleo/src/dispatch/domains/__tests__/nexus-code-intel-dispatch.test.ts,packages/cleo/src/dispatch/domains/__tests__/nexus-contracts-ingestion-dispatch.test.ts,packages/cleo/src/dispatch/domains/__tests__/nexus-phase2-dispatch.test.ts,packages/cleo/src/dispatch/domains/nexus.ts,packages/contracts/src/doctor.ts,packages/core/src/doctor/db-substrate.ts,packages/core/src/nexus/__tests__/nexus-bridge-mode-gate.test.ts,packages/core/src/nexus/__tests__/nexus-bridge-warnings.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/api-contracts.ts,packages/core/src/nexus/api-extractors/http-extractor.test.ts,packages/core/src/nexus/api-extractors/http-extractor.ts,packages/core/src/nexus/clusters.ts,packages/core/src/nexus/diff.ts,packages/core/src/nexus/flows.ts,packages/core/src/nexus/identity.ts,packages/core/src/nexus/index.ts,packages/core/src/nexus/nexus-bridge.ts,packages/core/src/nexus/registry.ts,packages/core/src/store/__tests__/exodus-abort-surface.test.ts,packages/skills/skills/ct-codebase-mapper/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:1794"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13100",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Onboarding A: cleo login provisions the account key and certifies the device right after enrolment",
+      "evidenceAtoms": [
+        "pr:1796",
+        "files:.changeset/t13100-login-provisions-account.md,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/core/src/cloud/__tests__/nexus-enrol.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-enrol.ts,packages/core/src/cloud/nexus-vault-keys.ts",
+        "ci:1796"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13106",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "A read-only cleo list writes a token_usage row (portable table), so cloud verify flips from match to ahead",
+      "evidenceAtoms": [
+        "pr:1800",
+        "files:.changeset/t13106-reads-record-no-token-usage.md,packages/cleo/src/dispatch/adapters/cli.ts,packages/core/src/metrics/__tests__/dispatch-token-usage.test.ts,packages/core/src/metrics/token-service.ts",
+        "ci:1800"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13104",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault restore: a restored store rebuilds its migration journal through the partially-applied reconciler (17 ERROR lines on every new device)",
+      "evidenceAtoms": [
+        "pr:1798",
+        "files:.changeset/t13104-restore-migration-journal.md,packages/cleo/src/cli/commands/doctor-migrations.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/doctor/__tests__/migrations.test.ts,packages/core/src/doctor/migrations.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/table-classification.ts,packages/core/src/store/vault-manifest.ts",
+        "ci:1798"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T12472",
+      "T13100"
+    ],
+    "fixes": [
+      "T13103",
+      "T13106",
+      "T13104"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-03T16:22:59.887Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-03T16:22:59.887Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-03T16:22:59.887Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-03T16:22:59.887Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-03T16:22:59.887Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-03T16:22:59.887Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 454 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.4 — 2026-10-03\n\n### Added\n\n- cleo login nexus sets up the account key and certifies the device, so the first push has nothing left to set up _(provenance: [T13100](https://github.com/kryptobaseddev/cleo/search?q=T13100&type=commits))_\n\n### Fixed\n\n- Nexus graph queries keep portable identity when projects move _(provenance: [T12472](https://github.com/kryptobaseddev/cleo/search?q=T12472&type=commits))_\n- Recognize ICO resources and supported JSONC configuration evidence _(provenance: [T13103](https://github.com/kryptobaseddev/cleo/search?q=T13103&type=commits))_\n- A vault restore keeps the snapshot's migration journal, so a restored store opens without stamping migrations it never ran _(provenance: [T13104](https://github.com/kryptobaseddev/cleo/search?q=T13104&type=commits))_\n- Dispatch token telemetry no longer writes a token_usage row when a command only reads _(provenance: [T13106](https://github.com/kryptobaseddev/cleo/search?q=T13106&type=commits))_\n",
+    "changesetEntryCount": 5,
+    "changesetIds": [
+      "t12472-nexus-portable-query",
+      "t13100-login-provisions-account",
+      "t13103-config-resource-evidence",
+      "t13104-restore-migration-journal",
+      "t13106-reads-record-no-token-usage"
+    ],
+    "taskIds": [
+      "T13103",
+      "T12472",
+      "T13100",
+      "T13106",
+      "T13104"
+    ]
+  }
+}
