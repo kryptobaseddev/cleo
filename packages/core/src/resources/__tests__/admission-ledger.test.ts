@@ -72,11 +72,14 @@ const admittedIds = (es: readonly LedgerEntry[]): string[] =>
   es.filter((e) => e.state === 'admitted').map((e) => e.id);
 
 describe('footprints and capacity', () => {
-  it('a 48 GiB machine holds exactly one heavy run (36 GiB of 36 GiB) and light runs fit beside nothing else', () => {
+  it('a 48 GiB machine holds exactly one heavy run (36 GiB of 36 GiB); single-process runs are charged their heap', () => {
     expect(admissionCapacityBytes(48 * GIB)).toBe(36 * GIB);
     expect(footprintForTool('test', 48 * GIB)).toBe(36 * GIB);
-    expect(footprintForTool('typecheck', 48 * GIB)).toBe(5 * GIB);
-    expect(footprintForTool('lint', 48 * GIB)).toBe(GIB);
+    // typecheck and lint: the planned heap (default 4096 MiB) + 2048 MiB of process overhead
+    expect(footprintForTool('typecheck', 48 * GIB)).toBe(6 * GIB);
+    expect(footprintForTool('lint', 48 * GIB)).toBe(6 * GIB);
+    expect(footprintForTool('typecheck', 48 * GIB, 8192)).toBe(10 * GIB);
+    expect(footprintForTool('audit', 48 * GIB)).toBe(GIB);
   });
 
   it('a 16 GiB laptop keeps 4 GiB back and charges a heavy run 2 workers', () => {

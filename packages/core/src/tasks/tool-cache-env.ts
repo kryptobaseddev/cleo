@@ -39,22 +39,25 @@
  *
  *   - the V8 heap flags in `NODE_OPTIONS` ({@link effectiveHeapFlags}), for
  *     every tool, because every Node process a tool starts inherits them;
- *   - for heavy tools, every variable `heavyToolEnv` manages (the per-runner
- *     worker counts, `npm_config_workspace_concurrency`, `MAKEFLAGS`) and the
- *     cgroup ceiling overrides (`CLEO_TOOL_MEMORY_MAX_MB`, `CLEO_NO_TOOL_CGROUP`).
+ *   - every variable `heavyToolEnv` manages for the tool (for heavy tools the
+ *     per-runner worker counts, `npm_config_workspace_concurrency` and
+ *     `MAKEFLAGS`; for `typecheck`/`lint` the workspace concurrency, T13123);
+ *   - for heavy tools, the cgroup ceiling overrides (`CLEO_TOOL_MEMORY_MAX_MB`,
+ *     `CLEO_NO_TOOL_CGROUP`).
  *
- * The heavy variable list is derived from `heavyToolEnv` itself, so a lever
- * added there is keyed with no second list to keep in step.
+ * The variable list is derived from `heavyToolEnv` itself, so a lever added
+ * there is keyed with no second list to keep in step.
  *
  * @task T12958
  * @task T12989
+ * @task T13123
  */
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { type HeavyToolEnv, heavyToolEnv, isHeavyTool } from './heavy-tool-env.js';
+import { type HeavyToolEnv, heavyToolEnv, isHeavyTool, parseHeapFlags } from './heavy-tool-env.js';
 import { DISABLE_ENV, MEMORY_MAX_ENV } from './heavy-tool-limit.js';
 import type { CanonicalTool } from './tool-resolver.js';
 
@@ -169,29 +172,16 @@ export function captureEnvFingerprint(root: string, canonical: string): string {
 }
 
 /**
- * `NODE_OPTIONS` flags that set a V8 heap limit — the only part of
- * `NODE_OPTIONS` that decides whether a run fits in memory. Every other flag
- * (`--enable-source-maps`, `--experimental-*`, `--require`, …) is left out of
- * the key: it does not change whether the run fits, and keying it would make
- * every harness that sets one miss every other's results.
- *
- * @task T12989
- */
-const HEAP_FLAG_NAMES: ReadonlySet<string> = new Set([
-  'max-old-space-size',
-  'max-old-space-size-percentage',
-  'max-semi-space-size',
-]);
-
-/**
  * The V8 heap flags in effect for a `NODE_OPTIONS` value, as `--name=value`
  * sorted by name and joined with a space; `''` when none is set.
  *
- * V8 reads flags left to right and a later value replaces an earlier one, so
- * the LAST occurrence of each flag is the effective one. Underscores in a flag
- * name read as dashes, as they do to V8. The space-separated spelling
- * (`--max-old-space-size 4096`) is read too, because `mergeNodeOptions` treats
- * it as an explicit setting.
+ * Only the heap flags decide whether a run fits in memory. Every other flag
+ * (`--enable-source-maps`, `--experimental-*`, `--require`, …) is left out of
+ * the key: it does not change whether the run fits, and keying it would make
+ * every harness that sets one miss every other's results. Parsing (last
+ * occurrence wins, underscores read as dashes, the space-separated spelling) is
+ * {@link parseHeapFlags}, shared with the heavy-tool planner so the key and the
+ * plan read a heap the same way.
  *
  * @param nodeOptions - A `NODE_OPTIONS` value, if any.
  * @returns The effective heap flags, e.g. `--max-old-space-size=6144`.
@@ -206,22 +196,7 @@ const HEAP_FLAG_NAMES: ReadonlySet<string> = new Set([
  * @task T12989
  */
 export function effectiveHeapFlags(nodeOptions: string | undefined): string {
-  const tokens = (nodeOptions ?? '').trim().split(/\s+/).filter(Boolean);
-  const values = new Map<string, string>();
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i] ?? '';
-    if (!token.startsWith('--')) continue;
-    const eq = token.indexOf('=');
-    const name = (eq === -1 ? token.slice(2) : token.slice(2, eq)).replace(/_/g, '-');
-    if (!HEAP_FLAG_NAMES.has(name)) continue;
-    let value = eq === -1 ? '' : token.slice(eq + 1);
-    const next = tokens[i + 1];
-    if (eq === -1 && next !== undefined && /^\d+(\.\d+)?$/.test(next)) {
-      value = next;
-      i++;
-    }
-    values.set(name, value);
-  }
+  const values = parseHeapFlags(nodeOptions);
   return [...values.keys()]
     .sort()
     .map((name) => `--${name}=${values.get(name)}`)
@@ -256,9 +231,11 @@ function resourceValue(name: string, raw: string | undefined): string {
  *
  *   - `NODE_OPTIONS`, reduced to its heap flags ({@link effectiveHeapFlags}),
  *     for every tool;
- *   - for heavy tools only, every variable `heavyToolEnv` can set (derived by
- *     asking it what it sets for an empty environment) plus the cgroup
- *     ceiling overrides `CLEO_TOOL_MEMORY_MAX_MB` and `CLEO_NO_TOOL_CGROUP`.
+ *   - every variable `heavyToolEnv` can set for the tool (derived by asking it
+ *     what it sets for an empty environment): a heavy tool's worker counts,
+ *     and the workspace concurrency of every memory-bound tool (T13123);
+ *   - for heavy tools only, the cgroup ceiling overrides
+ *     `CLEO_TOOL_MEMORY_MAX_MB` and `CLEO_NO_TOOL_CGROUP`.
  *
  * A variable outside this set does not move the key; force a fresh run with
  * `CLEO_EVIDENCE_FRESH=1` when one matters.
@@ -279,8 +256,11 @@ export function captureResourceEnv(
 ): string {
   const effective: NodeJS.ProcessEnv = { ...env, ...overlay };
   const names = new Set<string>(['NODE_OPTIONS']);
+  // Every lever the overlay manages for this tool: a heavy tool's worker
+  // counts, and since T13123 a memory-bound typecheck/lint's workspace
+  // concurrency.
+  for (const name of Object.keys(heavyToolEnv(canonical, {}))) names.add(name);
   if (isHeavyTool(canonical)) {
-    for (const name of Object.keys(heavyToolEnv(canonical, {}))) names.add(name);
     names.add(MEMORY_MAX_ENV);
     names.add(DISABLE_ENV);
   }

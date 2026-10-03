@@ -64,7 +64,14 @@ import type { MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
 import lockfile from 'proper-lockfile';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
-import { GIB_PER_WORKER, heavyToolWorkers } from '../tasks/heavy-tool-env.js';
+import {
+  defaultSingleProcessHeapMb,
+  GIB_PER_WORKER,
+  HEAVY_TOOL_HEAP_MB,
+  heavyToolWorkers,
+  isHeavyTool,
+  isMemoryBoundTool,
+} from '../tasks/heavy-tool-env.js';
 import type { CanonicalTool } from '../tasks/tool-resolver.js';
 import type { ResourceSample } from './backend.js';
 import { pressureScore, ResourceMonitor } from './monitor.js';
@@ -122,11 +129,15 @@ export const ADMISSION_PRESSURE_ENV = 'CLEO_ADMISSION_PRESSURE';
 /** One GiB in bytes. */
 export const GIB = 1024 ** 3;
 
-/** What a typecheck run is charged: a large-monorepo `tsc` holds 2–5 GiB. */
-export const TYPECHECK_FOOTPRINT_BYTES = 5 * GIB;
-
-/** What a light tool run (lint, audit, scan) or a config probe is charged. */
+/** What a light run (audit, security scan) or a config probe is charged. */
 export const LIGHT_FOOTPRINT_BYTES = GIB;
+
+/**
+ * Resident memory one Node process holds beyond its V8 heap ceiling, in MiB:
+ * code, native allocations, buffers (the same allowance the heavy worker count
+ * makes: {@link GIB_PER_WORKER} minus the default heap).
+ */
+export const PROCESS_OVERHEAD_MB = GIB_PER_WORKER * 1024 - HEAVY_TOOL_HEAP_MB;
 
 /** Lock retries for the critical section: up to ~15 s, longer than the stale takeover. */
 const LOCK_RETRIES = { retries: 400, factor: 1.2, minTimeout: 2, maxTimeout: 40, randomize: true };
@@ -169,17 +180,33 @@ export function heavyRunFootprintBytes(totalBytes: number = totalmem()): number 
 }
 
 /**
- * What an evidence run of a canonical tool is charged.
+ * What an evidence run of a canonical tool is charged: a heavy test or build
+ * run its workers × {@link GIB_PER_WORKER}; a single-process memory-bound run
+ * (`typecheck`, `lint`) its heap ceiling plus {@link PROCESS_OVERHEAD_MB} (the
+ * heap the run is planned with, T13122, or the machine's default for a single
+ * process); anything else {@link LIGHT_FOOTPRINT_BYTES}.
  *
  * @param canonical - the canonical tool.
  * @param totalBytes - physical RAM. @defaultValue os.totalmem()
+ * @param heapMb - the heap ceiling the run is spawned with, in MiB, when known.
+ *
+ * @example
+ * ```ts
+ * footprintForTool('test', 48 * GIB);            // 36 GiB (6 workers × 6 GiB)
+ * footprintForTool('typecheck', 48 * GIB);       // 6 GiB (4096 MiB heap + 2048 MiB)
+ * footprintForTool('typecheck', 48 * GIB, 8192); // 10 GiB
+ * ```
  */
 export function footprintForTool(
   canonical: CanonicalTool,
   totalBytes: number = totalmem(),
+  heapMb?: number,
 ): number {
-  if (canonical === 'test' || canonical === 'build') return heavyRunFootprintBytes(totalBytes);
-  if (canonical === 'typecheck') return TYPECHECK_FOOTPRINT_BYTES;
+  if (isHeavyTool(canonical)) return heavyRunFootprintBytes(totalBytes);
+  if (isMemoryBoundTool(canonical)) {
+    const heap = heapMb ?? defaultSingleProcessHeapMb(totalBytes / GIB);
+    return (Math.max(0, heap) + PROCESS_OVERHEAD_MB) * 1024 * 1024;
+  }
   return LIGHT_FOOTPRINT_BYTES;
 }
 

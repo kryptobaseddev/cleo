@@ -11,7 +11,8 @@
  * one budget in bytes and one FIFO queue shared by every evidence run, every
  * `cleo run` job and the vitest project probe, machine-wide. An evidence run
  * asks for its footprint (`footprintForTool`: a heavy test/build run is
- * charged its worker count × 6 GiB, typecheck 5 GiB, lint and the rest 1 GiB),
+ * charged its worker count × 6 GiB, typecheck and lint their planned heap plus
+ * 2 GiB, audit and scans 1 GiB),
  * waits its turn, and exports the grant's `CLEO_ADMISSION` token to the tool
  * it spawns, so a `cleo verify` or `cleo run` the tool starts rides the grant
  * instead of waiting for the budget its own ancestor holds.
@@ -101,6 +102,14 @@ export interface AcquireSlotOptions {
    * probe asks for 1 GiB, not a whole test run's.
    */
   footprintBytes?: number;
+  /**
+   * The heap ceiling the run is spawned with, in MiB (the plan's `heapMb`,
+   * T13122). A `typecheck`/`lint` run is charged that heap plus the process
+   * overhead, so a run planned with a larger heap takes more of the budget.
+   *
+   * @defaultValue the machine's default single-process heap
+   */
+  heapMb?: number;
   /**
    * Skip admission altogether (tests that exercise only the cache layer).
    *
@@ -236,7 +245,7 @@ export async function acquireGlobalSlot(
   const outcome = await admit(
     {
       label: `tool:${canonical}`,
-      footprintBytes: opts.footprintBytes ?? footprintForTool(canonical, totalBytes),
+      footprintBytes: opts.footprintBytes ?? footprintForTool(canonical, totalBytes, opts.heapMb),
     },
     {
       wait: true,

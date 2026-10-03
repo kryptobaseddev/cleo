@@ -177,16 +177,31 @@ export {
   verifyAuditHistory,
 } from './gate-audit.js';
 // T12096 — hard memory ceiling injected into every heavy tool CLEO spawns.
-export type { HeavyToolEnv } from './heavy-tool-env.js';
+// T13122 — planned against the run's budget; inherited values can only tighten it.
+export type { HeavyToolEnv, HeavyToolSpawnPlan } from './heavy-tool-env.js';
 export {
+  defaultHeavyHeapMb,
+  defaultSingleProcessHeapMb,
   GIB_PER_WORKER,
+  HEAVY_HEAP_ENV,
+  HEAVY_HEAP_RAM_FRACTION,
   HEAVY_TOOL_HEAP_MB,
+  HEAVY_WORKERS_ENV,
+  HEAVY_WORKSPACE_CONCURRENCY_ENV,
+  heavyRunBudgetMb,
   heavyToolEnv,
   heavyToolWorkers,
+  inheritedHeapMb,
   MAX_HEAVY_WORKERS,
+  MIN_HEAVY_HEAP_MB,
   MIN_HEAVY_WORKERS,
   mergeNodeOptions,
+  planHeavyToolEnv,
   WORKSPACE_CONCURRENCY,
+  WORKSPACE_CONCURRENCY_VARS,
+  withHeapCeiling,
+  withSemiSpaceCap,
+  workspaceConcurrencyNames,
 } from './heavy-tool-env.js';
 // Pre-dispatch inference for cleo add (T1490)
 export {

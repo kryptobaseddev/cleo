@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.0.2
+  version: 3.0.3
   tier: on-demand
   install: harness
   covers:
@@ -15,7 +15,7 @@ metadata:
     - packages/core/src/validation/protocols/protocols-markdown/release.md
     - packages/cleo/src/cli/commands/release.ts
   loomStage: release
-  lastReviewed: 2026-09-28
+  lastReviewed: 2026-10-03
   stability: stable
 ---
 
@@ -34,7 +34,7 @@ Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalis
 | Step | Verb / Workflow | Owns transition | Notes |
 |-----:|------------------|------------------|-------|
 | 1 | `cleo release plan <ver> --epic <id>` | _(none)_ → `planned` | Builds the Release Plan envelope; auto-writes `CHANGELOG.md` (T10105 closes the silent-skip gap) |
-| 2 | `cleo release open <ver>` | `planned` → `pr-opened` | Dispatches `release-prepare.yml`; the workflow cuts the branch + opens the PR |
+| 2 | `cleo release open <ver>` | `planned` → `pr-opened` | Dispatches `release-prepare.yml` with the plan's sha256 once the plan is verified on the default branch, plus the verified preflight skips; the workflow cuts the branch + opens the PR |
 | 3 | _(GHA)_ `release-prepare.yml` → PR merge | `pr-opened` → `pr-merged` | Owned by CI; verify via `cleo release pr-status <ver>` |
 | 4 | `git tag -a v<ver> -m "Release v<ver>" && git push origin v<ver>` | `pr-merged` → `tag-pushed` | Explicit tag after the release PR merges — `auto-tag-on-release-merge.yml` is retired (T10434, ADR-087); the tag push triggers `release.yml` |
 | 5 | `cleo release reconcile <ver>` | `tag-pushed` → `published` | Backfills 11 provenance tables; idempotent |
@@ -67,8 +67,11 @@ Use the explicit verbs. **Do not** invoke `cleo release ship` — it was deleted
 # 1. Plan — build the canonical Release Plan envelope.
 cleo release plan v2026.6.0 --epic T10099
 
-# 2. Open — dispatch release-prepare workflow.
-cleo release open v2026.6.0
+# 2. Open — dispatch release-prepare workflow. When the plan reached main
+#    through a release-plan PR (branch protection), open it with
+#    --no-commit-plan: the plan on main is verified (read from there if this
+#    checkout lacks it) and dispatched by its sha256 (T13050).
+cleo release open v2026.6.0 --no-commit-plan
 
 # 3. (Optional) Poll PR + CI status while the workflow runs.
 cleo release pr-status v2026.6.0
@@ -108,7 +111,7 @@ Exit codes (canonical):
 | Pattern | Problem | Solution |
 |---------|---------|----------|
 | Running `cleo release ship` | The verb was deleted in T10103 — the command will exit with `Unknown command`. | Use `cleo release plan` + `cleo release open`. | <!-- cleo-cmd: negative-example: release ship -->
-| Manually invoking `gh workflow run release-prepare.yml` | Bypasses the plan envelope; `releases.status` stays at `planned`. | Always go through `cleo release open <ver>` — it tracks state in the `releases` table. |
+| Manually invoking `gh workflow run release-prepare.yml` | Bypasses the plan envelope; `releases.status` stays at `planned`; a hand dispatch also drops the verified `skip-tests` / `verified-sha` inputs, so the whole Linux and macOS suites run again (v2026.10.3 lost ~45 min). | Always go through `cleo release open <ver>` (`--no-commit-plan` after a plan PR) — it tracks state in the `releases` table and forwards the preflight skips. |
 | Tagging before the release PR merges, or `git push --tags` | Tags an unmerged commit, or pushes every local tag. | Tag the merged release commit and push that one tag: `git push origin v<ver>`. |
 | Hand-editing `CHANGELOG.md` for the new version | Drift between the changeset directory and the changelog. | `cleo release plan` always auto-writes the section (T10105). Use `cleo changeset add` to author entries. |
 | Pasting one verb into another's workflow file | Multi-step orchestration belongs in `ship-e2e-smoke`. | Use `cleo release ship-e2e-smoke … --execute` for end-to-end validation. |
