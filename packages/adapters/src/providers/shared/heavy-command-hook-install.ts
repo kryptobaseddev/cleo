@@ -37,6 +37,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -106,6 +107,57 @@ function canonical(path: string): string {
   } catch {
     return resolve(path);
   }
+}
+
+/**
+ * A config path cannot be created because something on the way to it exists
+ * but is not a directory (T13124: a stray empty `<project>/.codex` file made
+ * `mkdirSync` throw `EEXIST` and aborted the Codex install). Nothing is
+ * written; the delivery reports the provider as `blocked`.
+ */
+export class HeavyHookPathBlockedError extends Error {
+  /** The existing path that is not a directory. */
+  readonly path: string;
+
+  /**
+   * @param path - the existing non-directory path.
+   * @param target - the config file that would have lived under it.
+   */
+  constructor(path: string, target: string) {
+    super(`${path} exists but is not a directory, so ${target} cannot be created under it`);
+    this.name = 'HeavyHookPathBlockedError';
+    this.path = path;
+  }
+}
+
+/**
+ * The nearest existing path at or above `dir` when it is NOT a directory, or
+ * `null` when the nearest existing one is a directory (so `mkdir -p dir`
+ * can succeed). Errors other than "does not exist" return `null` and are left
+ * to the write that follows.
+ *
+ * @param dir - the directory a config file needs.
+ */
+export function nonDirectoryAncestor(dir: string): string | null {
+  let cur = resolve(dir);
+  for (;;) {
+    try {
+      return statSync(cur).isDirectory() ? null : cur;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') return null;
+    }
+    const parent = dirname(cur);
+    if (parent === cur) return null;
+    cur = parent;
+  }
+}
+
+/** Create `dirname(target)`, or throw {@link HeavyHookPathBlockedError} when a file is in the way. */
+function ensureParentDir(target: string): void {
+  const blocked = nonDirectoryAncestor(dirname(target));
+  if (blocked !== null) throw new HeavyHookPathBlockedError(blocked, target);
+  mkdirSync(dirname(target), { recursive: true });
 }
 
 /**
@@ -268,7 +320,7 @@ export function heavyCommandHookEntry(provider: 'claude-code' | 'codex'): Record
 }
 
 /** Whether one hook object is CLEO's heavy-command hook. */
-function isHeavyHookObject(hook: unknown): boolean {
+export function isHeavyHookObject(hook: unknown): boolean {
   return (
     isPlainObject(hook) &&
     typeof hook.command === 'string' &&
@@ -348,7 +400,7 @@ export async function syncJsonHeavyCommandHook(
     });
     return removed ? 'removed' : 'unchanged';
   }
-  mkdirSync(dirname(configPath), { recursive: true });
+  ensureParentDir(configPath);
   clearOlderCleoMarkers();
   let result: HeavyHookSyncResult = 'unchanged';
   await updateJsonConfigFile(configPath, (config) => {
@@ -370,7 +422,7 @@ export async function syncJsonHeavyCommandHook(
 }
 
 /** Claude Code's per-machine settings file, relative to the project. */
-const CLAUDE_LOCAL_SETTINGS = '.claude/settings.local.json';
+export const CLAUDE_LOCAL_SETTINGS = '.claude/settings.local.json';
 
 /** First line of the `info/exclude` block CLEO adds (and alone may remove). */
 export const LOCAL_SETTINGS_EXCLUDE_MARKER =
@@ -465,11 +517,17 @@ export async function syncClaudeCodeHeavyCommandHook(
   );
   if (mode === 'off') unexcludeLocalSettingsFromGit(projectDir);
   else excludeLocalSettingsFromGit(projectDir);
-  await syncJsonHeavyCommandHook(
-    join(projectDir, '.claude', 'settings.json'),
-    'claude-code',
-    'off',
-  );
+  try {
+    await syncJsonHeavyCommandHook(
+      join(projectDir, '.claude', 'settings.json'),
+      'claude-code',
+      'off',
+    );
+  } catch {
+    // Legacy cleanup only (T13124): a shared settings.json that is not valid
+    // JSON is the user's to fix, and Claude Code cannot load a hook from it
+    // anyway. The local install above already succeeded.
+  }
   return result;
 }
 
@@ -556,7 +614,7 @@ export function syncOpencodeHeavyCommandPlugin(
   }
   const source = opencodeHeavyCommandPluginSource();
   if (exists && readFileSync(pluginPath, 'utf-8') === source) return 'unchanged';
-  mkdirSync(dirname(pluginPath), { recursive: true });
+  ensureParentDir(pluginPath);
   writeFileSync(pluginPath, source, 'utf-8');
   return exists ? 'updated' : 'installed';
 }

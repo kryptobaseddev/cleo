@@ -19,9 +19,10 @@
  *
  * - `rewrite` — DEFAULT. Wrap it in place as
  *   `cleo run --wait --passthrough --class <c> -- <cmd>`, when the harness
- *   runs in `bypassPermissions` or `auto` mode and no deny or ask rule names
- *   the command (otherwise the hook warns: a rewrite would change which
- *   permission rules match).
+ *   runs in `bypassPermissions` or `auto` mode, or (Claude Code `default`,
+ *   `acceptEdits`, `dontAsk`) when the user's allow rules already approve the
+ *   command, and no deny or ask rule names it. Otherwise the hook warns: a
+ *   rewrite would change which permission rules match.
  * - `warn` — leave the command alone; add a context line naming the governed
  *   form.
  * - `off` — do nothing (the installer also removes the hook entry).
@@ -124,13 +125,163 @@ export interface OpencodeHeavyCommandAnswer {
 export interface PreToolUseHookOutput {
   readonly hookSpecificOutput: {
     readonly hookEventName: 'PreToolUse';
-    /** Omitted unless the provider requires it (Codex rewrites need `allow`). */
+    /**
+     * Omitted unless needed: Codex rewrites need `allow`, Kimi's "re-run it"
+     * is a `deny`, and a Claude Code rewrite carries `allow` only when the
+     * user's allow rules already approve the original command (T13124).
+     */
     readonly permissionDecision?: 'allow' | 'deny';
-    /** Shown to the agent on `deny`. */
+    /** Shown to the agent on `deny`; written to Claude Code's debug log on `allow`. */
     readonly permissionDecisionReason?: string;
     /** Replaces the whole tool input. */
     readonly updatedInput?: ShellToolInput;
     /** Added to the agent's context alongside the tool result. */
     readonly additionalContext?: string;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Project-level delivery (T13124)
+// ---------------------------------------------------------------------------
+
+/**
+ * What delivering the hook to one provider did in one project.
+ *
+ * - `installed` / `updated` / `removed` / `unchanged` — the config file was
+ *   written, refreshed, cleaned (mode `off`) or already current.
+ * - `skipped` — not applicable: the provider is not in use on this machine or
+ *   project, or the project is the user's home directory (whose provider
+ *   configs are user-global, which CLEO never writes).
+ * - `blocked` — a path the hook must live under exists but is not a
+ *   directory (a stray `.codex` file, say); nothing was written.
+ * - `unsupported` — the provider cannot take a project-level hook (Kimi reads
+ *   hooks only from its global config).
+ * - `failed` — any other error, such as a config file that is not valid JSON
+ *   (left untouched).
+ */
+export type HeavyHookDeliveryStatus =
+  | 'installed'
+  | 'updated'
+  | 'removed'
+  | 'unchanged'
+  | 'skipped'
+  | 'blocked'
+  | 'unsupported'
+  | 'failed';
+
+/** One provider's result from syncing the hook into a project. */
+export interface HeavyHookDeliveryOutcome {
+  /** The harness. */
+  readonly provider: HeavyCommandHookProvider;
+  /** What the sync did. */
+  readonly status: HeavyHookDeliveryStatus;
+  /** The config file (or plugin file) the hook lives in, absolute. */
+  readonly target: string;
+  /** Why it was skipped, blocked, unsupported or failed. */
+  readonly reason?: string;
+  /** The exact step that fixes a `blocked`, `unsupported` or `failed` outcome. */
+  readonly remedy?: string;
+}
+
+/**
+ * The hook's state for one provider in one project, as `cleo doctor` reports it.
+ *
+ * - `installed` — present and identical to what this CLEO would write.
+ * - `outdated` — present but written by another CLEO build (or only in a
+ *   legacy location); `cleo upgrade` refreshes it.
+ * - `missing` — the provider is in use and the hook is absent.
+ * - `blocked` — see {@link HeavyHookDeliveryStatus}.
+ * - `unreadable` — the config file exists but cannot be read or parsed.
+ * - `unsupported` — the provider cannot take a project-level hook.
+ * - `disabled` — `resources.heavyCommandHook` is `off`, and no CLEO hook is left.
+ * - `not-detected` — the provider is not in use here; nothing is expected.
+ */
+export type HeavyHookInstallState =
+  | 'installed'
+  | 'outdated'
+  | 'missing'
+  | 'blocked'
+  | 'unreadable'
+  | 'unsupported'
+  | 'disabled'
+  | 'not-detected';
+
+/** One provider's hook state in one project. */
+export interface HeavyHookInspection {
+  /** The harness. */
+  readonly provider: HeavyCommandHookProvider;
+  /** Whether the provider is in use on this machine or in this project. */
+  readonly detected: boolean;
+  /** The hook's state. */
+  readonly state: HeavyHookInstallState;
+  /** The config file (or plugin file) the hook lives in, absolute. */
+  readonly target: string;
+  /** One line saying what was found. */
+  readonly detail: string;
+  /** The exact step that fixes the state, when one is needed. */
+  readonly remedy?: string;
+}
+
+/**
+ * Whether the `cleo` a hook finds on PATH can answer it.
+ *
+ * - `current` — it answers `cleo hook heavy-command`.
+ * - `older` — it predates `cleo hook` (and `cleo run`): the hook lets every
+ *   command run ungoverned. The hook's own marker (exit 127, "Unknown
+ *   command") or a direct probe says so.
+ * - `missing` — no `cleo` on PATH: the hook stays silent.
+ * - `unknown` — the probe failed some other way (timeout, crash).
+ */
+export type HeavyHookCliState = 'current' | 'older' | 'missing' | 'unknown';
+
+/** The result of probing the `cleo` on PATH from a project directory. */
+export interface HeavyHookCliProbe {
+  /** What the probe found. */
+  readonly state: HeavyHookCliState;
+  /** The `cleo` the hook resolves on PATH, or `null`. */
+  readonly path: string | null;
+  /** One line saying what was found. */
+  readonly detail: string;
+  /** The exact step that fixes an `older` or `missing` CLI. */
+  readonly remedy?: string;
+}
+
+/** Options for the project-level delivery functions (all injectable for tests). */
+export interface HeavyHookDeliveryOptions {
+  /** Environment for provider detection (`PATH`, `HOME`, `CODEX_HOME`, …). Default `process.env`. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  /** Providers to consider. Default: every provider CLEO knows. */
+  readonly providers?: readonly HeavyCommandHookProvider[];
+}
+
+/**
+ * The project-level delivery surface `@cleocode/adapters` exports at
+ * `@cleocode/adapters/heavy-command-hook`. `@cleocode/core` loads it at run
+ * time (adapters builds on core, so core cannot import it statically) for
+ * `cleo init`, `cleo upgrade`, `cleo doctor` and the session briefing.
+ */
+export interface HeavyHookDeliveryApi {
+  /**
+   * Install, refresh or (mode `off`) remove CLEO's hook for every provider in
+   * use, each independently. Never throws: every provider gets an outcome.
+   */
+  readonly syncProjectHeavyCommandHooks: (
+    projectDir: string,
+    mode: HeavyCommandHookMode,
+    options?: HeavyHookDeliveryOptions,
+  ) => Promise<readonly HeavyHookDeliveryOutcome[]>;
+  /** Read-only: the hook's state for every provider. Never throws. */
+  readonly inspectProjectHeavyCommandHooks: (
+    projectDir: string,
+    mode: HeavyCommandHookMode,
+    options?: HeavyHookDeliveryOptions,
+  ) => readonly HeavyHookInspection[];
+  /**
+   * Whether the `cleo` on PATH (as the hook resolves it from `projectDir`)
+   * can answer the hook. Starts that `cleo` once. Never throws.
+   */
+  readonly probeHeavyHookCli: (
+    projectDir: string,
+    options?: HeavyHookDeliveryOptions,
+  ) => HeavyHookCliProbe;
 }

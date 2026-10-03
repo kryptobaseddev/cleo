@@ -41,9 +41,9 @@
  * @epic T12978
  */
 
-import { accessSync, existsSync, constants as fsConstants } from 'node:fs';
+import { accessSync, existsSync, constants as fsConstants, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type {
   HeavyCommandHookMode,
   HeavyCommandPlan,
@@ -707,6 +707,242 @@ export function planHeavyCommand(command: string, opts: HeavyCommandPlanOptions)
     rewritten = rewritten.slice(0, edit.at) + edit.text + rewritten.slice(edit.at);
   }
   return { action: 'rewrite', command: rewritten, segments };
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code pre-approval (T13124)
+// ---------------------------------------------------------------------------
+
+/** Claude Code prompts for any Bash command longer than this, whatever the rules. */
+const CLAUDE_PARSE_LIMIT = 10_000;
+
+/**
+ * Commands from Claude Code's built-in read-only set accepted without an allow
+ * rule, in the narrow form {@link claudePreApproval} checks. A subset: `find`,
+ * `diff`, `stat`, `du`, `which` and read-only `git` are left to the rules.
+ */
+const CLAUDE_READ_ONLY = new Set(['cat', 'echo', 'pwd', 'head', 'tail', 'grep', 'wc', 'ls']);
+
+/** Operators that end a line Claude Code then treats as unparseable. */
+const DANGLING = new Set(['&&', '||', '|', '|&']);
+
+/** Escape `text` for a `RegExp`. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Whether a Claude Code Bash rule pattern (the text inside `Bash(…)`) matches
+ * one subcommand's text, as the permissions reference specifies: `*` stands for
+ * any text including spaces, a trailing `:*` equals a trailing ` *`, a trailing
+ * ` *` that is the rule's only wildcard also matches the bare command, and a
+ * rule without `*` matches one exact command. The bare `Bash` rule is `*`.
+ *
+ * @param pattern - the rule pattern, e.g. `pnpm test *` or `npm run test:*`.
+ * @param text - one subcommand as written.
+ *
+ * @example
+ * ```ts
+ * claudeBashRuleMatches('pnpm test *', 'pnpm test'); // true
+ * claudeBashRuleMatches('pnpm test:*', 'pnpm test --run'); // true
+ * claudeBashRuleMatches('ls *', 'lsof'); // false
+ * ```
+ */
+export function claudeBashRuleMatches(pattern: string, text: string): boolean {
+  const normalized = pattern.endsWith(':*') ? `${pattern.slice(0, -2)} *` : pattern;
+  const parts = normalized.split('*');
+  if (new RegExp(`^${parts.map(escapeRegExp).join('[\\s\\S]*')}$`).test(text)) return true;
+  return parts.length === 2 && normalized.endsWith(' *') && text === normalized.slice(0, -2);
+}
+
+/** Options for {@link claudePreApproval}. */
+export interface ClaudePreApprovalOptions {
+  /** The directory the command line starts in. */
+  readonly cwd: string;
+  /**
+   * Claude Code's primary working directory (`CLAUDE_PROJECT_DIR`). A `cd`
+   * and the read-only commands are accepted only inside it.
+   */
+  readonly workingDir: string;
+}
+
+/** Whether Claude Code would run a command line without a prompt. */
+export type ClaudePreApproval =
+  | { readonly approved: true }
+  | { readonly approved: false; readonly reason: string };
+
+function inside(dir: string, path: string): boolean {
+  const rel = relative(dir, path);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+function canonicalPath(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/** One pipeline stage as Claude Code sees it: words, and its text with and without redirections. */
+interface ClaudeSubcommand {
+  readonly words: readonly Word[];
+  /** The stage exactly as written, redirections included. */
+  readonly text: string;
+  /** The words alone, joined by single spaces. */
+  readonly wordsText: string;
+}
+
+/**
+ * Split one list element into pipeline stages, or a reason Claude Code might
+ * prompt for it regardless of rules: a redirection to anything but
+ * `/dev/null` or a file descriptor, or a `$` or backtick expansion.
+ */
+function claudeSubcommands(src: string, tokens: readonly Token[]): ClaudeSubcommand[] | string {
+  const out: ClaudeSubcommand[] = [];
+  let stage: Token[] = [];
+  const flush = (): string | null => {
+    if (stage.length === 0) return 'it has an empty pipeline stage';
+    const words: Word[] = [];
+    for (let k = 0; k < stage.length; k++) {
+      const t = stage[k] as Token;
+      if (t.kind === 'word') {
+        if (t.expands) return 'it expands a variable or command';
+        words.push(t);
+        continue;
+      }
+      const target = stage[k + 1];
+      if (target?.kind !== 'word' || target.expands) return `it redirects (${t.op})`;
+      const toNull = ['>', '>>', '&>', '&>>'].includes(t.op) && target.value === '/dev/null';
+      const toFd = (t.op === '>&' || t.op === '<&') && /^\d+$/.test(target.value);
+      if (!toNull && !toFd) return `it redirects (${t.op} ${target.value})`;
+      k++;
+    }
+    const first = stage[0] as Token;
+    const last = stage[stage.length - 1] as Token;
+    out.push({
+      words,
+      text: src.slice(first.start, last.end),
+      wordsText: words.map((w) => src.slice(w.start, w.end)).join(' '),
+    });
+    stage = [];
+    return null;
+  };
+  for (const t of tokens) {
+    if (t.kind === 'op' && (t.op === '|' || t.op === '|&')) {
+      const err = flush();
+      if (err !== null) return err;
+    } else {
+      stage.push(t);
+    }
+  }
+  const err = flush();
+  return err ?? out;
+}
+
+/**
+ * Whether Claude Code would run `command` WITHOUT a prompt because the user's
+ * Bash allow rules approve it: every subcommand (split at `&&`, `||`, `;`,
+ * `|`, `|&` and newlines, as Claude Code splits) matches an allow rule, or is
+ * a narrow read-only form Claude Code runs unprompted (`cd` into the working
+ * directory, `tail -50`, `grep -v x`, …).
+ *
+ * The heavy-command hook uses this to rewrite a command in Claude Code's
+ * default, acceptEdits, dontAsk and auto modes with `permissionDecision:
+ * "allow"`: the user already approved the command, and the rewrite only makes
+ * it queue for the machine-wide budget. So this check must never approve more
+ * than Claude Code would. It is deliberately narrower: no wrapper stripping
+ * (`timeout`, `nice`), no leading assignments, no expansions, no
+ * substitutions, subshells, compound commands or background jobs, no
+ * redirection except to `/dev/null` or a file descriptor, and both the stage
+ * as written and its words alone must match the same rule. Anything else is
+ * "not pre-approved" and the hook falls back to a warning. Deny and ask rules
+ * are not checked here (the hook checks them, and Claude Code enforces them
+ * on the rewritten command regardless).
+ *
+ * @param command - the command line as the agent wrote it.
+ * @param allowPatterns - the patterns of the user's `Bash(…)` allow rules (`*` for a bare `Bash`).
+ * @param opts - where the line starts, and Claude Code's working directory.
+ * @returns approved, or the first reason it is not.
+ *
+ * @example
+ * ```ts
+ * claudePreApproval('pnpm test 2>&1 | tail -50', ['pnpm test *'], { cwd: '/repo', workingDir: '/repo' });
+ * // { approved: true }
+ * claudePreApproval('pnpm test && rm -rf dist', ['pnpm test *'], { cwd: '/repo', workingDir: '/repo' });
+ * // { approved: false, reason: '`rm` is not approved by an allow rule' }
+ * ```
+ */
+export function claudePreApproval(
+  command: string,
+  allowPatterns: readonly string[],
+  opts: ClaudePreApprovalOptions,
+): ClaudePreApproval {
+  const no = (reason: string): ClaudePreApproval => ({ approved: false, reason });
+  if (command.length > CLAUDE_PARSE_LIMIT) return no('it is longer than Claude Code parses');
+  const lexed = lexShell(command, 0, 'top');
+  if (lexed.error !== null) return no('it does not parse');
+  if (lexed.substitutions.length > 0) return no('it has a command or process substitution');
+  const last = lexed.tokens[lexed.tokens.length - 1];
+  if (last?.kind === 'op' && DANGLING.has(last.op)) return no('it ends in an operator');
+  const stages: ClaudeSubcommand[] = [];
+  for (const element of splitElements(lexed.tokens)) {
+    if (element.nested || element.background) {
+      return no('it has a subshell, compound command or background job');
+    }
+    const split = claudeSubcommands(lexed.src, element.tokens);
+    if (typeof split === 'string') return no(split);
+    stages.push(...split);
+  }
+  if (stages.length === 0) return no('it is empty');
+  const name = (s: ClaudeSubcommand): string => s.words[0]?.value ?? '';
+  if (stages.filter((s) => name(s) === 'cd').length > 1) {
+    return no('it changes directory more than once');
+  }
+  const withGit = stages.some((s) => name(s) === 'git');
+  const workingDir = canonicalPath(opts.workingDir);
+  let cwd = opts.cwd;
+  for (const stage of stages) {
+    const ruled = allowPatterns.some(
+      (p) => claudeBashRuleMatches(p, stage.text) && claudeBashRuleMatches(p, stage.wordsText),
+    );
+    if (ruled) continue;
+    const cmd = name(stage);
+    const readOnly = cmd === 'cd' || CLAUDE_READ_ONLY.has(cmd);
+    if (!readOnly || stage.words.some((w) => w.assignment)) {
+      return no(`\`${cmd}\` is not approved by an allow rule`);
+    }
+    if (workingDir === null) return no('the working directory cannot be resolved');
+    if (cmd === 'cd') {
+      const target = stage.words[1]?.value;
+      if (
+        stage.words.length !== 2 ||
+        target === undefined ||
+        target === '-' ||
+        target.startsWith('~')
+      ) {
+        return no('its `cd` is not a plain path');
+      }
+      if (withGit) return no('it runs git after a `cd`');
+      const next = resolve(cwd, target);
+      const real = canonicalPath(next);
+      if (!inside(opts.workingDir, next) || real === null || !inside(workingDir, real)) {
+        return no('its `cd` leaves the working directory');
+      }
+      cwd = next;
+      continue;
+    }
+    const here = canonicalPath(cwd);
+    if (here === null || !inside(workingDir, here))
+      return no('it runs outside the working directory');
+    for (const arg of stage.words.slice(1)) {
+      if (arg.bare && /[*?[\]{}]/.test(arg.value)) return no(`\`${cmd}\` has a glob`);
+      if (arg.value.includes('/') || arg.value.startsWith('~') || arg.value === '..') {
+        return no(`\`${cmd}\` names a path`);
+      }
+    }
+  }
+  return { approved: true };
 }
 
 // ---------------------------------------------------------------------------

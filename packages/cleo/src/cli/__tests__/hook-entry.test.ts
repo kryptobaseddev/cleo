@@ -31,6 +31,10 @@ vi.mock('@cleocode/core/resources/heavy-command.js', async (importOriginal) => {
 });
 
 import {
+  type ClaudeAllowContext,
+  claudeAllowedBashRules,
+  claudeManagedFiles,
+  claudeSettingsFiles,
   type HookIo,
   heavyCommandHook,
   heavyHookContext,
@@ -203,6 +207,20 @@ describe('renderHeavyHookAnswer', () => {
 
   it('says nothing for a light command without a pressure line', () => {
     expect(renderHeavyHookAnswer('claude-code', input, { action: 'none' }, '')).toBe('');
+  });
+
+  it('claude-code: a pre-approved rewrite carries allow; a warning never does (T13124)', () => {
+    const out = JSON.parse(
+      renderHeavyHookAnswer('claude-code', input, rewrite, 'ctx', undefined, true),
+    ).hookSpecificOutput;
+    expect(out.permissionDecision).toBe('allow');
+    expect(out.permissionDecisionReason).toMatch(/allow rules approve this command/);
+    expect(out.updatedInput.command).toBe(rewrite.command);
+    const warned = JSON.parse(
+      renderHeavyHookAnswer('claude-code', input, warn, 'ctx', undefined, true),
+    ).hookSpecificOutput;
+    expect(warned.permissionDecision).toBeUndefined();
+    expect(warned.updatedInput).toBeUndefined();
   });
 });
 
@@ -521,5 +539,188 @@ describe('runHookCli', () => {
     expect(await runHookCli(['heavy-command'], io)).toBe(0);
     expect(c.out).toEqual([]);
     expect(c.err.join('')).toMatch(/skipped: boom/);
+  });
+});
+
+describe('heavyCommandHook in Claude Code prompting modes (T13124)', () => {
+  const managedDir = () => join(dir, 'managed');
+  /** Where allow rules are read from: the real settings files, a temp managed dir. */
+  const context =
+    (overrides: Partial<ClaudeAllowContext> = {}) =>
+    (
+      projectDir: string,
+      env: Readonly<Record<string, string | undefined>>,
+    ): ClaudeAllowContext => ({
+      managedFiles: claudeManagedFiles(env, managedDir()),
+      profiles: [],
+      settingsFiles: claudeSettingsFiles(projectDir, env),
+      ancestors: 'claude --model x',
+      platform: 'darwin',
+      ...overrides,
+    });
+  const env = (extra: Record<string, string | undefined> = {}) => ({
+    PATH: pathWithCleo,
+    CLAUDE_PROJECT_DIR: dir,
+    HOME: join(dir, 'home'),
+    ...extra,
+  });
+  const settings = (file: 'settings.json' | 'settings.local.json', body: object) => {
+    mkdirSync(join(dir, '.claude'), { recursive: true });
+    writeFileSync(join(dir, '.claude', file), JSON.stringify(body));
+  };
+  const answer = async (
+    command: string,
+    permission_mode: string,
+    overrides: Partial<ClaudeAllowContext> = {},
+    extraEnv: Record<string, string | undefined> = {},
+  ) => {
+    const stdin = JSON.stringify({
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      tool_input: { command, description: 'run it' },
+      cwd: dir,
+      permission_mode,
+    });
+    const text = await heavyCommandHook(
+      'claude-code',
+      stdin,
+      { cwd: dir, env: env(extraEnv) },
+      { allowContext: context(overrides) },
+    );
+    return JSON.parse(text).hookSpecificOutput;
+  };
+
+  it('rewrites with allow a command the allow rules approve, in default, acceptEdits, dontAsk and auto', async () => {
+    settings('settings.local.json', { permissions: { allow: ['Bash(pnpm test:*)'] } });
+    for (const mode of ['default', 'acceptEdits', 'dontAsk', 'auto']) {
+      const out = await answer('pnpm test 2>&1 | tail -20', mode);
+      expect(out.permissionDecision, mode).toBe('allow');
+      expect(out.updatedInput.command).toBe(
+        'cleo run --wait --passthrough --timeout 120 --class test -- pnpm test 2>&1 | tail -20',
+      );
+      expect(out.additionalContext).toMatch(/Routed heavy work/);
+    }
+    // A user-level rule counts too.
+    rmSync(join(dir, '.claude', 'settings.local.json'));
+    mkdirSync(join(dir, 'home', '.claude'), { recursive: true });
+    writeFileSync(
+      join(dir, 'home', '.claude', 'settings.json'),
+      JSON.stringify({ permissions: { allow: ['Bash(pnpm test *)'] } }),
+    );
+    expect((await answer('pnpm test', 'default')).permissionDecision).toBe('allow');
+  });
+
+  it('keeps warning in plan mode and for a command no allow rule approves', async () => {
+    settings('settings.local.json', { permissions: { allow: ['Bash(pnpm test:*)'] } });
+    const plan = await answer('pnpm test', 'plan');
+    expect(plan.updatedInput).toBeUndefined();
+    expect(plan.permissionDecision).toBeUndefined();
+    const mixed = await answer('pnpm test && rm -rf dist', 'default');
+    expect(mixed.updatedInput).toBeUndefined();
+    expect(mixed.additionalContext).toMatch(
+      /in default mode the hook rewrites only a command your Claude Code allow rules already approve, and it is not pre-approved: `rm` is not approved/,
+    );
+    const other = await answer('pnpm build', 'acceptEdits');
+    expect(other.updatedInput).toBeUndefined();
+    // auto mode still rewrites an unapproved command, without deciding (owner decision 2026-10-01).
+    const auto = await answer('pnpm build', 'auto');
+    expect(auto.updatedInput.command).toMatch(/^cleo run --wait/);
+    expect(auto.permissionDecision).toBeUndefined();
+  });
+
+  it('claims nothing when a deny or ask rule names the command or matches cleo run', async () => {
+    settings('settings.local.json', { permissions: { allow: ['Bash(pnpm test:*)'] } });
+    settings('settings.json', { permissions: { ask: ['Bash(pnpm test --update*)'] } });
+    const named = await answer('pnpm test', 'default');
+    expect(named.updatedInput).toBeUndefined();
+    expect(named.additionalContext).toMatch(/names `pnpm`/);
+    settings('settings.json', { permissions: { deny: ['Bash(cleo run:*)'] } });
+    const cleo = await answer('pnpm test', 'default');
+    expect(cleo.updatedInput).toBeUndefined();
+    expect(cleo.additionalContext).toMatch(/matches `cleo run`, which the rewrite would run/);
+    // A rule about another cleo command does not stop the rewrite.
+    settings('settings.json', { permissions: { deny: ['Bash(cleo memory dream *)'] } });
+    expect((await answer('pnpm test', 'default')).permissionDecision).toBe('allow');
+  });
+
+  it('claims nothing when something the hook cannot see may change the rules', async () => {
+    settings('settings.local.json', { permissions: { allow: ['Bash(pnpm test:*)'] } });
+    const refused = async (
+      why: RegExp,
+      overrides: Partial<ClaudeAllowContext> = {},
+      extraEnv: Record<string, string | undefined> = {},
+    ) => {
+      const out = await answer('pnpm test', 'default', overrides, extraEnv);
+      expect(out.updatedInput, String(why)).toBeUndefined();
+      expect(out.permissionDecision).toBeUndefined();
+      expect(out.additionalContext).toMatch(why);
+    };
+    mkdirSync(managedDir(), { recursive: true });
+    writeFileSync(
+      join(managedDir(), 'managed-settings.json'),
+      JSON.stringify({ allowManagedPermissionRulesOnly: true }),
+    );
+    await refused(/managed permission rules the only ones/);
+    // Nested (a cached server payload may wrap the settings) and in a drop-in.
+    rmSync(join(managedDir(), 'managed-settings.json'));
+    mkdirSync(join(managedDir(), 'managed-settings.d'));
+    writeFileSync(
+      join(managedDir(), 'managed-settings.d', '20-perms.json'),
+      JSON.stringify({ settings: { allowManagedPermissionRulesOnly: true } }),
+    );
+    await refused(/managed permission rules the only ones/);
+    writeFileSync(join(managedDir(), 'managed-settings.d', '20-perms.json'), '{ not json');
+    await refused(/20-perms\.json cannot be read or parsed/);
+    rmSync(join(managedDir(), 'managed-settings.d'), { recursive: true });
+    mkdirSync(join(dir, 'home', '.claude'), { recursive: true });
+    writeFileSync(
+      join(dir, 'home', '.claude', 'remote-settings.json'),
+      JSON.stringify({ allowManagedPermissionRulesOnly: true }),
+    );
+    await refused(/managed permission rules the only ones/);
+    rmSync(join(dir, 'home', '.claude', 'remote-settings.json'));
+    // Sanity: with all of that gone, it is approved again.
+    expect((await answer('pnpm test', 'default')).permissionDecision).toBe('allow');
+
+    await refused(/configuration profile/, { profiles: ['/Library/Managed Preferences/x.plist'] });
+    await refused(/registry/, { platform: 'win32' });
+    await refused(/command line cannot be read/, { ancestors: null });
+    for (const flag of [
+      '--disallowedTools Bash(pnpm *)',
+      '--settings ./x.json',
+      '--setting-sources project',
+    ]) {
+      await refused(/--disallowedTools, --settings or --setting-sources/, {
+        ancestors: `sh -c hook\nclaude ${flag}`,
+      });
+    }
+    await refused(/Agent SDK/, {}, { CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' });
+    await refused(/host application/, {}, { CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: '1' });
+    await refused(/CLAUDE_PROJECT_DIR is not set/, {}, { CLAUDE_PROJECT_DIR: undefined });
+  });
+
+  it('claudeAllowedBashRules: counts user, project and local allow rules, never managed ones', () => {
+    mkdirSync(managedDir(), { recursive: true });
+    writeFileSync(
+      join(managedDir(), 'managed-settings.json'),
+      JSON.stringify({ permissions: { allow: ['Bash(rm *)'] } }),
+    );
+    settings('settings.json', { permissions: { allow: ['Bash(pnpm build:*)', 'Read(x)'] } });
+    settings('settings.local.json', { permissions: { allow: ['Bash', 'Bash(vitest *)'] } });
+    const rules = claudeAllowedBashRules(context()(dir, env()), env());
+    expect(rules).toEqual({ trusted: true, patterns: ['pnpm build:*', '*', 'vitest *'] });
+  });
+
+  it('claudeManagedFiles: the file, its drop-ins in order (hidden skipped), and the server cache', () => {
+    mkdirSync(join(managedDir(), 'managed-settings.d'), { recursive: true });
+    for (const n of ['20-b.json', '10-a.json', '.hidden.json', 'notes.txt']) {
+      writeFileSync(join(managedDir(), 'managed-settings.d', n), '{}');
+    }
+    expect(claudeManagedFiles(env(), managedDir())).toEqual([
+      join(managedDir(), 'managed-settings.json'),
+      join(managedDir(), 'managed-settings.d', '10-a.json'),
+      join(managedDir(), 'managed-settings.d', '20-b.json'),
+      join(dir, 'home', '.claude', 'remote-settings.json'),
+    ]);
   });
 });
