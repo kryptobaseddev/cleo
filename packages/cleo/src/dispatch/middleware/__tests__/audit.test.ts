@@ -186,10 +186,10 @@ describe('createAudit middleware', () => {
 
     await middleware(request, next);
 
-    // Wait for fire-and-forget promises
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    expect(mockInsert).toHaveBeenCalled();
+    // Wait for the fire-and-forget write itself, not a fixed delay: its first
+    // call imports the audit schema modules, which can take longer than any
+    // fixed sleep on a cold transform cache (and would then land in the next test).
+    await vi.waitFor(() => expect(mockInsert).toHaveBeenCalled());
     expect(mockInsertValues).toHaveBeenCalled();
     const insertedValues = (mockInsertValues.mock.calls as any)[0]![0];
     expect(insertedValues.domain).toBe('tasks');
@@ -261,8 +261,8 @@ describe('createAudit middleware', () => {
 
     await middleware(request, next);
 
-    // Wait for fire-and-forget promises
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Wait for the fire-and-forget write itself (see 'should write mutations to SQLite').
+    await vi.waitFor(() => expect(mockInsertValues).toHaveBeenCalled());
 
     // Check Pino log includes failure info
     const [logObj] = mockLogInfo.mock.calls[0]!;
@@ -287,11 +287,9 @@ describe('createAudit middleware', () => {
 
       await middleware(request, next);
 
-      // Wait for fire-and-forget promises
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
+      // Wait for the fire-and-forget write itself (see 'should write mutations to SQLite').
+      await vi.waitFor(() => expect(mockInsert).toHaveBeenCalled());
       expect(mockLogInfo).toHaveBeenCalledOnce();
-      expect(mockInsert).toHaveBeenCalled();
     });
 
     it('should audit queries from durable gradeMode when env is NOT set', async () => {
@@ -307,11 +305,9 @@ describe('createAudit middleware', () => {
 
       await middleware(request, next);
 
-      // Wait for fire-and-forget promises
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
+      // Wait for the fire-and-forget write itself (see 'should write mutations to SQLite').
+      await vi.waitFor(() => expect(mockInsert).toHaveBeenCalled());
       expect(mockLogInfo).toHaveBeenCalledOnce();
-      expect(mockInsert).toHaveBeenCalled();
     });
 
     it('should NOT audit queries when durable gradeMode is false', async () => {
