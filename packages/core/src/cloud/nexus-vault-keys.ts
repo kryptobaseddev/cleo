@@ -68,7 +68,7 @@ import {
   type NexusCloudOptions,
   nexusCredentialWarnings,
 } from './nexus-cloud.js';
-import type { SealedNexusDevice } from './nexus-device.js';
+import { redactNexusDeviceSecrets, type SealedNexusDevice } from './nexus-device.js';
 import { ensureNexusDeviceCredential, nexusApiErrorToAccountError } from './nexus-enrol.js';
 import { NexusVaultState } from './nexus-vault-state.js';
 
@@ -470,7 +470,7 @@ const SETUP_RETRY_FIX =
  *
  * It never throws: a server without key escrow answers `unsupported`, any
  * other failure answers `failed` with the step and the remedy. No key is in
- * the result.
+ * the result, and a failure message is redacted of the device credential.
  *
  * @param opts - API URL, stores, the device to act as, and test overrides.
  * @returns What the setup did.
@@ -479,11 +479,15 @@ export async function provisionNexusAccount(
   opts: ProvisionNexusAccountOptions = {},
 ): Promise<NexusAccountSetup> {
   const progress: { step: NexusAccountSetupStep } = { step: 'connect' };
+  // The bearer in use, so a failure message that quotes it (fetch quotes a malformed header
+  // value) is redacted even when it does not have the credential's shape.
+  let bearer = opts.device?.currentBearer() ?? null;
   try {
     const conn =
       opts.device !== undefined
         ? vaultConnectionOf(opts.device, resolveNexusApiUrl(opts.apiUrl), opts, [])
         : await connectNexusVault(opts);
+    bearer = conn.device.currentBearer();
     const unlocked = await unlockAccount(conn, false, progress);
     const how =
       unlocked.escrow === 'minted'
@@ -507,7 +511,10 @@ export async function provisionNexusAccount(
       };
     }
     const code = err instanceof NexusAccountError ? err.code : 'E_NEXUS_REQUEST_FAILED';
-    const message = err instanceof Error ? err.message : String(err);
+    const raw = err instanceof Error ? err.message : String(err);
+    const message = redactNexusDeviceSecrets(
+      bearer !== null && bearer !== '' ? raw.split(bearer).join('[redacted]') : raw,
+    );
     const fix = (err instanceof NexusAccountError ? err.fix : undefined) ?? SETUP_RETRY_FIX;
     const step = progress.step;
     return {

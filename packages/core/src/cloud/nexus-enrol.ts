@@ -1268,7 +1268,9 @@ async function setUpAccount(
   vaultState: NexusVaultState | undefined,
   warnings: string[],
 ): Promise<NexusAccountSetup> {
-  if (profile === 'read-only') {
+  // The profile of the credential actually stored: a login that lost a same-home race acts with
+  // the winner's credential, which may be read-only even when this login asked for a full device.
+  if ((device.unseal().current?.profile ?? profile) === 'read-only') {
     return {
       status: 'skipped',
       summary:

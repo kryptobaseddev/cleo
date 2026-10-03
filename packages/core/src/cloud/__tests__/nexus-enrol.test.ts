@@ -2026,6 +2026,72 @@ describe('loginToNexusDevice: account setup right after enrolment (onboarding A,
     expect(server.escrowPuts()).toHaveLength(0);
   });
 
+  it('a trust evaluation that refuses (the account key was rotated) fails at step trust, after escrow and certify', async () => {
+    // This machine has already seen key version 2, so the escrowed v1 key cannot be current.
+    writeFileSync(
+      vaultFile(),
+      JSON.stringify({
+        version: 1,
+        accounts: {
+          [`${API} ${USER}`]: { trust: { keyVersion: 2, pins: {}, revoked: [] }, streams: {} },
+        },
+      }),
+    );
+    const result = await loginToNexusDevice(flow());
+    expect(await storedToken()).not.toBeNull();
+    expect(result.account).toMatchObject({
+      status: 'failed',
+      step: 'trust',
+      code: 'E_NEXUS_VAULT_KEY_UNAVAILABLE',
+    });
+    const warning = result.warnings.find((w) => w.includes('encrypted backups are not set up'));
+    expect(warning).toContain('step trust (recording the device trust state)');
+    expect(warning).toMatch(/rotated/);
+    // The refused evaluation narrows nothing: the stored trust state is left as it was.
+    const state = JSON.parse(readFileSync(vaultFile(), 'utf-8')) as {
+      accounts: Record<string, { trust: { keyVersion: number } }>;
+    };
+    expect(state.accounts[`${API} ${USER}`]?.trust.keyVersion).toBe(2);
+  });
+
+  it('a failure that quotes the device credential is redacted (escrow-read step)', async () => {
+    // fetch quotes a header value it refuses; the setup must never echo the bearer.
+    const quoting: FetchLike = async (url, init) => {
+      if (new URL(url).pathname === '/v1/account/keys/escrow') {
+        const header = new Headers(init?.headers).get('authorization') ?? '';
+        throw new TypeError(`Headers.append: "${header}" is an invalid header value.`);
+      }
+      return server.fetch(url, init);
+    };
+    const result = await loginToNexusDevice(flow({ fetch: quoting }));
+    const token = (await storedToken()) ?? '-';
+    expect(token).not.toBe('-');
+    expect(result.account).toMatchObject({
+      status: 'failed',
+      step: 'escrow-read',
+      code: 'E_NEXUS_UNREACHABLE',
+    });
+    expect(result.account?.status === 'failed' ? result.account.message : '').toContain(
+      '[redacted]',
+    );
+    expect(JSON.stringify(result)).not.toContain(token);
+    expect(inspect(result, { depth: 10 })).not.toContain(token);
+  });
+
+  it('provisionNexusAccount with no stored credential fails at step connect with the login remedy', async () => {
+    const { provisionNexusAccount } = await import('../nexus-vault-keys.js');
+    const result = await provisionNexusAccount({
+      apiUrl: API,
+      fetch: server.fetch,
+      deviceStore: devices,
+      store: sessions,
+      vaultState: new NexusVaultState(vaultFile()),
+    });
+    expect(result).toMatchObject({ status: 'failed', step: 'connect' });
+    expect(result.status === 'failed' ? result.fix : '').toMatch(/cleo login nexus/);
+    expect(setupCalls()).toEqual([]);
+  });
+
   it('a read-only device skips the setup: no escrow, trust or certificate request', async () => {
     const result = await loginToNexusDevice(flow({ readOnly: true }));
     expect(result.account?.status).toBe('skipped');
