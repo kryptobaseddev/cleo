@@ -1,7 +1,7 @@
 /**
  * T13111 — token usage is recorded in `tasks_token_usage`, so a row naming a
- * bound session is stored. The bare `token_usage` table is left as it is: its
- * rows stay there for the T12535 collapse to fold (T13115).
+ * bound session is stored. Rows the bare `token_usage` table holds are drained
+ * into the twin by the T12535 collapse at the next open (T13115).
  *
  * Production opens enforce foreign keys; the tasks bind turns them off under
  * VITEST (sqlite.ts), so every test here turns them back on first. Without
@@ -22,6 +22,7 @@ import {
   deleteTokenUsage,
   listTokenUsage,
   recordTokenExchange,
+  summarizeTokenUsage,
 } from '../../metrics/token-service.js';
 import { bindTasksDomain, closeDb } from '../sqlite.js';
 import { sessions, tasks } from '../tasks-schema.js';
@@ -108,8 +109,8 @@ describe('token usage in tasks_token_usage (T13111)', () => {
     ]);
   });
 
-  it('reads come from the twin only, and the bare table is left as it is', async () => {
-    const db = await open();
+  it('reads come from the twin only; a bare row waits for the next open to be drained', async () => {
+    let db = await open();
     db.exec('PRAGMA foreign_keys=OFF');
     bareRow(db, 'bare-old-1', { total_tokens: 7 });
     db.exec('PRAGMA foreign_keys=ON');
@@ -124,15 +125,33 @@ describe('token usage in tasks_token_usage (T13111)', () => {
     });
     expect((await listTokenUsage(root)).records.map((r) => r.id)).toEqual([row.id]);
     expect(count(db, 'token_usage')).toBe(1);
-    expect(count(db, 'tasks_token_usage')).toBe(1);
+
+    // The next open drains it (T13115): the reports cover it, the bare table is empty.
+    closeDb();
+    db = await open();
+    expect((await listTokenUsage(root)).records.map((r) => r.id).sort()).toEqual(
+      ['bare-old-1', row.id].sort(),
+    );
+    expect((await summarizeTokenUsage(root)).totalTokens).toBe(7 + row.totalTokens);
+    expect(count(db, 'token_usage')).toBe(0);
   });
-  it('delete and clear also remove what the bare twin still holds, until T13115 folds it', async () => {
-    const db = await open();
+
+  it('delete and clear touch tasks_token_usage only; the open has drained the bare table into it (T13115)', async () => {
+    let db = await open();
     db.exec('PRAGMA foreign_keys=OFF');
     bareRow(db, 'bare-a', { domain: 'tasks' });
     bareRow(db, 'bare-b', { domain: 'memory' });
     bareRow(db, 'bare-c', { domain: 'tasks' });
     db.exec('PRAGMA foreign_keys=ON');
+
+    // Written after this open's drain: the bare table is not touched by a delete or a clear.
+    await deleteTokenUsage(root, { id: 'bare-a' });
+    expect(await clearTokenUsage(root)).toEqual({ deleted: 0 });
+    expect(count(db, 'token_usage')).toBe(3);
+
+    closeDb();
+    db = await open();
+    expect(count(db, 'token_usage')).toBe(0);
     const twin = await recordTokenExchange(root, {
       requestPayload: {},
       responsePayload: {},
@@ -142,55 +161,17 @@ describe('token usage in tasks_token_usage (T13111)', () => {
       operation: 'add',
       requestId: 'req-3',
     });
-
     await deleteTokenUsage(root, { id: 'bare-a' });
-    expect(count(db, 'token_usage')).toBe(2);
-
-    // A filtered clear removes the matching rows of both tables, and counts them all.
     expect(await clearTokenUsage(root, { domain: 'tasks' })).toEqual({ deleted: 2 });
-    expect(db.prepare('SELECT id FROM token_usage').all()).toEqual([{ id: 'bare-b' }]);
-    expect(count(db, 'tasks_token_usage')).toBe(0);
+    expect((await listTokenUsage(root)).records.map((r) => r.id)).toEqual(['bare-b']);
     expect((await listTokenUsage(root)).records.map((r) => r.id)).not.toContain(twin.id);
 
-    // A full clear leaves no row in either table.
-    await recordTokenExchange(root, {
-      requestPayload: {},
-      responsePayload: {},
-      transport: 'cli',
-      gateway: 'mutate',
-      domain: 'memory',
-      operation: 'observe',
-      requestId: 'req-4',
-    });
-    expect(await clearTokenUsage(root)).toEqual({ deleted: 2 });
-    expect(count(db, 'token_usage')).toBe(0);
+    // Nothing comes back at the next open.
+    closeDb();
+    db = await open();
+    expect((await listTokenUsage(root)).records.map((r) => r.id)).toEqual(['bare-b']);
+    expect(await clearTokenUsage(root)).toEqual({ deleted: 1 });
     expect(count(db, 'tasks_token_usage')).toBe(0);
-  });
-
-  it('delete and clear touch both tables in one transaction: a refused bare delete leaves the twin row', async () => {
-    const db = await open();
-    const row = await recordTokenExchange(root, {
-      requestPayload: {},
-      responsePayload: {},
-      transport: 'cli',
-      gateway: 'mutate',
-      domain: 'tasks',
-      operation: 'add',
-      requestId: 'req-5',
-    });
-    db.exec(
-      "CREATE TRIGGER t13111_refuse_bare_delete BEFORE DELETE ON token_usage BEGIN SELECT RAISE(ABORT, 'bare delete refused'); END",
-    );
-    db.exec('PRAGMA foreign_keys=OFF');
-    bareRow(db, row.id);
-    db.exec('PRAGMA foreign_keys=ON');
-
-    // The bare delete runs second and fails (drizzle names the failed query).
-    await expect(deleteTokenUsage(root, { id: row.id })).rejects.toThrow(
-      /delete from "token_usage"/,
-    );
-    await expect(clearTokenUsage(root)).rejects.toThrow(/delete from "token_usage"/);
-    expect(db.prepare('SELECT id FROM tasks_token_usage').all()).toEqual([{ id: row.id }]);
-    expect(count(db, 'token_usage')).toBe(1);
+    expect(count(db, 'token_usage')).toBe(0);
   });
 });

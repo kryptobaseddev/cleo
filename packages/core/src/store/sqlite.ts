@@ -654,10 +654,10 @@ function establishTasksSchema(
     nativeDb.exec('PRAGMA foreign_keys=OFF');
   }
 
-  // A store degraded by a failed twin collapse serves tasks_schema_meta from a
+  // A store whose schema_meta collapse failed serves tasks_schema_meta from a
   // read-only TEMP shadow that already holds the merged values; seeding it
-  // would abort (T12535).
-  if (twinCollapseFailureOf(nativeDb) === undefined) seedTasksMeta(nativeDb);
+  // would abort (T12535). Another pair's failure leaves it writable.
+  if (!twinCollapseFailureOf(nativeDb)?.tables.includes('schema_meta')) seedTasksMeta(nativeDb);
 
   return db;
 }

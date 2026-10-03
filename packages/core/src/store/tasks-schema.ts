@@ -47,9 +47,10 @@ export { warpChainInstances, warpChains } from './schema/chain-schema.js';
 // `FOREIGN KEY constraint failed`, which `autoRecordDispatchTokenUsage`
 // swallowed: nothing was recorded while a session was bound. The prefixed twin
 // holds the same columns with plain-text ids (no cross-table FK), so every
-// `tokenUsage` reader and writer now uses it. No data moves: the rows the bare
-// table did store (only commands run with no session bound) stay there, still
-// synced as the bare twin, for the T12535 collapse to fold (T13115).
+// `tokenUsage` reader and writer now uses it. The rows the bare table did store
+// (only commands run with no session bound), and any an older build writes
+// there, are drained into the twin by the T12535 collapse at every open
+// (`TOKEN_USAGE` in twin-collapse.ts, T13115).
 export type {
   NewTasksTokenUsageRow as NewTokenUsageRow,
   TasksTokenUsageRow as TokenUsageRow,
