@@ -57,7 +57,7 @@ describe('splitCommandLine (T12718)', () => {
     expect(splitCommandLine(line)).toEqual(words);
   });
 
-  it('joinCommandLine leaves a brace placeholder bare: sh never expands a comma-less {word} (T13125)', () => {
+  it('joinCommandLine leaves only a placeholder bare; a word a shell would brace-expand is quoted (T13125)', () => {
     expect(joinCommandLine(['pnpm', '{filters}', 'run', 'test'])).toBe('pnpm {filters} run test');
     expect(splitCommandLine('pnpm {filters} run test')).toEqual([
       'pnpm',
@@ -65,5 +65,11 @@ describe('splitCommandLine (T12718)', () => {
       'run',
       'test',
     ]);
+    // Rendered into a workflow `run:` step, bash would expand these into
+    // several words: they must stay quoted (review of #1818).
+    expect(joinCommandLine(['prettier', '--check', 'src/{a,b}'])).toBe(
+      "prettier --check 'src/{a,b}'",
+    );
+    expect(joinCommandLine(['echo', '{1..3}'])).toBe("echo '{1..3}'");
   });
 });
