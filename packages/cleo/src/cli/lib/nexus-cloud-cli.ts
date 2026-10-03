@@ -12,6 +12,7 @@ import type {
   CloudDevicesResult,
   CloudProjectShowResult,
   CloudProjectsResult,
+  CloudRetiredReplica,
   CloudStatusResult,
   CloudWarning,
   CloudWhoamiResult,
@@ -52,6 +53,11 @@ export function deviceStateArg(args: Args): NexusDeviceListState | undefined {
   });
 }
 
+/** `<retired> → <successor>` for each replica this device retired (T13109). */
+function retiredList(retired: readonly CloudRetiredReplica[]): string {
+  return retired.map((x) => `${x.replicaId} retired → ${x.successor}`).join('; ');
+}
+
 /**
  * One human line for `cleo cloud status`.
  *
@@ -67,11 +73,27 @@ export function cloudStatusSummary(r: CloudStatusResult): string {
   if (r.local.projectId !== null) {
     parts.push(`project ${r.local.projectId} ${s.linked ? 'linked' : 'NOT linked'}`);
     parts.push(s.replicaAttached ? 'replica attached' : 'replica NOT attached');
+    if (r.local.retiredReplicas.length > 0) {
+      parts.push(`retired here: ${retiredList(r.local.retiredReplicas)}`);
+    }
     parts.push(`${s.devices} device(s)`);
     if (s.headSeq !== null) parts.push(`head ${s.headSeq}`);
     if (s.openConflicts !== null) parts.push(`${s.openConflicts} open conflict(s)`);
   }
   return `Cloud status: ${r.verdict}. ${parts.join('; ')}.`;
+}
+
+/**
+ * One human line for `cleo cloud projects show`.
+ *
+ * @param r - Project detail.
+ * @returns e.g. `Project p "demo" (owner): 2 active device(s), 3 replica(s) (retired on this device: r-1 retired → r-2), head 7, 0 open conflict(s).`
+ */
+export function cloudProjectShowSummary(r: CloudProjectShowResult): string {
+  // Replicas this device retired stay listed by the server until S4 (T13109).
+  const retired =
+    r.retiredHere.length > 0 ? ` (retired on this device: ${retiredList(r.retiredHere)})` : '';
+  return `Project ${r.projectId} "${r.project.label ?? ''}" (${r.role}): ${r.devices.active} active device(s), ${r.replicas.length} replica(s)${retired}, head ${r.stream?.headSeq ?? 'none'}, ${r.openConflicts} open conflict(s).`;
 }
 
 /**
@@ -187,8 +209,7 @@ export async function runCloudProjects(args: Args): Promise<void> {
           ...(projectId !== undefined ? { projectId } : {}),
         });
       },
-      (r) =>
-        `Project ${r.projectId} "${r.project.label ?? ''}" (${r.role}): ${r.devices.active} active device(s), ${r.replicas.length} replica(s), head ${r.stream?.headSeq ?? 'none'}, ${r.openConflicts} open conflict(s).`,
+      cloudProjectShowSummary,
     );
     return;
   }

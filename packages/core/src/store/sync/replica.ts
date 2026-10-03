@@ -74,7 +74,14 @@ export type RebindReason =
    * re-enrolled this machine: the server never re-pins a replica, so the
    * store takes a new id (device contract §3.7, R6).
    */
-  | 'device-reenrolled';
+  | 'device-reenrolled'
+  /**
+   * A vault restore or pull placed a snapshot at this store's path: a new
+   * file holding another device's data, or this store rolled back (§1.5
+   * rules 1 and 3). The old replica is retired at the same path, so it is a
+   * retire candidate for S4, unlike a copy (T13109).
+   */
+  | 'vault-restore';
 
 /** What `stat` reports about a store file, in nanoseconds. */
 export interface FileStat {
@@ -517,7 +524,12 @@ function bindPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenResult {
       registryWritten =
         registry.upsert(
           outcome.previous.replicaId,
-          { ...prev, retiredAt: now.toISOString(), successor: outcome.row.replicaId },
+          {
+            ...prev,
+            retiredAt: now.toISOString(),
+            successor: outcome.row.replicaId,
+            retireReason: outcome.reasons.join(','),
+          },
           now,
         ) || registryWritten;
     }
@@ -548,24 +560,65 @@ export function rebindReplica(
   const { deviceId, registry } = resolveContext(opts);
   const identity = fileIdentity(opts.dbPath, opts.stat);
   const realpath = realpathSync(opts.dbPath);
-  const { previous, current } = withImmediateTransaction(db, () => {
+  const { previous, current, hwm } = withImmediateTransaction(db, () => {
     const row = activeReplica(db, opts.scope);
     if (!row) throw new Error(`no active ${opts.scope} replica to rebind`);
+    const persisted = storeHwm(db, row.replicaId);
     return {
       previous: row,
+      hwm: persisted,
       current: rebindInTransaction(db, row, identity, deviceId, [reason], now),
     };
   });
+  // A forced rebind always concerns this same file, so the retired replica is
+  // recorded here even when the registry had lost it: it is a retire
+  // candidate (§1.5 "Retirement"; T13109).
   const prev = registry.get(previous.replicaId);
-  if (prev) {
-    registry.upsert(
-      previous.replicaId,
-      { ...prev, retiredAt: now.toISOString(), successor: current.replicaId },
-      now,
-    );
-  }
+  registry.upsert(
+    previous.replicaId,
+    {
+      ...(prev ?? { nonce: previous.nonce, scope: previous.scope, dbRealpath: realpath, hwm }),
+      retiredAt: now.toISOString(),
+      successor: current.replicaId,
+      retireReason: reason,
+    },
+    now,
+  );
   register(registry, db, current, realpath, now);
   return { replicaId: current.replicaId, previousReplicaId: previous.replicaId };
+}
+
+/**
+ * After a vault restore or pull placed a snapshot at `dbPath`, retire the
+ * store's replica and bind a new one, recorded as `vault-restore`. The placed
+ * file is a new store instance (another device's data, or this store rolled
+ * back), so it may not continue the old replica's `replicaSeq` stream (§1.5
+ * rules 1 and 3, N6). Rebinding here, before any open pass sees the new
+ * inode, records why; the server keeps the retired replica as history until
+ * S4 announces its retirement (T13109).
+ *
+ * A store with no bound replica (a project restored onto this machine for the
+ * first time) is left alone: its first link binds it.
+ *
+ * @param dbPath - The placed `cleo.db`.
+ * @param scope - Which store it is.
+ * @param opts - Device id, registry, stat and clock overrides (tests).
+ * @returns The new and the retired replica ids, or `null` when the store had no replica.
+ */
+export async function rebindAfterVaultRestore(
+  dbPath: string,
+  scope: ReplicaScope,
+  opts: Pick<SyncOpenOptions, 'deviceId' | 'registry' | 'stat' | 'now'> = {},
+): Promise<{ replicaId: string; previousReplicaId: string } | null> {
+  if (!existsSync(dbPath)) return null;
+  const { openNativeDatabase } = await import('../sqlite-native.js');
+  const db = openNativeDatabase(dbPath);
+  try {
+    if (!activeReplica(db, scope)) return null;
+    return rebindReplica(db, { ...opts, dbPath, scope, mode: 'live' }, 'vault-restore');
+  } finally {
+    db.close();
+  }
 }
 
 /** The current clock of the store's active replica, for diagnostics. Read-only. */

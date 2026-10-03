@@ -18,14 +18,20 @@
  * Writes use the file-then-rename pattern, so a crash leaves the old or the
  * new file, never a torn one.
  *
+ * A replica this device retired at the same path (a replaced or rolled-back
+ * file; a copy retires nothing) keeps its entry with `retiredAt`, `successor`,
+ * the rebind reason and its hwm: those entries are the retire candidates the
+ * signed `retire` transaction of S4 announces (§1.5 "Retirement"; T13109).
+ *
  * @task T12342
+ * @task T13109
  * @module store/sync/replica-registry
  */
 
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { resolveSyncReplicaRegistryPath } from '@cleocode/paths';
+import { resolveStableDeviceIdPath, resolveSyncReplicaRegistryPath } from '@cleocode/paths';
 
 /** One replica this device has bound. */
 export interface ReplicaRegistryEntry {
@@ -41,7 +47,29 @@ export interface ReplicaRegistryEntry {
   readonly retiredAt?: string;
   /** The replica that replaced it. */
   readonly successor?: string;
+  /** Why it was retired: the rebind reason(s), e.g. `vault-restore` or `file-identity`. */
+  readonly retireReason?: string;
+  /** When S4's signed `retire` transaction announced it; unset while it is still a candidate. */
+  readonly retireAnnouncedAt?: string;
   readonly updatedAt: string;
+}
+
+/** A replica this device retired, as the registry records it. */
+export interface RetiredReplica {
+  readonly replicaId: string;
+  /** `project` or `global`. */
+  readonly scope: string;
+  /** Real path of the store file it named. */
+  readonly dbRealpath: string;
+  /** The replica that replaced it. */
+  readonly successor: string;
+  readonly retiredAt: string;
+  /** The rebind reason(s), or `null` for an entry retired before reasons were recorded. */
+  readonly reason: string | null;
+  /** Its last persisted `replicaSeq` per stream: what a `retire` transaction names. */
+  readonly lastReplicaSeq: Readonly<Record<string, number>>;
+  /** When S4 announced it, or `null` while it is a candidate. */
+  readonly announcedAt: string | null;
 }
 
 /** The registry file. */
@@ -142,6 +170,10 @@ export class ReplicaRegistry {
       hwm,
       ...(patch.retiredAt !== undefined ? { retiredAt: patch.retiredAt } : {}),
       ...(patch.successor !== undefined ? { successor: patch.successor } : {}),
+      ...(patch.retireReason !== undefined ? { retireReason: patch.retireReason } : {}),
+      ...(patch.retireAnnouncedAt !== undefined
+        ? { retireAnnouncedAt: patch.retireAnnouncedAt }
+        : {}),
       updatedAt: prev?.updatedAt ?? now.toISOString(),
     };
     if (prev && sameEntry(prev, next)) return false;
@@ -167,6 +199,61 @@ export class ReplicaRegistry {
     }
     return this.upsert(replicaId, { ...prev, hwm: { [stream]: seq } }, now);
   }
+
+  /**
+   * The replicas this device retired, newest first, optionally only those of
+   * one store file or scope.
+   *
+   * @param filter - Store real path and/or scope to keep.
+   * @returns The retired entries.
+   */
+  retired(filter: { dbRealpath?: string; scope?: string } = {}): RetiredReplica[] {
+    const out: RetiredReplica[] = [];
+    for (const [replicaId, e] of Object.entries(this.read().replicas)) {
+      if (!e.retiredAt || !e.successor) continue;
+      if (filter.dbRealpath !== undefined && e.dbRealpath !== filter.dbRealpath) continue;
+      if (filter.scope !== undefined && e.scope !== filter.scope) continue;
+      out.push({
+        replicaId,
+        scope: e.scope,
+        dbRealpath: e.dbRealpath,
+        successor: e.successor,
+        retiredAt: e.retiredAt,
+        reason: e.retireReason ?? null,
+        lastReplicaSeq: e.hwm,
+        announcedAt: e.retireAnnouncedAt ?? null,
+      });
+    }
+    return out.sort((a, b) => (a.retiredAt < b.retiredAt ? 1 : a.retiredAt > b.retiredAt ? -1 : 0));
+  }
+
+  /**
+   * The retire candidates: retired replicas no `retire` transaction has
+   * announced yet. S4's emitter announces each (retired id, successor, last
+   * `replicaSeq`) and records `retireAnnouncedAt` (§1.5 "Retirement").
+   *
+   * @returns The candidates, newest first.
+   */
+  retireCandidates(): RetiredReplica[] {
+    return this.retired().filter((r) => r.announcedAt === null);
+  }
+}
+
+/**
+ * This device's registry for reading only: `null` when the machine has no
+ * stable device id yet. Unlike `getStableDeviceId`, it never mints one, so a
+ * read-only command writes nothing.
+ *
+ * @returns The registry, or `null`.
+ */
+export function readDeviceRegistry(): ReplicaRegistry | null {
+  let deviceId: string;
+  try {
+    deviceId = readFileSync(resolveStableDeviceIdPath(), 'utf8').trim();
+  } catch {
+    return null;
+  }
+  return deviceId.length > 0 ? ReplicaRegistry.forDevice(deviceId) : null;
 }
 
 function sameEntry(a: ReplicaRegistryEntry, b: ReplicaRegistryEntry): boolean {
@@ -177,6 +264,8 @@ function sameEntry(a: ReplicaRegistryEntry, b: ReplicaRegistryEntry): boolean {
     a.scope === b.scope &&
     a.dbRealpath === b.dbRealpath &&
     a.retiredAt === b.retiredAt &&
-    a.successor === b.successor
+    a.successor === b.successor &&
+    a.retireReason === b.retireReason &&
+    a.retireAnnouncedAt === b.retireAnnouncedAt
   );
 }

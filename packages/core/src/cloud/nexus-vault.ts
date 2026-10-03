@@ -96,7 +96,7 @@ import {
   sha256File,
 } from '../store/portable-bundle-scan.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
-import { readActiveReplicaId } from '../store/sync/replica.js';
+import { readActiveReplicaId, rebindAfterVaultRestore } from '../store/sync/replica.js';
 import {
   buildVaultManifest,
   type CarriedMachineState,
@@ -1616,6 +1616,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       verified: false,
       tables: 0,
       safetyBackup: null,
+      replica: null,
       warnings,
     };
   }
@@ -1805,11 +1806,24 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
           );
         },
       });
+    let replica: CloudRestoreResult['replica'] = null;
     const placeAndPrune = async () => {
       await place();
       // The snapshot's install id never becomes this machine's (T13022).
       if (globalConfig !== null && fs.existsSync(globalConfig)) {
         keepGlobalConfigLocalKeys(globalConfig, ownConfigKeys);
+      }
+      // The placed file is a new store instance: its replica is retired and a
+      // new one bound, recorded as a vault restore (§1.5; T13109). If that
+      // fails, the next open still rebinds it, as a copied file.
+      try {
+        const rebound = await rebindAfterVaultRestore(t.dbPath, t.scope);
+        if (rebound) replica = { retired: rebound.previousReplicaId, current: rebound.replicaId };
+      } catch (err) {
+        warnings.push({
+          code: 'W_NEXUS_VAULT_REBIND',
+          message: `restored, but this store's replica was not rebound (${err instanceof Error ? err.message : String(err)}); its next open rebinds it as a copied file`,
+        });
       }
       // Deletions propagate: what the snapshot no longer lists goes (T13004);
       // without a synced snapshot, only --force removes anything (T13020).
@@ -1863,6 +1877,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       verified: true,
       tables,
       safetyBackup,
+      replica,
       warnings,
     };
   } finally {

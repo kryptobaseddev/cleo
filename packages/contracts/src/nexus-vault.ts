@@ -195,6 +195,13 @@ export interface CloudRestoreResult {
   tables: number;
   /** Local safety backup taken before activation, if any. */
   safetyBackup: string | null;
+  /**
+   * The placed file is a new store instance, so the replica this store had is
+   * retired and a new one bound (journal spec §1.5; T13109). The server keeps
+   * the retired one as history until S4 announces its retirement. `null` when
+   * nothing was placed or the store had no replica yet (a first restore here).
+   */
+  replica: { retired: string; current: string } | null;
   warnings: CloudWarning[];
 }
 

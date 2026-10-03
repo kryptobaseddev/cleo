@@ -33,6 +33,7 @@ vi.mock('@cleocode/core/cloud/nexus-cloud-status.js', () => ({
 }));
 
 const {
+  cloudRestoreSummary,
   runCloudActivity,
   runCloudLease,
   runCloudPull,
@@ -64,6 +65,7 @@ const restoreResult = {
   verified: true,
   tables: 2,
   safetyBackup: null,
+  replica: null,
 };
 
 let stdout: ReturnType<typeof vi.spyOn>;
@@ -299,5 +301,22 @@ describe('restore relink callback', () => {
     await expect(relink('/r')).resolves.toEqual([
       'restored, but attaching this copy failed (boom); run `cleo project link`',
     ]);
+  });
+});
+
+describe('cloudRestoreSummary (T13109)', () => {
+  it('names the retired and the new replica after a placement', () => {
+    const line = cloudRestoreSummary({
+      ...restoreResult,
+      status: 'restored',
+      replica: { retired: 'r-old', current: 'r-new' },
+    });
+    expect(line).toBe(
+      'Restored project snapshot cp-1 into /x: 2 table(s) verified by count and hash; replica r-old retired → r-new.',
+    );
+  });
+
+  it('says nothing about replicas when the store had none', () => {
+    expect(cloudRestoreSummary({ ...restoreResult, status: 'restored' })).not.toContain('replica');
   });
 });

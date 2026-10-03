@@ -39,6 +39,7 @@ import {
   fileIdentity,
   listReplicas,
   persistStoreSeq,
+  rebindAfterVaultRestore,
   rebindReplica,
   registerRebindHook,
   type StatFn,
@@ -423,6 +424,8 @@ describe('replica binding', () => {
       dbRealpath: expect.stringContaining('cleo.db'),
     });
     expect(registry().get(original)?.retiredAt).toBeUndefined();
+    // A copy retires nothing, so it leaves no retire candidate (§1.5, T13109).
+    expect(registry().retireCandidates()).toEqual([]);
     const back = openDb(path);
     expect(bind(path, back)).toMatchObject({ status: 'bound', replicaId: original });
   });
@@ -447,11 +450,20 @@ describe('replica binding', () => {
     rmSync(path);
     copyFileSync(backup, path); // a new inode at the old path
     const restored = openDb(path);
-    expect(bind(path, restored)).toMatchObject({
+    const out = bind(path, restored);
+    expect(out).toMatchObject({
       status: 'rebound',
       previousReplicaId: original,
       reasons: ['file-identity'],
     });
+    // The old file is gone from this path: its replica is a retire candidate (T13109).
+    expect(registry().retireCandidates()).toEqual([
+      expect.objectContaining({
+        replicaId: original,
+        successor: out.replicaId,
+        reason: 'file-identity',
+      }),
+    ]);
   });
 
   it('a rename within one filesystem keeps the replica and updates the registry', () => {
@@ -651,5 +663,99 @@ describe('birthtime (N5)', () => {
       status: 'bound',
       replicaId: r.replicaId,
     });
+  });
+});
+
+describe('vault restore rebind (T13109)', () => {
+  const STREAM = 'project:0123456789ab';
+  function bound() {
+    const { path, db } = freshStore();
+    enable(db);
+    const out = syncOpenPass(db, opts(path));
+    if (out.status !== 'bound') throw new Error(out.status);
+    return { path, db, replicaId: out.replicaId };
+  }
+  /** What a vault placement does: a new file at the same path, with this machine's replica rows. */
+  function placeNewFile(path: string): void {
+    const staged = join(dir, 'staged.db');
+    copyFileSync(path, staged);
+    rmSync(path);
+    copyFileSync(staged, path);
+  }
+  const vaultOpts = () => ({ registry: registry(), deviceId: DEVICE, now: () => new Date(T0 + 1) });
+
+  it('rebinds a placed snapshot as vault-restore and records the old replica as a retire candidate', async () => {
+    const { path, db, replicaId: original } = bound();
+    withImmediateTransaction(db, () => persistStoreSeq(db, original, STREAM, 4));
+    registry().advanceHwm(original, STREAM, 4);
+    close(db);
+    placeNewFile(path);
+
+    const out = await rebindAfterVaultRestore(path, 'project', vaultOpts());
+    expect(out).toEqual({ replicaId: expect.any(String), previousReplicaId: original });
+    const after = openDb(path);
+    const rows = listReplicas(after);
+    expect(rows.find((r) => r.replicaId === original)).toMatchObject({ successor: out?.replicaId });
+    expect(activeReplica(after, 'project')).toMatchObject({
+      replicaId: out?.replicaId,
+      boundWhy: 'rebind:vault-restore',
+    });
+    expect(registry().retireCandidates()).toEqual([
+      {
+        replicaId: original,
+        scope: 'project',
+        dbRealpath: expect.stringContaining('cleo.db'),
+        successor: out?.replicaId,
+        retiredAt: new Date(T0 + 1).toISOString(),
+        reason: 'vault-restore',
+        lastReplicaSeq: { [STREAM]: 4 },
+        announcedAt: null,
+      },
+    ]);
+    // The next open finds the new inode already bound: no second rebind.
+    expect(syncOpenPass(after, opts(path))).toMatchObject({
+      status: 'bound',
+      replicaId: out?.replicaId,
+    });
+  });
+
+  it('leaves a store with no replica alone (a first restore onto this machine)', async () => {
+    const { path, db } = freshStore();
+    close(db);
+    expect(await rebindAfterVaultRestore(path, 'project', vaultOpts())).toBeNull();
+    const after = openDb(path);
+    expect(syncTables(after)).toEqual([]);
+    expect(registry().read().replicas).toEqual({});
+  });
+
+  it('records the retired replica even when the registry had lost it', async () => {
+    const { path, db, replicaId: original } = bound();
+    close(db);
+    rmSync(registry().path);
+    placeNewFile(path);
+    const out = await rebindAfterVaultRestore(path, 'project', vaultOpts());
+    const nonce = listReplicas(openDb(path)).find((r) => r.replicaId === original)?.nonce;
+    expect(registry().get(original)).toMatchObject({
+      nonce,
+      retiredAt: new Date(T0 + 1).toISOString(),
+      successor: out?.replicaId,
+      retireReason: 'vault-restore',
+    });
+  });
+
+  it('an announced retirement is no longer a candidate, and retired() filters by store', async () => {
+    const { path, db, replicaId: original } = bound();
+    close(db);
+    placeNewFile(path);
+    await rebindAfterVaultRestore(path, 'project', vaultOpts());
+    const reg = registry();
+    const entry = reg.get(original);
+    if (!entry) throw new Error('fixture');
+    reg.upsert(original, { ...entry, retireAnnouncedAt: new Date(T0 + 2).toISOString() });
+    expect(reg.retireCandidates()).toEqual([]);
+    expect(reg.retired({ dbRealpath: entry.dbRealpath }).map((r) => r.replicaId)).toEqual([
+      original,
+    ]);
+    expect(reg.retired({ dbRealpath: '/elsewhere/cleo.db' })).toEqual([]);
   });
 });
