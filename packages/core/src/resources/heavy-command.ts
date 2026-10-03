@@ -127,6 +127,8 @@ const OPERATORS = [
 ];
 
 const OPERATOR_START = new Set(['|', '&', ';', '<', '>', '(', ')']);
+/** A `$name` or special parameter right after a `$` (sticky: matched at `lastIndex`). */
+const PARAM_NAME = /[A-Za-z_][A-Za-z0-9_]*|[0-9?$!#@*-]/y;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** Mutable word under construction. */
@@ -238,7 +240,9 @@ function lexShell(src: string, from: number, mode: 'top' | 'paren'): Lexed {
       draft.bare = false;
       return j + 1;
     }
-    const name = /^(?:[A-Za-z_][A-Za-z0-9_]*|[0-9?$!#@*-])/.exec(src.slice(at + 1));
+    // Matched in place at `lastIndex` (sticky), anchored to the `$`.
+    PARAM_NAME.lastIndex = at + 1;
+    const name = PARAM_NAME.exec(src);
     if (name) {
       draft.value += `$${name[0]}`;
       draft.expands = true;
@@ -712,11 +716,15 @@ export function planHeavyCommand(command: string, opts: HeavyCommandPlanOptions)
   if (blockers.length > 0) {
     return { action: 'warn', reason: [...new Set(blockers)].join('; '), segments };
   }
-  let rewritten = command;
-  for (const edit of [...edits].sort((a, b) => b.at - a.at)) {
-    rewritten = rewritten.slice(0, edit.at) + edit.text + rewritten.slice(edit.at);
+  // One pass over the sorted edits (linear; re-slicing per edit was quadratic).
+  const parts: string[] = [];
+  let at = 0;
+  for (const edit of [...edits].sort((a, b) => a.at - b.at)) {
+    parts.push(command.slice(at, edit.at), edit.text);
+    at = edit.at;
   }
-  return { action: 'rewrite', command: rewritten, segments };
+  parts.push(command.slice(at));
+  return { action: 'rewrite', command: parts.join(''), segments };
 }
 
 // ---------------------------------------------------------------------------
@@ -739,9 +747,14 @@ const PLAIN_FLAG = /^(?:-[A-Za-z]+|-\d+|--[a-z][a-z-]*(?:=\d+)?)$/;
 /** A numeric argument (`50`, `+5`): a flag's value, never a file. */
 const NUMERIC_ARG = /^\+?\d+$/;
 
-/** grep flags that read files or recurse (a cluster holding r, R, d, D or f; long forms). */
-const GREP_FILE_FLAG =
-  /^(?:-[A-Za-z]*[rRdDf][A-Za-z]*|--(?:recursive|dereference-recursive|directories|devices|file|include|exclude|exclude-dir|exclude-from)\b.*)$/;
+/** grep long flags that read files or recurse. */
+const GREP_FILE_LONG =
+  /^--(?:recursive|dereference-recursive|directories|devices|file|include|exclude)/;
+
+/** Whether a grep flag reads files or recurses: a short cluster holding r, R, d, D or f, or {@link GREP_FILE_LONG}. */
+function grepFileFlag(arg: string): boolean {
+  return arg.startsWith('--') ? GREP_FILE_LONG.test(arg) : /[rRdDf]/.test(arg);
+}
 
 /**
  * Why the arguments of a rule-free read-only command could make it read a
@@ -760,7 +773,7 @@ function readOnlyArgsRefusal(cmd: string, args: readonly string[]): string | nul
     if (NUMERIC_ARG.test(arg)) continue;
     if (arg.startsWith('-')) {
       if (!PLAIN_FLAG.test(arg)) return `\`${cmd}\` has a flag with a value`;
-      if (cmd === 'grep' && GREP_FILE_FLAG.test(arg)) return '`grep` may read files or recurse';
+      if (cmd === 'grep' && grepFileFlag(arg)) return '`grep` may read files or recurse';
       continue;
     }
     if (cmd === 'grep' && patterns === 0) {
@@ -957,8 +970,11 @@ function claudeSubcommands(src: string, tokens: readonly Token[]): ClaudeSubcomm
       }
       const target = stage[k + 1];
       if (target?.kind !== 'word' || target.expands) return `it redirects (${t.op})`;
-      const toNull = ['>', '>>', '&>', '&>>'].includes(t.op) && target.value === '/dev/null';
-      const toFd = (t.op === '>&' || t.op === '<&') && /^\d+$/.test(target.value);
+      // The raw operator includes its fd prefix (`2>&`). Only stdout and stderr
+      // may be redirected: to /dev/null, or duplicated onto each other (review LOW).
+      const rawOp = src.slice(t.start, t.end);
+      const toNull = /^(?:[12]?>>?|&>>?)$/.test(rawOp) && target.value === '/dev/null';
+      const toFd = /^[12]?>&$/.test(rawOp) && /^[12]$/.test(target.value);
       if (!toNull && !toFd) return `it redirects (${t.op} ${target.value})`;
       k++;
     }

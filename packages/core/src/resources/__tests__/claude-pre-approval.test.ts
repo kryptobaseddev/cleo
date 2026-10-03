@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { claudeBashRuleMatches, claudePreApproval } from '../heavy-command.js';
+import { claudeBashRuleMatches, claudePreApproval, planHeavyCommand } from '../heavy-command.js';
 
 let dir: string;
 beforeEach(() => {
@@ -250,6 +250,42 @@ describe('claudePreApproval', () => {
     // A rule with many wildcards against a long text that does not match.
     expect(claudeBashRuleMatches('a*a*a*a*a*a*b', 'a'.repeat(5000))).toBe(false);
     expect(performance.now() - t0).toBeLessThan(100);
+  });
+
+  it('lets only stdout and stderr be redirected: to /dev/null or onto each other (review LOW)', () => {
+    const rules = ['pnpm test *'];
+    for (const command of [
+      'pnpm test 2>&1',
+      'pnpm test 1>&2',
+      'pnpm test >&2',
+      'pnpm test 2>/dev/null',
+      'pnpm test >/dev/null 2>&1',
+      'pnpm test &>/dev/null',
+    ]) {
+      expect(ok(command, rules), command).toEqual({ approved: true });
+    }
+    for (const command of [
+      'pnpm test <&3',
+      'pnpm test 0<&3',
+      'pnpm test 2>&3',
+      'pnpm test 3>&1',
+      'pnpm test 3>/dev/null',
+      'pnpm test <&0',
+      'pnpm test >&-',
+    ]) {
+      expect(ok(command, rules).approved, command).toBe(false);
+    }
+  });
+
+  it('the planner stays linear on hostile input (T13124 regex audit)', () => {
+    const t0 = performance.now();
+    // A line full of `$` parameters.
+    expect(planHeavyCommand(`echo ${'$a'.repeat(100_000)}`, { cwd: dir }).action).toBe('none');
+    // Many heavy commands (each edit used to re-slice the whole line).
+    const many = Array.from({ length: 20_000 }, () => 'pnpm test').join('; ');
+    const plan = planHeavyCommand(many, { cwd: dir });
+    expect(plan.action).toBe('rewrite');
+    expect(performance.now() - t0).toBeLessThan(3000);
   });
 
   it('needs the stage as written and its words alone to match the same rule', () => {
