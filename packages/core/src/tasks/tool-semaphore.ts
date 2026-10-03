@@ -18,19 +18,22 @@
  *
  * Defaults (configurable via env):
  *
- *   | Tool           | Default                          | Binding constraint        |
- *   |----------------|----------------------------------|---------------------------|
- *   | test, build    | min(RAM/24GiB, cpus/4), min 1    | MEMORY (each run forks)   |
- *   | lint, typecheck| max(2, cpus/2)                   | CPU (single-process)      |
- *   | audit          | max(2, cpus/2)                   | network-bound, small RAM  |
- *   | security-scan  | max(2, cpus/2)                   | network-bound, small RAM  |
+ *   | Tool            | Default                                      | Binding constraint          |
+ *   |-----------------|----------------------------------------------|-----------------------------|
+ *   | test, build     | min(RAM/24GiB, cpus/4), min 1                | MEMORY (each run forks)     |
+ *   | typecheck, lint | min(RAM/2 ÷ (heap + 2GiB), cpus/2), min 1    | MEMORY (one TS program)     |
+ *   | audit           | max(2, cpus/2)                               | network-bound, small RAM    |
+ *   | security-scan   | max(2, cpus/2)                               | network-bound, small RAM    |
  *
- * On darwin `test`/`build` default to ONE slot machine-wide (T12963): macOS has
- * no PSI, so {@link pressureScaleSlots} can never shrink the budget there and
- * the RAM bound is the only guard left. Heavy runs additionally take a slot of
- * the matching {@link ResourceGovernor} class (`test` → `test-run`, `build` →
- * `scoped-build`), so evidence runs and other governed heavy work share one
- * machine-wide budget.
+ * On darwin `test`/`build` default to ONE slot machine-wide (T12963), and
+ * `typecheck`/`lint` to at most {@link DARWIN_MEMORY_BOUND_SLOTS} (T13123):
+ * concurrent agents on a laptop are the common case there. Memory-bound runs
+ * shrink under pressure ({@link pressureScaleSlots}). Heavy runs additionally
+ * take a slot of the matching {@link ResourceGovernor} class (`test` →
+ * `test-run`, `build` → `scoped-build`), so evidence runs and other governed
+ * heavy work share one machine-wide budget. `typecheck`/`lint` take no governor
+ * class of their own: cross-surface admission belongs to the single
+ * footprint-based scheduler (T13132), not to one more class.
  *
  * T12091: `test`/`build` were `max(1, cpus/4)` — 6 slots on a 24-core box. Since
  * each `pnpm run test` is itself allowed 6 vitest forks × 4 GiB, the two bounds
@@ -47,6 +50,7 @@
  * @task T1534
  * @task T12091
  * @task T12963
+ * @task T13123
  * @adr ADR-061
  */
 
@@ -69,7 +73,13 @@ import {
   type SlotHolderIdentity,
   writeHolderRecord,
 } from '../resources/slot-holder.js';
-import { isHeavyTool } from './heavy-tool-env.js';
+import {
+  defaultHeavyHeapMb,
+  GIB_PER_WORKER,
+  HEAVY_TOOL_HEAP_MB,
+  isMemoryBoundTool,
+  MAX_HEAVY_WORKERS,
+} from './heavy-tool-env.js';
 import type { CanonicalTool } from './tool-resolver.js';
 
 // ---------------------------------------------------------------------------
@@ -154,6 +164,14 @@ export interface AcquireSlotOptions {
    * @internal
    */
   skipGovernor?: boolean;
+  /**
+   * The heap ceiling the run is spawned with, in MiB (the plan's `heapMb`,
+   * T13122). A `typecheck`/`lint` slot is sized from it, so a run planned with
+   * a larger inherited heap counts against more of the budget (T13123).
+   *
+   * @defaultValue {@link defaultHeavyHeapMb} for the machine's RAM
+   */
+  heapMb?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,14 +182,55 @@ export interface AcquireSlotOptions {
  * Worst-case resident footprint of ONE `tool:test` / `tool:build` invocation,
  * in GiB.
  *
- * This is not a guess. `vitest.memory-safe.ts` permits
- * `MEMORY_SAFE_MAX_WORKERS` forks (up to 6) each capped at `FORK_HEAP_MB`
- * (4096), so a single `pnpm run test` may legitimately hold ~24 GiB before any
- * guard fires. Keep this in step with that file if either bound changes.
+ * This is not a guess. The heavy-tool overlay permits at most
+ * `MAX_HEAVY_WORKERS` (6) workers × `HEAVY_TOOL_HEAP_MB` (4096) — the largest
+ * run budget (T13122) — so a single `pnpm run test` may legitimately hold
+ * ~24 GiB before any guard fires. Derived from those constants since T13123,
+ * so the two can no longer drift apart.
  *
  * @task T12091
  */
-export const HEAVY_TOOL_FOOTPRINT_GIB = 24;
+export const HEAVY_TOOL_FOOTPRINT_GIB = (MAX_HEAVY_WORKERS * HEAVY_TOOL_HEAP_MB) / 1024;
+
+/**
+ * Share of total RAM all concurrent `typecheck`/`lint` runs together may hold
+ * (T13123). The other half is for the test/build budget, the OS and whatever
+ * the operator is running.
+ */
+export const MEMORY_BOUND_RAM_FRACTION = 0.5;
+
+/**
+ * Resident memory one Node process holds beyond its V8 heap ceiling, in MiB:
+ * code, native allocations, buffers. The same allowance the heavy worker count
+ * makes (`GIB_PER_WORKER` minus the heap).
+ */
+export const PROCESS_OVERHEAD_MB = GIB_PER_WORKER * 1024 - HEAVY_TOOL_HEAP_MB;
+
+/**
+ * Most concurrent `typecheck`/`lint` runs on darwin, however large the Mac
+ * (T13123). A small fixed number, like the single darwin test slot (T12963).
+ */
+export const DARWIN_MEMORY_BOUND_SLOTS = 2;
+
+/**
+ * Machine-wide slot count for a single-process memory-bound tool
+ * (`typecheck`, `lint`): as many runs as fit in {@link MEMORY_BOUND_RAM_FRACTION}
+ * of RAM at `heap + PROCESS_OVERHEAD_MB` each, at most half the cores, at most
+ * {@link DARWIN_MEMORY_BOUND_SLOTS} on darwin, never fewer than one.
+ */
+function memoryBoundSlots(
+  cpus: number,
+  totalRamGib: number,
+  platform: NodeJS.Platform,
+  heapMb: number,
+): number {
+  const byRam = Math.floor(
+    (totalRamGib * 1024 * MEMORY_BOUND_RAM_FRACTION) / (heapMb + PROCESS_OVERHEAD_MB),
+  );
+  const byCpu = Math.floor(cpus / 2);
+  const slots = Math.max(1, Math.min(byRam, byCpu));
+  return platform === 'darwin' ? Math.min(DARWIN_MEMORY_BOUND_SLOTS, slots) : slots;
+}
 
 /**
  * Compute the default max-concurrency for a canonical tool.
@@ -199,8 +258,12 @@ export const HEAVY_TOOL_FOOTPRINT_GIB = 24;
  * PSI `some avg10` is a ten-second average, and a fork fleet can exhaust RAM
  * faster than that window can report it. Admission has to be right up front.
  *
- * Light tools (lint, typecheck, audit, security-scan) are single-process and
- * short, and keep the core-derived half-of-cores budget.
+ * `typecheck` and `lint` are single processes but not light ones (T13123): one
+ * TypeScript program on a large monorepo holds 2–5 GB, and the half-of-cores
+ * budget they had was nine slots on an 18-core box — 45 GB of `tsc`. They are
+ * RAM-derived now too ({@link MEMORY_BOUND_RAM_FRACTION} of RAM at the run's
+ * heap plus {@link PROCESS_OVERHEAD_MB} each), capped by half the cores. Only
+ * `audit` and `security-scan` keep the core-derived budget.
  *
  * ## Why darwin gets one heavy slot (T12963)
  *
@@ -215,6 +278,8 @@ export const HEAVY_TOOL_FOOTPRINT_GIB = 24;
  * @param cpuCount  - logical cores available.
  * @param totalRamGib - total machine RAM in GiB; defaults to a live reading.
  * @param platform - OS platform; defaults to `process.platform`.
+ * @param heapMb - heap ceiling of the run, for `typecheck`/`lint`; defaults to
+ *   {@link defaultHeavyHeapMb} for `totalRamGib`.
  * @returns the machine-wide slot count, always ≥ 1.
  *
  * @example
@@ -225,17 +290,24 @@ export const HEAVY_TOOL_FOOTPRINT_GIB = 24;
  * defaultMaxConcurrent('test', 24, 16); // → 1
  * // macOS: no PSI to back off with, so one heavy run at a time
  * defaultMaxConcurrent('test', 12, 64, 'darwin'); // → 1
+ * // 18 cores, 48 GiB: ⌊24576 / (4096 + 2048)⌋ = 4 typechecks (was 9); 2 on darwin
+ * defaultMaxConcurrent('typecheck', 18, 48, 'linux');  // → 4
+ * defaultMaxConcurrent('typecheck', 18, 48, 'darwin'); // → 2
+ * // 4 cores, 8 GiB: one at a time
+ * defaultMaxConcurrent('typecheck', 4, 8, 'linux'); // → 1
  * ```
  *
  * @task T1534
  * @task T12091
  * @task T12963
+ * @task T13123
  */
 export function defaultMaxConcurrent(
   canonical: CanonicalTool,
   cpuCount: number,
   totalRamGib: number = totalmem() / 1024 ** 3,
   platform: NodeJS.Platform = process.platform,
+  heapMb: number = defaultHeavyHeapMb(totalRamGib),
 ): number {
   const cpus = Math.max(1, cpuCount);
   switch (canonical) {
@@ -248,6 +320,7 @@ export function defaultMaxConcurrent(
     }
     case 'lint':
     case 'typecheck':
+      return memoryBoundSlots(cpus, totalRamGib, platform, heapMb);
     case 'audit':
     case 'security-scan':
       return Math.max(2, Math.floor(cpus / 2));
@@ -265,12 +338,14 @@ export function defaultMaxConcurrent(
  *
  * @task T1534
  * @task T12963
+ * @task T13123
  */
 export function resolveMaxConcurrent(
   canonical: CanonicalTool,
   cpuCount?: number,
   totalRamGib?: number,
   platform?: NodeJS.Platform,
+  heapMb?: number,
 ): number {
   const envKey = `CLEO_TOOL_CONCURRENCY_${canonical.toUpperCase().replace(/-/g, '_')}`;
   const raw = process.env[envKey];
@@ -281,18 +356,20 @@ export function resolveMaxConcurrent(
       return parsed;
     }
   }
+  const ram = totalRamGib ?? totalmem() / 1024 ** 3;
   return defaultMaxConcurrent(
     canonical,
     cpuCount ?? availableParallelism(),
-    totalRamGib ?? totalmem() / 1024 ** 3,
+    ram,
     platform ?? process.platform,
+    heapMb ?? defaultHeavyHeapMb(ram),
   );
 }
 
 /**
- * Whether a canonical tool's slot budget shrinks under memory pressure.
- * Only the heavy `test`/`build` classes scale; lint/typecheck/audit are light
- * and single-threaded, so they keep their static budget.
+ * Whether a canonical tool's slot budget shrinks under memory pressure: every
+ * memory-bound tool — `test`, `build`, and since T13123 `typecheck` and `lint`.
+ * `audit` and `security-scan` are network-bound and keep their static budget.
  */
 function isPressureSensitive(canonical: CanonicalTool): boolean {
   // Delegates rather than repeating the literal. This was the third
@@ -300,7 +377,7 @@ function isPressureSensitive(canonical: CanonicalTool): boolean {
   // fifth heavy tool would have needed three coordinated edits — with a missed
   // one producing a SILENT asymmetry (a tool granted the long deadline and the
   // worker caps but not a semaphore slot, or the reverse).
-  return isHeavyTool(canonical);
+  return isMemoryBoundTool(canonical);
 }
 
 /**
@@ -352,7 +429,7 @@ function hasConcurrencyOverride(canonical: CanonicalTool): boolean {
 
 /**
  * The {@link ResourceGovernor} class a heavy tool run is admitted under, or
- * `null` for light tools. `test` and `build` are the classes the governor
+ * `null` for the rest. `test` and `build` are the classes the governor
  * budgets as `test-run` / `scoped-build` (T12963).
  */
 export function governorClassFor(canonical: CanonicalTool): ResourceClass | null {
@@ -661,14 +738,20 @@ export async function acquireGlobalSlot(
   canonical: CanonicalTool,
   opts: AcquireSlotOptions = {},
 ): Promise<ReleaseSlotFn> {
-  const max = resolveMaxConcurrent(canonical, opts.cpuCount, opts.totalRamGib, opts.platform);
+  const max = resolveMaxConcurrent(
+    canonical,
+    opts.cpuCount,
+    opts.totalRamGib,
+    opts.platform,
+    opts.heapMb,
+  );
   if (!Number.isFinite(max) || max <= 0) {
     return NOOP_RELEASE;
   }
 
-  // T12001 / choke-point #6: shrink the EFFECTIVE slot count for the heavy
-  // test/build classes under memory pressure so builds/tests can't co-schedule
-  // into an OOM. The static slot FILES are still created (stable dir across
+  // T12001 / choke-point #6: shrink the EFFECTIVE slot count for the
+  // memory-bound classes under memory pressure so builds/tests/typechecks can't
+  // co-schedule into an OOM. The static slot FILES are still created (stable dir across
   // pressure swings) — only the acquirable window shrinks, and it recovers as
   // pressure clears. An explicit CLEO_TOOL_CONCURRENCY_* override is honored
   // verbatim, and any sampling failure fails OPEN to the static count.

@@ -29,7 +29,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { HEAVY_TOOL_HEAP_MB, heavyToolEnv } from '../heavy-tool-env.js';
+import { HEAVY_TOOL_HEAP_MB, heavyRunBudgetMb, heavyToolEnv } from '../heavy-tool-env.js';
 import { resourceKillReason, runToolCached } from '../tool-cache.js';
 import { captureResourceEnv, effectiveHeapFlags } from '../tool-cache-env.js';
 import { readFailedFirstPointer } from '../tool-cache-failed-first.js';
@@ -113,17 +113,32 @@ describe('effectiveHeapFlags', () => {
 });
 
 describe('captureResourceEnv', () => {
+  // T13122: the overlay is planned against a RAM-derived budget, so the key
+  // reads it on a fixed 62 GiB machine rather than whatever runs the suite.
+  const keyed = (canonical: 'test' | 'lint', env: NodeJS.ProcessEnv): string =>
+    captureResourceEnv(canonical, env, heavyToolEnv(canonical, env, 62));
+
   it('a heavy tool keys the heap the overlay supplies when the caller sets none', () => {
-    expect(captureResourceEnv('test', {})).toContain(
-      `NODE_OPTIONS=--max-old-space-size=${HEAVY_TOOL_HEAP_MB}`,
-    );
+    expect(keyed('test', {})).toContain(`NODE_OPTIONS=--max-old-space-size=${HEAVY_TOOL_HEAP_MB}`);
   });
 
   it("a heavy tool keys the caller's heap when it sets one", () => {
     const env = { NODE_OPTIONS: '--max-old-space-size=6144' };
-    expect(captureResourceEnv('test', env)).toContain('NODE_OPTIONS=--max-old-space-size=6144');
-    expect(captureResourceEnv('test', env)).not.toBe(
-      captureResourceEnv('test', { NODE_OPTIONS: '--max-old-space-size=3072' }),
+    expect(keyed('test', env)).toContain('NODE_OPTIONS=--max-old-space-size=6144');
+    expect(keyed('test', env)).not.toBe(
+      keyed('test', { NODE_OPTIONS: '--max-old-space-size=3072' }),
+    );
+  });
+
+  it('keys the heap and workers the run GETS: an inherited heap above the budget is clamped (T13122)', () => {
+    // 65536 MiB is above the 24 GiB budget of a 62 GiB machine, so the run is
+    // spawned with the budget, and keyed with it — not with what was asked.
+    expect(keyed('test', { NODE_OPTIONS: '--max-old-space-size=65536' })).toBe(
+      keyed('test', { NODE_OPTIONS: '--max-old-space-size=24576' }),
+    );
+    // A kept inherited heap shrinks the worker count, which the key carries.
+    expect(keyed('test', { NODE_OPTIONS: '--max-old-space-size=8192' })).toContain(
+      'VITEST_MAX_WORKERS=3',
     );
   });
 
@@ -137,15 +152,24 @@ describe('captureResourceEnv', () => {
 
   it('every variable heavyToolEnv sets is keyed for a heavy tool', () => {
     // Derived from heavyToolEnv itself, so this fails if a lever is added there
-    // and somehow left out of the key.
+    // and somehow left out of the key. Each value is one the plan KEEPS (a
+    // lower heap or count; MAKEFLAGS is never rewritten): a value it clamps is
+    // spawned, and keyed, as the plan's own (T13122).
     const levers = Object.keys(heavyToolEnv('test', {}));
     expect(levers).toEqual(expect.arrayContaining(['VITEST_MAX_WORKERS', 'JEST_MAX_WORKERS']));
-    const reference = captureResourceEnv('test', {});
+    const reference = keyed('test', {});
     for (const name of levers) {
-      const value = name === 'NODE_OPTIONS' ? '--max-old-space-size=1234' : '-j97';
-      expect(captureResourceEnv('test', { [name]: value }), `${name} must move the key`).not.toBe(
-        reference,
-      );
+      const value =
+        name === 'NODE_OPTIONS' ? '--max-old-space-size=1234' : name === 'MAKEFLAGS' ? '-j97' : '1';
+      if (
+        name === 'npm_config_workspace_concurrency' ||
+        name === 'pnpm_config_workspace_concurrency'
+      ) {
+        // The plan is already 1, the lowest value there is; keyed all the same.
+        expect(reference).toContain(`${name}=1`);
+        continue;
+      }
+      expect(keyed('test', { [name]: value }), `${name} must move the key`).not.toBe(reference);
     }
   });
 
@@ -161,12 +185,16 @@ describe('captureResourceEnv', () => {
     ).toBe(captureResourceEnv('test', { MAKEFLAGS: '-j4 --jobserver-auth=fifo:/tmp/GMfifo456' }));
   });
 
-  it('a non-heavy tool keys only the heap: worker counts are inert for it', () => {
+  it('a single-process tool keys no worker counts: they are inert for it', () => {
     expect(captureResourceEnv('lint', { VITEST_MAX_WORKERS: '2' })).toBe(
       captureResourceEnv('lint', { VITEST_MAX_WORKERS: '6' }),
     );
-    expect(captureResourceEnv('lint', { NODE_OPTIONS: '--max-old-space-size=3072' })).toBe(
-      'NODE_OPTIONS=--max-old-space-size=3072',
+    // T13123: lint is memory-bound — its heap and workspace concurrency are keyed.
+    expect(keyed('lint', { NODE_OPTIONS: '--max-old-space-size=3072' })).toBe(
+      'NODE_OPTIONS=--max-old-space-size=3072;npm_config_workspace_concurrency=1;pnpm_config_workspace_concurrency=1',
+    );
+    expect(keyed('lint', { NODE_OPTIONS: '--max-old-space-size=3072' })).not.toBe(
+      keyed('lint', { NODE_OPTIONS: '--max-old-space-size=2048' }),
     );
   });
 });
@@ -374,59 +402,91 @@ describe('runToolCached — resource kills and resource limits (T12989)', () => 
     expect(fixed.entry.scope).toBeUndefined();
   });
 
+  // T13122: an inherited heap or worker count is kept only within the run's
+  // RAM-derived budget, so these use values that fit every machine CI runs on
+  // (a 7 GiB runner's budget is 3584 MiB × 1 worker) — or the explicit
+  // CLEO_HEAVY_* overrides, which are never clamped.
   it('AC3: a heap change misses the cache; an unrelated NODE_OPTIONS flag does not', async () => {
     const cmd = testCommand('echo ok');
 
-    process.env['NODE_OPTIONS'] = '--max-old-space-size=3072';
+    process.env['NODE_OPTIONS'] = '--max-old-space-size=1024';
     expect((await run(cmd)).cacheHit).toBe(false);
     const hit = await run(cmd);
     expect(hit.cacheHit).toBe(true);
-    expect(hit.entry.resourceEnv).toContain('NODE_OPTIONS=--max-old-space-size=3072');
+    expect(hit.entry.resourceEnv).toContain('NODE_OPTIONS=--max-old-space-size=1024');
 
-    process.env['NODE_OPTIONS'] = '--max-old-space-size=6144';
+    process.env['NODE_OPTIONS'] = '--max-old-space-size=2048';
     const bigger = await run(cmd);
     expect(bigger.cacheHit).toBe(false);
-    expect(bigger.entry.resourceEnv).toContain('NODE_OPTIONS=--max-old-space-size=6144');
+    expect(bigger.entry.resourceEnv).toContain('NODE_OPTIONS=--max-old-space-size=2048');
     expect(spawnCount()).toBe(2);
 
-    process.env['NODE_OPTIONS'] = '--enable-source-maps --max-old-space-size=6144';
+    process.env['NODE_OPTIONS'] = '--enable-source-maps --max-old-space-size=2048';
     expect((await run(cmd)).cacheHit).toBe(true);
     expect(spawnCount()).toBe(2);
   });
 
   it('AC3: a worker-count change misses the cache', async () => {
     const cmd = testCommand('echo ok');
-    process.env['VITEST_MAX_WORKERS'] = '6';
-    await run(cmd);
-    expect((await run(cmd)).cacheHit).toBe(true);
+    process.env['CLEO_HEAVY_WORKERS'] = '6';
+    try {
+      await run(cmd);
+      expect((await run(cmd)).cacheHit).toBe(true);
 
-    process.env['VITEST_MAX_WORKERS'] = '2';
-    expect((await run(cmd)).cacheHit).toBe(false);
-    expect(spawnCount()).toBe(2);
+      process.env['CLEO_HEAVY_WORKERS'] = '2';
+      expect((await run(cmd)).cacheHit).toBe(false);
+      expect(spawnCount()).toBe(2);
+    } finally {
+      delete process.env['CLEO_HEAVY_WORKERS'];
+    }
   });
 
   it('the field report: OOM at 3 GB, then a 6 GB retry runs and passes', async () => {
-    // Runs out of memory exactly when it is given 3072 MiB.
+    // Runs out of memory exactly when it is given 3072 MiB. The retry raises
+    // the heap the way the resource-kill message says to (T13122).
     const cmd = testCommand(
       `case "$NODE_OPTIONS" in *=3072*) echo "${OOM_LINE}" >&2; exit 1;; esac; echo ok`,
     );
 
-    process.env['NODE_OPTIONS'] = '--max-old-space-size=3072';
-    const oom = await run(cmd);
-    expect(oom.exitCode).toBe(1);
-    expect(oom.resourceKill).not.toBeNull();
+    try {
+      process.env['CLEO_HEAVY_HEAP_MB'] = '3072';
+      const oom = await run(cmd);
+      expect(oom.exitCode).toBe(1);
+      expect(oom.resourceKill).not.toBeNull();
 
-    process.env['NODE_OPTIONS'] = '--max-old-space-size=6144';
-    const retry = await run(cmd);
-    expect(retry.cacheHit).toBe(false);
-    expect(retry.exitCode).toBe(0);
-    expect(retry.resourceKill).toBeNull();
+      process.env['CLEO_HEAVY_HEAP_MB'] = '6144';
+      const retry = await run(cmd);
+      expect(retry.cacheHit).toBe(false);
+      expect(retry.exitCode).toBe(0);
+      expect(retry.resourceKill).toBeNull();
 
-    // And going back to 3 GB re-runs rather than replaying anything.
-    process.env['NODE_OPTIONS'] = '--max-old-space-size=3072';
-    const again = await run(cmd);
-    expect(again.cacheHit).toBe(false);
-    expect(again.resourceKill).not.toBeNull();
-    expect(spawnCount()).toBe(3);
+      // And going back to 3 GB re-runs rather than replaying anything.
+      process.env['CLEO_HEAVY_HEAP_MB'] = '3072';
+      const again = await run(cmd);
+      expect(again.cacheHit).toBe(false);
+      expect(again.resourceKill).not.toBeNull();
+      expect(spawnCount()).toBe(3);
+    } finally {
+      delete process.env['CLEO_HEAVY_HEAP_MB'];
+    }
+  });
+
+  it('T13122: an inherited heap above the budget reaches the tool clamped, and the result says so', async () => {
+    const seen = join(side, 'node-options');
+    const cmd = testCommand(`printf '%s' "$NODE_OPTIONS" > "${seen}"; echo ok`);
+    process.env['NODE_OPTIONS'] = '--enable-source-maps --max-old-space-size=999999';
+
+    const result = await run(cmd);
+    expect(result.exitCode).toBe(0);
+    expect(result.resources?.heapSource).toBe('clamped');
+    expect(result.resources?.inheritedHeapMb).toBe(999999);
+    expect(result.resources?.heapMb).toBe(heavyRunBudgetMb());
+    expect(readFileSync(seen, 'utf-8')).toBe(
+      `--enable-source-maps --max-old-space-size=${heavyRunBudgetMb()}`,
+    );
+    // A cache hit reports the same plan: the key carries the limits.
+    const hit = await run(cmd);
+    expect(hit.cacheHit).toBe(true);
+    expect(hit.resources?.summary).toBe(result.resources?.summary);
   });
 });
