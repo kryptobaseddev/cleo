@@ -111,6 +111,14 @@ const READ_POLL_MS = 250;
 /** How often a waiter runs a scheduling pass of its own (and refreshes its heartbeat). */
 const PASS_EVERY_MS = 2_000;
 
+/**
+ * `CLEO_ADMISSION_PRESSURE=off`: admission ignores memory and CPU pressure
+ * and admits on the byte budget alone (a CI runner whose PSI is noisy, and
+ * the test suite, which must never depend on the host's load). An explicit
+ * sampler passed to {@link admit} is still used.
+ */
+export const ADMISSION_PRESSURE_ENV = 'CLEO_ADMISSION_PRESSURE';
+
 /** One GiB in bytes. */
 export const GIB = 1024 ** 3;
 
@@ -716,7 +724,10 @@ export interface AdmitOptions {
   readonly timeoutMs?: number;
   /** Re-read cadence while waiting. @defaultValue 250 ms */
   readonly pollMs?: number;
-  /** One pressure sample; a throw counts as no signal. @defaultValue a ResourceMonitor sample */
+  /**
+   * One pressure sample; a throw counts as no signal.
+   * @defaultValue a ResourceMonitor sample, or none under `CLEO_ADMISSION_PRESSURE=off`
+   */
   readonly sample?: () => Promise<ResourceSample>;
   /** The machine budget in bytes. @defaultValue {@link admissionCapacityBytes} */
   readonly capacityBytes?: number;
@@ -833,6 +844,9 @@ function newId(pid: number, nowMs: number): string {
 async function sampleShare(
   opts: AdmitOptions,
 ): Promise<{ share: BudgetShare; reading: MemoryPressureReading | null }> {
+  if (!opts.sample && process.env[ADMISSION_PRESSURE_ENV] === 'off') {
+    return { share: 'full', reading: null };
+  }
   let sample: ResourceSample | null;
   try {
     sample = await (opts.sample ?? (() => new ResourceMonitor().sample()))();

@@ -253,6 +253,7 @@ describe('memoryGateReporter', () => {
       /^waiting: memory pressure 30 \(refused above 25, resumes at 15 or below\): /,
     );
     expect(lines[0]).toContain('The test run starts when pressure falls; waited 0s.');
+    expect(lines[0]).toContain('(CLEO_RESOURCES_MODE=off turns admission off.)');
     expect(lines[1]).toContain('waited 1m 00s');
     expect(lines[2]).toBe(
       'memory pressure fell (now 12) after waiting 1m 05s: admitting the test run.',

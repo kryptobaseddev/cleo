@@ -317,6 +317,7 @@ export {
 // Machine-wide evidence-run admission over the admission ledger (T1534 / ADR-061, T13133)
 export {
   type AcquireSlotOptions,
+  AdmissionTimeoutError,
   acquireGlobalSlot,
   legacyConcurrencyOverride,
   type ReleaseSlotFn,

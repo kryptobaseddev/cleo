@@ -368,7 +368,6 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         wait: opts.wait === true,
         timeoutMs: Math.max(1, deadline - d.now()),
         ...(opts.queuePollMs !== undefined ? { pollMs: opts.queuePollMs } : {}),
-        sample: d.sample,
         memoryPressure: memoryGateReporter((line) => notice(line, 'warn'), `${opts.cls} job`, {
           now: d.now,
         }),

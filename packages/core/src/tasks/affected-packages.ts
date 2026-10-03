@@ -32,7 +32,7 @@ import { LIGHT_FOOTPRINT_BYTES } from '../resources/admission-ledger.js';
 import type { MergeVerdict } from './affected-scope.js';
 import { splitCommandLine } from './command-line.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
-import { acquireGlobalSlot, type ReleaseSlotFn } from './tool-semaphore.js';
+import { AdmissionTimeoutError, acquireGlobalSlot, type ReleaseSlotFn } from './tool-semaphore.js';
 
 /**
  * A path with `/` separators. `path.relative` and Windows callers produce `\`,
@@ -207,21 +207,28 @@ export type VitestProjectsResult =
   | {
       ok: false;
       reason: string;
-      /** The `test` slot was busy and the caller would not wait (T12656 review). */
+      /** Admission refused it now and the caller would not wait (T12656 review, T13133). */
       busy?: true;
     };
 
-/** The report a caller that will not wait gets while the `test` slot is held. */
-export const TEST_SLOT_BUSY = 'scope pending: test slot busy';
+/**
+ * The report a caller that will not wait gets while the machine budget is in
+ * use (T13133: the admission ledger replaced the `test` slot).
+ */
+export const TEST_SLOT_BUSY = 'scope pending: the machine budget is in use';
+
+/** The report a caller that will not wait gets while memory pressure refuses heavy work. */
+export const MEMORY_PRESSURE_BUSY = 'scope pending: memory pressure';
 
 /** Options for {@link listVitestProjects}. */
 export interface ListVitestProjectsOptions {
-  /** Heavy-tool slot acquisition (tests inject; defaults to the global `test` semaphore). */
+  /** Admission (tests inject; defaults to the admission ledger as a light `test` run). */
   acquireSlot?: (canonical: 'test') => Promise<ReleaseSlotFn>;
   /**
-   * Queue for the `test` slot (true: `cleo done`, about to run tests anyway),
-   * or take it only if free now (false: `--plan`, which never waits — a held
-   * slot reports {@link TEST_SLOT_BUSY}). Default false.
+   * Queue for admission (true: `cleo done`, about to run tests anyway), or
+   * take it only if admitted now (false: `--plan`, which never waits — a
+   * refusal reports {@link TEST_SLOT_BUSY} or {@link MEMORY_PRESSURE_BUSY}).
+   * Default false.
    */
   wait?: boolean;
 }
@@ -317,8 +324,10 @@ async function resolveVitestProjects(
   let release: ReleaseSlotFn;
   try {
     release = await acquireSlot('test');
-  } catch {
-    return { ok: false, busy: true, reason: TEST_SLOT_BUSY };
+  } catch (err) {
+    // Pressure is reported as pressure, not as a busy budget.
+    const pressure = err instanceof AdmissionTimeoutError && err.refusal.memoryPressure !== null;
+    return { ok: false, busy: true, reason: pressure ? MEMORY_PRESSURE_BUSY : TEST_SLOT_BUSY };
   }
   try {
     ({ stdout } = await promisify(execFile)(

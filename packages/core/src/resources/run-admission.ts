@@ -754,7 +754,8 @@ function deferralFix(
     return (
       `The machine is short of memory (${memory.summary}); nothing was started. ` +
       `Heavy work starts again once memory pressure falls to ${memory.resumeAtOrBelow} or below ` +
-      `(now ${memory.score}): continue other work, close memory-heavy apps, or re-run with --wait to start automatically.`
+      `(now ${memory.score}): continue other work, close memory-heavy apps, or re-run with --wait to start automatically ` +
+      '(CLEO_RESOURCES_MODE=off turns admission off).'
     );
   }
   return state === 'ok'

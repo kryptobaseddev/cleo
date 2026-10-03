@@ -25,6 +25,18 @@ summary: "One admission ledger replaces the tool semaphore's slots, the governor
   `hold` halves it, CPU saturation admits one run at a time, and the memory
   gate (T13127) admits nothing. When nothing else is running, the oldest
   waiting run always starts.
+- **Memory pressure refuses, with hysteresis.** Heavy work is refused while
+  memory pressure is above 25 (PSI `some avg10` on Linux, the derived score on
+  macOS) or `full avg10` is above 10. Once refused, it is admitted again only
+  at 15 or below. The refusing state is shared machine-wide
+  (`<cleoHome>/locks/memory-gate.json`), so a newcomer cannot slip in while
+  others wait, and it expires after 60 s if nobody refreshes it. A waiter
+  prints `waiting: memory pressure <score> … <readings>` at most once a
+  minute, then `memory pressure fell …`. A `cleo run` refusal carries the
+  readings in `details.memoryPressure`. A missing pressure signal never
+  refuses. `CLEO_ADMISSION_PRESSURE=off` admits on the byte budget alone, for
+  CI runners with noisy PSI; the test suite runs this way so it never
+  depends on host load.
 - **Fair queue.** Runs are admitted FIFO, with backfill: a small run may start
   ahead of a big one that does not fit yet. After two minutes the oldest
   waiting run holds a reservation and nothing passes it, so neither big nor

@@ -65,6 +65,8 @@ beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'cleo-home-admission-'));
   process.env.CLEO_HOME = home;
   delete process.env.CLEO_RESOURCES_MODE;
+  // These tests script the live sampler (ResourceMonitor), so it must be used.
+  delete process.env.CLEO_ADMISSION_PRESSURE;
   delete process.env[ADMISSION_ENV];
   for (const k of Object.keys(process.env)) {
     if (k.startsWith('CLEO_TOOL_CONCURRENCY_')) delete process.env[k];
@@ -76,7 +78,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   rmSync(home, { recursive: true, force: true });
-  for (const k of ['CLEO_HOME', 'CLEO_RESOURCES_MODE', ADMISSION_ENV]) {
+  for (const k of ['CLEO_HOME', 'CLEO_RESOURCES_MODE', 'CLEO_ADMISSION_PRESSURE', ADMISSION_ENV]) {
     if (saved[k] === undefined) delete process.env[k];
     else process.env[k] = saved[k];
   }

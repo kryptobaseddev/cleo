@@ -299,7 +299,8 @@ export function memoryGateWaitingLine(
   return (
     `waiting: memory pressure ${reading.score} (refused above ${reading.refuseAbove}, ` +
     `resumes at ${reading.resumeAtOrBelow} or below): ${reading.summary}. ` +
-    `The ${subject} starts when pressure falls; waited ${duration(waitedMs)}.`
+    `The ${subject} starts when pressure falls; waited ${duration(waitedMs)}. ` +
+    '(CLEO_RESOURCES_MODE=off turns admission off.)'
   );
 }
 

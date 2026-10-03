@@ -9,9 +9,10 @@
 import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ADMISSION_ENV,
+  ADMISSION_PRESSURE_ENV,
   admissionCapacityBytes,
   admissionToken,
   admit,
@@ -29,6 +30,7 @@ import {
   suspectCycle,
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
+import { ResourceMonitor } from '../monitor.js';
 import { _resetMemoryGateForTest, memoryGateReporter } from '../pressure-gate.js';
 import type { PidProbe } from '../slot-holder.js';
 
@@ -475,6 +477,43 @@ describe('admit (one ledger, real critical section)', () => {
     expect(readLedger(dir).map((e) => e.pid)).toEqual([process.pid]);
     if (next.admitted) await next.grant.release();
     expect(await reapLedger({ dir, probe: gone, capacityBytes, sample: calm })).toEqual([]);
+  });
+
+  it('CLEO_ADMISSION_PRESSURE=off ignores host pressure; an explicit sampler still counts', async () => {
+    const line = { avg10: 40, avg60: 40, avg300: 40, totalUs: 0 };
+    const spy = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue({
+      ...sampleAt(0),
+      globalPressure: { some: line, full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 } },
+    });
+    const saved = process.env[ADMISSION_PRESSURE_ENV];
+    try {
+      const { sample: _ignored, ...noSampler } = base;
+      process.env[ADMISSION_PRESSURE_ENV] = 'off';
+      const off = await admit(
+        { label: 'tool:test', footprintBytes: GIB },
+        { ...noSampler, dir, wait: false },
+      );
+      expect(off.admitted).toBe(true);
+      if (off.admitted) await off.grant.release();
+      delete process.env[ADMISSION_PRESSURE_ENV];
+      _resetMemoryGateForTest();
+      const on = await admit(
+        { label: 'tool:test', footprintBytes: GIB },
+        { ...noSampler, dir, wait: false },
+      );
+      expect(on.admitted).toBe(false);
+      _resetMemoryGateForTest();
+      process.env[ADMISSION_PRESSURE_ENV] = 'off';
+      const explicit = await admit(
+        { label: 'tool:test', footprintBytes: GIB },
+        { ...noSampler, dir, wait: false, sample: async () => sampleAt(40) },
+      );
+      expect(explicit.admitted).toBe(false);
+    } finally {
+      spy.mockRestore();
+      if (saved === undefined) delete process.env[ADMISSION_PRESSURE_ENV];
+      else process.env[ADMISSION_PRESSURE_ENV] = saved;
+    }
   });
 
   it('CLEO_RESOURCES_MODE=off admits everything without touching the ledger', async () => {

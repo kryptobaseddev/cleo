@@ -139,7 +139,8 @@ export interface DeriveTaskEvidenceOptions {
   /**
    * Queue for the `test` slot while resolving the affected scope. `cleo done`
    * does (it runs the tests next); `--plan` never waits and reports
-   * `scope pending: test slot busy` instead (T12656 review).
+   * `scope pending: …` instead (T12656 review; T13133: the machine budget in
+   * use, or memory pressure).
    */
   waitForTestSlot?: boolean;
 }

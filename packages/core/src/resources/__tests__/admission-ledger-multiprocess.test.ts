@@ -180,4 +180,61 @@ describe.skipIf(DIST_MISSING)('admission ledger — 20 real processes (T13133)',
     };
     expect(ledger.entries).toEqual([]);
   }, 120_000);
+
+  it('re-entrancy across real processes: a holder\'s descendant rides its grant (even with a scrubbed env); a stranger waits', async () => {
+    const ledgerDir = join(work, 'admission');
+    const url = JSON.stringify(pathToFileURL(LEDGER_DIST).href);
+    const opts = `{ wait: false, capacityBytes: ${3 * GIB}, dir: process.env.LEDGER_DIR, sample: async () => { throw new Error('none'); } }`;
+    // The holder takes the whole budget, then runs a child with an EMPTY env
+    // (no CLEO_ADMISSION: a wrapper that scrubbed it) that asks again.
+    const holder = `
+      const { execFileSync } = require('node:child_process');
+      import(${url}).then(async ({ admit }) => {
+        const out = await admit({ label: 'run:test-run', footprintBytes: ${3 * GIB}, command: 'holder', cwd: null }, { ...${opts}, env: {} });
+        if (!out.admitted) { console.log('HOLDER-REFUSED'); process.exit(3); }
+        const child = \`import(\${JSON.stringify(${url})}).then(async ({ admit }) => {
+          const r = await admit({ label: 'tool:test', footprintBytes: ${GIB}, command: 'child', cwd: null },
+            { wait: false, capacityBytes: ${3 * GIB}, dir: \${JSON.stringify(process.env.LEDGER_DIR)}, env: {}, sample: async () => { throw new Error('none'); } });
+          console.log(r.admitted && r.grant.nested ? 'CHILD-NESTED' : 'CHILD-NOT-NESTED');
+        });\`;
+        process.stdout.write(execFileSync(process.execPath, ['-e', child], { env: {}, encoding: 'utf-8' }));
+        // A stranger (spawned by the test, not by the holder) is refused meanwhile.
+        require('node:fs').writeFileSync(process.env.HELD, '');
+        await new Promise((r) => { const t = () => (require('node:fs').existsSync(process.env.DONE) ? r() : setTimeout(t, 10)); t(); });
+        await out.grant.release();
+      });
+    `;
+    const held = join(work, 'held');
+    const done = join(work, 'done');
+    const env = { ...process.env, LEDGER_DIR: ledgerDir, HELD: held, DONE: done };
+    let holderOut = '';
+    const holderExit = new Promise<number | null>((res) => {
+      const child = spawn(process.execPath, ['-e', holder], { cwd: work, env, stdio: ['ignore', 'pipe', 'inherit'] });
+      child.stdout?.on('data', (d: Buffer) => {
+        holderOut += d.toString();
+      });
+      child.on('close', res);
+    });
+    const deadline = Date.now() + 30_000;
+    while (!existsSync(held) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+    const stranger = await new Promise<string>((res) => {
+      const child = spawn(
+        process.execPath,
+        [
+          '-e',
+          `import(${url}).then(async ({ admit }) => { const r = await admit({ label: 'tool:test', footprintBytes: ${GIB}, command: 'stranger', cwd: null }, { ...${opts}, env: {} }); console.log(r.admitted ? 'STRANGER-ADMITTED' : 'STRANGER-REFUSED'); });`,
+        ],
+        { cwd: work, env, stdio: ['ignore', 'pipe', 'inherit'] },
+      );
+      let out = '';
+      child.stdout?.on('data', (d: Buffer) => {
+        out += d.toString();
+      });
+      child.on('close', () => res(out));
+    });
+    writeFileSync(done, '');
+    expect(await holderExit).toBe(0);
+    expect(holderOut).toContain('CHILD-NESTED');
+    expect(stranger).toContain('STRANGER-REFUSED');
+  }, 60_000);
 });

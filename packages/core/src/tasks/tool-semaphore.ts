@@ -37,9 +37,13 @@
  * @adr ADR-061
  */
 
-import { admissionCapacityBytes, admit, footprintForTool } from '../resources/admission-ledger.js';
+import {
+  type AdmissionRefusal,
+  admissionCapacityBytes,
+  admit,
+  footprintForTool,
+} from '../resources/admission-ledger.js';
 import type { ResourceSample } from '../resources/backend.js';
-import { ResourceMonitor } from '../resources/monitor.js';
 import { memoryGateReporter } from '../resources/pressure-gate.js';
 import type { CanonicalTool } from './tool-resolver.js';
 
@@ -157,6 +161,32 @@ export function _resetToolSemaphoreForTest(): void {
   _deprecationNoticed.clear();
 }
 
+/**
+ * {@link acquireGlobalSlot} gave up: the run was not admitted within its
+ * timeout. `refusal` says why (memory pressure, or the budget in use) and who
+ * holds the budget.
+ *
+ * @task T13133
+ */
+export class AdmissionTimeoutError extends Error {
+  /** Why the run was not admitted, with the holders. */
+  readonly refusal: AdmissionRefusal;
+
+  /**
+   * @param canonical - the tool whose run waited.
+   * @param refusal - the ledger's refusal.
+   */
+  constructor(canonical: CanonicalTool, refusal: AdmissionRefusal) {
+    super(
+      `Timed out waiting for admission of a '${canonical}' run: ${refusal.reason}.` +
+        (refusal.holders.length > 0 ? ` Current holders — ${refusal.holders.join('; ')}.` : '') +
+        ' Use CI as test evidence (ci:<pr>), narrow the run, or set CLEO_RESOURCES_MODE=off to turn admission off.',
+    );
+    this.name = 'AdmissionTimeoutError';
+    this.refusal = refusal;
+  }
+}
+
 function withAdmission(release: () => Promise<void>, admission: string): ReleaseSlotFn {
   return Object.assign(release, { admission });
 }
@@ -213,22 +243,22 @@ export async function acquireGlobalSlot(
       timeoutMs: opts.timeoutMs ?? 3_600_000,
       ...(opts.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
       ...(totalBytes !== undefined ? { capacityBytes: admissionCapacityBytes(totalBytes) } : {}),
-      sample: async () => {
-        if (fixed === null) throw new Error('pressure disabled');
-        return fixed ?? new ResourceMonitor().sample();
-      },
+      // A fixed sample (or none) when given; otherwise the ledger's default.
+      ...(fixed === undefined
+        ? {}
+        : {
+            sample: async () => {
+              if (fixed === null) throw new Error('pressure disabled');
+              return fixed;
+            },
+          }),
       memoryPressure: memoryGateReporter(notice, `'${canonical}' run`),
       notice,
     },
   );
   if (!outcome.admitted) {
-    const { refusal } = outcome;
     // @sync-invariant none:local-only machine-wide admission timeout; no store write
-    throw new Error(
-      `Timed out waiting for admission of a '${canonical}' run: ${refusal.reason}.` +
-        (refusal.holders.length > 0 ? ` Current holders — ${refusal.holders.join('; ')}.` : '') +
-        ' Use CI as test evidence (ci:<pr>), narrow the run, or set CLEO_RESOURCES_MODE=off.',
-    );
+    throw new AdmissionTimeoutError(canonical, outcome.refusal);
   }
   const { grant } = outcome;
   if (grant.ungoverned) {
