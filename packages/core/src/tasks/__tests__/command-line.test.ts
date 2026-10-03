@@ -56,4 +56,14 @@ describe('splitCommandLine (T12718)', () => {
     expect(line).toBe(`vitest run -t 'it'\\''s a test' --flag=value '*.ts'`);
     expect(splitCommandLine(line)).toEqual(words);
   });
+
+  it('joinCommandLine leaves a brace placeholder bare: sh never expands a comma-less {word} (T13125)', () => {
+    expect(joinCommandLine(['pnpm', '{filters}', 'run', 'test'])).toBe('pnpm {filters} run test');
+    expect(splitCommandLine('pnpm {filters} run test')).toEqual([
+      'pnpm',
+      '{filters}',
+      'run',
+      'test',
+    ]);
+  });
 });

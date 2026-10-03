@@ -78,6 +78,7 @@ describe('proposeAffectedCommand (T13125)', () => {
       'pnpm exec vitest run', // one vitest process: its projects need {projects}
       'pnpm -r build', // not a test run
       'pnpm -r --filter @x/a test', // already narrowed
+      'pnpm -r --include-workspace-root test', // would add the root's own (often whole-suite) test
       'turbo run test build', // more than the test task
       'turbo run test --affected', // already narrowed
       'pnpm -r test && echo done', // shell syntax

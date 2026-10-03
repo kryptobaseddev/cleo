@@ -29,6 +29,7 @@ import {
   removeCleoFromRootGitignore,
   stripCLEOBlocks,
 } from '../scaffold.js';
+import { resolveAffectedTemplate } from '../tasks/affected-template.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -413,6 +414,55 @@ describe('ensureProjectContext', () => {
     expect(regenerated.typecheck).toBeUndefined();
     expect(regenerated.audit).toBeUndefined();
     expect(regenerated['security-scan']).toBeUndefined();
+  });
+
+  it('never writes a derived affectedCommand: a custom test:ci keeps running in full (review of #1818)', async () => {
+    // review-p0's repro: the root `test` script is pnpm -r test, but the user
+    // set testing.command to their own test:ci. A persisted template derived
+    // from DETECTION's `pnpm run test` read as declared and silently ran
+    // `test` on the affected subset instead of test:ci.
+    writeFileSync(
+      join(tmpDir, 'package.json'),
+      JSON.stringify({
+        name: 'root',
+        scripts: { test: 'pnpm -r test', 'test:ci': 'pnpm -r run test:ci' },
+      }),
+    );
+    writeFileSync(join(tmpDir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+    writeFileSync(join(tmpDir, 'vitest.config.ts'), 'export default {}');
+    const contextPath = join(tmpDir, '.cleo', 'project-context.json');
+    writeFileSync(
+      contextPath,
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        detectedAt: new Date().toISOString(),
+        projectTypes: ['node'],
+        testing: { command: 'pnpm -r --if-present run test:ci' },
+        evidence: { ciSatisfies: true },
+      }),
+    );
+    const result = await ensureProjectContext(tmpDir, { force: true });
+    const regenerated = JSON.parse(readFileSync(contextPath, 'utf-8'));
+    expect(regenerated.testing.command).toBe('pnpm -r --if-present run test:ci');
+    expect(regenerated.testing.affectedCommand).toBeUndefined();
+    expect(result.details).toBeUndefined(); // test:ci has no mechanical affected form
+    expect(resolveAffectedTemplate(regenerated.testing, tmpDir)).toBeNull();
+  });
+
+  it('proposes the derived affectedCommand in the result instead of writing it (T13125)', async () => {
+    writeFileSync(
+      join(tmpDir, 'package.json'),
+      JSON.stringify({ name: 'root', scripts: { test: 'pnpm -r --no-bail run test' } }),
+    );
+    writeFileSync(join(tmpDir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+    writeFileSync(join(tmpDir, 'vitest.config.ts'), 'export default {}');
+    const result = await ensureProjectContext(tmpDir, { force: true });
+    const written = JSON.parse(
+      readFileSync(join(tmpDir, '.cleo', 'project-context.json'), 'utf-8'),
+    );
+    expect(written.testing.affectedCommand).toBeUndefined();
+    expect(result.details).toContain('pnpm {filters} --no-bail run test');
+    expect(resolveAffectedTemplate(written.testing, tmpDir)).toMatchObject({ source: 'derived' });
   });
 
   it('keeps evidence, release and the affected-scope settings on regeneration (T13125)', async () => {

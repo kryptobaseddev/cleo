@@ -35,7 +35,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { splitCommandLine } from './command-line.js';
+import { joinCommandLine, splitCommandLine } from './command-line.js';
 
 /** Where an affected template came from. */
 export type AffectedTemplateSource = 'declared' | 'derived';
@@ -54,16 +54,14 @@ export interface AffectedTemplate {
 const PNPM_RECURSIVE = new Set(['-r', '--recursive']);
 const NPM_ALL_WORKSPACES = new Set(['--workspaces', '-ws']);
 
-/** Flags that already narrow the selection: a command carrying one is not workspace-wide. */
-const SELECTION_FLAGS = /^(--filter|-F|--workspace|-w|--scope|--affected)(=|$)/;
-
-/** A word `splitCommandLine` reads back unchanged without quoting. */
-const BARE_WORD = /^[A-Za-z0-9_@%+=:,./{}^-]+$/;
-
-/** Quote one argv word so {@link splitCommandLine} reads it back verbatim. */
-function quoteWord(word: string): string {
-  return BARE_WORD.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
-}
+/**
+ * Flags that change the selection: a command carrying one is not a plain
+ * workspace-wide run. `--include-workspace-root` would add the root package to
+ * every affected run — whose own `test` script is often `pnpm -r test`, the
+ * whole suite again (review of #1818).
+ */
+const SELECTION_FLAGS =
+  /^(--filter|-F|--workspace|-w|--scope|--affected|--include-workspace-root)(=|$)/;
 
 /**
  * Whether `root` is a workspace root: a `pnpm-workspace.yaml`, or a
@@ -175,9 +173,7 @@ export function proposeAffectedCommand(
       return null;
     }
     const affected = deriveFromWords(words);
-    return affected === null
-      ? null
-      : { template: affected.map(quoteWord).join(' '), basis: command };
+    return affected === null ? null : { template: joinCommandLine(affected), basis: command };
   };
   // No declared command: the language default runs the root `test` script.
   if (testCommand === undefined || testCommand.trim() === '') {

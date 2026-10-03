@@ -13,11 +13,14 @@ declared `testing.affectedCommand`, and the whole workspace otherwise. Most work
 - When none is declared, the affected template is derived from a workspace-wide test command whose affected
   form is mechanical: `pnpm -r … test` → `pnpm {filters} … test`, `npm … test --workspaces` →
   `npm … test {workspaces}` (new placeholder: `--workspace <name>` per package), `turbo run test` →
-  `turbo run test {filters}`, read through the root `test` script when the command delegates to it. It runs
+  `turbo run test {filters}`, read through the root `test` script when the command delegates to it (a command
+  that already narrows the selection, or adds the workspace root, derives nothing). It runs
   the same per-package `test` scripts on the subset; the planner still runs the full suite when a change
   touches anything outside every package. The atom says the template was derived and from what.
   `testing.preferAffected: false` still opts out (now in the schema).
-- `cleo init` / `cleo detect` write the derived `testing.affectedCommand` into `project-context.json`.
+- `cleo init` / `cleo detect` propose the derived command in their output; it is never written into
+  `project-context.json`, so it always follows the current `testing.command` and a written
+  `testing.affectedCommand` always means the user declared it.
 - `cleo doctor` gains `affected_test_scope`: it warns about a workspace whose every `tool:test` runs the
   whole suite, proposes the derived command where one exists, and, when `evidence.ciSatisfies` is set, names
   `ci:<pr>` as the preferred testsPassed evidence.

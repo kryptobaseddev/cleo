@@ -107,9 +107,24 @@ export async function ensureProjectContext(
 
   await writeFile(contextPath, JSON.stringify(output, null, 2));
 
+  // T13125: propose, never persist, the affected-scope command. A written
+  // template would read as declared, outlive an edit to testing.command and
+  // run a different script than the user's (review of #1818); tool:test
+  // derives it at runtime from whatever testing.command is current.
+  const { proposeAffectedCommand } = await import('../tasks/affected-template.js');
+  const proposal = context.testing?.affectedCommand
+    ? null
+    : proposeAffectedCommand(projectRoot, context.testing?.command);
   return {
     action: existsSync(contextPath) ? 'repaired' : 'created',
     path: contextPath,
+    ...(proposal
+      ? {
+          details:
+            `tool:test runs only the affected packages with "${proposal.template}", derived from ` +
+            `"${proposal.basis}" at each run; set testing.affectedCommand to pin a different one`,
+        }
+      : {}),
   };
 }
 
