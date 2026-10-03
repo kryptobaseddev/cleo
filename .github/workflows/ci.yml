@@ -133,6 +133,14 @@ jobs:
               # shipped without the suite it re-bounds ever running.
               - 'vitest.memory-safe.ts'
               - 'build.mjs'
+              # T13140 review: unit tests read these repo files directly
+              # (deprecations-registry, loom-adr-links, agent-install and
+              # agent-resolver tests). Outside `code`, a push changing only them
+              # skipped the tests that read them, and release preflight's full
+              # re-run was the only backstop.
+              - '.cleo/adrs/**'
+              - '.cleo/cant/**'
+              - '.cleo/deprecations*'
               # A change to THIS file changes how the build and unit tests run
               # (shards, shared build artifact, caches). Without this entry a
               # ci.yml-only PR skipped every job it rewires, so a broken build

@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   decidePreflightSkips,
+  isReleasePlanPath,
   MAX_EQUIVALENT_ANCESTORS,
   PREFLIGHT_CHECK_TIMEOUT_MS,
   type PreflightGhRunner,
@@ -24,6 +25,8 @@ interface RunFixture {
   status?: string;
   conclusion?: string | null;
   event?: string;
+  /** Workflow file (default `.github/workflows/ci.yml`). */
+  path?: string;
 }
 
 interface StubOptions {
@@ -35,7 +38,16 @@ interface StubOptions {
   jobTotals?: Record<number, number>;
   /** First parent per commit (`commits/<sha> --jq .parents[0].sha`); absent → the call fails. */
   parents?: Record<string, string>;
+  /** Files a commit changes against its parent (compare API); absent → a release-plan commit. */
+  files?: Record<string, string[]>;
 }
+
+/** What a release-plan PR's merge changes. */
+const PLAN_FILES = [
+  '.cleo/release/v2026.10.4.plan.json',
+  'CHANGELOG.md',
+  '.changeset/shipped/v2026.10.3/a.md',
+];
 
 /** Every Linux Unit Tests shard green — what a push run that TESTED the tree carries. */
 const LINUX_GREEN = [1, 2, 3, 4].map((n) => ({
@@ -51,6 +63,7 @@ function runsBody(runs: RunFixture[]): string {
       status: r.status ?? 'completed',
       conclusion: r.conclusion === undefined ? 'success' : r.conclusion,
       event: r.event ?? 'push',
+      path: r.path ?? '.github/workflows/ci.yml',
       html_url: `https://github.com/o/r/actions/runs/${r.id}`,
     })),
   });
@@ -78,11 +91,18 @@ function makeGh(opts: StubOptions): PreflightGhRunner & { calls: string[][]; tim
       if (opts.sha instanceof Error) throw opts.sha;
       return `${opts.sha ?? SHA}\n`;
     }
+    if (endpoint.includes('/compare/')) {
+      const commit = endpoint.slice(endpoint.lastIndexOf('...') + 3);
+      return JSON.stringify(opts.files?.[commit] ?? PLAN_FILES);
+    }
     if (endpoint.includes('/actions/workflows/ci.yml/runs')) {
       return answer(opts.pushRuns, runsBody);
     }
-    if (endpoint.includes('event=schedule')) {
-      return answer(opts.scheduleRuns, runsBody);
+    if (endpoint.includes('/actions/runs?head_sha=')) {
+      // Every run of the commit, any workflow and event: the push runs and the nightlies.
+      if (opts.scheduleRuns instanceof Error) throw opts.scheduleRuns;
+      const push = opts.pushRuns instanceof Error ? [] : (opts.pushRuns ?? []);
+      return runsBody([...push, ...(opts.scheduleRuns ?? [])]);
     }
     const jobsMatch = /actions\/runs\/(\d+)\/jobs/.exec(endpoint);
     if (jobsMatch) {
@@ -198,7 +218,7 @@ describe('decidePreflightSkips — a tested ancestor CI judged equivalent (T1314
     expect(d).toMatchObject({ verifiedSha: SHA, skipTests: true, testedSha: P1 });
     expect(d.reason).toContain('Linux tests skipped');
     expect(d.reason).toContain(`${P1.slice(0, 12)} (an ancestor of ${SHA.slice(0, 12)})`);
-    expect(d.reason).toContain('differs from it only by 1 commit(s)');
+    expect(d.reason).toContain('differs from it only by 1 release-plan commit(s)');
   });
 
   it('walks several non-code commits, but stops at a step CI did not judge test-irrelevant', () => {
@@ -272,7 +292,7 @@ describe('decidePreflightSkips — a tested ancestor CI judged equivalent (T1314
     const parents = Object.fromEntries(chain.slice(0, -1).map((sha, i) => [sha, chain[i + 1]]));
     const d = decidePreflightSkips(makeGh({ pushRuns, jobs, parents }), '/repo', 'main');
     expect(d.skipTests).toBe(false);
-    expect(d.reason).toContain(`within ${MAX_EQUIVALENT_ANCESTORS} non-code commits`);
+    expect(d.reason).toContain(`within ${MAX_EQUIVALENT_ANCESTORS} release-plan commits`);
   });
 
   it('accepts a green nightly macOS run of an equivalent ancestor, never of one past the tested commit', () => {
@@ -308,6 +328,105 @@ describe('decidePreflightSkips — a tested ancestor CI judged equivalent (T1314
       'main',
     );
     expect(pastTested.skipMacosTests).toBe(false);
+  });
+});
+
+describe('decidePreflightSkips — only release-plan commits are stepped past (T13140 review)', () => {
+  const GATED_OFF = [
+    { name: 'Detect Changes', conclusion: 'success' },
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: the literal name GitHub renders for a matrix job its `if:` skipped
+    { name: 'Unit Tests (${{ matrix.os }}, shard ${{ matrix.shard }})', conclusion: 'skipped' },
+  ];
+  const P1 = 'c'.repeat(40);
+  const base = {
+    pushRuns: [
+      { id: 10, head_sha: SHA },
+      { id: 9, head_sha: P1 },
+    ],
+    jobs: { 10: GATED_OFF, 9: LINUX_GREEN },
+    parents: { [SHA]: P1 },
+  };
+
+  it('a release-plan path is the plan file, a changeset or a changelog, nothing a test reads', () => {
+    for (const p of PLAN_FILES) expect(isReleasePlanPath(p), p).toBe(true);
+    for (const p of [
+      '.cleo/adrs/ADR-1.md',
+      '.cleo/cant/agents/x.cant',
+      '.cleo/deprecations.yml',
+      'packages/core/CHANGELOG.mdx',
+      'docs/x.md',
+    ]) {
+      expect(isReleasePlanPath(p), p).toBe(false);
+    }
+  });
+
+  it('does not borrow across a gated-off commit that changes anything else (the code filter can miss test inputs)', () => {
+    const d = decidePreflightSkips(
+      makeGh({ ...base, files: { [SHA]: ['.cleo/adrs/ADR-099.md'] } }),
+      '/repo',
+      'main',
+    );
+    expect(d).toMatchObject({ skipTests: false, testedSha: null });
+    expect(d.reason).toContain('is not a release-plan commit (.cleo/adrs/ADR-099.md)');
+  });
+
+  it('does not borrow when the changed files cannot be listed or may be truncated', () => {
+    const many = Array.from({ length: 300 }, (_, i) => `.changeset/c${i}.md`);
+    expect(
+      decidePreflightSkips(makeGh({ ...base, files: { [SHA]: many } }), '/repo', 'main').skipTests,
+    ).toBe(false);
+  });
+
+  it('stops at the overall deadline and runs the tests', () => {
+    let t = 0;
+    const gh = makeGh(base);
+    const slow: PreflightGhRunner = (args, cwd, timeoutMs) => {
+      t += 20_000;
+      return gh(args, cwd, timeoutMs);
+    };
+    const d = decidePreflightSkips(slow, '/repo', 'main', { deadlineMs: 60_000, now: () => t });
+    expect(d.skipTests).toBe(false);
+    expect(d.reason).toContain('budget for these checks ran out');
+    // No call is ever given more time than is left.
+    expect(Math.max(...gh.timeouts)).toBeLessThanOrEqual(PREFLIGHT_CHECK_TIMEOUT_MS);
+  });
+});
+
+describe('decidePreflightSkips — the newest macOS result decides (T13140 review)', () => {
+  const macos = (conclusion: string) => [
+    { name: 'Unit Tests (macos-latest, shard 1)', conclusion },
+  ];
+
+  it('a newer macOS failure outranks an older pass of the same tree', () => {
+    const d = decidePreflightSkips(
+      makeGh({
+        scheduleRuns: [
+          { id: 40, event: 'schedule' },
+          { id: 30, event: 'schedule' },
+        ],
+        jobs: { 40: macos('failure'), 30: macos('success') },
+      }),
+      '/repo',
+      'main',
+    );
+    expect(d.skipMacosTests).toBe(false);
+    expect(d.reason).toContain('runs/40');
+  });
+
+  it('counts the main-push macOS workflow (T13143), and ignores workflows that run no macOS tests', () => {
+    const d = decidePreflightSkips(
+      makeGh({
+        scheduleRuns: [
+          { id: 50, event: 'push', path: '.github/workflows/docs.yml' },
+          { id: 45, event: 'push', path: '.github/workflows/macos-main.yml' },
+        ],
+        jobs: { 50: macos('failure'), 45: macos('success') },
+      }),
+      '/repo',
+      'main',
+    );
+    expect(d.skipMacosTests).toBe(true);
+    expect(d.reason).toContain('runs/45');
   });
 });
 

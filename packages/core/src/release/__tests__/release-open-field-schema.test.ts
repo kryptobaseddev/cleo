@@ -347,13 +347,15 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
             status: 'completed',
             conclusion: 'success',
             event,
+            path: '.github/workflows/ci.yml',
             html_url: `https://github.com/o/r/actions/runs/${id}`,
           });
           if (endpoint.includes('/actions/workflows/ci.yml/runs')) {
             return JSON.stringify({ workflow_runs: [run(1, 'push')] });
           }
-          if (endpoint.includes('event=schedule')) {
-            return JSON.stringify({ workflow_runs: [run(2, 'schedule')] });
+          if (endpoint.includes('/actions/runs?head_sha=')) {
+            // Every run of the commit: the push run and the nightly.
+            return JSON.stringify({ workflow_runs: [run(1, 'push'), run(2, 'schedule')] });
           }
           if (endpoint.includes('/actions/runs/1/jobs')) {
             // A green push run skips Linux tests only if its Linux Unit Tests

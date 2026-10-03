@@ -594,12 +594,15 @@ export async function releaseOpen(
   // reads that copy instead of refusing; the guard below still checks it.
   let planLoad = loadPlanForOpen(opts.version, projectRoot);
   let dispatchBranch: string | null = null;
+  /** The dispatch branch's plan bytes, when the fallback read them (reused by the guard). */
+  let remotePlan: Buffer | null = null;
   if (!planLoad.success && !commitPlan && planLoad.error.code === E_PLAN_NOT_FOUND) {
     dispatchBranch = resolveDispatchBranch(runner, projectRoot);
     const relPath = `${PLAN_DIR_REL}/${opts.version}.plan.json`;
     const remote =
       dispatchBranch === null ? null : readPlanBlobOnRemote(relPath, projectRoot, dispatchBranch);
     if (remote !== null) {
+      remotePlan = remote;
       planLoad = validatePlanBody(
         remote.toString('utf-8'),
         join(projectRoot, relPath),
@@ -616,7 +619,10 @@ export async function releaseOpen(
     });
   }
   const { rawBody, planPath } = planLoad.data;
-  const planBlobSha256 = createHash('sha256').update(rawBody).digest('hex');
+  // The workflow hashes the file's bytes: hash those whenever we hold them.
+  const planBlobSha256 = createHash('sha256')
+    .update(remotePlan ?? rawBody)
+    .digest('hex');
 
   // ── R-051: releases.status MUST be 'planned' (or already pr-opened ⇒ idempotent) ──
   const current = await readReleaseStatus(opts.version, projectRoot);
@@ -759,7 +765,9 @@ export async function releaseOpen(
         },
       );
     }
-    const remoteBlob = readPlanBlobOnRemote(relPath, projectRoot, dispatchBranch);
+    // The fallback's read is reused: a push landing between two reads would
+    // otherwise surface as a confusing mismatch (T13140 review).
+    const remoteBlob = remotePlan ?? readPlanBlobOnRemote(relPath, projectRoot, dispatchBranch);
     if (remoteBlob === null) {
       return engineError<ReleaseOpenResult>(
         E_INVALID_STATE,
