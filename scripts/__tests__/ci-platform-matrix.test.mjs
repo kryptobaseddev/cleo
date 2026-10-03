@@ -63,6 +63,11 @@ describe('detectDarwin', () => {
       "+if (process.platform === 'darwin') return;",
       '-  const p = os.platform();',
       "+  case 'darwin':",
+      '+#[cfg(target_os = "macos")]',
+      "+if (os.type() === 'Darwin') {",
+      '+if [ "$(uname)" = "Darwin" ]; then',
+      "+    if: matrix.os == 'macos-latest'",
+      "+    if: runner.os == 'macOS'",
     ]) {
       expect(detectDarwin(['packages/core/src/x.ts'], patch(line)).darwin, line).toBe(true);
     }
@@ -166,5 +171,47 @@ describe('ci.yml wiring (T13143)', () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
     expect(run.run).toContain('--shard=${{ matrix.shard }}/${{ matrix.total }}');
     expect(JSON.stringify(ci)).not.toMatch(/matrix\.shard \}\}\/4/);
+  });
+});
+
+describe('macos-main.yml: the newest main push gets a macOS result (T13143, option B)', () => {
+  const read = (p) => readFileSync(path.join(REPO_ROOT, p), 'utf8');
+  const wf = parseYaml(read('.github/workflows/macos-main.yml'));
+  const ci = parseYaml(read('.github/workflows/ci.yml'));
+
+  it('runs on main pushes only, cancels a superseded run, and is read by the release preflight', () => {
+    expect(wf.on.push.branches).toEqual(['main']);
+    expect(wf.concurrency).toEqual({ group: 'macos-main', 'cancel-in-progress': true });
+    expect(read('packages/core/src/release/preflight-skip.ts')).toContain("'macos-main.yml'");
+  });
+
+  it(`shards ${MACOS_SHARDS} ways on macOS with the same node and pnpm pins as ci.yml`, () => {
+    const tests = wf.jobs['unit-tests'];
+    expect(tests['runs-on']).toBe('macos-latest');
+    expect(tests.strategy.matrix.shard).toEqual(
+      Array.from({ length: MACOS_SHARDS }, (_, i) => i + 1),
+    );
+    const run = tests.steps.find((s) => String(s.name).startsWith('Run unit tests'));
+    expect(run.run).toContain(`/${MACOS_SHARDS} --retry=2`);
+    const pin = (steps, action, key) => steps.find((s) => s.uses?.startsWith(action))?.with?.[key];
+    for (const [action, key] of [
+      ['actions/setup-node', 'node-version'],
+      ['pnpm/action-setup', 'version'],
+    ]) {
+      expect(pin(tests.steps, action, key), action).toBe(
+        pin(ci.jobs['unit-tests'].steps, action, key),
+      );
+      expect(pin(wf.jobs.build.steps, action, key), action).toBe(
+        pin(ci.jobs.build.steps, action, key),
+      );
+    }
+  });
+
+  it("runs on every path ci.yml's code filter tests", () => {
+    const filters = parseYaml(ci.jobs.changes.steps.find((s) => s.id === 'filter').with.filters);
+    for (const p of filters.code) {
+      if (p === '.github/workflows/ci.yml') continue;
+      expect(wf.on.push.paths, p).toContain(p);
+    }
   });
 });

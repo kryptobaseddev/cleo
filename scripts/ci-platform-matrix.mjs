@@ -9,7 +9,11 @@
  *
  * - `schedule` (nightly) and `merge_group`: macOS always.
  * - `pull_request`: macOS when the change is darwin-specific, so a macOS-only
- *   regression is caught on its own PR instead of the next nightly:
+ *   regression is caught on its own PR instead of the next nightly. A
+ *   platform-agnostic change that happens to break on macOS (realpath
+ *   `/var` vs `/private/var`, spaces in "Application Support", the
+ *   case-insensitive filesystem, BSD userland flags) is still found by the
+ *   nightly or main-push macOS run:
  *   - a changed path names darwin or macOS (`resources/darwin-backend.ts`),
  *     outside `.changeset/` and `docs/`; or
  *   - a changed line of a code or workflow file adds or removes a platform
@@ -36,10 +40,18 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-/** Linux unit-test shards (keep in step with release-prepare's preflight shards). */
-export const LINUX_SHARDS = 4;
+/**
+ * Linux unit-test shards (keep in step with release-prepare's preflight
+ * shards). 8, not 4: the repo is public, so runners cost nothing, and a full
+ * suite then fits a PR's ~10-minute budget even when affected selection picks
+ * everything (T13143).
+ */
+export const LINUX_SHARDS = 8;
 
-/** macOS unit-test shards: twice Linux, since a macOS runner is about twice as slow. */
+/**
+ * macOS unit-test shards. Also 8: the free plan runs at most 5 macOS jobs at
+ * once, so more shards would only add waves and setup.
+ */
 export const MACOS_SHARDS = 8;
 
 /** A path that is darwin-specific by name. */
@@ -53,12 +65,19 @@ export const CODE_PATHSPECS = [
   '*.mjs',
   '*.cjs',
   '*.rs',
+  '*.sh',
   '*.yml',
   '*.yaml',
 ];
 
-/** A changed line that adds or removes a platform check. */
-const PLATFORM_LINE = /process\.platform|\bos\.platform\(|\bplatform\(\)|['"`]darwin['"`]/;
+/**
+ * A changed line that adds or removes a platform check: `process.platform`,
+ * `os.platform()` / `platform()`, `os.type() === 'Darwin'`, a `'darwin'` or
+ * `'macos'` literal, Rust `target_os`, a shell `uname`, or a macOS-only CI step
+ * (`macos-latest`, `runner.os`).
+ */
+const PLATFORM_LINE =
+  /process\.platform|\bos\.platform\(|\bplatform\(\)|['"`](darwin|macos)['"`]|\bDarwin\b|target_os|\buname\b|macos-latest|runner\.os/;
 
 /**
  * Whether a change is darwin-specific.

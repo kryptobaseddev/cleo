@@ -1594,9 +1594,11 @@ jobs:
         # `timeout-minutes: 55` (build 575 s + 42 min of vitest over 2 shards),
         # so main went red/cancelled on a timeout, not a failure. A macOS-only
         # regression is now detected by the next nightly run instead.
-        # T13143: `{os, shard, total}` per job from the `changes` job: 4 Linux
-        # shards always; 8 macOS shards nightly, in merge groups and on a
-        # darwin-specific pull request (scripts/ci-platform-matrix.mjs).
+        # T13143: `{os, shard, total}` per job from the `changes` job: 8 Linux
+        # shards always (the repo is public, so runners are free); 8 macOS
+        # shards nightly, in merge groups and on a darwin-specific pull request
+        # (scripts/ci-platform-matrix.mjs). Main pushes run macOS in
+        # macos-main.yml.
         # 2026-09-29: 4 shards (was 2). Shard 1 of 2 was the whole PR critical
         # path at ~33 min (~4 min setup + 27-30 min vitest); `--shard` splits
         # by file count, not duration, so halving the files per shard is the
