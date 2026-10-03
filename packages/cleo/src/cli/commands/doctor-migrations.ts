@@ -5,11 +5,15 @@
  * Per scope (project, global): the journal's row count and head, and per
  * lineage sharing it, the applied and pending migration files and any drift
  * (a row named like a local migration with a different hash). Acceptance
- * runs read the live journal count through this report, never a literal.
+ * runs read the live journal count through this report, never a literal. A
+ * journal rebuilt on a store that already held its schema (most likely by a
+ * vault restore before T13104) is reported as `rebuilt`, with its stamped row
+ * count.
  *
  * Exits non-zero when a journal shows drift. Writes nothing.
  *
  * @task T12796
+ * @task T13104
  */
 
 import { getProjectRoot } from '@cleocode/core';
@@ -27,7 +31,8 @@ export const doctorMigrationsCommand = defineCommand({
     name: 'migrations',
     description:
       'Report the migration journal of the project and global stores: row count, head, applied ' +
-      'and pending files per lineage, and hash drift. Read-only.',
+      'and pending files per lineage, hash drift, and a journal rebuilt on a store that already ' +
+      'held its schema. Read-only.',
   },
   args: {
     json: { type: 'boolean', description: 'Output as JSON' },
