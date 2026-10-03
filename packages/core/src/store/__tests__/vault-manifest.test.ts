@@ -17,6 +17,7 @@ import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts';
 import { VAULT_REMOTE_PATH_PREFIX } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { TRIGGER_SUSPEND_TABLE_DDL } from '../sync/trigger-classes.js';
+import { classifyTable, SCHEMA_STATE_TABLES } from '../table-classification.js';
 import {
   buildVaultManifest,
   carryMachineState,
@@ -907,5 +908,108 @@ describe('carry keeps its own trigger suspension (#1773 R6-1)', () => {
     expect(db.prepare('SELECT * FROM zz_captured').all()).toEqual([]);
     expect(db.prepare('SELECT * FROM cleo_trigger_suspend').all()).toEqual([]);
     db.close();
+  });
+});
+
+describe('carry keeps the staged file schema state (T13104)', () => {
+  const JOURNAL_DDL =
+    'CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at NUMERIC, name TEXT, applied_at TEXT)';
+  /** A store with a migration journal, a conduit ledger and sentinel, and machine state. */
+  const store = (name: string, journal: Array<[string, string | null]>, replica: string | null) => {
+    const f = path.join(tmp, `${name}.db`);
+    const db = new DatabaseSync(f);
+    db.exec(`${JOURNAL_DDL};
+      CREATE TABLE _conduit_migrations (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL);
+      CREATE TABLE _conduit_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE TABLE _sync_replica (replica_id TEXT PRIMARY KEY, device_id TEXT);`);
+    const ins = db.prepare(
+      'INSERT INTO __drizzle_migrations (hash, created_at, name, applied_at) VALUES (?, ?, ?, ?)',
+    );
+    for (const [i, [n, at]] of journal.entries()) ins.run(`hash-${n}`, i + 1, n, at);
+    db.prepare('INSERT INTO _conduit_migrations VALUES (?, ?)').run(`conduit-${name}`, 1);
+    db.prepare('INSERT INTO _conduit_meta VALUES (?, ?, ?)').run('schema_version', name, 1);
+    if (replica) db.prepare('INSERT INTO _sync_replica VALUES (?, ?)').run(replica, 'd');
+    db.close();
+    return f;
+  };
+  const read = (f: string, q: string) => {
+    const db = new DatabaseSync(f, { readOnly: true });
+    try {
+      return db.prepare(q).all();
+    } finally {
+      db.close();
+    }
+  };
+  const SNAPSHOT_JOURNAL: Array<[string, string | null]> = [
+    ['0001_baseline', '2026-10-02T22:07:13.779Z'],
+    ['0002_stamped_upstream', null],
+    ['0003_newer', '2026-10-02T22:07:14.000Z'],
+  ];
+  const stateOf = (f: string) => ({
+    journal: read(f, 'SELECT id, hash, created_at, name, applied_at FROM __drizzle_migrations'),
+    conduit: read(f, 'SELECT * FROM _conduit_migrations'),
+    meta: read(f, 'SELECT * FROM _conduit_meta'),
+  });
+
+  it('a new machine (no live store) keeps the snapshot journal; other machine state is still emptied', () => {
+    const staged = store('staged', SNAPSHOT_JOURNAL, 'r-pusher');
+    const before = stateOf(staged);
+    const out = carryMachineState(staged, null, 'project', { snapshotRoot: '/A/root' });
+    expect(stateOf(staged)).toEqual(before);
+    expect(read(staged, 'SELECT * FROM _sync_replica')).toEqual([]);
+    expect(out.preserved).toEqual(['_sync_replica']);
+    expect(out.skipped).toEqual([]);
+  });
+
+  it("a pull keeps the snapshot journal over this machine's own, and still carries machine state", () => {
+    const staged = store('staged', SNAPSHOT_JOURNAL, 'r-pusher');
+    const live = store('live', [['0001_baseline', '2026-01-01T00:00:00.000Z']], 'r-mine');
+    const before = stateOf(staged);
+    const out = carryMachineState(staged, live, 'project', { snapshotRoot: '/A/root' });
+    expect(stateOf(staged)).toEqual(before);
+    expect(read(staged, 'SELECT replica_id FROM _sync_replica')).toEqual([
+      { replica_id: 'r-mine' },
+    ]);
+    expect(out.preserved).toEqual(['_sync_replica']);
+    // A journal shaped differently here is not "skipped": it is the snapshot's either way.
+    const odd = store('odd', [], null);
+    const db = new DatabaseSync(odd);
+    db.exec(
+      'DROP TABLE __drizzle_migrations; CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash TEXT, created_at NUMERIC)',
+    );
+    db.close();
+    const staged2 = store('staged2', SNAPSHOT_JOURNAL, null);
+    expect(carryMachineState(staged2, odd, 'project').skipped).toEqual([]);
+    expect(stateOf(staged2).journal).toEqual(before.journal);
+  });
+
+  it('the global store keeps its journal, agent-registry ledger and sentinel', () => {
+    const f = path.join(tmp, 'global.db');
+    const db = new DatabaseSync(f);
+    db.exec(`${JOURNAL_DDL};
+      CREATE TABLE _agent_registry_migrations (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL);
+      CREATE TABLE _agent_registry_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+      INSERT INTO __drizzle_migrations (hash, created_at, name, applied_at) VALUES ('h', 1, 'g1', 'at');
+      INSERT INTO _agent_registry_migrations VALUES ('init', 1);
+      INSERT INTO _agent_registry_meta VALUES ('schema_version', '7', 1);`);
+    db.close();
+    carryMachineState(f, null, 'global');
+    expect(read(f, 'SELECT name FROM __drizzle_migrations')).toEqual([{ name: 'g1' }]);
+    expect(read(f, 'SELECT name FROM _agent_registry_migrations')).toEqual([{ name: 'init' }]);
+    expect(read(f, 'SELECT value FROM _agent_registry_meta')).toEqual([{ value: '7' }]);
+  });
+
+  it('every schema-state table is local-only in its scope (never synced, never in the manifest)', () => {
+    for (const scope of ['project', 'global'] as const) {
+      for (const t of SCHEMA_STATE_TABLES[scope]) {
+        const c = classifyTable(scope, t);
+        expect({ scope, t, class: c.kind === 'entry' ? c.class : c.kind }).toEqual({
+          scope,
+          t,
+          class: 'local-only',
+        });
+        expect(isVaultManifestTable(scope, t)).toBe(false);
+      }
+    }
   });
 });
