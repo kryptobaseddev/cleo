@@ -25,7 +25,7 @@
 import * as esbuild from 'esbuild';
 import { chmod, cp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { resolve, dirname, join, relative, isAbsolute } from 'node:path';
+import { resolve, dirname, join, relative, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { depsFor } from './scripts/build-deps.mjs';
@@ -674,7 +674,7 @@ function inlineOnlyUtilsPlugin() {
           return { path: join(utilsSrc, `${args.path.slice('@cleocode/utils/'.length)}.ts`) };
         }
         // utils' own relative imports are part of the inlined leaf.
-        if (args.importer.startsWith(utilsSrc)) return undefined;
+        if (args.importer.startsWith(utilsSrc + sep)) return undefined;
         return { path: args.path, external: true };
       });
     },
