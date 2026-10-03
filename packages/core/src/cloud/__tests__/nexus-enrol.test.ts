@@ -6,11 +6,15 @@
  * sign-out routes, E1 (`POST /v1/devices/enroll`, which verifies the Ed25519
  * proof over the exact enrolment message and revokes older credentials on
  * re-enrolment), E2 (`GET /v1/whoami`) and `POST /v1/projects`. Hooks pause
- * E1, drop its answer after the server committed, or answer a 409.
+ * E1, drop its answer after the server committed, or answer a 409. The
+ * account key routes the login's account setup uses (T13100) are there too:
+ * key escrow (E22/E23, device credentials only), device certificates and
+ * the trust list.
  *
  * Every test uses its own temp CLEO home; nothing touches the real one.
  *
  * @task T12868
+ * @task T13100
  */
 
 import { randomBytes } from 'node:crypto';
@@ -26,10 +30,12 @@ import {
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspect } from 'node:util';
+import type { DeviceCertificateRecord } from '@cleocode/contracts/cloud';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { generateEd25519, generateX25519, verifyEd25519 } from '../crypto.js';
+import { generateEd25519, generateX25519, sealTo, verifyEd25519 } from '../crypto.js';
 import type { FetchLike } from '../http.js';
 import { NexusError } from '../http.js';
+import { masterKeyVerifier } from '../keys.js';
 import { NexusAccountError } from '../nexus-auth.js';
 import type { NexusTokenStore } from '../nexus-credentials.js';
 import { FileNexusTokenStore } from '../nexus-credentials.js';
@@ -60,6 +66,8 @@ import {
   W_NEXUS_TEST_BEARER_IGNORED,
 } from '../nexus-enrol.js';
 import { linkProjectToNexus } from '../nexus-link.js';
+import { connectNexusVault, escrowContext, unlockNexusAccountKey } from '../nexus-vault-keys.js';
+import { NexusVaultState } from '../nexus-vault-state.js';
 
 const API = 'https://api.nexus.test';
 const USER = '0198a1b2-0000-7000-8000-0000000000aa';
@@ -158,6 +166,18 @@ class MockNexus {
   whoamiDeviceStatus: number | null = null;
   /** Re-enrolment revokes older credentials (the contract); off to force "both live". */
   revokeOnReenrol = true;
+  /** The escrowed account master key (cleo-nexus T082), or `null` before the first device escrows one. */
+  escrow: { mk: Buffer; keyVersion: number; verifier: string } | null = null;
+  /** `false` plays a server older than key escrow: its escrow routes answer "route not found" (T13049). */
+  escrowRoutes = true;
+  /** The account holds account keys that were never escrowed (`GET /v1/account/keys`). */
+  legacyAccountKeys = false;
+  /** Runs before an escrow PUT is applied (concurrent first devices). */
+  beforeEscrowPut: (() => Promise<void>) | null = null;
+  /** Answer the certificate route with this status instead (failure tests). */
+  certifyStatus: number | null = null;
+  /** Device certificates (`PUT /v1/devices/:id/key`), as `GET /v1/devices/trust` lists them. */
+  certificates: DeviceCertificateRecord[] = [];
   /** The v1 session the auto-upgrade presents is exempt (pre-deploy). */
   private clock = Date.parse('2026-09-30T00:00:00.000Z');
 
@@ -216,9 +236,114 @@ class MockNexus {
       case '/v1/devices/enroll':
         return this.enrol(auth, body ?? {});
       default:
-        return fail(404, 'E_NOT_FOUND');
+        return (
+          (await this.accountKeys(init?.method ?? 'GET', u.pathname, auth, body ?? {})) ??
+          fail(404, 'E_NOT_FOUND')
+        );
     }
   };
+
+  /** Bodies of the escrow PUTs, in order (never printed: they carry the key). */
+  escrowPuts(): Call[] {
+    return this.calls.filter((c) => c.method === 'PUT' && c.path === '/v1/account/keys/escrow');
+  }
+
+  /**
+   * E22/E23, `GET /v1/account/keys`, the trust list and device certificates, or `null` for
+   * any other route. The escrow routes accept only a live device credential: a session gets
+   * 403 `device-required`, as the server answers by design.
+   */
+  private async accountKeys(
+    method: string,
+    path: string,
+    auth: string,
+    body: Record<string, unknown>,
+  ): Promise<Response | null> {
+    const route = `${method} ${path}`;
+    const known =
+      path === '/v1/account/keys/escrow' ||
+      route === 'GET /v1/account/keys' ||
+      route === 'GET /v1/devices/trust' ||
+      /^PUT \/v1\/devices\/[^/]+\/key$/.test(route);
+    if (!known) return null;
+    if (this.sessions.has(auth)) return fail(403, 'E_FORBIDDEN', 'device-required');
+    const cred = this.creds.find((c) => c.token === auth && c.live);
+    const device = cred ? this.devices.get(cred.deviceId) : undefined;
+    if (!cred || !device) return fail(401, 'E_UNAUTHENTICATED', 'invalid');
+    if (path === '/v1/account/keys/escrow' && !this.escrowRoutes) {
+      return json(404, {
+        success: false,
+        error: { code: 'E_NOT_FOUND', message: 'route not found', requestId: 'r' },
+      });
+    }
+    if (route === 'GET /v1/account/keys/escrow') {
+      if (!this.escrow) {
+        return json(404, {
+          success: false,
+          error: { code: 'E_NOT_FOUND', message: 'key escrow not found', requestId: 'r' },
+        });
+      }
+      const sealed = sealTo(
+        Buffer.from(device.enc, 'base64'),
+        this.escrow.mk,
+        escrowContext(USER, cred.deviceId),
+      );
+      return ok({
+        sealedMasterKey: sealed.toString('base64url'),
+        keyVersion: this.escrow.keyVersion,
+        masterKeyVerifier: this.escrow.verifier,
+        deviceId: cred.deviceId,
+        updatedAt: '2026-09-30T00:00:00.000Z',
+      });
+    }
+    if (route === 'PUT /v1/account/keys/escrow') {
+      if (this.beforeEscrowPut) await this.beforeEscrowPut();
+      const mk = Buffer.from(String(body['masterKey']), 'base64url');
+      if (mk.length !== 32 || masterKeyVerifier(mk) !== body['masterKeyVerifier']) {
+        return fail(400, 'E_VALIDATION');
+      }
+      // Insert-only: a second device's different key loses with 409.
+      if (this.escrow && !this.escrow.mk.equals(mk)) {
+        return fail(409, 'E_CONFLICT', 'escrow-exists');
+      }
+      this.escrow ??= {
+        mk,
+        keyVersion: Number(body['keyVersion']),
+        verifier: masterKeyVerifier(mk),
+      };
+      return ok({
+        keyVersion: this.escrow.keyVersion,
+        masterKeyVerifier: this.escrow.verifier,
+        updatedAt: '2026-09-30T00:00:00.000Z',
+      });
+    }
+    if (route === 'GET /v1/account/keys') {
+      if (!this.legacyAccountKeys) return fail(404, 'E_NOT_FOUND');
+      return ok({ keyVersion: 1, masterKeyVerifier: 'a'.repeat(64) });
+    }
+    if (route === 'GET /v1/devices/trust') {
+      return ok({ certificates: this.certificates, revocations: [] });
+    }
+    // PUT /v1/devices/:id/key: a self-grant only.
+    const id = decodeURIComponent(path.split('/')[3] ?? '');
+    if (id !== cred.deviceId) return fail(403, 'E_FORBIDDEN');
+    if (this.certifyStatus !== null) return fail(this.certifyStatus, 'E_INTERNAL');
+    const record: DeviceCertificateRecord = {
+      deviceId: id,
+      encryptionPublicKey: device.enc,
+      signingPublicKey: device.sig,
+      keyVersion: Number(body['keyVersion']),
+      certificate: String(body['certificate']),
+      live: true,
+    };
+    this.certificates = [
+      ...this.certificates.filter(
+        (c) => !(c.deviceId === id && c.keyVersion === record.keyVersion),
+      ),
+      record,
+    ];
+    return ok({ deviceId: id, keyVersion: record.keyVersion });
+  }
 
   private whoami(auth: string): Response {
     const session = this.sessions.get(auth);
@@ -477,11 +602,25 @@ describe('loginToNexusDevice: fresh enrolment (§3.3 steps 1-10)', () => {
     expect(result.user?.id).toBe(USER);
     expect(result.credentialsPath).toBe(devices.location);
 
-    // Device-code scope, E2 then E1 with the session, sign-out, E2 with C.
+    // Device-code scope, E2 then E1 with the session, sign-out, E2 with C, then the
+    // account setup on C (T13100): no escrow yet, so mint, escrow and certify.
     const code = server.calls.find((c) => c.path === '/api/auth/device/code');
     expect(code?.raw).toContain('scope=cleo%3Adevice');
-    const order = server.calls.map((c) => c.path).filter((p) => !p.startsWith('/api/auth/device'));
-    expect(order).toEqual(['/v1/whoami', '/v1/devices/enroll', '/api/auth/sign-out', '/v1/whoami']);
+    const order = server.calls
+      .filter((c) => !c.path.startsWith('/api/auth/device'))
+      .map((c) => `${c.method} ${c.path}`);
+    expect(order).toEqual([
+      'GET /v1/whoami',
+      'POST /v1/devices/enroll',
+      'POST /api/auth/sign-out',
+      'GET /v1/whoami',
+      'GET /v1/account/keys/escrow',
+      'GET /v1/account/keys',
+      'PUT /v1/account/keys/escrow',
+      'GET /v1/devices/trust',
+      `PUT /v1/devices/${result.device?.deviceId}/key`,
+      'GET /v1/devices/trust',
+    ]);
     expect(server.sessions.size).toBe(0);
 
     const live = server.live(result.device?.deviceId ?? '');
@@ -1105,12 +1244,16 @@ describe('loginToNexusDevice: CLEO_NEXUS_TEST_BEARER (staging only, T12902)', ()
     );
     expect(codes).toBe(0);
     expect(server.calls.some((c) => c.path.startsWith('/api/auth/device'))).toBe(false);
-    expect(server.calls.map((c) => c.path)).toEqual([
+    expect(server.calls.map((c) => c.path).slice(0, 4)).toEqual([
       '/v1/whoami',
       '/v1/devices/enroll',
       '/api/auth/sign-out',
       '/v1/whoami',
     ]);
+    // The rest is the account setup (T13100), all on the stored device credential.
+    expect(server.calls.slice(4).every((c) => c.auth !== bearer && c.path.startsWith('/v1/'))).toBe(
+      true,
+    );
     expect(server.calls[0]?.auth).toBe(bearer);
     expect(server.calls[1]?.auth).toBe(bearer);
     expect(result.apiUrl).toBe(NEXUS_STAGING_API_ORIGIN);
@@ -1664,5 +1807,228 @@ describe('re-check P5: a parked candidate is always probed, even with no current
     const entry = (await devices.get(API, USER))?.unseal();
     expect(entry?.current ?? null).toBeNull();
     expect(entry?.raceCandidate?.token).toBe(candidateToken);
+  });
+});
+
+// ---------- onboarding A: the account setup at login (T13100) ----------
+
+describe('loginToNexusDevice: account setup right after enrolment (onboarding A, T13100)', () => {
+  const vaultFile = (h: string = home): string => join(h, 'nexus-vault.json');
+
+  /** The account-key requests (escrow, account keys, trust, certificates). */
+  const setupCalls = (): Call[] =>
+    server.calls.filter(
+      (c) =>
+        c.path.startsWith('/v1/account/keys') ||
+        c.path === '/v1/devices/trust' ||
+        /^\/v1\/devices\/[^/]+\/key$/.test(c.path),
+    );
+
+  /** A second CLEO home on another machine of the same account. */
+  function otherMachine(name: string): {
+    home: string;
+    devices: NexusDeviceStore;
+    sessions: FileNexusTokenStore;
+  } {
+    const otherHome = join(base, name);
+    mkdirSync(otherHome, { recursive: true, mode: 0o700 });
+    return {
+      home: otherHome,
+      devices: new NexusDeviceStore(join(otherHome, 'nexus-device.json'), {
+        cleoHome: otherHome,
+        lockWaitMs: 10_000,
+      }),
+      sessions: new FileNexusTokenStore(join(otherHome, 'nexus-credentials.json')),
+    };
+  }
+
+  it('a fresh account: login mints and escrows the key and certifies the device; what push does first then writes nothing', async () => {
+    const result = await loginToNexusDevice(flow());
+    const deviceId = result.device?.deviceId ?? '-';
+    expect(result.account).toMatchObject({
+      status: 'ready',
+      escrow: 'minted',
+      certificate: 'new',
+      keyVersion: 1,
+    });
+    expect(result.account?.summary).toMatch(/^Your account is ready for encrypted backups/);
+    expect(result.warnings).toEqual([]);
+    expect(server.escrow).not.toBeNull();
+    expect(server.escrowPuts()).toHaveLength(1);
+    expect(server.certificates.map((c) => c.deviceId)).toEqual([deviceId]);
+
+    // Every setup request carried the NEW device credential, never the browser session.
+    const token = await storedToken();
+    expect(setupCalls().length).toBeGreaterThan(0);
+    expect(setupCalls().every((c) => c.auth === token)).toBe(true);
+
+    // The signer trust state is recorded for this account in nexus-vault.json.
+    const state = JSON.parse(readFileSync(vaultFile(), 'utf-8')) as {
+      accounts: Record<string, { trust: { keyVersion: number } }>;
+    };
+    expect(state.accounts[`${API} ${USER}`]?.trust.keyVersion).toBe(1);
+
+    // No key in the result.
+    const mk = server.escrow?.mk ?? Buffer.alloc(32);
+    expect(JSON.stringify(result)).not.toContain(mk.toString('base64url'));
+    expect(JSON.stringify(result)).not.toContain(mk.toString('base64'));
+
+    // `cleo cloud push` starts with exactly this unlock: it now finds the escrow and the
+    // certificate in place, so it mints, escrows and certifies nothing.
+    const puts = server.calls.filter((c) => c.method === 'PUT').length;
+    const conn = await connectNexusVault({
+      apiUrl: API,
+      fetch: server.fetch,
+      deviceStore: devices,
+      store: sessions,
+      vaultState: new NexusVaultState(vaultFile()),
+    });
+    const key = await unlockNexusAccountKey(conn);
+    expect(key.masterKey.equals(mk)).toBe(true);
+    expect(server.calls.filter((c) => c.method === 'PUT').length).toBe(puts);
+  });
+
+  it('a re-login fetches the escrowed key and finds the device certified: nothing is minted or written', async () => {
+    await loginToNexusDevice(flow());
+    const mk = server.escrow?.mk ?? Buffer.alloc(0);
+    const again = await loginToNexusDevice(flow());
+    expect(again.account).toMatchObject({
+      status: 'ready',
+      escrow: 'fetched',
+      certificate: 'existing',
+    });
+    expect(server.escrowPuts()).toHaveLength(1);
+    expect(server.escrow?.mk.equals(mk)).toBe(true);
+    expect(server.certificates).toHaveLength(1);
+  });
+
+  it('provisionNexusAccount on the stored credential is idempotent (the seam the guided first run calls)', async () => {
+    await loginToNexusDevice(flow());
+    const before = server.calls.filter((c) => c.method === 'PUT').length;
+    const { provisionNexusAccount } = await import('../nexus-vault-keys.js');
+    const again = await provisionNexusAccount({
+      apiUrl: API,
+      fetch: server.fetch,
+      deviceStore: devices,
+      store: sessions,
+      vaultState: new NexusVaultState(vaultFile()),
+    });
+    expect(again).toMatchObject({ status: 'ready', escrow: 'fetched', certificate: 'existing' });
+    expect(server.calls.filter((c) => c.method === 'PUT').length).toBe(before);
+  });
+
+  it('two devices logging in concurrently on a fresh account end with one escrowed key; the loser re-reads it and never re-mints', async () => {
+    const other = otherMachine('other-home');
+    // Both devices read an empty escrow and mint before either PUT lands.
+    let arrived = 0;
+    let release: () => void = () => {};
+    const bothMinted = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.beforeEscrowPut = async () => {
+      arrived += 1;
+      if (arrived === 2) release();
+      await bothMinted;
+    };
+    const [a, b] = await Promise.all([
+      loginToNexusDevice(flow({ vaultState: new NexusVaultState(vaultFile()) })),
+      loginToNexusDevice(
+        flow({
+          deviceStore: other.devices,
+          store: other.sessions,
+          vaultState: new NexusVaultState(vaultFile(other.home)),
+        }),
+      ),
+    ]);
+    expect(a.device?.deviceId).not.toBe(b.device?.deviceId);
+    expect(a.account?.status).toBe('ready');
+    expect(b.account?.status).toBe('ready');
+    const escrowOf = (r: typeof a) => (r.account?.status === 'ready' ? r.account.escrow : null);
+    expect([escrowOf(a), escrowOf(b)].sort()).toEqual(['adopted', 'minted']);
+
+    // One PUT per device: the loser's 409 sent it back to E23, never to a second mint.
+    expect(server.escrowPuts()).toHaveLength(2);
+    const loserStore = escrowOf(a) === 'adopted' ? devices : other.devices;
+    const loserToken = (await loserStore.get(API, USER))?.currentBearer() ?? '-';
+    const loserReads = server.calls.filter(
+      (c) => c.method === 'GET' && c.path === '/v1/account/keys/escrow' && c.auth === loserToken,
+    );
+    expect(loserReads).toHaveLength(2);
+    expect(server.escrowPuts().filter((c) => c.auth === loserToken)).toHaveLength(1);
+
+    // Both hold the one escrowed key, and both are certified under it.
+    expect(server.certificates.map((c) => c.deviceId).sort()).toEqual(
+      [a.device?.deviceId, b.device?.deviceId].sort(),
+    );
+    for (const [store, sess, h] of [
+      [devices, sessions, home],
+      [other.devices, other.sessions, other.home],
+    ] as const) {
+      const conn = await connectNexusVault({
+        apiUrl: API,
+        fetch: server.fetch,
+        deviceStore: store,
+        store: sess,
+        vaultState: new NexusVaultState(vaultFile(h)),
+      });
+      const key = await unlockNexusAccountKey(conn, { readOnly: true });
+      expect(key.masterKey.equals(server.escrow?.mk ?? Buffer.alloc(0))).toBe(true);
+    }
+  });
+
+  it('a server without key escrow: login succeeds and warns, and nothing is written', async () => {
+    server.escrowRoutes = false;
+    const result = await loginToNexusDevice(flow());
+    expect(result.device?.created).toBe(true);
+    expect(await storedToken()).not.toBeNull();
+    expect(result.account).toMatchObject({
+      status: 'unsupported',
+      code: 'E_NEXUS_VAULT_UNSUPPORTED',
+    });
+    const warning = result.warnings.find((w) => w.includes('encrypted backups are not available'));
+    expect(warning).toMatch(/no account key escrow/);
+    expect(warning).toMatch(/Fix: upgrade the Cleo Nexus server/);
+    expect(server.calls.some((c) => c.method === 'PUT')).toBe(false);
+    expect(server.certificates).toEqual([]);
+  });
+
+  it('a failed step does not fail the login: the warning names the step and the remedy, and a retry finishes', async () => {
+    server.certifyStatus = 500;
+    const result = await loginToNexusDevice(flow());
+    expect(await storedToken()).not.toBeNull();
+    expect(result.account).toMatchObject({
+      status: 'failed',
+      step: 'certify',
+      code: 'E_NEXUS_REQUEST_FAILED',
+    });
+    const warning = result.warnings.find((w) => w.includes('encrypted backups are not set up'));
+    expect(warning).toContain('step certify (certifying this device under the account key)');
+    expect(warning).toMatch(/Fix: run `cleo login nexus` again/);
+    // The escrow landed before the failure: the retry only certifies.
+    expect(server.escrow).not.toBeNull();
+    server.certifyStatus = null;
+    const again = await loginToNexusDevice(flow());
+    expect(again.account).toMatchObject({ status: 'ready', escrow: 'fetched', certificate: 'new' });
+    expect(server.escrowPuts()).toHaveLength(1);
+  });
+
+  it('an account holding an unescrowed key fails at escrow-mint with its remedy, minting nothing', async () => {
+    server.legacyAccountKeys = true;
+    const result = await loginToNexusDevice(flow());
+    expect(result.account).toMatchObject({
+      status: 'failed',
+      step: 'escrow-mint',
+      code: 'E_NEXUS_VAULT_KEY_UNAVAILABLE',
+    });
+    expect(result.account?.status === 'failed' ? result.account.fix : '').toMatch(
+      /cleo cloud push/,
+    );
+    expect(server.escrowPuts()).toHaveLength(0);
+  });
+
+  it('a read-only device skips the setup: no escrow, trust or certificate request', async () => {
+    const result = await loginToNexusDevice(flow({ readOnly: true }));
+    expect(result.account?.status).toBe('skipped');
+    expect(setupCalls()).toEqual([]);
   });
 });

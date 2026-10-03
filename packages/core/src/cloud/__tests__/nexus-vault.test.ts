@@ -9,7 +9,9 @@
  * journal spec §2.11 with the v3 ratchet (E_REGRESSION, E_MANIFEST_ACCOUNTING,
  * E_STREAM_VERSION via checkManifestV3) and the stream's voided set, the
  * replica map check, blob presign/upload/complete, writer leases
- * (E_LEASE_HELD, forced takes labelled as forks) and key escrow.
+ * (E_LEASE_HELD, forced takes labelled as forks) and key escrow. It also
+ * serves the device login (device code, E2, E1), so a machine can be set up
+ * by `cleo login nexus` itself (onboarding A, T13100).
  *
  * No request leaves the process; every store lives in a temp directory.
  *
@@ -18,6 +20,7 @@
  * @task T12338
  * @task T12951
  * @task T13034
+ * @task T13100
  * @epic T12322
  */
 
@@ -29,7 +32,11 @@ import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
-import { type PortableBundleManifest, SYNC_SCHEMA_VERSION } from '@cleocode/contracts';
+import {
+  type NexusLoginResult,
+  type PortableBundleManifest,
+  SYNC_SCHEMA_VERSION,
+} from '@cleocode/contracts';
 import {
   AppendSegmentRequest,
   type Checkpoint,
@@ -88,6 +95,7 @@ import {
   NexusDeviceEnrolment,
   NexusDeviceStore,
 } from '../nexus-device.js';
+import { loginToNexusDevice } from '../nexus-enrol.js';
 import {
   nexusVaultStatus,
   pushNexusVault,
@@ -300,6 +308,8 @@ class FakeNexus {
   readonly fetch: FetchLike = async (input, init) => {
     const url = new URL(input);
     const method = init?.method ?? 'GET';
+    const login = this.login(url, init);
+    if (login !== null) return login;
     if (this.escrowHtml404 && url.pathname.endsWith('/v1/account/keys/escrow')) {
       return new Response('<html><body>Not Found</body></html>', {
         status: 404,
@@ -350,6 +360,81 @@ class FakeNexus {
       throw err;
     }
   };
+
+  /** Browser sessions the device-code login handed out (better-auth bearers). */
+  sessions = new Set<string>();
+
+  /**
+   * The device login surface `cleo login nexus` uses (T13100): device code,
+   * token, sign-out, E2 (`/v1/whoami`) and E1 (`/v1/devices/enroll`, which
+   * registers the device with the keys it sent). `null` for every other
+   * request, and for E2/E1 without a session (they then fail as unauthenticated).
+   */
+  private login(url: URL, init?: RequestInit): Response | null {
+    const auth = (new Headers(init?.headers).get('authorization') ?? '').replace(/^Bearer /, '');
+    switch (url.pathname) {
+      case '/api/auth/device/code':
+        return json(200, {
+          device_code: 'dev-code',
+          user_code: 'ABCD-EFGH',
+          verification_uri: 'https://nexus.test/device',
+          expires_in: 900,
+          interval: 1,
+        });
+      case '/api/auth/device/token': {
+        const session = `sess_${randomBytes(16).toString('hex')}`;
+        this.sessions.add(session);
+        return json(200, { access_token: session, token_type: 'Bearer', expires_in: 900 });
+      }
+      case '/api/auth/sign-out':
+        this.sessions.delete(auth);
+        return json(200, { success: true });
+      case '/v1/whoami': {
+        const device = [...this.devices.values()].find((d) => d.token === auth);
+        if (!this.sessions.has(auth) && !device) return null;
+        return this.ok({
+          user: { id: USER, email: 'dev@example.test', name: 'Dev' },
+          organizations: [],
+          credential: device
+            ? { kind: 'device', credentialId: null, profile: 'device', scopes: [] }
+            : { kind: 'session', credentialId: null, profile: null, scopes: [] },
+          device: device
+            ? { deviceId: device.deviceId, name: device.name, state: 'active', profile: 'device' }
+            : null,
+        });
+      }
+      case '/v1/devices/enroll': {
+        if (!this.sessions.has(auth)) return null;
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        const deviceId = String(body['deviceId']);
+        const name = String(body['name']);
+        const token = `cnx_d1_${randomBytes(32).toString('base64url')}`;
+        this.addDevice({
+          deviceId,
+          name,
+          token,
+          encryptionPublicKey: String(body['encryptionPublicKey']),
+          signingPublicKey: String(body['signingPublicKey']),
+        });
+        return this.ok(
+          {
+            device: { deviceId, name, state: 'active', profile: 'device' },
+            credential: {
+              credentialId: uuidv7(),
+              token,
+              profile: 'device',
+              scopes: ['account:read', 'devices:read', 'projects:read', 'sync:write', 'keys:write'],
+              createdAt: NOW,
+            },
+            created: true,
+          },
+          201,
+        );
+      }
+      default:
+        return null;
+    }
+  }
 
   private blob(method: string, url: URL, init?: RequestInit): Response {
     const sha = url.pathname.slice(1);
@@ -906,6 +991,62 @@ async function machine(name: string, deviceId: string, replicaId: string): Promi
     state: new NexusVaultState(path.join(home, 'nexus-vault.json')),
     token,
     keys: { encryption, signing },
+  };
+}
+
+/**
+ * A machine whose device came from `cleo login nexus` itself (T13100), not
+ * from a seeded credential: the login enrols it and sets up the account key.
+ */
+async function loginMachine(
+  name: string,
+  replicaId: string,
+): Promise<{ m: Machine; login: NexusLoginResult }> {
+  const home = path.join(base, name, 'cleo-home');
+  const configHome = path.join(base, name, 'config');
+  const root = path.join(base, name, 'proj');
+  fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(configHome, { recursive: true });
+  const devices = new NexusDeviceStore(path.join(home, 'nexus-device.json'), {
+    cleoHome: home,
+    lockWaitMs: 10_000,
+  });
+  const sessions = new FileNexusTokenStore(path.join(home, 'nexus-credentials.json'));
+  const state = new NexusVaultState(path.join(home, 'nexus-vault.json'));
+  process.env['CLEO_HOME'] = home;
+  process.env['CLEO_CONFIG_HOME'] = configHome;
+  const login = await loginToNexusDevice({
+    apiUrl: API,
+    fetch: fake.fetch,
+    deviceStore: devices,
+    store: sessions,
+    vaultState: state,
+    cliVersion: '2026.10.2-test',
+    pollSleep: async () => {},
+  });
+  const deviceId = login.device?.deviceId ?? '';
+  const keys = (await devices.get(API, USER))?.unseal().keys;
+  const registered = fake.devices.get(deviceId);
+  if (!keys || !registered) throw new Error('fixture: the login did not enrol the device');
+  const pair = (kp: { publicKey: string; privateKey: string }): KeyPair => ({
+    publicKey: Buffer.from(kp.publicKey, 'base64'),
+    privateKey: Buffer.from(kp.privateKey, 'base64'),
+  });
+  return {
+    m: {
+      name,
+      deviceId,
+      replicaId,
+      home,
+      configHome,
+      root,
+      devices,
+      sessions,
+      state,
+      token: registered.token,
+      keys: { encryption: pair(keys.encryption), signing: pair(keys.signing) },
+    },
+    login,
   };
 }
 
@@ -3360,5 +3501,73 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     expect(err?.code).toBe('E_STREAM_VERSION');
     expect(err?.details?.['verdict']).toMatchObject({ reason: 'stream-v3' });
     expect(s.headCheckpointId).toBe(v3.checkpointId);
+  });
+});
+
+describe('onboarding A: cleo login sets up the account key, so push mints none (T13100)', () => {
+  it('a fresh account: login mints, escrows and certifies; the first push writes no account key or certificate, and a second login restores', async () => {
+    const { m: a, login } = await loginMachine('a', REPLICA_A);
+    expect(login.account).toMatchObject({ status: 'ready', escrow: 'minted', certificate: 'new' });
+    expect(login.warnings).toEqual([]);
+    expect(fake.escrow).not.toBeNull();
+    expect(fake.writes).toEqual([
+      'PUT /v1/account/keys/escrow',
+      `PUT /v1/devices/${a.deviceId}/key`,
+    ]);
+
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: a.deviceId });
+    seedProject(a, 5);
+    link(a);
+    const before = fake.writes.length;
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    const pushWrites = fake.writes.slice(before);
+    expect(pushWrites).not.toContain('PUT /v1/account/keys/escrow');
+    expect(pushWrites.some((w) => /^PUT \/v1\/devices\/[^/]+\/key$/.test(w))).toBe(false);
+    expect(fake.certificates.map((c) => c.deviceId)).toEqual([a.deviceId]);
+
+    // A second device's login receives the same key from escrow and certifies itself,
+    // so it restores A's snapshot with no push of its own.
+    const mk = fake.escrow?.mk ?? Buffer.alloc(0);
+    const { m: b, login: second } = await loginMachine('b', REPLICA_B);
+    expect(second.account).toMatchObject({
+      status: 'ready',
+      escrow: 'fetched',
+      certificate: 'new',
+    });
+    expect(fake.escrow?.mk.equals(mk)).toBe(true);
+    expect(fake.certificates.map((c) => c.deviceId).sort()).toEqual(
+      [a.deviceId, b.deviceId].sort(),
+    );
+    fake.replicas.get(REMOTE_PROJECT)?.set(REPLICA_B, b.deviceId);
+    const { result } = await restoreOntoB(b);
+    expect(result.status).toBe('restored');
+    expect(taskCount(b)).toBe(5);
+  });
+
+  it('a device that logged in before T13100 (no escrow, not certified) still pushes: push sets the account up itself', async () => {
+    const { a } = await twoMachines();
+    expect(fake.escrow).toBeNull();
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    expect(fake.writes).toContain('PUT /v1/account/keys/escrow');
+    expect(fake.writes).toContain(`PUT /v1/devices/${DEVICE_A}/key`);
+    expect(fake.certificates.map((c) => c.deviceId)).toEqual([DEVICE_A]);
+  });
+
+  it('an older device on an account another device set up at login certifies itself on its first push', async () => {
+    const { m: a } = await loginMachine('a', REPLICA_A);
+    const mk = fake.escrow?.mk ?? Buffer.alloc(0);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: a.deviceId, [REPLICA_B]: DEVICE_B });
+    seedProject(b, 2);
+    link(b);
+    const before = fake.writes.length;
+    const pushed = await on(b, () => pushNexusVault(vopts(b)));
+    expect(pushed.status).toBe('pushed');
+    const pushWrites = fake.writes.slice(before);
+    expect(pushWrites).not.toContain('PUT /v1/account/keys/escrow');
+    expect(pushWrites).toContain(`PUT /v1/devices/${DEVICE_B}/key`);
+    expect(fake.escrow?.mk.equals(mk)).toBe(true);
   });
 });
