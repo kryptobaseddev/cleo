@@ -11,12 +11,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  canonicalForClass,
   commandTarget,
   isPausable,
   isWatchCommand,
   looksHeavy,
-  RUN_CLASS_ALIASES,
   resolveRunClass,
 } from '../run-class.js';
 
@@ -474,43 +472,5 @@ describe('round 7 (R7-2): one-shot commands are not watchers', () => {
     expect(isWatchCommand(['esbuild', 'app.ts', '--bundle', '--serve=8000'])).toBe(true);
     expect(looksHeavy(['esbuild', 'app.ts', '--serve=8000'])).toBe(false);
     expect(looksHeavy(['esbuild', 'app.ts', '--bundle'])).toBe(true);
-  });
-});
-
-describe('T13123: typecheck and lint are their own class', () => {
-  it('one TypeScript program in one process is a typecheck run', () => {
-    for (const argv of [
-      ['tsc', '--noEmit'],
-      ['pnpm', 'exec', 'tsc', '-b'],
-      ['npx', 'vue-tsc', '--noEmit'],
-      ['svelte-check'],
-      ['eslint', '.'],
-      ['pnpm', 'biome', 'check', '.'],
-      ['pnpm', 'typecheck'],
-      ['npm', 'run', 'lint'],
-      ['yarn', 'type-check'],
-      ['pnpm', 'run', 'check:types'],
-    ]) {
-      expect(resolveRunClass(undefined, argv, dir), argv.join(' ')).toBe('typecheck');
-    }
-  });
-
-  it('a recursive typecheck fans out across the workspace and stays a build', () => {
-    expect(resolveRunClass(undefined, ['pnpm', '-r', 'typecheck'], dir)).toBe('scoped-build');
-    expect(resolveRunClass(undefined, ['turbo', 'run', 'typecheck'], dir)).toBe('full-build');
-  });
-
-  it('tests and bundler builds are unchanged', () => {
-    expect(resolveRunClass(undefined, ['vitest', 'run'], dir)).toBe('test-run');
-    expect(resolveRunClass(undefined, ['vite', 'build'], dir)).toBe('scoped-build');
-  });
-
-  it('--class typecheck and --class lint select it; it sizes a single-process env', () => {
-    expect(RUN_CLASS_ALIASES.typecheck).toBe('typecheck');
-    expect(RUN_CLASS_ALIASES.lint).toBe('typecheck');
-    expect(resolveRunClass('typecheck', ['node', 'x.js'], dir)).toBe('typecheck');
-    expect(canonicalForClass('typecheck')).toBe('typecheck');
-    expect(canonicalForClass('test-run')).toBe('test');
-    expect(canonicalForClass('scoped-build')).toBe('build');
   });
 });

@@ -404,7 +404,6 @@ const RESERVED = new Set([
 /** Short `--class` names for the classes {@link resolveRunClass} infers. */
 const CLASS_ALIAS: Readonly<Partial<Record<ResourceClass, string>>> = {
   'test-run': 'test',
-  typecheck: 'typecheck',
   'scoped-build': 'build',
   'full-build': 'full-build',
   'db-heavy': 'db',

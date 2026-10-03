@@ -28,10 +28,12 @@
  * On darwin `test`/`build` default to ONE slot machine-wide (T12963), and
  * `typecheck`/`lint` to at most {@link DARWIN_MEMORY_BOUND_SLOTS} (T13123):
  * concurrent agents on a laptop are the common case there. Memory-bound runs
- * shrink under pressure ({@link pressureScaleSlots}) and additionally take a
- * slot of the matching {@link ResourceGovernor} class (`test` → `test-run`,
- * `build` → `scoped-build`, `typecheck`/`lint` → `typecheck`), so evidence runs
- * and other governed work (`cleo run tsc`) share one machine-wide budget.
+ * shrink under pressure ({@link pressureScaleSlots}). Heavy runs additionally
+ * take a slot of the matching {@link ResourceGovernor} class (`test` →
+ * `test-run`, `build` → `scoped-build`), so evidence runs and other governed
+ * heavy work share one machine-wide budget. `typecheck`/`lint` take no governor
+ * class of their own: cross-surface admission belongs to the single
+ * footprint-based scheduler (T13132), not to one more class.
  *
  * T12091: `test`/`build` were `max(1, cpus/4)` — 6 slots on a 24-core box. Since
  * each `pnpm run test` is itself allowed 6 vitest forks × 4 GiB, the two bounds
@@ -426,15 +428,13 @@ function hasConcurrencyOverride(canonical: CanonicalTool): boolean {
 }
 
 /**
- * The {@link ResourceGovernor} class a memory-bound tool run is admitted under,
- * or `null` for the rest. `test` and `build` are the classes the governor
- * budgets as `test-run` / `scoped-build` (T12963); `typecheck` and `lint` share
- * the `typecheck` class with `cleo run tsc|eslint|…` (T13123).
+ * The {@link ResourceGovernor} class a heavy tool run is admitted under, or
+ * `null` for the rest. `test` and `build` are the classes the governor
+ * budgets as `test-run` / `scoped-build` (T12963).
  */
 export function governorClassFor(canonical: CanonicalTool): ResourceClass | null {
   if (canonical === 'test') return 'test-run';
   if (canonical === 'build') return 'scoped-build';
-  if (canonical === 'typecheck' || canonical === 'lint') return 'typecheck';
   return null;
 }
 

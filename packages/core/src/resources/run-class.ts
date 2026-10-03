@@ -29,8 +29,7 @@ export const RUN_CLASS_ALIASES: Readonly<Record<string, ResourceClass>> = Object
   'test-run': 'test-run',
   build: 'scoped-build',
   'scoped-build': 'scoped-build',
-  typecheck: 'typecheck',
-  lint: 'typecheck',
+  typecheck: 'scoped-build',
   install: 'scoped-build',
   scan: 'scoped-build',
   'full-build': 'full-build',
@@ -46,10 +45,6 @@ const EXEC_RUNNERS = /^(npx|pnpx|bunx)$/;
 const PREFIX_COMMANDS = /^(env|nice|time|nohup)$/;
 const INSTALL_VERBS = /^(install|i|ci|add|update|up|upgrade)$/;
 const HEAVY_SCRIPTS = /^(test|t|build|typecheck|lint|check|install|i|ci)(:|$)/;
-/** Tools that build one TypeScript program (or lint) in a single process (T13123). */
-const TYPECHECK_TOOLS = /^(tsc|vue-tsc|svelte-check|eslint|biome)$/;
-/** Package-manager scripts that typecheck or lint (T13123). */
-const TYPECHECK_SCRIPTS = /^(typecheck|type-check|tsc|lint|check)(:|$)/;
 /** Serve/dev words that count only as a name's FIRST segment (`dev:web`, not `build:dev`). */
 const LEADING_WATCH_WORD = /^(dev|start|preview)$/;
 /** Watch/serve words that count in any segment (`test:watch`, `docs:serve`). */
@@ -582,13 +577,10 @@ function isWorkspaceRoot(cwd: string): boolean {
  *
  * An explicit `--class` wins (aliases above). Otherwise: a test runner, a
  * `test` script, `npm t`, `bun test`, `cargo|go test`, or turbo/nx running
- * only test tasks is `test-run`; `tsc`, `vue-tsc`, `svelte-check`, `eslint`,
- * `biome`, or a non-recursive `typecheck`/`lint`/`check` script is
- * `typecheck` (T13123: one TypeScript program, budgeted per process); a build
- * that spans the workspace (`-r`, `--workspaces`, `yarn workspaces foreach`, an
- * unscoped build at a workspace root, or any non-test turbo /
- * `nx run-many|affected` run, `build test` included) is `full-build`; anything
- * else is `scoped-build`.
+ * only test tasks is `test-run`; a build that spans the workspace (`-r`,
+ * `--workspaces`, `yarn workspaces foreach`, an unscoped build at a workspace
+ * root, or any non-test turbo / `nx run-many|affected` run, `build test`
+ * included) is `full-build`; anything else is `scoped-build`.
  *
  * @param explicit - the `--class` value, if given.
  * @param argv - the command.
@@ -615,12 +607,6 @@ export function resolveRunClass(
     return 'test-run';
   }
   if ((t.tool === 'cargo' || t.tool === 'go') && t.rest[0] === 'test') return 'test-run';
-  // One TypeScript program in one process (T13123). A recursive script fans
-  // out across the workspace and stays a build.
-  if (TYPECHECK_TOOLS.test(t.tool)) return 'typecheck';
-  if (t.pm !== null && t.script !== null && TYPECHECK_SCRIPTS.test(t.script) && !t.recursive) {
-    return 'typecheck';
-  }
   // turbo / nx: a build (or any non-test task) across the workspace is a full
   // build, checked BEFORE the test rule so `turbo run build test` keeps the
   // single full-build slot; tests only are a test run (`nx run web:test`).
@@ -638,15 +624,9 @@ export function resolveRunClass(
   return 'scoped-build';
 }
 
-/**
- * The `heavyToolEnv` canonical tool a run class sizes its env from: `test`
- * for a test run, `typecheck` (a heap ceiling, no worker pool) for a
- * typecheck, `build` for the rest.
- */
+/** The `heavyToolEnv` canonical tool a run class sizes its env from. */
 export function canonicalForClass(cls: ResourceClass): CanonicalTool {
-  if (cls === 'test-run') return 'test';
-  if (cls === 'typecheck') return 'typecheck';
-  return 'build';
+  return cls === 'test-run' ? 'test' : 'build';
 }
 
 /** The script a `node` command runs (`node --max-old-space-size=4096 bin/cleo.js`), else null. */

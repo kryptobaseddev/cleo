@@ -36,10 +36,6 @@ export type GovernorMode = 'supervisor' | 'local' | 'off';
 /**
  * Priority classes (highest priority first). `interactive-cli` is NEVER gated;
  * `full-build` is pinned to one machine-wide slot regardless of pressure.
- * `typecheck` (T13123) is one single-process TypeScript program — `tsc`,
- * `eslint`, `svelte-check`, `tool:typecheck` / `tool:lint` evidence — whose
- * memory (2–5 GB on a large monorepo) is a constant per run, not a product of
- * workers.
  *
  * @adr resource-governor-never-oom-architecture §3.4 (classes)
  */
@@ -48,7 +44,6 @@ export type ResourceClass =
   | 'agent-session'
   | 'llm-call'
   | 'test-run'
-  | 'typecheck'
   | 'scoped-build'
   | 'full-build'
   | 'db-heavy'
@@ -63,7 +58,6 @@ export const RESOURCE_CLASSES: readonly ResourceClass[] = Object.freeze([
   'agent-session',
   'llm-call',
   'test-run',
-  'typecheck',
   'scoped-build',
   'full-build',
   'db-heavy',

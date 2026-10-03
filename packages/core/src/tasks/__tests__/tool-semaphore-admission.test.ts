@@ -1,6 +1,5 @@
 /**
- * Machine-wide heavy-run admission (T12963), and typecheck/lint admission
- * (T13123).
+ * Machine-wide heavy-run admission (T12963), and typecheck/lint slots (T13123).
  *
  * - On darwin (no PSI) `test`/`build` default to ONE slot machine-wide.
  * - A heavy tool slot also takes a slot of the governor class (`test` →
@@ -113,13 +112,13 @@ describe('darwin heavy-slot default (T12963)', () => {
 });
 
 describe('governor admission on the heavy slot (T12963)', () => {
-  it('maps memory-bound tools to governor classes and network-bound tools to none', () => {
+  it('maps heavy tools to governor classes and the rest to none', () => {
     expect(governorClassFor('test')).toBe('test-run');
     expect(governorClassFor('build')).toBe('scoped-build');
-    expect(governorClassFor('typecheck')).toBe('typecheck');
-    expect(governorClassFor('lint')).toBe('typecheck');
+    // T13123: no governor class of their own; the tool semaphore bounds them.
+    expect(governorClassFor('typecheck')).toBeNull();
+    expect(governorClassFor('lint')).toBeNull();
     expect(governorClassFor('audit')).toBeNull();
-    expect(governorClassFor('security-scan')).toBeNull();
   });
 
   it('holds one test-run slot while the tool slot is held and frees it on release', async () => {
@@ -192,52 +191,35 @@ describe('governor admission on the heavy slot (T12963)', () => {
     await b();
   });
 
-  it('takes no governor slot for network-bound tools', async () => {
+  it('takes no governor slot for light or single-process tools', async () => {
     const s = sample(26);
-    const release = await acquireGlobalSlot('audit', { cpuCount: 16, pressureSample: s });
-    try {
-      expect(await governor.available('test-run', { cpuCount: 16, sample: s })).toBe(1);
-      // ⌊(26 − 2) GiB / 6 GiB⌋ = 4: nothing taken
-      expect(await governor.available('typecheck', { cpuCount: 16, sample: s })).toBe(4);
-    } finally {
-      await release();
+    for (const tool of ['lint', 'typecheck', 'audit'] as const) {
+      const release = await acquireGlobalSlot(tool, { cpuCount: 16, pressureSample: s });
+      try {
+        expect(await governor.available('test-run', { cpuCount: 16, sample: s })).toBe(1);
+        expect(await governor.available('scoped-build', { cpuCount: 16, sample: s })).toBe(1);
+      } finally {
+        await release();
+      }
     }
   });
 
-  it('a typecheck or lint run holds a typecheck-class slot, shared with cleo run tsc (T13123)', async () => {
-    const s = sample(20); // governor budget: ⌊(20 − 2) GiB / 6 GiB⌋ = 3, cores ⌊16/2⌋ = 8
-    const budget = { cpuCount: 16, sample: s };
-    expect(await governor.available('typecheck', budget)).toBe(3);
-    const opts = { platform: 'linux' as const, cpuCount: 16, totalRamGib: 64, pressureSample: s };
-    const tsc = await acquireGlobalSlot('typecheck', opts);
-    const eslint = await acquireGlobalSlot('lint', opts);
-    try {
-      expect(await governor.available('typecheck', budget)).toBe(1);
-      expect(await governor.available('test-run', budget)).toBe(1); // untouched
-    } finally {
-      await tsc();
-      await eslint();
-    }
-    expect(await governor.available('typecheck', budget)).toBe(3);
-  });
-
-  it('a typecheck run waits for the governor when the class is full, and gives its tool slot back', async () => {
-    const s = sample(8); // ⌊6 GiB / 6 GiB⌋ = 1 typecheck run machine-wide
-    const held = await governor.acquire('typecheck', { cpuCount: 16, sample: s });
-    expect(held.deferred).toBe(false);
+  it('a typecheck slot is sized from the heap the run gets (T13123)', async () => {
+    // 64 GiB Linux box, 16 cores: ⌊32768 / (24576 + 2048)⌋ = 1 slot at a 24 GiB heap.
+    const opts = {
+      platform: 'linux' as const,
+      cpuCount: 16,
+      totalRamGib: 64,
+      pressureSample: sample(64),
+      heapMb: 24576,
+    };
+    const first = await acquireGlobalSlot('typecheck', opts);
     try {
       await expect(
-        acquireGlobalSlot('typecheck', {
-          platform: 'linux',
-          cpuCount: 16,
-          totalRamGib: 64,
-          pressureSample: s,
-          pollMs: 10,
-          timeoutMs: 150,
-        }),
-      ).rejects.toThrow(/'typecheck' resource budget/);
+        acquireGlobalSlot('typecheck', { ...opts, pollMs: 10, timeoutMs: 100 }),
+      ).rejects.toThrow(/Timed out/);
     } finally {
-      if (!held.deferred) await held.release();
+      await first();
     }
   });
 });

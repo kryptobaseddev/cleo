@@ -175,7 +175,7 @@ describe('planHeavyCommand — rewrites', () => {
     });
     const tsc = plan('npx tsc --noEmit', 300);
     expect(tsc.action === 'rewrite' && tsc.command).toBe(
-      'cleo run --wait --passthrough --timeout 300 --class typecheck -- npx tsc --noEmit',
+      'cleo run --wait --passthrough --timeout 300 --class build -- npx tsc --noEmit',
     );
   });
 
@@ -229,7 +229,7 @@ describe('planHeavyCommand — rewrites', () => {
   it('wraps the heavy command in place and leaves pipes and redirections to the shell', () => {
     const p = plan('npx tsc --noEmit 2>&1 | head -50');
     expect(p.action === 'rewrite' && p.command).toBe(
-      'cleo run --wait --passthrough --class typecheck -- npx tsc --noEmit 2>&1 | head -50',
+      'cleo run --wait --passthrough --class build -- npx tsc --noEmit 2>&1 | head -50',
     );
     const r = plan("cd pkg && pnpm vitest run 'a b.test.ts' > out.log");
     expect(r.action === 'rewrite' && r.command).toBe(
