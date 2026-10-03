@@ -232,6 +232,7 @@ export {
   type NexusProjectStats,
   type NexusRegistryFile,
   nexusGetProject,
+  nexusGetProjectById,
   nexusInit,
   // EngineResult wrappers (T1569)
   nexusInitialize,
@@ -261,6 +262,7 @@ export {
   readRegistry,
   readRegistryRequired,
   resetNexusDbState,
+  resolveNexusQueryProjectId,
 } from './registry.js';
 // Registry errors - typed read failures (T12512 · T12513)
 export {

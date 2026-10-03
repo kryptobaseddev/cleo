@@ -20,10 +20,30 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { ExitCode } from '@cleocode/contracts';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
-import { legacyProjectId } from '@cleocode/paths';
+import { legacyProjectId, readDeclaredProjectIdentity } from '@cleocode/paths';
+import { CleoError } from '../errors.js';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Read the project's declared, portable identity without creating or migrating it.
+ *
+ * @param projectRoot - Checkout whose tracked identity (or legacy cache) is read.
+ * @returns The declared id, independent of the checkout's current path.
+ * @throws {CleoError} When identity is missing; a path fingerprint is never a fallback.
+ */
+export function requireNexusProjectId(projectRoot: string): string {
+  const identity = readDeclaredProjectIdentity(projectRoot);
+  if (identity) return identity.projectId;
+  // @sync-invariant none:local-only a query requires local declared identity; this does not create or re-key a synced row
+  throw new CleoError(
+    ExitCode.CONFIG_ERROR,
+    `Project at ${projectRoot} declares no identity; refusing to derive one from its path.`,
+    { fix: 'Run cleo doctor project-identity, or cleo init for a new project.' },
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Types

@@ -3009,6 +3009,8 @@ export type {
   NexusAccountErrorCode,
   NexusAccountMe,
   NexusAccountOrganization,
+  NexusAccountSetup,
+  NexusAccountSetupStep,
   NexusAccountStatus,
   NexusAccountUser,
   NexusDeviceEndOutcome,

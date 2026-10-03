@@ -12,7 +12,10 @@
  * @task T12560
  */
 
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { GraphIndexAssessment, GraphIndexFileReport } from '@cleocode/contracts';
+import { getProjectRoot } from '@cleocode/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({ assessment: null as GraphIndexAssessment | null }));
@@ -99,7 +102,12 @@ function bytes(value: unknown): number {
 }
 
 describe('nexus status — bounded file report (T12560)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    // The bounded-output fixture represents an initialized project. Declare its
+    // identity so these assertions exercise pagination, not missing setup.
+    const stateDir = join(getProjectRoot(), '.cleo');
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(join(stateDir, 'project-id'), 'bounded-status-project\n');
     vi.mocked(cliError).mockClear();
     process.exitCode = undefined;
   });
