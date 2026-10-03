@@ -228,6 +228,24 @@ learned. Both are recorded where an operator can see them.
   To force a rebuild, delete the cache entry:
   `gh cache delete cant-napi-bundle-v1-<hash>`.
 
+## Flaky tests: re-run once, file, quarantine (T13145)
+
+Each unit shard runs vitest through `scripts/ci-flaky-quarantine.mjs`:
+
+- When a test fails, its file is re-run once, without `--shard`. If it passes on the re-run, it is a
+  **flake**: CI stays green, and the test is listed in the run summary and in the shard's
+  `flaky-report-<os>-<shard>` artifact.
+- A test that fails twice blocks. So does a crash, heap kill or unhandled error that leaves no
+  failing test in vitest's JSON report; that case is not retried.
+- On `main` (push and nightly), the `Flaky Test Quarantine` job files each reported test as an open
+  issue labelled `flaky-quarantine`, or records the new observation on its existing issue. **The
+  open issues are the quarantine.** While a test's issue is open, its failures do not block CI.
+- On the nightly run, an issue with no new observation for 14 days is closed, and the test leaves
+  quarantine. Close an issue by hand once its flake is fixed.
+- CI fails while more than 10 tests are quarantined, so the quarantine cannot grow without tests
+  being fixed.
+- If the quarantine cannot be read (a `gh` error), it is treated as empty, so failures block.
+
 ## Operator Commands
 
 ### Add a PR to the merge queue
