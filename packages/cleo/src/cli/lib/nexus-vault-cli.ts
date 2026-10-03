@@ -162,7 +162,7 @@ export function cloudRestoreSummary(r: CloudRestoreResult): string {
   const replica = !r.replica
     ? ''
     : carried
-      ? `; this copy now has its own replica ${r.replica.current} (it carried ${r.replica.retired} ${carried})`
+      ? `; this copy now has its own replica ${r.replica.current} (${r.replica.reason}: it carried ${r.replica.retired} ${carried})`
       : `; replica ${r.replica.retired} retired → ${r.replica.current}`;
   return `Restored ${r.scope} snapshot ${r.snapshot?.checkpointId} into ${r.target}: ${r.tables} table(s) verified by count and hash${backup}${replica}.`;
 }

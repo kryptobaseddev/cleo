@@ -320,8 +320,15 @@ describe('cloudRestoreSummary (T13109)', () => {
       replica: { retired: 'r-old', current: 'r-new', reason: 'file-identity' },
     });
     expect(copied).toContain(
-      '; this copy now has its own replica r-new (it carried r-old from a copied file).',
+      '; this copy now has its own replica r-new (file-identity: it carried r-old from a copied file).',
     );
+    expect(copied).not.toContain('retired');
+    const foreign = cloudRestoreSummary({
+      ...restoreResult,
+      status: 'restored',
+      replica: { retired: 'r-old', current: 'r-new', reason: 'foreign-device' },
+    });
+    expect(foreign).toContain('(foreign-device: it carried r-old from another device)');
   });
 
   it('says nothing about replicas when the store had none', () => {
