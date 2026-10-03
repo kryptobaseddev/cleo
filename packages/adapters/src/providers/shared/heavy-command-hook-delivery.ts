@@ -515,7 +515,10 @@ export function probeHeavyHookCli(
   return {
     state: 'unknown',
     path,
-    detail: `${path} did not answer \`cleo hook heavy-command\` (${probe.error?.message ?? `exit ${probe.status ?? 'none'}`})`,
+    detail:
+      `${path} did not answer \`cleo hook heavy-command\` (${probe.error?.message ?? `exit ${probe.status ?? 'none'}`}); ` +
+      'the hook fails open, so heavy commands run ungoverned while it does not',
+    remedy: `run \`${path} hook heavy-command < /dev/null\` in ${projectDir} to see why it fails (a broken version-manager shim, say)`,
   };
 }
 

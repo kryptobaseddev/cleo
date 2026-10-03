@@ -137,3 +137,48 @@ describe('T929 regression: getSystemHealth DB integrity checks', () => {
     expect(check?.message).not.toMatch(/^\d+ bytes$/);
   });
 });
+
+describe('heavy-command hook checks (T13124)', () => {
+  let projectRoot: string;
+
+  beforeEach(async () => {
+    projectRoot = await mkdtemp(join(tmpdir(), 'cleo-health-hook-'));
+    await mkdir(join(projectRoot, '.cleo'), { recursive: true });
+    await mkdir(join(projectRoot, '.git'), { recursive: true });
+    // Claude Code counts as in use through the project's own .claude/.
+    await mkdir(join(projectRoot, '.claude'), { recursive: true });
+  });
+
+  afterEach(async () => {
+    const { closeDb } = await import('../../store/sqlite.js');
+    closeDb();
+    await rm(projectRoot, { recursive: true, force: true });
+  });
+
+  it('plain `cleo doctor` warns while a harness in use has no hook, with the remedy', async () => {
+    const result = await getSystemHealth(projectRoot);
+    const hook = result.checks.find((c) => c.name === 'heavy_command_hook_claude_code');
+    expect(hook?.status).toBe('warn');
+    expect(hook?.message).toMatch(/missing.*Remedy: run: cleo doctor heavy-command-hook --fix/);
+  });
+
+  it('the comprehensive report flags a cleo on PATH that cannot answer an installed hook', async () => {
+    const { deliverHeavyCommandHooks } = await import(
+      '../../resources/heavy-command-hook-delivery.js'
+    );
+    await deliverHeavyCommandHooks(projectRoot, { providers: ['claude-code'] });
+    const bin = join(projectRoot, 'bin');
+    await mkdir(bin);
+    writeFileSync(join(bin, 'cleo'), '#!/bin/sh\necho "Unknown command hook" >&2\nexit 127\n', {
+      mode: 0o755,
+    });
+    vi.stubEnv('PATH', `${bin}:/usr/bin:/bin`);
+    const report = await coreDoctorReport(projectRoot);
+    const installed = report.checks.find((c) => c.check === 'heavy_command_hook_claude_code');
+    expect(installed?.status).toBe('ok');
+    const cli = report.checks.find((c) => c.check === 'heavy_command_hook_cli');
+    expect(cli?.status).toBe('warning');
+    expect(cli?.message).toMatch(/older, .*predates `cleo hook`/);
+    expect(cli?.fix).toMatch(/upgrade the cleo at/);
+  });
+});

@@ -230,7 +230,9 @@ export interface HeavyHookInspection {
  *   command run ungoverned. The hook's own marker (exit 127, "Unknown
  *   command") or a direct probe says so.
  * - `missing` — no `cleo` on PATH: the hook stays silent.
- * - `unknown` — the probe failed some other way (timeout, crash).
+ * - `unknown` — the probe failed some other way (a broken version-manager
+ *   shim, a timeout, a crash). The hook fails open, so it governs nothing
+ *   while this lasts.
  */
 export type HeavyHookCliState = 'current' | 'older' | 'missing' | 'unknown';
 
@@ -242,7 +244,7 @@ export interface HeavyHookCliProbe {
   readonly path: string | null;
   /** One line saying what was found. */
   readonly detail: string;
-  /** The exact step that fixes an `older` or `missing` CLI. */
+  /** The exact step that fixes (or diagnoses) a CLI that is not `current`. */
   readonly remedy?: string;
 }
 

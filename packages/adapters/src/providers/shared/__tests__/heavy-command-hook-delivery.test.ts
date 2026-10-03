@@ -278,7 +278,10 @@ describe('probeHeavyHookCli', () => {
     expect(probe.remedy).toMatch(/upgrade the cleo at .*cleo doctor heavy-command-hook --fix/);
     // Any other failure is unknown, not older.
     fakeCleo('exit 3');
-    expect(probeHeavyHookCli(project, { env: probeEnv() }).state).toBe('unknown');
+    const broken = probeHeavyHookCli(project, { env: probeEnv() });
+    expect(broken.state).toBe('unknown');
+    expect(broken.detail).toMatch(/exit 3.*fails open/);
+    expect(broken.remedy).toMatch(/hook heavy-command < \/dev\/null/);
   });
 
   it("trusts the hook's own marker for this binary and directory, within its hour", () => {

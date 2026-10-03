@@ -25,8 +25,8 @@ import { cliOutput } from '../renderers/index.js';
 
 /**
  * `cleo doctor heavy-command-hook` subcommand. Exits 1 while a provider in
- * use is left without a working hook, or the `cleo` on PATH predates the
- * installed hook, so it can gate a setup script.
+ * use is left without a working hook, or the `cleo` on PATH cannot answer
+ * the installed hook (older, missing or broken), so it can gate a setup script.
  *
  * @task T13124
  */
@@ -58,7 +58,7 @@ export const doctorHeavyCommandHookCommand = defineCommand({
         ? await probeHeavyHookCliFor(projectRoot)
         : null;
     const problems = inspections.filter(isHeavyHookProblem);
-    const cliProblem = cli !== null && (cli.state === 'older' || cli.state === 'missing');
+    const cliProblem = cli !== null && cli.state !== 'current';
     cliOutput(
       {
         projectRoot,

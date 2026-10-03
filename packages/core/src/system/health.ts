@@ -499,6 +499,18 @@ export async function getSystemHealth(
     });
   }
 
+  // T13124: the heavy-command hook per agent harness in use, and whether the
+  // `cleo` it calls can answer it. In plain `cleo doctor` too: a missing hook
+  // means agent-run tests and builds bypass the machine-wide budget.
+  for (const hook of await checkHeavyCommandHooks(projectRoot)) {
+    checks.push({
+      name: hook.check,
+      status: hook.status === 'error' ? 'fail' : hook.status === 'warning' ? 'warn' : 'pass',
+      message: hook.fix ? `${hook.message}. Remedy: ${hook.fix}` : hook.message,
+      ...(hook.details === undefined ? {} : { details: hook.details }),
+    });
+  }
+
   // Get version
   let version = 'unknown';
   try {
