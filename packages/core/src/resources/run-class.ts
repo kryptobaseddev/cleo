@@ -595,6 +595,7 @@ export function resolveRunClass(
   if (explicit !== undefined) {
     const cls = RUN_CLASS_ALIASES[explicit];
     if (!cls) {
+      // @sync-invariant none:input-shape an unknown `cleo run --class` value; class inference touches no store
       throw new Error(
         `unknown --class '${explicit}' (expected one of: ${Object.keys(RUN_CLASS_ALIASES).join(', ')})`,
       );

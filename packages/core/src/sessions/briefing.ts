@@ -574,6 +574,17 @@ export async function computeBriefing(
       `Project identity unavailable: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  // T13124: an agent harness in use without the heavy-command hook runs its
+  // tests and builds outside the machine-wide budget. One line, only then.
+  try {
+    const { heavyHookBriefingWarning } = await import(
+      '../resources/heavy-command-hook-delivery.js'
+    );
+    const heavyHook = await heavyHookBriefingWarning(projectRoot);
+    if (heavyHook !== null) warnings.push(heavyHook);
+  } catch {
+    // Advisory only; `cleo doctor` reports a broken delivery.
+  }
   if (staleFocus) {
     const next = nextTasks[0] ? { id: nextTasks[0].id, title: nextTasks[0].title } : null;
     warnings.push(`W_STALE_FOCUS: ${staleFocusWarning(staleFocus, next)}`);
