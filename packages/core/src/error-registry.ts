@@ -12,7 +12,7 @@
  * @epic T4663
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { LAFSErrorCategory } from '@cleocode/lafs';
 
 /**

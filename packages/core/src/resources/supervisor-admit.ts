@@ -19,14 +19,16 @@
 
 import { connect, type Socket } from 'node:net';
 import { join } from 'node:path';
+import type {
+  LeaseIpcRequest,
+  ResourceAdmitResultResponse,
+  ResourceReleaseResultResponse,
+} from '@cleocode/contracts';
 import {
-  LEASE_IPC_PROTOCOL_VERSION,
-  type LeaseIpcRequest,
   LeaseIpcRequestEnvelopeSchema,
   LeaseIpcResponseEnvelopeSchema,
-  type ResourceAdmitResultResponse,
-  type ResourceReleaseResultResponse,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/lease-ipc/messages.js';
+import { LEASE_IPC_PROTOCOL_VERSION } from '@cleocode/contracts/lease-ipc/version.js';
 import { getCleoHome } from '@cleocode/paths';
 
 /** The supervisor IPC socket filename — MUST equal `SOCKET_NAME` in `crates/cleo-supervisor/src/paths.rs`. */

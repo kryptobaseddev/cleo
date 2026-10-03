@@ -26,7 +26,7 @@
  * @adr ADR-078 — Docs Provenance Graph
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
 

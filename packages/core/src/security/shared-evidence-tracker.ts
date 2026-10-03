@@ -23,7 +23,7 @@
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
+import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
 import { pushWarning } from '../output.js';
 
 // ---------------------------------------------------------------------------

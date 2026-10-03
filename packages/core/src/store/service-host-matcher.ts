@@ -32,12 +32,8 @@
  * @see ./service-injection.ts — the injector that consumes a match to mutate a request
  */
 
-import {
-  type HostAuthStrategy,
-  SERVICE_PROVIDERS,
-  type ServiceHostRule,
-  type ServiceProviderDef,
-} from '@cleocode/contracts';
+import type { HostAuthStrategy, ServiceHostRule, ServiceProviderDef } from '@cleocode/contracts';
+import { SERVICE_PROVIDERS } from '@cleocode/contracts/vault/service-provider.js';
 
 /** The result of resolving an outbound request's host/path to a service provider. */
 export interface ServiceHostMatch {

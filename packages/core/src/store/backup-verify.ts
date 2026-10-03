@@ -19,15 +19,15 @@
 
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  type BackupVerifyDbReport,
-  type BackupVerifyResult,
-  type BackupVerifySnapshot,
-  type BackupVerifySummary,
-  type BackupVerifyVerdict,
-  DB_INVENTORY,
-  type DbInventoryEntry,
+import type {
+  BackupVerifyDbReport,
+  BackupVerifyResult,
+  BackupVerifySnapshot,
+  BackupVerifySummary,
+  BackupVerifyVerdict,
+  DbInventoryEntry,
 } from '@cleocode/contracts';
+import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
 import { getCleoHome } from '@cleocode/paths';
 import { openCleoDbSnapshot } from './open-cleo-db.js';
 

@@ -40,14 +40,16 @@
 
 import { connect, type Socket } from 'node:net';
 import { join } from 'node:path';
+import type {
+  LeaseIpcRequest,
+  QueueAdmitResultResponse,
+  QueuePriorityClass,
+} from '@cleocode/contracts';
 import {
-  LEASE_IPC_PROTOCOL_VERSION,
-  type LeaseIpcRequest,
   LeaseIpcRequestEnvelopeSchema,
   LeaseIpcResponseEnvelopeSchema,
-  type QueueAdmitResultResponse,
-  type QueuePriorityClass,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/lease-ipc/messages.js';
+import { LEASE_IPC_PROTOCOL_VERSION } from '@cleocode/contracts/lease-ipc/version.js';
 import { getCleoHome } from '@cleocode/paths';
 import { getLogger } from '../logger.js';
 

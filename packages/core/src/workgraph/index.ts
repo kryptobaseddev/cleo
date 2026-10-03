@@ -57,7 +57,7 @@ export {
   E_WORKGRAPH_PARENT_TYPE_MATRIX,
   validateWorkGraphHierarchy,
   WorkGraphHierarchyInvariantError,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/workgraph.js';
 export type { SqliteWorkGraphContainmentReader } from './containment.js';
 export {
   createSqliteWorkGraphContainmentQueryService,

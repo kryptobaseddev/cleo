@@ -33,7 +33,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { Task } from '@cleocode/contracts';
-import { ClassifierUnregisteredAgentError } from '@cleocode/contracts';
+import { ClassifierUnregisteredAgentError } from '@cleocode/contracts/errors.js';
 import { typedAll } from '../store/typed-query.js';
 
 // ============================================================================

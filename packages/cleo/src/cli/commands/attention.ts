@@ -16,7 +16,7 @@
  * @saga T11283 SG-COGNITIVE-SUBSTRATE
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { AttentionItem } from '@cleocode/contracts/operations/attention';
 import { CleoError } from '@cleocode/core';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';

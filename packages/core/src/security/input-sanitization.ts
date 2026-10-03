@@ -12,13 +12,13 @@
  * @epic T3125
  */
 
+import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js';
 import {
-  DOCS_LIFECYCLE_STATUSES,
   LIFECYCLE_STAGE_STATUSES,
   MANIFEST_STATUSES,
   SESSION_STATUSES,
   TASK_STATUSES,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/status-registry.js';
 import { isAbsolute, normalize, relative, resolve } from 'path';
 import { TASK_PRIORITIES } from '../store/tasks-schema.js';
 import { normalizeTaskId } from '../tasks/id-generator.js';

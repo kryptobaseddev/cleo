@@ -20,11 +20,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import {
-  type AgentRole,
-  type ValidatorAttestation,
-  validatorAttestationSchema,
-} from '@cleocode/contracts';
+import type { AgentRole, ValidatorAttestation } from '@cleocode/contracts';
+import { validatorAttestationSchema } from '@cleocode/contracts/validator/index.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import type { JsonSchema, RegisteredSdkTool } from '../task-tools/sdk-tool.js';
 import { defineSdkTool } from '../task-tools/sdk-tool.js';

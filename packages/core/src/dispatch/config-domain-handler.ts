@@ -29,7 +29,8 @@
  * @adr 076
  */
 
-import { type EngineResult, engineError, engineSuccess } from '@cleocode/contracts';
+import type { EngineResult } from '@cleocode/contracts';
+import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import {
   flattenConfigKeys,
   getConfigValue,

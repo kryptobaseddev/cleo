@@ -15,11 +15,8 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import {
-  DB_INVENTORY,
-  type PortableExclusion,
-  type PortableSymlinkEntry,
-} from '@cleocode/contracts';
+import type { PortableExclusion, PortableSymlinkEntry } from '@cleocode/contracts';
+import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
 import { resolveDualScopeDbPath } from './dual-scope-db.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { TRIGGER_SUSPEND_TABLE, withTriggersSuspended } from './sync/trigger-classes.js';

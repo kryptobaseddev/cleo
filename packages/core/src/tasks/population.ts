@@ -1,6 +1,6 @@
 /** Shared task filtering and enumeration truth (T12200). */
 import type { DataAccessor, Task, TaskPopulation, TaskQueryFilters } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { assertTaskAxisFilters } from './axis-filters.js';
 

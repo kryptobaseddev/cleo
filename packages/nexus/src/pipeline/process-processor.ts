@@ -14,7 +14,7 @@
  * @module pipeline/process-processor
  */
 
-import { confidenceLabelFromNumeric } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts/graph.js';
 import type { CommunityMembership } from './community-processor.js';
 import { calculateEntryPointScore, isTestFile } from './entry-point-scoring.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';

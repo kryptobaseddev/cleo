@@ -23,7 +23,8 @@
  * @saga T9855
  */
 
-import { BUILTIN_DOC_KINDS, type DocKindMetadata, type DocKindRegistry } from '@cleocode/contracts';
+import type { DocKindMetadata, DocKindRegistry } from '@cleocode/contracts';
+import { BUILTIN_DOC_KINDS } from '@cleocode/contracts/docs-taxonomy.js';
 
 /**
  * Result of {@link validateDocBody}.

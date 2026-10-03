@@ -50,7 +50,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { PS_STABLE_ENV } from '@cleocode/contracts';
+import { PS_STABLE_ENV } from '@cleocode/contracts/process-probe.js';
 
 /**
  * Where a terminal key comes from. `process` is a long-lived ancestor shell

@@ -17,7 +17,8 @@ import type {
   TaskType,
 } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
-import { ExitCode, isAllowedWorkGraphParentType } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { isAllowedWorkGraphParentType } from '@cleocode/contracts/workgraph.js';
 import { loadConfig } from '../config.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
