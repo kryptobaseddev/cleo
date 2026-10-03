@@ -11,7 +11,10 @@
  *    already waiting) returns a `deferred` result, with nothing started. With
  *    `wait`, the job takes a ticket in the class's FIFO queue before its
  *    first try; only the head of the queue tries to acquire, re-sampling
- *    pressure each time, until admitted or `timeoutMs`.
+ *    pressure each time, until admitted or `timeoutMs`. While the memory gate
+ *    refuses the class (T13127) it warns "waiting: memory pressure" with the
+ *    readings (repeated at most once a minute), and warns again when it
+ *    starts.
  * 2. **Run.** The command is spawned as its own process group (so a pause or
  *    a cancel reaches its workers too), niced, with the caller's env. The job
  *    is recorded in the registry with its start times and a heartbeat. Its
@@ -32,6 +35,7 @@
  * @task T12979
  * @task T12980
  * @task T12981
+ * @task T13127
  * @epic T12978
  */
 
@@ -41,11 +45,13 @@ import { setPriority } from 'node:os';
 import {
   type AdmissionResult,
   DEFAULT_RESOURCE_RETRY_AFTER_MS,
+  type MemoryPressureReading,
   type ResourceClass,
 } from '@cleocode/contracts';
 import type { ResourceSample } from './backend.js';
 import { admitFailOpen, type GovernorIoError, governor, passThroughGrant } from './governor.js';
 import { classifyPressure, type PressureState, pressureScore, ResourceMonitor } from './monitor.js';
+import { memoryGateReporter } from './pressure-gate.js';
 import {
   buildRunDeferral,
   decidePause,
@@ -264,6 +270,7 @@ async function deferral(
   retryAfterMs: number,
   sample: ResourceSample,
   queuePosition: number | null,
+  memoryPressure: MemoryPressureReading | null = null,
 ): Promise<RunGovernedResult> {
   const pressure = classifyPressure(sample);
   const built = buildRunDeferral({
@@ -272,6 +279,7 @@ async function deferral(
     reason,
     retryAfterMs,
     queuePosition,
+    memoryPressure,
     pressure: {
       state: pressure.state,
       score: Number(pressureScore(sample).toFixed(1)),
@@ -372,6 +380,12 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       retryAfterMs: DEFAULT_RESOURCE_RETRY_AFTER_MS,
       reason: `${n} job(s) ahead in the ${opts.cls} queue`,
     });
+    // T13127: a memory-pressure refusal is out of the ordinary, so it is a
+    // warning (shown under --passthrough too), with the readings; so is the
+    // start once pressure falls.
+    const pressureWait = memoryGateReporter((line) => notice(line, 'warn'), `${opts.cls} job`, {
+      now: d.now,
+    });
     try {
       // No barging (M5): while anyone waits ahead, never try first.
       let position = ahead();
@@ -379,6 +393,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       if (admission.deferred && opts.wait) {
         const deadline = t0 + (opts.timeoutMs ?? 30 * 60_000);
         while (admission.deferred) {
+          if (admission.memoryPressure)
+            pressureWait.waiting(admission.memoryPressure, d.now() - t0);
           if (d.now() >= deadline) {
             return await deferral(
               opts,
@@ -387,6 +403,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
               admission.retryAfterMs,
               sample,
               position + 1,
+              admission.memoryPressure ?? null,
             );
           }
           await d.sleep(opts.queuePollMs ?? 1000);
@@ -399,6 +416,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
           sample = await d.sample();
           admission = await tryAcquire(sample);
         }
+        const mem = sample.globalPressure ?? sample.slicePressure;
+        pressureWait.admitted(d.now() - t0, mem ? mem.some.avg10 : null);
         notice(
           `admitted after ${Math.round((d.now() - t0) / 1000)}s in the ${opts.cls} queue`,
           'info',
@@ -409,7 +428,15 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     }
   }
   if (admission.deferred) {
-    return deferral(opts, d, admission.reason, admission.retryAfterMs, sample, null);
+    return deferral(
+      opts,
+      d,
+      admission.reason,
+      admission.retryAfterMs,
+      sample,
+      null,
+      admission.memoryPressure ?? null,
+    );
   }
   const grant = admission;
   const waitedMs = d.now() - t0;

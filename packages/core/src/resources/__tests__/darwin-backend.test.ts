@@ -2,16 +2,20 @@
  * Tests for the macOS ResourceMonitor backend (T12981).
  *
  * Coverage:
- *   - parseDarwinSysctl: full output, unknown names, malformed values
- *   - darwinMemorySome / cpuSomeFromLoad: the PSI-equivalent mapping
+ *   - parseDarwinSysctl: full output, unknown names, malformed values,
+ *     compressor occupancy
+ *   - darwinMemorySome / cpuSomeFromLoad: the PSI-equivalent mapping, and the
+ *     memory gate's verdict on every sampled shape (normal, warning,
+ *     critical, squeeze, swap nearly full, old swap, no signal) (T13127)
  *   - DarwinResourceBackend.sample: shape, one sysctl per TTL, degraded on
- *     failure, memAvailable from free%
+ *     failure, memAvailable from free%, the readings carried on the sample
  *   - sweepChildRss: ps parsing
  *   - evaluateState: CPU saturation alone holds/backs off; the worse of
  *     memory and CPU wins; CPU hysteresis
  *   - defaultResourceBackend: platform selection
  *
  * @task T12981
+ * @task T13127
  */
 
 import { describe, expect, it } from 'vitest';
@@ -32,6 +36,7 @@ import {
   evaluateState,
   pressureScore,
 } from '../monitor.js';
+import { evaluateMemoryGate, MEMORY_GATE_REFUSE_ABOVE } from '../pressure-gate.js';
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
@@ -87,6 +92,13 @@ function sample(memSome: number, cpuSome: number | null): ResourceSample {
 }
 
 describe('parseDarwinSysctl', () => {
+  it('parses the compressor occupancy', () => {
+    expect(parseDarwinSysctl('vm.compressor_bytes_used: 2018082816\n').compressorBytes).toBe(
+      2018082816,
+    );
+    expect(parseDarwinSysctl(LOADED).compressorBytes).toBeNull();
+  });
+
   it('parses every signal from real output', () => {
     const s = parseDarwinSysctl(LOADED);
     expect(s.pressureLevel).toBe(2);
@@ -108,47 +120,112 @@ describe('parseDarwinSysctl', () => {
 });
 
 describe('PSI-equivalent mapping', () => {
-  it('kernel warning alone crosses the memory hold threshold', () => {
-    const some = darwinMemorySome(parseDarwinSysctl('kern.memorystatus_vm_pressure_level: 2\n'));
-    expect(some).toBeGreaterThan(THRESHOLDS.holdSomeAvg10);
-    expect(some).toBeLessThanOrEqual(THRESHOLDS.backoffSomeAvg10);
-  });
-
-  it('kernel critical crosses backoff', () => {
-    const some = darwinMemorySome(parseDarwinSysctl('kern.memorystatus_vm_pressure_level: 4\n'));
-    expect(some).toBeGreaterThan(THRESHOLDS.backoffSomeAvg10);
-  });
-
-  it('a calm box scores zero', () => {
-    expect(darwinMemorySome(parseDarwinSysctl(CALM))).toBe(0);
-  });
-
-  it('low free memory scores even when the kernel still says normal', () => {
-    const some = darwinMemorySome(
-      parseDarwinSysctl('kern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 8\n'),
-    );
-    expect(some).toBe(24);
-  });
-
-  it('swap is reported but not scored (macOS grows swapfiles on demand)', () => {
-    const base = darwinMemorySome(parseDarwinSysctl('kern.memorystatus_vm_pressure_level: 2\n'));
-    expect(darwinMemorySome(parseDarwinSysctl(LOADED))).toBe(base);
-    expect(base).toBe(15);
-  });
-
-  it('the loaded fixture is exactly hold, not backoff (kernel warning, 41% free, swap 87%)', () => {
-    const s = parseDarwinSysctl(LOADED);
-    const { memory, cpu } = darwinPressure(s);
-    const sampleOf: ResourceSample = {
+  const RAM48 = 48 * GB;
+  const RAM16 = 16 * GB;
+  const some = (out: string, ram = RAM48): number | null =>
+    darwinMemorySome(parseDarwinSysctl(out), ram);
+  /** A sample built the way the backend builds one, for the gate and the monitor. */
+  const sampleFrom = (out: string, ram = RAM48): ResourceSample => {
+    const { memory, cpu } = darwinPressure(parseDarwinSysctl(out), ram);
+    return {
       sampledAtMs: 0,
-      pressureAvailable: true,
+      pressureAvailable: memory !== null,
       memAvailableBytes: 1,
       globalPressure: memory,
       slicePressure: null,
       cpuPressure: cpu,
       walObservations: [],
     };
-    expect(classifyPressure(sampleOf).state).toBe('hold');
+  };
+
+  it('normal: an idle Mac (89% neither wired nor compressed, no swap) scores zero', () => {
+    expect(
+      some(
+        'kern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 89\n' +
+          'vm.compressor_bytes_used: 2018082816\nvm.swapusage: total = 0.00M  used = 0.00M  free = 0.00M  (encrypted)\n',
+        64 * GB,
+      ),
+    ).toBe(0);
+    expect(some(CALM)).toBe(0);
+  });
+
+  it('warn: the kernel warning alone holds, and is not refused', () => {
+    const s = some('kern.memorystatus_vm_pressure_level: 2\n');
+    expect(s).toBeGreaterThan(THRESHOLDS.holdSomeAvg10);
+    expect(s).toBeLessThanOrEqual(THRESHOLDS.backoffSomeAvg10);
+    expect(
+      evaluateMemoryGate(sampleFrom('kern.memorystatus_vm_pressure_level: 2\n'), false).refuse,
+    ).toBe(false);
+  });
+
+  it('critical: the kernel critical level backs off and is refused', () => {
+    const out = 'kern.memorystatus_vm_pressure_level: 4\n';
+    expect(some(out)).toBeGreaterThan(MEMORY_GATE_REFUSE_ABOVE);
+    expect(evaluateMemoryGate(sampleFrom(out), false).refuse).toBe(true);
+  });
+
+  it('squeeze: memory scores as more of RAM is wired or compressed, kernel still normal', () => {
+    const at = (level: number) =>
+      some(`kern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: ${level}\n`);
+    expect(at(60)).toBe(0); // 40% wired or compressed: the knee
+    expect(at(50)).toBeCloseTo(10, 6); // hold
+    expect(at(40)).toBeCloseTo(20, 6); // backoff
+    expect(at(8)).toBeCloseTo(52, 6); // refused
+  });
+
+  it('the compressor share counts when the kernel level is unreadable, or larger', () => {
+    // 24 GiB compressed on 48 GiB, no memorystatus_level: squeeze 0.5
+    expect(some(`vm.compressor_bytes_used: ${24 * GB}\n`)).toBeCloseTo(10, 6);
+    // the larger of the two wins
+    expect(some(`kern.memorystatus_level: 70\nvm.compressor_bytes_used: ${24 * GB}\n`)).toBeCloseTo(
+      10,
+      6,
+    );
+  });
+
+  it('the loaded capture (kernel warning, 41% free, 11.4 GiB swap) is refused, not merely held', () => {
+    // Before T13127 this exact state scored 15: hold, and heavy work kept being admitted.
+    const score = some(LOADED);
+    expect(score).toBeCloseTo(100 * (0.59 + (11625.69 * MB) / RAM48 - 0.4), 6);
+    const s = sampleFrom(LOADED);
+    expect(classifyPressure(s).state).toBe('backoff');
+    expect(evaluateMemoryGate(s, false).refuse).toBe(true);
+  });
+
+  it('swap nearly full on a squeezed box is refused even while the kernel says normal', () => {
+    const out =
+      'kern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 45\n' +
+      'vm.swapusage: total = 15770.00M  used = 14950.00M  free = 820.00M  (encrypted)\n';
+    // squeeze 0.55 (swap counts in full) + swap 30% of RAM - 0.40
+    expect(some(out)).toBeCloseTo(100 * (0.55 + (14950 * MB) / RAM48 - 0.4), 6);
+    expect(evaluateMemoryGate(sampleFrom(out), false).refuse).toBe(true);
+  });
+
+  it('old swap on a machine with RAM to spare is history, not pressure', () => {
+    // 6.8 of 7 GiB swap used (97%) on a 16 GiB laptop, but 78% neither wired nor compressed
+    const out =
+      'kern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 78\n' +
+      'vm.swapusage: total = 7168.00M  used = 6963.00M  free = 205.00M  (encrypted)\n';
+    expect(some(out, RAM16)).toBe(0);
+    expect(evaluateMemoryGate(sampleFrom(out, RAM16), false).refuse).toBe(false);
+  });
+
+  it('swap fades in as the squeeze rises from 30% to 50% of RAM, with no step', () => {
+    const swap = 'vm.swapusage: total = 4096.00M  used = 4096.00M  free = 0.00M  (encrypted)\n';
+    const at = (level: number) => some(`kern.memorystatus_level: ${level}\n${swap}`, RAM16) ?? 0;
+    // squeeze 0.30 → swap weight 0; 0.40 → half; 0.50 → full (swap is 25% of RAM)
+    expect(at(70)).toBe(0);
+    expect(at(60)).toBeCloseTo(100 * 0.5 * 0.25, 6);
+    expect(at(50)).toBeCloseTo(100 * (0.1 + 0.25), 6);
+    // continuous across the knee: one point of squeeze moves the score by little
+    expect(Math.abs(at(61) - at(60))).toBeLessThan(3);
+  });
+
+  it('returns null when no memory signal is readable; swap alone is not a signal', () => {
+    expect(some('hw.ncpu: 4\n')).toBeNull();
+    expect(
+      some('vm.swapusage: total = 2048.00M  used = 2000.00M  free = 48.00M  (encrypted)\n'),
+    ).toBeNull();
   });
 
   it('effective cores: performance plus half the efficiency cores', () => {
@@ -162,11 +239,7 @@ describe('PSI-equivalent mapping', () => {
     const loaded = parseDarwinSysctl(
       'vm.loadavg: { 24.0 24.0 24.0 }\nhw.ncpu: 18\nhw.perflevel0.logicalcpu: 6\nhw.perflevel1.logicalcpu: 12\n',
     );
-    expect(darwinPressure(loaded).cpu?.some.avg10).toBe(50);
-  });
-
-  it('returns null when no memory signal is readable', () => {
-    expect(darwinMemorySome(parseDarwinSysctl('hw.ncpu: 4\n'))).toBeNull();
+    expect(darwinPressure(loaded, 48 * GB).cpu?.some.avg10).toBe(50);
   });
 
   it('cpu: idle and exactly-saturated score 0; 2x cores scores 50', () => {
@@ -187,8 +260,20 @@ describe('DarwinResourceBackend.sample', () => {
     const s = await backend.sample();
     expect(s.pressureAvailable).toBe(true);
     expect(s.memAvailableBytes).toBe(Math.round(0.41 * 48 * GB));
-    expect(s.globalPressure?.some.avg10).toBe(15);
+    expect(s.globalPressure?.some.avg10).toBeCloseTo(
+      100 * (0.59 + (11625.69 * MB) / (48 * GB) - 0.4),
+      6,
+    );
     expect(s.slicePressure).toBeNull();
+    // The readings travel with the sample, so a refusal can report them.
+    expect(s.darwinMemory).toEqual({
+      pressureLevel: 2,
+      availablePercent: 41,
+      compressorBytes: null,
+      swapUsedBytes: 11625.69 * MB,
+      swapTotalBytes: 13312 * MB,
+      totalBytes: 48 * GB,
+    });
     expect(s.cpuPressure?.some.avg10).toBeCloseTo((100 * (21.53 / 18 - 1)) / (21.53 / 18), 5);
     expect(s.cpuPressure?.some.avg300).toBeGreaterThan(s.cpuPressure?.some.avg10 ?? 0);
   });
@@ -224,6 +309,26 @@ describe('DarwinResourceBackend.sample', () => {
     expect(s.globalPressure).toBeNull();
     expect(s.cpuPressure).toBeNull();
     expect(s.memAvailableBytes).toBeNull();
+    expect(s.darwinMemory).toBeNull();
+    // sysctl unavailable: the memory gate has no signal, so it never refuses.
+    expect(evaluateMemoryGate(s, true)).toEqual({ refuse: false, reading: null });
+  });
+
+  it('reads the compressor in the same single sysctl exec (no vm_stat spawn)', async () => {
+    const asked: string[][] = [];
+    const backend = new DarwinResourceBackend({
+      sysctlFn: async (names) => {
+        asked.push([...names]);
+        return `${LOADED}vm.compressor_bytes_used: ${20 * GB}\n`;
+      },
+      totalMemBytes: 48 * GB,
+    });
+    const s = await backend.sample();
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain('vm.compressor_bytes_used');
+    expect(asked[0]).toContain('vm.swapusage');
+    expect(asked[0]).toContain('kern.memorystatus_vm_pressure_level');
+    expect(s.darwinMemory?.compressorBytes).toBe(20 * GB);
   });
 
   it('reports WAL sizes through the injected stat', async () => {

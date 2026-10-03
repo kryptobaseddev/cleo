@@ -89,6 +89,41 @@ export const RUN_DEFERRED_EXIT_CODE = 75;
 export const RESOURCE_BACKPRESSURE_CODE = 'E_RESOURCE_BACKPRESSURE' as const;
 
 /**
+ * The numbers behind a memory-pressure refusal of a heavy class (T13127).
+ *
+ * The memory gate refuses `test-run`, `scoped-build` and `full-build` while
+ * memory pressure is above {@link MemoryPressureReading.refuseAbove}; once it
+ * has refused, it admits again only when pressure falls to
+ * {@link MemoryPressureReading.resumeAtOrBelow} (hysteresis), so admission
+ * does not flap at the threshold.
+ *
+ * @example
+ * ```ts
+ * const r: MemoryPressureReading = {
+ *   score: 31, fullStall: 0, refuseAbove: 25, resumeAtOrBelow: 15, latched: false,
+ *   memAvailableBytes: 21_000_000_000,
+ *   summary: 'kernel level warn; 59% of RAM wired or compressed; swap 11.4 GiB used (24% of RAM)',
+ * };
+ * ```
+ */
+export interface MemoryPressureReading {
+  /** Memory pressure on the PSI `some avg10` scale (0–100). */
+  readonly score: number;
+  /** Memory `full avg10` stall (0–100); 0 when the platform reports none. */
+  readonly fullStall: number;
+  /** Heavy classes are refused while {@link score} is above this. */
+  readonly refuseAbove: number;
+  /** A refusing gate admits again once {@link score} is at or below this. */
+  readonly resumeAtOrBelow: number;
+  /** `true` when the gate was already refusing, so the resume threshold applied. */
+  readonly latched: boolean;
+  /** Available memory in bytes, when the platform reports it. */
+  readonly memAvailableBytes: number | null;
+  /** The platform signals in one line (kernel level, swap, compressor, PSI). */
+  readonly summary: string;
+}
+
+/**
  * Structured, retryable deferral returned when admission is denied. Never a
  * silent drop; callers back off `retryAfterMs` and re-request, or annotate the
  * unit as deferred and let a pull-based retry pick it up.
@@ -102,6 +137,11 @@ export interface ResourceDeferral {
   readonly retryAfterMs: number;
   /** Human-readable reason (pressure state, budget, held count). */
   readonly reason: string;
+  /**
+   * Set when the deferral is a memory-pressure refusal of a heavy class rather
+   * than a full budget: the readings behind it (T13127).
+   */
+  readonly memoryPressure?: MemoryPressureReading;
 }
 
 /**
