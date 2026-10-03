@@ -394,11 +394,40 @@ const coreBuildOptions = {
 
 // ---------------------------------------------------------------------------
 // 2. @cleocode/cleo — CLI bundle (MCP removed per MODERN-CLI-STANDARD)
-//    Bundles @cleocode/contracts, @cleocode/adapters, @cleocode/nexus,
-//    and @cleocode/playbooks inline.
+//    Bundles @cleocode/adapters, @cleocode/nexus, @cleocode/playbooks and
+//    @cleocode/animations inline.
 //    @cleocode/core is EXTERNAL (T1178 W3-2+W3-6) — resolved at runtime
 //    from node_modules (workspace symlink dev / peer dep published).
+//    @cleocode/contracts is EXTERNAL too (T13126): core loads it from
+//    node_modules, so an inlined copy was a second, independent instance of
+//    every contracts zod schema in the same process (~40 MB of heap).
+//
+//    CODE SPLITTING (T13126). Without `splitting`, esbuild inlines every
+//    `import()` target into the one output file and hoists each external
+//    import it finds there to a top-level static `import` — ESM allows no
+//    other kind. The CLI source defers `@cleocode/core` to the command that
+//    needs it, but the single-file bundle carried ~500 static imports, the
+//    whole core barrel among them, so `cleo --version` evaluated ~3,900
+//    modules and peaked at ~440 MB RSS. With splitting, each `import()` stays
+//    a real dynamic import of its own chunk and only the static graph of
+//    `src/cli/index.ts` loads at startup.
+//
+//    Chunks are written NEXT TO `cli/index.js`, never in a subdirectory:
+//    bundled modules locate package files from `dirname(import.meta.url)`
+//    (studio-dist, package.json, scripts/, templates), and every chunk must
+//    resolve those paths exactly as the single-file bundle did.
+//    `scripts/check-cli-startup-graph.mjs` ratchets the startup graph.
 // ---------------------------------------------------------------------------
+/**
+ * Output pattern for the CLI's shared and dynamic-import chunks (T13126).
+ *
+ * `cli/` keeps every chunk beside `cli/index.js` (see the header above for why
+ * no subdirectory). The `-[hash]` suffix is what
+ * `CLEO_CLI_CHUNK_PATTERN` in `packages/caamp/src/core/artifacts/validation.ts`
+ * recognises as a shipped chunk; change both together.
+ */
+const CLEO_CHUNK_NAMES = 'cli/[name]-[hash]';
+
 /** @type {esbuild.BuildOptions} */
 const cleoBuildOptions = {
   entryPoints: [
@@ -412,6 +441,8 @@ const cleoBuildOptions = {
   target: 'node24',
   format: 'esm',
   outdir: 'packages/cleo/dist',
+  splitting: true,
+  chunkNames: CLEO_CHUNK_NAMES,
   sourcemap: 'linked',
   sourcesContent: false,
   sourceRoot: '', // T9184
@@ -427,8 +458,14 @@ const cleoBuildOptions = {
   // Node emits the warning during the ESM module resolution phase. Override
   // process.emitWarning before node:sqlite is imported (which now happens at
   // runtime, not during bundling, because we marked it external).
+  // esbuild writes the banner into EVERY output file, chunks included (T13126),
+  // so the override installs once per process: without the guard each loaded
+  // chunk would wrap emitWarning again.
   banner: {
     js: `(() => {
+  const _installed = Symbol.for('cleocode.cli.sqliteWarningFilter');
+  if (globalThis[_installed]) return;
+  globalThis[_installed] = true;
   const _origEmitWarning = process.emitWarning;
   process.emitWarning = function(warning, type, code, ctor) {
     if (typeof warning === 'object' && warning.name === 'ExperimentalWarning' && typeof warning.message === 'string' && /SQLite is an experimental feature/i.test(warning.message)) {
@@ -443,7 +480,8 @@ const cleoBuildOptions = {
   },
   plugins: [
     workspacePlugin('bundle-cleo-deps', {
-      '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
+      // @cleocode/contracts is deliberately NOT inlined (T13126) — see the
+      // header above. Unmapped @cleocode/* specifiers resolve as external.
       // E5/T11392: inline the pure private @cleocode/utils leaf (never published) so
       // the published CLI bundle carries its source instead of an unresolvable
       // external import. Same rationale as the playbooks/animations inline entries.
