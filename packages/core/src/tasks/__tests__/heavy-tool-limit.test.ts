@@ -119,10 +119,12 @@ describe('heavyToolEnv beyond vitest', () => {
     expect(counts.size).toBe(1);
   });
 
-  it('never overrides a value the project set deliberately', () => {
-    const overlay = heavyToolEnv('test', { RUST_TEST_THREADS: '32', GOMAXPROCS: '64' }, 62);
+  it('keeps an inherited count within the plan and clamps one above it (T13122)', () => {
+    // An inherited value is the caller's environment (a shell profile), not a
+    // project decision: above the plan it would multiply the budget.
+    const overlay = heavyToolEnv('test', { RUST_TEST_THREADS: '2', GOMAXPROCS: '64' }, 62);
     expect(overlay.RUST_TEST_THREADS).toBeUndefined();
-    expect(overlay.GOMAXPROCS).toBeUndefined();
+    expect(overlay.GOMAXPROCS).toBe(overlay.VITEST_MAX_WORKERS);
   });
 
   it('still leaves cheap tools alone', () => {

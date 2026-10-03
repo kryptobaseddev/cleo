@@ -170,6 +170,18 @@ own. The `CI` check that DOES run is the `workflow_dispatch` run that
 attach to the PR head SHA. Waiting for the `pull_request` runs, or approving
 them one by one, adds nothing that run has not already proven.
 
+**The dispatched run is the reduced, version-only run (T13141).** The bump
+commit changes only `"version"` lines in `package.json` files (and, when
+present, `CHANGELOG.md` and `.changeset/` moves). The `changes` job runs
+`scripts/ci-detect-version-only.mjs` on a `workflow_dispatch` run of a
+`release/v*` branch too, diffing the branch against its merge-base with
+`main`. When the diff has that shape, `version_only` is `true`. Unit tests,
+builds, the packed artifact, install tests and the other heavy jobs then skip,
+while lint, typecheck and the separate Lockfile Check workflow still run, so
+the run takes minutes instead of ~22. Any other change on the branch, or a
+failed fetch or merge-base, runs the full suite. To see which one ran, open the
+run's `Detect Changes` job: the detector prints its verdict and the reason.
+
 **Procedure (the orchestrator runs this, not the release workflow):**
 
 ```bash
@@ -187,9 +199,11 @@ gh pr merge "$PR" --admin --merge
 Rules:
 
 - Merge only when the dispatched `CI` run for the **current** head SHA is
-  `completed` / `success`. A green run for an earlier head does not count; if
-  the branch moved, re-dispatch (`gh workflow run ci.yml --ref release/v2026.X.Y`)
-  and wait.
+  `completed` / `success`. That holds for the reduced version-only run exactly
+  as for a full run: the `CI` aggregate is green only when every job that ran
+  succeeded. A green run for an earlier head does not count; if the branch
+  moved, re-dispatch (`gh workflow run ci.yml --ref release/v2026.X.Y`) and
+  wait.
 - `--merge` (a merge commit), not squash: the tag is cut from `main` after the
   merge and must contain the bump commit as prepared.
 - This is the ONE sanctioned use of `--admin` under the Zero-Admin-Merge Policy

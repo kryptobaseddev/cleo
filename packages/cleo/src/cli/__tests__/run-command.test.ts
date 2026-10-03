@@ -1,9 +1,11 @@
 /**
  * `cleo run` CLI surface (T12979): flags after `--` belong to the child, and
  * the runner's exit code mirrors the child's outcome. `--passthrough` (#1777
- * R7) leaves stdout to the child and reports only on stderr.
+ * R7) leaves stdout to the child and reports only on stderr. The heap and
+ * worker plan is reported (T13122).
  *
  * @task T12979
+ * @task T13122
  */
 
 import type {
@@ -101,10 +103,31 @@ function exited(
   };
 }
 
+/**
+ * Every variable the heavy-tool plan reads (T13122), blanked so a developer's
+ * shell profile cannot turn a quiet run into a clamp warning.
+ */
+const PLAN_INPUTS = [
+  'NODE_OPTIONS',
+  'VITEST_MAX_WORKERS',
+  'JEST_MAX_WORKERS',
+  'RUST_TEST_THREADS',
+  'CARGO_BUILD_JOBS',
+  'GOMAXPROCS',
+  'PYTEST_XDIST_AUTO_NUM_WORKERS',
+  'npm_config_workspace_concurrency',
+  'pnpm_config_workspace_concurrency',
+  'MAKEFLAGS',
+  'CLEO_HEAVY_HEAP_MB',
+  'CLEO_HEAVY_WORKERS',
+  'CLEO_HEAVY_WORKSPACE_CONCURRENCY',
+] as const;
+
 describe('cleo run --passthrough (#1777 R7)', () => {
   let out: string[];
   let err: string[];
   beforeEach(() => {
+    for (const name of PLAN_INPUTS) vi.stubEnv(name, '');
     out = [];
     err = [];
     vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
@@ -121,6 +144,7 @@ describe('cleo run --passthrough (#1777 R7)', () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     runGoverned.mockReset();
   });
 
@@ -202,6 +226,33 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     opts().notice?.('admitted after 3s in the test-run queue', 'info');
     opts().notice?.('paused: machine at backoff', 'warn');
     expect(err).toEqual(['[cleo run] paused: machine at backoff\n']);
+  });
+
+  it('T13122: an inherited heap above the budget is clamped, and that warning shows under --passthrough', async () => {
+    vi.stubEnv('NODE_OPTIONS', '--enable-source-maps --max-old-space-size=999999');
+    runGoverned.mockResolvedValue(exited());
+    await invoke({ passthrough: true }, argv);
+    const childHeap = /--max-old-space-size=(\d+)/.exec(opts().env.NODE_OPTIONS ?? '')?.[1];
+    expect(Number(childHeap)).toBeLessThan(999999);
+    expect(opts().env.NODE_OPTIONS).toMatch(/^--enable-source-maps --max-old-space-size=\d+$/);
+    expect(out).toEqual([]);
+    expect(err).toHaveLength(1);
+    expect(err[0]).toMatch(/^\[cleo run\] planned resources: heap \d+ MiB .*clamped NODE_OPTIONS/);
+  });
+
+  it('T13122: the envelope names the heap and worker plan the child got', async () => {
+    runGoverned.mockResolvedValue(exited());
+    await invoke({}, argv);
+    const envelope = JSON.parse(out.join('')) as {
+      data: { resources: { heapMb: number; workers: number; heapSource: string } };
+    };
+    expect(envelope.data.resources.heapSource).toBe('default');
+    expect(opts().env.NODE_OPTIONS).toBe(`--max-old-space-size=${envelope.data.resources.heapMb}`);
+    expect(opts().env.VITEST_MAX_WORKERS).toBe(String(envelope.data.resources.workers));
+    // Both spellings, whatever the launcher (an npx-run script may call pnpm -r).
+    expect(opts().env.pnpm_config_workspace_concurrency).toBe('1');
+    expect(opts().env.npm_config_workspace_concurrency).toBe('1');
+    expect(err[0]).toMatch(/^\[cleo run\] planned resources: heap \d+ MiB \(CLEO default\)/);
   });
 
   it('without --passthrough every notice is printed', async () => {
