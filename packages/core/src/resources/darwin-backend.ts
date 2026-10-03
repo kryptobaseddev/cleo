@@ -2,16 +2,19 @@
  * macOS ResourceMonitor backend.
  *
  * macOS has no PSI. This backend maps the kernel's own signals onto the
- * PSI-shaped {@link ResourceSample}, so `evaluateState` and the slot scaling
- * work unchanged:
+ * PSI-shaped {@link ResourceSample}, so `evaluateState`, the slot scaling and
+ * the memory gate work unchanged:
  *
  *   - `kern.memorystatus_vm_pressure_level` — the kernel's memory pressure
  *     verdict (1 normal, 2 warning, 4 critical), the signal jetsam acts on
- *   - `kern.memorystatus_level` — free memory as a percentage of RAM, counting
- *     reclaimable pages (unlike `os.freemem()`, which reports only the free
- *     page list and reads near zero on a healthy Mac)
- *   - `vm.swapusage` — swap in use (reported, not scored: macOS allocates
- *     swapfiles on demand, so used/total sits at 80–95% on a healthy Mac)
+ *   - `kern.memorystatus_level` — the share of RAM that is neither wired nor
+ *     held by the compressor (active + inactive + free + speculative pages).
+ *     Unlike `os.freemem()`, which reads near zero on a healthy Mac, it falls
+ *     only as memory is wired or compressed
+ *   - `vm.compressor_bytes_used` — RAM the compressor occupies (the
+ *     "Compressed" figure of Activity Monitor and vm_stat, read here without a
+ *     `vm_stat` spawn)
+ *   - `vm.swapusage` — swap in use
  *   - `vm.loadavg` + `hw.perflevel{0,1}.logicalcpu` (or `hw.ncpu`) —
  *     run-queue length per effective core (CPU saturation)
  *
@@ -24,23 +27,43 @@
  * file read happens on the sample path; `sweepChildRss` (low frequency) uses
  * `ps`.
  *
- * ## Mapping
+ * ## Memory mapping (T13127)
  *
- * Memory (`globalPressure`): `some avg10` is the higher of a kernel-level score
- * (warning 15, critical 40) and a free-memory score (`2 × (20 − free%)`,
- * clamped at 0). `full avg10` is
- * 15 when the kernel reports critical. With the monitor's default thresholds
- * (hold 10 / backoff 20), a kernel warning holds and critical backs off.
+ * `some avg10` is the higher of two scores:
  *
- * CPU (`cpuPressure`): effective cores are performance cores plus half the
- * efficiency cores (a 6P+12E machine counts as 12; `hw.ncpu` when the split is
- * unknown). With `r = load / cores`, `some = 100 × (r − 1) / r`
- * once `r > 1`: the share of runnable work that is waiting for a core. A box
- * running twice its cores scores 50. avg10/avg60/avg300 come from the 1/5/15
- * minute load averages. Memory is instantaneous in all three windows.
+ * - **Kernel level**: warning 15, critical 40. With the monitor's thresholds
+ *   (hold 10, backoff 20) and the memory gate's (refuse above 25), a kernel
+ *   warning alone holds and a critical refuses heavy work.
+ * - **Squeeze**: `q` is the share of RAM wired or compressed
+ *   (`1 − memorystatus_level`, or the compressor's share when that is
+ *   larger or the level is unreadable). Swap counts on top of `q` in
+ *   proportion as `q` rises from {@link DARWIN_SWAP_RAMP} `[0.30, 0.50]`:
+ *   swapped pages linger long after pressure has gone (idle apps keep them),
+ *   so swap alone, on a machine with RAM to spare, is history, not pressure.
+ *   The score is `100 × (q + weight × swap/RAM − 0.40)`, clamped at 0: a box
+ *   with 60% of RAM wired or compressed scores 20 (backoff) before any swap.
+ *
+ * Calibration: real `sysctl` output captured on a 48 GiB Mac under load
+ * (kernel warning, 41% neither wired nor compressed, 11.4 GiB swapped) scores
+ * 43 and is refused. Before T13127 it scored 15 (hold), so the governor kept
+ * admitting heavy work into the 2026-10-03 incident (13.6 of 15.4 GB swap
+ * used, 15 GB compressed). An idle Mac (10% wired or compressed) and a laptop
+ * carrying old swap with RAM to spare both score 0.
+ *
+ * `full avg10` is 15 when the kernel reports critical. Memory is instantaneous
+ * in all three windows.
+ *
+ * ## CPU mapping
+ *
+ * Effective cores are performance cores plus half the efficiency cores (a
+ * 6P+12E machine counts as 12; `hw.ncpu` when the split is unknown). With
+ * `r = load / cores`, `some = 100 × (r − 1) / r` once `r > 1`: the share of
+ * runnable work that is waiting for a core. A box running twice its cores
+ * scores 50. avg10/avg60/avg300 come from the 1/5/15 minute load averages.
  *
  * @module resources/darwin-backend
  * @task T12981
+ * @task T13127
  * @epic T12978
  */
 
@@ -49,6 +72,7 @@ import { totalmem } from 'node:os';
 import type {
   ChildRssEntry,
   ChildRssSweep,
+  DarwinMemorySignals,
   PressureLine,
   PsiData,
   ResourceBackend,
@@ -61,6 +85,7 @@ import type { StatFileFn } from './linux-backend.js';
 export const DARWIN_SYSCTL_NAMES = [
   'kern.memorystatus_vm_pressure_level',
   'kern.memorystatus_level',
+  'vm.compressor_bytes_used',
   'vm.swapusage',
   'vm.loadavg',
   'hw.ncpu',
@@ -82,8 +107,14 @@ export type PsRssFn = (pids: readonly number[]) => Promise<string>;
 export interface DarwinSignals {
   /** 1 normal, 2 warning, 4 critical. */
   readonly pressureLevel: number | null;
-  /** Free memory as a percentage of RAM (0–100). */
+  /**
+   * `kern.memorystatus_level`: share of RAM (0–100) that is neither wired nor
+   * compressed. (Named for the kernel's "free percentage"; it counts active
+   * and inactive pages as well as free ones.)
+   */
   readonly freePercent: number | null;
+  /** RAM the compressor occupies, in bytes (`vm.compressor_bytes_used`). */
+  readonly compressorBytes: number | null;
   readonly swapTotalBytes: number | null;
   readonly swapUsedBytes: number | null;
   /** 1, 5 and 15 minute load averages. */
@@ -151,6 +182,7 @@ export function parseDarwinSysctl(output: string): DarwinSignals {
   return {
     pressureLevel: int('kern.memorystatus_vm_pressure_level'),
     freePercent: int('kern.memorystatus_level'),
+    compressorBytes: int('vm.compressor_bytes_used'),
     swapTotalBytes,
     swapUsedBytes,
     loadAvg,
@@ -164,15 +196,73 @@ function clamp(n: number): number {
   return Math.max(0, Math.min(100, n));
 }
 
+/** Kernel pressure-level scores on the PSI `some avg10` scale (warning, critical). */
+export const DARWIN_LEVEL_SCORES = Object.freeze({ warning: 15, critical: 40 });
+
 /**
- * Memory pressure score (PSI `some`-equivalent, 0–100) from darwin signals.
- * Returns `null` when neither the kernel level nor free% is readable.
+ * Share of RAM wired or compressed above which memory starts to score (0.40:
+ * 60% of RAM is still neither wired nor compressed).
  */
-export function darwinMemorySome(s: DarwinSignals): number | null {
-  if (s.pressureLevel === null && s.freePercent === null) return null;
-  const levelScore = s.pressureLevel === 4 ? 40 : s.pressureLevel === 2 ? 15 : 0;
-  const freeScore = s.freePercent === null ? 0 : Math.max(0, 2 * (20 - s.freePercent));
-  return clamp(Math.max(levelScore, freeScore));
+export const DARWIN_SQUEEZE_KNEE = 0.4;
+
+/**
+ * Squeeze range over which swap starts to count, from not at all to in full.
+ * Below 30% wired or compressed the machine has RAM to spare and swapped pages
+ * are old; from 50% they are part of the squeeze.
+ */
+export const DARWIN_SWAP_RAMP: readonly [number, number] = [0.3, 0.5];
+
+/**
+ * Share of RAM (0–1) that is wired or compressed: `1 − memorystatus_level`,
+ * or the compressor's share when that is larger or the level is unreadable.
+ * `null` when neither is known.
+ *
+ * @param s - parsed signals.
+ * @param totalBytes - physical RAM in bytes.
+ */
+export function darwinSqueeze(s: DarwinSignals, totalBytes: number): number | null {
+  const fromLevel = s.freePercent === null ? null : 1 - clamp(s.freePercent) / 100;
+  const fromCompressor =
+    s.compressorBytes === null || totalBytes <= 0
+      ? null
+      : Math.min(1, Math.max(0, s.compressorBytes / totalBytes));
+  if (fromLevel === null) return fromCompressor;
+  return fromCompressor === null ? fromLevel : Math.max(fromLevel, fromCompressor);
+}
+
+/**
+ * Memory pressure score (PSI `some`-equivalent, 0–100) from darwin signals:
+ * the higher of the kernel-level score and the squeeze score (see the module
+ * doc). Returns `null` when neither the kernel level nor the squeeze is
+ * readable.
+ *
+ * @param s - parsed signals.
+ * @param totalBytes - physical RAM in bytes (for the swap and compressor shares).
+ *
+ * @example
+ * ```ts
+ * // kernel warning, 41% neither wired nor compressed, 11.4 GiB swap on 48 GiB
+ * darwinMemorySome(signals, 48 * 1024 ** 3); // → 42.7: refused
+ * ```
+ */
+export function darwinMemorySome(s: DarwinSignals, totalBytes: number): number | null {
+  const squeeze = darwinSqueeze(s, totalBytes);
+  if (s.pressureLevel === null && squeeze === null) return null;
+  const levelScore =
+    s.pressureLevel === 4
+      ? DARWIN_LEVEL_SCORES.critical
+      : s.pressureLevel === 2
+        ? DARWIN_LEVEL_SCORES.warning
+        : 0;
+  let squeezeScore = 0;
+  if (squeeze !== null) {
+    const [from, full] = DARWIN_SWAP_RAMP;
+    const weight = Math.max(0, Math.min(1, (squeeze - from) / (full - from)));
+    const swapShare =
+      s.swapUsedBytes === null || totalBytes <= 0 ? 0 : Math.max(0, s.swapUsedBytes / totalBytes);
+    squeezeScore = 100 * Math.max(0, squeeze + weight * swapShare - DARWIN_SQUEEZE_KNEE);
+  }
+  return clamp(Math.max(levelScore, squeezeScore));
 }
 
 /**
@@ -196,12 +286,20 @@ function line(avg10: number, avg60: number, avg300: number): PressureLine {
   return { avg10, avg60, avg300, totalUs: 0 };
 }
 
-/** Build the memory and CPU PSI-equivalents from parsed signals. */
-export function darwinPressure(s: DarwinSignals): {
+/**
+ * Build the memory and CPU PSI-equivalents from parsed signals.
+ *
+ * @param s - parsed signals.
+ * @param totalBytes - physical RAM in bytes.
+ */
+export function darwinPressure(
+  s: DarwinSignals,
+  totalBytes: number,
+): {
   memory: PsiData | null;
   cpu: PsiData | null;
 } {
-  const some = darwinMemorySome(s);
+  const some = darwinMemorySome(s, totalBytes);
   const memory: PsiData | null =
     some === null
       ? null
@@ -223,6 +321,18 @@ export function darwinPressure(s: DarwinSignals): {
     };
   }
   return { memory, cpu };
+}
+
+/** The memory half of the parsed signals, as carried on the sample. */
+function darwinMemorySignals(s: DarwinSignals, totalBytes: number): DarwinMemorySignals {
+  return {
+    pressureLevel: s.pressureLevel,
+    availablePercent: s.freePercent,
+    compressorBytes: s.compressorBytes,
+    swapUsedBytes: s.swapUsedBytes,
+    swapTotalBytes: s.swapTotalBytes,
+    totalBytes,
+  };
 }
 
 const defaultSysctl: SysctlFn = (names) =>
@@ -315,7 +425,9 @@ export class DarwinResourceBackend implements ResourceBackend {
     } catch {
       signals = null;
     }
-    const { memory, cpu } = signals ? darwinPressure(signals) : { memory: null, cpu: null };
+    const { memory, cpu } = signals
+      ? darwinPressure(signals, this.totalMemBytes)
+      : { memory: null, cpu: null };
     const memAvailableBytes =
       signals?.freePercent != null
         ? Math.round((signals.freePercent / 100) * this.totalMemBytes)
@@ -332,6 +444,7 @@ export class DarwinResourceBackend implements ResourceBackend {
       globalPressure: memory,
       slicePressure: null,
       cpuPressure: cpu,
+      darwinMemory: signals ? darwinMemorySignals(signals, this.totalMemBytes) : null,
       walObservations,
     };
   }
