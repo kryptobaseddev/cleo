@@ -26,7 +26,7 @@
  * @task T338 — ADR-039 canonical envelope unification
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 
 /**
  * Shape violation report for a canonical CLI envelope.

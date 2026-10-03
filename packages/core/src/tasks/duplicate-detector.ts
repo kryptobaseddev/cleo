@@ -797,13 +797,19 @@ async function askDuplicateDecision(
   opts: DuplicateCheckOptions,
   cwd: string | undefined,
 ): Promise<DuplicateDecisionVerdict | null> {
-  const started = performance.now();
-  const deadline = AbortSignal.timeout(DUPLICATE_DECISION_BUDGET_MS);
   try {
-    const { decide } = await import('../decide/client.js');
-    const { auditAnswers, createJsonlDecisionAudit } = await import('../decide/audit.js');
-
-    const { redactContent } = await import('../memory/redaction.js');
+    const [{ decide }, { auditAnswers, createJsonlDecisionAudit }, { redactContent }] =
+      await Promise.all([
+        import('../decide/client.js'),
+        import('../decide/audit.js'),
+        import('../memory/redaction.js'),
+      ]);
+    // The wait budget starts now, with the decision modules loaded, as in
+    // `askSiteDecision` (T13126). The budget bounds the wait on System One;
+    // loading the client on demand is not part of that wait, and the CLI now
+    // loads it on demand instead of at startup.
+    const started = performance.now();
+    const deadline = AbortSignal.timeout(DUPLICATE_DECISION_BUDGET_MS);
     const req = buildDuplicateDecisionRequest(
       title,
       description,

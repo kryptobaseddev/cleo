@@ -22,7 +22,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import type { ProjectMovedTombstone } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { pushWarning } from '@cleocode/lafs';
 import { canonicalizePath, readDeclaredProjectIdentity } from '@cleocode/paths';
 import { CleoError } from './errors.js';

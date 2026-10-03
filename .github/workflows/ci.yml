@@ -1823,6 +1823,16 @@ jobs:
         run: |
           chmod +x packages/cleo/bin/cleo.js
           ./packages/cleo/bin/cleo.js --version
+      - name: Built CLI startup graph and module budgets (arch gate 39 / T13126)
+        # Gates 19 and 25 read the CLI SOURCE graph; this one measures the BUILT
+        # bundle the build above just produced. It fails when dist/cli/index.js
+        # statically imports a CORE or contracts barrel, or when `--version`,
+        # `--help` or `show` (run in a throwaway sandbox) exceed their module
+        # budgets or RSS ceilings. Module counts are deterministic for a given
+        # lockfile, so Linux alone carries the ratchet.
+        if: runner.os == 'Linux'
+        shell: bash
+        run: node scripts/check-cli-startup-graph.mjs
       - name: Verify runtime gateway/mcp dist exists
         # R8 (T11259): standalone packages/mcp-adapter deleted; MCP transport consolidated
         # into @cleocode/runtime/gateway/mcp. Verify the runtime dist ships the mcp adapter.
