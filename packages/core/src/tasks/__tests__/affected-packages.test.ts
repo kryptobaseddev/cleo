@@ -18,6 +18,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -354,6 +355,48 @@ describe('tool:test-affected evidence', () => {
     expect(changedPathsSinceDefault(root)).toBeNull();
     const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
     expect(!r.ok && r.reason).toMatch(/git failed/);
+  });
+
+  it("T13135 (gh#1805): CLEO's own hook files never widen a change, tracked or not", async () => {
+    initRepo(`node -e "process.exit(process.argv.slice(1).join(',')==='@x/c'?0:3)" {packages}`);
+    // A tracked settings file the hook installer rewrote, and an untracked
+    // hand-installed plugin no task touched.
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    writeFileSync(join(root, '.claude', 'settings.local.json'), '{}\n');
+    git(root, ['add', '.claude/settings.local.json']);
+    git(root, ['commit', '-q', '-m', 'T1: settings']);
+    writeFileSync(join(root, '.claude', 'settings.local.json'), '{"hooks":{}}\n');
+    mkdirSync(join(root, '.opencode', 'plugins'), { recursive: true });
+    writeFileSync(join(root, '.opencode', 'plugins', 'cleo-heavy-command.js'), '// hook\n');
+    mkdirSync(join(root, '.codex'), { recursive: true });
+    writeFileSync(join(root, '.codex', 'hooks.json'), '{}\n');
+    writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
+    expect(changedPathsSinceDefault(root)).toEqual(['packages/c/src/new.ts']);
+    expect(deriveAffectedPackages(root, changedPathsSinceDefault(root) ?? [])).toMatchObject({
+      scope: 'affected',
+      packages: ['@x/c'],
+    });
+    const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ affectedPackages: ['@x/c'] });
+  });
+
+  it('T13135 (gh#1805): evidence.scopeExcludes keeps declared runtime state out of scope', async () => {
+    initRepo(`node -e "process.exit(process.argv.slice(1).join(',')==='@x/c'?0:3)" {packages}`);
+    const ctx = join(root, '.cleo', 'project-context.json');
+    const context = JSON.parse(readFileSync(ctx, 'utf-8')) as Record<string, unknown>;
+    writeFileSync(
+      ctx,
+      JSON.stringify({ ...context, evidence: { scopeExcludes: ['.opencode/goals/**'] } }),
+    );
+    mkdirSync(join(root, '.opencode', 'goals', 'dogfood'), { recursive: true });
+    writeFileSync(join(root, '.opencode', 'goals', 'dogfood', 'goal.yaml'), 'goal: x\n');
+    writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
+    expect(changedPathsSinceDefault(root)).toEqual(['packages/c/src/new.ts']);
+    // Without the declaration the same file is workspace-wide.
+    writeFileSync(ctx, JSON.stringify(context));
+    expect(deriveAffectedPackages(root, changedPathsSinceDefault(root) ?? [])).toMatchObject({
+      scope: 'full',
+    });
   });
 
   it('T12657: an untracked new file in a package selects that package', async () => {

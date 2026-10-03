@@ -25,7 +25,7 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, matchesGlob, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { isCiDocumentPath } from '../release/ci-evidence.js';
 import type { MergeVerdict } from './affected-scope.js';
@@ -497,14 +497,71 @@ export function originDefaultMergeBase(root: string): string | null {
 }
 
 /**
+ * Files CLEO itself writes into a project for its harness hooks (T12983,
+ * T13124): never part of a change's scope, tracked or not. A hand-installed
+ * `.opencode/plugins/cleo-heavy-command.js` that no task touched made every
+ * change in an opencode project "workspace-wide" and forced a full suite
+ * (gh#1805).
+ *
+ * @task T13135
+ */
+export const CLEO_MANAGED_SCOPE_EXCLUDES: readonly string[] = Object.freeze([
+  '.claude/settings.local.json',
+  '.codex/hooks.json',
+  '.opencode/plugins/cleo-heavy-command.js',
+]);
+
+/**
+ * The paths and globs evidence scoping ignores in `root`:
+ * {@link CLEO_MANAGED_SCOPE_EXCLUDES} plus the project's
+ * `evidence.scopeExcludes` (runtime state such as `.opencode/goals/**`), read
+ * from the checkout's `.cleo/project-context.json`.
+ *
+ * @param root - Execution root.
+ * @returns The exclude patterns.
+ * @task T13135
+ */
+export function evidenceScopeExcludes(root: string): string[] {
+  let declared: unknown;
+  try {
+    const context = JSON.parse(
+      readFileSync(join(root, '.cleo', 'project-context.json'), 'utf-8'),
+    ) as { evidence?: { scopeExcludes?: unknown } };
+    declared = context.evidence?.scopeExcludes;
+  } catch {
+    declared = undefined;
+  }
+  const project = Array.isArray(declared)
+    ? declared.filter((p): p is string => typeof p === 'string' && p.trim() !== '')
+    : [];
+  return [...CLEO_MANAGED_SCOPE_EXCLUDES, ...project];
+}
+
+/**
+ * Whether a repo-relative path matches one of the scope excludes: an exact
+ * path, or a glob (`path.matchesGlob`; `**` crosses directories).
+ *
+ * @param path - Repo-relative path with `/` separators.
+ * @param patterns - From {@link evidenceScopeExcludes}.
+ * @returns `true` when the path never counts as part of a change.
+ * @task T13135
+ */
+export function isScopeExcluded(path: string, patterns: readonly string[]): boolean {
+  return patterns.some((pattern) => pattern === path || matchesGlob(path, pattern));
+}
+
+/**
  * Paths the tree under test changed relative to origin's default branch:
  * committed (`merge-base(origin/<default>, HEAD)..HEAD`), uncommitted tracked
- * edits and untracked files — the tests run on the working tree, so all matter.
+ * edits and untracked files — the tests run on the working tree, so all matter
+ * — minus the scope excludes (CLEO's own hook files and the project's
+ * `evidence.scopeExcludes`, T13135).
  *
  * @param root - Execution root.
  * @returns The paths (committed, uncommitted and untracked), or null when no
  *   origin default branch exists or git fails.
  * @task T12635
+ * @task T13135
  */
 export function changedPathsSinceDefault(root: string): string[] | null {
   const mergeBase = originDefaultMergeBase(root);
@@ -514,9 +571,10 @@ export function changedPathsSinceDefault(root: string): string[] | null {
   const uncommitted = git(root, ['diff', '--name-only', '--no-renames', 'HEAD']);
   const untracked = git(root, ['ls-files', '--others', '--exclude-standard']);
   if (committed === null || uncommitted === null || untracked === null) return null;
-  return [
-    ...new Set(`${committed}\n${uncommitted}\n${untracked}`.split('\n').filter(Boolean)),
-  ].sort();
+  const excludes = evidenceScopeExcludes(root);
+  return [...new Set(`${committed}\n${uncommitted}\n${untracked}`.split('\n').filter(Boolean))]
+    .filter((path) => !isScopeExcluded(slashSeparated(path), excludes))
+    .sort();
 }
 
 /** A planned affected-scope run, or why only the full suite will do. */

@@ -90,6 +90,13 @@ export interface ProjectEvidenceContext {
     /** Job-name globs that must have run and succeeded for a code task's gate. */
     jobs?: { tests?: string[]; qa?: string[] };
   };
+  /**
+   * Repo-relative paths or globs (`path.matchesGlob`, `**` crosses directories)
+   * that never count as part of a change when evidence decides its scope —
+   * runtime state a tool writes into the checkout, e.g. `.opencode/goals/**`.
+   * CLEO's own installed hook files are always excluded (T13135, gh#1805).
+   */
+  scopeExcludes?: string[];
 }
 
 /**
