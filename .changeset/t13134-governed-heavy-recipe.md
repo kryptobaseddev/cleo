@@ -2,7 +2,7 @@
 id: t13134-governed-heavy-recipe
 tasks: [T13134]
 kind: docs
-summary: Every agent surface (CLEO-INJECTION.md, ct-cleo, the spawn prompt) now gives one governed path for tests, typechecks and builds: cleo run --wait --class, never a wrapper around cleo run or cleo verify, never a heap or worker override, targeted evidence over whole suites
+summary: "Every agent surface (CLEO-INJECTION.md, ct-cleo, the spawn prompt) now gives one governed path for tests, typechecks and builds: cleo run --wait --class, never a wrapper around cleo run or cleo verify, never a heap or worker override, targeted evidence over whole suites"
 ---
 
 P0 snapshot 2 (2026-10-03) caught agents improvising: private wrapper queues, wrappers nested inside `cleo run` (a deadlock, T13133), explicit `NODE_OPTIONS=--max-old-space-size=8192` overrides, and whole-suite runs as evidence. CLEO's instructions gave no single recipe. Now CLEO-INJECTION.md (Rules), the ct-cleo and ct-orchestrator skills and every spawn prompt (Quality Gates, at every tier) all say the same thing:
