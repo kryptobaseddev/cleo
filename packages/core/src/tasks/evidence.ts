@@ -1541,12 +1541,83 @@ async function validateFiles(
   return { ok: true, atom: { kind: 'files', files } };
 }
 
-interface VitestJsonLike extends TestRunReport {
-  numTotalTests?: number;
-  numPassedTests?: number;
-  numFailedTests?: number;
-  numPendingTests?: number;
-  numTodoTests?: number;
+/** A parsed `test-run:` report: the binding's fields plus whatever counters it carries. */
+type TestRunReportJson = TestRunReport & Readonly<Record<string, unknown>>;
+
+/**
+ * The counter sets a `test-run:` report may carry (gh#1804), tried in order;
+ * the first whose total key holds a number is read. `failed` and `notRun` sum
+ * their keys, and an absent count is 0.
+ *
+ * | Shape | Total | Passed | Failed | Skipped / todo |
+ * |---|---|---|---|---|
+ * | vitest `--reporter=json`, jest `--json` | `numTotalTests` | `numPassedTests` | `numFailedTests` | `numPendingTests`, `numTodoTests` |
+ * | summary counters (bun test, tsx --test, a written summary) | `total` | `passed` | `failed` | `skipped`, `todo` |
+ * | node --test summary (`# tests`, `# pass`, ...) | `tests` | `pass` | `fail`, `cancelled` | `skipped`, `todo` |
+ *
+ * A report may also carry `exit` or `exitCode`; a non-zero one is refused.
+ * `cleo verify --help` documents the same sets.
+ *
+ * @task T13136
+ */
+const TEST_RUN_COUNTER_SHAPES = [
+  {
+    name: 'vitest/jest',
+    total: 'numTotalTests',
+    passed: 'numPassedTests',
+    failed: ['numFailedTests'],
+    notRun: ['numPendingTests', 'numTodoTests'],
+  },
+  {
+    name: 'summary',
+    total: 'total',
+    passed: 'passed',
+    failed: ['failed'],
+    notRun: ['skipped', 'todo'],
+  },
+  {
+    name: 'node --test',
+    total: 'tests',
+    passed: 'pass',
+    failed: ['fail', 'cancelled'],
+    notRun: ['skipped', 'todo'],
+  },
+] as const;
+
+/** The keys of each counter set, as the refusals name them. */
+const TEST_RUN_SHAPE_HINT = TEST_RUN_COUNTER_SHAPES.map(
+  (s) => `${[s.total, s.passed, ...s.failed, ...s.notRun].join('/')} (${s.name})`,
+).join(', ');
+
+/** The counts a `test-run:` report states, and the counter set they came from. */
+interface TestRunCounts {
+  readonly shape: (typeof TEST_RUN_COUNTER_SHAPES)[number];
+  readonly total: number;
+  readonly passed: number;
+  readonly failed: number;
+  readonly notRun: number;
+}
+
+/** A finite number, or `undefined`. */
+const countOf = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
+/** Read a report's counts from the first counter set it carries, or `null`. */
+function testRunCounts(report: TestRunReportJson): TestRunCounts | null {
+  const sum = (keys: readonly string[]): number =>
+    keys.reduce((n, k) => n + (countOf(report[k]) ?? 0), 0);
+  for (const shape of TEST_RUN_COUNTER_SHAPES) {
+    const total = countOf(report[shape.total]);
+    if (total === undefined) continue;
+    return {
+      shape,
+      total,
+      passed: countOf(report[shape.passed]) ?? 0,
+      failed: sum(shape.failed),
+      notRun: sum(shape.notRun),
+    };
+  }
+  return null;
 }
 
 /**
@@ -1782,7 +1853,7 @@ async function validateTestRun(
   }
   const sha256 = createHash('sha256').update(content).digest('hex');
 
-  let parsed: VitestJsonLike;
+  let parsed: TestRunReportJson;
   try {
     parsed = JSON.parse(content.toString('utf-8'));
   } catch (err) {
@@ -1793,15 +1864,38 @@ async function validateTestRun(
     };
   }
 
-  const total = parsed.numTotalTests ?? 0;
-  const failed = parsed.numFailedTests ?? 0;
-  const passed = parsed.numPassedTests ?? 0;
-  const pending = (parsed.numPendingTests ?? 0) + (parsed.numTodoTests ?? 0);
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      reason: `test-run file is not a JSON object. Expected test counts: ${TEST_RUN_SHAPE_HINT}`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  const counts = testRunCounts(parsed);
+  if (counts === null) {
+    return {
+      ok: false,
+      reason:
+        `test-run report has no test counts. Expected one of: ${TEST_RUN_SHAPE_HINT}; ` +
+        "e.g. vitest's --reporter=json --outputFile, or " +
+        '{"total":43,"passed":42,"failed":0,"skipped":1}',
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  const { total, failed, passed, notRun: pending } = counts;
+  const exit = countOf(parsed['exit']) ?? countOf(parsed['exitCode']);
 
   if (total === 0) {
     return {
       ok: false,
-      reason: 'test-run reports zero total tests (no tests were executed)',
+      reason: `test-run reports zero total tests (no tests were executed): ${counts.shape.total} is 0`,
+      codeName: 'E_EVIDENCE_TESTS_FAILED',
+    };
+  }
+  if (exit !== undefined && exit !== 0) {
+    return {
+      ok: false,
+      reason: `test-run reports exit code ${exit}`,
       codeName: 'E_EVIDENCE_TESTS_FAILED',
     };
   }

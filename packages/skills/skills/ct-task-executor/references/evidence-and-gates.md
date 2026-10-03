@@ -107,6 +107,23 @@ pnpm vitest run path/to/changed.test.ts --reporter=json --outputFile=/tmp/vitest
 cleo verify T### --gate testsPassed --evidence "test-run:/tmp/vitest-out.json"
 ```
 
+The report must carry one of these counter sets (gh#1804, T13136). The first
+set whose total is a number is read:
+
+| Runner | Total | Passed | Failed | Skipped / todo |
+|---|---|---|---|---|
+| vitest `--reporter=json`, jest `--json` | `numTotalTests` | `numPassedTests` | `numFailedTests` | `numPendingTests`, `numTodoTests` |
+| summary (bun test, tsx --test, a written summary) | `total` | `passed` | `failed` | `skipped`, `todo` |
+| node --test summary | `tests` | `pass` | `fail`, `cancelled` | `skipped`, `todo` |
+
+For example, `{"total":43,"passed":42,"failed":0,"skipped":1}`. A non-zero
+`exit` or `exitCode` is refused, and so is a report with no passed test. A
+report without a counter set is refused with `E_EVIDENCE_INVALID`, and the
+message names the keys above. Only a vitest/jest report lists the test files
+it ran (`testResults`). In a workspace, a targeted report must cover every
+affected package that has tests, so a summary report with no file list is
+refused there: record `tool:test-affected` or `tool:test` instead.
+
 ### `decision:<decision-id>`
 
 A BRAIN decision ID (e.g., `D-arch-001`) or an `AGT-*` provenance ID.
