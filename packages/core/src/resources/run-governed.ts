@@ -394,7 +394,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     if (grant.ungoverned) sayUngoverned(grant.ungoverned);
     if (grant.nested) {
       notice('nested in an admitted run: riding its admission, inside its process tree', 'info');
-    } else if (grant.waitedMs > 0 && opts.wait) {
+    } else if (grant.waitedMs >= 1_000 && opts.wait) {
       notice(`admitted after ${Math.round(grant.waitedMs / 1000)}s in the queue`, 'info');
     }
     admission = {
