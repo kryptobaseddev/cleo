@@ -1558,6 +1558,10 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          # T13142: a pull_request checks out its merge commit; its first parent
+          # is the base tip, so `HEAD^1..HEAD` is exactly the PR's change.
+          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'
@@ -1601,8 +1605,20 @@ jobs:
       # packages) was removed 2026-09-29: it ran only when a PR targeted a
       # branch other than main, and every PR here targets main, so it was
       # dead code. Its per-package paths-filter outputs went with it.
+      # T13142: a pull request runs the vitest projects of the packages it
+      # changes plus their dependents (and the package-less `scripts` project),
+      # the set `tool:test-affected` runs locally. A change outside every
+      # package, or any doubt, runs the full suite. Main pushes, the nightly
+      # run, merge groups and dispatches always run the full suite.
+      - name: Select affected test projects (T13142)
+        id: affected
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: node scripts/ci-affected-test-projects.mjs HEAD^1 HEAD
       - name: Run unit tests (shard ${{ matrix.shard }}/4)
         shell: bash
+        env:
+          AFFECTED_ARGS: ${{ steps.affected.outputs.args }}
         run: |
           set -o pipefail
           # BOTH macOS shards get retry=2 to absorb Darwin vitest+pnpm+timing
@@ -1618,7 +1634,13 @@ jobs:
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             RETRY_FLAG="--retry=2"
           fi
-          pnpm exec vitest run --shard=${{ matrix.shard }}/4 $RETRY_FLAG 2>&1 | tee /tmp/vitest-shard${{ matrix.shard }}.log
+          # An affected run may leave a shard with no files: that is a pass.
+          SCOPE_FLAGS=""
+          if [[ -n "${AFFECTED_ARGS:-}" ]]; then
+            SCOPE_FLAGS="$AFFECTED_ARGS --passWithNoTests"
+          fi
+          # shellcheck disable=SC2086 # word splitting is intended: flag lists
+          pnpm exec vitest run --shard=${{ matrix.shard }}/4 $RETRY_FLAG $SCOPE_FLAGS 2>&1 | tee /tmp/vitest-shard${{ matrix.shard }}.log
       - name: T9170 — schema-warning budget gate (shard ${{ matrix.shard }}/4)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
