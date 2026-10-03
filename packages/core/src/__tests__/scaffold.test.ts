@@ -414,6 +414,41 @@ describe('ensureProjectContext', () => {
     expect(regenerated.audit).toBeUndefined();
     expect(regenerated['security-scan']).toBeUndefined();
   });
+
+  it('keeps evidence, release and the affected-scope settings on regeneration (T13125)', async () => {
+    // Regeneration (`cleo detect`, the 30-day refresh, upgrade) wrote only the
+    // detected fields: evidence.ciSatisfies and testing.affectedCommand
+    // vanished, and every verify went back to whole-suite local runs.
+    const contextPath = join(tmpDir, '.cleo', 'project-context.json');
+    const evidence = { ciSatisfies: true, ciChecks: { tests: ['CI'], qa: ['CI'] } };
+    const release = { integrationBranches: ['develop'] };
+    writeFileSync(
+      contextPath,
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        detectedAt: new Date().toISOString(),
+        projectTypes: ['node'],
+        primaryType: 'node',
+        monorepo: true,
+        testing: {
+          command: 'pnpm -r test',
+          affectedCommand: 'pnpm exec vitest run {projects}',
+          preferAffected: false,
+        },
+        evidence,
+        release,
+      }),
+    );
+    await ensureProjectContext(tmpDir, { force: true });
+    const regenerated = JSON.parse(readFileSync(contextPath, 'utf-8'));
+    expect(regenerated.evidence).toEqual(evidence);
+    expect(regenerated.release).toEqual(release);
+    expect(regenerated.testing).toMatchObject({
+      command: 'pnpm -r test',
+      affectedCommand: 'pnpm exec vitest run {projects}',
+      preferAffected: false,
+    });
+  });
 });
 
 // ── ensureCleoGitRepo ────────────────────────────────────────────────

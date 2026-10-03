@@ -1604,7 +1604,11 @@ async function runAffectedTests(
       exitCode: 0,
       stdoutTail: result.stdoutTail,
       scope: 'affected',
-      scopeReason: AFFECTED_SCOPE_BASIS,
+      scopeReason:
+        run.template.source === 'derived'
+          ? `${AFFECTED_SCOPE_BASIS}; the affected command was derived from the workspace test ` +
+            `command "${run.template.basis}" (declare testing.affectedCommand to pin it, T13125)`
+          : AFFECTED_SCOPE_BASIS,
       affectedPackages: run.packages,
       affectedProjects: run.projects,
       ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),

@@ -360,6 +360,31 @@ describe('Group 5: Monorepo detection', () => {
     assertSchemaValid(result, 'pnpm workspace monorepo');
   });
 
+  it('a pnpm workspace whose test script is pnpm -r gets an affectedCommand (T13125)', () => {
+    dir = scaffold({
+      'package.json': JSON.stringify({
+        name: 'app',
+        scripts: { test: 'pnpm -r --no-bail --if-present run test' },
+      }),
+      'pnpm-workspace.yaml': 'packages:\n  - "packages/*"\n',
+      'pnpm-lock.yaml': 'lockfileVersion: 9\n',
+      'vitest.config.ts': 'export default {}',
+    });
+    const result = detectProjectType(dir);
+    expect(result.testing?.command).toBe('pnpm run test');
+    expect(result.testing?.affectedCommand).toBe('pnpm {filters} --no-bail --if-present run test');
+    assertSchemaValid(result, 'pnpm workspace with affectedCommand');
+  });
+
+  it('a workspace whose test command cannot be narrowed gets no affectedCommand (T13125)', () => {
+    dir = scaffold({
+      'package.json': JSON.stringify({ name: 'app', scripts: { test: 'vitest run' } }),
+      'pnpm-workspace.yaml': 'packages:\n  - "packages/*"\n',
+      'vitest.config.ts': 'export default {}',
+    });
+    expect(detectProjectType(dir).testing?.affectedCommand).toBeUndefined();
+  });
+
   it('package.json + lerna.json → monorepo is true', () => {
     dir = scaffold({ 'package.json': '{"name":"app"}', 'lerna.json': '{"version":"independent"}' });
     const result = detectProjectType(dir);

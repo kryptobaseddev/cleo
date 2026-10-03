@@ -52,6 +52,8 @@ export async function ensureProjectContext(
 
   const { detectProjectType } = await import('../store/project-detect.js');
   const context = detectProjectType(projectRoot);
+  // Blocks only the user writes (`release`, `evidence`), carried over verbatim.
+  let declared: Record<string, unknown> = {};
 
   // Preserve user-supplied command overrides from existing file so
   // regeneration does not silently clobber them (T12027 / #1122 / #1129).
@@ -59,10 +61,12 @@ export async function ensureProjectContext(
     try {
       const existing = JSON.parse(readFileSync(contextPath, 'utf-8')) as Record<string, unknown>;
       preserveUserOverrides(existing, context);
+      declared = declaredBlocks(existing);
     } catch {
       // If we can't parse existing, proceed with freshly-detected context
     }
   }
+  const output: Record<string, unknown> = { ...context, ...declared };
 
   try {
     const schemaPath = join(
@@ -89,7 +93,7 @@ export async function ensureProjectContext(
         typeof fmtMod.default === 'function' ? fmtMod.default : addFormatsModule.default
       ) as (instance: unknown) => unknown;
       addFormats(ajv);
-      const valid = ajv.validate(schema, context);
+      const valid = ajv.validate(schema, output);
       if (!valid) {
         pushWarning({
           code: 'W_SCAFFOLD_PARTIAL',
@@ -101,7 +105,7 @@ export async function ensureProjectContext(
     // Schema validation is best-effort — never block the write
   }
 
-  await writeFile(contextPath, JSON.stringify(context, null, 2));
+  await writeFile(contextPath, JSON.stringify(output, null, 2));
 
   return {
     action: existsSync(contextPath) ? 'repaired' : 'created',
@@ -124,6 +128,18 @@ function preserveUserOverrides(existing: Record<string, unknown>, context: Proje
   const testingCmd = readCmdFromExisting(existing, 'testing');
   if (testingCmd) {
     context.testing = { ...context.testing, command: testingCmd };
+  }
+
+  // T13125: testing.affectedCommand and testing.preferAffected. Regeneration
+  // dropped them, so a `cleo detect` (or the 30-day refresh) put every verify
+  // back on whole-suite local runs. A declared template outranks a detected one.
+  const testing = asRecord(existing.testing);
+  const affected = testing?.affectedCommand;
+  if (typeof affected === 'string' && affected.trim() !== '') {
+    context.testing = { ...context.testing, affectedCommand: affected };
+  }
+  if (typeof testing?.preferAffected === 'boolean') {
+    context.testing = { ...context.testing, preferAffected: testing.preferAffected };
   }
 
   // build.command
@@ -155,6 +171,34 @@ function preserveUserOverrides(existing: Record<string, unknown>, context: Proje
   if (secscanCmd) {
     context['security-scan'] = { command: secscanCmd };
   }
+}
+
+/** A parsed JSON value as an object, or `null` when it is not a plain object. */
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * The blocks of an existing `project-context.json` that only the user writes —
+ * `release` and `evidence` — so regeneration keeps them verbatim (T13125).
+ *
+ * Detection produces neither, and they were dropped on every regeneration:
+ * `evidence.ciSatisfies` (merged-PR CI carries testsPassed/qaPassed) silently
+ * turned off, and evidence fell back to local whole-suite runs.
+ *
+ * @param existing - The parsed existing file.
+ * @returns The blocks to write back, each only when it is an object.
+ * @task T13125
+ */
+function declaredBlocks(existing: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of ['release', 'evidence'] as const) {
+    const block = asRecord(existing[key]);
+    if (block !== null) out[key] = block;
+  }
+  return out;
 }
 
 /**

@@ -15,6 +15,7 @@ import type {
   ProjectType,
   TestFramework,
 } from '@cleocode/contracts';
+import { proposeAffectedCommand } from '../tasks/affected-template.js';
 
 // Re-export canonical contract types so consumers that previously imported
 // from this module keep working. New code SHOULD import from
@@ -258,6 +259,11 @@ function detectTesting(
   } else if (framework === 'go') {
     result.command = 'go test ./...';
   }
+
+  // T13125: the affected-scope form of a workspace-wide test command, so a
+  // scope-aware tool:test runs only changed packages and their dependents.
+  const affected = proposeAffectedCommand(projectDir, result.command);
+  if (affected) result.affectedCommand = affected.template;
 
   // Test file patterns
   if (framework === 'vitest' || framework === 'jest') {
