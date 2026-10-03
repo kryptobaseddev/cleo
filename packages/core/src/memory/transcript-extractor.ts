@@ -22,7 +22,6 @@
 
 import { readFile, stat, unlink } from 'node:fs/promises';
 import { basename } from 'node:path';
-import { generateObject } from 'ai';
 import { z } from 'zod';
 import { resolveLlmBackend } from './llm-backend-resolver.js';
 
@@ -250,7 +249,9 @@ export async function extractTranscript(
       // transformers.js direct path — uses pipeline() without Vercel AI SDK
       memories = await extractWithTransformers(userPrompt, result.warnings);
     } else {
-      // Ollama or Anthropic path — uses Vercel AI SDK generateObject()
+      // Ollama or Anthropic path — uses Vercel AI SDK generateObject(), loaded
+      // on first use (T13126) so the barrel does not evaluate `ai` per process.
+      const { generateObject } = await import('ai'); // model-site-allowed: loads the SDK for the baselined generateObject site below (T13126)
       const { object } = await generateObject({
         model: backend.model,
         schema: ExtractionResponseSchema,

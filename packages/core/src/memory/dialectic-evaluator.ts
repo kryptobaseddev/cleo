@@ -45,7 +45,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DialecticInsights, DialecticTurn } from '@cleocode/contracts';
 import { getCleoStateDir } from '@cleocode/paths';
-import { generateObject } from 'ai';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { z } from 'zod';
 import { getLogger } from '../logger.js';
@@ -419,6 +418,10 @@ export async function evaluateDialectic(
     `Session: ${turn.sessionId}`;
 
   try {
+    // The AI SDK loads on first use (T13126): this module is reachable from the
+    // `@cleocode/core` barrel, and a static import evaluated `ai` in every
+    // `cleo` process.
+    const { generateObject } = await import('ai'); // model-site-allowed: loads the SDK for the baselined generateObject site below (T13126)
     const { object } = await generateObject({
       model: backend.model,
       schema: DialecticInsightsSchema,
