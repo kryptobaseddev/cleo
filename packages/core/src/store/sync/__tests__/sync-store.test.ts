@@ -809,6 +809,34 @@ describe('vault restore rebind (T13109)', () => {
     expect(registry().retireCandidates()).toEqual([]);
   });
 
+  it('review LOW-A: a renamed project directory pulled in place still records its candidate', async () => {
+    const projDir = join(dir, 'proj-a');
+    mkdirSync(projDir);
+    const oldPath = join(projDir, 'cleo.db');
+    const db = openDb(oldPath);
+    db.exec(
+      "CREATE TABLE tasks_tasks (id TEXT PRIMARY KEY); INSERT INTO tasks_tasks VALUES ('T1');",
+    );
+    enable(db);
+    const bound = syncOpenPass(db, opts(oldPath));
+    if (bound.status !== 'bound') throw new Error(bound.status);
+    close(db);
+    const renamedDir = join(dir, 'proj-a2');
+    renameSync(projDir, renamedDir); // same inode, no link since
+    const newPath = join(renamedDir, 'cleo.db');
+    const before = placeNewFile(newPath);
+
+    const out = await rebindAfterVaultRestore(newPath, 'project', before, vaultOpts());
+    expect(out).toMatchObject({ previousReplicaId: bound.replicaId, reason: 'vault-restore' });
+    expect(registry().retireCandidates()).toEqual([
+      expect.objectContaining({
+        replicaId: bound.replicaId,
+        dbRealpath: expect.stringContaining('proj-a2'),
+        reason: 'vault-restore',
+      }),
+    ]);
+  });
+
   it('a placement over no prior file (before = null) retires nothing', async () => {
     const { path, db, replicaId: original } = bound();
     close(db);

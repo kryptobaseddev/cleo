@@ -319,7 +319,9 @@ describe('cloudRestoreSummary (T13109)', () => {
       status: 'restored',
       replica: { retired: 'r-old', current: 'r-new', reason: 'file-identity' },
     });
-    expect(copied).toContain('replica r-old retired → r-new (it belonged to a copied file).');
+    expect(copied).toContain(
+      '; this copy now has its own replica r-new (it carried r-old from a copied file).',
+    );
   });
 
   it('says nothing about replicas when the store had none', () => {

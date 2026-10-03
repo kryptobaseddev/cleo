@@ -554,6 +554,13 @@ export interface RebindReplicaOptions {
    * or, when the registry lost it, bound by this device (T13109 review MED-1).
    */
   readonly recordRetirement?: boolean;
+  /**
+   * The caller proved the store file is the one this replica was bound to
+   * (the vault compares the replaced file's identity), so a registry entry
+   * at another path is this file after a rename: the nonce must still match,
+   * the path need not, and the entry moves to this path (review LOW-A).
+   */
+  readonly identityProven?: boolean;
 }
 
 /**
@@ -588,13 +595,15 @@ export function rebindReplica(
   // device. A copy (another path) or another device's store retires nothing.
   const prev = registry.get(previous.replicaId);
   const own = prev
-    ? prev.dbRealpath === realpath && prev.nonce === previous.nonce
+    ? (rebindOpts.identityProven === true || prev.dbRealpath === realpath) &&
+      prev.nonce === previous.nonce
     : previous.deviceId === deviceId;
   if (own && rebindOpts.recordRetirement !== false) {
     registry.upsert(
       previous.replicaId,
       {
-        ...(prev ?? { nonce: previous.nonce, scope: previous.scope, dbRealpath: realpath, hwm }),
+        ...(prev ?? { nonce: previous.nonce, scope: previous.scope, hwm }),
+        dbRealpath: realpath,
         retiredAt: now.toISOString(),
         successor: current.replicaId,
         retireReason: reason,
@@ -652,8 +661,8 @@ export async function rebindAfterVaultRestore(
   const { openNativeDatabase } = await import('../sqlite-native.js');
   const { installSchemaWriteGuard } = await import('../worktree-build-guard.js');
   const db = openNativeDatabase(dbPath);
-  installSchemaWriteGuard(db); // T12687: the rebind is DML only
   try {
+    installSchemaWriteGuard(db); // T12687: the rebind is DML only
     const row = activeReplica(db, scope);
     if (!row) return null;
     const deviceId = opts.deviceId ?? opts.registry?.deviceId ?? getStableDeviceId();
@@ -665,6 +674,7 @@ export async function rebindAfterVaultRestore(
       row.deviceId !== deviceId ? 'foreign-device' : boundHere ? 'vault-restore' : 'file-identity';
     const out = rebindReplica(db, { ...opts, deviceId, dbPath, scope, mode: 'live' }, reason, {
       recordRetirement: reason === 'vault-restore',
+      identityProven: reason === 'vault-restore',
     });
     return { ...out, reason };
   } finally {

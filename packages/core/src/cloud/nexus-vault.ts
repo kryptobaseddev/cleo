@@ -1840,7 +1840,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
           replica = { retired: placedReplica, current: now, reason: null };
           warnings.push({
             code: 'W_NEXUS_VAULT_REBIND',
-            message: `this store's replica ${placedReplica} was retired and ${now} bound, but recording it in this device's replica registry failed (${why}), so it is not a retire candidate`,
+            message: `this store's replica ${placedReplica} was retired and ${now} bound, but recording it in this device's replica registry failed (${why}), so it may not be a retire candidate`,
           });
         } else {
           warnings.push({
