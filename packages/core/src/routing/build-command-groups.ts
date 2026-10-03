@@ -12,8 +12,10 @@
  * @module
  */
 
-import type { CliCategory } from '@cleocode/contracts';
-import { CLI_CATEGORY_ORDER } from '@cleocode/contracts';
+// The leaf module, not the barrel (T13126): `cleo --help` loads this file on
+// its startup path, and the `@cleocode/contracts` barrel evaluates every
+// contracts zod schema (~40 MB of heap) to supply one constant array.
+import { CLI_CATEGORY_ORDER, type CliCategory } from '@cleocode/contracts/cli-category.js';
 
 // ---------------------------------------------------------------------------
 // CLI Command → Category map (SSoT)

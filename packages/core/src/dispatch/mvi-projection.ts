@@ -23,7 +23,8 @@
  * @task T11351 (Epic T11285 EP-MVI-PRIMITIVE) — generalized budget-aware projector
  */
 
-import { ExitCode, type RecordProjectionDisclosure } from '@cleocode/contracts';
+import type { RecordProjectionDisclosure } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { projectionFieldBytes, TokenEstimator } from '@cleocode/lafs';
 import { CleoError } from '../errors.js';
 

@@ -847,6 +847,20 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-sync-write-invariants.mjs',
         description: 'Every synced-write rejection site is classified (ratchet)',
       },
+      {
+        // T13126: gates 19 and 25 read the CLI SOURCE graph, and stayed green
+        // while every `cleo` call evaluated all of CORE: the unsplit esbuild
+        // bundle hoisted each lazy `import()`'s externals to static imports.
+        // This gate measures the BUILT CLI instead: the entry's static graph
+        // must not import a barrel, and `--version`, `--help` and `show` run in
+        // a throwaway sandbox under module-count budgets (the ratchet) and RSS
+        // ceilings. Needs a current `pnpm run build`; a missing or stale build
+        // fails rather than measuring code that is no longer there.
+        id: 'gate-39',
+        task: 'T13126',
+        script: 'scripts/check-cli-startup-graph.mjs',
+        description: 'Built CLI startup graph and per-command module budgets (ratchet)',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

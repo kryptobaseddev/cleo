@@ -51,12 +51,9 @@
  * @task T11762 ST-3 — DHQ-057: generic per-op output schema coverage backfill
  */
 
-import {
-  OPERATION_RESULT_SCHEMAS,
-  OPERATIONS,
-  type OperationDef,
-  type OperationOutputContract,
-} from '@cleocode/contracts';
+import type { OperationDef, OperationOutputContract } from '@cleocode/contracts';
+import { OPERATIONS } from '@cleocode/contracts/dispatch/operations-registry.js';
+import { OPERATION_RESULT_SCHEMAS } from '@cleocode/contracts/operation-envelope-validation.js';
 import { MUTATE_PROJECTION_PLANS } from '../mutate-projection.js';
 import { PROJECTION_PLANS, type ProjectionKind, type ProjectionPlan } from '../mvi-projection.js';
 

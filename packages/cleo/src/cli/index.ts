@@ -55,6 +55,7 @@ import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { isInteractiveInvocation } from './lib/interactive-commands.js';
 import { normalizeGlobalValueFlags } from './lib/strict-args.js';
 import { resolveFormat } from './middleware/output-format.js';
+import { installModuleResolveFastPath } from './module-resolve-fast-path.js';
 import { resolveOutputMode, setOutputMode } from './output-context.js';
 import { setProjectionOptOut } from './projection-context.js';
 import { resolveSubCommandForHelp } from './resolve-subcommand.js';
@@ -66,6 +67,12 @@ import { setSummaryMode } from './summary-context.js';
 // above are CLI-local + @cleocode/paths (a zero-dep leaf that does not eagerly
 // load node:sqlite). See @cleocode/paths node-version-gate for the SSoT floor.
 enforceNodeVersion();
+
+// T13126 — answer the module resolutions that dominate CLI startup without
+// Node re-parsing each package's whole `exports` map per import edge. Every
+// command module and all of CORE arrive through dynamic `import()` after this
+// line, so registering here covers them. See module-resolve-fast-path.ts.
+installModuleResolveFastPath();
 
 function getPackageVersion(): string {
   const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');
