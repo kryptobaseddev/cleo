@@ -69,7 +69,10 @@ jobs:
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    # T13141: 5, not 2 — a release/v* dispatch fetches up to 100 commits of the
+    # default branch and deepens the release ref; a timeout there would fail the
+    # bump-PR's only CI run (safe, but on the release critical path).
+    timeout-minutes: 5
     outputs:
       # A scheduled (nightly) run has no diff to filter — paths-filter is
       # skipped there and every path-gated job runs.

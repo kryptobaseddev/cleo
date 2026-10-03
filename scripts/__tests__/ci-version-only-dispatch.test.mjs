@@ -118,6 +118,22 @@ describe('the dispatch detector script (T13141)', () => {
     expect(runStep(checkout)).toBe('true');
   });
 
+  it('main moving on after the cut does not count against the bump', () => {
+    const checkout = origin((work) => {
+      const pkg = path.join(work, 'package.json');
+      writeFileSync(pkg, readFileSync(pkg, 'utf8').replace('"1.0.0"', '"1.0.1"'));
+    });
+    // After release-prepare cuts the branch, main keeps merging code.
+    const work = path.join(dir, 'work');
+    git(work, 'checkout', '-q', 'main');
+    for (let i = 1; i <= 5; i++) {
+      writeFileSync(path.join(work, 'index.js'), `export const v = ${i};\n`);
+      git(work, 'commit', '-q', '-am', `main ${i}`);
+    }
+    git(work, 'push', '-q', 'origin', 'main');
+    expect(runStep(checkout)).toBe('true');
+  });
+
   it('a bump that also changes code is the full run', () => {
     const checkout = origin((work) => {
       const pkg = path.join(work, 'package.json');
