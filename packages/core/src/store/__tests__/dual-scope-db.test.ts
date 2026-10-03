@@ -21,6 +21,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { worktreeScope } from '../../paths.js';
 import * as governorModule from '../../resources/governor.js';
+import { ResourceMonitor } from '../../resources/monitor.js';
 import { createOperationExecutionContext } from '../background-ops.js';
 import {
   _resetDualScopeDbCache,
@@ -283,7 +284,34 @@ describe('exodus-on-open db-heavy admission (T12001 / Epic T11992)', () => {
     expect(handle.scope).toBe('project');
 
     // The governor was consulted for db-heavy admission on the exodus path.
-    expect(spy).toHaveBeenCalledWith('db-heavy');
+    expect(spy).toHaveBeenCalledWith('db-heavy', { ignoreCpuPressure: true });
+  });
+
+  it('is not deferred by CPU saturation alone, as macOS reports a busy machine (T13119, T13150)', async () => {
+    // The darwin backend derives CPU pressure from the load average (T12981).
+    // A host at 2.4x its effective cores reads cpu some avg10 ≈ 58: backoff for
+    // the full pressure score, yet no memory pressure at all.
+    const busySample = {
+      sampledAtMs: Date.now(),
+      pressureAvailable: true,
+      memAvailableBytes: 32 * 1024 * 1024 * 1024,
+      globalPressure: {
+        some: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+        full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+      },
+      slicePressure: null,
+      cpuPressure: { some: { avg10: 58, avg60: 58, avg300: 58, totalUs: 0 }, full: null },
+      walObservations: [],
+    };
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(busySample);
+    const spy = vi.spyOn(governorModule.governor, 'tryAcquire');
+
+    await openDualScopeDb('project', projectDir);
+
+    expect(spy).toHaveBeenCalledWith('db-heavy', { ignoreCpuPressure: true });
+    const admission = await spy.mock.results[0]?.value;
+    expect(admission?.deferred).toBe(false);
+    if (admission && !admission.deferred) await admission.release();
   });
 
   it('proceeds with exodus-on-open when db-heavy is granted (full-budget byte-compatible)', async () => {
@@ -297,7 +325,7 @@ describe('exodus-on-open db-heavy admission (T12001 / Epic T11992)', () => {
 
     const handle = await openDualScopeDb('project', projectDir);
     expect(handle).toBeDefined();
-    expect(spy).toHaveBeenCalledWith('db-heavy');
+    expect(spy).toHaveBeenCalledWith('db-heavy', { ignoreCpuPressure: true });
   });
 });
 

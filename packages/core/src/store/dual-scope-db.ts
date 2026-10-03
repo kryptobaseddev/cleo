@@ -1124,7 +1124,12 @@ export async function openDualScopeDbAtPath(
           execution?.assertActive();
           const { governor } = await import('../resources/governor.js');
           execution?.assertActive();
-          const admit = await governor.tryAcquire('db-heavy');
+          // T13119 / T13150: memory pressure only. The exodus fills the store
+          // this command is about to read; deferring it because the CPU is
+          // busy served an EMPTY cleo.db (and a write in that state strands
+          // the legacy rows). macOS reads CPU saturation from the load
+          // average, so busy Macs and CI runners deferred it on every open.
+          const admit = await governor.tryAcquire('db-heavy', { ignoreCpuPressure: true });
           if (admit.deferred) {
             dbHeavyDeferred = true;
           } else {
