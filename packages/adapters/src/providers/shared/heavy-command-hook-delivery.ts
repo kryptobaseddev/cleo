@@ -39,17 +39,19 @@ import type {
 import { findOnPath } from '@cleocode/paths';
 import {
   CLAUDE_LOCAL_SETTINGS,
+  CODEX_HOOKS_FILE,
   HEAVY_COMMAND_HOOK_ID,
   HeavyHookPathBlockedError,
   heavyCommandHookObject,
+  hookFileVisibleToGit,
   isHeavyHookObject,
   isUserHomeDir,
   nonDirectoryAncestor,
   OLDER_CLEO_MARKER_PREFIX,
-  OPENCODE_HEAVY_COMMAND_PLUGIN,
+  OPENCODE_PLUGIN_FILE,
   opencodeHeavyCommandPluginSource,
   syncClaudeCodeHeavyCommandHook,
-  syncJsonHeavyCommandHook,
+  syncCodexHeavyCommandHook,
   syncOpencodeHeavyCommandPlugin,
 } from './heavy-command-hook-install.js';
 import { isPlainObject } from './hook-config.js';
@@ -95,9 +97,9 @@ export function heavyHookTarget(
     case 'claude-code':
       return join(projectDir, CLAUDE_LOCAL_SETTINGS);
     case 'codex':
-      return join(projectDir, '.codex', 'hooks.json');
+      return join(projectDir, CODEX_HOOKS_FILE);
     case 'opencode':
-      return join(projectDir, '.opencode', 'plugins', OPENCODE_HEAVY_COMMAND_PLUGIN);
+      return join(projectDir, OPENCODE_PLUGIN_FILE);
     case 'kimi':
       return join(homeOf(env), '.kimi', 'config.toml');
   }
@@ -197,7 +199,7 @@ async function syncProvider(
       provider === 'claude-code'
         ? await syncClaudeCodeHeavyCommandHook(projectDir, mode)
         : provider === 'codex'
-          ? await syncJsonHeavyCommandHook(target, 'codex', mode)
+          ? await syncCodexHeavyCommandHook(projectDir, mode)
           : syncOpencodeHeavyCommandPlugin(projectDir, mode);
     return { provider, status: result, target };
   } catch (err) {
@@ -330,6 +332,13 @@ function presenceOf(
   }
 }
 
+/** Each provider's hook file, relative to the project (forward slashes). */
+const HOOK_FILES: Readonly<Record<'claude-code' | 'codex' | 'opencode', string>> = {
+  'claude-code': CLAUDE_LOCAL_SETTINGS,
+  codex: CODEX_HOOKS_FILE,
+  opencode: OPENCODE_PLUGIN_FILE,
+};
+
 /** Inspect one provider; never throws. */
 function inspectProvider(
   provider: HeavyCommandHookProvider,
@@ -374,14 +383,25 @@ function inspectProvider(
       : { ...base, state: 'disabled', detail: 'resources.heavyCommandHook is off' };
   }
   if (presence.kind === 'present') {
-    return presence.current
-      ? { ...base, state: 'installed', detail: `installed in ${target}` }
-      : {
-          ...base,
-          state: 'outdated',
-          detail: `the hook in ${target} (or a legacy location) was written by another CLEO build`,
-          remedy: `run: ${HEAVY_HOOK_FIX_COMMAND}`,
-        };
+    if (!presence.current) {
+      return {
+        ...base,
+        state: 'outdated',
+        detail: `the hook in ${target} (or a legacy location) was written by another CLEO build`,
+        remedy: `run: ${HEAVY_HOOK_FIX_COMMAND}`,
+      };
+    }
+    // A per-machine hook file git can see shows in `git status` and widens
+    // `cleo verify`'s evidence scope (gh#1805); the fix excludes it.
+    if (hookFileVisibleToGit(projectDir, HOOK_FILES[provider])) {
+      return {
+        ...base,
+        state: 'outdated',
+        detail: `${target} is installed but git sees it as an untracked file (it widens evidence scope)`,
+        remedy: `run: ${HEAVY_HOOK_FIX_COMMAND} (adds it to the repository's info/exclude)`,
+      };
+    }
+    return { ...base, state: 'installed', detail: `installed in ${target}` };
   }
   if (!detected) return { ...base, state: 'not-detected', detail: why };
   const blocked = nonDirectoryAncestor(dirname(target));

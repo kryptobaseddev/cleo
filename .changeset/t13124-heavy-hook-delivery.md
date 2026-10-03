@@ -25,6 +25,12 @@ time).
   reported as `blocked`, with the exact remedy, and Claude Code and opencode
   still install. A malformed settings file is `failed` and left untouched.
   Kimi, which only reads its global config, is `unsupported`.
+- **Every file the hook writes stays out of git.** `.claude/settings.local.json`,
+  `.codex/hooks.json` and the opencode plugin get a marked line in the
+  repository's `info/exclude`, unless git already ignores or tracks the file.
+  An untracked plugin file had widened `cleo verify`'s evidence scope
+  (gh#1805). Doctor reports a hook file that git can see as `outdated`, and
+  the fix excludes it.
 - **Every write and every unmet provider is in the report.** Upgrade lists
   them as `heavy_command_hook` actions, init as created entries or warnings.
   `cleo upgrade --dry-run` previews them.

@@ -302,3 +302,67 @@ describe('probeHeavyHookCli', () => {
     expect(probeHeavyHookCli(project, { env: probeEnv() }).state).toBe('current');
   });
 });
+
+describe('every hook file stays out of git (T13124, gh#1805)', () => {
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-C', project, ...args], { encoding: 'utf-8' });
+  const untracked = () =>
+    git('status', '--porcelain', '--untracked-files=all')
+      .split('\n')
+      .filter((l) => l.startsWith('??'))
+      .map((l) => l.slice(3));
+
+  it('excludes the Claude Code, Codex and opencode hook files it writes, and undoes it on off', async () => {
+    git('init', '-q');
+    useAll();
+    await syncProjectHeavyCommandHooks(project, 'rewrite', { env });
+    expect(untracked()).toEqual([]);
+    const exclude = readFileSync(join(project, '.git', 'info', 'exclude'), 'utf-8');
+    for (const line of [
+      '/.claude/settings.local.json',
+      '/.codex/hooks.json',
+      '/.opencode/plugins/cleo-heavy-command.js',
+    ]) {
+      expect(exclude.split('\n')).toContain(line);
+    }
+    await syncProjectHeavyCommandHooks(project, 'off', { env });
+    const after = readFileSync(join(project, '.git', 'info', 'exclude'), 'utf-8');
+    expect(after).not.toMatch(/cleo-heavy-command\.js|\.codex\/hooks\.json|settings\.local\.json/);
+  });
+
+  it('flags a hand-written hook file git can see, and the fix excludes it without rewriting it', async () => {
+    git('init', '-q');
+    mkdirSync(join(project, '.opencode', 'plugins'), { recursive: true });
+    const { opencodeHeavyCommandPluginSource } = await import('../heavy-command-hook-install.js');
+    writeFileSync(
+      join(project, '.opencode', 'plugins', 'cleo-heavy-command.js'),
+      opencodeHeavyCommandPluginSource(),
+    );
+    const before = inspectProjectHeavyCommandHooks(project, 'rewrite', { env }).find(
+      (i) => i.provider === 'opencode',
+    );
+    expect(before?.state).toBe('outdated');
+    expect(before?.detail).toMatch(/git sees it as an untracked file/);
+    const outcomes = await syncProjectHeavyCommandHooks(project, 'rewrite', { env });
+    expect(outcomes.find((o) => o.provider === 'opencode')?.status).toBe('unchanged');
+    expect(untracked()).toEqual([]);
+    expect(
+      inspectProjectHeavyCommandHooks(project, 'rewrite', { env }).find(
+        (i) => i.provider === 'opencode',
+      )?.state,
+    ).toBe('installed');
+  });
+
+  it('leaves a hook file the repository tracks alone', async () => {
+    git('init', '-q');
+    mkdirSync(join(home, '.codex'));
+    await syncProjectHeavyCommandHooks(project, 'rewrite', { env, providers: ['codex'] });
+    // Undo CLEO's block, then commit the file as a team would.
+    await syncProjectHeavyCommandHooks(project, 'off', { env, providers: ['codex'] });
+    await syncProjectHeavyCommandHooks(project, 'rewrite', { env, providers: ['codex'] });
+    writeFileSync(join(project, '.git', 'info', 'exclude'), '');
+    git('add', '-f', '.codex/hooks.json');
+    await syncProjectHeavyCommandHooks(project, 'rewrite', { env, providers: ['codex'] });
+    expect(readFileSync(join(project, '.git', 'info', 'exclude'), 'utf-8')).toBe('');
+  });
+});

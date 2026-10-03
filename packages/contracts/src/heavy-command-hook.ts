@@ -187,8 +187,9 @@ export interface HeavyHookDeliveryOutcome {
  * The hook's state for one provider in one project, as `cleo doctor` reports it.
  *
  * - `installed` — present and identical to what this CLEO would write.
- * - `outdated` — present but written by another CLEO build (or only in a
- *   legacy location); `cleo upgrade` refreshes it.
+ * - `outdated` — present but written by another CLEO build, only in a legacy
+ *   location, or visible to git as an untracked file (gh#1805: it widens
+ *   `cleo verify`'s evidence scope); `cleo upgrade` refreshes it.
  * - `missing` — the provider is in use and the hook is absent.
  * - `blocked` — see {@link HeavyHookDeliveryStatus}.
  * - `unreadable` — the config file exists but cannot be read or parsed.
