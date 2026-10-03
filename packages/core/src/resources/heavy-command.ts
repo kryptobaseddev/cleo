@@ -855,6 +855,11 @@ function readOnlyArgsRefusal(cmd: string, args: readonly string[]): string | nul
       k++;
       return true;
     };
+    // With POSIXLY_CORRECT, option parsing stops at the first operand, so a
+    // flag after grep's pattern would be a file name (review LOW).
+    if (positionals > 0 && arg.startsWith('-')) {
+      return `\`${cmd}\` takes a flag after its pattern (a file name under POSIXLY_CORRECT)`;
+    }
     if (arg.startsWith('--')) {
       if (spec.long.includes(arg)) continue;
       const eq = arg.indexOf('=');

@@ -223,6 +223,8 @@ describe('claudePreApproval', () => {
       'pnpm test | grep --der FAIL',
       'pnpm test | grep --dereference FAIL',
       'pnpm test | grep -e FAIL',
+      'pnpm test | grep FAIL -n', // a file named -n under POSIXLY_CORRECT
+      'pnpm test | grep FAIL --count',
       'pnpm test | grep -- FAIL x',
       'pnpm test | wc --files 5',
       'pnpm test | wc --files0-from=5',
