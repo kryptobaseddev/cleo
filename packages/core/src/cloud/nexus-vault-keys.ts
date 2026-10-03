@@ -372,6 +372,38 @@ export async function unlockNexusAccountKey(
 }
 
 /**
+ * Why Cleo Nexus refused this device's first key for a project (403), as an
+ * account error with a remedy, or `null` for any other failure. A device may
+ * create only version 1, of a keyless project its own user registered
+ * (cleo-nexus #33); this function is reached only when this account holds no
+ * key for the project (T13098).
+ */
+function refusedFirstKey(err: unknown, projectId: string): NexusAccountError | null {
+  if (!(err instanceof NexusError) || err.status !== 403) return null;
+  switch (err.details?.['reason']) {
+    case 'not-registrant':
+      return keyUnavailable(
+        `project ${projectId} has no key yet, and only a device of the account that registered it may create the first one`,
+        'run the first `cleo cloud push` from a device of the account that first ran `cleo project link` for this project',
+      );
+    case 'session-required':
+      return keyUnavailable(
+        `project ${projectId} already has a key, but it has not been shared with this account`,
+        'ask the project owner to share the project key with this account',
+      );
+    case 'project-role':
+      // Checked before the server knows whether the project has a key, so an owner may already
+      // have created one and not shared it with this account.
+      return keyUnavailable(
+        `this account holds no key for project ${projectId}, and only a project owner can create one`,
+        'ask a project owner to share the project key with this account, or, if the project has no key yet, to run the first `cleo cloud push`',
+      );
+    default:
+      return null;
+  }
+}
+
+/**
  * The data key of a project stream: unwrap the newest wrapped key, or mint
  * and store one when the project has none yet (its first push).
  *
@@ -405,13 +437,35 @@ export async function nexusProjectDataKey(
     await conn.raw('PUT', `${path}/${encodeURIComponent(conn.userId)}`, z.looseObject({}), {
       wrappedProjectKey: wrapProjectKey(mk, pdk, projectId, 1),
       keyVersion: 1,
+      // Cleo Nexus accepts a new key version, the first one included, only as a rotation naming
+      // the current highest version (cleo-nexus T12856). The two fields stay out of the shared
+      // contract until cleo-nexus adds them there too (T064), as the server does.
+      rotate: true,
+      expectedMax: 0,
     });
     return pdk;
   } catch (err) {
-    if (!isConflict(err)) throw nexusApiErrorToAccountError(err);
-    const won = await read();
-    if (won === null) throw keyUnavailable(`the project key of ${projectId} is not readable`);
-    return won;
+    const refused = refusedFirstKey(err, projectId);
+    if (refused) throw refused;
+    if (isConflict(err, 'rotation-stale') || isConflict(err, 'keys-exist')) {
+      // Another device created version 1 first: use its key (T13098).
+      const won = await read();
+      if (won === null) {
+        throw keyUnavailable(
+          `the project key of ${projectId} was created by another account and has not been shared with this one`,
+          'ask the project owner to share the project with this account',
+        );
+      }
+      return won;
+    }
+    if (isConflict(err)) {
+      const e = err as NexusError;
+      const reason = typeof e.details?.['reason'] === 'string' ? ` (${e.details['reason']})` : '';
+      throw keyUnavailable(
+        `Cleo Nexus refused to store the project key of ${projectId}${reason}: ${e.serverMessage}`,
+      );
+    }
+    throw nexusApiErrorToAccountError(err);
   }
 }
 
