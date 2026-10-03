@@ -66,7 +66,7 @@ import { CleoError } from '../errors.js';
 import { activeToolGroups, trackToolGroup } from '../resources/tool-groups.js';
 import { isLocked, withLock } from '../store/lock.js';
 import {
-  type HeavyToolEnv,
+  type HeavyToolSpawnPlan,
   planHeavyToolEnv,
   withoutNpmEnvConfigWarnings,
 } from './heavy-tool-env.js';
@@ -354,10 +354,10 @@ export interface ToolRunResult {
    */
   flaky?: string[];
   /**
-   * The heap, worker count and workspace concurrency a heavy tool was spawned
-   * with (or, on a hit, that this call's environment plans — the cache key
-   * includes them, so a hit was produced under the same limits), and why
-   * (T13122). Absent for light tools.
+   * The heap, worker count and workspace concurrency a memory-bound tool was
+   * spawned with (or, on a hit, that this call's environment plans — the cache
+   * key includes them, so a hit was produced under the same limits), and why
+   * (T13122). Absent for tools that are not memory-bound.
    */
   resources?: HeavyToolResourcePlan;
   /** Full cache entry — useful for audit / debugging. */
@@ -1711,17 +1711,18 @@ export async function runToolCached(
   // keyed on, so the key describes the heap and worker limits the run actually
   // got; the plan behind it rides on every result, hit or miss.
   const spawnPlan = planHeavyToolEnv(command.canonical);
-  const result = await runToolCachedWithEnv(command, projectRoot, opts, spawnPlan.overlay);
+  const result = await runToolCachedWithPlan(command, projectRoot, opts, spawnPlan);
   return spawnPlan.resources === null ? result : { ...result, resources: spawnPlan.resources };
 }
 
 /** {@link runToolCached} with its heavy-tool overlay already planned. */
-async function runToolCachedWithEnv(
+async function runToolCachedWithPlan(
   command: ResolvedToolCommand,
   projectRoot: string,
   opts: RunToolOptions,
-  toolEnv: HeavyToolEnv,
+  spawnPlan: HeavyToolSpawnPlan,
 ): Promise<ToolRunResult> {
+  const toolEnv = spawnPlan.overlay;
   const callStartedAt = Date.now();
   const tailBytes = opts.tailBytes ?? 512;
   const lockStaleMs = opts.lockStaleMs ?? 600_000;
@@ -2171,9 +2172,13 @@ async function runToolCachedWithEnv(
     !bypassCache || Date.parse(e.capturedAt) >= callStartedAt;
 
   for (;;) {
+    // T13123: a typecheck/lint slot is sized from the heap this run gets.
     const releaseSemaphore = opts.skipGlobalSemaphore
       ? undefined
-      : await acquireGlobalSlot(command.canonical, opts.semaphoreOptions);
+      : await acquireGlobalSlot(command.canonical, {
+          ...(spawnPlan.resources ? { heapMb: spawnPlan.resources.heapMb } : {}),
+          ...opts.semaphoreOptions,
+        });
     try {
       return await withLock(cachePath, runLocked, { stale: lockStaleMs, retries: 3 });
     } catch (err: unknown) {

@@ -181,6 +181,7 @@ export {
 export type { HeavyToolEnv, HeavyToolSpawnPlan } from './heavy-tool-env.js';
 export {
   defaultHeavyHeapMb,
+  defaultSingleProcessHeapMb,
   GIB_PER_WORKER,
   HEAVY_HEAP_ENV,
   HEAVY_HEAP_RAM_FRACTION,
