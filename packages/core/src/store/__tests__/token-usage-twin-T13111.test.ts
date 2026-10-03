@@ -19,7 +19,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { listTokenUsage, recordTokenExchange } from '../../metrics/token-service.js';
 import { bindTasksDomain, closeDb } from '../sqlite.js';
-import { sessions } from '../tasks-schema.js';
+import { sessions, tasks } from '../tasks-schema.js';
 
 const SESSION = 'ses_20261003000000_t13111';
 
@@ -67,15 +67,22 @@ function bareRow(db: DatabaseSync, id: string, fields: Record<string, string | n
 }
 
 describe('token usage in tasks_token_usage (T13111)', () => {
-  it('a token row naming a bound session is stored, where the bare table refused it', async () => {
+  it('a token row naming a bound session and a live task is stored, where the bare table refused both', async () => {
     const db = await open();
     const drizzle = (await bindTasksDomain(root)).db;
     await drizzle.insert(sessions).values({ id: SESSION, name: 'bound', status: 'active' }).run();
+    await drizzle
+      .insert(tasks)
+      .values({ id: 'T001', title: 'live task', status: 'pending', type: 'task', position: 0 })
+      .run();
     expect(count(db, 'tasks_sessions')).toBe(1);
+    expect(count(db, 'tasks_tasks')).toBe(1);
     expect(count(db, 'sessions')).toBe(0);
+    expect(count(db, 'tasks')).toBe(0);
 
-    // The old path: the bare table's FK points at the empty bare `sessions` twin.
+    // The old path: the bare table's FKs point at the empty bare `sessions` and `tasks` twins.
     expect(() => bareRow(db, 'bare-1', { session_id: SESSION })).toThrow(/FOREIGN KEY/);
+    expect(() => bareRow(db, 'bare-2', { task_id: 'T001' })).toThrow(/FOREIGN KEY/);
 
     const row = await recordTokenExchange(root, {
       requestPayload: { title: 'x' },
