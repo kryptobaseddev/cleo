@@ -25,11 +25,13 @@ time).
   reported as `blocked`, with the exact remedy, and Claude Code and opencode
   still install. A malformed settings file is `failed` and left untouched.
   Kimi, which only reads its global config, is `unsupported`.
-- **Codex's `.codex/hooks.json` is treated as a shared project config.**
-  CLEO writes it only when it is absent, or holds nothing but CLEO's own
-  hook, and git does not track it. A tracked `hooks.json`, or one with team
-  hooks, is reported as `blocked` with a remedy and left untouched. Doctor
-  flags CLEO's hook left as an uncommitted change in a tracked team file.
+- **Codex's `.codex/hooks.json` is the project's own config.** CLEO writes
+  it, and excludes it from git, only when CLEO created it (absent, or nothing
+  but CLEO's own hook) and git does not track it. Any other `hooks.json`
+  (tracked, holding team hooks, or even an empty `{}`) is never written or
+  hidden. It is reported as `needs-consent`, with the exact JSON entry to add
+  by hand. Doctor also flags CLEO's hook left as an uncommitted change in a
+  tracked team file.
 - **Every file the hook writes stays out of git.** `.claude/settings.local.json`,
   `.codex/hooks.json` and the opencode plugin get a marked line in the
   repository's `info/exclude`, unless git already ignores or tracks the file.
@@ -58,10 +60,15 @@ Now, when your Bash allow rules already approve the original command, the hook
 rewrites it with `permissionDecision: "allow"`. The commands that ran without a
 prompt still do, and nothing else does; they now queue for the budget. Claude
 Code still applies deny and ask rules to the rewritten command, whatever the
-hook answers. The check is never more permissive than Claude Code's matching:
+hook answers. The check is fail-closed and never more permissive than Claude
+Code's matching:
 
-- every subcommand must match a rule, with no ANSI-C `$'…'` quoting
-  anywhere, since its escapes would hide the real argument;
+- every token must fit a strict grammar: plain literal words, or simple
+  single- or double-quoted literals with no escapes. Any `$'…'`, `$"…"`,
+  backslash escape, expansion, substitution, glob (partly quoted ones too),
+  brace, tilde, comment or unknown operator means no `allow`. A property
+  test and a seeded fuzz test cover these constructs in every position;
+- every subcommand must match a rule;
 - the only rule-free subcommands accepted are a `cd` within the project and a
   narrow form of Claude Code's read-only commands (`cat`, `echo`, `pwd`,
   `head`, `tail`, `grep`, `wc`, `ls`, with no paths, and no glob or brace
