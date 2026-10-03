@@ -32,6 +32,7 @@ import type {
   EvidenceMergeAnchor,
   EvidenceValidationContext,
   GateEvidence,
+  HeavyToolResourcePlan,
   EvidenceAtomInput as ParsedEvidenceAtom,
   VerificationGate,
 } from '@cleocode/contracts';
@@ -58,6 +59,7 @@ import { getEffectiveHead } from '../worktree/effective-head.js';
 import type { AffectedTestRun } from './affected-packages.js';
 import type { ViewComponentPr } from './component-pr.js';
 import { loadRecordedProjectRoots, rebaseLegacyEvidencePath } from './evidence-paths.js';
+import { HEAVY_HEAP_ENV, HEAVY_WORKERS_ENV } from './heavy-tool-env.js';
 import { DISABLE_ENV, describeMemoryLimit } from './heavy-tool-limit.js';
 import {
   computeCommitRevalidationKey,
@@ -1593,7 +1595,9 @@ async function runAffectedTests(
     return {
       ok: false,
       codeName: result.timedOut ? 'E_EVIDENCE_TOOL_TIMEOUT' : 'E_EVIDENCE_TOOL_FAILED',
-      reason: `tool:${tool} (affected: ${[run.command.cmd, ...run.command.args].join(' ')}) exited ${result.exitCode}: ${(result.stderrTail || result.stdoutTail).trim().slice(-300)}`,
+      reason:
+        `tool:${tool} (affected: ${[run.command.cmd, ...run.command.args].join(' ')}) exited ${result.exitCode}: ${(result.stderrTail || result.stdoutTail).trim().slice(-300)}` +
+        (result.signal !== null || result.resourceKill !== null ? resourcePlanNote(result) : ''),
     };
   }
   return {
@@ -2021,7 +2025,7 @@ async function validateTool(
         `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
         `RAN for ${Math.round(result.durationMs / 1000)}s in ${result.executionRoot} and was ` +
         `KILLED by ${result.signal}. The binary is present and the command started — ` +
-        `this is not a resolution problem.${limit} ` +
+        `this is not a resolution problem.${limit}${resourcePlanNote(result)} ` +
         `Nothing was cached, so a retry re-runs the tool from scratch and will be killed ` +
         `identically unless the cause is addressed.` +
         (result.stdoutTail || result.stderrTail
@@ -2042,9 +2046,10 @@ async function validateTool(
         `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
         `RAN for ${Math.round(result.durationMs / 1000)}s in ${result.executionRoot} and was ` +
         `KILLED for resources (${result.resourceKill}). This is not a verdict on the code, ` +
-        `and nothing was cached. Raise the heap (NODE_OPTIONS=--max-old-space-size=<MiB>) or lower the worker count ` +
-        `(VITEST_MAX_WORKERS=<n>) and verify again — both are part of the cache key, so the ` +
-        `retry runs fresh.` +
+        `and nothing was cached.${resourcePlanNote(result)} Raise the heap with ` +
+        `${HEAVY_HEAP_ENV}=<MiB> (an inherited NODE_OPTIONS heap above the run's budget is ` +
+        `clamped, T13122) or lower the worker count with ${HEAVY_WORKERS_ENV}=<n>, and verify ` +
+        `again — both are part of the cache key, so the retry runs fresh.` +
         (result.stdoutTail || result.stderrTail
           ? ` Last output: ${tailString(`${result.stdoutTail}\n${result.stderrTail}`, 512)}`
           : ''),
@@ -2140,12 +2145,24 @@ function toolRunAtomFields(result: ToolRunResult): {
   treeHash?: string;
   cacheHit: boolean;
   flaky?: string[];
+  resources?: HeavyToolResourcePlan;
 } {
   return {
     ...(result.treeHash ? { treeHash: result.treeHash } : {}),
     cacheHit: result.cacheHit,
     ...(result.flaky ? { flaky: result.flaky } : {}),
+    // T13122: the heap and worker count the run got, and why — including an
+    // inherited NODE_OPTIONS heap or worker count clamped to the budget.
+    ...(result.resources ? { resources: result.resources } : {}),
   };
+}
+
+/**
+ * One sentence naming the heap and worker plan a heavy tool ran under
+ * (T13122), for a message about a kill; `''` for a light tool.
+ */
+function resourcePlanNote(result: ToolRunResult): string {
+  return result.resources ? ` It ran with ${result.resources.summary}.` : '';
 }
 
 // Re-export so downstream code can keep importing the canonical-tools list

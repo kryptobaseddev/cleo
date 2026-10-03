@@ -10,7 +10,10 @@
  *
  * - Admitted: the command runs niced, with heap and worker limits sized for a
  *   heavy tool, as its own process group; its output streams to stderr.
- *   stdout carries one LAFS envelope at the end.
+ *   stdout carries one LAFS envelope at the end, whose `resources` names the
+ *   heap and worker count chosen and why (T13122). An inherited NODE_OPTIONS
+ *   heap or worker count above the run's budget is clamped, and that is
+ *   printed as a warning, so it shows even with `--passthrough`.
  * - Not admitted (default): an immediate `E_RESOURCE_DEFERRED` envelope, exit
  *   75, with who is running what and concrete ways to keep making progress.
  *   Nothing was started. `--wait` joins the class's FIFO queue instead.
@@ -42,6 +45,7 @@
 
 import { constants } from 'node:os';
 import {
+  type HeavyToolResourcePlan,
   RESOURCE_DEFERRED_CODE,
   RUN_COMMAND_FAILED_CODE,
   RUN_DEFERRED_EXIT_CODE,
@@ -51,8 +55,12 @@ import {
   isWatchCommand,
   resolveRunClass,
 } from '@cleocode/core/resources/run-admission.js';
-import { type RunGovernedResult, runGoverned } from '@cleocode/core/resources/run-governed.js';
-import { heavyToolEnv } from '@cleocode/core/tasks/heavy-tool-env.js';
+import {
+  type RunGovernedResult,
+  type RunNoticeLevel,
+  runGoverned,
+} from '@cleocode/core/resources/run-governed.js';
+import { planHeavyToolEnv } from '@cleocode/core/tasks/heavy-tool-env.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -92,8 +100,10 @@ function exitFailed(
   result: Extract<RunGovernedResult, { kind: 'exited' }>,
   code: number,
   passthrough: boolean,
+  resources: HeavyToolResourcePlan | null,
 ): never {
-  const { kind: _kind, ...data } = result;
+  const { kind: _kind, ...rest } = result;
+  const data = resources === null ? rest : { ...rest, resources };
   const message =
     result.spawnError !== null
       ? `could not start command: ${result.spawnError}`
@@ -189,25 +199,36 @@ export const runCommand = defineCommand({
       );
     }
 
+    // Notices go to stderr; stdout carries only the final LAFS envelope, or
+    // with --passthrough only the child's output (and then only warnings).
+    const notice = (line: string, level: RunNoticeLevel): void => {
+      if (passthrough && level === 'info') return;
+      process.stderr.write(`[cleo run] ${line}\n`); // json-stream-hygiene-allowed: progress notices, not data
+    };
+    // T13122: the heap and worker plan, and why. A clamped inherited value is
+    // a warning, so it reaches the operator even under --passthrough.
+    const { overlay, resources } = planHeavyToolEnv(canonicalForClass(cls));
+    if (resources !== null) {
+      notice(
+        `resources: ${resources.summary}`,
+        resources.clamped.length > 0 || resources.overBudget ? 'warn' : 'info',
+      );
+    }
+
     let result: RunGovernedResult;
     try {
       result = await runGoverned({
         argv,
         cls,
         cwd: process.cwd(),
-        env: { ...process.env, ...heavyToolEnv(canonicalForClass(cls)) },
+        env: { ...process.env, ...overlay },
         sessionId: process.env.CLEO_SESSION_ID ?? process.env.CLAUDE_CODE_SESSION_ID ?? null,
         wait: Boolean(args.wait),
         timeoutMs,
         passthrough,
         // A terminal on stdin: keep the child in its foreground group.
         foreground: passthrough && process.stdin.isTTY === true,
-        // Notices go to stderr; stdout carries only the final LAFS envelope, or
-        // with --passthrough only the child's output (and then only warnings).
-        notice: (line, level) => {
-          if (passthrough && level === 'info') return;
-          process.stderr.write(`[cleo run] ${line}\n`); // json-stream-hygiene-allowed: progress notices, not data
-        },
+        notice,
       });
     } catch (err) {
       // A runner error is reported here, not by the CLI's top-level catch,
@@ -240,9 +261,12 @@ export const runCommand = defineCommand({
     }
 
     const code = runExitCode(result);
-    if (code !== 0) exitFailed(result, code, passthrough);
+    if (code !== 0) exitFailed(result, code, passthrough, resources);
     if (passthrough) return;
     const { kind: _kind, ...data } = result;
-    cliOutput(data, { command: 'run', operation: 'resources.run' });
+    cliOutput(resources === null ? data : { ...data, resources }, {
+      command: 'run',
+      operation: 'resources.run',
+    });
   },
 });

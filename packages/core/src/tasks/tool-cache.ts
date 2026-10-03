@@ -61,11 +61,11 @@ import {
 import { constants as osConstants, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode, type HeavyToolResourcePlan } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { activeToolGroups, trackToolGroup } from '../resources/tool-groups.js';
 import { isLocked, withLock } from '../store/lock.js';
-import { heavyToolEnv } from './heavy-tool-env.js';
+import { type HeavyToolEnv, planHeavyToolEnv } from './heavy-tool-env.js';
 import {
   confinementStartupFailure,
   isSystemdRunCommand,
@@ -349,6 +349,13 @@ export interface ToolRunResult {
    * clean one, for evidence atoms and gates to surface.
    */
   flaky?: string[];
+  /**
+   * The heap, worker count and workspace concurrency a heavy tool was spawned
+   * with (or, on a hit, that this call's environment plans — the cache key
+   * includes them, so a hit was produced under the same limits), and why
+   * (T13122). Absent for light tools.
+   */
+  resources?: HeavyToolResourcePlan;
   /** Full cache entry — useful for audit / debugging. */
   entry: ToolCacheEntry;
 }
@@ -1694,6 +1701,21 @@ export async function runToolCached(
   projectRoot: string,
   opts: RunToolOptions = {},
 ): Promise<ToolRunResult> {
+  // T12989 / T13122: the overlay is planned ONCE and both spawned with and
+  // keyed on, so the key describes the heap and worker limits the run actually
+  // got; the plan behind it rides on every result, hit or miss.
+  const spawnPlan = planHeavyToolEnv(command.canonical);
+  const result = await runToolCachedWithEnv(command, projectRoot, opts, spawnPlan.overlay);
+  return spawnPlan.resources === null ? result : { ...result, resources: spawnPlan.resources };
+}
+
+/** {@link runToolCached} with its heavy-tool overlay already planned. */
+async function runToolCachedWithEnv(
+  command: ResolvedToolCommand,
+  projectRoot: string,
+  opts: RunToolOptions,
+  toolEnv: HeavyToolEnv,
+): Promise<ToolRunResult> {
   const callStartedAt = Date.now();
   const tailBytes = opts.tailBytes ?? 512;
   const lockStaleMs = opts.lockStaleMs ?? 600_000;
@@ -1717,9 +1739,6 @@ export async function runToolCached(
 
   const treeHash = await captureTreeHash(executionRoot);
   const envFingerprint = captureEnvFingerprint(executionRoot, command.canonical);
-  // T12989: the overlay is computed ONCE and both spawned with and keyed on,
-  // so the key describes the heap and worker limits the run actually got.
-  const toolEnv = heavyToolEnv(command.canonical);
   const resourceEnv = captureResourceEnv(command.canonical, process.env, toolEnv);
   const head = await captureHead(executionRoot);
   const key = computeCacheKey(command, treeHash, envFingerprint, resourceEnv);
