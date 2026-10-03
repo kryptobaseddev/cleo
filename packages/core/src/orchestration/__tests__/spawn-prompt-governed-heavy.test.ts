@@ -7,7 +7,8 @@
  * evidence. Every surface an agent reads now carries the same recipe:
  *
  *   1. `CLEO-INJECTION.md`, injected into every session (Rules);
- *   2. the `ct-cleo` skill (Evidence must prove task criteria);
+ *   2. the `ct-cleo` skill (Evidence must prove task criteria) and the
+ *      `ct-orchestrator` skill (Evidence-Based Completion);
  *   3. the spawn prompt at every tier (Quality Gates), whose commands
  *      gate 23 checks.
  *
@@ -27,10 +28,10 @@ import { buildSpawnPrompt, GOVERNED_HEAVY_WORK_LINE, type SpawnTier } from '../s
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CORE = resolve(HERE, '..', '..', '..');
 const INJECTION = readFileSync(resolve(CORE, 'templates', 'CLEO-INJECTION.md'), 'utf-8');
-const CT_CLEO = readFileSync(
-  resolve(CORE, '..', 'skills', 'skills', 'ct-cleo', 'SKILL.md'),
-  'utf-8',
-);
+const skill = (name: string) =>
+  readFileSync(resolve(CORE, '..', 'skills', 'skills', name, 'SKILL.md'), 'utf-8');
+const CT_CLEO = skill('ct-cleo');
+const CT_ORCHESTRATOR = skill('ct-orchestrator');
 
 /** What every surface must say (case-insensitive substrings). */
 const MARKERS: readonly string[] = [
@@ -74,8 +75,9 @@ describe('the governed heavy-work recipe reaches every agent surface (T13134)', 
     expect(INJECTION).toMatch(/`tool:test-affected` or `ci:<pr>`, never a whole suite/);
   });
 
-  it('the ct-cleo skill carries it', () => {
+  it('the ct-cleo and ct-orchestrator skills carry it', () => {
     expect(missing(CT_CLEO)).toEqual([]);
+    expect(missing(CT_ORCHESTRATOR)).toEqual([]);
   });
 
   it.each([
