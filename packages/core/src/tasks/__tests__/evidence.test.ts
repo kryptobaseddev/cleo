@@ -358,7 +358,7 @@ describe('validateAtom - test-run (T832)', () => {
       const cancelled = await run({ tests: 3, pass: 2, fail: 0, cancelled: 1 });
       expect(cancelled).toMatchObject({
         ok: false,
-        reason: 'test-run reports 1 failed tests',
+        reason: 'test-run reports cancelled = 1',
       });
       const crashed = await run({ exit: 1, total: 3, passed: 3, failed: 0 });
       expect(crashed).toMatchObject({ ok: false, reason: 'test-run reports exit code 1' });
@@ -389,6 +389,71 @@ describe('validateAtom - test-run (T832)', () => {
         codeName: 'E_EVIDENCE_TESTS_FAILED',
         reason: 'test-run reports zero total tests (no tests were executed): total is 0',
       });
+    });
+
+    it('refuses a failure under any key, whichever set supplied the total (T13136 review)', async () => {
+      for (const report of [
+        { total: 43, passed: 41, failures: 2 },
+        { total: 10, passed: 9, errors: 1 },
+        { numTotalTests: 2, numPassedTests: 2, numFailedTests: 0, failed: 5 },
+        { numTotalTests: 3, numPassedTests: 3, numFailedTests: 0, numFailedTestSuites: 1 },
+      ]) {
+        expect(await run(report), JSON.stringify(report)).toMatchObject({
+          ok: false,
+          codeName: 'E_EVIDENCE_TESTS_FAILED',
+        });
+      }
+    });
+
+    it('refuses counts that are not non-negative integers or do not add up', async () => {
+      const cases = [
+        [
+          { total: 10, passed: 1 },
+          /do not add up: total is 10, but passed \+ failed \+ skipped \+ todo = 1/,
+        ],
+        [{ total: 1, passed: 100 }, /do not add up/],
+        [
+          { total: 5, passed: 5, failed: -3 },
+          /"failed" is -3; every count must be a non-negative integer/,
+        ],
+        [{ total: 0.5, passed: 0.5 }, /"total" is 0.5/],
+        [{ total: '43', passed: 43 }, /"total" is "43"/],
+      ];
+      for (const [report, reason] of cases) {
+        const r = await run(report);
+        expect(r, JSON.stringify(report)).toMatchObject({
+          ok: false,
+          codeName: 'E_EVIDENCE_INVALID',
+        });
+        if (!r.ok) expect(r.reason).toMatch(reason);
+      }
+    });
+
+    it('a real vitest report with skipped and todo tests adds up and is accepted', async () => {
+      const r = await run({
+        numTotalTests: 4,
+        numPassedTests: 2,
+        numFailedTests: 0,
+        numPendingTests: 1,
+        numTodoTests: 1,
+        numFailedTestSuites: 0,
+        testResults: [{ status: 'passed' }],
+      });
+      expect(r.ok).toBe(true);
+    });
+
+    it('refuses an exit code that is not a number, and a testResults that is not an array of objects', async () => {
+      expect(await run({ exit: '1', total: 3, passed: 3 })).toMatchObject({
+        ok: false,
+        codeName: 'E_EVIDENCE_INVALID',
+        reason: 'test-run report\'s "exit" is "1"; an exit code must be a number',
+      });
+      for (const testResults of [[null], 'x', [[1]]]) {
+        expect(
+          await run({ numTotalTests: 1, numPassedTests: 1, testResults }),
+          JSON.stringify(testResults),
+        ).toMatchObject({ ok: false, codeName: 'E_EVIDENCE_INVALID' });
+      }
     });
 
     it('a vitest report wins over summary keys it also carries', async () => {
