@@ -3,7 +3,7 @@
  *
  * macOS has no PSI. This backend maps the kernel's own signals onto the
  * PSI-shaped {@link ResourceSample}, so `evaluateState`, the slot scaling and
- * the memory gate work unchanged:
+ * the governor's budgets work unchanged:
  *
  *   - `kern.memorystatus_vm_pressure_level` — the kernel's memory pressure
  *     verdict (1 normal, 2 warning, 4 critical), the signal jetsam acts on
@@ -29,26 +29,31 @@
  *
  * ## Memory mapping (T13127)
  *
- * `some avg10` is the higher of two scores:
+ * The kernel's own verdict decides whether memory is short NOW; the other
+ * signals only grade how short. Two scores, the higher wins:
  *
- * - **Kernel level**: warning 15, critical 40. With the monitor's thresholds
- *   (hold 10, backoff 20) and the memory gate's (refuse above 25), a kernel
- *   warning alone holds and a critical refuses heavy work.
- * - **Squeeze**: `q` is the share of RAM wired or compressed
- *   (`1 − memorystatus_level`, or the compressor's share when that is
- *   larger or the level is unreadable). Swap counts on top of `q` in
- *   proportion as `q` rises from {@link DARWIN_SWAP_RAMP} `[0.30, 0.50]`:
- *   swapped pages linger long after pressure has gone (idle apps keep them),
- *   so swap alone, on a machine with RAM to spare, is history, not pressure.
- *   The score is `100 × (q + weight × swap/RAM − 0.40)`, clamped at 0: a box
- *   with 60% of RAM wired or compressed scores 20 (backoff) before any swap.
+ * - **Kernel warning or critical**: 15 or 40, plus severity. Above half of RAM
+ *   wired or compressed (`q`, from `1 − memorystatus_level`, or the
+ *   compressor's share when larger or the level is unreadable), each point of
+ *   `q` adds one; the swap the squeeze pushed out adds `50 × swap/RAM`, faded
+ *   in as `q` rises from {@link DARWIN_SWAP_RAMP} `[0.30, 0.50]`. Swap is never
+ *   counted while the kernel says normal: swapped pages linger for hours after
+ *   pressure has gone (idle apps keep them), so at a normal kernel level it is
+ *   history, not pressure.
+ * - **Headroom, at any level**: memory neither wired nor compressed, in
+ *   bytes, against one heavy worker's footprint
+ *   ({@link darwinHeadroomFloorBytes}: 6 GiB, or a quarter of RAM on a small
+ *   machine). Below that floor the score rises to 30 as headroom runs out. A
+ *   box with large wired local-model weights but plenty left is not short.
  *
- * Calibration: real `sysctl` output captured on a 48 GiB Mac under load
- * (kernel warning, 41% neither wired nor compressed, 11.4 GiB swapped) scores
- * 43 and is refused. Before T13127 it scored 15 (hold), so the governor kept
- * admitting heavy work into the 2026-10-03 incident (13.6 of 15.4 GB swap
- * used, 15 GB compressed). An idle Mac (10% wired or compressed) and a laptop
- * carrying old swap with RAM to spare both score 0.
+ * With the monitor's thresholds (hold 10, backoff 20): a kernel warning alone
+ * holds; critical, or a warning with a hot squeeze and swap, backs off.
+ * Calibration: the 2026-10-03 incident shape (48 GiB, kernel warning, 41%
+ * neither wired nor compressed, 13.6 GiB swap) scores 38 (backoff); before
+ * T13127 it scored 15, so heavy work kept being admitted. A 16 GiB laptop at
+ * 44% wired or compressed with 6 GiB of old swap, an 8 GiB Air at 44% with
+ * 3 GiB, and a 64 GiB Mac with 40 GiB of wired model weights and 21 GiB left
+ * all score 0 at a normal kernel level.
  *
  * `full avg10` is 15 when the kernel reports critical. Memory is instantaneous
  * in all three windows.
@@ -69,6 +74,7 @@
 
 import { execFile } from 'node:child_process';
 import { totalmem } from 'node:os';
+import { GIB_PER_WORKER } from '../tasks/heavy-tool-env.js';
 import type {
   ChildRssEntry,
   ChildRssSweep,
@@ -200,17 +206,41 @@ function clamp(n: number): number {
 export const DARWIN_LEVEL_SCORES = Object.freeze({ warning: 15, critical: 40 });
 
 /**
- * Share of RAM wired or compressed above which memory starts to score (0.40:
- * 60% of RAM is still neither wired nor compressed).
+ * Share of RAM wired or compressed above which a kernel warning grows more
+ * severe (one point per percentage point of RAM).
  */
-export const DARWIN_SQUEEZE_KNEE = 0.4;
+export const DARWIN_WARN_SQUEEZE_KNEE = 0.5;
 
 /**
- * Squeeze range over which swap starts to count, from not at all to in full.
- * Below 30% wired or compressed the machine has RAM to spare and swapped pages
- * are old; from 50% they are part of the squeeze.
+ * Squeeze range over which swap starts to count at a kernel warning, from not
+ * at all to in full: a cold compressor means the swap is not active.
  */
 export const DARWIN_SWAP_RAMP: readonly [number, number] = [0.3, 0.5];
+
+/** Score per unit of swap/RAM when swap counts in full. */
+const SWAP_WEIGHT = 50;
+
+/** The headroom score reached when no memory is left neither wired nor compressed. */
+const HEADROOM_SCORE_MAX = 30;
+
+const GIB = 1024 ** 3;
+
+/**
+ * The headroom below which memory scores at any kernel level: one heavy
+ * worker's footprint ({@link GIB_PER_WORKER} GiB), or a quarter of RAM on a
+ * machine too small to spare that.
+ *
+ * @param totalBytes - physical RAM in bytes.
+ *
+ * @example
+ * ```ts
+ * darwinHeadroomFloorBytes(48 * 1024 ** 3); // 6 GiB
+ * darwinHeadroomFloorBytes(8 * 1024 ** 3);  // 2 GiB
+ * ```
+ */
+export function darwinHeadroomFloorBytes(totalBytes: number): number {
+  return Math.min(GIB_PER_WORKER * GIB, totalBytes / 4);
+}
 
 /**
  * Share of RAM (0–1) that is wired or compressed: `1 − memorystatus_level`,
@@ -232,37 +262,40 @@ export function darwinSqueeze(s: DarwinSignals, totalBytes: number): number | nu
 
 /**
  * Memory pressure score (PSI `some`-equivalent, 0–100) from darwin signals:
- * the higher of the kernel-level score and the squeeze score (see the module
- * doc). Returns `null` when neither the kernel level nor the squeeze is
- * readable.
+ * the higher of the kernel-verdict score (warning or critical, graded by
+ * squeeze and swap) and the headroom score (see the module doc). Returns
+ * `null` when neither the kernel level nor the squeeze is readable.
  *
  * @param s - parsed signals.
- * @param totalBytes - physical RAM in bytes (for the swap and compressor shares).
+ * @param totalBytes - physical RAM in bytes (for the headroom and swap share).
  *
  * @example
  * ```ts
- * // kernel warning, 41% neither wired nor compressed, 11.4 GiB swap on 48 GiB
- * darwinMemorySome(signals, 48 * 1024 ** 3); // → 42.7: refused
+ * // kernel warning, 41% neither wired nor compressed, 13.6 GiB swap on 48 GiB
+ * darwinMemorySome(signals, 48 * 1024 ** 3); // → 38.2: backoff
  * ```
  */
 export function darwinMemorySome(s: DarwinSignals, totalBytes: number): number | null {
   const squeeze = darwinSqueeze(s, totalBytes);
   if (s.pressureLevel === null && squeeze === null) return null;
-  const levelScore =
-    s.pressureLevel === 4
-      ? DARWIN_LEVEL_SCORES.critical
-      : s.pressureLevel === 2
-        ? DARWIN_LEVEL_SCORES.warning
-        : 0;
-  let squeezeScore = 0;
+  let headroomScore = 0;
+  if (squeeze !== null && totalBytes > 0) {
+    const headroomBytes = (1 - squeeze) * totalBytes;
+    const floor = darwinHeadroomFloorBytes(totalBytes);
+    headroomScore = HEADROOM_SCORE_MAX * Math.max(0, 1 - headroomBytes / floor);
+  }
+  if (s.pressureLevel !== 2 && s.pressureLevel !== 4) return clamp(headroomScore);
+  const base = s.pressureLevel === 4 ? DARWIN_LEVEL_SCORES.critical : DARWIN_LEVEL_SCORES.warning;
+  let severity = 0;
   if (squeeze !== null) {
     const [from, full] = DARWIN_SWAP_RAMP;
     const weight = Math.max(0, Math.min(1, (squeeze - from) / (full - from)));
     const swapShare =
       s.swapUsedBytes === null || totalBytes <= 0 ? 0 : Math.max(0, s.swapUsedBytes / totalBytes);
-    squeezeScore = 100 * Math.max(0, squeeze + weight * swapShare - DARWIN_SQUEEZE_KNEE);
+    severity =
+      100 * Math.max(0, squeeze - DARWIN_WARN_SQUEEZE_KNEE) + SWAP_WEIGHT * weight * swapShare;
   }
-  return clamp(Math.max(levelScore, squeezeScore));
+  return clamp(Math.max(headroomScore, base + severity));
 }
 
 /**
