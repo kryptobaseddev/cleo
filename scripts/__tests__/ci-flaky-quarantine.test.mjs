@@ -19,14 +19,20 @@ import {
   EXPIRE_AFTER_DAYS,
   keyOf,
   MAX_QUARANTINE,
+  MAX_RERUN_FILES,
   parseIssue,
   parseVitestReport,
   planExpiry,
   planFiling,
   titleOf,
+  trustedIssues,
+  UNHANDLED_LINE,
   WHOLE_FILE,
   withoutShard,
 } from '../ci-flaky-quarantine.mjs';
+
+/** The author `gh issue list --json author` reports for an issue GitHub Actions filed. */
+const BOT = { login: 'app/github-actions', is_bot: true };
 
 const SCRIPT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -85,13 +91,30 @@ describe('classify', () => {
     expect(classify([A, B], [], [B])).toMatchObject({ flaky: [A], blocking: [B], quarantined: [] });
   });
 
-  it('a quarantined failure never blocks and is not retried; * quarantines a whole file', () => {
-    const out = classify([A, B], [{ file: B.file, test: WHOLE_FILE }], []);
-    expect(out).toMatchObject({ quarantined: [B], retry: [A], flaky: [A], blocking: [] });
+  it('a quarantined test that fails its re-run too does not block; one that passes on it is a flake', () => {
+    expect(classify([A, B], [A], [A])).toMatchObject({
+      quarantined: [A],
+      flaky: [B],
+      blocking: [],
+    });
+    expect(classify([A], [A], [])).toMatchObject({ quarantined: [], flaky: [A], blocking: [] });
   });
 
-  it('no readable re-run means every retried failure blocks', () => {
-    expect(classify([A], [], null).blocking).toEqual([A]);
+  it('a whole-file entry excuses only a whole-file failure, never a test added to that file', () => {
+    const whole = { file: B.file, test: WHOLE_FILE };
+    expect(classify([B], [whole], [B])).toMatchObject({ blocking: [B], quarantined: [] });
+    expect(classify([whole], [whole], [whole])).toMatchObject({
+      blocking: [],
+      quarantined: [whole],
+    });
+  });
+
+  it('no readable re-run means every failure counts as failing twice', () => {
+    expect(classify([A, B], [B], null)).toMatchObject({
+      blocking: [A],
+      quarantined: [B],
+      flaky: [],
+    });
   });
 
   it('a test that fails only in the re-run blocks', () => {
@@ -120,6 +143,48 @@ describe('helpers', () => {
   });
 });
 
+describe('trustedIssues and unhandled errors', () => {
+  const stateOf = (t) => ({
+    ...t,
+    firstSeenAt: '2026-10-01T00:00:00.000Z',
+    lastSeenAt: '2026-10-01T00:00:00.000Z',
+    observations: 1,
+  });
+  it('counts only issues GitHub Actions filed, and each test once (the oldest issue)', () => {
+    const body = bodyOf(stateOf(A), 'x');
+    const { issues, duplicates } = trustedIssues([
+      { number: 9, title: 't', body, author: BOT },
+      { number: 3, title: 't', body, author: { login: 'github-actions[bot]', is_bot: true } },
+      {
+        number: 5,
+        title: 't',
+        body: bodyOf(stateOf(B), 'x'),
+        author: { login: 'someone', is_bot: false },
+      },
+      {
+        number: 6,
+        title: 't',
+        body: bodyOf(stateOf(B), 'x'),
+        author: { login: 'github-actions', is_bot: false },
+      },
+    ]);
+    expect(issues.map((i) => i.number)).toEqual([3]);
+    expect(duplicates).toEqual([{ number: 9, of: 3 }]);
+  });
+
+  it("recognises vitest's report of an error outside any test", () => {
+    for (const line of [
+      ' Errors  1 error',
+      '\u001b[31m Errors  2 errors\u001b[39m',
+      '⎯⎯⎯ Unhandled Errors ⎯⎯⎯',
+      'Unhandled Rejection',
+    ]) {
+      expect(UNHANDLED_LINE.test(line.replace(/\x1b\[[0-9;]*m/g, '')), line).toBe(true);
+    }
+    expect(UNHANDLED_LINE.test(' Tests  3 passed (3)')).toBe(false);
+  });
+});
+
 describe('planFiling and planExpiry', () => {
   const now = '2026-10-03T00:00:00.000Z';
   const stateOf = (t, lastSeenAt, observations = 1) => ({
@@ -135,7 +200,9 @@ describe('planFiling and planExpiry', () => {
     const open = [issueOf(1, stateOf(A, '2026-09-20T00:00:00.000Z', 3))];
     const plan = planFiling(
       [
+        // A quarantined failure in one shard and a confirmed flake in another: the flake renews.
         { kind: 'quarantined', ...A, message: 'boom' },
+        { kind: 'flaky', ...A, message: 'boom' },
         { kind: 'flaky', ...B, message: '' },
         { kind: 'flaky', ...B, message: '' },
       ],
@@ -153,6 +220,28 @@ describe('planFiling and planExpiry', () => {
     expect(parseIssue({ number: 1, title: '', body: plan.update[0].body }).state).toMatchObject({
       lastSeenAt: now,
       observations: 4,
+    });
+  });
+
+  it('a quarantined test failing twice is recorded but never renews its quarantine (T13145 review HIGH)', () => {
+    // Flaky once on day 0, then failing EVERY main run: it must leave quarantine within the expiry.
+    let open = [issueOf(1, stateOf(A, '2026-09-01T00:00:00.000Z'))];
+    for (let day = 1; day <= 20; day++) {
+      const at = new Date(Date.parse('2026-09-01T00:00:00.000Z') + day * 86_400_000).toISOString();
+      const plan = planFiling([{ kind: 'quarantined', ...A, message: 'boom' }], open, at, 'run');
+      expect(plan.create).toEqual([]);
+      open = plan.update.map((u) => parseIssue({ number: u.number, title: '', body: u.body }));
+      expect(open[0].state).toMatchObject({
+        lastSeenAt: '2026-09-01T00:00:00.000Z',
+        observations: 1,
+      });
+    }
+    const day20 = new Date(Date.parse('2026-09-21T00:00:00.000Z'));
+    expect(planExpiry(open, new Set(), day20).map((i) => i.number)).toEqual([1]);
+    // A quarantined failure with no issue files nothing.
+    expect(planFiling([{ kind: 'quarantined', ...B, message: '' }], [], now, 'run')).toEqual({
+      create: [],
+      update: [],
     });
   });
 
@@ -198,6 +287,7 @@ const a = attempts[Math.min(n, attempts.length - 1)];
 const out = process.argv.find((x) => x.startsWith('--outputFile.json=')).slice('--outputFile.json='.length);
 if (a.report !== null) writeFileSync(out, a.report);
 console.log('fake vitest attempt ' + n);
+if (a.stdout) console.log(a.stdout);
 process.exit(a.code);
 `,
     );
@@ -228,7 +318,7 @@ if (process.argv[2] === 'issue' && process.argv[3] === 'list') process.stdout.wr
       : [];
   const attempts = () => Number(readFileSync(path.join(dir, 'attempts'), 'utf8'));
 
-  function run(vitest, issues = []) {
+  function run(vitest, issues = [], extraEnv = {}) {
     const out = path.join(dir, 'flaky.json');
     const r = spawnSync(
       process.execPath,
@@ -251,6 +341,8 @@ if (process.argv[2] === 'issue' && process.argv[3] === 'list') process.stdout.wr
           FLAKY_VITEST_COMMAND: vitest,
           FLAKY_QUARANTINE_GH: fakeGh(issues),
           GITHUB_STEP_SUMMARY: '',
+          GITHUB_EVENT_NAME: '',
+          ...extraEnv,
         },
       },
     );
@@ -323,17 +415,23 @@ if (process.argv[2] === 'issue' && process.argv[3] === 'list') process.stdout.wr
     expect(r.out).toContain('without a readable JSON report');
   });
 
-  it('a quarantined failure does not block and is not retried', () => {
+  it('a quarantined test is re-run too; failing twice does not block (and does not renew it)', () => {
     const state = {
       ...A,
       firstSeenAt: '2026-10-01T00:00:00.000Z',
       lastSeenAt: '2026-10-01T00:00:00.000Z',
       observations: 1,
     };
-    const issues = [{ number: 5, title: titleOf(A), body: bodyOf(state, 'x') }];
-    const r = run(fakeVitest([{ code: 1, report: rep([A]) }]), issues);
+    const issues = [{ number: 5, title: titleOf(A), body: bodyOf(state, 'x'), author: BOT }];
+    const r = run(
+      fakeVitest([
+        { code: 1, report: rep([A]) },
+        { code: 1, report: rep([A]) },
+      ]),
+      issues,
+    );
     expect(r.code).toBe(0);
-    expect(attempts()).toBe(1);
+    expect(attempts()).toBe(2);
     expect(r.report.observations).toEqual([
       { kind: 'quarantined', ...rel(A), message: 'Error: boom' },
     ]);
@@ -348,11 +446,43 @@ if (process.argv[2] === 'issue' && process.argv[3] === 'list') process.stdout.wr
         lastSeenAt: '2026-10-01T00:00:00.000Z',
         observations: 1,
       };
-      return { number: i + 1, title: titleOf(t), body: bodyOf(state, 'x') };
+      return { number: i + 1, title: titleOf(t), body: bodyOf(state, 'x'), author: BOT };
     });
-    const r = run(fakeVitest([{ code: 0, report: rep([], [A]) }]), issues);
+    const r = run(fakeVitest([{ code: 0, report: rep([], [A]) }]), issues, {
+      GITHUB_EVENT_NAME: 'push',
+    });
     expect(r.code).toBe(1);
     expect(r.out).toContain('over budget');
+    // A pull request only warns, so one bad day on main does not block every PR.
+    rmSync(path.join(dir, 'attempts'));
+    const pr = run(fakeVitest([{ code: 0, report: rep([], [A]) }]), issues, {
+      GITHUB_EVENT_NAME: 'pull_request',
+    });
+    expect(pr.code).toBe(0);
+    expect(pr.out).toContain('Warning only');
+  });
+
+  it('an error outside any test blocks, even when the failing test is a flake', () => {
+    const r = run(
+      fakeVitest([
+        { code: 1, report: rep([A], [B]), stdout: ' Errors  1 error' },
+        { code: 0, report: rep([], [A]) },
+      ]),
+    );
+    expect(r.code).toBe(1);
+    expect(attempts()).toBe(1);
+    expect(r.out).toContain('error outside any test');
+  });
+
+  it(`more than ${MAX_RERUN_FILES} files with failures block without a re-run`, () => {
+    const many = Array.from({ length: MAX_RERUN_FILES + 1 }, (_, i) => ({
+      file: `f${i}.test.ts`,
+      test: 't',
+    }));
+    const r = run(fakeVitest([{ code: 1, report: rep(many) }]));
+    expect(r.code).toBe(1);
+    expect(attempts()).toBe(1);
+    expect(r.out).toContain('a broad failure, not a flake');
   });
 
   it('file creates, updates and (with --expire) closes issues, and never fails', () => {
@@ -374,12 +504,23 @@ if (process.argv[2] === 'issue' && process.argv[3] === 'list') process.stdout.wr
       observations: 1,
     });
     const stale = { file: 'old.test.ts', test: 'old' };
+    const recent = new Date(Date.now() - 86_400_000).toISOString();
     const issues = [
-      { number: 1, title: titleOf(A), body: bodyOf(seen(A, '2026-09-01T00:00:00.000Z'), 'x') },
+      { number: 1, title: titleOf(A), body: bodyOf(seen(A, recent), 'x'), author: BOT },
       {
         number: 2,
         title: titleOf(stale),
         body: bodyOf(seen(stale, '2026-01-01T00:00:00.000Z'), 'x'),
+        author: BOT,
+      },
+      // A second main run filed A again: closed as a duplicate.
+      { number: 7, title: titleOf(A), body: bodyOf(seen(A, recent), 'x'), author: BOT },
+      // Not filed by GitHub Actions: ignored entirely.
+      {
+        number: 8,
+        title: titleOf(stale),
+        body: bodyOf(seen(stale, '2026-01-01T00:00:00.000Z'), 'x'),
+        author: { login: 'human', is_bot: false },
       },
     ];
     const r = spawnSync(
@@ -406,10 +547,14 @@ if (process.argv[2] === 'issue' && process.argv[3] === 'list') process.stdout.wr
       'issue create',
       'issue edit',
       'issue close',
+      'issue close',
     ]);
     expect(calls.find((c) => c[0] === 'issue' && c[1] === 'create')).toContain(titleOf(B));
     expect(calls.find((c) => c[0] === 'issue' && c[1] === 'edit')?.[2]).toBe('1');
-    expect(calls.find((c) => c[0] === 'issue' && c[1] === 'close')?.[2]).toBe('2');
+    expect(calls.filter((c) => c[0] === 'issue' && c[1] === 'close').map((c) => c[2])).toEqual([
+      '7',
+      '2',
+    ]);
     expect(r.stdout).toContain('1 filed, 1 updated, 1 expired');
   });
 });
