@@ -512,7 +512,7 @@ export const LOGIN_ARGS = {
   yes: {
     type: 'boolean',
     description:
-      'nexus: inside a CLEO project this machine has not linked, link it and take the first encrypted backup without asking. Without it a terminal is asked, and a non-interactive run only prints the next command.',
+      'nexus: inside a CLEO project this machine has not linked, link it and take the first encrypted backup without asking (or, when Cleo Nexus already backs it up from another device and this copy never synced, restore that backup here). Without it a terminal is asked, and a non-interactive run only prints the next command.',
   },
   auth: {
     type: 'string',

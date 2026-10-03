@@ -12,11 +12,18 @@ summary: cleo login nexus links and backs up the current project, lists your pro
   own path and backs up with `cleo cloud push`. `--yes` does both without asking, and a terminal is
   asked (default yes). A non-interactive run, such as an agent's, never asks: it prints the exact next
   command (`cleo project link && cleo cloud push`) on stderr and in `data.firstRun.nextCommand`.
+- Inside an unlinked project that Cleo Nexus already backs up from another device, and that this copy
+  never synced (a fresh git clone on a new machine, since the project id is tracked), a backup would
+  be refused. So the offer becomes restoring that backup here and then linking it ("Signed in,
+  restored, linked"). The same consent rules apply, and the next command is
+  `cleo cloud restore <id> --into <root>`. A restore never overwrites local rows without `--force`.
 - Outside a CLEO project, login lists the account's projects by name, each with the exact
   `cleo cloud restore <name>` command when it has a backup this machine does not hold yet. A project
   name stored encrypted (`encryptedName`) is opened with the account key. The key is unlocked read-only,
   so nothing is minted or written. A name that cannot be opened falls back to the label, with a warning.
-- A read-only device, or `CLEO_NEXUS_DEVICE=0`, skips both. A first-run problem never fails the sign-in;
+- Every printed command carries `--api-url` when the server is not the default one, and a push
+  refused as behind names `cleo cloud pull`.
+- A read-only device, or `CLEO_NEXUS_DEVICE=0`, skips the whole first run. A first-run problem never fails the sign-in;
   it becomes a warning with its remedy.
 
 `cleo cloud restore <name>` (also `--project <name>`) accepts a project name or label as well as its id.

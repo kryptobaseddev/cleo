@@ -234,8 +234,15 @@ export function matchNexusProjects(
   return projects.filter((p) => names(p).some((n) => n.toLowerCase() === folded));
 }
 
-/** ` --api-url <origin>` when the origin is not the one a bare command would use. */
-function apiUrlFlag(apiUrl: string): string {
+/**
+ * ` --api-url <origin>` when the origin is not the one a bare `cleo` command
+ * would use (`$CLEO_NEXUS_API_URL`, else the default), so a printed command
+ * reaches the same server.
+ *
+ * @param apiUrl - API origin.
+ * @returns The flag with a leading space, or `''`.
+ */
+export function nexusApiUrlFlag(apiUrl: string): string {
   let fallback: string | null;
   try {
     fallback = resolveNexusApiUrl();
@@ -267,7 +274,7 @@ export function nexusRestoreCommand(
     matches.length === 1 &&
     matches[0]?.projectId === project.projectId;
   const ref = byName ? project.name : project.projectId;
-  return `cleo cloud restore ${shellQuoteWord(ref)}${apiUrlFlag(apiUrl)}`;
+  return `cleo cloud restore ${shellQuoteWord(ref)}${nexusApiUrlFlag(apiUrl)}`;
 }
 
 /**
@@ -340,7 +347,7 @@ export async function resolveNexusProjectRef(
   if (matches.length > 1) {
     const candidates = matches.map((p) => ({
       ...p,
-      restoreCommand: `cleo cloud restore ${p.projectId}${apiUrlFlag(listed.apiUrl)}`,
+      restoreCommand: `cleo cloud restore ${p.projectId}${nexusApiUrlFlag(listed.apiUrl)}`,
     }));
     throw new NexusProjectRefError(
       'E_NEXUS_PROJECT_AMBIGUOUS',

@@ -88,7 +88,7 @@ import {
   NexusDeviceEnrolment,
   NexusDeviceStore,
 } from '../nexus-device.js';
-import { runNexusFirstRun } from '../nexus-first-run.js';
+import { hasUnsyncedNexusBackup, runNexusFirstRun } from '../nexus-first-run.js';
 import { listNexusNamedProjects, resolveNexusProjectRef } from '../nexus-project-names.js';
 import {
   nexusVaultStatus,
@@ -476,6 +476,29 @@ class FakeNexus {
     m = route.match(/^GET \/v1\/projects\/([^/]+)\/keys$/);
     if (m) {
       return this.ok({ keys: this.projectKeys.get(decodeURIComponent(m[1] ?? '')) ?? [] });
+    }
+    m = route.match(/^GET \/v1\/projects\/([^/]+)$/);
+    if (m) {
+      // E14 (T13102): enough of the project detail for the first run's unsynced-backup check.
+      const projectId = decodeURIComponent(m[1] ?? '');
+      const replicas = this.replicas.get(projectId);
+      if (!replicas) throw new ApiFail(404, 'E_NOT_FOUND');
+      const s = this.streams.get(`project:${projectId}`);
+      return this.ok({
+        project: {
+          projectId,
+          label: this.projectNames.get(projectId)?.label ?? null,
+          organizationId: ORG,
+        },
+        role: 'owner',
+        openConflicts: 0,
+        replicas: [],
+        devices: { active: replicas.size, total: replicas.size },
+        truncated: false,
+        stream: s
+          ? { streamId: s.streamId, headSeq: s.headSeq, headCheckpointId: s.headCheckpointId }
+          : null,
+      });
     }
     m = route.match(/^PUT \/v1\/projects\/([^/]+)\/keys\/([^/]+)$/);
     if (m) {
@@ -3543,8 +3566,124 @@ describe('guided first run against the fake server (T13102)', () => {
       runNexusFirstRun({ ...vopts(a), consent: 'never', deviceId: DEVICE_A }),
     );
     expect(result.state).toBe('offered');
-    expect(result.nextCommand).toBe('cleo project link && cleo cloud push');
+    expect(result.nextCommand).toBe(
+      `cleo project link --api-url ${API} && cleo cloud push --api-url ${API}`,
+    );
     expect(fake.writes).toEqual([]);
     expect(fs.existsSync(path.join(a.root, '.cleo', 'nexus-link.json'))).toBe(false);
+  });
+  /** This project's link with the server id equal to the tracked local id, as in production. */
+  function linkSameId(m: Machine): void {
+    fs.mkdirSync(path.join(m.root, '.cleo'), { recursive: true });
+    fs.writeFileSync(
+      path.join(m.root, '.cleo', 'nexus-link.json'),
+      JSON.stringify({
+        version: 1,
+        links: {
+          [API]: {
+            apiUrl: API,
+            localProjectId: LOCAL_PROJECT,
+            remoteProjectId: LOCAL_PROJECT,
+            organizationId: ORG,
+            label: 'demo',
+            streamId: `project:${LOCAL_PROJECT}`,
+            linkedAt: NOW,
+            replicaId: m.replicaId,
+            nexusDeviceId: m.deviceId,
+            attachedAt: NOW,
+          },
+        },
+      }),
+    );
+  }
+
+  /** A pushed the project (server id = local id); B holds a fresh git clone: the tracked id, no store. */
+  async function backedUpAndCloned() {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.addProject(LOCAL_PROJECT, { [REPLICA_A]: DEVICE_A, [REPLICA_B]: DEVICE_B });
+    seedProject(a, 5);
+    linkSameId(a);
+    await on(a, () => pushNexusVault(vopts(a)));
+    fs.mkdirSync(path.join(b.root, '.cleo'), { recursive: true });
+    fs.writeFileSync(path.join(b.root, '.cleo', 'project-id'), `${LOCAL_PROJECT}\n`);
+    return { a, b };
+  }
+
+  function sameIdLinkResult(m: Machine) {
+    return async () => {
+      linkSameId(m);
+      return {
+        link: {
+          apiUrl: API,
+          localProjectId: LOCAL_PROJECT,
+          remoteProjectId: LOCAL_PROJECT,
+          organizationId: ORG,
+          label: 'demo',
+          streamId: `project:${LOCAL_PROJECT}`,
+          linkedAt: NOW,
+        },
+        alreadyLinked: true,
+        linkPath: path.join(m.root, '.cleo', 'nexus-link.json'),
+        replica: {
+          replicaId: m.replicaId,
+          deviceId: m.deviceId,
+          reboundFrom: null,
+          presenceAt: NOW,
+        },
+        attachError: null,
+        warnings: [],
+      };
+    };
+  }
+
+  it('the unsynced-backup check: true for a fresh clone, false for the copy that pushed it', async () => {
+    const { a, b } = await backedUpAndCloned();
+    const query = (m: Machine) => ({
+      ...vopts(m),
+      apiUrl: API,
+      projectRoot: m.root,
+      projectId: LOCAL_PROJECT,
+    });
+    expect(await on(b, () => hasUnsyncedNexusBackup(query(b)))).toBe(true);
+    expect(await on(a, () => hasUnsyncedNexusBackup(query(a)))).toBe(false);
+    // A project the server does not have, or with no snapshot, needs a backup, not a restore.
+    expect(
+      await on(b, () => hasUnsyncedNexusBackup({ ...query(b), projectId: OTHER_PROJECT })),
+    ).toBe(false);
+  });
+
+  it('a fresh clone on a new machine: --yes restores the backup there and links it, pushing nothing', async () => {
+    const { b } = await backedUpAndCloned();
+    const writesBefore = fake.writes.length;
+    const result = await on(b, () =>
+      runNexusFirstRun({
+        ...vopts(b),
+        consent: 'yes',
+        deviceId: DEVICE_B,
+        link: sameIdLinkResult(b),
+      }),
+    );
+    expect(result.state).toBe('restored');
+    expect(result.offer).toBe('restore');
+    expect(result.restore?.status).toBe('restored');
+    expect(result.link?.remoteProjectId).toBe(LOCAL_PROJECT);
+    expect(taskCount(b)).toBe(5);
+    // Restoring reads the snapshot; it never pushes a segment or checkpoint.
+    expect(
+      fake.writes.slice(writesBefore).filter((w) => /segments|checkpoints|blobs/.test(w)),
+    ).toEqual([]);
+  });
+
+  it('a fresh clone, non-interactive: restores nothing and names the restore command', async () => {
+    const { b } = await backedUpAndCloned();
+    const result = await on(b, () =>
+      runNexusFirstRun({ ...vopts(b), consent: 'never', deviceId: DEVICE_B }),
+    );
+    expect(result.state).toBe('offered');
+    expect(result.offer).toBe('restore');
+    expect(result.nextCommand).toContain(`cleo cloud restore ${LOCAL_PROJECT} --into `);
+    expect(result.nextCommand).toContain(`--api-url ${API}`);
+    expect(fs.existsSync(path.join(b.root, '.cleo', 'cleo.db'))).toBe(false);
   });
 });

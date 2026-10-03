@@ -22,7 +22,9 @@ vi.mock('@cleocode/core/cloud/nexus-first-run.js', () => ({
     reason: null,
     projectRoot: null,
     link: null,
+    offer: null,
     backup: null,
+    restore: null,
     projects: [],
     nextCommand: null,
     warnings: [],
@@ -73,7 +75,9 @@ function firstRun(fields: Partial<NexusFirstRunResult>): NexusFirstRunResult {
     reason: null,
     projectRoot: null,
     link: null,
+    offer: null,
     backup: null,
+    restore: null,
     projects: [],
     nextCommand: null,
     warnings: [],
@@ -248,8 +252,49 @@ describe('human summary', () => {
     expect(line).toContain('Project "demo" is linked and backed up (snapshot cp-9, 12 rows)');
   });
 
+  it('restored: "Signed in, restored, linked" with the snapshot and the safety backup', () => {
+    const line = nexusFirstRunSummary(
+      LOGIN,
+      firstRun({
+        state: 'restored',
+        link,
+        offer: 'restore',
+        restore: {
+          status: 'restored',
+          snapshot: null,
+          tables: 4,
+          safetyBackup: '/tmp/safety.tar',
+        },
+      }),
+    );
+    expect(line.startsWith('Signed in, restored, linked.')).toBe(true);
+    expect(line).toContain('4 tables verified');
+    expect(line).toContain('/tmp/safety.tar');
+  });
+
+  it('a restore offer says the cloud holds a backup this copy never synced', () => {
+    const offered = nexusFirstRunSummary(
+      LOGIN,
+      firstRun({ state: 'offered', offer: 'restore', nextCommand: 'RESTORE-CMD' }),
+    );
+    expect(offered).toContain('holds a backup of this project that this copy never synced');
+    expect(offered).toContain('RESTORE-CMD');
+    expect(
+      nexusFirstRunSummary(
+        LOGIN,
+        firstRun({ state: 'declined', offer: 'restore', nextCommand: 'R' }),
+      ),
+    ).toContain('Not restored');
+  });
+
   it('offered, declined and failures name the next command', () => {
-    for (const state of ['offered', 'declined', 'link-failed', 'backup-failed'] as const) {
+    for (const state of [
+      'offered',
+      'declined',
+      'link-failed',
+      'backup-failed',
+      'restore-failed',
+    ] as const) {
       expect(nexusFirstRunSummary(LOGIN, firstRun({ state, nextCommand: 'NEXT-CMD' }))).toContain(
         'NEXT-CMD',
       );

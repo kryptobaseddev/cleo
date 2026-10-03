@@ -31,6 +31,7 @@ type Args = Readonly<Record<string, unknown>>;
 const STEP_LINES = {
   link: 'Linking this project to Cleo Nexus...',
   backup: 'Backing it up (encrypted)...',
+  restore: 'Restoring its backup from Cleo Nexus...',
   projects: 'Looking up your Cleo Nexus projects...',
 } as const;
 
@@ -126,14 +127,27 @@ export function nexusFirstRunSummary(login: NexusLoginResult, r: NexusFirstRunRe
           : `snapshot ${snap?.checkpointId ?? 'unknown'}, ${snap?.rows ?? 0} rows`;
       return `Signed in, linked, backed up. ${signedIn} Project ${name} is linked and backed up (${what}).`;
     }
+    case 'restored': {
+      const what =
+        r.restore?.status === 'up-to-date'
+          ? 'this copy already held its newest backup'
+          : `snapshot ${r.restore?.snapshot?.checkpointId ?? 'unknown'}, ${r.restore?.tables ?? 0} tables verified${r.restore?.safetyBackup ? `; the previous state is saved at ${r.restore.safetyBackup}` : ''}`;
+      return `Signed in, restored, linked. ${signedIn} Project ${name} was restored from Cleo Nexus (${what}).`;
+    }
+    case 'restore-failed':
+      return `${signedIn} Restoring this project's backup failed (see warnings). Next: ${r.nextCommand}`;
     case 'link-failed':
       return `${signedIn} Linking this project failed (see warnings). Next: ${r.nextCommand}`;
     case 'backup-failed':
       return `${signedIn} Project ${name} is linked, but the backup failed (see warnings). Next: ${r.nextCommand}`;
     case 'offered':
-      return `${signedIn} This project is not linked to Cleo Nexus. To link and back it up: ${r.nextCommand}`;
+      return r.offer === 'restore'
+        ? `${signedIn} Cleo Nexus holds a backup of this project that this copy never synced. To restore it here: ${r.nextCommand}`
+        : `${signedIn} This project is not linked to Cleo Nexus. To link and back it up: ${r.nextCommand}`;
     case 'declined':
-      return `${signedIn} Not linked. To link and back up later: ${r.nextCommand}`;
+      return r.offer === 'restore'
+        ? `${signedIn} Not restored. To restore its backup later: ${r.nextCommand}`
+        : `${signedIn} Not linked. To link and back up later: ${r.nextCommand}`;
     case 'projects':
       return `${signedIn}${projectsBlock(r)}`;
     default:
