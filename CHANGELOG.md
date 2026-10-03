@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.10.3] (2026-10-03)
+
+### Fixed
+
+- Vault snapshots no longer carry the local change journal, and snapshot redaction never re-journals what it clears _(provenance: [T13042](https://github.com/kryptobaseddev/cleo/search?q=T13042&type=commits))_
+- A v3 genesis checkpoint that covers segments must sit at or above their highest schema rise _(provenance: [T13048](https://github.com/kryptobaseddev/cleo/search?q=T13048&type=commits))_
+- The cloud vault names a Cleo Nexus server without key escrow instead of calling the vault empty _(provenance: [T13049](https://github.com/kryptobaseddev/cleo/search?q=T13049&type=commits))_
+- The first cloud push of a project works against Cleo Nexus (its key is minted as a rotation). It needs a Cleo Nexus server with cleo-nexus #33, live in production, which lets a device of the account that registered a keyless project create the project's first key. Against an older server every first push is refused, and the error wrongly says the project key exists but was not shared with this account _(provenance: [T13098](https://github.com/kryptobaseddev/cleo/search?q=T13098&type=commits))_
+
 ## [2026.10.2] (2026-10-02)
 
 ### Added
