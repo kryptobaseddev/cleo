@@ -101,6 +101,11 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_VAULT_STORE_BUSY',
   /** A project restore target already holds a different project. */
   'E_NEXUS_VAULT_TARGET_OCCUPIED',
+  // Projects by name (`cleo cloud restore <name>`, T13102).
+  /** No project of the account has that name, label or id. */
+  'E_NEXUS_PROJECT_NOT_FOUND',
+  /** Several of the account's projects have that name or label; the error lists them. */
+  'E_NEXUS_PROJECT_AMBIGUOUS',
 ] as const;
 
 /** One of {@link NEXUS_ACCOUNT_ERROR_CODES}. */
@@ -181,6 +186,72 @@ export interface NexusLoginDevice {
   created: boolean | null;
 }
 
+/**
+ * A step of the account setup `cleo login nexus` runs right after enrolment
+ * (T13100), named when it fails:
+ *
+ * - `connect`: open the vault connection with the new device credential;
+ * - `escrow-read`: read the escrowed account master key (`GET /v1/account/keys/escrow`);
+ * - `escrow-mint`: on the account's first device, create the master key and escrow it
+ *   (`PUT /v1/account/keys/escrow`; a 409 means another device won, and its key is read);
+ * - `certify`: certify this device under the master key (`PUT /v1/devices/:id/key`);
+ * - `trust`: evaluate and record the signer trust state (`GET /v1/devices/trust`,
+ *   `<cleoHome>/nexus-vault.json`).
+ */
+export type NexusAccountSetupStep = 'connect' | 'escrow-read' | 'escrow-mint' | 'certify' | 'trust';
+
+/**
+ * What `cleo login nexus` did to make the account ready for encrypted backups
+ * (T13100). Holds no key.
+ *
+ * - `ready`: this device holds the account master key and is certified under it;
+ * - `unsupported`: the server has no account key escrow; the login still succeeded;
+ * - `skipped`: a read-only device, which never mints or certifies;
+ * - `failed`: the login succeeded but the setup did not; `step` and `fix` say where and what to do.
+ */
+export type NexusAccountSetup =
+  | {
+      status: 'ready';
+      /**
+       * `fetched`: the escrowed key was opened; `minted`: this device created and escrowed it;
+       * `adopted`: another device escrowed first (409) and its key was read, never re-minted.
+       */
+      escrow: 'fetched' | 'minted' | 'adopted';
+      /** `new`: this login certified the device; `existing`: it already was. */
+      certificate: 'new' | 'existing';
+      /** Version of the account master key. */
+      keyVersion: number;
+      /** One human line. */
+      summary: string;
+    }
+  | {
+      status: 'unsupported';
+      /** `E_NEXUS_VAULT_UNSUPPORTED`. */
+      code: NexusAccountErrorCode;
+      /** The remedy. */
+      fix: string;
+      /** One human line. */
+      summary: string;
+    }
+  | {
+      status: 'skipped';
+      /** One human line. */
+      summary: string;
+    }
+  | {
+      status: 'failed';
+      /** The step that failed. */
+      step: NexusAccountSetupStep;
+      /** Stable error code (a {@link NexusAccountErrorCode} when the flow raised one). */
+      code: string;
+      /** What went wrong. */
+      message: string;
+      /** The remedy. */
+      fix: string;
+      /** One human line naming the step and the remedy. */
+      summary: string;
+    };
+
 /** Result of `cleo login nexus` (never carries the token). */
 export interface NexusLoginResult {
   /** API origin the session belongs to. */
@@ -199,6 +270,8 @@ export interface NexusLoginResult {
   device?: NexusLoginDevice;
   /** Scopes of the stored device credential; present only with device credentials. */
   scopes?: string[];
+  /** The account key setup run right after enrolment (T13100); present only with device credentials. */
+  account?: NexusAccountSetup;
 }
 
 /** Result of `cleo logout nexus`. */

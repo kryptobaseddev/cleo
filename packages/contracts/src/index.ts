@@ -2270,6 +2270,9 @@ export * from './render/index.js';
 export type {
   AdmissionResult,
   GovernorMode,
+  HeavyHeapSource,
+  HeavyLeverChange,
+  HeavyToolResourcePlan,
   ResourceClass,
   ResourceDeferral,
   ResourceGrant,
@@ -3009,6 +3012,8 @@ export type {
   NexusAccountErrorCode,
   NexusAccountMe,
   NexusAccountOrganization,
+  NexusAccountSetup,
+  NexusAccountSetupStep,
   NexusAccountStatus,
   NexusAccountUser,
   NexusDeviceEndOutcome,
@@ -3093,6 +3098,18 @@ export {
   nexusCloudUserSchema,
   nexusCloudWhoamiSchema,
 } from './nexus-cloud.js';
+// === Guided first run of `cleo login nexus` (T13102) ===
+export {
+  NEXUS_FIRST_RUN_STATES,
+  type NexusFirstRunBackup,
+  type NexusFirstRunChoice,
+  type NexusFirstRunOffer,
+  type NexusFirstRunRestore,
+  type NexusFirstRunResult,
+  type NexusFirstRunState,
+  type NexusNamedProject,
+  type NexusProjectNameSource,
+} from './nexus-first-run.js';
 export {
   type CloudActivityItem,
   type CloudActivityResult,

@@ -19,6 +19,9 @@
  * @saga T11242
  */
 
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   assertWriteDurable,
@@ -33,6 +36,7 @@ import {
   exodusAbortEvents,
   getRecordedExodusAbort,
 } from '../exodus/abort-events.js';
+import { closeAllDatabases } from '../sqlite.js';
 import { makeWriterLeaseIdentity, registerDbIdentity } from '../writer-lease.js';
 
 function makeDetail(over: Partial<ExodusAbortDetail> = {}): ExodusAbortDetail {
@@ -169,10 +173,18 @@ describe('exodus abort surface (T11828)', () => {
       emitExodusAbort(makeDetail());
       clearExodusAborts();
       const spy = makeInsertSpyDb();
-      registerDbIdentity(spy.db, makeWriterLeaseIdentity('project', '/tmp/cleo.db'));
-      const inserted = await insertIdempotent(spy.db, {} as never, {} as never, 'idempotencyKey');
-      expect(inserted).toBe(1);
-      expect(spy.calls).toBe(1);
+      const projectRoot = await mkdtemp(join(tmpdir(), 'exodus-abort-write-'));
+      try {
+        const stateDir = join(projectRoot, '.cleo');
+        await mkdir(stateDir);
+        registerDbIdentity(spy.db, makeWriterLeaseIdentity('project', join(stateDir, 'cleo.db')));
+        const inserted = await insertIdempotent(spy.db, {} as never, {} as never, 'idempotencyKey');
+        expect(inserted).toBe(1);
+        expect(spy.calls).toBe(1);
+      } finally {
+        await closeAllDatabases();
+        await rm(projectRoot, { recursive: true, force: true });
+      }
     });
   });
 });

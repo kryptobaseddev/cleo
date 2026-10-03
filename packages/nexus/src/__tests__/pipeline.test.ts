@@ -424,6 +424,25 @@ describe('capability-specific file evidence (T12289)', () => {
     ['README.md', '# Explanation\n```js\nrun();\n```', 'documentation', 'documentary-evidence'],
     ['records.json', '[{"value":1}]', 'data', 'data-evidence'],
     [
+      'tsconfig.node.json',
+      '{"compilerOptions":{"module":"ESNext",},}',
+      'configuration',
+      'configuration-evidence',
+    ],
+    [
+      'tsconfig.app.json',
+      '// authored configuration\n{"compilerOptions":{},}',
+      'configuration',
+      'configuration-evidence',
+    ],
+    [
+      'jsconfig.test.json',
+      '{/* comment */"compilerOptions":{}}',
+      'configuration',
+      'configuration-evidence',
+    ],
+    ['tsconfig.jsonc', '{"compilerOptions":{},}', 'configuration', 'configuration-evidence'],
+    [
       'package.json',
       '{"name":"fixture","scripts":{"test":"vitest"}}',
       'configuration',
@@ -520,11 +539,117 @@ describe('capability-specific file evidence (T12289)', () => {
     }
   });
 
+  /** A complete one-pixel ICO with either a 32-bit DIB and mask or a PNG image. */
+  function iconFixture(png = false): Buffer {
+    const image = png
+      ? Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/gDkAAAAASUVORK5CYII=',
+          'base64',
+        )
+      : Buffer.alloc(48);
+    if (!png) {
+      image.writeUInt32LE(40, 0);
+      image.writeInt32LE(1, 4);
+      image.writeInt32LE(2, 8);
+      image.writeUInt16LE(1, 12);
+      image.writeUInt16LE(32, 14);
+    }
+    const directory = Buffer.alloc(22);
+    directory.writeUInt16LE(1, 2);
+    directory.writeUInt16LE(1, 4);
+    directory[6] = 1;
+    directory[7] = 1;
+    directory.writeUInt16LE(1, 10);
+    directory.writeUInt16LE(32, 12);
+    directory.writeUInt32LE(image.length, 14);
+    directory.writeUInt32LE(22, 18);
+    return Buffer.concat([directory, image]);
+  }
+
+  it.each([
+    false,
+    true,
+  ])('recognizes a bounded ICO image without requesting caller extraction (PNG: %s)', async (png) => {
+    const directory = makeTempDir();
+    try {
+      writeFileSync(join(directory, 'favicon.ico'), iconFixture(png));
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        await walkRepositoryPaths(directory),
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext(['favicon.ico']),
+        directory,
+        { onFileReport: (report) => reports.push(report) },
+      );
+      expect(reports[0]).toMatchObject({
+        status: 'analyzed',
+        capabilities: {
+          role: 'asset',
+          requested: ['file-evidence', 'resource-evidence'],
+          completed: ['file-evidence', 'resource-evidence'],
+        },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    'short-directory',
+    'truncated-pixels',
+    'out-of-bounds-offset',
+    'wrong-dimensions',
+    'fake-payload',
+    'zero-images',
+    'wrong-depth',
+    'wrong-plane',
+    'png-without-data',
+    'png-chunk-overrun',
+  ])('keeps defective ICO %s out of completed resource evidence', async (defect) => {
+    const directory = makeTempDir();
+    try {
+      let bytes = iconFixture();
+      if (defect === 'short-directory') bytes = bytes.subarray(0, 12);
+      if (defect === 'truncated-pixels') bytes = bytes.subarray(0, bytes.length - 1);
+      if (defect === 'out-of-bounds-offset') bytes.writeUInt32LE(0xffffffff, 18);
+      if (defect === 'wrong-dimensions') bytes[6] = 32;
+      if (defect === 'fake-payload') bytes.fill(0, 22);
+      if (defect === 'zero-images') bytes.writeUInt16LE(0, 4);
+      if (defect === 'wrong-depth') bytes.writeUInt16LE(24, 12);
+      if (defect === 'wrong-plane') bytes.writeUInt16LE(2, 10);
+      if (defect === 'png-without-data') {
+        const full = iconFixture(true);
+        bytes = Buffer.concat([full.subarray(0, 55), full.subarray(full.length - 12)]);
+        bytes.writeUInt32LE(bytes.length - 22, 14);
+      }
+      if (defect === 'png-chunk-overrun') {
+        bytes = iconFixture(true);
+        bytes.writeUInt32BE(0xffffffff, 55);
+      }
+      writeFileSync(join(directory, 'favicon.ico'), bytes);
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        await walkRepositoryPaths(directory),
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext(['favicon.ico']),
+        directory,
+        { onFileReport: (report) => reports.push(report) },
+      );
+      expect(reports[0]?.status).not.toBe('analyzed');
+      expect(reports[0]?.capabilities?.completed).not.toContain('resource-evidence');
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     ['component.svelte', '<script>run();</script>', 'executable'],
     ['script.sh', 'echo hello', 'executable'],
     ['page.mdx', 'export const value = run();\n# Heading', 'executable'],
     ['entry', '#!/bin/sh\necho hello', 'executable'],
+    ['favicon.ico', '#!/bin/sh\nrun();', 'executable'],
     ['disguised.png', '#!/bin/sh\necho hello', 'executable'],
     ['mystery.bin', 'unclassified content', 'unknown'],
     ['image.png', 'not an image or a known executable', 'unknown'],
@@ -661,6 +786,35 @@ describe('capability-specific file evidence (T12289)', () => {
           requested: ['file-evidence', 'data-evidence'],
           completed: ['file-evidence'],
         },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['ordinary.json', '{"value":1,}', 'data'],
+    ['ordinary.json', '// comment\n{"value":1}', 'data'],
+    ['package.json', '{"name":"fixture",}', 'data'],
+    ['tsconfig.node.json', '{"compilerOptions":', 'configuration'],
+    ['tsconfig.app.json', '{"compilerOptions": nope}', 'configuration'],
+    ['jsconfig.json', '[]', 'configuration'],
+  ])('retains malformed %s as failed evidence', async (path, content, role) => {
+    const directory = makeTempDir();
+    try {
+      writeFile(directory, path, content);
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        await walkRepositoryPaths(directory),
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext([path]),
+        directory,
+        { onFileReport: (report) => reports.push(report) },
+      );
+      expect(reports[0]).toMatchObject({
+        status: 'failed',
+        capabilities: { role, completed: ['file-evidence'] },
       });
     } finally {
       rmSync(directory, { recursive: true, force: true });

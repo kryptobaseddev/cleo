@@ -699,11 +699,10 @@ export interface DbSubstrateProjectSurvey {
   /** Absolute path to the project root that was surveyed. */
   projectRoot: string;
   /**
-   * Stable identifier for the project — currently the `base64url(path)`
-   * truncated to 32 chars, matching the convention used by `cleo nexus`
-   * project resolution.
+   * Declared portable project identity, or null when identity is missing.
+   * A survey never creates an identity or derives it from a filesystem path.
    */
-  projectId: string;
+  projectId: string | null;
   /** Per-role survey result, keyed by canonical role name. */
   dbs: Readonly<Record<string, DbSubstrateEntry>>;
 }

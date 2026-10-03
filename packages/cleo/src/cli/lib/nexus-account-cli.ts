@@ -53,14 +53,17 @@ const VAULT_REFUSAL_EXIT_CODES: Readonly<Record<string, number>> = {
   E_NEXUS_VAULT_LOCAL_CHANGES: ExitCode.CONCURRENT_MODIFICATION,
   E_NEXUS_VAULT_VERIFY_FAILED: ExitCode.CHECKSUM_MISMATCH,
   E_NEXUS_VAULT_TARGET_OCCUPIED: ExitCode.ID_COLLISION,
+  // `cleo cloud restore <name>` (T13102).
+  E_NEXUS_PROJECT_NOT_FOUND: ExitCode.NOT_FOUND,
+  E_NEXUS_PROJECT_AMBIGUOUS: ExitCode.VALIDATION_ERROR,
 };
 
 /**
  * Emit a Nexus flow failure (LAFS error envelope or a human line) and exit.
  * Invalid input exits 6; the vault refusals exit with their own codes
  * (lease held / store busy 7, behind 23, local changes 21, verify failed 20,
- * restore target holds another project 22);
- * everything else exits 1.
+ * restore target holds another project 22; no project by that name 4,
+ * a name several projects share 6); everything else exits 1.
  *
  * @param err - The thrown error.
  * @param operation - LAFS operation id.
@@ -243,7 +246,22 @@ export function nexusLoginSummary(r: NexusLoginResult): string {
   const device = r.device
     ? ` This machine is device ${r.device.deviceId}${r.device.name ? ` (${r.device.name})` : ''}, profile ${r.device.profile ?? 'unknown'}.`
     : '';
-  return `Signed in to ${r.apiUrl} as ${who}${org}.${device}`;
+  return `Signed in to ${r.apiUrl} as ${who}${org}.${device}${nexusAccountSetupLine(r)}`;
+}
+
+/** The account-setup tail of {@link nexusLoginSummary} (T13100); the warnings carry the detail. */
+function nexusAccountSetupLine(r: NexusLoginResult): string {
+  const account = r.account;
+  if (account === undefined) return '';
+  switch (account.status) {
+    case 'ready':
+    case 'skipped':
+      return ` ${account.summary}`;
+    case 'unsupported':
+      return ' Encrypted backups are not available on this server (see warnings).';
+    case 'failed':
+      return ` Encrypted backups are NOT set up: step ${account.step} failed (see warnings for the fix).`;
+  }
 }
 
 /**

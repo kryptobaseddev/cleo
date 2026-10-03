@@ -29,6 +29,9 @@ import {
   matchContracts,
 } from './api-extractors/index.js';
 import { assessKnowledgeCoverage, recordKnowledgeGap } from './knowledge.js';
+import { projectHolding } from './path-map.js';
+import { requirePermission } from './permissions.js';
+import { nexusGetProjectById } from './registry.js';
 import { getTaskKnowledgeEvidence } from './task-evidence.js';
 import { getSymbolsForTask, runGitLogTaskLinker } from './tasks-bridge.js';
 
@@ -86,16 +89,34 @@ export async function nexusContractsShow(
   projectRoot: string,
 ): Promise<EngineResult<ContractCompatibilityMatrix>> {
   try {
-    const repoPathA = Buffer.from(projectAId, 'base64url').toString() || projectRoot;
-    const repoPathB = Buffer.from(projectBId, 'base64url').toString() || projectRoot;
+    const projectA = await nexusGetProjectById(projectRoot, projectAId);
+    const projectB = await nexusGetProjectById(projectRoot, projectBId);
+    if (!projectA || !projectB) {
+      // @sync-invariant none:local-only contract comparison requires registered query targets, never a guessed filesystem path
+      return engineError('E_NOT_FOUND', 'Both project ids must resolve to registered projects.');
+    }
+    if (
+      projectHolding(projectA.path, projectA.projectId) !== 'yes' ||
+      projectHolding(projectB.path, projectB.projectId) !== 'yes'
+    ) {
+      // @sync-invariant none:local-only missing or mismatched local checkouts cannot supply graph evidence
+      return engineError(
+        'E_NOT_FOUND',
+        'A registered project checkout is unavailable or has a different identity. Run cleo doctor projects.',
+      );
+    }
+    await requirePermission(projectA.projectId, 'read', 'contracts.show');
+    await requirePermission(projectB.projectId, 'read', 'contracts.show');
 
-    const [httpA, grpcA, topicA, httpB, grpcB, topicB] = await Promise.all([
-      extractHttpContracts(projectAId, repoPathA),
-      extractGrpcContracts(projectAId, repoPathA),
-      extractTopicContracts(projectAId, repoPathA),
-      extractHttpContracts(projectBId, repoPathB),
-      extractGrpcContracts(projectBId, repoPathB),
-      extractTopicContracts(projectBId, repoPathB),
+    const [httpA, grpcA, topicA] = await Promise.all([
+      extractHttpContracts(projectA.projectId, projectA.path),
+      extractGrpcContracts(projectA.projectId, projectA.path),
+      extractTopicContracts(projectA.projectId, projectA.path),
+    ]);
+    const [httpB, grpcB, topicB] = await Promise.all([
+      extractHttpContracts(projectB.projectId, projectB.path),
+      extractGrpcContracts(projectB.projectId, projectB.path),
+      extractTopicContracts(projectB.projectId, projectB.path),
     ]);
 
     const contractsA = [...(httpA ?? []), ...(grpcA ?? []), ...(topicA ?? [])];
@@ -109,8 +130,8 @@ export async function nexusContractsShow(
       matches.length > 0 ? Math.round((compatibleCount / matches.length) * 100) : 0;
 
     const matrix: ContractCompatibilityMatrix = {
-      projectAId,
-      projectBId,
+      projectAId: projectA.projectId,
+      projectBId: projectB.projectId,
       matches,
       compatibleCount,
       incompatibleCount,

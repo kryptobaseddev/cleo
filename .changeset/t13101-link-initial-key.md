@@ -31,3 +31,12 @@ registration that loses a race to a concurrently keyed project (409 `keys-exist`
 for lacking `keys:write`, is sent once more without the key. The result reports `initialKeyVersion`.
 The contract adds `InitialProjectKey`, `RegisterProjectRequest.initialKey` and
 `RegisterProjectResult.initialKeyVersion` (contract v2.24), and the client E3 schema gains `features`.
+
+Cleo Nexus stores `initialKey` only for the project owner role, meaning an organization owner or
+admin (cleo-nexus #35). A team member's new project is registered without its key (201,
+`initialKeyVersion: null`), and link warns that an org owner or admin must create the project key
+from a signed-in session. That account's first push is refused once with 403 `project-role` and is
+not retried. The `project-role` remedy now reads "an org owner or admin must create the project key
+from a signed-in session, or, if the project already has a key, share it with this account". The
+client never sends an empty or padding-only key wrap, which the server refuses with 400: it checks
+`initialKey` and the first-key PUT before sending.

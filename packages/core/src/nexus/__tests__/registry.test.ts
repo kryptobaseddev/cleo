@@ -9,6 +9,7 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
+import { WarningCollector, withWarningCollector } from '@cleocode/lafs';
 import {
   readPortableProjectId,
   resolveProjectByCwd,
@@ -21,13 +22,20 @@ import { awaitBackgroundOps } from '../../store/background-ops.js';
 import * as dataAccessors from '../../store/data-accessor.js';
 import { resolveDualScopeDbPath } from '../../store/dual-scope-db.js';
 import { getNexusDb, getNexusNativeDb } from '../../store/nexus-sqlite.js';
-import { projectIdAliases, projectRegistry } from '../../store/schema/nexus-schema.js';
+import { nexusNodes, projectIdAliases, projectRegistry } from '../../store/schema/nexus-schema.js';
 import { closeAllDatabases, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
+import { nexusContractsShow } from '../api-contracts.js';
+import { getProjectClusters } from '../clusters.js';
+import { getSymbolContext } from '../context.js';
+import { diffNexusIndex } from '../diff.js';
+import { getProjectFlows } from '../flows.js';
 import { generateProjectHash } from '../hash.js';
-import { canonicalProjectId, projectPathFingerprint } from '../identity.js';
+import { canonicalProjectId, legacyProjectId, projectPathFingerprint } from '../identity.js';
+import { generateNexusBridgeContent } from '../nexus-bridge.js';
 import {
   nexusGetProject,
+  nexusGetProjectById,
   nexusInit,
   nexusList,
   nexusProjectExists,
@@ -38,6 +46,7 @@ import {
   nexusUnregister,
   readRegistry,
   resetNexusDbState,
+  resolveNexusQueryProjectId,
 } from '../registry.js';
 
 /** Create a test project with tasks in SQLite (tasks.db). */
@@ -109,6 +118,192 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   process.chdir(originalCwd);
   await rm(testDir, { recursive: true, force: true });
+});
+
+describe('portable query identity (T12472)', () => {
+  const portableId = '7f6b09d3-0b65-487d-a35e-e251b6c5df50';
+
+  it('reads tracked identity before a conflicting cache, without registration', async () => {
+    await writeFile(join(projectDir, '.cleo/project-id'), `${portableId}\n`);
+    await writeFile(
+      join(projectDir, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'stale-cache' }),
+    );
+    expect(await resolveNexusQueryProjectId(projectDir)).toBe(portableId);
+    expect(await resolveNexusQueryProjectId(projectDir, portableId)).toBe(portableId);
+    expect(await nexusList()).toEqual([]);
+  });
+
+  it('refuses missing identity rather than manufacturing a path-based id', async () => {
+    await expect(resolveNexusQueryProjectId(projectDir)).rejects.toThrow('declares no identity');
+  });
+
+  it('resolves a recorded legacy id with an envelope deprecation warning', async () => {
+    await writeFile(join(projectDir, '.cleo/project-id'), `${portableId}\n`);
+    await nexusRegister(projectDir, 'portable-project', 'read');
+    const alias = legacyProjectId('/previous-device/portable-project');
+    const db = await getNexusDb();
+    db.insert(projectIdAliases)
+      .values({ legacyId: alias, canonicalId: portableId, createdAt: new Date().toISOString() })
+      .run();
+    const warnings = new WarningCollector();
+    expect(
+      await withWarningCollector(warnings, () => resolveNexusQueryProjectId(projectDir, alias)),
+    ).toBe(portableId);
+    expect(warnings.drain()).toEqual([
+      expect.objectContaining({
+        code: 'W_NEXUS_LEGACY_PROJECT_ID',
+        context: { alias, projectId: portableId },
+      }),
+    ]);
+  });
+
+  it('does not interpret a project name, hash, or unresolved id as --project-id', async () => {
+    await writeFile(join(projectDir, '.cleo/project-id'), `${portableId}\n`);
+    const hash = await nexusRegister(projectDir, 'portable-name', 'read');
+    for (const selector of ['portable-name', hash, 'unregistered-id']) {
+      expect(await nexusGetProjectById(projectDir, selector)).toBeNull();
+      await expect(resolveNexusQueryProjectId(projectDir, selector)).rejects.toThrow(
+        'cannot select the graph',
+      );
+    }
+  });
+
+  it('refuses a registered foreign id and its alias', async () => {
+    await writeFile(join(projectDir, '.cleo/project-id'), `${portableId}\n`);
+    await nexusRegister(projectDir, 'local-project', 'read');
+    const foreign = join(testDir, 'foreign');
+    await createTestProjectDb(foreign, []);
+    await writeFile(join(foreign, '.cleo/project-id'), 'foreign-project-id\n');
+    await nexusRegister(foreign, 'foreign-project', 'read');
+    const alias = legacyProjectId('/foreign-device/project');
+    const db = await getNexusDb();
+    db.insert(projectIdAliases)
+      .values({
+        legacyId: alias,
+        canonicalId: 'foreign-project-id',
+        createdAt: new Date().toISOString(),
+      })
+      .run();
+    await expect(resolveNexusQueryProjectId(projectDir, 'foreign-project-id')).rejects.toThrow(
+      'cannot select the graph',
+    );
+    await expect(resolveNexusQueryProjectId(projectDir, alias)).rejects.toThrow(
+      'cannot select the graph',
+    );
+  });
+
+  it('refuses a legacy prefix collision instead of choosing the alias row owner', async () => {
+    await writeFile(join(projectDir, '.cleo/project-id'), `${portableId}\n`);
+    await nexusRegister(projectDir, 'first-project', 'read');
+    const sibling = join(testDir, 'sibling');
+    await createTestProjectDb(sibling, []);
+    await writeFile(join(sibling, '.cleo/project-id'), 'sibling-project-id\n');
+    await nexusRegister(sibling, 'second-project', 'read');
+    const alias = legacyProjectId(projectDir);
+    expect(legacyProjectId(sibling)).toBe(alias);
+    await expect(resolveNexusQueryProjectId(projectDir, alias)).rejects.toMatchObject({
+      codeName: 'E_NEXUS_PROJECT_AMBIGUOUS',
+    });
+  });
+
+  it('queries the retained graph after a checkout moves without analyzing again', async () => {
+    await writeFile(join(projectDir, '.cleo/project-id'), `${portableId}\n`);
+    vi.stubEnv('CLEO_ROOT', projectDir);
+    const db = await getNexusDb(projectDir);
+    db.insert(nexusNodes)
+      .values({
+        id: 'src/record.ts::stopCapture',
+        kind: 'function',
+        label: 'stopCapture',
+        name: 'stopCapture',
+        filePath: 'src/record.ts',
+      })
+      .run();
+    const before = await getSymbolContext(
+      'stopCapture',
+      await resolveNexusQueryProjectId(projectDir),
+      projectDir,
+    );
+    await closeAllDatabases();
+    resetDbState();
+    resetNexusDbState();
+    const moved = join(testDir, 'moved-checkout');
+    await rename(projectDir, moved);
+    vi.stubEnv('CLEO_ROOT', moved);
+    const after = await getSymbolContext(
+      'stopCapture',
+      await resolveNexusQueryProjectId(moved, portableId),
+      moved,
+    );
+    expect(after).toEqual(before);
+    expect(after.projectId).toBe(portableId);
+    expect(after.matchCount).toBe(1);
+  });
+
+  it('compares separate registered graphs by portable id, without decoding ids into paths', async () => {
+    await writeFile(join(projectDir, '.cleo/project-id'), `${portableId}\n`);
+    await nexusRegister(projectDir, 'contract-a', 'read');
+    const second = join(testDir, 'contracts-b');
+    await createTestProjectDb(second, []);
+    await writeFile(join(second, '.cleo/project-id'), 'contract-project-b\n');
+    await nexusRegister(second, 'contract-b', 'read');
+    for (const [index, root] of [projectDir, second].entries()) {
+      const db = await getNexusDb(root);
+      db.insert(nexusNodes)
+        .values({
+          id: `route-${index}`,
+          kind: 'route',
+          label: `route-${index}`,
+          metaJson: JSON.stringify({
+            method: 'GET',
+            path: '/actions',
+            responseSchema: { project: index },
+          }),
+        })
+        .run();
+    }
+    const result = await nexusContractsShow(portableId, 'contract-project-b', testDir);
+    expect(result.success).toBe(true);
+    if (!result.success || !result.data) throw new Error('Expected contract comparison result');
+    expect(result.data.projectAId).toBe(portableId);
+    expect(result.data.projectBId).toBe('contract-project-b');
+    expect(result.data.matches).toHaveLength(1);
+    expect(result.data.matches[0]?.contractA.sourceSymbolId).toBe('route-0');
+    expect(result.data.matches[0]?.contractB.sourceSymbolId).toBe('route-1');
+    const unresolved = await nexusContractsShow('missing-project-id', portableId, testDir);
+    expect(unresolved.success).toBe(false);
+  });
+
+  it('reads clusters, flows, bridge and diff counts from the supplied checkout, preserving the other graph', async () => {
+    const second = join(testDir, 'graph-b');
+    await createTestProjectDb(second, []);
+    for (const [index, root] of [projectDir, second].entries()) {
+      await writeFile(join(root, '.cleo/project-id'), `graph-project-${index}\n`);
+      const db = await getNexusDb(root);
+      db.insert(nexusNodes)
+        .values([
+          { id: `community-${index}`, kind: 'community', label: `community-${index}` },
+          { id: `process-${index}`, kind: 'process', label: `process-${index}` },
+        ])
+        .run();
+    }
+    for (const [index, root] of [projectDir, second].entries()) {
+      const id = `graph-project-${index}`;
+      expect((await getProjectClusters(id, root)).communities.map((entry) => entry.id)).toEqual([
+        `community-${index}`,
+      ]);
+      expect((await getProjectFlows(id, root)).flows.map((entry) => entry.id)).toEqual([
+        `process-${index}`,
+      ]);
+      const bridge = await generateNexusBridgeContent(id, root);
+      expect(bridge).toContain(`community-${index}`);
+      expect(bridge).not.toContain(`community-${1 - index}`);
+      const result = await diffNexusIndex(root, { beforeRef: 'HEAD', afterRef: 'HEAD' });
+      expect(result.projectId).toBe(id);
+      expect(result.nodesBefore).toBe(2);
+    }
+  });
 });
 
 describe('generateProjectHash — within nexus registry', () => {

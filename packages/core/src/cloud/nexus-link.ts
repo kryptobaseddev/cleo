@@ -60,9 +60,10 @@ import { getCleoDirAbsolute, resolveOrCwd } from '../paths.js';
 import { getProjectDisplayName } from '../project-info.js';
 import { withLock } from '../store/file-utils.js';
 import { type FetchLike, Http, NexusError } from './http.js';
-import { newProjectKey, wrapProjectKey } from './keys.js';
+import { isSendableWrap, newProjectKey, wrapProjectKey } from './keys.js';
 import { attachProjectReplica, type ProjectReplicaBinder } from './nexus-attach.js';
 import {
+  NEXUS_PROJECT_KEY_OWNER_REMEDY,
   NexusAccountError,
   type NexusFlowOptions,
   requireNexusSession,
@@ -423,9 +424,11 @@ async function newInitialProjectKey(
       ...(opts.vaultState ? { vaultState: opts.vaultState } : {}),
     });
     const { masterKey } = await unlockNexusAccountKey(conn, { readOnly: true });
-    return {
-      initialKey: { wrappedProjectKey: wrapProjectKey(masterKey, newProjectKey(), projectId, 1) },
-    };
+    const wrappedProjectKey = wrapProjectKey(masterKey, newProjectKey(), projectId, 1);
+    // Never send an empty or padding-only wrap: cleo-nexus #35 refuses it with 400 (T13101).
+    if (!isSendableWrap(wrappedProjectKey))
+      throw new Error('the new project key wrapped to nothing');
+    return { initialKey: { wrappedProjectKey } };
   } catch (err) {
     const why =
       err instanceof NexusAccountError && err.code === 'E_NEXUS_VAULT_EMPTY'
@@ -529,6 +532,14 @@ export async function linkProjectToNexus(
     });
   } catch (err) {
     throw deviceMode ? nexusApiErrorToAccountError(err) : toLinkError(err);
+  }
+  // cleo-nexus #35 stores initialKey only for the project owner role (an org
+  // owner or admin). A member's new project is created without it (201, null),
+  // and this account's first push will be refused, so say so now (T13101).
+  if (initialKey && registered.created && registered.initialKeyVersion === null) {
+    warnings.push(
+      `Cleo Nexus registered the project without its encryption key: only an org owner or admin can create it, so ${NEXUS_PROJECT_KEY_OWNER_REMEDY} before this account can \`cleo cloud push\``,
+    );
   }
 
   // Steps 3 to 5 of §3.6: attach this store's replica to the device and

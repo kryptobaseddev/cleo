@@ -62,6 +62,14 @@ export const NEXUS_REVOKE_TIMEOUT_MS = 5_000;
 export const NEXUS_STATUS_TIMEOUT_MS = 1_500;
 
 /** A Nexus account flow failure with a stable code. Never carries a token. */
+/**
+ * What a team member does when only the project owner role can create a
+ * project's key: cleo-nexus #35 honours `initialKey`, and a first key, only
+ * for an organization owner or admin (T13101).
+ */
+export const NEXUS_PROJECT_KEY_OWNER_REMEDY =
+  'an org owner or admin must create the project key from a signed-in session';
+
 export class NexusAccountError extends Error {
   /**
    * @param code - Stable error code.

@@ -54,7 +54,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { type HeavyToolEnv, heavyToolEnv, isHeavyTool } from './heavy-tool-env.js';
+import { type HeavyToolEnv, heavyToolEnv, isHeavyTool, parseHeapFlags } from './heavy-tool-env.js';
 import { DISABLE_ENV, MEMORY_MAX_ENV } from './heavy-tool-limit.js';
 import type { CanonicalTool } from './tool-resolver.js';
 
@@ -169,29 +169,16 @@ export function captureEnvFingerprint(root: string, canonical: string): string {
 }
 
 /**
- * `NODE_OPTIONS` flags that set a V8 heap limit — the only part of
- * `NODE_OPTIONS` that decides whether a run fits in memory. Every other flag
- * (`--enable-source-maps`, `--experimental-*`, `--require`, …) is left out of
- * the key: it does not change whether the run fits, and keying it would make
- * every harness that sets one miss every other's results.
- *
- * @task T12989
- */
-const HEAP_FLAG_NAMES: ReadonlySet<string> = new Set([
-  'max-old-space-size',
-  'max-old-space-size-percentage',
-  'max-semi-space-size',
-]);
-
-/**
  * The V8 heap flags in effect for a `NODE_OPTIONS` value, as `--name=value`
  * sorted by name and joined with a space; `''` when none is set.
  *
- * V8 reads flags left to right and a later value replaces an earlier one, so
- * the LAST occurrence of each flag is the effective one. Underscores in a flag
- * name read as dashes, as they do to V8. The space-separated spelling
- * (`--max-old-space-size 4096`) is read too, because `mergeNodeOptions` treats
- * it as an explicit setting.
+ * Only the heap flags decide whether a run fits in memory. Every other flag
+ * (`--enable-source-maps`, `--experimental-*`, `--require`, …) is left out of
+ * the key: it does not change whether the run fits, and keying it would make
+ * every harness that sets one miss every other's results. Parsing (last
+ * occurrence wins, underscores read as dashes, the space-separated spelling) is
+ * {@link parseHeapFlags}, shared with the heavy-tool planner so the key and the
+ * plan read a heap the same way.
  *
  * @param nodeOptions - A `NODE_OPTIONS` value, if any.
  * @returns The effective heap flags, e.g. `--max-old-space-size=6144`.
@@ -206,22 +193,7 @@ const HEAP_FLAG_NAMES: ReadonlySet<string> = new Set([
  * @task T12989
  */
 export function effectiveHeapFlags(nodeOptions: string | undefined): string {
-  const tokens = (nodeOptions ?? '').trim().split(/\s+/).filter(Boolean);
-  const values = new Map<string, string>();
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i] ?? '';
-    if (!token.startsWith('--')) continue;
-    const eq = token.indexOf('=');
-    const name = (eq === -1 ? token.slice(2) : token.slice(2, eq)).replace(/_/g, '-');
-    if (!HEAP_FLAG_NAMES.has(name)) continue;
-    let value = eq === -1 ? '' : token.slice(eq + 1);
-    const next = tokens[i + 1];
-    if (eq === -1 && next !== undefined && /^\d+(\.\d+)?$/.test(next)) {
-      value = next;
-      i++;
-    }
-    values.set(name, value);
-  }
+  const values = parseHeapFlags(nodeOptions);
   return [...values.keys()]
     .sort()
     .map((name) => `--${name}=${values.get(name)}`)

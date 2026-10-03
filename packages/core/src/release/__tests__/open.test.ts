@@ -15,7 +15,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -196,6 +197,41 @@ function makeStubRunner(opts?: {
   };
 }
 
+/** Give `testDir` an `origin` bare remote with one commit on `main`. */
+function attachRemote(): string {
+  const remote = join(
+    testDir,
+    '..',
+    `remote-${Date.now()}-${Math.random().toString(16).slice(2)}.git`,
+  );
+  execFileSync('git', ['init', '--bare', '--quiet', '--initial-branch=main', remote]);
+  execFileSync('git', ['-C', testDir, 'remote', 'add', 'origin', remote]);
+  execFileSync('git', ['-C', testDir, 'checkout', '-q', '-B', 'main']);
+  writeFileSync(join(testDir, 'README.md'), 'seed\n', { encoding: 'utf-8' });
+  execFileSync('git', ['-C', testDir, 'add', 'README.md']);
+  execFileSync('git', ['-C', testDir, 'commit', '-q', '-m', 'seed']);
+  execFileSync('git', ['-C', testDir, 'push', '-q', '-u', 'origin', 'main']);
+  return remote;
+}
+
+/** Put the plan file's exact bytes on origin/main, as a merged release-plan PR does. */
+function pushPlan(planPath: string): void {
+  execFileSync('git', ['-C', testDir, 'add', '-f', planPath]);
+  execFileSync('git', ['-C', testDir, 'commit', '-q', '-m', 'chore(release): plan']);
+  execFileSync('git', ['-C', testDir, 'push', '-q', 'origin', 'main']);
+}
+
+/** {@link attachRemote}, then {@link pushPlan}. */
+function pushPlanAfterRemote(planPath: string): void {
+  attachRemote();
+  pushPlan(planPath);
+}
+
+/** The `gh workflow run` call, if one was made. */
+function dispatchOf(runner: { calls: Array<{ args: readonly string[] }> }) {
+  return runner.calls.find((c) => c.args[0] === 'workflow' && c.args[1] === 'run');
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
@@ -243,9 +279,11 @@ afterEach(async () => {
 describe('releaseOpen — happy path', () => {
   it('dispatches the workflow, UPDATEs releases.status to pr-opened, and persists workflow_run_url', async () => {
     const version = 'v2026.6.0';
-    writePlanFile(version, makePlan(version));
+    const planPath = writePlanFile(version, makePlan(version));
     writeWorkflowFile();
     await seedReleaseRow(version, 'planned');
+    attachRemote();
+    pushPlan(planPath);
 
     const runner = makeStubRunner();
 
@@ -263,12 +301,9 @@ describe('releaseOpen — happy path', () => {
     const dispatched = runner.calls.find((c) => c.args[0] === 'workflow' && c.args[1] === 'run');
     expect(dispatched).toBeDefined();
     expect(dispatched?.args).toContain(`version=${version}`);
-    // T10105: `plan-blob-sha256` is NO LONGER passed as a workflow field
-    // because the release-prepare.yml workflow_dispatch.inputs block does
-    // not declare it (GitHub returns HTTP 422 for unknown fields). The
-    // sha256 is still computed and returned in the result envelope for
-    // downstream provenance tracking — see `planBlobSha256` assertion above.
-    expect(dispatched?.args.some((a) => a.startsWith('plan-blob-sha256='))).toBe(false);
+    // T13050: the plan merged on the dispatch branch rides along by hash, so
+    // the workflow verifies it instead of regenerating it on the runner.
+    expect(dispatched?.args).toContain(`plan-blob-sha256=${result.data.planBlobSha256}`);
 
     // releases row updated
     const db = await getDb(testDir);
@@ -383,7 +418,7 @@ describe('releaseOpen — error envelopes', () => {
 describe('releaseOpen — idempotency', () => {
   it('returns idempotent=true without re-dispatching when status is already pr-opened', async () => {
     const version = 'v2026.6.0';
-    writePlanFile(version, makePlan(version));
+    pushPlanAfterRemote(writePlanFile(version, makePlan(version)));
     writeWorkflowFile();
     await seedReleaseRow(version, 'planned');
 
@@ -423,28 +458,6 @@ describe('releaseOpen — idempotency', () => {
  * visible, which is why these tests assert that NO dispatch happened.
  */
 describe('releaseOpen — gh#1375: the plan must be on the dispatch branch', () => {
-  /** Give `testDir` an `origin` bare remote with one commit on `main`. */
-  function attachRemote(): string {
-    const remote = join(
-      testDir,
-      '..',
-      `remote-${Date.now()}-${Math.random().toString(16).slice(2)}.git`,
-    );
-    execFileSync('git', ['init', '--bare', '--quiet', '--initial-branch=main', remote]);
-    execFileSync('git', ['-C', testDir, 'remote', 'add', 'origin', remote]);
-    execFileSync('git', ['-C', testDir, 'checkout', '-q', '-B', 'main']);
-    writeFileSync(join(testDir, 'README.md'), 'seed\n', { encoding: 'utf-8' });
-    execFileSync('git', ['-C', testDir, 'add', 'README.md']);
-    execFileSync('git', ['-C', testDir, 'commit', '-q', '-m', 'seed']);
-    execFileSync('git', ['-C', testDir, 'push', '-q', '-u', 'origin', 'main']);
-    return remote;
-  }
-
-  /** The dispatch we must NOT have made. */
-  function dispatchOf(runner: { calls: Array<{ args: readonly string[] }> }) {
-    return runner.calls.find((c) => c.args[0] === 'workflow' && c.args[1] === 'run');
-  }
-
   it('commits the plan by DEFAULT, because the branch it opts out of cannot work (T12309)', async () => {
     // The workflow's regenerate branch runs `cleo release plan --tasks|--epic`
     // ON THE RUNNER, and `.cleo/cleo.db` is untracked by design (ADR-013 §9),
@@ -530,6 +543,75 @@ describe('releaseOpen — gh#1375: the plan must be on the dispatch branch', () 
     expect(result.error.code).toBe(E_INVALID_STATE);
     expect(result.error.message).toContain('does not match the local plan');
     expect(result.error.message).toMatch(/remote sha256 [0-9a-f]{64}, local [0-9a-f]{64}/);
+    expect(dispatchOf(runner)).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// T13050 — --no-commit-plan dispatches the plan merged on the dispatch branch
+// =============================================================================
+
+describe('releaseOpen — T13050: --no-commit-plan verifies and forwards the merged plan', () => {
+  it('reads the plan from origin/main when this checkout never pulled it, and dispatches its hash', async () => {
+    const version = 'v2026.6.0';
+    const planPath = writePlanFile(version, makePlan(version));
+    writeWorkflowFile();
+    await seedReleaseRow(version, 'planned');
+    pushPlanAfterRemote(planPath);
+    const merged = execFileSync('git', [
+      '-C',
+      testDir,
+      'show',
+      `origin/main:.cleo/release/${version}.plan.json`,
+    ]);
+    // The plan reached main through a PR; this checkout is behind it.
+    execFileSync('git', ['-C', testDir, 'reset', '-q', '--hard', 'HEAD~1']);
+    rmSync(planPath, { force: true });
+
+    const runner = makeStubRunner();
+    const result = await releaseOpen({ version, projectRoot: testDir, commitPlan: false }, runner);
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('unreachable');
+    const sha = createHash('sha256').update(merged).digest('hex');
+    expect(result.data.planBlobSha256).toBe(sha);
+    expect(dispatchOf(runner)?.args).toContain(`plan-blob-sha256=${sha}`);
+  });
+
+  it('REFUSES when the plan is not on origin/main yet, and does not dispatch', async () => {
+    const version = 'v2026.6.0';
+    writePlanFile(version, makePlan(version));
+    writeWorkflowFile();
+    await seedReleaseRow(version, 'planned');
+    attachRemote();
+
+    const runner = makeStubRunner();
+    const result = await releaseOpen({ version, projectRoot: testDir, commitPlan: false }, runner);
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.code).toBe(E_INVALID_STATE);
+    expect(result.error.message).toContain(
+      '--no-commit-plan dispatches the plan already on origin/main',
+    );
+    expect(result.error.fix).toContain('Merge the release-plan PR');
+    expect(dispatchOf(runner)).toBeUndefined();
+  });
+
+  it('still refuses E_PLAN_NOT_FOUND when neither this checkout nor origin/main has the plan', async () => {
+    writeWorkflowFile();
+    await seedReleaseRow('v2026.6.0', 'planned');
+    attachRemote();
+
+    const runner = makeStubRunner();
+    const result = await releaseOpen(
+      { version: 'v2026.6.0', projectRoot: testDir, commitPlan: false },
+      runner,
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.code).toBe(E_PLAN_NOT_FOUND);
     expect(dispatchOf(runner)).toBeUndefined();
   });
 });
