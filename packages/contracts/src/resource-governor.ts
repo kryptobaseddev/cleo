@@ -162,10 +162,11 @@ export interface HeavyLeverChange {
 }
 
 /**
- * The resource plan a heavy tool (`test`, `build`) was spawned with, and why
- * (T13122). Reported by `cleo verify` (on the `tool` evidence atom and in a
- * resource-kill message) and by `cleo run`, so an operator can see when an
- * inherited value was clamped.
+ * The resource plan a memory-bound tool (`test`, `build`, and since T13123
+ * `typecheck`, `lint`) was spawned with, and why (T13122). Reported by
+ * `cleo verify` (on the `tool` evidence atom and in a resource-kill message)
+ * and by `cleo run`, so an operator can see when an inherited value was
+ * clamped. A single-process tool's plan has one worker.
  *
  * The invariant it describes: `workspaceConcurrency × workers × heapMb` stays
  * within `budgetMb`, unless an explicit `CLEO_HEAVY_*` override asked for more
