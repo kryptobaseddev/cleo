@@ -161,7 +161,10 @@ describe('captureResourceEnv', () => {
     for (const name of levers) {
       const value =
         name === 'NODE_OPTIONS' ? '--max-old-space-size=1234' : name === 'MAKEFLAGS' ? '-j97' : '1';
-      if (name === 'npm_config_workspace_concurrency') {
+      if (
+        name === 'npm_config_workspace_concurrency' ||
+        name === 'pnpm_config_workspace_concurrency'
+      ) {
         // The plan is already 1, the lowest value there is; keyed all the same.
         expect(reference).toContain(`${name}=1`);
         continue;

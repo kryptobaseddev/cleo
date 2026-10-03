@@ -23,6 +23,7 @@ import {
   MAX_HEAVY_WORKERS,
   MIN_HEAVY_WORKERS,
   mergeNodeOptions,
+  overlayForLauncher,
   planHeavyToolEnv,
   WORKSPACE_CONCURRENCY,
   withHeapCeiling,
@@ -264,10 +265,32 @@ describe('planHeavyToolEnv (T13122)', () => {
     expect(inherited.overlay.npm_config_workspace_concurrency).toBe('1');
     expect(inherited.resources?.clamped[0]?.name).toBe('npm_config_workspace_concurrency');
 
+    // pnpm 11+ reads only the pnpm_config_ spelling, pnpm 10 only npm_config_:
+    // both are set, and an inherited value under either is bounded.
+    const pnpm12 = planHeavyToolEnv('test', { pnpm_config_workspace_concurrency: '8' }, 64);
+    expect(pnpm12.overlay.pnpm_config_workspace_concurrency).toBe('1');
+    expect(pnpm12.overlay.npm_config_workspace_concurrency).toBe('1');
+    expect(pnpm12.resources?.workspaceConcurrency).toBe(1);
+    expect(pnpm12.resources?.clamped.map((c) => c.name)).toContain(
+      'pnpm_config_workspace_concurrency',
+    );
+
     const asked = planHeavyToolEnv('test', { CLEO_HEAVY_WORKSPACE_CONCURRENCY: '2' }, 64);
     expect(asked.resources?.workspaceConcurrency).toBe(2);
     expect(asked.resources?.workers).toBe(3); // ⌊24576 / (2 × 4096)⌋
     expect(asked.resources?.overBudget).toBe(false);
+  });
+
+  it('an npm launcher does not get the pnpm-only variable npm would warn about', () => {
+    const { overlay } = planHeavyToolEnv('test', {}, 64);
+    for (const npm of ['npm', 'npx', '/usr/local/bin/npx', 'C:/node/npm.cmd']) {
+      const forNpm = overlayForLauncher(overlay, npm);
+      expect(forNpm.npm_config_workspace_concurrency, npm).toBeUndefined();
+      expect(forNpm.pnpm_config_workspace_concurrency, npm).toBe('1');
+      expect(forNpm.NODE_OPTIONS, npm).toBe(overlay.NODE_OPTIONS);
+    }
+    expect(overlayForLauncher(overlay, 'pnpm')).toBe(overlay);
+    expect(overlayForLauncher(overlay, 'sh')).toBe(overlay);
   });
 
   it('ignores an unusable override and notes it', () => {

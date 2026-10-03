@@ -15,7 +15,10 @@ The overlay is now planned against the run's heap budget (default workers × def
 shrinks so `workers × heap` still fits (8 GiB → 3 workers); one above the budget is clamped to it. The
 percentage form (`--max-old-space-size-percentage`) is read and replaced too, since it outranks the size
 form. Inherited worker counts (`VITEST_MAX_WORKERS`, `GOMAXPROCS`, …) and `npm_config_workspace_concurrency`
-above the plan are clamped as well. Only explicit overrides ask for more: `CLEO_HEAVY_HEAP_MB`,
+above the plan are clamped as well. The workspace bound is set under both spellings pnpm reads:
+`npm_config_workspace_concurrency` (pnpm 10) and `pnpm_config_workspace_concurrency` (pnpm 11+, which
+ignores the npm spelling, so the bound was silently off there); an `npm`/`npx` launcher no longer gets the
+pnpm-only variable npm warns about on every run. Only explicit overrides ask for more: `CLEO_HEAVY_HEAP_MB`,
 `CLEO_HEAVY_WORKERS`, `CLEO_HEAVY_WORKSPACE_CONCURRENCY`. A machine under 8 GiB gets a default heap of
 half its RAM instead of 4 GiB. The default plan on 8 GiB and up is unchanged.
 

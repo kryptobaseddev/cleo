@@ -116,6 +116,7 @@ const PLAN_INPUTS = [
   'GOMAXPROCS',
   'PYTEST_XDIST_AUTO_NUM_WORKERS',
   'npm_config_workspace_concurrency',
+  'pnpm_config_workspace_concurrency',
   'MAKEFLAGS',
   'CLEO_HEAVY_HEAP_MB',
   'CLEO_HEAVY_WORKERS',
@@ -248,6 +249,9 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     expect(envelope.data.resources.heapSource).toBe('default');
     expect(opts().env.NODE_OPTIONS).toBe(`--max-old-space-size=${envelope.data.resources.heapMb}`);
     expect(opts().env.VITEST_MAX_WORKERS).toBe(String(envelope.data.resources.workers));
+    // The launcher is npx: npm would warn about the pnpm 10 spelling on every run.
+    expect(opts().env.pnpm_config_workspace_concurrency).toBe('1');
+    expect(opts().env.npm_config_workspace_concurrency).not.toBe('1');
     expect(err[0]).toMatch(/^\[cleo run\] resources: heap \d+ MiB \(CLEO default\)/);
   });
 

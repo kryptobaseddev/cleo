@@ -65,7 +65,7 @@ import { ExitCode, type HeavyToolResourcePlan } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import { activeToolGroups, trackToolGroup } from '../resources/tool-groups.js';
 import { isLocked, withLock } from '../store/lock.js';
-import { type HeavyToolEnv, planHeavyToolEnv } from './heavy-tool-env.js';
+import { type HeavyToolEnv, overlayForLauncher, planHeavyToolEnv } from './heavy-tool-env.js';
 import {
   confinementStartupFailure,
   isSystemdRunCommand,
@@ -1705,7 +1705,12 @@ export async function runToolCached(
   // keyed on, so the key describes the heap and worker limits the run actually
   // got; the plan behind it rides on every result, hit or miss.
   const spawnPlan = planHeavyToolEnv(command.canonical);
-  const result = await runToolCachedWithEnv(command, projectRoot, opts, spawnPlan.overlay);
+  const result = await runToolCachedWithEnv(
+    command,
+    projectRoot,
+    opts,
+    overlayForLauncher(spawnPlan.overlay, command.cmd),
+  );
   return spawnPlan.resources === null ? result : { ...result, resources: spawnPlan.resources };
 }
 

@@ -28,7 +28,7 @@
  * |---|---|---|
  * | `NODE_OPTIONS=--max-old-space-size=N` | Heap ceiling for EVERY node process in the tree, inherited | node docs; appended, never clobbered |
  * | `VITEST_MAX_WORKERS=N` | `if (process.env.VITEST_MAX_WORKERS) resolved.maxWorkers = parseInt(...)` — overrides the resolved config, so it binds projects that set their own | read out of vitest 4.1.4 `dist/chunks/coverage.*.js` |
- * | `npm_config_workspace_concurrency=N` | Bounds `pnpm -r` fan-out across workspace packages | `npm_config_workspace_concurrency=1 pnpm config get workspace-concurrency` → `1` |
+ * | `npm_config_workspace_concurrency=N` / `pnpm_config_workspace_concurrency=N` | Bounds `pnpm -r` fan-out across workspace packages (pnpm 10 reads the first, pnpm 11+ the second) | `npm_config_workspace_concurrency=1 pnpm config get workspace-concurrency` → `1` on pnpm 10.30; `pnpm_config_…` → `1` on pnpm 12.6 (T13122) |
  *
  * Together these bound the product the semaphore could not see:
  * `packages in flight × workers per run × heap per worker`.
@@ -54,8 +54,8 @@
  *   - an inherited `NODE_OPTIONS` heap that fits the budget is kept, and the
  *     worker count shrinks so `workers × heap` still fits; one above the budget
  *     is clamped to it;
- *   - an inherited worker count or `npm_config_workspace_concurrency` at or
- *     below the plan is kept; one above it is clamped;
+ *   - an inherited worker count or workspace concurrency at or below the plan
+ *     is kept; one above it is clamped;
  *   - only an explicit CLEO override asks for more: `CLEO_HEAVY_HEAP_MB`,
  *     `CLEO_HEAVY_WORKERS`, `CLEO_HEAVY_WORKSPACE_CONCURRENCY`.
  *
@@ -139,6 +139,21 @@ export const HEAVY_WORKERS_ENV = 'CLEO_HEAVY_WORKERS';
  * @task T13122
  */
 export const HEAVY_WORKSPACE_CONCURRENCY_ENV = 'CLEO_HEAVY_WORKSPACE_CONCURRENCY';
+
+/**
+ * The two spellings of pnpm's `workspace-concurrency` in the environment. pnpm
+ * 10 reads only `npm_config_workspace_concurrency`; pnpm 11+ reads only
+ * `pnpm_config_workspace_concurrency` (measured: pnpm 10.30.0 and 12.6.0 each
+ * report `undefined` for the other spelling). Setting one bounded `pnpm -r`
+ * fan-out on one pnpm major and silently nothing on the other, so the overlay
+ * sets both.
+ *
+ * @task T13122
+ */
+export const WORKSPACE_CONCURRENCY_VARS = [
+  'npm_config_workspace_concurrency',
+  'pnpm_config_workspace_concurrency',
+] as const;
 
 /** Environment overlay to merge into a heavy tool's spawn env. */
 export type HeavyToolEnv = Readonly<Record<string, string>>;
@@ -571,19 +586,17 @@ export function planHeavyToolEnv(
   // the budget shared between them.
   const packagesOverride = readOverride(env, HEAVY_WORKSPACE_CONCURRENCY_ENV, ignored);
   const packages = packagesOverride ?? WORKSPACE_CONCURRENCY;
-  planCount(
-    'npm_config_workspace_concurrency',
-    env.npm_config_workspace_concurrency,
-    packages,
-    packagesOverride !== null,
-    overlay,
-    clamped,
-    kept,
+  for (const name of WORKSPACE_CONCURRENCY_VARS) {
+    planCount(name, env[name], packages, packagesOverride !== null, overlay, clamped, kept);
+  }
+  // What the child gets: the overlay's value, or the inherited one it kept —
+  // the larger of the two spellings, since which one pnpm reads depends on its
+  // version.
+  const packagesInFlight = Math.max(
+    ...WORKSPACE_CONCURRENCY_VARS.map(
+      (name) => positiveInt(overlay[name] ?? env[name]) ?? packages,
+    ),
   );
-  // What the child gets: the overlay's value, or the inherited one it kept.
-  const packagesInFlight =
-    positiveInt(overlay.npm_config_workspace_concurrency ?? env.npm_config_workspace_concurrency) ??
-    packages;
 
   const heap = chooseHeap(
     env,
@@ -652,6 +665,41 @@ export function planHeavyToolEnv(
       summary: parts.join('; '),
     },
   };
+}
+
+/** Launchers that are npm itself: they warn about every unknown `npm_config_*` and read none of the pnpm ones. */
+const NPM_LAUNCHERS = new Set(['npm', 'npx']);
+
+/**
+ * The overlay a given launcher should actually receive (T13122).
+ *
+ * npm prints `npm warn Unknown env config "workspace-concurrency"` on every run
+ * when `npm_config_workspace_concurrency` is set, and that line lands in the
+ * output tail CLEO quotes when a tool fails, pushing the real error out of it.
+ * npm never reads the variable (it runs workspace scripts one at a time), so
+ * for an `npm`/`npx` launcher it is dropped. Every other launcher gets the
+ * overlay unchanged.
+ *
+ * @param overlay - the planned overlay.
+ * @param cmd - the executable about to be spawned (a path or a bare name).
+ * @returns the overlay for that launcher.
+ *
+ * @example
+ * ```ts
+ * overlayForLauncher({ npm_config_workspace_concurrency: '1' }, 'npx'); // → {}
+ * overlayForLauncher({ npm_config_workspace_concurrency: '1' }, 'pnpm'); // unchanged
+ * ```
+ *
+ * @task T13122
+ */
+export function overlayForLauncher(overlay: HeavyToolEnv, cmd: string): HeavyToolEnv {
+  const launcher = (cmd.split('/').pop() ?? cmd).replace(/\.(cmd|exe)$/i, '');
+  if (!NPM_LAUNCHERS.has(launcher) || overlay.npm_config_workspace_concurrency === undefined) {
+    return overlay;
+  }
+  return Object.fromEntries(
+    Object.entries(overlay).filter(([name]) => name !== 'npm_config_workspace_concurrency'),
+  );
 }
 
 /**

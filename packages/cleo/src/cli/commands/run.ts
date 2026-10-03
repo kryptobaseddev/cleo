@@ -60,7 +60,7 @@ import {
   type RunNoticeLevel,
   runGoverned,
 } from '@cleocode/core/resources/run-governed.js';
-import { planHeavyToolEnv } from '@cleocode/core/tasks/heavy-tool-env.js';
+import { overlayForLauncher, planHeavyToolEnv } from '@cleocode/core/tasks/heavy-tool-env.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -221,7 +221,7 @@ export const runCommand = defineCommand({
         argv,
         cls,
         cwd: process.cwd(),
-        env: { ...process.env, ...overlay },
+        env: { ...process.env, ...overlayForLauncher(overlay, argv[0] ?? '') },
         sessionId: process.env.CLEO_SESSION_ID ?? process.env.CLAUDE_CODE_SESSION_ID ?? null,
         wait: Boolean(args.wait),
         timeoutMs,
