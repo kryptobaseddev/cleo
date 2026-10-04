@@ -25,7 +25,6 @@ import {
   readFocusState,
   readLiveFocus,
   resolveFocusSessionId,
-  type StaleFocusPointer,
   staleFocusWarning,
   writeFocusState,
 } from '../sessions/focus-state-store.js';
@@ -74,7 +73,6 @@ import {
   unbindSessionTerminals,
 } from '../store/session-store.js';
 import {
-  currentTask,
   getTaskHistory,
   type StartTaskOptions,
   startTask,
@@ -365,50 +363,10 @@ export async function sessionShow(
   }
 }
 
-/**
- * Get current task being worked on.
- *
- * @param projectRoot - Absolute path to the project root
- * @returns EngineResult with currentTask and currentPhase
- *
- * @task T1573
- */
-export async function taskCurrentGet(projectRoot: string): Promise<
-  EngineResult<{
-    currentTask: string | null;
-    currentPhase: string | null;
-    staleFocus?: StaleFocusPointer;
-    nextSuggested?: { id: string; title: string } | null;
-  }>
-> {
-  try {
-    const accessor = await getTaskAccessor(projectRoot);
-    const result = await currentTask(projectRoot, accessor);
-    if (!result.staleFocus)
-      return engineSuccess({
-        currentTask: result.currentTask,
-        currentPhase: result.currentPhase,
-      });
-    // T12660: a done/cancelled/missing pointer is reported as stale, with the
-    // next ready task in its place — never as the current task.
-    const { coreTaskNext } = await import('../tasks/task-next.js');
-    // T12689: a one-line hint — no brain pattern scoring for `cleo current`.
-    const top = (await coreTaskNext(projectRoot, { count: 1, brain: false })).suggestions[0];
-    const nextSuggested = top ? { id: top.id, title: top.title } : null;
-    pushWarning({
-      code: 'W_STALE_FOCUS',
-      message: staleFocusWarning(result.staleFocus, nextSuggested),
-    });
-    return engineSuccess({
-      currentTask: null,
-      currentPhase: result.currentPhase,
-      staleFocus: result.staleFocus,
-      nextSuggested,
-    });
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
-  }
-}
+// taskCurrentGet lives in `./task-current.js`, a leaf: this module imports the
+// sessions barrel and task-work, which register the hook handlers at load, and
+// `cleo current` needs neither (T13126).
+export { taskCurrentGet } from './task-current.js';
 
 /**
  * Start working on a specific task.

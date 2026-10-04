@@ -29,7 +29,9 @@
  *      imports referenced from the `mutate` method and from handler entries
  *      named by the domain's mutate operations (query-only handlers are
  *      excluded), then the import graph from there, with named imports
- *      resolved through barrel re-exports to their defining module.
+ *      resolved through barrel re-exports to their defining module. A
+ *      module-level const initialised from `(await import(spec)).name` counts
+ *      as a named import of `name` bound to that const (lazy handlers).
  * 2. REJECTION SITES in those modules: `throw new X(…)`, `throw f(…)` (a
  *    factory-built error; the callee name is the code), `return new XError(…)`
  *    inside an Error-returning factory, `engineError(…)`, `emitFailure(…)`,
@@ -564,11 +566,32 @@ export function analyseFile(file, text, ctx) {
       node.arguments[0] &&
       ts.isStringLiteral(node.arguments[0])
     ) {
+      // A lazily loaded binding, `const x = lazy(async () => (await import(s)).name)`
+      // (T13126): the module-level const `x` stands for `name` of `s`, so a
+      // mutate handler referencing `x` reaches `name`'s module like a static
+      // named import would.
+      let decl = node.parent;
+      while (decl && !ts.isVariableDeclaration(decl) && !ts.isSourceFile(decl)) decl = decl.parent;
+      const awaited =
+        node.parent && ts.isAwaitExpression(node.parent) ? node.parent : null;
+      const accessed =
+        awaited &&
+        awaited.parent &&
+        ts.isParenthesizedExpression(awaited.parent) &&
+        awaited.parent.parent &&
+        ts.isPropertyAccessExpression(awaited.parent.parent)
+          ? awaited.parent.parent.name.text
+          : null;
+      const local =
+        decl && ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name)
+          ? decl.name.text
+          : null;
       imports.push({
         spec: node.arguments[0].text,
-        names: [],
-        locals: [],
+        names: accessed && local ? [accessed] : [],
+        locals: accessed && local ? [local] : [],
         whole: true,
+        namespace: !accessed && local ? local : undefined,
         dynamic: true,
       });
     }

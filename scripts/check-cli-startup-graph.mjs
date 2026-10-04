@@ -81,6 +81,8 @@ const STORE_STACK = /\/drizzle-orm\/|^node:sqlite$/;
 const MODEL_SDKS = /\/(@anthropic-ai|openai|@ai-sdk|@aws-sdk|@google|js-tiktoken)\//;
 /** CORE's human-renderer entry point: JSON output (`--version`, agents) never needs it. */
 const CORE_RENDER = /\/core\/dist\/render\/index\.js$/;
+/** The operation describer `--describe` loads (its output contracts pull in zod schemas). */
+const DESCRIBE_OPERATION = /\/core\/dist\/dispatch\/describe-operation\.js$/;
 /** The output-contract table a failed `--field` pointer loads for its remedy. */
 const OUTPUT_CONTRACTS = /\/core\/dist\/dispatch\/contracts\/output-contracts\.js$/;
 /** drizzle's ES module `node-sqlite` driver, the build the store loads (T13126). */
@@ -117,13 +119,18 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * `@cleocode/runtime/gateway/dispatch`, narrow imports): `show` and `find`
  * load ~1,050 modules. With contracts values imported from their leaf modules
  * and the read-path leaves, `show` and `find` load ~820 modules (~190 MB) and
- * `list --human` ~880. Lower each budget in the PR that lowers its count.
+ * `list --human` ~880. With the tasks domain handlers loaded per operation,
+ * the token recorder loaded only for mutations and `cleo current` on a leaf,
+ * `show`, `find` and `current` load ~450 modules (~135 MB). `describe` covers
+ * the `--describe` path, which loads the operation describer through
+ * `require(esm)`. Lower each budget in the PR that lowers its count.
  *
  * Three CLI paths load ES modules through `require(esm)`, which throws
  * `ERR_REQUIRE_ASYNC_MODULE` when the loaded graph uses top-level await: the
  * store's drizzle driver (`core/src/store/drizzle-node-sqlite.ts`), CORE's
- * human renderers, and the output-contract table behind a failed `--field`
- * pointer (both through `cleo/src/cli/lib/load-esm-sync.ts`). `list-human` and
+ * human renderers, the output-contract table behind a failed `--field` pointer
+ * and the operation describer behind `--describe` (all three through
+ * `cleo/src/cli/lib/load-esm-sync.ts`). `list-human` and
  * `field-miss` run the last two and must exit as expected, so top-level await
  * reaching either graph fails this gate. The drizzle driver falls back to its
  * CommonJS build instead of failing, so every store-opening probe forbids
@@ -152,8 +159,8 @@ export const PROBES = Object.freeze([
     needsProject: true,
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     require: [DRIZZLE_ESM_DRIVER],
-    maxModules: 910,
-    maxRssMb: 260,
+    maxModules: 500,
+    maxRssMb: 200,
   },
   {
     name: 'find',
@@ -161,8 +168,8 @@ export const PROBES = Object.freeze([
     needsProject: true,
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     require: [DRIZZLE_ESM_DRIVER],
-    maxModules: 910,
-    maxRssMb: 260,
+    maxModules: 500,
+    maxRssMb: 200,
   },
   {
     name: 'list-human',
@@ -172,8 +179,8 @@ export const PROBES = Object.freeze([
     require: [CORE_RENDER, DRIZZLE_ESM_DRIVER],
     // ExitCode.NO_DATA: the throwaway project has no tasks; the renderer still runs.
     expectExit: 100,
-    maxModules: 970,
-    maxRssMb: 260,
+    maxModules: 565,
+    maxRssMb: 200,
   },
   {
     name: 'field-miss',
@@ -183,8 +190,26 @@ export const PROBES = Object.freeze([
     require: [OUTPUT_CONTRACTS],
     // ExitCode.NOT_FOUND: E_FIELD_NOT_FOUND, with the contract's valid pointers as the fix.
     expectExit: 4,
-    maxModules: 910,
-    maxRssMb: 260,
+    maxModules: 505,
+    maxRssMb: 200,
+  },
+  {
+    name: 'current',
+    args: ['current'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    maxModules: 500,
+    maxRssMb: 200,
+  },
+  {
+    name: 'describe',
+    args: ['list', '--describe'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    require: [DESCRIBE_OPERATION],
+    expectExit: 0,
+    maxModules: 465,
+    maxRssMb: 200,
   },
 ]);
 

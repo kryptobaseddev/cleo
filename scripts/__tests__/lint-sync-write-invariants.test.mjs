@@ -174,6 +174,40 @@ export function checkThing(p) {
     expect(added).toEqual([expect.stringContaining('things/check.ts :: E_FOO')]);
   });
 
+  it('6b: a lazily loaded mutate handler binding reaches its module like a named import (T13126)', () => {
+    const { scan, added } = sitesOf({
+      'packages/cleo/src/dispatch/domains/things.ts': `import { lazyOperation } from './lazy.js';
+const checkThing = lazyOperation(async () => (await import('@cleocode/core/things')).checkThing);
+const listThings = lazyOperation(async () => (await import('@cleocode/core/things')).listThings);
+const handlers = {
+  list: async (p) => listThings(p),
+  add: async (p) => checkThing(p),
+};
+export const handler = {
+  async query(op, params) { return handlers[op](params); },
+  async mutate(op, params) { return handlers[op](params); },
+  getSupportedOperations() { return { query: ['list'], mutate: ['add'] }; },
+};
+`,
+      'packages/cleo/src/dispatch/domains/lazy.ts':
+        'export function lazyOperation(load) { return async (...a) => (await load())(...a); }\n',
+      'packages/core/src/things/index.ts':
+        "export { checkThing } from './check.js';\nexport { listThings } from './list.js';\n",
+      'packages/core/src/things/list.ts': `export function listThings() { throw new Error('query only'); }\n`,
+      'packages/core/src/things/check.ts': `import { engineError } from '../engine.js';
+export function checkThing(p) {
+  if (!p) return engineError('E_FOO', 'missing');
+  return p;
+}
+`,
+      'packages/core/src/engine.ts':
+        'export function engineError(code, msg) { return { code, msg }; }\n',
+    });
+    expect(scan.reachable.has('packages/core/src/things/check.ts')).toBe(true);
+    expect(scan.reachable.has('packages/core/src/things/list.ts')).toBe(false);
+    expect(added).toEqual([expect.stringContaining('things/check.ts :: E_FOO')]);
+  });
+
   it('7: an untagged SQL counter (weight = weight + 1) fails', () => {
     const { added } = sitesOf({
       'packages/core/src/edges.ts': `export function bump(db, from, to) {
