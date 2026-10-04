@@ -22,8 +22,10 @@ that holds a task id (declared foreign keys and the registry's refs, including a
 `tasks_completed_json`), and acceptance criteria whose ids are derived from the task id are
 re-derived, so a "tests pass" criterion is not lost to the newer task's identical one. Legacy
 twins (same title and creation time) are paired with distinct recovered tasks. A collision whose
-creation time does not parse is never renumbered: it is listed as an `id-collision-undecided`
-conflict and the receipt says it was left uncopied. A recovered id that a concurrent write takes
+creation time does not parse is never renumbered, and the run then copies no task-graph table at
+all (history still copies), so the undecided task's children, dependencies and criteria cannot
+attach to the newer task. The receipt lists the undecided ids and every withheld table, and says
+to correct the legacy `created_at` and run again. A recovered id that a concurrent write takes
 before the copy makes the run refuse and revert. Task ids written inside free text are not
 rewritten.
 

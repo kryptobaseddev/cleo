@@ -23,8 +23,9 @@
  * - `recoveredAs`: for a `collision`, the live task an earlier run recovered
  *   it as, else `NULL`. A candidate has the same title and creation instant
  *   and an id that is NOT a legacy id (so it is not the legacy row's own copy
- *   or another legacy task). Twins (same title and instant) are paired with
- *   candidates in id order, one to one, so no candidate is claimed twice.
+ *   or another legacy task). Twins (same title and instant, however the
+ *   instant is spelled) are paired with candidates in id order, one to one,
+ *   so no candidate is claimed twice.
  *
  * A different title alone is the same task edited since the cutover.
  */
@@ -41,17 +42,19 @@ export const TASK_ID_COLLISIONS_SQL = `WITH
                 ELSE julianday(t.created_at) <> julianday(s.created_at) END
   ),
   numbered AS (
-    SELECT legacyId, legacyTitle, legacyCreatedAt,
-           ROW_NUMBER() OVER (PARTITION BY legacyTitle, legacyCreatedAt ORDER BY legacyId) AS rn
+    SELECT legacyId, legacyTitle, julianday(legacyCreatedAt) AS instant,
+           ROW_NUMBER() OVER (
+             PARTITION BY legacyTitle, julianday(legacyCreatedAt) ORDER BY legacyId
+           ) AS rn
       FROM collided WHERE decision = 'collision'
   ),
-  grp AS (SELECT DISTINCT legacyTitle, legacyCreatedAt FROM numbered),
+  grp AS (SELECT DISTINCT legacyTitle, instant FROM numbered),
   candidates AS (
-    SELECT g.legacyTitle, g.legacyCreatedAt, m.id AS candidateId,
-           ROW_NUMBER() OVER (PARTITION BY g.legacyTitle, g.legacyCreatedAt ORDER BY m.id) AS rn
+    SELECT g.legacyTitle, g.instant, m.id AS candidateId,
+           ROW_NUMBER() OVER (PARTITION BY g.legacyTitle, g.instant ORDER BY m.id) AS rn
       FROM grp g
       JOIN main.tasks_tasks m
-        ON m.title IS g.legacyTitle AND julianday(m.created_at) = julianday(g.legacyCreatedAt)
+        ON m.title IS g.legacyTitle AND julianday(m.created_at) = g.instant
      WHERE m.id NOT IN (SELECT id FROM legacy.tasks)
   )
 SELECT c.legacyId, c.legacyTitle, c.legacyCreatedAt, c.liveTitle, c.decision,
@@ -59,5 +62,5 @@ SELECT c.legacyId, c.legacyTitle, c.legacyCreatedAt, c.liveTitle, c.decision,
   FROM collided c
   LEFT JOIN numbered n ON n.legacyId = c.legacyId
   LEFT JOIN candidates k
-    ON k.legacyTitle IS n.legacyTitle AND k.legacyCreatedAt IS n.legacyCreatedAt AND k.rn = n.rn
+    ON k.legacyTitle IS n.legacyTitle AND k.instant = n.instant AND k.rn = n.rn
  ORDER BY c.legacyId`;

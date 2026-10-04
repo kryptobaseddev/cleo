@@ -1128,9 +1128,15 @@ export interface SupersededStoreConflict {
    * Why they were left. `id-collision-undecided` (full mode, T13172): a live
    * task holds the legacy task's id and one of the two creation times does
    * not parse, so the run cannot tell whether they are the same task; it
-   * neither renumbers nor copies the legacy task.
+   * neither renumbers nor copies the legacy task. `withheld-undecided`: a
+   * task-graph table such a run did not copy at all, so the undecided task's
+   * children, dependencies and criteria cannot attach to the live task.
    */
-  reason: 'live-authoritative' | 'collides-with-live' | 'id-collision-undecided';
+  reason:
+    | 'live-authoritative'
+    | 'collides-with-live'
+    | 'id-collision-undecided'
+    | 'withheld-undecided';
   /** The legacy ids left uncopied, when the run can name them. */
   ids?: string[];
 }

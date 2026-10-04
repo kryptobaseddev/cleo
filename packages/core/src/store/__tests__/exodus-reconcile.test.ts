@@ -672,22 +672,72 @@ describe.each(
       expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(3);
     });
 
-    it('an unparseable creation time is reported as undecided, never renumbered (review MED-2)', async () => {
+    it('an unparseable creation time withholds the task graph, dependents included (review MED-2)', async () => {
+      stage(
+        `CREATE TABLE task_acceptance_criteria (
+           id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), ordinal INTEGER NOT NULL,
+           text TEXT NOT NULL, created_at TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'text',
+           target_task_id TEXT REFERENCES tasks(id), projection TEXT NOT NULL DEFAULT 'legacy'
+         );
+         CREATE TABLE task_dependencies (
+           task_id TEXT NOT NULL REFERENCES tasks(id), depends_on TEXT NOT NULL REFERENCES tasks(id),
+           PRIMARY KEY (task_id, depends_on)
+         );
+         INSERT INTO tasks VALUES
+           ('T001', 'legacy epoch task', 'pending', 'medium', 'saga', NULL, NULL, NULL, '1735689600000'),
+           ('T002', 'legacy child', 'pending', 'medium', 'epic', 'T001', NULL, NULL, '2026-01-02T00:00:00Z');
+         INSERT INTO task_acceptance_criteria VALUES
+           ('ACX', 'T001', 1, 'legacy-only criterion', '2026-01-01T00:00:00Z', 'text', NULL, 'legacy');
+         INSERT INTO task_dependencies VALUES ('T002', 'T001');`,
+        POST_DEFERRAL_T001,
+      );
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const plan = await reconcileSupersededStores(join(root, 'project'), { dryRun: true });
+      expect(plan.reason).toContain('the task graph was NOT copied');
+      const result = await reconcileSupersededStores(join(root, 'project'));
+
+      expect(result.remaps).toEqual([]);
+      expect(result.conflicts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ reason: 'id-collision-undecided', ids: ['T001'], rows: 1 }),
+          expect.objectContaining({ reason: 'withheld-undecided', targetTable: 'tasks_tasks' }),
+          expect.objectContaining({
+            reason: 'withheld-undecided',
+            targetTable: 'tasks_task_acceptance_criteria',
+          }),
+          expect.objectContaining({
+            reason: 'withheld-undecided',
+            targetTable: 'tasks_task_dependencies',
+          }),
+        ]),
+      );
+      expect(result.reason).not.toContain('every legacy row');
+      expect(result.reason).toContain('Correct the legacy created_at of T001');
+      // Nothing attached to the live T001.
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(1);
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_task_acceptance_criteria')).toBe(0);
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_task_dependencies')).toBe(0);
+    });
+
+    it('twins whose instant is spelled two ways share one candidate pool (review LOW)', async () => {
       stage(
         `INSERT INTO tasks VALUES
-           ('T001', 'legacy epoch task', 'pending', 'medium', 'saga', NULL, NULL, NULL, '1735689600000');`,
-        POST_DEFERRAL_T001,
+           ('T001', 'Imported', 'pending', 'medium', 'saga', NULL, NULL, NULL, '2026-01-01T00:00:00Z'),
+           ('T002', 'Imported', 'pending', 'medium', 'saga', NULL, NULL, NULL, '2026-01-01 00:00:00');`,
+        `${POST_DEFERRAL_T001}
+         INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES
+           ('T002', 'Other', 'pending', 'medium', 'saga', '2026-10-03T00:00:00Z'),
+           ('T005', 'Imported', 'pending', 'medium', 'saga', '2026-01-01T00:00:00Z');`,
       );
       const { reconcileSupersededStores } = await import('../exodus/index.js');
       const result = await reconcileSupersededStores(join(root, 'project'));
 
-      expect(result.remaps).toEqual([]);
-      expect(result.conflicts).toEqual([
-        expect.objectContaining({ reason: 'id-collision-undecided', ids: ['T001'], rows: 1 }),
+      expect(result.outcome).toBe('reconciled');
+      expect(result.remaps).toEqual([
+        expect.objectContaining({ legacyId: 'T001', newId: 'T005', alreadyRecovered: true }),
+        expect.objectContaining({ legacyId: 'T002', newId: 'T006', alreadyRecovered: false }),
       ]);
-      expect(result.reason).not.toContain('every legacy row');
-      expect(result.reason).toContain('left uncopied (T001)');
-      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(1);
+      expect(scalar(liveDb, "SELECT COUNT(*) FROM tasks_tasks WHERE title = 'Imported'")).toBe(2);
     });
 
     it('one instant spelled two ways is the same task, not a collision (review MED-2)', async () => {
