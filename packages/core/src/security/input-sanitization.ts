@@ -12,7 +12,7 @@
  * @epic T3125
  */
 
-import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js';
+import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs-lifecycle.js';
 import {
   LIFECYCLE_STAGE_STATUSES,
   MANIFEST_STATUSES,

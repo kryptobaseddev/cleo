@@ -24,6 +24,11 @@ import type {
 import { acceptanceGateSchema } from '@cleocode/contracts/acceptance-gate-schema.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
+import { acTextHash, buildAcRowId, canonicalizeAcText } from './ac-identity.js';
+
+// The identity helpers live in `./ac-identity.js`, a leaf without zod: the store
+// computes row identities on every open (T13126).
+export { acTextHash, buildAcRowId, canonicalizeAcText };
 
 /**
  * Coerce an {@link AcceptanceItem} into the canonical row `text` form.
@@ -103,20 +108,6 @@ function stableStringify(value: CanonicalJson): string {
     .join(',')}}`;
 }
 
-/**
- * Canonical text used for AC hashing/idempotency. It deliberately ignores
- * display-only ordering and task lifecycle fields: ordinals, titles, and
- * statuses never enter this value.
- */
-export function canonicalizeAcText(text: string): string {
-  return text.normalize('NFKC').replace(/\r\n?/g, '\n').trim();
-}
-
-/** Build a deterministic sha256 over the canonical AC representation. */
-export function acTextHash(text: string): string {
-  return createHash('sha256').update(canonicalizeAcText(text)).digest('hex');
-}
-
 /** Default direct-text source key. Deterministic from monotonic ordinal + canonical content only. */
 export function directTextSourceKey(ordinal: number, text: string): string {
   return `text:${ordinal}:${acTextHash(text).slice(0, 32)}`;
@@ -132,23 +123,6 @@ export function evidenceBoundSourceKey(gate: AcceptanceGate, canonicalText: stri
 /** Source key for parent-owned child projections. Excludes child title/status. */
 export function childProjectionSourceKey(childId: string): string {
   return `child:${childId}`;
-}
-
-/**
- * Deterministic UUID-shaped AC id derived only from owning task + canonical AC identity.
- * This is UUIDv5-shaped for ecosystem compatibility, but it is intentionally
- * implemented with SHA-256 so we do not introduce a new runtime dependency.
- */
-export function buildAcRowId(taskId: string, canonicalIdentity: string): string {
-  const hex = createHash('sha256')
-    .update(`cleo-ac-row\0${taskId}\0${canonicalIdentity}`)
-    .digest('hex');
-  const chars = hex.split('');
-  chars[12] = '5';
-  chars[16] = ((Number.parseInt(chars[16] ?? '0', 16) & 0x3) | 0x8).toString(16);
-  return `${chars.slice(0, 8).join('')}-${chars.slice(8, 12).join('')}-${chars
-    .slice(12, 16)
-    .join('')}-${chars.slice(16, 20).join('')}-${chars.slice(20, 32).join('')}`;
 }
 
 function assertUniqueGeneratedRows(taskId: string, rows: readonly AcInsertRow[]): void {

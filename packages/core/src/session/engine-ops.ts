@@ -21,11 +21,8 @@ import { pushWarning } from '../output.js';
 import { paginate } from '../pagination.js';
 import { type ContextInjectionData, injectContext } from '../sessions/context-inject.js';
 import {
-  focusSessionIdFromRead,
   readFocusState,
-  readLiveFocus,
   resolveFocusSessionId,
-  type StaleFocusPointer,
   staleFocusWarning,
   writeFocusState,
 } from '../sessions/focus-state-store.js';
@@ -74,7 +71,6 @@ import {
   unbindSessionTerminals,
 } from '../store/session-store.js';
 import {
-  currentTask,
   getTaskHistory,
   type StartTaskOptions,
   startTask,
@@ -134,72 +130,10 @@ function toEngineError<T>(
 /** Default limit for sessionList when none is provided. */
 const SESSION_LIST_DEFAULT_LIMIT = 10;
 
-/**
- * Get current session status.
- *
- * Returns whether there is an active session, along with the session record,
- * current task work state, and the running CLEO_OWNER_OVERRIDE count for
- * the active session (T1501 / P0-5).
- *
- * @param projectRoot - Absolute path to the project root
- * @returns EngineResult with active session flag, session record, task work
- *   state, and `overrideCount` for the active session.
- *
- * @task T1573
- */
-export async function sessionStatus(projectRoot: string): Promise<
-  EngineResult<{
-    hasActiveSession: boolean;
-    session?: Session | null;
-    taskWork?: TaskWorkState | null;
-    /** Running CLEO_OWNER_OVERRIDE count for the active session. */
-    overrideCount: number;
-    /**
-     * `true` when this caller is NOT bound to a session and `session` is only
-     * the newest active row — possibly another agent's (T12500). Omitted when
-     * the session is the caller's own.
-     */
-    unbound?: true;
-  }>
-> {
-  try {
-    const accessor = await getTaskAccessor(projectRoot);
-    // T11344 — env-first identity resolution. The CALLER's session
-    // (`CLEO_SESSION_ID`) wins over the DB's most-recent active row so a
-    // spawned agent's `cleo session status` reports ITS own session.
-    // T12500 — read-only: an unbound caller may still SEE the newest active
-    // row, but the envelope labels it `unbound: true`.
-    const read = await resolveSessionForRead(projectRoot);
-    const { session: active, unbound } = read;
-    // T11345 — read the per-session focus_state key for the resolved session.
-    // T12684: the live focus — a finished task is reported as staleFocus.
-    // T12501: keyed by THE focus-key rule, the one `cleo start` writes — never
-    // the newest active row's key for an unbound caller. Derived from the one
-    // resolution above (same bound tiers), not resolved twice.
-    const liveFocus = await readLiveFocus(accessor, focusSessionIdFromRead(read));
-    const focusState = liveFocus.state
-      ? { ...liveFocus.state, currentTask: liveFocus.currentTask }
-      : null;
-
-    // Surface persisted override count for the active session (T1501).
-    let overrideCount = 0;
-    if (active) {
-      const { readSessionOverrideCount } = await import('../security/override-cap.js');
-      overrideCount = readSessionOverrideCount(projectRoot, active.id);
-    }
-
-    return engineSuccess({
-      hasActiveSession: !!active && active.status === 'active',
-      session: active ?? null,
-      taskWork: focusState,
-      ...(liveFocus.staleFocus ? { staleFocus: liveFocus.staleFocus } : {}),
-      overrideCount,
-      ...(unbound ? { unbound: true as const } : {}),
-    });
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
-  }
-}
+// sessionStatus lives in `./status-op.js`, a leaf: this module loads the
+// sessions barrel and task-work (hook registrations), which `cleo session
+// status` does not need (T13126).
+export { sessionStatus } from './status-op.js';
 
 /**
  * Rebind the calling shell's env to a specific session (T9975).
@@ -365,50 +299,10 @@ export async function sessionShow(
   }
 }
 
-/**
- * Get current task being worked on.
- *
- * @param projectRoot - Absolute path to the project root
- * @returns EngineResult with currentTask and currentPhase
- *
- * @task T1573
- */
-export async function taskCurrentGet(projectRoot: string): Promise<
-  EngineResult<{
-    currentTask: string | null;
-    currentPhase: string | null;
-    staleFocus?: StaleFocusPointer;
-    nextSuggested?: { id: string; title: string } | null;
-  }>
-> {
-  try {
-    const accessor = await getTaskAccessor(projectRoot);
-    const result = await currentTask(projectRoot, accessor);
-    if (!result.staleFocus)
-      return engineSuccess({
-        currentTask: result.currentTask,
-        currentPhase: result.currentPhase,
-      });
-    // T12660: a done/cancelled/missing pointer is reported as stale, with the
-    // next ready task in its place — never as the current task.
-    const { coreTaskNext } = await import('../tasks/task-next.js');
-    // T12689: a one-line hint — no brain pattern scoring for `cleo current`.
-    const top = (await coreTaskNext(projectRoot, { count: 1, brain: false })).suggestions[0];
-    const nextSuggested = top ? { id: top.id, title: top.title } : null;
-    pushWarning({
-      code: 'W_STALE_FOCUS',
-      message: staleFocusWarning(result.staleFocus, nextSuggested),
-    });
-    return engineSuccess({
-      currentTask: null,
-      currentPhase: result.currentPhase,
-      staleFocus: result.staleFocus,
-      nextSuggested,
-    });
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
-  }
-}
+// taskCurrentGet lives in `./task-current.js`, a leaf: this module imports the
+// sessions barrel and task-work, which register the hook handlers at load, and
+// `cleo current` needs neither (T13126).
+export { taskCurrentGet } from './task-current.js';
 
 /**
  * Start working on a specific task.

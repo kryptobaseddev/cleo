@@ -39,84 +39,22 @@ function generateRequestId(): string {
 // loop. `getOutputContract` resolves a per-op OUTPUT contract (hand-authored
 // OR derived) so a failed `--field` JSON pointer can emit the valid pointer set
 // as `fix` + `alternatives` instead of a bare "did not resolve" (DHQ-057).
-import { getOutputContract } from '@cleocode/core/dispatch/contracts/output-contracts';
+// Loaded only on that failure (T13126): deriving contracts loads the zod
+// workgraph schemas, which a successful command never needs.
+import type * as OutputContracts from '@cleocode/core/dispatch/contracts/output-contracts';
 import {
   extractByJsonPointer,
   isJsonPointer,
   serializePointerValue,
 } from '@cleocode/core/dispatch/projection';
 import { drainWarnings, type FormatOptions, formatSuccess } from '@cleocode/core/output';
-import {
-  metaFooter,
-  pagerFooter,
-  renderAuditReconstruct,
-  renderBlockers,
-  renderBrainBackfill,
-  renderBrainExport,
-  renderBrainMaintenance,
-  renderBrainPlasticityStats,
-  renderBrainPurge,
-  renderBrainQuality,
-  renderBriefing,
-  renderCurrent,
-  renderDecideAsk,
-  renderDecideConfig,
-  renderDecideProfiles,
-  renderDecideStatus,
-  renderDoctor,
-  renderGeneric,
-  renderNext,
-  renderNexusAnalyze,
-  renderNexusBrainAnchors,
-  renderNexusClusters,
-  renderNexusColdSymbols,
-  renderNexusConduitScan,
-  renderNexusContext as renderNexusContextResult,
-  renderNexusContractsLinkTasks,
-  renderNexusContractsShow,
-  renderNexusContractsSync,
-  renderNexusDiff,
-  renderNexusExport,
-  renderNexusFlows,
-  renderNexusFullContext,
-  renderNexusHotNodes,
-  renderNexusHotPaths,
-  renderNexusImpact,
-  renderNexusImpactFull,
-  renderNexusProjectsClean,
-  renderNexusProjectsCleanPreview,
-  renderNexusProjectsFleet,
-  renderNexusProjectsList,
-  renderNexusProjectsRegister,
-  renderNexusProjectsRemove,
-  renderNexusProjectsScan,
-  renderNexusProjectsStatus,
-  renderNexusQuery,
-  renderNexusRefreshBridge,
-  renderNexusRouteMap,
-  renderNexusSearchCode,
-  renderNexusSetup,
-  renderNexusShapeCheck,
-  renderNexusStatus,
-  renderNexusTaskFootprint,
-  renderNexusTaskSymbols,
-  renderNexusWhy,
-  renderNexusWiki,
-  renderPlan,
-  renderSchemaCommand,
-  renderSession,
-  renderStart,
-  renderStats,
-  renderStop,
-  renderTree,
-  renderVersion,
-  renderWaves,
-} from '@cleocode/core/render/index';
+import type * as CoreRender from '@cleocode/core/render/index';
 import type { CliEnvelope, CliMeta, Warning } from '@cleocode/lafs';
 import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
 import type { DispatchResponseMeta } from '../../dispatch/types.js';
 import { getFieldContext } from '../field-context.js';
 import { getFormatContext } from '../format-context.js';
+import { loadEsmSync } from '../lib/load-esm-sync.js';
 import { getOutputMode } from '../output-context.js';
 import { getSummaryMode } from '../summary-context.js';
 import { emitLafsViolation, LafsViolationError, validateLafsShape } from './lafs-validator.js';
@@ -131,24 +69,35 @@ import {
 } from './output-mode.js';
 
 export type { RenderWavesMode, RenderWavesOptions } from '@cleocode/core/render/index';
-export { renderWaves };
+
+/** CORE's `renderWaves`, loaded with the other human renderers on first use. */
+export function renderWaves(
+  ...args: Parameters<typeof CoreRender.renderWaves>
+): ReturnType<typeof CoreRender.renderWaves> {
+  return humanRender().renderWaves(...args);
+}
 
 // Task renderers — migrated to @cleocode/core/render/tasks per ADR-077
 // (T10133 / B8). The import also triggers the B5 registry side-effect that
 // registers each renderer under `(command, 'generic')` so
 // `renderEnvelopeForHuman` can route to them once commands emit typed
 // envelopes.
-import {
-  renderAdd,
-  renderArchive,
-  renderComplete,
-  renderDelete,
-  renderFind,
-  renderList,
-  renderRestore,
-  renderShow,
-  renderUpdate,
-} from '@cleocode/core/render/index';
+
+let coreRender: typeof CoreRender | null = null;
+
+/**
+ * CORE's human renderers, loaded on the first human-format output (T13126).
+ *
+ * `@cleocode/core/render/index` evaluates every renderer family (~57 modules),
+ * and JSON output, the default for agents, uses none of them. They load
+ * synchronously, through `require(esm)` of the ES module build, so `cliOutput`
+ * stays synchronous (see `../lib/load-esm-sync.ts`); the module and its
+ * `registerRenderer` side effects are the ones a static import would give.
+ */
+function humanRender(): typeof CoreRender {
+  coreRender ??= loadEsmSync<typeof CoreRender>('@cleocode/core/render/index');
+  return coreRender;
+}
 
 // ---------------------------------------------------------------------------
 // Renderer registry: maps command name to human renderer function
@@ -156,101 +105,109 @@ import {
 
 type HumanRenderer = (data: Record<string, unknown>, quiet: boolean) => string;
 
-const renderers: Record<string, HumanRenderer> = {
-  // Task CRUD
-  show: renderShow,
-  list: renderList,
-  ls: renderList,
-  find: renderFind,
-  search: renderFind,
-  add: renderAdd,
-  update: renderUpdate,
-  complete: renderComplete,
-  done: renderComplete,
-  delete: renderDelete,
-  rm: renderDelete,
-  archive: renderArchive,
-  restore: renderRestore,
+let renderersCache: Record<string, HumanRenderer> | null = null;
 
-  // Task work
-  start: renderStart,
-  stop: renderStop,
-  current: renderCurrent,
+/** Command -> human renderer, built from CORE's renderers on first human output. */
+function humanRenderers(): Record<string, HumanRenderer> {
+  if (renderersCache !== null) return renderersCache;
+  const r = humanRender();
+  renderersCache = {
+    // Task CRUD
+    show: r.renderShow,
+    list: r.renderList,
+    ls: r.renderList,
+    find: r.renderFind,
+    search: r.renderFind,
+    add: r.renderAdd,
+    update: r.renderUpdate,
+    complete: r.renderComplete,
+    done: r.renderComplete,
+    delete: r.renderDelete,
+    rm: r.renderDelete,
+    archive: r.renderArchive,
+    restore: r.renderRestore,
 
-  // System
-  doctor: renderDoctor,
-  stats: renderStats,
-  next: renderNext,
-  plan: renderPlan,
-  blockers: renderBlockers,
-  tree: renderTree,
-  depends: renderTree,
-  deps: renderTree,
-  // Orchestration — `cleo orchestrate waves` emits { waves, epicId, ... }
-  // which renderTree handles via its data.waves branch (T1194/T1195).
-  orchestrate: renderTree,
-  session: renderSession,
-  version: renderVersion,
-  // T1593 — `cleo briefing` reads tasks.db + brain.db (NEVER markdown handoffs).
-  briefing: renderBriefing,
+    // Task work
+    start: r.renderStart,
+    stop: r.renderStop,
+    current: r.renderCurrent,
 
-  // Brain subcommands (T1722)
-  'brain-maintenance': renderBrainMaintenance,
-  'brain-backfill': renderBrainBackfill,
-  'brain-purge': renderBrainPurge,
-  'brain-plasticity-stats': renderBrainPlasticityStats,
-  'brain-quality': renderBrainQuality,
-  'brain-export': renderBrainExport,
+    // System
+    doctor: r.renderDoctor,
+    stats: r.renderStats,
+    next: r.renderNext,
+    plan: r.renderPlan,
+    blockers: r.renderBlockers,
+    tree: r.renderTree,
+    depends: r.renderTree,
+    deps: r.renderTree,
+    // Orchestration — `cleo orchestrate waves` emits { waves, epicId, ... }
+    // which renderTree handles via its data.waves branch (T1194/T1195).
+    orchestrate: r.renderTree,
+    session: r.renderSession,
+    version: r.renderVersion,
+    // T1593 — `cleo briefing` reads tasks.db + brain.db (NEVER markdown handoffs).
+    briefing: r.renderBriefing,
 
-  // Audit subcommand renderers (T1729)
-  'audit-reconstruct': renderAuditReconstruct,
+    // Brain subcommands (T1722)
+    'brain-maintenance': r.renderBrainMaintenance,
+    'brain-backfill': r.renderBrainBackfill,
+    'brain-purge': r.renderBrainPurge,
+    'brain-plasticity-stats': r.renderBrainPlasticityStats,
+    'brain-quality': r.renderBrainQuality,
+    'brain-export': r.renderBrainExport,
 
-  // Schema command renderer (T1729)
-  schema: renderSchemaCommand,
+    // Audit subcommand renderers (T1729)
+    'audit-reconstruct': r.renderAuditReconstruct,
 
-  // Nexus subcommand renderers (T1720)
-  'nexus-status': renderNexusStatus,
-  'nexus-setup': renderNexusSetup,
-  // System One (T12733): human blocks for config / status / ask / profiles.
-  'decide-config': renderDecideConfig,
-  'decide-status': renderDecideStatus,
-  'decide-ask': renderDecideAsk,
-  'decide-profiles': renderDecideProfiles,
-  'nexus-clusters': renderNexusClusters,
-  'nexus-flows': renderNexusFlows,
-  'nexus-context': renderNexusContextResult,
-  'nexus-impact': renderNexusImpact,
-  'nexus-analyze': renderNexusAnalyze,
-  'nexus-projects-list': renderNexusProjectsList,
-  'nexus-projects-register': renderNexusProjectsRegister,
-  'nexus-projects-remove': renderNexusProjectsRemove,
-  'nexus-projects-scan': renderNexusProjectsScan,
-  'nexus-projects-status': renderNexusProjectsStatus,
-  'nexus-projects-fleet': renderNexusProjectsFleet,
-  'nexus-projects-clean': renderNexusProjectsClean,
-  'nexus-projects-clean-preview': renderNexusProjectsCleanPreview,
-  'nexus-refresh-bridge': renderNexusRefreshBridge,
-  'nexus-diff': renderNexusDiff,
-  'nexus-query': renderNexusQuery,
-  'nexus-route-map': renderNexusRouteMap,
-  'nexus-shape-check': renderNexusShapeCheck,
-  'nexus-full-context': renderNexusFullContext,
-  'nexus-task-footprint': renderNexusTaskFootprint,
-  'nexus-brain-anchors': renderNexusBrainAnchors,
-  'nexus-why': renderNexusWhy,
-  'nexus-impact-full': renderNexusImpactFull,
-  'nexus-conduit-scan': renderNexusConduitScan,
-  'nexus-task-symbols': renderNexusTaskSymbols,
-  'nexus-search-code': renderNexusSearchCode,
-  'nexus-contracts-sync': renderNexusContractsSync,
-  'nexus-contracts-show': renderNexusContractsShow,
-  'nexus-contracts-link-tasks': renderNexusContractsLinkTasks,
-  'nexus-export': renderNexusExport,
-  'nexus-wiki': renderNexusWiki,
-  'nexus-hot-paths': renderNexusHotPaths,
-  'nexus-hot-nodes': renderNexusHotNodes,
-  'nexus-cold-symbols': renderNexusColdSymbols,
-};
+    // Schema command renderer (T1729)
+    schema: r.renderSchemaCommand,
+
+    // Nexus subcommand renderers (T1720)
+    'nexus-status': r.renderNexusStatus,
+    'nexus-setup': r.renderNexusSetup,
+    // System One (T12733): human blocks for config / status / ask / profiles.
+    'decide-config': r.renderDecideConfig,
+    'decide-status': r.renderDecideStatus,
+    'decide-ask': r.renderDecideAsk,
+    'decide-profiles': r.renderDecideProfiles,
+    'nexus-clusters': r.renderNexusClusters,
+    'nexus-flows': r.renderNexusFlows,
+    'nexus-context': r.renderNexusContext,
+    'nexus-impact': r.renderNexusImpact,
+    'nexus-analyze': r.renderNexusAnalyze,
+    'nexus-projects-list': r.renderNexusProjectsList,
+    'nexus-projects-register': r.renderNexusProjectsRegister,
+    'nexus-projects-remove': r.renderNexusProjectsRemove,
+    'nexus-projects-scan': r.renderNexusProjectsScan,
+    'nexus-projects-status': r.renderNexusProjectsStatus,
+    'nexus-projects-fleet': r.renderNexusProjectsFleet,
+    'nexus-projects-clean': r.renderNexusProjectsClean,
+    'nexus-projects-clean-preview': r.renderNexusProjectsCleanPreview,
+    'nexus-refresh-bridge': r.renderNexusRefreshBridge,
+    'nexus-diff': r.renderNexusDiff,
+    'nexus-query': r.renderNexusQuery,
+    'nexus-route-map': r.renderNexusRouteMap,
+    'nexus-shape-check': r.renderNexusShapeCheck,
+    'nexus-full-context': r.renderNexusFullContext,
+    'nexus-task-footprint': r.renderNexusTaskFootprint,
+    'nexus-brain-anchors': r.renderNexusBrainAnchors,
+    'nexus-why': r.renderNexusWhy,
+    'nexus-impact-full': r.renderNexusImpactFull,
+    'nexus-conduit-scan': r.renderNexusConduitScan,
+    'nexus-task-symbols': r.renderNexusTaskSymbols,
+    'nexus-search-code': r.renderNexusSearchCode,
+    'nexus-contracts-sync': r.renderNexusContractsSync,
+    'nexus-contracts-show': r.renderNexusContractsShow,
+    'nexus-contracts-link-tasks': r.renderNexusContractsLinkTasks,
+    'nexus-export': r.renderNexusExport,
+    'nexus-wiki': r.renderNexusWiki,
+    'nexus-hot-paths': r.renderNexusHotPaths,
+    'nexus-hot-nodes': r.renderNexusHotNodes,
+    'nexus-cold-symbols': r.renderNexusColdSymbols,
+  };
+  return renderersCache;
+}
 
 // ---------------------------------------------------------------------------
 // Decorator passthrough — local pick to avoid renderers → dispatch import cycle
@@ -507,7 +464,11 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
       // the contract's valid pointers as `fix` + `alternatives`, converting the
       // contract from manual-before-the-fact into automatic post-failure
       // remediation. Ops without a contract degrade to the `--describe` hint.
-      const contract = opts.operation ? getOutputContract(opts.operation) : null;
+      const contract = opts.operation
+        ? loadEsmSync<typeof OutputContracts>(
+            '@cleocode/core/dispatch/contracts/output-contracts',
+          ).getOutputContract(opts.operation)
+        : null;
       const fix = contract
         ? `Valid pointers for ${opts.operation}: ${contract.fieldPointers.join(', ')}` +
           (contract.shapeNote ? ` — ${contract.shapeNote}` : '')
@@ -596,7 +557,10 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
     const normalized = normalizeForHuman(opts.command, dataToRender);
     // After field extraction, use renderGeneric — command-specific renderers
     // expect the full data structure, not a filtered subset (§5.4.1)
-    const renderer = fieldExtracted ? renderGeneric : (renderers[opts.command] ?? renderGeneric);
+    const { renderGeneric, pagerFooter, metaFooter } = humanRender();
+    const renderer = fieldExtracted
+      ? renderGeneric
+      : (humanRenderers()[opts.command] ?? renderGeneric);
     const text = renderer(normalized, ctx.quiet);
     if (text) {
       process.stdout.write(text + '\n');

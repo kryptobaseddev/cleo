@@ -67,7 +67,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { RowIdentityRef, RowIdentitySpec, TableScope } from '@cleocode/contracts';
 import { uuidv7 } from '../cloud/uuidv7.js';
 import { getLogger } from '../logger.js';
-import { acTextHash } from '../tasks/ac-table.js';
+import { acTextHash } from '../tasks/ac-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import {
   BIRTH_FP_COLUMN,
