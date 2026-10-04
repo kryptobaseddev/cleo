@@ -169,6 +169,18 @@ jobs:
             fi
           done
 
+      # T13184: a hotfix is flagged inside @cleocode/cleo's own manifest
+      # (`"cleo": { "hotfix": true }`), read from the committed release plan's
+      # releaseKind. Trusted Publishing (OIDC) cannot move dist-tags, so the flag
+      # ships with the package; installed CLIs read it from the latest version's
+      # registry manifest and show a stronger HOTFIX update notice. Runs before
+      # the tarball gates so they verify the manifest that is published, and the
+      # modified manifest travels to `publish` with the build output.
+      - name: Flag a hotfix release in the cleo manifest (T13184)
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/mark-hotfix-release.mjs "$VERSION"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Install ripgrep (required for T1605 callsite-coverage validator)

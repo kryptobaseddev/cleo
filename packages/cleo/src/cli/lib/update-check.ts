@@ -3,20 +3,31 @@
  *
  * Runs in a detached child started by `showUpdateNotice` (`update-notice.ts`),
  * never in a command's own process: it fetches the package's dist-tags (one small
- * JSON object, which also carries the `hotfix` flag) and rewrites the cache the
- * next commands read. Everything it needs arrives on its command line, so it
- * shares no runtime code with the CLI's startup graph.
+ * JSON object), then the `latest` version's manifest, whose `cleo.hotfix: true`
+ * flags a hotfix (T13184: release.yml writes it for a `--hotfix` plan, so the
+ * flag ships through the tokenless publish; no dist-tag is consulted). It
+ * rewrites the cache the next commands read. Everything it needs arrives on its
+ * command line.
  *
- * A failed check keeps the previous dist-tags and records `ok: false`, so the
- * next command retries after the short interval instead of a day.
+ * The cache keeps the highest flagged version it has ever seen, so an install
+ * that missed a hotfix still hears about it after a regular release replaces it
+ * as `latest`.
+ *
+ * A failed check keeps the previous cache contents and records `ok: false`, so
+ * the next command retries after the short interval instead of a day.
  *
  * @module
  * @task T13137
+ * @task T13184
  */
 
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { UpdateCheckCache, UpdateCheckRequest } from './update-notice.js';
+import {
+  compareVersions,
+  type UpdateCheckCache,
+  type UpdateCheckRequest,
+} from './update-notice.js';
 
 /** The whole check, including the response body, must finish within this. */
 export const UPDATE_CHECK_TIMEOUT_MS = 10_000;
@@ -52,6 +63,38 @@ export function distTagsUrl(registry: string, packageName: string): string {
 }
 
 /**
+ * The registry URL of one version's manifest (its published package.json plus
+ * registry fields), with the scoped name escaped as npm does.
+ *
+ * @param registry - Registry base URL.
+ * @param packageName - Package name.
+ * @param version - Exact version.
+ * @returns The manifest URL.
+ *
+ * @example
+ * ```ts
+ * versionManifestUrl('https://registry.npmjs.org/', '@cleocode/cleo', '2026.10.5');
+ * // → 'https://registry.npmjs.org/@cleocode%2fcleo/2026.10.5'
+ * ```
+ */
+export function versionManifestUrl(registry: string, packageName: string, version: string): string {
+  return `${registry.replace(/\/+$/, '')}/${packageName.replace('/', '%2f')}/${encodeURIComponent(version)}`;
+}
+
+/**
+ * Whether a version manifest flags a hotfix: `"cleo": { "hotfix": true }`, the
+ * field release.yml writes for a release planned with `--hotfix`.
+ *
+ * @param body - Parsed manifest.
+ * @returns `true` only for a literal `true`.
+ */
+export function manifestFlagsHotfix(body: unknown): boolean {
+  if (typeof body !== 'object' || body === null || !('cleo' in body)) return false;
+  const meta = body.cleo;
+  return typeof meta === 'object' && meta !== null && 'hotfix' in meta && meta.hotfix === true;
+}
+
+/**
  * Keep the well-formed entries of a dist-tags response.
  *
  * @param body - Parsed response body.
@@ -69,17 +112,28 @@ export function parseDistTags(body: unknown): Record<string, string> | null {
   return tags;
 }
 
-/** dist-tags of the existing cache, if it is readable. */
-function previousDistTags(cachePath: string): Record<string, string> {
+/** dist-tags and flagged hotfix of the existing cache, if it is readable. */
+function previousCache(cachePath: string): { distTags: Record<string, string>; hotfix?: string } {
   try {
     const body: unknown = JSON.parse(readFileSync(cachePath, 'utf8'));
-    if (typeof body === 'object' && body !== null && 'distTags' in body) {
-      return parseDistTags(body.distTags) ?? {};
+    if (typeof body === 'object' && body !== null) {
+      const distTags = 'distTags' in body ? (parseDistTags(body.distTags) ?? {}) : {};
+      const hotfix = 'hotfix' in body ? body.hotfix : undefined;
+      return typeof hotfix === 'string' && VERSION_RE.test(hotfix)
+        ? { distTags, hotfix }
+        : { distTags };
     }
   } catch {
     // No previous cache.
   }
-  return {};
+  return { distTags: {} };
+}
+
+/** The higher of two optional versions. */
+function maxVersion(a: string | undefined, b: string | undefined): string | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return (compareVersions(a, b) ?? 0) >= 0 ? a : b;
 }
 
 /** Write the cache atomically: a reader sees the old file or the new one. */
@@ -103,21 +157,40 @@ export async function runUpdateCheck(
   fetchImpl: UpdateCheckFetch = fetch,
   now: () => Date = () => new Date(),
 ): Promise<UpdateCheckCache> {
+  const previous = previousCache(request.cachePath);
+  const signal = AbortSignal.timeout(UPDATE_CHECK_TIMEOUT_MS);
+  const headers = { accept: 'application/json' };
   let distTags: Record<string, string> | null = null;
+  let manifestRead = false;
+  let flagged: string | undefined;
   try {
     const response = await fetchImpl(distTagsUrl(request.registry, request.packageName), {
-      signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT_MS),
-      headers: { accept: 'application/json' },
+      signal,
+      headers,
     });
     if (response.ok) distTags = parseDistTags(await response.json());
+    const latest = distTags?.['latest'];
+    if (latest !== undefined) {
+      const manifest = await fetchImpl(
+        versionManifestUrl(request.registry, request.packageName, latest),
+        { signal, headers },
+      );
+      if (manifest.ok) {
+        manifestRead = true;
+        if (manifestFlagsHotfix(await manifest.json())) flagged = latest;
+      }
+    }
   } catch {
     // Offline, timed out or not JSON: recorded as a failed check below.
   }
+  const hotfix = maxVersion(previous.hotfix, flagged);
   const cache: UpdateCheckCache = {
     schemaVersion: 1,
     checkedAt: now().toISOString(),
-    ok: distTags !== null,
-    distTags: distTags ?? previousDistTags(request.cachePath),
+    // Both reads must succeed: a missed manifest would hide a hotfix for a day.
+    ok: distTags !== null && (manifestRead || distTags['latest'] === undefined),
+    distTags: distTags ?? previous.distTags,
+    ...(hotfix === undefined ? {} : { hotfix }),
   };
   try {
     writeCache(request.cachePath, cache);

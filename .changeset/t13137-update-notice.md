@@ -2,7 +2,7 @@
 id: t13137-update-notice
 tasks: [T13137]
 kind: feat
-summary: An installed CLEO announces a newer release on stderr, and a release flagged with the hotfix dist-tag gets a stronger notice every 15 minutes
+summary: An installed CLEO announces a newer release on stderr, and a release planned as a hotfix gets a stronger notice every 15 minutes
 ---
 
 Before this, nothing told an installed CLI that a fix existed: only an explicit `cleo self-update`
@@ -14,10 +14,10 @@ dist-tags and rewrites the cache; no command waits on the network. When the inst
 (`latest`, or `beta` for a beta/rc install) names a newer version, the CLI prints one stderr line
 naming it and `cleo self-update`, at most once a day.
 
-A maintainer flags a release as a hotfix with `npm dist-tag add @cleocode/cleo@<version> hotfix`.
-Every install below it, for which `cleo self-update` delivers it, then prints a stronger `HOTFIX`
-line at most every 15 minutes until it updates. That is not every command, because each line lands in an agent's context. The tag arrives in the same dist-tags response, so the flag
-costs no extra request and can be set or withdrawn after publishing.
+A release planned with `cleo release plan <v> --hotfix` is flagged in its own published manifest
+(T13184). Every install below it, for which `cleo self-update` delivers it, then prints a stronger
+`HOTFIX` line at most every 15 minutes until it updates. That is not every command, because each line
+lands in an agent's context.
 
 The notice never touches stdout (the LAFS envelope is unchanged), and it is silent with
 `CLEO_NO_UPDATE_NOTICE=1` (or `NO_UPDATE_NOTIFIER`) in every environment, TTY or not, in CI, from a

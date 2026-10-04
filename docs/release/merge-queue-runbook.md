@@ -307,14 +307,11 @@ order (`@cleocode/cleo` last), and waits until `latest` resolves everywhere. A
 failed move or an unconverged tag turns the run red and names the package;
 re-run with the same version, and packages already moved are skipped.
 
-**Promoting a hotfix.** The workflow moves only `latest`. When the release fixes
-a defect installed users must not keep running, also flag it once `latest`
-resolves, so installed CLIs show the stronger HOTFIX notice (T13137; see
-`docs/release/verb-matrix.md`):
-
-```bash
-npm dist-tag add @cleocode/cleo@2026.X.Y hotfix
-```
+**Promoting a hotfix.** Nothing extra. A release planned with
+`cleo release plan … --hotfix` already carries `"cleo": { "hotfix": true }` in
+its published manifest (release.yml writes it; T13184), and installed CLIs show
+the stronger HOTFIX notice as soon as this promotion makes it `latest` (see
+`docs/release/verb-matrix.md`).
 
 Only the current canary can be promoted. If a newer release was published
 before an older canary was promoted, promote the newer one. The exception is a
