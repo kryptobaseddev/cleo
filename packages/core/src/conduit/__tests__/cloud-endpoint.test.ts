@@ -10,10 +10,15 @@
 
 import type { AgentCredential, AgentRegistryAPI } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { agents as legacyAgents } from '../../store/schema/agent-registry-schema.js';
+import { agentRegistryAgents } from '../../store/schema/cleo-global/agent-registry.js';
+import { tasksAgentCredentials } from '../../store/schema/cleo-project/provenance-orphans.js';
 import {
   conduitFetch,
   E_SIGNALDOCK_RETIRED,
+  installRetiredHostFetchGuard,
   isRetiredCloudUrl,
+  MAX_CONDUIT_REDIRECTS,
   retiredCloudHost,
   SignalDockRetiredError,
 } from '../cloud-endpoint.js';
@@ -112,10 +117,96 @@ describe('conduitFetch', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('passes any other URL straight to fetch', async () => {
+  it('passes any other URL to fetch, following redirects itself', async () => {
     const init = { method: 'POST', body: '{}' };
     await conduitFetch(`${OTHER}/messages`, init);
-    expect(fetchSpy).toHaveBeenCalledWith(`${OTHER}/messages`, init);
+    expect(fetchSpy).toHaveBeenCalledWith(`${OTHER}/messages`, { ...init, redirect: 'manual' });
+  });
+});
+
+describe('conduitFetch redirects', () => {
+  const redirect = (status: number, location: string) =>
+    new Response(null, { status, headers: { location } });
+
+  it('refuses a redirect to a SignalDock host before following it', async () => {
+    fetchSpy.mockResolvedValueOnce(redirect(302, 'https://api.signaldock.io/messages'));
+    await expect(conduitFetch(`${OTHER}/messages`)).rejects.toThrow(SignalDockRetiredError);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks every hop, including a relative one and a later one', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(redirect(307, '/v2/messages'))
+      .mockResolvedValueOnce(redirect(308, 'https://SSE.signaldock.io./x'));
+    await expect(conduitFetch(`${OTHER}/messages`)).rejects.toMatchObject({
+      code: E_SIGNALDOCK_RETIRED,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[1]?.[0]).toBe(`${OTHER}/v2/messages`);
+  });
+
+  it('keeps credentials on the same origin and drops them on another', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(redirect(307, '/same'))
+      .mockResolvedValueOnce(redirect(307, 'https://other.example.test/x'));
+    await conduitFetch(`${OTHER}/messages`, {
+      method: 'POST',
+      body: '{}',
+      headers: { Authorization: 'Bearer secret', 'X-Agent-Id': 'a' },
+    });
+    const headersAt = (i: number) => new Headers(fetchSpy.mock.calls[i]?.[1]?.headers);
+    expect(headersAt(1).get('authorization')).toBe('Bearer secret');
+    expect(headersAt(2).get('authorization')).toBeNull();
+    expect(headersAt(2).get('x-agent-id')).toBe('a');
+    expect(fetchSpy.mock.calls[2]?.[1]).toMatchObject({ method: 'POST', body: '{}' });
+  });
+
+  it('turns a POST into a body-less GET on 303', async () => {
+    fetchSpy.mockResolvedValueOnce(redirect(303, '/done'));
+    await conduitFetch(`${OTHER}/messages`, {
+      method: 'POST',
+      body: '{}',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const followed = fetchSpy.mock.calls[1]?.[1];
+    expect(followed).toMatchObject({ method: 'GET', body: undefined });
+    expect(new Headers(followed?.headers).get('content-type')).toBeNull();
+  });
+
+  it(`gives up after ${MAX_CONDUIT_REDIRECTS} redirects`, async () => {
+    fetchSpy.mockImplementation(async () => redirect(302, '/loop'));
+    await expect(conduitFetch(`${OTHER}/messages`)).rejects.toThrow(/more than 5 redirects/);
+    expect(fetchSpy).toHaveBeenCalledTimes(MAX_CONDUIT_REDIRECTS + 1);
+  });
+});
+
+describe('installRetiredHostFetchGuard (the process-wide backstop)', () => {
+  it('refuses a SignalDock request made through the global fetch, whatever its input form', async () => {
+    installRetiredHostFetchGuard();
+    await expect(fetch(`${RETIRED}/health`)).rejects.toThrow(SignalDockRetiredError);
+    await expect(fetch(new URL(`${RETIRED}/health`))).rejects.toThrow(SignalDockRetiredError);
+    await expect(fetch(new Request(`${RETIRED}/health`))).rejects.toThrow(SignalDockRetiredError);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('passes every other request through, and wraps only once', async () => {
+    installRetiredHostFetchGuard();
+    const wrapped = globalThis.fetch;
+    installRetiredHostFetchGuard();
+    expect(globalThis.fetch).toBe(wrapped);
+    await fetch(`${OTHER}/health`, { method: 'GET' });
+    expect(fetchSpy).toHaveBeenCalledWith(`${OTHER}/health`, { method: 'GET' });
+  });
+});
+
+describe('agent base URL defaults (T13169)', () => {
+  it.each([
+    ['cleo-global agent registry', agentRegistryAgents.apiBaseUrl],
+    ['legacy agent registry', legacyAgents.apiBaseUrl],
+    ['project agent credentials', tasksAgentCredentials.apiBaseUrl],
+  ])('%s: an ORM insert that omits the column stores local; the SQL default is unchanged', (_n, column) => {
+    expect(column.defaultFn?.()).toBe('local');
+    expect(column.default).toBe('https://api.signaldock.io');
   });
 });
 

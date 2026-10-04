@@ -50,7 +50,20 @@ async function validateCommandPath(
 }
 
 /**
+ * Wrap the process-global `fetch` so that no command can call a retired
+ * SignalDock host, whichever code path it takes (T13169). It is loaded
+ * dynamically, alongside the command module, to keep the CLI's static startup
+ * graph free of core modules.
+ */
+async function installRetiredHostGuard(): Promise<void> {
+  const { installRetiredHostFetchGuard } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+  installRetiredHostFetchGuard();
+}
+
+/**
  * Build a lazy wrapper around a command loader.
+ *
+ * Loading a command also installs the retired-host `fetch` guard (T13169).
  *
  * @param meta   - Static metadata visible to help rendering without loading the module.
  * @param loader - Async factory returning the real `CommandDef`.
@@ -63,7 +76,7 @@ export function lazyCommand(
 ): CommandDef {
   let promise: Promise<CommandDef> | null = null;
   const load = (): Promise<CommandDef> => {
-    promise ??= loader();
+    promise ??= Promise.all([loader(), installRetiredHostGuard()]).then(([command]) => command);
     return promise;
   };
 

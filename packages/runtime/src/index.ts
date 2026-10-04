@@ -99,6 +99,9 @@ export async function createRuntime(
     );
   }
 
+  // Refuse every request to a retired SignalDock host in this process (T13169).
+  conduit.installRetiredHostFetchGuard();
+
   // Resolve transport: caller-provided > auto-detected (Local > SSE > HTTP)
   const transport = config?.transport ?? resolveTransport(credential);
   await transport.connect({
