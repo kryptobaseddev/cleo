@@ -37,9 +37,15 @@
  *   node scripts/check-cli-startup-graph.mjs --json   # print measurements as JSON
  *
  * `--check` and `--strict` (passed by `cleo check arch`, gate 39) behave the
- * same: the budgets are already the ratchet. A missing build fails, and so does
- * a build older than the CLI or CORE source it would be measuring: a stale
- * dist reports on code that is no longer there.
+ * same: the budgets are already the ratchet.
+ *
+ * The gate needs a CURRENT build: a missing entry, a build older than the CLI
+ * or CORE source, or a `dist/cli/index.js` that `tsc -b` overwrote with per-file
+ * output (not the esbuild bundle) would measure code that is not what ships.
+ * In CI (`CI` set) or with `--require-build` that fails (exit 2). Locally it is
+ * SKIPPED (exit {@link SKIPPED_EXIT_CODE}, which `cleo check arch` reports as
+ * skipped), so a pre-push `cleo check arch` never demands a full build; CI
+ * builds first and enforces it.
  *
  * @task T13126
  */
@@ -63,6 +69,15 @@ const REPO_ROOT = resolve(import.meta.dirname, '..');
 
 /** The built CLI entry this gate measures. */
 export const CLI_ENTRY = join(REPO_ROOT, 'packages/cleo/dist/cli/index.js');
+
+/**
+ * Exit code for "precondition absent locally, nothing measured". `cleo check
+ * arch` reports a gate that exits with it as skipped, not failed.
+ */
+export const SKIPPED_EXIT_CODE = 78;
+
+/** A marker only the esbuild CLI bundle carries (build.mjs's banner). */
+const BUNDLE_MARKER = 'cleocode.cli.sqliteWarningFilter';
 
 /**
  * Bare specifiers the entry's STATIC graph must never import: each one drags a
@@ -453,21 +468,63 @@ export function newestSource(roots) {
   return newest;
 }
 
+/**
+ * Whether the built CLI can be measured, and what to do when it cannot.
+ *
+ * @param {object} build
+ * @param {boolean} build.entryExists - `dist/cli/index.js` exists.
+ * @param {number} build.entryMtimeMs - Its mtime (ignored when absent).
+ * @param {boolean} build.isBundle - It is the esbuild bundle, not tsc output.
+ * @param {{ path: string, mtimeMs: number } | null} build.newest - Newest source file.
+ * @param {boolean} requireBuild - CI or `--require-build`: an unusable build fails.
+ * @returns {{ action: 'measure' } | { action: 'skip' | 'fail', message: string }}
+ */
+export function buildPrecondition(build, requireBuild) {
+  let problem = null;
+  if (!build.entryExists) problem = `${CLI_ENTRY} is missing`;
+  else if (!build.isBundle)
+    problem =
+      'dist/cli/index.js is not the esbuild bundle (`tsc -b` overwrites it with per-file output)';
+  else if (build.newest !== null && build.newest.mtimeMs > build.entryMtimeMs)
+    problem = `the build is older than ${build.newest.path}`;
+  if (problem === null) return { action: 'measure' };
+  if (requireBuild) {
+    return {
+      action: 'fail',
+      message: `${problem}; run \`pnpm run build\` so the gate measures the current source.`,
+    };
+  }
+  return {
+    action: 'skip',
+    message:
+      `skipped: no current build (${problem}). CI builds and enforces this gate; ` +
+      'run `pnpm run build` (or pass --require-build) to measure it locally.',
+  };
+}
+
 function main() {
   const json = process.argv.includes('--json');
-  if (!existsSync(CLI_ENTRY)) {
-    console.error(
-      `check-cli-startup-graph: ${CLI_ENTRY} is missing; run \`pnpm run build\` first.`,
-    );
+  const ci = process.env.CI;
+  const requireBuild =
+    process.argv.includes('--require-build') || (ci !== undefined && ci !== '' && ci !== 'false');
+  const entryExists = existsSync(CLI_ENTRY);
+  const newest = newestSource(SOURCE_ROOTS);
+  const precondition = buildPrecondition(
+    {
+      entryExists,
+      entryMtimeMs: entryExists ? statSync(CLI_ENTRY).mtimeMs : 0,
+      isBundle: entryExists && readFileSync(CLI_ENTRY, 'utf8').includes(BUNDLE_MARKER),
+      newest: newest === null ? null : { ...newest, path: newest.path.slice(REPO_ROOT.length + 1) },
+    },
+    requireBuild,
+  );
+  if (precondition.action === 'fail') {
+    console.error(`check-cli-startup-graph: ${precondition.message}`);
     process.exit(2);
   }
-  const newest = newestSource(SOURCE_ROOTS);
-  if (newest !== null && newest.mtimeMs > statSync(CLI_ENTRY).mtimeMs) {
-    console.error(
-      `check-cli-startup-graph: the build is older than ${newest.path.slice(REPO_ROOT.length + 1)}; ` +
-        'run `pnpm run build` so the gate measures the current source.',
-    );
-    process.exit(2);
+  if (precondition.action === 'skip') {
+    console.error(`check-cli-startup-graph: ${precondition.message}`);
+    process.exit(SKIPPED_EXIT_CODE);
   }
 
   const failures = [];
