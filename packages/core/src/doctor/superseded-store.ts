@@ -39,6 +39,8 @@
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { resolveCleoDir } from '../paths.js';
+import { loadPriorRecoveries, priorRecoveries } from '../store/exodus/prior-recoveries.js';
 import { TASK_ID_COLLISIONS_SQL } from '../store/exodus/task-id-collision-sql.js';
 
 /**
@@ -181,7 +183,11 @@ function countMissingById(
  * that no live task matches yet (T13172): present by key, absent in substance.
  * `null` when the comparison could not run.
  */
-function countShadowedTasks(livePath: string, supersededPath: string): number | null {
+function countShadowedTasks(
+  livePath: string,
+  supersededPath: string,
+  cleoDir: string,
+): number | null {
   let db: DatabaseSync | null = null;
   try {
     db = new DatabaseSync(livePath, { readOnly: true }); // db-open-allowed: read-only probe of a superseded, unowned file
@@ -195,6 +201,7 @@ function countShadowedTasks(livePath: string, supersededPath: string): number | 
       return names.has('title') && names.has('created_at');
     };
     if (!hasColumns('legacy', 'tasks') || !hasColumns('main', 'tasks_tasks')) return 0;
+    loadPriorRecoveries(db, priorRecoveries(cleoDir));
     const row = db
       .prepare(`SELECT COUNT(*) AS c FROM (${TASK_ID_COLLISIONS_SQL}) WHERE recoveredAs IS NULL`)
       .get() as { c: number } | undefined;
@@ -234,6 +241,8 @@ export const SUPERSEDED_STORE_RECONCILE_COMMAND = 'cleo doctor superseded-store 
  */
 export function scanSupersededStores(projectRoot: string): SupersededStoreScanResult {
   const liveStorePath = join(projectRoot, '.cleo', LIVE_STORE_FILENAME);
+  // Where the reconcile writes its receipts (T13183): the resolved .cleo.
+  const cleoDir = resolveCleoDir(projectRoot);
   const liveStoreExists = existsSync(liveStorePath);
 
   if (!liveStoreExists) {
@@ -272,7 +281,7 @@ export function scanSupersededStores(projectRoot: string): SupersededStoreScanRe
     // T13172: a legacy task whose id a different live task holds is present by
     // key and absent in substance, so it counts as missing.
     const shadowed =
-      file === 'tasks.db' && stat.size !== 0 ? countShadowedTasks(liveStorePath, path) : 0;
+      file === 'tasks.db' && stat.size !== 0 ? countShadowedTasks(liveStorePath, path, cleoDir) : 0;
     const missingInLive = missingById === null || shadowed === null ? null : missingById + shadowed;
     const safeToArchive = (rowsInLive ?? 0) > 0 && (rowsInSuperseded === 0 || missingInLive === 0);
 
