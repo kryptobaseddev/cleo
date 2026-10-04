@@ -24,7 +24,7 @@ import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { BUILTIN_DOC_KIND_VALUES, DocKindRegistry } from '@cleocode/contracts';
+import { BUILTIN_DOC_KIND_VALUES, DocKindRegistry } from '@cleocode/contracts/docs-taxonomy.js';
 import { addTransientWorktree, removeTransientWorktree } from '@cleocode/worktree';
 
 const execFileAsync = promisify(execFile);

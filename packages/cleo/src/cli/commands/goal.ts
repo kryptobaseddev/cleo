@@ -27,7 +27,9 @@
  * @saga T11283 SG-COGNITIVE-SUBSTRATE
  */
 
-import { ExitCode, type GoalKind, isValidGoalTargetTaskId } from '@cleocode/contracts';
+import type { GoalKind } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { isValidGoalTargetTaskId } from '@cleocode/contracts/goal.js';
 import { getProjectRoot, goal } from '@cleocode/core';
 import { defineCommand, showUsage } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';

@@ -14,17 +14,17 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { resolve } from 'node:path';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
-import {
-  ARCHIVE_REASON_TOMBSTONE,
-  type ArchiveReasonValue,
-  ExitCode,
-  type Session,
-  type Task,
-  type TaskClaim,
-  type TaskInsertIdentity,
-  type TaskRowIdentity,
-  type TaskStatus,
+import type {
+  ArchiveReasonValue,
+  Session,
+  Task,
+  TaskClaim,
+  TaskInsertIdentity,
+  TaskRowIdentity,
+  TaskStatus,
 } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { ARCHIVE_REASON_TOMBSTONE } from '@cleocode/contracts/tasks/archive.js';
 import {
   and,
   eq,
@@ -46,7 +46,7 @@ import {
   type WorktreeScope,
   worktreeScope,
 } from '../project-scope.js';
-import { acTextHash, buildAcRowId } from '../tasks/ac-table.js';
+import { acTextHash, buildAcRowId } from '../tasks/ac-identity.js';
 import {
   generateAuditLogId,
   pruneAcBindingsForAcIds,

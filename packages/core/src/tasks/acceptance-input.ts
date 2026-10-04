@@ -2,7 +2,7 @@
  * Canonical task acceptance input normalization, shared by CLI parsing and writes.
  * @task T12197
  */
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 
 /**

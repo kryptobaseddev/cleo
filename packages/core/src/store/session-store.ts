@@ -12,7 +12,7 @@
 
 import { existsSync } from 'node:fs';
 import type { Session } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { and, desc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';

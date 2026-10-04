@@ -6,7 +6,8 @@
 
 import { randomBytes } from 'node:crypto';
 import type { Task, TaskStatus } from '@cleocode/contracts';
-import { isAllowedWorkGraphParentType, TASK_STATUSES } from '@cleocode/contracts';
+import { TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
+import { isAllowedWorkGraphParentType } from '@cleocode/contracts/workgraph.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { childTypeForParentType } from './hierarchy.js';
 import { getHierarchyLimits } from './task-tree.js';

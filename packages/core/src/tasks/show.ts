@@ -14,12 +14,12 @@ import type {
   TasksShowResult,
   TaskView,
 } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
-import { getLifecycleStatus } from '../lifecycle/index.js';
 import { getIvtrState } from '../lifecycle/ivtr-loop.js';
+import { getLifecycleStatus } from '../lifecycle/status.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskShowNext } from '../mvi-helpers.js';
 import { resolveOrCwd } from '../paths.js';

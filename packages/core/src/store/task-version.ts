@@ -28,12 +28,8 @@
  */
 
 import { isDeepStrictEqual } from 'node:util';
-import {
-  ExitCode,
-  type Task,
-  type TaskConflictChange,
-  type TaskConflictDetails,
-} from '@cleocode/contracts';
+import type { Task, TaskConflictChange, TaskConflictDetails } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 
 /** The minimal row shape that carries a task version. */

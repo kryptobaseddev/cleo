@@ -56,7 +56,7 @@
 
 import { createRequire } from 'node:module';
 import type { DatabaseSync } from 'node:sqlite';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';

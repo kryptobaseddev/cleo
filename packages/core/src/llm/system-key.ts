@@ -25,13 +25,11 @@
  * @epic T11745
  */
 
+import type { OpenSystemKind, SystemOfUse, SystemOfUseKind } from '@cleocode/contracts';
 import {
   isOpenSystemKind,
   OPEN_SYSTEM_KEY_PREFIXES,
-  type OpenSystemKind,
-  type SystemOfUse,
-  type SystemOfUseKind,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/llm/system-of-use.js';
 
 /**
  * Encode a structured {@link SystemOfUse} descriptor into its canonical string

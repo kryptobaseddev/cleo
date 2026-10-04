@@ -38,8 +38,13 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { AdoptWorktreeOpts, AdoptWorktreeResult, WorktreeSource } from '@cleocode/contracts';
-import { type EngineResult, engineError, engineSuccess } from '@cleocode/contracts';
+import type {
+  AdoptWorktreeOpts,
+  AdoptWorktreeResult,
+  EngineResult,
+  WorktreeSource,
+} from '@cleocode/contracts';
+import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { getLogger } from '../logger.js';
 import { resolveOrCwd } from '../paths.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';

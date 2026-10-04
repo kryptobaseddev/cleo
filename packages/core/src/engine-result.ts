@@ -22,4 +22,4 @@ export {
   engineError,
   engineSuccess,
   unwrap,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/engine-result.js';

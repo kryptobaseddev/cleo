@@ -29,13 +29,13 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import {
-  DB_INVENTORY,
-  type DbInventoryEntry,
-  type DbRecoveredRowCounts,
-  type DbRecoveryResult,
-  type DbRole,
+import type {
+  DbInventoryEntry,
+  DbRecoveredRowCounts,
+  DbRecoveryResult,
+  DbRole,
 } from '@cleocode/contracts';
+import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
 import { getCleoHome } from '@cleocode/paths';
 import { openNativeDatabase } from './sqlite-native.js';
 

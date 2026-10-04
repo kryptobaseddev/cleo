@@ -30,17 +30,19 @@
  * @epic T12486
  */
 
+import type {
+  DecisionAnswer,
+  DecisionBatchItem,
+  DecisionJsonValue,
+  DecisionOutcome,
+  DecisionRequest,
+  DecisionState,
+} from '@cleocode/contracts';
 import {
-  type DecisionAnswer,
-  type DecisionBatchItem,
-  type DecisionJsonValue,
-  type DecisionOutcome,
-  type DecisionRequest,
-  type DecisionState,
   decisionOutcomeSchema,
   decisionProviderConfigSchema,
   decisionRequestSchema,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/decide.js';
 import { redactContent } from '../memory/redaction.js';
 import { getProjectRoot } from '../paths.js';
 import {

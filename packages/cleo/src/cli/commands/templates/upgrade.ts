@@ -21,7 +21,8 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { ExitCode, type UpdateStrategy } from '@cleocode/contracts';
+import type { UpdateStrategy } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { getTemplateById } from '@cleocode/core/templates/registry';
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../../renderers/index.js';

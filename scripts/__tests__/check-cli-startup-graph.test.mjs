@@ -112,6 +112,45 @@ describe('judgeProbe', () => {
     expect(reasons[1]).toContain('over its ceiling');
   });
 
+  describe('require(esm) paths (top-level await guard)', () => {
+    const listHuman = PROBES.find((probe) => probe.name === 'list-human');
+    const fieldMiss = PROBES.find((probe) => probe.name === 'field-miss');
+    const render = 'file:///r/packages/core/dist/render/index.js';
+    const driver = 'file:///r/node_modules/drizzle-orm/node-sqlite/driver.js';
+    const passing = { modules: 1, maxRssMb: 60, urls: [render, driver], exitCode: 100 };
+
+    it('runs a human-format command and a failed --field pointer', () => {
+      expect(listHuman?.args).toContain('--human');
+      expect(fieldMiss?.args).toContain('--field');
+      expect(judgeProbe(listHuman, passing)).toEqual([]);
+    });
+
+    it('fails on an unexpected exit code and reports the stderr', () => {
+      const stderr = 'Error: require() cannot be used on an ESM graph with top-level await.';
+      const reasons = judgeProbe(listHuman, { ...passing, exitCode: 1, stderr });
+      expect(reasons).toEqual([`list-human: exited 1, expected 100\n${stderr}`]);
+    });
+
+    it('fails when the probe stops loading the module it guards', () => {
+      const reasons = judgeProbe(listHuman, { ...passing, urls: [driver] });
+      expect(reasons).toHaveLength(1);
+      expect(reasons[0]).toContain('no longer tests that path');
+    });
+
+    it("fails a store-opening probe that fell back to drizzle's CommonJS build", () => {
+      const cjs = 'file:///r/node_modules/drizzle-orm/node-sqlite/driver.cjs';
+      for (const probe of PROBES.filter((entry) => entry.needsProject)) {
+        const reasons = judgeProbe(probe, {
+          modules: 1,
+          maxRssMb: 60,
+          urls: [...passing.urls, cjs],
+          exitCode: probe.expectExit ?? null,
+        });
+        expect(reasons.some((reason) => reason.includes('forbidden'))).toBe(true);
+      }
+    });
+  });
+
   it('keeps every probe budget positive and the startup probes under 120 MB', () => {
     for (const probe of PROBES) expect(probe.maxModules).toBeGreaterThan(0);
     for (const name of ['version', 'help']) {

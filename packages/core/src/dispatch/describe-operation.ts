@@ -27,12 +27,12 @@
  * @task T11692 — DHQ-057: per-operation output schema SSoT
  */
 
-import {
-  OPERATIONS,
-  type OperationDef,
-  type OperationInputContract,
-  type OperationOutputContract,
+import type {
+  OperationDef,
+  OperationInputContract,
+  OperationOutputContract,
 } from '@cleocode/contracts';
+import { OPERATIONS } from '@cleocode/contracts/dispatch/operations-registry.js';
 import { describeOperation as describeParams, type OperationSchema } from '@cleocode/lafs';
 import { getInputContract } from './contracts/input-contracts.js';
 import { getOutputContract } from './contracts/output-contracts.js';

@@ -10,15 +10,15 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { Task } from '@cleocode/contracts';
-import {
-  ExitCode,
-  type NexusBlockersShowParams,
-  type NexusDepsParams,
-  type NexusGraphParams,
-  type NexusOrphansListParams,
-  type NexusPathShowParams,
+import type {
+  NexusBlockersShowParams,
+  NexusDepsParams,
+  NexusGraphParams,
+  NexusOrphansListParams,
+  NexusPathShowParams,
+  Task,
 } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { paginate } from '../pagination.js';

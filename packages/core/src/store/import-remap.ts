@@ -7,7 +7,7 @@
  */
 
 import type { DataAccessor, Task } from '@cleocode/contracts';
-import { TASK_STATUSES } from '@cleocode/contracts';
+import { TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 
 /** Forward and reverse remap tables. */
 export interface RemapTable {
