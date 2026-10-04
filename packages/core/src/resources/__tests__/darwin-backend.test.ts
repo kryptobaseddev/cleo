@@ -20,6 +20,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { budgetShare, lightBudgetShare } from '../admission-ledger.js';
 import type { PsiData, ResourceSample } from '../backend.js';
 import {
   cpuSomeFromLoad,
@@ -40,6 +41,7 @@ import {
   evaluateState,
   pressureScore,
 } from '../monitor.js';
+import { evaluateMemoryGate } from '../pressure-gate.js';
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
@@ -523,4 +525,44 @@ describe('a live macOS sample (runs on darwin only)', () => {
       }
     },
   );
+});
+
+describe('healthy small Macs with little reclaimable memory are never refused (#1865 MED-2)', () => {
+  // Injected samples, so this runs on every platform: kernel level normal, no
+  // swap, and almost nothing reclaimable (free + file cache ≈ 0.25 GiB) — the
+  // reading a busy but healthy 8 GiB Air, 16 GiB laptop or 7 GiB macOS CI
+  // runner gives under vitest.
+  const machines = [
+    ['8 GiB Mac', 8],
+    ['16 GiB Mac', 16],
+    ['7 GiB macOS runner', 7],
+  ] as const;
+  const sampleFor = async (gib: number): Promise<ResourceSample> => {
+    const pages = (0.25 * GB) / 16384;
+    const backend = new DarwinResourceBackend({
+      totalMemBytes: gib * GB,
+      sysctlFn: async () =>
+        'kern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 55\n' +
+        `hw.pagesize: 16384\nvm.page_free_count: ${pages}\n` +
+        'vm.swapusage: total = 0.00M  used = 0.00M  free = 0.00M  (encrypted)\n',
+    });
+    return backend.sample();
+  };
+
+  for (const [name, gib] of machines) {
+    it(`${name}: db-heavy (exodus-on-open, the sentient tick) is admitted; heavy runs narrow, never refuse`, async () => {
+      const sample = await sampleFor(gib);
+      expect(sample.globalPressure?.some.avg10).toBe(DARWIN_NORMAL_HEADROOM_CAP);
+      // db-heavy is budgeted on memory alone (T13170) and still admitted.
+      expect(computeClassBudget('db-heavy', sample, { totalMemBytes: gib * GB })).toBe(1);
+      // The memory gate does not refuse; heavy and light runs get half the budget.
+      const gate = evaluateMemoryGate(sample, false);
+      expect(gate.refuse).toBe(false);
+      expect(budgetShare(sample, gate.refuse)).toBe('half');
+      expect(lightBudgetShare(sample, gate.refuse)).toBe('half');
+      expect(
+        computeClassBudget('test-run', sample, { totalMemBytes: gib * GB }),
+      ).toBeGreaterThanOrEqual(1);
+    });
+  }
 });
