@@ -781,7 +781,21 @@ export function readRawProjectContext(projectRoot: string): Record<string, unkno
   const path = join(projectRoot, '.cleo', 'project-context.json');
   if (!existsSync(path)) return null;
   try {
-    const raw = readFileSync(path, 'utf-8');
+    return parseRawProjectContext(readFileSync(path, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse the text of a project-context.json — from disk, or from a git
+ * revision (`git show <rev>:…`, T13135) — into its raw object.
+ *
+ * @param raw - The file's text.
+ * @returns The object, or `null` when it is not a JSON object.
+ */
+export function parseRawProjectContext(raw: string): Record<string, unknown> | null {
+  try {
     const parsed = JSON.parse(raw) as unknown;
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
     return parsed as Record<string, unknown>;

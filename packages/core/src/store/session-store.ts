@@ -20,6 +20,7 @@ import { getCurrentConnectionSessionId } from '../sessions/connection-session-ha
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { resolveTerminalKeys, type TerminalKey } from '../sessions/terminal-identity.js';
 import { rowToSession } from './converters.js';
+import { assertExodusWriteSafe } from './dual-scope-db.js';
 import { sessionTerminalBindings } from './session-binding-schema.js';
 import { getDb, getDbPath, getNativeTasksDb } from './sqlite.js';
 import * as schema from './tasks-schema.js';
@@ -32,6 +33,10 @@ export async function createSession(session: Session, cwd?: string): Promise<Ses
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
     const db = await getDb(scope.worktreeRoot);
+    // T13167: a store that still owes its legacy migration (deferred or aborted
+    // exodus-on-open) refuses with the typed error and remedy.
+    const native = getNativeTasksDb(scope.worktreeRoot);
+    if (native) await assertExodusWriteSafe(native);
     const tw = session.taskWork;
     db.insert(schema.sessions)
       .values({
