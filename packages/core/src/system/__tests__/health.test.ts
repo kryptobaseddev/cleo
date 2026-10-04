@@ -70,6 +70,25 @@ describe('system health audit_log checks', () => {
     expect(auditLog?.message).toContain('audit_log table missing');
   });
 
+  it('reports whether tool:test is scoped to the affected packages (T13125)', async () => {
+    writeFileSync(join(projectRoot, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n");
+    writeFileSync(join(projectRoot, 'package.json'), JSON.stringify({ name: 'root' }));
+    const ctx = join(projectRoot, '.cleo', 'project-context.json');
+    writeFileSync(ctx, JSON.stringify({ testing: { command: 'pnpm -r --no-bail run test' } }));
+    const derived = (await getSystemHealth(projectRoot)).checks.find(
+      (c) => c.name === 'affected_test_scope',
+    );
+    expect(derived?.status).toBe('pass');
+    expect(derived?.message).toContain('pnpm {filters} --no-bail run test');
+
+    writeFileSync(ctx, JSON.stringify({ testing: { command: 'node all-tests.mjs' } }));
+    const whole = (await getSystemHealth(projectRoot)).checks.find(
+      (c) => c.name === 'affected_test_scope',
+    );
+    expect(whole?.status).toBe('warn');
+    expect(whole?.message).toMatch(/runs the whole suite/);
+  });
+
   it('includes audit_log check in doctor report', async () => {
     const { getDb, closeDb } = await import('../../store/sqlite.js');
     await getDb(projectRoot);

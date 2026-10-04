@@ -1783,6 +1783,8 @@ async function scaffoldInitTarget(
     const detectResult = await ensureProjectContext(projRoot, { force: !!opts.detect });
     if (detectResult.action !== 'skipped') {
       created.push('project-context.json');
+      // T13125: the affected-scope command tool:test will derive, proposed.
+      if (detectResult.details) created.push(`affected test scope: ${detectResult.details}`);
     }
   } catch (err) {
     warnings.push(`Project detection failed: ${err instanceof Error ? err.message : String(err)}`);

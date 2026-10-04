@@ -50,6 +50,7 @@ import {
 } from '../store/dependency-cycles.js';
 import {
   type CheckResult,
+  checkAffectedTestScope,
   checkCanonicalRcasdPaths,
   checkCleoGitignore,
   checkCoreFilesNotIgnored,
@@ -431,6 +432,19 @@ export async function getSystemHealth(
         message: identity.remedy ? `${identity.message} Run: ${identity.remedy}` : identity.message,
       });
     }
+  }
+
+  // T13125: is tool:test evidence scoped to the affected packages, or does
+  // every verify run the whole workspace suite? An `info` proposal (a derived
+  // affectedCommand to pin) passes; a workspace with no scope at all warns.
+  {
+    const scope = checkAffectedTestScope(projectRoot);
+    checks.push({
+      name: 'affected_test_scope',
+      status: scope.status === 'warning' || scope.status === 'failed' ? 'warn' : 'pass',
+      message: scope.fix ? `${scope.message} Fix: ${scope.fix}` : scope.message,
+      details: scope.details,
+    });
   }
 
   // Check for stale JSON files alongside tasks.db
@@ -1153,6 +1167,8 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
 
   // Project context check
   checks.push(mapCheckResult(checkProjectContext(projectRoot)));
+  // T13125: is tool:test scoped to the affected packages, or the whole suite?
+  checks.push(mapCheckResult(checkAffectedTestScope(projectRoot)));
 
   checks.push(mapCheckResult(checkInjection(projectRoot)));
 
