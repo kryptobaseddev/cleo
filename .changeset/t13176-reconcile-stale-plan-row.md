@@ -18,3 +18,8 @@ would cascade into the row's children), filling in the plan's scheme, channel,
 epic, kind, previous version, bump PR, planned time and the current project
 hash. Release commits, changes and artifacts link to that id. A version with no
 row yet still gets `<hash>:<version>`.
+
+Such a row keeps its id, so its id prefix no longer equals its `project_hash`
+column. Nothing looks a release up by a composed `<hash>:<version>` id (plan,
+reconcile and the manifest writers find rows by version), so the mismatch is
+cosmetic; an id prefix is not proof of the project hash.
