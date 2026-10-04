@@ -261,12 +261,18 @@ export async function askContradictionDecision(
   candidates: readonly ContradictionCandidate[],
   opts: ContradictionDecisionOptions,
 ): Promise<ContradictionVerdict | null> {
-  const started = performance.now();
-  const deadline = AbortSignal.timeout(DECISION_CONTRADICTION_BUDGET_MS);
   try {
-    const { decide } = await import('../decide/client.js');
-    const { auditAnswers, createJsonlDecisionAudit } = await import('../decide/audit.js');
-    const { redactContent } = await import('./redaction.js');
+    const [{ decide }, { auditAnswers, createJsonlDecisionAudit }, { redactContent }] =
+      await Promise.all([
+        import('../decide/client.js'),
+        import('../decide/audit.js'),
+        import('./redaction.js'),
+      ]);
+    // The wait budget starts now, with the decision modules loaded, as in
+    // `askSiteDecision` (T13126): loading the client on demand is not part of
+    // the wait on System One.
+    const started = performance.now();
+    const deadline = AbortSignal.timeout(DECISION_CONTRADICTION_BUDGET_MS);
 
     const req = buildContradictionRequest(
       subject,
