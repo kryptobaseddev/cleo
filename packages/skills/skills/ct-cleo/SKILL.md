@@ -2,14 +2,14 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.24.4
+  version: 2.24.5
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/session.ts
     - packages/cleo/src/cli/commands/focus.ts
     - packages/cleo/src/cli/commands/sticky.ts
-  lastReviewed: 2026-10-01
+  lastReviewed: 2026-10-04
   stability: stable
 ---
 
