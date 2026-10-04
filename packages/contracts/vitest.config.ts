@@ -10,6 +10,7 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
+import { repoGuardsUnder } from '../../vitest.repo-guards.js';
 
 export default defineConfig({
   test: {
@@ -28,7 +29,17 @@ export default defineConfig({
       'src/**/__tests__/*.test.ts',
       'tests/**/*.test.ts',
     ],
-    exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**', '**/*.integration.test.ts', '**/*-integration.test.ts'],
+    exclude: [
+      'node_modules',
+      'dist',
+      '**/node_modules/**',
+      '**/e2e/**',
+      '**/*.integration.test.ts',
+      '**/*-integration.test.ts',
+      // T13142: run in the root config's `repo-guards` project instead. From the
+      // repo root: pnpm exec vitest run --project repo-guards <file>
+      ...repoGuardsUnder('packages/contracts/'),
+    ],
     alias: {
       '@cleocode/contracts': fileURLToPath(new URL('./src/index.ts', import.meta.url)),
     },

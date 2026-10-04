@@ -43,12 +43,12 @@
 import { basename } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { MigrationMeta } from 'drizzle-orm/migrator';
-import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { getMigrationsToRun } from 'drizzle-orm/migrator.utils';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { sql } from 'drizzle-orm/sql';
 import { upgradeSyncIfNeeded } from 'drizzle-orm/up-migrations/sqlite';
 import { getLogger } from '../logger.js';
+import { readMigrationFilesCached } from './migration-files.js';
 import {
   isDuplicateColumnError,
   isTableAlreadyExistsError,
@@ -572,7 +572,7 @@ export function runBracketedMigrations(
     if (LEGACY_LINEAGES.has(name)) throw new LegacyLineageRefusedError(name);
   }
   for (const lineage of lineages) {
-    const raw = readMigrationFiles({ migrationsFolder: lineage.folder });
+    const raw = readMigrationFilesCached(lineage.folder);
     // T12687: a worktree build never applies its migrations to a foreign store.
     assertNoPendingMigrationsForWorktreeBuild(nativeDb, raw);
     const migrations = sanitizeMigrationStatements(raw);

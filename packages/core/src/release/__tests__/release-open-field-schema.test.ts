@@ -131,6 +131,25 @@ function writePlanFile(version: string): string {
   return planPath;
 }
 
+/**
+ * Put the plan on `origin/main`, as a merged release-plan PR does: `cleo
+ * release open --no-commit-plan` dispatches only a plan verified there
+ * (T13050).
+ */
+function publishPlan(planPath: string): void {
+  const remote = join(
+    testDir,
+    '..',
+    `remote-${Date.now()}-${Math.random().toString(16).slice(2)}.git`,
+  );
+  execFileSync('git', ['init', '--bare', '--quiet', '--initial-branch=main', remote]);
+  execFileSync('git', ['-C', testDir, 'remote', 'add', 'origin', remote]);
+  execFileSync('git', ['-C', testDir, 'checkout', '-q', '-B', 'main']);
+  execFileSync('git', ['-C', testDir, 'add', '-f', planPath]);
+  execFileSync('git', ['-C', testDir, 'commit', '-q', '-m', 'chore(release): plan']);
+  execFileSync('git', ['-C', testDir, 'push', '-q', '-u', 'origin', 'main']);
+}
+
 function writeStubWorkflow(): void {
   const workflowDir = join(testDir, '.github', 'workflows');
   mkdirSync(workflowDir, { recursive: true });
@@ -172,6 +191,7 @@ function makeStubRunner(): ReleaseOpenRunner & {
     runGh: (args) => {
       calls.push({ cmd: 'gh', args });
       if (args[0] === 'workflow' && args[1] === 'run') return '';
+      if (args[0] === 'repo' && args[1] === 'view') return 'main';
       if (args[0] === 'run' && args[1] === 'list') {
         return JSON.stringify([
           {
@@ -241,7 +261,7 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
     // scope, so `epic`/`tasks` never appear among the passed keys and an
     // undeclared input would sail through to a live HTTP 422.
     const version = 'v2026.6.1';
-    writePlanFile(version);
+    publishPlan(writePlanFile(version));
     writeStubWorkflow();
     await seedReleaseRow(version);
 
@@ -281,7 +301,7 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
     // workflow's `-n` guard would treat it as absent anyway — but passing empty
     // values muddies the audit trail of what was actually dispatched.
     const version = 'v2026.6.2';
-    writePlanFile(version);
+    publishPlan(writePlanFile(version));
     writeStubWorkflow();
     await seedReleaseRow(version);
 
@@ -303,7 +323,7 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
     // decision rides along as inputs — so each of them must be declared, or
     // the dispatch is rejected with HTTP 422 "Unexpected inputs provided".
     const version = 'v2026.6.3';
-    writePlanFile(version);
+    publishPlan(writePlanFile(version));
     writeStubWorkflow();
     await seedReleaseRow(version);
 
@@ -327,13 +347,15 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
             status: 'completed',
             conclusion: 'success',
             event,
+            path: '.github/workflows/ci.yml',
             html_url: `https://github.com/o/r/actions/runs/${id}`,
           });
           if (endpoint.includes('/actions/workflows/ci.yml/runs')) {
             return JSON.stringify({ workflow_runs: [run(1, 'push')] });
           }
-          if (endpoint.includes('event=schedule')) {
-            return JSON.stringify({ workflow_runs: [run(2, 'schedule')] });
+          if (endpoint.includes('/actions/runs?head_sha=')) {
+            // Every run of the commit: the push run and the nightly.
+            return JSON.stringify({ workflow_runs: [run(1, 'push'), run(2, 'schedule')] });
           }
           if (endpoint.includes('/actions/runs/1/jobs')) {
             // A green push run skips Linux tests only if its Linux Unit Tests
@@ -390,7 +412,7 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
 
   it('`cleo release open` passes ONLY fields declared in the workflow YAML', async () => {
     const version = 'v2026.6.0';
-    writePlanFile(version);
+    publishPlan(writePlanFile(version));
     writeStubWorkflow();
     await seedReleaseRow(version);
 
@@ -424,9 +446,12 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
     const missing = requiredKeys.filter((k) => !passedKeys.includes(k));
     expect(missing).toEqual([]);
 
-    // Belt-and-braces: `plan-blob-sha256` MUST NOT be passed (T10105
-    // regression lock — this was the v2026.5.100 silent-422 bug).
-    expect(passedKeys).not.toContain('plan-blob-sha256');
+    // T10105's 422 was `plan-blob-sha256` sent while the YAML did not declare
+    // it; the EXTRA check above is what locks that out. The YAML declares it
+    // now, and the verified plan's hash MUST ride along (T12092, T13050):
+    // without it the workflow regenerates the plan, which cannot work.
+    expect(passedKeys).toContain('plan-blob-sha256');
+    expect(declaredKeys).toContain('plan-blob-sha256');
 
     // The releases row was nevertheless updated — the dispatch succeeded.
     const db = await getDb(testDir);

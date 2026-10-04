@@ -167,8 +167,15 @@ const projectFields = {
 export const nexusCloudProjectListItemSchema = z.object({
   ...projectFields,
   role: z.string(),
+  /**
+   * The project name sealed with the project data key (`Project.encryptedName`), base64;
+   * only a holder of the account key can open it (T13102).
+   */
+  encryptedName: z.string().nullable().optional(),
   streamId: z.string().optional(),
   headSeq: z.number().int().nonnegative().nullable().optional(),
+  /** The stream's head snapshot; null when nothing was ever pushed (T13102: restorable or not). */
+  headCheckpointId: z.string().nullable().optional(),
   openConflicts: z.number().int().nonnegative().optional(),
   replicas: z.array(nexusCloudReplicaSchema).default([]),
   devices: nexusCloudDeviceCountsSchema.optional(),
@@ -257,10 +264,21 @@ export const nexusCloudStatusCheckSchema = z.object({
   detail: z.string(),
 });
 
+/**
+ * The E3 `features` entry of a server whose `POST /v1/projects` stores `initialKey`, a new project's
+ * first data key (onboarding B, cleo-nexus T095). `cleo project link` sends a key only to such a server.
+ */
+export const NEXUS_FEATURE_PROJECT_INITIAL_KEY = 'project.initial-key';
+
 /** `NexusStatus` (E3 `GET /v1/status`). */
 export const nexusCloudStatusSchema = z.object({
   serverTime: isoTime.optional(),
   apiVersion: z.string().optional(),
+  /**
+   * Optional server features (e.g. {@link NEXUS_FEATURE_PROJECT_INITIAL_KEY}). Absent from servers older
+   * than the list, which therefore support none of them.
+   */
+  features: z.array(z.string()).optional(),
   user: nexusCloudUserSchema,
   credential: nexusCloudCredentialSchema,
   device: nexusCloudDeviceSchema.nullable(),

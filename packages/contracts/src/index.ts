@@ -780,6 +780,14 @@ export type {
   HeavyCommandHookProvider,
   HeavyCommandPlan,
   HeavyCommandSegment,
+  HeavyHookCliProbe,
+  HeavyHookCliState,
+  HeavyHookDeliveryApi,
+  HeavyHookDeliveryOptions,
+  HeavyHookDeliveryOutcome,
+  HeavyHookDeliveryStatus,
+  HeavyHookInspection,
+  HeavyHookInstallState,
   HookJsonValue,
   OpencodeHeavyCommandAnswer,
   PreToolUseHookInput,
@@ -2270,6 +2278,9 @@ export * from './render/index.js';
 export type {
   AdmissionResult,
   GovernorMode,
+  HeavyHeapSource,
+  HeavyLeverChange,
+  HeavyToolResourcePlan,
   ResourceClass,
   ResourceDeferral,
   ResourceGrant,
@@ -3067,6 +3078,7 @@ export {
   NEXUS_DEVICE_LIST_STATES,
   NEXUS_DEVICE_STATE_UNKNOWN,
   NEXUS_DEVICE_STATES,
+  NEXUS_FEATURE_PROJECT_INITIAL_KEY,
   NEXUS_FORBIDDEN_ERRORS,
   NEXUS_FORBIDDEN_REASONS,
   NEXUS_PAGE_LIMIT_MAX,
@@ -3094,6 +3106,18 @@ export {
   nexusCloudUserSchema,
   nexusCloudWhoamiSchema,
 } from './nexus-cloud.js';
+// === Guided first run of `cleo login nexus` (T13102) ===
+export {
+  NEXUS_FIRST_RUN_STATES,
+  type NexusFirstRunBackup,
+  type NexusFirstRunChoice,
+  type NexusFirstRunOffer,
+  type NexusFirstRunRestore,
+  type NexusFirstRunResult,
+  type NexusFirstRunState,
+  type NexusNamedProject,
+  type NexusProjectNameSource,
+} from './nexus-first-run.js';
 export {
   type CloudActivityItem,
   type CloudActivityResult,

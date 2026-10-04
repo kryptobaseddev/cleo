@@ -101,6 +101,11 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_VAULT_STORE_BUSY',
   /** A project restore target already holds a different project. */
   'E_NEXUS_VAULT_TARGET_OCCUPIED',
+  // Projects by name (`cleo cloud restore <name>`, T13102).
+  /** No project of the account has that name, label or id. */
+  'E_NEXUS_PROJECT_NOT_FOUND',
+  /** Several of the account's projects have that name or label; the error lists them. */
+  'E_NEXUS_PROJECT_AMBIGUOUS',
 ] as const;
 
 /** One of {@link NEXUS_ACCOUNT_ERROR_CODES}. */
@@ -405,6 +410,15 @@ export interface NexusProjectLinkResult {
    * text is also in {@link NexusProjectLinkResult.warnings}.
    */
   attachError: { code: string; message: string; fix: string | null } | null;
+  /**
+   * The project data key version the server holds from this registration
+   * (onboarding B): `1` when the link sent a new project's first key with it,
+   * `null` when it sent none (the project already existed, the server does
+   * not take keys at registration, or this device has no account key; see
+   * {@link NexusProjectLinkResult.warnings}). With `null`, the first
+   * `cleo cloud push` creates the key.
+   */
+  initialKeyVersion: number | null;
   /** Non-fatal problems (for example, presence could not be sent). */
   warnings: string[];
 }

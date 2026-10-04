@@ -37,6 +37,16 @@ const {
   };
 });
 
+/**
+ * Wait until the test's own fire-and-forget SQLite write has run. A fixed
+ * sleep is not enough: the first write imports the audit schema modules on
+ * demand, which can outlast any sleep on a cold transform cache, and a write
+ * that outlives its test lands in the next test's mocks.
+ */
+async function settleWrite(): Promise<void> {
+  await vi.waitFor(() => expect(mockInsertRun).toHaveBeenCalled());
+}
+
 // Mock Pino logger
 vi.mock('../../../../../core/src/logger.js', () => ({
   getLogger: vi.fn(() => ({
@@ -154,6 +164,7 @@ describe('createAudit middleware', () => {
     const request = makeRequest();
 
     const result = await middleware(request, next);
+    await settleWrite();
 
     expect(next).toHaveBeenCalledOnce();
     expect(result).toBe(response);
@@ -166,9 +177,7 @@ describe('createAudit middleware', () => {
     const request = makeRequest();
 
     await middleware(request, next);
-
-    // Wait for fire-and-forget promises
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settleWrite();
 
     expect(mockLogInfo).toHaveBeenCalledOnce();
     const [logObj, logMsg] = mockLogInfo.mock.calls[0]!;
@@ -186,9 +195,7 @@ describe('createAudit middleware', () => {
 
     await middleware(request, next);
 
-    // Wait for fire-and-forget promises
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
+    await settleWrite();
     expect(mockInsert).toHaveBeenCalled();
     expect(mockInsertValues).toHaveBeenCalled();
     const insertedValues = (mockInsertValues.mock.calls as any)[0]![0];
@@ -240,9 +247,7 @@ describe('createAudit middleware', () => {
     const request = makeRequest();
 
     const result = await middleware(request, next);
-
-    // Wait for fire-and-forget promises
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settleWrite();
 
     // Pipeline should still return the response
     expect(result).toBe(response);
@@ -261,8 +266,7 @@ describe('createAudit middleware', () => {
 
     await middleware(request, next);
 
-    // Wait for fire-and-forget promises
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settleWrite();
 
     // Check Pino log includes failure info
     const [logObj] = mockLogInfo.mock.calls[0]!;
@@ -273,6 +277,34 @@ describe('createAudit middleware', () => {
     const insertedValues = (mockInsertValues.mock.calls as any)[0]![0];
     expect(insertedValues.errorMessage).toBe('Task not found');
     expect(insertedValues.success).toBe(0);
+  });
+
+  it('writes a failed mutation row before the response leaves the middleware (T13164)', async () => {
+    // The CLI's error path calls process.exit right after the envelope. A
+    // fire-and-forget insert lost that race on every run, so the row must be
+    // written before the middleware resolves — no settle delay in this test.
+    const insert = Promise.withResolvers<undefined>();
+    mockInsertRun.mockReturnValueOnce(insert.promise);
+    const middleware = createAudit();
+    const response = makeResponse({
+      success: false,
+      error: { code: 'E_NOT_FOUND', message: 'Task not found', exitCode: 4 },
+    });
+    let resolved = false;
+    const pending = middleware(makeRequest(), () => Promise.resolve(response)).then((r) => {
+      resolved = true;
+      return r;
+    });
+
+    await vi.waitFor(() => expect(mockInsertRun).toHaveBeenCalledOnce());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(resolved).toBe(false);
+
+    insert.resolve(undefined);
+    await expect(pending).resolves.toBe(response);
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ success: 0, errorMessage: 'Task not found' }),
+    );
   });
 
   // ── T12031: cross-process durable gradeMode ──
@@ -287,9 +319,7 @@ describe('createAudit middleware', () => {
 
       await middleware(request, next);
 
-      // Wait for fire-and-forget promises
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
+      await settleWrite();
       expect(mockLogInfo).toHaveBeenCalledOnce();
       expect(mockInsert).toHaveBeenCalled();
     });
@@ -307,9 +337,7 @@ describe('createAudit middleware', () => {
 
       await middleware(request, next);
 
-      // Wait for fire-and-forget promises
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
+      await settleWrite();
       expect(mockLogInfo).toHaveBeenCalledOnce();
       expect(mockInsert).toHaveBeenCalled();
     });
@@ -343,9 +371,7 @@ describe('createAudit middleware', () => {
 
       // Must not throw
       const result = await middleware(request, next);
-
-      // Wait for fire-and-forget promises
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settleWrite();
 
       expect(result).toBe(response);
       // Mutations still logged even after failed grade-mode lookup

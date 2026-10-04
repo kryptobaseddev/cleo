@@ -1,7 +1,7 @@
 # Merge Queue Runbook
 
 > **Status:** Live · **Owner:** Saga T10431 · **Task:** T10446  
-> **Last updated:** 2026-05-24
+> **Last updated:** 2026-10-03
 
 This document is the operator-facing runbook for GitHub Merge Queue on the
 `cleocode` repository. It covers setup, day-to-day commands, the zero-admin-merge
@@ -51,13 +51,14 @@ block. As of 2026-05-24, the following 12 PR-gated workflows declare it:
 | `worktree-cleanup.yml` | ✓ |
 | `worktree-napi-prebuild.yml` | ✓ |
 
-The following 5 workflows do **not** need `merge_group:` because they are
+The following 6 workflows do **not** need `merge_group:` because they are
 triggered by non-PR events:
 
 | Workflow | Trigger | Why no `merge_group:` |
 |---|---|---|
 | `release-prepare.yml` | `workflow_dispatch` | Manual dispatch only |
 | `release.yml` | `push: tags:` + `workflow_dispatch` | Tag push or manual |
+| `release-promote.yml` | `workflow_dispatch` | Manual dispatch only; moves npm `latest` (T13144) |
 | `freshness-sentinel.yml` | `schedule` + `workflow_dispatch` | Cron / manual |
 | `skills-council.yml` | `schedule` + `workflow_dispatch` | Cron / manual |
 | `skills-grade.yml` | `schedule` + `workflow_dispatch` | Cron / manual |
@@ -170,6 +171,18 @@ own. The `CI` check that DOES run is the `workflow_dispatch` run that
 attach to the PR head SHA. Waiting for the `pull_request` runs, or approving
 them one by one, adds nothing that run has not already proven.
 
+**The dispatched run is the reduced, version-only run (T13141).** The bump
+commit changes only `"version"` lines in `package.json` files (and, when
+present, `CHANGELOG.md` and `.changeset/` moves). The `changes` job runs
+`scripts/ci-detect-version-only.mjs` on a `workflow_dispatch` run of a
+`release/v*` branch too, diffing the branch against its merge-base with
+`main`. When the diff has that shape, `version_only` is `true`. Unit tests,
+builds, the packed artifact, install tests and the other heavy jobs then skip,
+while lint, typecheck and the separate Lockfile Check workflow still run, so
+the run takes minutes instead of ~22. Any other change on the branch, or a
+failed fetch or merge-base, runs the full suite. To see which one ran, open the
+run's `Detect Changes` job: the detector prints its verdict and the reason.
+
 **Procedure (the orchestrator runs this, not the release workflow):**
 
 ```bash
@@ -187,9 +200,11 @@ gh pr merge "$PR" --admin --merge
 Rules:
 
 - Merge only when the dispatched `CI` run for the **current** head SHA is
-  `completed` / `success`. A green run for an earlier head does not count; if
-  the branch moved, re-dispatch (`gh workflow run ci.yml --ref release/v2026.X.Y`)
-  and wait.
+  `completed` / `success`. That holds for the reduced version-only run exactly
+  as for a full run: the `CI` aggregate is green only when every job that ran
+  succeeded. A green run for an earlier head does not count; if the branch
+  moved, re-dispatch (`gh workflow run ci.yml --ref release/v2026.X.Y`) and
+  wait.
 - `--merge` (a merge commit), not squash: the tag is cut from `main` after the
   merge and must contain the bump commit as prepared.
 - This is the ONE sanctioned use of `--admin` under the Zero-Admin-Merge Policy
@@ -227,6 +242,137 @@ learned. Both are recorded where an operator can see them.
   hashes from the tagged commit and refuses any binary that lacks the stamp.
   To force a rebuild, delete the cache entry:
   `gh cache delete cant-napi-bundle-v1-<hash>`.
+
+## Flaky tests: re-run once, file, quarantine (T13145)
+
+Each unit shard runs vitest through `scripts/ci-flaky-quarantine.mjs`:
+
+- When a test fails, its file is re-run once, without `--shard`. If it passes on the re-run, it is a
+  **flake**: CI stays green, and the test is listed in the run summary and in the shard's
+  `flaky-report-<os>-<shard>` artifact.
+- A test that fails twice blocks. Three other cases block without a re-run:
+  - more than 10 files fail (a broad failure, not a flake);
+  - vitest reports an error outside any test (an `Unhandled Errors` section or an `Errors` summary
+    line), even when another failure is a flake;
+  - a crash or heap kill leaves no failing test in the JSON report.
+- On `main` (push and nightly), the `Flaky Test Quarantine` job files each confirmed flake as an
+  open issue labelled `flaky-quarantine`, or renews the existing issue. **The open issues filed by
+  GitHub Actions are the quarantine**; an issue anyone else opens or labels does not count, and
+  neither does a bot issue whose body someone else has edited or whose title no longer names the test
+  its body state names (the state is what the quarantine reads, and it is editable). While a
+  test's issue is open, a failure of it that also fails its re-run does not block CI, and it does not
+  renew the quarantine either. A whole-file entry excuses only a whole-file failure.
+- On the nightly run, an issue with no confirmed flake for 14 days is closed, and the test blocks
+  again. A test that is broken rather than flaky therefore leaves quarantine within 14 days. Close an
+  issue by hand once its flake is fixed. Duplicate issues for one test (two main runs filing it at
+  once) are closed, keeping the oldest.
+- Main's CI (push and nightly) fails while more than 10 tests are quarantined, so the quarantine
+  cannot grow without tests being fixed. A pull request only warns about it, so one bad day on main
+  does not block every PR.
+- If the quarantine cannot be read (a `gh` error), it is treated as empty, so failures block.
+
+## Canary soak and promotion (T13144)
+
+A release no longer reaches users when it publishes. `release.yml` publishes
+every stable version under the npm dist-tag `canary`; users install `latest`
+(`npm i -g @cleocode/cleo`), and `latest` moves only through
+`release-promote.yml`, after the canary has soaked and the owner approves.
+Prereleases keep their own tags (`beta`, `dev`) and are never promoted.
+
+Every @cleocode package pins its @cleocode dependencies to its own exact
+version, so a `latest` install never mixes a canary package into the previous
+release, and a half-finished move is still coherent.
+
+**1. After the tag.** `release.yml` runs as before. Its installability verdict
+checks `dist-tags.canary`. If the run could not prove installability in its
+budget, the tracking issue and `release-installability-watch.yml` take over, as
+before. Nothing is `continue-on-error`: a red verdict blocks the promotion.
+
+The promotion reads the verdict only from what the release run **on the tag**
+produced, which nobody can edit afterwards: its `Release Verdict` job must have
+succeeded, or its `Publish` job succeeded and its own `postdeploy-<version>`
+artifact says the verdict was `pending` at its deadline (published, no package
+serving a wrong version). In the pending case the plan's live check of every
+package decides. The tracking issue is never read: its body is editable. A run
+on any other ref does not count, because it runs that ref's copy of the
+workflow, and neither does a run whose commit is not the tag's (a branch can be
+named like the tag). To re-run a failed release, re-run the tag run's failed jobs
+(`gh run rerun <id> --failed`), or dispatch on the tag ref
+(`gh workflow run release.yml --ref v2026.X.Y -f version=2026.X.Y`); a dispatch
+from `main` does not count for promotion. The postdeploy artifact is kept 30
+days, so a release whose verdict was only `pending` must be promoted (or
+rolled back to) within that window.
+
+**2. Soak.** Put the canary on real agents first, starting with this machine:
+
+```bash
+# Sandbox install + health checks (install, coherent @cleocode versions,
+# --version, init, session, saga/epic write, show, find, doctor):
+node scripts/release-canary-soak.mjs                    # resolves the current canary
+node scripts/release-canary-soak.mjs --version 2026.X.Y --keep   # keep the sandbox to inspect
+
+# Then run the canary on this machine's agents:
+npm i -g @cleocode/cleo@canary
+```
+
+Use it for real work. When it holds up, promote it. When it does not, fix
+forward: the next release replaces the canary, and `latest` never moved.
+
+**3. Promote.** Dispatch the workflow with the version:
+
+```bash
+gh workflow run release-promote.yml --ref main -f version=2026.X.Y
+```
+
+The `plan` job (no secrets) checks that every package resolves at the version,
+that every package's `canary` is the version, and that the installability
+verdict is green, then runs the same sandbox soak on a fresh runner. Its job
+summary is the plan the reviewer approves. The `promote` job then waits for
+approval in the `npm-promote` environment. Once approved it re-checks the plan
+(the approval may come hours later), runs
+`npm dist-tag add @cleocode/<pkg>@<version> latest` for each package in publish
+order (`@cleocode/cleo` last), and waits until `latest` resolves everywhere. A
+failed move or an unconverged tag turns the run red and names the package;
+re-run with the same version, and packages already moved are skipped.
+
+Only the current canary can be promoted. If a newer release was published
+before an older canary was promoted, promote the newer one. The exception is a
+promotion already under way (some package that had an earlier version already
+has `latest` at this one): a re-run finishes it without the canary check, so a
+newer canary cannot strand `latest` half-moved.
+
+A package's first-ever publish gets `latest` from the registry regardless of
+`--tag canary` (npm tags a package's first version `latest`). That only matters
+when `publish_pkg` gains a new package, and it never counts as a promotion
+under way.
+
+**4. Roll back.** Run the same workflow with the previous version:
+
+```bash
+gh workflow run release-promote.yml --ref main -f version=<previous version>
+```
+
+A version older than the current `latest` is a rollback: the canary
+requirement does not apply, but the version must still resolve, pass the soak
+and have a green verdict. The old tarballs never left the registry, so nothing
+is republished and `latest` flips back as soon as the owner approves. The job
+title on the approval screen says `ROLLBACK`.
+
+**One-time setup (owner).**
+
+1. On npmjs.com, create a granular access token with read and write access to
+   the `@cleocode` packages (Packages and scopes: Read and write, scope
+   `@cleocode`). If the packages or account require two-factor authentication
+   for writes, the token must be allowed to bypass it, or `npm dist-tag add`
+   fails with `EOTP`. Trusted publishing (OIDC) cannot do this: it covers
+   `npm publish` only. Granular write tokens expire; note the date.
+2. In the repository settings, create the environment `npm-promote`:
+   required reviewer: the owner; deployment branches: `main` only. Add the
+   token as the environment secret `NPM_TOKEN`, not as a repository secret.
+   No other workflow may reference that environment or that secret
+   (`scripts/__tests__/release-promote.test.mjs` fails if one does).
+3. When the token expires, the `promote` job stops before moving anything
+   ("npm rejected the token"); replace the environment secret and re-run.
 
 ## Operator Commands
 

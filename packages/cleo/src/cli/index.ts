@@ -50,11 +50,14 @@ import { COMMAND_MANIFEST } from './generated/command-manifest.js';
 import { buildAliasMap, createCustomShowUsage } from './help-renderer.js';
 import { extractIdempotencyKeyArg, setIdempotencyKeyContext } from './idempotency-context.js';
 import { lazyCommand } from './lazy-command.js';
+import { releaseCliThreadpoolEnv } from './lib/cli-threadpool-env.js';
 import { didYouMean } from './lib/did-you-mean.js';
 import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { isInteractiveInvocation } from './lib/interactive-commands.js';
+import { settleThenExit } from './lib/settle-then-exit.js';
 import { normalizeGlobalValueFlags } from './lib/strict-args.js';
 import { resolveFormat } from './middleware/output-format.js';
+import { installModuleResolveFastPath } from './module-resolve-fast-path.js';
 import { resolveOutputMode, setOutputMode } from './output-context.js';
 import { setProjectionOptOut } from './projection-context.js';
 import { resolveSubCommandForHelp } from './resolve-subcommand.js';
@@ -66,6 +69,17 @@ import { setSummaryMode } from './summary-context.js';
 // above are CLI-local + @cleocode/paths (a zero-dep leaf that does not eagerly
 // load node:sqlite). See @cleocode/paths node-version-gate for the SSoT floor.
 enforceNodeVersion();
+// T13122: the shim's UV_THREADPOOL_SIZE=64 is for this process. Once its pool
+// exists, drop it from the environment so no spawned tool inherits it.
+releaseCliThreadpoolEnv();
+
+// T13126 — answer the module resolutions that dominate CLI startup without
+// Node re-parsing each package's whole `exports` map per import edge
+// (nodejs/node#66485). Every command module and all of CORE arrive through
+// dynamic `import()` after this line, so registering here covers them. Keep it
+// until Node fixes #66485 AND engines.node includes the fix; see
+// module-resolve-fast-path.ts ("When to remove it").
+installModuleResolveFastPath();
 
 function getPackageVersion(): string {
   const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');
@@ -254,7 +268,7 @@ async function startCli(): Promise<void> {
     // near-instant; config read is best-effort.
     let autoStart = true;
     try {
-      const { getRawConfig } = await import('@cleocode/core');
+      const { getRawConfig } = await import('@cleocode/core/config');
       const cfg = await getRawConfig();
       const { shouldAutoStartGateway } = await import('./lib/gateway-auto-start.js');
       autoStart = shouldAutoStartGateway(cfg as Record<string, unknown> | undefined);
@@ -294,7 +308,7 @@ async function startCli(): Promise<void> {
     // of writing WARN-level entries to stderr during migration checks etc.
     // Only runs on the non-fast-path; --help/--version with --quiet stays cheap.
     if (rawOpts['quiet'] === true) {
-      const { setLoggerQuiet } = await import('@cleocode/core/internal');
+      const { setLoggerQuiet } = await import('@cleocode/core/logger');
       setLoggerQuiet(true);
     }
     await runStartupMaintenance();
@@ -513,9 +527,10 @@ async function runMainWithLafsEnvelope(
     // empty `cleo list` exits 100), skipping any hook placed after them, and a
     // detached encounter loses the race with teardown. Before this, only
     // `init` / `nexus reconcile` — which await their write — followed a move.
-    const { recordProjectEncounter, setProjectMovedRefusal } = await import(
-      '@cleocode/core/internal'
-    );
+    const [{ recordProjectEncounter }, { setProjectMovedRefusal }] = await Promise.all([
+      import('@cleocode/core/paths.js'),
+      import('@cleocode/core/project-tombstone'),
+    ]);
     // T12558: `cleo doctor *` must be able to inspect a relocated project, so
     // resolution does not refuse at a reroot tombstone for it. (Creating an
     // empty store there is still refused by the store guard.)
@@ -535,7 +550,7 @@ async function runMainWithLafsEnvelope(
     // T12510 — heartbeat this device into `nexus_devices`. Throttled to one
     // write per minute (a `stat` inside the interval); never fails the command.
     try {
-      const { heartbeatThisDevice } = await import('@cleocode/core/internal');
+      const { heartbeatThisDevice } = await import('@cleocode/core/nexus/devices');
       const outcome = await heartbeatThisDevice();
       if (process.env['CLEO_DEBUG'])
         process.stderr.write(`[cleo][debug] Device heartbeat: ${outcome}\n`);
@@ -548,9 +563,11 @@ async function runMainWithLafsEnvelope(
     try {
       await runCommand(cmd, { rawArgs });
     } catch (err) {
-      // NOTE: every branch in this catch ends with `process.exit(1)`, which
-      // terminates immediately and bypasses the `finally` below. That is the
-      // intended error contract — a hard exit releases all handles. Only the
+      // NOTE: every branch in this catch ends in `settleThenExit`, which exits
+      // and bypasses the `finally` below. That is the intended error contract —
+      // a hard exit releases all handles. It first settles best-effort writes
+      // (tracked hook dispatches, buffered telemetry) within the shutdown
+      // deadline, because a bare `process.exit` killed them (T13164). Only the
       // SUCCESS path (no exit) needs the coordinated teardown in `finally`.
       const { cliError } = await import('./renderers/index.js');
       // Citty's CLIError extends Error with a string `code` (e.g. 'EARG') and
@@ -566,7 +583,7 @@ async function runMainWithLafsEnvelope(
           name: cittyErrorCodeName(cittyCliError.code),
           fix: cittyErrorFix(cittyCliError.code),
         });
-        process.exit(1);
+        await settleThenExit(1);
       }
 
       // T12558: a typed CleoError thrown outside dispatch (e.g. during project
@@ -580,13 +597,13 @@ async function runMainWithLafsEnvelope(
           alternatives: typed.alternatives,
           details: typed.details,
         });
-        process.exit(typed.code);
+        await settleThenExit(typed.code);
       }
 
       // Non-citty error path — still must emit an envelope.
       const message = err instanceof Error ? err.message : String(err);
       cliError(message, 1, { name: 'E_CLI_UNCAUGHT' });
-      process.exit(1);
+      await settleThenExit(1);
     } finally {
       // T11568 — the success path does NOT call process.exit(); it emits the
       // LAFS envelope and returns, relying on the event loop draining so the
@@ -596,10 +613,12 @@ async function runMainWithLafsEnvelope(
       // alive forever — so without coordinated teardown the command printed its
       // success envelope and then HUNG (rc:124). Tear those down here, AFTER the
       // envelope has been written, so the loop drains and the process exits.
-      // The error branches above already `process.exit(1)` (which bypasses this
-      // finally), so this runs only on the success path.
-      const { shutdownCliRuntime, armExitBackstop } = await import('@cleocode/core/internal');
-      const { formatShutdownOutcomes } = await import('@cleocode/core/shutdown-deadline');
+      // The error branches above already exit through `settleThenExit` (which
+      // bypasses this finally), so this runs only on the success path.
+      const { shutdownCliRuntime } = await import('@cleocode/core/shutdown');
+      const { armExitBackstop, formatShutdownOutcomes } = await import(
+        '@cleocode/core/shutdown-deadline'
+      );
       const outcomes = await shutdownCliRuntime();
       // Preserve assessed failures, cancellation, and unstarted-resource reasons.
       // Registry settlement alone does not certify individual producer success.
@@ -651,19 +670,26 @@ async function runMainWithLafsEnvelope(
  * of opening two additional SQLite databases they never use.
  */
 export async function runStartupMaintenance(): Promise<void> {
-  const {
-    detectAndRemoveLegacyGlobalFiles,
-    detectAndRemoveStrayProjectNexus,
-    getGlobalSalt,
-    getLogger,
-    getProjectRoot,
-    isCleanupMarkerSet,
-    isMissingProjectError,
-    migrateSignaldockToConduit,
-    needsSignaldockToConduitMigration,
-    setCleanupMarker,
-    validateGlobalSalt,
-  } = await import('@cleocode/core/internal');
+  // Narrow CORE modules, never the `@cleocode/core/internal` barrel (T13126):
+  // this runs before every real command, read verbs included.
+  const [
+    {
+      detectAndRemoveLegacyGlobalFiles,
+      detectAndRemoveStrayProjectNexus,
+      isCleanupMarkerSet,
+      setCleanupMarker,
+    },
+    { getGlobalSalt, validateGlobalSalt },
+    { getLogger },
+    { getProjectRoot, isMissingProjectError },
+    { migrateSignaldockToConduit, needsSignaldockToConduitMigration },
+  ] = await Promise.all([
+    import('@cleocode/core/store/cleanup-legacy'),
+    import('@cleocode/core/store/global-salt'),
+    import('@cleocode/core/logger'),
+    import('@cleocode/core/project-scope'),
+    import('@cleocode/core/store/migrate-signaldock-to-conduit'),
+  ]);
 
   // ---------------------------------------------------------------------------
   // One-shot legacy cleanup gated by a per-version marker file (T9028).
@@ -784,7 +810,7 @@ export async function runStartupMaintenance(): Promise<void> {
 // ---------------------------------------------------------------------------
 async function bootstrap(): Promise<void> {
   if (process.env['CLEO_WORKTREE_ROOT']) {
-    const { runWithWorktreeScopeFromEnv } = await import('@cleocode/core/internal');
+    const { runWithWorktreeScopeFromEnv } = await import('@cleocode/core/paths.js');
     runWithWorktreeScopeFromEnv(() => {
       void startCli();
     });

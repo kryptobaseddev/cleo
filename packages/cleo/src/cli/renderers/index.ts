@@ -26,22 +26,27 @@ function generateRequestId(): string {
  * @epic T4663
  */
 
+// Narrow CORE subpaths, never the `@cleocode/core` barrel (T13126): every
+// command's output goes through this module, `cleo --version` included, and
+// the barrel evaluates all of CORE (~1,200 modules) to supply these symbols.
+//
 // System + nexus renderers — migrated from `./system.js` (T10131 / B6) and
 // `./nexus.js` (T10132 / B7) into `@cleocode/core/render`. Importing the
-// family barrels via the core entry point also triggers their side-effect
-// `registerRenderer` calls so the B5 registry is populated before the
-// dispatcher hands off to it.
+// render entry point (which re-exports the family barrels) also triggers their
+// side-effect `registerRenderer` calls so the B5 registry is populated before
+// the dispatcher hands off to it.
 // T11762 ST-4 — output-contract accessor for the E_FIELD_NOT_FOUND remediation
 // loop. `getOutputContract` resolves a per-op OUTPUT contract (hand-authored
 // OR derived) so a failed `--field` JSON pointer can emit the valid pointer set
 // as `fix` + `alternatives` instead of a bare "did not resolve" (DHQ-057).
+import { getOutputContract } from '@cleocode/core/dispatch/contracts/output-contracts';
 import {
-  drainWarnings,
   extractByJsonPointer,
-  type FormatOptions,
-  formatSuccess,
-  getOutputContract,
   isJsonPointer,
+  serializePointerValue,
+} from '@cleocode/core/dispatch/projection';
+import { drainWarnings, type FormatOptions, formatSuccess } from '@cleocode/core/output';
+import {
   metaFooter,
   pagerFooter,
   renderAuditReconstruct,
@@ -61,7 +66,6 @@ import {
   renderDoctor,
   renderGeneric,
   renderNext,
-  // Nexus renderers — migrated to @cleocode/core/render/nexus per ADR-077 (T10132 / B7).
   renderNexusAnalyze,
   renderNexusBrainAnchors,
   renderNexusClusters,
@@ -107,8 +111,7 @@ import {
   renderTree,
   renderVersion,
   renderWaves,
-  serializePointerValue,
-} from '@cleocode/core';
+} from '@cleocode/core/render/index';
 import type { CliEnvelope, CliMeta, Warning } from '@cleocode/lafs';
 import { applyFieldFilter, extractFieldFromResult } from '@cleocode/lafs';
 import type { DispatchResponseMeta } from '../../dispatch/types.js';
@@ -127,7 +130,7 @@ import {
   renderSummary,
 } from './output-mode.js';
 
-export type { RenderWavesMode, RenderWavesOptions } from '@cleocode/core';
+export type { RenderWavesMode, RenderWavesOptions } from '@cleocode/core/render/index';
 export { renderWaves };
 
 // Task renderers — migrated to @cleocode/core/render/tasks per ADR-077
@@ -145,7 +148,7 @@ import {
   renderRestore,
   renderShow,
   renderUpdate,
-} from '@cleocode/core';
+} from '@cleocode/core/render/index';
 
 // ---------------------------------------------------------------------------
 // Renderer registry: maps command name to human renderer function
