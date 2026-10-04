@@ -228,6 +228,24 @@ function isUnitTestJob(name: string): boolean {
   return /^Unit Tests\b/.test(name);
 }
 
+/**
+ * The newest successful run that is a macOS verdict (T13187): any run of the
+ * main-push macOS workflow, or a nightly `schedule` run of ci.yml (a ci.yml
+ * push run is Linux-only, so its success says nothing about macOS).
+ *
+ * @param raw - `GET /actions/runs?branch=<main>&status=success` body, or null.
+ * @returns The run, or undefined when none is listed.
+ */
+function newestGreenMacosRun(raw: string | null): WorkflowRunSummary | undefined {
+  if (raw === null) return undefined;
+  return parseRuns(raw).find(
+    (run) =>
+      run.conclusion === 'success' &&
+      (run.path.endsWith('/macos-main.yml') ||
+        (run.path.endsWith('/ci.yml') && run.event === 'schedule')),
+  );
+}
+
 /** A job that ran the test suite on macOS, by the name GitHub renders for it. */
 function isMacosJob(name: string): boolean {
   return /mac\s*os/i.test(name);
@@ -472,6 +490,17 @@ export function decidePreflightSkips(
       macosReason = `macOS tests run: ${failed.length} macOS job(s) of the newest ${run.event} run for ${shortSha(run.headSha)} did not succeed (${run.url}).`;
     }
     break;
+  }
+  // T13187: when the shards run, name the newest main commit that does have a
+  // green macOS run, so the operator can see how far behind it is (or tag that
+  // commit's equivalent instead of waiting).
+  if (!skipMacosTests && !timedOut) {
+    const green = newestGreenMacosRun(
+      gh(['api', `repos/{owner}/{repo}/actions/runs?branch=${branch}&status=success&per_page=50`]),
+    );
+    macosReason += green
+      ? ` Newest ${branch} commit with a green macOS run: ${shortSha(green.headSha)} (${green.url}).`
+      : ` No recent green macOS run on ${branch} was found.`;
   }
 
   return {

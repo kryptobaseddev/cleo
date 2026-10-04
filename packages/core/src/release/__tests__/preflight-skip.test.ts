@@ -40,6 +40,8 @@ interface StubOptions {
   parents?: Record<string, string>;
   /** Files a commit changes against its parent (compare API); absent → a release-plan commit. */
   files?: Record<string, string[]>;
+  /** Recent successful runs on main (`actions/runs?branch=`), for the T13187 newest-green note. */
+  greenRuns?: RunFixture[];
 }
 
 /** What a release-plan PR's merge changes. */
@@ -97,6 +99,10 @@ function makeGh(opts: StubOptions): PreflightGhRunner & { calls: string[][]; tim
     }
     if (endpoint.includes('/actions/workflows/ci.yml/runs')) {
       return answer(opts.pushRuns, runsBody);
+    }
+    if (endpoint.includes('/actions/runs?branch=')) {
+      // T13187: recent successful runs on main, for naming the newest green macOS one.
+      return runsBody(opts.greenRuns ?? []);
     }
     if (endpoint.includes('/actions/runs?head_sha=')) {
       // Every run of the commit, any workflow and event: the push runs and the nightlies.
@@ -432,6 +438,58 @@ describe('decidePreflightSkips — the newest macOS result decides (T13140 revie
     );
     expect(d.skipMacosTests).toBe(true);
     expect(d.reason).toContain('runs/45');
+  });
+});
+
+describe('decidePreflightSkips — names the newest main commit with a green macOS run (T13187)', () => {
+  const GREEN = 'f'.repeat(40);
+  it('when the shards run, names the newest green macos-main or nightly ci.yml run, never a Linux-only push run', () => {
+    const d = decidePreflightSkips(
+      makeGh({
+        greenRuns: [
+          // Newest first, as the API lists them: a Linux-only ci.yml push run must not count.
+          { id: 90, event: 'push', path: '.github/workflows/ci.yml', head_sha: 'a'.repeat(40) },
+          { id: 80, event: 'push', path: '.github/workflows/macos-main.yml', head_sha: GREEN },
+          { id: 70, event: 'schedule', path: '.github/workflows/ci.yml', head_sha: 'b'.repeat(40) },
+        ],
+      }),
+      '/repo',
+      'main',
+    );
+    expect(d.skipMacosTests).toBe(false);
+    expect(d.reason).toContain(`Newest main commit with a green macOS run: ${GREEN.slice(0, 12)}`);
+  });
+
+  it('a nightly ci.yml schedule run counts', () => {
+    const d = decidePreflightSkips(
+      makeGh({
+        greenRuns: [
+          { id: 70, event: 'schedule', path: '.github/workflows/ci.yml', head_sha: GREEN },
+        ],
+      }),
+      '/repo',
+      'main',
+    );
+    expect(d.reason).toContain(GREEN.slice(0, 12));
+  });
+
+  it('says so when no recent green macOS run exists, and names nothing when the shards are skipped', () => {
+    expect(decidePreflightSkips(makeGh({}), '/repo', 'main').reason).toContain(
+      'No recent green macOS run on main was found.',
+    );
+    const skipped = decidePreflightSkips(
+      makeGh({
+        scheduleRuns: [{ id: 30, event: 'schedule' }],
+        jobs: { 30: [{ name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' }] },
+        greenRuns: [
+          { id: 80, event: 'push', path: '.github/workflows/macos-main.yml', head_sha: GREEN },
+        ],
+      }),
+      '/repo',
+      'main',
+    );
+    expect(skipped.skipMacosTests).toBe(true);
+    expect(skipped.reason).not.toContain('Newest main commit');
   });
 });
 
