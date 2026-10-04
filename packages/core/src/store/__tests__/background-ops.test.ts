@@ -31,6 +31,7 @@ import {
   observeOperation,
   pendingBackgroundOpCount,
   receiveOperationContext,
+  settleBackgroundOps,
   trackBackgroundOp,
   transferOperationContext,
 } from '../background-ops.js';
@@ -68,6 +69,39 @@ describe('background-ops registry (T10490)', () => {
   it('is a no-op when nothing is pending', async () => {
     await awaitBackgroundOps();
     expect(pendingBackgroundOpCount()).toBe(0);
+  });
+});
+
+describe('settleBackgroundOps — settle before an error exit (T13164)', () => {
+  it('waits for a tracked producer and reports none pending', async () => {
+    const events: string[] = [];
+    trackBackgroundOp(
+      new Promise<void>((resolve) => setTimeout(resolve, 20)).then(() => events.push('settled')),
+    );
+    expect(await settleBackgroundOps(2_000)).toBe(0);
+    expect(events).toEqual(['settled']);
+  });
+
+  it('stops at the budget and reports what is still pending', async () => {
+    const release = Promise.withResolvers<void>();
+    trackBackgroundOp(release.promise);
+    const started = Date.now();
+    expect(await settleBackgroundOps(30)).toBe(1);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    release.resolve();
+    await awaitBackgroundOps();
+  });
+
+  it('leaves the producer ledger for the shutdown receipt', async () => {
+    trackBackgroundOp(Promise.reject(new Error('producer failed')));
+    await settleBackgroundOps(2_000);
+    const report = await awaitBackgroundOps();
+    expect(report.failed).toBe(1);
+  });
+
+  it('returns at once when nothing is tracked', async () => {
+    expect(pendingBackgroundOpCount()).toBe(0);
+    expect(await settleBackgroundOps(60_000)).toBe(0);
   });
 });
 

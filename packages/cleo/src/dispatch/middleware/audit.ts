@@ -95,7 +95,7 @@ async function getActiveSessionInfo(): Promise<{ id: string; gradeMode: boolean 
 /**
  * Write audit entry to SQLite audit_log table.
  * Validates the payload with Zod before inserting.
- * Fire-and-forget — errors are logged to Pino but never thrown.
+ * Errors are logged to Pino but never thrown.
  *
  * @task T4848
  */
@@ -222,18 +222,12 @@ export function createAudit(): Middleware {
       `${entry.metadata.gateway ?? 'dispatch'} ${entry.domain}.${entry.operation}`,
     );
 
-    // SQLite write — await in grade mode to avoid race with grading query;
-    // fire-and-forget otherwise for performance.
-    const shouldAwaitSqlite =
-      isGradeSession ||
-      (req.gateway === 'mutate' && typeof req.params?.['idempotencyKey'] === 'string');
-    if (shouldAwaitSqlite) {
-      await writeToSqlite(entry, req.requestId, response);
-    } else {
-      writeToSqlite(entry, req.requestId, response).catch((err) => {
-        log.error({ err }, 'Failed to persist audit entry to SQLite');
-      });
-    }
+    // SQLite write — awaited, so the row exists before the response leaves the
+    // dispatcher (T13164). It was fire-and-forget outside grade mode, and the
+    // CLI's error path calls process.exit right after printing the envelope,
+    // which killed the pending insert: no failed mutation was ever audited.
+    // One insert on an already-open handle; writeToSqlite never throws.
+    await writeToSqlite(entry, req.requestId, response);
 
     return response;
   };

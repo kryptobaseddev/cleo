@@ -54,6 +54,7 @@ import { releaseCliThreadpoolEnv } from './lib/cli-threadpool-env.js';
 import { didYouMean } from './lib/did-you-mean.js';
 import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { isInteractiveInvocation } from './lib/interactive-commands.js';
+import { settleThenExit } from './lib/settle-then-exit.js';
 import { normalizeGlobalValueFlags } from './lib/strict-args.js';
 import { resolveFormat } from './middleware/output-format.js';
 import { installModuleResolveFastPath } from './module-resolve-fast-path.js';
@@ -561,9 +562,11 @@ async function runMainWithLafsEnvelope(
     try {
       await runCommand(cmd, { rawArgs });
     } catch (err) {
-      // NOTE: every branch in this catch ends with `process.exit(1)`, which
-      // terminates immediately and bypasses the `finally` below. That is the
-      // intended error contract — a hard exit releases all handles. Only the
+      // NOTE: every branch in this catch ends in `settleThenExit`, which exits
+      // and bypasses the `finally` below. That is the intended error contract —
+      // a hard exit releases all handles. It first settles best-effort writes
+      // (tracked hook dispatches, buffered telemetry) within the shutdown
+      // deadline, because a bare `process.exit` killed them (T13164). Only the
       // SUCCESS path (no exit) needs the coordinated teardown in `finally`.
       const { cliError } = await import('./renderers/index.js');
       // Citty's CLIError extends Error with a string `code` (e.g. 'EARG') and
@@ -579,7 +582,7 @@ async function runMainWithLafsEnvelope(
           name: cittyErrorCodeName(cittyCliError.code),
           fix: cittyErrorFix(cittyCliError.code),
         });
-        process.exit(1);
+        await settleThenExit(1);
       }
 
       // T12558: a typed CleoError thrown outside dispatch (e.g. during project
@@ -593,13 +596,13 @@ async function runMainWithLafsEnvelope(
           alternatives: typed.alternatives,
           details: typed.details,
         });
-        process.exit(typed.code);
+        await settleThenExit(typed.code);
       }
 
       // Non-citty error path — still must emit an envelope.
       const message = err instanceof Error ? err.message : String(err);
       cliError(message, 1, { name: 'E_CLI_UNCAUGHT' });
-      process.exit(1);
+      await settleThenExit(1);
     } finally {
       // T11568 — the success path does NOT call process.exit(); it emits the
       // LAFS envelope and returns, relying on the event loop draining so the
@@ -609,8 +612,8 @@ async function runMainWithLafsEnvelope(
       // alive forever — so without coordinated teardown the command printed its
       // success envelope and then HUNG (rc:124). Tear those down here, AFTER the
       // envelope has been written, so the loop drains and the process exits.
-      // The error branches above already `process.exit(1)` (which bypasses this
-      // finally), so this runs only on the success path.
+      // The error branches above already exit through `settleThenExit` (which
+      // bypasses this finally), so this runs only on the success path.
       const { shutdownCliRuntime, armExitBackstop } = await import('@cleocode/core/internal');
       const { formatShutdownOutcomes } = await import('@cleocode/core/shutdown-deadline');
       const outcomes = await shutdownCliRuntime();
