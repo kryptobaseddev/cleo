@@ -21,8 +21,10 @@
  * - A newer release on the install's channel (`latest`, or `beta` for a beta or
  *   rc install): one line naming the version and `cleo self-update`, at most once
  *   a day per machine.
- * - A release flagged as a hotfix: a stronger line on every command until the
- *   install moves past it. A maintainer flags one with the `hotfix` dist-tag:
+ * - A release flagged as a hotfix: a stronger line at most every 15 minutes
+ *   (not on every command: agents run hundreds of commands a session, each line
+ *   lands in their context, and an agent usually cannot update on its own) until
+ *   the install moves past it. A maintainer flags one with the `hotfix` dist-tag:
  *   `npm dist-tag add @cleocode/cleo@<version> hotfix`. The tag arrives in the
  *   same dist-tags response, so the flag costs no extra request, can be set after
  *   publishing, and is withdrawn with `npm dist-tag rm`.
@@ -100,6 +102,12 @@ export const UPDATE_LOCK_FILE = 'update-check.lock';
 
 /** File whose mtime records when a regular notice was last shown. */
 export const UPDATE_NOTICE_STAMP_FILE = 'update-notice.stamp';
+
+/** A hotfix notice is shown at most once per this interval. */
+export const HOTFIX_NOTICE_INTERVAL_MS = 15 * 60 * 1000;
+
+/** File whose mtime records when a hotfix notice was last shown. */
+export const HOTFIX_NOTICE_STAMP_FILE = 'update-notice-hotfix.stamp';
 
 /** Entry module of the background check, next to the built CLI. */
 export const UPDATE_CHECK_ENTRY = 'update-check-entry.js';
@@ -423,6 +431,11 @@ export function updateCheckDue(cache: UpdateCheckCache | null, now: number): boo
  * exclusively. A lock older than {@link UPDATE_CHECK_LOCK_STALE_MS} belongs to a
  * check that died and is reclaimed.
  *
+ * The reclaim is not atomic, and that is accepted: two processes that both see
+ * a stale lock can each unlink and recreate it, and a slow child that outlives
+ * a reclaim removes the new owner's lock when it finishes. The worst case is a
+ * duplicate dist-tags fetch; the cache write is tmp-then-rename either way.
+ *
  * @param lockPath - Lock file path.
  * @param now - Current time in ms.
  * @returns `true` when this process holds the lock.
@@ -543,18 +556,19 @@ export function showUpdateNotice(options: ShowUpdateNoticeOptions): UpdateNotice
     const notice = decideUpdateNotice(options.version, cache.distTags);
     if (notice === null) return { suppressed: null, checkStarted, shown };
 
-    if (notice.kind === 'update') {
-      const stampPath = join(stateDir, UPDATE_NOTICE_STAMP_FILE);
-      try {
-        if (now - statSync(stampPath).mtimeMs < UPDATE_NOTICE_INTERVAL_MS) {
-          return { suppressed: null, checkStarted, shown };
-        }
-      } catch {
-        // Never shown before.
-      }
-      writeFileSync(stampPath, `${notice.target}\n`);
-      utimesSync(stampPath, new Date(now), new Date(now));
+    // Each kind has its own stamp, so a hotfix flagged after a regular notice
+    // is announced at once rather than a day later.
+    const hotfix = notice.kind === 'hotfix';
+    const stampPath = join(stateDir, hotfix ? HOTFIX_NOTICE_STAMP_FILE : UPDATE_NOTICE_STAMP_FILE);
+    const interval = hotfix ? HOTFIX_NOTICE_INTERVAL_MS : UPDATE_NOTICE_INTERVAL_MS;
+    try {
+      const age = now - statSync(stampPath).mtimeMs;
+      if (age >= 0 && age < interval) return { suppressed: null, checkStarted, shown };
+    } catch {
+      // Never shown before.
     }
+    writeFileSync(stampPath, `${notice.target}\n`);
+    utimesSync(stampPath, new Date(now), new Date(now));
     (options.stderr ?? process.stderr).write(formatUpdateNotice(notice));
     shown = notice;
   } catch {

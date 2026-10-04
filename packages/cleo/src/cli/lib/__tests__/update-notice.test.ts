@@ -15,6 +15,7 @@ import {
   compareVersions,
   decideUpdateNotice,
   formatUpdateNotice,
+  HOTFIX_NOTICE_INTERVAL_MS,
   isCiEnvironment,
   parseUpdateCache,
   releaseChannelTag,
@@ -323,13 +324,23 @@ describe('showUpdateNotice', () => {
     expect(stdout).not.toHaveBeenCalled();
   });
 
-  it('shows a hotfix notice on every command', () => {
+  it('shows a hotfix notice at most every 15 minutes, not on every command', () => {
     seedCache({ latest: '2026.10.4', hotfix: '2026.10.4' });
-    for (let i = 0; i < 3; i++) {
-      expect(showUpdateNotice(options({ now: () => T0 + i * 1000 })).shown?.kind).toBe('hotfix');
-    }
-    expect(lines).toHaveLength(3);
+    const at = (ms: number) => showUpdateNotice(options({ now: () => T0 + ms })).shown?.kind;
+    expect(at(0)).toBe('hotfix');
+    expect(at(1000)).toBeUndefined();
+    expect(at(HOTFIX_NOTICE_INTERVAL_MS - 1)).toBeUndefined();
+    expect(at(HOTFIX_NOTICE_INTERVAL_MS)).toBe('hotfix');
+    expect(lines).toHaveLength(2);
     expect(lines.every((line) => line.includes('HOTFIX'))).toBe(true);
+  });
+
+  it('announces a hotfix at once even right after a regular notice', () => {
+    seedCache({ latest: '2026.10.4' });
+    expect(showUpdateNotice(options()).shown?.kind).toBe('update');
+    seedCache({ latest: '2026.10.4', hotfix: '2026.10.4' });
+    expect(showUpdateNotice(options({ now: () => T0 + 1000 })).shown?.kind).toBe('hotfix');
+    expect(lines).toHaveLength(2);
   });
 
   it('writes only to stderr when no stream is injected', () => {

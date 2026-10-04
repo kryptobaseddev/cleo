@@ -264,7 +264,7 @@ export CLEO_NO_UPDATE_NOTICE=1              # Hide the update notice and skip it
 
 An installed CLI checks npm for a newer release at most once a day, in a
 detached background process, and prints one line on stderr naming the version
-and `cleo self-update` (at most once a day; on every command for a release
+and `cleo self-update` (at most once a day; every 15 minutes for a release
 flagged as a hotfix). It never writes to stdout, and it stays silent in CI and
 from a source checkout.
 
