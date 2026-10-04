@@ -37,8 +37,9 @@
  */
 
 import { existsSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { loadPriorRecoveries, priorRecoveries } from '../store/exodus/prior-recoveries.js';
 import { TASK_ID_COLLISIONS_SQL } from '../store/exodus/task-id-collision-sql.js';
 
 /**
@@ -195,6 +196,7 @@ function countShadowedTasks(livePath: string, supersededPath: string): number | 
       return names.has('title') && names.has('created_at');
     };
     if (!hasColumns('legacy', 'tasks') || !hasColumns('main', 'tasks_tasks')) return 0;
+    loadPriorRecoveries(db, priorRecoveries(dirname(supersededPath)));
     const row = db
       .prepare(`SELECT COUNT(*) AS c FROM (${TASK_ID_COLLISIONS_SQL}) WHERE recoveredAs IS NULL`)
       .get() as { c: number } | undefined;

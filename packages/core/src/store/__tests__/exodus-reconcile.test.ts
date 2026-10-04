@@ -897,6 +897,51 @@ describe.each(
       expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(4);
     });
 
+    it('a recovered task retitled before the next run is recognised from the receipt (T13183)', async () => {
+      stageScenarioB();
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const first = await reconcileSupersededStores(join(root, 'project'));
+      expect(first.outcome).toBe('reconciled');
+      // The receipt is the durable record of the recovery.
+      const receipt = JSON.parse(readFileSync(first.receiptPath ?? '', 'utf8')) as {
+        remaps: Array<{ legacyId: string; newId: string }>;
+      };
+      expect(receipt.remaps).toEqual([
+        expect.objectContaining({ legacyId: 'T001', newId: 'T004' }),
+      ]);
+
+      // The user renames the recovered task; the title no longer matches the legacy row.
+      const live = new DatabaseSync(liveDb);
+      live.prepare("UPDATE tasks_tasks SET title = 'renamed since' WHERE id = 'T004'").run();
+      live.close();
+
+      const again = await reconcileSupersededStores(join(root, 'project'));
+      expect(again.outcome).toBe('nothing-to-reconcile');
+      expect(again.rowsCopied).toBe(0);
+      expect(again.remaps).toEqual([
+        expect.objectContaining({ legacyId: 'T001', newId: 'T004', alreadyRecovered: true }),
+      ]);
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(4);
+    });
+
+    it('cleo show <legacy id> says where the recovered legacy task went (T13183)', async () => {
+      stageScenarioB();
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      await reconcileSupersededStores(join(root, 'project'));
+      const { drainWarnings } = await import('../../output.js');
+      drainWarnings();
+      const { taskShowOperation } = await import('../../tasks/show.js');
+      const shown = await taskShowOperation(join(root, 'project'), { taskId: 'T001' });
+
+      expect(shown.success).toBe(true);
+      expect(drainWarnings()).toEqual([
+        expect.objectContaining({
+          code: 'W_LEGACY_ID_RECOVERED',
+          message: expect.stringContaining('recovered as T004'),
+        }),
+      ]);
+    });
+
     it('the read-only survey never calls tasks.db safe to archive while T001 is shadowed', async () => {
       stageScenarioB();
       const { scanSupersededStores } = await import('../../doctor/superseded-store.js');

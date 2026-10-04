@@ -38,11 +38,13 @@
  * @task T13172
  */
 
+import { dirname } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { SupersededStoreConflict, SupersededStoreIdRemap } from '@cleocode/contracts';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import { rederiveAcIdsNative, rewriteTaskIdReferencesNative } from '../sqlite-data-accessor.js';
 import { taskReferenceColumns } from '../task-reference-columns.js';
+import { loadPriorRecoveries, priorRecoveries } from './prior-recoveries.js';
 import { resolveConsolidatedTableName } from './table-name-map.js';
 import { TASK_ID_COLLISIONS_SQL } from './task-id-collision-sql.js';
 import type { LegacyDbDescriptor } from './types.js';
@@ -97,6 +99,9 @@ function findCollisions(liveStorePath: string, legacyPath: string): Collision[] 
       ) {
         return [];
       }
+      // Recoveries earlier runs recorded in their receipts (T13183); the legacy
+      // tasks.db sits in the project's .cleo directory with them.
+      loadPriorRecoveries(live.db, priorRecoveries(dirname(legacyPath)));
       const rows = live.db.prepare(TASK_ID_COLLISIONS_SQL).all() as Array<Record<string, unknown>>;
       return rows.map((row) => ({
         legacyId: text(row, 'legacyId'),

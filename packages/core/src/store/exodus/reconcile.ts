@@ -849,7 +849,7 @@ async function reconcileWithScratch(
       ...base,
       outcome: 'nothing-to-reconcile',
       before,
-      reason: `${undecided ? 'every other legacy row' : 'every legacy row'} is already present in cleo.db — nothing to copy${remapNote}`,
+      reason: `${undecided ? 'every other legacy row' : 'every legacy row'} is already present in cleo.db — nothing to copy${graphWithheld ? (undecided ? `; ${describeUndecided(undecided)}` : '') : remapNote}`,
     };
   }
   if (dryRun) {
