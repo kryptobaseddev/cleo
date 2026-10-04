@@ -181,7 +181,7 @@ describe.skipIf(DIST_MISSING)('admission ledger — 20 real processes (T13133)',
     expect(ledger.entries).toEqual([]);
   }, 120_000);
 
-  it('re-entrancy across real processes: a holder\'s descendant rides its grant (even with a scrubbed env); a stranger waits', async () => {
+  it("re-entrancy across real processes: a holder's descendant rides its grant (even with a scrubbed env); a stranger waits", async () => {
     const ledgerDir = join(work, 'admission');
     const url = JSON.stringify(pathToFileURL(LEDGER_DIST).href);
     const opts = `{ wait: false, capacityBytes: ${3 * GIB}, dir: process.env.LEDGER_DIR, sample: async () => { throw new Error('none'); } }`;
@@ -209,7 +209,11 @@ describe.skipIf(DIST_MISSING)('admission ledger — 20 real processes (T13133)',
     const env = { ...process.env, LEDGER_DIR: ledgerDir, HELD: held, DONE: done };
     let holderOut = '';
     const holderExit = new Promise<number | null>((res) => {
-      const child = spawn(process.execPath, ['-e', holder], { cwd: work, env, stdio: ['ignore', 'pipe', 'inherit'] });
+      const child = spawn(process.execPath, ['-e', holder], {
+        cwd: work,
+        env,
+        stdio: ['ignore', 'pipe', 'inherit'],
+      });
       child.stdout?.on('data', (d: Buffer) => {
         holderOut += d.toString();
       });

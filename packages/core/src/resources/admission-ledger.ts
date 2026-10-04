@@ -974,7 +974,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     startedAt: pid === process.pid ? ownProcessStartedAt() : probe.startedAt(pid),
     label: req.label,
     command: req.command ?? process.argv.slice(1).join(' '),
-    cwd: req.cwd === undefined ? process.cwd() : req.cwd,
+    cwd: req.cwd === undefined ? process.cwd() : req.cwd, // CWD-OK: display only — where the run was started, shown in status and reports
     footprintBytes: Math.max(0, req.footprintBytes),
     state: 'waiting',
     enqueuedAtMs: t0,

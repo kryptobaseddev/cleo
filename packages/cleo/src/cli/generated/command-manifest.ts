@@ -577,7 +577,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'doctorToolLocksCommand',
     name: 'tool-locks',
     description:
-      'Inspect the machine-wide evidence-tool semaphore: which slots are held, by which pid, ',
+      'Inspect the machine-wide admission ledger: which heavy runs hold the memory budget or ',
     load: async () =>
       (await import('../commands/doctor-tool-locks.js')).doctorToolLocksCommand as CommandDef,
   },
