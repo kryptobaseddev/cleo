@@ -368,6 +368,11 @@ describe('decidePreflightSkips — only release-plan commits are stepped past (T
     );
     expect(d).toMatchObject({ skipTests: false, testedSha: null });
     expect(d.reason).toContain('is not a release-plan commit (.cleo/adrs/ADR-099.md)');
+    // A rename's old path is listed too, so a code file moved into .changeset/ is refused.
+    const compare = makeGh(base);
+    decidePreflightSkips(compare, '/repo', 'main');
+    const call = compare.calls.find((c) => c[1]?.includes('/compare/'));
+    expect(call).toContain('[.files[] | .filename, (.previous_filename // empty)]');
   });
 
   it('does not borrow when the changed files cannot be listed or may be truncated', () => {
