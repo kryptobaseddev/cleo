@@ -85,15 +85,22 @@ export function recordApplyIntents(
   // A secret column's capture is only a change marker, so the intent names
   // the capture the apply's write produced (its seq; frame labels are written
   // only when the frame finishes, and the write lock makes the row's newest
-  // capture this write's): a later local write of the same secret in the
-  // frame then never matches it.
+  // capture of this column this write's): a later local write of the same
+  // secret in the frame then never matches it. Contract (T12344): record a
+  // row's intents before the frame writes that column again.
+  // The newest live capture of this row that changed THIS column: a same-row
+  // cascade or another column's write in between must not take the binding.
   const lastCapture = db.prepare(
-    "SELECT max(seq) AS seq FROM _sync_capture WHERE state = 'live' AND tbl = ? AND uid = ?",
+    "SELECT max(seq) AS seq FROM _sync_capture WHERE state = 'live' AND tbl = ? AND uid = ? AND json_type(img, ?) IS NOT NULL",
   );
   for (const i of intents) {
     let value = i.enc;
     if (value === SECRET_INTENT) {
-      const seq = (lastCapture.get(i.tbl, i.uid) as { seq: number | null } | undefined)?.seq;
+      const seq = (
+        lastCapture.get(i.tbl, i.uid, `$."${i.col.replaceAll('"', '\\"')}"`) as
+          | { seq: number | null }
+          | undefined
+      )?.seq;
       if (typeof seq === 'number') value = `${SECRET_INTENT}@${seq}`;
     }
     ins.run(frame, i.tbl, i.uid, i.col, value);

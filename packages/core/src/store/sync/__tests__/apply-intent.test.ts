@@ -269,6 +269,32 @@ describe('sealer: apply frames seal only their residual (T12757)', () => {
     db.exec('ROLLBACK');
   });
 
+  it('a secret intent binds to the capture that changed that column, past a same-row cascade and another column (review-p0 MED)', async () => {
+    const db = await store();
+    inFrame(db, 'write', () => addTask(db, 'T1'));
+    db.exec(`CREATE TRIGGER t12757_touch AFTER UPDATE OF title ON tasks_tasks
+             BEGIN UPDATE tasks_tasks SET priority = 'high' WHERE id = NEW.id; END`);
+    db.exec('BEGIN IMMEDIATE');
+    const frame = openCaptureFrame(db, 'apply', 'test');
+    db.exec("UPDATE tasks_tasks SET title = 'x' WHERE id = 'T1'"); // + the cascade's capture
+    const titleSeq = (
+      db
+        .prepare(
+          'SELECT max(seq) AS s FROM _sync_capture WHERE json_type(img, \'$."title"\') IS NOT NULL',
+        )
+        .get() as { s: number }
+    ).s;
+    db.exec("UPDATE tasks_tasks SET status = 'active' WHERE id = 'T1'"); // another column
+    const newest = (db.prepare('SELECT max(seq) AS s FROM _sync_capture').get() as { s: number }).s;
+    expect(newest).toBeGreaterThan(titleSeq);
+    recordApplyIntents(db, frame, [
+      { tbl: 'tasks_tasks', uid: 'uid-T1', col: 'title', enc: SECRET_INTENT },
+    ]);
+    expect([...loadFrameIntents(db, frame).values()]).toEqual([`${SECRET_INTENT}@${titleSeq}`]);
+    finishCaptureFrame(db, frame);
+    db.exec('ROLLBACK');
+  });
+
   it('an applied delete is never sealed, and the ledger drops the row', async () => {
     const db = await store();
     inFrame(db, 'write', () => {
@@ -357,6 +383,14 @@ describe('subtractApplyIntents (T12757)', () => {
     expect(run([applied], { sec: `${SECRET_INTENT}@1` }).removed).toEqual([applied]);
     // A bare marker intent never swallows a column the frame changed twice.
     expect(run([applied, local], { sec: SECRET_INTENT }).residual.map((c) => c.seq)).toEqual([2]);
+  });
+
+  it('a secret bound to capture A is matched by A even when a later capture B changed only another column', () => {
+    const a = cap('U', { sec: ['<changed>', '<changed>'] }, 1);
+    const b = cap('U', { other: ["'x'", "'y'"] }, 2);
+    const r = run([a, b], { sec: `${SECRET_INTENT}@1` });
+    expect(r.removed).toEqual([a]);
+    expect(r.residual.map((c) => c.seq)).toEqual([2]);
   });
 
   it('an insert with a mismatching column leaves an update from the intent value, and an unnamed column from NULL', () => {
