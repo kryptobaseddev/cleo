@@ -149,7 +149,11 @@ describe('buildPrecondition (review LOW on #1812)', () => {
   it.each([
     ['a missing build', { ...current, entryExists: false }, /is missing/],
     ['a stale build', { ...current, entryMtimeMs: 500 }, /older than packages\/core\/src\/x\.ts/],
-    ['tsc output in place of the bundle', { ...current, isBundle: false }, /not the esbuild bundle/],
+    [
+      'tsc output in place of the bundle',
+      { ...current, isBundle: false },
+      /not the esbuild bundle/,
+    ],
   ])('skips %s locally and fails it in CI', (_name, build, reason) => {
     const local = buildPrecondition(build, false);
     expect(local.action).toBe('skip');
