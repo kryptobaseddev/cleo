@@ -517,6 +517,10 @@ async function withLedger<T>(
   const unlock = await lockLedger(file);
   try {
     const current = readLedgerDoc(dir);
+    if (current.version > LEDGER_VERSION) {
+      // @sync-invariant none:local-only the admission ledger is a machine-local file, not a store write
+      throw new LedgerVersionError(current.version, file);
+    }
     const { doc, result } = fn(current);
     if (doc !== null) {
       if (current.corrupt) {
@@ -1117,7 +1121,7 @@ async function sampleShare(
     if (process.env[ADMISSION_PRESSURE_ENV] === 'off') {
       return { share: 'full', reading: null, sampled: null };
     }
-    if (cached !== null && isFresh(cached, nowMs) && Math.random() > 2) {
+    if (cached !== null && isFresh(cached, nowMs)) {
       return { share: cached.share, reading: cached.reading, sampled: null };
     }
   }
