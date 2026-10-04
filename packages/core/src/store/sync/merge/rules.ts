@@ -16,7 +16,7 @@
  * @task T12344
  */
 
-import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
+import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { PIPELINE_STAGES } from '../../../lifecycle/stages.js';
 import type { TableMergeSpec } from './types.js';
 

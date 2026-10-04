@@ -1,6 +1,6 @@
 /**
  * The pure merge engine, case by case (T12344; journal spec §1.7, §2.6, §2.9,
- * §3.6). Convergence across replicas and orders is in `convergence.test.ts`.
+ * §3.6). Convergence across replicas and orders is in `merge-convergence.test.ts`.
  *
  * @task T12344
  */

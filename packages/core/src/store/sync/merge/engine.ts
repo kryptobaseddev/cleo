@@ -31,7 +31,7 @@
  * @task T12344
  */
 
-import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts';
+import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import {
   LEDGER_TXN_VERSION,
   type LedgerOp,
