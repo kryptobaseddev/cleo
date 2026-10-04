@@ -142,6 +142,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §2.5, §2.6 (T12984)',
     note: 'the ops of each sealed transaction; the stream carries their content. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12984)',
   },
+  _sync_apply_intent: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.3 (T12757)',
+    note: "what an apply frame wrote, per (tbl, uid, col), for the sealer to subtract from that frame's captures; deleted with the frame. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12757)",
+  },
   _sync_row_meta: {
     class: 'local-only',
     status: 'optional-transient',
@@ -1321,6 +1327,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §2.5, §2.6 (T12984)',
     note: 'the ops of each sealed transaction; the stream carries their content. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12984)',
+  },
+  _sync_apply_intent: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.3 (T12757)',
+    note: "what an apply frame wrote, per (tbl, uid, col), for the sealer to subtract from that frame's captures; deleted with the frame. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12757)",
   },
   _sync_row_meta: {
     class: 'local-only',
