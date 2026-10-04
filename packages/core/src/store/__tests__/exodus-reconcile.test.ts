@@ -719,6 +719,24 @@ describe.each(
       expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_task_dependencies')).toBe(0);
     });
 
+    it('a withheld run copies history from the original legacy files, not the renumbered copy (review LOW)', async () => {
+      stage(
+        `INSERT INTO tasks VALUES
+           ('T001', 'legacy epoch task', 'pending', 'medium', 'saga', NULL, NULL, NULL, '1735689600000'),
+           ('T002', 'legacy decided', 'pending', 'medium', 'saga', NULL, NULL, NULL, '2026-01-02T00:00:00Z');`,
+        `${POST_DEFERRAL_T001}
+         INSERT INTO tasks_tasks (id, title, status, priority, type, created_at)
+           VALUES ('T002', 'live other', 'pending', 'medium', 'saga', '2026-10-03T00:00:00Z');`,
+      );
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const result = await reconcileSupersededStores(join(root, 'project'));
+
+      expect(result.remaps).toEqual([]);
+      expect(result.stagingDir).not.toBeNull();
+      expect(readdirSync(result.stagingDir ?? '')).not.toContain('tasks.remapped.db');
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(2);
+    });
+
     it('twins whose instant is spelled two ways share one candidate pool (review LOW)', async () => {
       stage(
         `INSERT INTO tasks VALUES

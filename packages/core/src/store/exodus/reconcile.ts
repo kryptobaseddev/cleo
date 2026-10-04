@@ -736,7 +736,13 @@ async function reconcileWithScratch(
     !additive && existsSync(liveStorePath)
       ? remapCollidingTaskIds(liveStorePath, legacyFiles, scratch)
       : { sources: legacyFiles, remaps: [], undecided: null, remappedPath: null };
-  const fileSources = remap.sources;
+  // An undecided collision withholds the WHOLE task graph (review MED-2): its
+  // children, dependencies and criteria would otherwise attach to the live
+  // task that holds its id. History tables still copy, and from the ORIGINAL
+  // legacy files: the renumbered copy would point history rows at fresh ids
+  // no live task holds, which the next `cleo add` could then mint (review LOW).
+  const graphWithheld = !additive && remap.undecided !== null;
+  const fileSources = graphWithheld ? legacyFiles : remap.sources;
   // The receipt carries the contract shape (the post-copy check keeps the rest).
   const remaps = remap.remaps.map(({ legacyCreatedAt: _legacyCreatedAt, ...r }) => r);
   // A collision the run cannot decide is left uncopied and named, so the
@@ -745,10 +751,6 @@ async function reconcileWithScratch(
   const remapNote =
     (remaps.length > 0 ? `; ${describeRemaps(remaps)}` : '') +
     (undecided ? `; ${describeUndecided(undecided)}` : '');
-  // An undecided collision withholds the WHOLE task graph (review MED-2): its
-  // children, dependencies and criteria would otherwise attach to the live
-  // task that holds its id. History tables still copy.
-  const graphWithheld = !additive && undecided !== null;
   // An additive run is for a project already live on the consolidated store;
   // its bare family is not a source (and bareTaskCoreSource agrees).
   const bare =
