@@ -298,10 +298,11 @@ describe('presence and binding hold their guarantees (review M3)', () => {
         .all() as Array<{ type: string; name: string }>;
       expect(objects.filter((o) => o.type === 'trigger')).toEqual([]);
       const tables = objects.filter((o) => o.type === 'table').map((o) => o.name);
-      // The bookkeeping tables, S2's capture outbox (T12343) and S3a's sealer
-      // tables (T12984): all empty, all this-device-only; capture triggers
-      // come only with a sync.* flag.
+      // The bookkeeping tables, S2's capture outbox (T12343), S3a's sealer
+      // tables (T12984) and the apply intents (T12757): all empty, all
+      // this-device-only; capture triggers come only with a sync.* flag.
       expect(tables).toEqual([
+        '_sync_apply_intent',
         '_sync_capture',
         '_sync_clock',
         '_sync_frame',

@@ -51,6 +51,7 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import { naturalRowUid } from '../row-identity.js';
 import { BIRTH_FP_COLUMN, rowIdentitySpec, UID_COLUMN } from '../row-identity-registry.js';
+import { loadFrameIntents, subtractApplyIntents } from './apply-intent.js';
 import {
   type CaptureTableDef,
   captureTableDef,
@@ -455,6 +456,40 @@ function resolveBirthFp(
  * may stay NULL here; the netted op is checked afterwards, so a clear-and-
  * refill pair (K x → NULL, K NULL → y) can net to one K first (N8).
  */
+/**
+ * The uid of an I, U or D capture's row (§2.5 step 3): the capture's own,
+ * else the image's `uid`, else the live row's by local key (unless a later
+ * capture deletes that local row: the live row is then a later
+ * incarnation, T13041), else a natural row's uid from its key.
+ */
+function resolveCaptureUid(
+  ctx: TableContext,
+  c: CaptureRow,
+  img: Record<string, unknown>,
+  naturalK: Record<string, WireValue> | undefined,
+): string | null {
+  const def = ctx.def(c.tbl);
+  let uid = c.uid;
+  if (uid === null && def.identity.includes(UID_COLUMN)) {
+    const raw = img[UID_COLUMN];
+    if (typeof raw === 'string') uid = str(decodeEnc(raw)) ?? null;
+  }
+  if (uid === null && !ctx.laterDelete(c.tbl, c.rk, c.seq)) uid = ctx.uidByKey(c.tbl, c.rk);
+  // A natural row's uid is a function of its key with references as uids
+  // (T12341 §5.3), so a capture taken before the fill still seals. Symmetric
+  // edges need the fill's twin rule and wait for it (the step-0 fill, S3d).
+  if (uid === null && naturalK) uid = ctx.naturalUid(c.tbl, naturalK);
+  return uid;
+}
+
+/** The uid a capture is matched to apply intents by (a K: the uid before the re-key). */
+function intentUid(ctx: TableContext, c: CaptureRow): string | null {
+  if (c.op === 'K') return c.uid;
+  const img = JSON.parse(c.img) as Record<string, unknown>;
+  const natural = ctx.minted(c.tbl) ? undefined : naturalKey(ctx, ctx.def(c.tbl), c.rk);
+  return resolveCaptureUid(ctx, c, img, natural);
+}
+
 function buildDraft(ctx: TableContext, c: CaptureRow, births: BatchBirths): DraftOp {
   const def = ctx.def(c.tbl);
   const img = JSON.parse(c.img) as Record<string, unknown>;
@@ -478,20 +513,7 @@ function buildDraft(ctx: TableContext, c: CaptureRow, births: BatchBirths): Draf
       ...natural,
     };
   }
-  let uid = c.uid;
-  if (uid === null && def.identity.includes(UID_COLUMN)) {
-    const raw = img[UID_COLUMN];
-    if (typeof raw === 'string') uid = str(decodeEnc(raw)) ?? null;
-  }
-  // Resolve a missing uid from the live row by its local key (§2.5 step 3),
-  // unless a later capture deletes that local row: the live row is then a
-  // later incarnation, and this one is resolved by the netting or dropped as
-  // dead (T13041).
-  if (uid === null && !ctx.laterDelete(c.tbl, c.rk, c.seq)) uid = ctx.uidByKey(c.tbl, c.rk);
-  // A natural row's uid is a function of its key with references as uids
-  // (T12341 §5.3), so a capture taken before the fill still seals. Symmetric
-  // edges need the fill's twin rule and wait for it (the step-0 fill, S3d).
-  if (uid === null && !minted && natural.k) uid = ctx.naturalUid(c.tbl, natural.k);
+  const uid = resolveCaptureUid(ctx, c, img, natural.k);
 
   switch (c.op) {
     case 'I': {
@@ -942,16 +964,35 @@ function sealInTransaction(
       dead.add(c.seq);
       consumed.add(c.seq);
     }
-    const captures = g.captures
+    let captures = g.captures
       .filter((c) => !dead.has(c.seq))
       .map((c) => (pointedAt.has(c.seq) ? { ...c, uid: pointedAt.get(c.seq) ?? null } : c));
     if (captures.length === 0) continue;
     const head = captures[0]?.seq ?? 0;
-    if (g.frame !== null && (g.kind === 'apply' || g.kind === 'rebase')) {
-      // §3.3: an apply or rebase frame is sealed only after its apply intents
-      // are subtracted, which is S5. Until then it waits (T13037).
-      pending.push({ firstSeq: head, reason: `${g.kind} frames wait for S5 intent subtraction` });
+    if (g.frame !== null && g.kind === 'rebase') {
+      // A rebase frame replays rewound local ops (§3.5); it seals with S5's
+      // scoped rebase (T13037).
+      pending.push({ firstSeq: head, reason: 'rebase frames wait for the S5 scoped rebase' });
       break;
+    }
+    if (g.frame !== null && g.kind === 'apply') {
+      // §3.3 (T12757): subtract what the apply wrote; only residual fields
+      // seal, as local writes. A removed capture is consumed: the applied row
+      // exists, so the ledger counts it and its chash is refreshed.
+      const sub = subtractApplyIntents(captures, loadFrameIntents(db, g.frame), (c) =>
+        intentUid(ctx, c),
+      );
+      for (const c of sub.removed) {
+        consumed.add(c.seq);
+        const uid = intentUid(ctx, c);
+        if (c.op === 'I') ledgerDelta.set(c.tbl, (ledgerDelta.get(c.tbl) ?? 0) + 1);
+        if (c.op === 'D') ledgerDelta.set(c.tbl, (ledgerDelta.get(c.tbl) ?? 0) - 1);
+        if (uid !== null && (c.op === 'I' || c.op === 'U')) {
+          touched.set(rowKey(c.tbl, uid), { tbl: c.tbl, uid, rk: c.rk });
+        }
+      }
+      captures = sub.residual;
+      if (captures.length === 0) continue;
     }
     const capOf = new Map(captures.map((c) => [c.seq, c] as const));
     let drafts: DraftOp[] = [];
@@ -1150,6 +1191,12 @@ function sealInTransaction(
   db.exec(
     "DELETE FROM _sync_frame WHERE NOT EXISTS (SELECT 1 FROM _sync_capture c WHERE c.frame = _sync_frame.frame AND c.state = 'live')",
   );
+  // A frame's apply intents go with it (§3.3, T12757).
+  if (hasTable(db, '_sync_apply_intent')) {
+    db.exec(
+      'DELETE FROM _sync_apply_intent WHERE NOT EXISTS (SELECT 1 FROM _sync_frame f WHERE f.frame = _sync_apply_intent.frame)',
+    );
+  }
 
   // chash from the live row, once no live capture of that row remains.
   const stillLive = db.prepare(
