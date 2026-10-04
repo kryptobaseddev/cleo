@@ -9,15 +9,21 @@
  * migration's name but a different hash, the #1719 condition). Rows no known
  * lineage explains are listed too.
  *
+ * A journal rebuilt from empty on a store that already held its schema (most
+ * likely by a vault restore before T13104, which emptied it) is named, with
+ * how many rows the migrator stamped applied without running their SQL.
+ *
  * The store is opened as a read-only snapshot; nothing is written.
  *
  * @module
  * @task T12796
+ * @task T13104
  */
 
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import { type DualScope, resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
 import {
@@ -41,6 +47,20 @@ export const GLOBAL_LINEAGES: readonly string[] = [
   'drizzle-skills',
   'drizzle-telemetry',
 ];
+
+/** Each scope's consolidated lineage: its first migration opens a journal built on an empty store. */
+const BASELINE_LINEAGE: Readonly<Record<DualScope, string>> = {
+  project: 'drizzle-cleo-project',
+  global: 'drizzle-cleo-global',
+};
+
+/** A journal rebuilt on a store that already held its schema (T13104). */
+export interface RebuiltJournalReport {
+  /** Rows recorded applied without their SQL having run on this file (`applied_at` NULL). */
+  readonly stamped: number;
+  /** What happened and what it means. */
+  readonly detail: string;
+}
 
 /** One lineage's standing in a journal. */
 export interface LineageMigrationReport {
@@ -74,6 +94,12 @@ export interface ScopeMigrationReport {
   readonly drift: Array<JournalRowReport & { fileHash: string; lineage: string }>;
   /** Rows no installed lineage knows (a newer build, or a foreign lineage). */
   readonly unknown: JournalRowReport[];
+  /**
+   * Set when the journal opens with the consolidated baseline stamped applied
+   * (`applied_at` NULL) instead of run: the migrator rebuilt it from empty on a
+   * store that already held the schema. `null` otherwise.
+   */
+  readonly rebuilt: RebuiltJournalReport | null;
 }
 
 /** The report of every scope. */
@@ -115,7 +141,16 @@ export function inspectJournal(
   lineages: readonly string[] = CONSOLIDATED_JOURNAL_LINEAGES,
   folderOf: (lineage: string) => string = resolveCorePackageMigrationsFolder,
 ): ScopeMigrationReport {
-  const base = { scope, dbPath, journalRows: 0, head: null, lineages: [], drift: [], unknown: [] };
+  const base = {
+    scope,
+    dbPath,
+    journalRows: 0,
+    head: null,
+    lineages: [],
+    drift: [],
+    unknown: [],
+    rebuilt: null,
+  };
   if (!existsSync(dbPath)) return { ...base, exists: false };
   const snap = openCleoDbSnapshot(dbPath, { readOnly: true });
   try {
@@ -127,9 +162,14 @@ export function inspectJournal(
         )
         .get() !== undefined;
     if (!hasJournal) return { ...base, exists: true };
-    const hasName = (
-      db.prepare('PRAGMA main.table_info("__drizzle_migrations")').all() as Array<{ name: string }>
-    ).some((c) => c.name === 'name');
+    const columns = new Set(
+      (
+        db.prepare('PRAGMA main.table_info("__drizzle_migrations")').all() as Array<{
+          name: string;
+        }>
+      ).map((c) => c.name),
+    );
+    const hasName = columns.has('name');
     const rows = db
       .prepare(
         `SELECT id, ${hasName ? 'name' : 'NULL AS name'}, hash FROM main."__drizzle_migrations" ORDER BY id`,
@@ -172,10 +212,48 @@ export function inspectJournal(
       lineages: reports,
       drift,
       unknown: rows.filter((r) => !known.has(r.hash) && !drift.some((d) => d.id === r.id)),
+      rebuilt: columns.has('applied_at')
+        ? rebuiltJournal(db, rows[0], localMigrations(folderOf(BASELINE_LINEAGE[scope]))[0])
+        : null,
     };
   } finally {
     snap.close();
   }
+}
+
+/**
+ * Whether a journal was rebuilt from empty on a store that already held its
+ * schema. A store built by its migrations runs the consolidated baseline first
+ * and records when (`applied_at`); a journal whose first row is that baseline
+ * with no `applied_at` was stamped by the reconciler, which only happens when
+ * the journal was empty and the baseline's tables already existed.
+ */
+function rebuiltJournal(
+  db: DatabaseSync,
+  first: JournalRowReport | undefined,
+  baseline: LocalMigration | undefined,
+): RebuiltJournalReport | null {
+  if (!first || !baseline || first.hash !== baseline.hash) return null;
+  const row = db
+    .prepare('SELECT applied_at IS NULL AS s FROM main."__drizzle_migrations" WHERE id = ?')
+    .get(first.id) as { s: number } | undefined;
+  if (row?.s !== 1) return null;
+  const stamped = (
+    db
+      .prepare('SELECT count(*) AS n FROM main."__drizzle_migrations" WHERE applied_at IS NULL')
+      .get() as { n: number }
+  ).n;
+  return {
+    stamped,
+    detail:
+      `the journal was rebuilt on a store that already held its schema: ${stamped} migration(s) ` +
+      'are recorded applied without their SQL having run on this file. This is most likely a ' +
+      'vault restore or pull before T13104, which emptied the journal; a journal emptied any ' +
+      'other way leaves the same mark. A store restored that way got its schema whole with the ' +
+      'snapshot, so the stamps hold; the rebuild may also have re-run old migrations, which ' +
+      "can leave an extra index on a legacy table. Otherwise the stamped migrations' indexes, " +
+      'triggers and CHECK constraints were never verified here.',
+  };
 }
 
 /**

@@ -13,14 +13,27 @@
  * broken hook never blocks a command.
  *
  * The rewrite (`cleo run --wait --passthrough --class <c> -- <command>`,
- * wrapped in place) changes which permission rules match the command: an
- * allow rule such as `Bash(pnpm test:*)` stops matching, and a "don't ask
- * again" on `cleo run` would become a broad allow. So the hook rewrites only
- * when the harness reports `permission_mode` `bypassPermissions` or `auto`
- * (owner decision, 2026-10-01: modes where the user is not approving each
- * command); in `default`, `acceptEdits`, `plan`, `dontAsk` (which denies what
- * no allow rule matches) or an unknown mode it adds a context line with the
- * governed command instead.
+ * wrapped in place) changes which permission rules match the command: Claude
+ * Code evaluates rules against the input a hook returns, so an allow rule such
+ * as `Bash(pnpm test:*)` stops matching, and a "don't ask again" on
+ * `cleo run` would become a broad allow. So:
+ *
+ * - `bypassPermissions` or `auto` (owner decision, 2026-10-01: the user is not
+ *   approving each command): always rewrite.
+ * - Claude Code `default`, `acceptEdits`, `dontAsk` (and `auto`), T13124:
+ *   rewrite with `permissionDecision: "allow"` when the user's Bash allow
+ *   rules already approve the ORIGINAL command (core `claudePreApproval`,
+ *   never more permissive than Claude Code). The commands that ran without a
+ *   prompt still do, and nothing else does; they now queue for the budget.
+ *   Claude Code still applies deny and ask rules to the rewritten command
+ *   whatever the hook answers. The hook claims nothing when something it
+ *   cannot see may change the rules (managed `allowManagedPermissionRulesOnly`,
+ *   an unreadable managed source, a macOS configuration profile, Windows, an
+ *   Agent SDK or host-managed session, or `--disallowedTools` / `--settings` /
+ *   `--setting-sources` on Claude Code's command line).
+ * - Otherwise (`plan`, an unknown mode, a command no allow rule approves, or
+ *   any Codex mode but `bypassPermissions`): a context line with the governed
+ *   command instead.
  *
  * Providers:
  * - `claude-code`: `updatedInput` with no `permissionDecision`. The Bash
@@ -48,10 +61,12 @@
  * CLI bootstrap; keep its static imports to types and Node built-ins.
  *
  * @task T12983
+ * @task T13124
  * @epic T12978
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -99,6 +114,26 @@ const DEFAULT_WAIT_SEC = 60;
  * the user is not approving each command, so a rewrite changes no approval.
  */
 const REWRITE_MODES: ReadonlySet<string> = new Set(['bypassPermissions', 'auto']);
+
+/**
+ * Claude Code modes in which the hook rewrites a command the user's allow
+ * rules already approve, answering `permissionDecision: "allow"` (T13124).
+ * Claude Code evaluates permission rules against the input a hook returns, so
+ * without `allow` a rewrite would lose the allow rule's match and prompt; with
+ * it, exactly the commands that ran unprompted before still do, now queued.
+ * Deny and ask rules still apply to the rewritten command whatever the hook
+ * answers. Plan mode is left out: it must not run the command at all.
+ */
+const PRE_APPROVE_MODES: ReadonlySet<string> = new Set([
+  'default',
+  'acceptEdits',
+  'dontAsk',
+  'auto',
+]);
+
+/** `permissionDecisionReason` for a pre-approved rewrite (Claude Code logs it in debug only). */
+const PRE_APPROVED_REASON =
+  '[cleo] your allow rules approve this command; the hook only queues it for the machine-wide budget';
 
 const MAX_STDIN_BYTES = 1024 * 1024;
 
@@ -261,6 +296,8 @@ function demote(plan: HeavyCommandPlan, reason: string): HeavyCommandPlan {
  * @param plan - the (possibly demoted) plan.
  * @param context - the context text from {@link heavyHookContext}.
  * @param timeoutMs - the adjusted shell timeout (Claude Code, opencode), if any.
+ * @param preApproved - Claude Code: the user's allow rules already approve the
+ *   original command, so the rewrite carries `permissionDecision: "allow"`.
  */
 export function renderHeavyHookAnswer(
   provider: HeavyCommandHookProvider,
@@ -268,6 +305,7 @@ export function renderHeavyHookAnswer(
   plan: HeavyCommandPlan,
   context: string,
   timeoutMs?: number,
+  preApproved = false,
 ): string {
   if (plan.action === 'none' && context === '') return '';
   const rewrite = plan.action === 'rewrite';
@@ -297,10 +335,16 @@ export function renderHeavyHookAnswer(
         ...(provider === 'claude-code' && timeoutMs !== undefined ? { timeout: timeoutMs } : {}),
       }
     : undefined;
+  // Codex applies updatedInput only with `allow`. Claude Code gets `allow` only
+  // when the user's allow rules already approve the original command (T13124).
+  const allow = rewrite && (provider === 'codex' || preApproved);
   const output: PreToolUseHookOutput = {
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
-      ...(rewrite && provider === 'codex' ? { permissionDecision: 'allow' as const } : {}),
+      ...(allow ? { permissionDecision: 'allow' as const } : {}),
+      ...(allow && provider === 'claude-code'
+        ? { permissionDecisionReason: PRE_APPROVED_REASON }
+        : {}),
       ...(updatedInput === undefined ? {} : { updatedInput }),
       ...(context === '' ? {} : { additionalContext: context }),
     },
@@ -349,17 +393,74 @@ function ruleWords(pattern: string): string[] {
 export function claudeRuleFiles(
   projectDir: string,
   env: Readonly<Record<string, string | undefined>>,
+  managedDir: string = claudeManagedDir(),
 ): readonly string[] {
-  const managed =
-    process.platform === 'darwin'
-      ? '/Library/Application Support/ClaudeCode/managed-settings.json'
-      : process.platform === 'win32'
-        ? 'C:\\Program Files\\ClaudeCode\\managed-settings.json'
-        : '/etc/claude-code/managed-settings.json';
-  const configDir = env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), '.claude');
+  return [...claudeManagedFiles(env, managedDir), ...claudeSettingsFiles(projectDir, env)];
+}
+
+/**
+ * Claude Code's file-based managed-settings directory on this platform.
+ *
+ * @param platform - the platform (injectable for tests).
+ */
+export function claudeManagedDir(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'darwin'
+    ? '/Library/Application Support/ClaudeCode'
+    : platform === 'win32'
+      ? 'C:\\Program Files\\ClaudeCode'
+      : '/etc/claude-code';
+}
+
+/** Claude Code's user configuration directory (`CLAUDE_CONFIG_DIR` or `~/.claude`). */
+function claudeConfigDir(env: Readonly<Record<string, string | undefined>>): string {
+  return env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), '.claude');
+}
+
+/**
+ * Claude Code's managed-settings documents this hook can read: the
+ * `managed-settings.json` file and its `managed-settings.d/*.json` drop-ins
+ * (alphabetical, hidden files skipped), and the cached server-managed
+ * settings (`remote-settings.json` in the user configuration directory).
+ *
+ * @param env - the hook's environment.
+ * @param managedDir - the managed-settings directory (injectable for tests).
+ */
+export function claudeManagedFiles(
+  env: Readonly<Record<string, string | undefined>>,
+  managedDir: string = claudeManagedDir(),
+): readonly string[] {
+  const dropInDir = join(managedDir, 'managed-settings.d');
+  let dropIns: string[] = [];
+  try {
+    dropIns = readdirSync(dropInDir)
+      .filter((n) => n.endsWith('.json') && !n.startsWith('.'))
+      .sort()
+      .map((n) => join(dropInDir, n));
+  } catch (err) {
+    // A drop-in directory that exists but cannot be listed is reported as
+    // unreadable by whoever reads the returned list.
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') dropIns = [dropInDir];
+  }
   return [
-    managed,
-    join(configDir, 'settings.json'),
+    join(managedDir, 'managed-settings.json'),
+    ...dropIns,
+    join(claudeConfigDir(env), 'remote-settings.json'),
+  ];
+}
+
+/**
+ * The user, project and project-local Claude Code settings files.
+ *
+ * @param projectDir - the session's project directory.
+ * @param env - the hook's environment.
+ */
+export function claudeSettingsFiles(
+  projectDir: string,
+  env: Readonly<Record<string, string | undefined>>,
+): readonly string[] {
+  return [
+    join(claudeConfigDir(env), 'settings.json'),
     join(projectDir, '.claude', 'settings.json'),
     join(projectDir, '.claude', 'settings.local.json'),
   ];
@@ -393,24 +494,252 @@ export function claudeGuardedBashRules(files: readonly string[]): ClaudeGuardedR
       if (code !== 'ENOENT' && code !== 'ENOTDIR') unreadable ??= file;
       continue;
     }
-    const permissions = isRecord(raw) ? raw.permissions : undefined;
-    if (!isRecord(permissions)) continue;
-    for (const key of ['deny', 'ask']) {
+    patterns.push(...bashRulePatterns(raw, ['deny', 'ask'], 4));
+  }
+  return { patterns, unreadable };
+}
+
+/**
+ * The patterns of the `Bash` / `Bash(…)` rules under `permissions.<key>` in a
+ * parsed settings document (a bare `Bash` is `*`). With `depth > 0`, a
+ * `permissions` object nested up to that many levels down counts too: a
+ * cached server-managed payload may wrap the settings, and for deny and ask
+ * rules finding more is the safe side.
+ *
+ * @param doc - the parsed settings document.
+ * @param keys - `allow`, `deny` and/or `ask`.
+ * @param depth - how far below the top to look for `permissions` objects.
+ */
+export function bashRulePatterns(
+  doc: HookJsonValue,
+  keys: readonly string[],
+  depth = 0,
+): readonly string[] {
+  if (!isRecord(doc)) return [];
+  const out: string[] = [];
+  const permissions = doc.permissions;
+  if (isRecord(permissions)) {
+    for (const key of keys) {
       const rules = permissions[key];
       if (!Array.isArray(rules)) continue;
       for (const rule of rules) {
         if (typeof rule !== 'string') continue;
         const trimmed = rule.trim();
         if (trimmed === 'Bash') {
-          patterns.push('*');
+          out.push('*');
           continue;
         }
         const match = /^Bash\((.*)\)$/s.exec(trimmed);
-        if (match?.[1] !== undefined) patterns.push(match[1]);
+        if (match?.[1] !== undefined) out.push(match[1]);
       }
     }
   }
-  return { patterns, unreadable };
+  if (depth > 0) {
+    for (const [key, value] of Object.entries(doc)) {
+      if (key !== 'permissions') out.push(...bashRulePatterns(value, keys, depth - 1));
+    }
+  }
+  return out;
+}
+
+/** Whether `doc` sets `key` to `true` anywhere down to `depth` levels. */
+function setsTrue(doc: HookJsonValue, key: string, depth: number): boolean {
+  if (!isRecord(doc)) return false;
+  if (doc[key] === true) return true;
+  return depth > 0 && Object.values(doc).some((v) => setsTrue(v, key, depth - 1));
+}
+
+/**
+ * Claude Code command-line flags that add rules or settings sources the hook
+ * cannot read: deny rules (`--disallowedTools`), an extra settings file
+ * (`--settings`), or a narrowed set of settings sources (`--setting-sources`,
+ * which can drop the user or project rules the hook would count).
+ */
+const CLAUDE_RULE_FLAGS =
+  /(?:^|\s)--(?:disallowedTools|disallowed-tools|settings|setting-sources)(?=[=\s]|$)/;
+
+/** Ancestor processes the hook looks at for {@link CLAUDE_RULE_FLAGS}. */
+const ANCESTOR_DEPTH = 8;
+
+/**
+ * The command lines of this process's ancestors (up to
+ * {@link ANCESTOR_DEPTH}, nearest first), concatenated, or `null` when they
+ * cannot be read. Only ever searched for {@link CLAUDE_RULE_FLAGS}, so which
+ * ancestor a line belongs to does not matter (`ps` prints a command line that
+ * holds newlines across several lines). Linux reads `/proc`; elsewhere one
+ * `ps` call for the parent chain and one for the command lines.
+ */
+export function ancestorCommandText(): string | null {
+  const chain: number[] = [];
+  let pid = process.ppid;
+  if (process.platform === 'linux') {
+    const lines: string[] = [];
+    for (let d = 0; d < ANCESTOR_DEPTH && pid > 1; d++) {
+      try {
+        lines.push(readFileSync(`/proc/${pid}/cmdline`, 'utf-8').split('\0').join(' '));
+        const stat = readFileSync(`/proc/${pid}/stat`, 'utf-8');
+        pid = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]);
+      } catch {
+        return null;
+      }
+    }
+    return lines.join('\n');
+  }
+  const ps = (args: readonly string[]): string | null => {
+    try {
+      return execFileSync('ps', args, {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 5000,
+        maxBuffer: 32 * 1024 * 1024,
+      });
+    } catch {
+      return null;
+    }
+  };
+  const table = ps(['-A', '-o', 'pid=,ppid=']);
+  if (table === null) return null;
+  const parent = new Map<number, number>();
+  for (const line of table.split('\n')) {
+    const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
+    if (m?.[1] && m[2]) parent.set(Number(m[1]), Number(m[2]));
+  }
+  for (let d = 0; d < ANCESTOR_DEPTH && pid > 1; d++) {
+    chain.push(pid);
+    const next = parent.get(pid);
+    if (next === undefined) break;
+    pid = next;
+  }
+  if (chain.length === 0) return null;
+  return ps(['-ww', '-o', 'args=', '-p', chain.join(',')]);
+}
+
+/** Where the hook looks for the user's Claude Code allow rules, and what could override them. */
+export interface ClaudeAllowContext {
+  /** Managed-settings documents (read only for `allowManagedPermissionRulesOnly`). */
+  readonly managedFiles: readonly string[];
+  /** Managed configuration profiles present that the hook cannot read (macOS plists). */
+  readonly profiles: readonly string[];
+  /** User, project and project-local settings files, whose Bash allow rules count. */
+  readonly settingsFiles: readonly string[];
+  /** The hook's ancestor command lines (concatenated), or `null` when unknown. */
+  readonly ancestors: string | null;
+  /** The platform. */
+  readonly platform: NodeJS.Platform;
+}
+
+/**
+ * Gather the {@link ClaudeAllowContext} for a Claude Code session.
+ *
+ * @param projectDir - Claude Code's project directory (`CLAUDE_PROJECT_DIR`).
+ * @param env - the hook's environment.
+ */
+export function claudeAllowContext(
+  projectDir: string,
+  env: Readonly<Record<string, string | undefined>>,
+): ClaudeAllowContext {
+  const user = env.USER || env.LOGNAME;
+  const profileDir = '/Library/Managed Preferences';
+  const profiles =
+    process.platform === 'darwin'
+      ? [
+          join(profileDir, 'com.anthropic.claudecode.plist'),
+          ...(user ? [join(profileDir, user, 'com.anthropic.claudecode.plist')] : []),
+        ].filter((f) => existsSync(f))
+      : [];
+  return {
+    managedFiles: claudeManagedFiles(env),
+    profiles,
+    settingsFiles: claudeSettingsFiles(projectDir, env),
+    ancestors: ancestorCommandText(),
+    platform: process.platform,
+  };
+}
+
+/** The user's Claude Code Bash allow rules, or why they cannot be trusted here. */
+export type ClaudeAllowRules =
+  | { readonly trusted: true; readonly patterns: readonly string[] }
+  | { readonly trusted: false; readonly reason: string };
+
+/**
+ * The patterns of the Bash allow rules Claude Code applies in this session,
+ * from the user, project and project-local settings, or `trusted: false` when
+ * something the hook cannot see may change them. The hook only claims a
+ * command is pre-approved from rules it is sure Claude Code applies, so it
+ * fails safe (no claim) when:
+ *
+ * - managed settings set `allowManagedPermissionRulesOnly` (Claude Code then
+ *   ignores the user's allow rules), or a managed document exists but cannot
+ *   be read or parsed, or a managed configuration profile (macOS plist) or the
+ *   Windows registry may hold policy;
+ * - an embedding host supplies settings (`CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`)
+ *   or the session runs on the Agent SDK (`CLAUDE_CODE_ENTRYPOINT=sdk-*`,
+ *   which chooses its own settings sources);
+ * - Claude Code was started with `--disallowedTools`, `--settings` or
+ *   `--setting-sources`, or its command line cannot be read.
+ *
+ * Managed allow rules themselves are never counted, and an unreadable user
+ * settings file contributes nothing. Rules from `--allowedTools` and
+ * session-only approvals are invisible here, which only means fewer claims.
+ *
+ * @param ctx - where to look (see {@link claudeAllowContext}).
+ * @param env - the hook's environment.
+ */
+export function claudeAllowedBashRules(
+  ctx: ClaudeAllowContext,
+  env: Readonly<Record<string, string | undefined>>,
+): ClaudeAllowRules {
+  const untrusted = (reason: string): ClaudeAllowRules => ({ trusted: false, reason });
+  if (ctx.platform === 'win32') {
+    return untrusted(
+      'managed policy on Windows lives in the registry, which the hook does not read',
+    );
+  }
+  if (env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST) {
+    return untrusted('a host application supplies managed settings');
+  }
+  if (env.CLAUDE_CODE_ENTRYPOINT?.startsWith('sdk')) {
+    return untrusted('an Agent SDK session chooses its own settings sources');
+  }
+  if (ctx.profiles.length > 0) {
+    return untrusted(
+      `a managed configuration profile (${ctx.profiles[0]}) may restrict permission rules`,
+    );
+  }
+  for (const file of ctx.managedFiles) {
+    let doc: HookJsonValue;
+    try {
+      doc = JSON.parse(readFileSync(file, 'utf-8')) as HookJsonValue;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') continue;
+      return untrusted(`managed settings ${file} cannot be read or parsed`);
+    }
+    if (setsTrue(doc, 'allowManagedPermissionRulesOnly', 4)) {
+      return untrusted('managed settings make managed permission rules the only ones that apply');
+    }
+  }
+  if (ctx.ancestors === null) {
+    return untrusted(
+      'the Claude Code command line cannot be read for --disallowedTools or --settings',
+    );
+  }
+  if (CLAUDE_RULE_FLAGS.test(ctx.ancestors)) {
+    return untrusted(
+      'Claude Code was started with --disallowedTools, --settings or --setting-sources, whose rules the hook cannot read',
+    );
+  }
+  const patterns: string[] = [];
+  for (const file of ctx.settingsFiles) {
+    try {
+      patterns.push(
+        ...bashRulePatterns(JSON.parse(readFileSync(file, 'utf-8')) as HookJsonValue, ['allow']),
+      );
+    } catch {
+      // Missing or unreadable: no allow rules from it.
+    }
+  }
+  return { trusted: true, patterns };
 }
 
 /**
@@ -452,12 +781,15 @@ export function codexGuardedWords(
 
 /**
  * Why a deny or ask rule stops a rewrite: it names one of the command's
- * words, it covers every Bash command (a bare `Bash`, `Bash(*)`), or a
- * settings file that may hold such a rule cannot be read.
+ * words, it covers every Bash command (a bare `Bash`, `Bash(*)`), it matches
+ * the governed `cleo run …` form itself (T13124: it would block or prompt for
+ * the rewritten command), or a settings file that may hold such a rule cannot
+ * be read.
  */
 export type GuardHit =
   | { readonly kind: 'word'; readonly word: string }
   | { readonly kind: 'all' }
+  | { readonly kind: 'governed' }
   | { readonly kind: 'unreadable'; readonly file: string };
 
 /**
@@ -478,6 +810,8 @@ export type GuardHit =
  * @param projectDir - the session's project directory.
  * @param env - the hook's environment.
  * @param files - Claude Code settings files (injectable for tests).
+ * @param matches - Claude Code rule matcher; when given, a deny or ask rule
+ *   that matches the governed `cleo run …` form counts as naming `cleo`.
  */
 export function guardedHeavyCommand(
   provider: HeavyCommandHookProvider,
@@ -485,6 +819,7 @@ export function guardedHeavyCommand(
   projectDir: string,
   env: Readonly<Record<string, string | undefined>>,
   files: readonly string[] = claudeRuleFiles(projectDir, env),
+  matches?: (pattern: string, text: string) => boolean,
 ): GuardHit | null {
   let rules: readonly (readonly string[])[];
   if (provider === 'claude-code') {
@@ -492,9 +827,18 @@ export function guardedHeavyCommand(
     if (found.unreadable !== null) return { kind: 'unreadable', file: found.unreadable };
     rules = found.patterns.map(ruleWords);
     if (rules.some((words) => words.length === 0)) return { kind: 'all' };
+    // The rewrite runs `cleo run …`: a deny rule matching that would block the
+    // agent's command, an ask rule would prompt for it (T13124).
+    const governed = segments.map((s) =>
+      s.governed.slice(Math.max(0, s.governed.indexOf('cleo run '))),
+    );
+    if (matches && found.patterns.some((p) => governed.some((text) => matches(p, text)))) {
+      return { kind: 'governed' };
+    }
   } else if (provider === 'codex') {
     const words = codexGuardedWords(projectDir, env);
     rules = words.length === 0 ? [] : [words];
+    if (words.includes('cleo')) return { kind: 'governed' };
   } else {
     return null;
   }
@@ -530,6 +874,15 @@ function providerProjectDir(
   return provider === 'claude-code' ? env.CLAUDE_PROJECT_DIR || undefined : undefined;
 }
 
+/** Seams of {@link heavyCommandHook} (tests). */
+export interface HeavyHookDeps {
+  /** Replaces {@link claudeAllowContext}: where Claude Code allow rules are read from. */
+  readonly allowContext?: (
+    projectDir: string,
+    env: Readonly<Record<string, string | undefined>>,
+  ) => ClaudeAllowContext;
+}
+
 /**
  * Answer one `PreToolUse` call for `provider`. Returns the text to print
  * (empty = print nothing).
@@ -537,11 +890,13 @@ function providerProjectDir(
  * @param provider - the harness.
  * @param stdin - the harness's JSON payload.
  * @param io - environment and working directory.
+ * @param deps - seams for tests.
  */
 export async function heavyCommandHook(
   provider: HeavyCommandHookProvider,
   stdin: string,
   io: Pick<HookIo, 'env' | 'cwd'>,
+  deps: HeavyHookDeps = {},
 ): Promise<string> {
   const envMode = io.env.CLEO_HEAVY_COMMAND_HOOK?.trim().toLowerCase();
   if (envMode === 'off') return '';
@@ -571,7 +926,34 @@ export async function heavyCommandHook(
     );
   }
   if (!core.executableOnPath('cleo', io.env.PATH)) plan = demote(plan, '`cleo` is not on PATH');
-  if (provider !== 'kimi' && !REWRITE_MODES.has(input.permission_mode ?? '')) {
+  const permissionMode = input.permission_mode ?? '';
+  // T13124: in Claude Code's prompting modes, a command the user's allow rules
+  // already approve is rewritten with `allow`; anything else only warns.
+  let preApproved = false;
+  if (
+    plan.action === 'rewrite' &&
+    provider === 'claude-code' &&
+    PRE_APPROVE_MODES.has(permissionMode)
+  ) {
+    const projectDir = io.env.CLAUDE_PROJECT_DIR;
+    const verdict = claudePreApprovalVerdict(
+      input.tool_input.command,
+      cwd,
+      io.env,
+      core,
+      projectDir && deps.allowContext ? deps.allowContext(projectDir, io.env) : undefined,
+    );
+    preApproved = verdict.approved;
+    if (!verdict.approved && !REWRITE_MODES.has(permissionMode)) {
+      plan = demote(
+        plan,
+        `rewriting it would change which permission rules match it, so in ${permissionMode} mode ` +
+          `the hook rewrites only a command your Claude Code allow rules already approve, and ` +
+          `${verdict.reason} (bypassPermissions or auto mode rewrite every heavy command)`,
+      );
+    }
+  }
+  if (provider !== 'kimi' && !preApproved && !REWRITE_MODES.has(permissionMode)) {
     plan = demote(
       plan,
       `rewriting it would change which permission rules match it, so the hook rewrites only in ` +
@@ -579,12 +961,24 @@ export async function heavyCommandHook(
     );
   }
   if (plan.action === 'rewrite') {
-    const hit = guardedHeavyCommand(provider, plan.segments, projectRoot, io.env);
+    const hit = guardedHeavyCommand(
+      provider,
+      plan.segments,
+      projectRoot,
+      io.env,
+      claudeRuleFiles(projectRoot, io.env),
+      core.claudeBashRuleMatches,
+    );
     const where = provider === 'codex' ? 'Codex rules' : 'Claude Code settings';
     if (hit?.kind === 'word') {
       plan = demote(
         plan,
         `a deny or ask rule in your ${where} names \`${hit.word}\`, and a rewrite would hide the command from it`,
+      );
+    } else if (hit?.kind === 'governed') {
+      plan = demote(
+        plan,
+        `a deny or ask rule in your ${where} matches \`cleo run\`, which the rewrite would run`,
       );
     } else if (hit?.kind === 'all') {
       plan = demote(
@@ -599,7 +993,52 @@ export async function heavyCommandHook(
     }
   }
   const context = heavyHookContext(plan, await core.heavyPressureNotice(), provider);
-  return renderHeavyHookAnswer(provider, input.tool_input, plan, context, budget.timeoutMs);
+  return renderHeavyHookAnswer(
+    provider,
+    input.tool_input,
+    plan,
+    context,
+    budget.timeoutMs,
+    preApproved && plan.action === 'rewrite',
+  );
+}
+
+/** The core functions {@link claudePreApprovalVerdict} needs (the hook loads core lazily). */
+interface PreApprovalCore {
+  readonly claudePreApproval: (
+    command: string,
+    allowPatterns: readonly string[],
+    opts: { readonly cwd: string; readonly workingDir: string },
+  ) => { readonly approved: true } | { readonly approved: false; readonly reason: string };
+}
+
+/**
+ * Whether Claude Code would run `command` unprompted because the user's allow
+ * rules approve it, or why the hook cannot say so. Needs `CLAUDE_PROJECT_DIR`
+ * (Claude Code sets it for every hook): it names the project settings Claude
+ * Code reads and the working directory a `cd` must stay in.
+ *
+ * @param command - the original command line.
+ * @param cwd - where it starts.
+ * @param env - the hook's environment.
+ * @param core - the core planner module.
+ * @param ctx - where to look for rules (injectable for tests).
+ */
+export function claudePreApprovalVerdict(
+  command: string,
+  cwd: string,
+  env: Readonly<Record<string, string | undefined>>,
+  core: PreApprovalCore,
+  ctx?: ClaudeAllowContext,
+): { readonly approved: true } | { readonly approved: false; readonly reason: string } {
+  const projectDir = env.CLAUDE_PROJECT_DIR;
+  if (!projectDir) return { approved: false, reason: 'CLAUDE_PROJECT_DIR is not set' };
+  const rules = claudeAllowedBashRules(ctx ?? claudeAllowContext(projectDir, env), env);
+  if (!rules.trusted) return { approved: false, reason: rules.reason };
+  const verdict = core.claudePreApproval(command, rules.patterns, { cwd, workingDir: projectDir });
+  return verdict.approved
+    ? verdict
+    : { approved: false, reason: `it is not pre-approved: ${verdict.reason}` };
 }
 
 const USAGE =

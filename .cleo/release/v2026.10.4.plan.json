@@ -1,0 +1,249 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.4",
+  "resolvedVersion": "v2026.10.4",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": "T12256",
+  "releaseKind": "regular",
+  "createdAt": "2026-10-04T02:42:13.266Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.3",
+  "previousTag": "v2026.10.3",
+  "previousShippedAt": "2026-10-03T14:24:42.051Z",
+  "tasks": [
+    {
+      "id": "T13103",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Classify verified ICO resources and supported JSONC configuration evidence",
+      "evidenceAtoms": [
+        "pr:1793",
+        "files:packages/nexus/package.json,packages/nexus/src/__tests__/pipeline.test.ts,packages/nexus/src/pipeline/parse-loop.ts,pnpm-lock.yaml",
+        "ci:1793"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12472",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Nexus project id = portable project_id: remove base64url(path) default id at every CLI/dispatch site",
+      "evidenceAtoms": [
+        "pr:1794",
+        "files:.changeset/t12472-nexus-portable-query.md,packages/cleo/src/cli/commands/__tests__/doctor-db-substrate.test.ts,packages/cleo/src/cli/commands/__tests__/nexus-status-files-bound.test.ts,packages/cleo/src/cli/commands/__tests__/nexus-status-scope.test.ts,packages/cleo/src/cli/commands/graph.ts,packages/cleo/src/cli/commands/nexus.ts,packages/cleo/src/dispatch/domains/__tests__/nexus-code-intel-dispatch.test.ts,packages/cleo/src/dispatch/domains/__tests__/nexus-contracts-ingestion-dispatch.test.ts,packages/cleo/src/dispatch/domains/__tests__/nexus-phase2-dispatch.test.ts,packages/cleo/src/dispatch/domains/nexus.ts,packages/contracts/src/doctor.ts,packages/core/src/doctor/db-substrate.ts,packages/core/src/nexus/__tests__/nexus-bridge-mode-gate.test.ts,packages/core/src/nexus/__tests__/nexus-bridge-warnings.test.ts,packages/core/src/nexus/__tests__/registry.test.ts,packages/core/src/nexus/api-contracts.ts,packages/core/src/nexus/api-extractors/http-extractor.test.ts,packages/core/src/nexus/api-extractors/http-extractor.ts,packages/core/src/nexus/clusters.ts,packages/core/src/nexus/diff.ts,packages/core/src/nexus/flows.ts,packages/core/src/nexus/identity.ts,packages/core/src/nexus/index.ts,packages/core/src/nexus/nexus-bridge.ts,packages/core/src/nexus/registry.ts,packages/core/src/store/__tests__/exodus-abort-surface.test.ts,packages/skills/skills/ct-codebase-mapper/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:1794"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13100",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Onboarding A: cleo login provisions the account key and certifies the device right after enrolment",
+      "evidenceAtoms": [
+        "pr:1796",
+        "files:.changeset/t13100-login-provisions-account.md,packages/cleo/src/cli/lib/__tests__/nexus-account-cli.test.ts,packages/cleo/src/cli/lib/nexus-account-cli.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-account.ts,packages/core/src/cloud/__tests__/nexus-enrol.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-enrol.ts,packages/core/src/cloud/nexus-vault-keys.ts",
+        "ci:1796"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13104",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault restore: a restored store rebuilds its migration journal through the partially-applied reconciler (17 ERROR lines on every new device)",
+      "evidenceAtoms": [
+        "pr:1798",
+        "files:.changeset/t13104-restore-migration-journal.md,packages/cleo/src/cli/commands/doctor-migrations.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/doctor/__tests__/migrations.test.ts,packages/core/src/doctor/migrations.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/table-classification.ts,packages/core/src/store/vault-manifest.ts",
+        "ci:1798"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13106",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "A read-only cleo list writes a token_usage row (portable table), so cloud verify flips from match to ahead",
+      "evidenceAtoms": [
+        "pr:1800",
+        "files:.changeset/t13106-reads-record-no-token-usage.md,packages/cleo/src/dispatch/adapters/cli.ts,packages/core/src/metrics/__tests__/dispatch-token-usage.test.ts,packages/core/src/metrics/token-service.ts",
+        "ci:1800"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13122",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence heap cap is defeated by an inherited NODE_OPTIONS: an existing --max-old-space-size wins, so a profile-wide 8192 doubles the per-run budget to 6 workers x 8 GB = all RAM",
+      "evidenceAtoms": [
+        "pr:1808",
+        "files:.changeset/t13122-effective-heap-cap.md,AGENTS.md,packages/cleo/bin/cleo.js,packages/cleo/src/cli/__tests__/run-command.test.ts,packages/cleo/src/cli/commands/run.ts,packages/cleo/src/cli/index.ts,packages/cleo/src/cli/lib/__tests__/cli-threadpool-env.test.ts,packages/cleo/src/cli/lib/cli-threadpool-env.ts,packages/contracts/src/index.ts,packages/contracts/src/resource-governor.ts,packages/contracts/src/task.ts,packages/core/src/tasks/__tests__/heavy-tool-env.test.ts,packages/core/src/tasks/__tests__/heavy-tool-limit.test.ts,packages/core/src/tasks/__tests__/tool-cache-resource-kill.test.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/heavy-tool-env.ts,packages/core/src/tasks/index.ts,packages/core/src/tasks/tool-cache-env.ts,packages/core/src/tasks/tool-cache.ts",
+        "ci:1808"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13136",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "gh#1804: test-run:<json> evidence schema is undocumented, and the zero-total error does not name the expected keys",
+      "evidenceAtoms": [
+        "pr:1814",
+        "files:.changeset/t13136-test-run-counter-shapes.md,packages/cleo/src/cli/commands/verify.ts,packages/core/src/tasks/__tests__/evidence.test.ts,packages/core/src/tasks/__tests__/test-run-binding.test.ts,packages/core/src/tasks/evidence.ts,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/ct-task-executor/references/evidence-and-gates.md,packages/skills/skills/manifest.json",
+        "ci:1814"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13119",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "exodus-reconcile.test.ts 'converges with exodus-on-open whichever runs first (on-open first)' fails in some environments, including on origin/main",
+      "evidenceAtoms": [
+        "pr:1826",
+        "files:.changeset/t13119-exodus-cpu-deferral.md,packages/core/src/resources/__tests__/governor.test.ts,packages/core/src/resources/governor.ts,packages/core/src/store/__tests__/dual-scope-db.test.ts,packages/core/src/store/dual-scope-db.ts",
+        "ci:1826"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13150",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "macOS-only failure: upgrade.test.ts 'runUpgrade storage migration from a linked worktree (T12708) > migrates the OWNER store and audits the run' (missing second audit entry)",
+      "evidenceAtoms": [
+        "pr:1826",
+        "files:.changeset/t13119-exodus-cpu-deferral.md,packages/core/src/resources/__tests__/governor.test.ts,packages/core/src/resources/governor.ts,packages/core/src/store/__tests__/dual-scope-db.test.ts,packages/core/src/store/dual-scope-db.ts",
+        "ci:1826"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T12472",
+      "T13100",
+      "T13122",
+      "T13136",
+      "T13119",
+      "T13150"
+    ],
+    "fixes": [
+      "T13103",
+      "T13104",
+      "T13106"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-04T02:42:13.266Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-04T02:42:13.266Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-04T02:42:13.266Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-04T02:42:13.266Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-04T02:42:13.266Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-04T02:42:13.266Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 462 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.4 — 2026-10-04\n\n> **Update now: run `cleo self-update`.** This hotfix fixes empty stores on busy Macs and stops CLEO from saturating the machine it runs on.\n\n### Highlights\n\n- **Empty stores on busy Macs are fixed (#1826).** On a busy Mac, opening a project that still had its legacy `tasks.db` and `brain.db` skipped the migration into `cleo.db`, so the project's tasks looked missing, and a write in that state left the legacy rows behind. To recover stranded tasks, run `cleo doctor superseded-store --reconcile --dry-run`, then `cleo doctor superseded-store --reconcile`. This copies stranded tasks and memory into cleo.db and never changes existing rows. Known limit (T13172): if you created tasks after upgrading to 2026.10.2 or 2026.10.3, a new task may have taken an old task's id (usually T001). The old task with that id is not copied, the receipt does not say so, and its subtasks would attach to the new task. If you created tasks after upgrading, wait for the T13172 fix before reconciling. Either way, keep `.cleo/tasks.db`.\n- **The heavy-command hook now installs and governs (#1811).** `cleo init` and `cleo upgrade` install it for every agent harness in use, and `cleo doctor` and the briefing say when it is missing. In Claude Code's default, acceptEdits and dontAsk modes it queues the heavy commands your allow rules already approve through CLEO's machine-wide budget when it can tell that from their plain form; anything else gets a warning instead. It writes project-level files only and keeps them out of git (`.claude/settings.local.json`, `.codex/hooks.json` when CLEO created it, the opencode plugin), and it never edits a `.codex/hooks.json` your team already has. `cleo doctor heavy-command-hook --fix` installs it; `resources.heavyCommandHook: off` turns it off.\n- **Evidence runs only the affected packages when no `affectedCommand` is declared (#1818).** `tool:test` derives one from a workspace-wide test command (`pnpm -r`, `npm --workspaces`, `turbo run test`), and `cleo doctor` proposes it. A change outside every package, or a test command with no affected form, still runs the whole suite.\n- **Less memory at CLI startup (#1812, #1820).** `cleo --version` and `--help` no longer load all of the core library, and loading `@cleocode/core` no longer evaluates js-tiktoken, the AWS Bedrock SDK or the ai SDK.\n- **Heap, worker and typecheck caps (#1808, #1810, #1824).** An inherited `NODE_OPTIONS` heap, worker count or package concurrency no longer multiplies an evidence run's memory, and typecheck and lint slots are sized from RAM and respond to memory pressure.\n\n### Also in this release\n\n- `cleo login nexus` links and backs up the current project, lists your projects on a new machine, and `cleo cloud restore` takes a project name (#1797).\n- `cleo release open` reuses main's tested CI run for the release commit, and `--no-commit-plan` dispatches the merged plan by hash (#1816).\n- The release bump-PR's dispatched CI runs the version-only set instead of the whole suite (#1817).\n- The owned-process probe reads `ESRCH` as a process that is gone, which removes a flaky test failure (#1807).\n\n### Added\n\n- cleo login nexus sets up the account key and certifies the device, so the first push has nothing left to set up _(provenance: [T13100](https://github.com/kryptobaseddev/cleo/search?q=T13100&type=commits))_\n\n### Fixed\n\n- Nexus graph queries keep portable identity when projects move _(provenance: [T12472](https://github.com/kryptobaseddev/cleo/search?q=T12472&type=commits))_\n- Recognize ICO resources and supported JSONC configuration evidence _(provenance: [T13103](https://github.com/kryptobaseddev/cleo/search?q=T13103&type=commits))_\n- A vault restore keeps the snapshot's migration journal, so a restored store opens without stamping migrations it never ran _(provenance: [T13104](https://github.com/kryptobaseddev/cleo/search?q=T13104&type=commits))_\n- Dispatch token telemetry no longer writes a token_usage row when a command only reads _(provenance: [T13106](https://github.com/kryptobaseddev/cleo/search?q=T13106&type=commits))_\n- On a busy Mac, opening a legacy project no longer skips the exodus migration and serves an empty store _(provenance: [T13119](https://github.com/kryptobaseddev/cleo/search?q=T13119&type=commits), [T13150](https://github.com/kryptobaseddev/cleo/search?q=T13150&type=commits))_\n- An inherited NODE_OPTIONS heap, worker count or package concurrency no longer multiplies an evidence run's memory; the plan is reported _(provenance: [T13122](https://github.com/kryptobaseddev/cleo/search?q=T13122&type=commits))_\n- The heavy-tool bounds also catch MAKEFLAGS flag clusters, a dash-spelled workspace variable and a coloured npm warning _(provenance: [T13122](https://github.com/kryptobaseddev/cleo/search?q=T13122&type=commits))_\n- test-run evidence accepts summary and node --test counters, and a report without counts names the keys it needs _(provenance: [T13136](https://github.com/kryptobaseddev/cleo/search?q=T13136&type=commits))_\n",
+    "changesetEntryCount": 9,
+    "changesetIds": [
+      "t12472-nexus-portable-query",
+      "t13100-login-provisions-account",
+      "t13103-config-resource-evidence",
+      "t13104-restore-migration-journal",
+      "t13106-reads-record-no-token-usage",
+      "t13119-exodus-cpu-deferral",
+      "t13122-effective-heap-cap",
+      "t13122-review-nits",
+      "t13136-test-run-counter-shapes"
+    ],
+    "taskIds": [
+      "T13103",
+      "T12472",
+      "T13100",
+      "T13104",
+      "T13106",
+      "T13122",
+      "T13136",
+      "T13119",
+      "T13150"
+    ]
+  }
+}

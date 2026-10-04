@@ -18,15 +18,15 @@ import type { NexusNodeRow } from '../../store/schema/nexus-schema.js';
  * (path, method, request/response schemas) into HttpContract objects.
  *
  * @param projectId - Project identifier from registry
- * @param _projectRoot - Root directory of the project (unused)
+ * @param projectRoot - Explicit checkout whose graph is queried.
  * @returns Promise resolving to array of HttpContract objects
  */
 export async function extractHttpContracts(
   projectId: string,
-  _projectRoot: string,
+  projectRoot: string,
 ): Promise<HttpContract[]> {
   const { getNexusDb, nexusSchema } = await import('../../store/nexus-sqlite.js');
-  const db = await getNexusDb();
+  const db = await getNexusDb(projectRoot);
 
   try {
     // Query all route nodes (project-scoped DB — ADR-090 · T11648: no project_id).

@@ -444,7 +444,19 @@ describe('published CLI build shape', () => {
     'dist/extra.js',
     'dist/nested/index.js',
     'dist/cli/other-entry.js',
+    // T13126: only esbuild chunks written beside cli/index.js are build output.
+    'dist/cli/chunks/chunk-6KXXNKXV.js',
+    'dist/chunk-6KXXNKXV.js',
+    'dist/cli/chunk-6kxxnkxv.js',
+    'dist/cli/chunk-6KXXNKX.js',
   ])('rejects development output %s', (path) => {
     expect(assertCleoShippedBuildShape([...fixture().files, { path, size: 1 }])).not.toEqual([]);
+  });
+  it.each([
+    'dist/cli/chunk-6KXXNKXV.js',
+    'dist/cli/renderers-XJCPXIWY.js',
+    'dist/cli/hook-entry-2LC4TLKJ.js',
+  ])('accepts the code-split CLI chunk %s (T13126)', (path) => {
+    expect(assertCleoShippedBuildShape([...fixture().files, { path, size: 1 }])).toEqual([]);
   });
 });

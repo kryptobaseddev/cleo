@@ -25,7 +25,7 @@
 import * as esbuild from 'esbuild';
 import { chmod, cp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { resolve, dirname, join, relative, isAbsolute } from 'node:path';
+import { resolve, dirname, join, relative, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { depsFor } from './scripts/build-deps.mjs';
@@ -394,11 +394,40 @@ const coreBuildOptions = {
 
 // ---------------------------------------------------------------------------
 // 2. @cleocode/cleo — CLI bundle (MCP removed per MODERN-CLI-STANDARD)
-//    Bundles @cleocode/contracts, @cleocode/adapters, @cleocode/nexus,
-//    and @cleocode/playbooks inline.
+//    Bundles @cleocode/adapters, @cleocode/nexus, @cleocode/playbooks and
+//    @cleocode/animations inline.
 //    @cleocode/core is EXTERNAL (T1178 W3-2+W3-6) — resolved at runtime
 //    from node_modules (workspace symlink dev / peer dep published).
+//    @cleocode/contracts is EXTERNAL too (T13126): core loads it from
+//    node_modules, so an inlined copy was a second, independent instance of
+//    every contracts zod schema in the same process (~40 MB of heap).
+//
+//    CODE SPLITTING (T13126). Without `splitting`, esbuild inlines every
+//    `import()` target into the one output file and hoists each external
+//    import it finds there to a top-level static `import` — ESM allows no
+//    other kind. The CLI source defers `@cleocode/core` to the command that
+//    needs it, but the single-file bundle carried ~500 static imports, the
+//    whole core barrel among them, so `cleo --version` evaluated ~3,900
+//    modules and peaked at ~440 MB RSS. With splitting, each `import()` stays
+//    a real dynamic import of its own chunk and only the static graph of
+//    `src/cli/index.ts` loads at startup.
+//
+//    Chunks are written NEXT TO `cli/index.js`, never in a subdirectory:
+//    bundled modules locate package files from `dirname(import.meta.url)`
+//    (studio-dist, package.json, scripts/, templates), and every chunk must
+//    resolve those paths exactly as the single-file bundle did.
+//    `scripts/check-cli-startup-graph.mjs` ratchets the startup graph.
 // ---------------------------------------------------------------------------
+/**
+ * Output pattern for the CLI's shared and dynamic-import chunks (T13126).
+ *
+ * `cli/` keeps every chunk beside `cli/index.js` (see the header above for why
+ * no subdirectory). The `-[hash]` suffix is what
+ * `CLEO_CLI_CHUNK_PATTERN` in `packages/caamp/src/core/artifacts/validation.ts`
+ * recognises as a shipped chunk; change both together.
+ */
+const CLEO_CHUNK_NAMES = 'cli/[name]-[hash]';
+
 /** @type {esbuild.BuildOptions} */
 const cleoBuildOptions = {
   entryPoints: [
@@ -412,6 +441,8 @@ const cleoBuildOptions = {
   target: 'node24',
   format: 'esm',
   outdir: 'packages/cleo/dist',
+  splitting: true,
+  chunkNames: CLEO_CHUNK_NAMES,
   sourcemap: 'linked',
   sourcesContent: false,
   sourceRoot: '', // T9184
@@ -427,8 +458,14 @@ const cleoBuildOptions = {
   // Node emits the warning during the ESM module resolution phase. Override
   // process.emitWarning before node:sqlite is imported (which now happens at
   // runtime, not during bundling, because we marked it external).
+  // esbuild writes the banner into EVERY output file, chunks included (T13126),
+  // so the override installs once per process: without the guard each loaded
+  // chunk would wrap emitWarning again.
   banner: {
     js: `(() => {
+  const _installed = Symbol.for('cleocode.cli.sqliteWarningFilter');
+  if (globalThis[_installed]) return;
+  globalThis[_installed] = true;
   const _origEmitWarning = process.emitWarning;
   process.emitWarning = function(warning, type, code, ctor) {
     if (typeof warning === 'object' && warning.name === 'ExperimentalWarning' && typeof warning.message === 'string' && /SQLite is an experimental feature/i.test(warning.message)) {
@@ -443,7 +480,8 @@ const cleoBuildOptions = {
   },
   plugins: [
     workspacePlugin('bundle-cleo-deps', {
-      '@cleocode/contracts': resolve(__dirname, 'packages/contracts/src/index.ts'),
+      // @cleocode/contracts is deliberately NOT inlined (T13126) — see the
+      // header above. Unmapped @cleocode/* specifiers resolve as external.
       // E5/T11392: inline the pure private @cleocode/utils leaf (never published) so
       // the published CLI bundle carries its source instead of an unresolvable
       // external import. Same rationale as the playbooks/animations inline entries.
@@ -653,6 +691,52 @@ function buildPkg(filter, label) {
       }
     });
   });
+}
+
+/**
+ * esbuild plugin for Wave 7.5 (T13129): inline `@cleocode/utils` and nothing
+ * else. Every other import of an entry stays external, verbatim, so the
+ * re-emitted file imports the same canonical dist modules its tsc twin did.
+ *
+ * @returns {esbuild.Plugin}
+ */
+function inlineOnlyUtilsPlugin() {
+  const utilsSrc = resolve(__dirname, 'packages/utils/src');
+  return {
+    name: 'wave75-inline-only-utils',
+    setup(pluginBuild) {
+      pluginBuild.onResolve({ filter: /.*/ }, (args) => {
+        if (args.kind === 'entry-point') return undefined;
+        if (args.path === '@cleocode/utils') return { path: join(utilsSrc, 'index.ts') };
+        if (args.path.startsWith('@cleocode/utils/')) {
+          return { path: join(utilsSrc, `${args.path.slice('@cleocode/utils/'.length)}.ts`) };
+        }
+        // utils' own relative imports are part of the inlined leaf.
+        if (args.importer.startsWith(utilsSrc + sep)) return undefined;
+        return { path: args.path, external: true };
+      });
+    },
+  };
+}
+
+/**
+ * Inputs Wave 7.5 inlined that are neither the output's own entry nor
+ * `@cleocode/utils` source (T13129). Empty when every output is per-file.
+ *
+ * @param {esbuild.Metafile} metafile - The Wave 7.5 build's metafile.
+ * @returns {{ output: string, input: string }[]}
+ */
+function wave75InlinedStrays(metafile) {
+  const utilsPrefix = 'packages/utils/src/';
+  const strays = [];
+  for (const [output, meta] of Object.entries(metafile.outputs)) {
+    if (!output.endsWith('.js')) continue;
+    for (const input of Object.keys(meta.inputs)) {
+      if (input === meta.entryPoint || input.startsWith(utilsPrefix)) continue;
+      strays.push({ output, input });
+    }
+  }
+  return strays;
 }
 
 async function build() {
@@ -914,9 +998,19 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
   //
   // Re-running the FULL core esbuild here would self-contain all ~625 entry
   // points and blow the dist size budget (T11582 — observed 1 GB). Instead,
-  // surgically re-emit ONLY the utils-consuming source files with esbuild
-  // (utils inlined per the coreBuildOptions alias), overwriting the tsc output
-  // for just those files.
+  // surgically re-emit ONLY the utils-consuming source files with esbuild,
+  // overwriting the tsc output for just those files.
+  //
+  // PER-FILE, NOT SELF-CONTAINED (T13129). This pass used to reuse
+  // coreBuildOptions, whose `bundle: true` inlined every relative import and
+  // @cleocode/contracts too: docs/export-document.js (2.3 MB),
+  // llm/plugin-facade.js (3.6 MB) and selfimprove/fix-gen.js (3.6 MB) each
+  // carried a private copy of part of core. A process that loaded one held two
+  // instances of that core module state — export-document's own copy of the
+  // store/data-accessor registry, say — plus duplicate zod schemas. Now only
+  // @cleocode/utils is inlined; every other import stays a real import of the
+  // canonical dist file, exactly as tsc emitted it. The metafile check below
+  // fails the build if any other module is ever inlined again.
   //
   // DERIVED LIST (T12012): the set of files is scanned from source at build
   // time rather than maintained as a hardcoded list. This prevents the class of
@@ -983,11 +1077,22 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
   if (wave75Entries.length === 0) {
     console.log('  (no utils consumers found — Wave 7.5 is a no-op)');
   } else {
-    await esbuild.build({
+    const wave75 = await esbuild.build({
       ...coreBuildOptions,
       entryPoints: wave75Entries,
+      metafile: true,
+      plugins: [inlineOnlyUtilsPlugin()],
     });
     await sanitizeSourcemaps('packages/core/dist'); // T9184
+    const strays = wave75InlinedStrays(wave75.metafile);
+    if (strays.length > 0) {
+      console.error(
+        '\n[build] FATAL: Wave 7.5 inlined modules other than @cleocode/utils (T13129). ' +
+          'Each inlined core module is a second instance of its module state:',
+      );
+      for (const { output, input } of strays) console.error(`  ${output} <- ${input}`);
+      process.exit(1);
+    }
     console.log('  Wave 7.5 complete — @cleocode/utils inlined into all consumers above.');
   }
 

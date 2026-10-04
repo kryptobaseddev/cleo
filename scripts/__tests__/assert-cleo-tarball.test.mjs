@@ -90,6 +90,48 @@ function complete() {
   for (const path of required) put(path);
 }
 
+/**
+ * Whether the process `identity` names (PID plus its start time, field 22 of
+ * `/proc/<pid>/stat`) still runs on Linux and is not a zombie. A process that
+ * is gone reads as not running: the stat read fails with ENOENT, or with ESRCH
+ * when it races the process's exit (T13130). Any other read error is thrown.
+ */
+function linuxOwnedRunning(identity, readStat = (path) => readFileSync(path, 'utf8')) {
+  try {
+    const stat = readStat(`/proc/${identity.pid}/stat`);
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    return fields[19] === identity.start && fields[0] !== 'Z';
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ESRCH') return false;
+    throw error;
+  }
+}
+
+describe('owned-process probe (T13130)', () => {
+  const identity = { pid: 4242, start: '987654' };
+  /** A `/proc/<pid>/stat` line: comm holds a space and a `)`, then state and fields 4..22. */
+  const stat = (state, start) =>
+    `4242 (node) x) ${state} ${Array.from({ length: 18 }, (_, i) => i + 1).join(' ')} ${start} 0 0\n`;
+  const failing = (code) => () => {
+    throw Object.assign(new Error(`${code}: read /proc/4242/stat`), { code });
+  };
+
+  it('reads a live process with the same start time as running', () => {
+    expect(linuxOwnedRunning(identity, () => stat('S', '987654'))).toBe(true);
+  });
+  it('reads a zombie, or a reused PID with another start time, as not running', () => {
+    expect(linuxOwnedRunning(identity, () => stat('Z', '987654'))).toBe(false);
+    expect(linuxOwnedRunning(identity, () => stat('S', '111111'))).toBe(false);
+  });
+  it('reads a process gone mid-read (ESRCH) or already gone (ENOENT) as not running', () => {
+    expect(linuxOwnedRunning(identity, failing('ESRCH'))).toBe(false);
+    expect(linuxOwnedRunning(identity, failing('ENOENT'))).toBe(false);
+  });
+  it('throws any other read error', () => {
+    expect(() => linuxOwnedRunning(identity, failing('EACCES'))).toThrow(/EACCES/);
+  });
+});
+
 // T12309: every case below drives `assertCleoTarball`, which runs
 // `execFileSync('npm', ['pack', '--dry-run', …])` — a real npm subprocess.
 // vitest's default per-test timeout is 5000ms, and npm's own startup is a
@@ -256,14 +298,7 @@ describe('packed operational execution', () => {
         const state = psField('stat');
         return state !== null && !state.startsWith('Z') && psField('lstart') === identity.start;
       }
-      try {
-        const stat = readFileSync(`/proc/${identity.pid}/stat`, 'utf8');
-        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-        return fields[19] === identity.start && fields[0] !== 'Z';
-      } catch (error) {
-        if (error.code === 'ENOENT') return false;
-        throw error;
-      }
+      return linuxOwnedRunning(identity);
     };
     const ownedCommand = () =>
       process.platform === 'linux'

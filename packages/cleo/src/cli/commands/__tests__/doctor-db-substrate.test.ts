@@ -204,7 +204,7 @@ describe('doctor db-substrate (T10307)', () => {
     expect(survey).toBeDefined();
     if (!survey) throw new Error('survey absent');
     expect(survey.projectRoot).toBe(projectRoot);
-    expect(survey.projectId.length).toBe(32);
+    expect(survey.projectId).toBeNull(); // Undeclared fixtures must not receive invented path ids.
 
     // Every inventory role MUST be keyed in the survey.
     for (const inventoryEntry of DB_INVENTORY) {
@@ -1223,6 +1223,10 @@ describe('doctor db-substrate (T10307)', () => {
     const llmtxtDir = join(cleoDir, 'llmtxt');
     mkdirSync(blobsDir, { recursive: true });
     mkdirSync(llmtxtDir, { recursive: true });
+    writeFileSync(
+      join(cleoDir, 'project-info.json'),
+      JSON.stringify({ projectId: `substrate-${name}` }),
+    );
 
     seedTasksDbForCrossDb(join(cleoDir, 'tasks.db'), {
       taskIds: ['T100'],
@@ -1240,6 +1244,7 @@ describe('doctor db-substrate (T10307)', () => {
     ]);
     // Nexus row uses an INTENTIONAL path mismatch so I3 fires.
     const expectedId = computeSubstrateProjectId(projectRoot);
+    if (expectedId === null) throw new Error('Fixture must declare its project identity');
     const nexusPath = join(cleoHomeOverride, 'nexus.db');
     seedNexusDbForCrossDb(nexusPath, [
       { projectId: expectedId, projectPath: `${projectRoot}-MOVED` },
@@ -1353,7 +1358,9 @@ describe('doctor db-substrate (T10307)', () => {
       _resetCleoPlatformPathsCache(),
     );
     const projectRoot = createProjectWithTasksDb('i3-match');
+    writeFileSync(join(projectRoot, '.cleo/project-id'), 'portable-substrate-i3-match\n');
     const expectedId = computeSubstrateProjectId(projectRoot);
+    if (expectedId === null) throw new Error('Fixture must declare its project identity');
     seedNexusDbForCrossDb(join(cleoHomeOverride, 'nexus.db'), [
       { projectId: expectedId, projectPath: projectRoot },
     ]);
@@ -1376,7 +1383,7 @@ describe('doctor db-substrate (T10307)', () => {
     // A sibling owns the shared legacy key at another path; this project's own
     // row, under its declared id, matches.
     seedNexusDbForCrossDb(join(cleoHomeOverride, 'nexus.db'), [
-      { projectId: computeSubstrateProjectId(projectRoot), projectPath: `${projectRoot}-sibling` },
+      { projectId: 'substrate-i3-sibling-row', projectPath: `${projectRoot}-sibling` },
       { projectId: 'declared-T12589', projectPath: projectRoot },
     ]);
 

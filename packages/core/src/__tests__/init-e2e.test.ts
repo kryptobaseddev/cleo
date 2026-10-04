@@ -174,6 +174,20 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     }
   });
 
+  it('installs the heavy-command hook for a harness the project uses, and warns about a blocked one (T13124)', async () => {
+    await mkdir(join(testDir, '.claude'));
+    await writeFile(join(testDir, '.codex'), '');
+    const result = await initProject({ name: 'hooked' });
+    expect(result.created).toContain(
+      `heavy-command hook (claude-code): installed ${join(testDir, '.claude', 'settings.local.json')}`,
+    );
+    const settings = await readFile(join(testDir, '.claude', 'settings.local.json'), 'utf-8');
+    expect(settings).toContain('cleo hook heavy-command');
+    expect(result.warnings.join('\n')).toMatch(
+      /codex blocked: .*\.codex exists but is not a directory.* Remedy: remove or rename/,
+    );
+  });
+
   it('returns initialized=true on success', async () => {
     const result = await initProject({ name: 'test-project' });
     expect(result.initialized).toBe(true);

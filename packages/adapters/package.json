@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/adapters",
-  "version": "2026.10.2",
+  "version": "2026.10.4",
   "description": "Unified provider adapters for CLEO (Claude Code, OpenCode, Cursor)",
   "type": "module",
   "main": "dist/index.js",
@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./heavy-command-hook": {
+      "types": "./dist/heavy-command-hook.d.ts",
+      "import": "./dist/heavy-command-hook.js"
     }
   },
   "scripts": {

@@ -26,7 +26,7 @@ import { dirname, join, resolve } from 'node:path';
 // at module-load time", T1331). Only the rare nexus-registry fallback in
 // _resolveProjectByCwdFromNexus actually opens a database.
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
-import { E_CWD_WALKUP_FORBIDDEN, ExitCode } from '@cleocode/contracts';
+import { E_CWD_WALKUP_FORBIDDEN, ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   getCanonicalTemplatesTildePath as _getCanonicalTemplatesTildePath,
   getCleoTemplatesTildePath as _getCleoTemplatesTildePath,

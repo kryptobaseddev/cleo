@@ -130,7 +130,10 @@ export function splitCommandLine(raw: string, label = 'Gate command'): string[] 
  *
  * @param words - The argv words, command first.
  * @returns The words joined by spaces, each single-quoted when it holds a
- * character `sh` would interpret.
+ * character `sh` would interpret. A bare placeholder word (`{filters}`,
+ * `{projects}`: braces around letters only, which no shell expands) stays bare
+ * so an affected-command template keeps it as one word (T13125); any other
+ * brace word (`src/{a,b}`, `{1..3}`) is quoted, since a shell would expand it.
  * @example
  * ```typescript
  * joinCommandLine(['vitest', 'run', '-t', 'my test']);
@@ -140,7 +143,9 @@ export function splitCommandLine(raw: string, label = 'Gate command'): string[] 
 export function joinCommandLine(words: readonly string[]): string {
   return words
     .map((word) =>
-      /^[A-Za-z0-9_@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`,
+      /^[A-Za-z0-9_@%+=:,./-]+$/.test(word) || /^\{[a-z]+\}$/.test(word)
+        ? word
+        : `'${word.replace(/'/g, `'\\''`)}'`,
     )
     .join(' ');
 }
