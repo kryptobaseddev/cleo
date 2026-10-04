@@ -22,7 +22,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { defineCommand } from 'citty';
 import {
   isProcessAlive,

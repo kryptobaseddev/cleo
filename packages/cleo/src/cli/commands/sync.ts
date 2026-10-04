@@ -17,7 +17,7 @@
  * @epic T443
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliError } from '../renderers/index.js';

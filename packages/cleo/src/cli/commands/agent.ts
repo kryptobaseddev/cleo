@@ -15,9 +15,10 @@
  *   cleo agent create     — scaffold a new agent package with persona.cant and manifest.json
  *
  * **Daemon vs. Pi session — important distinction.** The daemon spawned
- * by `cleo agent start` ONLY polls SignalDock for inbound messages and
- * keeps the cloud status indicator green. It does NOT execute CANT
- * workflow profiles inside the daemon process. CANT workflow execution
+ * by `cleo agent start` ONLY polls for inbound messages (the project's
+ * conduit store, or the agent's cloud API) and keeps the cloud status
+ * indicator green. SignalDock is retired: no command calls it (T13169).
+ * It does NOT execute CANT workflow profiles inside the daemon process. CANT workflow execution
  * (sessions, parallel arms, conditionals, approval gates, discretion
  * evaluation, etc.) lives entirely inside the
  * `cant-bridge.ts` Pi extension at
@@ -85,8 +86,8 @@ const registerCommand = defineCommand({
     },
     'api-url': {
       type: 'string',
-      description: 'API base URL',
-      default: 'https://api.signaldock.io',
+      description:
+        "Cloud messaging API base URL (default 'local': messaging stays in the project's conduit store)",
     },
     classification: {
       type: 'string',
@@ -101,6 +102,11 @@ const registerCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
+      const { assertCloudUrlAllowed } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+      // SignalDock is retired (T13169): it is never the default, and a
+      // SignalDock --api-url is refused rather than stored.
+      const apiBaseUrl = args['api-url'] ?? 'local';
+      assertCloudUrlAllowed(apiBaseUrl);
       await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
 
@@ -112,7 +118,7 @@ const registerCommand = defineCommand({
         agentId,
         displayName,
         apiKey: args['api-key'],
-        apiBaseUrl: args['api-url'] ?? 'https://api.signaldock.io',
+        apiBaseUrl,
         classification,
         privacyTier: (args.privacy as 'public' | 'discoverable' | 'private') ?? 'public',
         capabilities: [],
@@ -163,7 +169,7 @@ agent ${agentId}:
     primary: local
     fallback: sse
     cloud: http
-    apiBaseUrl: https://api.signaldock.io
+    apiBaseUrl: ${apiBaseUrl}
 
   lifecycle:
     start: cleo agent start ${agentId}
@@ -197,8 +203,15 @@ agent ${agentId}:
         { command: 'agent register' },
       );
     } catch (err) {
+      const { isSignalDockRetiredError } = await import('@cleocode/core/conduit/cloud-endpoint.js');
       cliOutput(
-        { success: false, error: { code: 'E_REGISTER', message: String(err) } },
+        {
+          success: false,
+          error: {
+            code: isSignalDockRetiredError(err) ? err.code : 'E_REGISTER',
+            message: String(err),
+          },
+        },
         { command: 'agent register' },
       );
       process.exitCode = 1;
@@ -250,10 +263,12 @@ const signinCommand = defineCommand({
       await registry.update(args.agentId, { isActive: true });
       await registry.markUsed(args.agentId);
 
-      // Attempt to set online status on cloud (best-effort, don't fail if offline)
+      // Attempt to set online status on cloud (best-effort, don't fail if offline).
+      // conduitFetch refuses a retired SignalDock host without a network call (T13169).
       const apiUrl = args['api-url'] ?? credential.apiBaseUrl;
+      const { conduitFetch } = await import('@cleocode/core/conduit/cloud-endpoint.js');
       try {
-        await fetch(`${apiUrl}/agents/${args.agentId}/status`, {
+        await conduitFetch(`${apiUrl}/agents/${args.agentId}/status`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -291,7 +306,7 @@ const signinCommand = defineCommand({
 });
 
 /**
- * cleo agent start <agentId> — start the SignalDock-poller daemon.
+ * cleo agent start <agentId> — start the message-poller daemon.
  *
  * Profile handling:
  *   The `--cant <file>` option (or the default
@@ -315,7 +330,7 @@ const startCommand = defineCommand({
   meta: {
     name: 'start',
     description:
-      'Start an agent daemon — polls SignalDock for messages. Profile is validated for fail-fast feedback only; CANT execution lives in Pi via cant-bridge.ts.',
+      'Start an agent daemon — polls for messages. Profile is validated for fail-fast feedback only; CANT execution lives in Pi via cant-bridge.ts.',
   },
   args: {
     agentId: {
@@ -405,9 +420,11 @@ const startCommand = defineCommand({
       await registry.update(args.agentId, { isActive: true });
       await registry.markUsed(args.agentId);
 
-      // 4. Set cloud status (best-effort)
+      // 4. Set cloud status (best-effort). conduitFetch refuses a retired
+      //    SignalDock host without a network call (T13169).
+      const { conduitFetch } = await import('@cleocode/core/conduit/cloud-endpoint.js');
       try {
-        await fetch(`${credential.apiBaseUrl}/agents/${args.agentId}/status`, {
+        await conduitFetch(`${credential.apiBaseUrl}/agents/${args.agentId}/status`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -422,8 +439,9 @@ const startCommand = defineCommand({
       }
 
       // 5. Start runtime services (transport auto-resolved: Local > SSE > HTTP).
-      //    Note: createRuntime() does NOT receive the profile. The
-      //    daemon's job is purely SignalDock polling + cloud status.
+      //    Note: createRuntime() does NOT receive the profile. The daemon's
+      //    job is purely message polling + cloud status. Without conduit.db,
+      //    a retired SignalDock base URL fails here with E_SIGNALDOCK_RETIRED.
       const pollInterval = Number.parseInt(args['poll-interval'], 10);
       const runtime = await createRuntime(registry, {
         agentId: args.agentId,
@@ -473,8 +491,15 @@ const startCommand = defineCommand({
       // Keep alive
       await new Promise(() => {});
     } catch (err) {
+      const { isSignalDockRetiredError } = await import('@cleocode/core/conduit/cloud-endpoint.js');
       cliOutput(
-        { success: false, error: { code: 'E_START', message: String(err) } },
+        {
+          success: false,
+          error: {
+            code: isSignalDockRetiredError(err) ? err.code : 'E_START',
+            message: String(err),
+          },
+        },
         { command: 'agent start' },
       );
       process.exitCode = 1;
@@ -517,9 +542,11 @@ const stopCommand = defineCommand({
       // Mark inactive
       await registry.update(args.agentId, { isActive: false });
 
-      // Set cloud status offline (best-effort)
+      // Set cloud status offline (best-effort). conduitFetch refuses a retired
+      // SignalDock host without a network call (T13169).
+      const { conduitFetch } = await import('@cleocode/core/conduit/cloud-endpoint.js');
       try {
-        await fetch(`${credential.apiBaseUrl}/agents/${args.agentId}/status`, {
+        await conduitFetch(`${credential.apiBaseUrl}/agents/${args.agentId}/status`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -884,11 +911,13 @@ const stopAllCommand = defineCommand({
       await openCleoDb('project');
       const registry = new AgentRegistryAccessor(getProjectRoot());
       const agents = await registry.list({ active: true });
+      // conduitFetch refuses a retired SignalDock host without a network call (T13169).
+      const { conduitFetch } = await import('@cleocode/core/conduit/cloud-endpoint.js');
       let stopped = 0;
       for (const a of agents) {
         await registry.update(a.agentId, { isActive: false });
         try {
-          await fetch(`${a.apiBaseUrl}/agents/${a.agentId}/status`, {
+          await conduitFetch(`${a.apiBaseUrl}/agents/${a.agentId}/status`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -1496,8 +1525,15 @@ const rotateKeyCommand = defineCommand({
         { command: 'agent rotate-key' },
       );
     } catch (err) {
+      const { isSignalDockRetiredError } = await import('@cleocode/core/conduit/cloud-endpoint.js');
       cliOutput(
-        { success: false, error: { code: 'E_ROTATE', message: String(err) } },
+        {
+          success: false,
+          error: {
+            code: isSignalDockRetiredError(err) ? err.code : 'E_ROTATE',
+            message: String(err),
+          },
+        },
         { command: 'agent rotate-key' },
       );
       process.exitCode = 1;
@@ -1537,14 +1573,18 @@ const claimCodeCommand = defineCommand({
         return;
       }
 
-      const response = await fetch(`${credential.apiBaseUrl}/agents/${args.agentId}/claim-code`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${credential.apiKey}`,
-          'X-Agent-Id': args.agentId,
+      const { conduitFetch } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+      const response = await conduitFetch(
+        `${credential.apiBaseUrl}/agents/${args.agentId}/claim-code`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${credential.apiKey}`,
+            'X-Agent-Id': args.agentId,
+          },
         },
-      });
+      );
 
       if (!response.ok) {
         const text = await response.text().catch(() => '');
@@ -1561,7 +1601,7 @@ const claimCodeCommand = defineCommand({
           data: {
             agentId: args.agentId,
             claimCode: data.data?.claimCode,
-            claimUrl: data.data?.claimUrl ?? `https://signaldock.io/claim/${data.data?.claimCode}`,
+            claimUrl: data.data?.claimUrl ?? null,
             expiresAt: data.data?.expiresAt,
             message: 'Share this claim code with the human owner to verify agent ownership.',
           },
@@ -1569,8 +1609,15 @@ const claimCodeCommand = defineCommand({
         { command: 'agent claim-code' },
       );
     } catch (err) {
+      const { isSignalDockRetiredError } = await import('@cleocode/core/conduit/cloud-endpoint.js');
       cliOutput(
-        { success: false, error: { code: 'E_CLAIM', message: String(err) } },
+        {
+          success: false,
+          error: {
+            code: isSignalDockRetiredError(err) ? err.code : 'E_CLAIM',
+            message: String(err),
+          },
+        },
         { command: 'agent claim-code' },
       );
       process.exitCode = 1;

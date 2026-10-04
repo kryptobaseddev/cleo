@@ -1,4 +1,4 @@
 {
   "_comment": "Static @cleocode/core barrel imports in packages/cleo/src (T12076). Each one forces the full 1266-module core graph to load at CLI startup. This number may only go DOWN. Lower it in the same PR that removes imports.",
-  "total": 105
+  "total": 101
 }

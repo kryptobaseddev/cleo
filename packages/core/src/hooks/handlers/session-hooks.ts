@@ -246,7 +246,9 @@ export async function handleSessionEndJournal(
   payload: SessionEndPayload,
 ): Promise<void> {
   try {
-    const { SESSION_JOURNAL_SCHEMA_VERSION } = await import('@cleocode/contracts');
+    const { SESSION_JOURNAL_SCHEMA_VERSION } = await import(
+      '@cleocode/contracts/session-journal.js'
+    );
     const { appendSessionJournalEntry } = await import('../../sessions/session-journal.js');
 
     // Run brain-noise scan (T1262 absorption) — best-effort

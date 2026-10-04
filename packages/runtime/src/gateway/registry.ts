@@ -23,7 +23,7 @@
 // downstream consumer that already imports from './registry.js' continues
 // to compile unchanged.
 import type { OperationDef, Resolution } from '@cleocode/contracts';
-import { OPERATIONS as _OPERATIONS } from '@cleocode/contracts';
+import { OPERATIONS as _OPERATIONS } from '@cleocode/contracts/dispatch/operations-registry.js';
 import type { CanonicalDomain, Gateway, Tier } from '@cleocode/contracts/gateway';
 
 export type { OperationDef, Resolution };

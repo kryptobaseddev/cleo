@@ -16,7 +16,7 @@
  */
 
 import type { PipelineStatus } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { linkPipelineAdr } from '../adrs/link-pipeline.js';
 import { CleoError } from '../errors.js';

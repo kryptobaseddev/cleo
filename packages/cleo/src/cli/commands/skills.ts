@@ -22,7 +22,7 @@
  * @epic T4545
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { AdoptedSkillRowData, DoctorAdoptCliAdapters } from '@cleocode/core';
 import {
   AgentsSkillsRealDirError,

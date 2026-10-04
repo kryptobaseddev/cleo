@@ -30,22 +30,22 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import {
-  DB_INVENTORY,
-  type DbCrossDbInvariantId,
-  type DbCrossDbOrphanReport,
-  type DbInventoryEntry,
-  type DbSubstrateAuditResult,
-  type DbSubstrateEntry,
-  type DbSubstrateMigrationCoverage,
-  type DbSubstrateMigrationMissing,
-  type DbSubstrateMigrationOrphan,
-  type DbSubstrateProjectSurvey,
-  type DbSubstrateSummary,
-  type DbSubstrateSurveyOptions,
-  type DbSubstrateWarning,
-  type PragmaDriftItem,
+import type {
+  DbCrossDbInvariantId,
+  DbCrossDbOrphanReport,
+  DbInventoryEntry,
+  DbSubstrateAuditResult,
+  DbSubstrateEntry,
+  DbSubstrateMigrationCoverage,
+  DbSubstrateMigrationMissing,
+  DbSubstrateMigrationOrphan,
+  DbSubstrateProjectSurvey,
+  DbSubstrateSummary,
+  DbSubstrateSurveyOptions,
+  DbSubstrateWarning,
+  PragmaDriftItem,
 } from '@cleocode/contracts';
+import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
 import { getCleoHome, readDeclaredProjectIdentity } from '@cleocode/paths';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';

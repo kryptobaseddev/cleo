@@ -66,17 +66,16 @@
  * @epic T12486
  */
 
-import {
-  type DecisionAnswer,
-  type DecisionBatchItem,
-  type DecisionOutcome,
-  type DecisionProviderCapabilities,
-  type DecisionProviderUsage,
-  type DecisionQuestion,
-  type DecisionRequest,
-  decisionAnswerSchema,
-  JEV_MINIMUM_CAPABILITIES,
+import type {
+  DecisionAnswer,
+  DecisionBatchItem,
+  DecisionOutcome,
+  DecisionProviderCapabilities,
+  DecisionProviderUsage,
+  DecisionQuestion,
+  DecisionRequest,
 } from '@cleocode/contracts';
+import { decisionAnswerSchema, JEV_MINIMUM_CAPABILITIES } from '@cleocode/contracts/decide.js';
 import { z } from 'zod';
 import { MAX_RATE_LIMIT_COOLDOWN_MS } from './budget.js';
 import {

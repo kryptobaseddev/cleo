@@ -15,22 +15,22 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
-import {
-  ExitCode,
-  type NexusInitParams,
-  type NexusListParams,
-  type NexusPermissionSetParams,
-  type NexusProjectCandidate,
-  type NexusProjectsFleetParams,
-  type NexusProjectsFleetResult,
-  type NexusProjectsStatusParams,
-  type NexusProjectsStatusResult,
-  type NexusReconcileParams,
-  type NexusRegisterParams,
-  type NexusShowParams,
-  type NexusSyncParams,
-  type NexusUnregisterParams,
+import type {
+  NexusInitParams,
+  NexusListParams,
+  NexusPermissionSetParams,
+  NexusProjectCandidate,
+  NexusProjectsFleetParams,
+  NexusProjectsFleetResult,
+  NexusProjectsStatusParams,
+  NexusProjectsStatusResult,
+  NexusReconcileParams,
+  NexusRegisterParams,
+  NexusShowParams,
+  NexusSyncParams,
+  NexusUnregisterParams,
 } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { pushWarning } from '@cleocode/lafs';
 import { isVaultRemotePath, readPortableProjectId } from '@cleocode/paths';
 import { desc, eq, inArray } from 'drizzle-orm';

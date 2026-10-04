@@ -10,7 +10,7 @@
  */
 
 import type { NexusDeviceLogoutResult, NexusLoginResult } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { cliError, cliOutput, humanLine, isHumanOutput } from '../renderers/index.js';
 import {
   type DeviceCodePromptInfo,

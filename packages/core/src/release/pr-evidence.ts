@@ -40,13 +40,13 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { GhPrViewPayload } from '@cleocode/contracts';
 import {
-  type GhPrViewPayload,
   ghPrViewSchema,
   PR_REQUIRED_WORKFLOWS,
   PR_REQUIRED_WORKFLOWS_CONTEXT_KEY,
   PR_REQUIRED_WORKFLOWS_ENV_VAR,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/release/evidence-atoms.js';
 import {
   describeUnusableEvidenceGitRoot,
   E_EVIDENCE_GIT_ROOT,

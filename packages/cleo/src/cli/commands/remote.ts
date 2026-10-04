@@ -14,7 +14,7 @@
  * @task T4884
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   addRemote,
   CleoError,

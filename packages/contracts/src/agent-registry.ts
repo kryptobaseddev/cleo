@@ -47,7 +47,11 @@ export interface AgentCredential {
    * device). Re-register with `cleo agent register --id <id> --api-key <key>`.
    */
   requiresReauth?: boolean;
-  /** Base URL of the messaging API (default: api.signaldock.io). */
+  /**
+   * Base URL of the cloud messaging API, or `'local'` for none. Rows from
+   * before T13169 may still hold the retired `https://api.signaldock.io`;
+   * CLEO never calls a SignalDock host.
+   */
   apiBaseUrl: string;
   /** Agent classification from the registry (e.g. 'code_dev', 'orchestrator'). */
   classification?: string;

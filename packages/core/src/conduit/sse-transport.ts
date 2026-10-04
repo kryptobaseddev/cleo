@@ -1,15 +1,18 @@
 /**
  * SseTransport — Server-Sent Events transport with HTTP polling fallback.
  *
- * Receives messages in real-time via SSE from the SignalDock v2 API.
+ * Receives messages in real-time via SSE from an agent's cloud messaging API.
  * Sends messages and acks via HTTP POST (SSE is receive-only).
  * Falls back to HTTP polling when SSE is unavailable or disconnects.
+ * A retired SignalDock endpoint is refused at connect, and every request goes
+ * through {@link conduitFetch} (T13169).
  *
  * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 4.4
  * @task T216
  */
 
 import type { ConduitMessage, Transport, TransportConnectConfig } from '@cleocode/contracts';
+import { assertCloudUrlAllowed, conduitFetch } from './cloud-endpoint.js';
 
 /** Maximum reconnect attempts before permanent HTTP fallback. */
 const MAX_RECONNECT_ATTEMPTS = 3;
@@ -45,6 +48,8 @@ export class SseTransport implements Transport {
    *
    * If SSE connection fails, falls back to HTTP polling mode.
    * Auth is conveyed via query parameter (SSE doesn't support custom headers).
+   *
+   * @throws {SignalDockRetiredError} When the base URL or SSE endpoint is a retired SignalDock host.
    */
   async connect(config: TransportConnectConfig): Promise<void> {
     if (this.state?.connected) {
@@ -57,6 +62,8 @@ export class SseTransport implements Transport {
     }
 
     const endpoint = sseEndpoint ?? `${config.apiBaseUrl}/messages/stream`;
+    assertCloudUrlAllowed(config.apiBaseUrl);
+    assertCloudUrlAllowed(endpoint);
 
     this.state = {
       agentId: config.agentId,
@@ -221,6 +228,7 @@ export class SseTransport implements Transport {
       // SSE doesn't support custom headers — auth via query param
       const url = `${this.state.sseEndpoint}?token=${encodeURIComponent(this.state.apiKey)}&agent_id=${encodeURIComponent(this.state.agentId)}`;
 
+      assertCloudUrlAllowed(url);
       const es = new EventSource(url);
       this.state.eventSource = es;
 
@@ -361,7 +369,7 @@ export class SseTransport implements Transport {
   /** Make an authenticated HTTP request to the API. */
   private async httpFetch(path: string, init: RequestInit): Promise<Response> {
     const url = `${this.state!.apiBaseUrl}${path}`;
-    return fetch(url, {
+    return conduitFetch(url, {
       ...init,
       headers: {
         'Content-Type': 'application/json',

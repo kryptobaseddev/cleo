@@ -58,7 +58,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { parseClaudeCodeCredentials } from '@cleocode/contracts';
+import { parseClaudeCodeCredentials } from '@cleocode/contracts/credentials.js';
 import { getConfigValue } from '../config.js';
 import { getCleoHome } from '../paths.js';
 

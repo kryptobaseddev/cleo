@@ -65,7 +65,7 @@
  */
 
 import type { EvidenceAtom } from '@cleocode/contracts';
-import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
+import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { and, eq } from 'drizzle-orm';
 import { captureProjectScope, worktreeScope } from '../../project-scope.js';
 import { selectPrunedAcBindings } from '../../store/ac-binding-prune.js';

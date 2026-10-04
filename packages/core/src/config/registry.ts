@@ -24,14 +24,14 @@
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { ConfigManifestEntry } from '@cleocode/contracts';
 import {
   CLEO_CONFIG_MANIFEST,
   CONFIG_MANIFEST_ENTRIES,
-  type ConfigManifestEntry,
   GLOBAL_CLEO_CONFIG_MANIFEST,
   PROJECT_CONTEXT_MANIFEST,
   PROJECT_INFO_MANIFEST,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/config/manifest.js';
 import { getCleoHome } from '@cleocode/paths';
 import { atomicWriteJson } from '../store/atomic.js';
 

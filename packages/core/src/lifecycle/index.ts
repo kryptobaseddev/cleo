@@ -31,7 +31,7 @@ import type {
   LifecycleSkipParams,
   LifecycleStatusParams,
 } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { linkPipelineAdr } from '../adrs/link-pipeline.js';
 import { syncAdrsToDb } from '../adrs/sync.js';
 import { CleoError } from '../errors.js';
@@ -40,6 +40,7 @@ import * as schema from '../store/tasks-schema.js';
 import { LIFECYCLE_STAGE_STATUSES } from '../store/tasks-schema.js';
 import { linkProvenance } from './evidence.js';
 import { ensureStageArtifact } from './stage-artifacts.js';
+import { getLifecycleStatus } from './status.js';
 
 // =============================================================================
 // CANONICAL RE-EXPORTS from stages.ts (single source of truth)
@@ -396,162 +397,15 @@ async function getEnforcementMode(cwd?: string): Promise<EnforcementMode> {
 }
 
 /**
- * Get lifecycle status for an epic from SQLite.
- * Returns stage progress, current/next stage, and blockers.
- * @task T4801 - SQLite-native implementation
- * @task T1455 - normalized to (projectRoot, params) shape
- */
-export async function getLifecycleStatus(
-  projectRoot: string,
-  params: LifecycleStatusParams,
-): Promise<{
-  epicId: string;
-  title?: string;
-  currentStage: Stage | null;
-  stages: Array<{
-    stage: string;
-    status: string;
-    completedAt?: string;
-    notes?: string;
-    outputFile?: string;
-    provenanceChain?: Record<string, unknown>;
-  }>;
-  nextStage: Stage | null;
-  blockedOn: string[];
-  initialized: boolean;
-}> {
-  const epicId = (params.epicId ?? params.taskId)!;
-  const { getDb } = await import('../store/sqlite.js');
-  const { eq } = await import('drizzle-orm');
-  const db = await getDb(projectRoot);
-
-  // Query pipeline and task for this epic
-  const pipelineResult = await db
-    .select({
-      pipeline: schema.lifecyclePipelines,
-      task: schema.tasks,
-    })
-    .from(schema.lifecyclePipelines)
-    .innerJoin(schema.tasks, eq(schema.lifecyclePipelines.taskId, schema.tasks.id))
-    .where(eq(schema.lifecyclePipelines.taskId, epicId))
-    .limit(1);
-
-  // If no pipeline exists, return uninitialized status with default stages
-  if (pipelineResult.length === 0) {
-    return {
-      epicId,
-      currentStage: null,
-      stages: PIPELINE_STAGES.map((s) => ({ stage: s, status: 'not_started' })),
-      nextStage: 'research',
-      blockedOn: [],
-      initialized: false,
-    };
-  }
-
-  const task = pipelineResult[0].task;
-
-  // Query all stages for this pipeline
-  const pipelineId = `pipeline-${epicId}`;
-  const stageRows = await db
-    .select()
-    .from(schema.lifecycleStages)
-    .where(eq(schema.lifecycleStages.pipelineId, pipelineId))
-    .orderBy(schema.lifecycleStages.sequence);
-
-  // Build a lookup map of stage data from DB
-  const stageDataMap = new Map<
-    string,
-    {
-      status: string;
-      completedAt?: string;
-      notes?: string;
-      outputFile?: string;
-      provenanceChain?: Record<string, unknown>;
-    }
-  >();
-  for (const row of stageRows) {
-    let parsedChain: Record<string, unknown> | undefined;
-    if (row.provenanceChainJson) {
-      try {
-        parsedChain = JSON.parse(row.provenanceChainJson) as Record<string, unknown>;
-      } catch {
-        parsedChain = undefined;
-      }
-    }
-
-    stageDataMap.set(row.stageName, {
-      status: row.status,
-      completedAt: row.completedAt ?? undefined,
-      notes: row.notesJson ? JSON.parse(row.notesJson)[0] : undefined,
-      outputFile: row.outputFile ?? undefined,
-      provenanceChain: parsedChain,
-    });
-  }
-
-  // Build stages array in PIPELINE_STAGES order
-  const stages = PIPELINE_STAGES.map((s) => {
-    const data = stageDataMap.get(s);
-    return {
-      stage: s,
-      status: data?.status || 'not_started',
-      completedAt: data?.completedAt,
-      notes: data?.notes,
-      outputFile: data?.outputFile,
-      provenanceChain: data?.provenanceChain,
-    };
-  });
-
-  // Calculate currentStage and nextStage
-  let currentStage: Stage | null = null;
-  let nextStage: Stage | null = null;
-
-  for (let i = PIPELINE_STAGES.length - 1; i >= 0; i--) {
-    const s = PIPELINE_STAGES[i];
-    const data = stageDataMap.get(s);
-    if (data?.status === 'completed' || data?.status === 'skipped') {
-      currentStage = s;
-      if (i < PIPELINE_STAGES.length - 1) {
-        nextStage = PIPELINE_STAGES[i + 1];
-      }
-      break;
-    }
-  }
-
-  if (!currentStage) {
-    nextStage = 'research';
-  }
-
-  // Calculate blockedOn based on prerequisites
-  const blockedOn: string[] = [];
-  if (nextStage) {
-    const prereqs = STAGE_PREREQUISITES[nextStage] || [];
-    for (const prereq of prereqs) {
-      const prereqData = stageDataMap.get(prereq);
-      const prereqStatus = prereqData?.status;
-      if (prereqStatus !== 'completed' && prereqStatus !== 'skipped') {
-        blockedOn.push(prereq);
-      }
-    }
-  }
-
-  return {
-    epicId,
-    title: task.title,
-    currentStage,
-    stages,
-    nextStage,
-    blockedOn,
-    initialized: true,
-  };
-}
-
-/**
  * History entry for stage transitions.
  *
  * T1719: type now sourced from `@cleocode/contracts` (canonical cross-package
  * shape). Re-exported here for backward compatibility with existing importers.
  */
 export type { LifecycleHistoryEntry };
+// getLifecycleStatus lives in `./status.js`, a leaf module: `tasks.show` calls it
+// and must not load this module's stage guidance, ADR and skill imports (T13126).
+export { getLifecycleStatus };
 
 /**
  * Get lifecycle history for an epic.

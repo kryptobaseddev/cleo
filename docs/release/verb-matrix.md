@@ -140,9 +140,8 @@ npm dist-tag rm @cleocode/cleo hotfix              # withdraw the flag
 The tag only strengthens a notice that `cleo self-update` can act on: it counts
 when it names a version above the install and at or below the channel tag.
 Releases publish through npm Trusted Publishing (OIDC), which cannot move
-dist-tags, and `release-promote.yml` moves only `latest`, so a maintainer with
-npm credentials runs this by hand, after the promotion
-(`docs/release/merge-queue-runbook.md`, "Promoting a hotfix"). Installs
+dist-tags, so a maintainer with npm credentials runs this by hand after the
+release publishes under `latest`. Installs
 reach the flag within a day (their next check). Users silence every notice
 with `CLEO_NO_UPDATE_NOTICE=1`; CI runs never show one.
 

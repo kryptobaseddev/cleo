@@ -33,11 +33,9 @@
  * @saga T10288
  */
 
-import {
-  type ChangesetEntry,
-  ChangesetEntrySchema,
-  ChangesetYamlInvalidError,
-} from '@cleocode/contracts';
+import type { ChangesetEntry } from '@cleocode/contracts';
+import { ChangesetEntrySchema } from '@cleocode/contracts/changesets.js';
+import { ChangesetYamlInvalidError } from '@cleocode/contracts/errors.js';
 import { parse as parseYaml } from 'yaml';
 
 // ─── Result types ────────────────────────────────────────────────────────────

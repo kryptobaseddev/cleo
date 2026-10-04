@@ -16,7 +16,7 @@
  * @adr ADR-078
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   buildDocProvenanceGraph,
   DocProvenanceRootNotFoundError,

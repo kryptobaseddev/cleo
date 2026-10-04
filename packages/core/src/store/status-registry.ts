@@ -32,4 +32,4 @@ export {
   TERMINAL_PIPELINE_STATUSES,
   TERMINAL_STAGE_STATUSES,
   TERMINAL_TASK_STATUSES,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/status-registry.js';

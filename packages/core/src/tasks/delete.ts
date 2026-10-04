@@ -6,7 +6,7 @@
 
 import type { Task, TaskRecord, TasksDeleteQueryParams } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';

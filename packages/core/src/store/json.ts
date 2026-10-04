@@ -6,7 +6,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { atomicWrite, atomicWriteJson, safeReadFile } from './atomic.js';
 import { createBackup } from './backup.js';

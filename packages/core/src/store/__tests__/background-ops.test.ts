@@ -11,8 +11,9 @@
  * @task T10490
  */
 
+import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -31,6 +32,7 @@ import {
   observeOperation,
   pendingBackgroundOpCount,
   receiveOperationContext,
+  settleBackgroundOps,
   trackBackgroundOp,
   transferOperationContext,
 } from '../background-ops.js';
@@ -68,6 +70,61 @@ describe('background-ops registry (T10490)', () => {
   it('is a no-op when nothing is pending', async () => {
     await awaitBackgroundOps();
     expect(pendingBackgroundOpCount()).toBe(0);
+  });
+});
+
+describe('settleBackgroundOps — settle before an error exit (T13164)', () => {
+  it('waits for a tracked producer and reports none pending', async () => {
+    const events: string[] = [];
+    trackBackgroundOp(
+      new Promise<void>((resolve) => setTimeout(resolve, 20)).then(() => events.push('settled')),
+    );
+    expect(await settleBackgroundOps(2_000)).toBe(0);
+    expect(events).toEqual(['settled']);
+  });
+
+  it('stops at the budget and reports what is still pending', async () => {
+    const release = Promise.withResolvers<void>();
+    trackBackgroundOp(release.promise);
+    const started = Date.now();
+    expect(await settleBackgroundOps(30)).toBe(1);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    release.resolve();
+    await awaitBackgroundOps();
+  });
+
+  it('leaves the producer ledger for the shutdown receipt', async () => {
+    trackBackgroundOp(Promise.reject(new Error('producer failed')));
+    await settleBackgroundOps(2_000);
+    const report = await awaitBackgroundOps();
+    expect(report.failed).toBe(1);
+  });
+
+  it('holds the process alive until its budget, so the caller still runs (built dist)', () => {
+    // An unref'd budget let the loop drain mid-wait: the process exited 0
+    // before the caller could set a failing exit code (review-p0, #1846).
+    const dist = join(
+      fileURLToPath(new URL('../../../dist/store/background-ops.js', import.meta.url)),
+    );
+    if (!existsSync(dist)) return;
+    const script = [
+      `const ops = await import(${JSON.stringify(pathToFileURL(dist).href)});`,
+      'ops.trackBackgroundOp(new Promise(() => {}));',
+      'const pending = await ops.settleBackgroundOps(200);',
+      "console.log('after:' + pending);",
+      'process.exit(4);',
+    ].join('\n');
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    expect(child.stdout).toContain('after:1');
+    expect(child.status, child.stderr).toBe(4);
+  });
+
+  it('returns at once when nothing is tracked', async () => {
+    expect(pendingBackgroundOpCount()).toBe(0);
+    expect(await settleBackgroundOps(60_000)).toBe(0);
   });
 });
 

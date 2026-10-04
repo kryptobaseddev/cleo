@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { TASK_STATUSES } from '@cleocode/contracts';
+import { TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { getManifestPath as getCentralManifestPath } from '../paths.js';
 import { resolveToolCommand } from '../sdk/tool-resolver.js';
 import { readLiveFocus, resolveFocusSessionId } from '../sessions/focus-state-store.js';
