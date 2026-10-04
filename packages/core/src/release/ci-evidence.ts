@@ -251,20 +251,62 @@ export function readCiChecks(projectRoot: string): CiChecksConfig {
     Array.isArray(v) && v.every((x) => typeof x === 'string' && x.trim() !== '')
       ? (v as string[]).map((x) => x.trim())
       : undefined;
-  const { tests, qa, jobs } = raw as { tests?: unknown; qa?: unknown; jobs?: unknown };
+  const { tests, qa, jobs, covering } = raw as {
+    tests?: unknown;
+    qa?: unknown;
+    jobs?: unknown;
+    covering?: unknown;
+  };
   const jobLists =
     typeof jobs === 'object' && jobs !== null
       ? (jobs as { tests?: unknown; qa?: unknown })
       : undefined;
   const jobTests = list(jobLists?.tests);
   const jobQa = list(jobLists?.qa);
+  const coverRules = (v: unknown): CoveringJobRule[] | undefined => {
+    if (!Array.isArray(v)) return undefined;
+    const rules = v.flatMap((r): CoveringJobRule[] => {
+      if (typeof r !== 'object' || r === null) return [];
+      const { paths, jobs: ruleJobs } = r as { paths?: unknown; jobs?: unknown };
+      const p = list(paths);
+      const j = list(ruleJobs);
+      return p && j ? [{ paths: p, jobs: j }] : [];
+    });
+    // A malformed rule voids the whole list: a half-read mapping must not widen coverage.
+    return rules.length === v.length && rules.length > 0 ? rules : undefined;
+  };
+  const coverLists =
+    typeof covering === 'object' && covering !== null
+      ? (covering as { tests?: unknown; qa?: unknown })
+      : undefined;
+  const coverTests = coverRules(coverLists?.tests);
+  const coverQa = coverRules(coverLists?.qa);
   return {
     ...(list(tests) ? { tests: list(tests) } : {}),
     ...(list(qa) ? { qa: list(qa) } : {}),
     ...(jobTests || jobQa
       ? { jobs: { ...(jobTests ? { tests: jobTests } : {}), ...(jobQa ? { qa: jobQa } : {}) } }
       : {}),
+    ...(coverTests || coverQa
+      ? {
+          covering: {
+            ...(coverTests ? { tests: coverTests } : {}),
+            ...(coverQa ? { qa: coverQa } : {}),
+          },
+        }
+      : {}),
   };
+}
+
+/**
+ * One `evidence.ciChecks.covering` rule (T13175): changed paths matching
+ * `paths` are covered by the jobs matching `jobs`.
+ */
+export interface CoveringJobRule {
+  /** Repo-relative path globs (`**` any depth, `*` within one segment). */
+  paths: string[];
+  /** Job-name globs (`*` wildcard) that must each have run and succeeded. */
+  jobs: string[];
 }
 
 /** `evidence.ciChecks` as read from project context (T12634). */
@@ -280,6 +322,14 @@ export interface CiChecksConfig {
    * is not enough.
    */
   jobs?: { tests?: string[]; qa?: string[] };
+  /**
+   * T13175: jobs that cover changed paths a change-detection filter keeps out
+   * of the `jobs` globs (e.g. `scripts/**` → `Scripts Tests`). When every
+   * required job of a gate was SKIPPED (by its `if:` filter; a failure upstream
+   * already turns the required check red) and every changed path matches a
+   * rule whose jobs ran and succeeded, those jobs attest the gate instead.
+   */
+  covering?: { tests?: CoveringJobRule[]; qa?: CoveringJobRule[] };
 }
 
 /**
@@ -311,6 +361,96 @@ function globToRegExp(glob: string): RegExp {
       .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
       .join('.*')}$`,
   );
+}
+
+/** Path glob (`**` any depth, `*` within one segment) to an anchored regular expression. */
+function pathGlobToRegExp(glob: string): RegExp {
+  let out = '';
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i] as string;
+    if (ch === '*' && glob[i + 1] === '*') {
+      out += '.*';
+      i++;
+      if (glob[i + 1] === '/') i++;
+    } else if (ch === '*') out += '[^/]*';
+    else out += ch.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${out}$`);
+}
+
+/**
+ * Judge a gate's required jobs with the covering rules (T13175): accepted only
+ * when each required glob either succeeded or had every latest run completed
+ * `skipped` (never cancelled, failed, pending or missing), at least one was
+ * skipped, every changed path matches a rule, and every job glob of each rule
+ * used has run and succeeded on `sha`.
+ *
+ * @param globs - The gate's required job globs (`evidence.ciChecks.jobs`).
+ * @param rules - The gate's covering rules.
+ * @param changedPaths - The PR's changed paths.
+ * @param checks - Every check reported for the commit.
+ * @param sha - Commit being judged.
+ * @param scope - The app and workflow files the jobs must come from.
+ * @returns The covering job names, or why coverage does not apply.
+ * @task T13175
+ */
+export function evaluateCoveringJobs(
+  globs: readonly string[],
+  rules: readonly CoveringJobRule[],
+  changedPaths: readonly string[],
+  checks: readonly CommitCheck[],
+  sha: string,
+  scope: { app?: string | number; workflows: readonly string[] },
+): { ok: true; jobs: string[] } | { ok: false; reason: string } {
+  const inScope = checks.filter(
+    (c) =>
+      c.source === 'check-run' &&
+      c.headSha === sha &&
+      c.workflowPath !== undefined &&
+      scope.workflows.includes(c.workflowPath) &&
+      (scope.app === undefined ||
+        (typeof scope.app === 'number' ? c.appId === scope.app : c.appSlug === scope.app)),
+  );
+  // Each required glob either succeeded (kept) or was SKIPPED by its filter
+  // on every run (covered below); anything else refuses.
+  const ran: string[] = [];
+  let skipped = false;
+  for (const glob of globs) {
+    const re = globToRegExp(glob);
+    const latest = new Map<string, CommitCheck>();
+    for (const c of inScope.filter((c) => re.test(c.name))) {
+      const key = `${c.name}\u0000${c.event ?? ''}`;
+      const prev = latest.get(key);
+      if (!prev || c.id > prev.id) latest.set(key, c);
+    }
+    if (latest.size === 0) return { ok: false, reason: `job ${glob} is missing, not skipped` };
+    const runs = [...latest.values()];
+    if (runs.every((c) => c.status === 'completed' && c.conclusion === 'success')) {
+      ran.push(...new Set(runs.map((c) => c.name)));
+      continue;
+    }
+    const notSkipped = runs.find((c) => c.status !== 'completed' || c.conclusion !== 'skipped');
+    if (notSkipped) {
+      return {
+        ok: false,
+        reason: `job ${notSkipped.name} is ${notSkipped.status !== 'completed' ? notSkipped.status : notSkipped.conclusion}, not skipped by its filter`,
+      };
+    }
+    skipped = true;
+  }
+  if (!skipped) return { ok: false, reason: 'no required job was skipped' };
+  if (changedPaths.length === 0) return { ok: false, reason: 'the PR has no known changed paths' };
+  const used = new Set<CoveringJobRule>();
+  for (const path of changedPaths) {
+    const rule = rules.find((r) => r.paths.some((g) => pathGlobToRegExp(g).test(path)));
+    if (!rule)
+      return { ok: false, reason: `${path} is covered by no evidence.ciChecks.covering rule` };
+    used.add(rule);
+  }
+  const jobs = evaluateJobs([...new Set([...used].flatMap((r) => r.jobs))], checks, sha, scope);
+  return jobs.ok
+    ? { ok: true, jobs: [...new Set([...ran, ...jobs.jobs])] }
+    : { ok: false, reason: jobs.reasons.join('; ') };
 }
 
 /**
@@ -1453,13 +1593,30 @@ export async function resolveCiEvidenceAtom(
           else if (!onPrHead.ok) judgedJobs = onPrHead;
         }
       }
+      // T13175: required jobs skipped by their change filter, with every
+      // changed path covered by a declared job that ran and succeeded.
+      const rules = readCiChecks(roots.storeRoot).covering?.[g.key];
+      let coverNote = '';
+      if (!judgedJobs.ok && rules && rules.length > 0) {
+        const covered = evaluateCoveringJobs(
+          globs,
+          rules,
+          pr.changedPaths,
+          checks,
+          descendant?.sha ?? pr.mergeCommitSha,
+          scope,
+        );
+        if (covered.ok) judgedJobs = covered;
+        else coverNote = `\n  Covering jobs do not apply: ${covered.reason}`;
+      }
       if (!judgedJobs.ok) {
         return {
           ok: false,
           codeName: 'E_EVIDENCE_TESTS_FAILED',
           reason:
             `${g.gate} for code task ${context.task.id} needs its jobs to have run on PR #${prNumber}:\n  - ` +
-            judgedJobs.reasons.join('\n  - '),
+            judgedJobs.reasons.join('\n  - ') +
+            coverNote,
         };
       }
       jobsByGate[g.gate] = judgedJobs.jobs;

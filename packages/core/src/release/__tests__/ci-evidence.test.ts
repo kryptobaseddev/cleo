@@ -35,6 +35,7 @@ import {
   listMainDescendants,
   listPathTouchingMainCommits,
   type ResolveCiEvidenceOptions,
+  readCiChecks,
   readCiSatisfies,
   recheckCiDescendantAtom,
   resolveCiEvidenceAtom,
@@ -506,6 +507,126 @@ describe('resolveCiEvidenceAtom', () => {
       expect(atom?.descendantSha).toBe(DESC);
       expect(atom?.descendantPrHeadSha).toBeUndefined();
       expect(atom?.mainOnly).toBe(true);
+    });
+  });
+
+  describe('jobs covering the changed paths (T13175)', () => {
+    const covering = {
+      ...optedIn,
+      ciChecks: {
+        ...optedIn.ciChecks,
+        covering: {
+          tests: [{ paths: ['scripts/**'], jobs: ['Scripts Tests'] }],
+          qa: [{ paths: ['scripts/**'], jobs: ['Lint & Format'] }],
+        },
+      },
+    };
+    beforeEach(() => writeContext(covering));
+    // Detect Changes skipped the package jobs; Scripts Tests ran.
+    const scriptsRun = [
+      ...allGreen.map((c) =>
+        c.name.startsWith('Unit Tests') || c.name === 'Type Check'
+          ? { ...c, conclusion: 'skipped' }
+          : c,
+      ),
+      check('Scripts Tests', { id: 9, workflowPath: '.github/workflows/ci.yml' }),
+    ];
+    const pr = (paths: string[]) => async () => ({
+      ...merged,
+      changedPaths: paths,
+      changedFileCount: paths.length,
+    });
+
+    it('a scripts-only PR with the unit shards skipped by their filter: accepted via Scripts Tests', async () => {
+      const r = await resolve({
+        context: context('T1', ['testsPassed', 'qaPassed']),
+        resolvePr: pr(['scripts/__tests__/x.test.mjs']),
+        fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.kind === 'ci' && r.atom.gateChecks?.testsPassed).toContain(
+        'Scripts Tests',
+      );
+      expect(r.ok && r.atom.kind === 'ci' && r.atom.gateChecks?.qaPassed).toContain(
+        'Lint & Format',
+      );
+    });
+
+    it('a package PR whose unit shards were skipped: refused, no rule covers its path', async () => {
+      const r = await resolve({
+        resolvePr: pr(['packages/core/src/a.ts']),
+        fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/packages\/core\/src\/a\.ts is covered by no evidence/);
+    });
+
+    it('a mixed PR (scripts plus a package): refused', async () => {
+      const r = await resolve({
+        resolvePr: pr(['scripts/a.mjs', 'packages/core/src/a.ts']),
+        fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
+      });
+      expect(r.ok).toBe(false);
+    });
+
+    it('a CANCELLED unit shard is not a filter skip: refused even for a scripts-only PR', async () => {
+      const cancelled = scriptsRun.map((c) =>
+        c.name === 'Unit Tests (ubuntu-latest, shard 1)' ? { ...c, conclusion: 'cancelled' } : c,
+      );
+      const r = await resolve({
+        resolvePr: pr(['scripts/a.mjs']),
+        fetchChecks: async () => ({ ok: true, checks: cancelled }),
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/cancelled, not skipped by its filter/);
+    });
+
+    it('a required job missing entirely is not a filter skip: refused', async () => {
+      const r = await resolve({
+        resolvePr: pr(['scripts/a.mjs']),
+        fetchChecks: async () => ({
+          ok: true,
+          checks: scriptsRun.filter((c) => !c.name.startsWith('Unit Tests')),
+        }),
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/missing, not skipped/);
+    });
+
+    it('the covering job itself failed: refused', async () => {
+      const r = await resolve({
+        resolvePr: pr(['scripts/a.mjs']),
+        fetchChecks: async () => ({
+          ok: true,
+          checks: scriptsRun.map((c) =>
+            c.name === 'Scripts Tests' ? { ...c, conclusion: 'failure' } : c,
+          ),
+        }),
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/job Scripts Tests: failure/);
+    });
+
+    it('without a covering rule configured, the skip is refused as before', async () => {
+      writeContext(optedIn);
+      const r = await resolve({
+        resolvePr: pr(['scripts/a.mjs']),
+        fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
+      });
+      expect(!r.ok && r.reason).toMatch(/job Unit Tests \(ubuntu-latest, shard 1\): skipped/);
+    });
+
+    it('a malformed covering rule voids the whole list', () => {
+      writeContext({
+        ...optedIn,
+        ciChecks: {
+          ...optedIn.ciChecks,
+          covering: {
+            tests: [{ paths: ['scripts/**'], jobs: ['Scripts Tests'] }, { paths: ['x/**'] }],
+          },
+        },
+      });
+      expect(readCiChecks(root).covering).toBeUndefined();
     });
   });
 

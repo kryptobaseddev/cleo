@@ -287,6 +287,15 @@
                 "tests": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
                 "qa": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
               }
+            },
+            "covering": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "T13175: when every required job of a gate was skipped by its change filter, jobs covering each changed path (e.g. scripts/** -> Scripts Tests) attest it instead, if they ran and succeeded.",
+              "properties": {
+                "tests": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["paths", "jobs"], "properties": { "paths": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }, "jobs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 } } }, "minItems": 1 },
+                "qa": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["paths", "jobs"], "properties": { "paths": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }, "jobs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 } } }, "minItems": 1 }
+              }
             }
           },
           "description": "Required checks that attest testsPassed (tests) and qaPassed (qa) for ci:<pr>; each must be a subset of the required list."
