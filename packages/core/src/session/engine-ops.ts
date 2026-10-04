@@ -17,6 +17,7 @@ import type { GlobalInstructionRefreshReport } from '@cleocode/contracts/caamp-m
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { SESSION_JOURNAL_SCHEMA_VERSION } from '@cleocode/contracts/session-journal.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { exodusRefusalToEngineResult } from '../errors-to-engine.js';
 import { pushWarning } from '../output.js';
 import { paginate } from '../pagination.js';
 import { type ContextInjectionData, injectContext } from '../sessions/context-inject.js';
@@ -196,8 +197,13 @@ export async function sessionStatus(projectRoot: string): Promise<
       overrideCount,
       ...(unbound ? { unbound: true as const } : {}),
     });
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    // T13167: a write the store refused (legacy migration deferred or aborted)
+    // keeps its typed code and remedy.
+    return (
+      exodusRefusalToEngineResult(err) ??
+      engineError('E_NOT_INITIALIZED', 'Task database not initialized')
+    );
   }
 }
 
@@ -315,8 +321,13 @@ export async function sessionList(
       },
       page: pageResult.page,
     };
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    // T13167: a write the store refused (legacy migration deferred or aborted)
+    // keeps its typed code and remedy.
+    return (
+      exodusRefusalToEngineResult(err) ??
+      engineError('E_NOT_INITIALIZED', 'Task database not initialized')
+    );
   }
 }
 
@@ -339,8 +350,13 @@ export async function sessionFind(
   try {
     const result = await findSessions(projectRoot, params);
     return engineSuccess(result);
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    // T13167: a write the store refused (legacy migration deferred or aborted)
+    // keeps its typed code and remedy.
+    return (
+      exodusRefusalToEngineResult(err) ??
+      engineError('E_NOT_INITIALIZED', 'Task database not initialized')
+    );
   }
 }
 
@@ -405,8 +421,13 @@ export async function taskCurrentGet(projectRoot: string): Promise<
       staleFocus: result.staleFocus,
       nextSuggested,
     });
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    // T13167: a write the store refused (legacy migration deferred or aborted)
+    // keeps its typed code and remedy.
+    return (
+      exodusRefusalToEngineResult(err) ??
+      engineError('E_NOT_INITIALIZED', 'Task database not initialized')
+    );
   }
 }
 
@@ -484,8 +505,13 @@ export async function taskWorkHistory(
     const accessor = await getTaskAccessor(projectRoot);
     const history = await getTaskHistory(projectRoot, accessor);
     return engineSuccess({ history, count: history.length });
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    // T13167: a write the store refused (legacy migration deferred or aborted)
+    // keeps its typed code and remedy.
+    return (
+      exodusRefusalToEngineResult(err) ??
+      engineError('E_NOT_INITIALIZED', 'Task database not initialized')
+    );
   }
 }
 
@@ -838,8 +864,13 @@ export async function sessionStart(
     });
 
     return engineSuccess(enrichedSession as Session);
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    // T13167: a write the store refused (legacy migration deferred or aborted)
+    // keeps its typed code and remedy.
+    return (
+      exodusRefusalToEngineResult(err) ??
+      engineError('E_NOT_INITIALIZED', 'Task database not initialized')
+    );
   }
 }
 
@@ -1063,8 +1094,13 @@ export async function sessionEnd(
       ended: true,
       ...(memoryPrompt && { memoryPrompt }),
     });
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    // T13167: a write the store refused (legacy migration deferred or aborted)
+    // keeps its typed code and remedy.
+    return (
+      exodusRefusalToEngineResult(err) ??
+      engineError('E_NOT_INITIALIZED', 'Task database not initialized')
+    );
   }
 }
 
@@ -1160,8 +1196,13 @@ export async function sessionResume(
     };
 
     return engineSuccess(enrichedSession as Session);
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    // T13167: a write the store refused (legacy migration deferred or aborted)
+    // keeps its typed code and remedy.
+    return (
+      exodusRefusalToEngineResult(err) ??
+      engineError('E_NOT_INITIALIZED', 'Task database not initialized')
+    );
   }
 }
 
@@ -1197,8 +1238,13 @@ export async function sessionGc(
     }
 
     return engineSuccess(result);
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    // T13167: a write the store refused (legacy migration deferred or aborted)
+    // keeps its typed code and remedy.
+    return (
+      exodusRefusalToEngineResult(err) ??
+      engineError('E_NOT_INITIALIZED', 'Task database not initialized')
+    );
   }
 }
 
@@ -1254,8 +1300,13 @@ export async function sessionHistory(
   try {
     const result = await getSessionHistory(projectRoot, params);
     return engineSuccess(result);
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    // T13167: a write the store refused (legacy migration deferred or aborted)
+    // keeps its typed code and remedy.
+    return (
+      exodusRefusalToEngineResult(err) ??
+      engineError('E_NOT_INITIALIZED', 'Task database not initialized')
+    );
   }
 }
 
@@ -1273,8 +1324,13 @@ export async function sessionCleanup(
   try {
     const result = await cleanupSessions(projectRoot);
     return engineSuccess(result);
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    // T13167: a write the store refused (legacy migration deferred or aborted)
+    // keeps its typed code and remedy.
+    return (
+      exodusRefusalToEngineResult(err) ??
+      engineError('E_NOT_INITIALIZED', 'Task database not initialized')
+    );
   }
 }
 
@@ -1489,8 +1545,13 @@ export async function sessionArchive(
   try {
     const result = await archiveSessions(projectRoot, olderThan);
     return engineSuccess(result);
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    // T13167: a write the store refused (legacy migration deferred or aborted)
+    // keeps its typed code and remedy.
+    return (
+      exodusRefusalToEngineResult(err) ??
+      engineError('E_NOT_INITIALIZED', 'Task database not initialized')
+    );
   }
 }
 

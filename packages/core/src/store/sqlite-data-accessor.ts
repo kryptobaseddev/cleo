@@ -82,7 +82,7 @@ import {
   upsertSession,
   upsertTask,
 } from './db-helpers.js';
-import { assertExodusNotDeferred } from './dual-scope-db.js';
+import { assertExodusWriteSafe } from './dual-scope-db.js';
 import {
   fillRowUids,
   parseStoreTimestamp,
@@ -2391,9 +2391,10 @@ async function createOwnedSqliteDataAccessor(
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
-      // T13158: an open whose exodus migration was deferred left this store
-      // empty while legacy rows wait; refuse with the typed error and remedy.
-      await assertExodusNotDeferred(nativeDb);
+      // T13158 / T13167: an open whose exodus migration was deferred or aborted
+      // left this store empty while legacy rows wait; refuse with the typed
+      // error and remedy.
+      await assertExodusWriteSafe(nativeDb);
 
       const context = activeTransactionScope(nativeDb);
       const previous = context?.pending ?? taskTransactionQueue.get(nativeDb) ?? Promise.resolve();
