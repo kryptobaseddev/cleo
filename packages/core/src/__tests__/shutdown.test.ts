@@ -24,6 +24,7 @@ const resetEmbeddingQueueMock = vi.hoisted(() => vi.fn().mockResolvedValue(undef
 const shutdownBrainWriterMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const closeAllDatabasesMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const closeLoggerMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const flushTelemetryBufferMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock('../memory/embedding-queue.js', () => ({
   resetEmbeddingQueue: resetEmbeddingQueueMock,
@@ -37,8 +38,11 @@ vi.mock('../store/sqlite.js', () => ({
 vi.mock('../logger.js', () => ({
   closeLogger: closeLoggerMock,
 }));
+vi.mock('../telemetry/index.js', () => ({
+  flushTelemetryBuffer: flushTelemetryBufferMock,
+}));
 
-import { shutdownCliRuntime } from '../shutdown.js';
+import { settleBeforeExit, shutdownCliRuntime } from '../shutdown.js';
 import { formatShutdownOutcomes, STEP_DEADLINE_MS } from '../shutdown-deadline.js';
 import {
   awaitBackgroundOps,
@@ -115,6 +119,38 @@ describe('shutdownCliRuntime — coordinated CLI teardown (T11568 · T11655)', (
       expect.objectContaining({ label: 'databases' }),
       expect.objectContaining({ label: 'logger' }),
     ]);
+  });
+});
+
+describe('settleBeforeExit — the CLI error exit (T13164)', () => {
+  it('settles tracked producers, then flushes telemetry, and closes nothing', async () => {
+    const events: string[] = [];
+    const release = Promise.withResolvers<void>();
+    trackBackgroundOp(release.promise.then(() => events.push('producer-settled')));
+    flushTelemetryBufferMock.mockImplementationOnce(async () => {
+      events.push('telemetry-flushed');
+    });
+
+    const settled = settleBeforeExit();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(events).toEqual([]);
+    release.resolve();
+
+    await expect(settled).resolves.toBe(0);
+    expect(events).toEqual(['producer-settled', 'telemetry-flushed']);
+    for (const closer of resourceClosers) expect(closer).not.toHaveBeenCalled();
+  });
+
+  it('stops waiting at its budget and still flushes telemetry', async () => {
+    const release = Promise.withResolvers<void>();
+    trackBackgroundOp(release.promise);
+    flushTelemetryBufferMock.mockClear();
+
+    const settled = settleBeforeExit(50);
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(settled).resolves.toBe(1);
+    expect(flushTelemetryBufferMock).toHaveBeenCalledOnce();
+    release.resolve();
   });
 });
 
