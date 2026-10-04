@@ -242,6 +242,34 @@ learned. Both are recorded where an operator can see them.
   To force a rebuild, delete the cache entry:
   `gh cache delete cant-napi-bundle-v1-<hash>`.
 
+## Flaky tests: re-run once, file, quarantine (T13145)
+
+Each unit shard runs vitest through `scripts/ci-flaky-quarantine.mjs`:
+
+- When a test fails, its file is re-run once, without `--shard`. If it passes on the re-run, it is a
+  **flake**: CI stays green, and the test is listed in the run summary and in the shard's
+  `flaky-report-<os>-<shard>` artifact.
+- A test that fails twice blocks. Three other cases block without a re-run:
+  - more than 10 files fail (a broad failure, not a flake);
+  - vitest reports an error outside any test (an `Unhandled Errors` section or an `Errors` summary
+    line), even when another failure is a flake;
+  - a crash or heap kill leaves no failing test in the JSON report.
+- On `main` (push and nightly), the `Flaky Test Quarantine` job files each confirmed flake as an
+  open issue labelled `flaky-quarantine`, or renews the existing issue. **The open issues filed by
+  GitHub Actions are the quarantine**; an issue anyone else opens or labels does not count, and
+  neither does a bot issue whose body someone else has edited or whose title no longer names the test
+  its body state names (the state is what the quarantine reads, and it is editable). While a
+  test's issue is open, a failure of it that also fails its re-run does not block CI, and it does not
+  renew the quarantine either. A whole-file entry excuses only a whole-file failure.
+- On the nightly run, an issue with no confirmed flake for 14 days is closed, and the test blocks
+  again. A test that is broken rather than flaky therefore leaves quarantine within 14 days. Close an
+  issue by hand once its flake is fixed. Duplicate issues for one test (two main runs filing it at
+  once) are closed, keeping the oldest.
+- Main's CI (push and nightly) fails while more than 10 tests are quarantined, so the quarantine
+  cannot grow without tests being fixed. A pull request only warns about it, so one bad day on main
+  does not block every PR.
+- If the quarantine cannot be read (a `gh` error), it is treated as empty, so failures block.
+
 ## Release candidate gate: canary first, then latest (T13144, T13181)
 
 A stable release reaches users only after its release candidate has been
