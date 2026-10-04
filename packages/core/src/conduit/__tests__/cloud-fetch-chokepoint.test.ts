@@ -40,7 +40,7 @@ const NETWORK_PRIMITIVES: readonly RegExp[] = [
 function findNetworkCalls(rel: string, text: string): string[] {
   const sites: string[] = [];
   for (const raw of text.split('\n')) {
-    const code = raw.replace(/\/\/.*$/, '');
+    const code = raw.replace(/(?:^|\s)\/\/.*$/, '');
     if (/^\s*\*/.test(code) || /^\s*\/\*/.test(code)) continue;
     if (NETWORK_PRIMITIVES.some((pattern) => pattern.test(code))) {
       sites.push(`${rel} :: ${raw.trim()}`);
@@ -115,6 +115,7 @@ describe('network call sites (T13169)', () => {
     ['https.request', 'const req = https.request(options, onResponse);'],
     ['http.get', 'http.get(url, (res) => res.resume());'],
     ['undici', "import { request } from 'undici';"],
+    ['fetch after a URL string', "const u = 'https://relay.example.test'; await fetch(u);"],
   ])('a planted %s call is found', (_name, line) => {
     expect(findNetworkCalls('planted.ts', `const a = 1;\n${line}\n`)).toEqual([
       `planted.ts :: ${line}`,
