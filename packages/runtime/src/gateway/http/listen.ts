@@ -34,6 +34,7 @@ import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { DispatchResponse, Gateway, GatewayStreamEvent } from '@cleocode/contracts/gateway';
 import { getLogger } from '@cleocode/core';
+import { useBrainWriterThread } from '@cleocode/core/memory/brain-writer-thread';
 import type { GatewayHandler } from '../index.js';
 import { inferGateway, resolveStreamRoute } from '../registry.js';
 import { routeUnary } from './server.js';
@@ -563,6 +564,8 @@ export function startHttpServer(
   handler: GatewayHandler,
   opts: HttpServerOptions,
 ): Promise<HttpServerHandle> {
+  // A long-lived host: brain writes run on the worker thread (T13126).
+  useBrainWriterThread();
   const log = getLogger('gateway-http');
   const host = opts.host ?? '127.0.0.1';
   // Build StudioStaticOptions from the caller-injected dir (T11979).
