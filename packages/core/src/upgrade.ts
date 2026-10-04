@@ -1210,20 +1210,12 @@ export async function runUpgrade(
       const manifests = mgr.discover();
       if (manifests.length > 0) {
         const detected = mgr.detectActive();
-        // T12983: the heavy-command hook mode (`resources.heavyCommandHook`).
-        const { configuredHeavyHookMode, resolveHeavyHookMode } = await import(
-          './resources/heavy-command.js'
-        );
-        const heavyCommandHook = resolveHeavyHookMode(
-          undefined,
-          await configuredHeavyHookMode(projectRootForMaint),
-        );
         for (const adapterId of detected) {
           try {
             const adapter = await mgr.activate(adapterId);
+            // T13124: no `heavyCommandHook` here; the step below owns the hook.
             const installResult = await adapter.install.install({
               projectDir: projectRootForMaint,
-              heavyCommandHook,
             });
             if (installResult.success) {
               actions.push({
@@ -1239,6 +1231,28 @@ export async function runUpgrade(
       }
     } catch {
       /* best-effort — adapters are optional */
+    }
+
+    // T13124: the heavy-command hook (T12983) is its own step, not part of the
+    // adapter install above (whose discovery finds no adapter in a project).
+    // Every provider is synced on its own; each write, and each provider in use
+    // whose hook could not be put in place, is reported, never swallowed.
+    try {
+      const { deliverHeavyCommandHooks, heavyHookReportLines } = await import(
+        './resources/heavy-command-hook-delivery.js'
+      );
+      const { outcomes } = await deliverHeavyCommandHooks(projectRootForMaint);
+      for (const line of heavyHookReportLines(outcomes)) {
+        actions.push({ action: 'heavy_command_hook', ...line });
+      }
+    } catch (err) {
+      actions.push({
+        action: 'heavy_command_hook',
+        status: 'skipped',
+        details: 'heavy-command hook delivery did not run',
+        reason: `heavy-command hook delivery failed: ${err instanceof Error ? err.message : String(err)}`,
+        fix: 'cleo doctor heavy-command-hook',
+      });
     }
 
     // Ensure the global CleoOS Hub exists (idempotent)
@@ -1271,6 +1285,24 @@ export async function runUpgrade(
           'Would install GitHub issue/PR templates to .github/ — run `cleo init` or `cleo upgrade --fix` to apply',
         fix: 'cleo upgrade',
       });
+    }
+
+    // T13124: preview the heavy-command hook delivery (read-only).
+    try {
+      const { inspectHeavyCommandHooks, isHeavyHookProblem } = await import(
+        './resources/heavy-command-hook-delivery.js'
+      );
+      const { inspections } = await inspectHeavyCommandHooks(getProjectRoot(options.cwd));
+      for (const inspection of inspections.filter(isHeavyHookProblem)) {
+        actions.push({
+          action: 'heavy_command_hook',
+          status: 'preview',
+          details: `Would sync the heavy-command hook (${inspection.provider}, ${inspection.state}): ${inspection.detail}`,
+          fix: 'cleo upgrade',
+        });
+      }
+    } catch {
+      /* preview only — `cleo doctor heavy-command-hook` reports a broken delivery */
     }
 
     // Dry-run preview for agent registry sync (T1243).

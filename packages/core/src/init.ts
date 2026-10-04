@@ -1859,21 +1859,13 @@ async function scaffoldInitTarget(
       if (detected.length > 0) {
         created.push(`adapters: active provider detected (${detected.join(', ')})`);
 
-        // Activate and install detected adapters. T12983: the heavy-command
-        // hook mode comes from `resources.heavyCommandHook` (default rewrite).
-        const { configuredHeavyHookMode, resolveHeavyHookMode } = await import(
-          './resources/heavy-command.js'
-        );
-        const heavyCommandHook = resolveHeavyHookMode(
-          undefined,
-          await configuredHeavyHookMode(projRoot),
-        );
+        // Activate and install detected adapters. T13124: no
+        // `heavyCommandHook` here; the step below owns the hook.
         for (const adapterId of detected) {
           try {
             const adapter = await mgr.activate(adapterId);
             const installResult = await adapter.install.install({
               projectDir: projRoot,
-              heavyCommandHook,
             });
             if (installResult.success) {
               created.push(`adapter install (${adapterId}): installed`);
@@ -1890,6 +1882,24 @@ async function scaffoldInitTarget(
     }
   } catch (err) {
     warnings.push(`Adapter discovery: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // T13124: the heavy-command hook (T12983), synced per provider on its own
+  // (the adapter step above never reaches it). Writes are listed as created;
+  // a provider in use whose hook could not be put in place is a warning.
+  try {
+    const { deliverHeavyCommandHooks, heavyHookReportLines } = await import(
+      './resources/heavy-command-hook-delivery.js'
+    );
+    const { outcomes } = await deliverHeavyCommandHooks(projRoot);
+    for (const line of heavyHookReportLines(outcomes)) {
+      if (line.status === 'applied') created.push(line.details);
+      else warnings.push(`${line.reason ?? line.details}${line.fix ? ` Remedy: ${line.fix}` : ''}`);
+    }
+  } catch (err) {
+    warnings.push(
+      `heavy-command hook delivery failed: ${err instanceof Error ? err.message : String(err)}. Remedy: cleo doctor heavy-command-hook --fix`,
+    );
   }
 
   // GitHub issue/PR templates (.github/ directory)
