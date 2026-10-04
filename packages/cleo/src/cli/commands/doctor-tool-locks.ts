@@ -8,7 +8,9 @@
  * group it started are gone; this command shows the ledger and why a run is
  * waiting. It replaced the per-tool slot listing of gh#1222.
  *
- * Read-only by default. `--reap` drops entries whose holder is provably gone.
+ * Read-only by default. `--reap` drops entries whose holder is provably gone;
+ * `--remove <id>` drops one entry whatever its liveness, for a holder the
+ * probes cannot identify but the operator knows is gone.
  *
  * @task T12113 (gh#1222)
  * @task T13133
@@ -17,8 +19,10 @@
 import {
   admissionCapacityBytes,
   entryLiveness,
+  readForeignEntries,
   readLedger,
   reapLedger,
+  removeLedgerEntry,
 } from '@cleocode/core/resources/admission-ledger.js';
 import { CANONICAL_TOOLS } from '@cleocode/core/tasks/tool-resolver.js';
 import { defineCommand } from '../lib/define-cli-command.js';
@@ -39,7 +43,7 @@ export const doctorToolLocksCommand = defineCommand({
     description:
       'Inspect the machine-wide admission ledger: which heavy runs hold the memory budget or ' +
       'wait for it, by which pid, and whether that pid is still alive. Read-only; --reap drops ' +
-      'entries whose holder is provably gone.',
+      'entries whose holder is provably gone; --remove <id> drops one entry.',
   },
   args: {
     reap: {
@@ -47,6 +51,12 @@ export const doctorToolLocksCommand = defineCommand({
       description:
         'Drop entries whose holder process and tool process groups are gone. Fails safe: an ' +
         'unreadable probe or a fresh heartbeat counts as ALIVE and is never reaped.',
+    },
+    remove: {
+      type: 'string',
+      description:
+        'Drop the entry with this id whatever its liveness (an entry whose holder cannot be ' +
+        'identified is otherwise kept until its heartbeat is 10 minutes old).',
     },
     tool: {
       type: 'string',
@@ -68,6 +78,8 @@ export const doctorToolLocksCommand = defineCommand({
     }
 
     const reaped = args.reap === true ? await reapLedger() : [];
+    const removeId = typeof args.remove === 'string' && args.remove.length > 0 ? args.remove : null;
+    const removed = removeId === null ? null : await removeLedgerEntry(removeId);
 
     // Report state AFTER any reap, so what is shown is what is actually in force.
     const now = Date.now();
@@ -93,6 +105,8 @@ export const doctorToolLocksCommand = defineCommand({
       });
     const orphaned = entries.filter((e) => e.orphaned);
     const held = entries.filter((e) => e.state === 'admitted');
+    // Entries a newer CLEO wrote: kept verbatim and charged, shown as found.
+    const foreignEntries = requested === null ? readForeignEntries() : [];
 
     cliOutput(
       {
@@ -102,14 +116,17 @@ export const doctorToolLocksCommand = defineCommand({
         heldCount: held.length,
         waitingCount: entries.length - held.length,
         orphanedCount: orphaned.length,
+        foreignEntries,
         reaped,
         reapApplied: args.reap === true,
+        ...(removeId === null ? {} : { removeId, removed }),
       },
       { command: 'doctor', operation: 'doctor.tool-locks.run' },
     );
 
-    // An orphan left in place holds budget until admission reaps it.
-    if (orphaned.length > 0 && (process.exitCode ?? 0) === 0) {
+    // An orphan left in place holds budget until admission reaps it; asking to
+    // remove an id that is not there is an error too.
+    if ((orphaned.length > 0 || removed === false) && (process.exitCode ?? 0) === 0) {
       process.exitCode = 1;
     }
   },

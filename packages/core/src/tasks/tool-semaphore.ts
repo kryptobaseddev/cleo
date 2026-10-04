@@ -42,6 +42,7 @@ import {
   type AdmissionRefusal,
   admissionCapacityBytes,
   admit,
+  describeAdmissionIoError,
   footprintForTool,
 } from '../resources/admission-ledger.js';
 import type { ResourceSample } from '../resources/backend.js';
@@ -272,7 +273,7 @@ export async function acquireGlobalSlot(
   const { grant } = outcome;
   if (grant.ungoverned) {
     notice(
-      `admission ledger is not writable (${grant.ungoverned.code}${grant.ungoverned.path ? ` ${grant.ungoverned.path}` : ''}): running the '${canonical}' run ungoverned`,
+      `${describeAdmissionIoError(grant.ungoverned)}: running the '${canonical}' run ungoverned`,
     );
   }
   return withAdmission(() => grant.release(), grant.token);

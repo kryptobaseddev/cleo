@@ -115,8 +115,25 @@ export const LEDGER_CRITICAL_STALE_MS = 10_000;
 /** How often a waiter re-reads the ledger to see whether it was admitted. */
 const READ_POLL_MS = 250;
 
-/** How often a waiter runs a scheduling pass of its own (and refreshes its heartbeat). */
+/** How often a waiter runs a scheduling pass of its own when nobody has sampled pressure lately. */
 const PASS_EVERY_MS = 2_000;
+
+/** A pressure verdict written to the ledger this recently is reused instead of sampling again. */
+const PRESSURE_REUSE_MS = PASS_EVERY_MS;
+
+/**
+ * The ledger file format this CLEO reads and writes. A file with a newer
+ * version is never rewritten by this one: admission runs ungoverned instead.
+ */
+export const LEDGER_VERSION = 1;
+
+/**
+ * An entry whose holder cannot be positively identified (pid gone, recycled,
+ * unprobeable, or no recorded start time) is dropped once its heartbeat is
+ * this old. A live holder heartbeats every {@link LEDGER_HEARTBEAT_MS}. The
+ * old slot locks had the same 10-minute takeover as a backstop.
+ */
+export const LEDGER_ORPHAN_MS = 600_000;
 
 /**
  * `CLEO_ADMISSION_PRESSURE=off`: admission ignores memory and CPU pressure
@@ -140,7 +157,15 @@ export const LIGHT_FOOTPRINT_BYTES = GIB;
 export const PROCESS_OVERHEAD_MB = GIB_PER_WORKER * 1024 - HEAVY_TOOL_HEAP_MB;
 
 /** Lock retries for the critical section: up to ~15 s, longer than the stale takeover. */
-const LOCK_RETRIES = { retries: 400, factor: 1.2, minTimeout: 2, maxTimeout: 40, randomize: true };
+/**
+ * Lock attempts while another process is inside the critical section, and the
+ * backoff between them (ms, growing by 1.2, randomized up to 2x): about 15 s
+ * in all. Only contention (`ELOCKED`) is retried; any other error (a
+ * read-only CLEO home) fails at once, so a sandbox runs ungoverned without
+ * first waiting out the retries.
+ */
+const LOCK_ATTEMPTS = 400;
+const LOCK_BACKOFF_MS: readonly [number, number] = [2, 40];
 
 // ---------------------------------------------------------------------------
 // Budget and footprints
@@ -305,34 +330,119 @@ function isEntry(v: unknown): v is LedgerEntry {
   );
 }
 
-/**
- * Read the ledger without the lock (writes are atomic renames, so a reader
- * sees a whole file). A missing file is an empty ledger; malformed entries are
- * dropped.
- *
- * @param dir - the ledger directory. @defaultValue {@link admissionDir}
- */
-export function readLedger(dir: string = admissionDir()): LedgerEntry[] {
+/** A ledger entry in a format this CLEO does not know: kept verbatim, charged conservatively. */
+export type ForeignEntry = Readonly<Record<string, unknown>>;
+
+/** The last pressure verdict a pass computed, shared with every waiter. */
+interface CachedPressure {
+  readonly share: BudgetShare;
+  readonly reading: MemoryPressureReading | null;
+  readonly sampledAtMs: number;
+}
+
+/** The ledger file, read. */
+interface LedgerDoc {
+  /** The format version the file was written with. */
+  readonly version: number;
+  readonly entries: LedgerEntry[];
+  /** Entries this CLEO cannot parse (another version's): written back into `entries` untouched. */
+  readonly foreign: ForeignEntry[];
+  readonly pressure: CachedPressure | null;
+  /** The file existed but was not valid JSON. */
+  readonly corrupt: boolean;
+}
+
+const SHARES: ReadonlySet<string> = new Set(['full', 'half', 'one', 'none']);
+
+function isCachedPressure(v: unknown): v is CachedPressure {
+  if (typeof v !== 'object' || v === null) return false;
+  const c = v as Record<string, unknown>;
+  return (
+    typeof c.share === 'string' &&
+    SHARES.has(c.share) &&
+    typeof c.sampledAtMs === 'number' &&
+    (c.reading === null || (typeof c.reading === 'object' && c.reading !== null))
+  );
+}
+
+function readLedgerDoc(dir: string): LedgerDoc {
+  const empty: LedgerDoc = {
+    version: LEDGER_VERSION,
+    entries: [],
+    foreign: [],
+    pressure: null,
+    corrupt: false,
+  };
   let raw: string;
   try {
     raw = readFileSync(ledgerFile(dir), 'utf-8');
   } catch {
-    return [];
+    return empty;
   }
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw) as { entries?: unknown };
-    return Array.isArray(parsed.entries) ? parsed.entries.filter(isEntry) : [];
+    parsed = JSON.parse(raw);
   } catch {
-    log().warn({ dir }, 'admission ledger unreadable; starting from an empty ledger');
-    return [];
+    return { ...empty, corrupt: true };
   }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ...empty, corrupt: true };
+  }
+  const o = parsed as Record<string, unknown>;
+  const version =
+    typeof o.version === 'number' && Number.isFinite(o.version) ? o.version : LEDGER_VERSION;
+  const entries: LedgerEntry[] = [];
+  const foreign: ForeignEntry[] = [];
+  for (const v of Array.isArray(o.entries) ? o.entries : []) {
+    if (isEntry(v)) entries.push(v);
+    else if (typeof v === 'object' && v !== null && !Array.isArray(v))
+      foreign.push(v as ForeignEntry);
+  }
+  return {
+    version,
+    entries,
+    foreign,
+    pressure: isCachedPressure(o.pressure) ? o.pressure : null,
+    corrupt: false,
+  };
 }
 
-function writeLedger(dir: string, entries: readonly LedgerEntry[]): void {
+/**
+ * Read the ledger's entries without the lock (writes are atomic renames, so a
+ * reader sees a whole file). A missing or corrupt file has no entries;
+ * entries of a format this CLEO does not know are left out (they are kept in
+ * the file and still charged).
+ *
+ * @param dir - the ledger directory. @defaultValue {@link admissionDir}
+ */
+export function readLedger(dir: string = admissionDir()): LedgerEntry[] {
+  return readLedgerDoc(dir).entries;
+}
+
+/**
+ * Entries of a format this CLEO does not know (written by another CLEO
+ * version sharing the CLEO home), read without the lock.
+ *
+ * @param dir - the ledger directory. @defaultValue {@link admissionDir}
+ */
+export function readForeignEntries(dir: string = admissionDir()): ForeignEntry[] {
+  return readLedgerDoc(dir).foreign;
+}
+
+function writeLedgerDoc(dir: string, doc: LedgerDoc): void {
   const file = ledgerFile(dir);
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
   try {
-    writeFileSync(tmp, JSON.stringify({ version: 1, entries }), 'utf-8');
+    writeFileSync(
+      tmp,
+      JSON.stringify({
+        version: LEDGER_VERSION,
+        // Foreign entries go back where they were found, verbatim.
+        entries: [...doc.entries, ...doc.foreign],
+        pressure: doc.pressure,
+      }),
+      'utf-8',
+    );
     renameSync(tmp, file);
   } catch (err) {
     try {
@@ -345,28 +455,76 @@ function writeLedger(dir: string, entries: readonly LedgerEntry[]): void {
 }
 
 /**
+ * The ledger file was written by a newer CLEO: this one never rewrites it.
+ * Admission treats it like unwritable state and runs ungoverned.
+ */
+export class LedgerVersionError extends Error {
+  /** Error code, matched by {@link admissionIoError}. */
+  readonly code = 'E_LEDGER_VERSION';
+  /** The ledger file. */
+  readonly path: string;
+
+  /**
+   * @param version - the version found in the file.
+   * @param path - the ledger file.
+   */
+  constructor(version: number, path: string) {
+    super(
+      `admission ledger ${path} has format version ${version}; this CLEO understands ${LEDGER_VERSION} and will not rewrite it`,
+    );
+    this.name = 'LedgerVersionError';
+    this.path = path;
+  }
+}
+
+/** Take the ledger lock, retrying only while another process holds it. */
+async function lockLedger(file: string): Promise<() => Promise<void>> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await lockfile.lock(file, {
+        lockfilePath: `${file}.lock`,
+        realpath: false,
+        stale: LEDGER_CRITICAL_STALE_MS,
+        retries: 0,
+        onCompromised: (err: Error) => {
+          log().warn({ err: err.message }, 'admission ledger lock compromised; continuing');
+        },
+      });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException | null)?.code;
+      if (code !== 'ELOCKED' || attempt >= LOCK_ATTEMPTS) throw err;
+      const backoff = Math.min(LOCK_BACKOFF_MS[1], LOCK_BACKOFF_MS[0] * 1.2 ** attempt);
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, backoff * (1 + Math.random()));
+      });
+    }
+  }
+}
+
+/**
  * Run `fn` inside the ledger's critical section: read, decide, write. `fn`
- * must be synchronous and do no I/O of its own; its `entries` (or `null` for
- * no change) are written back before the lock is released.
+ * must be synchronous and do no I/O of its own; its `doc` (or `null` for no
+ * change) is written back before the lock is released. A file of a newer
+ * format throws {@link LedgerVersionError} and is left untouched; a corrupt
+ * file is moved aside before it is replaced.
  */
 async function withLedger<T>(
   dir: string,
-  fn: (entries: LedgerEntry[]) => { readonly entries: LedgerEntry[] | null; readonly result: T },
+  fn: (doc: LedgerDoc) => { readonly doc: LedgerDoc | null; readonly result: T },
 ): Promise<T> {
   mkdirSync(dir, { recursive: true });
   const file = ledgerFile(dir);
-  const unlock = await lockfile.lock(file, {
-    lockfilePath: `${file}.lock`,
-    realpath: false,
-    stale: LEDGER_CRITICAL_STALE_MS,
-    retries: LOCK_RETRIES,
-    onCompromised: (err: Error) => {
-      log().warn({ err: err.message }, 'admission ledger lock compromised; continuing');
-    },
-  });
+  const unlock = await lockLedger(file);
   try {
-    const { entries, result } = fn(readLedger(dir));
-    if (entries !== null) writeLedger(dir, entries);
+    const current = readLedgerDoc(dir);
+    const { doc, result } = fn(current);
+    if (doc !== null) {
+      if (current.corrupt) {
+        log().warn({ file }, 'admission ledger was not valid JSON; moved aside and replaced');
+        renameSync(file, `${file}.corrupt-${Date.now()}`);
+      }
+      writeLedgerDoc(dir, doc);
+    }
     return result;
   } finally {
     try {
@@ -382,10 +540,19 @@ async function withLedger<T>(
 // ---------------------------------------------------------------------------
 
 /**
- * Whether an entry's holder is still there. `dead` only when the pid is gone
- * (or recycled, by start time) and every tool group it started is gone, or
- * when it belongs to another host and stopped heartbeating. A fresh heartbeat
- * or a probe that failed keeps it.
+ * Whether an entry's holder is still there.
+ *
+ * - A pid that is provably gone (or recycled: alive with another start time,
+ *   once the heartbeat is stale) is dead as soon as every tool group it
+ *   started is gone too; a detached tool outlives a SIGKILLed cleo.
+ * - A fresh heartbeat, or a live pid whose start time matches the recorded
+ *   one, is alive.
+ * - A holder that cannot be identified (the probe fails, or no start time was
+ *   recorded or can be read) is alive until its heartbeat is
+ *   {@link LEDGER_ORPHAN_MS} old, and so is a gone holder whose tool group id
+ *   still runs (a group id carries no start time, so it may be recycled).
+ *   Past that bound both are dead: nothing holds the budget forever.
+ * - An entry of another host is judged by its heartbeat alone.
  *
  * @param entry - the ledger entry.
  * @param nowMs - the clock.
@@ -396,16 +563,48 @@ export function entryLiveness(
   nowMs: number,
   probe: PidProbe = systemPidProbe,
 ): 'alive' | 'dead' {
-  const fresh = nowMs - entry.heartbeatAtMs < LEDGER_HEARTBEAT_STALE_MS;
-  if (entry.host !== hostname()) return fresh ? 'alive' : 'dead';
-  const groupsGone = (): boolean =>
-    entry.toolGroups.every((g) => isProbeableId(g) && probe.groupLiveness(g) === 'gone');
+  const age = nowMs - entry.heartbeatAtMs;
+  if (entry.host !== hostname()) return age < LEDGER_HEARTBEAT_STALE_MS ? 'alive' : 'dead';
+  const orphaned = age >= LEDGER_ORPHAN_MS;
+  const goneUnlessGroups = (): 'alive' | 'dead' =>
+    orphaned || entry.toolGroups.every((g) => isProbeableId(g) && probe.groupLiveness(g) === 'gone')
+      ? 'dead'
+      : 'alive';
   const pid = probe.liveness(entry.pid);
-  if (pid === 'gone') return groupsGone() ? 'dead' : 'alive';
-  if (pid === 'unknown' || fresh || entry.startedAt === null) return 'alive';
-  const startedAt = probe.startedAt(entry.pid);
-  if (startedAt === null || startedAt === entry.startedAt) return 'alive';
-  return groupsGone() ? 'dead' : 'alive'; // a recycled pid
+  if (pid === 'gone') return goneUnlessGroups();
+  if (age < LEDGER_HEARTBEAT_STALE_MS) return 'alive';
+  if (pid === 'alive' && entry.startedAt !== null) {
+    const startedAt = probe.startedAt(entry.pid);
+    if (startedAt === entry.startedAt) return 'alive';
+    if (startedAt !== null) return goneUnlessGroups(); // a recycled pid
+  }
+  return orphaned ? 'dead' : 'alive';
+}
+
+/**
+ * The budget an entry of an unknown format is charged: its numeric
+ * `footprintBytes` when it has one, else the whole capacity.
+ */
+function foreignCharge(f: ForeignEntry, capacityBytes: number): number {
+  const fp = f.footprintBytes;
+  return typeof fp === 'number' && Number.isFinite(fp) && fp >= 0
+    ? Math.min(fp, capacityBytes)
+    : capacityBytes;
+}
+
+/**
+ * Whether an entry of an unknown format is provably finished: its heartbeat
+ * (when it has one) is {@link LEDGER_ORPHAN_MS} old, or its pid on this host
+ * is gone.
+ */
+function foreignLiveness(f: ForeignEntry, nowMs: number, probe: PidProbe): 'alive' | 'dead' {
+  const hb = f.heartbeatAtMs;
+  if (typeof hb === 'number' && Number.isFinite(hb) && nowMs - hb >= LEDGER_ORPHAN_MS)
+    return 'dead';
+  if (isProbeableId(f.pid) && f.host === hostname() && probe.liveness(f.pid) === 'gone') {
+    return 'dead';
+  }
+  return 'alive';
 }
 
 // ---------------------------------------------------------------------------
@@ -443,6 +642,8 @@ export interface PassContext {
   readonly nowMs: number;
   /** @defaultValue {@link LEDGER_RESERVATION_MS} */
   readonly reservationMs?: number;
+  /** Entries of an unknown format, counted as admitted with their charge. */
+  readonly foreign?: { readonly bytes: number; readonly count: number };
 }
 
 function charged(entry: LedgerEntry, capacityBytes: number): number {
@@ -475,8 +676,8 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   const reservationMs = ctx.reservationMs ?? LEDGER_RESERVATION_MS;
   const budget =
     ctx.share === 'full' ? ctx.capacityBytes : ctx.share === 'half' ? ctx.capacityBytes / 2 : 0;
-  let used = 0;
-  let running = 0;
+  let used = ctx.foreign?.bytes ?? 0;
+  let running = ctx.foreign?.count ?? 0;
   for (const e of entries) {
     if (e.state === 'admitted') {
       used += charged(e, ctx.capacityBytes);
@@ -547,12 +748,16 @@ const systemProcessFacts: ProcessFacts = {
 /**
  * The admitted entry whose process tree `pid` belongs to, or `null`.
  *
- * Proof is ancestry (the holder is an ancestor of `pid`) or group membership
- * (`pid` runs in a tool process group the holder started, which also covers a
- * tool that outlived a killed holder), with the holder's recorded start time
- * matching. The token in `env` only narrows which entry is checked first; a
- * missing or foreign token falls back to checking every admitted entry, so a
- * wrapper that scrubs the environment cannot deadlock a nested run.
+ * Proof is ancestry: the holder is an ancestor of `pid`, with its recorded
+ * start time matching. The token in `env` only narrows which entry is checked
+ * first; a missing or foreign token falls back to checking every admitted
+ * entry by ancestry, so a wrapper that scrubs the environment cannot deadlock
+ * a nested run.
+ *
+ * Group membership (`pid` runs in a tool process group the holder started,
+ * which covers a tool that outlived a killed holder) is accepted only for the
+ * entry the token names on this host: a process group id carries no start
+ * time, so a recycled group id alone proves nothing.
  *
  * @param entries - the ledger.
  * @param pid - the requesting process.
@@ -566,9 +771,9 @@ export function enclosingGrant(
   facts: ProcessFacts = systemProcessFacts,
 ): LedgerEntry | null {
   const host = hostname();
-  const admitted = entries.filter(
-    (e) => e.state === 'admitted' && e.host === host && e.pid !== pid,
-  );
+  // No host filter for ancestry: an ancestor is local by definition, and a
+  // laptop's hostname follows the network (LOW-4 of the #1829 review).
+  const admitted = entries.filter((e) => e.state === 'admitted' && e.pid !== pid);
   if (admitted.length === 0) return null;
   const token = parseAdmissionToken(env[ADMISSION_ENV]);
   const hinted = token ? admitted.filter((e) => e.id === token.id && e.nonce === token.nonce) : [];
@@ -579,7 +784,12 @@ export function enclosingGrant(
     ancestors ??= facts.ancestorsOf(pid);
     group ??= facts.groupOf(pid);
     const byAncestry = ancestors?.includes(e.pid) === true;
-    const byGroup = group !== null && isProbeableId(group) && e.toolGroups.includes(group);
+    const byGroup =
+      e.host === host &&
+      hinted.includes(e) &&
+      group !== null &&
+      isProbeableId(group) &&
+      e.toolGroups.includes(group);
     if (!byAncestry && !byGroup) continue;
     if (byAncestry && e.startedAt !== null && facts.startedAt(e.pid) !== e.startedAt) continue;
     return e;
@@ -752,7 +962,9 @@ export interface AdmitOptions {
   /** Re-read cadence while waiting. @defaultValue 250 ms */
   readonly pollMs?: number;
   /**
-   * One pressure sample; a throw counts as no signal.
+   * One pressure sample; a throw counts as no signal. A sampler given here is
+   * always called: it bypasses the verdict another process wrote to the
+   * ledger in the last 2 s, which the default reuses.
    * @defaultValue a ResourceMonitor sample, or none under `CLEO_ADMISSION_PRESSURE=off`
    */
   readonly sample?: () => Promise<ResourceSample>;
@@ -824,6 +1036,8 @@ const STATE_IO_CODES = new Set([
   'EDQUOT',
   'ENOTDIR',
   'ELOOP',
+  // A ledger written by a newer CLEO: never rewritten, so admission runs ungoverned.
+  'E_LEDGER_VERSION',
 ]);
 
 /** Why admission state cannot be written: the errno code and the path, when known. */
@@ -847,6 +1061,20 @@ export function admissionIoError(err: unknown): AdmissionIoError | null {
   return { code: e.code, path: typeof e.path === 'string' ? e.path : null };
 }
 
+/**
+ * Why a run is ungoverned, in words: `admission state is not writable (EACCES
+ * /path)`, or, for a ledger a newer CLEO wrote, that this CLEO will not
+ * rewrite it. Callers append what they do about it.
+ *
+ * @param io - from {@link admissionIoError} or a grant's `ungoverned`.
+ */
+export function describeAdmissionIoError(io: AdmissionIoError): string {
+  const at = io.path ? ` ${io.path}` : '';
+  return io.code === 'E_LEDGER_VERSION'
+    ? `the admission ledger${at} was written by a newer CLEO, which this one never rewrites (upgrade CLEO to share the machine budget)`
+    : `admission state is not writable (${io.code}${at})`;
+}
+
 function passThrough(
   token: string,
   nested: boolean,
@@ -867,12 +1095,31 @@ function newId(pid: number, nowMs: number): string {
   return `${pid}-${nowMs}-${randomBytes(3).toString('hex')}`;
 }
 
-/** Sample pressure and ask the memory gate, outside the critical section. */
+/** A pressure verdict, and the record to write back when it was freshly sampled. */
+interface ShareVerdict {
+  readonly share: BudgetShare;
+  readonly reading: MemoryPressureReading | null;
+  readonly sampled: CachedPressure | null;
+}
+
+/**
+ * Sample pressure and ask the memory gate, outside the critical section. A
+ * verdict another process wrote to the ledger less than
+ * {@link PRESSURE_REUSE_MS} ago is reused instead, unless `opts.sample` is
+ * given, so a crowd of waiters costs one sample per interval, not one each.
+ */
 async function sampleShare(
   opts: AdmitOptions,
-): Promise<{ share: BudgetShare; reading: MemoryPressureReading | null }> {
-  if (!opts.sample && process.env[ADMISSION_PRESSURE_ENV] === 'off') {
-    return { share: 'full', reading: null };
+  cached: CachedPressure | null,
+  nowMs: number,
+): Promise<ShareVerdict> {
+  if (!opts.sample) {
+    if (process.env[ADMISSION_PRESSURE_ENV] === 'off') {
+      return { share: 'full', reading: null, sampled: null };
+    }
+    if (cached !== null && isFresh(cached, nowMs) && Math.random() > 2) {
+      return { share: cached.share, reading: cached.reading, sampled: null };
+    }
   }
   let sample: ResourceSample | null;
   try {
@@ -880,32 +1127,67 @@ async function sampleShare(
   } catch {
     sample = null;
   }
-  if (sample === null) return { share: 'full', reading: null };
+  if (sample === null) return { share: 'full', reading: null, sampled: null };
   const gate = checkMemoryGate(sample, opts.now ? { now: opts.now } : {});
-  return { share: budgetShare(sample, gate.refuse), reading: gate.refuse ? gate.reading : null };
+  const share = budgetShare(sample, gate.refuse);
+  const reading = gate.refuse ? gate.reading : null;
+  return { share, reading, sampled: { share, reading, sampledAtMs: nowMs } };
 }
 
-/** Ids of entries whose holders are provably gone, probed outside the critical section. */
-function deadIds(
-  entries: readonly LedgerEntry[],
-  nowMs: number,
-  probe: PidProbe,
-): Map<string, number> {
-  const dead = new Map<string, number>();
-  for (const e of entries) {
-    if (entryLiveness(e, nowMs, probe) === 'dead') dead.set(e.id, e.heartbeatAtMs);
+function isFresh(cached: CachedPressure, nowMs: number): boolean {
+  const age = nowMs - cached.sampledAtMs;
+  return age >= 0 && age < PRESSURE_REUSE_MS;
+}
+
+/** What a pass may drop: entries (with the heartbeat probed) and foreign entries (by content). */
+interface DeadSet {
+  readonly entries: ReadonlyMap<string, number>;
+  readonly foreign: ReadonlySet<string>;
+}
+
+/** The provably finished entries of a ledger, probed outside the critical section. */
+function findDead(doc: LedgerDoc, nowMs: number, probe: PidProbe): DeadSet {
+  const entries = new Map<string, number>();
+  for (const e of doc.entries) {
+    if (entryLiveness(e, nowMs, probe) === 'dead') entries.set(e.id, e.heartbeatAtMs);
   }
-  return dead;
+  const foreign = new Set<string>();
+  for (const f of doc.foreign) {
+    if (foreignLiveness(f, nowMs, probe) === 'dead') foreign.add(JSON.stringify(f));
+  }
+  return { entries, foreign };
 }
 
-/** Drop the dead (unless they heartbeated since the probe), then schedule. */
+const NO_DEAD: DeadSet = { entries: new Map(), foreign: new Set() };
+
+/** The budget foreign entries take, counted as running. */
+function foreignLoad(
+  foreign: readonly ForeignEntry[],
+  capacityBytes: number,
+): { readonly bytes: number; readonly count: number } {
+  let bytes = 0;
+  for (const f of foreign) bytes += foreignCharge(f, capacityBytes);
+  return { bytes, count: foreign.length };
+}
+
+/**
+ * Drop the dead (unless they heartbeated since the probe), charge foreign
+ * entries, schedule, and keep the freshest pressure verdict.
+ */
 function reapAndSchedule(
-  entries: LedgerEntry[],
-  dead: ReadonlyMap<string, number>,
-  ctx: PassContext,
-): LedgerEntry[] {
-  const live = entries.filter((e) => dead.get(e.id) !== e.heartbeatAtMs);
-  return schedulePass(live, ctx);
+  doc: LedgerDoc,
+  dead: DeadSet,
+  ctx: Omit<PassContext, 'foreign'>,
+  sampled: CachedPressure | null,
+): LedgerDoc {
+  const live = doc.entries.filter((e) => dead.entries.get(e.id) !== e.heartbeatAtMs);
+  const foreign = doc.foreign.filter((f) => !dead.foreign.has(JSON.stringify(f)));
+  return {
+    ...doc,
+    entries: schedulePass(live, { ...ctx, foreign: foreignLoad(foreign, ctx.capacityBytes) }),
+    foreign,
+    pressure: sampled ?? doc.pressure,
+  };
 }
 
 /**
@@ -916,8 +1198,9 @@ function reapAndSchedule(
  * leaves again unless admitted on the spot, and with `wait: true` it waits
  * (reporting memory-pressure waits and, after a minute, the holders and any
  * suspected cycle) until admitted or `timeoutMs`. Never throws for admission
- * control. An unwritable ledger is a pass-through grant with `ungoverned` set;
- * any other error propagates.
+ * control. An unwritable ledger, or one written by a newer CLEO, is a
+ * pass-through grant with `ungoverned` set (callers say so with
+ * {@link describeAdmissionIoError}); any other error propagates.
  *
  * @param req - what is asked for.
  * @param opts - waiting and reporting.
@@ -986,56 +1269,61 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
   /** One pass: reap, (re-)enqueue ourselves, schedule; returns our entry's state. */
   const pass = async (): Promise<{
     mine: LedgerEntry | null;
-    entries: LedgerEntry[];
+    doc: LedgerDoc;
     reading: MemoryPressureReading | null;
   }> => {
-    const { share, reading } = await sampleShare(opts);
+    const before = readLedgerDoc(dir);
     const nowMs = now();
-    const dead = deadIds(readLedger(dir), nowMs, probe);
-    return withLedger(dir, (entries) => {
-      let next = entries;
-      const at = next.findIndex((e) => e.id === entry.id);
-      if (at < 0) next = [...next, { ...entry, heartbeatAtMs: nowMs }];
-      else if (next[at]?.state === 'waiting') {
-        next = next.map((e) => (e.id === entry.id ? { ...e, heartbeatAtMs: nowMs } : e));
+    const { share, reading, sampled } = await sampleShare(opts, before.pressure, nowMs);
+    const dead = findDead(before, nowMs, probe);
+    return withLedger(dir, (doc) => {
+      let entries = doc.entries;
+      const at = entries.findIndex((e) => e.id === entry.id);
+      if (at < 0) entries = [...entries, { ...entry, heartbeatAtMs: nowMs }];
+      else if (entries[at]?.state === 'waiting') {
+        entries = entries.map((e) => (e.id === entry.id ? { ...e, heartbeatAtMs: nowMs } : e));
       }
-      next = reapAndSchedule(next, dead, { capacityBytes, share, nowMs });
+      const next = reapAndSchedule(
+        { ...doc, entries },
+        dead,
+        { capacityBytes, share, nowMs },
+        sampled,
+      );
       return {
-        entries: next,
-        result: { mine: next.find((e) => e.id === entry.id) ?? null, entries: next, reading },
+        doc: next,
+        result: { mine: next.entries.find((e) => e.id === entry.id) ?? null, doc: next, reading },
       };
     });
   };
 
   const leave = async (): Promise<LedgerEntry | null> =>
-    withLedger(dir, (entries) => {
-      const mine = entries.find((e) => e.id === entry.id) ?? null;
-      if (mine?.state === 'admitted') return { entries: null, result: mine };
-      return { entries: entries.filter((e) => e.id !== entry.id), result: null };
+    withLedger(dir, (doc) => {
+      const mine = doc.entries.find((e) => e.id === entry.id) ?? null;
+      if (mine?.state === 'admitted') return { doc: null, result: mine };
+      return {
+        doc: { ...doc, entries: doc.entries.filter((e) => e.id !== entry.id) },
+        result: null,
+      };
     });
 
-  const refusal = (
-    entries: readonly LedgerEntry[],
-    reading: MemoryPressureReading | null,
-  ): AdmissionRefusal => {
+  const refusal = (doc: LedgerDoc, reading: MemoryPressureReading | null): AdmissionRefusal => {
     const nowMs = now();
-    const ahead = entries.filter(
+    const ahead = doc.entries.filter(
       (e) => e.state === 'waiting' && e.id !== entry.id && e.enqueuedAtMs <= entry.enqueuedAtMs,
     ).length;
-    const admitted = entries.filter((e) => e.state === 'admitted');
-    const used = admitted.reduce((n, e) => n + charged(e, capacityBytes), 0);
+    const load = budgetLoad(doc, capacityBytes);
     const reason =
       reading !== null
         ? `memory pressure ${reading.score} (refused above ${reading.refuseAbove}, resumes at ` +
           `${reading.resumeAtOrBelow} or below): ${reading.summary}`
-        : `machine budget in use: ${gib(used)} of ${gib(capacityBytes)} by ${admitted.length} run(s); ` +
+        : `machine budget in use: ${gib(load.bytes)} of ${gib(capacityBytes)} by ${load.runs} run(s); ` +
           `this run needs ${gib(charged(entry, capacityBytes))}${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`;
     return {
       reason,
       retryAfterMs: reading !== null ? MEMORY_GATE_RETRY_AFTER_MS : 2_000,
       memoryPressure: reading,
       ahead,
-      holders: describeHolders(entries, nowMs),
+      holders: describeLoad(doc, nowMs),
     };
   };
 
@@ -1046,7 +1334,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
   if (!opts.wait) {
     const raced = await leave();
     if (raced !== null) return { admitted: true, grant: holdGrant(raced, dir, now() - t0, opts) };
-    return { admitted: false, refusal: refusal(first.entries, first.reading) };
+    return { admitted: false, refusal: refusal(first.doc, first.reading) };
   }
 
   let lastPassAt = now();
@@ -1056,21 +1344,23 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     if (reading !== null) opts.memoryPressure?.waiting(reading, now() - t0);
     if (now() - lastReportAt >= LEDGER_HOLDER_REPORT_MS && opts.notice) {
       lastReportAt = now();
-      opts.notice(holderReport(first.entries, entry, pid, now() - t0, capacityBytes, now()));
+      opts.notice(holderReport(first.doc, entry, pid, now() - t0, capacityBytes, now()));
     }
     const remaining = timeoutMs - (now() - t0);
     if (remaining <= 0) {
       const raced = await leave();
       if (raced !== null) return { admitted: true, grant: holdGrant(raced, dir, now() - t0, opts) };
-      return { admitted: false, refusal: refusal(first.entries, reading) };
+      return { admitted: false, refusal: refusal(first.doc, reading) };
     }
     await sleep(Math.min(opts.pollMs ?? READ_POLL_MS, remaining));
-    const seen = readLedger(dir).find((e) => e.id === entry.id);
-    if (seen?.state === 'admitted') {
+    const seen = readLedgerDoc(dir);
+    const mine = seen.entries.find((e) => e.id === entry.id);
+    if (mine?.state === 'admitted') {
       opts.memoryPressure?.admitted(now() - t0, null);
-      return { admitted: true, grant: holdGrant(seen, dir, now() - t0, opts) };
+      return { admitted: true, grant: holdGrant(mine, dir, now() - t0, opts) };
     }
-    if (seen === undefined || now() - lastPassAt >= PASS_EVERY_MS) {
+    if (seen.pressure !== null && isFresh(seen.pressure, now())) reading = seen.pressure.reading;
+    if (passDue(mine === undefined, now() - lastPassAt, seen.pressure, now(), opts)) {
       lastPassAt = now();
       first = await pass();
       reading = first.reading;
@@ -1082,29 +1372,75 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
   }
 }
 
+/**
+ * Whether a waiter runs a pass of its own now: its entry is gone (reaped or
+ * never written), its heartbeat is due, or a pass is due and nobody has
+ * sampled pressure lately (a fresh verdict in the ledger means another
+ * process just ran a pass, which scheduled everyone).
+ */
+function passDue(
+  missing: boolean,
+  sinceLastPassMs: number,
+  pressure: CachedPressure | null,
+  nowMs: number,
+  opts: AdmitOptions,
+): boolean {
+  if (missing || sinceLastPassMs >= LEDGER_HEARTBEAT_MS) return true;
+  if (sinceLastPassMs < PASS_EVERY_MS) return false;
+  // An injected sampler never reads the cache, so it never waits on it either.
+  return opts.sample !== undefined || pressure === null || !isFresh(pressure, nowMs);
+}
+
+/** What the admitted runs and foreign entries take from the budget. */
+function budgetLoad(
+  doc: LedgerDoc,
+  capacityBytes: number,
+): { readonly bytes: number; readonly runs: number } {
+  const admitted = doc.entries.filter((e) => e.state === 'admitted');
+  const foreign = foreignLoad(doc.foreign, capacityBytes);
+  return {
+    bytes: admitted.reduce((n, e) => n + charged(e, capacityBytes), 0) + foreign.bytes,
+    runs: admitted.length + foreign.count,
+  };
+}
+
+/** {@link describeHolders}, plus a line for entries of another CLEO version. */
+function describeLoad(doc: LedgerDoc, nowMs: number): string[] {
+  const lines = describeHolders(doc.entries, nowMs);
+  if (doc.foreign.length > 0) {
+    lines.push(
+      `${doc.foreign.length} entr${doc.foreign.length === 1 ? 'y' : 'ies'} of another CLEO version`,
+    );
+  }
+  return lines;
+}
+
 /** The holder report a long waiter prints. */
 function holderReport(
-  entries: readonly LedgerEntry[],
+  doc: LedgerDoc,
   mine: LedgerEntry,
   pid: number,
   waitedMs: number,
   capacityBytes: number,
   nowMs: number,
 ): string {
-  const holders = entries.filter((e) => e.state === 'admitted');
-  const used = holders.reduce((n, e) => n + charged(e, capacityBytes), 0);
-  const ahead = entries.filter(
+  const holders = doc.entries.filter((e) => e.state === 'admitted');
+  const used = budgetLoad(doc, capacityBytes).bytes;
+  const ahead = doc.entries.filter(
     (e) => e.state === 'waiting' && e.id !== mine.id && e.enqueuedAtMs <= mine.enqueuedAtMs,
   ).length;
   const lines = [
     `still waiting after ${age(waitedMs)} for the machine budget (${gib(used)} of ${gib(capacityBytes)} in use, ` +
-      `${ahead} waiting ahead). Holders: ${describeHolders(entries, nowMs).join('; ') || 'none'}.`,
+      `${ahead} waiting ahead). Holders: ${describeLoad(doc, nowMs).join('; ') || 'none'}.`,
   ];
   const table = holders.length > 0 ? processTable() : null;
   const cycle = table ? suspectCycle(pid, holders, table) : null;
   if (cycle) lines.push(cycle);
   return lines.join(' ');
 }
+
+/** First and longest delay between attempts to remove a released entry that failed. */
+const RELEASE_RETRY_MS: readonly [number, number] = [1_000, LEDGER_HEARTBEAT_MS];
 
 /** Hold an admitted entry: heartbeat, follow tool groups, release. */
 function holdGrant(
@@ -1114,9 +1450,12 @@ function holdGrant(
   opts: AdmitOptions,
 ): AdmissionGrant {
   const update = (patch: (e: LedgerEntry) => LedgerEntry): Promise<void> =>
-    withLedger(dir, (entries) => {
-      if (!entries.some((e) => e.id === entry.id)) return { entries: null, result: undefined };
-      return { entries: entries.map((e) => (e.id === entry.id ? patch(e) : e)), result: undefined };
+    withLedger(dir, (doc) => {
+      if (!doc.entries.some((e) => e.id === entry.id)) return { doc: null, result: undefined };
+      return {
+        doc: { ...doc, entries: doc.entries.map((e) => (e.id === entry.id ? patch(e) : e)) },
+        result: undefined,
+      };
     }).catch(() => {
       // Best effort: a missed heartbeat only means the next probe asks ps.
     });
@@ -1130,6 +1469,45 @@ function holdGrant(
   });
   if (following.groups.length > 0)
     void update((e) => ({ ...e, toolGroups: [...following.groups] }));
+
+  /** Remove the entry and schedule the queue. True when done (or never possible here). */
+  const removeOnce = async (): Promise<boolean> => {
+    try {
+      const before = readLedgerDoc(dir);
+      const nowMs = now();
+      const { share, sampled } = await sampleShare(opts, before.pressure, nowMs);
+      const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
+      await withLedger(dir, (doc) => ({
+        doc: reapAndSchedule(
+          { ...doc, entries: doc.entries.filter((e) => e.id !== entry.id) },
+          NO_DEAD,
+          { capacityBytes, share, nowMs },
+          sampled,
+        ),
+        result: undefined,
+      }));
+      return true;
+    } catch (err) {
+      // State that cannot be written cannot be cleaned either: the entry is
+      // reaped once this process is gone.
+      if (admissionIoError(err) !== null) return true;
+      log().warn(
+        { err: err instanceof Error ? err.message : String(err), id: entry.id },
+        'admission release failed; retrying in the background',
+      );
+      return false;
+    }
+  };
+  /** Keep trying in the background (never keeping the process alive) until removed. */
+  const retry = (delayMs: number): void => {
+    const t = setTimeout(() => {
+      void removeOnce().then((done) => {
+        if (!done) retry(Math.min(delayMs * 2, RELEASE_RETRY_MS[1]));
+      });
+    }, delayMs);
+    t.unref();
+  };
+
   let released = false;
   return {
     id: entry.id,
@@ -1143,18 +1521,7 @@ function holdGrant(
       released = true;
       clearInterval(timer);
       following.stop();
-      const { share } = await sampleShare(opts);
-      const nowMs = now();
-      const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
-      await withLedger(dir, (entries) => ({
-        entries: schedulePass(
-          entries.filter((e) => e.id !== entry.id),
-          { capacityBytes, share, nowMs },
-        ),
-        result: undefined,
-      })).catch((err: unknown) => {
-        if (admissionIoError(err) === null) throw err;
-      });
+      if (!(await removeOnce())) retry(RELEASE_RETRY_MS[0]);
     },
   };
 }
@@ -1168,28 +1535,80 @@ export function _resetAdmissionLedgerForTest(dir?: string): void {
   }
 }
 
+/** The id shown for an entry of an unknown format. */
+function foreignId(f: ForeignEntry): string {
+  return typeof f.id === 'string' ? f.id : `foreign:${JSON.stringify(f).slice(0, 60)}`;
+}
+
 /**
  * Drop every entry whose holder is provably gone, and schedule. For
  * `cleo doctor tool-locks --reap`; admission does this on every pass.
  *
  * @param opts - ledger directory, capacity and probes (tests).
- * @returns the ids removed.
+ * @returns the ids removed (entries of another CLEO version included).
  */
 export async function reapLedger(
   opts: Pick<AdmitOptions, 'dir' | 'capacityBytes' | 'probe' | 'now' | 'sample'> = {},
 ): Promise<string[]> {
   const dir = opts.dir ?? admissionDir();
   const now = opts.now ?? Date.now;
-  const { share } = await sampleShare({ wait: false, ...opts });
+  const before = readLedgerDoc(dir);
   const nowMs = now();
-  const dead = deadIds(readLedger(dir), nowMs, opts.probe ?? systemPidProbe);
-  if (dead.size === 0) return [];
+  const dead = findDead(before, nowMs, opts.probe ?? systemPidProbe);
+  if (dead.entries.size === 0 && dead.foreign.size === 0) return [];
+  const { share, sampled } = await sampleShare({ wait: false, ...opts }, before.pressure, nowMs);
   const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
-  return withLedger(dir, (entries) => {
-    const removed = entries.filter((e) => dead.get(e.id) === e.heartbeatAtMs).map((e) => e.id);
+  return withLedger(dir, (doc) => {
+    const removed = [
+      ...doc.entries.filter((e) => dead.entries.get(e.id) === e.heartbeatAtMs).map((e) => e.id),
+      ...doc.foreign.filter((f) => dead.foreign.has(JSON.stringify(f))).map(foreignId),
+    ];
     return {
-      entries: reapAndSchedule(entries, dead, { capacityBytes, share, nowMs }),
+      doc: reapAndSchedule(doc, dead, { capacityBytes, share, nowMs }, sampled),
       result: removed,
+    };
+  });
+}
+
+/**
+ * Remove one entry by id, whatever its liveness, and schedule. For
+ * `cleo doctor tool-locks --remove <id>`, when an entry cannot be proven dead
+ * (its holder is unidentifiable) but the operator knows it is.
+ *
+ * @param id - the entry id (as `cleo doctor tool-locks` lists it).
+ * @param opts - ledger directory, capacity and probes (tests).
+ * @returns whether an entry was removed.
+ */
+export async function removeLedgerEntry(
+  id: string,
+  opts: Pick<AdmitOptions, 'dir' | 'capacityBytes' | 'now' | 'sample'> = {},
+): Promise<boolean> {
+  const dir = opts.dir ?? admissionDir();
+  const now = opts.now ?? Date.now;
+  const before = readLedgerDoc(dir);
+  if (
+    !before.entries.some((e) => e.id === id) &&
+    !before.foreign.some((f) => foreignId(f) === id)
+  ) {
+    return false;
+  }
+  const nowMs = now();
+  const { share, sampled } = await sampleShare({ wait: false, ...opts }, before.pressure, nowMs);
+  const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
+  return withLedger(dir, (doc) => {
+    const entries = doc.entries.filter((e) => e.id !== id);
+    const foreign = doc.foreign.filter((f) => foreignId(f) !== id);
+    if (entries.length === doc.entries.length && foreign.length === doc.foreign.length) {
+      return { doc: null, result: false };
+    }
+    return {
+      doc: reapAndSchedule(
+        { ...doc, entries, foreign },
+        NO_DEAD,
+        { capacityBytes, share, nowMs },
+        sampled,
+      ),
+      result: true,
     };
   });
 }

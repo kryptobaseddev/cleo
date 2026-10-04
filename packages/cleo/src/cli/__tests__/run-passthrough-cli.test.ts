@@ -9,9 +9,9 @@
  * @epic T12978
  */
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -31,8 +31,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  const slots = join(cleoHome, 'locks', 'resource-full-build');
-  if (existsSync(slots)) chmodSync(slots, 0o755);
+  const ledgerDir = join(cleoHome, 'admission');
+  if (existsSync(ledgerDir)) chmodSync(ledgerDir, 0o755);
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -103,46 +103,65 @@ describe('cleo run --passthrough (compiled CLI)', () => {
   );
 
   live('a deferral exits 75 with E_RESOURCE_DEFERRED on stderr and nothing on stdout', () => {
-    // Someone is already waiting for the single full-build slot (this test
-    // process, alive): a newcomer without --wait defers without trying.
-    const queue = join(cleoHome, 'run', 'queue', 'full-build');
-    mkdirSync(queue, { recursive: true });
-    const ticket = {
-      id: 'ahead',
-      pid: process.pid,
-      runnerStart: null,
-      enqueuedAtMs: 1,
-      heartbeatAtMs: Date.now(),
-      command: 'turbo run build',
-    };
-    writeFileSync(join(queue, 'ahead.json'), `${JSON.stringify(ticket)}\n`);
-    const r = cleo([
-      'run',
-      '--passthrough',
-      '--class',
-      'full-build',
-      '--',
-      'sh',
-      '-c',
-      'touch ran',
-    ]);
-    expect(r.status).toBe(75);
-    expect(r.stdout.length).toBe(0);
-    expect(r.stderr).toContain('E_RESOURCE_DEFERRED');
-    // The child never ran (the envelope's alternatives quote the command, so
-    // only a side effect can prove it).
-    expect(existsSync(join(dir, 'ran'))).toBe(false);
+    // A live process that is not an ancestor of the CLI (a sibling, so the run
+    // cannot ride its admission) holds the whole machine budget: a newcomer
+    // without --wait defers without running.
+    const holder = spawn('sleep', ['60'], { stdio: 'ignore' });
+    try {
+      const ledgerDir = join(cleoHome, 'admission');
+      mkdirSync(ledgerDir, { recursive: true });
+      const now = Date.now();
+      const entry = {
+        id: 'ahead',
+        nonce: 'n',
+        pid: holder.pid,
+        host: hostname(),
+        startedAt: null,
+        label: 'run:full-build',
+        command: 'turbo run build',
+        cwd: dir,
+        footprintBytes: 1024 ** 5,
+        state: 'admitted',
+        enqueuedAtMs: now,
+        admittedAtMs: now,
+        heartbeatAtMs: now,
+        toolGroups: [],
+      };
+      writeFileSync(
+        join(ledgerDir, 'ledger.json'),
+        `${JSON.stringify({ version: 1, entries: [entry] })}\n`,
+      );
+      const r = cleo([
+        'run',
+        '--passthrough',
+        '--class',
+        'full-build',
+        '--',
+        'sh',
+        '-c',
+        'touch ran',
+      ]);
+      expect(r.status).toBe(75);
+      expect(r.stdout.length).toBe(0);
+      expect(r.stderr).toContain('E_RESOURCE_DEFERRED');
+      // The child never ran (the envelope's alternatives quote the command, so
+      // only a side effect can prove it).
+      expect(existsSync(join(dir, 'ran'))).toBe(false);
+    } finally {
+      holder.kill();
+    }
   });
 
   (asRoot ? it.skip : live)(
-    'a home whose slot dir exists but is read-only runs the command ungoverned, not deferred (R8-1)',
+    'a home whose admission dir exists but is read-only runs the command ungoverned, not deferred (R8-1)',
     () => {
-      // An earlier unsandboxed run created the full-build slot dir…
+      // An earlier unsandboxed run created the admission dir…
       expect(cleo(['run', '--passthrough', '--class', 'full-build', '--', 'true']).status).toBe(0);
-      const slots = join(cleoHome, 'locks', 'resource-full-build');
-      expect(existsSync(slots)).toBe(true);
+      const ledgerDir = join(cleoHome, 'admission');
+      expect(existsSync(ledgerDir)).toBe(true);
       // …and now the sandbox denies writes to it.
-      chmodSync(slots, 0o555);
+      chmodSync(ledgerDir, 0o555);
+      const t0 = Date.now();
       const r = cleo([
         'run',
         '--wait',
@@ -160,6 +179,8 @@ describe('cleo run --passthrough (compiled CLI)', () => {
       expect(r.stdout.toString('utf-8')).toBe('ran\n');
       expect(r.stderr).toMatch(/not writable \((EACCES|EPERM)/);
       expect(r.stderr).toContain('running ungoverned');
+      // At once: a read-only home never waits out the lock retries.
+      expect(Date.now() - t0).toBeLessThan(10_000);
     },
   );
 

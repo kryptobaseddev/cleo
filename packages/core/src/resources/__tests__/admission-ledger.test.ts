@@ -6,9 +6,10 @@
  * @task T13133
  */
 
-import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import lockfile from 'proper-lockfile';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ADMISSION_ENV,
@@ -16,16 +17,20 @@ import {
   admissionCapacityBytes,
   admissionToken,
   admit,
+  describeAdmissionIoError,
   enclosingGrant,
   entryLiveness,
   footprintForTool,
   GIB,
   LEDGER_HEARTBEAT_STALE_MS,
+  LEDGER_ORPHAN_MS,
   LEDGER_RESERVATION_MS,
   type LedgerEntry,
   type ProcessFacts,
+  readForeignEntries,
   readLedger,
   reapLedger,
+  removeLedgerEntry,
   schedulePass,
   suspectCycle,
 } from '../admission-ledger.js';
@@ -159,8 +164,10 @@ describe('entryLiveness', () => {
     groupLiveness: () => 'gone',
     ...over,
   });
-  const now = 10 * LEDGER_HEARTBEAT_STALE_MS;
-  const stale = { heartbeatAtMs: 0 };
+  const now = 20 * LEDGER_HEARTBEAT_STALE_MS;
+  // Stale (no heartbeat for 2 minutes) but younger than the orphan bound.
+  const stale = { heartbeatAtMs: now - 2 * LEDGER_HEARTBEAT_STALE_MS };
+  const orphan = { heartbeatAtMs: now - LEDGER_ORPHAN_MS };
 
   it('a gone pid is dead at once, unless a tool group it started still runs', () => {
     expect(
@@ -199,6 +206,33 @@ describe('entryLiveness', () => {
     expect(entryLiveness(entry({ id: 'e', ...stale }), now, probe({ startedAt: () => null }))).toBe(
       'alive',
     );
+  });
+
+  it('an unidentifiable holder is kept until the orphan bound, then dropped (MED-3)', () => {
+    const unknownProbe = probe({ liveness: () => 'unknown' });
+    const noStart = probe({ startedAt: () => null });
+    const unrecorded = { startedAt: null };
+    expect(entryLiveness(entry({ id: 'e', ...stale }), now, unknownProbe)).toBe('alive');
+    expect(entryLiveness(entry({ id: 'e', ...orphan }), now, unknownProbe)).toBe('dead');
+    expect(entryLiveness(entry({ id: 'e', ...orphan }), now, noStart)).toBe('dead');
+    expect(entryLiveness(entry({ id: 'e', ...unrecorded, ...stale }), now, probe({}))).toBe(
+      'alive',
+    );
+    expect(entryLiveness(entry({ id: 'e', ...unrecorded, ...orphan }), now, probe({}))).toBe(
+      'dead',
+    );
+    // A gone holder whose tool group id still runs: the group id may be recycled.
+    const groupAlive = probe({ liveness: () => 'gone', groupLiveness: () => 'alive' });
+    expect(entryLiveness(entry({ id: 'e', toolGroups: [777], ...stale }), now, groupAlive)).toBe(
+      'alive',
+    );
+    expect(entryLiveness(entry({ id: 'e', toolGroups: [777], ...orphan }), now, groupAlive)).toBe(
+      'dead',
+    );
+  });
+
+  it('an identified live holder is never dropped, however old its heartbeat', () => {
+    expect(entryLiveness(entry({ id: 'e', heartbeatAtMs: 0 }), now, probe({}))).toBe('alive');
   });
 
   it('another host is judged by its heartbeat alone', () => {
@@ -251,10 +285,32 @@ describe('enclosingGrant (re-entrancy)', () => {
     expect(enclosingGrant([holder], 1000, {}, facts({ startedAt: () => 'other' }))).toBeNull();
   });
 
-  it('membership of a tool group the holder started also proves it', () => {
+  it('membership of a tool group the holder started proves it only with the token (MED-1)', () => {
+    const inGroup = facts({ ancestorsOf: () => [1], groupOf: () => 600 });
     expect(
-      enclosingGrant([holder], 1000, {}, facts({ ancestorsOf: () => [1], groupOf: () => 600 })),
+      enclosingGrant([holder], 1000, { [ADMISSION_ENV]: admissionToken(holder) }, inGroup),
     ).toBe(holder);
+    // A recycled group id is all a stranger has: without the token it proves nothing.
+    expect(enclosingGrant([holder], 1000, {}, inGroup)).toBeNull();
+    expect(
+      enclosingGrant([holder], 1000, { [ADMISSION_ENV]: 'h.wrong-nonce' }, inGroup),
+    ).toBeNull();
+    // And never for another host's entry.
+    expect(
+      enclosingGrant(
+        [{ ...holder, host: 'elsewhere' }],
+        1000,
+        { [ADMISSION_ENV]: admissionToken(holder) },
+        inGroup,
+      ),
+    ).toBeNull();
+  });
+
+  it('ancestry proves it whatever the recorded hostname (LOW-4: hostnames follow the network)', () => {
+    expect(enclosingGrant([{ ...holder, host: 'renamed.local' }], 1000, {}, facts())).toEqual({
+      ...holder,
+      host: 'renamed.local',
+    });
   });
 
   it('a holder never rides its own grant, and waiting entries grant nothing', () => {
@@ -543,6 +599,21 @@ describe('admit (one ledger, real critical section)', () => {
     },
   );
 
+  it.skipIf(unstageable)(
+    'a read-only ledger dir that exists fails open at once, without waiting out lock retries',
+    async () => {
+      chmodSync(dir, 0o500);
+      const t0 = Date.now();
+      const out = await admit(
+        { label: 'tool:test', footprintBytes: GIB },
+        { ...base, dir, wait: true },
+      );
+      expect(out.admitted).toBe(true);
+      if (out.admitted) expect(out.grant.ungoverned?.code).toMatch(/^(EACCES|EPERM)$/);
+      expect(Date.now() - t0).toBeLessThan(2_000);
+    },
+  );
+
   it('a long waiter names the holders after a minute', async () => {
     const a = await admit(
       { label: 'tool:test', footprintBytes: 10 * GIB },
@@ -570,6 +641,180 @@ describe('admit (one ledger, real critical section)', () => {
       /^still waiting after 1m 0\ds for the machine budget \(10 GiB of 10 GiB in use, 0 waiting ahead\)\. Holders: tool:test pid/,
     );
     await a.grant.release();
+  });
+
+  const ledgerPath = (): string => join(dir, 'ledger.json');
+
+  it('entries of an unknown format are kept verbatim and charged until provably gone (MED-2)', async () => {
+    const now = Date.now();
+    const sized = { id: 'future-1', state: 'paused', footprintBytes: 6 * GIB, heartbeatAtMs: now };
+    const unsized = { id: 'future-2', phase: 'x', heartbeatAtMs: now };
+    writeFileSync(ledgerPath(), JSON.stringify({ version: 1, entries: [sized] }));
+    const refused = await admit(
+      { label: 'tool:test', footprintBytes: 5 * GIB },
+      { ...base, dir, wait: false },
+    );
+    expect(refused.admitted).toBe(false);
+    if (!refused.admitted) {
+      expect(refused.refusal.reason).toMatch(/6(\.0)? GiB of 10(\.0)? GiB by 1 run\(s\)/);
+      expect(refused.refusal.holders).toContain('1 entry of another CLEO version');
+    }
+    const fits = await admit(
+      { label: 'tool:test', footprintBytes: 4 * GIB },
+      { ...base, dir, wait: false },
+    );
+    expect(fits.admitted).toBe(true);
+    if (fits.admitted) await fits.grant.release();
+    expect(readForeignEntries(dir)).toEqual([sized]);
+
+    // No footprint: charged the whole capacity, so nothing else starts.
+    writeFileSync(ledgerPath(), JSON.stringify({ version: 1, entries: [unsized] }));
+    const blocked = await admit(
+      { label: 'tool:test', footprintBytes: GIB },
+      { ...base, dir, wait: false },
+    );
+    expect(blocked.admitted).toBe(false);
+    expect(readForeignEntries(dir)).toEqual([unsized]);
+
+    // Past the orphan bound it is reaped like any holder.
+    const old = { ...unsized, heartbeatAtMs: now - LEDGER_ORPHAN_MS };
+    writeFileSync(ledgerPath(), JSON.stringify({ version: 1, entries: [old] }));
+    expect(await reapLedger({ dir, capacityBytes, sample: calm })).toEqual(['future-2']);
+    expect(readForeignEntries(dir)).toEqual([]);
+  });
+
+  it('a ledger written by a newer CLEO is never rewritten: admission runs ungoverned and says why (MED-2)', async () => {
+    const newer = JSON.stringify({ version: 2, entries: [{ id: 'x', slots: 3 }] });
+    writeFileSync(ledgerPath(), newer);
+    const out = await admit(
+      { label: 'tool:test', footprintBytes: GIB },
+      { ...base, dir, wait: true },
+    );
+    expect(out.admitted).toBe(true);
+    if (!out.admitted || out.grant.ungoverned === null) throw new Error('expected ungoverned');
+    expect(out.grant.ungoverned.code).toBe('E_LEDGER_VERSION');
+    expect(describeAdmissionIoError(out.grant.ungoverned)).toContain('written by a newer CLEO');
+    expect(readFileSync(ledgerPath(), 'utf-8')).toBe(newer);
+  });
+
+  it('a corrupt ledger is moved aside, not silently destroyed', async () => {
+    writeFileSync(ledgerPath(), '{"version":1,"entries":[');
+    const out = await admit(
+      { label: 'tool:test', footprintBytes: GIB },
+      { ...base, dir, wait: false },
+    );
+    expect(out.admitted).toBe(true);
+    if (out.admitted) await out.grant.release();
+    expect(readdirSync(dir).some((f) => f.startsWith('ledger.json.corrupt-'))).toBe(true);
+  });
+
+  it('a failed release never throws and keeps retrying in the background (LOW-5)', async () => {
+    const out = await admit(
+      { label: 'tool:test', footprintBytes: GIB },
+      { ...base, dir, wait: false },
+    );
+    if (!out.admitted) throw new Error('expected an admission');
+    // Not contention (which the lock loop retries) and not unwritable state:
+    // a failure release cannot clean up now.
+    const spy = vi.spyOn(lockfile, 'lock').mockRejectedValueOnce(new Error('lock failed'));
+    try {
+      await expect(out.grant.release()).resolves.toBeUndefined();
+      expect(readLedger(dir)).toHaveLength(1);
+      await vi.waitFor(() => expect(readLedger(dir)).toEqual([]), { timeout: 5_000, interval: 50 });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('waiters reuse a pressure verdict under 2 s old instead of sampling again (LOW-6)', async () => {
+    const spy = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(sampleAt(0));
+    const saved = process.env[ADMISSION_PRESSURE_ENV];
+    delete process.env[ADMISSION_PRESSURE_ENV];
+    try {
+      const { sample: _ignored, ...live } = base;
+      let t = 1_000_000;
+      const opts = { ...live, dir, wait: false, now: () => t };
+      const a = await admit({ label: 'tool:a', footprintBytes: GIB }, opts);
+      const b = await admit({ label: 'tool:b', footprintBytes: GIB }, opts);
+      expect(a.admitted && b.admitted).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(1);
+      t += 2_500;
+      const c = await admit({ label: 'tool:c', footprintBytes: GIB }, opts);
+      expect(spy).toHaveBeenCalledTimes(2);
+      for (const g of [a, b, c]) if (g.admitted) await g.grant.release();
+      // An explicit sampler is always asked.
+      const d = await admit(
+        { label: 'tool:d', footprintBytes: GIB },
+        { ...base, dir, wait: false, now: () => t },
+      );
+      expect(d.admitted).toBe(true);
+      if (d.admitted) await d.grant.release();
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+      if (saved === undefined) delete process.env[ADMISSION_PRESSURE_ENV];
+      else process.env[ADMISSION_PRESSURE_ENV] = saved;
+    }
+  });
+
+  it('a waiter skips its own passes while another process keeps the pressure verdict fresh (LOW-6)', async () => {
+    const holder = await admit(
+      { label: 'tool:test', footprintBytes: 10 * GIB },
+      { ...base, dir, wait: false },
+    );
+    if (!holder.admitted) throw new Error('expected an admission');
+    const sampled = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(sampleAt(0));
+    const locks = vi.spyOn(lockfile, 'lock');
+    const saved = process.env[ADMISSION_PRESSURE_ENV];
+    delete process.env[ADMISSION_PRESSURE_ENV];
+    try {
+      const { sample: _ignored, ...live } = base;
+      let t = Date.now();
+      // Another process samples and writes a verdict between every poll.
+      const freshen = (): void => {
+        const doc = JSON.parse(readFileSync(ledgerPath(), 'utf-8')) as Record<string, unknown>;
+        doc.pressure = { share: 'full', reading: null, sampledAtMs: t };
+        writeFileSync(ledgerPath(), JSON.stringify(doc));
+      };
+      freshen();
+      const out = await admit(
+        { label: 'tool:build', footprintBytes: GIB },
+        {
+          ...live,
+          dir,
+          wait: true,
+          timeoutMs: 10_000,
+          pollMs: 250,
+          now: () => t,
+          sleep: async (ms) => {
+            t += ms;
+            freshen();
+          },
+        },
+      );
+      expect(out.admitted).toBe(false);
+      expect(sampled).not.toHaveBeenCalled();
+      // The first pass and the leave at the timeout; no pass every 2 s.
+      expect(locks).toHaveBeenCalledTimes(2);
+    } finally {
+      sampled.mockRestore();
+      locks.mockRestore();
+      if (saved === undefined) delete process.env[ADMISSION_PRESSURE_ENV];
+      else process.env[ADMISSION_PRESSURE_ENV] = saved;
+      await holder.grant.release();
+    }
+  });
+
+  it('removeLedgerEntry drops a named entry whatever its liveness (doctor --remove)', async () => {
+    const held = await admit(
+      { label: 'tool:test', footprintBytes: 10 * GIB },
+      { ...base, dir, wait: false, pid: 4_000_002 },
+    );
+    if (!held.admitted || held.grant.id === null) throw new Error('expected an admission');
+    expect(await removeLedgerEntry('no-such-id', { dir, capacityBytes, sample: calm })).toBe(false);
+    expect(await removeLedgerEntry(held.grant.id, { dir, capacityBytes, sample: calm })).toBe(true);
+    expect(readLedger(dir)).toEqual([]);
+    await held.grant.release();
   });
 
   it('20 concurrent admitters: no lost update, no deadlock, never over budget', async () => {

@@ -44,10 +44,12 @@ summary: "One admission ledger replaces the tool semaphore's slots, the governor
 - **Re-entrant, and it cannot be forged.** A grant exports
   `CLEO_ADMISSION=<id>.<nonce>` to the tool or job it starts. A cleo command
   run inside that process tree rides the grant: no new budget, no wait. The
-  caller must actually descend from the holder (process ancestry, or a tool
-  process group the holder started) and the holder's start time must match,
-  so setting the env var by hand grants nothing. A wrapper that scrubs the
-  environment is still recognised by ancestry.
+  caller must actually descend from the holder, and the holder's start time
+  must match, so setting the env var by hand grants nothing. A wrapper that
+  scrubs the environment is still recognised by ancestry, whatever hostname
+  the holder recorded (a laptop's hostname follows the network). Membership
+  of a tool process group the holder started counts only together with the
+  holder's token, because a recycled group id alone proves nothing.
 - **A long wait explains itself.** After a minute, a waiter prints the
   holders with pid, command, directory, share and age. When a holder's
   process tree and the waiter's ancestry run the same wrapper program (the
@@ -56,15 +58,31 @@ summary: "One admission ledger replaces the tool semaphore's slots, the governor
 - **Safe state.** The ledger is read, decided and written inside a
   `proper-lockfile` critical section that does no probing, sampling or
   spawning. A test with 20 concurrent admitters shows no lost update and no
-  deadlock. An entry is dropped once its holder is provably gone: the pid is
-  gone (or recycled, judged by start time) and every tool group it started is
-  gone. An unwritable CLEO home makes runs ungoverned rather than stuck.
-  `CLEO_RESOURCES_MODE=off` still turns admission off.
+  deadlock. The lock retries only while another process holds it, so a
+  read-only CLEO home makes runs ungoverned at once, not after the retries.
+  An entry is dropped once its holder is provably gone: the pid is gone (or
+  recycled, judged by start time) and every tool group it started is gone.
+  A holder that cannot be identified (the pid probe fails, or no start time
+  was recorded) is dropped once its heartbeat is 10 minutes old, so nothing
+  holds the budget forever. A release that fails keeps retrying in the
+  background. Waiters reuse a pressure verdict under 2 s old that another
+  process wrote to the ledger, so a crowd of waiters costs one sample per
+  interval, not one each. An unwritable CLEO home makes runs ungoverned
+  rather than stuck. `CLEO_RESOURCES_MODE=off` still turns admission off.
+- **Versioned file.** The ledger records its format version. A CLEO never
+  rewrites a ledger written by a newer version: its runs go ungoverned, and
+  `cleo run` says to upgrade. Entries it cannot parse are kept verbatim and
+  charged their `footprintBytes`, or the whole budget when they have none,
+  until their holder is provably gone. A corrupt ledger is moved aside
+  (`ledger.json.corrupt-<ms>`) before it is replaced. A CLEO older than this
+  release does not know the ledger at all: while two CLEO versions share a
+  machine, the older one's runs are not counted against the budget.
 - **Deprecated: `CLEO_TOOL_CONCURRENCY_<TOOL>`.** It no longer counts
   anything. `0` (or less) still bypasses admission for that tool; any other
   value is ignored. Either way, one deprecation line is printed per process,
   on stderr only.
 - **Status.** `cleo doctor tool-locks` now lists the ledger: who holds the
-  budget, who waits, and whether each holder is alive. `--reap` drops
-  entries whose holders are gone. The janitor removes the old slot
-  directories once nothing holds them.
+  budget, who waits, and whether each holder is alive, plus any entries of
+  another CLEO version. `--reap` drops entries whose holders are gone;
+  `--remove <id>` drops one entry whatever its liveness. The janitor
+  removes the old slot directories once nothing holds them.

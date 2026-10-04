@@ -52,6 +52,7 @@ import {
   type AdmissionRequest,
   type AdmitOptions,
   admit,
+  describeAdmissionIoError,
   footprintForClass,
   isLedgerClass,
   type LedgerEntry,
@@ -345,10 +346,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   let ungoverned: GovernorIoError | null = null;
   const sayUngoverned = (io: GovernorIoError): void => {
     ungoverned = io;
-    notice(
-      `admission state is not writable (${io.code}${io.path ? ` ${io.path}` : ''}): running ungoverned`,
-      'warn',
-    );
+    notice(`${describeAdmissionIoError(io)}: running ungoverned`, 'warn');
   };
   const deadline = t0 + (opts.timeoutMs ?? 30 * 60_000);
   let admission: RunAdmission;

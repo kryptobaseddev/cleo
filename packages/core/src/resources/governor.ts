@@ -55,6 +55,7 @@ import {
   admissionIoError,
   admit,
   budgetShare,
+  describeAdmissionIoError,
   footprintForClass,
   isLedgerClass,
   readLedger,
@@ -415,9 +416,7 @@ async function admitThroughLedger(
   const { grant } = out;
   if (grant.ungoverned) {
     // Same contract as a local slot dir that cannot be written: callers fail open.
-    const err: NodeJS.ErrnoException = new Error(
-      `admission ledger not writable: ${grant.ungoverned.code}`,
-    );
+    const err: NodeJS.ErrnoException = new Error(describeAdmissionIoError(grant.ungoverned));
     err.code = grant.ungoverned.code;
     if (grant.ungoverned.path) err.path = grant.ungoverned.path;
     throw err;
