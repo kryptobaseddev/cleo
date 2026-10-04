@@ -75,23 +75,36 @@ const {
   };
 });
 
-vi.mock('@cleocode/core/internal', () => ({
+// T13126: startup imports narrow CORE modules, not the `@cleocode/core/internal`
+// barrel, so each module is mocked where the CLI now imports it from.
+vi.mock('@cleocode/core/store/cleanup-legacy', () => ({
   detectAndRemoveLegacyGlobalFiles: detectAndRemoveLegacyGlobalFilesMock,
   detectAndRemoveStrayProjectNexus: detectAndRemoveStrayProjectNexusMock,
-  getProjectRoot: getProjectRootMock,
-  needsSignaldockToConduitMigration: needsSignaldockToConduitMigrationMock,
-  migrateSignaldockToConduit: migrateSignaldockToConduitMock,
-  ensureConduitDb: ensureConduitDbMock,
-  ensureGlobalAgentRegistryDb: ensureGlobalAgentRegistryDbMock,
-  validateGlobalSalt: validateGlobalSaltMock,
-  getGlobalSalt: getGlobalSaltMock,
-  getLogger: getLoggerMock,
   // T9028: one-shot cleanup marker helpers
   isCleanupMarkerSet: isCleanupMarkerSetMock,
   setCleanupMarker: setCleanupMarkerMock,
+}));
+vi.mock('@cleocode/core/store/global-salt', () => ({
+  validateGlobalSalt: validateGlobalSaltMock,
+  getGlobalSalt: getGlobalSaltMock,
+}));
+vi.mock('@cleocode/core/logger', () => ({ getLogger: getLoggerMock }));
+vi.mock('@cleocode/core/project-scope', () => ({
+  getProjectRoot: getProjectRootMock,
   isMissingProjectError: isMissingProjectErrorMock,
-  // T1873: env→ALS bridge added in cleo CLI entrypoint. Test doesn't exercise
-  // worktree paths, so stub passthrough that just invokes the callback.
+}));
+vi.mock('@cleocode/core/store/migrate-signaldock-to-conduit', () => ({
+  needsSignaldockToConduitMigration: needsSignaldockToConduitMigrationMock,
+  migrateSignaldockToConduit: migrateSignaldockToConduitMock,
+}));
+// T9029: these must stay out of startup; mocked so an accidental call is seen.
+vi.mock('@cleocode/core/internal', () => ({
+  ensureConduitDb: ensureConduitDbMock,
+  ensureGlobalAgentRegistryDb: ensureGlobalAgentRegistryDbMock,
+}));
+// T1873: env→ALS bridge in the cleo CLI entrypoint. Test doesn't exercise
+// worktree paths, so stub passthrough that just invokes the callback.
+vi.mock('@cleocode/core/paths.js', () => ({
   runWithWorktreeScopeFromEnv: <T>(fn: () => T): T => fn(),
 }));
 

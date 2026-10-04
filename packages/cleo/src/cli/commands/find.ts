@@ -5,7 +5,7 @@
  * @task T487
  */
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { createPage } from '@cleocode/core';
+import { createPage } from '@cleocode/core/pagination';
 import { defineCommand } from 'citty';
 import { dispatchRaw, handleRawError, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
