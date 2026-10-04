@@ -360,6 +360,24 @@ describe('Group 5: Monorepo detection', () => {
     assertSchemaValid(result, 'pnpm workspace monorepo');
   });
 
+  it('detection never writes a derived affectedCommand: tool:test derives it at runtime (T13125)', () => {
+    // Persisted, a derived template would read as declared and outlive an edit
+    // to testing.command (review of #1818).
+    dir = scaffold({
+      'package.json': JSON.stringify({
+        name: 'app',
+        scripts: { test: 'pnpm -r --no-bail --if-present run test' },
+      }),
+      'pnpm-workspace.yaml': 'packages:\n  - "packages/*"\n',
+      'pnpm-lock.yaml': 'lockfileVersion: 9\n',
+      'vitest.config.ts': 'export default {}',
+    });
+    const result = detectProjectType(dir);
+    expect(result.testing?.command).toBe('pnpm run test');
+    expect(result.testing?.affectedCommand).toBeUndefined();
+    assertSchemaValid(result, 'pnpm workspace');
+  });
+
   it('package.json + lerna.json → monorepo is true', () => {
     dir = scaffold({ 'package.json': '{"name":"app"}', 'lerna.json': '{"version":"independent"}' });
     const result = detectProjectType(dir);

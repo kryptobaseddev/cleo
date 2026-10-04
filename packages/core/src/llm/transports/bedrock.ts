@@ -19,20 +19,22 @@
  * @epic T9261 (T-LLM-CRED-CENTRALIZATION Phase 5)
  */
 
-import {
+// Types only: the AWS SDK itself loads on the first request (T13126).
+import type * as BedrockRuntimeSdk from '@aws-sdk/client-bedrock-runtime';
+import type {
   BedrockRuntimeClient,
   ConverseCommand,
-  type ConverseCommandOutput,
+  ConverseCommandOutput,
   ConverseStreamCommand,
-  type ConverseStreamCommandOutput,
-  type GuardrailConfiguration,
-  type InferenceConfiguration,
-  type Message,
-  type SystemContentBlock,
-  type ToolConfiguration,
-  type ToolInputSchema,
+  ConverseStreamCommandOutput,
+  GuardrailConfiguration,
+  InferenceConfiguration,
+  Message,
+  SystemContentBlock,
+  ToolConfiguration,
+  ToolInputSchema,
 } from '@aws-sdk/client-bedrock-runtime';
-import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
+import type * as AwsCredentialProviders from '@aws-sdk/credential-providers';
 import type { NormalizedDelta, TransportContext } from '@cleocode/contracts/llm/interfaces.js';
 import type {
   LlmTransport,
@@ -219,6 +221,39 @@ function extractToolCalls(blocks: RawContentBlock[]): NormalizedToolCall[] | nul
 // BedrockTransport
 // ---------------------------------------------------------------------------
 
+/** The AWS SDK modules the Bedrock transport needs. */
+interface BedrockSdk {
+  /** `@aws-sdk/client-bedrock-runtime`. */
+  readonly runtime: typeof BedrockRuntimeSdk;
+  /** `@aws-sdk/credential-providers`. */
+  readonly credentials: typeof AwsCredentialProviders;
+}
+
+let bedrockSdk: Promise<BedrockSdk> | null = null;
+
+/**
+ * Load the AWS SDK modules on first use, once per process (T13126).
+ *
+ * They were static imports of a module reachable from the `@cleocode/core`
+ * barrel, so every `cleo` call evaluated the Bedrock client and the AWS
+ * credential-provider chain (~14 MB of peak RSS) whether or not it ever spoke
+ * to Bedrock. Every Bedrock request is already asynchronous, so loading here
+ * changes no API. A failed load is not cached.
+ */
+function loadBedrockSdk(): Promise<BedrockSdk> {
+  bedrockSdk ??= Promise.all([
+    import('@aws-sdk/client-bedrock-runtime'),
+    import('@aws-sdk/credential-providers'),
+  ]).then(
+    ([runtime, credentials]) => ({ runtime, credentials }),
+    (err: Error) => {
+      bedrockSdk = null;
+      throw err;
+    },
+  );
+  return bedrockSdk;
+}
+
 /**
  * AWS Bedrock Converse API transport.
  *
@@ -293,12 +328,13 @@ export class BedrockTransport implements LlmTransport {
     const converseInput = this._buildConverseInput(request);
     const regions = [this._primaryRegion, ...this._fallbackRegions];
 
+    const sdk = await loadBedrockSdk();
     let lastErr: unknown;
     for (const region of regions) {
-      const client = this._getClient(region);
+      const client = this._getClient(region, sdk);
       try {
         const response: ConverseCommandOutput = await client.send(
-          new ConverseCommand(converseInput),
+          new sdk.runtime.ConverseCommand(converseInput),
         );
         return this._normalizeResponse(response, request.model);
       } catch (err) {
@@ -330,12 +366,13 @@ export class BedrockTransport implements LlmTransport {
     const streamInput = this._buildConverseStreamInput(request);
     const regions = [this._primaryRegion, ...this._fallbackRegions];
 
+    const sdk = await loadBedrockSdk();
     let lastErr: unknown;
     for (const region of regions) {
-      const client = this._getClient(region);
+      const client = this._getClient(region, sdk);
       try {
         const response: ConverseStreamCommandOutput = await client.send(
-          new ConverseStreamCommand(streamInput),
+          new sdk.runtime.ConverseStreamCommand(streamInput),
         );
         if (!response.stream) return;
         yield* this._readStream(
@@ -362,13 +399,14 @@ export class BedrockTransport implements LlmTransport {
    * overhead on cross-region fallback retries.
    *
    * @param region - AWS region string.
+   * @param sdk - The loaded AWS SDK modules.
    */
-  private _getClient(region: string): BedrockRuntimeClient {
+  private _getClient(region: string, sdk: BedrockSdk): BedrockRuntimeClient {
     let client = this._clients.get(region);
     if (!client) {
-      client = new BedrockRuntimeClient({
+      client = new sdk.runtime.BedrockRuntimeClient({
         region,
-        credentials: fromNodeProviderChain(
+        credentials: sdk.credentials.fromNodeProviderChain(
           this._awsProfile ? { profile: this._awsProfile } : undefined,
         ),
       });

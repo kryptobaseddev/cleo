@@ -15,7 +15,7 @@
 import { join } from 'node:path';
 import { ensureProviderInstructionFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
-import { isUserHomeDir, syncJsonHeavyCommandHook } from '../shared/heavy-command-hook-install.js';
+import { isUserHomeDir, syncCodexHeavyCommandHook } from '../shared/heavy-command-hook-install.js';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
 
 /**
@@ -66,9 +66,8 @@ export class CodexInstallProvider implements AdapterInstallProvider {
       details.heavyCommandHook = 'skipped';
     } else if (options.heavyCommandHook !== undefined) {
       try {
-        details.heavyCommandHook = await syncJsonHeavyCommandHook(
-          join(projectDir, '.codex', 'hooks.json'),
-          'codex',
+        details.heavyCommandHook = await syncCodexHeavyCommandHook(
+          projectDir,
           options.heavyCommandHook,
         );
       } catch (err) {

@@ -19,6 +19,7 @@ import { defineConfig } from 'vitest/config';
 import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
 import { CLEO_TEST_QUARANTINE } from './vitest.quarantine.js';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
+import { repoGuardsUnder } from '../../vitest.repo-guards.js';
 
 export default defineConfig({
   test: {
@@ -79,6 +80,10 @@ export default defineConfig({
       '**/e2e/**',
       '**/*.integration.test.ts',
       '**/*-integration.test.ts',
+      // T13142: run in the root config's `repo-guards` project instead (this
+      // project is rooted at the repo, so the paths stay repo-relative). From the
+      // repo root: pnpm exec vitest run --project repo-guards <file>
+      ...repoGuardsUnder('packages/cleo/').map((p) => `packages/cleo/${p}`),
       // T12067: 73 files that were already failing when discovery was fixed —
       // they had never run, so they had never gated a PR. Excluding them lets
       // the other 199 files / 3428 tests start protecting the repo now.
