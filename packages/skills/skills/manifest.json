@@ -226,7 +226,7 @@
     },
     {
       "name": "ct-cleo",
-      "version": "2.24.4",
+      "version": "2.24.6",
       "description": "CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.",
       "path": "skills/ct-cleo",
       "tier": 0,
@@ -566,7 +566,7 @@
     },
     {
       "name": "ct-dev-workflow",
-      "version": "3.1.5",
+      "version": "3.1.6",
       "description": "Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.",
       "path": "skills/ct-dev-workflow",
       "tier": 0,
@@ -983,7 +983,7 @@
     },
     {
       "name": "ct-orchestrator",
-      "version": "4.0.8",
+      "version": "4.0.9",
       "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \\\"orchestrate\\\", \\\"orchestrator mode\\\", \\\"run as orchestrator\\\", \\\"delegate to subagents\\\", \\\"coordinate agents\\\", \\\"spawn subagents\\\", \\\"multi-agent workflow\\\", \\\"context-protected workflow\\\", \\\"agent farm\\\", \\\"HITL orchestration\\\", \\\"pipeline management\\\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime.",
       "path": "skills/ct-orchestrator",
       "tier": 0,
@@ -1150,7 +1150,7 @@
     },
     {
       "name": "ct-release-orchestrator",
-      "version": "3.0.3",
+      "version": "3.1.0",
       "description": "Orchestrates the canonical 4-verb release pipeline introduced by SPEC-T9345: cleo release plan, then cleo release open, then PR + GHA tag workflow, then cleo release reconcile. The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/release/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status.",
       "path": "skills/ct-release-orchestrator",
       "tier": 1,

@@ -10,6 +10,7 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
+import { repoGuardsUnder } from '../../vitest.repo-guards.js';
 import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
 
 export default defineConfig({
@@ -29,7 +30,17 @@ export default defineConfig({
       'src/**/__tests__/*.test.ts',
       'tests/**/*.test.ts',
     ],
-    exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**', '**/*.integration.test.ts', '**/*-integration.test.ts'],
+    exclude: [
+      'node_modules',
+      'dist',
+      '**/node_modules/**',
+      '**/e2e/**',
+      '**/*.integration.test.ts',
+      '**/*-integration.test.ts',
+      // T13142: run in the root config's `repo-guards` project instead. From the
+      // repo root: pnpm exec vitest run --project repo-guards <file>
+      ...repoGuardsUnder('packages/contracts/'),
+    ],
     // Tests that load core source reach contracts leaf modules
     // (`@cleocode/contracts/changesets.js`). The bare alias alone is a prefix
     // match and rewrites those to `index.ts/changesets.js`; the generic

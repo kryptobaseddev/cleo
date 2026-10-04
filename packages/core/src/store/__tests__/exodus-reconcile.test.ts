@@ -397,6 +397,31 @@ describe.each(
     expect(conflict('tasks_task_relations')).toMatchObject({ rows: 1 });
   });
 
+  it('additive mode fills legacy token rows into tasks_token_usage, the table the runtime reads (T13111)', async () => {
+    const legacy = new DatabaseSync(join(cleoDir, 'tasks.db'));
+    legacy.exec(`
+      CREATE TABLE token_usage (id TEXT PRIMARY KEY, created_at TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'unknown', transport TEXT NOT NULL DEFAULT 'unknown',
+        gateway TEXT, domain TEXT, operation TEXT, session_id TEXT, total_tokens INTEGER NOT NULL DEFAULT 0,
+        method TEXT NOT NULL DEFAULT 'heuristic', confidence TEXT NOT NULL DEFAULT 'coarse',
+        metadata_json TEXT NOT NULL DEFAULT '{}');
+      INSERT INTO token_usage (id, created_at, transport, gateway, domain, operation, session_id, total_tokens)
+        VALUES ('TU-legacy', '2026-01-03 00:00:00', 'cli', 'mutate', 'tasks', 'add', 'S-legacy', 42);
+    `);
+    legacy.close();
+
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { additive: true });
+
+    expect(result.outcome).toBe('reconciled');
+    // Append-only history: filled in, never a live-authoritative conflict.
+    expect(result.conflicts.find((c) => c.targetTable === 'tasks_token_usage')).toBeUndefined();
+    const { listTokenUsage } = await import('../../metrics/token-service.js');
+    const listed = await listTokenUsage(join(root, 'project'), { sessionId: 'S-legacy' });
+    expect(listed.records.map((r) => [r.id, r.totalTokens])).toEqual([['TU-legacy', 42]]);
+    expect(scalar(liveDb, 'SELECT COUNT(*) FROM token_usage')).toBe(0);
+  });
+
   it.skipIf(killSwitch !== undefined)(
     'converges with exodus-on-open whichever runs first (on-open first → reconcile has nothing to do)',
     async () => {

@@ -87,6 +87,18 @@ export {
   OpenCodeInstallProvider,
   OpenCodeSpawnProvider,
 } from './providers/opencode/index.js';
+// T13124 — project-level heavy-command hook delivery (also `@cleocode/adapters/heavy-command-hook`).
+export type { HeavyHookDetection } from './providers/shared/heavy-command-hook-delivery.js';
+export {
+  detectHeavyHookProvider,
+  HEAVY_HOOK_DELIVERY_PROVIDERS,
+  HEAVY_HOOK_FIX_COMMAND,
+  heavyHookDeliveryApi,
+  heavyHookTarget,
+  inspectProjectHeavyCommandHooks,
+  probeHeavyHookCli,
+  syncProjectHeavyCommandHooks,
+} from './providers/shared/heavy-command-hook-delivery.js';
 export type {
   HookTemplateProviderId,
   InstallHookTemplatesOptions,

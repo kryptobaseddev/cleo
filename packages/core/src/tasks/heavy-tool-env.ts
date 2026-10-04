@@ -166,8 +166,9 @@ export const WORKSPACE_CONCURRENCY_VARS = [
 
 /**
  * Every environment name that sets pnpm's workspace concurrency in `env`: the
- * two canonical spellings, plus any case variant of them present (pnpm reads
- * these case-insensitively, uppercase first).
+ * two canonical spellings, plus any case or dash variant of them present (pnpm
+ * reads these case-insensitively, uppercase first, and `workspace-concurrency`
+ * with a dash as readily).
  *
  * @param env - The caller's environment.
  * @returns The names to plan and overlay, canonical first.
@@ -177,7 +178,7 @@ export function workspaceConcurrencyNames(env: NodeJS.ProcessEnv): string[] {
   const canonical: string[] = [...WORKSPACE_CONCURRENCY_VARS];
   const wanted = new Set<string>(canonical);
   const variants = Object.keys(env).filter(
-    (name) => !wanted.has(name) && wanted.has(name.toLowerCase()),
+    (name) => !wanted.has(name) && wanted.has(name.toLowerCase().replace(/-/g, '_')),
   );
   return [...canonical, ...variants.sort()];
 }
@@ -604,7 +605,8 @@ export function withSemiSpaceCap(existing: string | undefined): {
  * Absent: `-j<workers>` (GNU make sizes a bare `-j` off nproc). Carrying a
  * jobserver (`--jobserver-auth=` / `--jobserver-fds=`): kept, since inside a
  * `make` recipe the parent's jobserver already bounds the jobs. Otherwise any
- * `-j`, `-jN` or `--jobs[=N]` above `workers` (a bare one is unlimited) is
+ * `-j`, `-jN`, `--jobs[=N]`, a short cluster ending in j (`-sj18`) or make's
+ * dash-less first word (`j18`) above `workers` (a bare one is unlimited) is
  * replaced by `-j<workers>`, keeping every other flag — a profile-wide
  * `export MAKEFLAGS=-j18` no longer outruns the plan.
  *
@@ -621,17 +623,26 @@ export function boundMakeflags(raw: string | undefined, workers: number): string
   let over = false;
   for (let i = 0; i < words.length; i++) {
     const word = words[i] ?? '';
-    const flag = /^(-j|--jobs)(=?)(\d*)$/.exec(word);
-    if (flag === null) {
+    const long = /^--jobs(?:=(\d*))?$/.exec(word);
+    // A short-flag cluster ending in j (`-j18`, `-sj18`, `-kj`), or make's own
+    // dash-less letter form as the first word (`j18`, `kj`). Only make's
+    // argument-less short flags may precede the j: in `-Ij18` the `j18` is
+    // -I's directory, and splitting it would hand -I the `-j` (review of #1824).
+    const short = long === null ? /^(-?)([BbdehikLnpqrRsStvw]*)j(\d*)$/.exec(word) : null;
+    const isShort = short !== null && (short[1] === '-' || i === 0);
+    if (long === null && !isShort) {
       kept.push(word);
       continue;
     }
-    let count = flag[3] ?? '';
+    let count = long !== null ? (long[1] ?? '') : (short?.[3] ?? '');
+    const takesNext = long !== null ? long[1] === undefined : count === '';
     const next = words[i + 1];
-    if (count === '' && flag[2] === '' && next !== undefined && /^\d+$/.test(next)) {
+    if (count === '' && takesNext && next !== undefined && /^\d+$/.test(next)) {
       count = next;
       i++;
     }
+    // The cluster's other letters (`s`, `k`) are flags of their own: keep them.
+    if (isShort && short?.[2]) kept.push(`-${short[2]}`);
     if (count === '' || Number(count) > workers) over = true;
     else kept.push(`-j${count}`);
   }
@@ -656,9 +667,15 @@ export function withoutNpmEnvConfigWarnings(text: string): string {
   if (!text.includes('Unknown env config')) return text;
   return text
     .split('\n')
-    .filter((line) => !/^npm (warn|WARN) Unknown env config\b/.test(line))
+    .filter(
+      // A coloured npm (FORCE_COLOR, color=always) prefixes ANSI codes.
+      (line) => !/^npm (warn|WARN) Unknown env config\b/.test(line.replace(ANSI_SGR, '')),
+    )
     .join('\n');
 }
+
+/** ANSI select-graphic-rendition escapes (colours), stripped before matching npm's warning. */
+const ANSI_SGR = /\u001b\[[0-9;]*m/g;
 
 /**
  * Append `--max-old-space-size` to an existing `NODE_OPTIONS`, or create it,

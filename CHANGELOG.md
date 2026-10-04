@@ -1,5 +1,39 @@
 # Changelog
 
+## [2026.10.4] (2026-10-04)
+
+> **Update now: run `cleo self-update`.** This hotfix fixes empty stores on busy Macs and stops CLEO from saturating the machine it runs on.
+
+### Highlights
+
+- **Empty stores on busy Macs are fixed (#1826).** On a busy Mac, opening a project that still had its legacy `tasks.db` and `brain.db` skipped the migration into `cleo.db`, so the project's tasks looked missing, and a write in that state left the legacy rows behind. To recover stranded tasks, run `cleo doctor superseded-store --reconcile --dry-run`, then `cleo doctor superseded-store --reconcile`. This copies stranded tasks and memory into cleo.db and never changes existing rows. Known limit (T13172): if you created tasks after upgrading to 2026.10.2 or 2026.10.3, a new task may have taken an old task's id (usually T001). The old task with that id is not copied, the receipt does not say so, and its subtasks would attach to the new task. If you created tasks after upgrading, wait for the T13172 fix before reconciling. Either way, keep `.cleo/tasks.db`.
+- **The heavy-command hook now installs and governs (#1811).** `cleo init` and `cleo upgrade` install it for every agent harness in use, and `cleo doctor` and the briefing say when it is missing. In Claude Code's default, acceptEdits and dontAsk modes it queues the heavy commands your allow rules already approve through CLEO's machine-wide budget when it can tell that from their plain form; anything else gets a warning instead. It writes project-level files only and keeps them out of git (`.claude/settings.local.json`, `.codex/hooks.json` when CLEO created it, the opencode plugin), and it never edits a `.codex/hooks.json` your team already has. `cleo doctor heavy-command-hook --fix` installs it; `resources.heavyCommandHook: off` turns it off.
+- **Evidence runs only the affected packages when no `affectedCommand` is declared (#1818).** `tool:test` derives one from a workspace-wide test command (`pnpm -r`, `npm --workspaces`, `turbo run test`), and `cleo doctor` proposes it. A change outside every package, or a test command with no affected form, still runs the whole suite.
+- **Less memory at CLI startup (#1812, #1820).** `cleo --version` and `--help` no longer load all of the core library, and loading `@cleocode/core` no longer evaluates js-tiktoken, the AWS Bedrock SDK or the ai SDK.
+- **Heap, worker and typecheck caps (#1808, #1810, #1824).** An inherited `NODE_OPTIONS` heap, worker count or package concurrency no longer multiplies an evidence run's memory, and typecheck and lint slots are sized from RAM and respond to memory pressure.
+
+### Also in this release
+
+- `cleo login nexus` links and backs up the current project, lists your projects on a new machine, and `cleo cloud restore` takes a project name (#1797).
+- `cleo release open` reuses main's tested CI run for the release commit, and `--no-commit-plan` dispatches the merged plan by hash (#1816).
+- The release bump-PR's dispatched CI runs the version-only set instead of the whole suite (#1817).
+- The owned-process probe reads `ESRCH` as a process that is gone, which removes a flaky test failure (#1807).
+
+### Added
+
+- cleo login nexus sets up the account key and certifies the device, so the first push has nothing left to set up _(provenance: [T13100](https://github.com/kryptobaseddev/cleo/search?q=T13100&type=commits))_
+
+### Fixed
+
+- Nexus graph queries keep portable identity when projects move _(provenance: [T12472](https://github.com/kryptobaseddev/cleo/search?q=T12472&type=commits))_
+- Recognize ICO resources and supported JSONC configuration evidence _(provenance: [T13103](https://github.com/kryptobaseddev/cleo/search?q=T13103&type=commits))_
+- A vault restore keeps the snapshot's migration journal, so a restored store opens without stamping migrations it never ran _(provenance: [T13104](https://github.com/kryptobaseddev/cleo/search?q=T13104&type=commits))_
+- Dispatch token telemetry no longer writes a token_usage row when a command only reads _(provenance: [T13106](https://github.com/kryptobaseddev/cleo/search?q=T13106&type=commits))_
+- On a busy Mac, opening a legacy project no longer skips the exodus migration and serves an empty store _(provenance: [T13119](https://github.com/kryptobaseddev/cleo/search?q=T13119&type=commits), [T13150](https://github.com/kryptobaseddev/cleo/search?q=T13150&type=commits))_
+- An inherited NODE_OPTIONS heap, worker count or package concurrency no longer multiplies an evidence run's memory; the plan is reported _(provenance: [T13122](https://github.com/kryptobaseddev/cleo/search?q=T13122&type=commits))_
+- The heavy-tool bounds also catch MAKEFLAGS flag clusters, a dash-spelled workspace variable and a coloured npm warning _(provenance: [T13122](https://github.com/kryptobaseddev/cleo/search?q=T13122&type=commits))_
+- test-run evidence accepts summary and node --test counters, and a report without counts names the keys it needs _(provenance: [T13136](https://github.com/kryptobaseddev/cleo/search?q=T13136&type=commits))_
+
 ## [2026.10.3] (2026-10-03)
 
 ### Fixed
