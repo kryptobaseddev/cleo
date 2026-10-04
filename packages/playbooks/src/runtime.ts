@@ -58,7 +58,8 @@ import type {
 // T1944 (M4): `defaultVariableResolver` is the canonical T1238 mustache engine,
 // re-used here (DRY) to resolve `PlaybookAgenticNode.inputs` `{{path}}`
 // templates at the dispatch boundary rather than re-implementing substitution.
-import { defaultVariableResolver, getEnsuresSchema, listEnsuresSchemaNames } from '@cleocode/core';
+import { defaultResolver as defaultVariableResolver } from '@cleocode/core/agents/variable-substitution';
+import { getEnsuresSchema, listEnsuresSchemaNames } from '@cleocode/core/dispatch/contracts/ensures-schema';
 import { createApprovalGate, getPlaybookSecret } from './approval.js';
 import {
   createPlaybookApproval,

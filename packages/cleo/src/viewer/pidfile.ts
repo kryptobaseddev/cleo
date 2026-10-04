@@ -1,3 +1,4 @@
+import { getCleoHome } from '@cleocode/core/core-paths';
 /**
  * Viewer pidfile helpers — track a detached `cleo docs serve` instance so
  * `cleo docs open` can reuse it and `cleo docs stop` can shut it down.
@@ -12,7 +13,6 @@
 
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { getCleoHome } from '@cleocode/core/internal';
 
 /** Shape of the JSON document persisted on disk. */
 export interface ViewerPidRecord {

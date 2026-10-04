@@ -18,8 +18,8 @@
 
 import { Buffer } from 'node:buffer';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { type DocsViewOptions, renderDocsView } from '@cleocode/core';
 import { createDocsReadModel } from '@cleocode/core/docs/docs-read-model';
+import { type DocsViewOptions, renderDocsView } from '@cleocode/core/render/docs/view';
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../../renderers/index.js';
 

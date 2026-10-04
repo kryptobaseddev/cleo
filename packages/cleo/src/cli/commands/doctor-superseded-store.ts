@@ -32,9 +32,9 @@
  * @see ADR-068 — dual-scope DB chokepoint
  */
 
-import { getProjectRoot } from '@cleocode/core';
 import { scanSupersededStores } from '@cleocode/core/doctor/superseded-store.js';
 import { reconcileSupersededStores } from '@cleocode/core/store/exodus/index.js';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 

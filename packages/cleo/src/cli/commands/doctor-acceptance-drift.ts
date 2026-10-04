@@ -18,11 +18,11 @@
  * @see ADR-092 — "a status surface that reports a state it does not measure"
  */
 
-import { getProjectRoot } from '@cleocode/core';
 import {
   scanAcceptanceDrift,
   writeAcceptanceDriftBaseline,
 } from '@cleocode/core/doctor/acceptance-drift.js';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
 

@@ -24,13 +24,13 @@
  * @task T-PROJECT-HEALTH
  */
 
-import {
-  checkAllRegisteredProjects,
-  type FullHealthReport,
-  type ProjectHealthReport,
-  type ProjectHealthStatus,
-} from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
+import type {
+  FullHealthReport,
+  ProjectHealthReport,
+  ProjectHealthStatus,
+} from '@cleocode/core/internal';
+import { checkAllRegisteredProjects } from '@cleocode/core/system/project-health';
 import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 
@@ -181,7 +181,7 @@ export async function runDoctorProjects(
   const nameLookup = new Map<string, string>();
   if (!report.registryError) {
     try {
-      const { nexusList } = await import('@cleocode/core/internal');
+      const { nexusList } = await import('@cleocode/core/nexus/registry');
       const rows = await nexusList();
       for (const row of rows) {
         nameLookup.set(row.hash, row.name);

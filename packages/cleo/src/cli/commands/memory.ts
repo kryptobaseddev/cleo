@@ -42,7 +42,6 @@
  * @epic T4763 T627
  */
 
-import { getProjectRoot } from '@cleocode/core';
 import {
   getBrainDb,
   getDreamStatus,
@@ -54,6 +53,7 @@ import {
 } from '@cleocode/core/memory';
 import { importMemoryFiles } from '@cleocode/core/memory/import-from-provider.js';
 import { streamMemoryWatchEvents } from '@cleocode/core/memory/watch-stream.js';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { CLEO_DIR_NAME, MIGRATE_MEMORY_HASHES_JSON } from '../paths.js';

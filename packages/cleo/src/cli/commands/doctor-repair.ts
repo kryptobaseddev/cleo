@@ -22,8 +22,9 @@
 import type { DbRole } from '@cleocode/contracts';
 import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { getLogger, getProjectRoot } from '@cleocode/core';
 import { repairMalformedDbs } from '@cleocode/core/store/repair-malformed-dbs.js';
+import { getLogger } from '@cleocode/core/logger';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 

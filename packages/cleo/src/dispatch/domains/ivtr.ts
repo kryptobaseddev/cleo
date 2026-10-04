@@ -34,10 +34,7 @@
  * @task T11896 — mutate ops redirected onto the cantbook runtime (collapse)
  */
 
-import type { EngineResult } from '@cleocode/core';
-import type { IvtrPhase, IvtrPhaseEntry } from '@cleocode/core/internal';
-import { getIvtrState, getLogger, getProjectRoot } from '@cleocode/core/internal';
-import { engineSuccess } from '@cleocode/runtime/gateway';
+import { engineSuccess } from '@cleocode/runtime/gateway/dispatch';
 import {
   defineTypedHandler,
   lafsError,
@@ -45,6 +42,11 @@ import {
   type OpsFromCore,
   typedDispatch,
 } from '../adapters/typed.js';
+import type { EngineResult } from '@cleocode/core';
+import type { IvtrPhase, IvtrPhaseEntry } from '@cleocode/core/internal';
+import { getIvtrState } from '@cleocode/core/lifecycle/ivtr-loop';
+import { getLogger } from '@cleocode/core/logger';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
 import { dispatchMeta } from './_meta.js';

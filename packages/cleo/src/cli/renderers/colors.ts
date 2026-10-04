@@ -1,3 +1,4 @@
+
 /**
  * Re-export shim — color and symbol utilities now live in `@cleocode/core/render`.
  *
@@ -29,4 +30,4 @@ export {
   statusColor,
   statusSymbol,
   YELLOW,
-} from '@cleocode/core';
+} from '@cleocode/core/render/colors';

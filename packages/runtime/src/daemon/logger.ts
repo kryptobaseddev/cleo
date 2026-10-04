@@ -1,3 +1,4 @@
+import { getLogger } from '@cleocode/core/logger';
 /**
  * Daemon subsystem log-routing primitive.
  *
@@ -42,7 +43,6 @@
  * @saga T11243 SG-RUNTIME-UNIFICATION
  */
 
-import { getLogger } from '@cleocode/core';
 
 /**
  * A structured log payload — a plain object of serializable fields merged into
