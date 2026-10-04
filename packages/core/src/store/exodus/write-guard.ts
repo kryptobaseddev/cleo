@@ -28,7 +28,6 @@
 import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import type { DualScope } from '../dual-scope-db.js';
-import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import {
   clearExodusAborts,
   type ExodusAbortDetail,
@@ -66,6 +65,9 @@ export async function pendingExodusTargets(
   cwd: string | undefined,
 ): Promise<PendingExodusTargets> {
   const { buildExodusPlan, legacySourcesHoldRows } = await import('./index.js');
+  // Loaded here, not at module scope: open-cleo-db imports dual-scope-db,
+  // which imports this module, and a static edge would close that cycle.
+  const { openCleoDbSnapshot } = await import('../open-cleo-db.js');
   const { orderTablesForCopy } = await import('./table-order.js');
   const { buildRuntimeTargetResolver } = await import('./runtime-targets.js');
   const resolveTarget = await buildRuntimeTargetResolver();
