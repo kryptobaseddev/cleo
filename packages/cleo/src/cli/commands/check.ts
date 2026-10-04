@@ -48,6 +48,13 @@ function emitPrGateSummary(summary: PrGateSummary): void {
  *
  * @task T260
  */
+/**
+ * Exit code with which an arch-gate script reports "precondition absent
+ * locally, nothing checked" (gate 39 without a current build). `cleo check
+ * arch` records it as skipped, never as a failure (T13126).
+ */
+const GATE_SKIPPED_EXIT = 78;
+
 const SUPPORTED_PROTOCOL_TYPES = [
   'research',
   'consensus',
@@ -469,7 +476,9 @@ const checkProvenanceCommand = defineCommand({
  *
  * Each gate is run in --check mode (baseline tolerance). A gate whose script
  * does not yet exist on disk is reported as "skipped" (non-blocking) to allow
- * incremental rollout as sibling tasks land.
+ * incremental rollout as sibling tasks land. So is a gate that exits
+ * {@link GATE_SKIPPED_EXIT}: its precondition is absent locally (gate 39 with no
+ * current build), and CI enforces it.
  *
  * Exit codes:
  *   0 — all present gates passed (skipped gates are non-blocking)
@@ -904,15 +913,18 @@ const checkArchCommand = defineCommand({
         cwd: repoRoot,
       });
 
+      // A gate exits GATE_SKIPPED_EXIT when its precondition is absent locally
+      // (gate 39 without a current build): reported, never blocking (T13126).
+      const skipped = result.status === GATE_SKIPPED_EXIT;
       const passed = result.status === 0;
-      if (!passed) anyFailed = true;
+      if (!passed && !skipped) anyFailed = true;
 
       results.push({
         id: gate.id,
         task: gate.task,
         script: gate.script,
         description: gate.description,
-        status: passed ? 'pass' : 'fail',
+        status: skipped ? 'skipped' : passed ? 'pass' : 'fail',
         exitCode: result.status,
         stdout: result.stdout ?? '',
         stderr: result.stderr ?? '',
