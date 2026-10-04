@@ -5,6 +5,7 @@ export default defineConfig({
     index: "src/index.ts",
     "daemon/index": "src/daemon/index.ts",
     "gateway/index": "src/gateway/index.ts",
+    "gateway/dispatch": "src/gateway/dispatch.ts",
     "gateway/mcp/index": "src/gateway/mcp/index.ts",
     "gateway/rpc/index": "src/gateway/rpc/index.ts",
     "gateway/http/index": "src/gateway/http/index.ts",

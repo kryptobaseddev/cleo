@@ -388,6 +388,38 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     expect(prepared.map((r) => r.id)).toEqual([`${persisted}:v2026.7.0`]);
   });
 
+  it('completes a stale planned row for the version that carries another id (T13176)', async () => {
+    // A plan run from a worktree keys its row on that path's hash. version is
+    // UNIQUE, so reconcile must update that row, not insert a second one.
+    const { getDb } = await import('../../store/sqlite.js');
+    const { sql } = await import('drizzle-orm');
+    const db = await getDb(projectRoot);
+    const staleId = `bbbbbbbbbbbb:${VERSION}`;
+    await db.run(
+      sql.raw(
+        `INSERT INTO tasks_releases (id, version, status, project_hash, planned_at) VALUES ('${staleId}', '${VERSION}', 'planned', 'bbbbbbbbbbbb', '2026-10-03T16:22:59.887Z')`,
+      ),
+    );
+    writePlan(projectRoot, VERSION, TASK_IDS);
+    gitCommit(projectRoot, 'a.txt', '1', `feat(${TASK_IDS[0]}): ship a`);
+    gitTag(projectRoot, VERSION);
+
+    const result = await releaseReconcileV2(VERSION, { projectRoot });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+
+    const rows = await db.all<{ id: string; status: string; project_hash: string }>(
+      sql.raw(`SELECT id, status, project_hash FROM tasks_releases WHERE version = '${VERSION}'`),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(staleId);
+    expect(rows[0]?.status).toBe('reconciled');
+    expect(rows[0]?.project_hash).not.toBe('bbbbbbbbbbbb');
+    const linked = await db.all<{ release_id: string }>(
+      sql.raw('SELECT DISTINCT release_id FROM tasks_release_commits'),
+    );
+    expect(linked.map((r) => r.release_id)).toEqual([staleId]);
+  });
+
   it('archives only plan-scoped shipped changeset files after successful reconcile', async () => {
     writePlan(projectRoot, VERSION, TASK_IDS, { changesetIds: ['ship-me'] });
     const changesetDir = join(projectRoot, '.changeset');

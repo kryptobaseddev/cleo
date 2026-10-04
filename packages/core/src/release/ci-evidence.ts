@@ -649,6 +649,12 @@ export interface FindGreenDescendantInput {
    * PR that was not itself green.
    */
   prHeadSha?: string;
+  /**
+   * The PR edited a pinned workflow, so its own `pull_request` runs prove
+   * nothing (they ran the PR's edited workflow) and are not consulted: only
+   * default-branch `push` runs attest it (T13174).
+   */
+  mainOnly?: boolean;
   /** Default-branch ref (`origin/main`). */
   ref: string;
   /** Repository work tree. */
@@ -673,8 +679,11 @@ export type FindGreenDescendantResult =
       checks: CommitCheck[];
       /** `<merge>..<sha>`, proven to leave the PR's files and CI definitions untouched. */
       range: string;
-      /** The PR head whose `pull_request` runs were green for every superseded check. */
-      prHeadSha: string;
+      /**
+       * The PR head whose `pull_request` runs were green for every superseded
+       * check; absent in `mainOnly` mode, where PR runs are not consulted.
+       */
+      prHeadSha?: string;
     }
   | { ok: false; reason: string };
 
@@ -734,22 +743,26 @@ export async function findGreenDescendant(
   if (input.changedPaths.length === 0) {
     return { ok: false, reason: 'the PR has no known changed paths to follow onto a later commit' };
   }
-  const head = input.prHeadSha;
-  if (!head || !/^[0-9a-f]{40}$/.test(head)) {
-    return {
-      ok: false,
-      reason: "the PR's final head is unknown, so its own pull_request CI cannot be shown green",
-    };
+  const head = input.mainOnly ? undefined : input.prHeadSha;
+  let headChecks: CommitCheck[] = [];
+  if (!input.mainOnly) {
+    if (!head || !/^[0-9a-f]{40}$/.test(head)) {
+      return {
+        ok: false,
+        reason: "the PR's final head is unknown, so its own pull_request CI cannot be shown green",
+      };
+    }
+    const onHead = await input.fetchChecks(head, cwd);
+    if (!onHead.ok) return { ok: false, reason: onHead.reason };
+    headChecks = onHead.checks;
   }
-  const onHead = await input.fetchChecks(head, cwd);
-  if (!onHead.ok) return { ok: false, reason: onHead.reason };
-  for (const name of superseded.names) {
-    const pinned = onHead.checks.filter((c) => c.name === name && pinMatches(c, pins[name]));
-    const verdict = judgeOnSha(pinned, head, 'pull_request');
+  for (const name of head ? superseded.names : []) {
+    const pinned = headChecks.filter((c) => c.name === name && pinMatches(c, pins[name]));
+    const verdict = judgeOnSha(pinned, head as string, 'pull_request');
     if (!verdict.ok) {
       return {
         ok: false,
-        reason: `${name}: ${verdict.verdict === 'missing' ? 'no pull_request run' : verdict.verdict} on PR head ${head.slice(0, 12)} — a later main run never stands in for a PR whose own CI was not green`,
+        reason: `${name}: ${verdict.verdict === 'missing' ? 'no pull_request run' : verdict.verdict} on PR head ${(head as string).slice(0, 12)} — a later main run never stands in for a PR whose own CI was not green`,
       };
     }
   }
@@ -810,9 +823,9 @@ export async function findGreenDescendant(
       return {
         ok: true,
         sha,
-        checks: [...fetched.checks, ...onHead.checks],
+        checks: [...fetched.checks, ...headChecks],
         range: `${merge}..${sha}`,
-        prHeadSha: head,
+        ...(head ? { prHeadSha: head } : {}),
       };
     }
   }
@@ -1072,7 +1085,7 @@ export async function recheckCiDescendantAtom(
   const descendant = atom.descendantSha;
   if (!descendant) return { ok: true };
   const head = atom.descendantPrHeadSha;
-  if (!head) {
+  if (!head && !atom.mainOnly) {
     return {
       ok: false,
       reason: `ci:${atom.prNumber} leans on ${descendant.slice(0, 12)} but records no PR head; verify again`,
@@ -1083,10 +1096,14 @@ export async function recheckCiDescendantAtom(
     run.name === c.name &&
     (c.app === undefined || run.appSlug === c.app || String(run.appId) === c.app) &&
     (c.workflow === undefined || run.workflowPath === c.workflow);
-  for (const [sha, event] of [
-    [descendant, 'push'],
-    [head, 'pull_request'],
-  ] as const) {
+  // T13174: a main-only atom never consulted the PR's own runs.
+  const targets: ReadonlyArray<readonly [string, 'push' | 'pull_request']> = head
+    ? [
+        [descendant, 'push'],
+        [head, 'pull_request'],
+      ]
+    : [[descendant, 'push']];
+  for (const [sha, event] of targets) {
     const fetched = await fetchChecks(sha, cwd);
     if (!fetched.ok) {
       return {
@@ -1270,20 +1287,15 @@ export async function resolveCiEvidenceAtom(
     };
   }
   // Round 2: a pull_request run executes the PR's OWN edited workflow, so a PR
-  // that touches a pinned workflow file cannot vouch for itself.
+  // that touches a pinned workflow file cannot vouch for itself. T13174: it is
+  // attested by default-branch `push` runs only — the merge commit's, or a
+  // later main commit's under the T12742 rule — which run the workflow as it
+  // stands on main after review. Its PR runs are never consulted.
   const pinnedWorkflows = [
     ...new Set(mapped.flatMap((name) => (pins[name]?.workflow ? [pins[name]!.workflow!] : []))),
   ];
   const editedWorkflows = pinnedWorkflows.filter((w) => pr.changedPaths.includes(w));
-  if (editedWorkflows.length > 0) {
-    return {
-      ok: false,
-      codeName: 'E_EVIDENCE_INSUFFICIENT',
-      reason:
-        `PR #${prNumber} edits the pinned workflow ${editedWorkflows.join(', ')}, so its own CI ` +
-        'cannot attest it. Record local results instead (tool:test, tool:lint, tool:typecheck).',
-    };
-  }
+  const mainOnly = editedWorkflows.length > 0;
 
   const fetchChecks = opts.fetchChecks ?? defaultFetchChecks;
   const fetched = await fetchChecks(pr.mergeCommitSha, roots.executionRoot);
@@ -1302,6 +1314,7 @@ export async function resolveCiEvidenceAtom(
   const headTree = head ? treeOf(head, cwd) : null;
   const parent = (opts.firstParentOf ?? defaultFirstParentOf)(pr.mergeCommitSha, cwd);
   const treeEqualHead =
+    !mainOnly &&
     head &&
     mergeTree !== null &&
     headTree !== null &&
@@ -1325,7 +1338,7 @@ export async function resolveCiEvidenceAtom(
   // run on a later default-branch commit — only when the PR head's own
   // pull_request CI was green and nothing in between touched the PR's files
   // or a CI definition. That run proves the DESCENDANT's tree, not the merge's.
-  let descendant: { sha: string; range: string; prHeadSha: string } | undefined;
+  let descendant: { sha: string; range: string; prHeadSha?: string } | undefined;
   let descendantReason: string | undefined;
   if (!judgedChecks.ok && onDefault.ref !== null) {
     const found = await findGreenDescendant({
@@ -1336,6 +1349,7 @@ export async function resolveCiEvidenceAtom(
       pins,
       changedPaths: pr.changedPaths,
       ...(pr.headRefOid ? { prHeadSha: pr.headRefOid } : {}),
+      ...(mainOnly ? { mainOnly: true } : {}),
       ref: onDefault.ref,
       cwd,
       fetchChecks,
@@ -1358,7 +1372,11 @@ export async function resolveCiEvidenceAtom(
       if (rejudged.ok) {
         checks = withDescendant;
         judgedChecks = rejudged;
-        descendant = { sha: found.sha, range: found.range, prHeadSha: found.prHeadSha };
+        descendant = {
+          sha: found.sha,
+          range: found.range,
+          ...(found.prHeadSha ? { prHeadSha: found.prHeadSha } : {}),
+        };
       } else {
         descendantReason = `later commit ${found.sha.slice(0, 12)} was green, but re-judging with it still fails: ${rejudged.reasons.join('; ')}`;
       }
@@ -1367,13 +1385,20 @@ export async function resolveCiEvidenceAtom(
     }
   }
   if (!judgedChecks.ok) {
+    const waiting = judgedChecks.reasons.some((r) => /pending|not found|missing/.test(r));
     return {
       ok: false,
       codeName: 'E_EVIDENCE_TESTS_FAILED',
       reason:
         `Required CI on PR #${prNumber}'s merge commit ${pr.mergeCommitSha.slice(0, 12)} is not green ` +
         `(source: ${describeRequiredWorkflowsSource(required.source)}):\n  - ${judgedChecks.reasons.join('\n  - ')}` +
-        (descendantReason ? `\n  No later main run stands in: ${descendantReason}` : ''),
+        (descendantReason ? `\n  No later main run stands in: ${descendantReason}` : '') +
+        (mainOnly
+          ? `\n  PR #${prNumber} edits the pinned workflow ${editedWorkflows.join(', ')}, so only main's push CI attests it (T13174)` +
+            (waiting
+              ? `: wait for the push run on ${pr.mergeCommitSha.slice(0, 12)} (or a later main commit) to finish, then verify again. No local run is needed.`
+              : '.')
+          : ''),
     };
   }
   // Round 2 (skipped tests): the aggregate counts skipped jobs as a pass. For a
@@ -1412,16 +1437,21 @@ export async function resolveCiEvidenceAtom(
       }
       const scope = { ...(app !== undefined ? { app } : {}), workflows: scopeWorkflows };
       let judgedJobs = evaluateJobs(globs, checks, pr.mergeCommitSha, scope);
-      if (!judgedJobs.ok && treeEqualHead) {
+      if (!judgedJobs.ok && treeEqualHead && !mainOnly) {
         const onHead = evaluateJobs(globs, checks, treeEqualHead, scope, 'pull_request');
         if (onHead.ok) judgedJobs = onHead;
       }
       if (!judgedJobs.ok && descendant) {
         // T12742: the stand-in's jobs, and the PR head's own pull_request jobs.
         const onDescendant = evaluateJobs(globs, checks, descendant.sha, scope, 'push');
-        const onPrHead = evaluateJobs(globs, checks, descendant.prHeadSha, scope, 'pull_request');
-        if (onDescendant.ok && onPrHead.ok) judgedJobs = onDescendant;
-        else if (!onPrHead.ok) judgedJobs = onPrHead;
+        if (!descendant.prHeadSha) {
+          // T13174: main-only — the PR's own jobs are not consulted.
+          if (onDescendant.ok) judgedJobs = onDescendant;
+        } else {
+          const onPrHead = evaluateJobs(globs, checks, descendant.prHeadSha, scope, 'pull_request');
+          if (onDescendant.ok && onPrHead.ok) judgedJobs = onDescendant;
+          else if (!onPrHead.ok) judgedJobs = onPrHead;
+        }
       }
       if (!judgedJobs.ok) {
         return {
@@ -1450,9 +1480,10 @@ export async function resolveCiEvidenceAtom(
         ? {
             descendantSha: descendant.sha,
             descendantRange: descendant.range,
-            descendantPrHeadSha: descendant.prHeadSha,
+            ...(descendant.prHeadSha ? { descendantPrHeadSha: descendant.prHeadSha } : {}),
           }
         : {}),
+      ...(mainOnly ? { mainOnly: true } : {}),
       requiredSource: required.source.tier,
       taskId: context.task.id,
       gateChecks,

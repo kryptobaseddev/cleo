@@ -7,7 +7,7 @@
  * @task T4772
  */
 
-import { createDispatchMeta } from '@cleocode/runtime/gateway';
+import { createDispatchMeta } from '@cleocode/runtime/gateway/dispatch';
 import type { DispatchResponse, Source } from '../types.js';
 
 /**

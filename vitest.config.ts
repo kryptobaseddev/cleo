@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
 import { MEMORY_SAFE_TEST_DEFAULTS } from './vitest.memory-safe.js';
+import { REPO_GUARD_TESTS } from './vitest.repo-guards.js';
 import { withWorkspaceSubpathAliases } from './vitest-workspace-resolver.js';
 
 // ---------------------------------------------------------------------------
@@ -253,6 +254,19 @@ export default defineConfig({
       // `include` field is ignored once `projects:` is set, so without this
       // entry these tests silently stopped running in CI shards.
       'scripts/vitest.config.ts',
+      // T13142: tests that read another package's tree without depending on
+      // it (vitest.repo-guards.ts). Package-less, so PR CI's affected
+      // selection always runs them; their home projects exclude them.
+      {
+        extends: true,
+        test: {
+          name: 'repo-guards',
+          include: [...REPO_GUARD_TESTS],
+          // `extends: true` merges the root's `include` (the scripts tests,
+          // which the `scripts` project runs) into this one.
+          exclude: ['scripts/**'],
+        },
+      },
     ],
   },
 });
