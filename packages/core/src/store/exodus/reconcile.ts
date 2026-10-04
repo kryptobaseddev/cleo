@@ -57,7 +57,12 @@ import { rollbackExodusReceipts } from './recovery.js';
 import { buildRuntimeTargetResolver, type TargetResolver } from './runtime-targets.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
 import { orderTablesForCopy } from './table-order.js';
-import { describeRemaps, remapCollidingTaskIds } from './task-id-remap.js';
+import {
+  describeRemaps,
+  describeUndecided,
+  remapCollidingTaskIds,
+  unlandedRemaps,
+} from './task-id-remap.js';
 import type { LegacyDbDescriptor } from './types.js';
 
 const log = getLogger('exodus-reconcile');
@@ -730,10 +735,19 @@ async function reconcileWithScratch(
   const remap =
     !additive && existsSync(liveStorePath)
       ? remapCollidingTaskIds(liveStorePath, legacyFiles, scratch)
-      : { sources: legacyFiles, remaps: [], remappedPath: null };
+      : { sources: legacyFiles, remaps: [], undecided: null, remappedPath: null };
   const fileSources = remap.sources;
-  const remaps = remap.remaps;
-  const remapNote = remaps.length > 0 ? `; ${describeRemaps(remaps)}` : '';
+  // The receipt carries the contract shape (the post-copy check keeps the rest).
+  const remaps = remap.remaps.map(({ legacyCreatedAt: _legacyCreatedAt, ...r }) => r);
+  // A collision the run cannot decide is left uncopied and named, so the
+  // receipt never claims every legacy row is present (review MED-2).
+  const undecided = remap.undecided;
+  const remapNote =
+    (remaps.length > 0 ? `; ${describeRemaps(remaps)}` : '') +
+    (undecided ? `; ${describeUndecided(undecided)}` : '');
+  const presentClaim = undecided
+    ? 'every other legacy row is present in cleo.db'
+    : 'every legacy row is now present in cleo.db';
   // An additive run is for a project already live on the consolidated store;
   // its bare family is not a source (and bareTaskCoreSource agrees).
   const bare =
@@ -753,7 +767,7 @@ async function reconcileWithScratch(
   const sources = bare ? [...fileSources, bare] : fileSources;
   const base = {
     mode: additive ? ('additive' as const) : ('full' as const),
-    conflicts: [] as SupersededStoreConflict[],
+    conflicts: (undecided ? [undecided] : []) as SupersededStoreConflict[],
     remaps,
     dryRun,
     projectRoot,
@@ -800,13 +814,15 @@ async function reconcileWithScratch(
       ...base,
       outcome: 'nothing-to-reconcile',
       before,
-      reason: `every legacy row is already present in cleo.db — nothing to copy${remapNote}`,
+      reason: `${undecided ? 'every other legacy row' : 'every legacy row'} is already present in cleo.db — nothing to copy${remapNote}`,
     };
   }
   if (dryRun) {
     return {
       ...base,
-      conflicts: plannedConflicts.filter((c) => c.reason === 'live-authoritative'),
+      conflicts: additive
+        ? plannedConflicts.filter((c) => c.reason === 'live-authoritative')
+        : base.conflicts,
       outcome: 'planned',
       before,
       reason: additive
@@ -877,9 +893,19 @@ async function reconcileWithScratch(
           ];
         }
       }
-      const conflicts = additive ? conflictsOf(after) : [];
+      const conflicts = additive ? conflictsOf(after) : base.conflicts;
       const settled = additive ? true : isComplete(after);
-      if (migrated.ok && settled && lost.length === 0 && altered.length === 0) {
+      // A recovered task's new id taken by a concurrent write between the
+      // allocation and the copy: the copy skipped it, and verification by key
+      // would call it present (review LOW-1).
+      const unlanded = migrated.ok ? unlandedRemaps(liveStorePath, remap.remaps) : [];
+      if (
+        migrated.ok &&
+        settled &&
+        lost.length === 0 &&
+        altered.length === 0 &&
+        unlanded.length === 0
+      ) {
         return {
           ...base,
           conflicts,
@@ -890,7 +916,7 @@ async function reconcileWithScratch(
           stagingDir,
           reason: additive
             ? `copied ${rowsCopied} row(s) with keys absent from live; live rows unchanged; ${describeConflicts(conflicts)}`
-            : `copied ${rowsCopied} row(s); every legacy row is now present in cleo.db${remapNote}`,
+            : `copied ${rowsCopied} row(s); ${presentClaim}${remapNote}`,
         };
       }
       const rolledBack = await revertReconcile(liveStorePath, stagingDir);
@@ -900,7 +926,9 @@ async function reconcileWithScratch(
           ? `live tables shrank: ${lost.join(', ')}`
           : altered.length > 0
             ? `pre-existing live rows changed in: ${altered.join(', ')}`
-            : `rows still missing after copy: ${describeGaps(after)}`;
+            : unlanded.length > 0
+              ? `a concurrent write took the id of a recovered task (${unlanded.join(', ')}); run the reconcile again`
+              : `rows still missing after copy: ${describeGaps(after)}`;
       return {
         ...base,
         outcome: 'refused',

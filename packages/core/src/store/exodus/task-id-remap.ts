@@ -12,31 +12,38 @@
  * new saga — while the receipt said every legacy row was present.
  *
  * The fix renumbers before copying, never after: the legacy file is copied into
- * scratch, every colliding legacy task is given a fresh id there, and every
- * reference to it in that copy is re-pointed. The reconcile then assesses and
- * copies from the copy, so the existing engine, its verification and its
- * revert work unchanged, and live rows are never touched.
+ * scratch, every colliding legacy task gets a fresh id there, and everything
+ * that refers to it in that copy follows, exactly as a display-id rename does
+ * in `cleo.db`:
  *
- * A collision is a legacy task whose id exists live with a different creation
- * instant; a different title alone is the same task renamed since the cutover.
- * When a live task elsewhere already matches the legacy row's title and
- * creation instant (a previous reconcile recovered it), the copy is pointed at
- * that id instead of minting another, so a second run stays a no-op. A
- * recovered task renamed before that second run is not recognised, and would
- * be recovered again.
+ * - every column that holds a task id ({@link taskReferenceColumns}: declared
+ *   foreign keys plus the ROW_IDENTITY refs, key refs, owners and JSON-array
+ *   refs such as a session's `tasks_completed_json`), mapped to the legacy
+ *   table names;
+ * - the acceptance criteria whose ids are derived from the task id
+ *   (`buildAcRowId`) are re-derived, with their evidence bindings and history
+ *   ({@link rederiveAcIdsNative}). Without that the recovered task's
+ *   "tests pass" criterion has the same id as the live `T001`'s and is
+ *   skipped by `INSERT OR IGNORE`.
  *
- * References re-pointed: every column with a declared foreign key to
- * `tasks(id)` (the legacy schema declares them for the hierarchy, dependencies,
- * relations, acceptance criteria and the rest), plus any `task_id` column
- * without one. Task ids embedded in free text or JSON are not rewritten.
+ * The reconcile then assesses and copies from the copy, so the copy engine,
+ * its verification and its revert work unchanged, and live rows are never
+ * touched. What a collision is, and when a legacy task was already recovered
+ * by an earlier run, is decided by {@link TASK_ID_COLLISIONS_SQL}. A collision
+ * whose creation times cannot be compared is reported, never renumbered.
+ *
+ * Not rewritten: task ids inside free text (titles, descriptions, notes).
  *
  * @module
  * @task T13172
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import type { SupersededStoreIdRemap } from '@cleocode/contracts';
+import type { SupersededStoreConflict, SupersededStoreIdRemap } from '@cleocode/contracts';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
+import { rederiveAcIdsNative, rewriteTaskIdReferencesNative } from '../sqlite-data-accessor.js';
+import { taskReferenceColumns } from '../task-reference-columns.js';
+import { resolveConsolidatedTableName } from './table-name-map.js';
 import { TASK_ID_COLLISIONS_SQL } from './task-id-collision-sql.js';
 import type { LegacyDbDescriptor } from './types.js';
 
@@ -44,10 +51,9 @@ import type { LegacyDbDescriptor } from './types.js';
 const LEGACY_TASKS_TABLE = 'tasks' as const;
 const LIVE_TASKS_TABLE = 'tasks_tasks' as const;
 
-/** Quote an SQLite identifier. */
-function ident(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
+/** The note every receipt with remaps carries about what is not rewritten. */
+export const FREE_TEXT_IDS_NOTE =
+  'task ids written inside free text (titles, descriptions, notes) are not rewritten';
 
 /** Quote an SQLite string literal. */
 function literal(value: string): string {
@@ -58,18 +64,9 @@ function literal(value: string): string {
 function hasTable(db: DatabaseSync, schema: string, table: string): boolean {
   return (
     db
-      .prepare(`SELECT 1 AS ok FROM ${ident(schema)}.sqlite_master WHERE type='table' AND name=?`)
+      .prepare(`SELECT 1 AS ok FROM "${schema}".sqlite_master WHERE type='table' AND name=?`)
       .get(table) !== undefined
   );
-}
-
-/** A legacy task whose id a different live task holds. */
-interface Collision {
-  readonly legacyId: string;
-  readonly legacyTitle: string;
-  readonly liveTitle: string;
-  /** A live task that already matches the legacy row, if a previous run recovered it. */
-  readonly recoveredAs: string | null;
 }
 
 /** Text value of a row column, or `''`. */
@@ -78,7 +75,17 @@ function text(row: Record<string, unknown> | undefined, key: string): string {
   return typeof value === 'string' ? value : '';
 }
 
-/** Legacy tasks whose id a different live task holds ({@link TASK_ID_COLLISIONS_SQL}). */
+/** One row of {@link TASK_ID_COLLISIONS_SQL}. */
+interface Collision {
+  readonly legacyId: string;
+  readonly legacyTitle: string;
+  readonly legacyCreatedAt: string;
+  readonly liveTitle: string;
+  readonly decision: 'collision' | 'undecided';
+  readonly recoveredAs: string | null;
+}
+
+/** Collisions between the legacy tasks at `legacyPath` and the live store. */
 function findCollisions(liveStorePath: string, legacyPath: string): Collision[] {
   const live = openCleoDbSnapshot(liveStorePath, { readOnly: true });
   try {
@@ -94,7 +101,9 @@ function findCollisions(liveStorePath: string, legacyPath: string): Collision[] 
       return rows.map((row) => ({
         legacyId: text(row, 'legacyId'),
         legacyTitle: text(row, 'legacyTitle'),
+        legacyCreatedAt: text(row, 'legacyCreatedAt'),
         liveTitle: text(row, 'liveTitle'),
+        decision: text(row, 'decision') === 'undecided' ? 'undecided' : 'collision',
         recoveredAs: text(row, 'recoveredAs') || null,
       }));
     } finally {
@@ -119,43 +128,31 @@ function maxNumericId(ids: readonly string[]): number {
 function idsOf(db: DatabaseSync, schema: string, table: string): string[] {
   if (!hasTable(db, schema, table)) return [];
   return (
-    db.prepare(`SELECT id FROM ${ident(schema)}.${ident(table)}`).all() as Array<
-      Record<string, unknown>
-    >
+    db.prepare(`SELECT id FROM "${schema}"."${table}"`).all() as Array<Record<string, unknown>>
   ).map((row) => text(row, 'id'));
 }
 
-/** Columns of `db` that hold a task id: declared foreign keys to `tasks(id)`, and `task_id`. */
-function taskIdColumns(db: DatabaseSync): Array<{ table: string; column: string }> {
-  const tables = (
-    db
-      .prepare(
-        "SELECT name FROM main.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
-      )
-      .all() as Array<Record<string, unknown>>
-  ).map((row) => text(row, 'name'));
-  const columns: Array<{ table: string; column: string }> = [];
-  for (const table of tables) {
-    const seen = new Set<string>();
-    const fks = db.prepare(`PRAGMA main.foreign_key_list(${ident(table)})`).all() as Array<
-      Record<string, unknown>
-    >;
-    for (const fk of fks) {
-      const to = text(fk, 'to');
-      if (text(fk, 'table') === LEGACY_TASKS_TABLE && (to === 'id' || to === '')) {
-        seen.add(text(fk, 'from'));
-      }
-    }
-    const cols = db.prepare(`PRAGMA main.table_info(${ident(table)})`).all() as Array<
-      Record<string, unknown>
-    >;
-    for (const col of cols) {
-      const name = text(col, 'name');
-      if (name === 'task_id' || (table === LEGACY_TASKS_TABLE && name === 'id')) seen.add(name);
-    }
-    for (const column of seen) columns.push({ table, column });
+/**
+ * Consolidated table name → its name in a legacy `tasks.db` copy, from the
+ * tables the copy holds and the exodus table-name map.
+ */
+function legacyNameMap(db: DatabaseSync): (consolidated: string) => string | null {
+  const byConsolidated = new Map<string, string>();
+  const tables = db
+    .prepare("SELECT name FROM main.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+    .all() as Array<Record<string, unknown>>;
+  for (const row of tables) {
+    const legacy = text(row, 'name');
+    const resolution = resolveConsolidatedTableName('tasks', legacy);
+    if (resolution.kind !== 'skip') byConsolidated.set(resolution.targetName, legacy);
   }
-  return columns;
+  return (consolidated) => byConsolidated.get(consolidated) ?? null;
+}
+
+/** A remap plus what the post-copy check needs to prove the new id is ours. */
+export interface PlannedRemap extends SupersededStoreIdRemap {
+  /** The legacy row's creation time, compared with the copied row after the copy. */
+  readonly legacyCreatedAt: string;
 }
 
 /** Result of {@link remapCollidingTaskIds}. */
@@ -163,7 +160,9 @@ export interface TaskIdRemapResult {
   /** The sources to assess and copy: the legacy tasks source replaced by its renumbered copy. */
   readonly sources: LegacyDbDescriptor[];
   /** One entry per renumbered legacy task; empty when nothing collides. */
-  readonly remaps: SupersededStoreIdRemap[];
+  readonly remaps: PlannedRemap[];
+  /** Collisions the run cannot decide (unparseable creation time), as one conflict, or `null`. */
+  readonly undecided: SupersededStoreConflict | null;
   /** Path of the renumbered copy, or `null` when no copy was needed. */
   readonly remappedPath: string | null;
 }
@@ -175,7 +174,8 @@ export interface TaskIdRemapResult {
  * @param liveStorePath - The live project `cleo.db` (read only).
  * @param sources - The project's legacy sources.
  * @param scratch - Directory the renumbered copy is written to.
- * @returns The sources (unchanged when nothing collides) and the remaps.
+ * @returns The sources (unchanged when nothing needs renumbering), the
+ *   remaps, and any collision the run cannot decide.
  * @example
  * ```ts
  * const { sources, remaps } = remapCollidingTaskIds(livePath, fileSources, scratch);
@@ -187,10 +187,24 @@ export function remapCollidingTaskIds(
   sources: readonly LegacyDbDescriptor[],
   scratch: string,
 ): TaskIdRemapResult {
+  const unchanged = { sources: [...sources], remaps: [], undecided: null, remappedPath: null };
   const tasksSource = sources.find((s) => s.name === 'tasks');
-  if (tasksSource === undefined) return { sources: [...sources], remaps: [], remappedPath: null };
+  if (tasksSource === undefined) return unchanged;
   const collisions = findCollisions(liveStorePath, tasksSource.path);
-  if (collisions.length === 0) return { sources: [...sources], remaps: [], remappedPath: null };
+  const undecidedIds = collisions.filter((c) => c.decision === 'undecided').map((c) => c.legacyId);
+  const undecided: SupersededStoreConflict | null =
+    undecidedIds.length === 0
+      ? null
+      : {
+          sourceDb: tasksSource.name,
+          sourceTable: LEGACY_TASKS_TABLE,
+          targetTable: LIVE_TASKS_TABLE,
+          rows: undecidedIds.length,
+          reason: 'id-collision-undecided',
+          ids: undecidedIds,
+        };
+  const decided = collisions.filter((c) => c.decision === 'collision');
+  if (decided.length === 0) return { ...unchanged, undecided };
 
   const remappedPath = `${scratch}/tasks.remapped.db`;
   const legacy = openCleoDbSnapshot(tasksSource.path, { readOnly: true });
@@ -211,8 +225,10 @@ export function remapCollidingTaskIds(
     }
   })();
 
+  // Fresh ids are above every id either store holds, so a new id is never
+  // another task's legacy id and the renumbering needs no ordering.
   let next = maxNumericId([...liveIds, ...legacyIds]);
-  const remaps: SupersededStoreIdRemap[] = collisions.map((c) => ({
+  const remaps: PlannedRemap[] = decided.map((c) => ({
     sourceDb: tasksSource.name,
     legacyId: c.legacyId,
     newId: c.recoveredAs ?? `T${String(++next).padStart(3, '0')}`,
@@ -220,34 +236,35 @@ export function remapCollidingTaskIds(
     liveTitle: c.liveTitle,
     alreadyRecovered: c.recoveredAs !== null,
     referencesRepointed: 0,
+    legacyCreatedAt: c.legacyCreatedAt,
   }));
 
   const copy = openCleoDbSnapshot(remappedPath, { readOnly: false, applyPragmas: false });
   try {
     copy.db.exec('PRAGMA foreign_keys = OFF');
-    const columns = taskIdColumns(copy.db);
-    // Two passes through placeholders, so a new id that equals another
-    // collision's legacy id can never be renumbered twice.
+    const localName = legacyNameMap(copy.db);
+    const refs = taskReferenceColumns(copy.db, localName);
+    const acTables = {
+      criteria: localName('tasks_task_acceptance_criteria') ?? 'task_acceptance_criteria',
+      followers: ['tasks_evidence_ac_bindings', 'tasks_task_acceptance_criteria_history']
+        .map(localName)
+        .filter((name): name is string => name !== null),
+    };
     copy.db.exec('BEGIN IMMEDIATE');
     try {
-      for (const [index, remap] of remaps.entries()) {
-        const placeholder = `__cleo_task_remap_${index}__`;
-        for (const { table, column } of columns) {
-          const changed = copy.db
-            .prepare(`UPDATE ${ident(table)} SET ${ident(column)} = ? WHERE ${ident(column)} = ?`)
-            .run(placeholder, remap.legacyId).changes;
-          if (!(table === LEGACY_TASKS_TABLE && column === 'id')) {
-            remap.referencesRepointed += Number(changed);
-          }
+      for (const remap of remaps) {
+        copy.db
+          .prepare(`UPDATE "${LEGACY_TASKS_TABLE}" SET id = ? WHERE id = ?`)
+          .run(remap.newId, remap.legacyId);
+        const rewritten = {
+          ...rewriteTaskIdReferencesNative(copy.db, refs, remap.legacyId, remap.newId),
+        };
+        for (const [key, n] of Object.entries(
+          rederiveAcIdsNative(copy.db, remap.legacyId, remap.newId, acTables),
+        )) {
+          rewritten[key] = (rewritten[key] ?? 0) + n;
         }
-      }
-      for (const [index, remap] of remaps.entries()) {
-        const placeholder = `__cleo_task_remap_${index}__`;
-        for (const { table, column } of columns) {
-          copy.db
-            .prepare(`UPDATE ${ident(table)} SET ${ident(column)} = ? WHERE ${ident(column)} = ?`)
-            .run(remap.newId, placeholder);
-        }
+        remap.referencesRepointed = Object.values(rewritten).reduce((a, b) => a + b, 0);
       }
       copy.db.exec('COMMIT');
     } catch (error) {
@@ -261,18 +278,48 @@ export function remapCollidingTaskIds(
   return {
     sources: sources.map((s) => (s === tasksSource ? { ...s, path: remappedPath } : s)),
     remaps,
+    undecided,
     remappedPath,
   };
+}
+
+/**
+ * Remaps whose new id the live store does not hold as the recovered legacy
+ * task after the copy: a concurrent write took the id first, so the copy's
+ * `INSERT OR IGNORE` skipped the recovered task. Empty when every remap landed.
+ *
+ * @param liveStorePath - The live project `cleo.db`.
+ * @param remaps - The run's remaps.
+ * @returns `legacyId -> newId` for each remap that did not land.
+ * @example
+ * ```ts
+ * if (unlandedRemaps(live, remaps).length > 0) revert();
+ * ```
+ */
+export function unlandedRemaps(liveStorePath: string, remaps: readonly PlannedRemap[]): string[] {
+  if (remaps.length === 0) return [];
+  const live = openCleoDbSnapshot(liveStorePath, { readOnly: true });
+  try {
+    const row = live.db.prepare(
+      `SELECT 1 AS ok FROM ${LIVE_TASKS_TABLE}
+        WHERE id = ? AND title IS ? AND julianday(created_at) IS julianday(?)`,
+    );
+    return remaps
+      .filter((r) => row.get(r.newId, r.legacyTitle, r.legacyCreatedAt) === undefined)
+      .map((r) => `${r.legacyId} -> ${r.newId}`);
+  } finally {
+    live.close();
+  }
 }
 
 /**
  * One line naming every remap, for a receipt's reason.
  *
  * @param remaps - The remaps of a run.
- * @returns E.g. `legacy T001 ("old saga") -> T004 (live T001 is "new saga")`.
+ * @returns E.g. `1 legacy task(s) … recovered under new ids: legacy T001 ("old") -> T004, …`.
  * @example
  * ```ts
- * describeRemaps(remaps); // 'recovered 1 legacy task under a new id: ...'
+ * describeRemaps(remaps);
  * ```
  */
 export function describeRemaps(remaps: readonly SupersededStoreIdRemap[]): string {
@@ -281,5 +328,23 @@ export function describeRemaps(remaps: readonly SupersededStoreIdRemap[]): strin
       `legacy ${r.legacyId} ("${r.legacyTitle}") -> ${r.newId}` +
       `${r.alreadyRecovered ? ' (already recovered)' : ''}, because live ${r.legacyId} is "${r.liveTitle}"`,
   );
-  return `${remaps.length} legacy task(s) whose id a different live task holds, recovered under new ids: ${items.join('; ')}`;
+  return `${remaps.length} legacy task(s) whose id a different live task holds, recovered under new ids: ${items.join('; ')} (${FREE_TEXT_IDS_NOTE})`;
+}
+
+/**
+ * One line naming the collisions a run could not decide, for a receipt's reason.
+ *
+ * @param conflict - The undecided conflict.
+ * @returns E.g. `2 legacy task(s) left uncopied (T001, T007): …`.
+ * @example
+ * ```ts
+ * describeUndecided(result.undecided);
+ * ```
+ */
+export function describeUndecided(conflict: SupersededStoreConflict): string {
+  return (
+    `${conflict.rows} legacy task(s) left uncopied (${(conflict.ids ?? []).join(', ')}): ` +
+    'a live task holds the id and a creation time does not parse, so the run cannot tell ' +
+    'whether they are the same task; keep .cleo/tasks.db'
+  );
 }

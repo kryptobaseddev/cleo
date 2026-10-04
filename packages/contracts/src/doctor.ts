@@ -1124,8 +1124,15 @@ export interface SupersededStoreConflict {
   targetTable: string;
   /** Legacy rows left uncopied. */
   rows: number;
-  /** Why they were left. */
-  reason: 'live-authoritative' | 'collides-with-live';
+  /**
+   * Why they were left. `id-collision-undecided` (full mode, T13172): a live
+   * task holds the legacy task's id and one of the two creation times does
+   * not parse, so the run cannot tell whether they are the same task; it
+   * neither renumbers nor copies the legacy task.
+   */
+  reason: 'live-authoritative' | 'collides-with-live' | 'id-collision-undecided';
+  /** The legacy ids left uncopied, when the run can name them. */
+  ids?: string[];
 }
 
 /**
@@ -1186,7 +1193,10 @@ export interface SupersededStoreReconcileResult {
    * touch the live task graph, and list everything left in `conflicts`.
    */
   mode: 'full' | 'additive';
-  /** Legacy rows deliberately left uncopied (additive mode); empty in full mode. */
+  /**
+   * Legacy rows deliberately left uncopied: additive mode's live-authoritative
+   * tables, and in full mode the task-id collisions the run cannot decide.
+   */
   conflicts: SupersededStoreConflict[];
   /**
    * Legacy tasks whose id a different live task holds, recovered (full mode)
