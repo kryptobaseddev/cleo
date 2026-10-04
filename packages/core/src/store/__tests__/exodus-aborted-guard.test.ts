@@ -35,6 +35,25 @@ import { exodusMarkerPath } from '../exodus/archive.js';
 import { EXODUS_ABORT_WRITE_CODE } from '../exodus/write-guard.js';
 import { countRowsInFile, seedLegacyTasksStore } from './fixtures/legacy-tasks-store.js';
 
+/**
+ * Widens the window after the assessment (review HIGH): when set, reading the
+ * legacy targets for a guard first yields a macrotask, as a cold import or a
+ * slow disk does in a real CLI process.
+ */
+const { slowTargets } = vi.hoisted(() => ({ slowTargets: { on: false } }));
+vi.mock('../exodus/write-guard.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../exodus/write-guard.js')>();
+  return {
+    ...actual,
+    pendingExodusTargets: async (
+      ...args: Parameters<typeof actual.pendingExodusTargets>
+    ): ReturnType<typeof actual.pendingExodusTargets> => {
+      if (slowTargets.on) await new Promise((resolve) => setTimeout(resolve, 30));
+      return actual.pendingExodusTargets(...args);
+    },
+  };
+});
+
 let root: string;
 let projectDir: string;
 let cleoDir: string;
@@ -71,6 +90,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  slowTargets.on = false;
   const { drainWarnings } = await import('../../output.js');
   drainWarnings();
   vi.restoreAllMocks();
@@ -182,6 +202,41 @@ describe('aborted exodus-on-open (T13167)', () => {
     expect(handle.exodusAbort).toBeUndefined();
     insertTask(handle, 'T999');
     expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(2);
+  });
+
+  it('concurrent opens writing from t=0 never land when the abort is decided at assessment (review HIGH)', async () => {
+    stageAbort();
+    slowTargets.on = true;
+    const stop = { done: false };
+    const landed: string[] = [];
+    const inflight: Promise<void>[] = [];
+    const hammer = (async () => {
+      let n = 0;
+      while (!stop.done) {
+        const id = `X${n++}`;
+        inflight.push(
+          (async () => {
+            try {
+              insertTask(await openDualScopeDb('project', projectDir), id);
+              landed.push(id);
+            } catch {
+              // Refused by the guard.
+            }
+          })(),
+        );
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      await Promise.all(inflight);
+    })();
+
+    const opened = await openDualScopeDb('project', projectDir);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    stop.done = true;
+    await hammer;
+
+    expect(opened.exodusAbort?.kind).toBe('aborted');
+    expect(landed).toEqual([]);
+    expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(0);
   });
 
   it('an abort with no legacy rows at risk installs no guard', async () => {

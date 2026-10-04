@@ -402,23 +402,25 @@ async function guardStrandedStore(
  * @param nativeDb - The handle's native connection.
  * @param scope - The scope.
  * @param dbPath - The consolidated store.
+ * @param kind - `deferred` (not run yet) or `aborted`.
+ * @param reason - Why no migration has run, or why it aborted.
  */
-function guardAnchorOnly(nativeDb: DatabaseSync, scope: DualScope, dbPath: string): void {
+function guardAnchorOnly(
+  nativeDb: DatabaseSync,
+  scope: DualScope,
+  dbPath: string,
+  kind: 'aborted' | 'deferred',
+  reason: string,
+): void {
   if (peekExodusWriteGuard(nativeDb) !== undefined) return;
   try {
     const anchor = exodusAnchorTable(scope);
     const sources = ['stores'];
-    const detail = strandedDetail(
-      scope,
-      dbPath,
-      'deferred',
-      'its migration has not run yet',
-      sources,
-    );
+    const detail = strandedDetail(scope, dbPath, kind, reason, sources);
     installExodusWriteGuard(
       nativeDb,
       { anchor, tables: [anchor], sources, markerPath: null, detail },
-      exodusRefusalMessage(scope, detail.reason, 'deferred'),
+      exodusRefusalMessage(scope, detail.reason, kind),
     );
   } catch (err) {
     getLogger('dual-scope-db').error(
@@ -1299,7 +1301,18 @@ export async function openDualScopeDbAtPath(
               exodusState.preparation = null;
               log.warn({ err, scope }, 'exodus-on-open assessment unavailable (non-fatal)');
             }
-            if (exodusState.preparation?.kind === 'pending') {
+            // An abort decided at assessment (unreadable marker, plan mismatch,
+            // assessment failure) owes the same protection before publication
+            // as a pending migration (#1839 review HIGH): the post-lease abort
+            // branch would guard only after concurrent opens could write.
+            const preparation = exodusState.preparation;
+            const stranded =
+              preparation?.kind === 'pending'
+                ? { kind: 'deferred' as const, reason: 'its migration has not run yet' }
+                : preparation?.kind === 'decided' && preparation.result.outcome === 'aborted'
+                  ? { kind: 'aborted' as const, reason: preparation.result.reason }
+                  : null;
+            if (stranded !== null) {
               try {
                 execution?.assertActive();
                 await guardStrandedStore(
@@ -1307,8 +1320,8 @@ export async function openDualScopeDbAtPath(
                   scope,
                   normalizedPath,
                   exodusCwd,
-                  'deferred',
-                  'its migration has not run yet',
+                  stranded.kind,
+                  stranded.reason,
                 );
               } catch (err) {
                 execution?.assertActive();
@@ -1320,7 +1333,7 @@ export async function openDualScopeDbAtPath(
                   { err, scope },
                   'exodus-on-open: the store could not be fully guarded before its migration',
                 );
-                guardAnchorOnly(nativeDb, scope, normalizedPath);
+                guardAnchorOnly(nativeDb, scope, normalizedPath, stranded.kind, stranded.reason);
               }
             }
           }

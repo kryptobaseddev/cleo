@@ -153,7 +153,6 @@ export function installExodusWriteGuard(
   message: string,
 ): ExodusWriteGuard {
   const previous = activeGuards.get(nativeDb);
-  if (previous !== undefined) dropGuardTriggers(nativeDb, previous);
   const present = new Set(
     nativeDb
       .prepare("SELECT name FROM main.sqlite_master WHERE type = 'table'")
@@ -164,6 +163,31 @@ export function installExodusWriteGuard(
   const code =
     guard.detail.kind === 'deferred' ? EXODUS_DEFERRED_WRITE_CODE : EXODUS_ABORT_WRITE_CODE;
   const raise = sqlString(`${code}: ${message}`);
+  // Replace atomically (#1839 review LOW): a failure part-way must leave the
+  // previous guard's triggers in place, matching the registry.
+  nativeDb.exec('SAVEPOINT cleo_exodus_guard');
+  let guarded: string[];
+  try {
+    if (previous !== undefined) dropGuardTriggers(nativeDb, previous);
+    guarded = createGuardTriggers(nativeDb, guard, present, raise);
+    nativeDb.exec('RELEASE cleo_exodus_guard');
+  } catch (error) {
+    nativeDb.exec('ROLLBACK TO cleo_exodus_guard');
+    nativeDb.exec('RELEASE cleo_exodus_guard');
+    throw error;
+  }
+  const registered: ExodusWriteGuard = { ...guard, tables: guarded };
+  activeGuards.set(nativeDb, registered);
+  return registered;
+}
+
+/** Create the guard's triggers on every present table; returns the tables guarded. */
+function createGuardTriggers(
+  nativeDb: DatabaseSync,
+  guard: ExodusWriteGuard,
+  present: ReadonlySet<string>,
+  raise: string,
+): string[] {
   const guarded: string[] = [];
   for (const table of guard.tables) {
     if (!present.has(table)) continue;
@@ -175,9 +199,7 @@ export function installExodusWriteGuard(
     );
     guarded.push(table);
   }
-  const registered: ExodusWriteGuard = { ...guard, tables: guarded };
-  activeGuards.set(nativeDb, registered);
-  return registered;
+  return guarded;
 }
 
 /** Drop a guard's triggers from `nativeDb` (when it is still open). */
