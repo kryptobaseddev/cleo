@@ -59,7 +59,10 @@ import type {
 // re-used here (DRY) to resolve `PlaybookAgenticNode.inputs` `{{path}}`
 // templates at the dispatch boundary rather than re-implementing substitution.
 import { defaultResolver as defaultVariableResolver } from '@cleocode/core/agents/variable-substitution';
-import { getEnsuresSchema, listEnsuresSchemaNames } from '@cleocode/core/dispatch/contracts/ensures-schema';
+import {
+  getEnsuresSchema,
+  listEnsuresSchemaNames,
+} from '@cleocode/core/dispatch/contracts/ensures-schema';
 import { createApprovalGate, getPlaybookSecret } from './approval.js';
 import {
   createPlaybookApproval,

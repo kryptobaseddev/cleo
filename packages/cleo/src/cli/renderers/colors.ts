@@ -1,4 +1,3 @@
-
 /**
  * Re-export shim — color and symbol utilities now live in `@cleocode/core/render`.
  *

@@ -37,6 +37,7 @@ import type {
   ValidateVerifyExplainParams,
   ValidateWorkflowComplianceParams,
 } from '@cleocode/contracts';
+import { resolveWorktreeRouting } from '@cleocode/core/core-paths';
 import { getLogger } from '@cleocode/core/logger';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import {
@@ -48,7 +49,6 @@ import {
   checkValidateManifest,
   checkValidateOutput,
 } from '@cleocode/core/validation/ops';
-import { resolveWorktreeRouting } from '@cleocode/core/core-paths';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult } from './_base.js';

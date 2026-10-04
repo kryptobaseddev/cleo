@@ -1015,7 +1015,9 @@ export const doctorCommand = defineCommand({
           0,
           `${isDryRun ? '[DRY RUN] ' : ''}Migrating .cleo/worktree-include → .worktreeinclude`,
         );
-        const { migrateWorktreeIncludeFile } = await import('@cleocode/core/scaffold/migrate-worktree-include');
+        const { migrateWorktreeIncludeFile } = await import(
+          '@cleocode/core/scaffold/migrate-worktree-include'
+        );
         const projectRoot = getProjectRoot();
         const result = await migrateWorktreeIncludeFile(projectRoot, { dryRun: isDryRun });
         progress.complete(`Migration ${result.action}`);

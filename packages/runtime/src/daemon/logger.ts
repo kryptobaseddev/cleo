@@ -43,7 +43,6 @@ import { getLogger } from '@cleocode/core/logger';
  * @saga T11243 SG-RUNTIME-UNIFICATION
  */
 
-
 /**
  * A structured log payload — a plain object of serializable fields merged into
  * the emitted log record (e.g. `{ pid, err }`).

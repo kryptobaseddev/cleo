@@ -42,7 +42,11 @@ import type {
 } from '@cleocode/contracts/gateway/rpc';
 import { GATEWAY_RPC_PROTOCOL_VERSION } from '@cleocode/contracts/gateway/rpc';
 import { getLogger } from '@cleocode/core/logger';
-import { bindConnectionSession, runWithConnectionHandle, unbindConnectionSession } from '@cleocode/core/sessions/connection-session-handle';
+import {
+  bindConnectionSession,
+  runWithConnectionHandle,
+  unbindConnectionSession,
+} from '@cleocode/core/sessions/connection-session-handle';
 import type { GatewayHandler } from '../index.js';
 import { buildErrorFrame, decodeLine, encodeFrame, LineBuffer } from './codec.js';
 import type { RpcServerHandle, RpcServerOptions } from './types.js';

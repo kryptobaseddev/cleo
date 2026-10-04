@@ -39,6 +39,10 @@ import type { GatewayHandler } from '../../index.js';
 vi.mock('@cleocode/core', () => ({
   getLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
+vi.mock('@cleocode/core/logger', async (importOriginal) => {
+  const barrel = await import('@cleocode/core');
+  return { ...(await importOriginal<object>()), getLogger: barrel.getLogger };
+});
 
 // T11640 — stub the connection-session handle registry so the adapter's
 // accept-time binding is exercised hermetically (the real registry lives in
@@ -55,6 +59,15 @@ vi.mock('@cleocode/core/internal', () => ({
   unbindConnectionSession: (connId: string) => unbindSpy(connId),
   runWithConnectionHandle: <T>(connId: string, fn: () => T): T => runWithHandleSpy(connId, fn),
 }));
+vi.mock('@cleocode/core/sessions/connection-session-handle', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    bindConnectionSession: barrel.bindConnectionSession,
+    unbindConnectionSession: barrel.unbindConnectionSession,
+    runWithConnectionHandle: barrel.runWithConnectionHandle,
+  };
+});
 
 const { decodeLine, encodeFrame, LineBuffer } = await import('../codec.js');
 const { routeFrame, startRpcServer } = await import('../server.js');

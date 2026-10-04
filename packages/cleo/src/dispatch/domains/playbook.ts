@@ -42,6 +42,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve as resolvePath } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { PlaybookApproval, PlaybookRun, PlaybookRunStatus } from '@cleocode/contracts';
+import type { playbook as corePlaybook } from '@cleocode/core';
+import {
+  listPlaybooks,
+  PlaybookNotFoundError,
+  resolvePlaybook,
+} from '@cleocode/core/playbooks/playbook-resolver';
 import {
   type AgentDispatcher,
   type AgentDispatchInput,
@@ -67,8 +73,6 @@ import {
   type OpsFromCore,
   typedDispatch,
 } from '../adapters/typed.js';
-import type { playbook as corePlaybook } from '@cleocode/core';
-import { listPlaybooks, PlaybookNotFoundError, resolvePlaybook } from '@cleocode/core/playbooks/playbook-resolver';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { getListParams, handleErrorResult, unsupportedOp } from './_base.js';
 import { dispatchMeta } from './_meta.js';
@@ -312,7 +316,21 @@ async function acquireDb(): Promise<_DatabaseSyncType> {
 async function buildDefaultDispatcher(): Promise<AgentDispatcher> {
   if (__playbookRuntimeOverrides.dispatcher) return __playbookRuntimeOverrides.dispatcher;
   const { orchestrateSpawnExecute } = await import('@cleocode/runtime/gateway');
-  const [{ getProjectRoot }, { createToolGuard }, { runSkillNodeOrSpawn }, { maybeCreatePiRunner }, { resolveCantbookNodeProfile, hasCantbookProfilePin }, { DEFAULT_DETERMINISTIC_DENIED_COMMANDS }] = await Promise.all([import('@cleocode/core/project-scope'), import('@cleocode/core/tools/guard'), import('@cleocode/core/playbooks/skill-node-executor'), import('@cleocode/core/playbooks/pi-runner-wiring'), import('@cleocode/core/playbooks/cantbook-profile'), import('@cleocode/core/playbooks/guarded-deterministic-runner')]);
+  const [
+    { getProjectRoot },
+    { createToolGuard },
+    { runSkillNodeOrSpawn },
+    { maybeCreatePiRunner },
+    { resolveCantbookNodeProfile, hasCantbookProfilePin },
+    { DEFAULT_DETERMINISTIC_DENIED_COMMANDS },
+  ] = await Promise.all([
+    import('@cleocode/core/project-scope'),
+    import('@cleocode/core/tools/guard'),
+    import('@cleocode/core/playbooks/skill-node-executor'),
+    import('@cleocode/core/playbooks/pi-runner-wiring'),
+    import('@cleocode/core/playbooks/cantbook-profile'),
+    import('@cleocode/core/playbooks/guarded-deterministic-runner'),
+  ]);
   const projectRoot = getProjectRoot();
   // In-process skill nodes (and, via buildDefaultDeterministicRunner, every
   // `deterministic` shell step) execute over the SAME deny-first guarded tool
@@ -455,7 +473,15 @@ async function buildDefaultDeterministicRunner(): Promise<DeterministicRunner | 
   if (__playbookRuntimeOverrides.dispatcher) {
     return undefined;
   }
-  const [{ getProjectRoot }, { createToolGuard }, { createGuardedDeterministicRunner, DEFAULT_DETERMINISTIC_DENIED_COMMANDS }] = await Promise.all([import('@cleocode/core/project-scope'), import('@cleocode/core/tools/guard'), import('@cleocode/core/playbooks/guarded-deterministic-runner')]);
+  const [
+    { getProjectRoot },
+    { createToolGuard },
+    { createGuardedDeterministicRunner, DEFAULT_DETERMINISTIC_DENIED_COMMANDS },
+  ] = await Promise.all([
+    import('@cleocode/core/project-scope'),
+    import('@cleocode/core/tools/guard'),
+    import('@cleocode/core/playbooks/guarded-deterministic-runner'),
+  ]);
   const projectRoot = getProjectRoot();
   const tools = createToolGuard({
     allowedRoots: [projectRoot],

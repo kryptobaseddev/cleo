@@ -33,6 +33,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SubsystemHealth, SubsystemState } from '@cleocode/contracts';
+import { getCleoHome } from '@cleocode/core/core-paths';
 import { defineSubsystem } from '@cleocode/runtime/daemon';
 import {
   isProcessAlive,
@@ -41,7 +42,6 @@ import {
   viewerPidFilePath,
   writeViewerPidFile,
 } from '../viewer/pidfile.js';
-import { getCleoHome } from '@cleocode/core/core-paths';
 import { startViewer } from '../viewer/server.js';
 
 // ---------------------------------------------------------------------------

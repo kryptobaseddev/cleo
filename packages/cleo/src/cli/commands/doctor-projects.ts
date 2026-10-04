@@ -24,13 +24,13 @@
  * @task T-PROJECT-HEALTH
  */
 
-import { defineCommand } from 'citty';
 import type {
   FullHealthReport,
   ProjectHealthReport,
   ProjectHealthStatus,
 } from '@cleocode/core/internal';
 import { checkAllRegisteredProjects } from '@cleocode/core/system/project-health';
+import { defineCommand } from 'citty';
 import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';
 

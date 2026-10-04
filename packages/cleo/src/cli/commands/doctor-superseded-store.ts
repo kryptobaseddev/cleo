@@ -33,8 +33,8 @@
  */
 
 import { scanSupersededStores } from '@cleocode/core/doctor/superseded-store.js';
-import { reconcileSupersededStores } from '@cleocode/core/store/exodus/index.js';
 import { getProjectRoot } from '@cleocode/core/project-scope';
+import { reconcileSupersededStores } from '@cleocode/core/store/exodus/index.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
