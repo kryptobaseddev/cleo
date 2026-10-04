@@ -10,8 +10,8 @@
  * {@link conduitFetch}, which refuses a SignalDock host before any network
  * I/O, at every redirect hop, and the transports refuse one when they connect.
  * As a backstop for any other path, {@link installRetiredHostFetchGuard}
- * wraps the process-global `fetch` (the CLI installs it before every
- * command, and `createRuntime` does too).
+ * wraps the process-global `fetch`. Only the CLI installs it, before every
+ * command; SDK consumers of core and runtime are unaffected.
  *
  * `EventSource` follows redirects internally and cannot be checked per hop.
  * It is not a global in Node 24 without `--experimental-eventsource`, so the

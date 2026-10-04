@@ -8,7 +8,7 @@ summary: No CLEO code path calls a SignalDock host any more (SignalDock is retir
 SignalDock (api.signaldock.io) is retired and its servers are being deleted. Agent rows registered before the retirement still carry its URL, because the `api_base_url` column defaults to it and CLEO never rebuilds a table to change a default. CLEO therefore stops trusting the stored URL.
 
 - Every agent cloud-messaging request now goes through one gate, `conduitFetch` (`@cleocode/core/conduit`). It refuses a SignalDock host, or any subdomain of one, before any network I/O, with `E_SIGNALDOCK_RETIRED`. It follows redirects itself, so every hop is checked, and it drops credentials when a redirect changes origin.
-- As a backstop for every other path, each CLI command (and `createRuntime`) wraps the process-global `fetch` so that it refuses SignalDock too.
+- As a backstop for every other path, each CLI command wraps the process-global `fetch` so that it refuses SignalDock too. SDK consumers of `@cleocode/core` and `@cleocode/runtime` are unaffected.
 - `cleo setup` no longer probes a SignalDock endpoint; the check is skipped, with the reason. The setup wizard refuses to store one.
 - The HTTP and SSE transports refuse a SignalDock endpoint when they connect, and the conduit factory never treats one as cloud-backed.
 - The runtime's poller fallback and heartbeat use the gate. `createRuntime` starts no heartbeat or key rotation for a SignalDock agent.
