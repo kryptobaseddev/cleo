@@ -91,6 +91,9 @@ describe('detectDarwin', () => {
       "+  if (process.platform === 'linux') return;",
       "+  return process.platform !== 'win32' && process.platform !== 'linux';",
       '+  switch (process.platform) {',
+      "+        if: runner.os != 'Linux'",
+      "+        if: runner.os == 'Linux'",
+      '+        if: runner.os == env.TARGET_OS',
     ]) {
       expect(detectDarwin(['packages/core/src/x.ts'], patch(line)).darwin, line).toBe(true);
     }
@@ -107,6 +110,7 @@ describe('detectDarwin', () => {
       "+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}",
       '+        # Measured: `Unit Tests (macos-latest, shard 1)` took 33 min',
       "+  // on 'darwin' the realpath differs",
+      "+        if: runner.os == 'Windows'",
       "-   * macOS (process.platform === 'darwin') resolves /var",
     ]) {
       expect(detectDarwin(['packages/core/src/x.ts'], patch(line)).darwin, line).toBe(false);

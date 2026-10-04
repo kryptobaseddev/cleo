@@ -14,7 +14,7 @@ The nightly, merge-group and `macos-main.yml` runs keep all 8 shards.
 Darwin detection is also narrower. These no longer count as darwin-specific:
 - a platform check whose only named platform is `'win32'` (it splits Windows from POSIX, and Linux
   already runs the POSIX side);
-- a `runner.os` cache key;
+- a `runner.os` cache key (a `runner.os` comparison still counts unless it names only `'Windows'`);
 - a comment line;
 - an edit to `macos-main.yml`, which pull-request CI does not run.
 

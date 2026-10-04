@@ -103,6 +103,16 @@ const MACOS_LITERAL = /['"`]macos['"`]/i;
 /** A runtime platform check: `process.platform`, `os.platform()` / `platform()`. */
 const PLATFORM_CHECK = /process\.platform|\bos\.platform\(|\bplatform\(\)/;
 
+/**
+ * A `runner.os` comparison (`if: runner.os != 'Linux'`). With the Windows
+ * shards disabled, `!= 'Linux'` means macOS only. A cache key
+ * (`${{ runner.os }}-pnpm-store-…`) has no comparison, so it never counts.
+ */
+const RUNNER_OS_CHECK = /runner\.os\s*[!=]=/;
+
+/** Every quoted runner OS name on a line. */
+const RUNNER_OS_LITERAL = /['"`](Linux|Windows|macOS)['"`]/gi;
+
 /** Every quoted platform name on a line. */
 const PLATFORM_LITERAL =
   /['"`](aix|android|darwin|freebsd|linux|openbsd|sunos|win32|cygwin|netbsd)['"`]/g;
@@ -116,8 +126,9 @@ const COMMENT_LINE = /^\s*(\/\/|\/\*|\*|#(?!\[))/;
  * A platform check counts unless every platform it names is `'win32'`: such a
  * check only splits Windows from POSIX, and the POSIX side is the one Linux
  * already runs. A check naming no platform (`switch (process.platform)`) or
- * naming `'linux'` (whose else-branch is macOS) counts. Comment lines and
- * `runner.os` cache keys never count.
+ * naming `'linux'` (whose else-branch is macOS) counts. A `runner.os`
+ * comparison follows the same rule (only `'Windows'` does not count). Comment
+ * lines and `runner.os` cache keys never count.
  *
  * @param {string} line - The changed line's content.
  * @returns {boolean}
@@ -125,6 +136,10 @@ const COMMENT_LINE = /^\s*(\/\/|\/\*|\*|#(?!\[))/;
 export function touchesMacos(line) {
   if (COMMENT_LINE.test(line)) return false;
   if (MACOS_LINE.test(line) || MACOS_LITERAL.test(line)) return true;
+  if (RUNNER_OS_CHECK.test(line)) {
+    const oses = [...line.matchAll(RUNNER_OS_LITERAL)].map((m) => m[1].toLowerCase());
+    if (oses.length === 0 || oses.some((o) => o !== 'windows')) return true;
+  }
   if (!PLATFORM_CHECK.test(line)) return false;
   const named = [...line.matchAll(PLATFORM_LITERAL)].map((m) => m[1]);
   return named.length === 0 || named.some((p) => p !== 'win32');

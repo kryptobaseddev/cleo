@@ -1563,9 +1563,11 @@ jobs:
     # 2026-09-29: with 4 shards and the shared `build` job each shard does a
     # quarter of the suite and no build, so 55 is now generous on both OSes.
     # T13198: a darwin pull request runs only 2 macOS shards (the 5-job macOS
-    # pool), each half the suite. macos-main's 8-shard legs took a median 14
-    # and at most 22 min on 2026-10-04, so half the suite on macOS is roughly
-    # 45-75 min: those legs get 90.
+    # pool), each half the suite. macos-main run 37232116799 (2026-10-04)
+    # spent 97 min in "Run unit tests" across its 8 shards (max 16), so a
+    # 2-shard leg is ~49 min of vitest + ~6 min setup, ~65 min with a 60/40
+    # file-count skew: those legs get 90. Recalibrate from that sum if the
+    # suite grows.
     timeout-minutes: ${{ matrix.os == 'macos-latest' && matrix.total <= 2 && 90 || 55 }}
     strategy:
       matrix:
