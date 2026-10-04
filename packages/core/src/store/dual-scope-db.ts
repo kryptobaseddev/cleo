@@ -63,6 +63,7 @@ import { getLogger } from '../logger.js';
 import { getCleoHome, resolveCleoDir } from '../paths.js';
 import { worktreeScope } from '../project-scope.js';
 import { observeOperation } from './background-ops.js';
+import { loadNodeSqliteDrizzle } from './drizzle-node-sqlite.js';
 import { type ExodusAbortDetail, getRecordedExodusAbort } from './exodus/abort-events.js';
 import { ForeignKeysNotRestoredError, migrateBracketed } from './migration-runner.js';
 import { assertStoreNotRelocated } from './relocated-store-guard.js';
@@ -377,26 +378,11 @@ function migrationsSetName(scope: DualScope): string {
   return scope === 'project' ? 'drizzle-cleo-project' : 'drizzle-cleo-global';
 }
 
-// ── Lazy drizzle loading ─────────────────────────────────────────────────────
+// ── Lazy native loading ──────────────────────────────────────────────────────
 
-// The drizzle-orm/node-sqlite driver statically imports `node:sqlite`, so we
-// load it lazily (matching the pattern in sqlite.ts, T11280) to avoid pulling
-// the native binding at module-load time and breaking lazy-init assertions.
+// drizzle's node-sqlite driver loads lazily through ./drizzle-node-sqlite.ts
+// (T11280, T13126). DatabaseSync is lazy too, to avoid an eager node:sqlite pull.
 const _require = createRequire(import.meta.url);
-
-type DrizzleFn = typeof import('drizzle-orm/node-sqlite').drizzle;
-
-let _drizzle: DrizzleFn | null = null;
-
-function getDrizzle(): DrizzleFn {
-  if (_drizzle === null) {
-    const mod = _require('drizzle-orm/node-sqlite') as { drizzle: DrizzleFn };
-    _drizzle = mod.drizzle;
-  }
-  return _drizzle;
-}
-
-// Also lazy-load DatabaseSync to avoid eager node:sqlite pull.
 type DatabaseSyncCtor = new (
   path: string,
   options?: { readOnly?: boolean; allowExtension?: boolean },
@@ -701,7 +687,7 @@ async function openDedicatedDualScopeDb(
     // every DDL on this handle before any schema code runs.
     installSchemaWriteGuard(nativeDb);
 
-    const drizzle = getDrizzle();
+    const drizzle = loadNodeSqliteDrizzle();
     // biome-ignore lint/suspicious/noExplicitAny: dual-scope handle is untyped at construction; typed via DualScopeDbHandle<TScope>
     const db = drizzle({ client: nativeDb }) as NodeSQLiteDatabase<any>;
 
@@ -984,7 +970,7 @@ export async function openDualScopeDbAtPath(
       installSchemaWriteGuard(nativeDb);
 
       // Create the Drizzle ORM wrapper.
-      const drizzle = getDrizzle();
+      const drizzle = loadNodeSqliteDrizzle();
       // biome-ignore lint/suspicious/noExplicitAny: dual-scope handle is untyped at construction; typed via DualScopeDbHandle<TScope>
       const db = drizzle({ client: nativeDb }) as NodeSQLiteDatabase<any>;
 

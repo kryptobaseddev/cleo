@@ -46,7 +46,7 @@ import {
   type WorktreeScope,
   worktreeScope,
 } from '../project-scope.js';
-import { acTextHash, buildAcRowId } from '../tasks/ac-table.js';
+import { acTextHash, buildAcRowId } from '../tasks/ac-identity.js';
 import {
   generateAuditLogId,
   pruneAcBindingsForAcIds,

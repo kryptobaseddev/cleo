@@ -9,7 +9,7 @@
  * @since SG-ARCH-SOLID Saga T9831 · E-CLI-BOUNDARY T9833 · T10061
  */
 
-import { DOCS_LIFECYCLE_STATUSES } from '../operations/docs.js';
+import { DOCS_LIFECYCLE_STATUSES } from '../operations/docs-lifecycle.js';
 import { OUTPUT_CONTRACTS } from '../operations/output-contracts-data.js';
 import { tasksUpdateInputContract } from '../operations/tasks.js';
 import type { CanonicalDomain, Gateway, OperationDef, ParamDef, Tier } from './operation-def.js';

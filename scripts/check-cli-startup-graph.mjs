@@ -79,6 +79,8 @@ const CORE_BARREL = /\/core\/dist\/(index|internal)\.js$/;
 const CONTRACTS_BARREL = /\/contracts\/dist\/index\.js$/;
 const STORE_STACK = /\/drizzle-orm\/|^node:sqlite$/;
 const MODEL_SDKS = /\/(@anthropic-ai|openai|@ai-sdk|@aws-sdk|@google|js-tiktoken)\//;
+/** CORE's human-renderer entry point: JSON output (`--version`, agents) never needs it. */
+const CORE_RENDER = /\/core\/dist\/render\/index\.js$/;
 
 /**
  * @typedef {object} Probe
@@ -100,8 +102,10 @@ const MODEL_SDKS = /\/(@anthropic-ai|openai|@ai-sdk|@aws-sdk|@google|js-tiktoken
  * | help    |      75 |  64 MB            |
  * | show    |   2,412 | 396 MB            |
  *
- * `show` still loads the CORE barrel through the dispatch layer; T13126's
- * follow-ups lower it. Lower each budget in the PR that lowers its count.
+ * Loading CORE's human renderers only for human output (T13126) took
+ * `--version` to 64 modules / 55 MB. `show` still loads the CORE barrel
+ * through the dispatch layer; T13126's follow-ups lower it. Lower each budget
+ * in the PR that lowers its count.
  *
  * @type {readonly Probe[]}
  */
@@ -109,14 +113,14 @@ export const PROBES = Object.freeze([
   {
     name: 'version',
     args: ['--version'],
-    forbid: [CORE_BARREL, CONTRACTS_BARREL, STORE_STACK, MODEL_SDKS],
-    maxModules: 240,
+    forbid: [CORE_BARREL, CONTRACTS_BARREL, STORE_STACK, MODEL_SDKS, CORE_RENDER],
+    maxModules: 80,
     maxRssMb: 120,
   },
   {
     name: 'help',
     args: ['--help'],
-    forbid: [CORE_BARREL, CONTRACTS_BARREL, STORE_STACK, MODEL_SDKS],
+    forbid: [CORE_BARREL, CONTRACTS_BARREL, STORE_STACK, MODEL_SDKS, CORE_RENDER],
     maxModules: 85,
     maxRssMb: 120,
   },
@@ -125,7 +129,7 @@ export const PROBES = Object.freeze([
     args: ['show', 'T001'],
     needsProject: true,
     forbid: [],
-    maxModules: 2650,
+    maxModules: 2200,
     maxRssMb: 480,
   },
 ]);

@@ -44,17 +44,17 @@ import { createRequire } from 'node:module';
 // Type-only import for annotations. The runtime node:sqlite loading is handled
 // by openDualScopeDb() / openNativeDatabase() in their respective leaf modules.
 import type { DatabaseSync } from 'node:sqlite';
-// Lazy-loaded drizzle factory (see _getDrizzle). drizzle-orm/node-sqlite
-// statically imports node:sqlite, so a top-level value import would pull the
-// native binding at module-load — defeating the lazy-init invariant. The type
-// import is erased at runtime and is safe.
-import type { drizzle as drizzleFn, NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+// drizzle's node-sqlite factory loads lazily (./drizzle-node-sqlite.ts):
+// drizzle-orm/node-sqlite statically imports node:sqlite, so a top-level value
+// import would pull the native binding at module-load. The type import is erased.
+import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 // E6-L2 (T11522): dual-scope chokepoint — the brain domain now opens the
 // consolidated project `cleo.db` through here. openDualScopeDb manages the
 // DatabaseSync lifecycle, pragmas, and consolidated migrations. We extract the
 // native handle and re-wrap it with the legacy brain-schema drizzle instance so
 // existing callers (brainSchema.* queries) compile and run without change.
 import { getLogger } from '../logger.js';
+import { loadNodeSqliteDrizzle } from './drizzle-node-sqlite.js';
 import { type ProjectStore, resolveDualScopeDbPath } from './dual-scope-db.js';
 import {
   createSafetyBackup,
@@ -77,32 +77,6 @@ import * as brainSchema from './schema/memory-schema.js';
 import { collapseTwinTables } from './twin-collapse.js';
 
 const _require = createRequire(import.meta.url);
-
-/**
- * Cached `drizzle` factory from `drizzle-orm/node-sqlite`, loaded on first use.
- *
- * Loaded via `createRequire` rather than a top-level import so that importing
- * `memory-sqlite.ts` does not eagerly pull in `node:sqlite` (which the drizzle
- * driver statically imports). Memoized after the first call. Mirrors the
- * `_getDrizzle` lazy pattern in sqlite.ts (T11280/T11521).
- *
- * @internal
- */
-let _drizzle: typeof drizzleFn | null = null;
-
-/**
- * Returns the `drizzle` factory, loading `drizzle-orm/node-sqlite` on first call.
- *
- * @internal
- * @task T11522
- */
-function _getDrizzle(): typeof drizzleFn {
-  if (_drizzle === null) {
-    const mod = _require('drizzle-orm/node-sqlite') as { drizzle: typeof drizzleFn };
-    _drizzle = mod.drizzle;
-  }
-  return _drizzle;
-}
 
 /** Schema version for newly created brain databases. Single source of truth. */
 export const BRAIN_SCHEMA_VERSION = '1.0.0';
@@ -505,7 +479,7 @@ export async function bindBrainDomain(
 
     // Wrap the native handle with the legacy brain-schema drizzle instance so
     // existing callers (brainSchema.* queries) continue to work unchanged.
-    const drizzle = _getDrizzle()({ client: nativeDb });
+    const drizzle = loadNodeSqliteDrizzle()({ client: nativeDb });
 
     // Reconcile the LEGACY brain-domain schema inside the consolidated cleo.db.
     // Since T11647 the consolidated `cleo.db` migration already creates every
