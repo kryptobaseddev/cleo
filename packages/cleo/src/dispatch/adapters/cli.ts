@@ -151,7 +151,10 @@ async function registerCaampLibrary(): Promise<void> {
 /**
  * Read operations verified to run without CORE's module-load side effects
  * (T13126): `cleo show`, `find`, `list` and `current`, the commands agents call
- * most. They dispatch on narrow CORE modules alone.
+ * most, plus `session status` and `briefing` (T13166), which every agent runs
+ * at session start. They dispatch on narrow CORE modules alone. `briefing`
+ * fires no lifecycle hook, runs its opportunistic dream only when a caller opts
+ * in (the CLI never does), and loads CAAMP itself for the heavy-hook check.
  *
  * Loading `@cleocode/core/internal` also REGISTERS things as a side effect: the
  * lifecycle hook handlers (`hooks/handlers`), the LLM env credential seeders,
@@ -165,6 +168,8 @@ const BARREL_FREE_OPERATIONS: ReadonlySet<string> = new Set([
   'query:tasks.find',
   'query:tasks.list',
   'query:tasks.current',
+  'query:session.status',
+  'query:session.briefing.show',
 ]);
 
 /**

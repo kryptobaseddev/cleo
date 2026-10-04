@@ -121,7 +121,10 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * and the read-path leaves, `show` and `find` load ~820 modules (~190 MB) and
  * `list --human` ~880. With the tasks domain handlers loaded per operation,
  * the token recorder loaded only for mutations and `cleo current` on a leaf,
- * `show`, `find` and `current` load ~450 modules (~135 MB). `describe` covers
+ * `show`, `find` and `current` load ~450 modules (~135 MB). `session status`
+ * (a leaf, ~540 modules, ~175 MB) and `briefing` (~710 modules, ~190 MB; it
+ * loaded the whole CORE barrel, ~3,000 modules) dispatch barrel-free (T13166).
+ * `describe` covers
  * the `--describe` path, which loads the operation describer through
  * `require(esm)`. Lower each budget in the PR that lowers its count.
  *
@@ -200,6 +203,22 @@ export const PROBES = Object.freeze([
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     maxModules: 500,
     maxRssMb: 200,
+  },
+  {
+    name: 'session-status',
+    args: ['session', 'status'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    maxModules: 600,
+    maxRssMb: 240,
+  },
+  {
+    name: 'briefing',
+    args: ['briefing'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    maxModules: 785,
+    maxRssMb: 260,
   },
   {
     name: 'describe',
