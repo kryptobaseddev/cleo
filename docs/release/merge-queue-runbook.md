@@ -51,14 +51,13 @@ block. As of 2026-05-24, the following 12 PR-gated workflows declare it:
 | `worktree-cleanup.yml` | ✓ |
 | `worktree-napi-prebuild.yml` | ✓ |
 
-The following 6 workflows do **not** need `merge_group:` because they are
+The following 5 workflows do **not** need `merge_group:` because they are
 triggered by non-PR events:
 
 | Workflow | Trigger | Why no `merge_group:` |
 |---|---|---|
 | `release-prepare.yml` | `workflow_dispatch` | Manual dispatch only |
 | `release.yml` | `push: tags:` + `workflow_dispatch` | Tag push or manual |
-| `release-promote.yml` | `workflow_dispatch` | Manual dispatch only; moves npm `latest` (T13144) |
 | `freshness-sentinel.yml` | `schedule` + `workflow_dispatch` | Cron / manual |
 | `skills-council.yml` | `schedule` + `workflow_dispatch` | Cron / manual |
 | `skills-grade.yml` | `schedule` + `workflow_dispatch` | Cron / manual |
@@ -243,108 +242,49 @@ learned. Both are recorded where an operator can see them.
   To force a rebuild, delete the cache entry:
   `gh cache delete cant-napi-bundle-v1-<hash>`.
 
-## Canary soak and promotion (T13144)
+## Release candidate gate: canary first, then latest (T13144, T13181)
 
-A release no longer reaches users when it publishes. `release.yml` publishes
-every stable version under the npm dist-tag `canary`; users install `latest`
-(`npm i -g @cleocode/cleo`), and `latest` moves only through
-`release-promote.yml`, after the canary has soaked and the owner approves.
-Prereleases keep their own tags (`beta`, `dev`) and are never promoted.
+A stable release reaches users only after its release candidate has been
+installed from npm and checked. Everything runs inside `release.yml`, through
+npm trusted publishing (OIDC). There is no npm token, no approval environment
+and no dist-tag move anywhere.
 
-Every @cleocode package pins its @cleocode dependencies to its own exact
-version, so a `latest` install never mixes a canary package into the previous
-release, and a half-finished move is still coherent.
+For a tag `v2026.X.Y`, the Publish job:
 
-**1. After the tag.** `release.yml` runs as before. Its installability verdict
-checks `dist-tags.canary`. If the run could not prove installability in its
-budget, the tracking issue and `release-installability-watch.yml` take over, as
-before. Nothing is `continue-on-error`: a red verdict blocks the promotion.
+1. publishes every package as `2026.X.Y-rc.<run number>` under the `canary`
+   dist-tag, from the tagged commit's build. pnpm pins each @cleocode
+   dependency at the candidate's exact version, so the candidate is a coherent
+   set;
+2. proves the candidate installable from npm: `scripts/execute-payload.mjs`
+   checks metadata, tarball and `dist-tags.canary` for every package (15 minute
+   budget);
+3. installs `@cleocode/cleo@2026.X.Y-rc.<n>` from npm into a sandbox and runs
+   the health checks (`scripts/release-canary-soak.mjs`: coherent @cleocode
+   versions, `--version`, `init`, `session start`, a saga and epic write,
+   `show`, `find`, `doctor`);
+4. only if both pass, publishes `2026.X.Y` under `latest` from the same commit.
 
-The promotion reads the verdict only from what the release run **on the tag**
-produced, which nobody can edit afterwards: its `Release Verdict` job must have
-succeeded, or its `Publish` job succeeded and its own `postdeploy-<version>`
-artifact says the verdict was `pending` at its deadline (published, no package
-serving a wrong version). In the pending case the plan's live check of every
-package decides. The tracking issue is never read: its body is editable. A run
-on any other ref does not count, because it runs that ref's copy of the
-workflow, and neither does a run whose commit is not the tag's (a branch can be
-named like the tag). To re-run a failed release, re-run the tag run's failed jobs
-(`gh run rerun <id> --failed`), or dispatch on the tag ref
-(`gh workflow run release.yml --ref v2026.X.Y -f version=2026.X.Y`); a dispatch
-from `main` does not count for promotion. The postdeploy artifact is kept 30
-days, so a release whose verdict was only `pending` must be promoted (or
-rolled back to) within that window.
+Steps 2 and 3 are blocking: a failure stops the job before `latest` is touched,
+and users keep the previous release. The Post-Deploy and Release Verdict jobs
+then verify `2026.X.Y` under `latest` as before. Prereleases (`-beta`, `-dev`)
+skip the candidate and publish to their own tags directly.
 
-**2. Soak.** Put the canary on real agents first, starting with this machine:
+**Re-runs.** The candidate's number is the run number, so re-running failed
+jobs of the same run reuses the same candidate and skips every package already
+published. A registry that has not finished propagating the candidate inside
+the 15 minute budget (it has happened for `@cleocode/cleo`) fails step 2; re-run
+the failed job later and it continues from there. A re-run after `2026.X.Y`
+itself published skips the candidate.
 
-```bash
-# Sandbox install + health checks (install, coherent @cleocode versions,
-# --version, init, session, saga/epic write, show, find, doctor):
-node scripts/release-canary-soak.mjs                    # resolves the current canary
-node scripts/release-canary-soak.mjs --version 2026.X.Y --keep   # keep the sandbox to inspect
+**Try a candidate yourself.** `npm i -g @cleocode/cleo@canary` installs the
+newest candidate; `node scripts/release-canary-soak.mjs` (or `--version
+2026.X.Y-rc.<n>`) runs the same health checks in a sandbox.
 
-# Then run the canary on this machine's agents:
-npm i -g @cleocode/cleo@canary
-```
-
-Use it for real work. When it holds up, promote it. When it does not, fix
-forward: the next release replaces the canary, and `latest` never moved.
-
-**3. Promote.** Dispatch the workflow with the version:
-
-```bash
-gh workflow run release-promote.yml --ref main -f version=2026.X.Y
-```
-
-The `plan` job (no secrets) checks that every package resolves at the version,
-that every package's `canary` is the version, and that the installability
-verdict is green, then runs the same sandbox soak on a fresh runner. Its job
-summary is the plan the reviewer approves. The `promote` job then waits for
-approval in the `npm-promote` environment. Once approved it re-checks the plan
-(the approval may come hours later), runs
-`npm dist-tag add @cleocode/<pkg>@<version> latest` for each package in publish
-order (`@cleocode/cleo` last), and waits until `latest` resolves everywhere. A
-failed move or an unconverged tag turns the run red and names the package;
-re-run with the same version, and packages already moved are skipped.
-
-Only the current canary can be promoted. If a newer release was published
-before an older canary was promoted, promote the newer one. The exception is a
-promotion already under way (some package that had an earlier version already
-has `latest` at this one): a re-run finishes it without the canary check, so a
-newer canary cannot strand `latest` half-moved.
-
-A package's first-ever publish gets `latest` from the registry regardless of
-`--tag canary` (npm tags a package's first version `latest`). That only matters
-when `publish_pkg` gains a new package, and it never counts as a promotion
-under way.
-
-**4. Roll back.** Run the same workflow with the previous version:
-
-```bash
-gh workflow run release-promote.yml --ref main -f version=<previous version>
-```
-
-A version older than the current `latest` is a rollback: the canary
-requirement does not apply, but the version must still resolve, pass the soak
-and have a green verdict. The old tarballs never left the registry, so nothing
-is republished and `latest` flips back as soon as the owner approves. The job
-title on the approval screen says `ROLLBACK`.
-
-**One-time setup (owner).**
-
-1. On npmjs.com, create a granular access token with read and write access to
-   the `@cleocode` packages (Packages and scopes: Read and write, scope
-   `@cleocode`). If the packages or account require two-factor authentication
-   for writes, the token must be allowed to bypass it, or `npm dist-tag add`
-   fails with `EOTP`. Trusted publishing (OIDC) cannot do this: it covers
-   `npm publish` only. Granular write tokens expire; note the date.
-2. In the repository settings, create the environment `npm-promote`:
-   required reviewer: the owner; deployment branches: `main` only. Add the
-   token as the environment secret `NPM_TOKEN`, not as a repository secret.
-   No other workflow may reference that environment or that secret
-   (`scripts/__tests__/release-promote.test.mjs` fails if one does).
-3. When the token expires, the `promote` job stops before moving anything
-   ("npm rejected the token"); replace the environment secret and re-run.
+**Rolling back.** Without a token, `latest` cannot be moved by hand. A bad
+release is fixed forward: revert or fix on main and ship the next patch version,
+which goes through the same candidate gate. A package's first-ever publish gets
+`latest` from the registry regardless of `--tag canary` (npm tags a package's
+first version `latest`); that only matters when `publish_pkg` gains a package.
 
 ## Operator Commands
 
