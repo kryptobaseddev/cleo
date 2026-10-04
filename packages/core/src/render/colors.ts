@@ -16,11 +16,11 @@
  * @task T10131
  * @epic T4663
  */
+import type { TaskStatus } from '@cleocode/contracts';
 import {
   TASK_STATUS_SYMBOLS_ASCII,
   TASK_STATUS_SYMBOLS_UNICODE,
-  type TaskStatus,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/status-registry.js';
 
 // Re-export the 3 ANSI primitives owned by B4's ansi.ts so callers have a
 // single source for `BOLD`, `DIM`, `NC` alongside the extended color set.

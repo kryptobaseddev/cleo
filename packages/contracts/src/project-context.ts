@@ -133,10 +133,18 @@ export interface ProjectContext {
     command?: string;
     /**
      * Affected-scope test command template for `tool:test-affected` (D11150,
-     * T12635): `{projects}`, `{filters}` and `{packages}` expand per affected
-     * package, e.g. `pnpm exec vitest run {projects}`.
+     * T12635) and a scope-aware `tool:test` (T12959): `{projects}`,
+     * `{filters}`, `{workspaces}` and `{packages}` expand per affected
+     * package, e.g. `pnpm exec vitest run {projects}`. When absent, one is
+     * derived from a workspace-wide `command` where that is mechanical
+     * (`pnpm -r … test`, `npm … test --workspaces`, `turbo run test`; T13125).
      */
     affectedCommand?: string;
+    /**
+     * `false` makes `tool:test` always run the full suite instead of the
+     * affected scope (T12959).
+     */
+    preferAffected?: boolean;
     testFilePatterns?: string[];
     directories?: {
       unit?: string;

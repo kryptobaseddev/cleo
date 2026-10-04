@@ -74,7 +74,10 @@ function reportOf(files: FileAssertions, startTime?: number): string {
       numTotalTests: statuses.length,
       numPassedTests: count('passed'),
       numFailedTests: count('failed'),
-      numPendingTests: count('skipped'),
+      // As vitest/jest count them: skipped and pending are pending, todo is its
+      // own bucket, so the counts add up to the total (T13136 checks that).
+      numPendingTests: count('skipped') + count('pending'),
+      numTodoTests: count('todo'),
       testResults: Object.entries(files).map(([name, assertions]) => ({
         name,
         status: 'passed',
