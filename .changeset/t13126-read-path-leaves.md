@@ -31,3 +31,9 @@ Each one now loads that code only when the branch runs:
 the lazy-dispatch change to drop further. Output is unchanged: 38 commands compared, human
 output included. Gate 39 lowers the `--version` budget to 80 modules and forbids the
 renderer entry point in `--version` and `--help`.
+
+The renderers, the output-contract table and the drizzle driver load through `require(esm)`,
+which refuses a module graph with top-level await. Gate 39 now runs `cleo list --human` and a
+missed `--field` pointer on the built CLI, so top-level await reaching either graph fails CI.
+Should a drizzle release add top-level await, the store falls back to drizzle's CommonJS
+build instead of failing to open, and gate 39 flags the heavier load.

@@ -15,6 +15,13 @@
  * `import.meta.resolve` is unavailable (some test transforms), it falls back
  * to the CommonJS build, as before.
  *
+ * `require(esm)` refuses a module graph that uses top-level await
+ * (`ERR_REQUIRE_ASYNC_MODULE`). Should a drizzle release add one, every store
+ * open would throw, so that error also falls back to the CommonJS build: the
+ * store keeps working on the heavier pre-T13126 path, and gate 39
+ * (`scripts/check-cli-startup-graph.mjs`), which forbids drizzle's `.cjs`
+ * files in its store-opening probes, fails the build that brought it in.
+ *
  * @task T13126
  */
 
@@ -25,11 +32,14 @@ import type { drizzle as drizzleFn } from 'drizzle-orm/node-sqlite';
 const requireFromHere = createRequire(import.meta.url);
 
 /** The driver module's shape, as far as the store uses it. */
-interface NodeSqliteDriver {
+export interface NodeSqliteDriver {
   drizzle: typeof drizzleFn;
 }
 
 let cached: typeof drizzleFn | null = null;
+
+/** The CommonJS specifier: `require` resolves it with the `require` condition. */
+const CJS_DRIVER_SPECIFIER = 'drizzle-orm/node-sqlite';
 
 /** Path of the driver's ES module build, or `null` when it cannot be resolved here. */
 function esmDriverPath(): string | null {
@@ -52,11 +62,34 @@ function esmDriverPath(): string | null {
  * ```
  */
 export function loadNodeSqliteDrizzle(): typeof drizzleFn {
-  if (cached === null) {
-    const driver = requireFromHere(
-      esmDriverPath() ?? 'drizzle-orm/node-sqlite',
-    ) as NodeSqliteDriver;
-    cached = driver.drizzle;
-  }
+  cached ??= requireDriver(requireFromHere, esmDriverPath()).drizzle;
   return cached;
+}
+
+/** Whether `error` is Node's refusal to `require()` an ES module graph with top-level await. */
+function isRequireAsyncModuleError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ERR_REQUIRE_ASYNC_MODULE';
+}
+
+/**
+ * Require the driver: the ES module build at `esmPath` when there is one,
+ * else, or when that graph uses top-level await, the CommonJS build.
+ *
+ * @param req - The `require` to load with.
+ * @param esmPath - File path of the ES module build, or `null` when unresolved.
+ * @returns The driver module.
+ * @throws Any other load error, unchanged.
+ * @example
+ * ```ts
+ * const { drizzle } = requireDriver(createRequire(import.meta.url), null);
+ * ```
+ */
+export function requireDriver(req: NodeJS.Require, esmPath: string | null): NodeSqliteDriver {
+  if (esmPath === null) return req(CJS_DRIVER_SPECIFIER) as NodeSqliteDriver;
+  try {
+    return req(esmPath) as NodeSqliteDriver;
+  } catch (error) {
+    if (!isRequireAsyncModuleError(error)) throw error;
+    return req(CJS_DRIVER_SPECIFIER) as NodeSqliteDriver;
+  }
 }

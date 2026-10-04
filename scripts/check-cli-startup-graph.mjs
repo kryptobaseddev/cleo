@@ -81,6 +81,12 @@ const STORE_STACK = /\/drizzle-orm\/|^node:sqlite$/;
 const MODEL_SDKS = /\/(@anthropic-ai|openai|@ai-sdk|@aws-sdk|@google|js-tiktoken)\//;
 /** CORE's human-renderer entry point: JSON output (`--version`, agents) never needs it. */
 const CORE_RENDER = /\/core\/dist\/render\/index\.js$/;
+/** The output-contract table a failed `--field` pointer loads for its remedy. */
+const OUTPUT_CONTRACTS = /\/core\/dist\/dispatch\/contracts\/output-contracts\.js$/;
+/** drizzle's ES module `node-sqlite` driver, the build the store loads (T13126). */
+const DRIZZLE_ESM_DRIVER = /\/drizzle-orm\/node-sqlite\/driver\.js$/;
+/** Any file of drizzle's CommonJS build: the store falls back to it only when require(esm) fails. */
+const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
 
 /**
  * @typedef {object} Probe
@@ -88,6 +94,9 @@ const CORE_RENDER = /\/core\/dist\/render\/index\.js$/;
  * @property {string[]} args - CLI arguments.
  * @property {boolean} [needsProject] - Run inside an initialised throwaway project.
  * @property {RegExp[]} forbid - Module URL patterns this probe must not load.
+ * @property {RegExp[]} [require] - Module URL patterns this probe must load:
+ *   proof that it still exercises the code path it guards.
+ * @property {number} [expectExit] - Exit code the command must return.
  * @property {number} maxModules - Budget of loaded `file:` modules (the ratchet).
  * @property {number} maxRssMb - Ceiling on peak resident set size, in MB.
  */
@@ -106,6 +115,16 @@ const CORE_RENDER = /\/core\/dist\/render\/index\.js$/;
  * `--version` to 64 modules / 55 MB. `show` still loads the CORE barrel
  * through the dispatch layer; T13126's follow-ups lower it. Lower each budget
  * in the PR that lowers its count.
+ *
+ * Three CLI paths load ES modules through `require(esm)`, which throws
+ * `ERR_REQUIRE_ASYNC_MODULE` when the loaded graph uses top-level await: the
+ * store's drizzle driver (`core/src/store/drizzle-node-sqlite.ts`), CORE's
+ * human renderers, and the output-contract table behind a failed `--field`
+ * pointer (both through `cleo/src/cli/lib/load-esm-sync.ts`). `list-human` and
+ * `field-miss` run the last two and must exit as expected, so top-level await
+ * reaching either graph fails this gate. The drizzle driver falls back to its
+ * CommonJS build instead of failing, so every store-opening probe forbids
+ * drizzle's `.cjs` files and requires the ES module driver.
  *
  * @type {readonly Probe[]}
  */
@@ -128,7 +147,30 @@ export const PROBES = Object.freeze([
     name: 'show',
     args: ['show', 'T001'],
     needsProject: true,
-    forbid: [],
+    forbid: [DRIZZLE_CJS],
+    require: [DRIZZLE_ESM_DRIVER],
+    maxModules: 2200,
+    maxRssMb: 480,
+  },
+  {
+    name: 'list-human',
+    args: ['list', '--human'],
+    needsProject: true,
+    forbid: [DRIZZLE_CJS],
+    require: [CORE_RENDER, DRIZZLE_ESM_DRIVER],
+    // ExitCode.NO_DATA: the throwaway project has no tasks; the renderer still runs.
+    expectExit: 100,
+    maxModules: 2200,
+    maxRssMb: 480,
+  },
+  {
+    name: 'field-miss',
+    args: ['list', '--field', '/data/no-such-field'],
+    needsProject: true,
+    forbid: [DRIZZLE_CJS],
+    require: [OUTPUT_CONTRACTS],
+    // ExitCode.NOT_FOUND: E_FIELD_NOT_FOUND, with the contract's valid pointers as the fix.
+    expectExit: 4,
     maxModules: 2200,
     maxRssMb: 480,
   },
@@ -210,6 +252,7 @@ process.on('exit', () => {
  * @property {number} modules - Loaded `file:` modules.
  * @property {number} maxRssMb
  * @property {string[]} urls - Every loaded module URL.
+ * @property {string} stderr - The command's stderr, for failure reports.
  */
 
 /**
@@ -252,6 +295,7 @@ function runProbe(probe, env) {
     modules: urls.filter((url) => url.startsWith('file:')).length,
     maxRssMb: trace.maxRssMb,
     urls,
+    stderr: child.stderr ?? '',
   };
 }
 
@@ -307,14 +351,25 @@ function initSandboxProject(sandbox) {
  * Judge one probe against its budgets.
  *
  * @param {Probe} probe
- * @param {Pick<ProbeResult, 'modules' | 'maxRssMb' | 'urls'>} result
+ * @param {Pick<ProbeResult, 'modules' | 'maxRssMb' | 'urls'> & Partial<Pick<ProbeResult, 'exitCode' | 'stderr'>>} result
  * @returns {string[]} Failure reasons; empty when the probe passes.
  */
 export function judgeProbe(probe, result) {
   const reasons = [];
+  if (probe.expectExit !== undefined && result.exitCode !== probe.expectExit) {
+    const stderr = (result.stderr ?? '').trim().slice(-600);
+    reasons.push(
+      `${probe.name}: exited ${result.exitCode}, expected ${probe.expectExit}${stderr ? `\n${stderr}` : ''}`,
+    );
+  }
   for (const pattern of probe.forbid) {
     const hit = result.urls.find((url) => pattern.test(url));
     if (hit) reasons.push(`${probe.name}: loads a forbidden module (${pattern}): ${hit}`);
+  }
+  for (const pattern of probe.require ?? []) {
+    if (!result.urls.some((url) => pattern.test(url))) {
+      reasons.push(`${probe.name}: never loads ${pattern}, so it no longer tests that path`);
+    }
   }
   if (result.modules > probe.maxModules) {
     reasons.push(
