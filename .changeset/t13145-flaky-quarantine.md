@@ -8,7 +8,8 @@ summary: CI re-runs a failing test's file once; a flake is filed and quarantined
 Each unit shard now runs vitest through `scripts/ci-flaky-quarantine.mjs`. A failing test's file
 is re-run once. If the test then passes, it is a flake: CI stays green, the test is reported in the
 run summary and in a `flaky-report-*` artifact, and on main it is filed as an open `flaky-quarantine`
-issue (only issues GitHub Actions files count). While that issue is open, a failure of the test that
+issue. Only issues GitHub Actions files count, and only while their title names the test their body
+state names and no one else has edited the body, so an edited issue cannot re-target the quarantine. While that issue is open, a failure of the test that
 also fails its re-run does not block CI, and it does not renew the quarantine.
 
 The nightly run closes an issue that has had no confirmed flake for 14 days, so a test that is broken

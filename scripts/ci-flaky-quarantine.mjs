@@ -237,7 +237,7 @@ export function bodyOf(state, note) {
   return [
     `\`${state.test}\` in \`${state.file}\` failed in CI and then passed on a re-run: a flake.`,
     '',
-    `While this issue is open the test is **quarantined**: a failure of it that also fails its re-run does not block CI (scripts/ci-flaky-quarantine.mjs, T13145). Only a confirmed flake (fail, then pass) renews the quarantine; ${EXPIRE_AFTER_DAYS} days without one close this issue automatically, and the test blocks again. Close it by hand once the flake is fixed. Main CI fails while more than ${MAX_QUARANTINE} tests are quarantined. Only issues github-actions files count.`,
+    `While this issue is open the test is **quarantined**: a failure of it that also fails its re-run does not block CI (scripts/ci-flaky-quarantine.mjs, T13145). Only a confirmed flake (fail, then pass) renews the quarantine; ${EXPIRE_AFTER_DAYS} days without one close this issue automatically, and the test blocks again. Close it by hand once the flake is fixed. Main CI fails while more than ${MAX_QUARANTINE} tests are quarantined. Only issues github-actions files count, and only while their title names the test and no one else has edited the body: an edit by anyone else ends the quarantine.`,
     '',
     `Confirmed flakes: ${state.observations} (first ${state.firstSeenAt}, last ${state.lastSeenAt}).`,
     `Latest: ${note}`,
@@ -343,11 +343,25 @@ const isActionsBot = (/** @type {{ login?: string, is_bot?: boolean } | undefine
   author?.is_bot === true && /^(app\/)?github-actions(\[bot\])?$/.test(author.login ?? '');
 
 /**
- * The quarantine from `gh issue list` rows: only issues the GitHub Actions bot
- * filed count (a collaborator's label is not a CI bypass, T13145 review), and
- * each test counts once — the oldest issue wins; later ones are `duplicates`.
+ * @typedef {object} IssueRow
+ * @property {number} number
+ * @property {string} title
+ * @property {string | null} [body]
+ * @property {{ login?: string, is_bot?: boolean }} [author]
+ * @property {{ login?: string, is_bot?: boolean } | null} [editor] - Who last edited
+ *   the body; null when it was never edited.
+ */
+
+/**
+ * The quarantine from issue rows. Only issues the GitHub Actions bot filed
+ * count (a collaborator's label is not a CI bypass, T13145 review). The body
+ * carries the state that names the quarantined test, and anyone with triage
+ * access can edit a body, so an issue counts only while no one but the bot
+ * has edited it and its title still names the test its state names: a forged
+ * state would otherwise quarantine any test. Each test counts once; the
+ * oldest issue wins and later ones are `duplicates`.
  *
- * @param {Array<{ number: number, title: string, body?: string | null, author?: { login?: string, is_bot?: boolean } }>} rows
+ * @param {IssueRow[]} rows
  * @returns {{ issues: QuarantineIssue[], duplicates: Array<{ number: number, of: number }> }}
  */
 export function trustedIssues(rows) {
@@ -357,8 +371,9 @@ export function trustedIssues(rows) {
   const firstByKey = new Map();
   for (const row of [...rows].sort((a, b) => a.number - b.number)) {
     if (!isActionsBot(row.author)) continue;
+    if (row.editor && !isActionsBot(row.editor)) continue;
     const issue = parseIssue(row);
-    if (issue.state === null) continue;
+    if (issue.state === null || row.title !== titleOf(issue.state)) continue;
     const first = firstByKey.get(keyOf(issue.state));
     if (first !== undefined) {
       duplicates.push({ number: issue.number, of: first });
@@ -370,24 +385,65 @@ export function trustedIssues(rows) {
   return { issues, duplicates };
 }
 
+/**
+ * GraphQL for the open quarantine issues. `gh issue list --json` cannot report
+ * who last edited a body; `editor` can (null when never edited).
+ */
+const OPEN_ISSUES_QUERY = `query($owner: String!, $repo: String!, $label: String!, $endCursor: String) {
+  repository(owner: $owner, name: $repo) {
+    issues(labels: [$label], states: OPEN, first: 100, after: $endCursor) {
+      nodes { number title body author { __typename login } editor { __typename login } }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`;
+
+/**
+ * Turn `gh api graphql --jq '...nodes[]'` output (one issue per line) into
+ * issue rows. A GraphQL actor is a bot when its type is `Bot`.
+ *
+ * @param {string} out
+ * @returns {IssueRow[]}
+ */
+export function rowsFromGraphql(out) {
+  /** @param {{ __typename?: string, login?: string } | null | undefined} actor */
+  const actor = (actor) =>
+    actor ? { login: actor.login, is_bot: actor.__typename === 'Bot' } : null;
+  return out
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line) => {
+      const node = JSON.parse(line);
+      return {
+        number: node.number,
+        title: node.title,
+        body: node.body,
+        author: actor(node.author) ?? undefined,
+        editor: actor(node.editor),
+      };
+    });
+}
+
 /** The open quarantine issues, or `null` when they cannot be read. */
 function readOpenIssues() {
   const out = gh([
-    'issue',
-    'list',
-    '--label',
-    LABEL,
-    '--state',
-    'open',
-    '--limit',
-    '200',
-    '--json',
-    'number,title,body,author',
+    'api',
+    'graphql',
+    '--paginate',
+    '-F',
+    'owner={owner}',
+    '-F',
+    'repo={repo}',
+    '-f',
+    `label=${LABEL}`,
+    '-f',
+    `query=${OPEN_ISSUES_QUERY}`,
+    '--jq',
+    '.data.repository.issues.nodes[]',
   ]);
   if (out === null) return null;
   try {
-    const rows = JSON.parse(out);
-    return Array.isArray(rows) ? trustedIssues(rows) : null;
+    return trustedIssues(rowsFromGraphql(out));
   } catch {
     return null;
   }

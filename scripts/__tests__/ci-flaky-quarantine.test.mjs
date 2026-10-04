@@ -24,6 +24,7 @@ import {
   parseVitestReport,
   planExpiry,
   planFiling,
+  rowsFromGraphql,
   titleOf,
   trustedIssues,
   UNHANDLED_LINE,
@@ -153,23 +154,76 @@ describe('trustedIssues and unhandled errors', () => {
   it('counts only issues GitHub Actions filed, and each test once (the oldest issue)', () => {
     const body = bodyOf(stateOf(A), 'x');
     const { issues, duplicates } = trustedIssues([
-      { number: 9, title: 't', body, author: BOT },
-      { number: 3, title: 't', body, author: { login: 'github-actions[bot]', is_bot: true } },
+      { number: 9, title: titleOf(A), body, author: BOT },
+      {
+        number: 3,
+        title: titleOf(A),
+        body,
+        author: { login: 'github-actions[bot]', is_bot: true },
+      },
       {
         number: 5,
-        title: 't',
+        title: titleOf(B),
         body: bodyOf(stateOf(B), 'x'),
         author: { login: 'someone', is_bot: false },
       },
       {
         number: 6,
-        title: 't',
+        title: titleOf(B),
         body: bodyOf(stateOf(B), 'x'),
         author: { login: 'github-actions', is_bot: false },
       },
     ]);
     expect(issues.map((i) => i.number)).toEqual([3]);
     expect(duplicates).toEqual([{ number: 9, of: 3 }]);
+  });
+
+  it('ignores a bot issue whose body someone else edited, or whose title names another test', () => {
+    const critical = { file: 'packages/core/src/critical.test.ts', test: 'the test my PR breaks' };
+    const human = { login: 'someone', is_bot: false };
+    const { issues } = trustedIssues([
+      // The review probe: a bot issue for one test, its body state re-targeted.
+      { number: 4, title: titleOf(A), body: bodyOf(stateOf(critical), 'x'), author: BOT },
+      // Title and state edited consistently, but the last body edit was not the bot's.
+      {
+        number: 5,
+        title: titleOf(critical),
+        body: bodyOf(stateOf(critical), 'x'),
+        author: BOT,
+        editor: human,
+      },
+      // The bot's own renewals edit the body; those count.
+      { number: 6, title: titleOf(B), body: bodyOf(stateOf(B), 'x'), author: BOT, editor: BOT },
+    ]);
+    expect(issues.map((i) => i.number)).toEqual([6]);
+  });
+
+  it('reads issue rows from GraphQL, where a bot is an actor of type Bot', () => {
+    const line = (n, author, editor) =>
+      JSON.stringify({ number: n, title: 't', body: 'b', author, editor });
+    const rows = rowsFromGraphql(
+      [
+        line(1, { __typename: 'Bot', login: 'github-actions' }, null),
+        line(2, { __typename: 'Bot', login: 'github-actions' }, { __typename: 'User', login: 'x' }),
+        '',
+      ].join('\n'),
+    );
+    expect(rows).toEqual([
+      {
+        number: 1,
+        title: 't',
+        body: 'b',
+        author: { login: 'github-actions', is_bot: true },
+        editor: null,
+      },
+      {
+        number: 2,
+        title: 't',
+        body: 'b',
+        author: { login: 'github-actions', is_bot: true },
+        editor: { login: 'x', is_bot: false },
+      },
+    ]);
   });
 
   it("recognises vitest's report of an error outside any test", () => {
@@ -294,15 +348,31 @@ process.exit(a.code);
     return JSON.stringify([process.execPath, script]);
   }
 
-  /** A stand-in gh: answers `issue list` from `issues`, logs every call. */
+  /**
+   * A stand-in gh: answers the open-issues GraphQL query from `issues` (one
+   * node per line, as `--jq '...nodes[]'` prints them), logs every call.
+   */
   function fakeGh(issues) {
     const script = path.join(dir, 'fake-gh');
+    const actor = (a) =>
+      a ? { __typename: a.is_bot ? 'Bot' : 'User', login: a.login.replace(/^app\//, '') } : null;
+    const nodes = issues
+      .map((i) =>
+        JSON.stringify({
+          number: i.number,
+          title: i.title,
+          body: i.body,
+          author: actor(i.author),
+          editor: actor(i.editor),
+        }),
+      )
+      .join('\n');
     writeFileSync(
       script,
       `#!${process.execPath}
 const fs = require('node:fs');
 fs.appendFileSync(${JSON.stringify(path.join(dir, 'gh-calls'))}, JSON.stringify(process.argv.slice(2)) + '\\n');
-if (process.argv[2] === 'issue' && process.argv[3] === 'list') process.stdout.write(${JSON.stringify(JSON.stringify(issues))});
+if (process.argv[2] === 'api' && process.argv[3] === 'graphql') process.stdout.write(${JSON.stringify(nodes)});
 `,
     );
     chmodSync(script, 0o755);
@@ -437,6 +507,33 @@ if (process.argv[2] === 'issue' && process.argv[3] === 'list') process.stdout.wr
     ]);
   });
 
+  it('an issue body someone else edited quarantines nothing: failing twice blocks', () => {
+    const state = {
+      ...A,
+      firstSeenAt: '2026-10-01T00:00:00.000Z',
+      lastSeenAt: '2026-10-01T00:00:00.000Z',
+      observations: 1,
+    };
+    const issues = [
+      {
+        number: 5,
+        title: titleOf(A),
+        body: bodyOf(state, 'x'),
+        author: BOT,
+        editor: { login: 'someone', is_bot: false },
+      },
+    ];
+    const r = run(
+      fakeVitest([
+        { code: 1, report: rep([A]) },
+        { code: 1, report: rep([A]) },
+      ]),
+      issues,
+    );
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('failed on the re-run too');
+  });
+
   it(`fails when more than ${MAX_QUARANTINE} tests are quarantined, even on a green run`, () => {
     const issues = Array.from({ length: MAX_QUARANTINE + 1 }, (_, i) => {
       const t = { file: `f${i}.test.ts`, test: 't' };
@@ -542,7 +639,7 @@ if (process.argv[2] === 'issue' && process.argv[3] === 'list') process.stdout.wr
     const calls = ghCalls();
     const verbs = calls.map((c) => `${c[0]} ${c[1]}`);
     expect(verbs).toEqual([
-      'issue list',
+      'api graphql',
       'label create',
       'issue create',
       'issue edit',

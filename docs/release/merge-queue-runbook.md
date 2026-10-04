@@ -256,7 +256,9 @@ Each unit shard runs vitest through `scripts/ci-flaky-quarantine.mjs`:
   - a crash or heap kill leaves no failing test in the JSON report.
 - On `main` (push and nightly), the `Flaky Test Quarantine` job files each confirmed flake as an
   open issue labelled `flaky-quarantine`, or renews the existing issue. **The open issues filed by
-  GitHub Actions are the quarantine**; an issue anyone else opens or labels does not count. While a
+  GitHub Actions are the quarantine**; an issue anyone else opens or labels does not count, and
+  neither does a bot issue whose body someone else has edited or whose title no longer names the test
+  its body state names (the state is what the quarantine reads, and it is editable). While a
   test's issue is open, a failure of it that also fails its re-run does not block CI, and it does not
   renew the quarantine either. A whole-file entry excuses only a whole-file failure.
 - On the nightly run, an issue with no confirmed flake for 14 days is closed, and the test blocks
