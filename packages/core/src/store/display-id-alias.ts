@@ -107,9 +107,9 @@ import {
   rewriteStoredRefUidNative,
   setNaturalUidNative,
   setRowUidNative,
-  type TaskReferenceColumn,
 } from './sqlite-data-accessor.js';
 import { compareHlc as compareSyncHlc, encodeHlc, type Hlc, parseHlc } from './sync/hlc.js';
+import { taskReferenceColumns } from './task-reference-columns.js';
 import { tasks as tasksTable } from './tasks-schema.js';
 import { insertTaskSchema } from './validation-schemas.js';
 
@@ -529,38 +529,9 @@ export function allocateTaskDisplayId(db: DatabaseSync): string {
   return `T${String(counter).padStart(3, '0')}`;
 }
 
-/** Every local column that holds a task's display id. */
-function taskReferenceColumns(db: DatabaseSync): TaskReferenceColumn[] {
-  const found = new Map<string, TaskReferenceColumn>();
-  const add = (table: string, column: string, jsonArray: boolean) => {
-    found.set(`${table}.${column}`, { table, column, jsonArray });
-  };
-  const fks = db
-    .prepare(
-      `SELECT m.name AS tbl, f."from" AS col
-         FROM main.sqlite_master m, pragma_foreign_key_list(m.name) f
-        WHERE m.type = 'table' AND f."table" = 'tasks_tasks'
-          AND (f."to" IS NULL OR f."to" = 'id')`,
-    )
-    .all() as { tbl: string; col: string }[];
-  for (const fk of fks) add(fk.tbl, fk.col, false);
-  for (const spec of ROW_IDENTITY.project) {
-    for (const ref of [...(spec.refs ?? []), ...(spec.keyRefs ?? []), ...(spec.owners ?? [])]) {
-      if (ref.table === 'tasks_tasks') add(spec.table, ref.column, false);
-    }
-    for (const ref of spec.jsonArrayRefs ?? []) {
-      if (ref.table === 'tasks_tasks') add(spec.table, ref.column, true);
-    }
-  }
-  const tables = new Set(
-    (
-      db.prepare("SELECT name FROM main.sqlite_master WHERE type = 'table'").all() as {
-        name: string;
-      }[]
-    ).map((r) => r.name),
-  );
-  return [...found.values()].filter((ref) => tables.has(ref.table));
-}
+// taskReferenceColumns lives in `./task-reference-columns.js`, a leaf the
+// reconcile's legacy-task renumbering shares (T13172).
+export { taskReferenceColumns } from './task-reference-columns.js';
 
 // ---- Re-mint ops --------------------------------------------------------------
 

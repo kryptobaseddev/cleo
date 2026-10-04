@@ -279,6 +279,34 @@ describe('createAudit middleware', () => {
     expect(insertedValues.success).toBe(0);
   });
 
+  it('writes a failed mutation row before the response leaves the middleware (T13164)', async () => {
+    // The CLI's error path calls process.exit right after the envelope. A
+    // fire-and-forget insert lost that race on every run, so the row must be
+    // written before the middleware resolves — no settle delay in this test.
+    const insert = Promise.withResolvers<undefined>();
+    mockInsertRun.mockReturnValueOnce(insert.promise);
+    const middleware = createAudit();
+    const response = makeResponse({
+      success: false,
+      error: { code: 'E_NOT_FOUND', message: 'Task not found', exitCode: 4 },
+    });
+    let resolved = false;
+    const pending = middleware(makeRequest(), () => Promise.resolve(response)).then((r) => {
+      resolved = true;
+      return r;
+    });
+
+    await vi.waitFor(() => expect(mockInsertRun).toHaveBeenCalledOnce());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(resolved).toBe(false);
+
+    insert.resolve(undefined);
+    await expect(pending).resolves.toBe(response);
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ success: 0, errorMessage: 'Task not found' }),
+    );
+  });
+
   // ── T12031: cross-process durable gradeMode ──
 
   describe('grade-mode query auditing (T12031)', () => {
