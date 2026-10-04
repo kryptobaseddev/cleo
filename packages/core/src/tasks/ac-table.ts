@@ -21,7 +21,8 @@ import type {
   AcRow,
   TransactionAccessor,
 } from '@cleocode/contracts';
-import { acceptanceGateSchema, ExitCode } from '@cleocode/contracts';
+import { acceptanceGateSchema } from '@cleocode/contracts/acceptance-gate-schema.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { acTextHash, buildAcRowId, canonicalizeAcText } from './ac-identity.js';
 

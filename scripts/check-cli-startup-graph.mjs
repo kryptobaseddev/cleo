@@ -112,9 +112,10 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * | show    |   2,412 | 396 MB            |
  *
  * Loading CORE's human renderers only for human output (T13126) took
- * `--version` to 64 modules / 55 MB. `show` still loads the CORE barrel
- * through the dispatch layer; T13126's follow-ups lower it. Lower each budget
- * in the PR that lowers its count.
+ * `--version` to 64 modules / 55 MB. Then the dispatch layer stopped loading
+ * the CORE barrel for the hot reads (lazy domain handlers,
+ * `@cleocode/runtime/gateway/dispatch`, narrow imports): `show` and `find`
+ * load ~1,050 modules. Lower each budget in the PR that lowers its count.
  *
  * Three CLI paths load ES modules through `require(esm)`, which throws
  * `ERR_REQUIRE_ASYNC_MODULE` when the loaded graph uses top-level await: the
@@ -147,32 +148,41 @@ export const PROBES = Object.freeze([
     name: 'show',
     args: ['show', 'T001'],
     needsProject: true,
-    forbid: [DRIZZLE_CJS],
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     require: [DRIZZLE_ESM_DRIVER],
-    maxModules: 2200,
-    maxRssMb: 480,
+    maxModules: 1150,
+    maxRssMb: 330,
+  },
+  {
+    name: 'find',
+    args: ['find', 'probe'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    require: [DRIZZLE_ESM_DRIVER],
+    maxModules: 1150,
+    maxRssMb: 330,
   },
   {
     name: 'list-human',
     args: ['list', '--human'],
     needsProject: true,
-    forbid: [DRIZZLE_CJS],
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     require: [CORE_RENDER, DRIZZLE_ESM_DRIVER],
     // ExitCode.NO_DATA: the throwaway project has no tasks; the renderer still runs.
     expectExit: 100,
-    maxModules: 2200,
-    maxRssMb: 480,
+    maxModules: 1250,
+    maxRssMb: 330,
   },
   {
     name: 'field-miss',
     args: ['list', '--field', '/data/no-such-field'],
     needsProject: true,
-    forbid: [DRIZZLE_CJS],
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     require: [OUTPUT_CONTRACTS],
     // ExitCode.NOT_FOUND: E_FIELD_NOT_FOUND, with the contract's valid pointers as the fix.
     expectExit: 4,
-    maxModules: 2200,
-    maxRssMb: 480,
+    maxModules: 1250,
+    maxRssMb: 330,
   },
 ]);
 

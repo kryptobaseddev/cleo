@@ -19,13 +19,28 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path';
 import type {
   ChangesetEntry,
+  EngineResult,
   EvidenceAtom,
+  ReleaseGate,
+  ReleaseGateExecutionStatus,
+  ReleaseGateName,
+  ReleaseKind,
+  ReleasePlan,
+  ReleasePlanChangelog,
+  ReleasePlanChannel,
+  ReleasePlanTask,
+  ReleasePlatformMatrixEntry,
+  ReleasePreflightSummary,
+  ReleaseScheme,
+  ReleaseTaskKind,
+  ResolvedSource,
   Task,
   TaskStatus,
   VerificationGate,
 } from '@cleocode/contracts';
+import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
+import { ChangesetYamlInvalidError } from '@cleocode/contracts/errors.js';
 import {
-  ChangesetYamlInvalidError,
   E_CHANGESET_YAML_INVALID,
   E_CHANNEL_MISMATCH,
   E_DIRTY_TREE,
@@ -34,25 +49,9 @@ import {
   E_EPIC_NOT_FOUND,
   E_EVIDENCE_INSUFFICIENT,
   E_RELEASE_PLAN_INVALID,
-  type EngineResult,
   ExitCode,
-  engineError,
-  engineSuccess,
-  parseReleasePlan,
-  type ReleaseGate,
-  type ReleaseGateExecutionStatus,
-  type ReleaseGateName,
-  type ReleaseKind,
-  type ReleasePlan,
-  type ReleasePlanChangelog,
-  type ReleasePlanChannel,
-  type ReleasePlanTask,
-  type ReleasePlatformMatrixEntry,
-  type ReleasePreflightSummary,
-  type ReleaseScheme,
-  type ReleaseTaskKind,
-  type ResolvedSource,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/exit-codes.js';
+import { parseReleasePlan } from '@cleocode/contracts/release/plan.js';
 import { desc, eq } from 'drizzle-orm';
 
 import { parseChangesetDir } from '../changesets/index.js';

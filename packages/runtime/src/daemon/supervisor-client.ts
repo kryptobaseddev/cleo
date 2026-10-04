@@ -22,14 +22,16 @@
  * @saga T11243 SG-RUNTIME-UNIFICATION
  */
 
-import {
-  SUPERVISOR_IPC_PROTOCOL_VERSION,
-  type SupervisorIpcRequest,
-  type SupervisorIpcRequestEnvelope,
-  SupervisorIpcRequestEnvelopeSchema,
-  type SupervisorIpcResponseEnvelope,
-  SupervisorIpcResponseEnvelopeSchema,
+import type {
+  SupervisorIpcRequest,
+  SupervisorIpcRequestEnvelope,
+  SupervisorIpcResponseEnvelope,
 } from '@cleocode/contracts';
+import {
+  SupervisorIpcRequestEnvelopeSchema,
+  SupervisorIpcResponseEnvelopeSchema,
+} from '@cleocode/contracts/supervisor-ipc/messages.js';
+import { SUPERVISOR_IPC_PROTOCOL_VERSION } from '@cleocode/contracts/supervisor-ipc/version.js';
 
 /**
  * A typed error raised when an inbound NDJSON line cannot be decoded into a

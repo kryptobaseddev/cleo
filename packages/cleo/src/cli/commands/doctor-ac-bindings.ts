@@ -9,7 +9,7 @@
  * @task T12790
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { scanOrphanAcBindings } from '@cleocode/core/doctor/orphan-ac-bindings.js';
 import { getProjectRoot } from '@cleocode/core/paths.js';
 import { defineCommand } from '../lib/define-cli-command.js';

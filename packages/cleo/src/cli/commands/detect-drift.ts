@@ -16,7 +16,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { getErrorMessage } from '@cleocode/contracts';
+import { getErrorMessage } from '@cleocode/contracts/errors.js';
 import { defineCommand } from 'citty';
 import { CLEO_DIR_NAME, CLEO_INJECTION_MD, TEMPLATES_SUBDIR } from '../paths.js';
 import { cliOutput } from '../renderers/index.js';

@@ -21,7 +21,7 @@ import type {
   ChangesetKind,
   ChangesetReleaseNoteSection,
 } from '@cleocode/contracts';
-import { ChangesetEntrySchema } from '@cleocode/contracts';
+import { ChangesetEntrySchema } from '@cleocode/contracts/changesets.js';
 import { parse as parseYaml } from 'yaml';
 import { parseChangesetDir } from '../changesets/index.js';
 import { createAttachmentStore } from '../store/attachment-store.js';

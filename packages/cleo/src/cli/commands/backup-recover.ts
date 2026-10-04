@@ -25,7 +25,9 @@
  * @saga T10281
  */
 
-import { DB_INVENTORY, type DbRole, ExitCode } from '@cleocode/contracts';
+import type { DbRole } from '@cleocode/contracts';
+import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { getLogger, getProjectRoot } from '@cleocode/core';
 import { BackupRecoverError, runBackupRecover } from '@cleocode/core/store/backup-recover.js';
 import { defineCommand } from '../lib/define-cli-command.js';

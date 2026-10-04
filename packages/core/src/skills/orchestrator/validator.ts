@@ -6,7 +6,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { MANIFEST_STATUSES } from '@cleocode/contracts';
+import { MANIFEST_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { z } from 'zod';
 import { EngineResultError } from '../../engine-result.js';
 import { readContainedFile } from '../../memory/manifest-identity.js';

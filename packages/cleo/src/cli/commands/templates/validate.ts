@@ -19,7 +19,8 @@
  * @adr 076
  */
 
-import { ExitCode, type TemplateKind } from '@cleocode/contracts';
+import type { TemplateKind } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   getInstalledStatus,
   getTemplateById,

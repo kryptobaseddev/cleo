@@ -18,7 +18,7 @@
  * @depends stages.ts - Stage definitions and transition rules
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import type { Stage, StageStatus } from './stages.js';
 import { checkTransition, getPrerequisites, PIPELINE_STAGES, STAGE_DEFINITIONS } from './stages.js';

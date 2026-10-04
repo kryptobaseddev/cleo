@@ -33,14 +33,14 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { availableParallelism, totalmem } from 'node:os';
 import { join } from 'node:path';
-import {
-  type AdmissionResult,
-  DEFAULT_RESOURCE_RETRY_AFTER_MS,
-  type GovernorMode,
-  type ResourceClass,
-  type ResourceDeferral,
-  type ResourceGrant,
+import type {
+  AdmissionResult,
+  GovernorMode,
+  ResourceClass,
+  ResourceDeferral,
+  ResourceGrant,
 } from '@cleocode/contracts';
+import { DEFAULT_RESOURCE_RETRY_AFTER_MS } from '@cleocode/contracts/resource-governor.js';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
 import type { ResourceSample } from './backend.js';

@@ -39,7 +39,7 @@ import {
 import { homedir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import type { parseDocument } from '@cleocode/cant';
-import { provisionIsolatedShell } from '@cleocode/contracts';
+import { provisionIsolatedShell } from '@cleocode/contracts/branch-lock.js';
 import { CAAMP_BLOCK_PATTERN_SOURCE } from '@cleocode/contracts/caamp-markers';
 import { writeFileAtomic } from '@cleocode/core/tools/fs.js';
 import type { Provider } from '../../types.js';

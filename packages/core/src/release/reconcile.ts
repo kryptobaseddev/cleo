@@ -39,7 +39,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { type ReleasePlan, safeParseReleasePlan } from '@cleocode/contracts';
+import type { ReleasePlan } from '@cleocode/contracts';
+import { safeParseReleasePlan } from '@cleocode/contracts/release/plan.js';
 import { eq, inArray } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';

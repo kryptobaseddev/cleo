@@ -19,7 +19,9 @@
  * @epic T4454
  */
 
-import { ExitCode, TASK_SEVERITIES, type TaskRecord } from '@cleocode/contracts';
+import type { TaskRecord } from '@cleocode/contracts';
+import { TASK_SEVERITIES } from '@cleocode/contracts/enums.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   INPUT_CONTRACTS,
   isPipelineTransitionForward,

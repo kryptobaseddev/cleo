@@ -18,24 +18,26 @@
  * @epic T12323
  */
 
+import type {
+  CloudDevicesResult,
+  CloudPaging,
+  CloudProjectShowResult,
+  CloudProjectsResult,
+  CloudWarning,
+  CloudWhoamiResult,
+  NexusCloudReplica,
+  NexusDeviceListState,
+  NexusProjectLink,
+} from '@cleocode/contracts';
 import {
-  type CloudDevicesResult,
-  type CloudPaging,
-  type CloudProjectShowResult,
-  type CloudProjectsResult,
-  type CloudWarning,
-  type CloudWhoamiResult,
   NEXUS_CLOUD_MAX_PAGES,
   NEXUS_PAGE_LIMIT_MAX,
-  type NexusCloudReplica,
-  type NexusDeviceListState,
-  type NexusProjectLink,
   nexusCloudDevicePageSchema,
   nexusCloudProjectDetailSchema,
   nexusCloudProjectPageSchema,
   nexusCloudReplicaPageSchema,
   nexusCloudWhoamiSchema,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/nexus-cloud.js';
 import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { resolveOrCwd } from '../paths.js';
 import { type FetchLike, Http, NexusError, type ResponseSchema } from './http.js';

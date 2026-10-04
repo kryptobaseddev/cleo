@@ -20,13 +20,13 @@
  * @epic T12486
  */
 
+import type { DecisionProviderKind } from '@cleocode/contracts';
 import {
   DECISION_PROVIDER_KINDS,
-  type DecisionProviderKind,
   JEV_DEFAULT_BASE_URL,
   LAYAHOST_BASE_URL,
   LAYAHOST_DEFAULT_MODEL,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/decide.js';
 
 /** What a provider kind requires and defaults. */
 export interface DecisionProviderPreset {

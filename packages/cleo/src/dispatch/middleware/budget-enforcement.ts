@@ -24,7 +24,7 @@
  * @saga T11283 SG-COGNITIVE-SUBSTRATE
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { BUDGET_EXCEEDED_CODE, type EnforceBudgetOptions, enforceBudget } from '../lib/budget.js';
 import { BUDGET_POLICIES, type BudgetPolicy } from '../lib/budget-ceilings.js';
 import type { DispatchError, DispatchRequest, DispatchResponse, Middleware } from '../types.js';

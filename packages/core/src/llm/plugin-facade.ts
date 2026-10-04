@@ -27,17 +27,17 @@
  */
 
 import { matchesGlob } from 'node:path';
-import {
-  PluginDeniedError,
-  PluginLlmError,
-  PluginModelGateError,
-  PluginRateLimitedError,
-} from '@cleocode/contracts';
 import type { SendOptions } from '@cleocode/contracts/llm/interfaces.js';
 import type {
   NormalizedResponse,
   TransportMessage,
 } from '@cleocode/contracts/llm/normalized-response.js';
+import {
+  PluginDeniedError,
+  PluginLlmError,
+  PluginModelGateError,
+  PluginRateLimitedError,
+} from '@cleocode/contracts/llm/plugin-llm.js';
 import { redact } from '@cleocode/utils';
 import { getLlmExecutor } from './executor-factory.js';
 
