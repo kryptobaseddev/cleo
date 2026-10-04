@@ -17,7 +17,7 @@
  * @task T12712
  */
 
-import { NEXUS_LOGIN_TARGET } from '@cleocode/contracts';
+import { NEXUS_LOGIN_TARGET } from '@cleocode/contracts/nexus-account.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { NEXUS_API_URL_ARG, runNexusDeviceLogout } from '../lib/nexus-account-cli.js';
 import { emitLlmCredentialRemoval } from './auth/remove.js';

@@ -14,7 +14,7 @@
  * @saga T9855
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { INPUT_CONTRACTS, validateOperationInput } from '@cleocode/core';
 import { defineCommand } from 'citty';
 import { dispatchRaw, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';

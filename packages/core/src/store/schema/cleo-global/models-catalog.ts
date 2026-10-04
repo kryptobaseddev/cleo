@@ -47,7 +47,7 @@
  * @see ./accounts.ts — the sibling credential-pool table this directory mirrors
  */
 
-import { CATALOG_MODEL_STATUSES } from '@cleocode/contracts';
+import { CATALOG_MODEL_STATUSES } from '@cleocode/contracts/llm/catalog-schema.js';
 import { sql } from 'drizzle-orm';
 import { index, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
 

@@ -5,7 +5,7 @@
  * @task T4457
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import lockfile from 'proper-lockfile';
 import { CleoError } from '../errors.js';
 

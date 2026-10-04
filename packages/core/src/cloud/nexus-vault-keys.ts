@@ -41,13 +41,13 @@
  */
 
 import type { CloudWarning, NexusAccountSetup, NexusAccountSetupStep } from '@cleocode/contracts';
-import { nexusProjectKeysSchema, nexusUserKeysSchema } from '@cleocode/contracts';
 import {
   type DeviceTrust,
   DeviceTrust as DeviceTrustSchema,
   KeyEscrowGrant,
   PutKeyEscrowResult,
 } from '@cleocode/contracts/cloud';
+import { nexusProjectKeysSchema, nexusUserKeysSchema } from '@cleocode/contracts/nexus-vault.js';
 import { z } from 'zod';
 import { type KeyPair, openSealed, randomKey } from './crypto.js';
 import { type FetchLike, Http, NexusError, type ResponseSchema } from './http.js';

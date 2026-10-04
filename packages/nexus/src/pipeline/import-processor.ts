@@ -26,7 +26,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { confidenceLabelFromNumeric } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts/graph.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import {
   buildSuffixIndex,

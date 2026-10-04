@@ -53,7 +53,8 @@ import type {
   ProviderProfile,
   RoleName,
 } from '@cleocode/contracts';
-import { NEXUS_LOGIN_TARGET, WHOAMI_ROLE_IDS } from '@cleocode/contracts';
+import { WHOAMI_ROLE_IDS } from '@cleocode/contracts/llm/system-of-use.js';
+import { NEXUS_LOGIN_TARGET } from '@cleocode/contracts/nexus-account.js';
 import type {
   AcquiredOAuthToken,
   OAuthTokenAcquirer,

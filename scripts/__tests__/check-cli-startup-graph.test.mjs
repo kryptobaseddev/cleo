@@ -8,9 +8,11 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  buildPrecondition,
   FORBIDDEN_STATIC_EXTERNALS,
   judgeProbe,
   PROBES,
+  SKIPPED_EXIT_CODE,
   staticImportSpecifiers,
   topPackages,
   walkStaticGraph,
@@ -110,6 +112,45 @@ describe('judgeProbe', () => {
     expect(reasons[1]).toContain('over its ceiling');
   });
 
+  describe('require(esm) paths (top-level await guard)', () => {
+    const listHuman = PROBES.find((probe) => probe.name === 'list-human');
+    const fieldMiss = PROBES.find((probe) => probe.name === 'field-miss');
+    const render = 'file:///r/packages/core/dist/render/index.js';
+    const driver = 'file:///r/node_modules/drizzle-orm/node-sqlite/driver.js';
+    const passing = { modules: 1, maxRssMb: 60, urls: [render, driver], exitCode: 100 };
+
+    it('runs a human-format command and a failed --field pointer', () => {
+      expect(listHuman?.args).toContain('--human');
+      expect(fieldMiss?.args).toContain('--field');
+      expect(judgeProbe(listHuman, passing)).toEqual([]);
+    });
+
+    it('fails on an unexpected exit code and reports the stderr', () => {
+      const stderr = 'Error: require() cannot be used on an ESM graph with top-level await.';
+      const reasons = judgeProbe(listHuman, { ...passing, exitCode: 1, stderr });
+      expect(reasons).toEqual([`list-human: exited 1, expected 100\n${stderr}`]);
+    });
+
+    it('fails when the probe stops loading the module it guards', () => {
+      const reasons = judgeProbe(listHuman, { ...passing, urls: [driver] });
+      expect(reasons).toHaveLength(1);
+      expect(reasons[0]).toContain('no longer tests that path');
+    });
+
+    it("fails a store-opening probe that fell back to drizzle's CommonJS build", () => {
+      const cjs = 'file:///r/node_modules/drizzle-orm/node-sqlite/driver.cjs';
+      for (const probe of PROBES.filter((entry) => entry.needsProject)) {
+        const reasons = judgeProbe(probe, {
+          modules: 1,
+          maxRssMb: 60,
+          urls: [...passing.urls, cjs],
+          exitCode: probe.expectExit ?? null,
+        });
+        expect(reasons.some((reason) => reason.includes('forbidden'))).toBe(true);
+      }
+    });
+  });
+
   it('keeps every probe budget positive and the startup probes under 120 MB', () => {
     for (const probe of PROBES) expect(probe.maxModules).toBeGreaterThan(0);
     for (const name of ['version', 'help']) {
@@ -128,5 +169,41 @@ describe('topPackages', () => {
       'node:fs',
     ];
     expect(topPackages(urls)).toEqual(['     2 zod', '     1 @cleocode/lafs', '     1 core']);
+  });
+});
+
+describe('buildPrecondition (review LOW on #1812)', () => {
+  const current = {
+    entryExists: true,
+    entryMtimeMs: 2000,
+    isBundle: true,
+    newest: { path: 'packages/core/src/x.ts', mtimeMs: 1000 },
+  };
+
+  it('measures a current esbuild bundle', () => {
+    expect(buildPrecondition(current, false)).toEqual({ action: 'measure' });
+    expect(buildPrecondition(current, true)).toEqual({ action: 'measure' });
+  });
+
+  it.each([
+    ['a missing build', { ...current, entryExists: false }, /is missing/],
+    ['a stale build', { ...current, entryMtimeMs: 500 }, /older than packages\/core\/src\/x\.ts/],
+    [
+      'tsc output in place of the bundle',
+      { ...current, isBundle: false },
+      /not the esbuild bundle/,
+    ],
+  ])('skips %s locally and fails it in CI', (_name, build, reason) => {
+    const local = buildPrecondition(build, false);
+    expect(local.action).toBe('skip');
+    expect(local.message).toMatch(reason);
+    expect(local.message).toMatch(/^skipped: no current build/);
+    const ci = buildPrecondition(build, true);
+    expect(ci.action).toBe('fail');
+    expect(ci.message).toMatch(reason);
+  });
+
+  it('uses the exit code cleo check arch reports as skipped', () => {
+    expect(SKIPPED_EXIT_CODE).toBe(78);
   });
 });

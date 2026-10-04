@@ -27,7 +27,8 @@ vi.mock('../../store/data-accessor.js', () => ({
   getTaskAccessor: vi.fn(),
 }));
 
-vi.mock('../../lifecycle/index.js', () => ({
+// T13126: show.ts reads lifecycle status from its leaf module.
+vi.mock('../../lifecycle/status.js', () => ({
   getLifecycleStatus: vi.fn(),
 }));
 
@@ -51,7 +52,7 @@ vi.mock('../compute-task-view.js', () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { getLifecycleStatus } from '../../lifecycle/index.js';
+import { getLifecycleStatus } from '../../lifecycle/status.js';
 import { getAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { taskToRecord } from '../engine-converters.js';
 import { taskShowOperation, taskShowWithHistory } from '../show.js';

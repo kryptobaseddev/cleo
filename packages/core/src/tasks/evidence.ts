@@ -38,11 +38,11 @@ import type {
 } from '@cleocode/contracts';
 import {
   EvidenceParseError,
-  ExitCode,
   GATE_EVIDENCE_REQUIREMENTS,
   parseEvidenceString,
   validateEvidenceForGate,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/evidence-atom-schema.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 
 import { CleoError } from '../errors.js';
 import {

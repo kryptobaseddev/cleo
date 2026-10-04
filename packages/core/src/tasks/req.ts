@@ -11,7 +11,8 @@
 
 import { isDeepStrictEqual } from 'node:util';
 import type { AcceptanceGate, AcceptanceItem, TransactionAccessor } from '@cleocode/contracts';
-import { acceptanceGateSchema, ExitCode } from '@cleocode/contracts';
+import { acceptanceGateSchema } from '@cleocode/contracts/acceptance-gate-schema.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';

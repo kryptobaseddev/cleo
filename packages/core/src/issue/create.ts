@@ -9,7 +9,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { BUILD_CONFIG } from '../config/build-config.js';
 import { CleoError } from '../errors.js';
 import { collectDiagnostics, formatDiagnosticsTable } from './diagnostics.js';

@@ -42,16 +42,15 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, join, resolve as resolvePath } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import {
-  type EngineResult,
-  engineError,
-  engineSuccess,
-  type ListWorktreesOpts,
-  type ListWorktreesResult,
-  type WorktreeInfo,
-  type WorktreeSource,
-  type WorktreeStatusCategory,
+import type {
+  EngineResult,
+  ListWorktreesOpts,
+  ListWorktreesResult,
+  WorktreeInfo,
+  WorktreeSource,
+  WorktreeStatusCategory,
 } from '@cleocode/contracts';
+import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { resolveOrCwd } from '../paths.js';
 import { readSentinelIndex } from './sentinel-index.js';
 

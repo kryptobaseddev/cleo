@@ -12,7 +12,7 @@
  * @epic T10114 — E11-HUMAN-RENDER-CONTRACT (ADR-077).
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   buildGenericTaskTree,
   depsCriticalPath,

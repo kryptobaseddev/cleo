@@ -17,8 +17,9 @@ import type {
   VerificationGate,
 } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
-import { ExitCode, TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
+import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { loadConfig } from '../config.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';

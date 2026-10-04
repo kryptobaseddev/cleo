@@ -61,9 +61,9 @@ export interface RuntimeConfig {
 export interface RuntimeHandle {
   /** The AgentPoller instance. */
   poller: AgentPoller;
-  /** The HeartbeatService instance (null if disabled). */
+  /** The HeartbeatService instance (null if disabled or the base URL is a retired SignalDock host). */
   heartbeat: HeartbeatService | null;
-  /** The KeyRotationService instance (null if disabled). */
+  /** The KeyRotationService instance (null if disabled or the base URL is a retired SignalDock host). */
   keyRotation: KeyRotationService | null;
   /** The SseConnectionService instance (null if no SSE endpoint). */
   sseConnection: SseConnectionService | null;
@@ -120,9 +120,13 @@ export async function createRuntime(
 
   const poller = new AgentPoller(pollerConfig);
 
+  // A retired SignalDock base URL has no cloud to report presence to or
+  // rotate keys with, so neither cloud service starts (T13169).
+  const cloudRetired = conduit.isRetiredCloudUrl(credential.apiBaseUrl);
+
   // Heartbeat service (disabled when intervalMs is 0)
   let heartbeat: HeartbeatService | null = null;
-  if (config?.heartbeatIntervalMs !== 0) {
+  if (config?.heartbeatIntervalMs !== 0 && !cloudRetired) {
     heartbeat = new HeartbeatService({
       agentId: credential.agentId,
       apiKey: credential.apiKey,
@@ -134,7 +138,7 @@ export async function createRuntime(
 
   // Key rotation service (disabled when maxKeyAgeMs is 0)
   let keyRotation: KeyRotationService | null = null;
-  if (config?.maxKeyAgeMs !== 0) {
+  if (config?.maxKeyAgeMs !== 0 && !cloudRetired) {
     keyRotation = new KeyRotationService({
       agentId: credential.agentId,
       registry,

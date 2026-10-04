@@ -37,6 +37,11 @@ import { existsSync } from 'node:fs';
 import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { findOnPath } from '@cleocode/paths';
+import {
+  conduitFetch,
+  retiredCloudHost,
+  SignalDockRetiredError,
+} from '../../conduit/cloud-endpoint.js';
 import { getConfigValue, loadConfig } from '../../config.js';
 import { getCredentialPool } from '../../llm/credential-pool.js';
 import { resolveCleoDir } from '../../paths.js';
@@ -292,7 +297,8 @@ async function runHarnessReachabilityCheck(cwd?: string): Promise<VerificationCh
 /**
  * Check 5 — SignalDock endpoint is reachable.
  *
- * Skipped when `signaldock.enabled` is `false` or not configured.
+ * Skipped when `signaldock.enabled` is `false` or not configured, and when
+ * the endpoint is a retired SignalDock host, which is never called (T13169).
  * Timeout: 3 s.
  *
  * @internal
@@ -310,10 +316,14 @@ async function runAgentRegistryReachabilityCheck(cwd?: string): Promise<Verifica
     if (!endpoint || typeof endpoint !== 'string') {
       return { name, status: 'SKIP', message: 'SignalDock endpoint not configured' };
     }
+    const retiredHost = retiredCloudHost(endpoint);
+    if (retiredHost !== null) {
+      return { name, status: 'SKIP', message: new SignalDockRetiredError(retiredHost).message };
+    }
 
     const healthUrl = endpoint.replace(/\/$/, '') + '/health';
     const response = await withTimeout(
-      fetch(healthUrl, { signal: AbortSignal.timeout(3_000) }),
+      conduitFetch(healthUrl, { signal: AbortSignal.timeout(3_000) }),
       3_000,
     );
 

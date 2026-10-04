@@ -27,14 +27,13 @@
  * @task T9917 — tasks.add + tasks.update extension; schemas moved to contracts
  */
 
+import type { OperationInputContract, OperationInputContractRegistry } from '@cleocode/contracts';
 import {
   accountAddInputContract,
   accountListInputContract,
   accountRemoveInputContract,
   modelQueryInputContract,
   modelShowInputContract,
-  type OperationInputContract,
-  type OperationInputContractRegistry,
   profileCreateInputContract,
   profileListInputContract,
   profilePinInputContract,
@@ -42,14 +41,18 @@ import {
   providerConnectInputContract,
   providerListInputContract,
   providerShowInputContract,
+} from '@cleocode/contracts/operations/entities.js';
+import {
   serviceConnectInputContract,
   serviceListInputContract,
   serviceRevokeInputContract,
   serviceStatusInputContract,
+} from '@cleocode/contracts/operations/service.js';
+import {
   tasksAddBatchInputContract,
   tasksAddInputContract,
   tasksUpdateInputContract,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/operations/tasks.js';
 
 /**
  * Registry of every {@link OperationInputContract} known to the CLEO

@@ -3,7 +3,7 @@
  * @task T4454
  * @task T487
  */
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { getTask, resolveProjectRoot } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
 import { cliError, cliOutput } from '../renderers/index.js';

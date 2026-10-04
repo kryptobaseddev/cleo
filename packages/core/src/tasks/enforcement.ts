@@ -1,4 +1,5 @@
-import { type AcceptanceItem, ExitCode, type Task } from '@cleocode/contracts';
+import type { AcceptanceItem, Task } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { loadConfig } from '../config.js';
 
 export interface ValidationResult {

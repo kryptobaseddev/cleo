@@ -37,9 +37,15 @@
  *   node scripts/check-cli-startup-graph.mjs --json   # print measurements as JSON
  *
  * `--check` and `--strict` (passed by `cleo check arch`, gate 39) behave the
- * same: the budgets are already the ratchet. A missing build fails, and so does
- * a build older than the CLI or CORE source it would be measuring: a stale
- * dist reports on code that is no longer there.
+ * same: the budgets are already the ratchet.
+ *
+ * The gate needs a CURRENT build: a missing entry, a build older than the CLI
+ * or CORE source, or a `dist/cli/index.js` that `tsc -b` overwrote with per-file
+ * output (not the esbuild bundle) would measure code that is not what ships.
+ * In CI (`CI` set) or with `--require-build` that fails (exit 2). Locally it is
+ * SKIPPED (exit {@link SKIPPED_EXIT_CODE}, which `cleo check arch` reports as
+ * skipped), so a pre-push `cleo check arch` never demands a full build; CI
+ * builds first and enforces it.
  *
  * @task T13126
  */
@@ -65,6 +71,15 @@ const REPO_ROOT = resolve(import.meta.dirname, '..');
 export const CLI_ENTRY = join(REPO_ROOT, 'packages/cleo/dist/cli/index.js');
 
 /**
+ * Exit code for "precondition absent locally, nothing measured". `cleo check
+ * arch` reports a gate that exits with it as skipped, not failed.
+ */
+export const SKIPPED_EXIT_CODE = 78;
+
+/** A marker only the esbuild CLI bundle carries (build.mjs's banner). */
+const BUNDLE_MARKER = 'cleocode.cli.sqliteWarningFilter';
+
+/**
  * Bare specifiers the entry's STATIC graph must never import: each one drags a
  * barrel (and everything it re-exports) into every invocation.
  */
@@ -79,6 +94,14 @@ const CORE_BARREL = /\/core\/dist\/(index|internal)\.js$/;
 const CONTRACTS_BARREL = /\/contracts\/dist\/index\.js$/;
 const STORE_STACK = /\/drizzle-orm\/|^node:sqlite$/;
 const MODEL_SDKS = /\/(@anthropic-ai|openai|@ai-sdk|@aws-sdk|@google|js-tiktoken)\//;
+/** CORE's human-renderer entry point: JSON output (`--version`, agents) never needs it. */
+const CORE_RENDER = /\/core\/dist\/render\/index\.js$/;
+/** The output-contract table a failed `--field` pointer loads for its remedy. */
+const OUTPUT_CONTRACTS = /\/core\/dist\/dispatch\/contracts\/output-contracts\.js$/;
+/** drizzle's ES module `node-sqlite` driver, the build the store loads (T13126). */
+const DRIZZLE_ESM_DRIVER = /\/drizzle-orm\/node-sqlite\/driver\.js$/;
+/** Any file of drizzle's CommonJS build: the store falls back to it only when require(esm) fails. */
+const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
 
 /**
  * @typedef {object} Probe
@@ -86,6 +109,9 @@ const MODEL_SDKS = /\/(@anthropic-ai|openai|@ai-sdk|@aws-sdk|@google|js-tiktoken
  * @property {string[]} args - CLI arguments.
  * @property {boolean} [needsProject] - Run inside an initialised throwaway project.
  * @property {RegExp[]} forbid - Module URL patterns this probe must not load.
+ * @property {RegExp[]} [require] - Module URL patterns this probe must load:
+ *   proof that it still exercises the code path it guards.
+ * @property {number} [expectExit] - Exit code the command must return.
  * @property {number} maxModules - Budget of loaded `file:` modules (the ratchet).
  * @property {number} maxRssMb - Ceiling on peak resident set size, in MB.
  */
@@ -100,10 +126,23 @@ const MODEL_SDKS = /\/(@anthropic-ai|openai|@ai-sdk|@aws-sdk|@google|js-tiktoken
  * | help    |      75 |  64 MB            |
  * | show    |   2,412 | 396 MB            |
  *
- * Then the dispatch layer stopped loading the CORE barrel for the hot reads
- * (lazy domain handlers, `@cleocode/runtime/gateway/dispatch`, narrow imports):
- * `show` and `find` load ~1,050 modules. Lower each budget in the PR that
- * lowers its count.
+ * Loading CORE's human renderers only for human output (T13126) took
+ * `--version` to 64 modules / 55 MB. Then the dispatch layer stopped loading
+ * the CORE barrel for the hot reads (lazy domain handlers,
+ * `@cleocode/runtime/gateway/dispatch`, narrow imports): `show` and `find`
+ * load ~1,050 modules. With contracts values imported from their leaf modules
+ * and the read-path leaves, `show` and `find` load ~820 modules (~190 MB) and
+ * `list --human` ~880. Lower each budget in the PR that lowers its count.
+ *
+ * Three CLI paths load ES modules through `require(esm)`, which throws
+ * `ERR_REQUIRE_ASYNC_MODULE` when the loaded graph uses top-level await: the
+ * store's drizzle driver (`core/src/store/drizzle-node-sqlite.ts`), CORE's
+ * human renderers, and the output-contract table behind a failed `--field`
+ * pointer (both through `cleo/src/cli/lib/load-esm-sync.ts`). `list-human` and
+ * `field-miss` run the last two and must exit as expected, so top-level await
+ * reaching either graph fails this gate. The drizzle driver falls back to its
+ * CommonJS build instead of failing, so every store-opening probe forbids
+ * drizzle's `.cjs` files and requires the ES module driver.
  *
  * @type {readonly Probe[]}
  */
@@ -111,14 +150,14 @@ export const PROBES = Object.freeze([
   {
     name: 'version',
     args: ['--version'],
-    forbid: [CORE_BARREL, CONTRACTS_BARREL, STORE_STACK, MODEL_SDKS],
-    maxModules: 240,
+    forbid: [CORE_BARREL, CONTRACTS_BARREL, STORE_STACK, MODEL_SDKS, CORE_RENDER],
+    maxModules: 80,
     maxRssMb: 120,
   },
   {
     name: 'help',
     args: ['--help'],
-    forbid: [CORE_BARREL, CONTRACTS_BARREL, STORE_STACK, MODEL_SDKS],
+    forbid: [CORE_BARREL, CONTRACTS_BARREL, STORE_STACK, MODEL_SDKS, CORE_RENDER],
     maxModules: 85,
     maxRssMb: 120,
   },
@@ -126,17 +165,41 @@ export const PROBES = Object.freeze([
     name: 'show',
     args: ['show', 'T001'],
     needsProject: true,
-    forbid: [CORE_BARREL, MODEL_SDKS],
-    maxModules: 1150,
-    maxRssMb: 330,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    require: [DRIZZLE_ESM_DRIVER],
+    maxModules: 910,
+    maxRssMb: 260,
   },
   {
     name: 'find',
     args: ['find', 'probe'],
     needsProject: true,
-    forbid: [CORE_BARREL, MODEL_SDKS],
-    maxModules: 1150,
-    maxRssMb: 330,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    require: [DRIZZLE_ESM_DRIVER],
+    maxModules: 910,
+    maxRssMb: 260,
+  },
+  {
+    name: 'list-human',
+    args: ['list', '--human'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    require: [CORE_RENDER, DRIZZLE_ESM_DRIVER],
+    // ExitCode.NO_DATA: the throwaway project has no tasks; the renderer still runs.
+    expectExit: 100,
+    maxModules: 970,
+    maxRssMb: 260,
+  },
+  {
+    name: 'field-miss',
+    args: ['list', '--field', '/data/no-such-field'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    require: [OUTPUT_CONTRACTS],
+    // ExitCode.NOT_FOUND: E_FIELD_NOT_FOUND, with the contract's valid pointers as the fix.
+    expectExit: 4,
+    maxModules: 910,
+    maxRssMb: 260,
   },
 ]);
 
@@ -216,6 +279,7 @@ process.on('exit', () => {
  * @property {number} modules - Loaded `file:` modules.
  * @property {number} maxRssMb
  * @property {string[]} urls - Every loaded module URL.
+ * @property {string} stderr - The command's stderr, for failure reports.
  */
 
 /**
@@ -258,6 +322,7 @@ function runProbe(probe, env) {
     modules: urls.filter((url) => url.startsWith('file:')).length,
     maxRssMb: trace.maxRssMb,
     urls,
+    stderr: child.stderr ?? '',
   };
 }
 
@@ -313,14 +378,25 @@ function initSandboxProject(sandbox) {
  * Judge one probe against its budgets.
  *
  * @param {Probe} probe
- * @param {Pick<ProbeResult, 'modules' | 'maxRssMb' | 'urls'>} result
+ * @param {Pick<ProbeResult, 'modules' | 'maxRssMb' | 'urls'> & Partial<Pick<ProbeResult, 'exitCode' | 'stderr'>>} result
  * @returns {string[]} Failure reasons; empty when the probe passes.
  */
 export function judgeProbe(probe, result) {
   const reasons = [];
+  if (probe.expectExit !== undefined && result.exitCode !== probe.expectExit) {
+    const stderr = (result.stderr ?? '').trim().slice(-600);
+    reasons.push(
+      `${probe.name}: exited ${result.exitCode}, expected ${probe.expectExit}${stderr ? `\n${stderr}` : ''}`,
+    );
+  }
   for (const pattern of probe.forbid) {
     const hit = result.urls.find((url) => pattern.test(url));
     if (hit) reasons.push(`${probe.name}: loads a forbidden module (${pattern}): ${hit}`);
+  }
+  for (const pattern of probe.require ?? []) {
+    if (!result.urls.some((url) => pattern.test(url))) {
+      reasons.push(`${probe.name}: never loads ${pattern}, so it no longer tests that path`);
+    }
   }
   if (result.modules > probe.maxModules) {
     reasons.push(
@@ -392,21 +468,63 @@ export function newestSource(roots) {
   return newest;
 }
 
+/**
+ * Whether the built CLI can be measured, and what to do when it cannot.
+ *
+ * @param {object} build
+ * @param {boolean} build.entryExists - `dist/cli/index.js` exists.
+ * @param {number} build.entryMtimeMs - Its mtime (ignored when absent).
+ * @param {boolean} build.isBundle - It is the esbuild bundle, not tsc output.
+ * @param {{ path: string, mtimeMs: number } | null} build.newest - Newest source file.
+ * @param {boolean} requireBuild - CI or `--require-build`: an unusable build fails.
+ * @returns {{ action: 'measure' } | { action: 'skip' | 'fail', message: string }}
+ */
+export function buildPrecondition(build, requireBuild) {
+  let problem = null;
+  if (!build.entryExists) problem = `${CLI_ENTRY} is missing`;
+  else if (!build.isBundle)
+    problem =
+      'dist/cli/index.js is not the esbuild bundle (`tsc -b` overwrites it with per-file output)';
+  else if (build.newest !== null && build.newest.mtimeMs > build.entryMtimeMs)
+    problem = `the build is older than ${build.newest.path}`;
+  if (problem === null) return { action: 'measure' };
+  if (requireBuild) {
+    return {
+      action: 'fail',
+      message: `${problem}; run \`pnpm run build\` so the gate measures the current source.`,
+    };
+  }
+  return {
+    action: 'skip',
+    message:
+      `skipped: no current build (${problem}). CI builds and enforces this gate; ` +
+      'run `pnpm run build` (or pass --require-build) to measure it locally.',
+  };
+}
+
 function main() {
   const json = process.argv.includes('--json');
-  if (!existsSync(CLI_ENTRY)) {
-    console.error(
-      `check-cli-startup-graph: ${CLI_ENTRY} is missing; run \`pnpm run build\` first.`,
-    );
+  const ci = process.env.CI;
+  const requireBuild =
+    process.argv.includes('--require-build') || (ci !== undefined && ci !== '' && ci !== 'false');
+  const entryExists = existsSync(CLI_ENTRY);
+  const newest = newestSource(SOURCE_ROOTS);
+  const precondition = buildPrecondition(
+    {
+      entryExists,
+      entryMtimeMs: entryExists ? statSync(CLI_ENTRY).mtimeMs : 0,
+      isBundle: entryExists && readFileSync(CLI_ENTRY, 'utf8').includes(BUNDLE_MARKER),
+      newest: newest === null ? null : { ...newest, path: newest.path.slice(REPO_ROOT.length + 1) },
+    },
+    requireBuild,
+  );
+  if (precondition.action === 'fail') {
+    console.error(`check-cli-startup-graph: ${precondition.message}`);
     process.exit(2);
   }
-  const newest = newestSource(SOURCE_ROOTS);
-  if (newest !== null && newest.mtimeMs > statSync(CLI_ENTRY).mtimeMs) {
-    console.error(
-      `check-cli-startup-graph: the build is older than ${newest.path.slice(REPO_ROOT.length + 1)}; ` +
-        'run `pnpm run build` so the gate measures the current source.',
-    );
-    process.exit(2);
+  if (precondition.action === 'skip') {
+    console.error(`check-cli-startup-graph: ${precondition.message}`);
+    process.exit(SKIPPED_EXIT_CODE);
   }
 
   const failures = [];
