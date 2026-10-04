@@ -237,7 +237,9 @@ export function persistStoreSeq(
   seq: number,
   now: Date = new Date(),
 ): void {
+  // @sync-invariant none:local-only programming-error guard on this store's replica sequence
   if (!db.isTransaction) throw new Error('persistStoreSeq must run inside a transaction');
+  // @sync-invariant none:local-only a malformed local replica sequence is refused; machine-local bookkeeping
   if (!Number.isSafeInteger(seq) || seq < 0) throw new Error(`invalid replicaSeq ${seq}`);
   db.prepare(
     'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
@@ -380,11 +382,13 @@ export type SyncOpenResult =
 
 function resolveContext(opts: SyncOpenOptions): { deviceId: string; registry: ReplicaRegistry } {
   if (opts.mode === 'test' && !opts.registry) {
+    // @sync-invariant none:local-only test-mode guard: a test open never touches the device registry
     throw new Error("sync open mode 'test' needs an explicit registry; it never uses the device's");
   }
   const deviceId = opts.deviceId ?? opts.registry?.deviceId ?? getStableDeviceId();
   const registry = opts.registry ?? ReplicaRegistry.forDevice(deviceId);
   if (registry.deviceId !== deviceId) {
+    // @sync-invariant none:local-only the registry passed in is another device's; machine-local bookkeeping
     throw new Error(`registry belongs to device ${registry.deviceId}, not ${deviceId}`);
   }
   return { deviceId, registry };
@@ -444,9 +448,11 @@ export function ensureProjectReplica(
   db: DatabaseSync,
   opts: Omit<SyncOpenOptions, 'scope'>,
 ): { replicaId: string; reboundFrom?: string } {
+  // @sync-invariant none:local-only programming-error guard on binding this store's replica
   if (opts.mode === 'off') throw new Error('ensureProjectReplica needs a live or test open');
   const result = bindPass(db, { ...opts, scope: 'project' });
   if (result.status !== 'bound' && result.status !== 'rebound') {
+    // @sync-invariant none:local-only the bind pass returned an unexpected status; machine-local bookkeeping
     throw new Error(`ensureProjectReplica: unexpected status ${result.status}`);
   }
   return {
@@ -470,9 +476,11 @@ export function ensureGlobalReplica(
   db: DatabaseSync,
   opts: Omit<SyncOpenOptions, 'scope'>,
 ): { replicaId: string; reboundFrom?: string } {
+  // @sync-invariant none:local-only programming-error guard on binding this store's replica
   if (opts.mode === 'off') throw new Error('ensureGlobalReplica needs a live or test open');
   const result = bindPass(db, { ...opts, scope: 'global' });
   if (result.status !== 'bound' && result.status !== 'rebound') {
+    // @sync-invariant none:local-only the bind pass returned an unexpected status; machine-local bookkeeping
     throw new Error(`ensureGlobalReplica: unexpected status ${result.status}`);
   }
   return {
@@ -550,6 +558,7 @@ export function rebindReplica(
   const realpath = realpathSync(opts.dbPath);
   const { previous, current } = withImmediateTransaction(db, () => {
     const row = activeReplica(db, opts.scope);
+    // @sync-invariant none:local-only no active replica to rebind; machine-local bookkeeping
     if (!row) throw new Error(`no active ${opts.scope} replica to rebind`);
     return {
       previous: row,

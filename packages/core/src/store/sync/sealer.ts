@@ -57,6 +57,7 @@ import {
   chunkedObject,
   enc,
   SECRET_MARKER,
+  syncSetTables,
 } from './capture.js';
 import { tickClock, withImmediateTransaction } from './clock-store.js';
 import { isSyncFlagOn, UNRELEASED_FLAGS } from './flags.js';
@@ -262,6 +263,7 @@ class TableContext {
     }
     // §2.10: every op's table is in the sync set. A capture of any other table
     // holds its group (reported), never aborts the batch (T13029).
+    // @sync-invariant none:input-shape a capture of a table outside the sync set is quarantined, never sealed
     if (d === null) throw new SealInputError(`capture for ${table}, which is not in the sync set`);
     return d;
   }
@@ -332,12 +334,14 @@ function columnValue(
     return ref ? ctx.uidOf(ref.table, ref.key, local) : local;
   }
   if (typeof raw !== 'string')
+    // @sync-invariant none:input-shape a malformed capture image is quarantined, never sealed
     throw new SealInputError(`${def.table}.${col}: unexpected image value`);
   if (raw === SECRET_MARKER) return undefined;
   let v: WireValue;
   try {
     v = decodeEnc(raw);
   } catch (err) {
+    // @sync-invariant none:input-shape an undecodable capture value is quarantined, never sealed
     throw new SealInputError(`${def.table}.${col}: ${(err as Error).message}`);
   }
   return wireTimestamp(ctx.timestamps(def.table), col, v);
@@ -1150,4 +1154,84 @@ function sealInTransaction(
     quarantined,
     refused: null,
   };
+}
+
+/** `_sync_meta` key of the sync-set version the row-meta `chash` baseline matches (§2.3a rule 3). */
+export const CHASH_BASELINE_KEY = 'sync.set_version';
+
+/**
+ * The sync set's version: a hash of every sync-set table's captured columns,
+ * secret columns and references as this store's schema has them (§2.3a,
+ * §2.9). A migration that changes what is captured changes it.
+ *
+ * @param db - The store.
+ * @param scope - Its scope.
+ */
+export function syncSetVersion(db: DatabaseSync, scope: TableScope): string {
+  const shape = syncSetTables(scope)
+    .sort()
+    .map((table) => {
+      const def = hasTable(db, table) ? captureTableDef(db, scope, table) : undefined;
+      if (!def) return [table, null];
+      return [
+        table,
+        {
+          columns: [...def.columns],
+          secret: [...def.secret].sort(),
+          refs: [...def.refs].map(([col, r]) => [col, r.table, r.key]).sort(),
+        },
+      ];
+    });
+  return createHash('sha256').update(canonicalJson(shape)).digest('hex').slice(0, 32);
+}
+
+/** What {@link rebaselineChash} changed. */
+export interface ChashRebaseline {
+  /** Row-meta rows whose `chash` moved to the live row's hash. */
+  readonly rows: number;
+  /** The sync-set version the baseline now matches. */
+  readonly version: string;
+}
+
+/**
+ * Re-baseline `_sync_row_meta.chash` to the live rows, emitting nothing
+ * (§2.3a rule 3; B, T12775). A migration's backfill is deterministic and
+ * every replica runs it itself, so its changes must not travel; but the row
+ * meta's content hash would otherwise make the next repair diff see every
+ * migrated row as an uncaptured edit. Live rows only: a tombstone keeps the
+ * hash it was deleted with. Records {@link CHASH_BASELINE_KEY}.
+ *
+ * Runs in its own `BEGIN IMMEDIATE` transaction (the migration runner calls
+ * it after each migration's commit).
+ *
+ * @param db - The store.
+ * @param scope - Its scope.
+ */
+export function rebaselineChash(db: DatabaseSync, scope: TableScope): ChashRebaseline {
+  if (!hasTable(db, '_sync_row_meta') || !hasTable(db, '_sync_meta')) {
+    return { rows: 0, version: syncSetVersion(db, scope) };
+  }
+  return withImmediateTransaction(db, () => {
+    const ctx = new TableContext(db, scope);
+    const syncSet = new Set(syncSetTables(scope).filter((t) => hasTable(db, t)));
+    const setChash = db.prepare('UPDATE _sync_row_meta SET chash = ? WHERE tbl = ? AND uid = ?');
+    let rows = 0;
+    for (const m of db
+      .prepare('SELECT tbl, uid, chash FROM _sync_row_meta WHERE deleted = 0')
+      .all() as Array<{ tbl: string; uid: string; chash: string | null }>) {
+      if (!syncSet.has(m.tbl)) continue;
+      const def = captureTableDef(db, scope, m.tbl);
+      if (!def) continue;
+      const next = chashOf(ctx, def, m.uid);
+      if (next === m.chash) continue;
+      setChash.run(next, m.tbl, m.uid);
+      rows += 1;
+    }
+    const version = syncSetVersion(db, scope);
+    db.prepare(
+      'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+    ).run(CHASH_BASELINE_KEY, version, new Date().toISOString());
+    return { rows, version };
+  });
 }
