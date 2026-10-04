@@ -1,5 +1,5 @@
 /**
- * Machine-wide heavy-run admission (T12963).
+ * Machine-wide heavy-run admission (T12963), and typecheck/lint slots (T13123).
  *
  * - On darwin (no PSI) `test`/`build` default to ONE slot machine-wide.
  * - A heavy tool slot also takes a slot of the governor class (`test` →
@@ -10,6 +10,7 @@
  *   both instead of waiting out the governor's 10 min stale timeout.
  *
  * @task T12963
+ * @task T13123
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -74,9 +75,15 @@ describe('darwin heavy-slot default (T12963)', () => {
     expect(defaultMaxConcurrent('test', 16, 1024, 'linux')).toBe(4);
   });
 
-  it('leaves light tools on the core budget on darwin', () => {
-    expect(defaultMaxConcurrent('lint', 16, 8, 'darwin')).toBe(8);
-    expect(defaultMaxConcurrent('typecheck', 16, 8, 'darwin')).toBe(8);
+  it('leaves network-bound tools on the core budget on darwin', () => {
+    expect(defaultMaxConcurrent('audit', 16, 8, 'darwin')).toBe(8);
+    expect(defaultMaxConcurrent('security-scan', 16, 8, 'darwin')).toBe(8);
+  });
+
+  it('gives typecheck and lint a small fixed number on darwin, never more than RAM allows (T13123)', () => {
+    expect(defaultMaxConcurrent('typecheck', 18, 1024, 'darwin')).toBe(2);
+    expect(defaultMaxConcurrent('lint', 18, 1024, 'darwin')).toBe(2);
+    expect(defaultMaxConcurrent('typecheck', 4, 8, 'darwin')).toBe(1);
   });
 
   it('still honours CLEO_TOOL_CONCURRENCY_TEST on darwin', () => {
@@ -105,10 +112,13 @@ describe('darwin heavy-slot default (T12963)', () => {
 });
 
 describe('governor admission on the heavy slot (T12963)', () => {
-  it('maps heavy tools to governor classes and light tools to none', () => {
+  it('maps heavy tools to governor classes and the rest to none', () => {
     expect(governorClassFor('test')).toBe('test-run');
     expect(governorClassFor('build')).toBe('scoped-build');
+    // T13123: no governor class of their own; the tool semaphore bounds them.
+    expect(governorClassFor('typecheck')).toBeNull();
     expect(governorClassFor('lint')).toBeNull();
+    expect(governorClassFor('audit')).toBeNull();
   });
 
   it('holds one test-run slot while the tool slot is held and frees it on release', async () => {
@@ -181,13 +191,35 @@ describe('governor admission on the heavy slot (T12963)', () => {
     await b();
   });
 
-  it('takes no governor slot for light tools', async () => {
+  it('takes no governor slot for light or single-process tools', async () => {
     const s = sample(26);
-    const release = await acquireGlobalSlot('lint', { cpuCount: 16, pressureSample: s });
+    for (const tool of ['lint', 'typecheck', 'audit'] as const) {
+      const release = await acquireGlobalSlot(tool, { cpuCount: 16, pressureSample: s });
+      try {
+        expect(await governor.available('test-run', { cpuCount: 16, sample: s })).toBe(1);
+        expect(await governor.available('scoped-build', { cpuCount: 16, sample: s })).toBe(1);
+      } finally {
+        await release();
+      }
+    }
+  });
+
+  it('a typecheck slot is sized from the heap the run gets (T13123)', async () => {
+    // 64 GiB Linux box, 16 cores: ⌊32768 / (24576 + 2048)⌋ = 1 slot at a 24 GiB heap.
+    const opts = {
+      platform: 'linux' as const,
+      cpuCount: 16,
+      totalRamGib: 64,
+      pressureSample: sample(64),
+      heapMb: 24576,
+    };
+    const first = await acquireGlobalSlot('typecheck', opts);
     try {
-      expect(await governor.available('test-run', { cpuCount: 16, sample: s })).toBe(1);
+      await expect(
+        acquireGlobalSlot('typecheck', { ...opts, pollMs: 10, timeoutMs: 100 }),
+      ).rejects.toThrow(/Timed out/);
     } finally {
-      await release();
+      await first();
     }
   });
 });

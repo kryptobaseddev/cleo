@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
   boundMakeflags,
   defaultHeavyHeapMb,
+  defaultSingleProcessHeapMb,
   GIB_PER_WORKER,
   HEAVY_TOOL_HEAP_MB,
   heavyRunBudgetMb,
@@ -80,11 +81,21 @@ describe('heavyToolEnv (T12096)', () => {
     expect(heavyToolEnv('build', {}, 62).NODE_OPTIONS).toBeDefined();
   });
 
-  it('leaves LIGHT tools completely alone', () => {
-    // Serialising lint/typecheck would cost time and buy nothing — they are
-    // single-process.
-    for (const t of ['lint', 'typecheck', 'audit', 'security-scan'] as const) {
+  it('leaves network-bound tools completely alone', () => {
+    for (const t of ['audit', 'security-scan'] as const) {
       expect(heavyToolEnv(t, {}, 62)).toEqual({});
+    }
+  });
+
+  it('gives typecheck and lint a heap ceiling and workspace concurrency, no worker variables (T13123)', () => {
+    // One TypeScript program holds 2–5 GB on a large monorepo; a profile heap
+    // reached every tsc CLEO started, with no ceiling of its own.
+    for (const t of ['lint', 'typecheck'] as const) {
+      expect(heavyToolEnv(t, {}, 62)).toEqual({
+        NODE_OPTIONS: `--max-old-space-size=${HEAVY_TOOL_HEAP_MB}`,
+        npm_config_workspace_concurrency: String(WORKSPACE_CONCURRENCY),
+        pnpm_config_workspace_concurrency: String(WORKSPACE_CONCURRENCY),
+      });
     }
   });
 
@@ -338,9 +349,30 @@ describe('planHeavyToolEnv (T13122)', () => {
     expect(boundMakeflags('-j2', 3)).toBeNull(); // within the plan: kept
     expect(boundMakeflags('-k', 3)).toBeNull(); // serial: kept
     expect(boundMakeflags('-j --jobserver-auth=fifo:/tmp/GMfifo1', 3)).toBeNull();
+    // Short-flag clusters and make's dash-less first word (review NIT).
+    expect(boundMakeflags('-sj18', 3)).toBe('-s -j3');
+    expect(boundMakeflags('-kj', 3)).toBe('-k -j3');
+    expect(boundMakeflags('j18', 3)).toBe('-j3');
+    expect(boundMakeflags('kj --no-print-directory', 3)).toBe('-k --no-print-directory -j3');
+    expect(boundMakeflags('-sj2', 3)).toBeNull();
+    // A flag that takes an argument owns the rest of the cluster: -Ij18 is
+    // `-I j18`, -Cj is `-C j`; neither is a job count, so neither is split.
+    expect(boundMakeflags('-Ij18', 3)).toBeNull();
+    expect(boundMakeflags('-Cj', 3)).toBeNull();
     const { overlay, resources } = planHeavyToolEnv('test', { MAKEFLAGS: '-j18' }, 64);
     expect(overlay.MAKEFLAGS).toBe('-j6');
     expect(resources?.clamped).toContainEqual({ name: 'MAKEFLAGS', from: '-j18', to: '-j6' });
+  });
+
+  it('bounds a dash spelling of the workspace variable too (review NIT)', () => {
+    const { overlay } = planHeavyToolEnv('test', { 'npm_config_workspace-concurrency': '16' }, 64);
+    expect(overlay['npm_config_workspace-concurrency']).toBe('1');
+  });
+
+  it('drops a coloured npm warning too: ANSI codes are stripped before matching (review NIT)', () => {
+    const esc = String.fromCharCode(27);
+    const coloured = `${esc}[33mnpm warn${esc}[39m Unknown env config "workspace-concurrency".`;
+    expect(withoutNpmEnvConfigWarnings(`${coloured}\nreal error`)).toBe('real error');
   });
 
   it("drops npm's unknown-env-config warnings from captured output, nothing else", () => {
@@ -440,9 +472,43 @@ describe('planHeavyToolEnv (T13122)', () => {
     ).toBe('--require "/tmp/a  b.js" --trace-gc --max-old-space-size=4096');
   });
 
-  it('plans nothing for a light tool', () => {
-    expect(
-      planHeavyToolEnv('typecheck', { NODE_OPTIONS: '--max-old-space-size=8192' }, 64),
-    ).toEqual({ overlay: {}, resources: null });
+  it('plans nothing for a network-bound tool', () => {
+    expect(planHeavyToolEnv('audit', { NODE_OPTIONS: '--max-old-space-size=8192' }, 64)).toEqual({
+      overlay: {},
+      resources: null,
+    });
+  });
+
+  it("never raises a single process's heap above Node's own default on a small machine", () => {
+    // V8 defaults old space to a quarter of RAM below 16 GiB; the heavy default
+    // (half of RAM, up to 4 GiB) would have doubled an 8 GiB laptop's tsc.
+    expect(defaultSingleProcessHeapMb(64)).toBe(4096);
+    expect(defaultSingleProcessHeapMb(16)).toBe(4096);
+    expect(defaultSingleProcessHeapMb(8)).toBe(2048);
+    expect(defaultSingleProcessHeapMb(2)).toBe(1024);
+    expect(planHeavyToolEnv('typecheck', {}, 8).overlay.NODE_OPTIONS).toBe(
+      '--max-old-space-size=2048',
+    );
+    // A forking tool keeps the heavy default.
+    expect(planHeavyToolEnv('test', {}, 8).overlay.NODE_OPTIONS).toBe('--max-old-space-size=4096');
+  });
+
+  it('plans a typecheck as one process under the same budget (T13123)', () => {
+    const kept = planHeavyToolEnv('typecheck', { NODE_OPTIONS: '--max-old-space-size=8192' }, 64);
+    expect(kept.resources?.heapMb).toBe(8192);
+    expect(kept.resources?.heapSource).toBe('inherited');
+    expect(kept.resources?.workers).toBe(1);
+    expect(kept.resources?.summary).toContain('one process');
+    expect(kept.overlay.VITEST_MAX_WORKERS).toBeUndefined();
+    expect(kept.overlay.MAKEFLAGS).toBeUndefined();
+
+    // An 8 GiB laptop: a profile-wide 8 GiB heap is above the budget.
+    const laptop = planHeavyToolEnv('lint', { NODE_OPTIONS: '--max-old-space-size=8192' }, 8);
+    expect(laptop.resources?.heapSource).toBe('clamped');
+    expect(laptop.overlay.NODE_OPTIONS).toBe('--max-old-space-size=4096');
+
+    // CLEO_HEAVY_WORKERS means nothing to a single process and is not read.
+    const ignored = planHeavyToolEnv('typecheck', { CLEO_HEAVY_WORKERS: 'x' }, 64);
+    expect(ignored.resources?.summary).not.toContain('ignored');
   });
 });

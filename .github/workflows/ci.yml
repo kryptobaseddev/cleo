@@ -87,6 +87,13 @@ jobs:
       # bump-PR shape. Heavy jobs skip on it; lint + typecheck (and the separate
       # Lockfile Check workflow) still run. See scripts/ci-detect-version-only.mjs.
       version_only: ${{ (steps.version-only.outputs.version_only == 'true' || steps.version-only-dispatch.outputs.version_only == 'true') && 'true' || 'false' }}
+      # T13143: the runners Build, Build & Verify and Unit Tests use, and the
+      # unit-test shards per runner (scripts/ci-platform-matrix.mjs). macOS
+      # runs nightly, in merge groups, and on a pull request whose change is
+      # darwin-specific; Linux and macOS each shard 8 ways.
+      darwin: ${{ steps.platform.outputs.darwin }}
+      build_os: ${{ steps.platform.outputs.build_os }}
+      test_matrix: ${{ steps.platform.outputs.test_matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -120,6 +127,9 @@ jobs:
             echo "version_only=false" >> "$GITHUB_OUTPUT"
             echo "No merge-base with origin/${DEFAULT_BRANCH}; running the full suite."
           fi
+      - name: Choose platforms and shards (T13143)
+        id: platform
+        run: node scripts/ci-platform-matrix.mjs "${{ github.event_name }}" HEAD^1 HEAD
       - uses: dorny/paths-filter@v3
         id: filter
         if: github.event_name != 'schedule'
@@ -1442,7 +1452,7 @@ jobs:
       matrix:
         # Same OS set as unit-tests (see the rationale there): macOS only on
         # the nightly schedule and merge_group.
-        os: ${{ fromJson((github.event_name == 'merge_group' || github.event_name == 'schedule') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJson(needs.changes.outputs.build_os) }}
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -1586,12 +1596,16 @@ jobs:
         # `timeout-minutes: 55` (build 575 s + 42 min of vitest over 2 shards),
         # so main went red/cancelled on a timeout, not a failure. A macOS-only
         # regression is now detected by the next nightly run instead.
-        os: ${{ fromJson((github.event_name == 'merge_group' || github.event_name == 'schedule') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        # T13143: `{os, shard, total}` per job from the `changes` job: 8 Linux
+        # shards always (the repo is public, so runners are free); 8 macOS
+        # shards nightly, in merge groups and on a darwin-specific pull request
+        # (scripts/ci-platform-matrix.mjs). Main pushes run macOS in
+        # macos-main.yml.
         # 2026-09-29: 4 shards (was 2). Shard 1 of 2 was the whole PR critical
         # path at ~33 min (~4 min setup + 27-30 min vitest); `--shard` splits
         # by file count, not duration, so halving the files per shard is the
-        # simple, robust lever. Keep `--shard=N/4` below in sync.
-        shard: [1, 2, 3, 4]
+        # simple, robust lever.
+        include: ${{ fromJson(needs.changes.outputs.test_matrix) }}
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -1652,7 +1666,7 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         run: node scripts/ci-affected-test-projects.mjs HEAD^1 HEAD
-      - name: Run unit tests (shard ${{ matrix.shard }}/4)
+      - name: Run unit tests (shard ${{ matrix.shard }}/${{ matrix.total }})
         shell: bash
         env:
           AFFECTED_ARGS: ${{ steps.affected.outputs.args }}
@@ -1677,8 +1691,8 @@ jobs:
             SCOPE_FLAGS="$AFFECTED_ARGS --passWithNoTests"
           fi
           # shellcheck disable=SC2086 # word splitting is intended: flag lists
-          pnpm exec vitest run --shard=${{ matrix.shard }}/4 $RETRY_FLAG $SCOPE_FLAGS 2>&1 | tee /tmp/vitest-shard${{ matrix.shard }}.log
-      - name: T9170 — schema-warning budget gate (shard ${{ matrix.shard }}/4)
+          pnpm exec vitest run --shard=${{ matrix.shard }}/${{ matrix.total }} $RETRY_FLAG $SCOPE_FLAGS 2>&1 | tee /tmp/vitest-shard${{ matrix.shard }}.log
+      - name: T9170 — schema-warning budget gate (shard ${{ matrix.shard }}/${{ matrix.total }})
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: node scripts/check-schema-warning-budget.mjs /tmp/vitest-shard${{ matrix.shard }}.log
@@ -1721,7 +1735,7 @@ jobs:
         # `timeout-minutes: 55` (build 575 s + 42 min of vitest over 2 shards),
         # so main went red/cancelled on a timeout, not a failure. A macOS-only
         # regression is now detected by the next nightly run instead.
-        os: ${{ fromJson((github.event_name == 'merge_group' || github.event_name == 'schedule') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJson(needs.changes.outputs.build_os) }}
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -1847,6 +1861,16 @@ jobs:
         run: |
           chmod +x packages/cleo/bin/cleo.js
           ./packages/cleo/bin/cleo.js --version
+      - name: Built CLI startup graph and module budgets (arch gate 39 / T13126)
+        # Gates 19 and 25 read the CLI SOURCE graph; this one measures the BUILT
+        # bundle the build above just produced. It fails when dist/cli/index.js
+        # statically imports a CORE or contracts barrel, or when `--version`,
+        # `--help` or `show` (run in a throwaway sandbox) exceed their module
+        # budgets or RSS ceilings. Module counts are deterministic for a given
+        # lockfile, so Linux alone carries the ratchet.
+        if: runner.os == 'Linux'
+        shell: bash
+        run: node scripts/check-cli-startup-graph.mjs
       - name: Verify runtime gateway/mcp dist exists
         # R8 (T11259): standalone packages/mcp-adapter deleted; MCP transport consolidated
         # into @cleocode/runtime/gateway/mcp. Verify the runtime dist ships the mcp adapter.

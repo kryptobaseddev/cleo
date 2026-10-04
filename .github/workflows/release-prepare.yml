@@ -107,7 +107,7 @@ jobs:
   # time out the preflight. Two mitigations:
   #   (a) `skip-tests` input (default false) — when the caller knows main CI
   #       is already green, tests can be skipped to avoid the redundant run.
-  #   (b) The test step is sharded across 4 parallel matrix workers, keeping
+  #   (b) The test step is sharded across 8 parallel matrix workers, keeping
   #       each shard under 10 min even without skipping.
   # T12309: a dispatch that CANNOT succeed must not cost a full preflight.
   #
@@ -236,7 +236,7 @@ jobs:
   # Skipped when skip-tests=true (e.g. dispatched after a green main CI for
   # this exact commit) — see "Decide which preflight test suites run".
   preflight-test:
-    name: Preflight (test shard ${{ matrix.shard }}/4)
+    name: Preflight (test shard ${{ matrix.shard }}/8)
     if: ${{ needs.dispatch-preconditions.outputs.run-linux-tests == 'true' }}
     needs: [dispatch-preconditions]
     runs-on: ubuntu-latest
@@ -247,8 +247,8 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        # 4 shards, matching ci.yml's ubuntu sweep (#1716).
-        shard: [1, 2, 3, 4]
+        # 8 shards, matching ci.yml's ubuntu sweep (#1716, T13143).
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -323,8 +323,8 @@ jobs:
         run: pnpm --filter @cleocode/studio exec svelte-kit sync
         timeout-minutes: 2
 
-      - name: Test (shard ${{ matrix.shard }}/4)
-        run: pnpm exec vitest run --shard=${{ matrix.shard }}/4
+      - name: Test (shard ${{ matrix.shard }}/8)
+        run: pnpm exec vitest run --shard=${{ matrix.shard }}/8
         # T12309: was 20, against a sweep that does not fit in it. ci.yml gives
         # the same suite 55 minutes and a shard measured 17m04s there; this step
         # timed out at 20:00 on a tree whose CI was fully green, so a release
@@ -338,7 +338,7 @@ jobs:
   # `cleo release open`). macOS runners are ~2x slower than Linux, hence 4
   # shards and a generous ceiling; retry=2 matches ci.yml's macOS shards.
   preflight-test-macos:
-    name: Preflight (macOS test shard ${{ matrix.shard }}/4)
+    name: Preflight (macOS test shard ${{ matrix.shard }}/8)
     if: ${{ needs.dispatch-preconditions.outputs.run-macos-tests == 'true' }}
     needs: [dispatch-preconditions]
     runs-on: macos-latest
@@ -346,7 +346,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -397,8 +397,8 @@ jobs:
         run: pnpm --filter @cleocode/studio exec svelte-kit sync
         timeout-minutes: 2
 
-      - name: Test macOS (shard ${{ matrix.shard }}/4)
-        run: pnpm exec vitest run --shard=${{ matrix.shard }}/4 --retry=2
+      - name: Test macOS (shard ${{ matrix.shard }}/8)
+        run: pnpm exec vitest run --shard=${{ matrix.shard }}/8 --retry=2
         timeout-minutes: 75
 
   preflight-build:
