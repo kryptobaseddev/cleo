@@ -55,7 +55,6 @@ import { didYouMean } from './lib/did-you-mean.js';
 import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { isInteractiveInvocation } from './lib/interactive-commands.js';
 import { normalizeGlobalValueFlags } from './lib/strict-args.js';
-import { showUpdateNotice } from './lib/update-notice.js';
 import { resolveFormat } from './middleware/output-format.js';
 import { installModuleResolveFastPath } from './module-resolve-fast-path.js';
 import { resolveOutputMode, setOutputMode } from './output-context.js';
@@ -314,6 +313,8 @@ async function startCli(): Promise<void> {
     // T13137 — tell an installed CLI that a newer release (or a hotfix) exists:
     // one stderr line from a cached dist-tags check that a detached child
     // refreshes daily. Never stdout, never waits on the network, never throws.
+    // Loaded here, not statically, so --version/--help never load it.
+    const { showUpdateNotice } = await import('./lib/update-notice.js');
     showUpdateNotice({ version: CLI_VERSION, argv, quiet: rawOpts['quiet'] === true });
     await runStartupMaintenance();
   }
