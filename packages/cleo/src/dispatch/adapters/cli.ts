@@ -18,11 +18,13 @@ import { describeOperation } from '@cleocode/core/dispatch/describe-operation';
 import { hooks } from '@cleocode/core/hooks/registry';
 import { autoRecordDispatchTokenUsage } from '@cleocode/core/metrics/token-service';
 import { getProjectRoot } from '@cleocode/core/project-scope';
+import { trackBackgroundOp } from '@cleocode/core/store/background-ops';
 import type { GatewayHandler } from '@cleocode/runtime/gateway/dispatch';
 import { createDispatchSpinner } from '../../cli/animation-bridge.js';
 import { isDescribeMode } from '../../cli/describe-context.js';
 import { getFormatContext } from '../../cli/format-context.js';
 import { getIdempotencyKeyContext } from '../../cli/idempotency-context.js';
+import { settleThenExit } from '../../cli/lib/settle-then-exit.js';
 import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/index.js';
 import { Dispatcher } from '../dispatcher.js';
 import { createLazyDomainHandlers } from '../domains/lazy.js';
@@ -448,18 +450,21 @@ export async function dispatchFromCli(
   const projectRoot = getProjectRoot();
   const dispatchStart = Date.now();
 
-  // Dispatch PromptSubmit hook (best-effort, fire-and-forget)
-  hooks
-    .dispatch('PromptSubmit', projectRoot, {
-      timestamp: new Date().toISOString(),
-      gateway,
-      domain,
-      operation,
-      source: 'cli',
-    })
-    .catch(() => {
-      /* hook errors are non-fatal */
-    });
+  // Dispatch PromptSubmit hook (best-effort, not awaited). Tracked, so teardown and
+  // the settle before an error exit wait for it (T13164).
+  void trackBackgroundOp(
+    hooks
+      .dispatch('PromptSubmit', projectRoot, {
+        timestamp: new Date().toISOString(),
+        gateway,
+        domain,
+        operation,
+        source: 'cli',
+      })
+      .catch(() => {
+        /* hook errors are non-fatal */
+      }),
+  );
 
   // Spinner is silent on --json/--quiet/non-TTY/NO_COLOR — no branching needed.
   const spinner = createDispatchSpinner(domain, operation);
@@ -480,20 +485,23 @@ export async function dispatchFromCli(
     spinner.stop();
   }
 
-  // Dispatch ResponseComplete hook (best-effort, fire-and-forget)
-  hooks
-    .dispatch('ResponseComplete', projectRoot, {
-      timestamp: new Date().toISOString(),
-      gateway,
-      domain,
-      operation,
-      success: response.success,
-      durationMs: Date.now() - dispatchStart,
-      errorCode: response.error?.code,
-    })
-    .catch(() => {
-      /* hook errors are non-fatal */
-    });
+  // Dispatch ResponseComplete hook (best-effort, not awaited). Tracked, so teardown and
+  // the settle before an error exit wait for it (T13164).
+  void trackBackgroundOp(
+    hooks
+      .dispatch('ResponseComplete', projectRoot, {
+        timestamp: new Date().toISOString(),
+        gateway,
+        domain,
+        operation,
+        success: response.success,
+        durationMs: Date.now() - dispatchStart,
+        errorCode: response.error?.code,
+      })
+      .catch(() => {
+        /* hook errors are non-fatal */
+      }),
+  );
 
   if (response.success) {
     // Records mutations only: a read must not write a portable row (T13106).
@@ -551,7 +559,9 @@ export async function dispatchFromCli(
           : {}),
       },
     );
-    process.exit(exitCode);
+    // T13164: settle best-effort writes (tracked hooks, buffered telemetry)
+    // before exiting; a bare process.exit killed them.
+    await settleThenExit(exitCode);
   }
 }
 
@@ -609,18 +619,21 @@ export async function dispatchRaw(
   const projectRoot = getProjectRoot();
   const dispatchStart = Date.now();
 
-  // Dispatch PromptSubmit hook (best-effort, fire-and-forget)
-  hooks
-    .dispatch('PromptSubmit', projectRoot, {
-      timestamp: new Date().toISOString(),
-      gateway,
-      domain,
-      operation,
-      source: 'cli',
-    })
-    .catch(() => {
-      /* hook errors are non-fatal */
-    });
+  // Dispatch PromptSubmit hook (best-effort, not awaited). Tracked, so teardown and
+  // the settle before an error exit wait for it (T13164).
+  void trackBackgroundOp(
+    hooks
+      .dispatch('PromptSubmit', projectRoot, {
+        timestamp: new Date().toISOString(),
+        gateway,
+        domain,
+        operation,
+        source: 'cli',
+      })
+      .catch(() => {
+        /* hook errors are non-fatal */
+      }),
+  );
 
   const spinner = createDispatchSpinner(domain, operation);
   spinner.start();
@@ -640,20 +653,33 @@ export async function dispatchRaw(
     spinner.stop();
   }
 
-  // Dispatch ResponseComplete hook (best-effort, fire-and-forget)
-  hooks
-    .dispatch('ResponseComplete', projectRoot, {
-      timestamp: new Date().toISOString(),
-      gateway,
-      domain,
-      operation,
-      success: response.success,
-      durationMs: Date.now() - dispatchStart,
-      errorCode: response.error?.code,
-    })
-    .catch(() => {
-      /* hook errors are non-fatal */
-    });
+  // Dispatch ResponseComplete hook (best-effort, not awaited). Tracked, so teardown and
+  // the settle before an error exit wait for it (T13164).
+  void trackBackgroundOp(
+    hooks
+      .dispatch('ResponseComplete', projectRoot, {
+        timestamp: new Date().toISOString(),
+        gateway,
+        domain,
+        operation,
+        success: response.success,
+        durationMs: Date.now() - dispatchStart,
+        errorCode: response.error?.code,
+      })
+      .catch(() => {
+        /* hook errors are non-fatal */
+      }),
+  );
+
+  // T13164: a caller may hand a failure to handleRawError, which exits at once;
+  // settle best-effort writes first. Bounded, and it closes nothing, so a
+  // caller that handles the failure itself continues normally.
+  // Loaded only on a failure: core/shutdown pulls in the BRAIN writer,
+  // telemetry and the logger, which no successful dispatch needs here.
+  if (!response.success) {
+    const { settleBeforeExit } = await import('@cleocode/core/shutdown');
+    await settleBeforeExit();
+  }
 
   return response;
 }
