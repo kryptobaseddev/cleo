@@ -441,8 +441,8 @@ describe('governor budgets react to cpu saturation', () => {
     expect(computeClassBudget('test-run', sample(0, 60), opts)).toBe(1);
   });
 
-  it('db-heavy is refused at cpu backoff', () => {
+  it('db-heavy is budgeted on memory alone: cpu backoff never refuses it (T13170)', () => {
     expect(computeClassBudget('db-heavy', sample(0, 0), opts)).toBe(1);
-    expect(computeClassBudget('db-heavy', sample(0, 60), opts)).toBe(0);
+    expect(computeClassBudget('db-heavy', sample(0, 60), opts)).toBe(1);
   });
 });

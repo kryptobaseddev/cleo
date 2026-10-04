@@ -18,6 +18,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -34,9 +35,11 @@ import {
   buildAffectedTestCommand,
   changedPathsSinceDefault,
   deriveAffectedPackages,
+  isScopeExcluded,
   listVitestProjects,
   listWorkspacePackages,
   planAffectedTestRun,
+  scopedChangedPaths,
 } from '../affected-packages.js';
 import { validateAtom } from '../evidence.js';
 
@@ -145,13 +148,22 @@ describe('deriveAffectedPackages', () => {
   });
 });
 
+/**
+ * Resolve vitest projects without the machine-global `test` slot. These tests
+ * are about how projects are named and selected; the slot has its own test
+ * (T12657). With the default resolver, any other process holding the slot made
+ * `affectedTestTargets` answer `scope pending: test slot busy` instead.
+ */
+const resolveProjects = (r: string) =>
+  listVitestProjects(r, { acquireSlot: async () => async () => {} });
+
 describe('affectedTestTargets: project names come from vitest itself (T12635 re-review)', () => {
   it('an UNNAMED project is selected by the package.json name vitest gives it, not its directory', async () => {
     linkVitest();
     rootConfig("{ projects: ['packages/a/vitest.config.mjs', 'scripts/vitest.config.mjs'] }");
     projectConfig('packages/a');
     projectConfig('scripts', "{ name: 'scripts' }");
-    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a']);
+    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a'], resolveProjects);
     expect(t).toEqual({ ok: true, projects: ['@x/a', 'scripts'], untested: [] });
   });
 
@@ -161,7 +173,7 @@ describe('affectedTestTargets: project names come from vitest itself (T12635 re-
     projectConfig('packages/a');
     projectConfig('packages/b', "{ name: '@x/b-tests' }");
     projectConfig('packages/dependent-of-b');
-    const t = await affectedTestTargets(root, ['@x/a', '@x/b', '@x/d'], ['@x/a']);
+    const t = await affectedTestTargets(root, ['@x/a', '@x/b', '@x/d'], ['@x/a'], resolveProjects);
     expect(t).toEqual({ ok: true, projects: ['@x/a', '@x/b-tests', '@x/d'], untested: [] });
   });
 
@@ -179,7 +191,12 @@ describe('affectedTestTargets: project names come from vitest itself (T12635 re-
     );
     projectConfig('packages/a');
     projectConfig('scripts', "{ name: 'scripts' }");
-    const t = await affectedTestTargets(root, ['@x/tool', '@x/a'], ['@x/tool', '@x/a']);
+    const t = await affectedTestTargets(
+      root,
+      ['@x/tool', '@x/a'],
+      ['@x/tool', '@x/a'],
+      resolveProjects,
+    );
     expect(t).toEqual({ ok: true, projects: ['tools-inline', '@x/a', 'scripts'], untested: [] });
   });
 
@@ -190,7 +207,7 @@ describe('affectedTestTargets: project names come from vitest itself (T12635 re-
       "export default ['packages/a/vitest.config.mjs'];\n",
     );
     projectConfig('packages/a');
-    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a']);
+    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a'], resolveProjects);
     expect(t.ok).toBe(false);
     expect(!t.ok && t.reason).toMatch(/@x\/a/);
   });
@@ -199,19 +216,35 @@ describe('affectedTestTargets: project names come from vitest itself (T12635 re-
     linkVitest();
     rootConfig("{ projects: ['packages/b/vitest.config.mjs'] }");
     projectConfig('packages/b');
-    const refused = await affectedTestTargets(root, ['@x/a', '@x/b'], ['@x/a']);
+    const refused = await affectedTestTargets(root, ['@x/a', '@x/b'], ['@x/a'], resolveProjects);
     expect(refused.ok).toBe(false);
     expect(!refused.ok && refused.reason).toMatch(/changed package\(s\) @x\/a/);
-    const recorded = await affectedTestTargets(root, ['@x/b', '@x/d'], ['@x/b']);
+    const recorded = await affectedTestTargets(root, ['@x/b', '@x/d'], ['@x/b'], resolveProjects);
     expect(recorded).toEqual({ ok: true, projects: ['@x/b'], untested: ['@x/d'] });
   });
 
   it('without a resolvable vitest the scope fails CLOSED, never a narrower run', async () => {
     rootConfig("{ projects: ['packages/a/vitest.config.mjs'] }");
     projectConfig('packages/a');
-    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a']);
+    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a'], resolveProjects);
     expect(t.ok).toBe(false);
     expect(!t.ok && t.reason).toMatch(/vitest could not resolve/);
+  });
+
+  it('REAL repo: a change to a script package tests import is workspace-wide, never narrowed (T13177)', () => {
+    // CI's PR selection (scripts/ci-affected-test-projects.mjs) runs the full
+    // suite for a workspace-wide change. A narrowed set would let Unit Tests
+    // pass without the importing packages' tests (store fingerprint gates,
+    // nested-nexus migration, injection flags) ever running.
+    const repo = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../../..');
+    for (const changed of [
+      ['scripts/lib/path-containment.mjs'],
+      ['scripts/migrate-nested-nexus.mjs'],
+      ['scripts/lint-injection-flags.mjs'],
+      ['scripts/lib/path-containment.mjs', 'packages/contracts/src/index.ts'],
+    ]) {
+      expect(deriveAffectedPackages(repo, changed).scope, changed.join(' ')).toBe('full');
+    }
   });
 
   it('REAL repo: every workspace package with a vitest config resolves to the name vitest assigns', async () => {
@@ -362,6 +395,123 @@ describe('tool:test-affected evidence', () => {
     expect(changedPathsSinceDefault(root)).toBeNull();
     const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
     expect(!r.ok && r.reason).toMatch(/git failed/);
+  });
+
+  it("T13135 (gh#1805): CLEO's own hook files never widen a change, tracked or not", async () => {
+    initRepo(`node -e "process.exit(process.argv.slice(1).join(',')==='@x/c'?0:3)" {packages}`);
+    // A tracked settings file the hook installer rewrote, and an untracked
+    // hand-installed plugin no task touched.
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    writeFileSync(join(root, '.claude', 'settings.local.json'), '{}\n');
+    git(root, ['add', '.claude/settings.local.json']);
+    git(root, ['commit', '-q', '-m', 'T1: settings']);
+    writeFileSync(join(root, '.claude', 'settings.local.json'), '{"hooks":{}}\n');
+    mkdirSync(join(root, '.opencode', 'plugins'), { recursive: true });
+    writeFileSync(join(root, '.opencode', 'plugins', 'cleo-heavy-command.js'), '// hook\n');
+    mkdirSync(join(root, '.codex'), { recursive: true });
+    writeFileSync(join(root, '.codex', 'hooks.json'), '{}\n');
+    writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
+    expect(changedPathsSinceDefault(root)).toEqual(['packages/c/src/new.ts']);
+    expect(deriveAffectedPackages(root, changedPathsSinceDefault(root) ?? [])).toMatchObject({
+      scope: 'affected',
+      packages: ['@x/c'],
+    });
+    const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ affectedPackages: ['@x/c'] });
+  });
+
+  it('T13135 (gh#1805): evidence.scopeExcludes on the default branch keeps declared runtime state out of scope', async () => {
+    initRepo(`node -e "process.exit(process.argv.slice(1).join(',')==='@x/c'?0:3)" {packages}`);
+    // Declared on the DEFAULT BRANCH (the merge-base), as an exclude must be.
+    git(root, ['switch', '-q', 'main']);
+    const ctx = join(root, '.cleo', 'project-context.json');
+    const context = JSON.parse(readFileSync(ctx, 'utf-8')) as Record<string, unknown>;
+    writeFileSync(
+      ctx,
+      JSON.stringify({ ...context, evidence: { scopeExcludes: ['.opencode/goals/**'] } }),
+    );
+    git(root, ['add', '-f', '.cleo/project-context.json']);
+    git(root, ['commit', '-q', '-m', 'declare excludes']);
+    git(root, ['push', '-q', 'origin', 'main']);
+    git(root, ['switch', '-q', 'task/T1']);
+    git(root, ['merge', '-q', 'main']);
+    mkdirSync(join(root, '.opencode', 'goals', 'dogfood'), { recursive: true });
+    writeFileSync(join(root, '.opencode', 'goals', 'dogfood', 'goal.yaml'), 'goal: x\n');
+    writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
+    expect(scopedChangedPaths(root)).toEqual({
+      paths: ['packages/c/src/new.ts'],
+      excluded: ['.opencode/goals/dogfood/goal.yaml'],
+    });
+  });
+
+  it('T13135 (review of #1823): a change cannot declare its own excludes, nor exclude package code', async () => {
+    initRepo(`node -e 0 {packages}`);
+    writeFileSync(join(root, 'packages/a/src/index.ts'), "export const n = 'changed';\n");
+    // review-p0's probe: the SAME change declares packages/a and .cleo out of scope.
+    const ctx = join(root, '.cleo', 'project-context.json');
+    const context = JSON.parse(readFileSync(ctx, 'utf-8')) as Record<string, unknown>;
+    writeFileSync(
+      ctx,
+      JSON.stringify({
+        ...context,
+        evidence: { scopeExcludes: ['packages/a/**', '.cleo/**', '.opencode/goals/**'] },
+      }),
+    );
+    mkdirSync(join(root, '.opencode', 'goals'), { recursive: true });
+    writeFileSync(join(root, '.opencode', 'goals', 'goal.yaml'), 'goal: x\n');
+    git(root, ['add', '-f', '.cleo/project-context.json', '.opencode/goals/goal.yaml']);
+    git(root, ['commit', '-q', '-am', 'T1: change a, and exclude it']);
+    const scoped = scopedChangedPaths(root);
+    // Not on the default branch, so not one of these excludes counts — not even
+    // the runtime-state one that would be legitimate there.
+    expect(scoped?.paths).toEqual([
+      '.cleo/project-context.json',
+      '.opencode/goals/goal.yaml',
+      'packages/a/src/index.ts',
+    ]);
+    expect(scoped?.excluded).toEqual([]);
+    // Even declared on the default branch, a pattern never removes package code
+    // or the project context file.
+    expect(isScopeExcluded('packages/a/src/index.ts', ['packages/a/**'], ['packages/a'])).toBe(
+      false,
+    );
+    expect(isScopeExcluded('.cleo/project-context.json', ['.cleo/**'], [])).toBe(false);
+    expect(isScopeExcluded('.opencode/goals/x.yaml', ['.opencode/goals/**'], ['packages/a'])).toBe(
+      true,
+    );
+  });
+
+  it('T13135 (review of #1823): hook files are excluded at a CLEO root in a subdirectory too', async () => {
+    // The CLEO root is <repo>/app; git diff names paths from the repo top.
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), 'scope-subdir-')));
+    try {
+      const app = join(repo, 'app');
+      mkdirSync(join(app, 'src'), { recursive: true });
+      writeFileSync(join(app, 'src', 'x.ts'), 'export const x = 1;\n');
+      git(repo, ['init', '-q', '-b', 'main']);
+      git(repo, ['config', 'user.name', 'T']);
+      git(repo, ['config', 'user.email', 't@e.x']);
+      git(repo, ['add', '.']);
+      git(repo, ['commit', '-q', '-m', 'init']);
+      const origin = `${repo}-origin.git`;
+      execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
+      git(repo, ['remote', 'add', 'origin', origin]);
+      git(repo, ['push', '-q', '-u', 'origin', 'main']);
+      git(repo, ['remote', 'set-head', 'origin', 'main']);
+      git(repo, ['switch', '-q', '-c', 'task/T1']);
+      mkdirSync(join(app, '.claude'), { recursive: true });
+      writeFileSync(join(app, '.claude', 'settings.local.json'), '{}\n');
+      writeFileSync(join(app, 'src', 'x.ts'), 'export const x = 2;\n');
+      git(repo, ['add', '.']);
+      git(repo, ['commit', '-q', '-m', 'T1: change']);
+      expect(scopedChangedPaths(app)).toEqual({
+        paths: ['app/src/x.ts'],
+        excluded: ['app/.claude/settings.local.json'],
+      });
+      rmSync(origin, { recursive: true, force: true });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   it('T12657: an untracked new file in a package selects that package', async () => {

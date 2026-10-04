@@ -9,7 +9,7 @@
 import '../hooks/handlers/index.js';
 
 import type { KnowledgeCoverage, TaskClaim, TaskWorkState } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { resolveOrCwd } from '../paths.js';

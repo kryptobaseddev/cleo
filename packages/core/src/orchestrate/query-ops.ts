@@ -18,7 +18,7 @@ import type {
   Task,
   TaskStatus,
 } from '@cleocode/contracts';
-import { TASK_STATUSES } from '@cleocode/contracts';
+import { TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { loadConfig } from '../config.js';
 import { type EngineResult, engineError } from '../engine-result.js';
 import { analyzeDependencies } from '../orchestration/analyze.js';

@@ -31,11 +31,8 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import {
-  ExitCode,
-  type SeverityAttestation,
-  type SignedSeverityAttestation,
-} from '@cleocode/contracts';
+import type { SeverityAttestation, SignedSeverityAttestation } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { z } from 'zod';
 import { CleoError } from '../errors.js';
 import { getCleoIdentity, readCleoIdentity, signAuditLine } from '../identity/cleo-identity.js';

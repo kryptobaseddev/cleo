@@ -98,9 +98,10 @@ describe('computeClassBudget (T11999)', () => {
     expect(computeClassBudget('db-heavy', makeSample({ someAvg10: 30 }), BUDGET_OPTS)).toBe(0);
   });
 
-  it('ignoreCpuPressure: CPU saturation alone does not defer db-heavy; memory pressure still does (T13119, T13150)', () => {
-    // macOS derives CPU pressure from the load average (T12981): load at 2.4x
-    // the effective cores reads as cpu some avg10 ≈ 58, well past backoff.
+  it('CPU saturation alone defers no class but the heavy runs; memory pressure still does (T13170)', () => {
+    // A busy, healthy Mac: macOS derives CPU pressure from the load average
+    // (T12981), so load at 2.4x the effective cores reads as cpu some avg10 ≈ 58,
+    // well past backoff, while memory is calm.
     const cpuSaturated: ResourceSample = {
       ...makeSample({ someAvg10: 0 }),
       cpuPressure: {
@@ -108,18 +109,16 @@ describe('computeClassBudget (T11999)', () => {
         full: null,
       },
     };
-    expect(computeClassBudget('db-heavy', cpuSaturated, BUDGET_OPTS)).toBe(0);
-    expect(
-      computeClassBudget('db-heavy', cpuSaturated, { ...BUDGET_OPTS, ignoreCpuPressure: true }),
-    ).toBe(1);
+    expect(computeClassBudget('db-heavy', cpuSaturated, BUDGET_OPTS)).toBe(1);
+    expect(computeClassBudget('background-autonomous', cpuSaturated, BUDGET_OPTS)).toBe(1);
+    // Heavy multi-process runs still narrow: more workers on saturated cores
+    // only slow every one of them.
+    expect(computeClassBudget('test-run', cpuSaturated, BUDGET_OPTS)).toBe(1);
     const memoryPressured: ResourceSample = { ...cpuSaturated, ...makeSample({ someAvg10: 30 }) };
-    expect(
-      computeClassBudget('db-heavy', memoryPressured, { ...BUDGET_OPTS, ignoreCpuPressure: true }),
-    ).toBe(0);
+    expect(computeClassBudget('db-heavy', memoryPressured, BUDGET_OPTS)).toBe(0);
+    expect(computeClassBudget('background-autonomous', memoryPressured, BUDGET_OPTS)).toBe(0);
     const memoryStalled = makeSample({ someAvg10: 0, fullAvg10: 20 });
-    expect(
-      computeClassBudget('db-heavy', memoryStalled, { ...BUDGET_OPTS, ignoreCpuPressure: true }),
-    ).toBe(0);
+    expect(computeClassBudget('db-heavy', memoryStalled, BUDGET_OPTS)).toBe(0);
   });
 
   it('background-autonomous defers (0) under any hold-level pressure', () => {
@@ -612,27 +611,21 @@ describe('deferral reasons name the signal the budget used (T13158)', () => {
   });
 
   // Memory at 30 (backoff) on a CPU-saturated host: the combined score is the
-  // CPU one, but a memory-only budget deferred on memory, and must say so.
+  // CPU one, but a memory-budgeted class deferred on memory, and must say so.
   const sample: ResourceSample = {
     ...makeSample({ someAvg10: 30 }),
     cpuPressure: { some: { avg10: 58, avg60: 58, avg300: 58, totalUs: 0 }, full: null },
   };
 
-  it('a memory-only budget reports memory some avg10', async () => {
-    const r = await new ResourceGovernor().tryAcquire('db-heavy', {
-      sample,
-      ignoreCpuPressure: true,
-    });
+  it('a memory-budgeted class reports memory some avg10', async () => {
+    const r = await new ResourceGovernor().tryAcquire('db-heavy', { sample });
     expect(r.deferred).toBe(true);
     if (r.deferred) expect(r.reason).toContain('(memory some avg10=30.0)');
   });
 
-  it('the combined budget reports the combined score', async () => {
-    const r = await new ResourceGovernor().tryAcquire('db-heavy', { sample });
+  it('background-autonomous names memory too', async () => {
+    const r = await new ResourceGovernor().tryAcquire('background-autonomous', { sample });
     expect(r.deferred).toBe(true);
-    if (r.deferred) {
-      expect(r.reason).toMatch(/\(some avg10=\d+\.\d\)/);
-      expect(r.reason).not.toContain('memory some avg10');
-    }
+    if (r.deferred) expect(r.reason).toContain('(memory some avg10=30.0)');
   });
 });

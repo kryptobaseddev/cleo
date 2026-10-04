@@ -51,7 +51,7 @@
  * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
  */
 
-import { CHANGESET_KINDS } from '@cleocode/contracts';
+import { CHANGESET_KINDS } from '@cleocode/contracts/changesets.js';
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { PR_LINK_KINDS, PR_LINK_SOURCES, PR_STATES } from '../provenance/pull-requests.js';

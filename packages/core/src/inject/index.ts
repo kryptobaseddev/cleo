@@ -14,7 +14,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
-import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
+import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { readLiveFocus, resolveFocusSessionId } from '../sessions/focus-state-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';

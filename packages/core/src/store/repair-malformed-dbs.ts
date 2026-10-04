@@ -35,7 +35,8 @@
  */
 
 import { existsSync } from 'node:fs';
-import { DB_INVENTORY, type DbRole, type DoctorRepairResult } from '@cleocode/contracts';
+import type { DbRole, DoctorRepairResult } from '@cleocode/contracts';
+import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
 import { BackupRecoverError, runBackupRecover } from './backup-recover.js';
 import { probeSnapshot, type RecoveryLogger, resolveRoleDbPath } from './recover-malformed-db.js';
 

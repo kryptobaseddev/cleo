@@ -22,7 +22,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as readline from 'node:readline';
 import { promisify } from 'node:util';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   BUILD_CONFIG,
   CleoError,

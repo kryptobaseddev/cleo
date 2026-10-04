@@ -35,12 +35,8 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import {
-  ArchiveReason,
-  type ArchiveReasonValue,
-  assertArchiveReason,
-  type Task,
-} from '@cleocode/contracts';
+import type { ArchiveReasonValue, Task } from '@cleocode/contracts';
+import { ArchiveReason, assertArchiveReason } from '@cleocode/contracts/tasks/archive.js';
 import { getLogger } from '../../logger.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { type InvariantResult, type InvariantRunOptions, registerInvariant } from './registry.js';

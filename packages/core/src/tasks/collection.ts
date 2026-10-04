@@ -14,7 +14,7 @@
  * @task T12077
  */
 
-import { COLLECTION_KEYS } from '@cleocode/contracts';
+import { COLLECTION_KEYS } from '@cleocode/contracts/collection-keys.js';
 
 /**
  * Resolve the first list-shaped collection on a payload.

@@ -121,6 +121,6 @@ export function registryParamsToDispatchPayload(
   return payload;
 }
 
-export { paramsToCittyArgs } from '@cleocode/contracts';
+export { paramsToCittyArgs } from '@cleocode/contracts/operations/params.js';
 // Re-export paramsToCittyArgs and types so command files only need one import.
 export type { CittyArgDef, ParamDef };

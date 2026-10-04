@@ -12,7 +12,8 @@
  *   3. Config integrity: PASS on clean parse, FAIL on loadConfig throw.
  *   4. Harness reachability: PASS claude-code (`which claude` 0), FAIL claude-code
  *      (binary missing), PASS pi (200), FAIL pi (timeout), SKIP unknown.
- *   5. SignalDock reachability: SKIP when disabled, PASS on 200, FAIL on 5xx.
+ *   5. SignalDock reachability: SKIP when disabled or retired (no request), PASS on 200,
+ *      FAIL on 5xx.
  *   6. BRAIN DB: PASS when file exists + readable, FAIL when missing.
  *   7. Full-pass run: all PASS → summary does not contain "failed".
  *   8. Partial-fail run: any FAIL → summary contains "failed".
@@ -447,6 +448,26 @@ describe('verification section — harness-reachability check', () => {
 });
 
 describe('verification section — signaldock-reachability check', () => {
+  it('SKIP, with no request, when the endpoint is the retired SignalDock service (T13169)', async () => {
+    const { projectRoot } = makeTempRoot();
+    stubPool(0);
+    stubConfigValues({
+      'signaldock.enabled': true,
+      'signaldock.endpoint': 'https://api.signaldock.io',
+      'harness.active': undefined,
+      'harness.piUrl': undefined,
+    });
+
+    const runner = new WizardRunner([createVerificationSection()]);
+    const io = new StubWizardIO();
+    await runner.runSection('verification', io, { nonInteractive: false, projectRoot });
+
+    const line = io.infos.find((m) => m.includes('signaldock-reach'));
+    expect(line).toContain('SKIP');
+    expect(line).toContain('SignalDock is retired');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('SKIP when signaldock.enabled is false', async () => {
     const { projectRoot } = makeTempRoot();
     stubPool(0);

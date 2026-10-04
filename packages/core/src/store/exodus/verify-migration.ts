@@ -50,7 +50,7 @@ import type {
   MigrationTableParity,
   VerifyMigrationResult,
 } from '@cleocode/contracts';
-import { MIGRATION_ENUM_DRIFT_SAMPLE_LIMIT } from '@cleocode/contracts';
+import { MIGRATION_ENUM_DRIFT_SAMPLE_LIMIT } from '@cleocode/contracts/migration-parity.js';
 import { getLogger } from '../../logger.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import {

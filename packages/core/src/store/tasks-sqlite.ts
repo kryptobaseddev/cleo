@@ -10,18 +10,20 @@
  * @task W1-T3
  */
 
+import type {
+  ArchiveReasonValue,
+  Task,
+  TaskStatus,
+  TaskType,
+  TaskWriteGuard,
+} from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { isStorableTaskId } from '@cleocode/contracts/task-id.js';
 import {
   ARCHIVE_REASON_TOMBSTONE,
   ArchiveReasonTombstoneError,
-  type ArchiveReasonValue,
-  ExitCode,
   isArchiveTombstoneAllowed,
-  isStorableTaskId,
-  type Task,
-  type TaskStatus,
-  type TaskType,
-  type TaskWriteGuard,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/tasks/archive.js';
 import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { getProjectRoot, worktreeScope } from '../project-scope.js';

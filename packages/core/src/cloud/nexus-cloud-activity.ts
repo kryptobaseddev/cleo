@@ -12,7 +12,8 @@
  */
 
 import type { CloudActivityResult } from '@cleocode/contracts';
-import { nexusActivityPageSchema, nexusCloudDevicePageSchema } from '@cleocode/contracts';
+import { nexusCloudDevicePageSchema } from '@cleocode/contracts/nexus-cloud.js';
+import { nexusActivityPageSchema } from '@cleocode/contracts/nexus-vault.js';
 import type { z } from 'zod';
 import { connectNexusCloud, type NexusCloudOptions, nexusQueryPath } from './nexus-cloud.js';
 

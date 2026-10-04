@@ -43,7 +43,7 @@ async function getDb(cwd?: string): ReturnType<typeof import('../store/sqlite.js
   return _getDb(cwd);
 }
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import type { Stage } from './stages.js';
 import { getNextStage, validateStage } from './stages.js';
@@ -53,7 +53,7 @@ import { getNextStage, validateStage } from './stages.js';
 // =============================================================================
 
 import type { StageStatus as DbStageStatus, PipelineStatus } from '@cleocode/contracts';
-import { STAGE_STATUS_ICONS } from '@cleocode/contracts';
+import { STAGE_STATUS_ICONS } from '@cleocode/contracts/status-registry.js';
 
 /**
  * Resumable pipeline information returned to callers.

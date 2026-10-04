@@ -23,7 +23,7 @@ import type {
   TaskVerification,
   VerificationGate,
 } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { loadConfig } from '../config.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';

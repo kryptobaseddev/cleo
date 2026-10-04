@@ -32,15 +32,15 @@
  * @task T12625
  */
 
-import {
-  type DoneBlockedDetails,
-  type DonePlan,
-  type DonePlanBlocker,
-  type DoneRecordResult,
-  type DoneToolResult,
-  ExitCode,
-  type VerificationGate,
+import type {
+  DoneBlockedDetails,
+  DonePlan,
+  DonePlanBlocker,
+  DoneRecordResult,
+  DoneToolResult,
+  VerificationGate,
 } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';

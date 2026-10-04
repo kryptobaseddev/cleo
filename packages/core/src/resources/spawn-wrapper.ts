@@ -75,7 +75,7 @@ import {
   PARSER_WORKER_HEAP_DEFAULT_MB,
   PARSER_WORKER_HEAP_MAX_MB,
   PARSER_WORKER_HEAP_MIN_MB,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/code-symbol.js';
 import type {
   ProcessCaptureOptions,
   ProcessCaptureResourceObservation,

@@ -38,23 +38,25 @@
 
 import { accessSync, existsSync, constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
+import type {
+  CloudStatusGlobalStore,
+  CloudStatusLocal,
+  CloudStatusOfflineDetails,
+  CloudStatusResult,
+  CloudStatusSummary,
+  CloudStatusVerdict,
+  CloudWarning,
+  NexusCloudReplica,
+  NexusCloudStatus,
+  NexusCloudStatusCheck,
+  NexusCloudWhoami,
+} from '@cleocode/contracts';
 import {
-  type CloudStatusGlobalStore,
-  type CloudStatusLocal,
-  type CloudStatusOfflineDetails,
-  type CloudStatusResult,
-  type CloudStatusSummary,
-  type CloudStatusVerdict,
-  type CloudWarning,
   NEXUS_PRESENCE_FRESH_SECONDS,
-  type NexusCloudReplica,
-  type NexusCloudStatus,
-  type NexusCloudStatusCheck,
-  type NexusCloudWhoami,
   nexusCloudProjectDetailSchema,
   nexusCloudStatusSchema,
   nexusCloudWhoamiSchema,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/nexus-cloud.js';
 import { resolveCleoDir } from '../paths.js';
 import { NexusAccountError, resolveNexusApiUrl } from './nexus-auth.js';
 import {

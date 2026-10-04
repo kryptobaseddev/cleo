@@ -23,18 +23,18 @@
  */
 
 import { copyFileSync, existsSync, realpathSync, renameSync, unlinkSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { eq } from 'drizzle-orm';
-// T11280: `drizzle` is loaded LAZILY (see _getDrizzle) rather than via a
-// top-level value import. drizzle-orm/node-sqlite/driver.js statically imports
-// `node:sqlite`, so an eager value import here would pull the native binding in
-// at module-load — defeating the lazy-init invariant proven by
+// T11280: `drizzle` is loaded LAZILY (see ./drizzle-node-sqlite.ts) rather than
+// via a top-level value import. drizzle-orm/node-sqlite/driver.js statically
+// imports `node:sqlite`, so an eager value import here would pull the native
+// binding in at module-load — defeating the lazy-init invariant proven by
 // sqlite-lazy-init.test.ts ("importing sqlite.ts does NOT require node:sqlite at
 // module-load time", T1331). The type import is erased at runtime and is safe.
-import type { drizzle as drizzleFn, NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
+import { loadNodeSqliteDrizzle } from './drizzle-node-sqlite.js';
 // T11521: dual-scope chokepoint — all tasks.db opens now flow through here.
 // openDualScopeDb manages the DatabaseSync lifecycle, pragmas, and migrations
 // for the consolidated cleo.db. We extract the native handle and re-wrap it
@@ -94,33 +94,6 @@ export { type DatabaseSync, openNativeDatabase } from './sqlite-native.js';
 import type { DatabaseSync } from './sqlite-native.js';
 
 import * as schema from './tasks-schema.js';
-
-/**
- * Cached `drizzle` factory from `drizzle-orm/node-sqlite`, loaded on first use.
- *
- * Loaded via `createRequire` rather than a top-level import so that importing
- * `sqlite.ts` does not eagerly pull in `node:sqlite` (which the drizzle driver
- * statically imports). Memoized after the first call. Mirrors the
- * `getDbSyncConstructor` lazy pattern in sqlite-native.ts (T1331/T11280).
- *
- * @internal
- */
-let _drizzle: typeof drizzleFn | null = null;
-
-/**
- * Returns the `drizzle` factory, loading `drizzle-orm/node-sqlite` on first call.
- *
- * @internal
- * @task T11280
- */
-function _getDrizzle(): typeof drizzleFn {
-  if (_drizzle === null) {
-    const _require = createRequire(import.meta.url);
-    const mod = _require('drizzle-orm/node-sqlite') as { drizzle: typeof drizzleFn };
-    _drizzle = mod.drizzle;
-  }
-  return _drizzle;
-}
 
 /** Schema version for newly created databases. Single source of truth. */
 export const SQLITE_SCHEMA_VERSION = '2.0.0';
@@ -633,7 +606,7 @@ function establishTasksSchema(
   // Wrap the shared native handle with the legacy tasks-schema drizzle
   // instance so all existing callers (schema.tasks, schema.sessions, …)
   // query the consolidated cleo.db unchanged.
-  const db = _getDrizzle()({ client: nativeDb });
+  const db = loadNodeSqliteDrizzle()({ client: nativeDb });
 
   // Run legacy drizzle-tasks migrations against the shared cleo.db handle.
   // During the E3→E6 transition these create the old `tasks` table family
@@ -705,7 +678,7 @@ export function ensureTasksDomainTables(
   dbPath: string,
   cwd?: string,
 ): void {
-  runMigrations(nativeDb, _getDrizzle()({ client: nativeDb }), dbPath, cwd);
+  runMigrations(nativeDb, loadNodeSqliteDrizzle()({ client: nativeDb }), dbPath, cwd);
 }
 
 /**
