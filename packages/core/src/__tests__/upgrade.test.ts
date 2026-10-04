@@ -448,6 +448,39 @@ describe('runUpgrade structural parity', () => {
     );
   });
 
+  it('installs the heavy-command hook as its own step and reports a blocked provider (T13124)', async () => {
+    mkdirSync(join(tmpDir, '.claude'));
+    writeFileSync(join(tmpDir, '.codex'), '');
+    const preview = await runUpgrade({ cwd: tmpDir, dryRun: true });
+    expect(
+      preview.actions.some(
+        (a) =>
+          a.action === 'heavy_command_hook' &&
+          a.status === 'preview' &&
+          a.details.includes('(claude-code, missing)'),
+      ),
+    ).toBe(true);
+    expect(existsSync(join(tmpDir, '.claude', 'settings.local.json'))).toBe(false);
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: false });
+    const hook = result.actions.filter((a) => a.action === 'heavy_command_hook');
+    expect(hook.find((a) => a.details.includes('(claude-code): installed'))?.status).toBe(
+      'applied',
+    );
+    const codex = hook.find((a) => a.details.includes('(codex): blocked'));
+    expect(codex?.status).toBe('skipped');
+    expect(codex?.reason).toMatch(/\.codex exists but is not a directory/);
+    expect(codex?.fix).toMatch(/remove or rename/);
+    expect(readFileSync(join(tmpDir, '.claude', 'settings.local.json'), 'utf-8')).toContain(
+      'cleo hook heavy-command',
+    );
+    // Idempotent: a second upgrade writes nothing more for the hook.
+    const again = await runUpgrade({ cwd: tmpDir, dryRun: false });
+    expect(
+      again.actions.some((a) => a.action === 'heavy_command_hook' && a.status === 'applied'),
+    ).toBe(false);
+  });
+
   it('does not treat tasks.json as stale cleanup target', async () => {
     writeFileSync(join(cleoDir, 'tasks.db'), Buffer.alloc(4096));
     writeFileSync(join(cleoDir, 'tasks.json'), JSON.stringify({ tasks: [] }));

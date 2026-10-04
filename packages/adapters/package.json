@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./heavy-command-hook": {
+      "types": "./dist/heavy-command-hook.d.ts",
+      "import": "./dist/heavy-command-hook.js"
     }
   },
   "scripts": {
