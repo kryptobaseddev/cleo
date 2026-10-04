@@ -237,6 +237,10 @@
     "packages/core/src/tools/web-search-backends.ts :: Error": {
       "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
       "count": 3
+    },
+    "packages/core/src/shutdown.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. This site was already on that path at runtime.",
+      "count": 1
     }
   },
   "sites": {
@@ -1046,6 +1050,7 @@
     "packages/core/src/sessions/snapshot.ts :: ExitCode.SCOPE_CONFLICT": 1,
     "packages/core/src/sessions/snapshot.ts :: ExitCode.SESSION_NOT_FOUND": 1,
     "packages/core/src/sessions/snapshot.ts :: ExitCode.VALIDATION_ERROR": 1,
+    "packages/core/src/shutdown.ts :: Error": 1,
     "packages/core/src/skills/dispatch.ts :: Error": 1,
     "packages/core/src/skills/injection/token.ts :: Error": 1,
     "packages/core/src/snapshot/index.ts :: Error": 1,
@@ -1160,7 +1165,7 @@
     "packages/core/src/store/sqlite-data-accessor.ts :: ExitCode.SESSION_UNBOUND": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: ExitCode.TASK_RENAMED": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: ExitCode.VALIDATION_ERROR": 2,
-    "packages/core/src/store/sqlite-data-accessor.ts :: silent:cascade": 2,
+    "packages/core/src/store/sqlite-data-accessor.ts :: silent:cascade": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: silent:counter": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: taskClaimedError": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: taskConflictError": 4,
