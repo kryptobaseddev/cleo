@@ -27,6 +27,8 @@
   "core/src/cloud/nexus-cloud.ts :: return await http.request('GET', path, schema);",
   "core/src/cloud/nexus-cloud.ts :: return await http.request('GET', path, schema);",
   "core/src/cloud/nexus-enrol.ts :: opts.fetch ?? ((input: string, init?: RequestInit) => globalThis.fetch(input, init));",
+  "core/src/cloud/nexus-link.ts :: const status = await http.request(",
+  "core/src/cloud/nexus-link.ts :: opts.fetch ?? ((input: string, init?: RequestInit) => globalThis.fetch(input, init));",
   "core/src/cloud/nexus-logout.ts :: await http.request('DELETE', '/v1/devices/self', endAnswerSchema);",
   "core/src/cloud/nexus-logout.ts :: await http.request('POST', '/v1/devices/self/sign-out', endAnswerSchema, {});",
   "core/src/cloud/nexus-logout.ts :: fetch: opts.fetch ?? ((input: string, init?: RequestInit) => globalThis.fetch(input, init)),",
