@@ -30,6 +30,7 @@ import {
 } from '../../platform.js';
 import { checkWorktreeInclude, getGitignoreContent } from '../../scaffold.js';
 import { checkGlobalSchemas as checkGlobalSchemasRaw } from '../../schema-management.js';
+import { isWorkspaceRoot, resolveAffectedTemplate } from '../../tasks/affected-template.js';
 import { getTemplateById } from '../../templates/registry.js';
 
 // ============================================================================
@@ -1915,6 +1916,93 @@ export async function checkProjectNameDrift(
 }
 
 /**
+ * Check that a workspace's `tool:test` evidence runs the affected packages,
+ * not the whole suite, and name `ci:<pr>` as the preferred `testsPassed`
+ * evidence when the project accepts it (T13125).
+ *
+ * - `passed`: `testing.affectedCommand` is declared, or the project is not a
+ *   workspace (nothing to scope).
+ * - `info`: none declared, but one derives from `testing.command`; the fix
+ *   proposes pinning it.
+ * - `warning`: a workspace with no declared or derivable template, so every
+ *   `cleo verify --evidence tool:test` runs the whole suite.
+ *
+ * @param projectRoot - Project root; defaults to the resolved current project.
+ * @returns The check result.
+ * @task T13125
+ */
+export function checkAffectedTestScope(projectRoot?: string): CheckResult {
+  // An explicit root is used as given: this runs inside the default doctor,
+  // which must not throw on a project without a .git beside its .cleo.
+  const root = projectRoot ?? getProjectRoot();
+  let context: {
+    testing?: { affectedCommand?: unknown; command?: unknown };
+    evidence?: { ciSatisfies?: unknown };
+  } | null = null;
+  try {
+    context = JSON.parse(readFileSync(join(root, '.cleo', 'project-context.json'), 'utf-8'));
+  } catch {
+    context = null;
+  }
+  const base = { id: 'affected_test_scope', category: 'configuration' } as const;
+  if (context === null) {
+    return {
+      ...base,
+      status: 'info',
+      message: 'No readable .cleo/project-context.json: the tool:test scope cannot be assessed',
+      details: {},
+      fix: 'cleo detect',
+    };
+  }
+  const ci = context.evidence?.ciSatisfies === true;
+  const ciNote = ci
+    ? " evidence.ciSatisfies is set: ci:<pr> (the merged PR's CI) is the preferred testsPassed evidence; a local tool:test is only for before merge."
+    : '';
+  const resolved = resolveAffectedTemplate(context.testing, root);
+  if (resolved?.source === 'declared') {
+    return {
+      ...base,
+      status: 'passed',
+      message: `testing.affectedCommand is declared: tool:test runs only changed packages and their dependents.${ciNote}`,
+      details: { affectedCommand: resolved.template, ciSatisfies: ci },
+      fix: null,
+    };
+  }
+  if (resolved !== null) {
+    return {
+      ...base,
+      status: 'info',
+      message:
+        `testing.affectedCommand is not declared; tool:test derives "${resolved.template}" from ` +
+        `the workspace test command "${resolved.basis}".${ciNote}`,
+      details: { proposed: resolved.template, basis: resolved.basis, ciSatisfies: ci },
+      fix: `Pin it: set testing.affectedCommand to ${JSON.stringify(resolved.template)} in .cleo/project-context.json (cleo detect writes it)`,
+    };
+  }
+  if (!isWorkspaceRoot(root)) {
+    return {
+      ...base,
+      status: 'passed',
+      message: `Not a workspace: tool:test has no package scope to narrow.${ciNote}`,
+      details: { ciSatisfies: ci },
+      fix: null,
+    };
+  }
+  return {
+    ...base,
+    status: 'warning',
+    message:
+      'A workspace with no testing.affectedCommand, and none derivable from testing.command: every ' +
+      `cleo verify --evidence tool:test runs the whole suite.${ciNote}`,
+    details: { ciSatisfies: ci },
+    fix:
+      'Declare testing.affectedCommand in .cleo/project-context.json, e.g. "pnpm exec vitest run {projects}" ' +
+      '(vitest projects) or "pnpm {filters} run test" (per-package test scripts)' +
+      (ci ? '' : ', or set evidence.ciSatisfies so merged-PR CI carries testsPassed'),
+  };
+}
+
+/**
  * Warn about CANT files left in the pre-T12602 Linux-style dirs on macOS and
  * Windows.
  *
@@ -1989,6 +2077,7 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     checkRootGitignore(projectRoot),
     checkCleoGitignore(projectRoot),
     checkProjectIdentity(projectRoot),
+    checkAffectedTestScope(projectRoot),
     checkWorktreeInclude(projectRoot),
     checkVitalFilesTracked(projectRoot),
     checkCoreFilesNotIgnored(projectRoot),
