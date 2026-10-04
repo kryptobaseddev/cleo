@@ -769,7 +769,9 @@ jobs:
         # Scans all TS source files to ensure every new DatabaseSync() call
         # has applyPerfPragmas applied within 5 lines. ADR-068 §3.
         # Fails on any production file with a missing applyPerfPragmas call.
-        run: pnpm --filter @cleocode/core exec vitest run --reporter=verbose src/__tests__/pragma-drift-guard.test.ts
+        # The guard reads the whole repo, so it runs in the root config's
+        # `repo-guards` project; @cleocode/core's own config excludes it (T13142).
+        run: pnpm exec vitest run --project repo-guards --reporter=verbose packages/core/src/__tests__/pragma-drift-guard.test.ts
 
   db-open-guard:
     name: DB Open Chokepoint Guard (ADR-068 T9047)

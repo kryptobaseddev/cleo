@@ -224,11 +224,18 @@ describe('affectedTestTargets: project names come from vitest itself (T12635 re-
       ),
     );
     expect(withConfig.map((p) => p.name)).toContain('@cleocode/utils');
+    // The package-less projects (`repo-guards`, `scripts`, T13142) are always
+    // selected; derive them, so the next one does not break this test.
+    const packageNames = new Set(listWorkspacePackages(repo).map((p) => p.name));
+    const packageless = resolved.ok
+      ? resolved.projects.map((p) => p.name).filter((name) => !packageNames.has(name))
+      : [];
+    expect(packageless).toEqual(expect.arrayContaining(['repo-guards', 'scripts']));
     for (const p of withConfig) {
       const t = await affectedTestTargets(repo, [p.name], [p.name], once);
-      // Its own project, then only the non-package projects (`scripts`) — never
-      // another package's project, e.g. @cleocode/cleo whose root is the repo.
-      expect(t.ok && t.projects, p.name).toEqual([p.name, 'scripts']);
+      // Its own project, then only the package-less projects — never another
+      // package's project, e.g. @cleocode/cleo whose root is the repo.
+      expect(t.ok && t.projects, p.name).toEqual([p.name, ...packageless]);
     }
   });
 });

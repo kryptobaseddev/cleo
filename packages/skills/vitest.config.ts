@@ -35,7 +35,8 @@ export default defineConfig({
       '**/e2e/**',
       '**/*.integration.test.ts',
       '**/*-integration.test.ts',
-      // T13142: run in the root config's `repo-guards` project instead.
+      // T13142: run in the root config's `repo-guards` project instead. From the
+      // repo root: pnpm exec vitest run --project repo-guards <file>
       ...repoGuardsUnder('packages/skills/'),
     ],
   },

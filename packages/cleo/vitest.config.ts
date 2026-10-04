@@ -80,8 +80,9 @@ export default defineConfig({
       '**/e2e/**',
       '**/*.integration.test.ts',
       '**/*-integration.test.ts',
-      // T13142: run in the root config's `repo-guards` project instead
-      // (this project is rooted at the repo, so the paths stay repo-relative).
+      // T13142: run in the root config's `repo-guards` project instead (this
+      // project is rooted at the repo, so the paths stay repo-relative). From the
+      // repo root: pnpm exec vitest run --project repo-guards <file>
       ...repoGuardsUnder('packages/cleo/').map((p) => `packages/cleo/${p}`),
       // T12067: 73 files that were already failing when discovery was fixed —
       // they had never run, so they had never gated a PR. Excluding them lets
