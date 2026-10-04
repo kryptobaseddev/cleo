@@ -48,7 +48,9 @@
  *   speculative + file-backed + purgeable pages; memory neither wired nor
  *   compressed when the page counts are unreadable), against
  *   {@link darwinHeadroomFloorBytes} (a quarter of RAM, at least 6 GiB, at most
- *   half of RAM). Below that floor the score rises to 30 as headroom runs out.
+ *   half of RAM). Below that floor the score rises to 30 as headroom runs out,
+ *   but while the kernel says normal it stops at
+ *   {@link DARWIN_NORMAL_HEADROOM_CAP} (20): it can hold, never back off.
  *   Anonymous memory apps hold is not headroom, which the neither-wired-nor-
  *   compressed share counted as if it were (T13132). A box with large wired
  *   local-model weights but plenty left is not short.
@@ -254,6 +256,15 @@ const SWAP_WEIGHT = 50;
 /** The headroom score reached when no memory is left neither wired nor compressed. */
 const HEADROOM_SCORE_MAX = 30;
 
+/**
+ * The most headroom alone can score while the kernel says normal: below the
+ * backoff and memory-gate thresholds (25), so low reclaimable memory can
+ * narrow admission (hold, half the budget) but never refuse heavy work or
+ * defer db-heavy (the sentient tick, exodus-on-open) on its own. Only a kernel
+ * warning or critical level goes past it (T13132, #1865 review MED-2).
+ */
+export const DARWIN_NORMAL_HEADROOM_CAP = 20;
+
 const GIB = 1024 ** 3;
 
 /**
@@ -331,7 +342,9 @@ export function darwinMemorySome(s: DarwinSignals, totalBytes: number): number |
     const floor = darwinHeadroomFloorBytes(totalBytes);
     headroomScore = HEADROOM_SCORE_MAX * Math.max(0, 1 - headroomBytes / floor);
   }
-  if (s.pressureLevel !== 2 && s.pressureLevel !== 4) return clamp(headroomScore);
+  if (s.pressureLevel !== 2 && s.pressureLevel !== 4) {
+    return clamp(Math.min(headroomScore, DARWIN_NORMAL_HEADROOM_CAP));
+  }
   const base = s.pressureLevel === 4 ? DARWIN_LEVEL_SCORES.critical : DARWIN_LEVEL_SCORES.warning;
   let severity = 0;
   if (squeeze !== null) {

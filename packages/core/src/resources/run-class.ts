@@ -633,7 +633,10 @@ const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
  * or `null` when it names none (a whole suite, a filter or a script). Such a
  * run needs at most one worker per file, so `cleo run` plans and charges it
  * that many and spawns it with that worker cap: a single-file run takes one
- * worker's share of the machine budget, not a whole suite's (T13132).
+ * worker's share of the machine budget, not a whole suite's (T13132). The
+ * value of `--exclude`/`--ignore` is not counted, and a glob makes the count
+ * unknown (`null`). A `--maxWorkers=N` of the command's own still outranks
+ * the cap and the charge.
  *
  * @param cls - the run's class; only `test-run` names test files.
  * @param argv - the command.
@@ -646,9 +649,27 @@ const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
  */
 export function namedTestFileCount(cls: ResourceClass, argv: readonly string[]): number | null {
   if (cls !== 'test-run') return null;
-  const n = argv.filter((w) => TEST_FILE.test(w)).length;
+  let n = 0;
+  for (let i = 0; i < argv.length; i++) {
+    const w = argv[i] as string;
+    // `--exclude a.test.ts` names a file NOT to run; skip the flag's value.
+    if (EXCLUDE_FLAGS.has(w)) {
+      i++;
+      continue;
+    }
+    // A glob (`src/**/*.test.ts`) may match any number of files.
+    if (w.includes('*')) return null;
+    if (TEST_FILE.test(w)) n++;
+  }
   return n > 0 ? n : null;
 }
+
+/** Flags whose value names test files to leave out. */
+const EXCLUDE_FLAGS: ReadonlySet<string> = new Set([
+  '--exclude',
+  '--ignore',
+  '--testPathIgnorePatterns',
+]);
 
 /** The `heavyToolEnv` canonical tool a run class sizes its env from. */
 export function canonicalForClass(cls: ResourceClass): CanonicalTool {

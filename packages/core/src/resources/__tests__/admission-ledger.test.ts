@@ -176,6 +176,32 @@ describe('schedulePass', () => {
     ).toEqual([]);
   });
 
+  it('a CPU-blocked heavy head past its reservation keeps its bytes, but light runs still pass (#1865 MED-1)', () => {
+    const ctx48 = { capacityBytes: 48 * GIB, share: 'one' as const, lightShare: 'full' as const };
+    const ledger = [
+      entry({ id: 'h1', state: 'admitted', footprintBytes: 18 * GIB, admittedAtMs: 0 }),
+      entry({ id: 'h2', enqueuedAtMs: 0, footprintBytes: 18 * GIB }),
+      entry({ id: 'l1', enqueuedAtMs: 1_000, footprintBytes: 2 * GIB }),
+    ];
+    expect(admittedIds(schedulePass(ledger, { ...ctx48, nowMs: 60_000 }))).toEqual(['h1', 'l1']);
+    expect(admittedIds(schedulePass(ledger, { ...ctx48, nowMs: 200_000 }))).toEqual(['h1', 'l1']);
+    // ... but never into the head's reserved share: 18 + 18 reserved + 13 > 48.
+    const big = [
+      ...ledger.slice(0, 2),
+      entry({ id: 'l2', enqueuedAtMs: 1_000, footprintBytes: 13 * GIB }),
+    ];
+    expect(admittedIds(schedulePass(big, { ...ctx48, nowMs: 200_000 }))).toEqual(['h1']);
+    // A head blocked by bytes still stops everything behind it.
+    const bytes = [
+      entry({ id: 'h1', state: 'admitted', footprintBytes: 40 * GIB, admittedAtMs: 0 }),
+      entry({ id: 'h2', enqueuedAtMs: 0, footprintBytes: 18 * GIB }),
+      entry({ id: 'l1', enqueuedAtMs: 1_000, footprintBytes: 2 * GIB }),
+    ];
+    expect(admittedIds(schedulePass(bytes, { ...ctx48, share: 'full', nowMs: 200_000 }))).toEqual([
+      'h1',
+    ]);
+  });
+
   it('CPU saturation never serialises light runs behind a heavy one (T13132)', () => {
     const big = { capacityBytes: 100 * GIB, nowMs: 1_000 };
     const ledger = [

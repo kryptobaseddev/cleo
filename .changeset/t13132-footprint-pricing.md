@@ -15,8 +15,10 @@ prices the runs it admits.
   36 GiB budget), 4 on 64 GiB, 6 on 128 GiB and up, 1 on 16 GiB. It used to plan for the
   whole budget (6 workers on 48 GiB), so nothing else could run beside it. A whole-suite
   run is slower; two heavy runs, or one and many light ones, now share the machine. On a
-  CI runner (`CI` set), which is single-tenant, a run still plans for the whole budget, so
-  CI keeps its parallelism (2 workers on a 16 GiB GitHub runner). `CLEO_PER_RUN_SHARE`
+  hosted CI runner (GitHub Actions, GitLab CI, Buildkite, CircleCI, Azure Pipelines),
+  which is single-tenant, a run still plans for the whole budget, so CI keeps its
+  parallelism (2 workers on a 16 GiB GitHub runner). A bare `CI` is not trusted, since
+  agent harnesses and devcontainers export it. `CLEO_PER_RUN_SHARE`
   (a number in `(0, 1]`) overrides the share. It is fixed per machine and environment, so
   the tool cache key (which includes the worker count) stays stable.
 - **Charged what it can start.** An evidence run is charged its plan: workspace packages
@@ -27,7 +29,8 @@ prices the runs it admits.
 - **CPU saturation narrows heavy runs only.** Under CPU saturation one heavy run (more
   than one worker's footprint) runs at a time, as before, but typecheck, lint, single-file
   test runs and the config probe are budgeted on memory pressure alone and keep running
-  beside it.
+  beside it. A heavy run that has waited past its two-minute reservation keeps its bytes
+  reserved, but light runs still pass it while CPU saturation is all that holds it.
 - **Status names what holds the budget.** Ledger entries record the run's scope
   (`full` for a whole-suite evidence run, `affected`, `narrowed`) and its task. They show
   in holder reports (`tool:test [scope=full, task T1043] pid …`), in a `cleo run`
@@ -37,4 +40,7 @@ prices the runs it admits.
   `hw.pagesize`, read in the same sysctl exec), not the share of RAM neither wired nor
   compressed, which counted memory apps hold as free. The floor below which headroom
   scores is a quarter of RAM, at least 6 GiB, at most half of RAM (it was a fixed 6 GiB).
+  While the kernel says normal, low headroom alone can narrow admission but never refuse
+  heavy work or defer db-heavy work (its score stops at 20, below the backoff and gate
+  thresholds of 25); only a kernel warning or critical level goes past it.
   `memAvailableBytes` on macOS is the reclaimable figure, and pressure summaries print it.

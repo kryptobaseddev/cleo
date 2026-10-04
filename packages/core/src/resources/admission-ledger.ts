@@ -749,6 +749,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   const heavyBudget = Math.min(lightBudget, bytesFor(ctx.share));
   let used = ctx.foreign?.bytes ?? 0;
   let running = ctx.foreign?.count ?? 0;
+  // Conservative: an entry of an unknown format counts as heavy under `one`.
   let heavyRunning = ctx.foreign?.count ?? 0;
   for (const e of entries) {
     if (e.state === 'admitted') {
@@ -768,8 +769,19 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
     .sort((a, b) => a.enqueuedAtMs - b.enqueuedAtMs || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const admit = new Set<string>();
   let blocked = false;
+  // Bytes held for a reserved heavy head that only the `one` rule blocks: light
+  // runs may still pass it, but only within what is left after its share.
+  let reservedForHead: number | null = null;
   for (const w of waiting) {
     const cost = charged(w, ctx.capacityBytes);
+    if (reservedForHead !== null) {
+      if (!isHeavy(w) && lightShare !== 'none' && used + cost + reservedForHead <= lightBudget) {
+        admit.add(w.id);
+        used += cost;
+        running++;
+      }
+      continue;
+    }
     const share = isHeavy(w) ? ctx.share : lightShare;
     // With nothing running, the oldest waiting run always starts (it is
     // charged at most the capacity), so pressure narrows but never stops work;
@@ -783,7 +795,16 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
     }
     if (!blocked) {
       blocked = true;
-      if (ctx.nowMs - w.enqueuedAtMs >= reservationMs) break;
+      if (ctx.nowMs - w.enqueuedAtMs >= reservationMs) {
+        // A heavy head blocked by bytes stops everything behind it. One blocked
+        // only by CPU saturation (`one`) would starve light runs that cannot
+        // delay it, so its bytes are reserved and light runs keep backfilling
+        // around them (T13132, #1865 review MED-1).
+        const cpuOnly =
+          isHeavy(w) && ctx.share === 'one' && heavyRunning > 0 && used + cost <= heavyBudget;
+        if (!cpuOnly) break;
+        reservedForHead = cost;
+      }
     }
   }
   return entries.map((e) =>

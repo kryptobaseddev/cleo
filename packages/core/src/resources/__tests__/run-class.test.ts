@@ -499,4 +499,12 @@ describe('namedTestFileCount (T13132)', () => {
     expect(namedTestFileCount('test-run', ['npx', 'vitest', 'run', 'governor'])).toBeNull();
     expect(namedTestFileCount('scoped-build', ['tsc', 'a.test.ts'])).toBeNull();
   });
+
+  it('skips the value of --exclude and gives up on a glob (#1865 LOW-3)', () => {
+    expect(namedTestFileCount('test-run', ['vitest', 'run', '--exclude', 'a.test.ts'])).toBeNull();
+    expect(
+      namedTestFileCount('test-run', ['vitest', 'run', 'b.test.ts', '--exclude', 'a.test.ts']),
+    ).toBe(1);
+    expect(namedTestFileCount('test-run', ['vitest', 'run', 'src/**/*.test.ts'])).toBeNull();
+  });
 });

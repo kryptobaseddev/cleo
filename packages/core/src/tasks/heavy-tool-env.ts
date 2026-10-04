@@ -138,19 +138,32 @@ export const PER_RUN_BUDGET_SHARE = 0.5;
 export const PER_RUN_SHARE_ENV = 'CLEO_PER_RUN_SHARE';
 
 /**
+ * Variables a hosted CI runner sets, each with the value that marks it. A bare
+ * `CI` is not trusted: agent harnesses and devcontainers export it locally.
+ */
+const CI_RUNNER_MARKERS: readonly (readonly [string, string | null])[] = [
+  ['GITHUB_ACTIONS', 'true'],
+  ['GITLAB_CI', null],
+  ['BUILDKITE', 'true'],
+  ['CIRCLECI', 'true'],
+  ['TF_BUILD', 'True'],
+];
+
+/**
  * Share of the admission budget one heavy run plans for:
  * `CLEO_PER_RUN_SHARE` when it is a number in `(0, 1]`; the whole budget on a
- * CI runner (`CI` set and not `false`/`0`), which is single-tenant, so CI keeps
- * its parallelism (2 workers on a 16 GiB GitHub runner, as before T13132);
- * else {@link PER_RUN_BUDGET_SHARE}. Fixed per environment, so the worker count
- * in the tool cache key is stable.
+ * hosted CI runner (GitHub Actions, GitLab CI, Buildkite, CircleCI, Azure
+ * Pipelines), which is single-tenant, so CI keeps its parallelism (2 workers on
+ * a 16 GiB GitHub runner, as before T13132); else {@link PER_RUN_BUDGET_SHARE}.
+ * Fixed per environment, so the worker count in the tool cache key is stable.
  *
  * @param env - the environment.
  *
  * @example
  * ```ts
  * perRunBudgetShare({});                          // 0.5
- * perRunBudgetShare({ CI: 'true' });              // 1
+ * perRunBudgetShare({ GITHUB_ACTIONS: 'true' });  // 1
+ * perRunBudgetShare({ CI: '1' });                 // 0.5 (a bare CI is not trusted)
  * perRunBudgetShare({ CLEO_PER_RUN_SHARE: '1' }); // 1
  * ```
  */
@@ -160,9 +173,11 @@ export function perRunBudgetShare(env: NodeJS.ProcessEnv): number {
     const n = Number(raw);
     if (Number.isFinite(n) && n > 0 && n <= 1) return n;
   }
-  const ci = env.CI?.trim().toLowerCase();
-  if (ci !== undefined && ci !== '' && ci !== 'false' && ci !== '0') return 1;
-  return PER_RUN_BUDGET_SHARE;
+  const onRunner = CI_RUNNER_MARKERS.some(([name, value]) => {
+    const v = env[name];
+    return v !== undefined && v !== '' && (value === null || v === value);
+  });
+  return onRunner ? 1 : PER_RUN_BUDGET_SHARE;
 }
 
 /**
@@ -397,7 +412,7 @@ const WORKER_COUNT_VARS = [
  * ```ts
  * heavyToolWorkers(48, {});            // 3 (half of the 36 GiB budget)
  * heavyToolWorkers(16, {});            // 1
- * heavyToolWorkers(16, { CI: 'true' }); // 2 (the whole 12 GiB budget)
+ * heavyToolWorkers(16, { GITHUB_ACTIONS: 'true' }); // 2 (the whole 12 GiB budget)
  * ```
  */
 export function heavyToolWorkers(

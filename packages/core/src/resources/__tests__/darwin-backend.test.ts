@@ -23,6 +23,7 @@ import { describe, expect, it } from 'vitest';
 import type { PsiData, ResourceSample } from '../backend.js';
 import {
   cpuSomeFromLoad,
+  DARWIN_NORMAL_HEADROOM_CAP,
   DarwinResourceBackend,
   darwinHeadroomBytes,
   darwinHeadroomFloorBytes,
@@ -215,14 +216,31 @@ describe('PSI-equivalent mapping', () => {
 
   it('headroom running out scores at any kernel level, in bytes against the floor', () => {
     // 48 GiB: floor 12 GiB (a quarter). 92% wired or compressed leaves 3.84 GiB.
-    expect(some(normal(8))).toBeCloseTo(30 * (1 - (0.08 * RAM48) / (12 * GB)), 6);
-    // 8 GiB Air: floor 4 GiB (6 GiB capped at half). 95% leaves 0.4 GiB: backoff.
-    expect(some(normal(5), RAM8)).toBeCloseTo(30 * (1 - (0.05 * RAM8) / (4 * GB)), 6);
-    expect(stateOf(normal(5), RAM8)).toBe('backoff');
+    expect(some(normal(8))).toBeCloseTo(
+      Math.min(DARWIN_NORMAL_HEADROOM_CAP, 30 * (1 - (0.08 * RAM48) / (12 * GB))),
+      6,
+    );
+    // 8 GiB Air: floor 4 GiB (6 GiB capped at half). 95% leaves 0.4 GiB: at a
+    // normal kernel level headroom alone stops at the cap — hold, never backoff.
+    expect(some(normal(5), RAM8)).toBe(DARWIN_NORMAL_HEADROOM_CAP);
+    expect(stateOf(normal(5), RAM8)).toBe('hold');
     // A quarter of RAM, at least 6 GiB, at most half (T13132, #1806 review).
     expect(darwinHeadroomFloorBytes(RAM48)).toBe(12 * GB);
     expect(darwinHeadroomFloorBytes(16 * GB)).toBe(6 * GB);
     expect(darwinHeadroomFloorBytes(RAM8)).toBe(4 * GB);
+  });
+
+  it('at a normal kernel level headroom alone never backs off or refuses; a warning with low headroom does (#1865 MED-2)', () => {
+    const empty = 'hw.pagesize: 16384\nvm.page_free_count: 0\n';
+    // Kernel normal, nothing reclaimable: hold at most (the gate refuses above 25).
+    expect(some(`kern.memorystatus_vm_pressure_level: 1\n${empty}`, RAM8)).toBe(
+      DARWIN_NORMAL_HEADROOM_CAP,
+    );
+    expect(stateOf(`kern.memorystatus_vm_pressure_level: 1\n${empty}`, RAM8)).toBe('hold');
+    expect(DARWIN_NORMAL_HEADROOM_CAP).toBeLessThan(25);
+    // Kernel warning with the same headroom: the full headroom score, backoff.
+    expect(some(`kern.memorystatus_vm_pressure_level: 2\n${empty}`, RAM8)).toBeGreaterThan(25);
+    expect(stateOf(`kern.memorystatus_vm_pressure_level: 2\n${empty}`, RAM8)).toBe('backoff');
   });
 
   it('reclaimable pages are the headroom when readable: anonymous memory is not (T13132)', () => {
@@ -236,20 +254,28 @@ describe('PSI-equivalent mapping', () => {
     // reclaimable, below the 12 GiB floor.
     expect(
       some(`kern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 60\n${pages(3)}`),
-    ).toBeCloseTo(30 * (1 - 3 / 12), 6);
+    ).toBe(Math.min(DARWIN_NORMAL_HEADROOM_CAP, 30 * (1 - 3 / 12)));
     // Without a page size the old reading stands.
     expect(parseDarwinSysctl('vm.page_free_count: 10\n').reclaimableBytes).toBeNull();
   });
 
   it('the compressor share counts when the kernel level is unreadable, or larger', () => {
     // 47 GiB compressed on 48 GiB, no memorystatus_level: 1 GiB headroom left
-    // against the 12 GiB floor
-    expect(some(`vm.compressor_bytes_used: ${47 * GB}\n`)).toBeCloseTo(30 * (1 - 1 / 12), 6);
-    // the larger of the two wins
-    expect(some(`kern.memorystatus_level: 70\nvm.compressor_bytes_used: ${47 * GB}\n`)).toBeCloseTo(
-      30 * (1 - 1 / 12),
-      6,
+    // against the 12 GiB floor (27.5), capped without a kernel warning
+    const crushed = 30 * (1 - 1 / 12);
+    expect(some(`vm.compressor_bytes_used: ${47 * GB}\n`)).toBe(
+      Math.min(DARWIN_NORMAL_HEADROOM_CAP, crushed),
     );
+    // the larger of the two wins: 1 GiB left, not 30%
+    expect(some(`kern.memorystatus_level: 70\nvm.compressor_bytes_used: ${47 * GB}\n`)).toBe(
+      DARWIN_NORMAL_HEADROOM_CAP,
+    );
+    // with a kernel warning the uncapped headroom score counts
+    expect(
+      some(
+        `kern.memorystatus_vm_pressure_level: 2\nkern.memorystatus_level: 70\nvm.compressor_bytes_used: ${47 * GB}\n`,
+      ),
+    ).toBeGreaterThanOrEqual(crushed);
   });
 
   it('returns null when no memory signal is readable; swap alone is not a signal', () => {
@@ -478,4 +504,23 @@ describe('governor budgets react to cpu saturation', () => {
     expect(computeClassBudget('db-heavy', sample(0, 0), opts)).toBe(1);
     expect(computeClassBudget('db-heavy', sample(0, 60), opts)).toBe(1);
   });
+});
+
+describe('a live macOS sample (runs on darwin only)', () => {
+  // Evidence from the machine running the suite (#1865 review MED-2): it reads
+  // reclaimable pages, and a normal kernel level never scores past the cap
+  // however low that headroom is.
+  it.runIf(process.platform === 'darwin')(
+    'reads reclaimable pages and stays within the cap at a normal kernel level',
+    async () => {
+      const backend = new DarwinResourceBackend({ cacheTtlMs: 0 });
+      const s = await backend.sample();
+      const d = s.darwinMemory;
+      expect(d).not.toBeNull();
+      expect(d?.reclaimableBytes).not.toBeNull();
+      if (d?.pressureLevel === 1) {
+        expect(s.globalPressure?.some.avg10 ?? 0).toBeLessThanOrEqual(DARWIN_NORMAL_HEADROOM_CAP);
+      }
+    },
+  );
 });
