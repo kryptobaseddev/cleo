@@ -56,6 +56,7 @@ import {
 const required = [
   'dist/cli/index.js',
   'dist/cli/hook-entry.js',
+  'dist/cli/update-check-entry.js',
   'studio-dist/index.js',
   'studio-dist/handler.js',
   'studio-dist/server/index.js',

@@ -122,6 +122,28 @@ A failed step halts the walker. The envelope still reports every prior
 step and the highest lifecycle state reached, so the operator can
 resume from the failure point.
 
+## Flagging a hotfix — the `hotfix` dist-tag (T13137)
+
+An installed CLI reads `@cleocode/cleo`'s dist-tags once a day (a detached
+background check; never on a command's own path) and prints one stderr line
+when its channel tag (`latest`, or `beta` for a beta/rc install) names a newer
+version. Point the `hotfix` dist-tag at a release that fixes a defect users
+must not keep running, and every installed CLI below it prints a stronger
+notice on every command until it updates:
+
+```bash
+npm dist-tag add @cleocode/cleo@<version> hotfix   # flag (after publish, or later)
+npm dist-tag ls @cleocode/cleo                     # confirm
+npm dist-tag rm @cleocode/cleo hotfix              # withdraw the flag
+```
+
+The tag only strengthens a notice that `cleo self-update` can act on: it counts
+when it names a version above the install and at or below the channel tag.
+Releases publish through npm Trusted Publishing (OIDC), which cannot move
+dist-tags, so a maintainer with npm credentials runs this by hand. Installs
+reach the flag within a day (their next check). Users silence every notice
+with `CLEO_NO_UPDATE_NOTICE=1`; CI runs never show one.
+
 ## Related docs
 
 - `docs/release/branch-protection-setup.md` — GitHub branch protection setup
