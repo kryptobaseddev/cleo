@@ -97,12 +97,23 @@ function makeGh(opts: StubOptions): PreflightGhRunner & { calls: string[][]; tim
       const commit = endpoint.slice(endpoint.lastIndexOf('...') + 3);
       return JSON.stringify(opts.files?.[commit] ?? PLAN_FILES);
     }
+    if (endpoint.includes('/actions/workflows/macos-main.yml/runs')) {
+      // T13187: the newest successful main-push macOS run.
+      return runsBody((opts.greenRuns ?? []).filter((r) => r.path?.endsWith('/macos-main.yml')));
+    }
+    if (
+      endpoint.includes('/actions/workflows/ci.yml/runs') &&
+      endpoint.includes('event=schedule')
+    ) {
+      // T13187: the newest successful nightly ci.yml run.
+      return runsBody(
+        (opts.greenRuns ?? []).filter(
+          (r) => r.event === 'schedule' && !r.path?.endsWith('/macos-main.yml'),
+        ),
+      );
+    }
     if (endpoint.includes('/actions/workflows/ci.yml/runs')) {
       return answer(opts.pushRuns, runsBody);
-    }
-    if (endpoint.includes('/actions/runs?branch=')) {
-      // T13187: recent successful runs on main, for naming the newest green macOS one.
-      return runsBody(opts.greenRuns ?? []);
     }
     if (endpoint.includes('/actions/runs?head_sha=')) {
       // Every run of the commit, any workflow and event: the push runs and the nightlies.
@@ -458,6 +469,32 @@ describe('decidePreflightSkips — names the newest main commit with a green mac
     );
     expect(d.skipMacosTests).toBe(false);
     expect(d.reason).toContain(`Newest main commit with a green macOS run: ${GREEN.slice(0, 12)}`);
+  });
+
+  it('asks each macOS workflow for its newest success separately, and says how far behind HEAD it is', () => {
+    const gh = makeGh({
+      greenRuns: [
+        { id: 80, event: 'push', path: '.github/workflows/macos-main.yml', head_sha: GREEN },
+      ],
+    });
+    const d = decidePreflightSkips(gh, '/repo', 'main', {
+      commitsBehind: (from, to) => (from === GREEN && to === SHA ? 3 : null),
+    });
+    expect(d.reason).toContain(`${GREEN.slice(0, 12)}, 3 commit(s) behind ${SHA.slice(0, 12)}`);
+    const endpoints = gh.calls.map((c) => c[1] ?? '');
+    expect(
+      endpoints.some((e) =>
+        e.includes('/workflows/macos-main.yml/runs?branch=main&status=success&per_page=1'),
+      ),
+    ).toBe(true);
+    expect(
+      endpoints.some((e) =>
+        e.includes('/workflows/ci.yml/runs?branch=main&event=schedule&status=success&per_page=1'),
+      ),
+    ).toBe(true);
+    // An unknown distance omits the count rather than guessing.
+    const unknown = decidePreflightSkips(gh, '/repo', 'main', { commitsBehind: () => null });
+    expect(unknown.reason).not.toContain('behind');
   });
 
   it('a nightly ci.yml schedule run counts', () => {

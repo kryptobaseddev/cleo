@@ -41,6 +41,8 @@
  * @task release-speed
  */
 
+import { execFileSync } from 'node:child_process';
+
 /** Timeout for each `gh` call made while deciding preflight skips (ms). */
 export const PREFLIGHT_CHECK_TIMEOUT_MS = 15_000;
 
@@ -79,6 +81,11 @@ export interface PreflightSkipOptions {
   deadlineMs?: number;
   /** Clock (tests). */
   now?: () => number;
+  /**
+   * Commits from `from` to `to` (T13187: how far the newest green macOS commit
+   * is behind HEAD); defaults to `git rev-list --count` in `cwd`, null when unknown.
+   */
+  commitsBehind?: (from: string, to: string, cwd: string) => number | null;
 }
 
 /**
@@ -229,21 +236,38 @@ function isUnitTestJob(name: string): boolean {
 }
 
 /**
- * The newest successful run that is a macOS verdict (T13187): any run of the
- * main-push macOS workflow, or a nightly `schedule` run of ci.yml (a ci.yml
- * push run is Linux-only, so its success says nothing about macOS).
+ * The newest successful run among per-workflow listings of macOS verdicts
+ * (T13187): the main-push macOS workflow's runs, and ci.yml's nightly
+ * `schedule` runs. A ci.yml push run is Linux-only, so it is never listed.
+ * One listing per workflow, so a busy day of other workflows' runs cannot
+ * push the macOS run off the page (T13187 review).
  *
- * @param raw - `GET /actions/runs?branch=<main>&status=success` body, or null.
- * @returns The run, or undefined when none is listed.
+ * @param raws - `GET /actions/workflows/<file>/runs?...&status=success` bodies, or null.
+ * @returns The newest run, or undefined when none is listed.
  */
-function newestGreenMacosRun(raw: string | null): WorkflowRunSummary | undefined {
-  if (raw === null) return undefined;
-  return parseRuns(raw).find(
-    (run) =>
-      run.conclusion === 'success' &&
-      (run.path.endsWith('/macos-main.yml') ||
-        (run.path.endsWith('/ci.yml') && run.event === 'schedule')),
-  );
+function newestGreenMacosRun(raws: ReadonlyArray<string | null>): WorkflowRunSummary | undefined {
+  return raws
+    .flatMap((raw) => (raw === null ? [] : parseRuns(raw)))
+    .filter((run) => run.conclusion === 'success')
+    .sort((a, b) => b.id - a.id)[0];
+}
+
+/**
+ * Commits between `from` and `to` in the local clone (`git rev-list --count`),
+ * or null when either is not in local history.
+ */
+function defaultCommitsBehind(from: string, to: string, cwd: string): number | null {
+  try {
+    const out = execFileSync('git', ['rev-list', '--count', `${from}..${to}`], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 10_000,
+    }).trim();
+    return /^\d+$/.test(out) ? Number(out) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** A job that ran the test suite on macOS, by the name GitHub renders for it. */
@@ -495,12 +519,22 @@ export function decidePreflightSkips(
   // green macOS run, so the operator can see how far behind it is (or tag that
   // commit's equivalent instead of waiting).
   if (!skipMacosTests && !timedOut) {
-    const green = newestGreenMacosRun(
-      gh(['api', `repos/{owner}/{repo}/actions/runs?branch=${branch}&status=success&per_page=50`]),
-    );
-    macosReason += green
-      ? ` Newest ${branch} commit with a green macOS run: ${shortSha(green.headSha)} (${green.url}).`
-      : ` No recent green macOS run on ${branch} was found.`;
+    const green = newestGreenMacosRun([
+      gh([
+        'api',
+        `repos/{owner}/{repo}/actions/workflows/macos-main.yml/runs?branch=${branch}&status=success&per_page=1`,
+      ]),
+      gh([
+        'api',
+        `repos/{owner}/{repo}/actions/workflows/${MAIN_CI_WORKFLOW}/runs?branch=${branch}&event=schedule&status=success&per_page=1`,
+      ]),
+    ]);
+    if (green) {
+      const behind = (options.commitsBehind ?? defaultCommitsBehind)(green.headSha, sha, cwd);
+      macosReason += ` Newest ${branch} commit with a green macOS run: ${shortSha(green.headSha)}${behind === null ? '' : `, ${behind} commit(s) behind ${shortSha(sha)}`} (${green.url}).`;
+    } else {
+      macosReason += ` No recent green macOS run on ${branch} was found.`;
+    }
   }
 
   return {

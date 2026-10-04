@@ -18,6 +18,8 @@ the free plan's five macOS jobs. ci.yml's nightly schedule already runs the macO
 shards on main every night, so this workflow adds no schedule of its own.
 
 When `cleo release open` cannot skip the macOS shards, its reason now names the
-newest main commit with a green macOS run: a `macos-main.yml` run, or a nightly
-ci.yml run. A Linux-only ci.yml push run never counts. Without one, it says no
-recent green macOS run was found.
+newest main commit with a green macOS run and how many commits it is behind
+HEAD (from local git history; omitted when unknown). It asks `macos-main.yml` and
+ci.yml's nightly `schedule` runs for their newest success separately, so other
+workflows' runs cannot push it off the page; a Linux-only ci.yml push run never
+counts. Without one, it says no recent green macOS run was found.
