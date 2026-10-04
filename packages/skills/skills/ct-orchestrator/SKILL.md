@@ -361,7 +361,8 @@ orchestrator follows it too: tests, typechecks and builds run one at a time
 through `cleo run --wait --class <test|build|full-build> -- <cmd>` (exit 75:
 not admitted yet, wait and retry). Never wrap `cleo run` or `cleo verify` in
 another queue or wrapper, never put one inside them (the lock systems
-deadlock), and never override heap or workers (`NODE_OPTIONS`, `--maxWorkers`).
+deadlock), and never raise heap or worker counts (`NODE_OPTIONS`,
+`--maxWorkers`).
 
 Emergency: set `CLEO_OWNER_OVERRIDE=1` and `CLEO_OWNER_OVERRIDE_REASON="<reason>"`
 before the verify call — audited to `.cleo/audit/force-bypass.jsonl`.

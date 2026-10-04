@@ -37,7 +37,7 @@ Everything else is one command away — print a section with `cleo briefing inje
 ## Work Loop
 
 1. `cleo current` or `cleo next` → pick task
-2. `cleo focus {id}` → orient: identity + blockers + ready wave + docs + brain context (1 call ≤ 1 500 tokens)
+2. `cleo focus {id}` → orient: identity + blockers + ready wave + docs + brain context
 3. Check authority, coverage, and source evidence; do the work
 4. Record verification evidence, then `cleo complete {id}` → mark done
 5. `cleo next` → continue or end session
@@ -108,14 +108,14 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 | — | `E_EVIDENCE_TESTS_FAILED` / `E_EVIDENCE_TOOL_FAILED` | Fix the source or failing tests, then re-verify |
 | — | `E_EVIDENCE_TOOL_VACUOUS` | Tool exited 0 but provably checked nothing (e.g. `tsc` without `-b` on a references-only tsconfig); run it in a covering mode |
 | — | `E_EVIDENCE_STALE` | Files/commits changed since `verify`; re-verify with updated evidence |
-| — | `E_EVIDENCE_GIT_ROOT` | The CLEO root is not a git checkout — a layout fact; declare `"evidence": { "gitRoot": "<subdir>" }` in `.cleo/project-context.json` or set `CLEO_EVIDENCE_GIT_ROOT=<repo>` |
+| — | `E_EVIDENCE_GIT_ROOT` | The CLEO root is not a git checkout; declare `"evidence": { "gitRoot": "<subdir>" }` in `.cleo/project-context.json` or set `CLEO_EVIDENCE_GIT_ROOT=<repo>` |
 | — | `E_FLAG_REMOVED` | `cleo complete --force` removed per ADR-051. Use `--evidence` |
-| — | `E_IDEMPOTENCY_UNSUPPORTED` | That verb ignores `--idempotency-key`; the key was NOT applied. Query before retrying |
-| 143 / 137 | *(killed — no code)* | **A killed write carries NO information about whether it committed** |
+| — | `E_IDEMPOTENCY_UNSUPPORTED` | That verb ignores `--idempotency-key` (list below); query before retrying |
+| 143 / 137 | *(killed — no code)* | **Outcome unknown; see below** |
 
 ### A killed write is not a failed write
 
-Missing output is equally inconclusive; teardown may hang after commit. **Never retry a killed mutation blindly.** Read `cleo show <id> --full`: a HIT proves presence even while the writer hangs; a MISS proves nothing until it exits. For discovery use `cleo find "<title>" --include-archive --all` or `cleo list --parent <id> --limit 0`.
+Missing output is equally inconclusive; teardown may hang after commit. **Never retry a killed mutation blindly.** Read `cleo show <id> --full`: a HIT proves presence even while the writer hangs; a MISS proves nothing until it exits. For discovery use `cleo find "<title>" --include-archive --all` or `cleo list --parent <id> --limit 0`. `add`/`add-batch`/`update`/`docs add`/`memory observe`/`relates add` reject `--idempotency-key`; it cannot make their retries safe.
 <!-- /CLEO-INJECTION:section=error-handling -->
 
 <!-- CLEO-INJECTION:section=pre-complete-gate -->
@@ -134,14 +134,14 @@ Before `cleo complete <id>`, every gate requires programmatic evidence validated
 
 Name the acceptance criteria each result proves: `cleo verify T1234 --gate implemented --evidence "commit:abc123;files:src/fix.ts;satisfies:T1234#AC1"`. Record `testsPassed` and `qaPassed` separately with actual verification results and explicit criterion links. Documentation-only PRs cannot implement a code-fix task; changed criteria require fresh evidence, and a child waiver does not waive parent criteria. Then `cleo complete T###` re-validates every hard atom (commit reachable, file sha256, test-run hash); tampering → `E_EVIDENCE_STALE`. Typed gates, `pr:` rules, tool timeouts and the audited owner override: `cleo briefing inject --section evidence`.
 
-Anti-patterns: completing without running tests · `cleo verify --all` without `--evidence` · self-attesting without programmatic proof · running tests by hand, then again via `tool:test` · modifying files between `cleo verify` and `cleo complete`.
+Anti-patterns: completing without running tests · self-attesting without programmatic proof · running tests by hand, then again via `tool:test` · modifying files between `cleo verify` and `cleo complete`.
 <!-- /CLEO-INJECTION:section=pre-complete-gate -->
 
 <!-- CLEO-INJECTION:section=rules -->
 ## Rules
 
 - No time estimates — use `small`, `medium`, `large` sizing
-- Heavy work (tests, typechecks, builds): one at a time via `cleo run --wait --class <test|build|full-build> -- <cmd>` (exit 75: wait, retry). Never wrap `cleo run`/`cleo verify` in another queue or override heap/workers (`NODE_OPTIONS`, `--maxWorkers`). Prove with single files, `tool:test-affected` or `ci:<pr>`, never a whole suite
+- Heavy work (tests, typechecks, builds): one at a time via `cleo run --wait --class <test|build|full-build> -- <cmd>` (exit 75: wait, retry). Never wrap `cleo run`/`cleo verify` in another queue or raise heap/workers (`NODE_OPTIONS`, `--maxWorkers`). Prove with single files, `tool:test-affected` or `ci:<pr>`, never a whole suite
 - Do not read full task details for tasks you won't work on
 - Never read `.cleo/*.db` directly — the store is `.cleo/cleo.db` (prefixed tables); `tasks.db` and `tasks-*.db` snapshots are decoys. Ask the CLI (`cleo doctor superseded-store`)
 <!-- /CLEO-INJECTION:section=rules -->

@@ -1115,7 +1115,7 @@ function buildEvidenceGateBlock(taskId: string): string {
  * the markers on every surface.
  */
 export const GOVERNED_HEAVY_WORK_LINE =
-  'Heavy work (tests, typechecks, builds, installs): one command at a time through `cleo run --wait --class <test|build|full-build> -- <command>` (the heavy-command hook rewrites it for you where installed; exit 75 means it was not admitted before the wait ran out: wait and retry). Never wrap `cleo run` or `cleo verify` in another queue or wrapper script, never put one inside them (the two lock systems deadlock), and never set heap or worker overrides (`NODE_OPTIONS=--max-old-space-size=…`, `--maxWorkers`): CLEO sizes them.';
+  'Heavy work (tests, typechecks, builds): one command at a time through `cleo run --wait --class <test|build|full-build> -- <command>` (the heavy-command hook rewrites it for you where installed; exit 75 means it was not admitted before the wait ran out: wait and retry). Never wrap `cleo run` or `cleo verify` in another queue or wrapper script, never put one inside them (the two lock systems deadlock), and never raise heap or worker counts (`NODE_OPTIONS=--max-old-space-size=…`, `--maxWorkers`): CLEO sizes them.';
 
 /** Build the quality-gate block — biome + build + scoped test evidence + changeset hygiene. */
 function buildQualityGateBlock(): string {
