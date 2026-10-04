@@ -9,6 +9,7 @@
  */
 
 import type { ConduitMessage, Transport } from '@cleocode/contracts';
+import { conduitFetch } from '@cleocode/core/conduit/cloud-endpoint.js';
 
 /** Message handler callback. */
 export type MessageHandler = (message: ConduitMessage) => void;
@@ -150,7 +151,7 @@ export class AgentPoller {
     params.set('limit', '50');
 
     const url = `${this.config.apiBaseUrl}/messages/peek?${params}`;
-    const response = await fetch(url, {
+    const response = await conduitFetch(url, {
       method: 'GET',
       headers: this.headers(),
     });
@@ -186,7 +187,7 @@ export class AgentPoller {
     const limit = this.config.groupPollLimit ?? DEFAULT_GROUP_POLL_LIMIT;
     const url = `${this.config.apiBaseUrl}/conversations/${conversationId}/messages?sort=desc&limit=${limit}`;
 
-    const response = await fetch(url, {
+    const response = await conduitFetch(url, {
       method: 'GET',
       headers: this.headers(),
     });
