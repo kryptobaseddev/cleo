@@ -32,6 +32,36 @@ const { DatabaseSync } = _require('node:sqlite') as {
   DatabaseSync: new (path: string, options?: { readOnly?: boolean }) => DatabaseSyncType;
 };
 
+/**
+ * Simulates a concurrent `cleo add` between the remap's id allocation and the
+ * copy (review LOW-1): when set, the first remap's new id is taken in the live
+ * store right after the remap is planned.
+ */
+const { takeRemappedId } = vi.hoisted(() => ({ takeRemappedId: { on: false } }));
+vi.mock('../exodus/task-id-remap.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../exodus/task-id-remap.js')>();
+  return {
+    ...actual,
+    remapCollidingTaskIds: (
+      ...args: Parameters<typeof actual.remapCollidingTaskIds>
+    ): ReturnType<typeof actual.remapCollidingTaskIds> => {
+      const result = actual.remapCollidingTaskIds(...args);
+      const first = result.remaps[0];
+      if (takeRemappedId.on && first) {
+        takeRemappedId.on = false;
+        const live = new DatabaseSync(args[0]);
+        live
+          .prepare(
+            "INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES (?, 'raced', 'pending', 'medium', 'saga', '2026-10-04T00:00:00Z')",
+          )
+          .run(first.newId);
+        live.close();
+      }
+      return result;
+    },
+  };
+});
+
 vi.mock('../../logger.js', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
@@ -147,6 +177,7 @@ describe.each(
   });
 
   afterEach(async () => {
+    takeRemappedId.on = false;
     if (savedKillSwitch === undefined) delete process.env.CLEO_DISABLE_EXODUS_ON_OPEN;
     else process.env.CLEO_DISABLE_EXODUS_ON_OPEN = savedKillSwitch;
     const { closeDb } = await import('../sqlite.js');
@@ -542,7 +573,350 @@ describe.each(
 
     expect(result.outcome).toBe('reconciled');
     expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id='T1'")).toBe('written since');
-    expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(5);
+    // T13172: the legacy T1 is recovered under a new id, never dropped, and
+    // its children follow it instead of attaching to the live T1.
+    expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(6);
+    expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id='T006'")).toBe('epic');
+    expect(scalar(liveDb, "SELECT parent_id FROM tasks_tasks WHERE id='T2'")).toBe('T006');
+    expect(result.remaps.map((r) => `${r.legacyId}->${r.newId}`)).toEqual(['T1->T006']);
     expect(existsSync(join(cleoDir, 'tasks.db'))).toBe(true);
+  });
+
+  describe('scenario B review fixes (T13172)', () => {
+    /** Replace the legacy tasks.db with `sql`, and write `liveSql` into the live store. */
+    function stage(sql: string, liveSql: string): void {
+      rmSync(join(cleoDir, 'tasks.db'), { force: true });
+      const tasks = new DatabaseSync(join(cleoDir, 'tasks.db'));
+      tasks.exec(`
+        CREATE TABLE tasks (
+          id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+          priority TEXT NOT NULL DEFAULT 'medium', type TEXT, parent_id TEXT REFERENCES tasks(id),
+          pipeline_stage TEXT, archive_reason TEXT, created_at TEXT NOT NULL
+        );
+        ${sql}
+      `);
+      tasks.close();
+      const live = new DatabaseSync(liveDb);
+      live.exec(liveSql);
+      live.close();
+    }
+    const POST_DEFERRAL_T001 =
+      "INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES ('T001', 'Written after deferral', 'pending', 'medium', 'saga', '2026-10-03T00:00:00Z');";
+
+    it('re-derives task-derived criterion ids and rewrites session JSON refs (review HIGH)', async () => {
+      const { buildAcRowId } = await import('../../tasks/ac-table.js');
+      const legacyAc = buildAcRowId('T001', 'tests pass');
+      stage(
+        `CREATE TABLE task_acceptance_criteria (
+           id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), ordinal INTEGER NOT NULL,
+           text TEXT NOT NULL, created_at TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'text',
+           target_task_id TEXT REFERENCES tasks(id), projection TEXT NOT NULL DEFAULT 'legacy'
+         );
+         CREATE TABLE sessions (
+           id TEXT PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ended',
+           scope_json TEXT NOT NULL DEFAULT '{}', started_at TEXT NOT NULL,
+           tasks_completed_json TEXT
+         );
+         INSERT INTO tasks VALUES
+           ('T001', 'legacy epic', 'done', 'high', 'epic', NULL, 'contribution', NULL, '2026-01-01T00:00:00Z');
+         INSERT INTO task_acceptance_criteria VALUES
+           ('${legacyAc}', 'T001', 1, 'tests pass', '2026-01-01T00:00:00Z', 'text', NULL, 'legacy');
+         INSERT INTO sessions VALUES
+           ('ses_legacy', 'legacy session', 'ended', '{"type":"global"}', '2026-01-01T00:00:00Z', '["T001"]');`,
+        `${POST_DEFERRAL_T001}
+         INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, created_at, kind)
+           VALUES ('${legacyAc}', 'T001', 1, 'tests pass', '2026-10-03T00:00:00Z', 'text');`,
+      );
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const result = await reconcileSupersededStores(join(root, 'project'));
+
+      expect(result.outcome).toBe('reconciled');
+      expect(result.remaps.map((r) => `${r.legacyId}->${r.newId}`)).toEqual(['T001->T002']);
+      expect(
+        scalar(liveDb, "SELECT id FROM tasks_task_acceptance_criteria WHERE task_id = 'T002'"),
+      ).toBe(buildAcRowId('T002', 'tests pass'));
+      expect(
+        scalar(
+          liveDb,
+          "SELECT COUNT(*) FROM tasks_task_acceptance_criteria WHERE task_id = 'T001'",
+        ),
+      ).toBe(1);
+      expect(
+        scalar(liveDb, "SELECT tasks_completed_json FROM tasks_sessions WHERE id = 'ses_legacy'"),
+      ).toBe('["T002"]');
+      expect(result.reason).toContain('free text');
+    });
+
+    it('pairs legacy twins with distinct recovered tasks and never reuses a legacy id (review MED-1)', async () => {
+      stage(
+        `INSERT INTO tasks VALUES
+           ('T001', 'Imported', 'pending', 'medium', 'saga', NULL, NULL, NULL, '2026-01-01T00:00:00Z'),
+           ('T002', 'Imported', 'pending', 'medium', 'saga', NULL, NULL, NULL, '2026-01-01T00:00:00Z');`,
+        `${POST_DEFERRAL_T001}
+         INSERT INTO tasks_tasks (id, title, status, priority, type, created_at)
+           VALUES ('T002', 'Imported', 'pending', 'medium', 'saga', '2026-01-01T00:00:00Z');`,
+      );
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const result = await reconcileSupersededStores(join(root, 'project'));
+
+      expect(result.outcome).toBe('reconciled');
+      expect(result.remaps).toEqual([
+        expect.objectContaining({ legacyId: 'T001', newId: 'T003', alreadyRecovered: false }),
+      ]);
+      expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id = 'T003'")).toBe('Imported');
+      const again = await reconcileSupersededStores(join(root, 'project'));
+      expect(again.outcome).toBe('nothing-to-reconcile');
+      expect(again.remaps).toEqual([
+        expect.objectContaining({ legacyId: 'T001', newId: 'T003', alreadyRecovered: true }),
+      ]);
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(3);
+    });
+
+    it('an unparseable creation time withholds the task graph, dependents included (review MED-2)', async () => {
+      stage(
+        `CREATE TABLE task_acceptance_criteria (
+           id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), ordinal INTEGER NOT NULL,
+           text TEXT NOT NULL, created_at TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'text',
+           target_task_id TEXT REFERENCES tasks(id), projection TEXT NOT NULL DEFAULT 'legacy'
+         );
+         CREATE TABLE task_dependencies (
+           task_id TEXT NOT NULL REFERENCES tasks(id), depends_on TEXT NOT NULL REFERENCES tasks(id),
+           PRIMARY KEY (task_id, depends_on)
+         );
+         INSERT INTO tasks VALUES
+           ('T001', 'legacy epoch task', 'pending', 'medium', 'saga', NULL, NULL, NULL, '1735689600000'),
+           ('T002', 'legacy child', 'pending', 'medium', 'epic', 'T001', NULL, NULL, '2026-01-02T00:00:00Z');
+         INSERT INTO task_acceptance_criteria VALUES
+           ('ACX', 'T001', 1, 'legacy-only criterion', '2026-01-01T00:00:00Z', 'text', NULL, 'legacy');
+         INSERT INTO task_dependencies VALUES ('T002', 'T001');`,
+        POST_DEFERRAL_T001,
+      );
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const plan = await reconcileSupersededStores(join(root, 'project'), { dryRun: true });
+      expect(plan.reason).toContain('the task graph was NOT copied');
+      const result = await reconcileSupersededStores(join(root, 'project'));
+
+      expect(result.remaps).toEqual([]);
+      expect(result.conflicts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ reason: 'id-collision-undecided', ids: ['T001'], rows: 1 }),
+          expect.objectContaining({ reason: 'withheld-undecided', targetTable: 'tasks_tasks' }),
+          expect.objectContaining({
+            reason: 'withheld-undecided',
+            targetTable: 'tasks_task_acceptance_criteria',
+          }),
+          expect.objectContaining({
+            reason: 'withheld-undecided',
+            targetTable: 'tasks_task_dependencies',
+          }),
+        ]),
+      );
+      expect(result.reason).not.toContain('every legacy row');
+      expect(result.reason).toContain('Correct the legacy created_at of T001');
+      // Nothing attached to the live T001.
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(1);
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_task_acceptance_criteria')).toBe(0);
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_task_dependencies')).toBe(0);
+    });
+
+    it('a withheld run copies history from the original legacy files, not the renumbered copy (review LOW)', async () => {
+      stage(
+        `INSERT INTO tasks VALUES
+           ('T001', 'legacy epoch task', 'pending', 'medium', 'saga', NULL, NULL, NULL, '1735689600000'),
+           ('T002', 'legacy decided', 'pending', 'medium', 'saga', NULL, NULL, NULL, '2026-01-02T00:00:00Z');`,
+        `${POST_DEFERRAL_T001}
+         INSERT INTO tasks_tasks (id, title, status, priority, type, created_at)
+           VALUES ('T002', 'live other', 'pending', 'medium', 'saga', '2026-10-03T00:00:00Z');`,
+      );
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const result = await reconcileSupersededStores(join(root, 'project'));
+
+      expect(result.remaps).toEqual([]);
+      expect(result.stagingDir).not.toBeNull();
+      expect(readdirSync(result.stagingDir ?? '')).not.toContain('tasks.remapped.db');
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(2);
+    });
+
+    it('twins whose instant is spelled two ways share one candidate pool (review LOW)', async () => {
+      stage(
+        `INSERT INTO tasks VALUES
+           ('T001', 'Imported', 'pending', 'medium', 'saga', NULL, NULL, NULL, '2026-01-01T00:00:00Z'),
+           ('T002', 'Imported', 'pending', 'medium', 'saga', NULL, NULL, NULL, '2026-01-01 00:00:00');`,
+        `${POST_DEFERRAL_T001}
+         INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES
+           ('T002', 'Other', 'pending', 'medium', 'saga', '2026-10-03T00:00:00Z'),
+           ('T005', 'Imported', 'pending', 'medium', 'saga', '2026-01-01T00:00:00Z');`,
+      );
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const result = await reconcileSupersededStores(join(root, 'project'));
+
+      expect(result.outcome).toBe('reconciled');
+      expect(result.remaps).toEqual([
+        expect.objectContaining({ legacyId: 'T001', newId: 'T005', alreadyRecovered: true }),
+        expect.objectContaining({ legacyId: 'T002', newId: 'T006', alreadyRecovered: false }),
+      ]);
+      expect(scalar(liveDb, "SELECT COUNT(*) FROM tasks_tasks WHERE title = 'Imported'")).toBe(2);
+    });
+
+    it('one instant spelled two ways is the same task, not a collision (review MED-2)', async () => {
+      stage(
+        `INSERT INTO tasks VALUES
+           ('T001', 'same task', 'pending', 'medium', 'saga', NULL, NULL, NULL, '2026-01-01 00:00:00');`,
+        "INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES ('T001', 'same task', 'pending', 'medium', 'saga', '2026-01-01T00:00:00Z');",
+      );
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const result = await reconcileSupersededStores(join(root, 'project'));
+
+      expect(result.remaps).toEqual([]);
+      expect(result.conflicts).toEqual([]);
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(1);
+    });
+
+    it('a recovered id taken by a concurrent write refuses and reverts (review LOW-1)', async () => {
+      stage(
+        `INSERT INTO tasks VALUES
+           ('T001', 'legacy epic', 'pending', 'medium', 'saga', NULL, NULL, NULL, '2026-01-01T00:00:00Z');`,
+        POST_DEFERRAL_T001,
+      );
+      takeRemappedId.on = true;
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const result = await reconcileSupersededStores(join(root, 'project'));
+
+      expect(result.outcome).toBe('refused');
+      expect(result.reason).toContain('a concurrent write took the id of a recovered task');
+      expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id = 'T002'")).toBe('raced');
+      expect(scalar(liveDb, "SELECT COUNT(*) FROM tasks_tasks WHERE title = 'legacy epic'")).toBe(
+        0,
+      );
+    });
+  });
+
+  describe('a legacy task whose id a post-deferral task reused (T13172, scenario B)', () => {
+    /** Legacy T001-T003 (T002/T003 under T001) and a post-deferral live saga T001. */
+    function stageScenarioB(): void {
+      rmSync(join(cleoDir, 'tasks.db'), { force: true });
+      const tasks = new DatabaseSync(join(cleoDir, 'tasks.db'));
+      tasks.exec(`
+        CREATE TABLE tasks (
+          id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+          priority TEXT NOT NULL DEFAULT 'medium', type TEXT, parent_id TEXT REFERENCES tasks(id),
+          pipeline_stage TEXT, archive_reason TEXT, created_at TEXT NOT NULL
+        );
+        CREATE TABLE task_acceptance_criteria (
+          id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), ordinal INTEGER NOT NULL,
+          text TEXT NOT NULL, created_at TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'text',
+          target_task_id TEXT REFERENCES tasks(id), projection TEXT NOT NULL DEFAULT 'legacy'
+        );
+        CREATE TABLE task_dependencies (
+          task_id TEXT NOT NULL REFERENCES tasks(id), depends_on TEXT NOT NULL REFERENCES tasks(id),
+          PRIMARY KEY (task_id, depends_on)
+        );
+        INSERT INTO tasks VALUES
+          ('T001', 'legacy epic',  'active',  'high',   'epic', NULL,   NULL, NULL, '2026-01-01T00:00:00Z'),
+          ('T002', 'legacy child', 'pending', 'medium', 'task', 'T001', NULL, NULL, '2026-01-02T00:00:00Z'),
+          ('T003', 'legacy dep',   'pending', 'medium', 'task', 'T001', NULL, NULL, '2026-01-03T00:00:00Z');
+        INSERT INTO task_acceptance_criteria VALUES
+          ('AC1', 'T001', 1, 'epic criterion', '2026-01-01T00:00:00Z', 'text', NULL, 'legacy');
+        INSERT INTO task_dependencies VALUES ('T002', 'T003'), ('T003', 'T001');
+      `);
+      tasks.close();
+      const live = new DatabaseSync(liveDb);
+      live
+        .prepare(
+          "INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES ('T001', 'Written after deferral', 'pending', 'medium', 'saga', '2026-10-03T00:00:00Z')",
+        )
+        .run();
+      live.close();
+    }
+
+    it('the dry-run names the collision and counts the legacy task as missing', async () => {
+      stageScenarioB();
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const plan = await reconcileSupersededStores(join(root, 'project'), { dryRun: true });
+
+      expect(plan.outcome).toBe('planned');
+      expect(plan.before.find((t) => t.targetTable === 'tasks_tasks')?.missingInLive).toBe(3);
+      expect(plan.remaps).toEqual([
+        expect.objectContaining({
+          legacyId: 'T001',
+          newId: 'T004',
+          legacyTitle: 'legacy epic',
+          liveTitle: 'Written after deferral',
+          alreadyRecovered: false,
+        }),
+      ]);
+      expect(plan.reason).toContain('legacy T001 ("legacy epic") -> T004');
+      expect(plan.sourcePaths).toContain(join(cleoDir, 'tasks.db'));
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(1);
+    });
+
+    it('recovers it under a new id with children, dependencies and criteria re-pointed', async () => {
+      stageScenarioB();
+      const legacyDigest = digest(join(cleoDir, 'tasks.db'));
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const result = await reconcileSupersededStores(join(root, 'project'));
+
+      expect(result.outcome).toBe('reconciled');
+      expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id='T001'")).toBe(
+        'Written after deferral',
+      );
+      expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id='T004'")).toBe('legacy epic');
+      expect(scalar(liveDb, "SELECT COUNT(*) FROM tasks_tasks WHERE parent_id='T004'")).toBe(2);
+      expect(scalar(liveDb, "SELECT COUNT(*) FROM tasks_tasks WHERE parent_id='T001'")).toBe(0);
+      expect(
+        scalar(liveDb, "SELECT task_id FROM tasks_task_acceptance_criteria WHERE id='AC1'"),
+      ).toBe('T004');
+      expect(
+        scalar(liveDb, "SELECT depends_on FROM tasks_task_dependencies WHERE task_id='T003'"),
+      ).toBe('T004');
+      expect(result.remaps).toEqual([
+        expect.objectContaining({ legacyId: 'T001', newId: 'T004', referencesRepointed: 4 }),
+      ]);
+      expect(result.reason).toContain('recovered under new ids');
+      const receipt = JSON.parse(readFileSync(result.receiptPath ?? '', 'utf8')) as {
+        remaps: unknown[];
+      };
+      expect(receipt.remaps).toHaveLength(1);
+      expect(digest(join(cleoDir, 'tasks.db'))).toBe(legacyDigest);
+      // The next allocation never reuses a recovered id.
+      const { allocateNextTaskId } = await import('../../sequence/index.js');
+      expect(await allocateNextTaskId(join(root, 'project'))).toBe('T005');
+    });
+
+    it('a second run recognises the recovered task and copies nothing', async () => {
+      stageScenarioB();
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      await reconcileSupersededStores(join(root, 'project'));
+      const again = await reconcileSupersededStores(join(root, 'project'));
+
+      expect(again.outcome).toBe('nothing-to-reconcile');
+      expect(again.rowsCopied).toBe(0);
+      expect(again.remaps).toEqual([
+        expect.objectContaining({ legacyId: 'T001', newId: 'T004', alreadyRecovered: true }),
+      ]);
+      expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_tasks')).toBe(4);
+    });
+
+    it('the read-only survey never calls tasks.db safe to archive while T001 is shadowed', async () => {
+      stageScenarioB();
+      const { scanSupersededStores } = await import('../../doctor/superseded-store.js');
+      const tasksEntry = () =>
+        scanSupersededStores(join(root, 'project')).entries.find((e) => e.name === 'tasks.db');
+      // Copy only the non-colliding rows, as a pre-T13172 reconcile did.
+      const live = new DatabaseSync(liveDb);
+      live
+        .prepare(
+          "INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES ('T002', 'legacy child', 'pending', 'medium', 'task', '2026-01-02T00:00:00Z'), ('T003', 'legacy dep', 'pending', 'medium', 'task', '2026-01-03T00:00:00Z')",
+        )
+        .run();
+      live.close();
+      const { utimesSync } = await import('node:fs');
+      utimesSync(join(cleoDir, 'tasks.db'), new Date(2026, 0, 1), new Date(2026, 0, 1));
+
+      const entry = tasksEntry();
+      expect(entry?.missingInLive).toBe(1);
+      expect(entry?.safeToArchive).toBe(false);
+      expect(entry?.reason).toContain('a different live task now holds');
+    });
   });
 });
