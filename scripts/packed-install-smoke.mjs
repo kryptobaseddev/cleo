@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { captureWrapped } from '../packages/core/dist/resources/spawn-wrapper.js';
+import { sandboxEnvironment } from './lib/sandbox-env.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLISHED_PKGS = [
@@ -207,51 +208,7 @@ export async function verifyPackedGit(app, root, env, options = {}) {
  * @returns {NodeJS.ProcessEnv} Explicit child environment; package installation may access npm.
  */
 export function packedEnvironment(root) {
-  const env = {
-    PATH: process.env.PATH,
-    LANG: 'C.UTF-8',
-    TZ: 'UTC',
-    CI: '1',
-    NO_COLOR: '1',
-    CLEO_HEADLESS: '1',
-    CLEO_DISABLE_LOCAL_INFERENCE: '1',
-    NODE_OPTIONS: '--max-old-space-size=2048',
-  };
-  const roots = {
-    HOME: 'home',
-    USERPROFILE: 'home',
-    XDG_DATA_HOME: 'data',
-    XDG_CONFIG_HOME: 'config',
-    XDG_CACHE_HOME: 'cache',
-    XDG_STATE_HOME: 'state',
-    XDG_RUNTIME_DIR: 'runtime',
-    TMPDIR: 'tmp',
-    TMP: 'tmp',
-    TEMP: 'tmp',
-    CLEO_HOME: 'cleo',
-    CLEO_CONFIG_HOME: 'cleo-config',
-    CLEO_ROOT: 'project',
-    CLEO_PROJECT_ROOT: 'project',
-    CLEO_DIR: 'project/.cleo',
-    NEXUS_HOME: 'nexus',
-    NEXUS_CACHE_DIR: 'nexus/cache',
-    AGENTS_HOME: 'agents',
-    CLAUDE_CONFIG_DIR: 'claude',
-    CODEX_HOME: 'codex',
-    KIMI_CODE_HOME: 'kimi-code',
-    KIMI_HOME: 'kimi',
-    KIMI_CONFIG_DIR: 'kimi/config',
-    OPENCODE_CONFIG_DIR: 'opencode',
-    CURSOR_CONFIG_DIR: 'cursor',
-    GEMINI_CLI_HOME: 'gemini',
-    npm_config_cache: 'npm-cache',
-    CLEO_PACKED_COMMAND_RECEIPTS: 'command-receipts',
-  };
-  for (const [key, path] of Object.entries(roots)) {
-    env[key] = join(root, path);
-    mkdirSync(env[key], { recursive: true });
-  }
-  return env;
+  return sandboxEnvironment(root, { CLEO_PACKED_COMMAND_RECEIPTS: 'command-receipts' });
 }
 
 /**

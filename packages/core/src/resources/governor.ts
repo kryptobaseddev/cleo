@@ -404,9 +404,15 @@ export class ResourceGovernor {
 
     if (!Number.isFinite(budget)) return passThroughGrant(cls);
     if (budget <= 0) {
+      // Name the signal the budget was computed from: memory alone under
+      // `ignoreCpuPressure`, else the combined memory/CPU score (T13158).
+      const signal =
+        opts.ignoreCpuPressure === true
+          ? `memory some avg10=${memorySomeAvg10(sample).toFixed(1)}`
+          : `some avg10=${someAvg10(sample).toFixed(1)}`;
       return deferral(
         cls,
-        `class '${cls}' budget is 0 under current pressure (some avg10=${someAvg10(sample).toFixed(1)})`,
+        `class '${cls}' budget is 0 under current pressure (${signal})`,
         DEFAULT_RESOURCE_RETRY_AFTER_MS,
       );
     }

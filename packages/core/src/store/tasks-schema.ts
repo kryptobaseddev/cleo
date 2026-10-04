@@ -37,6 +37,24 @@ export type {
 } from './schema/chain-schema.js';
 // Re-export WarpChain schema tables so drizzle-kit picks them up for migrations.
 export { warpChainInstances, warpChains } from './schema/chain-schema.js';
+// CUTOVER (T13111) — token usage → `tasks_token_usage` (the `tokenUsage` value
+// is re-exported with `schemaMeta` just below; these are its row types).
+//
+// The same FK class as the lifecycle cutover (gh#1107, further down): the bare
+// `token_usage.session_id` and `task_id` reference the bare `sessions` and
+// `tasks` tables, which the runtime stopped writing in T11578. With FKs on
+// (every non-test open), each token row that named a session or a task failed
+// `FOREIGN KEY constraint failed`, which `autoRecordDispatchTokenUsage`
+// swallowed: nothing was recorded while a session was bound. The prefixed twin
+// holds the same columns with plain-text ids (no cross-table FK), so every
+// `tokenUsage` reader and writer now uses it. The rows the bare table did store
+// (only commands run with no session bound), and any an older build writes
+// there, are drained into the twin by the T12535 collapse at every open
+// (`TOKEN_USAGE` in twin-collapse.ts, T13115).
+export type {
+  NewTasksTokenUsageRow as NewTokenUsageRow,
+  TasksTokenUsageRow as TokenUsageRow,
+} from './schema/cleo-project/audit.js';
 // TWIN COLLAPSE (T12535, slice 1) — `schema_meta` → `tasks_schema_meta`.
 //
 // The bare `schema_meta` was still the live tasks-domain key/value store (the
@@ -49,7 +67,10 @@ export { warpChainInstances, warpChains } from './schema/chain-schema.js';
 // the same change. `store/twin-collapse.ts` carries the bare rows into the
 // twin (key-aware, atomic) at every open, before any read: the initial
 // collapse, then whatever an older build wrote to the bare table since.
-export { tasksSchemaMeta as schemaMeta } from './schema/cleo-project/audit.js';
+export {
+  tasksSchemaMeta as schemaMeta,
+  tasksTokenUsage as tokenUsage,
+} from './schema/cleo-project/audit.js';
 // TWIN COLLAPSE (T12535, PR 2) — `attachments` / `attachment_refs` →
 // `docs_attachments` / `docs_attachment_refs`. The union-shape migration gives
 // the twin the bare table's `display_alias` column, and `store/twin-collapse.ts`
@@ -109,9 +130,10 @@ export {
 // so `cleo release plan`/`reconcile` write FK-free — the
 // `ensureProvenanceTaskFkParents` shim is removed in the same change. Mirrors the
 // task-core rebind block above; an explicit named re-export shadows the `export *`.
-// (Satellite symbols — tokenUsage/lifecyclePipelines/agentInstances/experiments/
-// adrTaskLinks/warpChainInstances — are rebound later with the E5 full-family drop;
-// they're not on the release-plan/reconcile write path that DHQ-051 blocks.)
+// (Satellite symbols — agentInstances/experiments/adrTaskLinks/warpChainInstances —
+// are rebound later with the E5 full-family drop; they're not on the
+// release-plan/reconcile write path that DHQ-051 blocks. lifecyclePipelines moved
+// in T12017 and tokenUsage in T13111.)
 export {
   tasksCommitFiles as commitFiles,
   tasksCommits as commits,
