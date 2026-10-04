@@ -367,10 +367,10 @@ export type EvidenceAtom =
       /** `true` when the result was served from the tool cache (no spawn). */
       cacheHit?: boolean;
       /**
-       * The heap, worker count and workspace concurrency a heavy tool (`test`,
-       * `build`) was spawned with, and why (T13122) — including any inherited
-       * `NODE_OPTIONS` heap or worker count that was clamped to the budget.
-       * Absent for light tools.
+       * The heap, worker count and workspace concurrency a memory-bound tool
+       * (`test`, `build`, `typecheck`, `lint`) was spawned with, and why
+       * (T13122, T13123) — including any inherited `NODE_OPTIONS` heap or
+       * worker count that was clamped to the budget. Absent for other tools.
        */
       resources?: HeavyToolResourcePlan;
     }
@@ -540,6 +540,12 @@ export type EvidenceAtom =
        * vouches for a PR that was not itself green.
        */
       descendantPrHeadSha?: string;
+      /**
+       * The PR edited a pinned workflow, so only default-branch `push` runs
+       * attested it; its own `pull_request` runs (which ran the edited
+       * workflow) were never consulted, and none is re-checked (T13174).
+       */
+      mainOnly?: boolean;
       /** Task the PR was verified to be linked to (T12634). */
       taskId?: string;
       /** Component PR the task is linked through; its CI ran as this integration PR's (T12671). */

@@ -36,6 +36,7 @@ import {
   deriveAffectedPackages,
   listVitestProjects,
   listWorkspacePackages,
+  planAffectedTestRun,
 } from '../affected-packages.js';
 import { validateAtom } from '../evidence.js';
 
@@ -224,11 +225,18 @@ describe('affectedTestTargets: project names come from vitest itself (T12635 re-
       ),
     );
     expect(withConfig.map((p) => p.name)).toContain('@cleocode/utils');
+    // The package-less projects (`repo-guards`, `scripts`, T13142) are always
+    // selected; derive them, so the next one does not break this test.
+    const packageNames = new Set(listWorkspacePackages(repo).map((p) => p.name));
+    const packageless = resolved.ok
+      ? resolved.projects.map((p) => p.name).filter((name) => !packageNames.has(name))
+      : [];
+    expect(packageless).toEqual(expect.arrayContaining(['repo-guards', 'scripts']));
     for (const p of withConfig) {
       const t = await affectedTestTargets(repo, [p.name], [p.name], once);
-      // Its own project, then only the non-package projects (`scripts`) — never
-      // another package's project, e.g. @cleocode/cleo whose root is the repo.
-      expect(t.ok && t.projects, p.name).toEqual([p.name, 'scripts']);
+      // Its own project, then only the package-less projects — never another
+      // package's project, e.g. @cleocode/cleo whose root is the repo.
+      expect(t.ok && t.projects, p.name).toEqual([p.name, ...packageless]);
     }
   });
 });
@@ -406,6 +414,30 @@ describe('tool:test-affected evidence', () => {
     expect(acquired).toEqual(['test', 'test', 'test']);
   });
 
+  it('derives the affected command from a workspace-wide testing.command (T13125)', async () => {
+    // The VidaPeps shape: no affectedCommand, testing.command = pnpm -r … test.
+    initRepo(undefined, { command: 'pnpm -r --no-bail --if-present run test' });
+    writeFileSync(join(root, 'packages/c/src/index.ts'), "export const n = 'changed';\n");
+    git(root, ['commit', '-q', '-am', 'T1: change c']);
+    const run = await planAffectedTestRun(root, root);
+    expect(run.ok, JSON.stringify(run)).toBe(true);
+    if (!run.ok) return;
+    expect([run.command.cmd, ...run.command.args]).toEqual([
+      'pnpm',
+      '--filter',
+      '@x/c',
+      '--no-bail',
+      '--if-present',
+      'run',
+      'test',
+    ]);
+    expect(run.template).toEqual({
+      template: 'pnpm {filters} --no-bail --if-present run test',
+      source: 'derived',
+      basis: 'pnpm -r --no-bail --if-present run test',
+    });
+  });
+
   it('a shell-chained affectedCommand is a config error, never a pass (T12718)', async () => {
     // Split on whitespace this ran `node -e 0` with `&& exit 1` as ignored
     // arguments: exit 0, and the `exit 1` the author wrote never ran.
@@ -494,12 +526,33 @@ describe('tool:test-affected evidence', () => {
       });
     });
 
-    it('without an affected template, tool:test is the full suite with no reason', async () => {
+    it('without an affected template, tool:test is the full suite and says why (T13125)', async () => {
+      // `node -e 0` is not a workspace-wide command, so nothing derives.
       initRepo();
       changeC();
       const r = await validateAtom({ kind: 'tool', tool: 'test' }, root);
       expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ scope: 'full' });
-      expect(r.ok && r.atom.kind === 'tool' && r.atom.scopeReason).toBeUndefined();
+      expect(r.ok && r.atom.kind === 'tool' && r.atom.scopeReason).toMatch(
+        /no testing\.affectedCommand is declared and none can be derived.*whole suite/,
+      );
+      expect(r.ok && r.atom.kind === 'tool' && r.atom.scopeReason).not.toMatch(/ci:<pr>/);
+    });
+
+    it('with evidence.ciSatisfies, the whole-suite reason names ci:<pr> as preferred (T13125)', async () => {
+      initRepo();
+      writeFileSync(
+        join(root, '.cleo', 'project-context.json'),
+        JSON.stringify({
+          primaryType: 'node',
+          testing: { command: 'node -e 0' },
+          evidence: { ciSatisfies: true },
+        }),
+      );
+      changeC();
+      const r = await validateAtom({ kind: 'tool', tool: 'test' }, root);
+      expect(r.ok && r.atom.kind === 'tool' && r.atom.scopeReason).toMatch(
+        /evidence\.ciSatisfies is set, so ci:<pr> .* is the preferred testsPassed evidence/,
+      );
     });
 
     it('a merged change runs the full suite: a scoped run counts before merge only', async () => {

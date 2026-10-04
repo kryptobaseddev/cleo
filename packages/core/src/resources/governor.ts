@@ -131,6 +131,18 @@ export interface BudgetOptions {
   readonly cpuCount?: number;
   /** Override total RAM bytes (tests). Default {@link totalmem}. */
   readonly totalMemBytes?: number;
+  /**
+   * Budget on MEMORY pressure alone, ignoring the CPU signal (T13119, T13150).
+   *
+   * For work that must not be deferred merely because the machine is busy: a
+   * required migration of the store being opened, whose deferral leaves the
+   * command reading an empty store. CPU saturation slows such work; it cannot
+   * exhaust memory, which is what the governor exists to prevent. On macOS
+   * the CPU signal is derived from the load average (T12981), so any machine
+   * whose load exceeds twice its effective cores (a CI runner under vitest, a
+   * Mac running agents) read as `backoff` and deferred it.
+   */
+  readonly ignoreCpuPressure?: boolean;
 }
 
 const MB = 1024 * 1024;
@@ -139,6 +151,11 @@ const MB = 1024 * 1024;
 function someAvg10(sample: ResourceSample): number {
   // T12981: memory or CPU, whichever is worse (CPU rescaled to this scale).
   return pressureScore(sample);
+}
+
+/** Memory `some avg10` (0–100) alone; 0 when unavailable. */
+function memorySomeAvg10(sample: ResourceSample): number {
+  return (sample.globalPressure?.some ?? sample.slicePressure?.some)?.avg10 ?? 0;
 }
 
 /**
@@ -168,7 +185,7 @@ export function computeClassBudget(
   const headroomBytes = (opts.headroomMb ?? 2048) * MB;
   const hold = opts.holdSomeAvg10 ?? 10;
   const floor = opts.floorSomeAvg10 ?? 25;
-  const some = someAvg10(sample);
+  const some = opts.ignoreCpuPressure === true ? memorySomeAvg10(sample) : someAvg10(sample);
   // MemAvailable can be null on non-Linux / read error — fall back to total.
   const availBytes = sample.memAvailableBytes ?? totalBytes;
   const fullStall = sample.globalPressure?.full?.avg10 ?? sample.slicePressure?.full?.avg10 ?? 0;
@@ -387,9 +404,15 @@ export class ResourceGovernor {
 
     if (!Number.isFinite(budget)) return passThroughGrant(cls);
     if (budget <= 0) {
+      // Name the signal the budget was computed from: memory alone under
+      // `ignoreCpuPressure`, else the combined memory/CPU score (T13158).
+      const signal =
+        opts.ignoreCpuPressure === true
+          ? `memory some avg10=${memorySomeAvg10(sample).toFixed(1)}`
+          : `some avg10=${someAvg10(sample).toFixed(1)}`;
       return deferral(
         cls,
-        `class '${cls}' budget is 0 under current pressure (some avg10=${someAvg10(sample).toFixed(1)})`,
+        `class '${cls}' budget is 0 under current pressure (${signal})`,
         DEFAULT_RESOURCE_RETRY_AFTER_MS,
       );
     }

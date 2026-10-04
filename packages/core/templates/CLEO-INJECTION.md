@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.24.4 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.24.6 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -13,12 +13,12 @@ Version: 2.24.4 | CLI-only dispatch | `cleo <command> [args]`
 6. **Learn.** Record actionable incident knowledge with source, project, revision, observation, correction, and verification through `cleo memory observe`. Preserve historical handoffs; present corrections separately. Avoid empty completion traces.
 7. **Ask the owner.** Every owner answer, decision, approval or choice goes through the ask tool (`AskUserQuestion` or the provider equivalent) with concrete selectable options, recommended first, each stating what happens and its trade-offs. Never ask in prose or bury a question in a response. No routine status chatter: report when done or when a decision is needed. Subagents never ask the human; they return the question and options to their orchestrator, which asks. No ask tool: emit one LAFS `hitl.request` envelope `{question, options[{label, description}], recommended}` and stop.
 
-Use `cleo <command> --help` and the `ct-cleo` skill for command details. Bare `cleo show <id>` withholds description and verification and lists them in `_withheld`; use `cleo show <id> --full`. A record without `_withheld` is complete; absence is not emptiness.
+Use `cleo <command> --help` (no top-level help) and the `ct-cleo` skill for command details. Bare `cleo show <id>` withholds description and verification and lists them in `_withheld`; use `cleo show <id> --full`. A record without `_withheld` is complete; absence is not emptiness.
 <!-- /CLEO-INJECTION:section=session-start -->
 
 ## On-demand reference
 
-This file is the always-loaded core. Everything else is one command away — print a section with `cleo briefing inject --section <name>` before acting in that area:
+Everything else is one command away — print a section with `cleo briefing inject --section <name>` before acting in that area:
 
 | Section | Load it when you |
 |---------|------------------|
@@ -37,12 +37,12 @@ This file is the always-loaded core. Everything else is one command away — pri
 ## Work Loop
 
 1. `cleo current` or `cleo next` → pick task
-2. `cleo focus {id}` → orient: identity + blockers + ready wave + docs + brain context (1 call ≤ 1 500 tokens)
+2. `cleo focus {id}` → orient: identity + blockers + ready wave + docs + brain context
 3. Check authority, coverage, and source evidence; do the work
 4. Record verification evidence, then `cleo complete {id}` → mark done
 5. `cleo next` → continue or end session
 
-Discovery: `cleo focus <id>` to orient, `cleo find "query"` to search (default page 20; `--limit 0` for all), `cleo list --parent <id>` for direct children only — never bare `cleo list` for browsing. Create: `cleo add --type task --parent <epicId> --title "..." --acceptance "..."` (`--acceptance` is required on every task). Before editing a symbol: `cleo nexus impact <symbol>`; an empty footprint alone never establishes `NONE`.
+Discovery: `cleo find "query"` to search (default page 20; `--limit 0` for all), `cleo list --parent <id>` for direct children only — never bare `cleo list` for browsing. Create: `cleo add --type task --parent <epicId> --title "..." --acceptance "..."` (`--acceptance` is required on every task). Before editing a symbol: `cleo nexus impact <symbol>`; an empty footprint alone never establishes `NONE`.
 <!-- /CLEO-INJECTION:section=work-loop -->
 
 <!-- CLEO-INJECTION:section=triggers -->
@@ -71,7 +71,7 @@ Discovery: `cleo focus <id>` to orient, `cleo find "query"` to search (default p
 | Start session | `cleo session start --scope global --name "<what you are doing>"` (both flags are REQUIRED) |
 | End session | `cleo session end --note "..."` |
 
-Sessions are terminal-bound: to the agent harness, pane, tab, CI job (GitHub Actions, GitLab CI) or ssh login, and to a known single-agent harness process (Kimi, aider, …) across its `bash -c` calls; in a human's tab it gets its own identity and runs `cleo session start` itself. Other hosts (orchestrators, IDE extension hosts, `opencode serve`, daemons) identify nobody: multi-agent hosts and multi-step scripts set `CLEO_SESSION_ID` (or `CLEO_AGENT_ID` in a long-lived host only) per agent. `E_SESSION_UNBOUND` → bind via `cleo session start`, `cleo session resume <id>` or `CLEO_SESSION_ID=<id>`, or pass `--session <id>`; separate one-shot `ssh host 'cleo …'` calls must export `CLEO_SESSION_ID`. Claude Code adopts a session a human started in its tab; Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID`, so they act in the parent's session.
+Sessions are terminal-bound: to the agent harness, pane, tab, CI job or ssh login, and to a known single-agent harness process (Kimi, aider, …) across its `bash -c` calls; in a human's tab it gets its own identity and runs `cleo session start` itself. Other hosts (orchestrators, IDE extension hosts, `opencode serve`, daemons) identify nobody: multi-agent hosts and multi-step scripts set `CLEO_SESSION_ID` (or `CLEO_AGENT_ID` in a long-lived host only) per agent. `E_SESSION_UNBOUND` → bind via `cleo session start`, `cleo session resume <id>` or `CLEO_SESSION_ID=<id>`, or pass `--session <id>`; separate one-shot `ssh host 'cleo …'` calls must export `CLEO_SESSION_ID`. Claude Code adopts a session a human started in its tab; Agent-tool subagents inherit the parent's `CLAUDE_CODE_SESSION_ID`, so they act in the parent's session.
 <!-- /CLEO-INJECTION:section=session-commands -->
 
 <!-- CLEO-INJECTION:section=output-contract -->
@@ -108,10 +108,10 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 | — | `E_EVIDENCE_TESTS_FAILED` / `E_EVIDENCE_TOOL_FAILED` | Fix the source or failing tests, then re-verify |
 | — | `E_EVIDENCE_TOOL_VACUOUS` | Tool exited 0 but provably checked nothing (e.g. `tsc` without `-b` on a references-only tsconfig); run it in a covering mode |
 | — | `E_EVIDENCE_STALE` | Files/commits changed since `verify`; re-verify with updated evidence |
-| — | `E_EVIDENCE_GIT_ROOT` | The CLEO root is not a git checkout — a layout fact; declare `"evidence": { "gitRoot": "<subdir>" }` in `.cleo/project-context.json` or set `CLEO_EVIDENCE_GIT_ROOT=<repo>` |
+| — | `E_EVIDENCE_GIT_ROOT` | The CLEO root is not a git checkout; declare `"evidence": { "gitRoot": "<subdir>" }` in `.cleo/project-context.json` or set `CLEO_EVIDENCE_GIT_ROOT=<repo>` |
 | — | `E_FLAG_REMOVED` | `cleo complete --force` removed per ADR-051. Use `--evidence` |
-| — | `E_IDEMPOTENCY_UNSUPPORTED` | That verb ignores `--idempotency-key`; the key was NOT applied. Query before retrying |
-| 143 / 137 | *(killed — no code)* | **A killed write carries NO information about whether it committed** |
+| — | `E_IDEMPOTENCY_UNSUPPORTED` | That verb ignores `--idempotency-key` (list below); query before retrying |
+| 143 / 137 | *(killed — no code)* | **Outcome unknown; see below** |
 
 ### A killed write is not a failed write
 
@@ -134,14 +134,14 @@ Before `cleo complete <id>`, every gate requires programmatic evidence validated
 
 Name the acceptance criteria each result proves: `cleo verify T1234 --gate implemented --evidence "commit:abc123;files:src/fix.ts;satisfies:T1234#AC1"`. Record `testsPassed` and `qaPassed` separately with actual verification results and explicit criterion links. Documentation-only PRs cannot implement a code-fix task; changed criteria require fresh evidence, and a child waiver does not waive parent criteria. Then `cleo complete T###` re-validates every hard atom (commit reachable, file sha256, test-run hash); tampering → `E_EVIDENCE_STALE`. Typed gates, `pr:` rules, tool timeouts and the audited owner override: `cleo briefing inject --section evidence`.
 
-Anti-patterns: completing without running tests · `cleo verify --all` without `--evidence` · self-attesting without programmatic proof · running tests by hand, then again via `tool:test` · modifying files between `cleo verify` and `cleo complete`.
+Anti-patterns: completing without running tests · self-attesting without programmatic proof · running tests by hand, then again via `tool:test` · modifying files between `cleo verify` and `cleo complete`.
 <!-- /CLEO-INJECTION:section=pre-complete-gate -->
 
 <!-- CLEO-INJECTION:section=rules -->
 ## Rules
 
 - No time estimates — use `small`, `medium`, `large` sizing
-- Token budget: avoid `cleo list` without `--parent`; get usage from `cleo <command> --help` (there is no top-level help command)
+- Heavy work (tests, typechecks, builds): one at a time via `cleo run --wait --class <test|build|full-build> -- <cmd>` (exit 75: wait, retry). Never wrap `cleo run`/`cleo verify` in another queue or raise heap/workers (`NODE_OPTIONS`, `--maxWorkers`). Prove with single files, `tool:test-affected` or `ci:<pr>`, never a whole suite
 - Do not read full task details for tasks you won't work on
 - Never read `.cleo/*.db` directly — the store is `.cleo/cleo.db` (prefixed tables); `tasks.db` and `tasks-*.db` snapshots are decoys. Ask the CLI (`cleo doctor superseded-store`)
 <!-- /CLEO-INJECTION:section=rules -->

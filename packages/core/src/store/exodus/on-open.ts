@@ -413,37 +413,101 @@ export async function maybeRunExodusOnOpen(
   nativeDb: DatabaseSync,
   cwd: string | undefined,
 ): Promise<ExodusOnOpenResult> {
-  try {
-    return await runExodusOnOpen(scope, dbPath, nativeDb, cwd);
-  } catch (error) {
-    return {
-      outcome: 'aborted',
-      reason: `migration assessment failed: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
+  const preparation = await prepareExodusOnOpen(scope, dbPath, nativeDb, cwd);
+  return preparation.kind === 'decided' ? preparation.result : preparation.run();
 }
 
-/** Run the guarded assessment, copy and recovery behind the explicit abort boundary. */
-async function runExodusOnOpen(
+/**
+ * What an open must do about exodus, decided before any lock or admission.
+ *
+ * - `decided`: the open needs no migration (populated store, fresh install,
+ *   kill switch, completion marker, re-entrant or reconcile-suppressed open) or
+ *   cannot attempt one (`aborted`). `result` is final.
+ * - `pending`: the store is empty and this scope's legacy sources exist, so a
+ *   migration would run. `run` performs it (single-flight lock, copy, parity
+ *   gate, recovery); the caller admits it through the governor first.
+ *
+ * @task T13158
+ */
+export type ExodusOnOpenPreparation =
+  | { readonly kind: 'decided'; readonly result: ExodusOnOpenResult }
+  | { readonly kind: 'pending'; readonly run: () => Promise<ExodusOnOpenResult> };
+
+/** The result for an assessment or migration that threw. */
+function assessmentFailed(error: unknown): ExodusOnOpenResult {
+  return {
+    outcome: 'aborted',
+    reason: `migration assessment failed: ${error instanceof Error ? error.message : String(error)}`,
+  };
+}
+
+/**
+ * Decide, without locking or migrating, whether this open needs an exodus
+ * migration (T13158).
+ *
+ * A populated store costs one `COUNT(*)`. The open chokepoint admits a
+ * `pending` migration through the governor's `db-heavy` class, and opens that
+ * need no migration never touch the governor. Errors become a `decided`
+ * `aborted` result, exactly as {@link maybeRunExodusOnOpen} reports them.
+ *
+ * @param scope - The scope being opened.
+ * @param dbPath - Explicit consolidated database target for this scope.
+ * @param nativeDb - Fresh caller handle; never closed here.
+ * @param cwd - Working directory used to resolve the project root.
+ * @returns The {@link ExodusOnOpenPreparation}.
+ * @task T13158
+ */
+export async function prepareExodusOnOpen(
   scope: DualScope,
   dbPath: string,
   nativeDb: DatabaseSync,
   cwd: string | undefined,
-): Promise<ExodusOnOpenResult> {
+): Promise<ExodusOnOpenPreparation> {
+  try {
+    const assessed = await assessExodusOnOpen(scope, dbPath, nativeDb, cwd);
+    if ('result' in assessed) return { kind: 'decided', result: assessed.result };
+    const { plan } = assessed;
+    return {
+      kind: 'pending',
+      run: async () => {
+        try {
+          return await migrateOnOpen(scope, dbPath, nativeDb, cwd, plan);
+        } catch (error) {
+          return assessmentFailed(error);
+        }
+      },
+    };
+  } catch (error) {
+    return { kind: 'decided', result: assessmentFailed(error) };
+  }
+}
+
+/**
+ * The unlocked part of exodus-on-open: every reason an open needs no migration,
+ * or the plan for the one it needs.
+ */
+async function assessExodusOnOpen(
+  scope: DualScope,
+  dbPath: string,
+  nativeDb: DatabaseSync,
+  cwd: string | undefined,
+): Promise<{ readonly result: ExodusOnOpenResult } | { readonly plan: ExodusPlan }> {
   // Re-entrancy: the nested opens from runExodusMigrate must never recurse.
   if (_exodusInProgress) {
-    return { outcome: 'skipped', reason: 're-entrant open during active migration' };
+    return { result: { outcome: 'skipped', reason: 're-entrant open during active migration' } };
   }
   if (_reconcileInProgress.has(resolve(dbPath))) {
     return {
-      outcome: 'skipped',
-      reason: 'an explicit superseded-store reconcile of this store is in progress',
+      result: {
+        outcome: 'skipped',
+        reason: 'an explicit superseded-store reconcile of this store is in progress',
+      },
     };
   }
   // Fast path (unlocked): if the consolidated DB already has data, nothing to do.
   // This makes the second-open case a cheap COUNT(*) with no lock acquisition.
   if (!consolidatedIsEmpty(nativeDb, scope)) {
-    return { outcome: 'skipped', reason: 'consolidated cleo.db already populated' };
+    return { result: { outcome: 'skipped', reason: 'consolidated cleo.db already populated' } };
   }
 
   // Kill-switch (T12319): honoured, but never SILENTLY. Exported machine-wide
@@ -453,14 +517,14 @@ async function runExodusOnOpen(
   if (isDisabledByEnv()) {
     const stranded = await strandedLegacySources(scope, cwd);
     if (stranded.length === 0) {
-      return { outcome: 'skipped', reason: 'CLEO_DISABLE_EXODUS_ON_OPEN set' };
+      return { result: { outcome: 'skipped', reason: 'CLEO_DISABLE_EXODUS_ON_OPEN set' } };
     }
     const reason =
       `CLEO_DISABLE_EXODUS_ON_OPEN set while the consolidated ${scope} cleo.db is EMPTY and ` +
       `legacy ${stranded.join(', ')} still hold rows — CLEO is running WITHOUT that data. ` +
       remedyFor(scope);
     warnStrandedOnce(dbPath, reason);
-    return { outcome: 'skipped', reason };
+    return { result: { outcome: 'skipped', reason } };
   }
 
   // Completion-marker gate (T11777): once this scope's cutover is recorded, the
@@ -480,26 +544,28 @@ async function runExodusOnOpen(
         `exodus completion marker claims the ${scope} scope migrated, but its cleo.db is EMPTY ` +
         `while legacy ${stranded.join(', ')} still hold rows. ${remedyFor(scope)}`;
       warnStrandedOnce(dbPath, reason);
-      return { outcome: 'aborted', reason };
+      return { result: { outcome: 'aborted', reason } };
     }
     return {
-      outcome: 'skipped',
-      reason: 'exodus completion marker present — scope already migrated (cutover sealed)',
+      result: {
+        outcome: 'skipped',
+        reason: 'exodus completion marker present — scope already migrated (cutover sealed)',
+      },
     };
   }
 
   // Lazy-load the exodus engine via dynamic import to break the import cycle
   // (exodus/migrate.ts imports openDualScopeDb from dual-scope-db.ts).
-  const { buildExodusPlan, runExodusMigrate, verifyMigration, clearExodusJournal } = await import(
-    './index.js'
-  );
+  const { buildExodusPlan, legacySourcesHoldRows } = await import('./index.js');
 
   const plan = buildExodusPlan(cwd);
   const plannedTarget = scope === 'project' ? plan.projectDbPath : plan.globalDbPath;
   if (resolve(plannedTarget) !== resolve(dbPath)) {
     return {
-      outcome: 'aborted',
-      reason: `migration plan target ${plannedTarget} does not match opened database ${dbPath}; no migration applied`,
+      result: {
+        outcome: 'aborted',
+        reason: `migration plan target ${plannedTarget} does not match opened database ${dbPath}; no migration applied`,
+      },
     };
   }
 
@@ -513,10 +579,37 @@ async function runExodusOnOpen(
   const scopeSources = plan.sources.filter((s) => s.targetScope === scope);
   if (!scopeSources.some((s) => existsSync(s.path))) {
     return {
-      outcome: 'skipped',
-      reason: `no legacy ${scope}-scope source DBs present (fresh install or cross-scope-only)`,
+      result: {
+        outcome: 'skipped',
+        reason: `no legacy ${scope}-scope source DBs present (fresh install or cross-scope-only)`,
+      },
     };
   }
+
+  // T13158: legacy files that exist but hold no copyable rows owe this store
+  // nothing. Deciding here keeps the open from waiting for `db-heavy` (up to the
+  // admission bound) to migrate nothing.
+  if (!legacySourcesHoldRows(scopeSources)) {
+    return {
+      result: {
+        outcome: 'skipped',
+        reason: `legacy ${scope}-scope source DBs hold no copyable rows`,
+      },
+    };
+  }
+
+  return { plan };
+}
+
+/** The locked part of exodus-on-open: single-flight, copy, parity gate, recovery. */
+async function migrateOnOpen(
+  scope: DualScope,
+  dbPath: string,
+  nativeDb: DatabaseSync,
+  cwd: string | undefined,
+  plan: ExodusPlan,
+): Promise<ExodusOnOpenResult> {
+  const { runExodusMigrate, verifyMigration, clearExodusJournal } = await import('./index.js');
 
   // Single-flight: serialise the first-open migration across processes so two
   // concurrent opens never both migrate (AC6 · T11554 first-run race).

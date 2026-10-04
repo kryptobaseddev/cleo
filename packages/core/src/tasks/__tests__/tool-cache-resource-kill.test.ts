@@ -185,12 +185,16 @@ describe('captureResourceEnv', () => {
     ).toBe(captureResourceEnv('test', { MAKEFLAGS: '-j4 --jobserver-auth=fifo:/tmp/GMfifo456' }));
   });
 
-  it('a non-heavy tool keys only the heap: worker counts are inert for it', () => {
+  it('a single-process tool keys no worker counts: they are inert for it', () => {
     expect(captureResourceEnv('lint', { VITEST_MAX_WORKERS: '2' })).toBe(
       captureResourceEnv('lint', { VITEST_MAX_WORKERS: '6' }),
     );
-    expect(captureResourceEnv('lint', { NODE_OPTIONS: '--max-old-space-size=3072' })).toBe(
-      'NODE_OPTIONS=--max-old-space-size=3072',
+    // T13123: lint is memory-bound — its heap and workspace concurrency are keyed.
+    expect(keyed('lint', { NODE_OPTIONS: '--max-old-space-size=3072' })).toBe(
+      'NODE_OPTIONS=--max-old-space-size=3072;npm_config_workspace_concurrency=1;pnpm_config_workspace_concurrency=1',
+    );
+    expect(keyed('lint', { NODE_OPTIONS: '--max-old-space-size=3072' })).not.toBe(
+      keyed('lint', { NODE_OPTIONS: '--max-old-space-size=2048' }),
     );
   });
 });

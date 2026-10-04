@@ -264,10 +264,21 @@ export const nexusCloudStatusCheckSchema = z.object({
   detail: z.string(),
 });
 
+/**
+ * The E3 `features` entry of a server whose `POST /v1/projects` stores `initialKey`, a new project's
+ * first data key (onboarding B, cleo-nexus T095). `cleo project link` sends a key only to such a server.
+ */
+export const NEXUS_FEATURE_PROJECT_INITIAL_KEY = 'project.initial-key';
+
 /** `NexusStatus` (E3 `GET /v1/status`). */
 export const nexusCloudStatusSchema = z.object({
   serverTime: isoTime.optional(),
   apiVersion: z.string().optional(),
+  /**
+   * Optional server features (e.g. {@link NEXUS_FEATURE_PROJECT_INITIAL_KEY}). Absent from servers older
+   * than the list, which therefore support none of them.
+   */
+  features: z.array(z.string()).optional(),
   user: nexusCloudUserSchema,
   credential: nexusCloudCredentialSchema,
   device: nexusCloudDeviceSchema.nullable(),

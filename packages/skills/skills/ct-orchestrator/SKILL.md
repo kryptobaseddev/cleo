@@ -2,13 +2,13 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.0.8
+  version: 4.0.9
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-10-01
+  lastReviewed: 2026-10-03
   stability: stable
 ---
 
@@ -355,6 +355,14 @@ same resource limits is a cache hit, and once the PR merges, a project that sets
 needs no local run at all (`ci:<pr>`). When `testing.affectedCommand` is
 configured, a full `tool:test` is only for changes to root config, which
 affected planning refuses; without it, `tool:test` is the normal run.
+
+Every spawn prompt carries one governed path for heavy work (T13134), and the
+orchestrator follows it too: tests, typechecks and builds run one at a time
+through `cleo run --wait --class <test|build|full-build> -- <cmd>` (exit 75:
+not admitted yet, wait and retry). Never wrap `cleo run` or `cleo verify` in
+another queue or wrapper, never put one inside them (the lock systems
+deadlock), and never raise heap or worker counts (`NODE_OPTIONS`,
+`--maxWorkers`).
 
 Emergency: set `CLEO_OWNER_OVERRIDE=1` and `CLEO_OWNER_OVERRIDE_REASON="<reason>"`
 before the verify call — audited to `.cleo/audit/force-bypass.jsonl`.

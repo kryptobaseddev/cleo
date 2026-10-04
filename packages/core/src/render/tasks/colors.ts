@@ -10,11 +10,11 @@
  * @epic T10114
  */
 
+import type { TaskStatus } from '@cleocode/contracts';
 import {
   TASK_STATUS_SYMBOLS_ASCII,
   TASK_STATUS_SYMBOLS_UNICODE,
-  type TaskStatus,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/status-registry.js';
 
 /** Whether ANSI color escape codes should be used. */
 const colorsEnabled: boolean = (() => {

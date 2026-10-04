@@ -52,7 +52,6 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { getLogger } from '../logger.js';
 import {
   LEGACY_FOLDS,
@@ -61,6 +60,7 @@ import {
 } from './exodus/column-transforms.js';
 import { resolveConsolidatedTableName } from './exodus/table-name-map.js';
 import { orderTablesForCopy } from './exodus/table-order.js';
+import { readMigrationFilesCached } from './migration-files.js';
 import { sanitizeMigrationStatements, stripSqlComments } from './migration-manager.js';
 import { openCleoDbSnapshot } from './open-cleo-db.js';
 import { writePreRepairSnapshot } from './pre-repair-snapshot.js';
@@ -74,7 +74,7 @@ type SchemaObjectKind = 'table' | 'view' | 'trigger' | 'index';
 /** Schema objects a migration folder creates, by kind (final names after renames). */
 function createdObjects(migrationsFolder: string): Map<string, SchemaObjectKind> {
   const created = new Map<string, SchemaObjectKind>();
-  for (const migration of readMigrationFiles({ migrationsFolder })) {
+  for (const migration of readMigrationFilesCached(migrationsFolder)) {
     const sql = stripSqlComments(migration.sql.join('\n'));
     const renamed = new Map<string, string>();
     for (const m of sql.matchAll(
@@ -310,7 +310,7 @@ export function rebuildLegacyTasksLineage(
   if (nativeDb.isTransaction)
     throw new Error('legacy tasks lineage rebuild needs a connection outside a transaction');
 
-  const migrations = sanitizeMigrationStatements(readMigrationFiles({ migrationsFolder }));
+  const migrations = sanitizeMigrationStatements(readMigrationFilesCached(migrationsFolder));
   // Never drop anything unless there is a lineage to rebuild it from.
   if (migrations.length === 0)
     throw new Error(

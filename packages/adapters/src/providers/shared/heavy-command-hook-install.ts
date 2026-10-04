@@ -37,6 +37,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -106,6 +107,57 @@ function canonical(path: string): string {
   } catch {
     return resolve(path);
   }
+}
+
+/**
+ * A config path cannot be created because something on the way to it exists
+ * but is not a directory (T13124: a stray empty `<project>/.codex` file made
+ * `mkdirSync` throw `EEXIST` and aborted the Codex install). Nothing is
+ * written; the delivery reports the provider as `blocked`.
+ */
+export class HeavyHookPathBlockedError extends Error {
+  /** The existing path that is not a directory. */
+  readonly path: string;
+
+  /**
+   * @param path - the existing non-directory path.
+   * @param target - the config file that would have lived under it.
+   */
+  constructor(path: string, target: string) {
+    super(`${path} exists but is not a directory, so ${target} cannot be created under it`);
+    this.name = 'HeavyHookPathBlockedError';
+    this.path = path;
+  }
+}
+
+/**
+ * The nearest existing path at or above `dir` when it is NOT a directory, or
+ * `null` when the nearest existing one is a directory (so `mkdir -p dir`
+ * can succeed). Errors other than "does not exist" return `null` and are left
+ * to the write that follows.
+ *
+ * @param dir - the directory a config file needs.
+ */
+export function nonDirectoryAncestor(dir: string): string | null {
+  let cur = resolve(dir);
+  for (;;) {
+    try {
+      return statSync(cur).isDirectory() ? null : cur;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') return null;
+    }
+    const parent = dirname(cur);
+    if (parent === cur) return null;
+    cur = parent;
+  }
+}
+
+/** Create `dirname(target)`, or throw {@link HeavyHookPathBlockedError} when a file is in the way. */
+function ensureParentDir(target: string): void {
+  const blocked = nonDirectoryAncestor(dirname(target));
+  if (blocked !== null) throw new HeavyHookPathBlockedError(blocked, target);
+  mkdirSync(dirname(target), { recursive: true });
 }
 
 /**
@@ -268,7 +320,7 @@ export function heavyCommandHookEntry(provider: 'claude-code' | 'codex'): Record
 }
 
 /** Whether one hook object is CLEO's heavy-command hook. */
-function isHeavyHookObject(hook: unknown): boolean {
+export function isHeavyHookObject(hook: unknown): boolean {
   return (
     isPlainObject(hook) &&
     typeof hook.command === 'string' &&
@@ -348,7 +400,7 @@ export async function syncJsonHeavyCommandHook(
     });
     return removed ? 'removed' : 'unchanged';
   }
-  mkdirSync(dirname(configPath), { recursive: true });
+  ensureParentDir(configPath);
   clearOlderCleoMarkers();
   let result: HeavyHookSyncResult = 'unchanged';
   await updateJsonConfigFile(configPath, (config) => {
@@ -370,11 +422,25 @@ export async function syncJsonHeavyCommandHook(
 }
 
 /** Claude Code's per-machine settings file, relative to the project. */
-const CLAUDE_LOCAL_SETTINGS = '.claude/settings.local.json';
+export const CLAUDE_LOCAL_SETTINGS = '.claude/settings.local.json';
 
-/** First line of the `info/exclude` block CLEO adds (and alone may remove). */
+/** First line of the `info/exclude` block CLEO adds for `settings.local.json` (and alone may remove). */
 export const LOCAL_SETTINGS_EXCLUDE_MARKER =
   '# cleo-hook: keep the per-machine heavy-command hook settings out of git (T12983)';
+
+/**
+ * First line of the `info/exclude` block CLEO adds for any other hook file it
+ * writes: Codex's `.codex/hooks.json` and the opencode plugin (T13124, gh#1805:
+ * an untracked plugin file widened `cleo verify`'s evidence scope).
+ */
+export const HOOK_FILE_EXCLUDE_MARKER =
+  '# cleo-hook: keep a per-machine heavy-command hook file out of git (T13124)';
+
+/** Codex's project hook config, relative to the project. */
+export const CODEX_HOOKS_FILE = '.codex/hooks.json';
+
+/** The opencode plugin, relative to the project. */
+export const OPENCODE_PLUGIN_FILE = `.opencode/plugins/${OPENCODE_HEAVY_COMMAND_PLUGIN}`;
 
 /** Run git in `projectDir`; its trimmed stdout, or `null` on any failure. */
 function gitOutput(projectDir: string, args: readonly string[]): string | null {
@@ -397,52 +463,338 @@ function excludeFile(projectDir: string): string | null {
   return isAbsolute(path) ? path : join(projectDir, path);
 }
 
-/** The `info/exclude` line for this project's settings file (relative to the repo root). */
-function excludeLine(projectDir: string): string {
+/** The `info/exclude` line for a project file (relative to the repo root). */
+function excludeLine(projectDir: string, relPath: string): string {
   const prefix = gitOutput(projectDir, ['rev-parse', '--show-prefix']) ?? '';
-  return `/${prefix}${CLAUDE_LOCAL_SETTINGS}`;
+  return `/${prefix}${relPath}`;
 }
 
 /**
- * Keep `.claude/settings.local.json` out of git when nothing ignores it yet
- * (Claude Code ignores the file only when it creates it itself). Adds a marked
- * block naming this project's file to the repository's `info/exclude`, never
- * to a tracked `.gitignore`. Keyed on the exact path line, so a second CLEO
+ * Keep a hook file CLEO wrote out of git when nothing ignores it yet: add a
+ * marked block naming this project's file to the repository's `info/exclude`,
+ * never to a tracked `.gitignore`. A file git already tracks is left alone (an
+ * exclude cannot untrack it). Keyed on the exact path line, so a second CLEO
  * project in a subdirectory of the same repository gets its own line.
  * Idempotent; does nothing outside a git work tree.
  *
  * @param projectDir - the project root.
+ * @param relPath - the file, relative to the project (forward slashes).
+ * @param marker - the block's first line.
  * @returns whether a block was added.
  */
-export function excludeLocalSettingsFromGit(projectDir: string): boolean {
+export function excludeHookFileFromGit(
+  projectDir: string,
+  relPath: string,
+  marker: string = HOOK_FILE_EXCLUDE_MARKER,
+): boolean {
   const exclude = excludeFile(projectDir);
   if (exclude === null) return false;
-  if (gitOutput(projectDir, ['check-ignore', CLAUDE_LOCAL_SETTINGS]) !== null) return false;
-  const line = excludeLine(projectDir);
+  if (gitOutput(projectDir, ['check-ignore', relPath]) !== null) return false;
+  if (gitOutput(projectDir, ['ls-files', '--error-unmatch', relPath]) !== null) return false;
+  const line = excludeLine(projectDir, relPath);
   const text = existsSync(exclude) ? readFileSync(exclude, 'utf-8') : '';
   if (text.split('\n').includes(line)) return false;
-  const block = `${LOCAL_SETTINGS_EXCLUDE_MARKER}\n${line}\n`;
+  const block = `${marker}\n${line}\n`;
   mkdirSync(dirname(exclude), { recursive: true });
   writeFileSync(exclude, text === '' || text.endsWith('\n') ? text + block : `${text}\n${block}`);
   return true;
 }
 
 /**
+ * Remove the block {@link excludeHookFileFromGit} added for this project's
+ * file, and only that: the exact path line and the CLEO marker right above it.
+ *
+ * @param projectDir - the project root.
+ * @param relPath - the file, relative to the project (forward slashes).
+ * @returns whether a block was removed.
+ */
+export function unexcludeHookFileFromGit(projectDir: string, relPath: string): boolean {
+  const exclude = excludeFile(projectDir);
+  if (exclude === null || !existsSync(exclude)) return false;
+  const lines = readFileSync(exclude, 'utf-8').split('\n');
+  const at = lines.indexOf(excludeLine(projectDir, relPath));
+  const above = lines[at - 1];
+  if (at < 1 || (above !== LOCAL_SETTINGS_EXCLUDE_MARKER && above !== HOOK_FILE_EXCLUDE_MARKER)) {
+    return false;
+  }
+  lines.splice(at - 1, 2);
+  writeFileSync(exclude, lines.join('\n'));
+  return true;
+}
+
+/**
+ * Whether git sees a hook file as an untracked change: inside a work tree,
+ * not ignored and not tracked. Such a file shows up in `git status` and
+ * widens `cleo verify`'s evidence scope (gh#1805).
+ *
+ * @param projectDir - the project root.
+ * @param relPath - the file, relative to the project (forward slashes).
+ */
+export function hookFileVisibleToGit(projectDir: string, relPath: string): boolean {
+  if (gitOutput(projectDir, ['rev-parse', '--is-inside-work-tree']) !== 'true') return false;
+  if (gitOutput(projectDir, ['check-ignore', relPath]) !== null) return false;
+  return gitOutput(projectDir, ['ls-files', '--error-unmatch', relPath]) === null;
+}
+
+/**
+ * Keep `.claude/settings.local.json` out of git when nothing ignores it yet
+ * (Claude Code ignores the file only when it creates it itself). See
+ * {@link excludeHookFileFromGit}.
+ *
+ * @param projectDir - the project root.
+ * @returns whether a block was added.
+ */
+export function excludeLocalSettingsFromGit(projectDir: string): boolean {
+  return excludeHookFileFromGit(projectDir, CLAUDE_LOCAL_SETTINGS, LOCAL_SETTINGS_EXCLUDE_MARKER);
+}
+
+/**
  * Remove the block {@link excludeLocalSettingsFromGit} added for this
- * project, and only that: the exact path line and the marker right above it.
+ * project, and only that.
  *
  * @param projectDir - the project root.
  * @returns whether a block was removed.
  */
 export function unexcludeLocalSettingsFromGit(projectDir: string): boolean {
+  return unexcludeHookFileFromGit(projectDir, CLAUDE_LOCAL_SETTINGS);
+}
+
+/**
+ * A hook config CLEO will not add its per-machine hook to, because it is the
+ * project's own: Codex's `.codex/hooks.json` is committable, unlike Claude
+ * Code's `settings.local.json`. Writing there would put a per-machine hook
+ * into a team file, and excluding it would hide the team's file from git.
+ * Nothing is written; the delivery reports `needs-consent` with the entry to
+ * add by hand.
+ */
+export class HeavyHookSharedConfigError extends Error {
+  /** The project's own config file. */
+  readonly path: string;
+
+  /**
+   * @param path - the config file.
+   * @param why - what makes it the project's own.
+   */
+  constructor(path: string, why: string) {
+    super(`${path} ${why}, so CLEO does not write or hide it`);
+    this.name = 'HeavyHookSharedConfigError';
+    this.path = path;
+  }
+}
+
+/**
+ * Whether a parsed hooks config is one CLEO created: nothing but a `hooks`
+ * map whose every hook object is CLEO's own (`# cleo-hook`), with at least
+ * one. An empty `{}` is the user's, not CLEO's.
+ */
+function cleoCreatedConfig(config: unknown): boolean {
+  if (!isPlainObject(config) || Object.keys(config).some((k) => k !== 'hooks')) return false;
+  if (!isPlainObject(config.hooks)) return false;
+  let mine = 0;
+  for (const groups of Object.values(config.hooks)) {
+    if (!Array.isArray(groups)) return false;
+    for (const group of groups) {
+      if (!isPlainObject(group) || !Array.isArray(group.hooks)) return false;
+      for (const hook of group.hooks) {
+        if (
+          !isPlainObject(hook) ||
+          typeof hook.command !== 'string' ||
+          !hook.command.includes(CLEO_HOOK_MARKER)
+        ) {
+          return false;
+        }
+        mine++;
+      }
+    }
+  }
+  return mine > 0;
+}
+
+/**
+ * Why Codex's `.codex/hooks.json` in `projectDir` is the project's own config
+ * that CLEO must not write or hide, or `null` when CLEO may: the file is
+ * absent, or is one CLEO created and git does not track (review MED-3). An
+ * unreadable file is left to the sync, which refuses it.
+ *
+ * @param projectDir - the project root.
+ * @param checkGit - also ask git whether the file is tracked (one spawn);
+ *   `false` reads the file only (the session briefing).
+ */
+export function codexHooksSharedReason(projectDir: string, checkGit = true): string | null {
+  const file = join(projectDir, CODEX_HOOKS_FILE);
+  // Tracking first: a committed file is the team's whatever it holds, even
+  // empty (review MED-3a).
+  if (
+    checkGit &&
+    gitOutput(projectDir, ['ls-files', '--error-unmatch', CODEX_HOOKS_FILE]) !== null
+  ) {
+    return 'is tracked by git (a shared team config)';
+  }
+  if (!existsSync(file)) return null;
+  let config: unknown;
+  try {
+    config = JSON.parse(readFileSync(file, 'utf-8'));
+  } catch {
+    // Empty or not valid JSON: CLEO never writes such a file, so it is the user's.
+    return "is the project's own Codex hook config (empty or not valid JSON)";
+  }
+  return cleoCreatedConfig(config) ? null : "is the project's own Codex hook config";
+}
+
+/**
+ * Whether the committed (`HEAD`) version of Codex's `.codex/hooks.json` holds
+ * CLEO's hook: the team adopted it, so mode `off` on one machine must not
+ * remove it from the tracked file (review MED-3b).
+ *
+ * @param projectDir - the project root.
+ */
+export function committedCodexHookHoldsCleo(projectDir: string): boolean {
+  const committed = gitOutput(projectDir, ['show', `HEAD:./${CODEX_HOOKS_FILE}`]);
+  if (committed === null || committed === '') return false;
+  try {
+    const config: unknown = JSON.parse(committed);
+    if (!isPlainObject(config)) return false;
+    const groups = isPlainObject(config.hooks) ? config.hooks.PreToolUse : undefined;
+    return (
+      Array.isArray(groups) &&
+      groups.some(
+        (g) => isPlainObject(g) && Array.isArray(g.hooks) && g.hooks.some(isHeavyHookObject),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Structural equality of two parsed JSON values (key order ignored). */
+function jsonEqual(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((v, i) => jsonEqual(v, b[i]))
+    );
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const keys = Object.keys(a);
+    return (
+      keys.length === Object.keys(b).length &&
+      keys.every((k) => Object.hasOwn(b, k) && jsonEqual(a[k], b[k]))
+    );
+  }
+  return a === b;
+}
+
+/**
+ * Mode `off` on a TRACKED `hooks.json` whose only change from `HEAD` is
+ * CLEO's hook: write `HEAD`'s exact bytes back, so the file returns to its
+ * committed state instead of being re-serialised with CLEO's formatting
+ * (review LOW-3). Returns whether it did.
+ *
+ * @param projectDir - the project root.
+ */
+export function restoreCommittedCodexHooks(projectDir: string): boolean {
+  if (gitOutput(projectDir, ['ls-files', '--error-unmatch', CODEX_HOOKS_FILE]) === null)
+    return false;
+  const file = join(projectDir, CODEX_HOOKS_FILE);
+  let committed: string;
+  let working: unknown;
+  try {
+    committed = execFileSync('git', ['-C', projectDir, 'show', `HEAD:./${CODEX_HOOKS_FILE}`], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000,
+    });
+    working = JSON.parse(readFileSync(file, 'utf-8'));
+  } catch {
+    return false;
+  }
+  if (!isPlainObject(working)) return false;
+  const hooks = hookMap(working);
+  if (!placeHeavyHook(hooks, null).changed) return false;
+  try {
+    if (!jsonEqual(working, JSON.parse(committed))) return false;
+  } catch {
+    return false;
+  }
+  writeFileSync(file, committed);
+  return true;
+}
+
+/**
+ * Whether CLEO's own marked `info/exclude` block names this project file
+ * (it hides the file from git).
+ *
+ * @param projectDir - the project root.
+ * @param relPath - the file, relative to the project (forward slashes).
+ */
+export function excludedByCleo(projectDir: string, relPath: string): boolean {
   const exclude = excludeFile(projectDir);
   if (exclude === null || !existsSync(exclude)) return false;
   const lines = readFileSync(exclude, 'utf-8').split('\n');
-  const at = lines.indexOf(excludeLine(projectDir));
-  if (at < 1 || lines[at - 1] !== LOCAL_SETTINGS_EXCLUDE_MARKER) return false;
-  lines.splice(at - 1, 2);
-  writeFileSync(exclude, lines.join('\n'));
-  return true;
+  const at = lines.indexOf(excludeLine(projectDir, relPath));
+  const above = lines[at - 1];
+  return at >= 1 && (above === LOCAL_SETTINGS_EXCLUDE_MARKER || above === HOOK_FILE_EXCLUDE_MARKER);
+}
+
+/**
+ * The exact `PreToolUse` entry to add to Codex's `.codex/hooks.json` by hand,
+ * for a project whose own config CLEO does not write (`needs-consent`).
+ */
+export function codexHookSnippet(): string {
+  return JSON.stringify(heavyCommandHookEntry('codex'));
+}
+
+/**
+ * Whether git tracks a project file and it has uncommitted changes.
+ *
+ * @param projectDir - the project root.
+ * @param relPath - the file, relative to the project (forward slashes).
+ */
+export function trackedFileModified(projectDir: string, relPath: string): boolean {
+  if (gitOutput(projectDir, ['ls-files', '--error-unmatch', relPath]) === null) return false;
+  return (gitOutput(projectDir, ['diff', '--name-only', 'HEAD', '--', relPath]) ?? '') !== '';
+}
+
+/**
+ * Codex: sync the hook in `<project>/.codex/hooks.json` and keep that file out
+ * of git (T13124), as {@link syncClaudeCodeHeavyCommandHook} does for Claude
+ * Code's settings. A shared `hooks.json` (tracked, or holding hooks that are
+ * not CLEO's) is never written: {@link HeavyHookSharedConfigError}. Mode `off`
+ * still removes CLEO's own hook object from it.
+ *
+ * @param projectDir - the project root.
+ * @param mode - the resolved hook mode.
+ * @returns what changed in `hooks.json`.
+ * @throws {HeavyHookSharedConfigError} when `hooks.json` is shared.
+ */
+export async function syncCodexHeavyCommandHook(
+  projectDir: string,
+  mode: HeavyCommandHookMode,
+): Promise<HeavyHookSyncResult> {
+  const file = join(projectDir, CODEX_HOOKS_FILE);
+  if (mode !== 'off') {
+    const shared = codexHooksSharedReason(projectDir);
+    if (shared !== null) {
+      // A file CLEO once created and excluded is now the user's: stop hiding
+      // it from git (review MED-3c). Only CLEO's own marked block goes.
+      unexcludeHookFileFromGit(projectDir, CODEX_HOOKS_FILE);
+      throw new HeavyHookSharedConfigError(file, shared);
+    }
+  } else if (committedCodexHookHoldsCleo(projectDir)) {
+    throw new HeavyHookSharedConfigError(
+      file,
+      "holds CLEO's hook as the team committed it (removing it is a team change)",
+    );
+  } else if (restoreCommittedCodexHooks(projectDir)) {
+    unexcludeHookFileFromGit(projectDir, CODEX_HOOKS_FILE);
+    return 'removed';
+  }
+  const result = await syncJsonHeavyCommandHook(file, 'codex', mode);
+  if (mode === 'off') unexcludeHookFileFromGit(projectDir, CODEX_HOOKS_FILE);
+  else excludeHookFileFromGit(projectDir, CODEX_HOOKS_FILE);
+  return result;
 }
 
 /**
@@ -465,11 +817,17 @@ export async function syncClaudeCodeHeavyCommandHook(
   );
   if (mode === 'off') unexcludeLocalSettingsFromGit(projectDir);
   else excludeLocalSettingsFromGit(projectDir);
-  await syncJsonHeavyCommandHook(
-    join(projectDir, '.claude', 'settings.json'),
-    'claude-code',
-    'off',
-  );
+  try {
+    await syncJsonHeavyCommandHook(
+      join(projectDir, '.claude', 'settings.json'),
+      'claude-code',
+      'off',
+    );
+  } catch {
+    // Legacy cleanup only (T13124): a shared settings.json that is not valid
+    // JSON is the user's to fix, and Claude Code cannot load a hook from it
+    // anyway. The local install above already succeeded.
+  }
   return result;
 }
 
@@ -537,7 +895,8 @@ export function opencodeHeavyCommandPluginSource(): string {
 
 /**
  * Write (or, mode `off`, delete) the opencode plugin in
- * `<projectDir>/.opencode/plugins/`. Rewritten only when its content changed.
+ * `<projectDir>/.opencode/plugins/`, and keep it out of git (T13124).
+ * Rewritten only when its content changed.
  *
  * @param projectDir - the project root.
  * @param mode - the resolved hook mode.
@@ -547,16 +906,21 @@ export function syncOpencodeHeavyCommandPlugin(
   projectDir: string,
   mode: HeavyCommandHookMode,
 ): HeavyHookSyncResult {
-  const pluginPath = join(projectDir, '.opencode', 'plugins', OPENCODE_HEAVY_COMMAND_PLUGIN);
+  const pluginPath = join(projectDir, OPENCODE_PLUGIN_FILE);
   const exists = existsSync(pluginPath);
   if (mode === 'off') {
+    unexcludeHookFileFromGit(projectDir, OPENCODE_PLUGIN_FILE);
     if (!exists) return 'unchanged';
     rmSync(pluginPath, { force: true });
     return 'removed';
   }
   const source = opencodeHeavyCommandPluginSource();
-  if (exists && readFileSync(pluginPath, 'utf-8') === source) return 'unchanged';
-  mkdirSync(dirname(pluginPath), { recursive: true });
-  writeFileSync(pluginPath, source, 'utf-8');
-  return exists ? 'updated' : 'installed';
+  const current = exists && readFileSync(pluginPath, 'utf-8') === source;
+  if (!current) {
+    ensureParentDir(pluginPath);
+    writeFileSync(pluginPath, source, 'utf-8');
+  }
+  // An untracked plugin file widened `cleo verify`'s evidence scope (gh#1805).
+  excludeHookFileFromGit(projectDir, OPENCODE_PLUGIN_FILE);
+  return current ? 'unchanged' : exists ? 'updated' : 'installed';
 }

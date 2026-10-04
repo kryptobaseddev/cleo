@@ -56,6 +56,7 @@ import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { isInteractiveInvocation } from './lib/interactive-commands.js';
 import { normalizeGlobalValueFlags } from './lib/strict-args.js';
 import { resolveFormat } from './middleware/output-format.js';
+import { installModuleResolveFastPath } from './module-resolve-fast-path.js';
 import { resolveOutputMode, setOutputMode } from './output-context.js';
 import { setProjectionOptOut } from './projection-context.js';
 import { resolveSubCommandForHelp } from './resolve-subcommand.js';
@@ -70,6 +71,14 @@ enforceNodeVersion();
 // T13122: the shim's UV_THREADPOOL_SIZE=64 is for this process. Once its pool
 // exists, drop it from the environment so no spawned tool inherits it.
 releaseCliThreadpoolEnv();
+
+// T13126 — answer the module resolutions that dominate CLI startup without
+// Node re-parsing each package's whole `exports` map per import edge
+// (nodejs/node#66485). Every command module and all of CORE arrive through
+// dynamic `import()` after this line, so registering here covers them. Keep it
+// until Node fixes #66485 AND engines.node includes the fix; see
+// module-resolve-fast-path.ts ("When to remove it").
+installModuleResolveFastPath();
 
 function getPackageVersion(): string {
   const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');

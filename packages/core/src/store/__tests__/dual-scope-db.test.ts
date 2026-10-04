@@ -21,6 +21,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { worktreeScope } from '../../paths.js';
 import * as governorModule from '../../resources/governor.js';
+import { ResourceMonitor } from '../../resources/monitor.js';
 import { createOperationExecutionContext } from '../background-ops.js';
 import {
   _resetDualScopeDbCache,
@@ -33,6 +34,11 @@ import {
   setRuntimeOpenFn,
 } from '../dual-scope-db.js';
 import { withColdOpenLease } from '../writer-lease.js';
+import {
+  countRowsInFile,
+  LEGACY_TASK_IDS,
+  seedLegacyTasksStore,
+} from './fixtures/legacy-tasks-store.js';
 
 // ── Test directory management ─────────────────────────────────────────────────
 
@@ -261,43 +267,87 @@ describe('WAL coexistence (E3 AC8 preview)', () => {
   }, 30_000);
 });
 
-describe('exodus-on-open db-heavy admission (T12001 / Epic T11992)', () => {
+describe('exodus-on-open db-heavy admission (T12001 / Epic T11992 · T13158)', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('skips the exodus auto-migrate but still returns a usable handle when db-heavy is deferred', async () => {
-    // Force the governor to DENY db-heavy admission on the exodus-on-open path.
-    const spy = vi.spyOn(governorModule.governor, 'tryAcquire').mockResolvedValue({
+  /** The admission a pending exodus-on-open asks for: memory-only, bounded wait. */
+  const PENDING_ADMISSION = { ignoreCpuPressure: true, blocking: true, timeoutMs: 5000 };
+
+  it('asks no admission when no migration is pending (no legacy stores)', async () => {
+    const spy = vi.spyOn(governorModule.governor, 'acquire');
+    const handle = await openDualScopeDb('project', projectDir);
+    expect(handle.scope).toBe('project');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('a deferred admission returns a usable, write-guarded handle (skip-not-block)', async () => {
+    seedLegacyTasksStore(cleoDirProject);
+    const spy = vi.spyOn(governorModule.governor, 'acquire').mockResolvedValue({
       deferred: true,
       class: 'db-heavy',
       retryAfterMs: 2000,
       reason: 'forced deferral (test)',
     });
 
-    // skip-not-block: the interactive open must NEVER fail or block under pressure
-    // — it returns a valid, live handle (migration is simply deferred to a calmer
-    // open). The legacy fleet is empty here, so the un-migrated handle is correct.
+    // The interactive open never fails under pressure: it returns a live handle
+    // on the empty store, marked so writes refuse until the migration runs.
     const handle = await openDualScopeDb('project', projectDir);
-    expect(handle).toBeDefined();
     expect(handle.scope).toBe('project');
-
-    // The governor was consulted for db-heavy admission on the exodus path.
-    expect(spy).toHaveBeenCalledWith('db-heavy');
+    expect(handle.exodusAbort).toMatchObject({ kind: 'deferred' });
+    expect(handle.exodusAbort?.reason).toContain('forced deferral (test)');
+    expect(spy).toHaveBeenCalledWith('db-heavy', PENDING_ADMISSION);
+    expect(countRowsInFile(join(cleoDirProject, 'cleo.db'), 'tasks_tasks')).toBe(0);
   });
 
-  it('proceeds with exodus-on-open when db-heavy is granted (full-budget byte-compatible)', async () => {
-    const spy = vi.spyOn(governorModule.governor, 'tryAcquire').mockResolvedValue({
+  it('is not deferred by CPU saturation alone, as macOS reports a busy machine (T13119, T13150)', async () => {
+    seedLegacyTasksStore(cleoDirProject);
+    // The darwin backend derives CPU pressure from the load average (T12981).
+    // A host at 2.4x its effective cores reads cpu some avg10 ≈ 58: backoff for
+    // the full pressure score, yet no memory pressure at all.
+    const busySample = {
+      sampledAtMs: Date.now(),
+      pressureAvailable: true,
+      memAvailableBytes: 32 * 1024 * 1024 * 1024,
+      globalPressure: {
+        some: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+        full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+      },
+      slicePressure: null,
+      cpuPressure: { some: { avg10: 58, avg60: 58, avg300: 58, totalUs: 0 }, full: null },
+      walObservations: [],
+    };
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(busySample);
+    const spy = vi.spyOn(governorModule.governor, 'acquire');
+
+    const handle = await openDualScopeDb('project', projectDir);
+
+    expect(spy).toHaveBeenCalledWith('db-heavy', PENDING_ADMISSION);
+    expect(handle.exodusAbort).toBeUndefined();
+    expect(countRowsInFile(join(cleoDirProject, 'cleo.db'), 'tasks_tasks')).toBe(
+      LEGACY_TASK_IDS.length,
+    );
+  });
+
+  it('proceeds with exodus-on-open when db-heavy is granted, and releases the slot', async () => {
+    seedLegacyTasksStore(cleoDirProject);
+    const release = vi.fn(async () => {});
+    const spy = vi.spyOn(governorModule.governor, 'acquire').mockResolvedValue({
       deferred: false,
       class: 'db-heavy',
       slot: 0,
       acquiredAtMs: Date.now(),
-      release: async () => {},
+      release,
     });
 
     const handle = await openDualScopeDb('project', projectDir);
     expect(handle).toBeDefined();
-    expect(spy).toHaveBeenCalledWith('db-heavy');
+    expect(spy).toHaveBeenCalledWith('db-heavy', PENDING_ADMISSION);
+    expect(release).toHaveBeenCalledOnce();
+    expect(countRowsInFile(join(cleoDirProject, 'cleo.db'), 'tasks_tasks')).toBe(
+      LEGACY_TASK_IDS.length,
+    );
   });
 });
 
@@ -1004,7 +1054,9 @@ describe('captured canonical opener lifetime', () => {
       entered = resolve;
     });
     const releaseSlot = vi.fn(async () => {});
-    const spy = vi.spyOn(governorModule.governor, 'tryAcquire').mockImplementation(async () => {
+    // A pending migration is what asks for admission (T13158).
+    seedLegacyTasksStore(cleoDirProject);
+    const spy = vi.spyOn(governorModule.governor, 'acquire').mockImplementation(async () => {
       entered();
       await gate;
       return {
