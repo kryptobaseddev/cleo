@@ -5,7 +5,8 @@
  */
 
 import type { Task, TaskRecord } from '@cleocode/contracts';
-import { ARCHIVE_REASON_TOMBSTONE, ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { ARCHIVE_REASON_TOMBSTONE } from '@cleocode/contracts/tasks/archive.js';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';

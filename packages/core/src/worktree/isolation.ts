@@ -48,4 +48,4 @@ export {
   ISOLATION_ENV_KEYS,
   provisionIsolatedShell,
   validateAbsolutePath,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/branch-lock.js';

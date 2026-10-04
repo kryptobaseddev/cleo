@@ -10,7 +10,8 @@
  * @adr ADR-066
  */
 
-import { KIND_LIFECYCLE_REQUIREMENTS, type TaskKind } from '@cleocode/contracts';
+import type { TaskKind } from '@cleocode/contracts';
+import { KIND_LIFECYCLE_REQUIREMENTS } from '@cleocode/contracts/kind-lifecycle.js';
 
 /**
  * Does an epic of this kind gate child completion on its pipeline stage?

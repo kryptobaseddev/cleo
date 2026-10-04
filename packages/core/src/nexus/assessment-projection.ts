@@ -19,15 +19,15 @@
  * @module nexus/assessment-projection
  */
 
-import {
-  ExitCode,
-  type GraphIndexAssessment,
-  type GraphIndexAssessmentProjection,
-  type GraphIndexFilePage,
-  type GraphIndexFileReport,
-  type GraphIndexFileStatus,
-  type GraphIndexFileStatusCounts,
+import type {
+  GraphIndexAssessment,
+  GraphIndexAssessmentProjection,
+  GraphIndexFilePage,
+  GraphIndexFileReport,
+  GraphIndexFileStatus,
+  GraphIndexFileStatusCounts,
 } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 
 /** Rows in the default page of `assessment.filesPage`. */

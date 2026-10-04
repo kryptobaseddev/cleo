@@ -21,7 +21,7 @@ import {
   MANIFEST_STATUSES,
   SESSION_STATUSES,
   TASK_STATUSES,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/status-registry.js';
 import type { ProtocolEnforcer } from '../compliance/protocol-enforcement.js';
 import { ErrorSeverity } from '../compliance/protocol-types.js';
 import {

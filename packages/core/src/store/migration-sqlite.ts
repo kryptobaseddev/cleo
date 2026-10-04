@@ -12,13 +12,9 @@
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import {
-  ARCHIVE_REASON_TOMBSTONE,
-  ARCHIVE_REASONS,
-  type ArchiveReasonValue,
-  type Session,
-  type Task,
-} from '@cleocode/contracts';
+import type { ArchiveReasonValue, Session, Task } from '@cleocode/contracts';
+import { ARCHIVE_REASONS } from '@cleocode/contracts/enums.js';
+import { ARCHIVE_REASON_TOMBSTONE } from '@cleocode/contracts/tasks/archive.js';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { resolveCleoDir } from '../paths.js';

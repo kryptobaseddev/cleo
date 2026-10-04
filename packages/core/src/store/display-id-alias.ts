@@ -71,13 +71,9 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import {
-  type CleoConfig,
-  ExitCode,
-  type RowIdentitySpec,
-  type TaskClaimGuard,
-} from '@cleocode/contracts';
+import type { CleoConfig, RowIdentitySpec, TaskClaimGuard } from '@cleocode/contracts';
 import type { Hlc as HlcWire } from '@cleocode/contracts/cloud';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { getTableColumns } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { exceedsMaxDepth } from '../tasks/hierarchy.js';

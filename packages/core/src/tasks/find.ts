@@ -15,7 +15,7 @@ import type {
   TaskStatus,
   TasksFindResult,
 } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { discloseProjection } from '../dispatch/mvi-projection.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';

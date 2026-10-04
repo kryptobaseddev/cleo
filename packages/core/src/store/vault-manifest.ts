@@ -33,7 +33,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import { SYNC_SCHEMA_VERSION, type TableScope } from '@cleocode/contracts';
+import type { TableScope } from '@cleocode/contracts';
+import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { isVaultRemotePath, VAULT_REMOTE_PATH_PREFIX } from '@cleocode/paths';
 import {
   RELOCATED_JSON_FILES,

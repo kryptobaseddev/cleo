@@ -725,6 +725,38 @@ jobs:
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           node scripts/lint-sync-write-invariants.mjs --check --base "$BASE_SHA"
 
+  contracts-barrel-imports:
+    # Gate 40 (T13126). The @cleocode/contracts barrel evaluates every
+    # contracts zod schema (~40 MB of heap); a runtime import of one value
+    # from it loaded all of them in every cleo command that opened a store.
+    # Values come from the declaring leaf module; type-only imports are free.
+    # Wired here as well as in `cleo check arch` (gate 20 requires both).
+    # Needs the installed `typescript` package (compiler API), so it installs.
+    name: Contracts Barrel Value Imports (T13126 · gate 40)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - name: Assert no runtime value import from the @cleocode/contracts barrel (gate 40)
+        run: node scripts/lint-no-contracts-barrel-value-imports.mjs --check
+
   merge-bar-aggregate:
     # T11955 · DHQ-072 · Epic T11679 (DHQ burn-down)
     #
@@ -811,6 +843,7 @@ jobs:
       - esm-bare-require
       - model-call-sites
       - sync-write-invariants
+      - contracts-barrel-imports
       - merge-bar-aggregate
     steps:
       - name: Verify every arch-boundary job passed (or was skipped)

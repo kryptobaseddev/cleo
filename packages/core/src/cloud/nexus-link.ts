@@ -47,13 +47,12 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { join, resolve } from 'node:path';
+import type { NexusProjectLink, NexusProjectLinkResult } from '@cleocode/contracts';
+import type { InitialProjectKey } from '@cleocode/contracts/cloud';
 import {
   NEXUS_FEATURE_PROJECT_INITIAL_KEY,
-  type NexusProjectLink,
-  type NexusProjectLinkResult,
   nexusCloudStatusSchema,
-} from '@cleocode/contracts';
-import type { InitialProjectKey } from '@cleocode/contracts/cloud';
+} from '@cleocode/contracts/nexus-cloud.js';
 import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { z } from 'zod';
 import { getCleoDirAbsolute, resolveOrCwd } from '../paths.js';

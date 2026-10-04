@@ -290,3 +290,39 @@ describe('a killed heavy run frees both slots (T12963)', () => {
     expect(await governor.available('test-run', { cpuCount: 16, sample: sample(26) })).toBe(1);
   });
 });
+
+describe('a probe makes at least one pass (T13127)', () => {
+  it('timeoutMs 0 still takes a free slot: the loop tries before it checks the clock', async () => {
+    // Deterministic: with a zero budget the deadline has passed before the
+    // first pass, so a loop that checks the clock first never tries at all.
+    const release = await acquireGlobalSlot('test', {
+      platform: 'darwin',
+      skipGovernor: true,
+      pressureSample: null,
+      timeoutMs: 0,
+    });
+    await release();
+  });
+
+  it('timeoutMs 0 on a held slot gives up after that one pass, naming the holder', async () => {
+    const held = await acquireGlobalSlot('test', {
+      platform: 'darwin',
+      skipGovernor: true,
+      timeoutMs: 200,
+    });
+    try {
+      await expect(
+        acquireGlobalSlot('test', {
+          platform: 'darwin',
+          skipGovernor: true,
+          pressureSample: null,
+          timeoutMs: 0,
+        }),
+      ).rejects.toThrow(
+        /Timed out after 0ms waiting for a free 'test' tool slot \(max 1 concurrent\)\. Current holders/,
+      );
+    } finally {
+      await held();
+    }
+  });
+});

@@ -37,7 +37,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { AgentSpawnCapability, AgentTier, ResolvedAgent, Task } from '@cleocode/contracts';
-import { ThinAgentViolationError } from '@cleocode/contracts';
+import { ThinAgentViolationError } from '@cleocode/contracts/errors.js';
 import { resolveOrCwd } from '../paths.js';
 import { resolveAgent } from '../store/agent-resolver.js';
 import { type AtomicityResult, checkAtomicity } from './atomicity.js';

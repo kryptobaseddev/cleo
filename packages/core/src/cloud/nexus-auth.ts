@@ -25,17 +25,19 @@
  * @epic T12322
  */
 
+import type {
+  NexusAccountErrorCode,
+  NexusAccountMe,
+  NexusAccountOrganization,
+  NexusAccountStatus,
+  NexusLoginResult,
+  NexusLogoutResult,
+} from '@cleocode/contracts';
 import {
   NEXUS_CLI_CLIENT_ID,
   NEXUS_DEFAULT_API_URL,
-  type NexusAccountErrorCode,
-  type NexusAccountMe,
-  type NexusAccountOrganization,
-  type NexusAccountStatus,
-  type NexusLoginResult,
-  type NexusLogoutResult,
   nexusAccountMeSchema,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/nexus-account.js';
 import {
   DeviceCodeAuthError,
   type DeviceCodeConfig,

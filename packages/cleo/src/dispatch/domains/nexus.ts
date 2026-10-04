@@ -20,7 +20,10 @@ import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
  * @task T1440 — Core-derived OpsFromCore inference
  */
 
-import { getNexusDescriptor, NEXUS_SCOPE_MAP } from '@cleocode/contracts';
+import {
+  getNexusDescriptor,
+  NEXUS_SCOPE_MAP,
+} from '@cleocode/contracts/operations/nexus-scope-map.js';
 import type { nexus as coreNexus } from '@cleocode/core';
 import {
   assessNexusFreshnessForQuery,

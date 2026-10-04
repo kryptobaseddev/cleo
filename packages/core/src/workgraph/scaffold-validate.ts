@@ -18,7 +18,7 @@ import type {
   WorkGraphScaffoldValidateResult,
   WorkGraphScaffoldValidationIssue,
 } from '@cleocode/contracts';
-import { validateWorkGraphHierarchy } from '@cleocode/contracts';
+import { validateWorkGraphHierarchy } from '@cleocode/contracts/workgraph.js';
 
 // ---------------------------------------------------------------------------
 // Constants
