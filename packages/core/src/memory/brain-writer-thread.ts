@@ -76,6 +76,11 @@ import {
   type LeaseHandle,
   resolveLeaseMode,
 } from '../store/writer-lease.js';
+import {
+  _resetLongLivedBrainHostForTests,
+  isLongLivedBrainHost,
+  markLongLivedBrainHost,
+} from './brain-host.js';
 
 // ============================================================================
 // Discriminated union — BrainWriteOp
@@ -233,16 +238,15 @@ function bypassEnabled(): boolean {
 // Worker-thread opt-in (T13126)
 // ============================================================================
 
-/** Set by {@link useBrainWriterThread}; module scope so every caller sees it. */
-let _workerThreadOptIn = false;
-
 /**
  * Opt this process in to the worker-thread brain writer.
  *
  * Call once at startup from a long-lived host (daemon, gateway server, agent
  * harness host) whose writes are frequent enough to amortise a second isolate.
  * One-shot CLI commands must not call it: without it, writes run inline under
- * the same writer lease and async mutex, which is equally serialized.
+ * the same writer lease and async mutex, which is equally serialized. The same
+ * declaration makes `observeBrain` embed new observations as they are stored
+ * (see `brain-host.ts`).
  *
  * @example
  * ```ts
@@ -251,7 +255,7 @@ let _workerThreadOptIn = false;
  * ```
  */
 export function useBrainWriterThread(): void {
-  _workerThreadOptIn = true;
+  markLongLivedBrainHost();
 }
 
 /**
@@ -261,7 +265,7 @@ export function useBrainWriterThread(): void {
  *   `CLEO_BRAIN_WRITER_THREAD=1`; `false` otherwise (inline, serialized).
  */
 export function brainWriterThreadEnabled(): boolean {
-  return _workerThreadOptIn || process.env['CLEO_BRAIN_WRITER_THREAD'] === '1';
+  return isLongLivedBrainHost();
 }
 
 // ============================================================================
@@ -855,7 +859,7 @@ export function _resetBrainWriterForTests(): void {
   // latch, the first teardown would leave every subsequent test in the file
   // running against a permanently shut-down writer.
   _brainWriterShutDown = false;
-  _workerThreadOptIn = false;
+  _resetLongLivedBrainHostForTests();
   inlineQueueTail = Promise.resolve();
   _brainBatches.clear();
 }

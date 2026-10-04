@@ -23,6 +23,7 @@ import { getBrainAccessor } from '../../store/memory-accessor.js';
 import type { BrainMemoryTier } from '../../store/schema/memory-schema.js';
 import { getDb } from '../../store/sqlite.js';
 import { embedText, ensureEmbeddingProvider, isEmbeddingAvailable } from '../brain-embedding.js';
+import { isLongLivedBrainHost } from '../brain-host.js';
 import { addGraphEdge, upsertGraphNode } from '../graph-auto-populate.js';
 import {
   classifyObservationTypeByKeywords,
@@ -374,30 +375,32 @@ export async function observeBrain(
     return { id: row.id, type: row.type, createdAt: row.createdAt };
   }
 
-  // Populate embedding for this observation (T5387).
-  // Fire-and-forget: embedding runs in the background so it never blocks the CLI.
-  // T12314: the availability check used to happen HERE, before the deferred
-  // provider registration had run, so a write early in a process saw no
-  // provider and silently skipped embedding the observation it had just
-  // stored. The check now happens inside the deferred work, after ensuring a
-  // provider exists — registration is free, and the model load is bounded by
-  // the same fire-and-forget contract as before.
-  setImmediate(() => {
-    void (async () => {
-      try {
-        if (!(await ensureEmbeddingProvider())) return;
-        const vector = await embedText(text);
-        if (vector && nativeDb) {
-          nativeDb
-            // replace-allowed: brain_embeddings is a vec0 virtual table — never an FK parent, and virtual tables reject UPSERT (T12787)
-            .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
-            .run(id, Buffer.from(vector.buffer));
+  // Populate embedding for this observation (T5387) — in a long-lived host only.
+  // T13126: loading the local embedding model costs ~280 MB, and a one-shot
+  // process paid it on every observe for a single vector. A one-shot process
+  // now leaves the row unembedded; `populateEmbeddings` fills it later (an
+  // opted-in host's tick, the `cleo session end` background batch, or
+  // `cleo backfill`). Until then the observation is found by BM25/FTS5 only.
+  // T12314: the availability check happens inside the deferred work, after
+  // ensuring a provider exists — registration is free.
+  if (isLongLivedBrainHost()) {
+    setImmediate(() => {
+      void (async () => {
+        try {
+          if (!(await ensureEmbeddingProvider())) return;
+          const vector = await embedText(text);
+          if (vector && nativeDb) {
+            nativeDb
+              // replace-allowed: brain_embeddings is a vec0 virtual table — never an FK parent, and virtual tables reject UPSERT (T12787)
+              .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
+              .run(id, Buffer.from(vector.buffer));
+          }
+        } catch {
+          // Silently skip embedding failures — observation is already persisted
         }
-      } catch {
-        // Silently skip embedding failures — observation is already persisted
-      }
-    })();
-  });
+      })();
+    });
+  }
 
   // Regenerate memory bridge for high-value observation types (T5240).
   // Only learning and decision types trigger bridge refresh to avoid excessive writes.
@@ -499,6 +502,12 @@ export interface PopulateEmbeddingsOptions {
   /** Maximum items processed per batch cycle. Defaults to 50. */
   batchSize?: number;
   /**
+   * Maximum observations embedded by this call, newest first (T13126). Bounds a
+   * background batch so it cannot run for the whole backlog at once.
+   * @defaultValue undefined — every unembedded observation.
+   */
+  limit?: number;
+  /**
    * Progress callback invoked after each observation is attempted.
    * `current` is the 1-based count of observations attempted so far;
    * `total` is the full count of observations that need embeddings.
@@ -580,8 +589,9 @@ export async function populateEmbeddings(
     FROM brain_observations o
     LEFT JOIN brain_embeddings e ON o.id = e.id
     WHERE e.id IS NULL AND o.narrative IS NOT NULL
-    ORDER BY o.created_at DESC
+    ORDER BY o.created_at DESC${options?.limit !== undefined ? ' LIMIT ?' : ''}
   `),
+    ...(options?.limit !== undefined ? [Math.max(0, Math.floor(options.limit))] : []),
   );
 
   const total = rows.length;
