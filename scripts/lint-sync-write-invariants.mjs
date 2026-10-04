@@ -29,9 +29,12 @@
  *      imports referenced from the `mutate` method and from handler entries
  *      named by the domain's mutate operations (query-only handlers are
  *      excluded), then the import graph from there, with named imports
- *      resolved through barrel re-exports to their defining module. A
- *      module-level const initialised from `(await import(spec)).name` counts
- *      as a named import of `name` bound to that const (lazy handlers).
+ *      resolved through barrel re-exports to their defining module. Lazily
+ *      loaded bindings count as named imports: a const initialised from
+ *      `(await import(spec)).name`, a destructured `const { a } = await
+ *      import(spec)`, and `const m = await import(spec)` as a namespace. The
+ *      binding is the nearest enclosing declaration, whatever its scope, which
+ *      over-counts reachability (the safe direction).
  * 2. REJECTION SITES in those modules: `throw new X(…)`, `throw f(…)` (a
  *    factory-built error; the callee name is the code), `return new XError(…)`
  *    inside an Error-returning factory, `engineError(…)`, `emitFailure(…)`,
@@ -566,32 +569,53 @@ export function analyseFile(file, text, ctx) {
       node.arguments[0] &&
       ts.isStringLiteral(node.arguments[0])
     ) {
-      // A lazily loaded binding, `const x = lazy(async () => (await import(s)).name)`
-      // (T13126): the module-level const `x` stands for `name` of `s`, so a
-      // mutate handler referencing `x` reaches `name`'s module like a static
-      // named import would.
+      // Lazily loaded bindings (T13126) count as named imports bound to the
+      // declared names, so a mutate handler that uses them reaches the module:
+      // - `const x = lazy(async () => (await import(s)).name)`: `x` is `name`;
+      // - `const { a, b: c } = await import(s)`: `a` is `a`, `c` is `b`;
+      // - `const m = await import(s)`: `m` is the namespace.
+      // The binding is the NEAREST enclosing variable declaration, whatever its
+      // scope, so an import inside a function body may bind to an outer const
+      // too. That over-counts reachability, the safe direction for a
+      // write-path registry.
       let decl = node.parent;
       while (decl && !ts.isVariableDeclaration(decl) && !ts.isSourceFile(decl)) decl = decl.parent;
-      const awaited =
-        node.parent && ts.isAwaitExpression(node.parent) ? node.parent : null;
+      const declared = decl && ts.isVariableDeclaration(decl) ? decl : null;
+      const awaited = node.parent && ts.isAwaitExpression(node.parent) ? node.parent : null;
       const accessed =
-        awaited &&
-        awaited.parent &&
+        awaited?.parent &&
         ts.isParenthesizedExpression(awaited.parent) &&
         awaited.parent.parent &&
         ts.isPropertyAccessExpression(awaited.parent.parent)
           ? awaited.parent.parent.name.text
           : null;
-      const local =
-        decl && ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name)
-          ? decl.name.text
-          : null;
+      const names = [];
+      const locals = [];
+      let namespace;
+      if (declared && ts.isIdentifier(declared.name)) {
+        if (accessed) {
+          names.push(accessed);
+          locals.push(declared.name.text);
+        } else {
+          namespace = declared.name.text;
+        }
+      } else if (declared && ts.isObjectBindingPattern(declared.name) && !accessed) {
+        for (const el of declared.name.elements) {
+          if (el.dotDotDotToken || !ts.isIdentifier(el.name)) continue;
+          const prop =
+            el.propertyName && ts.isIdentifier(el.propertyName)
+              ? el.propertyName.text
+              : el.name.text;
+          names.push(prop);
+          locals.push(el.name.text);
+        }
+      }
       imports.push({
         spec: node.arguments[0].text,
-        names: accessed && local ? [accessed] : [],
-        locals: accessed && local ? [local] : [],
+        names,
+        locals,
         whole: true,
-        namespace: !accessed && local ? local : undefined,
+        namespace,
         dynamic: true,
       });
     }

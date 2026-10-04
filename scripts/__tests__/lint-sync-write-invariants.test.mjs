@@ -208,6 +208,38 @@ export function checkThing(p) {
     expect(added).toEqual([expect.stringContaining('things/check.ts :: E_FOO')]);
   });
 
+  it('6c: a destructured dynamic import inside a mutate handler reaches its module (T13126)', () => {
+    const { scan, added } = sitesOf({
+      'packages/cleo/src/dispatch/domains/things.ts': `const handlers = {
+  list: async (p) => p,
+  add: async (p) => {
+    const { checkThing: check } = await import('@cleocode/core/things');
+    return check(p);
+  },
+};
+export const handler = {
+  async query(op, params) { return handlers[op](params); },
+  async mutate(op, params) { return handlers[op](params); },
+  getSupportedOperations() { return { query: ['list'], mutate: ['add'] }; },
+};
+`,
+      'packages/core/src/things/index.ts':
+        "export { checkThing } from './check.js';\nexport { listThings } from './list.js';\n",
+      'packages/core/src/things/list.ts': `export function listThings() { throw new Error('query only'); }\n`,
+      'packages/core/src/things/check.ts': `import { engineError } from '../engine.js';
+export function checkThing(p) {
+  if (!p) return engineError('E_FOO', 'missing');
+  return p;
+}
+`,
+      'packages/core/src/engine.ts':
+        'export function engineError(code, msg) { return { code, msg }; }\n',
+    });
+    expect(scan.reachable.has('packages/core/src/things/check.ts')).toBe(true);
+    expect(scan.reachable.has('packages/core/src/things/list.ts')).toBe(false);
+    expect(added).toEqual([expect.stringContaining('things/check.ts :: E_FOO')]);
+  });
+
   it('7: an untagged SQL counter (weight = weight + 1) fails', () => {
     const { added } = sitesOf({
       'packages/core/src/edges.ts': `export function bump(db, from, to) {
