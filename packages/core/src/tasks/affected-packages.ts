@@ -27,9 +27,10 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
-import { isCiDocumentPath } from '../release/ci-evidence.js';
+import { isCiDocumentPath, readCiSatisfies } from '../release/ci-evidence.js';
 import { LIGHT_FOOTPRINT_BYTES } from '../resources/admission-ledger.js';
 import type { MergeVerdict } from './affected-scope.js';
+import { type AffectedTemplate, resolveAffectedTemplate } from './affected-template.js';
 import { splitCommandLine } from './command-line.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
 import { AdmissionTimeoutError, acquireGlobalSlot, type ReleaseSlotFn } from './tool-semaphore.js';
@@ -457,8 +458,8 @@ export function scriptTestTargets(
 /**
  * Expand a `testing.affectedCommand` template into a spawnable command.
  * `{projects}` → `--project <name>` per package, `{filters}` → `--filter
- * <name>` per package, `{packages}` → the names. Each expands to separate
- * arguments. The template is split with POSIX `sh` quoting and run without a
+ * <name>` per package, `{workspaces}` → `--workspace <name>` per package (npm,
+ * T13125), `{packages}` → the names. Each expands to separate arguments. The template is split with POSIX `sh` quoting and run without a
  * shell, so shell syntax (`&&`, `|`, `$`, …) is refused rather than passed to
  * the target as literal words, which could run a different program and
  * false-PASS (T12718).
@@ -478,6 +479,7 @@ export function buildAffectedTestCommand(
   const expanded = words.flatMap((word) => {
     if (word === '{projects}') return projects.flatMap((p) => ['--project', p]);
     if (word === '{filters}') return packages.flatMap((p) => ['--filter', p]);
+    if (word === '{workspaces}') return packages.flatMap((p) => ['--workspace', p]);
     if (word === '{packages}') return [...packages];
     return [word];
   });
@@ -550,6 +552,8 @@ export type AffectedTestRun =
       projects: string[];
       /** Affected dependents with no test project. */
       untested: string[];
+      /** The template the command came from, declared or derived (T13125). */
+      template: AffectedTemplate;
     }
   | {
       ok: false;
@@ -579,18 +583,23 @@ export async function planAffectedTestRun(
 ): Promise<AffectedTestRun> {
   const { readRawProjectContext } = await import('./tool-resolver.js');
   const testing = (
-    readRawProjectContext(storeRoot) as { testing?: { affectedCommand?: unknown } } | null
+    readRawProjectContext(storeRoot) as {
+      testing?: { affectedCommand?: unknown; command?: unknown };
+    } | null
   )?.testing;
-  const template = typeof testing?.affectedCommand === 'string' ? testing.affectedCommand : '';
-  if (template.trim() === '') {
+  // T13125: a declared template, else one derived from testing.command.
+  const resolved = resolveAffectedTemplate(testing, root);
+  if (resolved === null) {
     return {
       ok: false,
       codeName: 'E_EVIDENCE_TOOL_UNAVAILABLE',
       reason:
         'tool:test-affected needs testing.affectedCommand in .cleo/project-context.json, e.g. ' +
-        '"pnpm exec vitest run {projects}" ({projects}/{filters}/{packages} expand per package).',
+        '"pnpm exec vitest run {projects}" ({projects}/{filters}/{workspaces}/{packages} expand per ' +
+        'package); none could be derived from testing.command.',
     };
   }
+  const template = resolved.template;
   // T12718: a template the runner cannot split without a shell is a config
   // error, refused before anything runs — never a pass for a truncated argv.
   let templateWords: string[];
@@ -655,7 +664,26 @@ export async function planAffectedTestRun(
     packages: scope.packages,
     projects,
     untested,
+    template: resolved,
   };
+}
+
+/**
+ * Why a scope-aware `tool:test` runs the whole suite when no affected template
+ * is declared or derivable (T13125), naming `ci:<pr>` as the preferred
+ * `testsPassed` evidence when the project accepts it.
+ *
+ * @param storeRoot - CLEO store root (project context).
+ * @returns The reason recorded on the `tool` atom.
+ * @task T13125
+ */
+export function wholeSuiteReason(storeRoot: string): string {
+  const base =
+    'no testing.affectedCommand is declared and none can be derived from testing.command, so ' +
+    'every tool:test runs the whole suite (cleo doctor proposes one where it can)';
+  return readCiSatisfies(storeRoot)
+    ? `${base}; evidence.ciSatisfies is set, so ci:<pr> (the merged PR's CI) is the preferred testsPassed evidence`
+    : base;
 }
 
 /** How a scope-aware `tool:test` will run (T12959). */
@@ -669,7 +697,7 @@ export type ScopedTestRun =
   | {
       /** The whole suite (`testing.command`). */
       scope: 'full';
-      /** Why the affected scope was not used; null when none is declared. */
+      /** Why the affected scope was not used ({@link wholeSuiteReason} when none exists). */
       reason: string | null;
     }
   | {
@@ -681,10 +709,10 @@ export type ScopedTestRun =
 
 /**
  * Decide how `tool:test` runs (T12959): the affected packages first whenever
- * `testing.affectedCommand` is declared, the full suite only when that scope
- * cannot be trusted. Full when the project opts out
- * (`testing.preferAffected: false`), declares no template, or the change is
- * not known to be unmerged (a scoped run counts before merge only, D11150);
+ * an affected template is declared (`testing.affectedCommand`) or derivable
+ * from `testing.command` (T13125), the full suite only when that scope cannot
+ * be trusted. Full when the project opts out (`testing.preferAffected:
+ * false`), has no template, or the change is not known to be unmerged (a scoped run counts before merge only, D11150);
  * otherwise whatever {@link planAffectedTestRun} decides, its refusal (root
  * config changed, no origin, nothing touched, …) becoming the full run's
  * recorded reason. An affected plan that would leave a dependent package
@@ -711,13 +739,16 @@ export async function planScopedTestRun(
   const { readRawProjectContext } = await import('./tool-resolver.js');
   const testing = (
     readRawProjectContext(storeRoot) as {
-      testing?: { affectedCommand?: unknown; preferAffected?: unknown };
+      testing?: { affectedCommand?: unknown; command?: unknown; preferAffected?: unknown };
     } | null
   )?.testing;
-  if (typeof testing?.affectedCommand !== 'string' || testing.affectedCommand.trim() === '') {
-    return { scope: 'full', reason: null };
+  // T13125: no declared template and none derivable is the one case that
+  // runs the whole suite on every verify; the reason says so and names the way
+  // out, so the atom and `cleo done --plan` show it instead of staying silent.
+  if (resolveAffectedTemplate(testing, root) === null) {
+    return { scope: 'full', reason: wholeSuiteReason(storeRoot) };
   }
-  if (testing.preferAffected === false) {
+  if (testing?.preferAffected === false) {
     return { scope: 'full', reason: 'testing.preferAffected is false' };
   }
   if (opts.mergeState) {

@@ -147,6 +147,18 @@ export interface BudgetOptions {
   readonly cpuCount?: number;
   /** Override total RAM bytes (tests). Default {@link totalmem}. */
   readonly totalMemBytes?: number;
+  /**
+   * Budget on MEMORY pressure alone, ignoring the CPU signal (T13119, T13150).
+   *
+   * For work that must not be deferred merely because the machine is busy: a
+   * required migration of the store being opened, whose deferral leaves the
+   * command reading an empty store. CPU saturation slows such work; it cannot
+   * exhaust memory, which is what the governor exists to prevent. On macOS
+   * the CPU signal is derived from the load average (T12981), so any machine
+   * whose load exceeds twice its effective cores (a CI runner under vitest, a
+   * Mac running agents) read as `backoff` and deferred it.
+   */
+  readonly ignoreCpuPressure?: boolean;
 }
 
 const MB = 1024 * 1024;
@@ -155,6 +167,11 @@ const MB = 1024 * 1024;
 function someAvg10(sample: ResourceSample): number {
   // T12981: memory or CPU, whichever is worse (CPU rescaled to this scale).
   return pressureScore(sample);
+}
+
+/** Memory `some avg10` (0–100) alone; 0 when unavailable. */
+function memorySomeAvg10(sample: ResourceSample): number {
+  return (sample.globalPressure?.some ?? sample.slicePressure?.some)?.avg10 ?? 0;
 }
 
 /**
@@ -185,7 +202,7 @@ export function computeClassBudget(
   const headroomBytes = (opts.headroomMb ?? 2048) * MB;
   const hold = opts.holdSomeAvg10 ?? 10;
   const floor = opts.floorSomeAvg10 ?? 25;
-  const some = someAvg10(sample);
+  const some = opts.ignoreCpuPressure === true ? memorySomeAvg10(sample) : someAvg10(sample);
   // MemAvailable can be null on non-Linux / read error — fall back to total.
   const availBytes = sample.memAvailableBytes ?? totalBytes;
   const fullStall = sample.globalPressure?.full?.avg10 ?? sample.slicePressure?.full?.avg10 ?? 0;

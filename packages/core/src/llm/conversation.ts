@@ -8,7 +8,8 @@
  * @epic T1386
  */
 
-import { getEncoding } from 'js-tiktoken';
+import { createRequire } from 'node:module';
+import type { getEncoding } from 'js-tiktoken';
 
 /**
  * Lazily-built cl100k_base encoder.
@@ -17,16 +18,27 @@ import { getEncoding } from 'js-tiktoken';
  * `getEncoding` parses the BPE vocabulary, measured at 156 ms, and this module is
  * reachable from the `@cleocode/core` barrel — so every `cleo` invocation built a
  * tokenizer table before doing anything, including commands that never count a
- * token. Deferring to first use keeps the surrounding API synchronous (the static
- * import stays; only the table build moves) while removing the cost from startup.
+ * token. Deferring to first use keeps the surrounding API synchronous.
+ *
+ * T13126: the MODULE load moved too. A static `import` still evaluated
+ * js-tiktoken (5.4 MB of source plus its base64 rank tables) in every process
+ * that loads the barrel: ~20 MB of peak RSS per `cleo` call, for a tokenizer
+ * almost no command uses. `countMessageTokens` is a synchronous public API, so
+ * the package is required synchronously on first use. `metrics/token-service.ts`
+ * imports it asynchronously; a process that uses both holds two copies of a
+ * stateless encoder, which is cheaper than loading one in every process.
  */
+const requireFromHere = createRequire(import.meta.url);
 let _enc: ReturnType<typeof getEncoding> | null = null;
 
 /**
  * Estimate token count for a string using tiktoken cl100k_base.
  */
 function estimateTokens(text: string): number {
-  _enc ??= getEncoding('cl100k_base');
+  if (_enc === null) {
+    const tiktoken: { getEncoding: typeof getEncoding } = requireFromHere('js-tiktoken');
+    _enc = tiktoken.getEncoding('cl100k_base');
+  }
   return _enc.encode(text).length;
 }
 

@@ -710,15 +710,16 @@ export async function deriveTaskEvidence(
   // implementation (as `cleo complete` records it), never one that merely
   // cites the task. T12671: a component landed by an integration PR is judged
   // on the integration PR's CI, linked through the component (`<c>@<n>`).
-  const ciPr =
+  const ciUsable =
     readCiSatisfies(storeRoot) &&
     ciPlannable(
       storeRoot,
       ![...changeSet.files, ...changeSet.deletedFiles].every(isCiDocumentPath),
       [...changeSet.files, ...changeSet.deletedFiles],
-    )
-      ? await mergeInfo().then((info) => (info.state === 'merged' ? info.prRef : null))
-      : null;
+    );
+  const ciPr = ciUsable
+    ? await mergeInfo().then((info) => (info.state === 'merged' ? info.prRef : null))
+    : null;
   const toolRuns: DonePlanToolRun[] = [];
   if (!decisionOnly && ciPr === null) {
     for (const gate of pending) {
@@ -736,6 +737,17 @@ export async function deriveTaskEvidence(
                 mergeState: mergeInfo,
               })
             : null;
+        // T13125: a whole-suite local run where merged-PR CI would carry the
+        // gate is named as such, with ci:<pr> as the preferred evidence.
+        if (scoped?.scope === 'full' && ciUsable) {
+          const why = scoped.reason ?? 'the affected scope does not apply';
+          changeSet.warnings.push(
+            `${gate}: this plans a whole-suite local tool:test (${why})` +
+              (why.includes('ci:<pr>')
+                ? ''
+                : '; evidence.ciSatisfies is set, so ci:<pr> once the PR merges is the preferred evidence and needs no local run'),
+          );
+        }
         toolRuns.push(
           scoped?.scope === 'affected'
             ? await planToolRun('test-affected', gate, storeRoot, root, scoped.run.command)

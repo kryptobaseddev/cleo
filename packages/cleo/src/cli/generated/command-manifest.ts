@@ -450,6 +450,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorGlobalDeliveryCommand as CommandDef,
   },
   {
+    exportName: 'doctorHeavyCommandHookCommand',
+    name: 'heavy-command-hook',
+    description:
+      'Report, per agent harness in use, whether the heavy-command hook (routes agent-run tests and ',
+    load: async () =>
+      (await import('../commands/doctor-heavy-command-hook.js'))
+        .doctorHeavyCommandHookCommand as CommandDef,
+  },
+  {
     exportName: 'doctorLegacyBackupsCommand',
     name: 'legacy-backups',
     description:

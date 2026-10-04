@@ -98,6 +98,30 @@ describe('computeClassBudget (T11999)', () => {
     expect(computeClassBudget('db-heavy', makeSample({ someAvg10: 30 }), BUDGET_OPTS)).toBe(0);
   });
 
+  it('ignoreCpuPressure: CPU saturation alone does not defer db-heavy; memory pressure still does (T13119, T13150)', () => {
+    // macOS derives CPU pressure from the load average (T12981): load at 2.4x
+    // the effective cores reads as cpu some avg10 ≈ 58, well past backoff.
+    const cpuSaturated: ResourceSample = {
+      ...makeSample({ someAvg10: 0 }),
+      cpuPressure: {
+        some: { avg10: 58, avg60: 58, avg300: 58, totalUs: 0 },
+        full: null,
+      },
+    };
+    expect(computeClassBudget('db-heavy', cpuSaturated, BUDGET_OPTS)).toBe(0);
+    expect(
+      computeClassBudget('db-heavy', cpuSaturated, { ...BUDGET_OPTS, ignoreCpuPressure: true }),
+    ).toBe(1);
+    const memoryPressured: ResourceSample = { ...cpuSaturated, ...makeSample({ someAvg10: 30 }) };
+    expect(
+      computeClassBudget('db-heavy', memoryPressured, { ...BUDGET_OPTS, ignoreCpuPressure: true }),
+    ).toBe(0);
+    const memoryStalled = makeSample({ someAvg10: 0, fullAvg10: 20 });
+    expect(
+      computeClassBudget('db-heavy', memoryStalled, { ...BUDGET_OPTS, ignoreCpuPressure: true }),
+    ).toBe(0);
+  });
+
   it('background-autonomous defers (0) under any hold-level pressure', () => {
     expect(
       computeClassBudget('background-autonomous', makeSample({ someAvg10: 0 }), BUDGET_OPTS),
