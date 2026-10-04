@@ -8,10 +8,15 @@
 # (MACOS_WORKFLOWS in packages/core/src/release/preflight-skip.ts) for the
 # release commit or any test-equivalent ancestor, and skips the macOS shards.
 #
-# It is NOT a required check, and it is cancellable on purpose: main's ci.yml
-# runs are never cancelled, and the free plan runs at most 5 macOS jobs at
-# once, so keeping every push's macOS run would queue hours behind a merge
-# burst. Only the newest push keeps its run.
+# It is NOT a required check. T13187: a running run is never cancelled
+# (`cancel-in-progress: false`). With `true`, every main push cancelled the run
+# still going, so in a merge burst no macOS verdict ever landed (the last four
+# completed runs were all cancelled, eight shards each, three minutes before
+# they would have finished). With `false`, GitHub keeps the running run and at
+# most ONE pending run per group: each new push replaces the pending one, so a
+# burst coalesces to the newest push instead of queuing every push behind the
+# free plan's five macOS jobs. ci.yml's nightly schedule already runs the macOS
+# shards on main every night, so this workflow carries no schedule of its own.
 #
 # The build and test steps mirror ci.yml's `build` and `unit-tests` jobs for
 # macos-latest; scripts/__tests__/ci-platform-matrix.test.mjs checks the pins
@@ -41,7 +46,7 @@ on:
 
 concurrency:
   group: macos-main
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
