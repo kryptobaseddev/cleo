@@ -10,8 +10,10 @@ Journal spec §2.3a, rules 1–3.
 **Exodus.** Each legacy source's copy is one stage, run in `withSyncTriggersSuspended`. When the target
 has sync capture on, its capture triggers are dropped, the source is copied, and the triggers are
 reinstalled for the schema, all in the stage's single transaction. Before, the copy ran under live
-capture triggers and produced one capture per copied row. Once a scope has written anything, every
-sync-set table is marked `suspect:`, and the sealer's repair diff emits the copied rows. Foreign keys
+capture triggers and produced one capture per copied row. Before its COMMIT, each stage marks the touch
+set of the tables it wrote `suspect:`, in the same transaction as the rows, so a crash between stages
+can never leave rows uncaptured and unmarked. A failure to mark fails the stage. The sealer's repair
+diff then emits the copied rows. Foreign keys
 still go off once per scope. They are now asserted to be set outside any transaction, where the pragma
 takes effect.
 

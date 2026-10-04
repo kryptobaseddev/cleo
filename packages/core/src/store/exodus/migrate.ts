@@ -129,8 +129,7 @@ import { getCleoVersion } from '../../scaffold/ensure-config.js';
 import type { DualScopeDbHandle } from '../dual-scope-db.js';
 import { getDualScopeNativeDb, openDualScopeDbAtPath } from '../dual-scope-db.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
-import { syncSetTables } from '../sync/capture.js';
-import { markSuspect, withSyncTriggersSuspended } from '../sync/structural.js';
+import { markSuspect, touchSet, withSyncTriggersSuspended } from '../sync/structural.js';
 import {
   buildEpochToIsoExpr,
   detectIsoGlobColumns,
@@ -1313,9 +1312,10 @@ export async function runExodusMigrate(
  * capture triggers are dropped, the source is copied and the triggers are
  * reinstalled for the schema, all in that one transaction, so no stage ever
  * commits without them and the copy produces no captures. The copy is
- * therefore uncaptured: once the scope has written anything, every sync-set
- * table is marked `suspect:`, and the sealer's repair diff emits the rows
- * (§2.3a rule 3). Foreign keys go off once per scope, outside any transaction
+ * therefore uncaptured: before its COMMIT, each stage marks the touch set of
+ * the tables it wrote `suspect:` in the same transaction, so the mark can
+ * never be lost while the rows stay, and the sealer's repair diff emits the
+ * rows (§2.3a rule 3). Foreign keys go off once per scope, outside any transaction
  * (a no-op inside one), and are restored after the scope. The run-wide
  * exclusion is exodus's own single-flight lock and write guard.
  */
@@ -1342,11 +1342,6 @@ async function migrateScope(
     // @sync-invariant none:local-only programming-error guard: exodus FK mode is set outside any transaction
     throw new Error('Exodus: foreign_keys=OFF must be set outside a transaction (§2.3a rule 2)');
   }
-  const totalChanges = (): number =>
-    Number(
-      (targetNativeDb.prepare('SELECT total_changes() AS n').get() as { n: number | bigint }).n,
-    );
-  const changesBefore = totalChanges();
   targetNativeDb.exec('PRAGMA foreign_keys = OFF');
   log.info({ scope }, 'Exodus: foreign_keys=OFF for bulk copy (T11533 FK-defer)');
 
@@ -1385,6 +1380,8 @@ async function migrateScope(
         // previously-copied sources. The bracket opens and commits the only
         // transaction, with the capture triggers dropped inside it.
         const guards: { saved?: ReturnType<typeof suspendGrandfatheredGuards> } = {};
+        // Target tables this stage wrote on the main store (rule 3 touch set).
+        const written = new Set<string>();
 
         try {
           withSyncTriggersSuspended(targetNativeDb, scope, () => {
@@ -1439,6 +1436,10 @@ async function migrateScope(
                   resolveTarget,
                 );
                 rowsCopied = copyResult.rowsCopied;
+                if (rowsCopied > 0 && targetSchema === 'main') {
+                  const target = resolveTarget(src.name, tableName);
+                  if (target.kind !== 'skip') written.add(target.targetName);
+                }
                 if (copyResult.skipped) {
                   status = 'skipped';
                   errorMsg = copyResult.reason;
@@ -1509,6 +1510,25 @@ async function migrateScope(
                 skipped,
                 reason: errorMsg,
               });
+            }
+
+            // Rule 3, atomic with the rows (T12785): the copy is uncaptured, so
+            // the touch set of what this stage wrote is marked `suspect:` in the
+            // SAME transaction as the rows. A crash after any stage's COMMIT
+            // leaves its rows marked for the sealer's repair diff; a failure to
+            // mark fails the stage. A no-op on a store without the sync schema.
+            if (written.size > 0) {
+              const suspect = markSuspect(
+                targetNativeDb,
+                scope,
+                touchSet(targetNativeDb, [...written]),
+              );
+              if (suspect.length > 0) {
+                log.info(
+                  { scope, source: src.name, suspect },
+                  'Exodus: sync tables marked suspect',
+                );
+              }
             }
 
             // Step 5: the bracket COMMITs all copies for this source (guards
@@ -1587,17 +1607,6 @@ async function migrateScope(
       log.info({ scope }, 'Exodus: foreign_keys=ON restored after bulk copy');
     } catch (fkErr) {
       log.warn({ scope, err: fkErr }, 'Exodus: could not restore foreign_keys=ON (non-fatal)');
-    }
-
-    // Rule 3: the stages wrote uncaptured, so the sealer must diff the sync set
-    // before sealing anything else. A no-op on a store without the sync schema.
-    try {
-      if (totalChanges() !== changesBefore) {
-        const suspect = markSuspect(targetNativeDb, scope, syncSetTables(scope));
-        if (suspect.length > 0) log.info({ scope, suspect }, 'Exodus: sync tables marked suspect');
-      }
-    } catch (suspectErr) {
-      log.warn({ scope, err: suspectErr }, 'Exodus: could not mark sync tables suspect');
     }
   }
 }

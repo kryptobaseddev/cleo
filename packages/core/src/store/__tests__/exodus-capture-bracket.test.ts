@@ -12,10 +12,12 @@
  * @task T12774
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   _resetDualScopeDbCache,
@@ -106,5 +108,56 @@ describe('exodus copy inside rule-1 brackets (T12785 · T12774)', () => {
     expect(n(db, "SELECT count(*) AS n FROM tasks_tasks WHERE id LIKE 'T%'")).toBe(LEGACY_TASKS);
     expect(captureTriggers(db)).toBe(0);
     expect(suspectTables(db)).toEqual([]);
+  });
+
+  it('a crash between stages leaves the committed stage marked suspect (rule 3 is atomic)', async () => {
+    // The built engine runs in a child that dies the moment the second source's
+    // stage starts: no finally, no end-of-scope code. Whatever the first stage
+    // committed must carry its own suspect mark.
+    const dist = resolve(import.meta.dirname, '../../../dist/store/exodus/migrate.js');
+    if (!existsSync(dist)) return; // CI builds before testing
+    const handle = await openDualScopeDbAtPath('project', projectDbPath);
+    const db = getDualScopeNativeDb(handle);
+    setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA });
+    const capturesBefore = n(db, 'SELECT count(*) AS n FROM _sync_capture');
+    _resetDualScopeDbCache();
+
+    const second = new DatabaseSync(join(dir, 'brain.db'));
+    second.exec('CREATE TABLE brain_observations (id TEXT PRIMARY KEY, title TEXT)');
+    second.close();
+    const crashPlan = {
+      ...plan(),
+      sources: [
+        { name: 'tasks', path: join(dir, 'tasks.db'), targetScope: 'project' },
+        { name: 'brain', path: join(dir, 'brain.db'), targetScope: 'project' },
+      ],
+    };
+    const script = join(dir, 'crash.mjs');
+    writeFileSync(
+      script,
+      [
+        `const { runExodusMigrate } = await import(${JSON.stringify(pathToFileURL(dist).href)});`,
+        `const plan = JSON.parse(process.argv[2]);`,
+        `await runExodusMigrate(plan, false, (m) => { if (m.includes('[brain] Attached')) process.exit(7); }, { projectOnly: true });`,
+        `process.exit(0);`,
+      ].join('\n'),
+    );
+    const child = spawnSync(process.execPath, [script, JSON.stringify(crashPlan)], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      env: { ...process.env, HOME: dir, CLEO_HOME: join(dir, 'cleo-home') },
+    });
+    expect(child.status, child.stderr).toBe(7);
+
+    const after = new DatabaseSync(projectDbPath, { readOnly: true });
+    try {
+      expect(n(after, "SELECT count(*) AS n FROM tasks_tasks WHERE id LIKE 'T%'")).toBe(
+        LEGACY_TASKS,
+      );
+      expect(n(after, 'SELECT count(*) AS n FROM _sync_capture')).toBe(capturesBefore);
+      expect(suspectTables(after)).toContain('tasks_tasks');
+    } finally {
+      after.close();
+    }
   });
 });
