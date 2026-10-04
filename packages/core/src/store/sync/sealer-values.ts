@@ -43,6 +43,7 @@ export function decodeEnc(text: string): WireValue {
     const n = Number(text);
     return Number.isSafeInteger(n) ? n : { $i: text };
   }
+  // @sync-invariant none:input-shape a malformed capture value is refused while decoding; callers quarantine it
   throw new Error(`sealer: not an enc() value: ${text.slice(0, 40)}`);
 }
 
