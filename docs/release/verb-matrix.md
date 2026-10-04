@@ -141,7 +141,7 @@ ships through the ordinary tokenless publish (npm Trusted Publishing cannot
 move dist-tags, and nothing in the release path holds a token). No dist-tag
 flags a hotfix, and there is no manual npm step.
 
-Once the release is promoted to `latest`, every installed CLI below it prints a
+Once the release publishes under `latest`, every installed CLI below it prints a
 stronger HOTFIX notice (at most every 15 minutes) until it updates; installs
 reach it within a day (their next check). The check remembers the highest
 flagged version it has seen, so a later regular release does not hide a hotfix

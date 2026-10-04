@@ -13,7 +13,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   installedCleocodePackages,
   parseArgs,
@@ -216,6 +216,46 @@ describe('soak', () => {
     const check = soak({ version: VERSION, root, run }).checks.find((c) => c.name === 'doctor');
     expect(check?.ok).toBe(false);
     expect(check?.detail).toContain('tasks_db');
+  });
+});
+
+describe('soak environment isolation (T13181 review)', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('the install and every CLI run get a sandbox-only env: no OIDC request, Actions or npm token variables', () => {
+    // release.yml grants id-token: write; a transitive install script must not
+    // be able to mint an OIDC token, so none of these may reach the children.
+    for (const [k, v] of Object.entries({
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://token.example/req',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'secret-request-token',
+      ACTIONS_RUNTIME_TOKEN: 'secret-runtime',
+      GITHUB_TOKEN: 'secret-gh',
+      NODE_AUTH_TOKEN: 'secret-npm',
+      NPM_TOKEN: 'secret-npm2',
+      npm_config__authToken: 'secret-npm3',
+    }))
+      vi.stubEnv(k, v);
+    const { run } = fakeRunner();
+    const envs = [];
+    const report = soak({
+      version: VERSION,
+      root,
+      run: (file, args, opts) => {
+        envs.push(opts.env);
+        return run(file, args, opts);
+      },
+    });
+    expect(report.ok, JSON.stringify(report.checks)).toBe(true);
+    expect(envs.length).toBe(SOAK_CHECKS.filter((c) => c.command).length);
+    for (const env of envs) {
+      const leaked = Object.keys(env).filter(
+        (k) => /^(ACTIONS_|GITHUB_)/.test(k) || /token/i.test(k),
+      );
+      expect(leaked).toEqual([]);
+      expect(JSON.stringify(env)).not.toMatch(/secret-/);
+      expect(env.HOME?.startsWith(root)).toBe(true);
+      expect(env.PATH?.startsWith(join(root, 'prefix', 'bin'))).toBe(true);
+    }
   });
 });
 
