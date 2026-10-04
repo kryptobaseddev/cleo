@@ -11,6 +11,7 @@
  */
 
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { exodusRefusalToEngineResult } from '../errors-to-engine.js';
 import { pushWarning } from '../output.js';
 import { type StaleFocusPointer, staleFocusWarning } from '../sessions/focus-state-store.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -56,7 +57,12 @@ export async function taskCurrentGet(projectRoot: string): Promise<
       staleFocus: result.staleFocus,
       nextSuggested,
     });
-  } catch {
-    return engineError('E_NOT_INITIALIZED', 'Task database not initialized');
+  } catch (err) {
+    // T13167: a write the store refused (legacy migration deferred or aborted)
+    // keeps its typed code and remedy.
+    return (
+      exodusRefusalToEngineResult(err) ??
+      engineError('E_NOT_INITIALIZED', 'Task database not initialized')
+    );
   }
 }
