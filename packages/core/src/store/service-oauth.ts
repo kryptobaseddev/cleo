@@ -51,7 +51,7 @@ import type {
   SealedCredential,
   ServiceProviderDef,
 } from '@cleocode/contracts';
-import { SERVICE_PROVIDERS } from '@cleocode/contracts';
+import { SERVICE_PROVIDERS } from '@cleocode/contracts/vault/service-provider.js';
 import { buildAuthorizationUrl, generatePkcePair, type OAuthTokens } from '../llm/oauth/pkce.js';
 import { makeSealedCredential, tokenPreview } from '../llm/sealed-credential.js';
 import {

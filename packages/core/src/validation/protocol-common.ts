@@ -9,7 +9,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { MANIFEST_STATUSES } from '@cleocode/contracts';
+import { MANIFEST_STATUSES } from '@cleocode/contracts/status-registry.js';
 
 // ============================================================================
 // Types

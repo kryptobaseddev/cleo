@@ -75,16 +75,12 @@ import { createRequire } from 'node:module';
 // erased at runtime and is safe.
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { ProjectAgentRef } from '@cleocode/contracts';
-// Lazy-loaded drizzle factory (see _getDrizzle). drizzle-orm/node-sqlite
-// statically imports node:sqlite, so a top-level value import would pull the
-// native binding at module-load — defeating the lazy-init invariant. The type
-// import is erased at runtime and is safe.
-import type { drizzle as drizzleFn } from 'drizzle-orm/node-sqlite';
 // E6-L3 (T11523): dual-scope chokepoint — the conduit domain now opens the
 // consolidated project `cleo.db` through here. openDualScopeDb manages the
 // DatabaseSync lifecycle, pragmas, and consolidated migrations. We extract the
 // native handle and re-wrap it with the legacy conduit-schema drizzle instance so
 // existing callers compile and run without change.
+import { loadNodeSqliteDrizzle } from './drizzle-node-sqlite.js';
 import { type ProjectStore, resolveDualScopeDbPath } from './dual-scope-db.js';
 import { migrateSanitized, reconcileJournal } from './migration-manager.js';
 // T12038: the conduit domain no longer owns a singleton — the path-keyed binding
@@ -108,33 +104,6 @@ type DatabaseSync = _DatabaseSyncType;
 const { DatabaseSync } = _require('node:sqlite') as {
   DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
 };
-
-/**
- * Cached `drizzle` factory from `drizzle-orm/node-sqlite`, loaded on first use.
- *
- * Loaded via `createRequire` rather than a top-level import so that importing
- * `conduit-sqlite.ts` does not eagerly pull in `node:sqlite` (which the drizzle
- * driver statically imports). Memoized after the first call. Mirrors the
- * `_getDrizzle` lazy pattern in sqlite.ts / memory-sqlite.ts (T11280/T11521/T11522).
- *
- * @internal
- * @task T11523
- */
-let _drizzle: typeof drizzleFn | null = null;
-
-/**
- * Returns the `drizzle` factory, loading `drizzle-orm/node-sqlite` on first call.
- *
- * @internal
- * @task T11523
- */
-function _getDrizzle(): typeof drizzleFn {
-  if (_drizzle === null) {
-    const mod = _require('drizzle-orm/node-sqlite') as { drizzle: typeof drizzleFn };
-    _drizzle = mod.drizzle;
-  }
-  return _drizzle;
-}
 
 /**
  * Legacy database file name. Retained as an export for backwards compatibility
@@ -276,7 +245,7 @@ function runConduitMigrations(nativeDb: DatabaseSync): void {
     resolveConsolidatedJournalSiblings('drizzle-conduit'),
   );
 
-  const db = _getDrizzle()({ client: nativeDb });
+  const db = loadNodeSqliteDrizzle()({ client: nativeDb });
   migrateSanitized(db, { migrationsFolder });
 }
 

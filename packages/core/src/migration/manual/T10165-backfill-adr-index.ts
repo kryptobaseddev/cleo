@@ -66,7 +66,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { blobAttachmentSchema } from '@cleocode/contracts';
+import { blobAttachmentSchema } from '@cleocode/contracts/attachment-schema.js';
 import { and, eq } from 'drizzle-orm';
 import { getDb } from '../../store/sqlite.js';
 import {

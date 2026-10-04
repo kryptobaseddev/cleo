@@ -21,7 +21,8 @@
  * @saga T10281
  */
 
-import { type BackupVerifyResult, ExitCode } from '@cleocode/contracts';
+import type { BackupVerifyResult } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { getProjectRoot } from '@cleocode/core';
 import { runBackupVerify } from '@cleocode/core/store/backup-verify.js';
 import { defineCommand } from '../lib/define-cli-command.js';

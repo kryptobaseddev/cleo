@@ -40,10 +40,8 @@
  * @see ADR-056-db-ssot-and-release-completion-invariant.md §Decision D5
  */
 
-import {
-  type RegisteredInvariant as CentralRegisteredInvariant,
-  getInvariantsByAdr,
-} from '@cleocode/contracts';
+import type { RegisteredInvariant as CentralRegisteredInvariant } from '@cleocode/contracts';
+import { getInvariantsByAdr } from '@cleocode/contracts/invariants/index.js';
 import { getProjectRoot } from '../../paths.js';
 
 /**

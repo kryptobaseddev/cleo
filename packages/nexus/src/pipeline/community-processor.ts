@@ -38,7 +38,7 @@
 import { createRequire } from 'node:module';
 import { performance } from 'node:perf_hooks';
 import type { GraphRelationType } from '@cleocode/contracts';
-import { confidenceLabelFromNumeric } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts/graph.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 
 // ============================================================================

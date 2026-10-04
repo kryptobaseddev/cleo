@@ -32,7 +32,7 @@
  * @task T12128
  */
 
-import { isStorableTaskId } from '@cleocode/contracts';
+import { isStorableTaskId } from '@cleocode/contracts/task-id.js';
 import { sql } from 'drizzle-orm';
 import { openDualScopeDb } from '../store/dual-scope-db.js';
 

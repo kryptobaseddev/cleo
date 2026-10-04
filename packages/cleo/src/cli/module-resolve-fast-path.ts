@@ -28,9 +28,12 @@
  *    `finalizeResolution` does, and the format comes from the nearest
  *    `package.json` `type`, read ONCE per package and cached per directory.
  * 2. Bare package specifiers: Node's own answer is cached per (specifier,
- *    parent directory, conditions). Node resolves a bare specifier from the
- *    parent's DIRECTORY (the `node_modules` walk, self-reference and `#imports`
- *    all start there), so every file in one directory gets the same answer.
+ *    package root, conditions). Node resolves a bare specifier from the
+ *    parent's directory: the `node_modules` walk starts there, and
+ *    self-reference and `#imports` read the nearest `package.json`. Every
+ *    directory below one package root walks the same `node_modules` chain and
+ *    reads the same `package.json`, unless a `node_modules` directory sits
+ *    between it and the root; such a directory keeps its own cache entry.
  *
  * Anything it cannot answer with certainty goes to `nextResolve`: a `require()`
  * (only `import` conditions take the fast path), import attributes, query or
@@ -91,6 +94,8 @@ export interface FastResolveFs {
   readonly realpath: (path: string) => string;
   /** UTF-8 contents of `path`, or `undefined` when it cannot be read. */
   readonly readText: (path: string) => string | undefined;
+  /** `true` when `path` exists and is a directory; `false` otherwise (never throws). */
+  readonly isDirectory: (path: string) => boolean;
 }
 
 /** The real filesystem. */
@@ -102,6 +107,13 @@ const NODE_FS: FastResolveFs = {
       return readFileSync(path, 'utf8');
     } catch {
       return undefined;
+    }
+  },
+  isDirectory: (path) => {
+    try {
+      return statSync(path).isDirectory();
+    } catch {
+      return false;
     }
   },
 };
@@ -141,8 +153,36 @@ function declaredFormat(raw: string): ScopeFormat {
 export function createFastResolve(fs: FastResolveFs = NODE_FS): ResolveHookSync {
   /** Directory -> format of its package scope (`null`: Node decides). */
   const scopeByDir = new Map<string, ScopeFormat>();
-  /** `specifier \0 parentDir \0 conditions` -> Node's resolution of a bare specifier. */
+  /** `specifier \0 bareScope(parentDir) \0 conditions` -> Node's resolution of a bare specifier. */
   const bareByKey = new Map<string, ResolveFnOutput>();
+  /** Directory -> the directory whose bare resolutions it shares (see `bareScope`). */
+  const bareScopeByDir = new Map<string, string>();
+
+  /**
+   * The directory whose bare-specifier resolutions `dir` shares: its package
+   * root (the nearest directory with a `package.json`), or `dir` itself when a
+   * `node_modules` directory sits between the two, or when there is no root.
+   */
+  const bareScope = (dir: string): string => {
+    const cached = bareScopeByDir.get(dir);
+    if (cached !== undefined) return cached;
+    let scope = dir;
+    let current = dir;
+    for (;;) {
+      if (fs.readText(join(current, 'package.json')) !== undefined) {
+        scope = current;
+        break;
+      }
+      // A nested node_modules (or a file inside one) changes the walk: no sharing.
+      if (basename(current) === 'node_modules' || fs.isDirectory(join(current, 'node_modules')))
+        break;
+      const parent = dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+    bareScopeByDir.set(dir, scope);
+    return scope;
+  };
 
   /** Format of the package scope that contains `dir`, walking up like Node does. */
   const scopeFormat = (dir: string): ScopeFormat => {
@@ -219,7 +259,13 @@ export function createFastResolve(fs: FastResolveFs = NODE_FS): ResolveHookSync 
       !specifier.includes(':') &&
       !specifier.includes('\\');
     if (!bare) return nextResolve(specifier, context);
-    const key = `${specifier}\0${parentURL.slice(0, parentURL.lastIndexOf('/'))}\0${conditions.join(',')}`;
+    let parentDir: string;
+    try {
+      parentDir = dirname(fileURLToPath(parentURL));
+    } catch {
+      return nextResolve(specifier, context);
+    }
+    const key = `${specifier}\0${bareScope(parentDir)}\0${conditions.join(',')}`;
     const cached = bareByKey.get(key);
     if (cached) return cached;
     const resolved = nextResolve(specifier, context);

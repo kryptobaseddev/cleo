@@ -10,14 +10,12 @@
  */
 
 import type {
+  E_WORKGRAPH_PARENT_TYPE_MATRIX,
   TaskType,
   WorkGraphHierarchyInputNode,
   WorkGraphHierarchyViolation,
 } from '@cleocode/contracts';
-import {
-  type E_WORKGRAPH_PARENT_TYPE_MATRIX,
-  validateWorkGraphHierarchy,
-} from '@cleocode/contracts';
+import { validateWorkGraphHierarchy } from '@cleocode/contracts/workgraph.js';
 
 /** Stable error code for proposed containment cycles. */
 export const E_WORKGRAPH_CONTAINMENT_CYCLE = 'E_WORKGRAPH_CONTAINMENT_CYCLE';

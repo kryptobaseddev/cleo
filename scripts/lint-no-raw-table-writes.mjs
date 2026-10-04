@@ -286,6 +286,10 @@ export const EXEMPT = {
     _sync_capture: { count: 1, reason: SEALER },
     _sync_txn: { count: 1, reason: SEALER },
   },
+  'packages/core/src/store/sync/remap.ts': {
+    _sync_capture: { count: 1, reason: SEALER },
+    _sync_op: { count: 1, reason: SEALER },
+  },
   'packages/core/src/store/sync/replica.ts': {
     _sync_meta: { count: 2, reason: SYNC_BOOKKEEPING },
     _sync_replica: { count: 2, reason: SYNC_BOOKKEEPING },

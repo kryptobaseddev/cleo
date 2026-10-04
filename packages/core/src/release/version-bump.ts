@@ -14,19 +14,19 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import {
-  type BumpResult,
-  type BumpType,
-  type BumpVersionFromConfigResult,
-  type EcosystemHint,
-  ExitCode,
-  type ProjectContext,
-  type ProjectType,
-  type ResolveVersionBumpTargetsResult,
-  type VersionBumpStrategy,
-  type VersionBumpTarget,
-  type VersionBumpTargetSource,
+import type {
+  BumpResult,
+  BumpType,
+  BumpVersionFromConfigResult,
+  EcosystemHint,
+  ProjectContext,
+  ProjectType,
+  ResolveVersionBumpTargetsResult,
+  VersionBumpStrategy,
+  VersionBumpTarget,
+  VersionBumpTargetSource,
 } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { loadProjectContext } from '../agents/variable-substitution.js';
 import { CleoError } from '../errors.js';
 import { getCleoDir, getProjectRoot } from '../paths.js';

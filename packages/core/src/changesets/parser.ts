@@ -17,11 +17,9 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import {
-  type ChangesetEntry,
-  ChangesetEntrySchema,
-  ChangesetYamlInvalidError,
-} from '@cleocode/contracts';
+import type { ChangesetEntry } from '@cleocode/contracts';
+import { ChangesetEntrySchema } from '@cleocode/contracts/changesets.js';
+import { ChangesetYamlInvalidError } from '@cleocode/contracts/errors.js';
 import { parse as parseYaml } from 'yaml';
 
 // ─── YAML error introspection (T10105) ───────────────────────────────────────

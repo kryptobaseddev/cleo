@@ -53,7 +53,7 @@ import {
 import { platform } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { Provider } from '@cleocode/caamp';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { isAbsolutePath } from '@cleocode/paths';
 import { classifyProject, type ProjectClassification } from './discovery.js';
 import { CleoError } from './errors.js';

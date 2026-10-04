@@ -13,7 +13,8 @@
  * @epic T4454
  */
 
-import { ExitCode, TASK_SEVERITIES } from '@cleocode/contracts';
+import { TASK_SEVERITIES } from '@cleocode/contracts/enums.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   getProjectRoot,
   INPUT_CONTRACTS,

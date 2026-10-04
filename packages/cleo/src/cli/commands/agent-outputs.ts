@@ -12,7 +12,7 @@
  * @see packages/core/src/store/docs-accessor-impl.ts (implementation)
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { searchDocs } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { cliError, cliOutput } from '../renderers/index.js';

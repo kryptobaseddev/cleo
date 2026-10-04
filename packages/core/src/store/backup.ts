@@ -7,7 +7,7 @@
 
 import { copyFile, rename as fsRename, mkdir, readdir, stat, unlink } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { assertRestoreTargetConfirmed } from './worktree-isolation-guard.js';
 

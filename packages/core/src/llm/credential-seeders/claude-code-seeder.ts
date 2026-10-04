@@ -44,7 +44,7 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { parseClaudeCodeCredentials } from '@cleocode/contracts';
+import { parseClaudeCodeCredentials } from '@cleocode/contracts/credentials.js';
 import { getConfigValue } from '../../config.js';
 import type {
   CredentialSeeder,

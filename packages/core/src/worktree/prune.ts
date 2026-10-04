@@ -23,15 +23,14 @@
  */
 
 import { existsSync } from 'node:fs';
-import {
-  type EngineResult,
-  engineError,
-  engineSuccess,
-  type PrunedWorktreeOutcome,
-  type PruneOrphanedWorktreesOpts,
-  type PruneOrphanedWorktreesResult,
-  type WorktreeInfo,
+import type {
+  EngineResult,
+  PrunedWorktreeOutcome,
+  PruneOrphanedWorktreesOpts,
+  PruneOrphanedWorktreesResult,
+  WorktreeInfo,
 } from '@cleocode/contracts';
+import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { gitSilent, napiDestroyWorktree } from '@cleocode/worktree';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { isPrimaryWorktree, listWorktrees, resolvePrimaryWorktreePath } from './list.js';

@@ -12,7 +12,7 @@
  */
 
 import type { ImpactFullReport, Task } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { getNexusNativeDb } from '../store/nexus-sqlite.js';
 import { typedAll } from '../store/typed-query.js';
 

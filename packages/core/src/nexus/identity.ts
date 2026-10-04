@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { legacyProjectId, readDeclaredProjectIdentity } from '@cleocode/paths';
 import { CleoError } from '../errors.js';

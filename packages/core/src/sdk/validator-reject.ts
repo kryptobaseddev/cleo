@@ -19,11 +19,8 @@
  * @saga T10377 (SG-IVTR-AC-BINDING)
  */
 
-import {
-  type AgentRole,
-  type ValidatorRejection,
-  validatorRejectionSchema,
-} from '@cleocode/contracts';
+import type { AgentRole, ValidatorRejection } from '@cleocode/contracts';
+import { validatorRejectionSchema } from '@cleocode/contracts/validator/index.js';
 import type { JsonSchema, RegisteredSdkTool } from '../task-tools/sdk-tool.js';
 import { defineSdkTool } from '../task-tools/sdk-tool.js';
 

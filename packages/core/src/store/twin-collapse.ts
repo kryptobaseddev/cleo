@@ -199,7 +199,7 @@ import { existsSync, statSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { z } from 'zod';
 import { CleoError } from '../errors.js';

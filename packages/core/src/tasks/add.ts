@@ -20,12 +20,9 @@ import type {
   TaskVerification,
 } from '@cleocode/contracts';
 // setMetaValue now called via tx.setMetaValue inside transaction (T023)
-import {
-  ExitCode,
-  isAllowedWorkGraphParentType,
-  TASK_STATUSES,
-  TERMINAL_TASK_STATUSES,
-} from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { TASK_STATUSES, TERMINAL_TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
+import { isAllowedWorkGraphParentType } from '@cleocode/contracts/workgraph.js';
 import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';

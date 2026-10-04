@@ -15,7 +15,7 @@
  * @see packages/core/src/skills/federation-store.ts (storage layer)
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { skills } from '@cleocode/core';
 import { defineCommand, showUsage } from 'citty';
 import { cliError, cliOutput, humanLine } from '../renderers/index.js';

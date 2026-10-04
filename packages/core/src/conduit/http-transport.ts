@@ -1,14 +1,16 @@
 /**
- * HttpTransport — HTTP polling transport against the SignalDock API.
+ * HttpTransport — HTTP polling transport against an agent's cloud messaging API.
  *
- * Connects to the configured API base URL (api.signaldock.io) and exposes
- * push/poll/ack over HTTP.
+ * Connects to the configured API base URL and exposes push/poll/ack over
+ * HTTP. A retired SignalDock base URL is refused at connect, and every request
+ * goes through {@link conduitFetch} (T13169).
  *
  * @see docs/specs/SIGNALDOCK-UNIFIED-AGENT-REGISTRY.md Section 4.4
  * @task T177
  */
 
 import type { ConduitMessage, Transport, TransportConnectConfig } from '@cleocode/contracts';
+import { assertCloudUrlAllowed, conduitFetch } from './cloud-endpoint.js';
 
 /** Internal connection state. */
 interface HttpTransportState {
@@ -18,13 +20,18 @@ interface HttpTransportState {
   connected: boolean;
 }
 
-/** HTTP polling transport for the SignalDock messaging API. */
+/** HTTP polling transport for an agent's cloud messaging API. */
 export class HttpTransport implements Transport {
   readonly name = 'http';
   private state: HttpTransportState | null = null;
 
-  /** Connect to the SignalDock API. */
+  /**
+   * Connect to the cloud messaging API.
+   *
+   * @throws {SignalDockRetiredError} When the base URL is a retired SignalDock host.
+   */
   async connect(config: TransportConnectConfig): Promise<void> {
+    assertCloudUrlAllowed(config.apiBaseUrl);
     this.state = {
       agentId: config.agentId,
       apiKey: config.apiKey,
@@ -59,7 +66,7 @@ export class HttpTransport implements Transport {
       body['toAgentId'] = to;
     }
 
-    const response = await this.fetch(path, {
+    const response = await this.request(path, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(body),
@@ -88,7 +95,7 @@ export class HttpTransport implements Transport {
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.since) params.set('since', options.since);
 
-    const response = await this.fetch(`/messages/peek?${params}`, {
+    const response = await this.request(`/messages/peek?${params}`, {
       method: 'GET',
       headers: this.headers(),
     });
@@ -120,18 +127,18 @@ export class HttpTransport implements Transport {
   async ack(messageIds: string[]): Promise<void> {
     this.ensureConnected();
 
-    await this.fetch('/messages/ack', {
+    await this.request('/messages/ack', {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify({ messageIds }),
     });
   }
 
-  /** Fetch against the configured API base URL with a 10s timeout. */
-  private async fetch(path: string, init: RequestInit): Promise<Response> {
+  /** Request against the configured API base URL with a 10s timeout. */
+  private async request(path: string, init: RequestInit): Promise<Response> {
     const timeout = AbortSignal.timeout(10000);
     const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
-    return fetch(`${this.state!.apiBaseUrl}${path}`, { ...init, signal });
+    return conduitFetch(`${this.state!.apiBaseUrl}${path}`, { ...init, signal });
   }
 
   private headers(): Record<string, string> {

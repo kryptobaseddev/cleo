@@ -35,14 +35,10 @@
  * @epic T12486
  */
 
-import {
-  DECISION_PROVIDER_KINDS,
-  DECISION_RUNGS,
-  DECISION_SITE_MODES,
-  type DecisionRung,
-  type DecisionSiteModeValue,
-  ExitCode,
-} from '@cleocode/contracts';
+import type { DecisionRung, DecisionSiteModeValue } from '@cleocode/contracts';
+import { DECISION_PROVIDER_KINDS } from '@cleocode/contracts/decide.js';
+import { DECISION_RUNGS, DECISION_SITE_MODES } from '@cleocode/contracts/decide-sites.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   askDecideDebug,
   clearDecideConfig,

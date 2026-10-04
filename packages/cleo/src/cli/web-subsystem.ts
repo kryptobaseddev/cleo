@@ -30,7 +30,8 @@ import { existsSync, statSync } from 'node:fs';
 import { mkdir, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ExitCode, type SubsystemHealth, type SubsystemState } from '@cleocode/contracts';
+import type { SubsystemHealth, SubsystemState } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError, getCleoHome } from '@cleocode/core';
 import { defineSubsystem } from '@cleocode/runtime/daemon';
 
