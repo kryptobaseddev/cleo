@@ -105,7 +105,13 @@ describe('parseDarwinSysctl', () => {
     expect(s.pressureLevel).toBe(2);
     expect(s.freePercent).toBe(41);
     expect(s.swapTotalBytes).toBe(13312 * MB);
-    expect(s.swapUsedBytes).toBeCloseTo(11625.69 * MB, 0);
+    expect(s.swapUsedBytes).toBe(Math.round(11625.69 * MB));
+    expect(
+      Number.isInteger(
+        parseDarwinSysctl('vm.swapusage: total = 2.00M  used = 1.88M  free = 0.12M\n')
+          .swapUsedBytes,
+      ),
+    ).toBe(true);
     expect(s.loadAvg).toEqual([21.53, 26.57, 41.3]);
     expect(s.ncpu).toBe(18);
   });
@@ -273,7 +279,7 @@ describe('DarwinResourceBackend.sample', () => {
       pressureLevel: 2,
       availablePercent: 41,
       compressorBytes: null,
-      swapUsedBytes: 11625.69 * MB,
+      swapUsedBytes: Math.round(11625.69 * MB),
       swapTotalBytes: 13312 * MB,
       totalBytes: 48 * GB,
     });
