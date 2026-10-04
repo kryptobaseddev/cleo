@@ -1777,7 +1777,14 @@ jobs:
     needs: [biome, changes]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    # T13205: macOS cold builds vary 4.5-8+ min (runner variance), so 10 cancelled
+    # whole PR runs: the last 20 macOS Build & Verify jobs (2026-10-04) had a
+    # p50 of 8.3 min and a p95 of 10.5, with 6 of 20 killed by the timeout, so
+    # that p95 is censored. The uncensored proxy is `Build (macos-latest)`, the
+    # same cold build under a 25-min timeout: p95 12.5, max 12.6 over its last
+    # 20 runs. macOS gets 20 (1.6x that max); Linux (3.4 min) keeps 10. The cold
+    # build is the point of this job, so it is not cached.
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 20 || 10 }}
     strategy:
       matrix:
         # Windows temporarily disabled pending T9182/T9181 follow-up.
