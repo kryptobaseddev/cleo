@@ -60,6 +60,40 @@ vi.mock('../exodus/on-open.js', async (importOriginal) => {
   };
 });
 
+/**
+ * Fault injection for the pre-publication guard (#1836 review LOW-a): when set,
+ * the next guard install, or the next abort broadcast, throws once.
+ */
+const { faults } = vi.hoisted(() => ({ faults: { failInstall: false, failEmit: false } }));
+vi.mock('../exodus/write-guard.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../exodus/write-guard.js')>();
+  return {
+    ...actual,
+    installExodusWriteGuard: (
+      ...args: Parameters<typeof actual.installExodusWriteGuard>
+    ): ReturnType<typeof actual.installExodusWriteGuard> => {
+      if (faults.failInstall) {
+        faults.failInstall = false;
+        throw new Error('injected: guard install failed');
+      }
+      return actual.installExodusWriteGuard(...args);
+    },
+  };
+});
+vi.mock('../exodus/abort-events.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../exodus/abort-events.js')>();
+  return {
+    ...actual,
+    emitExodusAbort: (...args: Parameters<typeof actual.emitExodusAbort>): void => {
+      if (faults.failEmit) {
+        faults.failEmit = false;
+        throw new Error('injected: abort listener failed');
+      }
+      actual.emitExodusAbort(...args);
+    },
+  };
+});
+
 let root: string;
 let projectDir: string;
 let cleoDir: string;
@@ -82,6 +116,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  faults.failInstall = false;
+  faults.failEmit = false;
   const { drainWarnings } = await import('../../output.js');
   drainWarnings();
   vi.restoreAllMocks();
@@ -456,6 +492,38 @@ describe('deferred exodus-on-open (T13158)', () => {
     );
     await expect(assertExodusWriteSafe(getDualScopeNativeDb(other))).resolves.toBeUndefined();
     expect(other.exodusAbort).toBeUndefined();
+  });
+
+  it('a guard that throws after installing still lets the migration run (review LOW-a)', async () => {
+    seedLegacyTasksStore(cleoDir);
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(calm);
+    faults.failEmit = true;
+
+    const handle = await openDualScopeDb('project', projectDir);
+
+    expect(faults.failEmit).toBe(false);
+    expect(handle.exodusAbort).toBeUndefined();
+    expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(LEGACY_TASK_IDS.length);
+  });
+
+  it('a guard that cannot install falls back to the anchor table, and the next open migrates (review LOW-a)', async () => {
+    seedLegacyTasksStore(cleoDir);
+    const sample = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(memoryPressured);
+    faults.failInstall = true;
+
+    const deferred = await openDualScopeDb('project', projectDir);
+
+    expect(faults.failInstall).toBe(false);
+    expect(deferred.exodusAbort?.kind).toBe('deferred');
+    expect(() => insertTask(deferred, 'T999')).toThrow(EXODUS_DEFERRED_WRITE_CODE);
+    expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(0);
+
+    _resetDualScopeDbCache();
+    clearExodusAborts();
+    sample.mockResolvedValue(calm);
+    const migrated = await openDualScopeDb('project', projectDir);
+    expect(migrated.exodusAbort).toBeUndefined();
+    expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(LEGACY_TASK_IDS.length);
   });
 
   it('never asks the governor when no migration is pending', async () => {

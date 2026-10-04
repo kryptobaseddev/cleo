@@ -71,7 +71,7 @@ import {
   getRecordedExodusAbort,
 } from './exodus/abort-events.js';
 import type { ExodusOnOpenPreparation } from './exodus/on-open.js';
-import { peekExodusWriteGuard } from './exodus/write-guard.js';
+import { installExodusWriteGuard, peekExodusWriteGuard } from './exodus/write-guard.js';
 import { ForeignKeysNotRestoredError, migrateBracketed } from './migration-runner.js';
 import { assertStoreNotRelocated } from './relocated-store-guard.js';
 import {
@@ -356,7 +356,7 @@ async function guardStrandedStore(
   reason: string,
 ): Promise<boolean> {
   const log = getLogger('dual-scope-db');
-  const { installExodusWriteGuard, pendingExodusTargets } = await import('./exodus/write-guard.js');
+  const { pendingExodusTargets } = await import('./exodus/write-guard.js');
   let sources: readonly string[];
   let tables: readonly string[];
   try {
@@ -391,6 +391,41 @@ async function guardStrandedStore(
   const { emitExodusAbort } = await import('./exodus/abort-events.js');
   emitExodusAbort(detail);
   return true;
+}
+
+/**
+ * Last-resort guard for a store that owes a migration, used when
+ * {@link guardStrandedStore} throws: refuse INSERTs into the scope's anchor
+ * table, whose first row would stop the migration for good. A guard that is
+ * already installed is kept, since it covers more tables.
+ *
+ * @param nativeDb - The handle's native connection.
+ * @param scope - The scope.
+ * @param dbPath - The consolidated store.
+ */
+function guardAnchorOnly(nativeDb: DatabaseSync, scope: DualScope, dbPath: string): void {
+  if (peekExodusWriteGuard(nativeDb) !== undefined) return;
+  try {
+    const anchor = exodusAnchorTable(scope);
+    const sources = ['stores'];
+    const detail = strandedDetail(
+      scope,
+      dbPath,
+      'deferred',
+      'its migration has not run yet',
+      sources,
+    );
+    installExodusWriteGuard(
+      nativeDb,
+      { anchor, tables: [anchor], sources, markerPath: null, detail },
+      exodusRefusalMessage(scope, detail.reason, 'deferred'),
+    );
+  } catch (err) {
+    getLogger('dual-scope-db').error(
+      { err, scope },
+      'exodus-on-open: the store could not be guarded before its migration',
+    );
+  }
 }
 
 /** The refusal detail for a store that owes the migration of `sources`. */
@@ -1259,7 +1294,13 @@ export async function openDualScopeDbAtPath(
                 nativeDb,
                 exodusCwd,
               );
-              if (exodusState.preparation.kind === 'pending') {
+            } catch (err) {
+              execution?.assertActive();
+              exodusState.preparation = null;
+              log.warn({ err, scope }, 'exodus-on-open assessment unavailable (non-fatal)');
+            }
+            if (exodusState.preparation?.kind === 'pending') {
+              try {
                 execution?.assertActive();
                 await guardStrandedStore(
                   nativeDb,
@@ -1269,11 +1310,18 @@ export async function openDualScopeDbAtPath(
                   'deferred',
                   'its migration has not run yet',
                 );
+              } catch (err) {
+                execution?.assertActive();
+                // A failed guard must cost neither the migration nor the
+                // protection (#1836 review LOW-a): the preparation stays
+                // pending, so the migration still runs after the lease, and the
+                // anchor table is guarded at the least.
+                log.warn(
+                  { err, scope },
+                  'exodus-on-open: the store could not be fully guarded before its migration',
+                );
+                guardAnchorOnly(nativeDb, scope, normalizedPath);
               }
-            } catch (err) {
-              execution?.assertActive();
-              exodusState.preparation = null;
-              log.warn({ err, scope }, 'exodus-on-open assessment unavailable (non-fatal)');
             }
           }
 

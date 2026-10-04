@@ -27,3 +27,7 @@ stranded.
 - `ExodusAbortWriteUnsafeError` moves to `store/exodus/abort-events.ts`, a light module the
   error converters can import. It is still exported from `@cleocode/core`'s store and db
   entry points. The guard module is now `store/exodus/write-guard.ts` and covers both kinds.
+
+If guarding a store that owes a migration fails before the open publishes it, the migration
+still runs, and the anchor table is guarded at the least. Before, the open published the store
+unguarded and skipped the migration (#1836 review LOW-a).
