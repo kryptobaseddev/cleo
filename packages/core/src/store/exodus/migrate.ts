@@ -129,6 +129,8 @@ import { getCleoVersion } from '../../scaffold/ensure-config.js';
 import type { DualScopeDbHandle } from '../dual-scope-db.js';
 import { getDualScopeNativeDb, openDualScopeDbAtPath } from '../dual-scope-db.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
+import { syncSetTables } from '../sync/capture.js';
+import { markSuspect, withSyncTriggersSuspended } from '../sync/structural.js';
 import {
   buildEpochToIsoExpr,
   detectIsoGlobColumns,
@@ -1303,6 +1305,19 @@ export async function runExodusMigrate(
  *     DETACH alias (outside tx)
  *   PRAGMA foreign_key_check  → log orphans as warnings
  *   PRAGMA foreign_keys = ON
+ *
+ * ## Capture (journal spec §2.3a rules 1 and 3; T12785 · T12774)
+ *
+ * Each source is one stage, and each stage is one rule-1 bracket
+ * ({@link withSyncTriggersSuspended}): when the target has sync capture on, its
+ * capture triggers are dropped, the source is copied and the triggers are
+ * reinstalled for the schema, all in that one transaction, so no stage ever
+ * commits without them and the copy produces no captures. The copy is
+ * therefore uncaptured: once the scope has written anything, every sync-set
+ * table is marked `suspect:`, and the sealer's repair diff emits the rows
+ * (§2.3a rule 3). Foreign keys go off once per scope, outside any transaction
+ * (a no-op inside one), and are restored after the scope. The run-wide
+ * exclusion is exodus's own single-flight lock and write guard.
  */
 async function migrateScope(
   scope: ExodusScope,
@@ -1322,6 +1337,16 @@ async function migrateScope(
   // FK-defer: disable FK enforcement for the entire scope's bulk copy so that
   // copy order (child-before-parent) does not cause constraint failures.
   // Restored + checked after all sources in this scope are committed (T11533).
+  // PRAGMA foreign_keys is a no-op inside a transaction (§2.3a rule 2, T12774).
+  if (targetNativeDb.isTransaction) {
+    // @sync-invariant none:local-only programming-error guard: exodus FK mode is set outside any transaction
+    throw new Error('Exodus: foreign_keys=OFF must be set outside a transaction (§2.3a rule 2)');
+  }
+  const totalChanges = (): number =>
+    Number(
+      (targetNativeDb.prepare('SELECT total_changes() AS n').get() as { n: number | bigint }).n,
+    );
+  const changesBefore = totalChanges();
   targetNativeDb.exec('PRAGMA foreign_keys = OFF');
   log.info({ scope }, 'Exodus: foreign_keys=OFF for bulk copy (T11533 FK-defer)');
 
@@ -1355,152 +1380,146 @@ async function migrateScope(
       try {
         const tables = orderTablesForCopy(snap.db);
 
-        // Step 3: BEGIN the transaction for this source's copy batch (AC6).
+        // Step 3: one rule-1 bracket for this source's copy batch (AC6 · T12785).
         // Per-source transactions mean a failing source does not roll back
-        // previously-copied sources.
-        targetNativeDb.exec('BEGIN');
-        let txOpen = true;
-        const suspendedGuards = suspendGrandfatheredGuards(targetNativeDb);
+        // previously-copied sources. The bracket opens and commits the only
+        // transaction, with the capture triggers dropped inside it.
+        const guards: { saved?: ReturnType<typeof suspendGrandfatheredGuards> } = {};
 
         try {
-          for (const tableName of tables) {
-            // Check journal for resume (AC5)
-            const existing = journal.tables.find(
-              (e) => e.sourceDb === src.name && e.tableName === tableName,
-            );
-            if (existing?.status === 'done') {
-              onProgress?.(`  ↳ ${src.name}.${tableName} — already done (resuming)`);
+          withSyncTriggersSuspended(targetNativeDb, scope, () => {
+            guards.saved = suspendGrandfatheredGuards(targetNativeDb);
+            for (const tableName of tables) {
+              // Check journal for resume (AC5)
+              const existing = journal.tables.find(
+                (e) => e.sourceDb === src.name && e.tableName === tableName,
+              );
+              if (existing?.status === 'done') {
+                onProgress?.(`  ↳ ${src.name}.${tableName} — already done (resuming)`);
+                allTableResults.push({
+                  sourceDb: src.name,
+                  tableName,
+                  rowsCopied: existing.rowsCopied,
+                  skipped: false,
+                });
+                continue;
+              }
+
+              onProgress?.(`  ↳ Copying ${src.name}.${tableName}…`);
+              let rowsCopied = 0;
+              let status: TableMigrationStatus = 'done';
+              let errorMsg: string | undefined;
+              let skipped = false;
+
+              try {
+                // Step 4: INSERT using the already-attached alias — no per-table ATTACH/DETACH.
+                // FK enforcement is OFF (set at scope start), so copy order does not matter.
+                // Pass src.name so copyTableFromAttached can resolve the consolidated target name.
+                //
+                // Cross-scope routing (ADR-090 · T11539): if this table's effective
+                // scope differs from the loop scope (the four nexus graph tables),
+                // direct the INSERT at the cross-scope target DB attached above.
+                const effectiveScope = resolveTableTargetScope(src.name, tableName, scope);
+                const targetSchema = effectiveScope !== scope && crossAlias ? crossAlias : 'main';
+                if (effectiveScope !== scope && !crossAlias) {
+                  throw new Error(
+                    `Table '${tableName}' from '${src.name}' routes to ${effectiveScope} scope ` +
+                      `but no cross-scope target was attached for the ${scope} pass (ADR-090 T11539)`,
+                  );
+                }
+                const copyResult = copyTableFromAttached(
+                  targetNativeDb,
+                  snap.db,
+                  attachAlias,
+                  tableName,
+                  src.name,
+                  stagingDir,
+                  src.path,
+                  targetSchema,
+                  resolveTarget,
+                );
+                rowsCopied = copyResult.rowsCopied;
+                if (copyResult.skipped) {
+                  status = 'skipped';
+                  errorMsg = copyResult.reason;
+                  skipped = true;
+                } else if (copyResult.reason) {
+                  // No-swallow error: rows dropped by a constraint (T11546). The
+                  // copy WAS attempted (skipped stays false) and the deficit MUST be
+                  // surfaced — never a silent 0-row "done". (T11782 · FIX C.)
+                  //
+                  // Record `partial` rather than `skipped`: the table is neither
+                  // intentionally excluded nor cleanly complete. `partial` keeps the
+                  // journal honest (a resume re-copies; it never masquerades as
+                  // `done`) WITHOUT, by itself, tripping a scope-wide rollback at
+                  // this layer. A genuine deficit on a data-bearing BASE table still
+                  // ABORTS the cutover downstream: the parity gate
+                  // (`isDataContinuityOk` via `verifyMigration`) compares row counts
+                  // and fails on any `targetCount < sourceCount` deficit regardless
+                  // of journal status. With FIX B (Inf clamp) this branch should
+                  // rarely fire — it is belt-and-suspenders.
+                  status = 'partial';
+                  errorMsg = copyResult.reason;
+                  // skipped stays false — the distinction is the reason field (data loss vs intentional skip)
+                }
+              } catch (err) {
+                if (err instanceof ExodusRecoveryError) throw err;
+                const msg = err instanceof Error ? err.message : String(err);
+                log.warn({ tableName, sourceDb: src.name, err }, 'Table copy failed — skipping');
+                status = 'skipped';
+                errorMsg = msg;
+                skipped = true;
+              }
+
+              // Update journal entry
+              const entry: JournalTableEntry = {
+                sourceDb: src.name,
+                tableName,
+                status,
+                rowsCopied,
+                updatedAt: new Date().toISOString(),
+                ...(errorMsg ? { error: errorMsg } : {}),
+              };
+
+              const idx = journal.tables.findIndex(
+                (e) => e.sourceDb === src.name && e.tableName === tableName,
+              );
+              if (idx >= 0) {
+                journal.tables[idx] = entry;
+              } else {
+                journal.tables.push(entry);
+              }
+              journal.updatedAt = new Date().toISOString();
+              // A journal cannot promise committed rows before the source COMMIT.
+              // A crash here must retry this source; INSERT OR IGNORE plus receipts
+              // handles the converse crash immediately after COMMIT safely.
+              writeJournal(stagingDir, {
+                ...journal,
+                tables: journal.tables.map((entry) =>
+                  entry.sourceDb === src.name && entry.status === 'done'
+                    ? { ...entry, status: 'pending' as const }
+                    : entry,
+                ),
+              });
+
               allTableResults.push({
                 sourceDb: src.name,
                 tableName,
-                rowsCopied: existing.rowsCopied,
-                skipped: false,
+                rowsCopied,
+                skipped,
+                reason: errorMsg,
               });
-              continue;
             }
 
-            onProgress?.(`  ↳ Copying ${src.name}.${tableName}…`);
-            let rowsCopied = 0;
-            let status: TableMigrationStatus = 'done';
-            let errorMsg: string | undefined;
-            let skipped = false;
-
-            try {
-              // Step 4: INSERT using the already-attached alias — no per-table ATTACH/DETACH.
-              // FK enforcement is OFF (set at scope start), so copy order does not matter.
-              // Pass src.name so copyTableFromAttached can resolve the consolidated target name.
-              //
-              // Cross-scope routing (ADR-090 · T11539): if this table's effective
-              // scope differs from the loop scope (the four nexus graph tables),
-              // direct the INSERT at the cross-scope target DB attached above.
-              const effectiveScope = resolveTableTargetScope(src.name, tableName, scope);
-              const targetSchema = effectiveScope !== scope && crossAlias ? crossAlias : 'main';
-              if (effectiveScope !== scope && !crossAlias) {
-                throw new Error(
-                  `Table '${tableName}' from '${src.name}' routes to ${effectiveScope} scope ` +
-                    `but no cross-scope target was attached for the ${scope} pass (ADR-090 T11539)`,
-                );
-              }
-              const copyResult = copyTableFromAttached(
-                targetNativeDb,
-                snap.db,
-                attachAlias,
-                tableName,
-                src.name,
-                stagingDir,
-                src.path,
-                targetSchema,
-                resolveTarget,
-              );
-              rowsCopied = copyResult.rowsCopied;
-              if (copyResult.skipped) {
-                status = 'skipped';
-                errorMsg = copyResult.reason;
-                skipped = true;
-              } else if (copyResult.reason) {
-                // No-swallow error: rows dropped by a constraint (T11546). The
-                // copy WAS attempted (skipped stays false) and the deficit MUST be
-                // surfaced — never a silent 0-row "done". (T11782 · FIX C.)
-                //
-                // Record `partial` rather than `skipped`: the table is neither
-                // intentionally excluded nor cleanly complete. `partial` keeps the
-                // journal honest (a resume re-copies; it never masquerades as
-                // `done`) WITHOUT, by itself, tripping a scope-wide rollback at
-                // this layer. A genuine deficit on a data-bearing BASE table still
-                // ABORTS the cutover downstream: the parity gate
-                // (`isDataContinuityOk` via `verifyMigration`) compares row counts
-                // and fails on any `targetCount < sourceCount` deficit regardless
-                // of journal status. With FIX B (Inf clamp) this branch should
-                // rarely fire — it is belt-and-suspenders.
-                status = 'partial';
-                errorMsg = copyResult.reason;
-                // skipped stays false — the distinction is the reason field (data loss vs intentional skip)
-              }
-            } catch (err) {
-              if (err instanceof ExodusRecoveryError) throw err;
-              const msg = err instanceof Error ? err.message : String(err);
-              log.warn({ tableName, sourceDb: src.name, err }, 'Table copy failed — skipping');
-              status = 'skipped';
-              errorMsg = msg;
-              skipped = true;
-            }
-
-            // Update journal entry
-            const entry: JournalTableEntry = {
-              sourceDb: src.name,
-              tableName,
-              status,
-              rowsCopied,
-              updatedAt: new Date().toISOString(),
-              ...(errorMsg ? { error: errorMsg } : {}),
-            };
-
-            const idx = journal.tables.findIndex(
-              (e) => e.sourceDb === src.name && e.tableName === tableName,
-            );
-            if (idx >= 0) {
-              journal.tables[idx] = entry;
-            } else {
-              journal.tables.push(entry);
-            }
-            journal.updatedAt = new Date().toISOString();
-            // A journal cannot promise committed rows before the source COMMIT.
-            // A crash here must retry this source; INSERT OR IGNORE plus receipts
-            // handles the converse crash immediately after COMMIT safely.
-            writeJournal(stagingDir, {
-              ...journal,
-              tables: journal.tables.map((entry) =>
-                entry.sourceDb === src.name && entry.status === 'done'
-                  ? { ...entry, status: 'pending' as const }
-                  : entry,
-              ),
-            });
-
-            allTableResults.push({
-              sourceDb: src.name,
-              tableName,
-              rowsCopied,
-              skipped,
-              reason: errorMsg,
-            });
-          }
-
-          // Step 5: COMMIT all copies for this source (guards restored first,
-          // inside the same transaction, so they are never absent once committed).
-          restoreGrandfatheredGuards(targetNativeDb, suspendedGuards);
-          targetNativeDb.exec('COMMIT');
-          txOpen = false;
+            // Step 5: the bracket COMMITs all copies for this source (guards
+            // restored first, inside the same transaction, so they are never
+            // absent once committed).
+            restoreGrandfatheredGuards(targetNativeDb, guards.saved ?? []);
+          });
           writeJournal(stagingDir, journal);
         } catch (err) {
-          if (txOpen) {
-            try {
-              targetNativeDb.exec('ROLLBACK');
-            } catch {
-              // ignore rollback errors
-            }
-          }
-          // ROLLBACK already undid the DROP; this only matters if it failed.
-          restoreGrandfatheredGuards(targetNativeDb, suspendedGuards);
+          // The bracket's ROLLBACK already undid the DROP; this only matters if it failed.
+          if (guards.saved) restoreGrandfatheredGuards(targetNativeDb, guards.saved);
           throw err;
         }
       } finally {
@@ -1568,6 +1587,17 @@ async function migrateScope(
       log.info({ scope }, 'Exodus: foreign_keys=ON restored after bulk copy');
     } catch (fkErr) {
       log.warn({ scope, err: fkErr }, 'Exodus: could not restore foreign_keys=ON (non-fatal)');
+    }
+
+    // Rule 3: the stages wrote uncaptured, so the sealer must diff the sync set
+    // before sealing anything else. A no-op on a store without the sync schema.
+    try {
+      if (totalChanges() !== changesBefore) {
+        const suspect = markSuspect(targetNativeDb, scope, syncSetTables(scope));
+        if (suspect.length > 0) log.info({ scope, suspect }, 'Exodus: sync tables marked suspect');
+      }
+    } catch (suspectErr) {
+      log.warn({ scope, err: suspectErr }, 'Exodus: could not mark sync tables suspect');
     }
   }
 }
