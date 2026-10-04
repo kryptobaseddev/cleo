@@ -64,8 +64,8 @@ export async function countUnembeddedObservations(projectRoot: string): Promise<
     const row = typedGet<{ n: number }>(
       nativeDb.prepare(`
         SELECT COUNT(*) AS n
-        FROM brain_observations o
-        LEFT JOIN brain_embeddings e ON o.id = e.id
+        FROM main.brain_observations o
+        LEFT JOIN main.brain_embeddings e ON o.id = e.id
         WHERE e.id IS NULL AND o.narrative IS NOT NULL
       `),
     );
