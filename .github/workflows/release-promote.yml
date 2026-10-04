@@ -8,7 +8,9 @@
 #
 #   plan     Read-only, no environment. Checks that every package resolves at
 #            the version, that its canary is the version (for a promotion), and
-#            that the release's installability verdict is green, then installs
+#            that the installability verdict of the release run ON THE TAG is
+#            green (never a run on another ref, never the editable tracking
+#            issue), then installs
 #            the version into a sandbox and runs health checks
 #            (scripts/release-canary-soak.mjs). Both are blocking: there is no
 #            continue-on-error anywhere in this file (gh#1474).
@@ -49,8 +51,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      actions: read  # the release run's verdict job
-      issues: read   # the installability tracking issue
+      actions: read  # the release run's jobs and its postdeploy artifact
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
     steps:
@@ -91,7 +92,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-      issues: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

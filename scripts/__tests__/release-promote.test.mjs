@@ -15,7 +15,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,8 +26,10 @@ import {
   evaluateVerdict,
   main,
   movePointers,
+  PUBLISH_JOB,
   parseArgs,
   planPromotion,
+  readDeploySummary,
   readVerdict,
   VERDICT_JOB,
   waitForLatest,
@@ -73,57 +75,50 @@ function fakeRegistry({ tags, published, missingTarball = new Set(), brokenTags 
   return { fetchImpl, tags };
 }
 
-/** Machine state of a tracking issue, as release-verdict.mjs and the watcher write it. */
-function trackerBody(version, outcome, coverage = 'current') {
-  const state = {
-    version,
-    distTag: 'canary',
-    lastObservation: { outcome, coverage, observedAt: '2026-10-05T10:00:00.000Z' },
-  };
-  return `v${version} published\n\n<!-- release-installability-state\n${JSON.stringify(state)}\n-->`;
-}
-
-const BOT = { login: 'app/github-actions', is_bot: true };
+/** A release.yml run as `gh run list --json` reports it. */
+const runOn = (
+  databaseId,
+  headBranch,
+  createdAt = '2026-10-05T09:00:00Z',
+  status = 'completed',
+) => ({
+  databaseId,
+  headBranch,
+  status,
+  conclusion: 'success',
+  createdAt,
+});
 
 /**
- * A fake `gh`.
+ * A fake `gh`. `run list` returns `runs` UNFILTERED on purpose: readVerdict
+ * must keep only runs on the tag itself.
  *
  * @param {object} [opts]
- * @param {Array<object>} [opts.issues]
- * @param {Array<object>} [opts.tagRuns] - Returned for `run list --branch`.
- * @param {Array<object>} [opts.dispatchRuns] - Returned for `run list --event workflow_dispatch`.
- * @param {Array<object>} [opts.jobs] - Verdict job lines for `api`.
+ * @param {Array<object>} [opts.runs]
+ * @param {Record<string, string>} [opts.jobs] - Conclusion by job name, for `api`.
  */
 function fakeGh(opts = {}) {
   const {
-    issues = [],
-    tagRuns = [
-      {
-        databaseId: 7,
-        headBranch: `v${NEW}`,
-        displayTitle: `Release v${NEW}`,
-        status: 'completed',
-        conclusion: 'success',
-        createdAt: '2026-10-05T09:00:00Z',
-      },
-    ],
-    dispatchRuns = [],
-    jobs = [{ status: 'completed', conclusion: 'success' }],
+    runs = [runOn(7, `v${NEW}`), runOn(6, `v${OLD}`, '2026-10-04T09:00:00Z')],
+    jobs = { [VERDICT_JOB]: 'success', [PUBLISH_JOB]: 'success' },
   } = opts;
   const calls = [];
   const gh = (args) => {
     calls.push(args);
-    if (args[0] === 'issue') return JSON.stringify(issues);
-    if (args[0] === 'run' && args.includes('--branch')) {
-      const branch = args[args.indexOf('--branch') + 1];
-      return JSON.stringify(tagRuns.filter((r) => r.headBranch === branch));
-    }
-    if (args[0] === 'run') return JSON.stringify(dispatchRuns);
-    if (args[0] === 'api') return jobs.map((j) => JSON.stringify(j)).join('\n');
+    if (args[0] === 'run' && args[1] === 'list') return JSON.stringify(runs);
+    if (args[0] === 'api')
+      return Object.entries(jobs)
+        .map(([name, conclusion]) => JSON.stringify({ name, status: 'completed', conclusion }))
+        .join('\n');
     throw new Error(`unexpected gh ${args.join(' ')}`);
   };
   return { gh, calls };
 }
+
+/** A readSummary that must not be called. */
+const noSummary = () => {
+  throw new Error('the deploy summary was read');
+};
 
 /** Tags with NEW soaking in canary and OLD on latest. */
 const soaking = () => Object.fromEntries(PACKAGES.map((p) => [p, { canary: NEW, latest: OLD }]));
@@ -170,114 +165,105 @@ describe('decideMode', () => {
 });
 
 describe('evaluateVerdict', () => {
-  const run = { databaseId: 7, status: 'completed', conclusion: 'failure' };
+  const run = runOn(7, `v${NEW}`);
+  const jobs = (verdict, publish = 'success') => ({
+    [VERDICT_JOB]: { status: 'completed', conclusion: verdict },
+    [PUBLISH_JOB]: { status: 'completed', conclusion: publish },
+  });
 
-  it('is green when the newest tracking observation is installable', () => {
-    const v = evaluateVerdict({
-      version: NEW,
-      trackers: [{ number: 5, body: trackerBody(NEW, 'installable') }],
+  it('is green when the tag run renders a successful verdict', () => {
+    expect(evaluateVerdict({ version: NEW, run, jobs: jobs('success') })).toMatchObject({
+      green: true,
+      source: 'release.yml run 7',
     });
-    expect(v.green).toBe(true);
-    expect(v.source).toBe('tracking issue #5');
   });
 
-  it('is not green while the tracker is pending, or its coverage is partial', () => {
-    for (const body of [trackerBody(NEW, 'pending'), trackerBody(NEW, 'installable', 'partial')])
-      expect(evaluateVerdict({ version: NEW, trackers: [{ number: 5, body }] }).green).toBe(false);
-  });
-
-  it('reads the newest tracker, not the first', () => {
-    const v = evaluateVerdict({
-      version: NEW,
-      trackers: [
-        { number: 5, body: trackerBody(NEW, 'installable') },
-        { number: 9, body: trackerBody(NEW, 'pending') },
-      ],
-    });
-    expect(v.green).toBe(false);
-    expect(v.source).toBe('tracking issue #9');
-  });
-
-  it('without a tracker, follows the release run verdict job', () => {
-    const job = (conclusion) => ({ status: 'completed', conclusion });
+  it('is not green without a completed run on the tag, or without a verdict job', () => {
+    expect(evaluateVerdict({ version: NEW, run: null }).green).toBe(false);
     expect(
-      evaluateVerdict({ version: NEW, trackers: [], run, verdictJob: job('success') }).green,
-    ).toBe(true);
-    expect(
-      evaluateVerdict({ version: NEW, trackers: [], run, verdictJob: job('failure') }).green,
+      evaluateVerdict({ version: NEW, run: runOn(9, 'main'), jobs: jobs('success') }).green,
     ).toBe(false);
-    expect(evaluateVerdict({ version: NEW, trackers: [], run, verdictJob: null }).green).toBe(
-      false,
-    );
     expect(
       evaluateVerdict({
         version: NEW,
-        trackers: [],
-        run: { ...run, status: 'in_progress' },
-        verdictJob: job('success'),
+        run: runOn(7, `v${NEW}`, undefined, 'in_progress'),
+        jobs: jobs('success'),
       }).green,
     ).toBe(false);
-    expect(evaluateVerdict({ version: NEW, trackers: [], run: null }).green).toBe(false);
+    expect(evaluateVerdict({ version: NEW, run, jobs: {} }).green).toBe(false);
+  });
+
+  it('accepts a red verdict over a successful publish only with a pending deploy summary', () => {
+    const red = jobs('failure');
+    expect(
+      evaluateVerdict({ version: NEW, run, jobs: red, summary: { verdict: 'pending' } }).green,
+    ).toBe(true);
+    expect(
+      evaluateVerdict({ version: NEW, run, jobs: red, summary: { verdict: 'defect' } }).green,
+    ).toBe(false);
+    expect(evaluateVerdict({ version: NEW, run, jobs: red, summary: null }).green).toBe(false);
+    expect(
+      evaluateVerdict({
+        version: NEW,
+        run,
+        jobs: jobs('failure', 'failure'),
+        summary: { verdict: 'pending' },
+      }).green,
+    ).toBe(false);
   });
 });
 
 describe('readVerdict', () => {
-  it('ignores a tracker anyone but the workflow bot opened', () => {
-    const { gh } = fakeGh({
-      issues: [
-        {
-          number: 3,
-          body: trackerBody(NEW, 'installable'),
-          author: { login: 'someone', is_bot: false },
-        },
-      ],
-      jobs: [{ status: 'completed', conclusion: 'failure' }],
+  it('ignores a run on any ref but the tag, even a newer green one (review probe)', () => {
+    const { gh } = fakeGh({ runs: [runOn(99, 'evil-branch', '2026-10-06T00:00:00Z')] });
+    expect(readVerdict(NEW, gh, noSummary)).toMatchObject({ green: false, source: 'release.yml' });
+    const both = fakeGh({
+      runs: [runOn(99, 'evil-branch', '2026-10-06T00:00:00Z'), runOn(7, `v${NEW}`)],
     });
-    const v = readVerdict(NEW, gh);
-    expect(v.green).toBe(false);
-    expect(v.source).toBe('release.yml run 7');
+    expect(readVerdict(NEW, both.gh, noSummary).source).toBe('release.yml run 7');
   });
 
-  it('matches the version exactly, not by prefix', () => {
-    const { gh } = fakeGh({
-      issues: [{ number: 3, body: trackerBody(`${NEW}0`, 'pending'), author: BOT }],
-    });
-    expect(readVerdict(NEW, gh)).toMatchObject({ green: true, source: 'release.yml run 7' });
-  });
-
-  it('prefers a trusted tracker over the run', () => {
-    const { gh } = fakeGh({
-      issues: [{ number: 4, body: trackerBody(NEW, 'pending'), author: BOT }],
-    });
-    expect(readVerdict(NEW, gh)).toMatchObject({ green: false, source: 'tracking issue #4' });
-  });
-
-  it('reads the newest run, counting a break-glass dispatch by its run name', () => {
+  it('reads the newest run on the tag and both jobs, paginated', () => {
     const { gh, calls } = fakeGh({
-      dispatchRuns: [
-        {
-          databaseId: 8,
-          headBranch: 'main',
-          displayTitle: `Release v${NEW}`,
-          status: 'completed',
-          conclusion: 'success',
-          createdAt: '2026-10-05T11:00:00Z',
-        },
-        {
-          databaseId: 9,
-          headBranch: 'main',
-          displayTitle: `Release v${OLD}`,
-          status: 'completed',
-          conclusion: 'success',
-          createdAt: '2026-10-05T12:00:00Z',
-        },
-      ],
+      runs: [runOn(7, `v${NEW}`), runOn(8, `v${NEW}`, '2026-10-05T11:00:00Z')],
     });
-    expect(readVerdict(NEW, gh).source).toBe('release.yml run 8');
+    expect(readVerdict(NEW, gh, noSummary).source).toBe('release.yml run 8');
+    expect(calls[0]).toEqual(expect.arrayContaining(['--branch', `v${NEW}`]));
     const api = calls.find((c) => c[0] === 'api');
     expect(api).toContain('--paginate');
     expect(api?.find((a) => a.includes('/actions/runs/8/jobs'))).toContain('per_page=100');
-    expect(api?.find((a) => a.includes(VERDICT_JOB))).toBeDefined();
+    const jq = api?.find((a) => a.includes(VERDICT_JOB));
+    expect(jq).toContain(PUBLISH_JOB);
+  });
+
+  it('reads the deploy summary only for a red verdict over a successful publish', () => {
+    const asked = [];
+    const readSummary = (id, version) => {
+      asked.push([id, version]);
+      return { verdict: 'pending' };
+    };
+    const red = fakeGh({ jobs: { [VERDICT_JOB]: 'failure', [PUBLISH_JOB]: 'success' } });
+    expect(readVerdict(NEW, red.gh, readSummary).green).toBe(true);
+    expect(asked).toEqual([[7, NEW]]);
+    const failedPublish = fakeGh({ jobs: { [VERDICT_JOB]: 'failure', [PUBLISH_JOB]: 'failure' } });
+    expect(readVerdict(NEW, failedPublish.gh, noSummary).green).toBe(false);
+  });
+});
+
+describe('readDeploySummary', () => {
+  it("reads the run's own postdeploy artifact, and is null when it cannot", () => {
+    const gh = (args) => {
+      expect(args.slice(0, 5)).toEqual(['run', 'download', '7', '-n', `postdeploy-${NEW}`]);
+      const dir = args[args.indexOf('-D') + 1];
+      writeFileSync(path.join(dir, `deploy-summary-${NEW}.json`), '{"verdict":"pending"}');
+      return '';
+    };
+    expect(readDeploySummary(7, NEW, gh)).toEqual({ verdict: 'pending' });
+    expect(
+      readDeploySummary(7, NEW, () => {
+        throw new Error('no artifact');
+      }),
+    ).toBeNull();
   });
 });
 
@@ -304,6 +290,21 @@ describe('planPromotion', () => {
       fetchImpl,
       gh: fakeGh().gh,
     });
+    expect(plan).toMatchObject({ ok: true, mode: 'promote', moves: ['core', 'cleo'] });
+  });
+
+  it('finishes a promotion already under way even after a newer canary arrived', async () => {
+    const tags = Object.fromEntries(
+      PACKAGES.map((p) => [p, { canary: '2026.10.6', latest: p === 'contracts' ? NEW : OLD }]),
+    );
+    const { fetchImpl } = fakeRegistry({ tags });
+    const plan = await planPromotion({
+      version: NEW,
+      packages: PACKAGES,
+      fetchImpl,
+      gh: fakeGh().gh,
+    });
+    expect(plan.blockers).toEqual([]);
     expect(plan).toMatchObject({ ok: true, mode: 'promote', moves: ['core', 'cleo'] });
   });
 
@@ -341,18 +342,7 @@ describe('planPromotion', () => {
   it('plans a rollback without requiring the canary', async () => {
     const tags = Object.fromEntries(PACKAGES.map((p) => [p, { canary: '2026.10.6', latest: NEW }]));
     const { fetchImpl } = fakeRegistry({ tags });
-    const { gh } = fakeGh({
-      tagRuns: [
-        {
-          databaseId: 6,
-          headBranch: `v${OLD}`,
-          displayTitle: 'release: prepare',
-          status: 'completed',
-          conclusion: 'success',
-          createdAt: '2026-10-04T09:00:00Z',
-        },
-      ],
-    });
+    const { gh } = fakeGh();
     const plan = await planPromotion({ version: OLD, packages: PACKAGES, fetchImpl, gh });
     expect(plan.blockers).toEqual([]);
     expect(plan).toMatchObject({ ok: true, mode: 'rollback', moves: PACKAGES });
@@ -484,6 +474,7 @@ describe('main', () => {
       npm,
       sleepImpl: async () => {},
       readPackages: async () => PACKAGES,
+      readSummary: noSummary,
     });
     return { code, npmCalls, tags };
   }
@@ -500,25 +491,13 @@ describe('main', () => {
 
   it('rolls back with the same command and the previous version', async () => {
     const tags = Object.fromEntries(PACKAGES.map((p) => [p, { canary: NEW, latest: NEW }]));
-    const { gh } = fakeGh({
-      tagRuns: [
-        {
-          databaseId: 6,
-          headBranch: `v${OLD}`,
-          displayTitle: 'x',
-          status: 'completed',
-          conclusion: 'success',
-          createdAt: '2026-10-04T09:00:00Z',
-        },
-      ],
-    });
-    const { code } = await runMain(['promote', '--version', OLD], { tags, gh });
+    const { code } = await runMain(['promote', '--version', OLD], { tags });
     expect(code).toBe(0);
     expect(Object.values(tags).every((t) => t.latest === OLD)).toBe(true);
   });
 
   it('moves nothing when the plan is blocked', async () => {
-    const { gh } = fakeGh({ jobs: [{ status: 'completed', conclusion: 'failure' }] });
+    const { gh } = fakeGh({ jobs: { [VERDICT_JOB]: 'failure', [PUBLISH_JOB]: 'failure' } });
     const { code, npmCalls } = await runMain(['promote', '--version', NEW], { gh });
     expect(code).toBe(1);
     expect(npmCalls).toEqual([]);
@@ -611,13 +590,5 @@ describe('workflow guards (owner conditions)', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
-
-  it('release.yml names each run after its version, which readVerdict matches', () => {
-    const release = parseYaml(readFileSync(path.join(WORKFLOWS, 'release.yml'), 'utf8'));
-    expect(release['run-name']).toBe(
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, compared literally
-      "Release ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}",
-    );
   });
 });

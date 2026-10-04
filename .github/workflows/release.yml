@@ -1,8 +1,4 @@
 name: Release
-# Names the version on every run, including a break-glass dispatch (which runs
-# on main, so its branch does not name the tag). release-promote.mjs finds the
-# run whose verdict it reads by this title (T13144).
-run-name: Release ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
 
 # @task release-pipeline (foundational — see T9540 / Saga T9787 release-system).
 # Triggers:

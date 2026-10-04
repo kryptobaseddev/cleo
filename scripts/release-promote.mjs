@@ -33,13 +33,21 @@
  *   - The version is a stable CalVer version.
  *   - Every package resolves at that version: the per-version metadata and the
  *     tarball an install downloads (execute-payload.mjs `checkPackage`).
- *   - The release's installability verdict is green. When a tracking issue
- *     exists for the version, its newest recorded observation is `installable`
- *     (release-installability-watch.mjs). With no tracking issue, the newest
- *     release.yml run for the version has a successful `Release Verdict` job.
+ *   - The release's installability verdict is green, read only from what the
+ *     release run on the tag produced: its job conclusions and its own
+ *     `postdeploy-<version>` artifact, which nobody can edit after the run.
+ *     The newest release.yml run on `v<version>` (the tag push, a re-run of it,
+ *     or a dispatch on the tag ref) must have a successful `Release Verdict`
+ *     job, or a successful `Publish` job and a deploy summary whose verdict was
+ *     `pending` at its deadline (published, no package serving a wrong
+ *     version); the live resolution check above then decides. A run on any
+ *     other ref never counts, and the installability tracking issue is not
+ *     read: its body is editable (T13144 review).
  *   - Promotion (the version is newer than the current `latest`): every
  *     package's `canary` is the version. The canary that was soaked is the one
- *     promoted; an older canary superseded before promotion is not.
+ *     promoted; an older canary superseded before promotion is not. A promotion
+ *     already under way (some package's `latest` is the version) finishes
+ *     without that check, so a newer canary cannot strand it half-moved.
  *   - Rollback (the version is older than the current `latest`): no canary
  *     requirement.
  *
@@ -51,11 +59,13 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { checkPackage, REGISTRY, readPublishedPackages } from './execute-payload.mjs';
 import { isMain } from './lib/is-main.mjs';
-import { compareVersions, parseState } from './release-installability-watch.mjs';
+import { compareVersions } from './release-installability-watch.mjs';
 
 /** Only stable CalVer versions are promoted; prereleases keep their own tags. */
 export const STABLE_VERSION = /^\d{4}\.\d{1,2}\.\d+$/;
@@ -63,11 +73,8 @@ export const STABLE_VERSION = /^\d{4}\.\d{1,2}\.\d+$/;
 /** The release.yml job that renders the installability verdict. */
 export const VERDICT_JOB = 'Release Verdict';
 
-/** Label on the installability tracking issues release-verdict.mjs opens. */
-export const TRACKING_LABEL = 'release-installability';
-
-/** Only issues the workflow bot opened carry a verdict; anyone can open an issue. */
-const TRUSTED_AUTHOR = /^(app\/)?github-actions(\[bot\])?$/;
+/** The release.yml job that publishes every package. */
+export const PUBLISH_JOB = 'Publish';
 
 /** How long to wait for `latest` to resolve after the moves. */
 export const CONVERGE_TIMEOUT_MS = 10 * 60_000;
@@ -168,55 +175,63 @@ export function decideMode(version, latest) {
 }
 
 /**
- * Decide the installability verdict from what the release left behind.
+ * @typedef {object} ReleaseRun
+ * @property {number} databaseId
+ * @property {string} headBranch - The ref the run ran on; a tag push runs on the tag.
+ * @property {string} status
+ * @property {string | null} conclusion
+ * @property {string} createdAt
+ */
+
+/**
+ * Decide the installability verdict from what the release run on the tag
+ * produced.
  *
  * @param {object} input
  * @param {string} input.version
- * @param {Array<{ number: number, body: string }>} input.trackers - Trusted tracking
- *   issues whose machine state names exactly this version.
- * @param {{ databaseId: number, status: string, conclusion: string | null } | null} [input.run] -
- *   The newest release.yml run for the version.
- * @param {{ status: string, conclusion: string | null } | null} [input.verdictJob] - That
- *   run's `Release Verdict` job.
+ * @param {ReleaseRun | null} input.run - The newest release.yml run on `v<version>`.
+ * @param {Record<string, { status: string, conclusion: string | null }>} [input.jobs] -
+ *   That run's jobs by name (latest attempt).
+ * @param {{ verdict?: unknown } | null} [input.summary] - Its deploy summary, read from
+ *   the run's `postdeploy-<version>` artifact; null when unread or unreadable.
  * @returns {Verdict}
  */
-export function evaluateVerdict({ version, trackers, run = null, verdictJob = null }) {
-  if (trackers.length > 0) {
-    // A tracking issue exists only when the release run could not prove
-    // installability in its budget, and the watcher keeps observing until it
-    // can. Its newest observation outranks the run's red.
-    const issue = [...trackers].sort((a, b) => b.number - a.number)[0];
-    const observation = parseState(issue.body)?.lastObservation;
-    const source = `tracking issue #${issue.number}`;
-    if (observation?.outcome === 'installable' && observation.coverage === 'current')
-      return {
-        green: true,
-        source,
-        detail: `watcher observed every package installable at ${observation.observedAt}`,
-      };
-    return {
-      green: false,
-      source,
-      detail: `latest watcher observation is ${observation?.outcome ?? 'absent'}${observation?.coverage ? ` (coverage ${observation.coverage})` : ''}`,
-    };
-  }
-  if (!run)
-    return {
-      green: false,
-      source: 'release.yml',
-      detail: `no release.yml run found for v${version}`,
-    };
+export function evaluateVerdict({ version, run, jobs = {}, summary = null }) {
+  const tag = `v${version}`;
+  if (!run || run.headBranch !== tag)
+    return { green: false, source: 'release.yml', detail: `no release.yml run on the tag ${tag}` };
   const source = `release.yml run ${run.databaseId}`;
   if (run.status !== 'completed')
     return { green: false, source, detail: `the release run is still ${run.status}` };
+  const verdictJob = jobs[VERDICT_JOB];
   if (!verdictJob)
     return { green: false, source, detail: `the release run has no "${VERDICT_JOB}" job` };
   if (verdictJob.conclusion === 'success')
     return { green: true, source, detail: `"${VERDICT_JOB}" concluded success` };
+  const red = `"${VERDICT_JOB}" concluded ${verdictJob.conclusion ?? verdictJob.status}`;
+  const publish = jobs[PUBLISH_JOB];
+  if (publish?.conclusion !== 'success')
+    return {
+      green: false,
+      source,
+      detail: `${red}, and "${PUBLISH_JOB}" concluded ${publish?.conclusion ?? 'nothing'}`,
+    };
+  // A red verdict over a successful publish is usually `pending`: published and
+  // accepted, not yet resolvable inside the run's budget. That never becomes a
+  // defect by waiting, and the live check of every package decides now. A
+  // `defect` (a package served a wrong version) or an unreadable summary stays red.
+  if (summary?.verdict === 'pending')
+    return {
+      green: true,
+      source,
+      detail: `${red} with a pending deploy summary (published, no wrong version); the live resolution check decides`,
+    };
   return {
     green: false,
     source,
-    detail: `"${VERDICT_JOB}" concluded ${verdictJob.conclusion ?? verdictJob.status}`,
+    detail: summary
+      ? `${red}; its deploy summary verdict is ${String(summary.verdict)}`
+      : `${red}, and its deploy summary (artifact postdeploy-${version}) could not be read`,
   };
 }
 
@@ -236,86 +251,80 @@ function runGh(args) {
 }
 
 /**
- * Read the installability verdict for a version from GitHub.
+ * Download a release run's deploy summary from its own artifact.
+ *
+ * @param {number} runId
+ * @param {string} version
+ * @param {(args: string[]) => string} [gh]
+ * @returns {{ verdict?: unknown } | null} Null when the artifact is missing, expired or unparseable.
+ */
+export function readDeploySummary(runId, version, gh = runGh) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'release-promote-'));
+  try {
+    gh(['run', 'download', String(runId), '-n', `postdeploy-${version}`, '-D', dir]);
+    const summary = JSON.parse(
+      readFileSync(path.join(dir, `deploy-summary-${version}.json`), 'utf8'),
+    );
+    return summary && typeof summary === 'object' && !Array.isArray(summary) ? summary : null;
+  } catch {
+    return null;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Read the installability verdict for a version from its release run on the tag.
  *
  * @param {string} version
  * @param {(args: string[]) => string} [gh] - Returns stdout; injected for tests.
+ * @param {typeof readDeploySummary} [readSummary] - Injected for tests.
  * @returns {Verdict}
  */
-export function readVerdict(version, gh = runGh) {
-  /** @type {Array<{ number: number, body?: string, author?: { login?: string, is_bot?: boolean } }>} */
-  const issues = JSON.parse(
+export function readVerdict(version, gh = runGh, readSummary = readDeploySummary) {
+  const tag = `v${version}`;
+  /** @type {ReleaseRun[]} */
+  const runs = JSON.parse(
     gh([
-      'issue',
+      'run',
       'list',
-      '--label',
-      TRACKING_LABEL,
-      '--state',
-      'all',
-      '--search',
-      `v${version} in:title`,
+      '--workflow',
+      'release.yml',
+      '--branch',
+      tag,
       '--limit',
-      '100',
+      '20',
       '--json',
-      'number,body,author',
+      'databaseId,headBranch,status,conclusion,createdAt',
     ]),
   );
-  const trackers = issues
-    .filter((i) => i.author?.is_bot === true && TRUSTED_AUTHOR.test(i.author.login ?? '') && i.body)
-    .filter((i) => parseState(String(i.body))?.version === version)
-    .map((i) => ({ number: i.number, body: String(i.body) }));
-  if (trackers.length > 0) return evaluateVerdict({ version, trackers });
-
-  const fields = 'databaseId,headBranch,displayTitle,status,conclusion,createdAt';
-  /** @type {Array<{ databaseId: number, headBranch: string, displayTitle: string, status: string, conclusion: string | null, createdAt: string }>} */
-  const runs = [
-    // A tag push runs on the tag.
-    ...JSON.parse(
-      gh([
-        'run',
-        'list',
-        '--workflow',
-        'release.yml',
-        '--branch',
-        `v${version}`,
-        '--limit',
-        '20',
-        '--json',
-        fields,
-      ]),
-    ),
-    // A break-glass dispatch runs on main; release.yml's run-name carries the version.
-    ...JSON.parse(
-      gh([
-        'run',
-        'list',
-        '--workflow',
-        'release.yml',
-        '--event',
-        'workflow_dispatch',
-        '--limit',
-        '100',
-        '--json',
-        fields,
-      ]),
-    ),
-  ].filter((r) => r.headBranch === `v${version}` || r.displayTitle === `Release v${version}`);
-  const run = runs.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0] ?? null;
-  /** @type {{ status: string, conclusion: string | null } | null} */
-  let verdictJob = null;
-  if (run && run.status === 'completed') {
-    const lines = gh([
-      'api',
-      '--paginate',
-      `repos/{owner}/{repo}/actions/runs/${run.databaseId}/jobs?per_page=100`,
-      '--jq',
-      `.jobs[] | select(.name == "${VERDICT_JOB}") | {status, conclusion}`,
-    ])
-      .split('\n')
-      .filter((line) => line.trim());
-    verdictJob = lines.length > 0 ? JSON.parse(lines[lines.length - 1]) : null;
+  // Only a run on the tag itself: a dispatch from any other ref runs that ref's
+  // workflow file, which anyone with write access can edit (T13144 review).
+  const run =
+    runs
+      .filter((r) => r.headBranch === tag)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0] ?? null;
+  if (!run || run.status !== 'completed') return evaluateVerdict({ version, run });
+  /** @type {Record<string, { status: string, conclusion: string | null }>} */
+  const jobs = {};
+  for (const line of gh([
+    'api',
+    '--paginate',
+    `repos/{owner}/{repo}/actions/runs/${run.databaseId}/jobs?per_page=100`,
+    '--jq',
+    `.jobs[] | select(.name == "${VERDICT_JOB}" or .name == "${PUBLISH_JOB}") | {name, status, conclusion}`,
+  ])
+    .split('\n')
+    .filter((l) => l.trim())) {
+    const job = JSON.parse(line);
+    jobs[job.name] = { status: job.status, conclusion: job.conclusion };
   }
-  return evaluateVerdict({ version, trackers: [], run, verdictJob });
+  const needsSummary =
+    jobs[VERDICT_JOB] &&
+    jobs[VERDICT_JOB].conclusion !== 'success' &&
+    jobs[PUBLISH_JOB]?.conclusion === 'success';
+  const summary = needsSummary ? readSummary(run.databaseId, version, gh) : null;
+  return evaluateVerdict({ version, run, jobs, summary });
 }
 
 /**
@@ -326,9 +335,16 @@ export function readVerdict(version, gh = runGh) {
  * @param {string[]} opts.packages - Short package names, in publish order.
  * @param {typeof fetch} [opts.fetchImpl] - Injected for tests.
  * @param {(args: string[]) => string} [opts.gh] - Injected for tests.
+ * @param {typeof readDeploySummary} [opts.readSummary] - Injected for tests.
  * @returns {Promise<Plan>}
  */
-export async function planPromotion({ version, packages, fetchImpl = fetch, gh = runGh }) {
+export async function planPromotion({
+  version,
+  packages,
+  fetchImpl = fetch,
+  gh = runGh,
+  readSummary = readDeploySummary,
+}) {
   /** @type {PlanRow[]} */
   const rows = await Promise.all(
     packages.map(async (pkg) => {
@@ -367,7 +383,10 @@ export async function planPromotion({ version, packages, fetchImpl = fetch, gh =
         version,
         rows.map((r) => r.latest),
       );
-  if (mode === 'promote') {
+  // A promotion already under way finishes without the canary check: the
+  // version was approved once, and a newer canary must not strand it half-moved.
+  const underWay = rows.some((r) => r.latest === version);
+  if (mode === 'promote' && !underWay) {
     for (const row of rows.filter((r) => r.canary !== version))
       blockers.push(
         `@cleocode/${row.pkg}: canary is ${row.canary ?? '(absent)'}, not ${version}. ` +
@@ -378,7 +397,7 @@ export async function planPromotion({ version, packages, fetchImpl = fetch, gh =
   /** @type {Verdict} */
   let verdict;
   try {
-    verdict = readVerdict(version, gh);
+    verdict = readVerdict(version, gh, readSummary);
   } catch (error) {
     verdict = {
       green: false,
@@ -551,6 +570,7 @@ function summary(text) {
  * @param {(args: string[]) => string} [deps.npm]
  * @param {(ms: number) => Promise<unknown>} [deps.sleepImpl]
  * @param {() => Promise<string[]>} [deps.readPackages]
+ * @param {typeof readDeploySummary} [deps.readSummary]
  * @returns {Promise<number>} Process exit code.
  */
 export async function main(argv = process.argv.slice(2), deps = {}) {
@@ -560,6 +580,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     npm = runNpm,
     sleepImpl = sleep,
     readPackages = readPublishedPackages,
+    readSummary = readDeploySummary,
   } = deps;
   const args = parseArgs(argv);
   if (args.error || !args.version) {
@@ -574,7 +595,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     return 2;
   }
 
-  const plan = await planPromotion({ version, packages, fetchImpl, gh });
+  const plan = await planPromotion({ version, packages, fetchImpl, gh, readSummary });
   summary(renderPlan(plan));
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `mode=${plan.mode}\n`);
   process.stdout.write(`${JSON.stringify(plan)}\n`);
