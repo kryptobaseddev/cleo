@@ -9,30 +9,43 @@
  * - a trigger no class rule covers;
  * - an owned guard or side-effect trigger missing, or whose live text
  *   differs from its owned DDL (for example without its suspension clause);
- * - a capture trigger (`_sync_cap_*`) while `_sync_capture` is missing.
+ * - a capture trigger (`_sync_cap_*`) while `_sync_capture` is missing;
+ * - any trigger whose body references a table that does not exist, or
+ *   inserts into a column its table lacks (T12754). SQLite only notices this
+ *   when the trigger fires, so every write to its table fails until then.
  *
- * The repair is the next open (the open pass itself): any `cleo` command against the project
+ * The repair is the open pass: any `cleo` command against the project
  * recreates the table (step 0) and re-runs the owned DDL of every differing
- * trigger. A store whose journal has not reached the C2 migration yet is
- * reported as pending, not broken.
+ * trigger. `cleo doctor sync-triggers --repair` ({@link repairSyncTriggers})
+ * runs the same steps on demand and reports what it changed. A store whose
+ * journal has not reached the C2 migration yet is reported as pending, not
+ * broken.
  *
  * @module
  * @task T12819
+ * @task T12754
  */
 
 import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
-import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
+import {
+  getDualScopeNativeDb,
+  openDualScopeDb,
+  resolveDualScopeDbPath,
+} from '../store/dual-scope-db.js';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
-import { generateCaptureTriggers } from '../store/sync/capture.js';
+import { generateCaptureTriggers, syncCaptureOpenPass } from '../store/sync/capture.js';
 import { readSyncFlags } from '../store/sync/flags.js';
+import { hasTable } from '../store/sync/schema.js';
 import {
   CAPTURE_TRIGGER_PREFIX,
   classifyStoreTriggers,
+  ensureTriggerSuspendTable,
   hasTriggerSuspendTable,
   normalizeSql,
   type OwnedTriggerFinding,
   TRIGGER_CLAUSE_MIGRATION,
+  triggerWriteTargets,
   verifyOwnedTriggers,
 } from '../store/sync/trigger-classes.js';
 
@@ -58,10 +71,19 @@ export interface SyncTriggersReport {
   readonly orphanedCaptureTriggers: string[];
   /** With `sync.capture` on: capture triggers missing, differing from the generated text, or extra (rule 9). */
   readonly captureDrift: { missing: string[]; differing: string[]; extra: string[] };
+  /** Triggers that reference a missing table or insert into a missing column (T12754). */
+  readonly dangling: DanglingTrigger[];
+}
+
+/** A trigger whose body references objects the store does not have (T12754). */
+export interface DanglingTrigger {
+  readonly name: string;
+  /** `table <t>` or `column <t>.<c>`, for each missing object. */
+  readonly missing: string[];
 }
 
 const FIX =
-  "The next open repairs it: run any 'cleo' command in this project, and the open pass recreates cleo_trigger_suspend (before migrations) and re-runs the owned DDL of every differing trigger";
+  "Run 'cleo doctor sync-triggers --repair' (any 'cleo' command in this project also runs the same open pass): it recreates cleo_trigger_suspend, re-runs the owned DDL of every differing trigger, and makes the capture triggers match sync.capture";
 
 /** Inspect the project store's triggers. Read-only. */
 export function inspectSyncTriggers(projectRoot: string): SyncTriggersReport {
@@ -76,6 +98,7 @@ export function inspectSyncTriggers(projectRoot: string): SyncTriggersReport {
     owned: [],
     orphanedCaptureTriggers: [],
     captureDrift: { missing: [], differing: [], extra: [] },
+    dangling: [],
   };
   if (!existsSync(dbPath)) return empty;
   const snap = openCleoDbSnapshot(dbPath, { readOnly: true });
@@ -117,10 +140,93 @@ export function inspectSyncTriggers(projectRoot: string): SyncTriggersReport {
       captureDrift: readSyncFlags(db)['sync.capture']
         ? captureDrift(db)
         : { missing: [], differing: [], extra: [] },
+      dangling: danglingTriggers(db),
     };
   } finally {
     snap.close();
   }
+}
+
+/** Words the FROM/JOIN scan can catch that are never a table. */
+const NOT_A_TABLE = new Set(['new', 'old', 'select', 'values']);
+
+/** Columns every insert target has without declaring them. */
+const IMPLICIT_COLUMNS = new Set(['rowid', 'oid', '_rowid_', 'rank']);
+
+/**
+ * Every trigger whose body references a table the store lacks, or inserts
+ * into a column its table lacks (T12754). Reads are the tables after `FROM`
+ * and `JOIN`; writes are {@link triggerWriteTargets}. A name followed by `(`
+ * is a table-valued function, and a CTE name is local to the body; neither
+ * is a table.
+ */
+export function danglingTriggers(db: DatabaseSync): DanglingTrigger[] {
+  const objects = new Set(
+    (
+      db
+        .prepare(
+          "SELECT lower(name) AS name FROM main.sqlite_master WHERE type IN ('table', 'view')",
+        )
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name),
+  );
+  const columns = (table: string): Set<string> =>
+    new Set(
+      (
+        db.prepare('SELECT lower(name) AS name FROM pragma_table_info(?)').all(table) as Array<{
+          name: string;
+        }>
+      ).map((r) => r.name),
+    );
+  const out: DanglingTrigger[] = [];
+  const triggers = db
+    .prepare("SELECT name, sql FROM main.sqlite_master WHERE type = 'trigger' ORDER BY name")
+    .all() as Array<{ name: string; sql: string }>;
+  for (const { name, sql } of triggers) {
+    const body = sql.slice(Math.max(0, sql.search(/\bBEGIN\b/i)));
+    // CTE names (`WITH [RECURSIVE] name[(cols)] AS (`, and later `, name AS (`)
+    // are local to the statement.
+    const ctes = new Set(
+      [
+        ...sql.matchAll(
+          /(?:\bWITH(?:\s+RECURSIVE)?|,)\s*[`"]?(\w+)[`"]?\s*(?:\([^)]*\))?\s+AS\s*\(/gi,
+        ),
+      ].map((m) => (m[1] as string).toLowerCase()),
+    );
+    const referenced = new Set(triggerWriteTargets(sql));
+    // Reads anywhere, the WHEN clause included (it can read a dropped table).
+    for (const m of sql.matchAll(
+      /\b(?:from|join)\s+[`"[]?(?:main\.)?[`"[]?(\w+)[`"\]]?\s*(\()?/gi,
+    )) {
+      if (m[2] === '(') continue;
+      referenced.add((m[1] as string).toLowerCase());
+    }
+    const missing: string[] = [];
+    for (const t of referenced) {
+      if (NOT_A_TABLE.has(t) || ctes.has(t) || t.startsWith('sqlite_') || t.startsWith('pragma_'))
+        continue;
+      if (!objects.has(t)) missing.push(`table ${t}`);
+    }
+    const insertCols =
+      /\binsert(?:\s+or\s+\w+)?\s+into\s+[`"[]?(?:main\.)?[`"[]?(\w+)[`"\]]?\s*\(([^)]*)\)/gi;
+    for (const m of body.matchAll(insertCols)) {
+      const table = (m[1] as string).toLowerCase();
+      if (!objects.has(table)) continue;
+      const have = columns(table);
+      for (const raw of (m[2] as string).split(',')) {
+        const col = raw
+          .trim()
+          .replace(/^[`"[]|[`"\]]$/g, '')
+          .toLowerCase();
+        // rowid aliases always exist; an FTS5 table's command column and
+        // `rank` are hidden from table_info.
+        if (!col || have.has(col) || IMPLICIT_COLUMNS.has(col) || col === table) continue;
+        missing.push(`column ${table}.${col}`);
+      }
+    }
+    if (missing.length > 0) out.push({ name, missing: [...new Set(missing)] });
+  }
+  return out;
 }
 
 /** Live capture triggers against the text generated for the current schema. */
@@ -192,10 +298,18 @@ export function syncTriggersDoctorCheck(projectRoot: string): SyncTriggersDoctor
   }
   if (r.unclassified.length > 0)
     problems.push(`unclassified trigger(s): ${r.unclassified.join(', ')}`);
+  if (r.dangling.length > 0) {
+    problems.push(
+      `trigger(s) referencing missing objects, so every write to their table fails: ${r.dangling
+        .map((d) => `${d.name} (${d.missing.join(', ')})`)
+        .join('; ')}`,
+    );
+  }
   if (problems.length > 0) {
     const blocking =
       (r.clauseMigrationApplied && r.suspendTable === 'missing') ||
-      r.orphanedCaptureTriggers.length > 0;
+      r.orphanedCaptureTriggers.length > 0 ||
+      r.dangling.length > 0;
     return {
       check: 'sync_triggers',
       status: blocking ? 'error' : 'warning',
@@ -218,4 +332,61 @@ export function syncTriggersDoctorCheck(projectRoot: string): SyncTriggersDoctor
     message: 'every trigger is classified; owned triggers match their DDL',
     details,
   };
+}
+
+/** What {@link repairSyncTriggers} did. */
+export interface SyncTriggersRepairResult {
+  /** The `sync_triggers` row before the repair. */
+  readonly before: SyncTriggersDoctorCheck;
+  /** The row after it. A trigger CLEO does not own is reported, never dropped. */
+  readonly after: SyncTriggersDoctorCheck;
+  /** One line per change. */
+  readonly actions: string[];
+}
+
+/**
+ * `cleo doctor sync-triggers --repair` (T12754): run the open pass's trigger
+ * steps on the project store now, and report the row before and after.
+ *
+ * - step 0: recreate `cleo_trigger_suspend`, or clear a committed row;
+ * - owned guard and side-effect triggers: drop and re-run their owned DDL
+ *   when missing, differing or dangling;
+ * - capture triggers: match `sync.capture`. With it on, the outbox tables are
+ *   healed and the triggers regenerated for the current schema; with it off,
+ *   they are dropped.
+ *
+ * A trigger CLEO does not own that references a missing object is reported in
+ * `after`, never dropped: it is not CLEO's to remove.
+ */
+export async function repairSyncTriggers(projectRoot: string): Promise<SyncTriggersRepairResult> {
+  const before = syncTriggersDoctorCheck(projectRoot);
+  if (!existsSync(resolveDualScopeDbPath('project', projectRoot))) {
+    return { before, after: before, actions: [] };
+  }
+  const handle = await openDualScopeDb('project', projectRoot);
+  const db = getDualScopeNativeDb(handle);
+  const actions: string[] = [];
+  const step0 = ensureTriggerSuspendTable(db);
+  if (step0.created) actions.push('recreated cleo_trigger_suspend');
+  if (step0.cleared > 0)
+    actions.push(`cleared ${step0.cleared} committed cleo_trigger_suspend row(s)`);
+  for (const f of verifyOwnedTriggers(db, { repair: true })) {
+    actions.push(`re-ran the owned DDL of ${f.name} (${f.problem})`);
+  }
+  const outboxMissing = !hasTable(db, '_sync_capture');
+  const capture = syncCaptureOpenPass(db, 'project');
+  if (capture.capture === 'on' && outboxMissing && hasTable(db, '_sync_capture')) {
+    actions.push('recreated _sync_capture');
+  }
+  if (capture.capture === 'on') {
+    const r = capture.report;
+    if (r.installed.length + r.replaced.length + r.dropped.length > 0) {
+      actions.push(
+        `capture triggers: ${r.installed.length} installed, ${r.replaced.length} regenerated, ${r.dropped.length} orphaned dropped`,
+      );
+    }
+  } else if (capture.dropped.length > 0) {
+    actions.push(`dropped ${capture.dropped.length} capture trigger(s): sync.capture is off`);
+  }
+  return { before, after: syncTriggersDoctorCheck(projectRoot), actions };
 }
