@@ -410,6 +410,15 @@ export interface NexusProjectLinkResult {
    * text is also in {@link NexusProjectLinkResult.warnings}.
    */
   attachError: { code: string; message: string; fix: string | null } | null;
+  /**
+   * The project data key version the server holds from this registration
+   * (onboarding B): `1` when the link sent a new project's first key with it,
+   * `null` when it sent none (the project already existed, the server does
+   * not take keys at registration, or this device has no account key; see
+   * {@link NexusProjectLinkResult.warnings}). With `null`, the first
+   * `cleo cloud push` creates the key.
+   */
+  initialKeyVersion: number | null;
   /** Non-fatal problems (for example, presence could not be sent). */
   warnings: string[];
 }
