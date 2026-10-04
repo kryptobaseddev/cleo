@@ -11,7 +11,7 @@
  * @task T11447
  */
 
-export type { OperationDef, Resolution } from '@cleocode/runtime/gateway';
+export type { OperationDef, Resolution } from '@cleocode/runtime/gateway/dispatch';
 export {
   deriveGatewayMatrix,
   getActiveDomains,
@@ -23,4 +23,4 @@ export {
   OPERATIONS,
   resolve,
   validateRequiredParams,
-} from '@cleocode/runtime/gateway';
+} from '@cleocode/runtime/gateway/dispatch';

@@ -9,4 +9,4 @@
  * @task T11447
  */
 
-export { compose } from '@cleocode/runtime/gateway';
+export { compose } from '@cleocode/runtime/gateway/dispatch';

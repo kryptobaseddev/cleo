@@ -46,7 +46,8 @@ import type {
   DomainHandler,
   Middleware,
 } from '@cleocode/contracts/gateway';
-import { getLogger, getProjectRoot } from '@cleocode/core';
+import { getLogger } from '@cleocode/core/logger';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 // Deep import, not the barrel: this is a small dependency-free module, and
 // pulling it through the core barrel would load the full core module graph for
 // one function. Spelled WITHOUT `.js` because core's `./*` export maps to
