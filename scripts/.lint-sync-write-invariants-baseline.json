@@ -961,7 +961,7 @@
     "packages/core/src/store/sqlite-data-accessor.ts :: ExitCode.SESSION_UNBOUND": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: ExitCode.TASK_RENAMED": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: ExitCode.VALIDATION_ERROR": 2,
-    "packages/core/src/store/sqlite-data-accessor.ts :: silent:cascade": 2,
+    "packages/core/src/store/sqlite-data-accessor.ts :: silent:cascade": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: silent:counter": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: taskClaimedError": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: taskConflictError": 4,
