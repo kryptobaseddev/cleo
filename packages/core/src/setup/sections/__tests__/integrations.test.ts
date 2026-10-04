@@ -182,6 +182,22 @@ describe('integrations section — non-interactive', () => {
     expect(result.summary).toMatch(/not-a-url/);
   });
 
+  it('refuses the retired SignalDock endpoint and stores nothing (T13169)', async () => {
+    const { root, projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createIntegrationsSection()]);
+    const io = new StubWizardIO();
+
+    const result = await runner.runSection('integrations', io, {
+      nonInteractive: true,
+      signaldockEndpoint: 'https://api.signaldock.io',
+      projectRoot,
+    });
+
+    expect(result.changed).toBe(false);
+    expect(result.summary).toMatch(/SignalDock is retired/);
+    expect(existsSync(join(root, 'cleo-home', 'config.json'))).toBe(false);
+  });
+
   it('throws E_SETUP_INVALID_VALUE for a relative conduitPath', async () => {
     const { projectRoot } = makeTempRoot();
     const runner = new WizardRunner([createIntegrationsSection()]);
@@ -276,6 +292,22 @@ describe('integrations section — interactive', () => {
       };
       expect(projectCfg.conduit?.dbPath).toBeUndefined();
     }
+  });
+
+  it('re-prompts when the retired SignalDock endpoint is entered (T13169)', async () => {
+    const { projectRoot } = makeTempRoot();
+    const runner = new WizardRunner([createIntegrationsSection()]);
+    // prompts: retired endpoint (refused), custom endpoint, conduit (blank)
+    const io = new StubWizardIO({
+      confirms: [true, false],
+      prompts: ['https://api.signaldock.io', 'https://sd.example.com', ''],
+    });
+
+    const result = await runner.runSection('integrations', io, { projectRoot });
+
+    expect(result.summary).toContain('signaldock.endpoint=https://sd.example.com');
+    expect(result.summary).not.toContain('api.signaldock.io');
+    expect(io.warns.some((m) => m.includes('SignalDock is retired'))).toBe(true);
   });
 
   it('uses default endpoint when blank is entered for SignalDock endpoint', async () => {

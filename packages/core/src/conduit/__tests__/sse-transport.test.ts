@@ -56,8 +56,8 @@ function createMockEventSource() {
 const TEST_CONFIG = {
   agentId: 'test-agent',
   apiKey: 'sk_live_test123',
-  apiBaseUrl: 'https://api.signaldock.io',
-  sseEndpoint: 'https://api.signaldock.io/sse',
+  apiBaseUrl: 'https://relay.example.test',
+  sseEndpoint: 'https://relay.example.test/sse',
 };
 
 // ============================================================================

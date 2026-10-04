@@ -472,6 +472,9 @@ export function wrapCoreResult<T = any>(
  * }
  * ```
  *
+ * A thrown error that carries a CLEO code (`E_…`, e.g. `E_SIGNALDOCK_RETIRED`)
+ * keeps it; any other thrown error becomes `E_CONDUIT`.
+ *
  * Usage:
  * ```ts
  * return wrapConduitImpl(() => fooImpl(params.bar, params.baz), 'foo');
@@ -499,7 +502,9 @@ export async function wrapConduitImpl(
     }
     return lafsSuccess(result.data ?? {}, opName);
   } catch (error) {
-    return lafsError('E_CONDUIT', error instanceof Error ? error.message : String(error), opName);
+    if (!(error instanceof Error)) return lafsError('E_CONDUIT', String(error), opName);
+    const code = 'code' in error && typeof error.code === 'string' ? error.code : '';
+    return lafsError(/^E_[A-Z0-9_]+$/.test(code) ? code : 'E_CONDUIT', error.message, opName);
   }
 }
 

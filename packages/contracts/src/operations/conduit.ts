@@ -97,7 +97,7 @@ export interface ConduitStatusResult {
 }
 
 // --------------------------------------------------------------------------
-// conduit.peek → one-shot poll for new messages (ACKs as it reads)
+// conduit.peek → one-shot poll for new messages (never acks or consumes, T13169)
 // --------------------------------------------------------------------------
 
 /** Parameters for `conduit.peek`. */

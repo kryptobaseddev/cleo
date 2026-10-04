@@ -150,7 +150,11 @@ export const agents = sqliteTable(
     updatedAt: integer('updated_at').notNull(),
     transportType: text('transport_type').notNull().default('http'),
     apiKeyEncrypted: text('api_key_encrypted'),
-    apiBaseUrl: text('api_base_url').notNull().default('https://api.signaldock.io'),
+    // SQL default kept (no table rebuild); ORM inserts get 'local' (T13169).
+    apiBaseUrl: text('api_base_url')
+      .notNull()
+      .default('https://api.signaldock.io')
+      .$defaultFn(() => 'local'),
     classification: text('classification'),
     transportConfig: text('transport_config').notNull().default('{}'),
     isActive: integer('is_active').notNull().default(1),
