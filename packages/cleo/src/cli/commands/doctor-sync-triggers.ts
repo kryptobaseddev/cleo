@@ -38,7 +38,8 @@ export const doctorSyncTriggersCommand = defineCommand({
       type: 'boolean',
       description:
         'Recreate cleo_trigger_suspend, re-run the owned DDL of every differing trigger and make ' +
-        'the capture triggers match sync.capture; reports the row before and after',
+        'the capture triggers match sync.capture; reports the row before and after. Opens the ' +
+        'store like any cleo command, so pending migrations are applied',
     },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },

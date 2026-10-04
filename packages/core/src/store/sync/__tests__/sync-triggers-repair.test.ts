@@ -100,7 +100,50 @@ describe('triggers that reference missing objects (T12754)', () => {
   });
 });
 
+describe('no false positives from text that only looks like a reference (T12754, review-p0 MED-1)', () => {
+  it.each([
+    ['a RAISE message', "SELECT RAISE(ABORT, 'cannot remove from the queue');"],
+    ['a line comment', '-- copy from legacy\n  SELECT 1;'],
+    ['a block comment', '/* join gone */ SELECT 1;'],
+    ['IS DISTINCT FROM NULL', 'SELECT 1 WHERE NEW.id IS DISTINCT FROM NULL;'],
+    ['IS NOT DISTINCT FROM a number', 'SELECT 1 WHERE NEW.id IS NOT DISTINCT FROM 5;'],
+    ['IS DISTINCT FROM a column', 'SELECT 1 WHERE NEW.name IS DISTINCT FROM status;'],
+    ['a WHEN-clause string', "SELECT 1 WHERE NEW.id != 'join gone';"],
+  ])('%s', async (_name, body) => {
+    const db = await openStore();
+    db.exec(`CREATE TRIGGER t12754_fp AFTER INSERT ON tasks_sessions BEGIN ${body} END;`);
+    expect(danglingTriggers(db)).toEqual([]);
+  });
+
+  it('a quoted name with a space is read whole', async () => {
+    const db = await openStore();
+    db.exec(`
+      CREATE TABLE "t12754 b c" (x TEXT);
+      CREATE TRIGGER t12754_quoted AFTER INSERT ON tasks_sessions
+      BEGIN INSERT INTO "t12754 b c" (x) VALUES (NEW.id); END;
+    `);
+    expect(danglingTriggers(db)).toEqual([]);
+    db.exec('DROP TABLE "t12754 b c"');
+    expect(danglingTriggers(db)).toEqual([
+      { name: 't12754_quoted', missing: ['table t12754 b c'] },
+    ]);
+  });
+});
+
 describe('cleo doctor sync-triggers --repair (T12754)', () => {
+  it('reports what a cold open repaired (review-p0 MED-2)', async () => {
+    const db = await openStore();
+    db.exec('DROP TRIGGER tasks_sessions_release_claims_on_delete');
+    db.close();
+    _resetDualScopeDbCache();
+    const result = await repairSyncTriggers(projectRoot());
+    expect(result.before.status).not.toBe('ok');
+    expect(result.actions).toContain(
+      're-ran the owned DDL of tasks_sessions_release_claims_on_delete (missing)',
+    );
+    expect(result.after.status).toBe('ok');
+  });
+
   it('heals a missing _sync_capture: the capture triggers no longer dangle', async () => {
     const db = await openStore(true);
     db.exec('DROP TABLE _sync_capture');

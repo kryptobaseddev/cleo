@@ -36,7 +36,6 @@ import {
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
 import { generateCaptureTriggers, syncCaptureOpenPass } from '../store/sync/capture.js';
 import { readSyncFlags } from '../store/sync/flags.js';
-import { hasTable } from '../store/sync/schema.js';
 import {
   CAPTURE_TRIGGER_PREFIX,
   classifyStoreTriggers,
@@ -45,7 +44,6 @@ import {
   normalizeSql,
   type OwnedTriggerFinding,
   TRIGGER_CLAUSE_MIGRATION,
-  triggerWriteTargets,
   verifyOwnedTriggers,
 } from '../store/sync/trigger-classes.js';
 
@@ -147,18 +145,99 @@ export function inspectSyncTriggers(projectRoot: string): SyncTriggersReport {
   }
 }
 
-/** Words the FROM/JOIN scan can catch that are never a table. */
+/** Words the scan can meet where a table name could stand that are never a table. */
 const NOT_A_TABLE = new Set(['new', 'old', 'select', 'values']);
 
 /** Columns every insert target has without declaring them. */
 const IMPLICIT_COLUMNS = new Set(['rowid', 'oid', '_rowid_', 'rank']);
 
+/** One SQL token: an identifier (bare or quoted), or one punctuation character. */
+interface SqlToken {
+  readonly text: string;
+  /** Lower-cased identifier with its quotes removed; null for punctuation. */
+  readonly ident: string | null;
+}
+
 /**
- * Every trigger whose body references a table the store lacks, or inserts
- * into a column its table lacks (T12754). Reads are the tables after `FROM`
- * and `JOIN`; writes are {@link triggerWriteTargets}. A name followed by `(`
- * is a table-valued function, and a CTE name is local to the body; neither
- * is a table.
+ * Tokenise SQL for the reference scan. String literals (`'…'` with `''`
+ * escapes), blob and numeric literals, and line and block comments are
+ * dropped, so text inside them is never read as a name. Quoted identifiers
+ * (`"a b"`, `` `a` ``, `[a]`) are kept whole.
+ */
+function sqlTokens(sql: string): SqlToken[] {
+  const out: SqlToken[] = [];
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i] as string;
+    const rest = sql.slice(i);
+    if (/\s/.test(c)) {
+      i += 1;
+    } else if (rest.startsWith('--')) {
+      const nl = sql.indexOf('\n', i);
+      i = nl === -1 ? sql.length : nl + 1;
+    } else if (rest.startsWith('/*')) {
+      const end = sql.indexOf('*/', i + 2);
+      i = end === -1 ? sql.length : end + 2;
+    } else if (c === "'") {
+      let k = i + 1;
+      while (k < sql.length) {
+        if (sql[k] === "'" && sql[k + 1] === "'") k += 2;
+        else if (sql[k] === "'") break;
+        else k += 1;
+      }
+      i = k + 1;
+    } else if (c === '"' || c === '`' || c === '[') {
+      const close = c === '[' ? ']' : c;
+      let k = i + 1;
+      while (k < sql.length) {
+        if (sql[k] === close && close !== ']' && sql[k + 1] === close) k += 2;
+        else if (sql[k] === close) break;
+        else k += 1;
+      }
+      const body = sql.slice(i + 1, k).replaceAll(`${close}${close}`, close);
+      out.push({ text: sql.slice(i, k + 1), ident: body.toLowerCase() });
+      i = k + 1;
+    } else if (/[A-Za-z_]/.test(c)) {
+      const m = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(rest) as RegExpExecArray;
+      out.push({ text: m[0], ident: m[0].toLowerCase() });
+      i += m[0].length;
+    } else if (/[0-9]/.test(c)) {
+      const m = /^[0-9][A-Za-z0-9_.]*/.exec(rest) as RegExpExecArray;
+      i += m[0].length; // a number is never a name
+    } else {
+      out.push({ text: c, ident: null });
+      i += 1;
+    }
+  }
+  return out;
+}
+
+/** A `[schema.]name` at tokens[at]; the table name, or null when it is not one we can judge. */
+function tableAt(tokens: readonly SqlToken[], at: number): { name: string; next: number } | null {
+  const first = tokens[at];
+  if (!first?.ident) return null;
+  if (tokens[at + 1]?.text === '.' && tokens[at + 2]?.ident) {
+    // Only the main schema is this store's; temp and attached schemas are not judged.
+    if (first.ident !== 'main') return null;
+    return { name: tokens[at + 2]?.ident as string, next: at + 3 };
+  }
+  return { name: first.ident, next: at + 1 };
+}
+
+/**
+ * Every trigger whose text references a table the store lacks, or inserts
+ * into a column its table lacks (T12754). SQLite resolves trigger bodies only
+ * when the trigger fires, so such a trigger fails every write to its table.
+ *
+ * The scan tokenises the trigger (string literals and comments dropped,
+ * quoted identifiers kept). A table is the name after `FROM` or `JOIN`
+ * (the WHEN clause included; not `IS [NOT] DISTINCT FROM`), or the target of
+ * `INSERT … INTO`, `REPLACE INTO`, `UPDATE` or `DELETE FROM` in the body.
+ * A name followed by `(` is a table-valued function, a CTE name is local to
+ * its statement, and a schema other than `main` is not judged.
+ *
+ * Not checked (false negatives by design): `UPDATE … SET` columns and
+ * `NEW.` / `OLD.` columns.
  */
 export function danglingTriggers(db: DatabaseSync): DanglingTrigger[] {
   const objects = new Set(
@@ -183,44 +262,71 @@ export function danglingTriggers(db: DatabaseSync): DanglingTrigger[] {
     .prepare("SELECT name, sql FROM main.sqlite_master WHERE type = 'trigger' ORDER BY name")
     .all() as Array<{ name: string; sql: string }>;
   for (const { name, sql } of triggers) {
-    const body = sql.slice(Math.max(0, sql.search(/\bBEGIN\b/i)));
-    // CTE names (`WITH [RECURSIVE] name[(cols)] AS (`, and later `, name AS (`)
-    // are local to the statement.
-    const ctes = new Set(
-      [
-        ...sql.matchAll(
-          /(?:\bWITH(?:\s+RECURSIVE)?|,)\s*[`"]?(\w+)[`"]?\s*(?:\([^)]*\))?\s+AS\s*\(/gi,
-        ),
-      ].map((m) => (m[1] as string).toLowerCase()),
-    );
-    const referenced = new Set(triggerWriteTargets(sql));
-    // Reads anywhere, the WHEN clause included (it can read a dropped table).
-    for (const m of sql.matchAll(
-      /\b(?:from|join)\s+[`"[]?(?:main\.)?[`"[]?(\w+)[`"\]]?\s*(\()?/gi,
-    )) {
-      if (m[2] === '(') continue;
-      referenced.add((m[1] as string).toLowerCase());
-    }
+    const tokens = sqlTokens(sql);
+    const begin = tokens.findIndex((t) => t.ident === 'begin');
+    const ctes = new Set<string>();
+    tokens.forEach((t, k) => {
+      // `WITH [RECURSIVE] name [(cols)] AS (` and `, name [(cols)] AS (`
+      const prev = tokens[k - 1];
+      const starts = prev?.ident === 'with' || prev?.ident === 'recursive' || prev?.text === ',';
+      if (!t.ident || !starts) return;
+      let n = k + 1;
+      if (tokens[n]?.text === '(') {
+        while (n < tokens.length && tokens[n]?.text !== ')') n += 1;
+        n += 1;
+      }
+      if (tokens[n]?.ident === 'as' && tokens[n + 1]?.text === '(') ctes.add(t.ident);
+    });
+    const referenced = new Set<string>();
+    const inserts: Array<{ table: string; cols: string[] }> = [];
+    tokens.forEach((t, k) => {
+      const prev = tokens[k - 1]?.ident;
+      let target: { name: string; next: number } | null = null;
+      if ((t.ident === 'from' || t.ident === 'join') && prev !== 'distinct') {
+        target = tableAt(tokens, k + 1);
+        if (target && tokens[target.next]?.text === '(') target = null; // table-valued function
+      } else if (k > begin && begin !== -1) {
+        if (
+          t.ident === 'into' &&
+          (prev === 'insert' ||
+            prev === 'replace' ||
+            prev === 'ignore' ||
+            prev === 'rollback' ||
+            prev === 'abort' ||
+            prev === 'fail')
+        ) {
+          target = tableAt(tokens, k + 1);
+          if (target && tokens[target.next]?.text === '(') {
+            const cols: string[] = [];
+            let n = target.next + 1;
+            while (n < tokens.length && tokens[n]?.text !== ')') {
+              const c = tokens[n];
+              if (c?.ident) cols.push(c.ident);
+              n += 1;
+            }
+            inserts.push({ table: target.name, cols });
+          }
+        } else if (t.ident === 'update' && tokens[k + 1]?.ident !== 'of') {
+          let at = k + 1;
+          if (tokens[at]?.ident === 'or') at += 2; // UPDATE OR <action>
+          target = tableAt(tokens, at);
+        }
+      }
+      if (target) referenced.add(target.name);
+    });
     const missing: string[] = [];
     for (const t of referenced) {
       if (NOT_A_TABLE.has(t) || ctes.has(t) || t.startsWith('sqlite_') || t.startsWith('pragma_'))
         continue;
       if (!objects.has(t)) missing.push(`table ${t}`);
     }
-    const insertCols =
-      /\binsert(?:\s+or\s+\w+)?\s+into\s+[`"[]?(?:main\.)?[`"[]?(\w+)[`"\]]?\s*\(([^)]*)\)/gi;
-    for (const m of body.matchAll(insertCols)) {
-      const table = (m[1] as string).toLowerCase();
+    for (const { table, cols } of inserts) {
       if (!objects.has(table)) continue;
       const have = columns(table);
-      for (const raw of (m[2] as string).split(',')) {
-        const col = raw
-          .trim()
-          .replace(/^[`"[]|[`"\]]$/g, '')
-          .toLowerCase();
+      for (const col of cols) {
         // rowid aliases always exist; an FTS5 table's command column and
         // `rank` are hidden from table_info.
-        if (!col || have.has(col) || IMPLICIT_COLUMNS.has(col) || col === table) continue;
+        if (have.has(col) || IMPLICIT_COLUMNS.has(col) || col === table) continue;
         missing.push(`column ${table}.${col}`);
       }
     }
@@ -363,30 +469,52 @@ export async function repairSyncTriggers(projectRoot: string): Promise<SyncTrigg
   if (!existsSync(resolveDualScopeDbPath('project', projectRoot))) {
     return { before, after: before, actions: [] };
   }
+  const was = inspectSyncTriggers(projectRoot);
+  // A cold open already runs these steps in its schema pass; on a cached
+  // handle they run here. Either way the actions come from the diff below.
   const handle = await openDualScopeDb('project', projectRoot);
   const db = getDualScopeNativeDb(handle);
+  ensureTriggerSuspendTable(db);
+  verifyOwnedTriggers(db, { repair: true });
+  syncCaptureOpenPass(db, 'project');
+  const now = inspectSyncTriggers(projectRoot);
+  return {
+    before,
+    after: syncTriggersDoctorCheck(projectRoot),
+    actions: repairActions(was, now),
+  };
+}
+
+/** What changed between two trigger reports, one line per repair. */
+export function repairActions(was: SyncTriggersReport, now: SyncTriggersReport): string[] {
   const actions: string[] = [];
-  const step0 = ensureTriggerSuspendTable(db);
-  if (step0.created) actions.push('recreated cleo_trigger_suspend');
-  if (step0.cleared > 0)
-    actions.push(`cleared ${step0.cleared} committed cleo_trigger_suspend row(s)`);
-  for (const f of verifyOwnedTriggers(db, { repair: true })) {
-    actions.push(`re-ran the owned DDL of ${f.name} (${f.problem})`);
+  if (was.suspendTable === 'missing' && now.suspendTable === 'present') {
+    actions.push('recreated cleo_trigger_suspend');
   }
-  const outboxMissing = !hasTable(db, '_sync_capture');
-  const capture = syncCaptureOpenPass(db, 'project');
-  if (capture.capture === 'on' && outboxMissing && hasTable(db, '_sync_capture')) {
+  if (was.suspendRows > 0 && now.suspendRows === 0) {
+    actions.push(`cleared ${was.suspendRows} committed cleo_trigger_suspend row(s)`);
+  }
+  const still = new Set(now.owned.map((f) => f.name));
+  for (const f of was.owned) {
+    if (!still.has(f.name)) actions.push(`re-ran the owned DDL of ${f.name} (${f.problem})`);
+  }
+  if (was.orphanedCaptureTriggers.length > 0 && now.orphanedCaptureTriggers.length === 0) {
     actions.push('recreated _sync_capture');
   }
-  if (capture.capture === 'on') {
-    const r = capture.report;
-    if (r.installed.length + r.replaced.length + r.dropped.length > 0) {
-      actions.push(
-        `capture triggers: ${r.installed.length} installed, ${r.replaced.length} regenerated, ${r.dropped.length} orphaned dropped`,
-      );
-    }
-  } else if (capture.dropped.length > 0) {
-    actions.push(`dropped ${capture.dropped.length} capture trigger(s): sync.capture is off`);
+  const d = was.captureDrift;
+  const fixed = (k: 'missing' | 'differing' | 'extra') =>
+    d[k].filter((t) => !now.captureDrift[k].includes(t)).length;
+  const [installed, regenerated, dropped] = [fixed('missing'), fixed('differing'), fixed('extra')];
+  if (installed + regenerated + dropped > 0) {
+    actions.push(
+      `capture triggers: ${installed} installed, ${regenerated} regenerated, ${dropped} orphaned dropped`,
+    );
   }
-  return { before, after: syncTriggersDoctorCheck(projectRoot), actions };
+  const left = new Set(now.dangling.map((t) => t.name));
+  for (const t of was.dangling) {
+    if (!left.has(t.name) && !was.owned.some((f) => f.name === t.name)) {
+      if (!t.name.startsWith(CAPTURE_TRIGGER_PREFIX)) actions.push(`repaired ${t.name}`);
+    }
+  }
+  return actions;
 }
