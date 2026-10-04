@@ -35,6 +35,9 @@ const EXEMPT: Readonly<Record<string, string>> = {
   'llm/executor-factory.ts':
     'registers the llm-summarization context engine; its only reader (`cleo llm engines`) imports executor-factory itself',
   'llm/context-engines/index.ts': 'fills its own module-local registry; readers import it',
+  'templates/registry.ts':
+    'a load-time assertion that the template sources exist (no registration); it now runs when templates are used',
+  'error-registry.ts': 'fills its own module-local exit-code map in a loop; readers import it',
 };
 
 /** Static, non-type relative imports and re-exports of a module. */
@@ -65,6 +68,24 @@ function staticDeps(file: string): { deps: string[]; effects: string[] } {
     }
     if (ts.isExpressionStatement(st) && !ts.isStringLiteral(st.expression)) {
       effects.push(st.expression.getText(sf).slice(0, 60));
+      continue;
+    }
+    // Statements that run code at load without being an expression: a
+    // `try { register() }`, an `if (x) install()`, a loop, a bare block, an
+    // `export =`. Initializer calls (`const x = register()`) are not caught:
+    // they cannot be told apart from plain values without false positives.
+    if (
+      ts.isIfStatement(st) ||
+      ts.isTryStatement(st) ||
+      ts.isForStatement(st) ||
+      ts.isForInStatement(st) ||
+      ts.isForOfStatement(st) ||
+      ts.isWhileStatement(st) ||
+      ts.isDoStatement(st) ||
+      ts.isBlock(st) ||
+      ts.isExportAssignment(st)
+    ) {
+      effects.push(st.getText(sf).slice(0, 60));
     }
   }
   return { deps, effects };
