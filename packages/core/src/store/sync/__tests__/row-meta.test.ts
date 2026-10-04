@@ -118,6 +118,44 @@ describe('the writer (T13204)', () => {
     });
   });
 
+  it('a partial map keeps the other fields where they were, never advancing them (review-hotfix MED)', async () => {
+    const db = await store();
+    upsertRowMetaFromFields(db, DEF, {
+      tbl: 't',
+      uid: 'u',
+      fieldHlc: { a: 'h1', b: 'h2', c: 'h3' },
+      origin: 'r',
+      actor: null,
+      deleted: false,
+    });
+    upsertRowMetaFromFields(db, DEF, {
+      tbl: 't',
+      uid: 'u',
+      fieldHlc: { b: 'h9' },
+      origin: 'r2',
+      actor: null,
+      deleted: false,
+    });
+    const meta = readRowMeta(db, 't', 'u');
+    expect(meta?.hlc).toBe('h9');
+    expect(fieldHlcsOf(DEF, meta as RowMetaRow)).toEqual({ a: 'h1', b: 'h9', c: 'h3' });
+  });
+
+  it("refuses a row's first write that misses a field", async () => {
+    const db = await store();
+    expect(() =>
+      upsertRowMetaFromFields(db, DEF, {
+        tbl: 't',
+        uid: 'new',
+        fieldHlc: { a: 'h1' },
+        origin: 'r',
+        actor: null,
+        deleted: false,
+      }),
+    ).toThrow(/first write misses b, c/);
+    expect(readRowMeta(db, 't', 'new')).toBeUndefined();
+  });
+
   it('refuses a write with no field HLC', async () => {
     const db = await store();
     expect(() =>

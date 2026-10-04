@@ -151,7 +151,7 @@ export function nextFhlc(
 export interface RowMetaFromFields {
   readonly tbl: string;
   readonly uid: string;
-  /** Every field's HLC after the merge (identity columns ignored). */
+  /** Field HLCs after the merge (identity columns ignored); partial only when the row has meta. */
   readonly fieldHlc: Readonly<Record<string, string>>;
   readonly origin: string;
   readonly actor: string | null;
@@ -162,29 +162,38 @@ export interface RowMetaFromFields {
 }
 
 /**
- * Write a row's meta from its full per-field HLC map: `hlc` is the newest
- * field HLC, `fhlc` holds only the older ones, and the version rises by one.
+ * Write a row's meta from its per-field HLC map: `hlc` is the newest field
+ * HLC, `fhlc` holds only the older ones, and the version rises by one.
+ *
+ * The map may be partial when the row already has meta: an absent column
+ * keeps the field HLC it had (never silently advanced to the new row HLC).
+ * A row's first write must name every non-identity column.
  *
  * @returns The row HLC written.
+ * @throws {Error} When the map is empty, or a first write misses a column.
  */
 export function upsertRowMetaFromFields(
   db: DatabaseSync,
   def: FieldColumns,
   w: RowMetaFromFields,
 ): string {
-  const values = def.columns
-    .filter((c) => !def.identity.includes(c))
-    .map((c) => w.fieldHlc[c])
-    .filter((h): h is string => h !== undefined);
-  // @sync-invariant none:input-shape a row-meta write needs at least one field HLC; nothing is written
-  if (values.length === 0) throw new Error(`row meta for ${w.tbl}/${w.uid}: no field HLC`);
-  const hlc = values.reduce((m, h) => (h > m ? h : m));
   const prev = readRowMeta(db, w.tbl, w.uid);
+  const fields: Record<string, string> = prev ? fieldHlcsOf(def, prev) : {};
+  const named = def.columns.filter((c) => !def.identity.includes(c) && w.fieldHlc[c] !== undefined);
+  // @sync-invariant none:input-shape a row-meta write needs at least one field HLC; nothing is written
+  if (named.length === 0) throw new Error(`row meta for ${w.tbl}/${w.uid}: no field HLC`);
+  for (const c of named) fields[c] = w.fieldHlc[c] as string;
+  const missing = def.columns.filter((c) => !def.identity.includes(c) && fields[c] === undefined);
+  if (missing.length > 0) {
+    // @sync-invariant none:input-shape a row's first meta write must name every field; nothing is written
+    throw new Error(`row meta for ${w.tbl}/${w.uid}: first write misses ${missing.join(', ')}`);
+  }
+  const hlc = Object.values(fields).reduce((m, h) => (h > m ? h : m));
   upsertRowMeta(db, {
     tbl: w.tbl,
     uid: w.uid,
     hlc,
-    fhlc: compressFieldHlcs(def, w.fieldHlc, hlc),
+    fhlc: compressFieldHlcs(def, fields, hlc),
     origin: w.origin,
     actor: w.actor,
     version: (prev?.version ?? 0) + 1,
