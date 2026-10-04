@@ -62,6 +62,7 @@ import {
 import { tickClock, withImmediateTransaction } from './clock-store.js';
 import { isSyncFlagOn, UNRELEASED_FLAGS } from './flags.js';
 import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './netting.js';
+import { remapCapture, remapPending } from './remap.js';
 import { activeReplica } from './replica.js';
 import { hasTable } from './schema.js';
 import { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
@@ -928,7 +929,7 @@ function sealInTransaction(
   let dropped = 0;
   const quarantined: Array<{ seq: number; tbl: string; reason: string }> = [];
 
-  for (const g of groups) {
+  for (const [gi, g] of groups.entries()) {
     // Bound the time this transaction holds the write lock (T13032).
     if (txns > 0 && performance.now() - started > maxMs) break;
     // T13041: a clear whose row is deleted or refilled later is consumed, and
@@ -1007,15 +1008,46 @@ function sealInTransaction(
       meta.remove.run(r.t, r.to);
       meta.move.run(r.to, null, null, r.t, r.from);
     }
+    // §3.3 G (T12779): the stream never learns a dropped re-key's old uid, so
+    // every reference to it that is still pending moves to the new uid: the
+    // other ops of this transaction, the captures still waiting (in this
+    // batch and in the store), and sealed ops not yet in a segment.
+    let txnOps = netted.ops;
+    if (netted.renames.length > 0) {
+      const renamed = new Map(netted.renames.map((r) => [r.from, r.to] as const));
+      const swap = <V>(vals: Record<string, V>): Record<string, V> => {
+        const out: Record<string, V> = {};
+        for (const [col, v] of Object.entries(vals)) {
+          const to = typeof v === 'string' ? renamed.get(v) : undefined;
+          out[col] = to !== undefined ? (to as V) : v;
+        }
+        return out;
+      };
+      txnOps = txnOps.map((op) => ({
+        ...op,
+        ...(op.a !== undefined ? { a: swap(op.a) } : {}),
+        ...(op.b !== undefined ? { b: swap(op.b) } : {}),
+        ...(op.k !== undefined ? { k: swap(op.k) } : {}),
+      }));
+      for (const r of netted.renames) {
+        const remap = { table: r.t, oldUid: r.from, newUid: r.to, newBfp: null };
+        remapPending(db, remap);
+        for (const later of groups.slice(gi + 1)) {
+          later.captures.forEach((c, i) => {
+            later.captures[i] = remapCapture(c, remap);
+          });
+        }
+      }
+    }
     for (const c of captures) consumed.add(c.seq);
-    if (netted.ops.length === 0) continue; // everything netted away
+    if (txnOps.length === 0) continue; // everything netted away
 
     localSeq += 1;
     const txn = `${replica}:${localSeq}`;
     // An op's time and local key are its LAST capture's (T13037).
     const at = (op: { seq: number; last: number }) => capOf.get(op.last) ?? capOf.get(op.seq);
-    const sealedOps: Array<SealedOp & { readonly seq: number; readonly last: number }> =
-      netted.ops.map((op) => {
+    const sealedOps: Array<SealedOp & { readonly seq: number; readonly last: number }> = txnOps.map(
+      (op) => {
         const { seq, last, ...rest } = op;
         return {
           ...(rest as Omit<SealedOp, 'h'>),
@@ -1023,7 +1055,8 @@ function sealInTransaction(
           last,
           h: tickClock(db, replica, at(op)?.at_ms ?? now()),
         };
-      });
+      },
+    );
     const txnHlc = sealedOps.reduce((m, o) => (o.h > m ? o.h : m), sealedOps[0]?.h ?? '');
     const kind = g.frame !== null && TXN_KINDS.has(g.kind) ? g.kind : 'write';
     insTxn.run(

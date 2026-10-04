@@ -183,6 +183,25 @@ jobs:
               # ci.yml-only PR skipped every job it rewires, so a broken build
               # or test layout could only surface after merge.
               - '.github/workflows/ci.yml'
+              # T13175 review: package unit tests import or run these scripts, so
+              # a change to one of them must run the unit tests, not only Scripts
+              # Tests. scripts/__tests__/ci-code-filter-script-deps.test.mjs fails
+              # when a package test starts depending on a script not listed here.
+              - 'scripts/compare-fingerprints.mjs'
+              - 'scripts/fingerprint-store.mjs'
+              - 'scripts/heal-malformed-blob-attachments.mjs'
+              - 'scripts/hooks/commit-msg-release-lint.mjs'
+              - 'scripts/inject-consolidation-checks.mjs'
+              - 'scripts/lib/**'
+              - 'scripts/lint-changesets.mjs'
+              - 'scripts/lint-format-error-misuse.mjs'
+              - 'scripts/lint-injection-flags.mjs'
+              - 'scripts/lint-no-esm-bare-require.mjs'
+              - 'scripts/lint-no-raw-db-opens.mjs'
+              - 'scripts/lint-row-identity-coverage.mjs'
+              - 'scripts/lint-sync-write-invariants.mjs'
+              - 'scripts/migrate-nested-nexus.mjs'
+              - 'scripts/sweep-manual-doc-writes.mjs'
             # gh#1403: `scripts/**` is deliberately NOT in `code` above. The
             # scripts tests are a real vitest project (`scripts/vitest.config.ts`,
             # name `scripts`, listed in the root `projects:` array), but nothing

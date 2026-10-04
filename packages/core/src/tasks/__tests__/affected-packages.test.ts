@@ -231,6 +231,22 @@ describe('affectedTestTargets: project names come from vitest itself (T12635 re-
     expect(!t.ok && t.reason).toMatch(/vitest could not resolve/);
   });
 
+  it('REAL repo: a change to a script package tests import is workspace-wide, never narrowed (T13177)', () => {
+    // CI's PR selection (scripts/ci-affected-test-projects.mjs) runs the full
+    // suite for a workspace-wide change. A narrowed set would let Unit Tests
+    // pass without the importing packages' tests (store fingerprint gates,
+    // nested-nexus migration, injection flags) ever running.
+    const repo = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../../..');
+    for (const changed of [
+      ['scripts/lib/path-containment.mjs'],
+      ['scripts/migrate-nested-nexus.mjs'],
+      ['scripts/lint-injection-flags.mjs'],
+      ['scripts/lib/path-containment.mjs', 'packages/contracts/src/index.ts'],
+    ]) {
+      expect(deriveAffectedPackages(repo, changed).scope, changed.join(' ')).toBe('full');
+    }
+  });
+
   it('REAL repo: every workspace package with a vitest config resolves to the name vitest assigns', async () => {
     const repo = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../../..');
     const resolved = await listVitestProjects(repo);

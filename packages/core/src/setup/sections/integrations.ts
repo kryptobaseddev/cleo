@@ -38,6 +38,11 @@
  * @see docs/plans/E-CLEO-SETUP-V2.md §4.8, §5.2 T9593
  */
 
+import {
+  assertCloudUrlAllowed,
+  retiredCloudHost,
+  SignalDockRetiredError,
+} from '../../conduit/cloud-endpoint.js';
 import { getConfigValue, setConfigValue } from '../../config.js';
 import type {
   WizardIO,
@@ -153,6 +158,8 @@ export function createIntegrationsSection(): WizardSectionRunner {
               `E_SETUP_INVALID_VALUE: signaldockEndpoint '${signaldockEndpoint}' is not a valid HTTP(S) URL`,
             );
           }
+          // The retired SignalDock service is refused, never stored (T13169).
+          assertCloudUrlAllowed(signaldockEndpoint);
           await setConfigValue('signaldock.endpoint', signaldockEndpoint, options.projectRoot, {
             global: true,
           });
@@ -204,6 +211,12 @@ export function createIntegrationsSection(): WizardSectionRunner {
             await io.prompt(`SignalDock endpoint URL [${DEFAULT_SIGNALDOCK_ENDPOINT}]:`)
           ).trim();
           endpoint = raw === '' ? DEFAULT_SIGNALDOCK_ENDPOINT : raw;
+          const retiredHost = retiredCloudHost(endpoint);
+          if (retiredHost !== null) {
+            // The retired SignalDock service is refused, never stored (T13169).
+            io.warn(`${new SignalDockRetiredError(retiredHost).message} Enter another endpoint.`);
+            continue;
+          }
           if (isValidHttpUrl(endpoint)) break;
           io.warn(`'${endpoint}' is not a valid HTTP(S) URL — please try again.`);
         }
