@@ -914,7 +914,7 @@
     "packages/core/src/store/dependency-cycles.ts :: ExitCode.CIRCULAR_REFERENCE": 1,
     "packages/core/src/store/dual-scope-db.ts :: EntryCancelledError": 1,
     "packages/core/src/store/dual-scope-db.ts :: Error": 4,
-    "packages/core/src/store/dual-scope-db.ts :: ExodusAbortWriteUnsafeError": 2,
+    "packages/core/src/store/dual-scope-db.ts :: ExodusAbortWriteUnsafeError": 1,
     "packages/core/src/store/dual-scope-db.ts :: LivenessExhaustedError": 1,
     "packages/core/src/store/exodus/archive.ts :: Error": 1,
     "packages/core/src/store/exodus/migrate.ts :: Error": 2,

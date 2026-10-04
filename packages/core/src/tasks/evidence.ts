@@ -1737,7 +1737,11 @@ async function runAffectedTests(
       exitCode: 0,
       stdoutTail: result.stdoutTail,
       scope: 'affected',
-      scopeReason: AFFECTED_SCOPE_BASIS,
+      scopeReason:
+        run.template.source === 'derived'
+          ? `${AFFECTED_SCOPE_BASIS}; the affected command was derived from the workspace test ` +
+            `command "${run.template.basis}" (declare testing.affectedCommand to pin it, T13125)`
+          : AFFECTED_SCOPE_BASIS,
       affectedPackages: run.packages,
       affectedProjects: run.projects,
       ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),
@@ -1959,16 +1963,21 @@ async function validateTestRun(
     };
   }
   const { total, failed, passed, notRun: pending } = counts;
-  const exitKey = present(parsed['exit']) ? 'exit' : 'exitCode';
-  const exitValue = parsed[exitKey];
-  if (present(exitValue) && !(typeof exitValue === 'number' && Number.isInteger(exitValue))) {
-    return {
-      ok: false,
-      reason: `test-run report's "${exitKey}" is ${JSON.stringify(exitValue)}; an exit code must be a number`,
-      codeName: 'E_EVIDENCE_INVALID',
-    };
+  // Both spellings are checked: a report carrying exit 0 and exitCode 1 failed
+  // (T13136 review).
+  let exit: number | undefined;
+  for (const exitKey of ['exit', 'exitCode'] as const) {
+    const exitValue = parsed[exitKey];
+    if (!present(exitValue)) continue;
+    if (!(typeof exitValue === 'number' && Number.isInteger(exitValue))) {
+      return {
+        ok: false,
+        reason: `test-run report's "${exitKey}" is ${JSON.stringify(exitValue)}; an exit code must be a number`,
+        codeName: 'E_EVIDENCE_INVALID',
+      };
+    }
+    if (exit === undefined || exitValue !== 0) exit = exitValue;
   }
-  const exit = typeof exitValue === 'number' ? exitValue : undefined;
 
   if (total === 0) {
     return {

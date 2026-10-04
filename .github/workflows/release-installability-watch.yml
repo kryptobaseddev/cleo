@@ -26,9 +26,11 @@ on:
         description: 'Version to check right now (e.g. 2026.9.8). Omit to sweep all open trackers.'
         required: false
       dist_tag:
-        description: 'latest / beta / dev'
+        # A stable release publishes under `canary` (T13144); `latest` reaches
+        # it only when release-promote.yml moves it.
+        description: 'canary / beta / dev (or latest, for a promoted version)'
         required: false
-        default: 'latest'
+        default: 'canary'
       dry_run:
         description: 'Report only — do not edit, comment on, or close any issue.'
         type: boolean

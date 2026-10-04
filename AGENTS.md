@@ -25,11 +25,13 @@ Protocol source: `packages/core/templates/CLEO-INJECTION.md` (installed to the C
 ## Quality Gates (before completing)
 
 ```bash
-pnpm biome check --write .   # format + lint
-pnpm run build               # build
-pnpm run test                # ZERO new failures
-git diff --stat HEAD         # verify scope
+pnpm biome check --write .                             # format + lint
+cleo run --wait --class full-build -- pnpm run build   # build
+cleo done <id> --plan                                  # tests: ZERO new failures
+git diff --stat HEAD                                   # verify scope
 ```
+
+Tests: record what `cleo done <id> --plan` names (`ci:<pr>`, `tool:test-affected` or a targeted `test-run:<json>`). While iterating, run single test files; never run a whole suite by hand.
 
 ANY failure → fix before completing.
 

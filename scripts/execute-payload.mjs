@@ -457,7 +457,7 @@ export async function main() {
   // release job already owns that derivation; a second copy here is how this
   // job previously came to disagree with the one that did the publishing.
   if (!distTag) {
-    console.error('ERROR: --dist-tag <latest|beta|dev> is required');
+    console.error('ERROR: --dist-tag <canary|beta|dev> is required');
     console.error('Pass needs.release.outputs.dist_tag — do not re-derive it from the version.');
     return 2;
   }

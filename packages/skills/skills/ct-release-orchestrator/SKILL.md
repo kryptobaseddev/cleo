@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.0.3
+  version: 3.1.0
   tier: on-demand
   install: harness
   covers:
@@ -38,6 +38,7 @@ Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalis
 | 3 | _(GHA)_ `release-prepare.yml` → PR merge | `pr-opened` → `pr-merged` | Owned by CI; verify via `cleo release pr-status <ver>` |
 | 4 | `git tag -a v<ver> -m "Release v<ver>" && git push origin v<ver>` | `pr-merged` → `tag-pushed` | Explicit tag after the release PR merges — `auto-tag-on-release-merge.yml` is retired (T10434, ADR-087); the tag push triggers `release.yml` |
 | 5 | `cleo release reconcile <ver>` | `tag-pushed` → `published` | Backfills 11 provenance tables; idempotent |
+| 6 | Soak, then _(GHA)_ `release-promote.yml` | npm `canary` → `latest` | A stable version publishes under the `canary` dist-tag; users get it only when `latest` moves. Soak with `node scripts/release-canary-soak.mjs`, then `gh workflow run release-promote.yml --ref main -f version=<ver>`; the owner approves the `npm-promote` environment. Rollback: the same workflow with the previous version. Runbook: `docs/release/merge-queue-runbook.md`, "Canary soak and promotion" (T13144) |
 
 Optional validators (read-only / dry-run):
 
@@ -128,6 +129,7 @@ Exit codes (canonical):
 6. Provenance reconcile is invoked by `release-publish.yml`, not manually (unless backfilling).
 7. Per-task evidence gates use `cleo verify --gate --evidence` per ADR-051 — not the deleted batch verb.
 8. Use `cleo release ship-e2e-smoke` to validate the full pipeline before a real ship.
+9. A published stable release is on `canary`, not `latest`. Never call it shipped to users until `release-promote.yml` has moved `latest` (T13144); never move `latest` any other way.
 
 ## CI Job Inventory
 
