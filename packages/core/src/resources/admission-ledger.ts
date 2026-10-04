@@ -185,9 +185,13 @@ export { admissionCapacityBytes, admissionReserveBytes };
  * overlay gives it (`heavyToolWorkers`) × {@link GIB_PER_WORKER}.
  *
  * @param totalBytes - physical RAM. @defaultValue os.totalmem()
+ * @param env - the environment (the per-run share). @defaultValue process.env
  */
-export function heavyRunFootprintBytes(totalBytes: number = totalmem()): number {
-  return heavyToolWorkers(totalBytes / GIB) * GIB_PER_WORKER * GIB;
+export function heavyRunFootprintBytes(
+  totalBytes: number = totalmem(),
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  return heavyToolWorkers(totalBytes / GIB, env) * GIB_PER_WORKER * GIB;
 }
 
 /**

@@ -14,8 +14,11 @@ prices the runs it admits.
   the admission budget (`PER_RUN_BUDGET_SHARE`): 3 workers on a 48 GiB Mac (18 of the
   36 GiB budget), 4 on 64 GiB, 6 on 128 GiB and up, 1 on 16 GiB. It used to plan for the
   whole budget (6 workers on 48 GiB), so nothing else could run beside it. A whole-suite
-  run is slower; two heavy runs, or one and many light ones, now share the machine. The
-  count depends on RAM alone, so the tool cache key (which includes it) stays stable.
+  run is slower; two heavy runs, or one and many light ones, now share the machine. On a
+  CI runner (`CI` set), which is single-tenant, a run still plans for the whole budget, so
+  CI keeps its parallelism (2 workers on a 16 GiB GitHub runner). `CLEO_PER_RUN_SHARE`
+  (a number in `(0, 1]`) overrides the share. It is fixed per machine and environment, so
+  the tool cache key (which includes the worker count) stays stable.
 - **Charged what it can start.** An evidence run is charged its plan: workspace packages
   in flight × workers × (heap + 2 GiB) — the limits it is spawned with, so the charge is
   enforced, not estimated. A `cleo run` of a test command that names its test files

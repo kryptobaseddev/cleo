@@ -28,6 +28,7 @@ import {
   MIN_HEAVY_WORKERS,
   mergeNodeOptions,
   PER_RUN_BUDGET_SHARE,
+  perRunBudgetShare,
   planHeavyToolEnv,
   WORKSPACE_CONCURRENCY,
   withHeapCeiling,
@@ -42,6 +43,20 @@ describe('heavyToolWorkers (T12096)', () => {
     expect(heavyToolWorkers(24)).toBe(1); // budget 18, half 9 → 1
     expect(heavyToolWorkers(4)).toBe(MIN_HEAVY_WORKERS);
     expect(heavyToolWorkers(0)).toBe(MIN_HEAVY_WORKERS);
+  });
+
+  it('a CI runner plans for the whole budget, so CI keeps its parallelism (T13132)', () => {
+    // A 16 GiB GitHub runner: 2 workers, as before T13132; a shared 16 GiB laptop: 1.
+    expect(heavyToolWorkers(16, { CI: 'true' })).toBe(2);
+    expect(heavyToolWorkers(16, {})).toBe(1);
+    expect(heavyToolWorkers(64, { CI: 'true' })).toBe(MAX_HEAVY_WORKERS);
+    expect(planHeavyToolEnv('test', { CI: 'true' }, 16).resources?.workers).toBe(2);
+    expect(planHeavyToolEnv('test', {}, 16).resources?.workers).toBe(1);
+    // CI=false is not CI; CLEO_PER_RUN_SHARE overrides both ways.
+    expect(perRunBudgetShare({ CI: 'false' })).toBe(PER_RUN_BUDGET_SHARE);
+    expect(perRunBudgetShare({ CI: 'true', CLEO_PER_RUN_SHARE: '0.5' })).toBe(0.5);
+    expect(perRunBudgetShare({ CLEO_PER_RUN_SHARE: '1' })).toBe(1);
+    expect(perRunBudgetShare({ CLEO_PER_RUN_SHARE: '7' })).toBe(PER_RUN_BUDGET_SHARE);
   });
 
   it('uses GIB_PER_WORKER as the divisor of half the budget', () => {

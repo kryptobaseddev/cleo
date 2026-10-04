@@ -134,6 +134,37 @@ export function admissionCapacityBytes(totalBytes: number = totalmem()): number 
  */
 export const PER_RUN_BUDGET_SHARE = 0.5;
 
+/** Overrides the per-run share: a number in `(0, 1]` (e.g. `1` on a dedicated box). */
+export const PER_RUN_SHARE_ENV = 'CLEO_PER_RUN_SHARE';
+
+/**
+ * Share of the admission budget one heavy run plans for:
+ * `CLEO_PER_RUN_SHARE` when it is a number in `(0, 1]`; the whole budget on a
+ * CI runner (`CI` set and not `false`/`0`), which is single-tenant, so CI keeps
+ * its parallelism (2 workers on a 16 GiB GitHub runner, as before T13132);
+ * else {@link PER_RUN_BUDGET_SHARE}. Fixed per environment, so the worker count
+ * in the tool cache key is stable.
+ *
+ * @param env - the environment.
+ *
+ * @example
+ * ```ts
+ * perRunBudgetShare({});                          // 0.5
+ * perRunBudgetShare({ CI: 'true' });              // 1
+ * perRunBudgetShare({ CLEO_PER_RUN_SHARE: '1' }); // 1
+ * ```
+ */
+export function perRunBudgetShare(env: NodeJS.ProcessEnv): number {
+  const raw = env[PER_RUN_SHARE_ENV]?.trim();
+  if (raw !== undefined && raw !== '') {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0 && n <= 1) return n;
+  }
+  const ci = env.CI?.trim().toLowerCase();
+  if (ci !== undefined && ci !== '' && ci !== 'false' && ci !== '0') return 1;
+  return PER_RUN_BUDGET_SHARE;
+}
+
 /**
  * Workspace packages allowed to run their test/build script concurrently.
  *
@@ -348,28 +379,33 @@ const WORKER_COUNT_VARS = [
 
 /**
  * Default worker count one heavy run plans for, given {@link GIB_PER_WORKER}:
- * {@link PER_RUN_BUDGET_SHARE} of the admission budget
- * ({@link admissionCapacityBytes}), so a whole-suite run never takes the budget
- * other runs on the machine need (T13132). A function of RAM alone, so the
- * worker count — part of the tool cache key (T12989) — is stable per machine.
+ * {@link perRunBudgetShare} of the admission budget
+ * ({@link admissionCapacityBytes}) — half on a shared machine, so a
+ * whole-suite run never takes the budget other runs need (T13132), the whole
+ * budget on a single-tenant CI runner. Fixed per machine and environment, so
+ * the worker count — part of the tool cache key (T12989) — is stable.
  *
  * The planned count ({@link planHeavyToolEnv}) never exceeds this: a small
  * inherited heap does not buy extra workers, because each worker also costs
  * memory outside its heap.
  *
  * @param totalRamGib - total RAM in GiB; defaults to a live reading.
+ * @param env - the environment ({@link perRunBudgetShare}). @defaultValue process.env
  * @returns a value in `[MIN_HEAVY_WORKERS, MAX_HEAVY_WORKERS]`.
  *
  * @example
  * ```ts
- * heavyToolWorkers(48);  // 3 (half of the 36 GiB budget)
- * heavyToolWorkers(128); // 6 (48 GiB of 96 caps at MAX_HEAVY_WORKERS)
- * heavyToolWorkers(16);  // 1
+ * heavyToolWorkers(48, {});            // 3 (half of the 36 GiB budget)
+ * heavyToolWorkers(16, {});            // 1
+ * heavyToolWorkers(16, { CI: 'true' }); // 2 (the whole 12 GiB budget)
  * ```
  */
-export function heavyToolWorkers(totalRamGib: number = totalmem() / 1024 ** 3): number {
+export function heavyToolWorkers(
+  totalRamGib: number = totalmem() / 1024 ** 3,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
   const capacityGib = admissionCapacityBytes(Math.max(0, totalRamGib) * GIB_BYTES) / GIB_BYTES;
-  const byRam = Math.floor((capacityGib * PER_RUN_BUDGET_SHARE) / GIB_PER_WORKER);
+  const byRam = Math.floor((capacityGib * perRunBudgetShare(env)) / GIB_PER_WORKER);
   return Math.min(MAX_HEAVY_WORKERS, Math.max(MIN_HEAVY_WORKERS, byRam));
 }
 
@@ -427,19 +463,23 @@ export function defaultSingleProcessHeapMb(totalRamGib: number = totalmem() / 10
  * instead of multiplying it (T13122).
  *
  * @param totalRamGib - total RAM in GiB; defaults to a live reading.
+ * @param env - the environment ({@link perRunBudgetShare}). @defaultValue process.env
  * @returns the budget in MiB.
  *
  * @example
  * ```ts
- * heavyRunBudgetMb(64); // → 16384 (4 workers × 4096)
- * heavyRunBudgetMb(16); // → 4096  (1 worker  × 4096)
+ * heavyRunBudgetMb(64, {}); // → 16384 (4 workers × 4096)
+ * heavyRunBudgetMb(16, {}); // → 4096  (1 worker  × 4096)
  * ```
  *
  * @task T13122
  * @task T13132
  */
-export function heavyRunBudgetMb(totalRamGib: number = totalmem() / 1024 ** 3): number {
-  return heavyToolWorkers(totalRamGib) * defaultHeavyHeapMb(totalRamGib);
+export function heavyRunBudgetMb(
+  totalRamGib: number = totalmem() / 1024 ** 3,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  return heavyToolWorkers(totalRamGib, env) * defaultHeavyHeapMb(totalRamGib);
 }
 
 /**
@@ -946,7 +986,7 @@ export function planHeavyToolEnv(
 
   const totalRamMb = Math.floor(totalRamGib * 1024);
   const defaultWorkers = Math.min(
-    heavyToolWorkers(totalRamGib),
+    heavyToolWorkers(totalRamGib, env),
     Math.max(MIN_HEAVY_WORKERS, Math.floor(maxWorkers ?? Number.POSITIVE_INFINITY)),
   );
   // A single process starts from Node's own default ceiling on its machine; a
