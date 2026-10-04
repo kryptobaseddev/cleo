@@ -4,8 +4,9 @@
  *
  * ## Where it sits
  *
- * Stable releases publish under the `canary` dist-tag, and `latest` moves only
- * through release-promote.yml, after the owner approves. The registry checks
+ * A stable release publishes a release candidate `<version>-rc.<n>` to the
+ * `canary` dist-tag first, and `<version>` reaches `latest` only once that
+ * candidate passes this gate (release.yml Publish, T13181). The registry checks
  * (execute-payload.mjs, release-installability-watch.mjs) prove that each
  * package RESOLVES (metadata, tarball, dist-tag) and say plainly that the
  * installed contents remain unverified. This script covers the installed
@@ -13,9 +14,9 @@
  * (`npm install --global`) into a throwaway prefix, then runs the installed
  * binary against throwaway stores.
  *
- * release-promote.yml runs it in its `plan` job, so a version that installs but
- * cannot start, or that pulls a mixed set of @cleocode versions, blocks the
- * promotion. Run it locally before approving too:
+ * release.yml's Publish job runs it against the release candidate installed
+ * from npm, so a candidate that installs but cannot start, or that pulls a
+ * mixed set of @cleocode versions, never becomes `latest`. Run it locally too:
  *
  *   node scripts/release-canary-soak.mjs                      # the current canary
  *   node scripts/release-canary-soak.mjs --version 2026.10.5

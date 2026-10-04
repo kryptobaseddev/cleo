@@ -8,9 +8,11 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  buildPrecondition,
   FORBIDDEN_STATIC_EXTERNALS,
   judgeProbe,
   PROBES,
+  SKIPPED_EXIT_CODE,
   staticImportSpecifiers,
   topPackages,
   walkStaticGraph,
@@ -167,5 +169,41 @@ describe('topPackages', () => {
       'node:fs',
     ];
     expect(topPackages(urls)).toEqual(['     2 zod', '     1 @cleocode/lafs', '     1 core']);
+  });
+});
+
+describe('buildPrecondition (review LOW on #1812)', () => {
+  const current = {
+    entryExists: true,
+    entryMtimeMs: 2000,
+    isBundle: true,
+    newest: { path: 'packages/core/src/x.ts', mtimeMs: 1000 },
+  };
+
+  it('measures a current esbuild bundle', () => {
+    expect(buildPrecondition(current, false)).toEqual({ action: 'measure' });
+    expect(buildPrecondition(current, true)).toEqual({ action: 'measure' });
+  });
+
+  it.each([
+    ['a missing build', { ...current, entryExists: false }, /is missing/],
+    ['a stale build', { ...current, entryMtimeMs: 500 }, /older than packages\/core\/src\/x\.ts/],
+    [
+      'tsc output in place of the bundle',
+      { ...current, isBundle: false },
+      /not the esbuild bundle/,
+    ],
+  ])('skips %s locally and fails it in CI', (_name, build, reason) => {
+    const local = buildPrecondition(build, false);
+    expect(local.action).toBe('skip');
+    expect(local.message).toMatch(reason);
+    expect(local.message).toMatch(/^skipped: no current build/);
+    const ci = buildPrecondition(build, true);
+    expect(ci.action).toBe('fail');
+    expect(ci.message).toMatch(reason);
+  });
+
+  it('uses the exit code cleo check arch reports as skipped', () => {
+    expect(SKIPPED_EXIT_CODE).toBe(78);
   });
 });

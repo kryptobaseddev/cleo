@@ -13,7 +13,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ResourceSample } from '../../resources/backend.js';
 import * as governorModule from '../../resources/governor.js';
+import { ResourceMonitor } from '../../resources/monitor.js';
 import { SENTIENT_STATE_FILE } from '../daemon.js';
 import { DEFAULT_SENTIENT_STATE, writeSentientState } from '../state.js';
 import { safeRunTick, type TickOptions } from '../tick.js';
@@ -118,5 +120,52 @@ describe('safeRunTick — db-heavy admission (T12001 AC3)', () => {
 
     expect(outcome.kind).toBe('no-task'); // not a pressure skip, not a throw
     expect(pickTask).toHaveBeenCalledOnce();
+  });
+
+  // The real governor on a darwin-shaped sample (T13170): macOS reads the load
+  // average as CPU pressure (T12981), so a busy CI runner or a Mac running
+  // agents reports cpu some avg10 far past backoff while memory is calm. That
+  // skipped every tick, so the dream trigger never fired on macOS CI.
+  const darwinSample = (memorySome: number, cpuSome: number): ResourceSample => {
+    const line = (v: number) => ({ avg10: v, avg60: v, avg300: v, totalUs: 0 });
+    return {
+      sampledAtMs: 1,
+      pressureAvailable: true,
+      memAvailableBytes: 24 * 1024 ** 3,
+      globalPressure: { some: line(memorySome), full: line(0) },
+      slicePressure: null,
+      cpuPressure: { some: line(cpuSome), full: null },
+      walObservations: [],
+    };
+  };
+
+  it('a busy CPU with healthy memory runs the tick (real governor, darwin sample, T13170)', async () => {
+    governorModule._resetGovernorStateForTest();
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(darwinSample(0, 75));
+    const pickTask = vi.fn(async () => null);
+    const checkAndDream = vi.fn(async () => ({
+      triggered: false,
+      tier: null,
+      skippedReason: 'test',
+    }));
+
+    const outcome = await safeRunTick(mkTickOpts(root, { pickTask, checkAndDream }));
+
+    expect(outcome.kind).toBe('no-task');
+    expect(checkAndDream).toHaveBeenCalledOnce();
+    governorModule._resetGovernorStateForTest();
+  });
+
+  it('memory pressure still skips the tick (real governor, darwin sample, T13170)', async () => {
+    governorModule._resetGovernorStateForTest();
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(darwinSample(30, 0));
+    const pickTask = vi.fn(async () => null);
+
+    const outcome = await safeRunTick(mkTickOpts(root, { pickTask }));
+
+    expect(outcome.kind).toBe('backoff');
+    expect(outcome.detail).toContain('tickSkipped:pressure');
+    expect(pickTask).not.toHaveBeenCalled();
+    governorModule._resetGovernorStateForTest();
   });
 });

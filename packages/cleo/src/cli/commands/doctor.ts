@@ -56,6 +56,7 @@ import { doctorRepairCommand } from './doctor-repair.js';
 import { doctorSkillFixturesCommand } from './doctor-skill-fixtures.js';
 import { doctorSplitBrainCommand } from './doctor-split-brain.js';
 import { doctorSupersededStoreCommand } from './doctor-superseded-store.js';
+import { doctorSyncTriggersCommand } from './doctor-sync-triggers.js';
 import { doctorToolLocksCommand } from './doctor-tool-locks.js';
 import { doctorTwinCollapseCommand } from './doctor-twin-collapse.js';
 import { doctorWorktreeStoresCommand } from './doctor-worktree-stores.js';
@@ -280,6 +281,8 @@ export const doctorCommand = defineCommand({
     'project-identity': doctorProjectIdentityCommand,
     // T12596 · T12598 — ~/.cleo, the global hub and every harness skill install must resolve
     'global-delivery': doctorGlobalDeliveryCommand,
+    // T12754 — project store triggers incl. ones referencing missing objects (+ --repair)
+    'sync-triggers': doctorSyncTriggersCommand,
     // T12645 — caamp test fixtures left in the real skills root (quarantine with a receipt)
     'skill-fixtures': doctorSkillFixturesCommand,
     // T12471 — machine-wide registry integrity: rebind moved by id, flag split/missing/temp

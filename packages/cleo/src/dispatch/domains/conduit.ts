@@ -229,13 +229,19 @@ async function _resolveCredential(agentId?: string) {
   return credential;
 }
 
-/** Get connection status and unread count. Uses LocalTransport when conduit.db is available. */
+/**
+ * Get connection status and unread count. Uses LocalTransport when conduit.db
+ * is available. A retired SignalDock base URL is reported as disconnected and
+ * never called (T13169).
+ */
 async function getStatusImpl(agentId?: string) {
   const credential = await _resolveCredential(agentId);
   const pollerRunning = activePoller !== null && activeAgentId === credential.agentId;
 
   // Check local conduit.db unread count when available
-  const { LocalTransport } = await import('@cleocode/core/conduit');
+  const { LocalTransport, SignalDockRetiredError, conduitFetch, retiredCloudHost } = await import(
+    '@cleocode/core/conduit'
+  );
   if (LocalTransport.isAvailable(getProjectRoot())) {
     const transport = new LocalTransport();
     await transport.connect({
@@ -261,13 +267,30 @@ async function getStatusImpl(agentId?: string) {
     }
   }
 
+  const retiredHost = retiredCloudHost(credential.apiBaseUrl);
+  if (retiredHost !== null) {
+    return {
+      success: true,
+      data: {
+        agentId: credential.agentId,
+        connected: false,
+        transport: 'http',
+        pollerRunning,
+        error: new SignalDockRetiredError(retiredHost).message,
+      },
+    };
+  }
+
   // Fallback: HTTP inbox endpoint for cloud-only agents
-  const response = await fetch(`${credential.apiBaseUrl}/agents/${credential.agentId}/inbox`, {
-    headers: {
-      Authorization: `Bearer ${credential.apiKey}`,
-      'X-Agent-Id': credential.agentId,
+  const response = await conduitFetch(
+    `${credential.apiBaseUrl}/agents/${credential.agentId}/inbox`,
+    {
+      headers: {
+        Authorization: `Bearer ${credential.apiKey}`,
+        'X-Agent-Id': credential.agentId,
+      },
     },
-  });
+  );
 
   if (!response.ok) {
     return {
@@ -299,12 +322,17 @@ async function getStatusImpl(agentId?: string) {
   };
 }
 
-/** One-shot peek for messages. Uses LocalTransport when conduit.db is available. */
+/**
+ * One-shot peek for messages. Uses LocalTransport when conduit.db is available.
+ *
+ * A peek never acks or consumes: every message it returns stays pending, so a
+ * second peek returns it again (T13169).
+ */
 async function peekImpl(agentId?: string, limit?: number) {
   const credential = await _resolveCredential(agentId);
 
   // Prefer LocalTransport when conduit.db is present — no network round-trip needed.
-  const { LocalTransport } = await import('@cleocode/core/conduit');
+  const { LocalTransport, conduitFetch } = await import('@cleocode/core/conduit');
   if (LocalTransport.isAvailable(getProjectRoot())) {
     const transport = new LocalTransport();
     await transport.connect({
@@ -314,9 +342,6 @@ async function peekImpl(agentId?: string, limit?: number) {
     });
     try {
       const messages = await transport.poll({ limit: limit ?? 20 });
-      if (messages.length > 0) {
-        await transport.ack(messages.map((m) => m.id));
-      }
       return {
         success: true,
         data: {
@@ -340,7 +365,7 @@ async function peekImpl(agentId?: string, limit?: number) {
   params.set('mentioned', credential.agentId);
   params.set('limit', String(limit ?? 20));
 
-  const response = await fetch(`${credential.apiBaseUrl}/messages/peek?${params}`, {
+  const response = await conduitFetch(`${credential.apiBaseUrl}/messages/peek?${params}`, {
     headers: {
       Authorization: `Bearer ${credential.apiKey}`,
       'X-Agent-Id': credential.agentId,
@@ -660,7 +685,7 @@ async function sendMessageImpl(
 
   // Prefer LocalTransport when conduit.db is present — message written directly
   // to the SQLite store without network, available for immediate local polling.
-  const { LocalTransport } = await import('@cleocode/core/conduit');
+  const { LocalTransport, conduitFetch } = await import('@cleocode/core/conduit');
   if (LocalTransport.isAvailable(getProjectRoot())) {
     const transport = new LocalTransport();
     await transport.connect({
@@ -699,7 +724,7 @@ async function sendMessageImpl(
     body['toAgentId'] = to!;
   }
 
-  const response = await fetch(url, {
+  const response = await conduitFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
