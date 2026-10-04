@@ -178,6 +178,7 @@ export function decideMode(version, latest) {
  * @typedef {object} ReleaseRun
  * @property {number} databaseId
  * @property {string} headBranch - The ref the run ran on; a tag push runs on the tag.
+ * @property {string} headSha - The commit the run ran, and so the workflow file it ran.
  * @property {string} status
  * @property {string | null} conclusion
  * @property {string} createdAt
@@ -190,17 +191,28 @@ export function decideMode(version, latest) {
  * @param {object} input
  * @param {string} input.version
  * @param {ReleaseRun | null} input.run - The newest release.yml run on `v<version>`.
+ * @param {string | null} [input.tagSha] - The commit the tag points at; null when unread.
  * @param {Record<string, { status: string, conclusion: string | null }>} [input.jobs] -
  *   That run's jobs by name (latest attempt).
  * @param {{ verdict?: unknown } | null} [input.summary] - Its deploy summary, read from
  *   the run's `postdeploy-<version>` artifact; null when unread or unreadable.
  * @returns {Verdict}
  */
-export function evaluateVerdict({ version, run, jobs = {}, summary = null }) {
+export function evaluateVerdict({ version, run, tagSha = null, jobs = {}, summary = null }) {
   const tag = `v${version}`;
   if (!run || run.headBranch !== tag)
     return { green: false, source: 'release.yml', detail: `no release.yml run on the tag ${tag}` };
   const source = `release.yml run ${run.databaseId}`;
+  // A branch can carry the tag's name; only the tagged commit's own workflow
+  // file counts (T13144 review).
+  if (!tagSha || run.headSha !== tagSha)
+    return {
+      green: false,
+      source,
+      detail: tagSha
+        ? `the run ran ${String(run.headSha).slice(0, 12)}, not the tag's commit ${tagSha.slice(0, 12)}`
+        : `the tag ${tag} could not be resolved to a commit`,
+    };
   if (run.status !== 'completed')
     return { green: false, source, detail: `the release run is still ${run.status}` };
   const verdictJob = jobs[VERDICT_JOB];
@@ -295,7 +307,7 @@ export function readVerdict(version, gh = runGh, readSummary = readDeploySummary
       '--limit',
       '20',
       '--json',
-      'databaseId,headBranch,status,conclusion,createdAt',
+      'databaseId,headBranch,headSha,status,conclusion,createdAt',
     ]),
   );
   // Only a run on the tag itself: a dispatch from any other ref runs that ref's
@@ -304,7 +316,8 @@ export function readVerdict(version, gh = runGh, readSummary = readDeploySummary
     runs
       .filter((r) => r.headBranch === tag)
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0] ?? null;
-  if (!run || run.status !== 'completed') return evaluateVerdict({ version, run });
+  const tagSha = run ? resolveTagCommit(tag, gh) : null;
+  if (!run || run.status !== 'completed') return evaluateVerdict({ version, run, tagSha });
   /** @type {Record<string, { status: string, conclusion: string | null }>} */
   const jobs = {};
   for (const line of gh([
@@ -324,7 +337,53 @@ export function readVerdict(version, gh = runGh, readSummary = readDeploySummary
     jobs[VERDICT_JOB].conclusion !== 'success' &&
     jobs[PUBLISH_JOB]?.conclusion === 'success';
   const summary = needsSummary ? readSummary(run.databaseId, version, gh) : null;
-  return evaluateVerdict({ version, run, jobs, summary });
+  return evaluateVerdict({ version, run, tagSha, jobs, summary });
+}
+
+/**
+ * Resolve a tag to the commit it points at, peeling annotated tags. Read from
+ * `git/ref/tags/<tag>`, so a branch with the same name cannot answer.
+ *
+ * @param {string} tag
+ * @param {(args: string[]) => string} [gh]
+ * @returns {string | null} Null when the tag does not exist or cannot be read.
+ */
+export function resolveTagCommit(tag, gh = runGh) {
+  try {
+    /** @type {{ type?: string, sha?: string } | undefined} */
+    let object = JSON.parse(gh(['api', `repos/{owner}/{repo}/git/ref/tags/${tag}`])).object;
+    for (let depth = 0; object?.type === 'tag' && depth < 5; depth++)
+      object = JSON.parse(gh(['api', `repos/{owner}/{repo}/git/tags/${object.sha}`])).object;
+    return object?.type === 'commit' && typeof object.sha === 'string' ? object.sha : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a package was published at a version before `version`: its first-ever
+ * publish gets `latest` from npm even under `--tag canary`, so `latest ===
+ * version` proves a promotion only for a package with an earlier version.
+ * Reads the abbreviated packument; any failure answers false (the canary check
+ * then applies).
+ *
+ * @param {string} pkg - Short package name.
+ * @param {string} version
+ * @param {typeof fetch} [fetchImpl]
+ * @returns {Promise<boolean>}
+ */
+export async function hasEarlierVersion(pkg, version, fetchImpl = fetch) {
+  try {
+    const res = await fetchImpl(`${REGISTRY}/@cleocode%2f${encodeURIComponent(pkg)}`, {
+      headers: { accept: 'application/vnd.npm.install-v1+json' },
+    });
+    if (!res.ok) return false;
+    const body = await res.json();
+    const versions = Object.keys(body?.versions ?? {});
+    return versions.some((v) => v !== version && compareVersions(v, version) < 0);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -385,7 +444,16 @@ export async function planPromotion({
       );
   // A promotion already under way finishes without the canary check: the
   // version was approved once, and a newer canary must not strand it half-moved.
-  const underWay = rows.some((r) => r.latest === version);
+  // Under way means some package with an earlier version already has `latest`
+  // at this one; a brand-new package gets `latest` from its first publish.
+  let underWay = false;
+  const moved = rows.filter((r) => r.latest === version);
+  if (mode === 'promote' && moved.length > 0 && rows.some((r) => r.canary !== version)) {
+    const earlier = await Promise.all(
+      moved.map((r) => hasEarlierVersion(r.pkg, version, fetchImpl)),
+    );
+    underWay = earlier.some(Boolean);
+  }
   if (mode === 'promote' && !underWay) {
     for (const row of rows.filter((r) => r.canary !== version))
       blockers.push(

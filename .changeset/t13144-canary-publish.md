@@ -17,7 +17,8 @@ until the new one is promoted. Prereleases keep `beta` and `dev`.
   and that the release's installability verdict is green. The verdict is read
   only from the release run on the tag (its `Release Verdict` job, or a
   successful `Publish` with a `pending` deploy summary in the run's own
-  artifact, after which the live check decides); a run on another ref and the
+  artifact, after which the live check decides). The run must have run the
+  tag's own commit; a run on another ref, a branch named like the tag, and the
   editable tracking issue never count. Then it installs the version into a
   sandbox and runs health checks (`scripts/release-canary-soak.mjs`). Both
   block; nothing continues on error.

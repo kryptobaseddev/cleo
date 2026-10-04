@@ -267,7 +267,8 @@ artifact says the verdict was `pending` at its deadline (published, no package
 serving a wrong version). In the pending case the plan's live check of every
 package decides. The tracking issue is never read: its body is editable. A run
 on any other ref does not count, because it runs that ref's copy of the
-workflow. To re-run a failed release, re-run the tag run's failed jobs
+workflow, and neither does a run whose commit is not the tag's (a branch can be
+named like the tag). To re-run a failed release, re-run the tag run's failed jobs
 (`gh run rerun <id> --failed`), or dispatch on the tag ref
 (`gh workflow run release.yml --ref v2026.X.Y -f version=2026.X.Y`); a dispatch
 from `main` does not count for promotion. The postdeploy artifact is kept 30
@@ -308,13 +309,14 @@ re-run with the same version, and packages already moved are skipped.
 
 Only the current canary can be promoted. If a newer release was published
 before an older canary was promoted, promote the newer one. The exception is a
-promotion already under way (some package's `latest` is already the version):
-a re-run finishes it without the canary check, so a newer canary cannot strand
-`latest` half-moved.
+promotion already under way (some package that had an earlier version already
+has `latest` at this one): a re-run finishes it without the canary check, so a
+newer canary cannot strand `latest` half-moved.
 
 A package's first-ever publish gets `latest` from the registry regardless of
 `--tag canary` (npm tags a package's first version `latest`). That only matters
-when `publish_pkg` gains a new package.
+when `publish_pkg` gains a new package, and it never counts as a promotion
+under way.
 
 **4. Roll back.** Run the same workflow with the previous version:
 

@@ -31,6 +31,7 @@ import {
   planPromotion,
   readDeploySummary,
   readVerdict,
+  resolveTagCommit,
   VERDICT_JOB,
   waitForLatest,
 } from '../release-promote.mjs';
@@ -60,6 +61,10 @@ function fakeRegistry({ tags, published, missingTarball = new Set(), brokenTags 
     const u = String(url);
     let m = /\/-\/package\/@cleocode%2f([^/]+)\/dist-tags$/.exec(u);
     if (m) return brokenTags.has(m[1]) ? res(500, {}) : res(200, { ...tags[m[1]] });
+    // The abbreviated packument: only its `versions` keys are read.
+    m = /\/@cleocode%2f([^/]+)$/.exec(u);
+    if (m)
+      return res(200, { versions: Object.fromEntries((versions[m[1]] ?? []).map((v) => [v, {}])) });
     m = /\/@cleocode\/([^/]+)\/-\/[^/]+-(\d[^/]*)\.tgz$/.exec(u);
     if (m) return res(missingTarball.has(`${m[1]}@${m[2]}`) ? 404 : 200, null);
     m = /\/@cleocode\/([^/]+)\/(\d[^/]*)$/.exec(u);
@@ -75,15 +80,20 @@ function fakeRegistry({ tags, published, missingTarball = new Set(), brokenTags 
   return { fetchImpl, tags };
 }
 
-/** A release.yml run as `gh run list --json` reports it. */
+/** The commit each release tag points at. */
+const TAG_SHA = { [`v${NEW}`]: 'a'.repeat(40), [`v${OLD}`]: 'b'.repeat(40) };
+
+/** A release.yml run as `gh run list --json` reports it; by default it ran the tag's commit. */
 const runOn = (
   databaseId,
   headBranch,
   createdAt = '2026-10-05T09:00:00Z',
   status = 'completed',
+  headSha = TAG_SHA[headBranch] ?? 'f'.repeat(40),
 ) => ({
   databaseId,
   headBranch,
+  headSha,
   status,
   conclusion: 'success',
   createdAt,
@@ -106,6 +116,11 @@ function fakeGh(opts = {}) {
   const gh = (args) => {
     calls.push(args);
     if (args[0] === 'run' && args[1] === 'list') return JSON.stringify(runs);
+    const ref = /git\/ref\/tags\/(.+)$/.exec(args[1] ?? '');
+    if (args[0] === 'api' && ref) {
+      if (!TAG_SHA[ref[1]]) throw new Error('HTTP 404');
+      return JSON.stringify({ object: { type: 'commit', sha: TAG_SHA[ref[1]] } });
+    }
     if (args[0] === 'api')
       return Object.entries(jobs)
         .map(([name, conclusion]) => JSON.stringify({ name, status: 'completed', conclusion }))
@@ -166,16 +181,27 @@ describe('decideMode', () => {
 
 describe('evaluateVerdict', () => {
   const run = runOn(7, `v${NEW}`);
+  const tagSha = TAG_SHA[`v${NEW}`];
   const jobs = (verdict, publish = 'success') => ({
     [VERDICT_JOB]: { status: 'completed', conclusion: verdict },
     [PUBLISH_JOB]: { status: 'completed', conclusion: publish },
   });
 
   it('is green when the tag run renders a successful verdict', () => {
-    expect(evaluateVerdict({ version: NEW, run, jobs: jobs('success') })).toMatchObject({
+    expect(evaluateVerdict({ version: NEW, run, tagSha, jobs: jobs('success') })).toMatchObject({
       green: true,
       source: 'release.yml run 7',
     });
+  });
+
+  it("is not green for a run that did not run the tag's commit (a branch named like the tag)", () => {
+    const branchRun = runOn(9, `v${NEW}`, undefined, 'completed', 'e'.repeat(40));
+    expect(
+      evaluateVerdict({ version: NEW, run: branchRun, tagSha, jobs: jobs('success') }).green,
+    ).toBe(false);
+    expect(evaluateVerdict({ version: NEW, run, tagSha: null, jobs: jobs('success') }).green).toBe(
+      false,
+    );
   });
 
   it('is not green without a completed run on the tag, or without a verdict job', () => {
@@ -187,25 +213,31 @@ describe('evaluateVerdict', () => {
       evaluateVerdict({
         version: NEW,
         run: runOn(7, `v${NEW}`, undefined, 'in_progress'),
+        tagSha,
         jobs: jobs('success'),
       }).green,
     ).toBe(false);
-    expect(evaluateVerdict({ version: NEW, run, jobs: {} }).green).toBe(false);
+    expect(evaluateVerdict({ version: NEW, run, tagSha, jobs: {} }).green).toBe(false);
   });
 
   it('accepts a red verdict over a successful publish only with a pending deploy summary', () => {
     const red = jobs('failure');
     expect(
-      evaluateVerdict({ version: NEW, run, jobs: red, summary: { verdict: 'pending' } }).green,
+      evaluateVerdict({ version: NEW, run, tagSha, jobs: red, summary: { verdict: 'pending' } })
+        .green,
     ).toBe(true);
     expect(
-      evaluateVerdict({ version: NEW, run, jobs: red, summary: { verdict: 'defect' } }).green,
+      evaluateVerdict({ version: NEW, run, tagSha, jobs: red, summary: { verdict: 'defect' } })
+        .green,
     ).toBe(false);
-    expect(evaluateVerdict({ version: NEW, run, jobs: red, summary: null }).green).toBe(false);
+    expect(evaluateVerdict({ version: NEW, run, tagSha, jobs: red, summary: null }).green).toBe(
+      false,
+    );
     expect(
       evaluateVerdict({
         version: NEW,
         run,
+        tagSha,
         jobs: jobs('failure', 'failure'),
         summary: { verdict: 'pending' },
       }).green,
@@ -223,13 +255,33 @@ describe('readVerdict', () => {
     expect(readVerdict(NEW, both.gh, noSummary).source).toBe('release.yml run 7');
   });
 
+  it("ignores a branch named like the tag: the run must have run the tag's commit (review probe)", () => {
+    const { gh } = fakeGh({
+      runs: [runOn(98, `v${NEW}`, '2026-10-06T00:00:00Z', 'completed', 'e'.repeat(40))],
+    });
+    expect(readVerdict(NEW, gh, noSummary)).toMatchObject({
+      green: false,
+      source: 'release.yml run 98',
+    });
+  });
+
+  it('peels an annotated tag to its commit', () => {
+    const gh = (args) => {
+      if (args[1].endsWith('/git/ref/tags/v1')) return '{"object":{"type":"tag","sha":"t1"}}';
+      if (args[1].endsWith('/git/tags/t1')) return '{"object":{"type":"commit","sha":"c1"}}';
+      throw new Error('HTTP 404');
+    };
+    expect(resolveTagCommit('v1', gh)).toBe('c1');
+    expect(resolveTagCommit('v2', gh)).toBeNull();
+  });
+
   it('reads the newest run on the tag and both jobs, paginated', () => {
     const { gh, calls } = fakeGh({
       runs: [runOn(7, `v${NEW}`), runOn(8, `v${NEW}`, '2026-10-05T11:00:00Z')],
     });
     expect(readVerdict(NEW, gh, noSummary).source).toBe('release.yml run 8');
     expect(calls[0]).toEqual(expect.arrayContaining(['--branch', `v${NEW}`]));
-    const api = calls.find((c) => c[0] === 'api');
+    const api = calls.find((c) => c[0] === 'api' && c.some((x) => x.includes('/jobs')));
     expect(api).toContain('--paginate');
     expect(api?.find((a) => a.includes('/actions/runs/8/jobs'))).toContain('per_page=100');
     const jq = api?.find((a) => a.includes(VERDICT_JOB));
@@ -306,6 +358,29 @@ describe('planPromotion', () => {
     });
     expect(plan.blockers).toEqual([]);
     expect(plan).toMatchObject({ ok: true, mode: 'promote', moves: ['core', 'cleo'] });
+  });
+
+  it("does not treat a brand-new package's first publish as a promotion under way", async () => {
+    // npm gives a package's first version `latest`, even under --tag canary.
+    const tags = Object.fromEntries(
+      PACKAGES.map((p) => [p, { canary: '2026.10.6', latest: p === 'contracts' ? NEW : OLD }]),
+    );
+    const { fetchImpl } = fakeRegistry({
+      tags,
+      published: {
+        contracts: [NEW, '2026.10.6'],
+        core: [OLD, NEW, '2026.10.6'],
+        cleo: [OLD, NEW, '2026.10.6'],
+      },
+    });
+    const plan = await planPromotion({
+      version: NEW,
+      packages: PACKAGES,
+      fetchImpl,
+      gh: fakeGh().gh,
+    });
+    expect(plan.ok).toBe(false);
+    expect(plan.blockers.join('\n')).toContain('@cleocode/core: canary is 2026.10.6');
   });
 
   it('blocks a promotion when any package canary is not the version', async () => {
