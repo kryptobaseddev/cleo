@@ -26,13 +26,6 @@ vi.mock('../../../renderers/index.js', () => ({
 
 // Replace `getProjectRoot()` with a per-test stub that points at our temp dir.
 let currentProjectRoot = '';
-vi.mock('@cleocode/core', async (importOriginal) => {
-  const orig = await importOriginal<typeof import('@cleocode/core')>();
-  return {
-    ...orig,
-    getProjectRoot: () => currentProjectRoot,
-  };
-});
 
 // show/validate use the canonical deep export to avoid loading the core barrel.
 // Keep both entry points bound to the same isolated fixture while other commands migrate.
