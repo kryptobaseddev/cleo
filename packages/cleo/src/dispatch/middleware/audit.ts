@@ -13,12 +13,10 @@
  * @task T4844
  */
 
-import {
-  getLogger,
-  getProjectInfoSync,
-  resolveBoundSession,
-  resolveSessionIdFromEnv,
-} from '@cleocode/core/internal';
+import { getLogger } from '@cleocode/core/logger';
+import { getProjectInfoSync } from '@cleocode/core/project-info';
+import { resolveSessionIdFromEnv } from '@cleocode/core/sessions/session-id';
+import { resolveBoundSession } from '@cleocode/core/store/session-store';
 import { getConfig } from '../lib/config.js';
 import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
@@ -105,9 +103,9 @@ async function writeToSqlite(
   response?: DispatchResponse,
 ): Promise<void> {
   try {
-    const { getDb } = await import('@cleocode/core/internal');
-    const { auditLog } = await import('@cleocode/core/internal');
-    const { AuditLogInsertSchema } = await import('@cleocode/core/internal');
+    const { getDb } = await import('@cleocode/core/store/sqlite');
+    const { auditLog } = await import('@cleocode/core/store/schema/audit');
+    const { AuditLogInsertSchema } = await import('@cleocode/core/store/validation-schemas');
     const { randomUUID } = await import('node:crypto');
 
     const payload = {
@@ -234,4 +232,4 @@ export function createAudit(): Middleware {
 }
 
 // queryAudit re-exported from core (canonical location)
-export { queryAudit } from '@cleocode/core/internal';
+export { queryAudit } from '@cleocode/core/audit';

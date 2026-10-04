@@ -43,8 +43,8 @@ export async function settleThenExit(
   return exit(code);
 }
 
-/** Core's settle, loaded on demand so the CLI entry graph stays barrel-free. */
+/** Core's settle, loaded on demand from its leaf module (no barrel). */
 async function settleWithCore(): Promise<number> {
-  const { settleBeforeExit } = await import('@cleocode/core/internal');
+  const { settleBeforeExit } = await import('@cleocode/core/shutdown');
   return settleBeforeExit();
 }

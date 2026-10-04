@@ -15,8 +15,8 @@
  * @epic T4454
  */
 
-import { ExitCode } from '@cleocode/contracts';
-import { createPage } from '@cleocode/core';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { createPage } from '@cleocode/core/pagination';
 import { defineCommand } from 'citty';
 import { dispatchRaw, handleRawError, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';
 import {

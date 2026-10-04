@@ -14,16 +14,12 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { catalog, registerSkillLibraryFromPath } from '@cleocode/caamp';
-import {
-  autoRecordDispatchTokenUsage,
-  describeOperation,
-  getProjectRoot,
-  hooks,
-  settleBeforeExit,
-  trackBackgroundOp,
-} from '@cleocode/core/internal';
-import type { GatewayHandler } from '@cleocode/runtime/gateway';
+import { describeOperation } from '@cleocode/core/dispatch/describe-operation';
+import { hooks } from '@cleocode/core/hooks/registry';
+import { autoRecordDispatchTokenUsage } from '@cleocode/core/metrics/token-service';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { trackBackgroundOp } from '@cleocode/core/store/background-ops';
+import type { GatewayHandler } from '@cleocode/runtime/gateway/dispatch';
 import { createDispatchSpinner } from '../../cli/animation-bridge.js';
 import { isDescribeMode } from '../../cli/describe-context.js';
 import { getFormatContext } from '../../cli/format-context.js';
@@ -31,7 +27,7 @@ import { getIdempotencyKeyContext } from '../../cli/idempotency-context.js';
 import { settleThenExit } from '../../cli/lib/settle-then-exit.js';
 import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/index.js';
 import { Dispatcher } from '../dispatcher.js';
-import { createDomainHandlers } from '../domains/index.js';
+import { createLazyDomainHandlers } from '../domains/lazy.js';
 import { createAudit } from '../middleware/audit.js';
 import { createBudgetEnforcement } from '../middleware/budget-enforcement.js';
 import { createClaimHeartbeat } from '../middleware/claim-heartbeat.js';
@@ -95,8 +91,26 @@ const ERROR_CODE_TO_EXIT: Record<string, number> = {
  * falling back to workspace monorepo path. Non-fatal: if the library
  * cannot be found, catalog-dependent operations (skills validate/dispatch/deps)
  * will return a helpful error instead of crashing.
+ *
+ * T13126: runs once per process, before the first operation that may need the
+ * catalog (see {@link prepareCoreFor}), and loads `@cleocode/caamp` only then.
+ * It used to run while the dispatcher was built, loading CAAMP (and its
+ * skills-discovery stack) for every command, `cleo show` included.
  */
-function ensureCaampLibrary(): void {
+let caampLibraryReady: Promise<void> | null = null;
+function ensureCaampLibrary(): Promise<void> {
+  caampLibraryReady ??= registerCaampLibrary();
+  return caampLibraryReady;
+}
+
+async function registerCaampLibrary(): Promise<void> {
+  let caamp: typeof import('@cleocode/caamp');
+  try {
+    caamp = await import('@cleocode/caamp');
+  } catch {
+    return; // Non-fatal, as below.
+  }
+  const { catalog, registerSkillLibraryFromPath } = caamp;
   // Already registered (e.g. via `cleo init` or env var) — nothing to do
   if (catalog.isCatalogAvailable()) return;
 
@@ -136,6 +150,45 @@ function ensureCaampLibrary(): void {
 // Lazy singleton dispatcher
 // ---------------------------------------------------------------------------
 
+/**
+ * Read operations verified to run without CORE's module-load side effects
+ * (T13126): `cleo show`, `find`, `list` and `current`, the commands agents call
+ * most. They dispatch on narrow CORE modules alone.
+ *
+ * Loading `@cleocode/core/internal` also REGISTERS things as a side effect: the
+ * lifecycle hook handlers (`hooks/handlers`), the LLM env credential seeders,
+ * release invariants, the CAAMP-backed engine registries. Every other
+ * operation therefore still loads the barrel before it is dispatched, so it
+ * runs with exactly the registrations it always had. An operation joins this
+ * set only once its whole path is shown not to depend on one of them.
+ */
+const BARREL_FREE_OPERATIONS: ReadonlySet<string> = new Set([
+  'query:tasks.show',
+  'query:tasks.find',
+  'query:tasks.list',
+  'query:tasks.current',
+]);
+
+/**
+ * Load the CORE barrel (and so its side-effect registrations) unless the
+ * operation is in {@link BARREL_FREE_OPERATIONS}. Call before anything
+ * operation-specific runs: hooks, middleware or the domain handler.
+ *
+ * @param gateway - CQRS gateway of the operation.
+ * @param domain - Canonical domain.
+ * @param operation - Operation name.
+ * @task T13126
+ */
+export async function prepareCoreFor(
+  gateway: Gateway,
+  domain: string,
+  operation: string,
+): Promise<void> {
+  if (BARREL_FREE_OPERATIONS.has(`${gateway}:${domain}.${operation}`)) return;
+  await import('@cleocode/core/internal');
+  await ensureCaampLibrary();
+}
+
 let _dispatcher: Dispatcher | null = null;
 
 /**
@@ -173,7 +226,13 @@ export function getCliDispatcher(): Dispatcher {
 export function createCliGatewayHandler(): GatewayHandler {
   const dispatcher = getCliDispatcher();
   return {
-    handle: (req: DispatchRequest): Promise<DispatchResponse> => dispatcher.dispatch(req),
+    // A daemon serves every operation, so it prepares CORE the way the CLI
+    // does for an operation outside BARREL_FREE_OPERATIONS (T13126).
+    handle: async (req: DispatchRequest): Promise<DispatchResponse> => {
+      await import('@cleocode/core/internal');
+      await ensureCaampLibrary();
+      return dispatcher.dispatch(req);
+    },
   };
 }
 
@@ -201,7 +260,7 @@ export function createCliGatewayHandler(): GatewayHandler {
  */
 export async function lookupCliSession(): Promise<string | null> {
   try {
-    const { resolveBoundSessionId } = await import('@cleocode/core/internal');
+    const { resolveBoundSessionId } = await import('@cleocode/core/store/session-store');
     return await resolveBoundSessionId();
   } catch {
     return null;
@@ -220,7 +279,7 @@ export async function lookupCliSession(): Promise<string | null> {
  * @task T12540
  */
 export async function heartbeatCliSession(_req: DispatchRequest, sessionId: string): Promise<void> {
-  const { heartbeatProjectSession } = await import('@cleocode/core/internal');
+  const { heartbeatProjectSession } = await import('@cleocode/core/task-work/claims');
   await heartbeatProjectSession(getProjectRoot(), sessionId);
 }
 
@@ -239,7 +298,7 @@ export async function heartbeatCliSession(_req: DispatchRequest, sessionId: stri
  */
 export async function warnUnboundMutation(req: DispatchRequest): Promise<void> {
   if (getFormatContext().quiet) return;
-  const { hasActiveSession } = await import('@cleocode/core/internal');
+  const { hasActiveSession } = await import('@cleocode/core/store/session-store');
   if (!(await hasActiveSession())) return;
   process.stderr.write(
     `[cleo] warning: no session is bound to this terminal; ${req.domain}.${req.operation} ` +
@@ -249,16 +308,17 @@ export async function warnUnboundMutation(req: DispatchRequest): Promise<void> {
 }
 
 /**
- * Factory: creates a Dispatcher with all domain handlers + session-resolver,
+ * Factory: creates a Dispatcher with lazily-loaded domain handlers + session-resolver,
  * sanitizer, field-filter, and audit middleware.
  *
  * @epic T4959 — added session-resolver + audit to CLI pipeline
  */
 export function createCliDispatcher(): Dispatcher {
-  // Ensure the CAAMP skill catalog is available for tools domain operations
-  ensureCaampLibrary();
-
-  const handlers = createDomainHandlers();
+  // The CAAMP skill catalog is registered by prepareCoreFor (CLI) or by
+  // createCliGatewayHandler (daemon) before an operation that may need it.
+  // T13126: one lazy proxy per domain. A command loads its own domain module
+  // on first dispatch instead of all 29 (and every CORE subsystem they use).
+  const handlers = createLazyDomainHandlers();
   return new Dispatcher({
     handlers,
     middlewares: [
@@ -385,6 +445,7 @@ export async function dispatchFromCli(
   // so introspection works with no DB or active session.
   if (maybeEmitDescribe(gateway, domain, operation, outputOpts)) return;
 
+  await prepareCoreFor(gateway, domain, operation);
   const dispatcher = getCliDispatcher();
   const projectRoot = getProjectRoot();
   const dispatchStart = Date.now();
@@ -553,6 +614,7 @@ export async function dispatchRaw(
   operation: string,
   params?: Record<string, unknown>,
 ): Promise<DispatchResponse> {
+  await prepareCoreFor(gateway, domain, operation);
   const dispatcher = getCliDispatcher();
   const projectRoot = getProjectRoot();
   const dispatchStart = Date.now();
@@ -612,7 +674,12 @@ export async function dispatchRaw(
   // T13164: a caller may hand a failure to handleRawError, which exits at once;
   // settle best-effort writes first. Bounded, and it closes nothing, so a
   // caller that handles the failure itself continues normally.
-  if (!response.success) await settleBeforeExit();
+  // Loaded only on a failure: core/shutdown pulls in the BRAIN writer,
+  // telemetry and the logger, which no successful dispatch needs here.
+  if (!response.success) {
+    const { settleBeforeExit } = await import('@cleocode/core/shutdown');
+    await settleBeforeExit();
+  }
 
   return response;
 }

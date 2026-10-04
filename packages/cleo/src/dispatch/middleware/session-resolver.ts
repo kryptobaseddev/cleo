@@ -16,7 +16,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { resolveSessionIdFromEnv } from '@cleocode/core/internal';
+import { resolveSessionIdFromEnv } from '@cleocode/core/sessions/session-id';
 import { getBoundSession } from '../context/session-context.js';
 import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
