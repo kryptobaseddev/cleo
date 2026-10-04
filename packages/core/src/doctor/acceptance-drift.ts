@@ -98,7 +98,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SQLOutputValue } from 'node:sqlite';
-import { acceptanceItemSchema } from '@cleocode/contracts';
+import { acceptanceItemSchema } from '@cleocode/contracts/acceptance-gate-schema.js';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
 import { acItemToText } from '../tasks/ac-table.js';
 

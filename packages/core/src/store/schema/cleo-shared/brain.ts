@@ -91,7 +91,7 @@
  * @see docs/migration/sqlite-schema-columns.json (per-column affinity SSoT)
  */
 
-import { BRAIN_OBSERVATION_SOURCE_TYPES } from '@cleocode/contracts';
+import { BRAIN_OBSERVATION_SOURCE_TYPES } from '@cleocode/contracts/memory/observe.js';
 import { sql } from 'drizzle-orm';
 import {
   type AnySQLiteColumn,

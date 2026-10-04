@@ -32,7 +32,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { BlobAttachment } from '@cleocode/contracts';
-import { DocKindRegistry } from '@cleocode/contracts';
+import { DocKindRegistry } from '@cleocode/contracts/docs-taxonomy.js';
 import type {
   DocsAddParams,
   DocsAddResult,

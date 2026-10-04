@@ -52,7 +52,7 @@ import type {
   ProviderProfile,
   RoleName,
 } from '@cleocode/contracts';
-import { WHOAMI_ROLE_IDS } from '@cleocode/contracts';
+import { WHOAMI_ROLE_IDS } from '@cleocode/contracts/llm/system-of-use.js';
 import { setConfigValue } from '../../config.js';
 import { getLogger } from '../../logger.js';
 import {

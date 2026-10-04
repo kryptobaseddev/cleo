@@ -5,7 +5,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
-import { TASK_STATUSES } from '@cleocode/contracts';
+import { TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { allocateNextTaskId } from '../sequence/index.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { queryTasksIncludingArchived } from '../store/import-remap.js';

@@ -861,6 +861,17 @@ const checkArchCommand = defineCommand({
         script: 'scripts/check-cli-startup-graph.mjs',
         description: 'Built CLI startup graph and per-command module budgets (ratchet)',
       },
+      {
+        // T13126: the @cleocode/contracts barrel evaluates every contracts zod
+        // schema (~40 MB of heap). Runtime source of the packages the CLI
+        // loads imports VALUES from the declaring leaf module; type-only
+        // imports may stay on the barrel (erased). Core's own public barrels
+        // are exempt. A 6-file baseline (skill-covered files) may only shrink.
+        id: 'gate-40',
+        task: 'T13126',
+        script: 'scripts/lint-no-contracts-barrel-value-imports.mjs',
+        description: 'No runtime value import from the @cleocode/contracts barrel',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];

@@ -39,17 +39,17 @@
  * @epic T12496
  */
 
-import {
-  NEXUS_FLEET_SCHEMA_VERSION,
-  type NexusFleetDevice,
-  type NexusFleetDeviceSummary,
-  type NexusFleetFlag,
-  type NexusFleetGitSummary,
-  type NexusFleetLocation,
-  type NexusFleetProject,
-  type NexusProjectsFleetParams,
-  type NexusProjectsFleetResult,
+import type {
+  NexusFleetDevice,
+  NexusFleetDeviceSummary,
+  NexusFleetFlag,
+  NexusFleetGitSummary,
+  NexusFleetLocation,
+  NexusFleetProject,
+  NexusProjectsFleetParams,
+  NexusProjectsFleetResult,
 } from '@cleocode/contracts';
+import { NEXUS_FLEET_SCHEMA_VERSION } from '@cleocode/contracts/operations/nexus.js';
 import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import {

@@ -9,7 +9,7 @@
  * @task T4872
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   CleoError,
   formatError,

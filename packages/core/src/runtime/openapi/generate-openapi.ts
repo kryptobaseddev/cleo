@@ -45,7 +45,8 @@
  * @task T11918 — AC2: zod→OpenAPI 3.1 bridge + `cleo gateway openapi`
  */
 
-import { type JsonSchema, OPERATIONS, type OperationDef, type ParamDef } from '@cleocode/contracts';
+import type { JsonSchema, OperationDef, ParamDef } from '@cleocode/contracts';
+import { OPERATIONS } from '@cleocode/contracts/dispatch/operations-registry.js';
 import { getInputContract } from '../../dispatch/contracts/input-contracts.js';
 import { getOutputContract } from '../../dispatch/contracts/output-contracts.js';
 

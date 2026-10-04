@@ -6,17 +6,18 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import type { Session, SessionScope } from '@cleocode/contracts';
-import {
-  ExitCode,
-  LeadBypassDetectedError,
-  type SessionEndParams,
-  type SessionGcParams,
-  type SessionListParams,
-  type SessionResumeParams,
-  type SessionStartParams,
-  type SessionStatusParams,
+import type {
+  Session,
+  SessionEndParams,
+  SessionGcParams,
+  SessionListParams,
+  SessionResumeParams,
+  SessionScope,
+  SessionStartParams,
+  SessionStatusParams,
 } from '@cleocode/contracts';
+import { LeadBypassDetectedError } from '@cleocode/contracts/errors.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { sessionListItemNext, sessionStartNext } from '../mvi-helpers.js';
 import type { DataAccessor } from '../store/data-accessor.js';
@@ -285,7 +286,9 @@ export async function startSession(
   // T1263: Append session_start journal entry (best-effort)
   import('./session-journal.js')
     .then(async ({ appendSessionJournalEntry }) => {
-      const { SESSION_JOURNAL_SCHEMA_VERSION } = await import('@cleocode/contracts');
+      const { SESSION_JOURNAL_SCHEMA_VERSION } = await import(
+        '@cleocode/contracts/session-journal.js'
+      );
       const agentIdentifier =
         process.env.CLEO_AGENT_ID ?? process.env.CLAUDE_CODE_AGENT_ID ?? undefined;
       await appendSessionJournalEntry(projectRoot, {

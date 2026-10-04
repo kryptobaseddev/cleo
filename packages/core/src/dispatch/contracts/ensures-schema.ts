@@ -30,7 +30,8 @@
  * @see ENSURES_SCHEMA_REGISTRY — the contracts-resident registry DATA (ST-1)
  */
 
-import { ENSURES_SCHEMA_REGISTRY, type EnsuresSchemaSpec } from '@cleocode/contracts';
+import type { EnsuresSchemaSpec } from '@cleocode/contracts';
+import { ENSURES_SCHEMA_REGISTRY } from '@cleocode/contracts/operations/ensures-schema-registry.js';
 
 export type { EnsuresSchemaSpec };
 

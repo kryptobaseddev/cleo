@@ -22,7 +22,8 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Session, TaskClaim, TaskWorkState } from '@cleocode/contracts';
-import { ExitCode, TERMINAL_TASK_STATUSES } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { CleoError } from '../errors.js';
 import { memoryObserve } from '../memory/engine-compat.js';
 import { getProjectRoot } from '../paths.js';

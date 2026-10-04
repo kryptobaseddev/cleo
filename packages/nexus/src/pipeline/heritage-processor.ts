@@ -28,7 +28,7 @@
  */
 
 import type { GraphNode, GraphRelation } from '@cleocode/contracts';
-import { confidenceLabelFromNumeric } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts/graph.js';
 import type { ExtractedHeritage } from './extractors/typescript-extractor.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import type { ResolutionContext } from './resolution-context.js';

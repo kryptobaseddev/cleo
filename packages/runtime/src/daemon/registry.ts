@@ -18,14 +18,14 @@
  * @saga T11243 SG-RUNTIME-UNIFICATION
  */
 
-import {
-  type DaemonLifecycleHooks,
-  type HealthStatus,
-  type Subsystem,
-  type SubsystemHealth,
-  type SubsystemLifecyclePhase,
-  summarizeHealth,
+import type {
+  DaemonLifecycleHooks,
+  HealthStatus,
+  Subsystem,
+  SubsystemHealth,
+  SubsystemLifecyclePhase,
 } from '@cleocode/contracts';
+import { summarizeHealth } from '@cleocode/contracts/daemon/health.js';
 
 /**
  * A registered subsystem plus its runtime bookkeeping.

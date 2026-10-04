@@ -17,7 +17,7 @@ import type {
   CloudWhoamiResult,
   NexusDeviceListState,
 } from '@cleocode/contracts';
-import { NEXUS_DEVICE_LIST_STATES } from '@cleocode/contracts';
+import { NEXUS_DEVICE_LIST_STATES } from '@cleocode/contracts/nexus-cloud.js';
 import { emitNexusResult, failNexus, nexusApiUrlArg } from './nexus-account-cli.js';
 
 /** Parsed citty args. */

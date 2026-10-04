@@ -30,7 +30,7 @@ import {
   statSync,
 } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
-import { isStorableTaskId, isTaskId } from '@cleocode/contracts';
+import { isStorableTaskId, isTaskId } from '@cleocode/contracts/task-id.js';
 
 /** Longest accepted manifest entry id. */
 export const MANIFEST_ENTRY_ID_MAX_LENGTH = 200;

@@ -610,7 +610,7 @@ export function createAttachmentStore(): AttachmentStore {
       // Imported lazily to avoid pulling Zod into module init for callers
       // that only read attachments. Synchronous import works because the
       // module graph already includes `@cleocode/contracts`.
-      const { attachmentSchema } = await import('@cleocode/contracts');
+      const { attachmentSchema } = await import('@cleocode/contracts/attachment-schema.js');
       attachmentSchema.parse(fullAttachment);
       const slug = extras?.slug;
       const type = extras?.type;
