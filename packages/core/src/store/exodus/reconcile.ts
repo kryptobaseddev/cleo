@@ -57,6 +57,7 @@ import { rollbackExodusReceipts } from './recovery.js';
 import { buildRuntimeTargetResolver, type TargetResolver } from './runtime-targets.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
 import { orderTablesForCopy } from './table-order.js';
+import { describeRemaps, remapCollidingTaskIds } from './task-id-remap.js';
 import type { LegacyDbDescriptor } from './types.js';
 
 const log = getLogger('exodus-reconcile');
@@ -721,7 +722,18 @@ async function reconcileWithScratch(
   resolveTarget: TargetResolver,
   scratch: string,
 ): Promise<SupersededStoreReconcileResult> {
-  const fileSources = plan.sources.filter((s) => s.targetScope === 'project' && existsSync(s.path));
+  const legacyFiles = plan.sources.filter((s) => s.targetScope === 'project' && existsSync(s.path));
+  // T13172: a legacy task whose id a DIFFERENT live task holds is renumbered in
+  // a scratch copy (references re-pointed) and the run reads that copy, so it
+  // is recovered, never skipped by INSERT OR IGNORE and counted as present.
+  // Additive runs never write the task graph, so they never renumber.
+  const remap =
+    !additive && existsSync(liveStorePath)
+      ? remapCollidingTaskIds(liveStorePath, legacyFiles, scratch)
+      : { sources: legacyFiles, remaps: [], remappedPath: null };
+  const fileSources = remap.sources;
+  const remaps = remap.remaps;
+  const remapNote = remaps.length > 0 ? `; ${describeRemaps(remaps)}` : '';
   // An additive run is for a project already live on the consolidated store;
   // its bare family is not a source (and bareTaskCoreSource agrees).
   const bare =
@@ -742,10 +754,12 @@ async function reconcileWithScratch(
   const base = {
     mode: additive ? ('additive' as const) : ('full' as const),
     conflicts: [] as SupersededStoreConflict[],
+    remaps,
     dryRun,
     projectRoot,
     liveStorePath,
-    sourcePaths: sources.map((s) => s.path),
+    // The files read: the legacy originals, never the renumbered scratch copy.
+    sourcePaths: [...legacyFiles, ...(bare ? [bare] : [])].map((s) => s.path),
     after: [] as SupersededStoreTableCount[],
     rowsCopied: 0,
     rolledBack: 0,
@@ -786,7 +800,7 @@ async function reconcileWithScratch(
       ...base,
       outcome: 'nothing-to-reconcile',
       before,
-      reason: 'every legacy row is already present in cleo.db — nothing to copy',
+      reason: `every legacy row is already present in cleo.db — nothing to copy${remapNote}`,
     };
   }
   if (dryRun) {
@@ -799,7 +813,7 @@ async function reconcileWithScratch(
         ? `would copy the missing rows of the history tables; ${describeConflicts(
             plannedConflicts.filter((c) => c.reason === 'live-authoritative'),
           )} (key collisions are counted after the copy)`
-        : `would copy the missing rows of: ${describeGaps(before)}`,
+        : `would copy the missing rows of: ${describeGaps(before)}${remapNote}`,
     };
   }
 
@@ -809,9 +823,10 @@ async function reconcileWithScratch(
     .replace(/\..+Z$/, 'Z');
   const stagingDir = join(resolveCleoDir(projectRoot), `${RECONCILE_DIR_PREFIX}${iso}`);
   mkdirSync(stagingDir, { recursive: true });
-  // Keep the materialised bare source with the run's other evidence.
+  // Keep the materialised bare source and the renumbered tasks copy with the
+  // run's other evidence.
   const copySources = sources.map((s) => {
-    if (s !== bare) return s;
+    if (s !== bare && s.path !== remap.remappedPath) return s;
     const kept = join(stagingDir, basename(s.path));
     copyFileSync(s.path, kept);
     return { ...s, path: kept };
@@ -875,7 +890,7 @@ async function reconcileWithScratch(
           stagingDir,
           reason: additive
             ? `copied ${rowsCopied} row(s) with keys absent from live; live rows unchanged; ${describeConflicts(conflicts)}`
-            : `copied ${rowsCopied} row(s); every legacy row is now present in cleo.db`,
+            : `copied ${rowsCopied} row(s); every legacy row is now present in cleo.db${remapNote}`,
         };
       }
       const rolledBack = await revertReconcile(liveStorePath, stagingDir);

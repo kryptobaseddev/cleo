@@ -1129,6 +1129,31 @@ export interface SupersededStoreConflict {
 }
 
 /**
+ * A legacy task recovered under a fresh id because a DIFFERENT live task holds
+ * its id (a task written into the empty store after a deferred exodus, T13172).
+ * The renumbering happens in a scratch copy of the legacy file, with every
+ * reference to the task re-pointed; the legacy file and live rows are untouched.
+ *
+ * @task T13172
+ */
+export interface SupersededStoreIdRemap {
+  /** Logical legacy source. */
+  sourceDb: string;
+  /** The legacy task's id, which the live store uses for another task. */
+  legacyId: string;
+  /** The id the legacy task is recovered under. */
+  newId: string;
+  /** The legacy task's title. */
+  legacyTitle: string;
+  /** Title of the live task that holds `legacyId`. */
+  liveTitle: string;
+  /** `true` when a previous run already recovered it as `newId` (nothing new is copied). */
+  alreadyRecovered: boolean;
+  /** Legacy rows re-pointed from `legacyId` to `newId` (children, dependencies, criteria, …). */
+  referencesRepointed: number;
+}
+
+/**
  * Outcome of `cleo doctor superseded-store --reconcile`.
  *
  * - `nothing-to-reconcile` — every legacy row is already present; no write.
@@ -1163,6 +1188,12 @@ export interface SupersededStoreReconcileResult {
   mode: 'full' | 'additive';
   /** Legacy rows deliberately left uncopied (additive mode); empty in full mode. */
   conflicts: SupersededStoreConflict[];
+  /**
+   * Legacy tasks whose id a different live task holds, recovered (full mode)
+   * or to be recovered (dry-run) under a new id. Empty in additive mode, which
+   * never writes the task graph.
+   */
+  remaps: SupersededStoreIdRemap[];
   /** `true` when nothing was written. */
   dryRun: boolean;
   /** Absolute project root. */
