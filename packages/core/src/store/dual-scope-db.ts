@@ -63,7 +63,15 @@ import { getLogger } from '../logger.js';
 import { getCleoHome, resolveCleoDir } from '../paths.js';
 import { worktreeScope } from '../project-scope.js';
 import { observeOperation } from './background-ops.js';
-import { type ExodusAbortDetail, getRecordedExodusAbort } from './exodus/abort-events.js';
+import {
+  EXODUS_DEFERRED_FIX,
+  type ExodusAbortDetail,
+  ExodusAbortWriteUnsafeError,
+  exodusRefusalMessage,
+  getRecordedExodusAbort,
+} from './exodus/abort-events.js';
+import type { ExodusOnOpenPreparation } from './exodus/on-open.js';
+import { installExodusWriteGuard, peekExodusWriteGuard } from './exodus/write-guard.js';
 import { ForeignKeysNotRestoredError, migrateBracketed } from './migration-runner.js';
 import { assertStoreNotRelocated } from './relocated-store-guard.js';
 import {
@@ -191,51 +199,9 @@ export interface OpenDualScopeAtPathOptions {
   readonly dedicated?: boolean;
 }
 
-/**
- * Thrown by {@link assertWriteDurable} when a MUTATING caller is about to write
- * through a {@link DualScopeDbHandle} whose first-open exodus auto-migration
- * ABORTED (T11828 · DHQ-059).
- *
- * The consolidated `cleo.db` is internally consistent but EMPTY: the user's real
- * data is still in the legacy fleet (kept as the source of truth). Writing here
- * would land in a DB that does not reflect that data, so the write is NOT durable
- * against the source of truth. Read paths never raise this — they intentionally
- * skip {@link assertWriteDurable} and operate on the empty-but-consistent DB.
- *
- * Self-contained (mirrors `BackupRecoverError`) rather than a `CleoError` subclass
- * so the store layer does not need a new numeric `ExitCode` in `@cleocode/contracts`
- * for a condition that is surfaced structurally on the handle.
- *
- * @task T11828
- * @epic T11833
- * @saga T11242
- * @public
- */
-export class ExodusAbortWriteUnsafeError extends Error {
-  /** Stable string error code for envelope `codeName` / log correlation. */
-  readonly codeName = 'E_EXODUS_ABORT_WRITE_UNSAFE' as const;
-  /** The structured abort detail carried by the handle. */
-  readonly detail: ExodusAbortDetail;
-  /** Remediation hint surfaced to the operator. */
-  readonly fix: string;
-
-  /**
-   * @param detail - The {@link ExodusAbortDetail} stamped on the handle.
-   */
-  constructor(detail: ExodusAbortDetail) {
-    super(
-      `Refusing to write to consolidated ${detail.scope} cleo.db — exodus-on-open ABORTED ` +
-        `(${detail.reason}). The DB is empty; legacy data is the source of truth. ` +
-        `Run \`cleo doctor exodus-health\` then \`cleo exodus migrate\` (or restore via ` +
-        `\`cleo doctor repair --role ${detail.scope === 'project' ? 'tasks' : 'nexus'}\`) before writing.`,
-    );
-    this.name = 'ExodusAbortWriteUnsafeError';
-    this.detail = detail;
-    this.fix =
-      'Resolve the aborted migration (`cleo doctor exodus-health` → `cleo exodus migrate`) ' +
-      'so the consolidated cleo.db carries your data before mutating it.';
-  }
-}
+// The refusal error lives with the abort records (exodus/abort-events.ts), a
+// light module the CORE error converters can import (T13167).
+export { ExodusAbortWriteUnsafeError };
 
 /**
  * Assert that a {@link DualScopeDbHandle} is safe to WRITE through.
@@ -272,23 +238,256 @@ export function assertWriteDurable(handle: DualScopeDbHandle): void {
 }
 
 /**
- * Throw {@link ExodusAbortWriteUnsafeError} when ANY exodus-on-open abort is
- * recorded for this process (across either scope).
+ * Throw {@link ExodusAbortWriteUnsafeError} when the store behind `db` cannot be
+ * written durably: its exodus-on-open migration is deferred (an active guard on
+ * this connection) or aborted (a recorded abort for this store's path).
  *
  * Used by the consolidated-schema MUTATION primitives ({@link insertIdempotent} /
  * {@link upsertIdempotent}) which do not receive the originating
- * {@link DualScopeDbHandle} — they consult the process-local registry recorded by
- * {@link emitExodusAbort} instead. Read paths never call these primitives, so the
- * guard is write-only.
+ * {@link DualScopeDbHandle}. T13158: matched to the store being written, so a
+ * deferral or abort on one store never refuses another. When the store cannot
+ * be identified, any recorded abort refuses (the T11828 behaviour). Read paths
+ * never call these primitives, so the guard is write-only.
  *
- * @throws {ExodusAbortWriteUnsafeError} When a recorded abort exists.
+ * @param db - The drizzle handle about to be written.
+ * @throws {ExodusAbortWriteUnsafeError} When that store cannot be written durably.
  * @internal
  * @task T11828
+ * @task T13158
  */
-function assertNoRecordedExodusAbort(): void {
-  const detail = getRecordedExodusAbort();
-  if (detail) {
-    throw new ExodusAbortWriteUnsafeError(detail);
+// biome-ignore lint/suspicious/noExplicitAny: accepts both project and global schema handles
+async function assertNoExodusRefusal(db: NodeSQLiteDatabase<any>): Promise<void> {
+  const native = '$client' in db && db.$client instanceof getDatabaseSyncCtor() ? db.$client : null;
+  const path = native?.location() ?? null;
+  if (native === null || path === null) {
+    const detail = getRecordedExodusAbort();
+    // @sync-invariant none:local-only this store's own legacy migration aborted or is pending; never replicated
+    if (detail) throw new ExodusAbortWriteUnsafeError(detail);
+    return;
+  }
+  await assertExodusWriteSafe(native);
+  for (const scope of ['project', 'global'] as const) {
+    const detail = getRecordedExodusAbort(scope);
+    if (detail && detail.kind !== 'deferred' && resolve(detail.dbPath) === resolve(path)) {
+      // @sync-invariant none:local-only this store's own legacy migration aborted; never replicated
+      throw new ExodusAbortWriteUnsafeError(detail);
+    }
+  }
+}
+
+// ── Deferred exodus-on-open (T13158) ─────────────────────────────────────────
+
+/**
+ * Refuse a write through `nativeDb` while that store still owes its legacy
+ * migration: exodus-on-open was deferred or aborted while legacy rows wait
+ * (T13158, T13167).
+ *
+ * The production write chokepoints call this first (the task accessor's write
+ * transaction, session creation, {@link insertIdempotent},
+ * {@link upsertIdempotent}), so the caller gets the typed
+ * {@link ExodusAbortWriteUnsafeError} and its remedy rather than a wrapped
+ * SQLite trigger error. The guard is per connection, so one store's refusal
+ * never refuses another. Once the scope's anchor table has rows (the migration
+ * or a reconcile ran, in this process or another) the guard lifts and writes
+ * proceed. The temp triggers remain the backstop for every other write path.
+ *
+ * @param nativeDb - The connection about to be written.
+ * @throws {ExodusAbortWriteUnsafeError} When that store still owes its migration.
+ * @example
+ * ```ts
+ * await assertExodusWriteSafe(nativeDb);
+ * ```
+ * @task T13158
+ * @task T13167
+ */
+export async function assertExodusWriteSafe(nativeDb: DatabaseSync): Promise<void> {
+  const { activeExodusWriteGuard } = await import('./exodus/write-guard.js');
+  const guard = activeExodusWriteGuard(nativeDb);
+  if (guard !== undefined) {
+    // @sync-invariant none:local-only this store's own legacy migration is pending or aborted; never replicated
+    throw new ExodusAbortWriteUnsafeError(guard.detail);
+  }
+}
+
+/** Default bound on how long an open waits for the exodus `db-heavy` slot. */
+const EXODUS_ADMISSION_WAIT_MS = 5_000;
+
+/**
+ * How long an open waits for `db-heavy` before deferring its exodus migration:
+ * `CLEO_EXODUS_ADMISSION_WAIT_MS` (0–60000), else 5 s. Memory pressure defers at
+ * once regardless; the wait covers a slot another heavy op holds.
+ */
+function exodusAdmissionWaitMs(): number {
+  const raw = process.env['CLEO_EXODUS_ADMISSION_WAIT_MS'];
+  if (raw === undefined || raw.trim() === '') return EXODUS_ADMISSION_WAIT_MS;
+  const ms = Number(raw);
+  return Number.isInteger(ms) && ms >= 0 && ms <= 60_000 ? ms : EXODUS_ADMISSION_WAIT_MS;
+}
+
+/** The anchor table whose first row marks a scope's store as populated. */
+function exodusAnchorTable(scope: DualScope): string {
+  return scope === 'project' ? 'tasks_tasks' : 'nexus_project_registry';
+}
+
+/**
+ * Guard a store that owes its legacy migration (T13158, T13167).
+ *
+ * When this scope's legacy sources hold rows, every INSERT into a table the
+ * migration fills is refused on this connection while the anchor table is
+ * empty (`E_EXODUS_DEFERRED_WRITE_UNSAFE` or `E_EXODUS_ABORT_WRITE_UNSAFE`,
+ * remedy included), and the refusal is recorded. Every handle on the
+ * connection reports it as `exodusAbort`. Called before a pending migration's
+ * handle is published (`deferred`), and on an `aborted` outcome.
+ *
+ * @param nativeDb - The handle's native connection.
+ * @param scope - The scope.
+ * @param dbPath - The consolidated store.
+ * @param cwd - Working directory used to resolve the project root.
+ * @param kind - `deferred` (not run yet) or `aborted`.
+ * @param reason - Why no migration has run, or why it aborted.
+ * @returns `true` when a guard was installed (legacy rows wait).
+ */
+async function guardStrandedStore(
+  nativeDb: DatabaseSync,
+  scope: DualScope,
+  dbPath: string,
+  cwd: string | undefined,
+  kind: 'aborted' | 'deferred',
+  reason: string,
+): Promise<boolean> {
+  const log = getLogger('dual-scope-db');
+  const { pendingExodusTargets } = await import('./exodus/write-guard.js');
+  let sources: readonly string[];
+  let tables: readonly string[];
+  try {
+    ({ sources, tables } = await pendingExodusTargets(scope, cwd));
+  } catch (err) {
+    // The legacy files could not be read: assume they hold rows and protect the
+    // anchor table, whose first row would stop the migration for good.
+    log.warn({ err, scope, kind }, 'exodus-on-open: legacy sources could not be assessed');
+    sources = ['legacy stores (unreadable)'];
+    tables = [exodusAnchorTable(scope)];
+  }
+  if (sources.length === 0) return false;
+  const detail = strandedDetail(scope, dbPath, kind, reason, sources);
+  let markerPath: string | null = null;
+  try {
+    const { exodusMarkerPath } = await import('./exodus/archive.js');
+    markerPath = exodusMarkerPath(scope, cwd, dbPath);
+  } catch {
+    // No marker location: the guard lifts on the anchor alone.
+  }
+  installExodusWriteGuard(
+    nativeDb,
+    {
+      anchor: exodusAnchorTable(scope),
+      tables: [...new Set([...tables, exodusAnchorTable(scope)])],
+      sources,
+      markerPath,
+      detail,
+    },
+    exodusRefusalMessage(scope, detail.reason, kind),
+  );
+  const { emitExodusAbort } = await import('./exodus/abort-events.js');
+  emitExodusAbort(detail);
+  return true;
+}
+
+/**
+ * Last-resort guard for a store that owes a migration, used when
+ * {@link guardStrandedStore} throws: refuse INSERTs into the scope's anchor
+ * table, whose first row would stop the migration for good. A guard that is
+ * already installed is kept, since it covers more tables.
+ *
+ * @param nativeDb - The handle's native connection.
+ * @param scope - The scope.
+ * @param dbPath - The consolidated store.
+ * @param kind - `deferred` (not run yet) or `aborted`.
+ * @param reason - Why no migration has run, or why it aborted.
+ */
+function guardAnchorOnly(
+  nativeDb: DatabaseSync,
+  scope: DualScope,
+  dbPath: string,
+  kind: 'aborted' | 'deferred',
+  reason: string,
+): void {
+  if (peekExodusWriteGuard(nativeDb) !== undefined) return;
+  try {
+    const anchor = exodusAnchorTable(scope);
+    const sources = ['stores'];
+    const detail = strandedDetail(scope, dbPath, kind, reason, sources);
+    installExodusWriteGuard(
+      nativeDb,
+      { anchor, tables: [anchor], sources, markerPath: null, detail },
+      exodusRefusalMessage(scope, detail.reason, kind),
+    );
+  } catch (err) {
+    getLogger('dual-scope-db').error(
+      { err, scope },
+      'exodus-on-open: the store could not be guarded before its migration',
+    );
+  }
+}
+
+/** The refusal detail for a store that owes the migration of `sources`. */
+function strandedDetail(
+  scope: DualScope,
+  dbPath: string,
+  kind: 'aborted' | 'deferred',
+  reason: string,
+  sources: readonly string[],
+): ExodusAbortDetail {
+  return {
+    scope,
+    dbPath,
+    reason: `${reason}; legacy ${sources.join(', ')} still hold rows`,
+    at: Date.now(),
+    kind,
+  };
+}
+
+/**
+ * Record why a guarded store's migration was deferred this open (T13158):
+ * the refusal detail takes the governor's reason, the deferral is logged with
+ * it, and readers get a `W_EXODUS_DEFERRED` warning.
+ *
+ * @param nativeDb - The guarded connection.
+ * @param scope - The deferred scope.
+ * @param dbPath - The consolidated store.
+ * @param deferral - The governor's reason for deferring.
+ */
+async function announceDeferredExodus(
+  nativeDb: DatabaseSync,
+  scope: DualScope,
+  dbPath: string,
+  deferral: string,
+): Promise<void> {
+  const log = getLogger('dual-scope-db');
+  const { activeExodusWriteGuard } = await import('./exodus/write-guard.js');
+  const guard = activeExodusWriteGuard(nativeDb);
+  if (guard === undefined) return;
+  const detail = strandedDetail(scope, dbPath, 'deferred', deferral, guard.sources);
+  guard.detail = detail;
+  const { emitExodusAbort } = await import('./exodus/abort-events.js');
+  emitExodusAbort(detail);
+  log.warn(
+    { scope, dbPath, reason: deferral, sources: guard.sources, guardedTables: guard.tables.length },
+    'exodus-on-open deferred: the store is empty while legacy rows wait; writes to the ' +
+      'tables the migration fills are refused until it runs (T13158)',
+  );
+  try {
+    const { pushWarning } = await import('../output.js');
+    pushWarning({
+      // @sync-invariant none:local-only a read warning about this store's pending legacy migration
+      code: 'W_EXODUS_DEFERRED',
+      message:
+        `The ${scope} store has not been migrated from the legacy stores yet (${deferral}), so ` +
+        `results omit the data in ${guard.sources.join(', ')}. Writes are refused until it ` +
+        `runs. ${EXODUS_DEFERRED_FIX}`,
+    });
+  } catch {
+    // A warning must never fail the open.
   }
 }
 
@@ -952,6 +1151,9 @@ export async function openDualScopeDbAtPath(
   (async (): Promise<void> => {
     let openingNative: DatabaseSync | null = null;
     let published = false;
+    // T13158: the exodus assessment, made BEFORE the handle is published (a
+    // holder object: the lease callback assigns it).
+    const exodusState: { preparation: ExodusOnOpenPreparation | null } = { preparation: null };
     try {
       execution?.assertActive();
       log.debug({ scope, dbPath: normalizedPath }, 'opening dual-scope cleo.db');
@@ -1050,6 +1252,12 @@ export async function openDualScopeDbAtPath(
             get isOpen() {
               return nativeDb.isOpen;
             },
+            // T13158 / T13167: the marker is the connection's write guard, so
+            // every in-process holder sees a deferral or abort set (or lifted)
+            // after publication.
+            get exodusAbort() {
+              return peekExodusWriteGuard(nativeDb)?.detail;
+            },
             close() {
               // Identity-guarded deletion: only evict from the singleton cache
               // when the current entry still references THIS exact handle. A stale
@@ -1066,6 +1274,69 @@ export async function openDualScopeDbAtPath(
               }
             },
           };
+
+          // T13158: never publish an unguarded handle for a store that still
+          // owes a migration. Publication hands this connection to every
+          // concurrent in-process open, and an INSERT through it before the
+          // migration (or its guard) would make the store look populated and
+          // strand the legacy rows. So assess first, and when a migration is
+          // pending, guard the connection before anyone else can see it.
+          // Populated stores cost one COUNT(*) here.
+          if (
+            exodusCwd !== undefined &&
+            normalizedPath === resolveDualScopeDbPath(scope, exodusCwd)
+          ) {
+            try {
+              execution?.assertActive();
+              const { prepareExodusOnOpen } = await import('./exodus/on-open.js');
+              execution?.assertActive();
+              exodusState.preparation = await prepareExodusOnOpen(
+                scope,
+                normalizedPath,
+                nativeDb,
+                exodusCwd,
+              );
+            } catch (err) {
+              execution?.assertActive();
+              exodusState.preparation = null;
+              log.warn({ err, scope }, 'exodus-on-open assessment unavailable (non-fatal)');
+            }
+            // An abort decided at assessment (unreadable marker, plan mismatch,
+            // assessment failure) owes the same protection before publication
+            // as a pending migration (#1839 review HIGH): the post-lease abort
+            // branch would guard only after concurrent opens could write.
+            const preparation = exodusState.preparation;
+            const stranded =
+              preparation?.kind === 'pending'
+                ? { kind: 'deferred' as const, reason: 'its migration has not run yet' }
+                : preparation?.kind === 'decided' && preparation.result.outcome === 'aborted'
+                  ? { kind: 'aborted' as const, reason: preparation.result.reason }
+                  : null;
+            if (stranded !== null) {
+              try {
+                execution?.assertActive();
+                await guardStrandedStore(
+                  nativeDb,
+                  scope,
+                  normalizedPath,
+                  exodusCwd,
+                  stranded.kind,
+                  stranded.reason,
+                );
+              } catch (err) {
+                execution?.assertActive();
+                // A failed guard must cost neither the migration nor the
+                // protection (#1836 review LOW-a): the preparation stays
+                // pending, so the migration still runs after the lease, and the
+                // anchor table is guarded at the least.
+                log.warn(
+                  { err, scope },
+                  'exodus-on-open: the store could not be fully guarded before its migration',
+                );
+                guardAnchorOnly(nativeDb, scope, normalizedPath, stranded.kind, stranded.reason);
+              }
+            }
+          }
 
           execution?.assertActive();
           // Update the cache entry to mark init complete.
@@ -1109,51 +1380,71 @@ export async function openDualScopeDbAtPath(
       execution?.assertActive();
       let finalHandle = handle;
       if (exodusCwd !== undefined && normalizedPath === resolveDualScopeDbPath(scope, exodusCwd)) {
-        // ── T12001 (Epic T11992) — db-heavy admission for the exodus auto-migrate ──
-        // The on-open exodus (reconcile + parity verify + migrate) is a heavy DB op;
-        // letting it co-schedule with builds/tests/agents is a historical OOM vector.
-        // Admit it through the governor's `db-heavy` class (machine-wide serialized;
-        // deferred under memory backoff). On a denial we SKIP the migration THIS open
-        // (kill-switch precedent CLEO_DISABLE_EXODUS_ON_OPEN) — NEVER block or defer
-        // the interactive command (interactive-cli is never gated) — and it re-runs
-        // idempotently on a calmer open. Fail-open: ANY governor error proceeds
-        // un-gated, byte-identical to pre-T12001 behaviour.
+        // ── Exodus-on-open admission (T12001 · T13158) ──────────────────────────
+        // Decide first, without a lock or the governor, whether this open needs
+        // a migration at all: a populated store costs one COUNT(*), and only a
+        // PENDING migration (empty store, this scope's legacy sources present)
+        // asks for admission. The migration (reconcile + parity verify + copy)
+        // is a heavy DB op, so it runs in the governor's machine-wide `db-heavy`
+        // class, waiting a bounded time for the slot (T13158): `db-heavy` has one
+        // slot machine-wide, so a sentient tick, a `cleo run --class db` job,
+        // another project's exodus or a second `cleo` racing this first open
+        // would otherwise defer it. Memory pressure still defers it at once
+        // (T13119 / T13150: CPU saturation never does).
+        //
+        // A migration still deferred after the wait does not run this open, and
+        // the command gets the EMPTY store. While legacy rows wait, a write there
+        // would strand them (a populated store never migrates), so the store
+        // refuses INSERTs into every table the migration fills and readers are
+        // warned (`guardStrandedStore`). The next open admits it again.
+        // Fail-open: a governor error proceeds un-gated, as before T12001.
         let releaseDbHeavy: (() => Promise<void>) | null = null;
-        let dbHeavyDeferred = false;
-        try {
-          execution?.assertActive();
-          const { governor } = await import('../resources/governor.js');
-          execution?.assertActive();
-          // T13119 / T13150: memory pressure only. The exodus fills the store
-          // this command is about to read; deferring it because the CPU is
-          // busy served an EMPTY cleo.db (and a write in that state strands
-          // the legacy rows). macOS reads CPU saturation from the load
-          // average, so busy Macs and CI runners deferred it on every open.
-          const admit = await governor.tryAcquire('db-heavy', { ignoreCpuPressure: true });
-          if (admit.deferred) {
-            dbHeavyDeferred = true;
-          } else {
-            releaseDbHeavy = admit.release;
-          }
-        } catch {
-          execution?.assertActive();
-          // Governor unavailable — fail open (proceed un-gated).
-        }
-        if (dbHeavyDeferred) {
-          execution?.assertActive();
-          log.debug(
-            { scope, dbPath: normalizedPath },
-            'exodus-on-open skipped this open — db-heavy deferred under memory pressure ' +
-              '(re-runs idempotently on a calmer open)',
-          );
-        } else {
+        let deferral: string | null = null;
+        const preparation = exodusState.preparation;
+        if (preparation?.kind === 'pending') {
+          // The connection was guarded before publication (above). The guard
+          // stays up through the admission wait AND the migration: the copy runs
+          // on dedicated connections that never see its temp triggers, and the
+          // triggers stop refusing on their own once the copy commits the anchor.
           try {
             execution?.assertActive();
-            const { maybeRunExodusOnOpen } = await import('./exodus/on-open.js');
+            const { governor } = await import('../resources/governor.js');
             execution?.assertActive();
-            const result = await maybeRunExodusOnOpen(scope, normalizedPath, nativeDb, exodusCwd);
+            const admit = await governor.acquire('db-heavy', {
+              ignoreCpuPressure: true,
+              blocking: true,
+              timeoutMs: exodusAdmissionWaitMs(),
+            });
+            if (admit.deferred) {
+              deferral = admit.reason;
+            } else {
+              releaseDbHeavy = admit.release;
+            }
+          } catch {
+            execution?.assertActive();
+            // Governor unavailable — fail open (proceed un-gated).
+          }
+          if (deferral !== null) {
+            await announceDeferredExodus(nativeDb, scope, normalizedPath, deferral);
+          }
+        }
+        if (preparation === null || deferral !== null) {
+          // Assessment unavailable, or the migration deferred: the published
+          // handle (guarded when legacy rows wait) is returned as opened.
+        } else {
+          const ready = preparation;
+          try {
+            execution?.assertActive();
+            const result = ready.kind === 'decided' ? ready.result : await ready.run();
             execution?.assertActive();
             if (result.outcome === 'migrated' || result.outcome === 'aborted') {
+              if (result.outcome === 'migrated') {
+                // The store now holds the legacy data: the pre-publication guard
+                // (if this connection is still open and cached) comes down (T13158).
+                // On `aborted` it stays: the store is still empty while legacy rows wait.
+                const { liftExodusWriteGuard } = await import('./exodus/write-guard.js');
+                liftExodusWriteGuard(nativeDb);
+              }
               // The migrate engine closed our handle — re-open fresh (un-armed) so the
               // caller receives a valid, live handle bound to the now-(de)populated DB.
               const reopened =
@@ -1167,20 +1458,52 @@ export async function openDualScopeDbAtPath(
                 // structured marker on the returned handle and (b) broadcasting a typed
                 // event. The non-zero error itself is raised on the write path via
                 // `assertWriteDurable(handle)` — NOT here, so read opens never throw.
-                const abort: ExodusAbortDetail = {
-                  scope,
-                  dbPath: normalizedPath,
-                  reason: result.reason,
-                  at: Date.now(),
-                };
                 log.warn(
                   { scope, reason: result.reason },
                   'exodus-on-open aborted; consolidated cleo.db left empty, legacy kept as source — ' +
-                    'mutating callers must check handle.exodusAbort / call assertWriteDurable (T11828)',
+                    'writes to the tables the migration fills are refused (T11828, T13167)',
                 );
-                const { emitExodusAbort } = await import('./exodus/abort-events.js');
-                emitExodusAbort(abort);
-                finalHandle = { ...reopened, exodusAbort: abort };
+                // T13167: while legacy rows wait, guard the store the caller gets
+                // exactly as a deferral is guarded: every INSERT into a table the
+                // migration fills refuses, and the typed write checks and the
+                // handle's `exodusAbort` marker report the abort.
+                const guarded = await guardStrandedStore(
+                  getDualScopeNativeDb(reopened),
+                  scope,
+                  normalizedPath,
+                  exodusCwd,
+                  'aborted',
+                  result.reason,
+                );
+                if (guarded) {
+                  finalHandle = reopened;
+                  try {
+                    const { pushWarning } = await import('../output.js');
+                    pushWarning({
+                      // @sync-invariant none:local-only a read warning about this store's aborted legacy migration
+                      code: 'W_EXODUS_ABORTED',
+                      message:
+                        `The ${scope} store's migration from the legacy stores aborted ` +
+                        `(${result.reason}), so results omit the legacy data. Writes are refused ` +
+                        'until it is resolved: run `cleo doctor exodus-health`, then ' +
+                        '`cleo exodus migrate`.',
+                    });
+                  } catch {
+                    // A warning must never fail the open.
+                  }
+                } else {
+                  // No legacy rows at risk: record and mark the abort as before.
+                  const abort: ExodusAbortDetail = {
+                    scope,
+                    dbPath: normalizedPath,
+                    reason: result.reason,
+                    at: Date.now(),
+                    kind: 'aborted',
+                  };
+                  const { emitExodusAbort } = await import('./exodus/abort-events.js');
+                  emitExodusAbort(abort);
+                  finalHandle = { ...reopened, exodusAbort: abort };
+                }
               } else {
                 // A subsequent SUCCESSFUL migration resolves any prior abort recorded
                 // for this scope, so writes are no longer rejected (T11828).
@@ -1188,6 +1511,11 @@ export async function openDualScopeDbAtPath(
                 clearExodusAborts(scope);
                 finalHandle = reopened;
               }
+            } else if (ready.kind === 'pending') {
+              // Skipped after all (a concurrent process migrated it first): the
+              // store owes nothing more, so the guard comes down (T13158).
+              const { liftExodusWriteGuard } = await import('./exodus/write-guard.js');
+              liftExodusWriteGuard(nativeDb);
             }
           } catch (err) {
             execution?.assertActive();
@@ -2035,7 +2363,7 @@ export async function insertIdempotent<TTable extends SQLiteTableWithColumns<Tab
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _keyColumn: string,
 ): Promise<number> {
-  assertNoRecordedExodusAbort();
+  await assertNoExodusRefusal(db);
   const identity = resolveDbIdentity(db);
   return withWriterLease(
     identity.scope,
@@ -2095,7 +2423,7 @@ export async function upsertIdempotent<TTable extends SQLiteTableWithColumns<Tab
   conflictTarget: any,
   set?: Partial<InferInsertModel<TTable>>,
 ): Promise<number> {
-  assertNoRecordedExodusAbort();
+  await assertNoExodusRefusal(db);
   const identity = resolveDbIdentity(db);
   return withWriterLease(
     identity.scope,

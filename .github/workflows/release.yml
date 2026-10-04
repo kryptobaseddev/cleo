@@ -55,6 +55,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       dist_tag: ${{ steps.version.outputs.dist_tag }}
+      rc_version: ${{ steps.version.outputs.rc_version }}
       is_prerelease: ${{ steps.version.outputs.is_prerelease }}
 
     steps:
@@ -77,25 +78,38 @@ jobs:
         env:
           INPUT_VERSION: ${{ github.event.inputs.version }}
           REF_NAME: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           if [[ -n "$INPUT_VERSION" ]]; then
             VERSION="$INPUT_VERSION"
           else
             VERSION="${REF_NAME#v}"
           fi
-          # Determine npm dist-tag from version suffix
+          # Determine npm dist-tag from version suffix.
+          #
+          # A stable version is gated by a release candidate first (T13181):
+          # Publish puts `<version>-rc.ci.<run number>` on the `canary` dist-tag
+          # through OIDC, proves that rc installable from npm and runs the
+          # sandbox soak against it, and only then publishes `<version>` to
+          # `latest` from the same commit, also through OIDC. No npm token is
+          # involved anywhere. The run number keeps the rc stable across
+          # re-runs of this run, so a re-run skips what already published; the
+          # `ci.` segment keeps it apart from a hand-cut `-rc.N` prerelease tag.
+          RC_VERSION=""
           if [[ "$VERSION" == *"-alpha"* ]] || [[ "$VERSION" == *"-dev"* ]]; then
             DIST_TAG="dev"
           elif [[ "$VERSION" == *"-beta"* ]] || [[ "$VERSION" == *"-rc"* ]]; then
             DIST_TAG="beta"
           else
             DIST_TAG="latest"
+            RC_VERSION="${VERSION}-rc.ci.${RUN_NUMBER}"
           fi
           IS_PRERELEASE=$([[ "$VERSION" == *"-"* ]] && echo "true" || echo "false")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
+          echo "rc_version=$RC_VERSION" >> "$GITHUB_OUTPUT"
           echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
-          echo "Version: $VERSION | dist-tag: $DIST_TAG | prerelease: $IS_PRERELEASE"
+          echo "Version: $VERSION | dist-tag: $DIST_TAG | rc: ${RC_VERSION:-none} | prerelease: $IS_PRERELEASE"
 
       # CalVer validation: YYYY.M.PATCH (stable) or YYYY.M.PATCH-suffix (pre-release)
       - name: Validate CalVer
@@ -140,29 +154,9 @@ jobs:
       - name: Sync package versions from tag
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          # Root first — root package.json is the workspace source of truth.
-          if [[ -f "package.json" ]]; then
-            jq --arg v "$VERSION" '.version = $v' "package.json" > "package.tmp" \
-              && mv "package.tmp" "package.json"
-            echo "package.json (root) synced to $VERSION"
-          fi
-          # Then every workspace package manifest that participates in local
-          # build/version checks. The per-platform worktree-napi-* manifest
-          # packages were removed (T11398 / E1 · SG-PACKAGE-ARCH): the native
-          # .node binaries are bundled into @cleocode/worktree/native (Pattern
-          # P1) / fetched from the GitHub Release (Pattern P2), so no separate
-          # per-platform npm package is published. The crate (crates/worktree-napi)
-          # stays in the loop for local napi-rs build/version sync.
-          # packages/mcp-adapter removed (R8 · T11259): source deleted, consolidated
-          # into @cleocode/runtime/gateway/mcp. No separate version sync needed.
-          for pkg in packages/contracts packages/paths packages/core packages/caamp packages/lafs packages/cant packages/nexus packages/brain packages/runtime packages/adapters packages/cleo packages/cleo-os packages/agents packages/skills packages/playbooks packages/worktree packages/git-shim packages/studio packages/animations crates/worktree-napi; do
-            if [[ -f "$pkg/package.json" ]]; then
-              jq --arg v "$VERSION" '.version = $v' "$pkg/package.json" > "$pkg/package.tmp" \
-                && mv "$pkg/package.tmp" "$pkg/package.json"
-              echo "$pkg/package.json version synced to $VERSION"
-            fi
-          done
+        # The same manifest list the Publish job re-versions for the release
+        # candidate and then the release (T13181).
+        run: scripts/release-sync-versions.sh "$VERSION"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -834,239 +828,273 @@ jobs:
       - name: Publish packages to npm
         env:
           TAG: ${{ needs.build-verify.outputs.dist_tag }}
+          RC_VERSION: ${{ needs.build-verify.outputs.rc_version }}
         run: |
-          PUBLISH_ARGS="--tag $TAG --access public --no-git-checks --provenance"
-          # Publishes run in background subshells, which cannot append to a
-          # parent array; failures are collected in a file instead.
-          FAILED_LOG="/tmp/publish-failed-$VERSION.txt"
-          : > "$FAILED_LOG"
+          # `publish_release <version> <dist-tag>` publishes every package at
+          # that version under that tag through OIDC, in dependency waves. It
+          # runs twice for a stable version (T13181): the release candidate to
+          # `canary`, then — once that candidate installs from npm and passes
+          # the sandbox soak — the release itself to `latest`. VERSION and TAG
+          # are function-local, so every helper below reads the phase's values.
+          publish_release() {
+            local VERSION="$1"
+            local TAG="$2"
+            PUBLISH_ARGS="--tag $TAG --access public --no-git-checks --provenance"
+            # Publishes run in background subshells, which cannot append to a
+            # parent array; failures are collected in a file instead.
+            FAILED_LOG="/tmp/publish-failed-$VERSION.txt"
+            : > "$FAILED_LOG"
 
-          # Returns 0 if @cleocode/$1@$VERSION is already on npm (idempotent re-runs).
-          # Uses explicit @VERSION qualifier so the check is correct regardless of
-          # which dist-tag (latest/beta/dev) was used and regardless of npm registry
-          # cache state for the "latest" pointer.
-          already_published() {
-            local pkg="$1"
-            local published_version
-            published_version=$(npm view "@cleocode/$pkg@$VERSION" version 2>/dev/null || true)
-            [[ "$published_version" == "$VERSION" ]]
-          }
+            # Returns 0 if @cleocode/$1@$VERSION is already on npm (idempotent re-runs).
+            # Uses explicit @VERSION qualifier so the check is correct regardless of
+            # which dist-tag (canary/beta/dev) was used and regardless of npm registry
+            # cache state for the "latest" pointer.
+            already_published() {
+              local pkg="$1"
+              local published_version
+              published_version=$(npm view "@cleocode/$pkg@$VERSION" version 2>/dev/null || true)
+              [[ "$published_version" == "$VERSION" ]]
+            }
 
-          # gh#1479: record when each publish was CALLED and when it RETURNED.
-          # Three agents spent a night reconstructing @cleocode/cleo's 55m33s by
-          # extracting timestamps from a log ZIP; two `date -u` calls make it a
-          # subtraction. The comparison group is the point — 17 siblings
-          # converging in seconds is what made cleo's delay legible — so the
-          # SKIP branches are logged too, not just the interesting ones.
-          PUBLISH_LOG="/tmp/publish-timeline-$VERSION.tsv"
-          printf 'pkg\toutcome\tcall_ts\tdone_ts\n' > "$PUBLISH_LOG"
+            # gh#1479: record when each publish was CALLED and when it RETURNED.
+            # Three agents spent a night reconstructing @cleocode/cleo's 55m33s by
+            # extracting timestamps from a log ZIP; two `date -u` calls make it a
+            # subtraction. The comparison group is the point — 17 siblings
+            # converging in seconds is what made cleo's delay legible — so the
+            # SKIP branches are logged too, not just the interesting ones.
+            PUBLISH_LOG="/tmp/publish-timeline-$VERSION.tsv"
+            printf 'pkg\toutcome\tcall_ts\tdone_ts\n' > "$PUBLISH_LOG"
 
-          _publish_pkg_impl() {
-            # $1 = directory name under packages/ (or an explicit relative path
-            #      when it contains a slash).
-            # $2 = npm name without @cleocode/ prefix (defaults to the last
-            #      path segment when the directory and npm name match; pass
-            #      explicitly when they differ, e.g. packages/cleo-git-shim →
-            #      @cleocode/git-shim).
-            local pkg_dir="$1"
-            local resolved_dir
-            if [[ "$pkg_dir" == */* ]]; then
-              # Explicit path.
-              resolved_dir="$pkg_dir"
-            else
-              resolved_dir="packages/$pkg_dir"
-            fi
-            local default_name="${pkg_dir##*/}"
-            local npm_name="${2:-$default_name}"
-            echo "--- Publishing @cleocode/$npm_name (from $resolved_dir) ---"
-            if [[ ! -d "$resolved_dir" ]]; then
-              PUBLISH_OUTCOME=SKIP-ABSENT
-              echo "SKIP: $resolved_dir does not exist"
-              return 0
-            fi
-            if [[ "$pkg_dir" == "adapters" ]] && [[ ! -d "$resolved_dir/dist" ]]; then
-              PUBLISH_OUTCOME=SKIP-NODIST
-              echo "SKIP: no dist (may be type-only)"
-              return 0
-            fi
-            if already_published "$npm_name"; then
-              PUBLISH_OUTCOME=SKIP-EXISTS
-              echo "✓ SKIP: @cleocode/$npm_name@$VERSION already on npm (idempotent re-run)"
-              return 0
-            fi
-            pushd "$resolved_dir" > /dev/null
-            # GitHub Actions runs with `bash -eo pipefail`; if pnpm publish
-            # exits non-zero inside a `$(...)` substitution, the whole step
-            # aborts and the graceful-failure branches below become
-            # unreachable. `|| PUBLISH_EXIT=$?` catches the non-zero code so
-            # we can classify (SKIP-CONFLICT / OIDC error / real failure)
-            # and track via FAILED_LOG instead of dying mid-publish.
-            # Retry up to 3x on transient Sigstore TLOG errors
-            # (rekor.sigstore.dev sometimes aborts mid-fetch — caused
-            # @cleocode/worktree@2026.5.24 to fail despite trusted publisher
-            # being correctly configured). Real OIDC/permission errors
-            # surface immediately; only TLOG_CREATE_ENTRY_ERROR retries.
-            PUBLISH_EXIT=0
-            PUBLISH_OUTPUT=""
-            for attempt in 1 2 3; do
-              PUBLISH_EXIT=0
-              PUBLISH_OUTPUT=$(pnpm publish $PUBLISH_ARGS 2>&1) || PUBLISH_EXIT=$?
-              if [[ $PUBLISH_EXIT -eq 0 ]]; then
-                break
-              fi
-              if echo "$PUBLISH_OUTPUT" | grep -qi "TLOG_CREATE_ENTRY_ERROR\|rekor.sigstore.dev.*aborted\|tlog entry"; then
-                echo "  ⚠ Sigstore TLOG transient error (attempt $attempt/3) — retrying after 10s..."
-                sleep 10
-                continue
-              fi
-              # Non-transient error — break so classification logic below runs.
-              break
-            done
-            echo "$PUBLISH_OUTPUT"
-            if [[ $PUBLISH_EXIT -eq 0 ]]; then
-              PUBLISH_OUTCOME=PUBLISHED
-              echo "✓ PUBLISHED: @cleocode/$npm_name@$VERSION"
-            else
-              # Re-check after failure: distinguish between version-conflict 403
-              # (already published — safe to skip) vs real OIDC/permission errors.
-              if already_published "$npm_name"; then
-                PUBLISH_OUTCOME=SKIP-RACE
-                echo "✓ SKIP-RACE: @cleocode/$npm_name@$VERSION was published concurrently or pre-exists"
-              elif echo "$PUBLISH_OUTPUT" | grep -qi "cannot publish over the previously published"; then
-                # 403 "cannot publish over" — version exists but registry cache missed our pre-check
-                PUBLISH_OUTCOME=SKIP-CONFLICT
-                echo "✓ SKIP-CONFLICT: @cleocode/$npm_name@$VERSION already published (403 version conflict)"
-              elif echo "$PUBLISH_OUTPUT" | grep -qi "OIDC\|trusted publish\|403\|401\|Unauthorized\|Forbidden"; then
-                PUBLISH_OUTCOME=FAIL-OIDC
-                echo "✗ FAIL: @cleocode/$npm_name publish failed — possible OIDC/permission error"
-                echo "  Error detail: $(echo "$PUBLISH_OUTPUT" | grep -i 'OIDC\|403\|401\|error\|npm ERR' | head -5)"
-                echo "$npm_name" >> "$FAILED_LOG"
+            _publish_pkg_impl() {
+              # $1 = directory name under packages/ (or an explicit relative path
+              #      when it contains a slash).
+              # $2 = npm name without @cleocode/ prefix (defaults to the last
+              #      path segment when the directory and npm name match; pass
+              #      explicitly when they differ, e.g. packages/cleo-git-shim →
+              #      @cleocode/git-shim).
+              local pkg_dir="$1"
+              local resolved_dir
+              if [[ "$pkg_dir" == */* ]]; then
+                # Explicit path.
+                resolved_dir="$pkg_dir"
               else
-                PUBLISH_OUTCOME=FAIL
-                echo "✗ FAIL: @cleocode/$npm_name publish failed"
-                echo "$npm_name" >> "$FAILED_LOG"
+                resolved_dir="packages/$pkg_dir"
               fi
+              local default_name="${pkg_dir##*/}"
+              local npm_name="${2:-$default_name}"
+              echo "--- Publishing @cleocode/$npm_name (from $resolved_dir) ---"
+              if [[ ! -d "$resolved_dir" ]]; then
+                PUBLISH_OUTCOME=SKIP-ABSENT
+                echo "SKIP: $resolved_dir does not exist"
+                return 0
+              fi
+              if [[ "$pkg_dir" == "adapters" ]] && [[ ! -d "$resolved_dir/dist" ]]; then
+                PUBLISH_OUTCOME=SKIP-NODIST
+                echo "SKIP: no dist (may be type-only)"
+                return 0
+              fi
+              if already_published "$npm_name"; then
+                PUBLISH_OUTCOME=SKIP-EXISTS
+                echo "✓ SKIP: @cleocode/$npm_name@$VERSION already on npm (idempotent re-run)"
+                return 0
+              fi
+              pushd "$resolved_dir" > /dev/null
+              # GitHub Actions runs with `bash -eo pipefail`; if pnpm publish
+              # exits non-zero inside a `$(...)` substitution, the whole step
+              # aborts and the graceful-failure branches below become
+              # unreachable. `|| PUBLISH_EXIT=$?` catches the non-zero code so
+              # we can classify (SKIP-CONFLICT / OIDC error / real failure)
+              # and track via FAILED_LOG instead of dying mid-publish.
+              # Retry up to 3x on transient Sigstore TLOG errors
+              # (rekor.sigstore.dev sometimes aborts mid-fetch — caused
+              # @cleocode/worktree@2026.5.24 to fail despite trusted publisher
+              # being correctly configured). Real OIDC/permission errors
+              # surface immediately; only TLOG_CREATE_ENTRY_ERROR retries.
+              PUBLISH_EXIT=0
+              PUBLISH_OUTPUT=""
+              for attempt in 1 2 3; do
+                PUBLISH_EXIT=0
+                PUBLISH_OUTPUT=$(pnpm publish $PUBLISH_ARGS 2>&1) || PUBLISH_EXIT=$?
+                if [[ $PUBLISH_EXIT -eq 0 ]]; then
+                  break
+                fi
+                if echo "$PUBLISH_OUTPUT" | grep -qi "TLOG_CREATE_ENTRY_ERROR\|rekor.sigstore.dev.*aborted\|tlog entry"; then
+                  echo "  ⚠ Sigstore TLOG transient error (attempt $attempt/3) — retrying after 10s..."
+                  sleep 10
+                  continue
+                fi
+                # Non-transient error — break so classification logic below runs.
+                break
+              done
+              echo "$PUBLISH_OUTPUT"
+              if [[ $PUBLISH_EXIT -eq 0 ]]; then
+                PUBLISH_OUTCOME=PUBLISHED
+                echo "✓ PUBLISHED: @cleocode/$npm_name@$VERSION"
+              else
+                # Re-check after failure: distinguish between version-conflict 403
+                # (already published — safe to skip) vs real OIDC/permission errors.
+                if already_published "$npm_name"; then
+                  PUBLISH_OUTCOME=SKIP-RACE
+                  echo "✓ SKIP-RACE: @cleocode/$npm_name@$VERSION was published concurrently or pre-exists"
+                elif echo "$PUBLISH_OUTPUT" | grep -qi "cannot publish over the previously published"; then
+                  # 403 "cannot publish over" — version exists but registry cache missed our pre-check
+                  PUBLISH_OUTCOME=SKIP-CONFLICT
+                  echo "✓ SKIP-CONFLICT: @cleocode/$npm_name@$VERSION already published (403 version conflict)"
+                elif echo "$PUBLISH_OUTPUT" | grep -qi "OIDC\|trusted publish\|403\|401\|Unauthorized\|Forbidden"; then
+                  PUBLISH_OUTCOME=FAIL-OIDC
+                  echo "✗ FAIL: @cleocode/$npm_name publish failed — possible OIDC/permission error"
+                  echo "  Error detail: $(echo "$PUBLISH_OUTPUT" | grep -i 'OIDC\|403\|401\|error\|npm ERR' | head -5)"
+                  echo "$npm_name" >> "$FAILED_LOG"
+                else
+                  PUBLISH_OUTCOME=FAIL
+                  echo "✗ FAIL: @cleocode/$npm_name publish failed"
+                  echo "$npm_name" >> "$FAILED_LOG"
+                fi
+              fi
+              popd > /dev/null
+            }
+
+            # Timing wrapper (gh#1479). Deliberately a WRAPPER rather than a line
+            # added to each of the eight outcome branches: a wrapper cannot miss a
+            # branch, and a branch that forgets to set PUBLISH_OUTCOME shows up as
+            # UNKNOWN rather than vanishing from the table. Each row is one short
+            # append, so concurrent publishes in a wave cannot interleave a row.
+            _publish_one() {
+              local name="${2:-${1##*/}}"
+              local call_ts done_ts
+              PUBLISH_OUTCOME=UNKNOWN
+              call_ts=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+              _publish_pkg_impl "$@"
+              local rc=$?
+              done_ts=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+              printf '%s\t%s\t%s\t%s\n' "$name" "$PUBLISH_OUTCOME" "$call_ts" "$done_ts" >> "$PUBLISH_LOG"
+              return $rc
+            }
+
+            # `publish_pkg <dir> [npmName]` ENQUEUES into the current wave (and is
+            # the npm publish-surface SSoT line, arch gate 9 / execute-payload);
+            # `run_wave` publishes the queued packages concurrently and waits for
+            # all of them. Both live in scripts/release-publish-waves.sh so the
+            # failure handling is unit-tested with fake publishers: a publish that
+            # CRASHES (nonzero exit, no classified outcome) is a failure, and after
+            # any wave with a failure no later wave is published — a later wave
+            # depends on the earlier ones. SKIP-EXISTS/RACE/CONFLICT stay
+            # successes, so a re-run of the same release is idempotent.
+            WAVE_LOG_DIR=/tmp
+            # shellcheck source=scripts/release-publish-waves.sh
+            source scripts/release-publish-waves.sh
+
+            # Waves are the dependency levels of the published @cleocode/*
+            # graph (dependencies + peerDependencies + optionalDependencies).
+            #
+            # Wave 1 — no @cleocode/* dependency at all.
+            publish_pkg paths
+            publish_pkg lafs
+            publish_pkg agents
+            publish_pkg skills
+            run_wave 1
+            # Wave 2 — contracts depends on lafs.
+            publish_pkg contracts
+            run_wave 2
+            # Wave 3 — contracts/paths only. worktree carries the bundled
+            # worktree-napi binaries (staged above; OIDC-only, no per-platform
+            # @cleocode/worktree-napi-* packages).
+            publish_pkg worktree
+            publish_pkg git-shim
+            publish_pkg animations
+            publish_pkg nexus
+            run_wave 3
+            # Wave 4 — a dependency CYCLE: core -> adapters -> caamp -> cant ->
+            # core (caamp also peers on core). No order satisfies a cycle, so its
+            # members publish together, after everything they need outside it.
+            publish_pkg core
+            publish_pkg caamp
+            publish_pkg cant
+            publish_pkg adapters
+            run_wave 4
+            # Wave 5 — depend on core (and earlier waves).
+            publish_pkg brain
+            publish_pkg runtime
+            publish_pkg playbooks
+            publish_pkg cleo-os
+            run_wave 5
+            # Wave 6 — the CLI depends on playbooks + runtime (wave 5).
+            publish_pkg cleo
+            run_wave 6
+            # mcp-adapter (external-only MCP bridge) and studio (SvelteKit web
+            # frontend) were REMOVED from the publish surface (T11399 / E1 ·
+            # SG-PACKAGE-ARCH). Neither is depended-on by any published
+            # @cleocode/* package: mcp-adapter talks to `cleo` only via runtime
+            # subprocess, and studio is an app, not a consumed library. Dropping
+            # them reduces the publish surface 20 → 18 on the path to the owner's
+            # single-artifact target (1, via R8/R10 internalization). This
+            # reverses the 2026-05-05 Issue #102 / PR #103 addition of studio.
+
+            # gh#1479 — emit the timeline BEFORE the failure gate, so a failing
+            # publish still leaves the record of what happened and when.
+            {
+              echo "### npm publish timeline — v$VERSION"
+              echo ""
+              echo "\`npm publish\` returning 0 means ACCEPTED, not published. The gap between"
+              echo "\`returned\` here and the package becoming installable is what the post-deploy"
+              echo "job measures; the sibling rows are the comparison group that makes an"
+              echo "outlier legible (gh#1478)."
+              echo ""
+              echo "| package | outcome | publish call (UTC) | returned (UTC) |"
+              echo "|---|---|---|---|"
+              tail -n +2 "$PUBLISH_LOG" | sort -t$'\t' -k3,3 | awk -F'\t' '{printf "| `%s` | %s | %s | %s |\n", $1,$2,$3,$4}'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "--- publish timeline ---"
+            cat "$PUBLISH_LOG"
+
+            mapfile -t FAILED_PKGS < <(sort -u "$FAILED_LOG")
+            if [[ ${#FAILED_PKGS[@]} -gt 0 ]]; then
+              echo "::error::Real publish failures for: ${FAILED_PKGS[*]}"
+              echo ""
+              echo "Diagnosis guide:"
+              echo "  If error mentions OIDC / 401 / Unauthorized:"
+              echo "    → npm Trusted Publisher not configured or misconfigured"
+              echo "    → Fix: npmjs.com → package → Settings → Publishing access"
+              echo "         → Add GitHub Actions trusted publisher (org=kryptobaseddev,"
+              echo "           repo=cleo, workflow=.github/workflows/release.yml)"
+              echo ""
+              echo "  If error mentions 403 / permission denied (not 'cannot publish over'):"
+              echo "    → Package may be private or missing publishConfig.access=public"
+              echo ""
+              echo "  If error mentions 'cannot publish over previously published':"
+              echo "    → Version conflict: this version already exists on npm"
+              echo "    → This should have been caught as SKIP — check already_published() logic"
+              echo ""
+              echo "  NOTE: 403 'cannot publish over' is NOT an OIDC failure."
+              echo "        OIDC trusted publisher IS working if any packages published successfully."
+              exit 1
             fi
-            popd > /dev/null
+            echo "✓ All packages published or skipped (idempotent re-run safe)"
+            echo "  (accepted by npm — installability is decided by the post-deploy job)"
           }
 
-          # Timing wrapper (gh#1479). Deliberately a WRAPPER rather than a line
-          # added to each of the eight outcome branches: a wrapper cannot miss a
-          # branch, and a branch that forgets to set PUBLISH_OUTCOME shows up as
-          # UNKNOWN rather than vanishing from the table. Each row is one short
-          # append, so concurrent publishes in a wave cannot interleave a row.
-          _publish_one() {
-            local name="${2:-${1##*/}}"
-            local call_ts done_ts
-            PUBLISH_OUTCOME=UNKNOWN
-            call_ts=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
-            _publish_pkg_impl "$@"
-            local rc=$?
-            done_ts=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
-            printf '%s\t%s\t%s\t%s\n' "$name" "$PUBLISH_OUTCOME" "$call_ts" "$done_ts" >> "$PUBLISH_LOG"
-            return $rc
-          }
-
-          # `publish_pkg <dir> [npmName]` ENQUEUES into the current wave (and is
-          # the npm publish-surface SSoT line, arch gate 9 / execute-payload);
-          # `run_wave` publishes the queued packages concurrently and waits for
-          # all of them. Both live in scripts/release-publish-waves.sh so the
-          # failure handling is unit-tested with fake publishers: a publish that
-          # CRASHES (nonzero exit, no classified outcome) is a failure, and after
-          # any wave with a failure no later wave is published — a later wave
-          # depends on the earlier ones. SKIP-EXISTS/RACE/CONFLICT stay
-          # successes, so a re-run of the same release is idempotent.
-          WAVE_LOG_DIR=/tmp
-          # shellcheck source=scripts/release-publish-waves.sh
-          source scripts/release-publish-waves.sh
-
-          # Waves are the dependency levels of the published @cleocode/*
-          # graph (dependencies + peerDependencies + optionalDependencies).
-          #
-          # Wave 1 — no @cleocode/* dependency at all.
-          publish_pkg paths
-          publish_pkg lafs
-          publish_pkg agents
-          publish_pkg skills
-          run_wave 1
-          # Wave 2 — contracts depends on lafs.
-          publish_pkg contracts
-          run_wave 2
-          # Wave 3 — contracts/paths only. worktree carries the bundled
-          # worktree-napi binaries (staged above; OIDC-only, no per-platform
-          # @cleocode/worktree-napi-* packages).
-          publish_pkg worktree
-          publish_pkg git-shim
-          publish_pkg animations
-          publish_pkg nexus
-          run_wave 3
-          # Wave 4 — a dependency CYCLE: core -> adapters -> caamp -> cant ->
-          # core (caamp also peers on core). No order satisfies a cycle, so its
-          # members publish together, after everything they need outside it.
-          publish_pkg core
-          publish_pkg caamp
-          publish_pkg cant
-          publish_pkg adapters
-          run_wave 4
-          # Wave 5 — depend on core (and earlier waves).
-          publish_pkg brain
-          publish_pkg runtime
-          publish_pkg playbooks
-          publish_pkg cleo-os
-          run_wave 5
-          # Wave 6 — the CLI depends on playbooks + runtime (wave 5).
-          publish_pkg cleo
-          run_wave 6
-          # mcp-adapter (external-only MCP bridge) and studio (SvelteKit web
-          # frontend) were REMOVED from the publish surface (T11399 / E1 ·
-          # SG-PACKAGE-ARCH). Neither is depended-on by any published
-          # @cleocode/* package: mcp-adapter talks to `cleo` only via runtime
-          # subprocess, and studio is an app, not a consumed library. Dropping
-          # them reduces the publish surface 20 → 18 on the path to the owner's
-          # single-artifact target (1, via R8/R10 internalization). This
-          # reverses the 2026-05-05 Issue #102 / PR #103 addition of studio.
-
-          # gh#1479 — emit the timeline BEFORE the failure gate, so a failing
-          # publish still leaves the record of what happened and when.
-          {
-            echo "### npm publish timeline — v$VERSION"
-            echo ""
-            echo "\`npm publish\` returning 0 means ACCEPTED, not published. The gap between"
-            echo "\`returned\` here and the package becoming installable is what the post-deploy"
-            echo "job measures; the sibling rows are the comparison group that makes an"
-            echo "outlier legible (gh#1478)."
-            echo ""
-            echo "| package | outcome | publish call (UTC) | returned (UTC) |"
-            echo "|---|---|---|---|"
-            tail -n +2 "$PUBLISH_LOG" | sort -t$'\t' -k3,3 | awk -F'\t' '{printf "| `%s` | %s | %s | %s |\n", $1,$2,$3,$4}'
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "--- publish timeline ---"
-          cat "$PUBLISH_LOG"
-
-          mapfile -t FAILED_PKGS < <(sort -u "$FAILED_LOG")
-          if [[ ${#FAILED_PKGS[@]} -gt 0 ]]; then
-            echo "::error::Real publish failures for: ${FAILED_PKGS[*]}"
-            echo ""
-            echo "Diagnosis guide:"
-            echo "  If error mentions OIDC / 401 / Unauthorized:"
-            echo "    → npm Trusted Publisher not configured or misconfigured"
-            echo "    → Fix: npmjs.com → package → Settings → Publishing access"
-            echo "         → Add GitHub Actions trusted publisher (org=kryptobaseddev,"
-            echo "           repo=cleo, workflow=.github/workflows/release.yml)"
-            echo ""
-            echo "  If error mentions 403 / permission denied (not 'cannot publish over'):"
-            echo "    → Package may be private or missing publishConfig.access=public"
-            echo ""
-            echo "  If error mentions 'cannot publish over previously published':"
-            echo "    → Version conflict: this version already exists on npm"
-            echo "    → This should have been caught as SKIP — check already_published() logic"
-            echo ""
-            echo "  NOTE: 403 'cannot publish over' is NOT an OIDC failure."
-            echo "        OIDC trusted publisher IS working if any packages published successfully."
-            exit 1
+          # A re-run after the release itself published skips the candidate:
+          # `latest` already carries this version.
+          FINAL_ON_NPM=$(npm view "@cleocode/cleo@$VERSION" version 2>/dev/null || true)
+          if [[ -n "$RC_VERSION" && "$FINAL_ON_NPM" != "$VERSION" ]]; then
+            echo "=== Release candidate $RC_VERSION -> canary ==="
+            scripts/release-sync-versions.sh "$RC_VERSION"
+            publish_release "$RC_VERSION" canary
+            # The gate. Both are blocking: no continue-on-error, no `|| true`.
+            # The candidate must resolve from npm (metadata, tarball and the
+            # canary dist-tag, every package) ...
+            POSTDEPLOY_TIMEOUT_MS=900000 node scripts/execute-payload.mjs \
+              --version "$RC_VERSION" \
+              --dist-tag canary \
+              --output-dir /tmp/rc-postdeploy
+            # ... and install and run from npm in a sandbox (install, coherent
+            # @cleocode versions, --version, init, session, saga/epic write,
+            # show, find, doctor).
+            node scripts/release-canary-soak.mjs --version "$RC_VERSION" --out /tmp/rc-postdeploy/canary-soak.json
+            echo "=== Release candidate passed: publishing $VERSION -> $TAG ==="
+            scripts/release-sync-versions.sh "$VERSION"
           fi
-          echo "✓ All packages published or skipped (idempotent re-run safe)"
-          echo "  (accepted by npm — installability is decided by the post-deploy job)"
+          publish_release "$VERSION" "$TAG"
 
       # Consumed by release-verdict to render the call -> created -> delay table
       # alongside the registry's own creation timestamps (gh#1479).
@@ -1155,7 +1183,7 @@ jobs:
       # NOTE: there is deliberately no `Get version` step here. It used to
       # re-derive VERSION with a copy of the release job's shell that dropped
       # the dist-tag branch, so this job could not know whether it was verifying
-      # a `latest`, `beta` or `dev` release. Both values now come from
+      # a `canary`, `beta` or `dev` release. Both values now come from
       # needs.build-verify.outputs.
 
       # Run the post-deploy payload script:

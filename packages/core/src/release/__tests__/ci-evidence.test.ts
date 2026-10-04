@@ -432,16 +432,81 @@ describe('resolveCiEvidenceAtom', () => {
     );
   });
 
-  it('refuses a PR that edits a pinned workflow file (round 2 #2)', async () => {
-    writeContext(optedIn);
-    const r = await resolve({
-      resolvePr: async () => ({
-        ...merged,
-        changedPaths: ['a.ts', '.github/workflows/ci.yml'],
-        changedFileCount: 2,
-      }),
+  describe('a PR that edits a pinned workflow: main push CI only (T13174)', () => {
+    beforeEach(() => writeContext(optedIn));
+    const editing: PrAtomResolution = {
+      ...merged,
+      changedPaths: ['a.ts', '.github/workflows/ci.yml'],
+      changedFileCount: 2,
+    };
+    const DESC = '1'.repeat(40);
+    const onDesc = allGreen.map((c) => ({ ...c, headSha: DESC, event: 'push' }));
+    const cancelledMerge = allGreen.map((c) =>
+      c.workflowPath === '.github/workflows/ci.yml' ? { ...c, conclusion: 'cancelled' } : c,
+    );
+    const redHead = onHead.map((c) => ({ ...c, conclusion: 'failure' }));
+
+    it("is attested by the merge commit's push CI, never consulting the PR's own runs", async () => {
+      const fetched: string[] = [];
+      const r = await resolve({
+        context: context('T1', ['testsPassed', 'qaPassed']),
+        resolvePr: async () => editing,
+        // A tree-equal head would normally be consulted; for an edited workflow it is not.
+        treeOf: () => TREE,
+        isAncestor: () => true,
+        fetchChecks: async (sha) => {
+          fetched.push(sha);
+          return { ok: true, checks: sha === MERGE ? allGreen : redHead };
+        },
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.kind === 'ci' && r.atom.mainOnly).toBe(true);
+      expect(fetched).toEqual([MERGE]);
     });
-    expect(!r.ok && r.reason).toMatch(/edits the pinned workflow \.github\/workflows\/ci\.yml/);
+
+    it('a merge-commit push run whose jobs were skipped never counts', async () => {
+      const unitSkipped = allGreen.map((c) =>
+        c.name.startsWith('Unit Tests') ? { ...c, conclusion: 'skipped' } : c,
+      );
+      const r = await resolve({
+        resolvePr: async () => editing,
+        fetchChecks: async (sha) => ({ ok: true, checks: sha === MERGE ? unitSkipped : onHead }),
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/job Unit Tests \(ubuntu-latest, shard 1\): skipped/);
+    });
+
+    it('no main push run yet: refused with a wait-for-main-CI message, no local run', async () => {
+      const r = await resolve({
+        resolvePr: async () => editing,
+        fetchChecks: async () => ({ ok: true, checks: [] }),
+        listDescendants: () => [],
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(
+        /only main's push CI attests it \(T13174\): wait for the push run on aaaaaaaaaaaa/,
+      );
+      expect(!r.ok && r.reason).not.toMatch(/tool:test/);
+    });
+
+    it('a cancelled merge-commit run stands in for by a later green main run, even with a red PR head', async () => {
+      const r = await resolve({
+        context: context('T1', ['testsPassed', 'qaPassed']),
+        resolvePr: async () => editing,
+        fetchChecks: async (sha) => ({
+          ok: true,
+          checks: sha === MERGE ? cancelledMerge : sha === DESC ? onDesc : redHead,
+        }),
+        listDescendants: () => [DESC],
+        isAncestor: (a, d) => a === MERGE && d === DESC,
+        touchingCommits: () => [],
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom?.descendantSha).toBe(DESC);
+      expect(atom?.descendantPrHeadSha).toBeUndefined();
+      expect(atom?.mainOnly).toBe(true);
+    });
   });
 
   describe('skipped jobs on a code task (round 2 #1)', () => {
@@ -964,6 +1029,19 @@ describe('resolveCiEvidenceAtom', () => {
         reason: 'offline',
       }));
       expect(!r.ok && r.reason).toMatch(/cannot re-check ci:42.*offline/);
+    });
+
+    it('a main-only atom re-checks the descendant push run alone (T13174)', async () => {
+      const mainOnlyAtom = { ...atom, descendantPrHeadSha: undefined, mainOnly: true };
+      const asked: string[] = [];
+      const r = await recheckCiDescendantAtom(mainOnlyAtom, '/nowhere', async (sha) => {
+        asked.push(sha);
+        return { ok: true as const, checks: onDesc };
+      });
+      expect(r).toEqual({ ok: true });
+      expect(asked).toEqual([DESC]);
+      const noHead = { ...atom, descendantPrHeadSha: undefined };
+      expect((await recheckCiDescendantAtom(noHead, '/nowhere', fetchFrom(onDesc))).ok).toBe(false);
     });
 
     it('an atom without a descendant is untouched', async () => {

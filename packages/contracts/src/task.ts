@@ -540,6 +540,12 @@ export type EvidenceAtom =
        * vouches for a PR that was not itself green.
        */
       descendantPrHeadSha?: string;
+      /**
+       * The PR edited a pinned workflow, so only default-branch `push` runs
+       * attested it; its own `pull_request` runs (which ran the edited
+       * workflow) were never consulted, and none is re-checked (T13174).
+       */
+      mainOnly?: boolean;
       /** Task the PR was verified to be linked to (T12634). */
       taskId?: string;
       /** Component PR the task is linked through; its CI ran as this integration PR's (T12671). */

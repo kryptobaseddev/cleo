@@ -605,6 +605,18 @@ export function wrapProjectKey(
   return seal(mk, pdk, 'pdk-wrap', pdkContext(projectId, keyVersion)).toString('base64');
 }
 
+/**
+ * Whether a base64 key wrap may be sent: it has content beyond `=` padding
+ * and decodes to at least one byte. Cleo Nexus refuses an empty or
+ * padding-only `wrappedProjectKey` with 400 (cleo-nexus #35), so the client
+ * checks before every send (T13101).
+ *
+ * @param wrapped - The base64 wrap.
+ */
+export function isSendableWrap(wrapped: string): boolean {
+  return wrapped.replace(/=+$/, '') !== '' && Buffer.from(wrapped, 'base64').length > 0;
+}
+
 export function unwrapProjectKey(
   mk: Buffer,
   wrapped: string,

@@ -59,7 +59,9 @@ export const doctorSupersededStoreCommand = defineCommand({
       type: 'boolean',
       description:
         'Copy rows the superseded files hold that are missing from cleo.db (additive, verified, ' +
-        'reverted on mismatch; legacy files are never touched). Writes a receipt.',
+        'reverted on mismatch; legacy files are never touched). A legacy task whose id a newer ' +
+        'task took is recovered under a new id, with its references re-pointed (task ids inside ' +
+        'free text are not rewritten). Writes a receipt.',
     },
     additive: {
       type: 'boolean',

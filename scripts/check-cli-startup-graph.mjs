@@ -100,8 +100,10 @@ const MODEL_SDKS = /\/(@anthropic-ai|openai|@ai-sdk|@aws-sdk|@google|js-tiktoken
  * | help    |      75 |  64 MB            |
  * | show    |   2,412 | 396 MB            |
  *
- * `show` still loads the CORE barrel through the dispatch layer; T13126's
- * follow-ups lower it. Lower each budget in the PR that lowers its count.
+ * Then the dispatch layer stopped loading the CORE barrel for the hot reads
+ * (lazy domain handlers, `@cleocode/runtime/gateway/dispatch`, narrow imports):
+ * `show` and `find` load ~1,050 modules. Lower each budget in the PR that
+ * lowers its count.
  *
  * @type {readonly Probe[]}
  */
@@ -124,9 +126,17 @@ export const PROBES = Object.freeze([
     name: 'show',
     args: ['show', 'T001'],
     needsProject: true,
-    forbid: [],
-    maxModules: 2650,
-    maxRssMb: 480,
+    forbid: [CORE_BARREL, MODEL_SDKS],
+    maxModules: 1150,
+    maxRssMb: 330,
+  },
+  {
+    name: 'find',
+    args: ['find', 'probe'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS],
+    maxModules: 1150,
+    maxRssMb: 330,
   },
 ]);
 

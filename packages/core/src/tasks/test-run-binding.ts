@@ -58,10 +58,10 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { discoveryEnv } from '../git/work-tree.js';
 import {
-  changedPathsSinceDefault,
   deriveAffectedPackages,
   listWorkspacePackages,
   originDefaultMergeBase,
+  scopedChangedPaths,
   type WorkspacePackage,
 } from './affected-packages.js';
 
@@ -423,7 +423,8 @@ export function bindTestRunReport(
       );
     }
   }
-  const changed = changedPathsSinceDefault(root);
+  const changes = scopedChangedPaths(root);
+  const changed = changes?.paths ?? null;
   const newest = newestModified(
     root,
     (changed ?? dirtyTracked(root)).filter((p) => p !== clock.reportRel),
@@ -443,6 +444,14 @@ export function bindTestRunReport(
     );
   }
 
+  // T13135: a change whose every path was set aside as out of scope has
+  // nothing a targeted report can speak for; it must not pass vacuously.
+  if (changes !== null && changes.paths.length === 0 && changes.excluded.length > 0) {
+    return refuse(
+      `Every path this change touches is excluded from evidence scope (${changes.excluded.slice(0, 5).join(', ')}${changes.excluded.length > 5 ? ', …' : ''}), ` +
+        'so a test-run report cannot speak for it. Record tool:test, or ci:<pr> once the PR merges.',
+    );
+  }
   if (changed === null || changed.length === 0) return { ok: true, untestedPackages: [] };
   const scope = deriveAffectedPackages(root, changed);
   if (scope.scope === 'full') {

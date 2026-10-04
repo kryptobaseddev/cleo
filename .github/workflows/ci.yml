@@ -87,6 +87,13 @@ jobs:
       # bump-PR shape. Heavy jobs skip on it; lint + typecheck (and the separate
       # Lockfile Check workflow) still run. See scripts/ci-detect-version-only.mjs.
       version_only: ${{ (steps.version-only.outputs.version_only == 'true' || steps.version-only-dispatch.outputs.version_only == 'true') && 'true' || 'false' }}
+      # T13143: the runners Build, Build & Verify and Unit Tests use, and the
+      # unit-test shards per runner (scripts/ci-platform-matrix.mjs). macOS
+      # runs nightly, in merge groups, and on a pull request whose change is
+      # darwin-specific; Linux and macOS each shard 8 ways.
+      darwin: ${{ steps.platform.outputs.darwin }}
+      build_os: ${{ steps.platform.outputs.build_os }}
+      test_matrix: ${{ steps.platform.outputs.test_matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -120,6 +127,9 @@ jobs:
             echo "version_only=false" >> "$GITHUB_OUTPUT"
             echo "No merge-base with origin/${DEFAULT_BRANCH}; running the full suite."
           fi
+      - name: Choose platforms and shards (T13143)
+        id: platform
+        run: node scripts/ci-platform-matrix.mjs "${{ github.event_name }}" HEAD^1 HEAD
       - uses: dorny/paths-filter@v3
         id: filter
         if: github.event_name != 'schedule'
@@ -769,7 +779,9 @@ jobs:
         # Scans all TS source files to ensure every new DatabaseSync() call
         # has applyPerfPragmas applied within 5 lines. ADR-068 §3.
         # Fails on any production file with a missing applyPerfPragmas call.
-        run: pnpm --filter @cleocode/core exec vitest run --reporter=verbose src/__tests__/pragma-drift-guard.test.ts
+        # The guard reads the whole repo, so it runs in the root config's
+        # `repo-guards` project; @cleocode/core's own config excludes it (T13142).
+        run: pnpm exec vitest run --project repo-guards --reporter=verbose packages/core/src/__tests__/pragma-drift-guard.test.ts
 
   db-open-guard:
     name: DB Open Chokepoint Guard (ADR-068 T9047)
@@ -1440,7 +1452,7 @@ jobs:
       matrix:
         # Same OS set as unit-tests (see the rationale there): macOS only on
         # the nightly schedule and merge_group.
-        os: ${{ fromJson((github.event_name == 'merge_group' || github.event_name == 'schedule') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJson(needs.changes.outputs.build_os) }}
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -1584,15 +1596,23 @@ jobs:
         # `timeout-minutes: 55` (build 575 s + 42 min of vitest over 2 shards),
         # so main went red/cancelled on a timeout, not a failure. A macOS-only
         # regression is now detected by the next nightly run instead.
-        os: ${{ fromJson((github.event_name == 'merge_group' || github.event_name == 'schedule') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        # T13143: `{os, shard, total}` per job from the `changes` job: 8 Linux
+        # shards always (the repo is public, so runners are free); 8 macOS
+        # shards nightly, in merge groups and on a darwin-specific pull request
+        # (scripts/ci-platform-matrix.mjs). Main pushes run macOS in
+        # macos-main.yml.
         # 2026-09-29: 4 shards (was 2). Shard 1 of 2 was the whole PR critical
         # path at ~33 min (~4 min setup + 27-30 min vitest); `--shard` splits
         # by file count, not duration, so halving the files per shard is the
-        # simple, robust lever. Keep `--shard=N/4` below in sync.
-        shard: [1, 2, 3, 4]
+        # simple, robust lever.
+        include: ${{ fromJson(needs.changes.outputs.test_matrix) }}
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          # T13142: a pull_request checks out its merge commit; its first parent
+          # is the base tip, so `HEAD^1..HEAD` is exactly the PR's change.
+          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'
@@ -1636,8 +1656,22 @@ jobs:
       # packages) was removed 2026-09-29: it ran only when a PR targeted a
       # branch other than main, and every PR here targets main, so it was
       # dead code. Its per-package paths-filter outputs went with it.
-      - name: Run unit tests (shard ${{ matrix.shard }}/4)
+      # T13142: a pull request runs the vitest projects of the packages it
+      # changes plus their dependents (and the package-less `scripts` project),
+      # the set `tool:test-affected` runs locally. A change outside every
+      # package, or any doubt, runs the full suite. Main pushes, the nightly
+      # run, merge groups and dispatches always run the full suite.
+      - name: Select affected test projects (T13142)
+        id: affected
+        if: github.event_name == 'pull_request'
         shell: bash
+        run: node scripts/ci-affected-test-projects.mjs HEAD^1 HEAD
+      - name: Run unit tests (shard ${{ matrix.shard }}/${{ matrix.total }})
+        shell: bash
+        env:
+          AFFECTED_ARGS: ${{ steps.affected.outputs.args }}
+          # T13145: reads the open `flaky-quarantine` issues (the quarantine).
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
           # BOTH macOS shards get retry=2 to absorb Darwin vitest+pnpm+timing
@@ -1653,11 +1687,71 @@ jobs:
           if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             RETRY_FLAG="--retry=2"
           fi
-          pnpm exec vitest run --shard=${{ matrix.shard }}/4 $RETRY_FLAG 2>&1 | tee /tmp/vitest-shard${{ matrix.shard }}.log
-      - name: T9170 — schema-warning budget gate (shard ${{ matrix.shard }}/4)
+          # An affected run may leave a shard with no files: that is a pass.
+          SCOPE_FLAGS=""
+          if [[ -n "${AFFECTED_ARGS:-}" ]]; then
+            SCOPE_FLAGS="$AFFECTED_ARGS --passWithNoTests"
+          fi
+          # T13145: a failing test whose file passes on ONE re-run is a flake —
+          # reported and filed, not blocking; a quarantined test's failure does
+          # not block; a test that fails twice, a crash, or a quarantine over
+          # budget blocks. The first run's output is still teed to the log the
+          # schema-warning gate below reads. See scripts/ci-flaky-quarantine.mjs.
+          # shellcheck disable=SC2086 # word splitting is intended: flag lists
+          node scripts/ci-flaky-quarantine.mjs run \
+            --log /tmp/vitest-shard${{ matrix.shard }}.log \
+            --report "$RUNNER_TEMP/flaky-report.json" \
+            -- --shard=${{ matrix.shard }}/${{ matrix.total }} $RETRY_FLAG $SCOPE_FLAGS
+      - name: Upload flaky-test report (T13145)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flaky-report-${{ matrix.os }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/flaky-report.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: T9170 — schema-warning budget gate (shard ${{ matrix.shard }}/${{ matrix.total }})
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: node scripts/check-schema-warning-budget.mjs /tmp/vitest-shard${{ matrix.shard }}.log
+
+  # T13145: files each flaky or quarantined-failing test the unit shards
+  # reported as an open `flaky-quarantine` issue (the open issues ARE the
+  # quarantine the shards read), and on the nightly run closes the issues with
+  # no new observation for 14 days, so a test leaves quarantine on its own.
+  # Main only: a PR run reports its flakes in the summary without filing.
+  # Never fails: a `gh` error is a warning.
+  flaky-quarantine:
+    name: Flaky Test Quarantine (T13145)
+    needs: [unit-tests]
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: flaky-report-*
+          path: ${{ runner.temp }}/flaky-reports
+      - name: File flaky tests; expire quiet ones on the nightly run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EXPIRE: ${{ github.event_name == 'schedule' && '--expire' || '' }}
+        run: |
+          node scripts/ci-flaky-quarantine.mjs file \
+            --reports "$RUNNER_TEMP/flaky-reports" \
+            --run-url "$RUN_URL" \
+            --sha "$GITHUB_SHA" \
+            $EXPIRE
 
   build-verify:
     name: Build & Verify (${{ matrix.os }})
@@ -1697,7 +1791,7 @@ jobs:
         # `timeout-minutes: 55` (build 575 s + 42 min of vitest over 2 shards),
         # so main went red/cancelled on a timeout, not a failure. A macOS-only
         # regression is now detected by the next nightly run instead.
-        os: ${{ fromJson((github.event_name == 'merge_group' || github.event_name == 'schedule') && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJson(needs.changes.outputs.build_os) }}
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -2366,6 +2460,7 @@ jobs:
       - typecheck
       - build
       - unit-tests
+      - flaky-quarantine
       - scripts-tests
       - build-verify
       - packed-artifact

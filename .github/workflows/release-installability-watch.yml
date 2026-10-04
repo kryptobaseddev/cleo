@@ -26,7 +26,7 @@ on:
         description: 'Version to check right now (e.g. 2026.9.8). Omit to sweep all open trackers.'
         required: false
       dist_tag:
-        description: 'latest / beta / dev'
+        description: 'latest / beta / dev (canary for a release candidate, T13181)'
         required: false
         default: 'latest'
       dry_run:

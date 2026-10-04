@@ -30,23 +30,47 @@ vi.mock('@cleocode/core/sagas', async () => ({
 }));
 
 // Mock engine functions before importing the handler
-vi.mock('@cleocode/runtime/gateway', async () => ({
-  ...(await vi.importActual<typeof import('@cleocode/runtime/gateway')>(
-    '@cleocode/runtime/gateway',
-  )),
+// T13126: the tasks domain imports each op from its CORE leaf module, so each
+// leaf is mocked there (the gateway re-exports reach the same mocked module).
+vi.mock('@cleocode/core/tasks/show', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/show')>()),
   taskShow: vi.fn(),
   taskShowOperation: vi.fn(),
   taskShowWithHistory: vi.fn(),
   taskShowIvtrHistory: vi.fn(),
-  taskList: vi.fn(),
-  taskFind: vi.fn(),
   taskExists: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/list', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/list')>()),
+  taskList: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/find', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/find')>()),
+  taskFind: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/session-scope', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/session-scope')>()),
   addTaskWithSessionScope: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/update', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/update')>()),
   taskUpdate: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/complete', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/complete')>()),
   taskComplete: vi.fn(),
   completeTaskStrict: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/delete', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/delete')>()),
   taskDelete: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/archive', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/archive')>()),
   taskArchive: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/engine-wrap', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/engine-wrap')>()),
   taskNext: vi.fn(),
   taskBlockers: vi.fn(),
   taskTree: vi.fn(),
@@ -58,30 +82,50 @@ vi.mock('@cleocode/runtime/gateway', async () => ({
   taskReorder: vi.fn(),
   taskReparent: vi.fn(),
   taskPromote: vi.fn(),
-  taskComplexityEstimate: vi.fn(),
-  taskDepends: vi.fn(),
-  taskCurrentGet: vi.fn(),
-  taskStart: vi.fn(),
-  taskStop: vi.fn(),
-  taskSyncReconcile: vi.fn(),
-  taskSyncLinks: vi.fn(),
-  taskSyncLinksRemove: vi.fn(),
-  taskHistory: vi.fn(),
-  taskWorkHistory: vi.fn(),
-  taskLabelList: vi.fn(),
-  taskClaim: vi.fn(),
-  taskUnclaim: vi.fn(),
   taskRelatesFind: vi.fn(),
   taskCancel: vi.fn(),
   taskReopen: vi.fn(),
   taskUnarchive: vi.fn(),
   taskImpact: vi.fn(),
-  taskPlan: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/engine-wrap-ops', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/engine-wrap-ops')>()),
+  taskComplexityEstimate: vi.fn(),
+  taskDepends: vi.fn(),
+  taskHistory: vi.fn(),
+  taskClaim: vi.fn(),
+  taskUnclaim: vi.fn(),
   taskDepsCycles: vi.fn(),
   taskDepsOverview: vi.fn(),
 }));
+vi.mock('@cleocode/core/session/engine-ops', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/session/engine-ops')>()),
+  taskCurrentGet: vi.fn(),
+  taskStart: vi.fn(),
+  taskStop: vi.fn(),
+  taskWorkHistory: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/sync-ops', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/sync-ops')>()),
+  taskSyncReconcile: vi.fn(),
+  taskSyncLinks: vi.fn(),
+  taskSyncLinksRemove: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/labels', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/labels')>()),
+  taskLabelList: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/plan', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/plan')>()),
+  taskPlan: vi.fn(),
+}));
 
-// Mock getProjectRoot
+// Mock getProjectRoot where the tasks domain imports it from (T13126) …
+vi.mock('@cleocode/core/project-scope', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/project-scope')>()),
+  getProjectRoot: vi.fn(() => '/mock/project'),
+}));
+// … and on core's paths module, which re-exports it for other callers.
 vi.mock('../../../../../core/src/paths.js', async () => {
   const actual = await vi.importActual<typeof import('../../../../../core/src/paths.js')>(
     '../../../../../core/src/paths.js',
@@ -92,20 +136,14 @@ vi.mock('../../../../../core/src/paths.js', async () => {
   };
 });
 
+import { taskCurrentGet, taskStart, taskStop } from '@cleocode/core/session/engine-ops';
+import { taskArchive } from '@cleocode/core/tasks/archive';
+import { completeTaskStrict } from '@cleocode/core/tasks/complete';
+import { taskDelete } from '@cleocode/core/tasks/delete';
 import {
-  addTaskWithSessionScope,
-  completeTaskStrict,
   taskAnalyze,
-  taskArchive,
   taskBlockers,
   taskCancel,
-  taskClaim,
-  taskComplexityEstimate,
-  taskCurrentGet,
-  taskDelete,
-  taskDepends,
-  taskFind,
-  taskList,
   taskNext,
   taskRelates,
   taskRelatesAdd,
@@ -113,12 +151,18 @@ import {
   taskReorder,
   taskReparent,
   taskRestore,
-  taskShowOperation,
-  taskStart,
-  taskStop,
   taskTree,
-  taskUpdate,
-} from '@cleocode/runtime/gateway';
+} from '@cleocode/core/tasks/engine-wrap';
+import {
+  taskClaim,
+  taskComplexityEstimate,
+  taskDepends,
+} from '@cleocode/core/tasks/engine-wrap-ops';
+import { taskFind } from '@cleocode/core/tasks/find';
+import { taskList } from '@cleocode/core/tasks/list';
+import { addTaskWithSessionScope } from '@cleocode/core/tasks/session-scope';
+import { taskShowOperation } from '@cleocode/core/tasks/show';
+import { taskUpdate } from '@cleocode/core/tasks/update';
 import * as typedAdapter from '../../adapters/typed.js';
 import { TasksHandler } from '../tasks.js';
 

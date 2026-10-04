@@ -71,6 +71,18 @@ export type ListDevicesResult = z.infer<typeof ListDevicesResult>;
 
 // ---------- projects ----------
 
+/**
+ * A new project's first data key, stored in the same transaction as its registration (onboarding B): key
+ * version 1, wrapped by the registrant's account master key. Needs keys:write on top of projects:write, and is
+ * honoured only when the call creates the project. Later versions stay rotations
+ * (PUT /v1/projects/:projectId/keys/:userId).
+ */
+export const InitialProjectKey = z.object({
+  /** The project data key, wrapped by the registrant's master key at key version 1. */
+  wrappedProjectKey: Base64,
+});
+export type InitialProjectKey = z.infer<typeof InitialProjectKey>;
+
 export const RegisterProjectRequest = z.object({
   projectId: ProjectId,
   /**
@@ -87,6 +99,8 @@ export const RegisterProjectRequest = z.object({
    * caller's personal organization, which every account has.
    */
   organizationId: z.string().uuid().optional(),
+  /** The project's first data key (onboarding B). Honoured only when this call creates the project. */
+  initialKey: InitialProjectKey.optional(),
 });
 export type RegisterProjectRequest = z.infer<typeof RegisterProjectRequest>;
 
@@ -103,7 +117,16 @@ export const Project = z.object({
 });
 export type Project = z.infer<typeof Project>;
 
-export const RegisterProjectResult = z.object({ project: Project, streamId: StreamId });
+export const RegisterProjectResult = z.object({
+  project: Project,
+  streamId: StreamId,
+  /**
+   * The key version `initialKey` is stored at for the caller: 1 when this call created the project with it,
+   * or repeated the caller's identical version 1; null when no initialKey was sent, or the project already
+   * existed with no key (initialKey ignored). Absent from servers older than initialKey.
+   */
+  initialKeyVersion: KeyVersion.nullable().optional(),
+});
 export type RegisterProjectResult = z.infer<typeof RegisterProjectResult>;
 
 /**
