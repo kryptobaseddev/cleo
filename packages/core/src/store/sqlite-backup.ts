@@ -59,7 +59,8 @@ import {
 } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { DB_INVENTORY, type DbInventoryEntry, type DbRole } from '@cleocode/contracts';
+import type { DbInventoryEntry, DbRole } from '@cleocode/contracts';
+import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
 import { getCleoDir, getCleoHome, resolveOrCwd } from '../paths.js';
 import { getTelemetryDb, getTelemetryNativeDb } from '../telemetry/sqlite.js';
 import {

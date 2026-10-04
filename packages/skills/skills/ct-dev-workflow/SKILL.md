@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.6
+version: 3.1.7
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,12 +14,12 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.6
+  version: 3.1.7
   tier: core
   install: harness
   covers:
     - .github/workflows/release-prepare.yml
-  lastReviewed: 2026-10-03
+  lastReviewed: 2026-10-04
   stability: stable
 ---
 
@@ -286,11 +286,13 @@ push run for that SHA, or for an ancestor reached only through release-plan
 commits (the plan file, changesets, CHANGELOG; T13140), is green AND ran every
 Linux `Unit Tests` shard green (a docs-only push that skipped the tests does
 not count). It sets `skip-macos-tests=true` when the newest completed nightly
-or `macos-main.yml` (main-push, cancellable; T13143) run with macOS jobs for
+or `macos-main.yml` (main-push, never cancelled mid-run, pending pushes coalesce;
+T13143, T13187) run with macOS jobs for
 one of those commits is green. The SHA travels as `verified-sha`, and the
 workflow ignores the skips if it checks out another commit or `verified-sha` is
-empty. Otherwise the 8 Linux and 8 macOS test shards run. The decision is in
-the run summary.
+empty. Otherwise the 8 Linux and 8 macOS test shards run, and the reason names
+the newest main commit that has a green macOS run. The decision is in the run
+summary.
 
 **Bump-PR merge.** Its `pull_request` runs stay `action_required` (no GitHub
 App), so the orchestrator admin-merges once the dispatched `CI` run on the PR

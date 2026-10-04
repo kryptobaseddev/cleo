@@ -38,11 +38,8 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import { setPriority } from 'node:os';
-import {
-  type AdmissionResult,
-  DEFAULT_RESOURCE_RETRY_AFTER_MS,
-  type ResourceClass,
-} from '@cleocode/contracts';
+import type { AdmissionResult, ResourceClass } from '@cleocode/contracts';
+import { DEFAULT_RESOURCE_RETRY_AFTER_MS } from '@cleocode/contracts/resource-governor.js';
 import type { ResourceSample } from './backend.js';
 import { admitFailOpen, type GovernorIoError, governor, passThroughGrant } from './governor.js';
 import { classifyPressure, type PressureState, pressureScore, ResourceMonitor } from './monitor.js';

@@ -79,7 +79,7 @@ export function lazyCommand(
         // invocation — an eager import would charge the renderer's load cost
         // to the 99.9% of calls that pass valid flags.
         const { cliError } = await import('./renderers/index.js');
-        const { ExitCode } = await import('@cleocode/contracts');
+        const { ExitCode } = await import('@cleocode/contracts/exit-codes.js');
         cliError(err.message, ExitCode.VALIDATION_ERROR, {
           name: err.code,
           fix: err.fix,

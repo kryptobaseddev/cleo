@@ -27,8 +27,9 @@
 
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { BlobAttachment } from '@cleocode/contracts';
-import { type ChangesetEntry, ChangesetEntrySchema, DocKindRegistry } from '@cleocode/contracts';
+import type { BlobAttachment, ChangesetEntry } from '@cleocode/contracts';
+import { ChangesetEntrySchema } from '@cleocode/contracts/changesets.js';
+import { DocKindRegistry } from '@cleocode/contracts/docs-taxonomy.js';
 import { releaseReservedSlug, reserveSlug } from '../docs/slug-allocator.js';
 import { createAttachmentStore, SlugCollisionError } from '../store/attachment-store.js';
 

@@ -33,12 +33,8 @@
  * @saga T11283 SG-COGNITIVE-SUBSTRATE
  */
 
-import {
-  type GoalContinuation,
-  type GoalJudgeVerdict,
-  type GoalRecord,
-  isTerminalGoalStatus,
-} from '@cleocode/contracts';
+import type { GoalContinuation, GoalJudgeVerdict, GoalRecord } from '@cleocode/contracts';
+import { isTerminalGoalStatus } from '@cleocode/contracts/goal.js';
 
 /**
  * Maximum byte length of a continuation's `content`. A continuation is a nudge,

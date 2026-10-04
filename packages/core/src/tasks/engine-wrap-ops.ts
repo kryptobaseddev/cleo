@@ -14,7 +14,7 @@ import type {
   TasksUnclaimParams,
   TasksUnclaimResult,
 } from '@cleocode/contracts';
-import { TASK_STATUSES } from '@cleocode/contracts';
+import { TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getTaskAccessor } from '../store/data-accessor.js';

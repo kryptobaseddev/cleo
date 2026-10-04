@@ -20,7 +20,8 @@
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { type AcceptanceItem, ExitCode, type Task } from '@cleocode/contracts';
+import type { AcceptanceItem, Task } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 

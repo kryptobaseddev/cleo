@@ -31,19 +31,21 @@
 
 import { randomBytes } from 'node:crypto';
 import { hostname as osHostname } from 'node:os';
+import type {
+  NexusAccountOrganization,
+  NexusAccountSetup,
+  NexusAccountUser,
+  NexusErrorMapping,
+  NexusLoginResult,
+} from '@cleocode/contracts';
+import { nexusAccountOrganizationSchema } from '@cleocode/contracts/nexus-account.js';
 import {
   NEXUS_CONFLICT_ERRORS,
   NEXUS_FORBIDDEN_ERRORS,
   NEXUS_REVOKED_REASON_ERRORS,
   NEXUS_UNAUTHENTICATED_ERRORS,
   NEXUS_UNREACHABLE_ERROR,
-  type NexusAccountOrganization,
-  type NexusAccountSetup,
-  type NexusAccountUser,
-  type NexusErrorMapping,
-  type NexusLoginResult,
-  nexusAccountOrganizationSchema,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/nexus-cloud.js';
 import { z } from 'zod';
 import type { DeviceCodeStartResponse } from '../llm/oauth/device-code.js';
 import { generateEd25519, generateX25519, signEd25519 } from './crypto.js';

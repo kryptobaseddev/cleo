@@ -53,11 +53,6 @@ import type {
   Task,
   TestGate,
 } from '@cleocode/contracts';
-import {
-  acceptanceGateResultSchema,
-  acceptanceGateSchema,
-  testCountReportSchema,
-} from '@cleocode/contracts';
 import type {
   AcceptanceGateArtifact,
   AcceptanceGateBinding,
@@ -66,6 +61,11 @@ import type {
   AcceptanceGateTreeBinding,
   AcceptanceGateVerificationReceipt,
 } from '@cleocode/contracts/acceptance-gate';
+import {
+  acceptanceGateResultSchema,
+  acceptanceGateSchema,
+  testCountReportSchema,
+} from '@cleocode/contracts/acceptance-gate-schema.js';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import type {
   ProcessCaptureOptions,

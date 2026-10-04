@@ -9,7 +9,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import writeFileAtomic from 'write-file-atomic';
 import { CleoError } from '../errors.js';
 

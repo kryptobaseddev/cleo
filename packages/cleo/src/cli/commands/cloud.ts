@@ -22,7 +22,7 @@
  * @task T12871
  */
 
-import { NEXUS_DEVICE_LIST_STATES } from '@cleocode/contracts';
+import { NEXUS_DEVICE_LIST_STATES } from '@cleocode/contracts/nexus-cloud.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { NEXUS_API_URL_ARG } from '../lib/nexus-account-cli.js';
 import {

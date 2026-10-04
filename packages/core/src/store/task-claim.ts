@@ -25,12 +25,8 @@
  * @epic T12497
  */
 
-import {
-  ExitCode,
-  type TaskClaim,
-  type TaskClaimedDetails,
-  type TaskClaimMode,
-} from '@cleocode/contracts';
+import type { TaskClaim, TaskClaimedDetails, TaskClaimMode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 
 /** Default claim lease: 30 minutes, renewed by the holder's activity. */

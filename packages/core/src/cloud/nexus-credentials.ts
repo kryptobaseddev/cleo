@@ -35,12 +35,11 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { inspect } from 'node:util';
+import type { NexusAccountOrganization, NexusAccountUser } from '@cleocode/contracts';
 import {
-  type NexusAccountOrganization,
-  type NexusAccountUser,
   nexusAccountOrganizationSchema,
   nexusAccountUserSchema,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/nexus-account.js';
 import { resolveNexusCredentialsPath } from '@cleocode/paths';
 import { z } from 'zod';
 import { withLock } from '../store/file-utils.js';

@@ -7,7 +7,7 @@
  * @epic T12486
  */
 
-import { TASK_STATUSES } from '@cleocode/contracts';
+import { TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import type {
   BenchDecisionRecord,
   BenchObservationRecord,

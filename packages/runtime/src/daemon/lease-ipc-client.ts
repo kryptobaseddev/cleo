@@ -27,14 +27,16 @@
  * @see ./supervisor-client.ts — the v1.0 codec this mirrors
  */
 
-import {
-  LEASE_IPC_PROTOCOL_VERSION,
-  type LeaseIpcRequest,
-  type LeaseIpcRequestEnvelope,
-  LeaseIpcRequestEnvelopeSchema,
-  type LeaseIpcResponseEnvelope,
-  LeaseIpcResponseEnvelopeSchema,
+import type {
+  LeaseIpcRequest,
+  LeaseIpcRequestEnvelope,
+  LeaseIpcResponseEnvelope,
 } from '@cleocode/contracts';
+import {
+  LeaseIpcRequestEnvelopeSchema,
+  LeaseIpcResponseEnvelopeSchema,
+} from '@cleocode/contracts/lease-ipc/messages.js';
+import { LEASE_IPC_PROTOCOL_VERSION } from '@cleocode/contracts/lease-ipc/version.js';
 
 /**
  * A typed error raised when an inbound NDJSON line cannot be decoded into a

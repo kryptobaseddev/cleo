@@ -51,7 +51,7 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { MigrationMeta } from 'drizzle-orm/migrator';
 import { CleoError } from '../errors.js';
 import { isGitLinkedCheckout } from '../project-scope.js';

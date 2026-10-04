@@ -6,7 +6,7 @@
  * @epic T4498
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 
 /** Protocol violation entry. */

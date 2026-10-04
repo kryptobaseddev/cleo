@@ -32,18 +32,17 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { EngineResult } from '@cleocode/contracts';
+import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import {
   E_GH_NOT_AUTHENTICATED,
   E_INVALID_STATE,
   E_PLAN_NOT_FOUND,
   E_RELEASE_PLAN_INVALID,
   E_WORKFLOW_NOT_FOUND,
-  type EngineResult,
   ExitCode,
-  engineError,
-  engineSuccess,
-  safeParseReleasePlan,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/exit-codes.js';
+import { safeParseReleasePlan } from '@cleocode/contracts/release/plan.js';
 import { eq } from 'drizzle-orm';
 
 import { getLogger } from '../logger.js';

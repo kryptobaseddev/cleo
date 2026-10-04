@@ -8,7 +8,7 @@
  * @saga T10516
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { dispatchFromCli } from '../../../dispatch/adapters/cli.js';
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError } from '../../renderers/index.js';
