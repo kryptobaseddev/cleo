@@ -90,7 +90,8 @@ jobs:
       # T13143: the runners Build, Build & Verify and Unit Tests use, and the
       # unit-test shards per runner (scripts/ci-platform-matrix.mjs). macOS
       # runs nightly, in merge groups, and on a pull request whose change is
-      # darwin-specific; Linux and macOS each shard 8 ways.
+      # darwin-specific; Linux shards 8 ways, macOS 8 ways nightly and in merge
+      # groups and 2 ways on a darwin pull request (T13198).
       darwin: ${{ steps.platform.outputs.darwin }}
       build_os: ${{ steps.platform.outputs.build_os }}
       test_matrix: ${{ steps.platform.outputs.test_matrix }}
@@ -1561,7 +1562,11 @@ jobs:
     # headroom above the ~34-minute macOS baseline instead of sitting on it.
     # 2026-09-29: with 4 shards and the shared `build` job each shard does a
     # quarter of the suite and no build, so 55 is now generous on both OSes.
-    timeout-minutes: 55
+    # T13198: a darwin pull request runs only 2 macOS shards (the 5-job macOS
+    # pool), each half the suite. macos-main's 8-shard legs took a median 14
+    # and at most 22 min on 2026-10-04, so half the suite on macOS is roughly
+    # 45-75 min: those legs get 90.
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && matrix.total <= 2 && 90 || 55 }}
     strategy:
       matrix:
         # Windows shards temporarily disabled pending T9182/T9181 follow-up — pre-existing
@@ -1598,8 +1603,9 @@ jobs:
         # regression is now detected by the next nightly run instead.
         # T13143: `{os, shard, total}` per job from the `changes` job: 8 Linux
         # shards always (the repo is public, so runners are free); 8 macOS
-        # shards nightly, in merge groups and on a darwin-specific pull request
-        # (scripts/ci-platform-matrix.mjs). Main pushes run macOS in
+        # shards nightly and in merge groups, 2 on a darwin-specific pull
+        # request (T13198: the free plan's 5-job macOS pool) — see
+        # scripts/ci-platform-matrix.mjs. Main pushes run macOS in
         # macos-main.yml.
         # 2026-09-29: 4 shards (was 2). Shard 1 of 2 was the whole PR critical
         # path at ~33 min (~4 min setup + 27-30 min vitest); `--shard` splits

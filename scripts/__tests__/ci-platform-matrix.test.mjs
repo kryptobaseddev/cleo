@@ -16,8 +16,10 @@ import { parse as parseYaml } from 'yaml';
 import {
   detectDarwin,
   LINUX_SHARDS,
+  MACOS_PR_SHARDS,
   MACOS_SHARDS,
   platformMatrix,
+  touchesMacos,
 } from '../ci-platform-matrix.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -46,6 +48,24 @@ describe('platformMatrix', () => {
       expect(jobs.every((j) => j.total === total)).toBe(true);
     }
   });
+
+  it(`a darwin pull request runs a reduced ${MACOS_PR_SHARDS}-shard macOS set (T13198)`, () => {
+    const macos = (event) =>
+      platformMatrix(event, true).testMatrix.filter((j) => j.os === 'macos-latest');
+    expect(MACOS_PR_SHARDS).toBe(2);
+    expect(macos('pull_request')).toEqual([
+      { os: 'macos-latest', shard: 1, total: 2 },
+      { os: 'macos-latest', shard: 2, total: 2 },
+    ]);
+    // Linux is unchanged, and the nightly and merge-group runs keep all 8.
+    expect(
+      platformMatrix('pull_request', true).testMatrix.filter((j) => j.os === 'ubuntu-latest'),
+    ).toHaveLength(LINUX_SHARDS);
+    expect(macos('schedule')).toHaveLength(MACOS_SHARDS);
+    expect(macos('merge_group')).toHaveLength(MACOS_SHARDS);
+    // Two shards and the two macOS builds fit the free plan's 5-job pool.
+    expect(MACOS_PR_SHARDS + 2).toBeLessThanOrEqual(5);
+  });
 });
 
 describe('detectDarwin', () => {
@@ -68,16 +88,63 @@ describe('detectDarwin', () => {
       '+if [ "$(uname)" = "Darwin" ]; then',
       "+    if: matrix.os == 'macos-latest'",
       "+    if: runner.os == 'macOS'",
+      "+  if (process.platform === 'linux') return;",
+      "+  return process.platform !== 'win32' && process.platform !== 'linux';",
+      '+  switch (process.platform) {',
     ]) {
       expect(detectDarwin(['packages/core/src/x.ts'], patch(line)).darwin, line).toBe(true);
     }
     expect(
       detectDarwin(['packages/core/src/x.ts'], patch('+const a = detectPlatform();')).darwin,
     ).toBe(false);
+    // T13198: a check that only splits Windows from POSIX, a runner.os cache
+    // key and a comment do not touch macOS behaviour that Linux misses.
+    for (const line of [
+      "+  if (process.platform === 'win32') {",
+      "-const posix = process.platform !== 'win32';",
+      "+  const bin = os.platform() === 'win32' ? 'vitest.cmd' : 'vitest';",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally
+      "+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}",
+      '+        # Measured: `Unit Tests (macos-latest, shard 1)` took 33 min',
+      "+  // on 'darwin' the realpath differs",
+      "-   * macOS (process.platform === 'darwin') resolves /var",
+    ]) {
+      expect(detectDarwin(['packages/core/src/x.ts'], patch(line)).darwin, line).toBe(false);
+    }
     // An unchanged context line with a platform check is not a change to it.
     expect(
       detectDarwin(['packages/core/src/x.ts'], " if (process.platform === 'darwin') {}\n").darwin,
     ).toBe(false);
+  });
+});
+
+describe('touchesMacos (T13198)', () => {
+  it('names macOS, or a platform check that is not only a win32 comparison', () => {
+    expect(touchesMacos("if (os.type() === 'Darwin') {")).toBe(true);
+    expect(touchesMacos("platform: 'darwin',")).toBe(true);
+    expect(touchesMacos('#[cfg(target_os = "macos")]')).toBe(true);
+    expect(touchesMacos("if (process.platform === 'win32') {")).toBe(false);
+    expect(touchesMacos("process.platform === 'win32' || process.platform === 'darwin'")).toBe(
+      true,
+    );
+    expect(touchesMacos('const p = os.platform();')).toBe(true);
+    // A lower-case word `darwin` outside a quoted literal is not a macOS reference.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally
+    expect(touchesMacos('darwin: ${{ steps.platform.outputs.darwin }}')).toBe(false);
+  });
+
+  it('macos-main.yml is not darwin-specific: a pull request does not run it', () => {
+    const patch = [
+      'diff --git a/.github/workflows/macos-main.yml b/.github/workflows/macos-main.yml',
+      '--- a/.github/workflows/macos-main.yml',
+      '+++ b/.github/workflows/macos-main.yml',
+      '@@ -1 +1 @@',
+      '+    runs-on: macos-latest',
+    ].join('\n');
+    expect(detectDarwin(['.github/workflows/macos-main.yml'], patch).darwin).toBe(false);
+    // The same line in ci.yml still turns macOS on.
+    const ci = patch.replaceAll('macos-main.yml', 'ci.yml');
+    expect(detectDarwin(['.github/workflows/ci.yml'], ci).darwin).toBe(true);
   });
 });
 
@@ -129,7 +196,7 @@ describe('the script on a real diff', () => {
     const out = run('pull_request');
     expect(out.darwin).toBe('true');
     expect(JSON.parse(out.build_os)).toEqual(['ubuntu-latest', 'macos-latest']);
-    expect(JSON.parse(out.test_matrix)).toHaveLength(LINUX_SHARDS + MACOS_SHARDS);
+    expect(JSON.parse(out.test_matrix)).toHaveLength(LINUX_SHARDS + MACOS_PR_SHARDS);
     // The same commit pushed to main stays on Linux.
     expect(JSON.parse(run('push').build_os)).toEqual(['ubuntu-latest']);
   });
@@ -171,6 +238,14 @@ describe('ci.yml wiring (T13143)', () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
     expect(run.run).toContain('--shard=${{ matrix.shard }}/${{ matrix.total }}');
     expect(JSON.stringify(ci)).not.toMatch(/matrix\.shard \}\}\/4/);
+  });
+
+  it('the reduced macOS pull-request legs get a longer timeout (T13198)', () => {
+    expect(ci.jobs['unit-tests']['timeout-minutes']).toBe(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
+      "${{ matrix.os == 'macos-latest' && matrix.total <= 2 && 90 || 55 }}",
+    );
+    expect(MACOS_PR_SHARDS).toBeLessThanOrEqual(2);
   });
 });
 
