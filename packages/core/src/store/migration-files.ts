@@ -8,7 +8,9 @@
  * reads a lineage once per process and re-reads it whenever the folder's
  * contents change: the cache key includes each migration's name, size and
  * mtime, so a test (or a dev rebuild) that rewrites a migration never sees a
- * stale answer.
+ * stale answer. The one change it cannot see is an in-place rewrite to the
+ * same length within the same mtime tick; shipped migrations never change
+ * while a process runs.
  *
  * @task T13126
  */
