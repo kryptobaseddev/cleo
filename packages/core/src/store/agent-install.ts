@@ -376,6 +376,7 @@ export function installAgentFromCant(
     const inserted = !existingRow;
 
     if (inserted) {
+      // api_base_url is 'local': SignalDock, the old default, is retired (T13169).
       db.prepare(
         `INSERT INTO agent_registry_agents (
           id, agent_id, name, class, privacy_tier, capabilities, skills,
@@ -384,7 +385,7 @@ export function installAgentFromCant(
           tier, can_spawn, orch_level, reports_to,
           cant_path, cant_sha256, installed_from, installed_at
         ) VALUES (?, ?, ?, 'custom', 'public', '[]', ?, 'http',
-          'https://api.signaldock.io', '{}', 1,
+          'local', '{}', 1,
           'online', ?, ?, 0,
           ?, ?, ?, ?,
           ?, ?, ?, ?)`,
