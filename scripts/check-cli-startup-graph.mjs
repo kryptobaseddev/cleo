@@ -115,7 +115,9 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * `--version` to 64 modules / 55 MB. Then the dispatch layer stopped loading
  * the CORE barrel for the hot reads (lazy domain handlers,
  * `@cleocode/runtime/gateway/dispatch`, narrow imports): `show` and `find`
- * load ~1,050 modules. Lower each budget in the PR that lowers its count.
+ * load ~1,050 modules. With contracts values imported from their leaf modules
+ * and the read-path leaves, `show` and `find` load ~820 modules (~190 MB) and
+ * `list --human` ~880. Lower each budget in the PR that lowers its count.
  *
  * Three CLI paths load ES modules through `require(esm)`, which throws
  * `ERR_REQUIRE_ASYNC_MODULE` when the loaded graph uses top-level await: the
@@ -150,8 +152,8 @@ export const PROBES = Object.freeze([
     needsProject: true,
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     require: [DRIZZLE_ESM_DRIVER],
-    maxModules: 1150,
-    maxRssMb: 330,
+    maxModules: 910,
+    maxRssMb: 260,
   },
   {
     name: 'find',
@@ -159,8 +161,8 @@ export const PROBES = Object.freeze([
     needsProject: true,
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     require: [DRIZZLE_ESM_DRIVER],
-    maxModules: 1150,
-    maxRssMb: 330,
+    maxModules: 910,
+    maxRssMb: 260,
   },
   {
     name: 'list-human',
@@ -170,8 +172,8 @@ export const PROBES = Object.freeze([
     require: [CORE_RENDER, DRIZZLE_ESM_DRIVER],
     // ExitCode.NO_DATA: the throwaway project has no tasks; the renderer still runs.
     expectExit: 100,
-    maxModules: 1250,
-    maxRssMb: 330,
+    maxModules: 970,
+    maxRssMb: 260,
   },
   {
     name: 'field-miss',
@@ -181,8 +183,8 @@ export const PROBES = Object.freeze([
     require: [OUTPUT_CONTRACTS],
     // ExitCode.NOT_FOUND: E_FIELD_NOT_FOUND, with the contract's valid pointers as the fix.
     expectExit: 4,
-    maxModules: 1250,
-    maxRssMb: 330,
+    maxModules: 910,
+    maxRssMb: 260,
   },
 ]);
 
