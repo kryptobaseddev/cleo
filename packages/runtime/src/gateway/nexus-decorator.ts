@@ -34,8 +34,11 @@ import type {
   NexusScopeMeta,
   SuggestedNextOp,
 } from '@cleocode/contracts';
-import { getNexusDescriptor, NEXUS_SCOPE_MAP } from '@cleocode/contracts';
 import type { DispatchResponse, DispatchResponseMeta } from '@cleocode/contracts/gateway';
+import {
+  getNexusDescriptor,
+  NEXUS_SCOPE_MAP,
+} from '@cleocode/contracts/operations/nexus-scope-map.js';
 
 // ---------------------------------------------------------------------------
 // Binding-source resolution

@@ -148,13 +148,22 @@ describe('deriveAffectedPackages', () => {
   });
 });
 
+/**
+ * Resolve vitest projects without the machine-global `test` slot. These tests
+ * are about how projects are named and selected; the slot has its own test
+ * (T12657). With the default resolver, any other process holding the slot made
+ * `affectedTestTargets` answer `scope pending: test slot busy` instead.
+ */
+const resolveProjects = (r: string) =>
+  listVitestProjects(r, { acquireSlot: async () => async () => {} });
+
 describe('affectedTestTargets: project names come from vitest itself (T12635 re-review)', () => {
   it('an UNNAMED project is selected by the package.json name vitest gives it, not its directory', async () => {
     linkVitest();
     rootConfig("{ projects: ['packages/a/vitest.config.mjs', 'scripts/vitest.config.mjs'] }");
     projectConfig('packages/a');
     projectConfig('scripts', "{ name: 'scripts' }");
-    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a']);
+    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a'], resolveProjects);
     expect(t).toEqual({ ok: true, projects: ['@x/a', 'scripts'], untested: [] });
   });
 
@@ -164,7 +173,7 @@ describe('affectedTestTargets: project names come from vitest itself (T12635 re-
     projectConfig('packages/a');
     projectConfig('packages/b', "{ name: '@x/b-tests' }");
     projectConfig('packages/dependent-of-b');
-    const t = await affectedTestTargets(root, ['@x/a', '@x/b', '@x/d'], ['@x/a']);
+    const t = await affectedTestTargets(root, ['@x/a', '@x/b', '@x/d'], ['@x/a'], resolveProjects);
     expect(t).toEqual({ ok: true, projects: ['@x/a', '@x/b-tests', '@x/d'], untested: [] });
   });
 
@@ -182,7 +191,12 @@ describe('affectedTestTargets: project names come from vitest itself (T12635 re-
     );
     projectConfig('packages/a');
     projectConfig('scripts', "{ name: 'scripts' }");
-    const t = await affectedTestTargets(root, ['@x/tool', '@x/a'], ['@x/tool', '@x/a']);
+    const t = await affectedTestTargets(
+      root,
+      ['@x/tool', '@x/a'],
+      ['@x/tool', '@x/a'],
+      resolveProjects,
+    );
     expect(t).toEqual({ ok: true, projects: ['tools-inline', '@x/a', 'scripts'], untested: [] });
   });
 
@@ -193,7 +207,7 @@ describe('affectedTestTargets: project names come from vitest itself (T12635 re-
       "export default ['packages/a/vitest.config.mjs'];\n",
     );
     projectConfig('packages/a');
-    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a']);
+    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a'], resolveProjects);
     expect(t.ok).toBe(false);
     expect(!t.ok && t.reason).toMatch(/@x\/a/);
   });
@@ -202,19 +216,35 @@ describe('affectedTestTargets: project names come from vitest itself (T12635 re-
     linkVitest();
     rootConfig("{ projects: ['packages/b/vitest.config.mjs'] }");
     projectConfig('packages/b');
-    const refused = await affectedTestTargets(root, ['@x/a', '@x/b'], ['@x/a']);
+    const refused = await affectedTestTargets(root, ['@x/a', '@x/b'], ['@x/a'], resolveProjects);
     expect(refused.ok).toBe(false);
     expect(!refused.ok && refused.reason).toMatch(/changed package\(s\) @x\/a/);
-    const recorded = await affectedTestTargets(root, ['@x/b', '@x/d'], ['@x/b']);
+    const recorded = await affectedTestTargets(root, ['@x/b', '@x/d'], ['@x/b'], resolveProjects);
     expect(recorded).toEqual({ ok: true, projects: ['@x/b'], untested: ['@x/d'] });
   });
 
   it('without a resolvable vitest the scope fails CLOSED, never a narrower run', async () => {
     rootConfig("{ projects: ['packages/a/vitest.config.mjs'] }");
     projectConfig('packages/a');
-    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a']);
+    const t = await affectedTestTargets(root, ['@x/a'], ['@x/a'], resolveProjects);
     expect(t.ok).toBe(false);
     expect(!t.ok && t.reason).toMatch(/vitest could not resolve/);
+  });
+
+  it('REAL repo: a change to a script package tests import is workspace-wide, never narrowed (T13177)', () => {
+    // CI's PR selection (scripts/ci-affected-test-projects.mjs) runs the full
+    // suite for a workspace-wide change. A narrowed set would let Unit Tests
+    // pass without the importing packages' tests (store fingerprint gates,
+    // nested-nexus migration, injection flags) ever running.
+    const repo = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../../..');
+    for (const changed of [
+      ['scripts/lib/path-containment.mjs'],
+      ['scripts/migrate-nested-nexus.mjs'],
+      ['scripts/lint-injection-flags.mjs'],
+      ['scripts/lib/path-containment.mjs', 'packages/contracts/src/index.ts'],
+    ]) {
+      expect(deriveAffectedPackages(repo, changed).scope, changed.join(' ')).toBe('full');
+    }
   });
 
   it('REAL repo: every workspace package with a vitest config resolves to the name vitest assigns', async () => {

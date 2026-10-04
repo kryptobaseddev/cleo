@@ -32,7 +32,7 @@
 
 import { spawn } from 'node:child_process';
 import { rm } from 'node:fs/promises';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError, formatError } from '@cleocode/core';
 import { defineCommand } from 'citty';
 import {

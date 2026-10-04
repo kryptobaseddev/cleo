@@ -181,7 +181,8 @@ describe('macos-main.yml: the newest main push gets a macOS result (T13143, opti
 
   it('runs on main pushes only, cancels a superseded run, and is read by the release preflight', () => {
     expect(wf.on.push.branches).toEqual(['main']);
-    expect(wf.concurrency).toEqual({ group: 'macos-main', 'cancel-in-progress': true });
+    // T13187: a running macOS run is never cancelled; pending pushes coalesce.
+    expect(wf.concurrency).toEqual({ group: 'macos-main', 'cancel-in-progress': false });
     expect(read('packages/core/src/release/preflight-skip.ts')).toContain("'macos-main.yml'");
   });
 

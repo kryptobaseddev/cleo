@@ -1,12 +1,15 @@
 /**
  * HeartbeatService — Periodic online status heartbeat.
  *
- * Sends a heartbeat to the SignalDock API at a configurable interval
+ * Sends a heartbeat to the agent's cloud API at a configurable interval
  * to maintain the agent's online status. If the heartbeat fails,
  * it retries silently — the agent continues operating regardless.
+ * A retired SignalDock host is refused before any network I/O (T13169).
  *
  * @task T218
  */
+
+import { conduitFetch } from '@cleocode/core/conduit/cloud-endpoint.js';
 
 /** Heartbeat service configuration. */
 export interface HeartbeatConfig {
@@ -70,7 +73,7 @@ export class HeartbeatService {
   /** Send a single heartbeat to the cloud API. */
   private async sendHeartbeat(): Promise<void> {
     try {
-      const response = await fetch(
+      const response = await conduitFetch(
         `${this.config.apiBaseUrl}/agents/${this.config.agentId}/heartbeat`,
         {
           method: 'POST',

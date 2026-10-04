@@ -29,7 +29,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { resolveDualScopeDbPath } from '@cleocode/core/store/dual-scope-db.js';
 import {
   archiveMigratedSources,

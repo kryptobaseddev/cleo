@@ -23,7 +23,7 @@
  */
 
 import type { GraphNode, GraphRelation } from '@cleocode/contracts';
-import { confidenceLabelFromNumeric } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts/graph.js';
 import type { ScannedFile } from './filesystem-walker.js';
 import type { KnowledgeGraph } from './knowledge-graph.js';
 

@@ -40,7 +40,7 @@ import type {
   NexusProjectLink,
   NexusProjectLinkResult,
 } from '@cleocode/contracts';
-import { nexusCloudProjectDetailSchema } from '@cleocode/contracts';
+import { nexusCloudProjectDetailSchema } from '@cleocode/contracts/nexus-cloud.js';
 import { NexusAccountError, resolveNexusApiUrl } from './nexus-auth.js';
 import { connectNexusCloud, currentNexusCloudProject } from './nexus-cloud.js';
 import { isNexusDeviceEnabled } from './nexus-device.js';

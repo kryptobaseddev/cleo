@@ -26,13 +26,12 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  type EngineResult,
-  engineError,
-  engineSuccess,
-  type ForceUnlockWorktreeOpts,
-  type ForceUnlockWorktreeResult,
+import type {
+  EngineResult,
+  ForceUnlockWorktreeOpts,
+  ForceUnlockWorktreeResult,
 } from '@cleocode/contracts';
+import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { gitSilent } from '@cleocode/worktree';
 import { getLogger } from '../logger.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';

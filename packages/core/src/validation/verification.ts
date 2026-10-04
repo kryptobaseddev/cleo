@@ -11,7 +11,7 @@
  * @epic T4454
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 
 // ============================================================================
 // Constants

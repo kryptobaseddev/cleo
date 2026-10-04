@@ -44,12 +44,12 @@
  */
 
 import { constants } from 'node:os';
+import type { HeavyToolResourcePlan } from '@cleocode/contracts';
 import {
-  type HeavyToolResourcePlan,
   RESOURCE_DEFERRED_CODE,
   RUN_COMMAND_FAILED_CODE,
   RUN_DEFERRED_EXIT_CODE,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/resource-governor.js';
 import {
   canonicalForClass,
   isWatchCommand,

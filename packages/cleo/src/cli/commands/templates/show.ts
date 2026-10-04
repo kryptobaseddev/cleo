@@ -11,7 +11,8 @@
  * @adr 076
  */
 
-import { ExitCode, type TemplateManifestEntry } from '@cleocode/contracts';
+import type { TemplateManifestEntry } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { getTemplateById } from '@cleocode/core/templates/registry';
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../../renderers/index.js';

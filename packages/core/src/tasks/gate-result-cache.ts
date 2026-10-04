@@ -45,7 +45,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { AcceptanceGate, AcceptanceGateResult } from '@cleocode/contracts';
-import { acceptanceGateResultSchema } from '@cleocode/contracts';
+import { acceptanceGateResultSchema } from '@cleocode/contracts/acceptance-gate-schema.js';
 import { getCleoHome } from '../paths.js';
 import { acItemToText } from './ac-table.js';
 import { captureDirtyFingerprint, captureHead } from './tool-cache.js';

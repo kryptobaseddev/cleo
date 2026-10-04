@@ -13,13 +13,13 @@
  * @epic T12496
  */
 
-import {
-  NEXUS_FLEET_SCHEMA_VERSION,
-  type NexusFleetDevice,
-  type NexusFleetGitSummary,
-  type NexusFleetLocation,
+import type {
+  NexusFleetDevice,
+  NexusFleetGitSummary,
+  NexusFleetLocation,
 } from '@cleocode/contracts';
 import type { ReplicaPresence } from '@cleocode/contracts/cloud';
+import { NEXUS_FLEET_SCHEMA_VERSION } from '@cleocode/contracts/operations/nexus.js';
 
 /** The `git` block of a {@link ReplicaPresence}. */
 export type ReplicaPresenceGit = NonNullable<ReplicaPresence['git']>;

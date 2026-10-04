@@ -31,7 +31,7 @@
  */
 
 import type { GraphIndexReferenceReport, GraphRelation } from '@cleocode/contracts';
-import { confidenceLabelFromNumeric } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts/graph.js';
 import type { ExtractedCall } from './extractors/typescript-extractor.js';
 import type { BarrelExportMap, NamedImportMap } from './import-processor.js';
 import { resolveBarrelBinding } from './import-processor.js';

@@ -273,7 +273,7 @@ describe('exodus-on-open db-heavy admission (T12001 / Epic T11992 · T13158)', (
   });
 
   /** The admission a pending exodus-on-open asks for: memory-only, bounded wait. */
-  const PENDING_ADMISSION = { ignoreCpuPressure: true, blocking: true, timeoutMs: 5000 };
+  const PENDING_ADMISSION = { blocking: true, timeoutMs: 5000 };
 
   it('asks no admission when no migration is pending (no legacy stores)', async () => {
     const spy = vi.spyOn(governorModule.governor, 'acquire');

@@ -71,7 +71,7 @@
  */
 
 import type { BuiltinDocKind } from '@cleocode/contracts';
-import { BUILTIN_DOC_KIND_VALUES } from '@cleocode/contracts';
+import { BUILTIN_DOC_KIND_VALUES } from '@cleocode/contracts/docs-taxonomy.js';
 import { reserveSlug, type SlugReserveResult } from './slug-allocator.js';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
