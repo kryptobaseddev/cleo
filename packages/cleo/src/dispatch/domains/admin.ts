@@ -280,7 +280,7 @@ async function runSystemSmoke(): Promise<SmokeResult> {
   {
     const start = Date.now();
     try {
-      const { getDb, getNativeDb } = await import('@cleocode/core/internal');
+      const { getDb, getNativeDb } = await import('@cleocode/core/store/sqlite');
       const projectRoot = getProjectRoot();
       await getDb(projectRoot);
       const nativeDb = getNativeDb(projectRoot);
@@ -320,7 +320,7 @@ async function runSystemSmoke(): Promise<SmokeResult> {
   {
     const start = Date.now();
     try {
-      const { getBrainDb } = await import('@cleocode/core/internal');
+      const { getBrainDb } = await import('@cleocode/core/store/memory-sqlite');
       const projectRoot = getProjectRoot();
       const brainDb = await getBrainDb(projectRoot);
       if (brainDb) {
@@ -522,9 +522,11 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
     const projectRoot = getProjectRoot();
     const taskId = params.taskId;
     try {
-      const { getTaskAccessor, getLastHandoff, retrieveWithBudget } = await import(
-        '@cleocode/core/internal'
-      );
+      const [{ getTaskAccessor }, { getLastHandoff }, { retrieveWithBudget }] = await Promise.all([
+        import('@cleocode/core/store/data-accessor'),
+        import('@cleocode/core/sessions/handoff'),
+        import('@cleocode/core/memory/retrieval/search'),
+      ]);
 
       const accessor = await getTaskAccessor(projectRoot);
       const task = await accessor.loadSingleTask(taskId);
@@ -540,7 +542,7 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
       const TOKEN_BUDGET = 800;
       const [memoriesResult, lastHandoffResult] = await Promise.all([
         retrieveWithBudget(projectRoot, query, TOKEN_BUDGET).catch(() => ({
-          entries: [] as import('@cleocode/core/internal').BudgetedEntry[],
+          entries: [] as import('@cleocode/contracts').BudgetedEntry[],
           tokensUsed: 0,
           tokensRemaining: TOKEN_BUDGET,
           excluded: 0,
@@ -1256,9 +1258,11 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
 
   detect: async (_params) => {
     const projectRoot = getProjectRoot();
-    const { ensureProjectContext, ensureContributorMcp: ensureContributorDev } = await import(
-      '@cleocode/core/internal'
-    );
+    const [{ ensureProjectContext }, { ensureContributorMcp: ensureContributorDev }] =
+      await Promise.all([
+        import('@cleocode/core/scaffold/ensure-skills'),
+        import('@cleocode/core/scaffold/ensure-config'),
+      ]);
     const contextResult = await ensureProjectContext(projectRoot, { force: true });
     const devResult = await ensureContributorDev(projectRoot);
     return lafsSuccess({ context: contextResult, devChannel: devResult }, 'detect');
@@ -1344,7 +1348,10 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
   },
 
   'install.global': async (_params) => {
-    const { ensureGlobalScaffold, ensureGlobalTemplates } = await import('@cleocode/core/internal');
+    const [{ ensureGlobalScaffold }, { ensureGlobalTemplates }] = await Promise.all([
+      import('@cleocode/core/scaffold/global-scaffold'),
+      import('@cleocode/core/scaffold/ensure-templates'),
+    ]);
     const scaffoldResult = await ensureGlobalScaffold();
     const templateResult = await ensureGlobalTemplates();
     return lafsSuccess({ scaffold: scaffoldResult, templates: templateResult }, 'install.global');
