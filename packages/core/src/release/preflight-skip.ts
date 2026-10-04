@@ -104,7 +104,9 @@ function changedFiles(
     'api',
     `repos/{owner}/{repo}/compare/${parent}...${commit}`,
     '--jq',
-    '[.files[].filename]',
+    // A rename lists its old path too: a code file renamed into .changeset/
+    // is not a release-plan change (T13140 review).
+    '[.files[] | .filename, (.previous_filename // empty)]',
   ]);
   const parsed = raw === null ? null : parseJson(raw);
   if (!Array.isArray(parsed) || !parsed.every((f): f is string => typeof f === 'string'))
