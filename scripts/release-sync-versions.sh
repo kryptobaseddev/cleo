@@ -4,7 +4,7 @@
 # Usage: scripts/release-sync-versions.sh <version>
 #
 # release.yml runs it in Build & Verify (the tag's version, before the build)
-# and twice in Publish: first the release candidate `<version>-rc.<n>` that
+# and twice in Publish: first the release candidate `<version>-rc.ci.<n>` that
 # goes to the `canary` dist-tag, then `<version>` again for `latest`. pnpm
 # publish rewrites each `workspace:*` dependency to the dependency's manifest
 # version, so every @cleocode package of one phase pins the others at that

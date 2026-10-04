@@ -1,7 +1,7 @@
 /**
  * The release candidate gate in release.yml (T13181).
  *
- * A stable tag publishes `<version>-rc.<run number>` to `canary` through OIDC,
+ * A stable tag publishes `<version>-rc.ci.<run number>` to `canary` through OIDC,
  * proves it installable from npm, soaks it in a sandbox, and only then
  * publishes `<version>` to `latest`. The Publish step's shell is run here for
  * real (`bash -eo pipefail`, as GitHub Actions runs it) with fake `pnpm`,
@@ -50,7 +50,7 @@ const VERSION = '2026.10.5';
  * runs unmodified; CI's bash never defines it.
  */
 const BASH3_SHIM = `if ((BASH_VERSINFO[0] < 4)); then mapfile() { [[ "$1" == -t ]] && shift; local __n="$1" __l; eval "$__n=()"; while IFS= read -r __l; do eval "$__n+=(\\"\\$__l\\")"; done; }; fi\n`;
-const RC = `${VERSION}-rc.77`;
+const RC = `${VERSION}-rc.ci.77`;
 
 let dir;
 
@@ -223,7 +223,7 @@ describe('the version step derives the tag and the candidate', () => {
     return { tag: get('dist_tag'), rc: get('rc_version') };
   };
 
-  it('a stable version goes to latest behind the candidate <version>-rc.<run number>', () => {
+  it('a stable version goes to latest behind the candidate <version>-rc.ci.<run number>', () => {
     expect(run(VERSION)).toEqual({ tag: 'latest', rc: RC });
   });
 

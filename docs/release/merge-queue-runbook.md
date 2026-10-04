@@ -251,14 +251,14 @@ and no dist-tag move anywhere.
 
 For a tag `v2026.X.Y`, the Publish job:
 
-1. publishes every package as `2026.X.Y-rc.<run number>` under the `canary`
+1. publishes every package as `2026.X.Y-rc.ci.<run number>` under the `canary`
    dist-tag, from the tagged commit's build. pnpm pins each @cleocode
    dependency at the candidate's exact version, so the candidate is a coherent
    set;
 2. proves the candidate installable from npm: `scripts/execute-payload.mjs`
    checks metadata, tarball and `dist-tags.canary` for every package (15 minute
    budget);
-3. installs `@cleocode/cleo@2026.X.Y-rc.<n>` from npm into a sandbox and runs
+3. installs `@cleocode/cleo@2026.X.Y-rc.ci.<n>` from npm into a sandbox and runs
    the health checks (`scripts/release-canary-soak.mjs`: coherent @cleocode
    versions, `--version`, `init`, `session start`, a saga and epic write,
    `show`, `find`, `doctor`);
@@ -278,13 +278,17 @@ itself published skips the candidate.
 
 **Try a candidate yourself.** `npm i -g @cleocode/cleo@canary` installs the
 newest candidate; `node scripts/release-canary-soak.mjs` (or `--version
-2026.X.Y-rc.<n>`) runs the same health checks in a sandbox.
+2026.X.Y-rc.ci.<n>`) runs the same health checks in a sandbox.
 
 **Rolling back.** Without a token, `latest` cannot be moved by hand. A bad
 release is fixed forward: revert or fix on main and ship the next patch version,
 which goes through the same candidate gate. A package's first-ever publish gets
 `latest` from the registry regardless of `--tag canary` (npm tags a package's
-first version `latest`); that only matters when `publish_pkg` gains a package.
+first version `latest`): when a package is added to `publish_pkg`, its first
+candidate is that package's `latest` until the final phase publishes the release,
+so never add a new package in a hotfix. The automatic candidate is
+`-rc.ci.<run number>`, so it cannot collide with a hand-cut `-rc.N` prerelease tag
+(which publishes to `beta`).
 
 ## Operator Commands
 

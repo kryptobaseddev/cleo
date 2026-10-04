@@ -9,11 +9,11 @@ A bad release used to reach every user at once, because `release.yml`
 published each stable version straight to `latest`. Now, for a tag
 `v<version>`, the Publish job:
 
-1. publishes every package as `<version>-rc.<run number>` under the `canary`
+1. publishes every package as `<version>-rc.ci.<run number>` under the `canary`
    dist-tag, through npm trusted publishing (OIDC);
 2. proves that candidate installable from npm: metadata, tarball and
    `dist-tags.canary` for every package (`scripts/execute-payload.mjs`);
-3. installs `@cleocode/cleo@<version>-rc.<n>` from npm into a throwaway prefix
+3. installs `@cleocode/cleo@<version>-rc.ci.<n>` from npm into a throwaway prefix
    with throwaway stores and runs health checks (`scripts/release-canary-soak.mjs`):
    every installed @cleocode package at that version, then `--version`, `init`,
    `session start`, a saga and epic write, `show`, `find` and `doctor`;

@@ -88,12 +88,13 @@ jobs:
           # Determine npm dist-tag from version suffix.
           #
           # A stable version is gated by a release candidate first (T13181):
-          # Publish puts `<version>-rc.<run number>` on the `canary` dist-tag
+          # Publish puts `<version>-rc.ci.<run number>` on the `canary` dist-tag
           # through OIDC, proves that rc installable from npm and runs the
           # sandbox soak against it, and only then publishes `<version>` to
           # `latest` from the same commit, also through OIDC. No npm token is
           # involved anywhere. The run number keeps the rc stable across
-          # re-runs of this run, so a re-run skips what already published.
+          # re-runs of this run, so a re-run skips what already published; the
+          # `ci.` segment keeps it apart from a hand-cut `-rc.N` prerelease tag.
           RC_VERSION=""
           if [[ "$VERSION" == *"-alpha"* ]] || [[ "$VERSION" == *"-dev"* ]]; then
             DIST_TAG="dev"
@@ -101,7 +102,7 @@ jobs:
             DIST_TAG="beta"
           else
             DIST_TAG="latest"
-            RC_VERSION="${VERSION}-rc.${RUN_NUMBER}"
+            RC_VERSION="${VERSION}-rc.ci.${RUN_NUMBER}"
           fi
           IS_PRERELEASE=$([[ "$VERSION" == *"-"* ]] && echo "true" || echo "false")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"

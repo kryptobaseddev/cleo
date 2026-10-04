@@ -38,7 +38,7 @@ Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalis
 | 3 | _(GHA)_ `release-prepare.yml` → PR merge | `pr-opened` → `pr-merged` | Owned by CI; verify via `cleo release pr-status <ver>` |
 | 4 | `git tag -a v<ver> -m "Release v<ver>" && git push origin v<ver>` | `pr-merged` → `tag-pushed` | Explicit tag after the release PR merges — `auto-tag-on-release-merge.yml` is retired (T10434, ADR-087); the tag push triggers `release.yml` |
 | 5 | `cleo release reconcile <ver>` | `tag-pushed` → `published` | Backfills 11 provenance tables; idempotent |
-| 6 | _(GHA)_ `release.yml` Publish: release candidate gate | `<ver>-rc.<n>` on `canary` → `<ver>` on `latest` | Automatic, OIDC only, no token (T13181). The candidate must install from npm and pass the sandbox soak (`scripts/release-canary-soak.mjs`) before the release publishes to `latest`; a failed gate leaves users on the previous release, and a re-run of the failed job continues. No dist-tag is ever moved by hand: a bad release is fixed forward with the next patch. Runbook: `docs/release/merge-queue-runbook.md`, "Release candidate gate" |
+| 6 | _(GHA)_ `release.yml` Publish: release candidate gate | `<ver>-rc.ci.<n>` on `canary` → `<ver>` on `latest` | Automatic, OIDC only, no token (T13181). The candidate must install from npm and pass the sandbox soak (`scripts/release-canary-soak.mjs`) before the release publishes to `latest`; a failed gate leaves users on the previous release, and a re-run of the failed job continues. No dist-tag is ever moved by hand: a bad release is fixed forward with the next patch. Runbook: `docs/release/merge-queue-runbook.md`, "Release candidate gate" |
 
 Optional validators (read-only / dry-run):
 
