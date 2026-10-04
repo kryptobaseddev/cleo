@@ -170,6 +170,25 @@ describe('a rebind marks the old replica outbox inherited (T12753)', () => {
     expect(seal(db)).toMatchObject({ txns: 0, captures: 0 });
   });
 
+  it('the outbox schemas accept the inherited and folded states and nothing else (T13033 AC1)', async () => {
+    const db = await store(dbPath);
+    const insTxn = db.prepare(
+      `INSERT INTO _sync_txn (txn, local_seq, replica, hlc, scope, via, kind, op_count, state, sealed_at_ms)
+       VALUES (?, ?, 'r', 'h', 'project', 'local', 'write', 0, ?, 0)`,
+    );
+    ['sealed', 'segmented', 'inherited', 'folded'].forEach((state, i) => {
+      expect(() => insTxn.run(`r:${i + 1}`, i + 1, state)).not.toThrow();
+    });
+    expect(() => insTxn.run('r:9', 9, 'bogus')).toThrow(/CHECK constraint/);
+    const insCapture = db.prepare(
+      `INSERT INTO _sync_capture (tbl, op, rk, img, at_ms, state) VALUES ('t', 'I', 'k', '{}', 0, ?)`,
+    );
+    for (const state of ['live', 'inherited', 'folded']) {
+      expect(() => insCapture.run(state)).not.toThrow();
+    }
+    expect(() => insCapture.run('sealed')).toThrow(/CHECK constraint/);
+  });
+
   it('marks nothing on a store without the outbox tables, and leaves segmented transactions to S4', async () => {
     const db = await store(dbPath);
     bind(db, dbPath);
