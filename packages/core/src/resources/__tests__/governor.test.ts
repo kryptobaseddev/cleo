@@ -441,3 +441,38 @@ describe('an unwritable slot dir is an error, never a busy slot (#1777 R8-1)', (
     ).rejects.toThrow(TypeError);
   });
 });
+
+describe('deferral reasons name the signal the budget used (T13158)', () => {
+  beforeEach(() => {
+    _resetGovernorStateForTest();
+    delete process.env.CLEO_RESOURCES_MODE;
+  });
+  afterEach(() => {
+    _resetGovernorStateForTest();
+  });
+
+  // Memory at 30 (backoff) on a CPU-saturated host: the combined score is the
+  // CPU one, but a memory-only budget deferred on memory, and must say so.
+  const sample: ResourceSample = {
+    ...makeSample({ someAvg10: 30 }),
+    cpuPressure: { some: { avg10: 58, avg60: 58, avg300: 58, totalUs: 0 }, full: null },
+  };
+
+  it('a memory-only budget reports memory some avg10', async () => {
+    const r = await new ResourceGovernor().tryAcquire('db-heavy', {
+      sample,
+      ignoreCpuPressure: true,
+    });
+    expect(r.deferred).toBe(true);
+    if (r.deferred) expect(r.reason).toContain('(memory some avg10=30.0)');
+  });
+
+  it('the combined budget reports the combined score', async () => {
+    const r = await new ResourceGovernor().tryAcquire('db-heavy', { sample });
+    expect(r.deferred).toBe(true);
+    if (r.deferred) {
+      expect(r.reason).toMatch(/\(some avg10=\d+\.\d\)/);
+      expect(r.reason).not.toContain('memory some avg10');
+    }
+  });
+});
