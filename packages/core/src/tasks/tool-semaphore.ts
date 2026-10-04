@@ -40,6 +40,7 @@
 
 import {
   type AdmissionRefusal,
+  type AdmissionScope,
   admissionCapacityBytes,
   admit,
   describeAdmissionIoError,
@@ -124,6 +125,13 @@ export interface AcquireSlotOptions {
    * @defaultValue one `[cleo] <line>` per notice on stderr (stdout carries the envelope)
    */
   notice?: (line: string) => void;
+  /**
+   * How much of the project the run covers (`full` for a whole-suite run),
+   * shown in status and holder reports (T13132).
+   */
+  scope?: AdmissionScope;
+  /** The CLEO task the run is evidence for, shown in status (T13132). */
+  task?: string;
 }
 
 /** The default {@link AcquireSlotOptions.notice}: one stderr line. */
@@ -247,6 +255,8 @@ export async function acquireGlobalSlot(
     {
       label: `tool:${canonical}`,
       footprintBytes: opts.footprintBytes ?? footprintForTool(canonical, totalBytes, opts.heapMb),
+      ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+      ...(opts.task !== undefined ? { task: opts.task } : {}),
     },
     {
       wait: true,

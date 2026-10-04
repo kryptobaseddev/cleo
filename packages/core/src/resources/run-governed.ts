@@ -50,6 +50,7 @@ import {
   ADMISSION_ENV,
   type AdmissionOutcome,
   type AdmissionRequest,
+  type AdmissionScope,
   type AdmitOptions,
   admit,
   describeAdmissionIoError,
@@ -173,6 +174,13 @@ export interface RunGovernedOptions {
   readonly foreground?: boolean;
   /** One-line notices (stderr in the CLI); see {@link RunNoticeLevel}. */
   readonly notice?: (line: string, level: RunNoticeLevel) => void;
+  /**
+   * Bytes to ask the ledger for: what the planned env lets the child start
+   * (`planFootprintBytes`, T13132). @defaultValue the class's default footprint
+   */
+  readonly footprintBytes?: number;
+  /** How much of the project the run covers, for status (T13132). */
+  readonly scope?: AdmissionScope;
   readonly deps?: Partial<RunGovernedDeps>;
 }
 
@@ -358,7 +366,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     const out = await d.admit(
       {
         label: `run:${opts.cls}`,
-        footprintBytes: footprintForClass(opts.cls),
+        footprintBytes: opts.footprintBytes ?? footprintForClass(opts.cls),
+        ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
         command,
         cwd: opts.cwd,
       },

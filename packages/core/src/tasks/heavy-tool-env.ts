@@ -95,6 +95,45 @@ export const MAX_HEAVY_WORKERS = 6;
 /** Never grant fewer than this many — one worker must always be able to run. */
 export const MIN_HEAVY_WORKERS = 1;
 
+const GIB_BYTES = 1024 ** 3;
+
+/**
+ * RAM the admission ledger never hands out: the OS, resident apps, VMs and
+ * agent CLIs — `max(4 GiB, 25%)`.
+ *
+ * @param totalBytes - physical RAM in bytes.
+ * @task T13133
+ */
+export function admissionReserveBytes(totalBytes: number): number {
+  return Math.max(4 * GIB_BYTES, totalBytes * 0.25);
+}
+
+/**
+ * The machine-wide budget the admission ledger shares between heavy runs, in
+ * bytes (at least 1 GiB): total RAM minus {@link admissionReserveBytes}.
+ *
+ * @param totalBytes - physical RAM. @defaultValue os.totalmem()
+ *
+ * @example
+ * ```ts
+ * admissionCapacityBytes(48 * 1024 ** 3); // 36 GiB
+ * ```
+ *
+ * @task T13133
+ */
+export function admissionCapacityBytes(totalBytes: number = totalmem()): number {
+  return Math.max(GIB_BYTES, totalBytes - admissionReserveBytes(totalBytes));
+}
+
+/**
+ * Share of the admission budget one heavy run plans its workers for (T13132).
+ * A whole-suite run sized to the entire budget left nothing for anyone else:
+ * on a 48 GiB Mac it planned 6 workers × 6 GiB = all 36 GiB, and 49 single-file
+ * runs queued behind it for 17 minutes. Planning for half keeps the other half
+ * open, at the cost of a slower whole-suite run.
+ */
+export const PER_RUN_BUDGET_SHARE = 0.5;
+
 /**
  * Workspace packages allowed to run their test/build script concurrently.
  *
@@ -308,7 +347,11 @@ const WORKER_COUNT_VARS = [
 ] as const;
 
 /**
- * Default worker count this machine can hold, given {@link GIB_PER_WORKER}.
+ * Default worker count one heavy run plans for, given {@link GIB_PER_WORKER}:
+ * {@link PER_RUN_BUDGET_SHARE} of the admission budget
+ * ({@link admissionCapacityBytes}), so a whole-suite run never takes the budget
+ * other runs on the machine need (T13132). A function of RAM alone, so the
+ * worker count — part of the tool cache key (T12989) — is stable per machine.
  *
  * The planned count ({@link planHeavyToolEnv}) never exceeds this: a small
  * inherited heap does not buy extra workers, because each worker also costs
@@ -316,9 +359,17 @@ const WORKER_COUNT_VARS = [
  *
  * @param totalRamGib - total RAM in GiB; defaults to a live reading.
  * @returns a value in `[MIN_HEAVY_WORKERS, MAX_HEAVY_WORKERS]`.
+ *
+ * @example
+ * ```ts
+ * heavyToolWorkers(48);  // 3 (half of the 36 GiB budget)
+ * heavyToolWorkers(128); // 6 (48 GiB of 96 caps at MAX_HEAVY_WORKERS)
+ * heavyToolWorkers(16);  // 1
+ * ```
  */
 export function heavyToolWorkers(totalRamGib: number = totalmem() / 1024 ** 3): number {
-  const byRam = Math.floor(totalRamGib / GIB_PER_WORKER);
+  const capacityGib = admissionCapacityBytes(Math.max(0, totalRamGib) * GIB_BYTES) / GIB_BYTES;
+  const byRam = Math.floor((capacityGib * PER_RUN_BUDGET_SHARE) / GIB_PER_WORKER);
   return Math.min(MAX_HEAVY_WORKERS, Math.max(MIN_HEAVY_WORKERS, byRam));
 }
 
@@ -371,21 +422,21 @@ export function defaultSingleProcessHeapMb(totalRamGib: number = totalmem() / 10
  * Heap budget for one heavy run, in MiB: the default worker count times the
  * default heap. `workspace concurrency × workers × heap` must fit in it.
  *
- * Unchanged by T13122 for the default case (6 × 4096 = 24 GiB on 36 GiB and
- * up, 1 × 4096 on 8 GiB); what changed is that an inherited heap is now planned
- * against it instead of multiplying it.
+ * Since T13132 the worker count is half the admission budget's worth
+ * ({@link heavyToolWorkers}); an inherited heap is planned against the budget
+ * instead of multiplying it (T13122).
  *
  * @param totalRamGib - total RAM in GiB; defaults to a live reading.
  * @returns the budget in MiB.
  *
  * @example
  * ```ts
- * heavyRunBudgetMb(64); // → 24576 (6 workers × 4096)
- * heavyRunBudgetMb(16); // → 8192  (2 workers × 4096)
- * heavyRunBudgetMb(8);  // → 4096  (1 worker  × 4096)
+ * heavyRunBudgetMb(64); // → 16384 (4 workers × 4096)
+ * heavyRunBudgetMb(16); // → 4096  (1 worker  × 4096)
  * ```
  *
  * @task T13122
+ * @task T13132
  */
 export function heavyRunBudgetMb(totalRamGib: number = totalmem() / 1024 ** 3): number {
   return heavyToolWorkers(totalRamGib) * defaultHeavyHeapMb(totalRamGib);
@@ -866,6 +917,8 @@ function heapReason(choice: HeapChoice): string {
  * @param canonical - the canonical tool about to be spawned.
  * @param env - the environment the child would otherwise inherit.
  * @param totalRamGib - total RAM in GiB; injectable for deterministic tests.
+ * @param maxWorkers - at most this many workers (a run that names its test
+ *   files needs no more than one per file, T13132). @defaultValue no limit
  * @returns the overlay and plan; an empty overlay and `null` plan for a tool
  *          that is not memory-bound (`audit`, `security-scan`).
  *
@@ -874,23 +927,28 @@ function heapReason(choice: HeapChoice): string {
  * // A shell profile exported an 8 GiB heap on a 64 GiB machine:
  * const { overlay, resources } = planHeavyToolEnv(
  *   'test', { NODE_OPTIONS: '--max-old-space-size=8192' }, 64);
- * overlay.VITEST_MAX_WORKERS; // → '3' (3 × 8192 = the 24576 MiB budget)
+ * overlay.VITEST_MAX_WORKERS; // → '2' (2 × 8192 = the 16384 MiB budget)
  * resources?.heapSource;      // → 'inherited'
  * ```
  *
  * @task T12096
  * @task T13122
  * @task T13123
+ * @task T13132
  */
 export function planHeavyToolEnv(
   canonical: CanonicalTool,
   env: NodeJS.ProcessEnv = process.env,
   totalRamGib: number = totalmem() / 1024 ** 3,
+  maxWorkers?: number,
 ): HeavyToolSpawnPlan {
   if (!isMemoryBoundTool(canonical)) return { overlay: {}, resources: null };
 
   const totalRamMb = Math.floor(totalRamGib * 1024);
-  const defaultWorkers = heavyToolWorkers(totalRamGib);
+  const defaultWorkers = Math.min(
+    heavyToolWorkers(totalRamGib),
+    Math.max(MIN_HEAVY_WORKERS, Math.floor(maxWorkers ?? Number.POSITIVE_INFINITY)),
+  );
   // A single process starts from Node's own default ceiling on its machine; a
   // forking tool from the heavy default. Both share the heavy run's budget.
   const defaultHeapMb = isHeavyTool(canonical)

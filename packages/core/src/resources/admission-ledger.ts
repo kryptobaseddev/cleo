@@ -60,11 +60,17 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, totalmem } from 'node:os';
 import { join } from 'node:path';
-import type { MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
+import type {
+  HeavyToolResourcePlan,
+  MemoryPressureReading,
+  ResourceClass,
+} from '@cleocode/contracts';
 import lockfile from 'proper-lockfile';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
 import {
+  admissionCapacityBytes,
+  admissionReserveBytes,
   defaultSingleProcessHeapMb,
   GIB_PER_WORKER,
   HEAVY_TOOL_HEAP_MB,
@@ -171,28 +177,8 @@ const LOCK_BACKOFF_MS: readonly [number, number] = [2, 40];
 // Budget and footprints
 // ---------------------------------------------------------------------------
 
-/**
- * RAM the ledger never hands out: the OS, resident apps, VMs and agent CLIs.
- *
- * @param totalBytes - physical RAM in bytes.
- */
-export function admissionReserveBytes(totalBytes: number): number {
-  return Math.max(4 * GIB, totalBytes * 0.25);
-}
-
-/**
- * The machine-wide budget for heavy runs, in bytes (at least 1 GiB).
- *
- * @param totalBytes - physical RAM. @defaultValue os.totalmem()
- *
- * @example
- * ```ts
- * admissionCapacityBytes(48 * GIB); // 36 GiB
- * ```
- */
-export function admissionCapacityBytes(totalBytes: number = totalmem()): number {
-  return Math.max(GIB, totalBytes - admissionReserveBytes(totalBytes));
-}
+/** The machine budget and the reserve it leaves (owned by the heavy-tool plan, which sizes runs to it). */
+export { admissionCapacityBytes, admissionReserveBytes };
 
 /**
  * What one heavy test or build run is charged: the worker count the heavy-tool
@@ -233,6 +219,27 @@ export function footprintForTool(
     return (Math.max(0, heap) + PROCESS_OVERHEAD_MB) * 1024 * 1024;
   }
   return LIGHT_FOOTPRINT_BYTES;
+}
+
+/**
+ * What a planned memory-bound run is charged: every process it may start ×
+ * (its heap ceiling + {@link PROCESS_OVERHEAD_MB}), i.e. workspace packages in
+ * flight × workers × per-process cost. The plan's limits are what the child is
+ * spawned with, so the charge is enforced, not estimated (T13132).
+ *
+ * @param plan - the `resources` of `planHeavyToolEnv`.
+ *
+ * @example
+ * ```ts
+ * // 1 package × 3 workers × (4096 + 2048) MiB
+ * planFootprintBytes({ workspaceConcurrency: 1, workers: 3, heapMb: 4096 }); // 18 GiB
+ * ```
+ */
+export function planFootprintBytes(
+  plan: Pick<HeavyToolResourcePlan, 'workspaceConcurrency' | 'workers' | 'heapMb'>,
+): number {
+  const processes = Math.max(1, plan.workspaceConcurrency) * Math.max(1, plan.workers);
+  return processes * (Math.max(0, plan.heapMb) + PROCESS_OVERHEAD_MB) * 1024 * 1024;
 }
 
 /** Governor classes whose admission is the ledger's. */
@@ -295,7 +302,19 @@ export interface LedgerEntry {
   readonly heartbeatAtMs: number;
   /** Process groups of the tools the holder started while admitted. */
   readonly toolGroups: readonly number[];
+  /** How much of the project the run covers, when known (T13132). */
+  readonly scope?: AdmissionScope;
+  /** The CLEO task the run is evidence for, when known (T13132). */
+  readonly task?: string;
 }
+
+/**
+ * How much of a project a run covers, shown in status so an operator can see
+ * what holds the budget (T13132): `full` is a whole-suite run, `affected` the
+ * changed packages and their dependents, `focused` a failed-first rerun of
+ * named files, `narrowed` a command that names its test files.
+ */
+export type AdmissionScope = 'full' | 'affected' | 'focused' | 'narrowed';
 
 /**
  * The ledger directory under the CLEO home.
@@ -336,6 +355,8 @@ export type ForeignEntry = Readonly<Record<string, unknown>>;
 /** The last pressure verdict a pass computed, shared with every waiter. */
 interface CachedPressure {
   readonly share: BudgetShare;
+  /** The share for light runs (memory alone); absent in caches written before T13132. */
+  readonly lightShare?: BudgetShare;
   readonly reading: MemoryPressureReading | null;
   readonly sampledAtMs: number;
 }
@@ -360,6 +381,8 @@ function isCachedPressure(v: unknown): v is CachedPressure {
   return (
     typeof c.share === 'string' &&
     SHARES.has(c.share) &&
+    (c.lightShare === undefined ||
+      (typeof c.lightShare === 'string' && SHARES.has(c.lightShare))) &&
     typeof c.sampledAtMs === 'number' &&
     (c.reading === null || (typeof c.reading === 'object' && c.reading !== null))
   );
@@ -622,8 +645,32 @@ function foreignLiveness(f: ForeignEntry, nowMs: number, probe: PidProbe): 'aliv
 export type BudgetShare = 'full' | 'half' | 'one' | 'none';
 
 /**
- * The budget share for a sample, from the memory gate's verdict and the
- * pressure score (memory, or CPU rescaled; see `pressureScore`).
+ * A run larger than this is heavy: more than one worker's footprint
+ * ({@link GIB_PER_WORKER}), i.e. a multi-process test or build run. CPU
+ * saturation narrows only heavy runs (T13132): a single-process typecheck or
+ * lint, a single-file test run and the config probe are one process each, and
+ * serialising them behind a whole suite only starved them.
+ */
+export const HEAVY_FOOTPRINT_BYTES = GIB_PER_WORKER * GIB;
+
+/**
+ * The budget share for light runs ({@link HEAVY_FOOTPRINT_BYTES} or less): the
+ * memory signal alone — `none` while the memory gate refuses, `half` at memory
+ * hold, else `full`. CPU pressure never narrows it (T13132, T13170).
+ *
+ * @param sample - a backend sample.
+ * @param gateRefuses - the memory gate's verdict for the sample.
+ */
+export function lightBudgetShare(sample: ResourceSample, gateRefuses: boolean): BudgetShare {
+  if (gateRefuses) return 'none';
+  const memory = (sample.globalPressure?.some ?? sample.slicePressure?.some)?.avg10 ?? 0;
+  return memory > 10 ? 'half' : 'full';
+}
+
+/**
+ * The budget share for HEAVY runs (above {@link HEAVY_FOOTPRINT_BYTES}), from
+ * the memory gate's verdict and the pressure score (memory, or CPU rescaled;
+ * see `pressureScore`). Light runs use {@link lightBudgetShare}.
  *
  * @param sample - a backend sample.
  * @param gateRefuses - the memory gate's verdict for the sample.
@@ -640,8 +687,13 @@ export function budgetShare(sample: ResourceSample, gateRefuses: boolean): Budge
 export interface PassContext {
   /** The machine-wide budget in bytes. */
   readonly capacityBytes: number;
-  /** What pressure leaves of it. */
+  /** What pressure leaves of it for heavy runs ({@link budgetShare}). */
   readonly share: BudgetShare;
+  /**
+   * What memory pressure leaves of it for light runs ({@link lightBudgetShare}).
+   * @defaultValue `share`
+   */
+  readonly lightShare?: BudgetShare;
   /** The clock. */
   readonly nowMs: number;
   /** @defaultValue {@link LEDGER_RESERVATION_MS} */
@@ -662,9 +714,11 @@ function charged(entry: LedgerEntry, capacityBytes: number): number {
  *   one that does not fit (backfill) until that older one has waited
  *   `reservationMs`; from then on nothing passes it.
  * - A footprint above the capacity is charged the capacity (it runs alone).
- * - `half` halves the budget and `one` admits a single run, but either still
- *   admits the oldest waiting entry when nothing is admitted; `none` admits
- *   nothing.
+ * - Heavy runs (above {@link HEAVY_FOOTPRINT_BYTES}) take `share`: `half`
+ *   halves the budget, `one` admits a single heavy run at a time (CPU
+ *   saturated). Light runs take `lightShare` (memory alone), so CPU saturation
+ *   never serialises them behind a heavy run (T13132). Either still admits the
+ *   oldest waiting entry when nothing is admitted; `none` admits nothing.
  *
  * @param entries - the ledger.
  * @param ctx - capacity, pressure share and clock.
@@ -676,18 +730,35 @@ function charged(entry: LedgerEntry, capacityBytes: number): number {
  * ```
  */
 export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext): LedgerEntry[] {
-  if (ctx.share === 'none') return [...entries];
+  const lightShare = ctx.lightShare ?? ctx.share;
+  if (ctx.share === 'none' && lightShare === 'none') return [...entries];
   const reservationMs = ctx.reservationMs ?? LEDGER_RESERVATION_MS;
-  const budget =
-    ctx.share === 'full' ? ctx.capacityBytes : ctx.share === 'half' ? ctx.capacityBytes / 2 : 0;
+  const bytesFor = (share: BudgetShare): number =>
+    share === 'full' || share === 'one'
+      ? ctx.capacityBytes
+      : share === 'half'
+        ? ctx.capacityBytes / 2
+        : 0;
+  // Light runs see the memory budget. Heavy runs see the narrower of it and
+  // their own share; `one` admits a single heavy run at a time.
+  const lightBudget = bytesFor(lightShare);
+  const heavyBudget = Math.min(lightBudget, bytesFor(ctx.share));
   let used = ctx.foreign?.bytes ?? 0;
   let running = ctx.foreign?.count ?? 0;
+  let heavyRunning = ctx.foreign?.count ?? 0;
   for (const e of entries) {
     if (e.state === 'admitted') {
       used += charged(e, ctx.capacityBytes);
       running++;
+      if (isHeavy(e)) heavyRunning++;
     }
   }
+  const fits = (w: LedgerEntry, cost: number): boolean => {
+    if (!isHeavy(w)) return lightShare !== 'none' && used + cost <= lightBudget;
+    if (ctx.share === 'none') return false;
+    if (ctx.share === 'one' && heavyRunning > 0) return false;
+    return used + cost <= heavyBudget;
+  };
   const waiting = entries
     .filter((e) => e.state === 'waiting')
     .sort((a, b) => a.enqueuedAtMs - b.enqueuedAtMs || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -695,12 +766,15 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   let blocked = false;
   for (const w of waiting) {
     const cost = charged(w, ctx.capacityBytes);
+    const share = isHeavy(w) ? ctx.share : lightShare;
     // With nothing running, the oldest waiting run always starts (it is
-    // charged at most the capacity), so pressure narrows but never stops work.
-    if (used + cost <= budget || running === 0) {
+    // charged at most the capacity), so pressure narrows but never stops work;
+    // only the memory gate (`none`) stops it.
+    if (fits(w, cost) || (running === 0 && share !== 'none')) {
       admit.add(w.id);
       used += cost;
       running++;
+      if (isHeavy(w)) heavyRunning++;
       continue;
     }
     if (!blocked) {
@@ -713,6 +787,11 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
       ? { ...e, state: 'admitted', admittedAtMs: ctx.nowMs, heartbeatAtMs: ctx.nowMs }
       : e,
   );
+}
+
+/** Whether an entry is a heavy (multi-process) run: above {@link HEAVY_FOOTPRINT_BYTES}. */
+function isHeavy(e: Pick<LedgerEntry, 'footprintBytes'>): boolean {
+  return e.footprintBytes > HEAVY_FOOTPRINT_BYTES;
 }
 
 // ---------------------------------------------------------------------------
@@ -820,7 +899,20 @@ function age(ms: number): string {
 }
 
 /**
- * One line per admitted run: label, pid, command, directory and age.
+ * ` [scope=full, task T1043]` for an entry that says what it covers, else ''.
+ *
+ * @param e - a ledger entry.
+ */
+export function describeScope(e: Pick<LedgerEntry, 'scope' | 'task'>): string {
+  const parts = [
+    ...(e.scope !== undefined ? [`scope=${e.scope}`] : []),
+    ...(e.task !== undefined ? [`task ${e.task}`] : []),
+  ];
+  return parts.length > 0 ? ` [${parts.join(', ')}]` : '';
+}
+
+/**
+ * One line per admitted run: label, scope and task, pid, command, directory and age.
  *
  * @param entries - the ledger.
  * @param nowMs - the clock.
@@ -830,7 +922,7 @@ export function describeHolders(entries: readonly LedgerEntry[], nowMs: number):
     .filter((e) => e.state === 'admitted')
     .map(
       (e) =>
-        `${e.label} pid ${e.pid} (${e.command})${e.cwd ? ` in ${e.cwd}` : ''}, ${gib(e.footprintBytes)}, for ${age(nowMs - (e.admittedAtMs ?? e.enqueuedAtMs))}`,
+        `${e.label}${describeScope(e)} pid ${e.pid} (${e.command})${e.cwd ? ` in ${e.cwd}` : ''}, ${gib(e.footprintBytes)}, for ${age(nowMs - (e.admittedAtMs ?? e.enqueuedAtMs))}`,
     );
 }
 
@@ -955,6 +1047,10 @@ export interface AdmissionRequest {
   readonly command?: string;
   /** Working directory. @defaultValue process.cwd() */
   readonly cwd?: string | null;
+  /** How much of the project it covers, for status (T13132). */
+  readonly scope?: AdmissionScope;
+  /** The CLEO task it is evidence for, for status (T13132). */
+  readonly task?: string;
 }
 
 /** How to wait, and where to report. */
@@ -1102,6 +1198,7 @@ function newId(pid: number, nowMs: number): string {
 /** A pressure verdict, and the record to write back when it was freshly sampled. */
 interface ShareVerdict {
   readonly share: BudgetShare;
+  readonly lightShare: BudgetShare;
   readonly reading: MemoryPressureReading | null;
   readonly sampled: CachedPressure | null;
 }
@@ -1119,10 +1216,15 @@ async function sampleShare(
 ): Promise<ShareVerdict> {
   if (!opts.sample) {
     if (process.env[ADMISSION_PRESSURE_ENV] === 'off') {
-      return { share: 'full', reading: null, sampled: null };
+      return { share: 'full', lightShare: 'full', reading: null, sampled: null };
     }
     if (cached !== null && isFresh(cached, nowMs)) {
-      return { share: cached.share, reading: cached.reading, sampled: null };
+      return {
+        share: cached.share,
+        lightShare: cached.lightShare ?? cached.share,
+        reading: cached.reading,
+        sampled: null,
+      };
     }
   }
   let sample: ResourceSample | null;
@@ -1131,11 +1233,17 @@ async function sampleShare(
   } catch {
     sample = null;
   }
-  if (sample === null) return { share: 'full', reading: null, sampled: null };
+  if (sample === null) return { share: 'full', lightShare: 'full', reading: null, sampled: null };
   const gate = checkMemoryGate(sample, opts.now ? { now: opts.now } : {});
   const share = budgetShare(sample, gate.refuse);
+  const lightShare = lightBudgetShare(sample, gate.refuse);
   const reading = gate.refuse ? gate.reading : null;
-  return { share, reading, sampled: { share, reading, sampledAtMs: nowMs } };
+  return {
+    share,
+    lightShare,
+    reading,
+    sampled: { share, lightShare, reading, sampledAtMs: nowMs },
+  };
 }
 
 function isFresh(cached: CachedPressure, nowMs: number): boolean {
@@ -1268,6 +1376,8 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     admittedAtMs: null,
     heartbeatAtMs: t0,
     toolGroups: [],
+    ...(req.scope !== undefined ? { scope: req.scope } : {}),
+    ...(req.task !== undefined ? { task: req.task } : {}),
   };
 
   /** One pass: reap, (re-)enqueue ourselves, schedule; returns our entry's state. */
@@ -1278,7 +1388,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
   }> => {
     const before = readLedgerDoc(dir);
     const nowMs = now();
-    const { share, reading, sampled } = await sampleShare(opts, before.pressure, nowMs);
+    const { share, lightShare, reading, sampled } = await sampleShare(opts, before.pressure, nowMs);
     const dead = findDead(before, nowMs, probe);
     return withLedger(dir, (doc) => {
       let entries = doc.entries;
@@ -1290,7 +1400,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       const next = reapAndSchedule(
         { ...doc, entries },
         dead,
-        { capacityBytes, share, nowMs },
+        { capacityBytes, share, lightShare, nowMs },
         sampled,
       );
       return {
@@ -1479,13 +1589,13 @@ function holdGrant(
     try {
       const before = readLedgerDoc(dir);
       const nowMs = now();
-      const { share, sampled } = await sampleShare(opts, before.pressure, nowMs);
+      const { share, lightShare, sampled } = await sampleShare(opts, before.pressure, nowMs);
       const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
       await withLedger(dir, (doc) => ({
         doc: reapAndSchedule(
           { ...doc, entries: doc.entries.filter((e) => e.id !== entry.id) },
           NO_DEAD,
-          { capacityBytes, share, nowMs },
+          { capacityBytes, share, lightShare, nowMs },
           sampled,
         ),
         result: undefined,
@@ -1560,7 +1670,11 @@ export async function reapLedger(
   const nowMs = now();
   const dead = findDead(before, nowMs, opts.probe ?? systemPidProbe);
   if (dead.entries.size === 0 && dead.foreign.size === 0) return [];
-  const { share, sampled } = await sampleShare({ wait: false, ...opts }, before.pressure, nowMs);
+  const { share, lightShare, sampled } = await sampleShare(
+    { wait: false, ...opts },
+    before.pressure,
+    nowMs,
+  );
   const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
   return withLedger(dir, (doc) => {
     const removed = [
@@ -1568,7 +1682,7 @@ export async function reapLedger(
       ...doc.foreign.filter((f) => dead.foreign.has(JSON.stringify(f))).map(foreignId),
     ];
     return {
-      doc: reapAndSchedule(doc, dead, { capacityBytes, share, nowMs }, sampled),
+      doc: reapAndSchedule(doc, dead, { capacityBytes, share, lightShare, nowMs }, sampled),
       result: removed,
     };
   });
@@ -1597,7 +1711,11 @@ export async function removeLedgerEntry(
     return false;
   }
   const nowMs = now();
-  const { share, sampled } = await sampleShare({ wait: false, ...opts }, before.pressure, nowMs);
+  const { share, lightShare, sampled } = await sampleShare(
+    { wait: false, ...opts },
+    before.pressure,
+    nowMs,
+  );
   const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
   return withLedger(dir, (doc) => {
     const entries = doc.entries.filter((e) => e.id !== id);
@@ -1609,7 +1727,7 @@ export async function removeLedgerEntry(
       doc: reapAndSchedule(
         { ...doc, entries, foreign },
         NO_DEAD,
-        { capacityBytes, share, nowMs },
+        { capacityBytes, share, lightShare, nowMs },
         sampled,
       ),
       result: true,

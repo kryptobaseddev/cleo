@@ -625,6 +625,31 @@ export function resolveRunClass(
   return 'scoped-build';
 }
 
+/** A test file path: `foo.test.ts`, `bar.spec.mjs`, `baz.test.tsx`. */
+const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
+
+/**
+ * How many test files a test run names (`vitest run a.test.ts b.test.ts` → 2),
+ * or `null` when it names none (a whole suite, a filter or a script). Such a
+ * run needs at most one worker per file, so `cleo run` plans and charges it
+ * that many and spawns it with that worker cap: a single-file run takes one
+ * worker's share of the machine budget, not a whole suite's (T13132).
+ *
+ * @param cls - the run's class; only `test-run` names test files.
+ * @param argv - the command.
+ *
+ * @example
+ * ```ts
+ * namedTestFileCount('test-run', ['pnpm', 'exec', 'vitest', 'run', 'src/a.test.ts']); // 1
+ * namedTestFileCount('test-run', ['pnpm', 'test']);                                     // null
+ * ```
+ */
+export function namedTestFileCount(cls: ResourceClass, argv: readonly string[]): number | null {
+  if (cls !== 'test-run') return null;
+  const n = argv.filter((w) => TEST_FILE.test(w)).length;
+  return n > 0 ? n : null;
+}
+
 /** The `heavyToolEnv` canonical tool a run class sizes its env from. */
 export function canonicalForClass(cls: ResourceClass): CanonicalTool {
   return cls === 'test-run' ? 'test' : 'build';

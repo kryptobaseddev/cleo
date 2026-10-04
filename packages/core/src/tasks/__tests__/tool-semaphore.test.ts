@@ -70,10 +70,11 @@ describe('acquireGlobalSlot over the admission ledger (T13133)', () => {
     expect(readLedger()).toEqual([]);
   });
 
-  it('a second heavy run waits for the first and is admitted when it releases', async () => {
+  it('two heavy runs share the budget; a third waits until one releases (T13132)', async () => {
     const first = await acquireGlobalSlot('test', MACHINE);
+    const second = await acquireGlobalSlot('build', { ...MACHINE, timeoutMs: 1_000 });
     let admitted = false;
-    const second = acquireGlobalSlot('build', { ...MACHINE, timeoutMs: 10_000 }).then((r) => {
+    const third = acquireGlobalSlot('test', { ...MACHINE, timeoutMs: 10_000 }).then((r) => {
       admitted = true;
       return r;
     });
@@ -81,12 +82,14 @@ describe('acquireGlobalSlot over the admission ledger (T13133)', () => {
     expect(admitted).toBe(false);
     expect(readLedger().map((e) => [e.label, e.state])).toEqual([
       ['tool:test', 'admitted'],
-      ['tool:build', 'waiting'],
+      ['tool:build', 'admitted'],
+      ['tool:test', 'waiting'],
     ]);
     await first();
-    const release = await second;
+    const release = await third;
     expect(admitted).toBe(true);
     await release();
+    await second();
   });
 
   it('a light run fits beside a run that leaves room', async () => {
@@ -99,14 +102,22 @@ describe('acquireGlobalSlot over the admission ledger (T13133)', () => {
 
   it('times out naming the reason and the holders', async () => {
     const held = await acquireGlobalSlot('test', MACHINE);
+    const also = await acquireGlobalSlot('build', MACHINE);
     try {
       await expect(acquireGlobalSlot('test', { ...MACHINE, timeoutMs: 60 })).rejects.toThrow(
-        /Timed out waiting for admission of a 'test' run: machine budget in use: 36 GiB of 36 GiB by 1 run\(s\).*Current holders — tool:test pid \d+/,
+        /Timed out waiting for admission of a 'test' run: machine budget in use: 36 GiB of 36 GiB by 2 run\(s\).*Current holders — tool:test pid \d+/,
       );
-      expect(readLedger()).toHaveLength(1); // the timed-out run left the queue
+      expect(readLedger()).toHaveLength(2); // the timed-out run left the queue
     } finally {
       await held();
+      await also();
     }
+  });
+
+  it('records what the run covers and its task, for status (T13132)', async () => {
+    const release = await acquireGlobalSlot('test', { ...MACHINE, scope: 'full', task: 'T9' });
+    expect(readLedger()[0]).toMatchObject({ label: 'tool:test', scope: 'full', task: 'T9' });
+    await release();
   });
 
   it('skipAdmission admits without touching the ledger', async () => {

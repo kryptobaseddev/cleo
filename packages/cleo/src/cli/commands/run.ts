@@ -51,9 +51,11 @@ import {
   RUN_COMMAND_FAILED_CODE,
   RUN_DEFERRED_EXIT_CODE,
 } from '@cleocode/contracts';
+import { planFootprintBytes } from '@cleocode/core/resources/admission-ledger.js';
 import {
   canonicalForClass,
   isWatchCommand,
+  namedTestFileCount,
   resolveRunClass,
 } from '@cleocode/core/resources/run-admission.js';
 import {
@@ -210,7 +212,15 @@ export const runCommand = defineCommand({
     // T13122: the heap and worker plan, and why — printed before admission, so
     // it is labelled as planned (a deferred run never starts). A clamped
     // inherited value is a warning, so it shows even under --passthrough.
-    const { overlay, resources } = planHeavyToolEnv(canonicalForClass(cls));
+    // T13132: a test run that names its files needs at most one worker per
+    // file; it is planned, charged and spawned with that many.
+    const namedFiles = namedTestFileCount(cls, argv);
+    const { overlay, resources } = planHeavyToolEnv(
+      canonicalForClass(cls),
+      process.env,
+      undefined,
+      namedFiles ?? undefined,
+    );
     if (resources !== null) {
       notice(
         `planned resources: ${resources.summary}`,
@@ -232,6 +242,8 @@ export const runCommand = defineCommand({
         // A terminal on stdin: keep the child in its foreground group.
         foreground: passthrough && process.stdin.isTTY === true,
         notice,
+        ...(resources !== null ? { footprintBytes: planFootprintBytes(resources) } : {}),
+        ...(namedFiles !== null ? { scope: 'narrowed' as const } : {}),
       });
     } catch (err) {
       // A runner error is reported here, not by the CLI's top-level catch,

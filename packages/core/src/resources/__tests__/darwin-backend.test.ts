@@ -24,6 +24,7 @@ import type { PsiData, ResourceSample } from '../backend.js';
 import {
   cpuSomeFromLoad,
   DarwinResourceBackend,
+  darwinHeadroomBytes,
   darwinHeadroomFloorBytes,
   darwinMemorySome,
   darwinPressure,
@@ -212,22 +213,41 @@ describe('PSI-equivalent mapping', () => {
     });
   });
 
-  it('headroom running out scores at any kernel level, in bytes against one worker', () => {
-    // 48 GiB: floor 6 GiB. 92% wired or compressed leaves 3.84 GiB.
-    expect(some(normal(8))).toBeCloseTo(30 * (1 - (0.08 * RAM48) / (6 * GB)), 6);
-    // 8 GiB Air: floor 2 GiB. 95% leaves 0.4 GiB: backoff.
-    expect(some(normal(5), RAM8)).toBeCloseTo(30 * (1 - (0.05 * RAM8) / (2 * GB)), 6);
+  it('headroom running out scores at any kernel level, in bytes against the floor', () => {
+    // 48 GiB: floor 12 GiB (a quarter). 92% wired or compressed leaves 3.84 GiB.
+    expect(some(normal(8))).toBeCloseTo(30 * (1 - (0.08 * RAM48) / (12 * GB)), 6);
+    // 8 GiB Air: floor 4 GiB (6 GiB capped at half). 95% leaves 0.4 GiB: backoff.
+    expect(some(normal(5), RAM8)).toBeCloseTo(30 * (1 - (0.05 * RAM8) / (4 * GB)), 6);
     expect(stateOf(normal(5), RAM8)).toBe('backoff');
-    expect(darwinHeadroomFloorBytes(RAM48)).toBe(6 * GB);
-    expect(darwinHeadroomFloorBytes(RAM8)).toBe(2 * GB);
+    // A quarter of RAM, at least 6 GiB, at most half (T13132, #1806 review).
+    expect(darwinHeadroomFloorBytes(RAM48)).toBe(12 * GB);
+    expect(darwinHeadroomFloorBytes(16 * GB)).toBe(6 * GB);
+    expect(darwinHeadroomFloorBytes(RAM8)).toBe(4 * GB);
+  });
+
+  it('reclaimable pages are the headroom when readable: anonymous memory is not (T13132)', () => {
+    const pages = (gib: number): string =>
+      `hw.pagesize: 16384\nvm.page_free_count: ${(gib * GB) / 16384 / 2}\n` +
+      `vm.page_pageable_external_count: ${(gib * GB) / 16384 / 2}\n`;
+    const parsed = parseDarwinSysctl(`kern.memorystatus_level: 60\n${pages(3)}`);
+    expect(parsed.reclaimableBytes).toBe(3 * GB);
+    expect(darwinHeadroomBytes(parsed, RAM48)).toBe(3 * GB);
+    // 60% neither wired nor compressed (28.8 GiB) read as plenty; only 3 GiB is
+    // reclaimable, below the 12 GiB floor.
+    expect(
+      some(`kern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 60\n${pages(3)}`),
+    ).toBeCloseTo(30 * (1 - 3 / 12), 6);
+    // Without a page size the old reading stands.
+    expect(parseDarwinSysctl('vm.page_free_count: 10\n').reclaimableBytes).toBeNull();
   });
 
   it('the compressor share counts when the kernel level is unreadable, or larger', () => {
     // 47 GiB compressed on 48 GiB, no memorystatus_level: 1 GiB headroom left
-    expect(some(`vm.compressor_bytes_used: ${47 * GB}\n`)).toBeCloseTo(30 * (1 - 1 / 6), 6);
+    // against the 12 GiB floor
+    expect(some(`vm.compressor_bytes_used: ${47 * GB}\n`)).toBeCloseTo(30 * (1 - 1 / 12), 6);
     // the larger of the two wins
     expect(some(`kern.memorystatus_level: 70\nvm.compressor_bytes_used: ${47 * GB}\n`)).toBeCloseTo(
-      30 * (1 - 1 / 6),
+      30 * (1 - 1 / 12),
       6,
     );
   });
@@ -281,10 +301,23 @@ describe('DarwinResourceBackend.sample', () => {
       compressorBytes: null,
       swapUsedBytes: Math.round(11625.69 * MB),
       swapTotalBytes: 13312 * MB,
+      reclaimableBytes: null,
       totalBytes: 48 * GB,
     });
     expect(s.cpuPressure?.some.avg10).toBeCloseTo((100 * (21.53 / 18 - 1)) / (21.53 / 18), 5);
     expect(s.cpuPressure?.some.avg300).toBeGreaterThan(s.cpuPressure?.some.avg10 ?? 0);
+  });
+
+  it('memAvailableBytes is the reclaimable memory when the page counts are readable (T13132)', async () => {
+    const backend = new DarwinResourceBackend({
+      sysctlFn: async () =>
+        `kern.memorystatus_level: 60\nhw.pagesize: 16384\nvm.page_free_count: ${GB / 16384}\n` +
+        `vm.page_speculative_count: ${GB / 16384}\n`,
+      totalMemBytes: 48 * GB,
+    });
+    const s = await backend.sample();
+    expect(s.memAvailableBytes).toBe(2 * GB);
+    expect(s.darwinMemory?.reclaimableBytes).toBe(2 * GB);
   });
 
   it('runs at most one sysctl per TTL', async () => {

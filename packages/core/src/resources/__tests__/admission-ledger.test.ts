@@ -17,16 +17,22 @@ import {
   admissionCapacityBytes,
   admissionToken,
   admit,
+  budgetShare,
   describeAdmissionIoError,
+  describeHolders,
+  describeScope,
   enclosingGrant,
   entryLiveness,
   footprintForTool,
   GIB,
+  HEAVY_FOOTPRINT_BYTES,
   LEDGER_HEARTBEAT_STALE_MS,
   LEDGER_ORPHAN_MS,
   LEDGER_RESERVATION_MS,
   type LedgerEntry,
+  lightBudgetShare,
   type ProcessFacts,
+  planFootprintBytes,
   readForeignEntries,
   readLedger,
   reapLedger,
@@ -77,9 +83,9 @@ const admittedIds = (es: readonly LedgerEntry[]): string[] =>
   es.filter((e) => e.state === 'admitted').map((e) => e.id);
 
 describe('footprints and capacity', () => {
-  it('a 48 GiB machine holds exactly one heavy run (36 GiB of 36 GiB); single-process runs are charged their heap', () => {
+  it('a 48 GiB machine holds two heavy runs (18 GiB each of 36 GiB, T13132); single-process runs are charged their heap', () => {
     expect(admissionCapacityBytes(48 * GIB)).toBe(36 * GIB);
-    expect(footprintForTool('test', 48 * GIB)).toBe(36 * GIB);
+    expect(footprintForTool('test', 48 * GIB)).toBe(18 * GIB);
     // typecheck and lint: the planned heap (default 4096 MiB) + 2048 MiB of process overhead
     expect(footprintForTool('typecheck', 48 * GIB)).toBe(6 * GIB);
     expect(footprintForTool('lint', 48 * GIB)).toBe(6 * GIB);
@@ -87,9 +93,16 @@ describe('footprints and capacity', () => {
     expect(footprintForTool('audit', 48 * GIB)).toBe(GIB);
   });
 
-  it('a 16 GiB laptop keeps 4 GiB back and charges a heavy run 2 workers', () => {
+  it('a 16 GiB laptop keeps 4 GiB back and charges a heavy run 1 worker', () => {
     expect(admissionCapacityBytes(16 * GIB)).toBe(12 * GIB);
-    expect(footprintForTool('test', 16 * GIB)).toBe(12 * GIB);
+    expect(footprintForTool('test', 16 * GIB)).toBe(6 * GIB);
+  });
+
+  it('a planned run is charged packages × workers × (heap + overhead) (T13132)', () => {
+    expect(planFootprintBytes({ workspaceConcurrency: 1, workers: 3, heapMb: 4096 })).toBe(
+      18 * GIB,
+    );
+    expect(planFootprintBytes({ workspaceConcurrency: 2, workers: 1, heapMb: 1024 })).toBe(6 * GIB);
   });
 });
 
@@ -150,10 +163,38 @@ describe('schedulePass', () => {
     expect(admittedIds(schedulePass(big, { ...ctx, share: 'half' }))).toEqual(['big']);
   });
 
-  it('CPU saturation admits one run at a time; the memory gate admits none', () => {
-    const waiting = [entry({ id: 'a', enqueuedAtMs: 1 }), entry({ id: 'b', enqueuedAtMs: 2 })];
-    expect(admittedIds(schedulePass(waiting, { ...ctx, share: 'one' }))).toEqual(['a']);
-    expect(admittedIds(schedulePass(waiting, { ...ctx, share: 'none' }))).toEqual([]);
+  it('CPU saturation admits one heavy run at a time; the memory gate admits none', () => {
+    const big = { capacityBytes: 100 * GIB, nowMs: 1_000 };
+    const heavy = (id: string, at: number) =>
+      entry({ id, enqueuedAtMs: at, footprintBytes: HEAVY_FOOTPRINT_BYTES + GIB });
+    const waiting = [heavy('a', 1), heavy('b', 2)];
+    expect(
+      admittedIds(schedulePass(waiting, { ...big, share: 'one', lightShare: 'full' })),
+    ).toEqual(['a']);
+    expect(
+      admittedIds(schedulePass(waiting, { ...big, share: 'none', lightShare: 'none' })),
+    ).toEqual([]);
+  });
+
+  it('CPU saturation never serialises light runs behind a heavy one (T13132)', () => {
+    const big = { capacityBytes: 100 * GIB, nowMs: 1_000 };
+    const ledger = [
+      entry({ id: 'h', state: 'admitted', footprintBytes: 18 * GIB, admittedAtMs: 1 }),
+      entry({ id: 'h2', enqueuedAtMs: 2, footprintBytes: 18 * GIB }),
+      // A typecheck (heap + overhead = 6 GiB) and a single-file test run.
+      entry({ id: 'tc', enqueuedAtMs: 3, footprintBytes: HEAVY_FOOTPRINT_BYTES }),
+      entry({ id: 'one-file', enqueuedAtMs: 4, footprintBytes: 6 * GIB }),
+    ];
+    const out = schedulePass(ledger, { ...big, share: 'one', lightShare: 'full' });
+    expect(admittedIds(out)).toEqual(['h', 'tc', 'one-file']);
+    // Memory pressure (half) narrows light runs too.
+    const half = schedulePass(ledger, {
+      capacityBytes: 40 * GIB,
+      nowMs: 1_000,
+      share: 'one',
+      lightShare: 'half',
+    });
+    expect(admittedIds(half)).toEqual(['h']);
   });
 });
 
@@ -316,6 +357,34 @@ describe('enclosingGrant (re-entrancy)', () => {
   it('a holder never rides its own grant, and waiting entries grant nothing', () => {
     expect(enclosingGrant([holder], 500, {}, facts())).toBeNull();
     expect(enclosingGrant([{ ...holder, state: 'waiting' }], 1000, {}, facts())).toBeNull();
+  });
+});
+
+describe('status names what holds the budget (T13132)', () => {
+  it('a holder line carries the scope and task', () => {
+    const [line] = describeHolders(
+      [
+        entry({
+          id: 'w',
+          state: 'admitted',
+          admittedAtMs: 0,
+          footprintBytes: 18 * GIB,
+          scope: 'full',
+          task: 'T1043',
+        }),
+      ],
+      61_000,
+    );
+    expect(line).toMatch(/^tool:test \[scope=full, task T1043\] pid 4242 .*18 GiB, for 1m 01s$/);
+    expect(describeScope({})).toBe('');
+  });
+
+  it('light runs take the memory share alone: CPU never narrows them', () => {
+    const cpu = { ...sampleAt(0, 95) };
+    expect(budgetShare(cpu, false)).toBe('one');
+    expect(lightBudgetShare(cpu, false)).toBe('full');
+    expect(lightBudgetShare(sampleAt(15), false)).toBe('half');
+    expect(lightBudgetShare(sampleAt(0), true)).toBe('none');
   });
 });
 

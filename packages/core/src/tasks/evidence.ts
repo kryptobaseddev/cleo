@@ -59,7 +59,7 @@ import { getEffectiveHead } from '../worktree/effective-head.js';
 import type { AffectedTestRun } from './affected-packages.js';
 import type { ViewComponentPr } from './component-pr.js';
 import { loadRecordedProjectRoots, rebaseLegacyEvidencePath } from './evidence-paths.js';
-import { HEAVY_HEAP_ENV, HEAVY_WORKERS_ENV } from './heavy-tool-env.js';
+import { HEAVY_HEAP_ENV, HEAVY_WORKERS_ENV, isHeavyTool } from './heavy-tool-env.js';
 import { DISABLE_ENV, describeMemoryLimit } from './heavy-tool-limit.js';
 import {
   computeCommitRevalidationKey,
@@ -1701,11 +1701,14 @@ export interface EvidenceExecutionRootHints {
  * memory and timeout limits apply). The atom records `scope: 'affected'` and
  * the packages, so a receipt never passes for a full run.
  */
-async function validateAffectedTests(roots: EvidenceRoots): Promise<AtomValidation> {
+async function validateAffectedTests(
+  roots: EvidenceRoots,
+  taskId: string | undefined,
+): Promise<AtomValidation> {
   const { planAffectedTestRun } = await import('./affected-packages.js');
   const run = await planAffectedTestRun(roots.storeRoot, roots.executionRoot, { wait: true });
   if (!run.ok) return { ok: false, codeName: run.codeName, reason: run.reason };
-  return runAffectedTests('test-affected', run, roots);
+  return runAffectedTests('test-affected', run, roots, taskId);
 }
 
 /**
@@ -1717,9 +1720,14 @@ async function runAffectedTests(
   tool: 'test' | 'test-affected',
   run: Extract<AffectedTestRun, { ok: true }>,
   roots: EvidenceRoots,
+  taskId: string | undefined,
 ): Promise<AtomValidation> {
   const { storeRoot, executionRoot } = roots;
-  const result = await runToolCached(run.command, storeRoot, { executionRoot });
+  // T13132: status shows what holds the budget — the scope and the task.
+  const result = await runToolCached(run.command, storeRoot, {
+    executionRoot,
+    semaphoreOptions: { scope: 'affected', ...(taskId !== undefined ? { task: taskId } : {}) },
+  });
   if (result.exitCode !== 0) {
     return {
       ok: false,
@@ -2076,7 +2084,7 @@ async function validateTool(
   roots: EvidenceRoots,
   context?: EvidenceValidationContext,
 ): Promise<AtomValidation> {
-  if (tool === 'test-affected') return validateAffectedTests(roots);
+  if (tool === 'test-affected') return validateAffectedTests(roots, context?.task.id);
   // T12959: `tool:test` runs the affected packages first when a template is
   // declared; the full suite runs only when that scope cannot be trusted, and
   // the atom says which scope ran and why.
@@ -2097,7 +2105,9 @@ async function validateTool(
           }
         : {}),
     });
-    if (plan.scope === 'affected') return runAffectedTests('test', plan.run, roots);
+    if (plan.scope === 'affected') {
+      return runAffectedTests('test', plan.run, roots, context?.task.id);
+    }
     if (plan.scope === 'pending') {
       return {
         ok: false,
@@ -2158,7 +2168,16 @@ async function validateTool(
   // gh#1220/#1226/#1230: spawn in — and fingerprint against — the tree the
   // operator actually invoked from, not the shared store root. gh#1365: the
   // root arrives as a parameter now; it is NOT re-resolved here.
-  const result = await runToolCached(resolution.command, projectRoot, { executionRoot });
+  // T13132: a heavy tool here runs the whole project (the affected scope
+  // returned above); status marks it scope=full with its task.
+  const taskId = context?.task.id;
+  const result = await runToolCached(resolution.command, projectRoot, {
+    executionRoot,
+    semaphoreOptions: {
+      ...(isHeavyTool(resolution.command.canonical) ? { scope: 'full' as const } : {}),
+      ...(taskId !== undefined ? { task: taskId } : {}),
+    },
+  });
 
   // T12025: wall-clock child-process deadline exceeded — the tool was
   // terminated and the lock released. Signal retry; do NOT record a partially
