@@ -1286,8 +1286,9 @@ export function chashBaselineSnapshot(db: DatabaseSync, scope: TableScope): Chas
  * with. When the migration changed no row and the sync-set version did not
  * move, nothing is re-hashed. Records {@link CHASH_BASELINE_KEY}.
  *
- * Runs in its own `BEGIN IMMEDIATE` transaction (the migration runner calls
- * it after each migration's commit).
+ * Runs in the caller's transaction when there is one: the migration bracket
+ * calls it before its COMMIT, so a migration and its re-baseline commit or
+ * roll back together. Otherwise it opens its own `BEGIN IMMEDIATE`.
  *
  * @param db - The store.
  * @param scope - Its scope.
@@ -1305,7 +1306,11 @@ export function rebaselineChash(
   if (unchanged || !hasTable(db, '_sync_row_meta') || !hasTable(db, '_sync_meta')) {
     return { rows: 0, version, snapshot: { ...snapshot, changes, version } };
   }
-  return withImmediateTransaction(db, () => {
+  // Inside the migration's own transaction (the bracket calls it before
+  // COMMIT), so a migration and its re-baseline commit or roll back together.
+  const inTxn = db.isTransaction;
+  const run = <T>(fn: () => T): T => (inTxn ? fn() : withImmediateTransaction(db, fn));
+  return run(() => {
     const ctx = new TableContext(db, scope);
     const skip = new Set([...snapshot.suspect, ...suspectTables(db)]);
     markSuspect(

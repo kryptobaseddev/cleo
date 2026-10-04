@@ -6,8 +6,9 @@
  *   migration's statements and regenerated for the new schema before its
  *   COMMIT ({@link captureBracketHooks}).
  * - Before the first pending migration, the rows in baseline (`chash` equal
- *   to the live hash) are recorded ({@link chashBaselineSnapshot}). After
- *   each migration only those rows are re-baselined, keyed by the new
+ *   to the live hash) are recorded ({@link chashBaselineSnapshot}). Inside
+ *   each migration's bracket, before its COMMIT, only those rows are
+ *   re-baselined, keyed by the new
  *   sync-set version, and nothing is emitted: a migration's backfill is
  *   deterministic and every replica runs it itself. A row that already
  *   diverged (an uncaptured edit) keeps its hash, and its table is marked
@@ -43,8 +44,11 @@ export function syncMigrationHooks(db: DatabaseSync, scope: TableScope): Migrati
       hooks.beforeMigrations?.(d);
       snapshot = chashBaselineSnapshot(d, scope);
     },
-    afterMigration: (d, migration) => {
-      hooks.afterMigration?.(d, migration);
+    // Inside each bracket, after the statements and before COMMIT: the
+    // re-baseline is part of the migration's transaction, so a crash or a
+    // throw rolls both back and the next open runs them again.
+    reinstallCapture: (d) => {
+      hooks.reinstallCapture?.(d);
       if (snapshot !== null) snapshot = rebaselineChash(d, scope, snapshot).snapshot;
     },
   };

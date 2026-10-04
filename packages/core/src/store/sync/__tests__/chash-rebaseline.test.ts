@@ -231,9 +231,70 @@ describe('migration backfills re-baseline chash and emit nothing (T12775)', () =
     expect(rebaselineChash(db, 'project', snap)).toMatchObject({ rows: 0 });
   });
 
+  it('the re-baseline is part of the migration transaction: a throw rolls both back, and the next run redoes both (review-hotfix MED)', async () => {
+    const db = await store();
+    addTask(db, 'T1');
+    seal(db);
+    const before = metaChash(db, 'uid-T1');
+    const lineage = join(dir, 'extra');
+    mkdirSync(join(lineage, '20991231000007_backfill'), { recursive: true });
+    writeFileSync(
+      join(lineage, '20991231000007_backfill', 'migration.sql'),
+      'UPDATE `tasks_tasks` SET `title` = upper(`title`)',
+    );
+    const hooks = syncMigrationHooks(db, 'project');
+    const crashing = {
+      ...hooks,
+      reinstallCapture: (d: DatabaseSync) => {
+        hooks.reinstallCapture?.(d);
+        throw new Error('crash after the re-baseline, before COMMIT');
+      },
+    };
+    expect(() =>
+      runBracketedMigrations(db, drizzle({ client: db }), [{ folder: lineage }], crashing),
+    ).toThrow(/crash after the re-baseline/);
+    expect(metaChash(db, 'uid-T1')).toBe(before);
+    expect(db.prepare("SELECT title FROM tasks_tasks WHERE id = 'T1'").get()).toEqual({
+      title: 'title T1',
+    });
+
+    runBracketedMigrations(
+      db,
+      drizzle({ client: db }),
+      [{ folder: lineage }],
+      syncMigrationHooks(db, 'project'),
+    );
+    expect(metaChash(db, 'uid-T1')).toBe(liveChash(db, 'uid-T1'));
+    expect(metaChash(db, 'uid-T1')).not.toBe(before);
+  });
+
+  it('a crash after the migration commits finds the baseline already redone', async () => {
+    const db = await store();
+    addTask(db, 'T1');
+    seal(db);
+    const before = metaChash(db, 'uid-T1');
+    const lineage = join(dir, 'extra');
+    mkdirSync(join(lineage, '20991231000008_backfill'), { recursive: true });
+    writeFileSync(
+      join(lineage, '20991231000008_backfill', 'migration.sql'),
+      'UPDATE `tasks_tasks` SET `title` = upper(`title`)',
+    );
+    const crashing = {
+      ...syncMigrationHooks(db, 'project'),
+      afterMigration: () => {
+        throw new Error('crash after COMMIT');
+      },
+    };
+    expect(() =>
+      runBracketedMigrations(db, drizzle({ client: db }), [{ folder: lineage }], crashing),
+    ).toThrow(/crash after COMMIT/);
+    expect(metaChash(db, 'uid-T1')).not.toBe(before);
+    expect(metaChash(db, 'uid-T1')).toBe(liveChash(db, 'uid-T1'));
+  });
+
   it('a store that never sealed gets only the capture hooks', async () => {
     const handle = await openDualScopeDbAtPath('project', dbPath);
     const db = handle.db.$client as DatabaseSync;
-    expect(syncMigrationHooks(db, 'project').afterMigration).toBeUndefined();
+    expect(syncMigrationHooks(db, 'project').beforeMigrations).toBeUndefined();
   });
 });
