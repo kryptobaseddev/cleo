@@ -1164,6 +1164,13 @@ export interface SupersededStoreIdRemap {
   alreadyRecovered: boolean;
   /** Legacy rows re-pointed from `legacyId` to `newId` (children, dependencies, criteria, …). */
   referencesRepointed: number;
+  /**
+   * The legacy task's creation time and type, which a later run (and
+   * `cleo show <legacy id>`) checks against the recovered task before trusting
+   * this record (T13183). Absent in receipts written before T13183.
+   */
+  legacyCreatedAt?: string;
+  legacyType?: string | null;
 }
 
 /**

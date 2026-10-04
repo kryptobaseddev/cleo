@@ -27,12 +27,25 @@
  *   instant is spelled) are paired with candidates in id order, one to one,
  *   so no candidate is claimed twice.
  *
+ * A recovery an earlier run recorded (its receipt's remap, loaded into
+ * `temp.cleo_prior_recoveries` by `loadPriorRecoveries`, T13183) wins over the
+ * title match when the recorded task still exists with the legacy creation
+ * instant and type, so a recovered task retitled since is still recognised (a
+ * hand-edited receipt cannot aim a legacy id at an unrelated same-instant
+ * task of another type), and its id leaves the candidate pool.
+ *
  * A different title alone is the same task edited since the cutover.
  */
 export const TASK_ID_COLLISIONS_SQL = `WITH
   collided AS (
     SELECT s.id AS legacyId, s.title AS legacyTitle, s.created_at AS legacyCreatedAt,
-           t.title AS liveTitle,
+           s.type AS legacyType, t.title AS liveTitle,
+           (SELECT m.id FROM temp.cleo_prior_recoveries p
+              JOIN main.tasks_tasks m ON m.id = p.new_id
+             WHERE p.legacy_id = s.id AND m.id <> s.id
+               AND julianday(m.created_at) = julianday(s.created_at)
+               AND m.type IS s.type
+             ORDER BY p.seq DESC LIMIT 1) AS aliasId,
            CASE WHEN julianday(s.created_at) IS NULL OR julianday(t.created_at) IS NULL
                 THEN 'undecided' ELSE 'collision' END AS decision
       FROM legacy.tasks s
@@ -46,7 +59,7 @@ export const TASK_ID_COLLISIONS_SQL = `WITH
            ROW_NUMBER() OVER (
              PARTITION BY legacyTitle, julianday(legacyCreatedAt) ORDER BY legacyId
            ) AS rn
-      FROM collided WHERE decision = 'collision'
+      FROM collided WHERE decision = 'collision' AND aliasId IS NULL
   ),
   grp AS (SELECT DISTINCT legacyTitle, instant FROM numbered),
   candidates AS (
@@ -56,11 +69,20 @@ export const TASK_ID_COLLISIONS_SQL = `WITH
       JOIN main.tasks_tasks m
         ON m.title IS g.legacyTitle AND julianday(m.created_at) = g.instant
      WHERE m.id NOT IN (SELECT id FROM legacy.tasks)
+       AND m.id NOT IN (SELECT aliasId FROM collided WHERE aliasId IS NOT NULL)
   )
-SELECT c.legacyId, c.legacyTitle, c.legacyCreatedAt, c.liveTitle, c.decision,
-       k.candidateId AS recoveredAs
+SELECT c.legacyId, c.legacyTitle, c.legacyCreatedAt, c.legacyType, c.liveTitle, c.decision,
+       COALESCE(c.aliasId, k.candidateId) AS recoveredAs
   FROM collided c
   LEFT JOIN numbered n ON n.legacyId = c.legacyId
   LEFT JOIN candidates k
     ON k.legacyTitle IS n.legacyTitle AND k.instant = n.instant AND k.rn = n.rn
  ORDER BY c.legacyId`;
+
+/**
+ * The TEMP table {@link TASK_ID_COLLISIONS_SQL} reads earlier recoveries from.
+ * Create it on the connection before running the query (empty is fine).
+ */
+export const PRIOR_RECOVERIES_TABLE_SQL = `CREATE TEMP TABLE IF NOT EXISTS cleo_prior_recoveries (
+  seq INTEGER NOT NULL, legacy_id TEXT NOT NULL, new_id TEXT NOT NULL
+)`;

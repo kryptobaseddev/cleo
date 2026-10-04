@@ -30,6 +30,7 @@ import {
   openCaptureFrame,
 } from './capture.js';
 import { readSyncFlags } from './flags.js';
+import { refreshPendingBirthFps } from './remap.js';
 import { hasTable } from './schema.js';
 import { markSuspect, touchSet, withSyncTriggersSuspended } from './structural.js';
 
@@ -98,6 +99,9 @@ function bracketedFill(
   return withSyncTriggersSuspended(db, scope, () => {
     const report = prepareRowIdentity(db, scope, options);
     const suspect = report ? markSuspect(db, scope, touchSet(db, filledTables(scope, report))) : [];
+    // A refill re-derived birth fingerprints: what is still pending follows
+    // the rows (§3.3 G, T12779).
+    if (report?.refill === 'cleared') refreshPendingBirthFps(db, scope);
     const frame = openCaptureFrame(db, 'remint');
     try {
       const remints = captureRemints(db, scope);

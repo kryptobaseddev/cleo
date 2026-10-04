@@ -82,8 +82,15 @@ export const tasksAgentCredentials = sqliteTable(
     displayName: text('display_name').notNull(),
     /** AES-256-GCM encrypted API key (machine-key bound). */
     apiKeyEncrypted: text('api_key_encrypted').notNull(),
-    /** Base URL of the agent's API endpoint. */
-    apiBaseUrl: text('api_base_url').notNull().default('https://api.signaldock.io'),
+    /**
+     * Base URL of the agent's API endpoint. The SQL default (the retired
+     * SignalDock host) is kept, with no table rebuild; ORM inserts get
+     * `'local'` (T13169).
+     */
+    apiBaseUrl: text('api_base_url')
+      .notNull()
+      .default('https://api.signaldock.io')
+      .$defaultFn(() => 'local'),
     /** Agent classification tier (e.g. 'orchestrator', 'worker'). */
     classification: text('classification'),
     /** Privacy visibility tier (e.g. 'public', 'private'). */

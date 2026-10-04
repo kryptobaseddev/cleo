@@ -1376,7 +1376,7 @@ export async function openDualScopeDbAtPath(
         // slot machine-wide, so a sentient tick, a `cleo run --class db` job,
         // another project's exodus or a second `cleo` racing this first open
         // would otherwise defer it. Memory pressure still defers it at once
-        // (T13119 / T13150: CPU saturation never does).
+        // (CPU saturation never does: db-heavy is budgeted on memory alone, T13170).
         //
         // A migration still deferred after the wait does not run this open, and
         // the command gets the EMPTY store. While legacy rows wait, a write there
@@ -1397,7 +1397,6 @@ export async function openDualScopeDbAtPath(
             const { governor } = await import('../resources/governor.js');
             execution?.assertActive();
             const admit = await governor.acquire('db-heavy', {
-              ignoreCpuPressure: true,
               blocking: true,
               timeoutMs: exodusAdmissionWaitMs(),
             });

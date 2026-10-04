@@ -22,7 +22,7 @@ import { getIvtrState } from '../lifecycle/ivtr-loop.js';
 import { getLifecycleStatus } from '../lifecycle/status.js';
 import type { NextDirectives } from '../mvi-helpers.js';
 import { taskShowNext } from '../mvi-helpers.js';
-import { resolveOrCwd } from '../paths.js';
+import { resolveCleoDir, resolveOrCwd } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
@@ -357,6 +357,7 @@ export async function taskShowOperation(
     ]);
     const view = await computeTaskView(params.taskId, accessor);
     const task = await taskToShowRecord(projectRoot, detail, attachments);
+    await noteRecoveredLegacyTasks(projectRoot, params.taskId);
     return engineSuccess({
       task,
       view,
@@ -366,6 +367,43 @@ export async function taskShowOperation(
     });
   } catch (err: unknown) {
     return caughtToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
+  }
+}
+
+/**
+ * When `taskId` also named a legacy task that `cleo doctor superseded-store
+ * --reconcile` recovered under a new id (T13183), say where it went: the id
+ * shows the live task, and the legacy one carries another id now.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param taskId - The id being shown.
+ */
+async function noteRecoveredLegacyTasks(projectRoot: string, taskId: string): Promise<void> {
+  try {
+    const { priorRecoveries, recoveryStands } = await import('../store/exodus/prior-recoveries.js');
+    const recorded = priorRecoveries(resolveCleoDir(projectRoot)).filter(
+      (r) => r.legacyId === taskId,
+    );
+    if (recorded.length === 0) return;
+    // Only a record whose task still stands: never point at a deleted or
+    // renamed id (review LOW-2).
+    const { getNativeTasksDb } = await import('../store/sqlite.js');
+    const db = getNativeTasksDb(projectRoot);
+    if (!db) return;
+    const recovered = recorded.filter((r) => recoveryStands(db, r));
+    if (recovered.length === 0) return;
+    const { pushWarning } = await import('../output.js');
+    for (const newId of new Set(recovered.map((r) => r.newId))) {
+      pushWarning({
+        // @sync-invariant none:input-shape an advisory note on a read; it refuses nothing
+        code: 'W_LEGACY_ID_RECOVERED',
+        message:
+          `${taskId} also named a legacy task, which \`cleo doctor superseded-store --reconcile\` ` +
+          `recovered as ${newId}; \`cleo show ${newId}\` shows it.`,
+      });
+    }
+  } catch {
+    // Advisory only: the task itself is shown either way.
   }
 }
 

@@ -27,13 +27,14 @@
  *
  * On darwin `test`/`build` default to ONE slot machine-wide (T12963), and
  * `typecheck`/`lint` to at most {@link DARWIN_MEMORY_BOUND_SLOTS} (T13123):
- * concurrent agents on a laptop are the common case there. Memory-bound runs
- * shrink under pressure ({@link pressureScaleSlots}). Heavy runs additionally
- * take a slot of the matching {@link ResourceGovernor} class (`test` →
- * `test-run`, `build` → `scoped-build`), so evidence runs and other governed
- * heavy work share one machine-wide budget. `typecheck`/`lint` take no governor
- * class of their own: cross-surface admission belongs to the single
- * footprint-based scheduler (T13132), not to one more class.
+ * concurrent agents on a laptop are the common case there. macOS has no PSI:
+ * its pressure signal is derived (kernel level, RAM headroom and swap: T12981,
+ * T13127). Memory-bound runs shrink under pressure ({@link pressureScaleSlots}).
+ * Heavy runs additionally take a slot of the matching {@link ResourceGovernor}
+ * class (`test` → `test-run`, `build` → `scoped-build`), so evidence runs and
+ * other governed heavy work share one machine-wide budget. `typecheck`/`lint`
+ * take no governor class of their own: cross-surface admission belongs to the
+ * single footprint-based scheduler (T13132), not to one more class.
  *
  * T12091: `test`/`build` were `max(1, cpus/4)` — 6 slots on a 24-core box. Since
  * each `pnpm run test` is itself allowed 6 vitest forks × 4 GiB, the two bounds
@@ -51,6 +52,7 @@
  * @task T12091
  * @task T12963
  * @task T13123
+ * @task T13127
  * @adr ADR-061
  */
 
@@ -280,11 +282,12 @@ function memoryBoundSlots(
  * ## Why darwin gets one heavy slot (T12963)
  *
  * Linux shrinks the heavy budget under memory pressure through PSI
- * ({@link pressureScaleSlots}). macOS exposes no PSI, so that reactive layer
- * never fires there, and a 64 GiB Mac would admit two full suites with nothing
- * to back them off. Concurrent agents on a laptop are the common case, so the
- * default is one heavy run at a time; `CLEO_TOOL_CONCURRENCY_TEST` /
- * `_BUILD` still raise it.
+ * ({@link pressureScaleSlots}). macOS has no PSI: its pressure signal is
+ * derived from the kernel level, RAM headroom and swap (T12981, T13127), and
+ * like PSI it only reports a fork fleet after it has grown, so a 64 GiB Mac
+ * would admit two full suites before anything backs them off. Concurrent
+ * agents on a laptop are the common case, so the default is one heavy run at
+ * a time; `CLEO_TOOL_CONCURRENCY_TEST` / `_BUILD` still raise it.
  *
  * @param canonical - the canonical tool class.
  * @param cpuCount  - logical cores available.
@@ -798,7 +801,10 @@ export async function acquireGlobalSlot(
     }
   }
 
-  while (Date.now() - startedAt < timeoutMs) {
+  // At least one pass, however small the budget: a non-blocking probe
+  // (`timeoutMs: 0`, or 1 ms that elapsed before the loop) must still see a
+  // free slot.
+  for (;;) {
     for (const idx of order) {
       const path = slots[idx];
       if (!path) continue;
@@ -863,6 +869,7 @@ export async function acquireGlobalSlot(
       }
     }
     // All slots busy — sleep and retry.
+    if (Date.now() - startedAt >= timeoutMs) break;
     await sleep(pollMs);
   }
 

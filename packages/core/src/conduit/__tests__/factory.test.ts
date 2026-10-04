@@ -28,7 +28,7 @@ function makeCredential(overrides?: Partial<AgentCredential>): AgentCredential {
     agentId: 'factory-test-agent',
     displayName: 'Factory Test Agent',
     apiKey: 'sk_live_factory_test',
-    apiBaseUrl: 'https://api.signaldock.io',
+    apiBaseUrl: 'https://relay.example.test',
     privacyTier: 'private',
     capabilities: [],
     skills: [],
@@ -86,7 +86,7 @@ describe('resolveTransport', () => {
     it('prefers LocalTransport even when credential has an SSE endpoint', () => {
       isAvailableSpy.mockReturnValue(true);
       const credential = makeCredential({
-        transportConfig: { sseEndpoint: 'https://sse.signaldock.io' },
+        transportConfig: { sseEndpoint: 'https://sse.relay.example.test' },
       });
       const transport = resolveTransport(credential);
       expect(transport).toBeInstanceOf(LocalTransport);
@@ -94,7 +94,7 @@ describe('resolveTransport', () => {
 
     it('prefers LocalTransport even when credential is cloud-backed', () => {
       isAvailableSpy.mockReturnValue(true);
-      const credential = makeCredential({ apiBaseUrl: 'https://api.signaldock.io' });
+      const credential = makeCredential({ apiBaseUrl: 'https://relay.example.test' });
       const transport = resolveTransport(credential);
       expect(transport).toBeInstanceOf(LocalTransport);
     });
@@ -108,8 +108,8 @@ describe('resolveTransport', () => {
     it('returns SseTransport for cloud-backed agents with an SSE endpoint', () => {
       isAvailableSpy.mockReturnValue(false);
       const credential = makeCredential({
-        apiBaseUrl: 'https://api.signaldock.io',
-        transportConfig: { sseEndpoint: 'https://sse.signaldock.io/sse' },
+        apiBaseUrl: 'https://relay.example.test',
+        transportConfig: { sseEndpoint: 'https://sse.relay.example.test/sse' },
       });
       const transport = resolveTransport(credential);
       expect(transport).toBeInstanceOf(SseTransport);
@@ -119,7 +119,7 @@ describe('resolveTransport', () => {
       isAvailableSpy.mockReturnValue(false);
       const credential = makeCredential({
         apiBaseUrl: 'local',
-        transportConfig: { sseEndpoint: 'https://sse.signaldock.io/sse' },
+        transportConfig: { sseEndpoint: 'https://sse.relay.example.test/sse' },
       });
       // "local" apiBaseUrl does not start with "http" — falls back to HttpTransport
       const transport = resolveTransport(credential);
@@ -135,7 +135,7 @@ describe('resolveTransport', () => {
     it('returns HttpTransport when LocalTransport is unavailable and no SSE endpoint', () => {
       isAvailableSpy.mockReturnValue(false);
       const credential = makeCredential({
-        apiBaseUrl: 'https://api.signaldock.io',
+        apiBaseUrl: 'https://relay.example.test',
         transportConfig: {},
       });
       const transport = resolveTransport(credential);
@@ -177,8 +177,8 @@ describe('resolveTransport', () => {
       // With all three conditions met, LocalTransport wins
       isAvailableSpy.mockReturnValue(true);
       const credential = makeCredential({
-        apiBaseUrl: 'https://api.signaldock.io',
-        transportConfig: { sseEndpoint: 'https://sse.signaldock.io' },
+        apiBaseUrl: 'https://relay.example.test',
+        transportConfig: { sseEndpoint: 'https://sse.relay.example.test' },
       });
       expect(resolveTransport(credential)).toBeInstanceOf(LocalTransport);
 
@@ -188,7 +188,7 @@ describe('resolveTransport', () => {
 
       // Without SSE endpoint, HttpTransport is the fallback
       const noSseCredential = makeCredential({
-        apiBaseUrl: 'https://api.signaldock.io',
+        apiBaseUrl: 'https://relay.example.test',
         transportConfig: {},
       });
       expect(resolveTransport(noSseCredential)).toBeInstanceOf(HttpTransport);
