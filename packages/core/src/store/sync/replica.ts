@@ -25,10 +25,11 @@
  * behind that; S4 reports it through {@link rebindReplica}.
  *
  * A rebind retires the old row, mints a new replica id and nonce, carries the
- * clock forward, and runs the registered {@link RebindHook}s in the same
- * transaction. Marking inherited journal rows, discarding the pull cursor,
- * pausing push, the reconcile and the signed retire transaction arrive with
- * those tables (S4); they plug in as hooks.
+ * clock forward, marks the old replica's live captures and sealed
+ * transactions `inherited` (T12753, {@link markInheritedRows}), and runs the
+ * registered {@link RebindHook}s in the same transaction. Discarding the pull
+ * cursor, pausing push, the reconcile and the signed retire transaction
+ * arrive with those tables (S4); they plug in as hooks.
  *
  * {@link syncOpenPass} is behind the store-level `sync.*` flags: with every
  * flag off it reads and writes nothing. The one exception is
@@ -47,6 +48,7 @@ import { getStableDeviceId } from '../../llm/stable-device-id.js';
 import { healClock, loadClock, storeClock, withImmediateTransaction } from './clock-store.js';
 import { anySyncFlagOn } from './flags.js';
 import { encodeHlc } from './hlc.js';
+import { markInheritedRows } from './inherit.js';
 import { ReplicaRegistry, type ReplicaRegistryEntry } from './replica-registry.js';
 import { ensureSyncSchema, hasTable } from './schema.js';
 
@@ -115,9 +117,10 @@ export interface RebindContext {
 }
 
 /**
- * Runs inside the rebind transaction, after the new replica is bound. S4
- * registers the hooks that mark inherited rows, discard the cursor and pause
- * push. A throw rolls the whole rebind back.
+ * Runs inside the rebind transaction, after the new replica is bound and the
+ * old replica's outbox rows are marked inherited. S4 registers the hooks that
+ * mark unpushed segments, discard the cursor and pause push. A throw rolls the
+ * whole rebind back.
  */
 export type RebindHook = (db: DatabaseSync, ctx: RebindContext) => void;
 
@@ -314,7 +317,9 @@ function mintRow(
 /**
  * Retire `previous` and bind a new replica in its place, in the caller's
  * transaction. The new replica's clock starts from the old one, so HLCs
- * issued by this store keep increasing. Runs the rebind hooks.
+ * issued by this store keep increasing. The old replica's live captures and
+ * sealed transactions become `inherited`, so the new replica never seals or
+ * sends them (§1.5 H3). Runs the rebind hooks.
  */
 function rebindInTransaction(
   db: DatabaseSync,
@@ -333,12 +338,13 @@ function rebindInTransaction(
   insertReplica(db, current);
   const old = healClock(db, previous.replicaId);
   storeClock(db, { phys: old.phys, ctr: old.ctr, replica: current.replicaId });
+  const inherited = markInheritedRows(db);
   db.prepare(
     'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
       'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
   ).run(
     'rebind:last',
-    JSON.stringify({ from: previous.replicaId, to: current.replicaId, reasons }),
+    JSON.stringify({ from: previous.replicaId, to: current.replicaId, reasons, inherited }),
     now.toISOString(),
   );
   const retired: ReplicaRow = {
