@@ -15,7 +15,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getCleoHome } from '../paths.js';
-import { tokenUsage as legacyTokenUsage } from '../store/schema/audit.js';
 import {
   type NewTokenUsageRow,
   type TOKEN_USAGE_TRANSPORTS,
@@ -416,31 +415,21 @@ export async function measureTokenExchange(input: TokenExchangeInput): Promise<T
   );
 }
 
-/**
- * The token usage tables: the runtime's `tasks_token_usage` and, until T13115
- * folds it, the bare `token_usage` twin, which still holds the rows written
- * before T13111 and by older builds.
- */
-type TokenUsageTable = typeof tokenUsage | typeof legacyTokenUsage;
-
-async function whereClauses(
-  filters: TokenUsageFilters,
-  table: TokenUsageTable = tokenUsage,
-): Promise<unknown[]> {
+async function whereClauses(filters: TokenUsageFilters): Promise<unknown[]> {
   const { eq, gte, lte } = await import('drizzle-orm');
   const clauses: unknown[] = [];
-  if (filters.provider) clauses.push(eq(table.provider, filters.provider));
-  if (filters.transport) clauses.push(eq(table.transport, filters.transport));
-  if (filters.gateway) clauses.push(eq(table.gateway, filters.gateway));
-  if (filters.domain) clauses.push(eq(table.domain, filters.domain));
-  if (filters.operation) clauses.push(eq(table.operation, filters.operation));
-  if (filters.sessionId) clauses.push(eq(table.sessionId, filters.sessionId));
-  if (filters.taskId) clauses.push(eq(table.taskId, filters.taskId));
-  if (filters.method) clauses.push(eq(table.method, filters.method));
-  if (filters.confidence) clauses.push(eq(table.confidence, filters.confidence));
-  if (filters.requestId) clauses.push(eq(table.requestId, filters.requestId));
-  if (filters.since) clauses.push(gte(table.createdAt, filters.since));
-  if (filters.until) clauses.push(lte(table.createdAt, filters.until));
+  if (filters.provider) clauses.push(eq(tokenUsage.provider, filters.provider));
+  if (filters.transport) clauses.push(eq(tokenUsage.transport, filters.transport));
+  if (filters.gateway) clauses.push(eq(tokenUsage.gateway, filters.gateway));
+  if (filters.domain) clauses.push(eq(tokenUsage.domain, filters.domain));
+  if (filters.operation) clauses.push(eq(tokenUsage.operation, filters.operation));
+  if (filters.sessionId) clauses.push(eq(tokenUsage.sessionId, filters.sessionId));
+  if (filters.taskId) clauses.push(eq(tokenUsage.taskId, filters.taskId));
+  if (filters.method) clauses.push(eq(tokenUsage.method, filters.method));
+  if (filters.confidence) clauses.push(eq(tokenUsage.confidence, filters.confidence));
+  if (filters.requestId) clauses.push(eq(tokenUsage.requestId, filters.requestId));
+  if (filters.since) clauses.push(gte(tokenUsage.createdAt, filters.since));
+  if (filters.until) clauses.push(lte(tokenUsage.createdAt, filters.until));
   return clauses;
 }
 
@@ -578,10 +567,9 @@ export async function summarizeTokenUsage(
 }
 
 /**
- * Delete one token usage record, from both token tables: until T13115 folds
- * the bare `token_usage` twin into `tasks_token_usage`, a record may live in
- * either, and one left in the bare twin would still sync and come back with
- * the fold (T13111).
+ * Delete one token usage record. Records live only in `tasks_token_usage`:
+ * the twin collapse drains the bare `token_usage` table into it at every open
+ * (T13115), so the bare table holds nothing a report shows.
  *
  * @param projectRoot - Project root.
  * @param params - The record id.
@@ -594,25 +582,17 @@ export async function deleteTokenUsage(
   const { getDb } = await import('../store/sqlite.js');
   const { eq } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
-  // One transaction: a record is never left in one table only.
-  db.transaction(
-    (tx) => {
-      tx.delete(tokenUsage).where(eq(tokenUsage.id, params.id)).run();
-      tx.delete(legacyTokenUsage).where(eq(legacyTokenUsage.id, params.id)).run();
-    },
-    { behavior: 'immediate' },
-  );
+  await db.delete(tokenUsage).where(eq(tokenUsage.id, params.id));
   return { deleted: true, id: params.id };
 }
 
 /**
- * Delete the token usage records matching the filters, from both token tables
- * (see {@link deleteTokenUsage}: the bare twin still holds older rows until
- * T13115).
+ * Delete the token usage records matching the filters (see
+ * {@link deleteTokenUsage}).
  *
  * @param projectRoot - Project root.
  * @param params - Filters; none clears everything.
- * @returns How many records were deleted across both tables.
+ * @returns How many records were deleted.
  */
 export async function clearTokenUsage(
   projectRoot: string,
@@ -621,28 +601,11 @@ export async function clearTokenUsage(
   const { getDb } = await import('../store/sqlite.js');
   const { and, count } = await import('drizzle-orm');
   const db = await getDb(projectRoot);
-  const targets = await Promise.all(
-    [tokenUsage, legacyTokenUsage].map(async (table) => {
-      const clauses = await whereClauses(params, table);
-      const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
-      return { table, where };
-    }),
-  );
-  // One transaction: a clear never removes the rows of one table only. It
-  // reads before it writes, so it takes the write lock first (IMMEDIATE): a
-  // deferred one fails with SQLITE_BUSY_SNAPSHOT when another process commits
-  // between the count and the delete.
-  let deleted = 0;
-  db.transaction(
-    (tx) => {
-      for (const { table, where } of targets) {
-        deleted += tx.select({ count: count() }).from(table).where(where).get()?.count ?? 0;
-        tx.delete(table).where(where).run();
-      }
-    },
-    { behavior: 'immediate' },
-  );
-  return { deleted };
+  const clauses = await whereClauses(params);
+  const where = clauses.length > 0 ? and(...(clauses as Parameters<typeof and>)) : undefined;
+  const countRows = await db.select({ count: count() }).from(tokenUsage).where(where);
+  await db.delete(tokenUsage).where(where);
+  return { deleted: countRows[0]?.count ?? 0 };
 }
 
 /**
