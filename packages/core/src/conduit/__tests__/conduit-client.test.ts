@@ -39,7 +39,7 @@ function makeCredential(overrides?: Partial<AgentCredential>): AgentCredential {
     agentId: 'test-agent',
     displayName: 'Test Agent',
     apiKey: 'sk_live_test123',
-    apiBaseUrl: 'https://api.signaldock.io',
+    apiBaseUrl: 'https://relay.example.test',
     privacyTier: 'private',
     capabilities: [],
     skills: [],
@@ -127,7 +127,7 @@ describe('ConduitClient', () => {
         expect.objectContaining({
           agentId: 'test-agent',
           apiKey: 'sk_live_test123',
-          apiBaseUrl: 'https://api.signaldock.io',
+          apiBaseUrl: 'https://relay.example.test',
         }),
       );
     });

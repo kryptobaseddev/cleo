@@ -256,12 +256,16 @@ export const agentRegistryAgents = sqliteTable(
     /** KDF-encrypted API key (ADR-037 §5). */
     apiKeyEncrypted: text('api_key_encrypted'),
     /**
-     * Cloud API base URL. The `api.signaldock.io` default is the EXTERNAL Conduit
-     * transport channel — it intentionally retains the legacy hostname and is NOT
-     * part of the Agent Registry rename (T11622). It configures where the agent
-     * talks to the cloud, not where the local registry lives.
+     * Cloud API base URL, or `'local'`. It configures where the agent talks to
+     * the cloud, not where the local registry lives (T11622). The SQL default
+     * is still the retired `https://api.signaldock.io`, because CLEO never
+     * rebuilds a table to change a default; an ORM insert that omits the column
+     * gets `'local'`, and CLEO never calls a SignalDock host (T13169).
      */
-    apiBaseUrl: text('api_base_url').notNull().default('https://api.signaldock.io'),
+    apiBaseUrl: text('api_base_url')
+      .notNull()
+      .default('https://api.signaldock.io')
+      .$defaultFn(() => 'local'),
     /** Free-form classification label. */
     classification: text('classification'),
     /** JSON transport-config blob (serialized TEXT). */

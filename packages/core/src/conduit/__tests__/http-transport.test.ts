@@ -35,7 +35,7 @@ function mockResponse(status: number, body: unknown, ok = status >= 200 && statu
 const CONFIG = {
   agentId: 'agent-001',
   apiKey: 'sk_live_test_key',
-  apiBaseUrl: 'https://api.signaldock.io',
+  apiBaseUrl: 'https://relay.example.test',
 };
 
 // ============================================================================
@@ -85,7 +85,7 @@ describe('HttpTransport', () => {
       fetchMock.mockResolvedValue(mockResponse(200, { data: { message: { id: 'msg-1' } } }));
       await transport.push('to', 'content');
       const calledUrl = fetchMock.mock.calls[0][0] as string;
-      expect(calledUrl).toContain('api.signaldock.io');
+      expect(calledUrl).toContain('relay.example.test');
     });
   });
 

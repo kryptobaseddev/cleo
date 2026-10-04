@@ -41,6 +41,8 @@
  * @task release-speed
  */
 
+import { execFileSync } from 'node:child_process';
+
 /** Timeout for each `gh` call made while deciding preflight skips (ms). */
 export const PREFLIGHT_CHECK_TIMEOUT_MS = 15_000;
 
@@ -79,6 +81,11 @@ export interface PreflightSkipOptions {
   deadlineMs?: number;
   /** Clock (tests). */
   now?: () => number;
+  /**
+   * Commits from `from` to `to` (T13187: how far the newest green macOS commit
+   * is behind HEAD); defaults to `git rev-list --count` in `cwd`, null when unknown.
+   */
+  commitsBehind?: (from: string, to: string, cwd: string) => number | null;
 }
 
 /**
@@ -226,6 +233,41 @@ function parseJobs(raw: string): JobSummary[] | null {
 /** A `Unit Tests (<os>, shard <n>)` job from {@link MAIN_CI_WORKFLOW}, any OS. */
 function isUnitTestJob(name: string): boolean {
   return /^Unit Tests\b/.test(name);
+}
+
+/**
+ * The newest successful run among per-workflow listings of macOS verdicts
+ * (T13187): the main-push macOS workflow's runs, and ci.yml's nightly
+ * `schedule` runs. A ci.yml push run is Linux-only, so it is never listed.
+ * One listing per workflow, so a busy day of other workflows' runs cannot
+ * push the macOS run off the page (T13187 review).
+ *
+ * @param raws - `GET /actions/workflows/<file>/runs?...&status=success` bodies, or null.
+ * @returns The newest run, or undefined when none is listed.
+ */
+function newestGreenMacosRun(raws: ReadonlyArray<string | null>): WorkflowRunSummary | undefined {
+  return raws
+    .flatMap((raw) => (raw === null ? [] : parseRuns(raw)))
+    .filter((run) => run.conclusion === 'success')
+    .sort((a, b) => b.id - a.id)[0];
+}
+
+/**
+ * Commits between `from` and `to` in the local clone (`git rev-list --count`),
+ * or null when either is not in local history.
+ */
+function defaultCommitsBehind(from: string, to: string, cwd: string): number | null {
+  try {
+    const out = execFileSync('git', ['rev-list', '--count', `${from}..${to}`], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 10_000,
+    }).trim();
+    return /^\d+$/.test(out) ? Number(out) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** A job that ran the test suite on macOS, by the name GitHub renders for it. */
@@ -472,6 +514,27 @@ export function decidePreflightSkips(
       macosReason = `macOS tests run: ${failed.length} macOS job(s) of the newest ${run.event} run for ${shortSha(run.headSha)} did not succeed (${run.url}).`;
     }
     break;
+  }
+  // T13187: when the shards run, name the newest main commit that does have a
+  // green macOS run, so the operator can see how far behind it is (or tag that
+  // commit's equivalent instead of waiting).
+  if (!skipMacosTests && !timedOut) {
+    const green = newestGreenMacosRun([
+      gh([
+        'api',
+        `repos/{owner}/{repo}/actions/workflows/macos-main.yml/runs?branch=${branch}&status=success&per_page=1`,
+      ]),
+      gh([
+        'api',
+        `repos/{owner}/{repo}/actions/workflows/${MAIN_CI_WORKFLOW}/runs?branch=${branch}&event=schedule&status=success&per_page=1`,
+      ]),
+    ]);
+    if (green) {
+      const behind = (options.commitsBehind ?? defaultCommitsBehind)(green.headSha, sha, cwd);
+      macosReason += ` Newest ${branch} commit with a green macOS run: ${shortSha(green.headSha)}${behind === null ? '' : `, ${behind} commit(s) behind ${shortSha(sha)}`} (${green.url}).`;
+    } else {
+      macosReason += ` No recent green macOS run on ${branch} was found.`;
+    }
   }
 
   return {
