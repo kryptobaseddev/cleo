@@ -314,7 +314,11 @@ export async function awaitBackgroundOps(): Promise<BackgroundDrainReport> {
  * outright, so the caller settles the registry first. Settling is not closing:
  * the process keeps its handles and may continue.
  *
- * @param budgetMs - Upper bound on the wait; the timer is unref'd.
+ * @param budgetMs - Upper bound on the wait. The timer is deliberately NOT
+ *   unref'd: a producer that never settles must not let the event loop drain
+ *   mid-wait, or the process would exit on its own before the caller sets its
+ *   exit code (a failed command exiting 0). It is cleared as soon as the drain
+ *   finishes, so it holds the process only while work is pending.
  * @returns Number of tracked producers still pending when the wait ended (`0`
  *          when everything settled within the budget).
  * @remarks Untracked work is outside the registry and is not waited for. A
@@ -331,7 +335,6 @@ export async function settleBackgroundOps(budgetMs: number): Promise<number> {
   let timer: NodeJS.Timeout | undefined;
   const budget = new Promise<void>((resolve) => {
     timer = setTimeout(resolve, budgetMs);
-    timer.unref();
   });
   const drain = (async () => {
     // Same bounded rescheduling rounds as the shutdown barrier.

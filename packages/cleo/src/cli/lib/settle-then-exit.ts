@@ -32,6 +32,9 @@ export async function settleThenExit(
   settle: () => Promise<unknown> = settleWithCore,
   exit: (code: number) => never = (c) => process.exit(c),
 ): Promise<never> {
+  // Set first: if the loop drains while the settle is pending, Node exits on
+  // its own with process.exitCode, and a failed command must never exit 0.
+  process.exitCode = code;
   try {
     await settle();
   } catch {

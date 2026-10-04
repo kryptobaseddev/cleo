@@ -4,6 +4,9 @@
  * @task T13164
  */
 
+import { spawnSync } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { settleThenExit } from '../settle-then-exit.js';
 
@@ -38,5 +41,24 @@ describe('settleThenExit (T13164)', () => {
       },
     );
     expect(codes).toEqual([6]);
+  });
+
+  it('a settle that never resolves still ends the process with the code, not 0', () => {
+    // review-p0 on #1846: with only an unref'd timer pending, the loop drains
+    // during the await and Node exits with process.exitCode, which was unset.
+    const module = pathToFileURL(
+      resolve(dirname(fileURLToPath(import.meta.url)), '..', 'settle-then-exit.ts'),
+    ).href;
+    const script = [
+      `const { settleThenExit } = await import(${JSON.stringify(module)});`,
+      'setTimeout(() => {}, 60_000).unref();',
+      'void settleThenExit(4, () => new Promise(() => {}), (c) => process.exit(c));',
+    ].join('\n');
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    expect(child.error).toBeUndefined();
+    expect(child.status, child.stderr).toBe(4);
   });
 });
