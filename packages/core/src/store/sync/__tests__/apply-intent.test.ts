@@ -106,6 +106,24 @@ function storedIntents(db: DatabaseSync, id: string, cols: readonly string[]): A
   }));
 }
 
+/** Every non-NULL column of the stored row, as the apply records an insert. */
+function allStoredIntents(db: DatabaseSync, id: string): ApplyIntent[] {
+  const cols = (
+    db.prepare('SELECT name FROM pragma_table_info(?)').all('tasks_tasks') as Array<{
+      name: string;
+    }>
+  ).map((r) => r.name);
+  const row = db.prepare('SELECT * FROM tasks_tasks WHERE id = ?').get(id) as Record<
+    string,
+    unknown
+  >;
+  return storedIntents(
+    db,
+    id,
+    cols.filter((c) => row[c] !== null && row[c] !== undefined),
+  );
+}
+
 const sealedOps = (db: DatabaseSync) =>
   (
     db.prepare('SELECT o, body FROM _sync_op ORDER BY txn, idx').all() as Array<{
@@ -127,7 +145,7 @@ describe('sealer: apply frames seal only their residual (T12757)', () => {
       addTask(db, 'T1');
       recordApplyIntents(db, frame, [
         { tbl: 'tasks_tasks', uid: 'uid-T1', col: INTENT_INSERT, enc: '' },
-        ...storedIntents(db, 'T1', ['title', 'status', 'priority']),
+        ...allStoredIntents(db, 'T1'),
       ]);
     });
     const r = seal(db);
@@ -173,6 +191,82 @@ describe('sealer: apply frames seal only their residual (T12757)', () => {
     });
     seal(db);
     expect(sealedOps(db).at(-1)).toMatchObject({ o: 'U', a: { title: 'normalised' } });
+  });
+
+  it('the apply writes a field twice in a frame: nothing seals, the row holds the last value (review-p0 HIGH)', async () => {
+    const db = await store();
+    inFrame(db, 'write', () => addTask(db, 'T1'));
+    seal(db);
+    const opsBefore = sealedOps(db).length;
+    inFrame(db, 'apply', (frame) => {
+      db.exec("UPDATE tasks_tasks SET title = 'remote v1' WHERE id = 'T1'");
+      recordApplyIntents(db, frame, storedIntents(db, 'T1', ['title']));
+      db.exec("UPDATE tasks_tasks SET title = 'remote v2' WHERE id = 'T1'");
+      recordApplyIntents(db, frame, storedIntents(db, 'T1', ['title']));
+    });
+    expect(seal(db).txns).toBe(0);
+    expect(sealedOps(db)).toHaveLength(opsBefore);
+    expect(db.prepare("SELECT title FROM tasks_tasks WHERE id = 'T1'").get()).toEqual({
+      title: 'remote v2',
+    });
+  });
+
+  it("a local write then the apply's write of the same field: nothing seals (review-p0 HIGH)", async () => {
+    const db = await store();
+    inFrame(db, 'write', () => addTask(db, 'T1'));
+    seal(db);
+    const opsBefore = sealedOps(db).length;
+    inFrame(db, 'apply', (frame) => {
+      db.exec("UPDATE tasks_tasks SET title = 'local side' WHERE id = 'T1'");
+      db.exec("UPDATE tasks_tasks SET title = 'remote' WHERE id = 'T1'");
+      recordApplyIntents(db, frame, storedIntents(db, 'T1', ['title']));
+    });
+    expect(seal(db).txns).toBe(0);
+    expect(sealedOps(db)).toHaveLength(opsBefore);
+  });
+
+  it("the apply's write then a local write of the same field: only the final value seals", async () => {
+    const db = await store();
+    inFrame(db, 'write', () => addTask(db, 'T1'));
+    seal(db);
+    inFrame(db, 'apply', (frame) => {
+      db.exec("UPDATE tasks_tasks SET title = 'remote' WHERE id = 'T1'");
+      recordApplyIntents(db, frame, storedIntents(db, 'T1', ['title']));
+      db.exec("UPDATE tasks_tasks SET title = 'local final' WHERE id = 'T1'");
+    });
+    expect(seal(db).txns).toBe(1);
+    expect(sealedOps(db).at(-1)).toMatchObject({ o: 'U', a: { title: 'local final' } });
+  });
+
+  it('an applied insert keeps the columns no intent names as residual (review-p0 MED-1)', async () => {
+    const db = await store();
+    inFrame(db, 'write', () => addTask(db, 'T0'));
+    seal(db);
+    inFrame(db, 'apply', (frame) => {
+      addTask(db, 'T1');
+      const all = allStoredIntents(db, 'T1').filter((i) => i.col !== 'priority');
+      recordApplyIntents(db, frame, [
+        { tbl: 'tasks_tasks', uid: 'uid-T1', col: INTENT_INSERT, enc: '' },
+        ...all,
+      ]);
+    });
+    expect(seal(db).txns).toBe(1);
+    expect(sealedOps(db).at(-1)).toMatchObject({ o: 'U', u: 'uid-T1', a: { priority: 'medium' } });
+  });
+
+  it("a secret intent is bound to the capture the apply's write produced", async () => {
+    const db = await store();
+    inFrame(db, 'write', () => addTask(db, 'T1'));
+    db.exec('BEGIN IMMEDIATE');
+    const frame = openCaptureFrame(db, 'apply', 'test');
+    db.exec("UPDATE tasks_tasks SET title = 'x' WHERE id = 'T1'");
+    const seq = (db.prepare('SELECT max(seq) AS s FROM _sync_capture').get() as { s: number }).s;
+    recordApplyIntents(db, frame, [
+      { tbl: 'tasks_tasks', uid: 'uid-T1', col: 'title', enc: SECRET_INTENT },
+    ]);
+    expect([...loadFrameIntents(db, frame).values()]).toEqual([`${SECRET_INTENT}@${seq}`]);
+    finishCaptureFrame(db, frame);
+    db.exec('ROLLBACK');
   });
 
   it('an applied delete is never sealed, and the ledger drops the row', async () => {
@@ -254,15 +348,29 @@ describe('subtractApplyIntents (T12757)', () => {
     expect(r.residual).toEqual([]);
   });
 
-  it('an insert with a mismatching column leaves an update from the intent value', () => {
-    const r = run([cap('I', { a: "'x'", b: "'stored'" })], {
+  it("a local secret write after the apply's write in the frame is residual (review-p0 MED-2)", () => {
+    const applied = cap('U', { sec: ['<changed>', '<changed>'] }, 1);
+    const local = cap('U', { sec: ['<changed>', '<changed>'] }, 2);
+    const r = run([applied, local], { sec: `${SECRET_INTENT}@1` });
+    expect(r.removed).toEqual([applied]);
+    expect(r.residual.map((c) => c.seq)).toEqual([2]);
+    expect(run([applied], { sec: `${SECRET_INTENT}@1` }).removed).toEqual([applied]);
+    // A bare marker intent never swallows a column the frame changed twice.
+    expect(run([applied, local], { sec: SECRET_INTENT }).residual.map((c) => c.seq)).toEqual([2]);
+  });
+
+  it('an insert with a mismatching column leaves an update from the intent value, and an unnamed column from NULL', () => {
+    const r = run([cap('I', { a: "'x'", b: "'stored'", c: "'local default'" })], {
       [INTENT_INSERT]: '',
       a: "'x'",
       b: "'sent'",
     });
     expect(r.removed).toEqual([]);
     expect(r.residual[0]?.op).toBe('U');
-    expect(JSON.parse(r.residual[0]?.img ?? '{}')).toEqual({ b: ["'sent'", "'stored'"] });
+    expect(JSON.parse(r.residual[0]?.img ?? '{}')).toEqual({
+      b: ["'sent'", "'stored'"],
+      c: ['NULL', "'local default'"],
+    });
   });
 
   it('a re-key is removed only when the intent names the same new uid', () => {

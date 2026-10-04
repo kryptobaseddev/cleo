@@ -47,7 +47,10 @@ export interface ApplyIntent {
   /**
    * `enc()` of the stored value, computed by the same SQL `enc()` as the
    * capture triggers (use `RETURNING`); {@link SECRET_INTENT} for a secret
-   * column; the new uid for `*K`; `''` for `*I` and `*D`.
+   * column ({@link recordApplyIntents} binds it to the capture the write
+   * produced); the new uid for `*K`; `''` for `*I` and `*D`. An insert
+   * records `*I` plus one intent for EVERY column it wrote: a captured column
+   * without an intent is treated as something the apply did not write.
    */
   readonly enc: string;
 }
@@ -79,7 +82,22 @@ export function recordApplyIntents(
     `INSERT INTO _sync_apply_intent (frame, tbl, uid, col, enc) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT (frame, tbl, uid, col) DO UPDATE SET enc = excluded.enc`,
   );
-  for (const i of intents) ins.run(frame, i.tbl, i.uid, i.col, i.enc);
+  // A secret column's capture is only a change marker, so the intent names
+  // the capture the apply's write produced (its seq; frame labels are written
+  // only when the frame finishes, and the write lock makes the row's newest
+  // capture this write's): a later local write of the same secret in the
+  // frame then never matches it.
+  const lastCapture = db.prepare(
+    "SELECT max(seq) AS seq FROM _sync_capture WHERE state = 'live' AND tbl = ? AND uid = ?",
+  );
+  for (const i of intents) {
+    let value = i.enc;
+    if (value === SECRET_INTENT) {
+      const seq = (lastCapture.get(i.tbl, i.uid) as { seq: number | null } | undefined)?.seq;
+      if (typeof seq === 'number') value = `${SECRET_INTENT}@${seq}`;
+    }
+    ins.run(frame, i.tbl, i.uid, i.col, value);
+  }
 }
 
 /** The intents of one frame, keyed `tbl \0 uid \0 col`. */
@@ -125,28 +143,54 @@ function localEnc(raw: unknown): string | null {
   return typeof raw === 'string' ? raw : null;
 }
 
-/** Whether a captured value is exactly what the intent says was written. */
-function matches(intent: string | undefined, raw: unknown): boolean {
+/**
+ * Whether a column's net captured value is exactly what the intent says the
+ * apply wrote. A secret compares by the capture the apply's write produced
+ * (`<secret>@seq`); a bare `<secret>` intent matches only a column the frame
+ * changed once.
+ */
+function matches(
+  intent: string | undefined,
+  raw: unknown,
+  seq: number,
+  changesInFrame: number,
+): boolean {
   if (intent === undefined) return false;
-  if (raw === SECRET_MARKER) return intent === SECRET_INTENT;
+  if (raw === SECRET_MARKER) {
+    if (intent === `${SECRET_INTENT}@${seq}`) return true;
+    return intent === SECRET_INTENT && changesInFrame === 1;
+  }
   return localEnc(raw) === intent;
 }
 
+/** The value a column's capture holds after the write (U: the after half). */
+function afterValue(c: IntentCapture, raw: unknown): unknown {
+  return c.op === 'U' && Array.isArray(raw) ? raw[1] : raw;
+}
+
 /**
- * Subtract a frame's intents from its captures (§3.3).
+ * Subtract a frame's intents from its captures (§3.3), against the frame's
+ * NET value per (row, column): within one frame, only the last capture that
+ * changes a column carries it; an earlier change of the same column is
+ * superseded (netting would collapse it) and never seals on its own.
  *
- * - **U:** each changed column whose after-value equals the intent is
- *   removed. A capture with no column left is removed.
- * - **I:** with a `*I` intent, a column is residual only when an intent
- *   names it with a different value; the rest were written as part of the
- *   insert. With nothing residual the insert is removed; otherwise the
- *   residual columns remain as an update against the intent values.
+ * - **U:** each column whose net after-value equals the intent is removed,
+ *   and so is every superseded change. A capture with no column left is
+ *   removed.
+ * - **I:** with a `*I` intent (the apply records an intent for EVERY column
+ *   it inserted), a column is removed when its net value equals its intent
+ *   or a later capture supersedes it. A column with no intent is something
+ *   the apply did not write (a local default, a trigger fill) and stays
+ *   residual. With nothing residual the insert is removed; otherwise the
+ *   residual columns remain as an update from the intent value (`NULL` when
+ *   there is none). An I without `*I` is a local insert and stays whole.
  * - **D:** removed when a `*D` intent exists.
  * - **K:** removed when a `*K` intent names the same new uid.
  * - Residual changes to {@link SYNC_TRIGGER_DERIVED_COLUMNS} are dropped.
  *
- * Nothing the apply did not write is ever removed: a capture with no intent
- * for its row stays whole.
+ * Nothing the apply did not write is ever removed: a column with no intent,
+ * or whose net value differs, is residual; a capture with no intent for its
+ * row stays whole.
  *
  * @param captures - The frame's captures, in capture order.
  * @param intents - The frame's intents ({@link loadFrameIntents}).
@@ -157,53 +201,69 @@ export function subtractApplyIntents<C extends IntentCapture>(
   intents: FrameIntents,
   uidOf: (c: C) => string | null,
 ): IntentSubtraction<C> {
+  const uids = captures.map((c) => uidOf(c));
+  const images = captures.map((c) => JSON.parse(c.img) as Record<string, unknown>);
+  // Per (row, column): the index of the last capture that changes it, and
+  // how many captures in the frame change it.
+  const last = new Map<string, number>();
+  const count = new Map<string, number>();
+  captures.forEach((c, k) => {
+    const uid = uids[k];
+    if (uid === null || uid === undefined || (c.op !== 'U' && c.op !== 'I')) return;
+    for (const col of Object.keys(images[k] ?? {})) {
+      const key = intentKey(c.tbl, uid, col);
+      last.set(key, k);
+      count.set(key, (count.get(key) ?? 0) + 1);
+    }
+  });
+
   const residual: C[] = [];
   const removed: C[] = [];
-  for (const c of captures) {
-    const uid = uidOf(c);
-    if (uid === null) {
+  captures.forEach((c, k) => {
+    const uid = uids[k];
+    if (uid === null || uid === undefined) {
       residual.push(c);
-      continue;
+      return;
     }
     const intent = (col: string) => intents.get(intentKey(c.tbl, uid, col));
     const derived = SYNC_TRIGGER_DERIVED_COLUMNS.get(c.tbl);
-    const img = JSON.parse(c.img) as Record<string, unknown>;
+    const img = images[k] ?? {};
     if (c.op === 'D') {
       (intent(INTENT_DELETE) !== undefined ? removed : residual).push(c);
-      continue;
+      return;
     }
     if (c.op === 'K') {
       const pair = img.uid;
       const next = Array.isArray(pair) && typeof pair[1] === 'string' ? decodeEnc(pair[1]) : null;
       const want = intent(INTENT_REKEY);
       (want !== undefined && next === want ? removed : residual).push(c);
-      continue;
+      return;
+    }
+    if (c.op === 'I' && intent(INTENT_INSERT) === undefined) {
+      residual.push(c);
+      return;
     }
     const left: Record<string, unknown> = {};
-    if (c.op === 'U') {
-      for (const [col, pair] of Object.entries(img)) {
-        const after = Array.isArray(pair) ? pair[1] : undefined;
-        if (matches(intent(col), after) || derived?.has(col)) continue;
-        left[col] = pair;
-      }
-    } else {
-      if (intent(INTENT_INSERT) === undefined) {
-        residual.push(c);
-        continue;
-      }
-      for (const [col, raw] of Object.entries(img)) {
-        const want = intent(col);
-        if (want === undefined || matches(want, raw) || derived?.has(col)) continue;
+    for (const [col, raw] of Object.entries(img)) {
+      const key = intentKey(c.tbl, uid, col);
+      const superseded = (last.get(key) ?? k) > k;
+      if (superseded || derived?.has(col)) continue;
+      const want = intent(col);
+      if (matches(want, afterValue(c, raw), c.seq, count.get(key) ?? 1)) continue;
+      if (c.op === 'U') {
+        left[col] = raw;
+      } else {
         // Residual on an applied insert: an update from the value the apply
-        // wrote to the value the capture holds.
-        left[col] = [Array.isArray(raw) ? [want, null] : want, raw];
+        // wrote (NULL when it wrote none) to the value the capture holds.
+        const from = want ?? 'NULL';
+        left[col] = [Array.isArray(raw) ? [from, null] : from, raw];
       }
     }
     if (Object.keys(left).length === 0) {
       removed.push(c);
-      continue;
+      return;
     }
     residual.push({ ...c, op: 'U', img: JSON.stringify(left) });
-  }
+  });
   return { residual, removed };
 }
