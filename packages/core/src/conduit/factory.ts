@@ -9,6 +9,7 @@
  */
 
 import type { AgentCredential, AgentRegistryAPI, Conduit, Transport } from '@cleocode/contracts';
+import { isRetiredCloudUrl } from './cloud-endpoint.js';
 import { ConduitClient } from './conduit-client.js';
 import { HttpTransport } from './http-transport.js';
 import { LocalTransport } from './local-transport.js';
@@ -24,6 +25,10 @@ import { SseTransport } from './sse-transport.js';
  *   2. SseTransport — when the credential includes an SSE endpoint URL.
  *   3. HttpTransport — fallback for cloud-only or no conduit.db.
  *
+ * A retired SignalDock base URL is never cloud-backed (T13169): without
+ * conduit.db such an agent gets HttpTransport, whose connect() refuses the
+ * host with a clear error instead of calling it.
+ *
  * Note: LocalTransport and cloud credentials are not mutually exclusive.
  * Agents registered with a remote apiBaseUrl still use LocalTransport when
  * conduit.db is available, since local delivery does not require a network.
@@ -38,7 +43,8 @@ export function resolveTransport(credential: AgentCredential): Transport {
   const isCloudBacked =
     credential.apiBaseUrl &&
     credential.apiBaseUrl !== 'local' &&
-    credential.apiBaseUrl.startsWith('http');
+    credential.apiBaseUrl.startsWith('http') &&
+    !isRetiredCloudUrl(credential.apiBaseUrl);
 
   // Cloud-backed agents without local conduit.db: prefer SSE over HTTP polling
   if (isCloudBacked && credential.transportConfig.sseEndpoint) {

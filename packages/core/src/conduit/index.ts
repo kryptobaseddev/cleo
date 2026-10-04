@@ -1,7 +1,8 @@
 /**
  * Conduit — High-level agent messaging for the CLEO ecosystem.
  *
- * Exports the ConduitClient (high-level messaging), HttpTransport
+ * Exports the ConduitClient (high-level messaging), the cloud-endpoint gate
+ * (conduitFetch: retired SignalDock hosts are refused, T13169), HttpTransport
  * (HTTP polling to cloud), LocalTransport (offline SQLite), the
  * channel layer (LocalTuiChannelAdapter + DeliveryRouter/SessionStore),
  * and the createConduit factory.
@@ -9,6 +10,16 @@
  * @module conduit
  */
 
+export {
+  assertCloudUrlAllowed,
+  conduitFetch,
+  E_SIGNALDOCK_RETIRED,
+  isRetiredCloudUrl,
+  isSignalDockRetiredError,
+  RETIRED_CLOUD_HOSTS,
+  retiredCloudHost,
+  SignalDockRetiredError,
+} from './cloud-endpoint.js';
 export { ConduitClient } from './conduit-client.js';
 export {
   DeliveryRouter,

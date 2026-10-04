@@ -56,6 +56,7 @@ import type {
   ResolvedAgent,
   TransportConfig,
 } from '@cleocode/contracts';
+import { conduitFetch } from '../conduit/cloud-endpoint.js';
 import { openAgentApiKey, sealAgentApiKey } from './agent-api-key.js';
 import {
   ensureGlobalAgentRegistryDb,
@@ -1107,6 +1108,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
    *
    * @param agentId - Agent business identifier.
    * @returns Object with agentId and a redacted new API key string.
+   * @throws {SignalDockRetiredError} When the agent's base URL is a retired SignalDock host (T13169).
    * @task T355
    * @epic T310
    */
@@ -1115,7 +1117,7 @@ export class AgentRegistryAccessor implements AgentRegistryAPI {
     const credential = await this.get(agentId, { includeGlobal: true });
     if (!credential) throw new Error(`Agent not found: ${agentId}`);
 
-    const response = await fetch(`${credential.apiBaseUrl}/agents/${agentId}/rotate-key`, {
+    const response = await conduitFetch(`${credential.apiBaseUrl}/agents/${agentId}/rotate-key`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${credential.apiKey}`,
