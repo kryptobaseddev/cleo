@@ -21,14 +21,14 @@ import { _resetGovernorStateForTest, governor } from '../../resources/governor.j
 import { ResourceMonitor } from '../../resources/monitor.js';
 import {
   _resetDualScopeDbCache,
-  assertExodusNotDeferred,
+  assertExodusWriteSafe,
   assertWriteDurable,
   ExodusAbortWriteUnsafeError,
   getDualScopeNativeDb,
   openDualScopeDb,
 } from '../dual-scope-db.js';
 import { clearExodusAborts } from '../exodus/abort-events.js';
-import { EXODUS_DEFERRED_WRITE_CODE } from '../exodus/deferred-guard.js';
+import { EXODUS_DEFERRED_WRITE_CODE } from '../exodus/write-guard.js';
 import {
   countRowsInFile,
   LEGACY_TASK_IDS,
@@ -404,9 +404,7 @@ describe('deferred exodus-on-open (T13158)', () => {
     const handle = await openDualScopeDb('project', projectDir);
     const native = getDualScopeNativeDb(handle);
     expect(() => insertTask(handle, 'T999')).toThrow(EXODUS_DEFERRED_WRITE_CODE);
-    await expect(assertExodusNotDeferred(native)).rejects.toBeInstanceOf(
-      ExodusAbortWriteUnsafeError,
-    );
+    await expect(assertExodusWriteSafe(native)).rejects.toBeInstanceOf(ExodusAbortWriteUnsafeError);
 
     // Another process fills the store (here: a second connection writes the anchor).
     const { DatabaseSync } = await import('node:sqlite');
@@ -420,7 +418,7 @@ describe('deferred exodus-on-open (T13158)', () => {
 
     // The cached connection writes again, and the typed guard lifts with the marker.
     insertTask(handle, 'T999');
-    await expect(assertExodusNotDeferred(native)).resolves.toBeUndefined();
+    await expect(assertExodusWriteSafe(native)).resolves.toBeUndefined();
     expect(handle.exodusAbort).toBeUndefined();
     expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(2);
   });
@@ -437,7 +435,7 @@ describe('deferred exodus-on-open (T13158)', () => {
     const { exodusMarkerPath } = await import('../exodus/archive.js');
     writeFileSync(exodusMarkerPath('project', projectDir, dbPath), '{}');
 
-    await expect(assertExodusNotDeferred(native)).resolves.toBeUndefined();
+    await expect(assertExodusWriteSafe(native)).resolves.toBeUndefined();
     expect(handle.exodusAbort).toBeUndefined();
     insertTask(handle, 'T999');
     expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(1);
@@ -453,10 +451,10 @@ describe('deferred exodus-on-open (T13158)', () => {
     const other = await openDualScopeDb('project', otherProject);
     expect(other.dbPath).not.toBe(deferred.dbPath);
 
-    await expect(assertExodusNotDeferred(getDualScopeNativeDb(deferred))).rejects.toBeInstanceOf(
+    await expect(assertExodusWriteSafe(getDualScopeNativeDb(deferred))).rejects.toBeInstanceOf(
       ExodusAbortWriteUnsafeError,
     );
-    await expect(assertExodusNotDeferred(getDualScopeNativeDb(other))).resolves.toBeUndefined();
+    await expect(assertExodusWriteSafe(getDualScopeNativeDb(other))).resolves.toBeUndefined();
     expect(other.exodusAbort).toBeUndefined();
   });
 
