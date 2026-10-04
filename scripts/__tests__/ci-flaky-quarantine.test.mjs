@@ -669,8 +669,13 @@ describe('ci.yml wiring (T13145)', () => {
     expect(run, 'the shard runs vitest through the script').toBeDefined();
     // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
     expect(run.run).toContain('--log /tmp/vitest-shard${{ matrix.shard }}.log');
+    // The shard count (#1822) and the PR-affected scope flags (#1821) reach vitest through the wrapper.
+    expect(run.run).toContain(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
+      '-- --shard=${{ matrix.shard }}/${{ matrix.total }} $RETRY_FLAG $SCOPE_FLAGS',
+    );
     // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
-    expect(run.run).toContain('-- --shard=${{ matrix.shard }}/4');
+    expect(run.env?.AFFECTED_ARGS).toBe('${{ steps.affected.outputs.args }}');
     // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
     expect(run.env?.GH_TOKEN).toBe('${{ github.token }}');
     expect(
