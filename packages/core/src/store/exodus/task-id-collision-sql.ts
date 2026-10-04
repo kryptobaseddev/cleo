@@ -30,19 +30,21 @@
  * A recovery an earlier run recorded (its receipt's remap, loaded into
  * `temp.cleo_prior_recoveries` by `loadPriorRecoveries`, T13183) wins over the
  * title match when the recorded task still exists with the legacy creation
- * instant, so a recovered task retitled since is still recognised, and its id
- * leaves the candidate pool.
+ * instant and type, so a recovered task retitled since is still recognised (a
+ * hand-edited receipt cannot aim a legacy id at an unrelated same-instant
+ * task of another type), and its id leaves the candidate pool.
  *
  * A different title alone is the same task edited since the cutover.
  */
 export const TASK_ID_COLLISIONS_SQL = `WITH
   collided AS (
     SELECT s.id AS legacyId, s.title AS legacyTitle, s.created_at AS legacyCreatedAt,
-           t.title AS liveTitle,
+           s.type AS legacyType, t.title AS liveTitle,
            (SELECT m.id FROM temp.cleo_prior_recoveries p
               JOIN main.tasks_tasks m ON m.id = p.new_id
              WHERE p.legacy_id = s.id AND m.id <> s.id
                AND julianday(m.created_at) = julianday(s.created_at)
+               AND m.type IS s.type
              ORDER BY p.seq DESC LIMIT 1) AS aliasId,
            CASE WHEN julianday(s.created_at) IS NULL OR julianday(t.created_at) IS NULL
                 THEN 'undecided' ELSE 'collision' END AS decision
@@ -69,7 +71,7 @@ export const TASK_ID_COLLISIONS_SQL = `WITH
      WHERE m.id NOT IN (SELECT id FROM legacy.tasks)
        AND m.id NOT IN (SELECT aliasId FROM collided WHERE aliasId IS NOT NULL)
   )
-SELECT c.legacyId, c.legacyTitle, c.legacyCreatedAt, c.liveTitle, c.decision,
+SELECT c.legacyId, c.legacyTitle, c.legacyCreatedAt, c.legacyType, c.liveTitle, c.decision,
        COALESCE(c.aliasId, k.candidateId) AS recoveredAs
   FROM collided c
   LEFT JOIN numbered n ON n.legacyId = c.legacyId

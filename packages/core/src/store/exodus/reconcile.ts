@@ -734,7 +734,7 @@ async function reconcileWithScratch(
   // Additive runs never write the task graph, so they never renumber.
   const remap =
     !additive && existsSync(liveStorePath)
-      ? remapCollidingTaskIds(liveStorePath, legacyFiles, scratch)
+      ? remapCollidingTaskIds(liveStorePath, legacyFiles, scratch, resolveCleoDir(projectRoot))
       : { sources: legacyFiles, remaps: [], undecided: null, remappedPath: null };
   // An undecided collision withholds the WHOLE task graph (review MED-2): its
   // children, dependencies and criteria would otherwise attach to the live
@@ -743,8 +743,9 @@ async function reconcileWithScratch(
   // no live task holds, which the next `cleo add` could then mint (review LOW).
   const graphWithheld = !additive && remap.undecided !== null;
   const fileSources = graphWithheld ? legacyFiles : remap.sources;
-  // The receipt carries the contract shape (the post-copy check keeps the rest).
-  const remaps = remap.remaps.map(({ legacyCreatedAt: _legacyCreatedAt, ...r }) => r);
+  // The receipt records each remap with the legacy creation time and type,
+  // which later runs check before trusting it (T13183).
+  const remaps = remap.remaps;
   // A collision the run cannot decide is left uncopied and named, so the
   // receipt never claims every legacy row is present (review MED-2).
   const undecided = remap.undecided;

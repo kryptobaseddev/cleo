@@ -380,10 +380,17 @@ export async function taskShowOperation(
  */
 async function noteRecoveredLegacyTasks(projectRoot: string, taskId: string): Promise<void> {
   try {
-    const { priorRecoveries } = await import('../store/exodus/prior-recoveries.js');
-    const recovered = priorRecoveries(resolveCleoDir(projectRoot)).filter(
+    const { priorRecoveries, recoveryStands } = await import('../store/exodus/prior-recoveries.js');
+    const recorded = priorRecoveries(resolveCleoDir(projectRoot)).filter(
       (r) => r.legacyId === taskId,
     );
+    if (recorded.length === 0) return;
+    // Only a record whose task still stands: never point at a deleted or
+    // renamed id (review LOW-2).
+    const { getNativeTasksDb } = await import('../store/sqlite.js');
+    const db = getNativeTasksDb(projectRoot);
+    if (!db) return;
+    const recovered = recorded.filter((r) => recoveryStands(db, r));
     if (recovered.length === 0) return;
     const { pushWarning } = await import('../output.js');
     for (const newId of new Set(recovered.map((r) => r.newId))) {

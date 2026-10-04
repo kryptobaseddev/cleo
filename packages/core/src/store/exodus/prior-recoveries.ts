@@ -39,6 +39,10 @@ export interface PriorRecovery {
   readonly newId: string;
   /** The receipt that records it. */
   readonly receiptPath: string;
+  /** The legacy creation time, when the receipt records it. */
+  readonly legacyCreatedAt: string | null;
+  /** The legacy type, when the receipt records it. */
+  readonly legacyType: string | null;
 }
 
 /** Whether `value` is a plain object. */
@@ -78,9 +82,15 @@ export function priorRecoveries(cleoDir: string): PriorRecovery[] {
     const remaps = Array.isArray(receipt.remaps) ? receipt.remaps : [];
     for (const remap of remaps) {
       if (!isRecord(remap)) continue;
-      const { legacyId, newId } = remap;
+      const { legacyId, newId, legacyCreatedAt, legacyType } = remap;
       if (typeof legacyId === 'string' && typeof newId === 'string') {
-        out.push({ legacyId, newId, receiptPath });
+        out.push({
+          legacyId,
+          newId,
+          receiptPath,
+          legacyCreatedAt: typeof legacyCreatedAt === 'string' ? legacyCreatedAt : null,
+          legacyType: typeof legacyType === 'string' ? legacyType : null,
+        });
       }
     }
   }
@@ -107,4 +117,36 @@ export function loadPriorRecoveries(db: DatabaseSync, recoveries: readonly Prior
   recoveries.forEach((r, seq) => {
     insert.run(seq, r.legacyId, r.newId);
   });
+}
+
+/**
+ * Whether the live store still holds `recovery`'s task as the recovered legacy
+ * task: the new id exists, and, when the receipt records them, with the legacy
+ * creation instant and type (the checks the collision query applies).
+ *
+ * @param db - The project `cleo.db` handle.
+ * @param recovery - From {@link priorRecoveries}.
+ * @returns `true` when the record can be trusted.
+ * @example
+ * ```ts
+ * priorRecoveries(cleoDir).filter((r) => recoveryStands(db, r));
+ * ```
+ */
+export function recoveryStands(db: DatabaseSync, recovery: PriorRecovery): boolean {
+  return (
+    db
+      .prepare(
+        `SELECT 1 AS ok FROM tasks_tasks
+          WHERE id = ?
+            AND (? IS NULL OR julianday(created_at) = julianday(?))
+            AND (? IS NULL OR type IS ?)`,
+      )
+      .get(
+        recovery.newId,
+        recovery.legacyCreatedAt,
+        recovery.legacyCreatedAt,
+        recovery.legacyType,
+        recovery.legacyType,
+      ) !== undefined
+  );
 }

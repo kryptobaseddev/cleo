@@ -38,7 +38,6 @@
  * @task T13172
  */
 
-import { dirname } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { SupersededStoreConflict, SupersededStoreIdRemap } from '@cleocode/contracts';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
@@ -82,13 +81,14 @@ interface Collision {
   readonly legacyId: string;
   readonly legacyTitle: string;
   readonly legacyCreatedAt: string;
+  readonly legacyType: string | null;
   readonly liveTitle: string;
   readonly decision: 'collision' | 'undecided';
   readonly recoveredAs: string | null;
 }
 
 /** Collisions between the legacy tasks at `legacyPath` and the live store. */
-function findCollisions(liveStorePath: string, legacyPath: string): Collision[] {
+function findCollisions(liveStorePath: string, legacyPath: string, cleoDir: string): Collision[] {
   const live = openCleoDbSnapshot(liveStorePath, { readOnly: true });
   try {
     live.db.exec(`ATTACH DATABASE ${literal(legacyPath)} AS legacy`);
@@ -99,14 +99,15 @@ function findCollisions(liveStorePath: string, legacyPath: string): Collision[] 
       ) {
         return [];
       }
-      // Recoveries earlier runs recorded in their receipts (T13183); the legacy
-      // tasks.db sits in the project's .cleo directory with them.
-      loadPriorRecoveries(live.db, priorRecoveries(dirname(legacyPath)));
+      // Recoveries earlier runs recorded in their receipts (T13183), read from
+      // the resolved .cleo the reconcile writes them to.
+      loadPriorRecoveries(live.db, priorRecoveries(cleoDir));
       const rows = live.db.prepare(TASK_ID_COLLISIONS_SQL).all() as Array<Record<string, unknown>>;
       return rows.map((row) => ({
         legacyId: text(row, 'legacyId'),
         legacyTitle: text(row, 'legacyTitle'),
         legacyCreatedAt: text(row, 'legacyCreatedAt'),
+        legacyType: text(row, 'legacyType') || null,
         liveTitle: text(row, 'liveTitle'),
         decision: text(row, 'decision') === 'undecided' ? 'undecided' : 'collision',
         recoveredAs: text(row, 'recoveredAs') || null,
@@ -154,10 +155,10 @@ function legacyNameMap(db: DatabaseSync): (consolidated: string) => string | nul
   return (consolidated) => byConsolidated.get(consolidated) ?? null;
 }
 
-/** A remap plus what the post-copy check needs to prove the new id is ours. */
+/** A remap with the legacy facts the post-copy check and later runs compare. */
 export interface PlannedRemap extends SupersededStoreIdRemap {
   /** The legacy row's creation time, compared with the copied row after the copy. */
-  readonly legacyCreatedAt: string;
+  legacyCreatedAt: string;
 }
 
 /** Result of {@link remapCollidingTaskIds}. */
@@ -179,11 +180,12 @@ export interface TaskIdRemapResult {
  * @param liveStorePath - The live project `cleo.db` (read only).
  * @param sources - The project's legacy sources.
  * @param scratch - Directory the renumbered copy is written to.
+ * @param cleoDir - The project's resolved `.cleo`, where earlier receipts live.
  * @returns The sources (unchanged when nothing needs renumbering), the
  *   remaps, and any collision the run cannot decide.
  * @example
  * ```ts
- * const { sources, remaps } = remapCollidingTaskIds(livePath, fileSources, scratch);
+ * const { sources, remaps } = remapCollidingTaskIds(livePath, fileSources, scratch, cleoDir);
  * for (const r of remaps) console.log(`${r.legacyId} -> ${r.newId}`);
  * ```
  */
@@ -191,11 +193,12 @@ export function remapCollidingTaskIds(
   liveStorePath: string,
   sources: readonly LegacyDbDescriptor[],
   scratch: string,
+  cleoDir: string,
 ): TaskIdRemapResult {
   const unchanged = { sources: [...sources], remaps: [], undecided: null, remappedPath: null };
   const tasksSource = sources.find((s) => s.name === 'tasks');
   if (tasksSource === undefined) return unchanged;
-  const collisions = findCollisions(liveStorePath, tasksSource.path);
+  const collisions = findCollisions(liveStorePath, tasksSource.path, cleoDir);
   const undecidedIds = collisions.filter((c) => c.decision === 'undecided').map((c) => c.legacyId);
   const undecided: SupersededStoreConflict | null =
     undecidedIds.length === 0
@@ -242,6 +245,7 @@ export function remapCollidingTaskIds(
     alreadyRecovered: c.recoveredAs !== null,
     referencesRepointed: 0,
     legacyCreatedAt: c.legacyCreatedAt,
+    legacyType: c.legacyType,
   }));
 
   const copy = openCleoDbSnapshot(remappedPath, { readOnly: false, applyPragmas: false });

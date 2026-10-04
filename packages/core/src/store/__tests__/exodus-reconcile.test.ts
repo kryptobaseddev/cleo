@@ -942,6 +942,87 @@ describe.each(
       ]);
     });
 
+    it('reads earlier receipts from the resolved .cleo even when the legacy file lives elsewhere (review LOW-1)', async () => {
+      stageScenarioB();
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      await reconcileSupersededStores(join(root, 'project'));
+      // The same legacy file, read from another directory: only the resolved
+      // .cleo (where the receipt is) can tell the remap that T001 was recovered.
+      const elsewhere = mkdtempSync(join(tmpdir(), 'cleo-legacy-elsewhere-'));
+      try {
+        const legacyCopy = join(elsewhere, 'tasks.db');
+        const { copyFileSync } = await import('node:fs');
+        copyFileSync(join(cleoDir, 'tasks.db'), legacyCopy);
+        const live = new DatabaseSync(liveDb);
+        live.prepare("UPDATE tasks_tasks SET title = 'renamed since' WHERE id = 'T004'").run();
+        live.close();
+        const { remapCollidingTaskIds } = await import('../exodus/task-id-remap.js');
+        const result = remapCollidingTaskIds(
+          liveDb,
+          [{ name: 'tasks', path: legacyCopy, targetScope: 'project' }],
+          elsewhere,
+          cleoDir,
+        );
+        expect(result.remaps).toEqual([
+          expect.objectContaining({ legacyId: 'T001', newId: 'T004', alreadyRecovered: true }),
+        ]);
+      } finally {
+        rmSync(elsewhere, { recursive: true, force: true });
+      }
+    });
+
+    it('a receipt aimed at a same-instant task of another type is not trusted (review LOW)', async () => {
+      stageScenarioB();
+      // A hand-edited receipt claims legacy T001 was recovered as T009, a live
+      // task created at the same instant but of another type.
+      const forged = join(cleoDir, 'exodus-reconcile-2026-01-01T000000Z');
+      mkdirSync(forged, { recursive: true });
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(
+        join(forged, 'reconcile-receipt.json'),
+        JSON.stringify({
+          outcome: 'reconciled',
+          mode: 'full',
+          remaps: [{ legacyId: 'T001', newId: 'T009' }],
+        }),
+      );
+      const live = new DatabaseSync(liveDb);
+      live
+        .prepare(
+          "INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES ('T009', 'unrelated import', 'pending', 'medium', 'saga', '2026-01-01T00:00:00Z')",
+        )
+        .run();
+      live.close();
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      const result = await reconcileSupersededStores(join(root, 'project'));
+
+      expect(result.outcome).toBe('reconciled');
+      expect(result.remaps).toEqual([
+        expect.objectContaining({ legacyId: 'T001', newId: 'T010', alreadyRecovered: false }),
+      ]);
+      expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id = 'T010'")).toBe('legacy epic');
+    });
+
+    it('cleo show <legacy id> says nothing once the recovered task is gone (review LOW-2)', async () => {
+      stageScenarioB();
+      const { reconcileSupersededStores } = await import('../exodus/index.js');
+      await reconcileSupersededStores(join(root, 'project'));
+      const live = new DatabaseSync(liveDb);
+      live.exec('PRAGMA foreign_keys = OFF');
+      live.prepare("DELETE FROM tasks_tasks WHERE id = 'T004'").run();
+      live.close();
+      const { closeDb } = await import('../sqlite.js');
+      closeDb();
+      const { drainWarnings } = await import('../../output.js');
+      drainWarnings();
+      const { taskShowOperation } = await import('../../tasks/show.js');
+      await taskShowOperation(join(root, 'project'), { taskId: 'T001' });
+
+      expect(drainWarnings() ?? []).not.toContainEqual(
+        expect.objectContaining({ code: 'W_LEGACY_ID_RECOVERED' }),
+      );
+    });
+
     it('the read-only survey never calls tasks.db safe to archive while T001 is shadowed', async () => {
       stageScenarioB();
       const { scanSupersededStores } = await import('../../doctor/superseded-store.js');
