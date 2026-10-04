@@ -13,7 +13,15 @@
  * package file, or a `scripts/...` path a package TEST file names (the tests
  * that spawn a script with `join(REPO_ROOT, 'scripts/x.mjs')`).
  *
+ * T13177: the PR-affected selection (`ci-affected-test-projects.mjs`, T13142)
+ * must not narrow such a change to the `scripts` project either, or Unit Tests
+ * would succeed without running the importing packages' tests. It treats any
+ * path outside every workspace package as workspace-wide and runs the full
+ * suite; `packages/core/src/tasks/__tests__/affected-packages.test.ts` pins
+ * that (this job runs without a build, so it cannot import core).
+ *
  * @task T13175
+ * @task T13177
  */
 
 import { execFileSync } from 'node:child_process';
