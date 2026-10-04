@@ -273,6 +273,11 @@
           "type": "boolean",
           "description": "Accept required CI green on a merged PR's merge commit as testsPassed/qaPassed evidence (ci:<pr>, D11149)."
         },
+        "scopeExcludes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Repo-relative paths or globs that never count as part of a change when evidence decides its scope (runtime state, e.g. .opencode/goals/**). CLEO's own installed hook files are always excluded (T13135)."
+        },
         "ciChecks": {
           "type": "object",
           "additionalProperties": false,

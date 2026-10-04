@@ -48,16 +48,27 @@ describe('tasks dispatch OpsFromCore inference', () => {
   });
 });
 
-vi.mock('@cleocode/runtime/gateway', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@cleocode/runtime/gateway')>();
-  return { ...actual, addTaskWithSessionScope: vi.fn(), taskUpdate: vi.fn(), taskDelete: vi.fn() };
-});
-vi.mock('../../../../../core/src/paths.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../../../core/src/paths.js')>();
-  return { ...actual, getProjectRoot: vi.fn(() => '/mock/project') };
-});
+// T13126: the tasks domain imports each op from its CORE leaf module.
+vi.mock('@cleocode/core/tasks/session-scope', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/session-scope')>()),
+  addTaskWithSessionScope: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/update', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/update')>()),
+  taskUpdate: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/delete', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/tasks/delete')>()),
+  taskDelete: vi.fn(),
+}));
+vi.mock('@cleocode/core/project-scope', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/project-scope')>()),
+  getProjectRoot: vi.fn(() => '/mock/project'),
+}));
 
-import { addTaskWithSessionScope, taskDelete, taskUpdate } from '@cleocode/runtime/gateway';
+import { taskDelete } from '@cleocode/core/tasks/delete';
+import { addTaskWithSessionScope } from '@cleocode/core/tasks/session-scope';
+import { taskUpdate } from '@cleocode/core/tasks/update';
 import { TasksHandler } from '../tasks.js';
 
 describe('canonical task input forwarding', () => {

@@ -82,7 +82,7 @@ import {
   upsertSession,
   upsertTask,
 } from './db-helpers.js';
-import { assertExodusNotDeferred } from './dual-scope-db.js';
+import { assertExodusWriteSafe } from './dual-scope-db.js';
 import {
   fillRowUids,
   parseStoreTimestamp,
@@ -372,6 +372,32 @@ export function renameTaskDisplayIdNative(
     throw taskConflictError(current.id, taskVersion(current), null);
   }
   recordLocalRename(nativeDb, uid, current.id, toId, taskVersion(current));
+  const rewritten = rewriteTaskIdReferencesNative(nativeDb, refs, current.id, toId);
+  for (const [key, n] of Object.entries(rederiveAcIdsNative(nativeDb, current.id, toId))) {
+    if (n > 0) rewritten[key] = n;
+  }
+  return { fromId: current.id, rewritten };
+}
+
+/**
+ * Rewrite every reference to the task id `fromId` as `toId`: plain columns,
+ * and JSON arrays of ids (`jsonArray` refs, e.g. a session's
+ * `tasks_completed_json`), element by element.
+ *
+ * @param nativeDb - The database holding the columns.
+ * @param refs - Columns that hold task ids (see `taskReferenceColumns`).
+ * @param fromId - The id being replaced.
+ * @param toId - Its replacement.
+ * @returns Rows rewritten per `table.column` (only columns that changed).
+ * @task T12341
+ * @task T13172 - shared with the reconcile's legacy-task renumbering
+ */
+export function rewriteTaskIdReferencesNative(
+  nativeDb: DatabaseSync,
+  refs: readonly TaskReferenceColumn[],
+  fromId: string,
+  toId: string,
+): Record<string, number> {
   const rewritten: Record<string, number> = {};
   const q = (name: string) => `"${name.replaceAll('"', '""')}"`;
   for (const ref of refs) {
@@ -386,16 +412,27 @@ export function renameTaskDisplayIdNative(
              WHERE json_valid(${col}) AND EXISTS (
                SELECT 1 FROM json_each(${table}.${col}) j WHERE j.value = ?)`,
           )
-          .run(current.id, toId, current.id).changes
-      : nativeDb.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(toId, current.id)
+          .run(fromId, toId, fromId).changes
+      : nativeDb.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(toId, fromId)
           .changes;
     if (Number(n) > 0) rewritten[`${ref.table}.${ref.column}`] = Number(n);
   }
-  for (const [key, n] of Object.entries(rederiveAcIdsNative(nativeDb, current.id, toId))) {
-    if (n > 0) rewritten[key] = n;
-  }
-  return { fromId: current.id, rewritten };
+  return rewritten;
 }
+
+/** Table names {@link rederiveAcIdsNative} works on: the consolidated store's by default. */
+export interface AcTableNames {
+  /** The acceptance-criteria table. */
+  readonly criteria: string;
+  /** Tables whose `ac_id` follows a criterion's id. */
+  readonly followers: readonly string[];
+}
+
+/** The consolidated `cleo.db` acceptance-criteria tables. */
+const CONSOLIDATED_AC_TABLES: AcTableNames = {
+  criteria: 'tasks_task_acceptance_criteria',
+  followers: ['tasks_evidence_ac_bindings', 'tasks_task_acceptance_criteria_history'],
+};
 
 /**
  * After a task's display id changed from `fromId` to `toId`, re-derive the
@@ -410,6 +447,8 @@ export function renameTaskDisplayIdNative(
  * @param nativeDb - The project `cleo.db` handle, inside the rename's transaction.
  * @param fromId - The task's old display id.
  * @param toId - Its new display id (the task row already carries it).
+ * @param tables - The criteria and follower tables; a legacy `tasks.db` copy
+ *   passes its unprefixed names (T13172).
  * @returns Rows rewritten per `table.column`.
  * @task T12799
  */
@@ -417,6 +456,7 @@ export function rederiveAcIdsNative(
   nativeDb: DatabaseSync,
   fromId: string,
   toId: string,
+  tables: AcTableNames = CONSOLIDATED_AC_TABLES,
 ): Record<string, number> {
   const count: Record<string, number> = {};
   const bump = (key: string, n: number | bigint) => {
@@ -426,12 +466,18 @@ export function rederiveAcIdsNative(
     nativeDb
       .prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?")
       .get(table) !== undefined;
-  if (!has('tasks_task_acceptance_criteria')) return count;
+  const criteria = `"${tables.criteria.replaceAll('"', '""')}"`;
+  if (!has(tables.criteria)) return count;
+  // A legacy store's criteria may predate `source_key` (child projections).
+  const hasSourceKey = (
+    nativeDb.prepare(`PRAGMA table_info(${criteria})`).all() as Array<{ name: string }>
+  ).some((c) => c.name === 'source_key');
+  const sourceKey = hasSourceKey ? 'source_key' : 'NULL';
   const oldChild = `child:${fromId}`;
   const rows = nativeDb
     .prepare(
-      `SELECT id, task_id AS taskId, kind, text, source_key AS sourceKey
-         FROM tasks_task_acceptance_criteria WHERE task_id = ? OR source_key = ?`,
+      `SELECT id, task_id AS taskId, kind, text, ${sourceKey} AS sourceKey
+         FROM ${criteria} WHERE task_id = ? OR ${sourceKey} = ?`,
     )
     .all(toId, oldChild) as Array<{
     id: string;
@@ -440,9 +486,7 @@ export function rederiveAcIdsNative(
     text: string;
     sourceKey: string | null;
   }>;
-  const followers = ['tasks_evidence_ac_bindings', 'tasks_task_acceptance_criteria_history'].filter(
-    has,
-  );
+  const followers = tables.followers.filter(has);
   for (const row of rows) {
     const ownerBefore = row.taskId === toId ? fromId : row.taskId;
     const sourceAfter = row.sourceKey === oldChild ? `child:${toId}` : row.sourceKey;
@@ -451,17 +495,20 @@ export function rederiveAcIdsNative(
     const newId = derived ? buildAcRowId(row.taskId, identity(sourceAfter)) : row.id;
     if (newId === row.id && sourceAfter === row.sourceKey) continue;
     bump(
-      'tasks_task_acceptance_criteria.id',
-      nativeDb
-        .prepare('UPDATE tasks_task_acceptance_criteria SET id = ?, source_key = ? WHERE id = ?')
-        .run(newId, sourceAfter, row.id).changes,
+      `${tables.criteria}.id`,
+      hasSourceKey
+        ? nativeDb
+            .prepare(`UPDATE ${criteria} SET id = ?, source_key = ? WHERE id = ?`)
+            .run(newId, sourceAfter, row.id).changes
+        : nativeDb.prepare(`UPDATE ${criteria} SET id = ? WHERE id = ?`).run(newId, row.id).changes,
     );
     if (newId === row.id) continue;
     for (const table of followers) {
       bump(
         `${table}.ac_id`,
-        nativeDb.prepare(`UPDATE ${table} SET ac_id = ? WHERE ac_id = ?`).run(newId, row.id)
-          .changes,
+        nativeDb
+          .prepare(`UPDATE "${table.replaceAll('"', '""')}" SET ac_id = ? WHERE ac_id = ?`)
+          .run(newId, row.id).changes,
       );
     }
   }
@@ -2391,9 +2438,10 @@ async function createOwnedSqliteDataAccessor(
       if (!nativeDb) {
         throw new Error('Native database not initialized');
       }
-      // T13158: an open whose exodus migration was deferred left this store
-      // empty while legacy rows wait; refuse with the typed error and remedy.
-      await assertExodusNotDeferred(nativeDb);
+      // T13158 / T13167: an open whose exodus migration was deferred or aborted
+      // left this store empty while legacy rows wait; refuse with the typed
+      // error and remedy.
+      await assertExodusWriteSafe(nativeDb);
 
       const context = activeTransactionScope(nativeDb);
       const previous = context?.pending ?? taskTransactionQueue.get(nativeDb) ?? Promise.resolve();

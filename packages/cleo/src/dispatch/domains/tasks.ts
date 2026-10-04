@@ -23,8 +23,9 @@
  */
 
 import type { tasks as coreTasks } from '@cleocode/core';
-import { getLogger, getProjectRoot, TASKS_SUGGESTED_NEXT_BUILDERS } from '@cleocode/core';
-import { taskContext } from '@cleocode/core/internal';
+import { TASKS_SUGGESTED_NEXT_BUILDERS } from '@cleocode/core/dispatch/suggested-next';
+import { getLogger } from '@cleocode/core/logger';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 // Saga core ops — pure business logic moved out of dispatch in T10124.
 // T10117 adds `sagaRepair` (`saga.repair`) for I5 violation cleanup.
 // T10118 adds the `detach` op for repair of nested-saga relations.
@@ -39,37 +40,26 @@ import {
   repairSaga as coreSagaRepair,
   sagaRollup as coreSagaRollup,
 } from '@cleocode/core/sagas';
-import { parseGateJson, reqAdd, reqList, reqMigrate } from '@cleocode/core/tasks';
 import {
-  addTaskWithSessionScope,
-  completeTaskStrict,
+  taskCurrentGet,
+  taskStart,
+  taskStop,
+  taskWorkHistory,
+} from '@cleocode/core/session/engine-ops';
+import { parseGateJson, reqAdd, reqList, reqMigrate } from '@cleocode/core/tasks';
+import { tasksAddBatchOp } from '@cleocode/core/tasks/add-batch';
+import { taskArchive } from '@cleocode/core/tasks/archive';
+import { completeTaskStrict } from '@cleocode/core/tasks/complete';
+import { taskDecompose } from '@cleocode/core/tasks/decompose';
+import { taskDelete } from '@cleocode/core/tasks/delete';
+import {
   taskAnalyze,
-  taskArchive,
-  // T11786 (epic T11556) — bulk task mutate ops Studio's Kanban binds to.
   taskAssignee,
   taskBlockers,
   taskBulkMove,
   taskCancel,
-  taskClaim,
-  taskComplexityEstimate,
-  taskCurrentGet,
-  taskDecompose,
-  taskDelete,
-  taskDepends,
-  taskDepsCycles,
-  taskDepsOverview,
-  taskDepsTree,
-  taskDepsValidate,
-  taskFind,
-  taskHistory,
   taskImpact,
-  taskLabelList,
-  taskList,
   taskNext,
-  taskPlan,
-  taskRankingHistory,
-  taskRankingRevert,
-  taskReconcileScope,
   taskRelates,
   taskRelatesAdd,
   taskRelatesAddBatch,
@@ -80,20 +70,37 @@ import {
   taskReorderRank,
   taskReparent,
   taskRestore,
-  taskShowOperation,
+  taskTree,
+  taskUnarchive,
+} from '@cleocode/core/tasks/engine-wrap';
+import {
+  taskClaim,
+  taskComplexityEstimate,
+  taskContext,
+  taskDepends,
+  taskDepsCycles,
+  taskDepsOverview,
+  taskDepsTree,
+  taskDepsValidate,
+  taskHistory,
+  taskRankingHistory,
+  taskRankingRevert,
   taskSlice,
-  taskStart,
-  taskStop,
+  taskUnclaim,
+} from '@cleocode/core/tasks/engine-wrap-ops';
+import { taskFind } from '@cleocode/core/tasks/find';
+import { taskLabelList } from '@cleocode/core/tasks/labels';
+import { taskList } from '@cleocode/core/tasks/list';
+import { taskPlan } from '@cleocode/core/tasks/plan';
+import { taskReconcileScope } from '@cleocode/core/tasks/reconcile-scope';
+import { addTaskWithSessionScope } from '@cleocode/core/tasks/session-scope';
+import { taskShowOperation } from '@cleocode/core/tasks/show';
+import {
   taskSyncLinks,
   taskSyncLinksRemove,
   taskSyncReconcile,
-  tasksAddBatchOp,
-  taskTree,
-  taskUnarchive,
-  taskUnclaim,
-  taskUpdate,
-  taskWorkHistory,
-} from '@cleocode/runtime/gateway';
+} from '@cleocode/core/tasks/sync-ops';
+import { taskUpdate } from '@cleocode/core/tasks/update';
 import {
   defineTypedHandler,
   lafsError,
@@ -418,7 +425,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     // SSoT-EXEMPT: fire-and-forget side-effect that must not block the complete flow
     setImmediate(async () => {
       try {
-        const { trackMemoryUsage } = await import('@cleocode/core/internal');
+        const { trackMemoryUsage } = await import('@cleocode/core/memory/quality-feedback');
         await trackMemoryUsage(projectRoot, params.taskId, true, params.taskId, 'success');
       } catch {
         // Quality tracking errors must never surface to the complete flow

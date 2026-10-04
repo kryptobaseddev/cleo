@@ -57,6 +57,12 @@ import { rollbackExodusReceipts } from './recovery.js';
 import { buildRuntimeTargetResolver, type TargetResolver } from './runtime-targets.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
 import { orderTablesForCopy } from './table-order.js';
+import {
+  describeRemaps,
+  describeUndecided,
+  remapCollidingTaskIds,
+  unlandedRemaps,
+} from './task-id-remap.js';
 import type { LegacyDbDescriptor } from './types.js';
 
 const log = getLogger('exodus-reconcile');
@@ -721,31 +727,65 @@ async function reconcileWithScratch(
   resolveTarget: TargetResolver,
   scratch: string,
 ): Promise<SupersededStoreReconcileResult> {
-  const fileSources = plan.sources.filter((s) => s.targetScope === 'project' && existsSync(s.path));
+  const legacyFiles = plan.sources.filter((s) => s.targetScope === 'project' && existsSync(s.path));
+  // T13172: a legacy task whose id a DIFFERENT live task holds is renumbered in
+  // a scratch copy (references re-pointed) and the run reads that copy, so it
+  // is recovered, never skipped by INSERT OR IGNORE and counted as present.
+  // Additive runs never write the task graph, so they never renumber.
+  const remap =
+    !additive && existsSync(liveStorePath)
+      ? remapCollidingTaskIds(liveStorePath, legacyFiles, scratch, resolveCleoDir(projectRoot))
+      : { sources: legacyFiles, remaps: [], undecided: null, remappedPath: null };
+  // An undecided collision withholds the WHOLE task graph (review MED-2): its
+  // children, dependencies and criteria would otherwise attach to the live
+  // task that holds its id. History tables still copy, and from the ORIGINAL
+  // legacy files: the renumbered copy would point history rows at fresh ids
+  // no live task holds, which the next `cleo add` could then mint (review LOW).
+  const graphWithheld = !additive && remap.undecided !== null;
+  const fileSources = graphWithheld ? legacyFiles : remap.sources;
+  // The receipt records each remap with the legacy creation time and type,
+  // which later runs check before trusting it (T13183).
+  const remaps = remap.remaps;
+  // A collision the run cannot decide is left uncopied and named, so the
+  // receipt never claims every legacy row is present (review MED-2).
+  const undecided = remap.undecided;
+  const remapNote =
+    (remaps.length > 0 ? `; ${describeRemaps(remaps)}` : '') +
+    (undecided ? `; ${describeUndecided(undecided)}` : '');
   // An additive run is for a project already live on the consolidated store;
   // its bare family is not a source (and bareTaskCoreSource agrees).
   const bare =
     !additive && existsSync(liveStorePath)
       ? await bareTaskCoreSource(liveStorePath, resolveTarget, scratch)
       : null;
-  // Additive: the live task graph is never written — only history tables.
-  const copyResolver: TargetResolver = additive
-    ? (sourceName, legacyTable) => {
-        const r = resolveTarget(sourceName, legacyTable);
-        return r.kind !== 'skip' && isLiveAuthoritative(sourceName, legacyTable, r.targetName)
-          ? { kind: 'skip', reason: 'additive: live-authoritative task graph' }
-          : r;
-      }
-    : resolveTarget;
+  // Additive (and a full run with an undecided collision): the live task
+  // graph is never written — only history tables.
+  const copyResolver: TargetResolver =
+    additive || graphWithheld
+      ? (sourceName, legacyTable) => {
+          const r = resolveTarget(sourceName, legacyTable);
+          return r.kind !== 'skip' && isLiveAuthoritative(sourceName, legacyTable, r.targetName)
+            ? {
+                kind: 'skip',
+                reason: additive
+                  ? 'additive: live-authoritative task graph'
+                  : 'task graph withheld: an id collision is undecided',
+              }
+            : r;
+        }
+      : resolveTarget;
   // Legacy FILES first so they win any key both hold; the bare family fills gaps.
   const sources = bare ? [...fileSources, bare] : fileSources;
   const base = {
     mode: additive ? ('additive' as const) : ('full' as const),
-    conflicts: [] as SupersededStoreConflict[],
+    conflicts: (undecided ? [undecided] : []) as SupersededStoreConflict[],
+    // A withheld graph copies no task, so no remap is applied.
+    remaps: graphWithheld ? [] : remaps,
     dryRun,
     projectRoot,
     liveStorePath,
-    sourcePaths: sources.map((s) => s.path),
+    // The files read: the legacy originals, never the renumbered scratch copy.
+    sourcePaths: [...legacyFiles, ...(bare ? [bare] : [])].map((s) => s.path),
     after: [] as SupersededStoreTableCount[],
     rowsCopied: 0,
     rolledBack: 0,
@@ -767,6 +807,17 @@ async function reconcileWithScratch(
 
   const before = assessSupersededProjectStores(liveStorePath, sources, resolveTarget);
   const plannedConflicts = additive ? conflictsOf(before) : [];
+  // Every task-graph row a withheld run leaves uncopied, named in the receipt.
+  const withheldOf = (counts: readonly SupersededStoreTableCount[]): SupersededStoreConflict[] =>
+    conflictsOf(counts)
+      .filter((c) => c.reason === 'live-authoritative')
+      .map((c) => ({ ...c, reason: 'withheld-undecided' as const }));
+  const withheldConflicts = (counts: readonly SupersededStoreTableCount[]) =>
+    undecided ? [undecided, ...withheldOf(counts)] : [];
+  const withheldNote = (counts: readonly SupersededStoreTableCount[]) =>
+    `; the task graph was NOT copied: ${undecided ? describeUndecided(undecided) : ''}. ` +
+    `Withheld: ${describeConflicts(withheldOf(counts))}. Correct the legacy created_at of ` +
+    `${(undecided?.ids ?? []).join(', ')} to an ISO-8601 time, then run the reconcile again`;
   // Additive: gaps that are ALL live-authoritative leave nothing to copy.
   const onlyConflicts =
     additive &&
@@ -781,25 +832,44 @@ async function reconcileWithScratch(
       reason: `every history row is already present; ${describeConflicts(plannedConflicts)}`,
     };
   }
+  if (
+    graphWithheld &&
+    withheldOf(before).length > 0 &&
+    withheldOf(before).length === conflictsOf(before).length
+  ) {
+    return {
+      ...base,
+      conflicts: withheldConflicts(before),
+      outcome: 'nothing-to-reconcile',
+      before,
+      reason: `every history row is already present${withheldNote(before)}`,
+    };
+  }
   if (isComplete(before)) {
     return {
       ...base,
       outcome: 'nothing-to-reconcile',
       before,
-      reason: 'every legacy row is already present in cleo.db — nothing to copy',
+      reason: `${undecided ? 'every other legacy row' : 'every legacy row'} is already present in cleo.db — nothing to copy${graphWithheld ? (undecided ? `; ${describeUndecided(undecided)}` : '') : remapNote}`,
     };
   }
   if (dryRun) {
     return {
       ...base,
-      conflicts: plannedConflicts.filter((c) => c.reason === 'live-authoritative'),
+      conflicts: additive
+        ? plannedConflicts.filter((c) => c.reason === 'live-authoritative')
+        : graphWithheld
+          ? withheldConflicts(before)
+          : base.conflicts,
       outcome: 'planned',
       before,
       reason: additive
         ? `would copy the missing rows of the history tables; ${describeConflicts(
             plannedConflicts.filter((c) => c.reason === 'live-authoritative'),
           )} (key collisions are counted after the copy)`
-        : `would copy the missing rows of: ${describeGaps(before)}`,
+        : graphWithheld
+          ? `would copy the missing history rows only${withheldNote(before)}`
+          : `would copy the missing rows of: ${describeGaps(before)}${remapNote}`,
     };
   }
 
@@ -809,9 +879,10 @@ async function reconcileWithScratch(
     .replace(/\..+Z$/, 'Z');
   const stagingDir = join(resolveCleoDir(projectRoot), `${RECONCILE_DIR_PREFIX}${iso}`);
   mkdirSync(stagingDir, { recursive: true });
-  // Keep the materialised bare source with the run's other evidence.
+  // Keep the materialised bare source and the renumbered tasks copy with the
+  // run's other evidence.
   const copySources = sources.map((s) => {
-    if (s !== bare) return s;
+    if (s !== bare && s.path !== remap.remappedPath) return s;
     const kept = join(stagingDir, basename(s.path));
     copyFileSync(s.path, kept);
     return { ...s, path: kept };
@@ -862,9 +933,24 @@ async function reconcileWithScratch(
           ];
         }
       }
-      const conflicts = additive ? conflictsOf(after) : [];
-      const settled = additive ? true : isComplete(after);
-      if (migrated.ok && settled && lost.length === 0 && altered.length === 0) {
+      const conflicts = additive
+        ? conflictsOf(after)
+        : graphWithheld
+          ? withheldConflicts(after)
+          : base.conflicts;
+      const settled = additive || graphWithheld ? true : isComplete(after);
+      // A recovered task's new id taken by a concurrent write between the
+      // allocation and the copy: the copy skipped it, and verification by key
+      // would call it present (review LOW-1).
+      const unlanded =
+        migrated.ok && !graphWithheld ? unlandedRemaps(liveStorePath, remap.remaps) : [];
+      if (
+        migrated.ok &&
+        settled &&
+        lost.length === 0 &&
+        altered.length === 0 &&
+        unlanded.length === 0
+      ) {
         return {
           ...base,
           conflicts,
@@ -875,7 +961,9 @@ async function reconcileWithScratch(
           stagingDir,
           reason: additive
             ? `copied ${rowsCopied} row(s) with keys absent from live; live rows unchanged; ${describeConflicts(conflicts)}`
-            : `copied ${rowsCopied} row(s); every legacy row is now present in cleo.db`,
+            : graphWithheld
+              ? `copied ${rowsCopied} history row(s)${withheldNote(after)}`
+              : `copied ${rowsCopied} row(s); every legacy row is now present in cleo.db${remapNote}`,
         };
       }
       const rolledBack = await revertReconcile(liveStorePath, stagingDir);
@@ -885,7 +973,9 @@ async function reconcileWithScratch(
           ? `live tables shrank: ${lost.join(', ')}`
           : altered.length > 0
             ? `pre-existing live rows changed in: ${altered.join(', ')}`
-            : `rows still missing after copy: ${describeGaps(after)}`;
+            : unlanded.length > 0
+              ? `a concurrent write took the id of a recovered task (${unlanded.join(', ')}); run the reconcile again`
+              : `rows still missing after copy: ${describeGaps(after)}`;
       return {
         ...base,
         outcome: 'refused',
