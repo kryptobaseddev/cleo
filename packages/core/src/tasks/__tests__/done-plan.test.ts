@@ -896,6 +896,37 @@ describe('affected-scope test runs (T12635, D11150)', () => {
     );
   });
 
+  it('T13125: with evidence.ciSatisfies, a whole-suite tool:test plan names ci:<pr> as preferred', async () => {
+    workspaceWithPackages();
+    const ctxPath = join(root, '.cleo', 'project-context.json');
+    const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as { testing: Record<string, unknown> };
+    writeFileSync(
+      ctxPath,
+      JSON.stringify({
+        ...ctx,
+        testing: { ...ctx.testing, preferAffected: false },
+        evidence: {
+          ciSatisfies: true,
+          ciChecks: { tests: ['CI'], qa: ['CI'], jobs: { tests: ['Unit*'], qa: ['Lint*'] } },
+        },
+      }),
+    );
+    const id = await seedTask(['Change pkgs/a/i.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+    expect(plan.changeSet.warnings.join(' ')).toMatch(
+      /testsPassed: this plans a whole-suite local tool:test \(testing\.preferAffected is false\); evidence\.ciSatisfies is set, so ci:<pr> once the PR merges is the preferred evidence/,
+    );
+  });
+
   it('when vitest cannot name the projects, testsPassed falls back to the full tool:test', async () => {
     workspaceWithPackages(false);
     const id = await seedTask(['Change pkgs/a/i.ts']);

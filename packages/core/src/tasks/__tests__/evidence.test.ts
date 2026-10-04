@@ -456,6 +456,19 @@ describe('validateAtom - test-run (T832)', () => {
       }
     });
 
+    it('checks both exit spellings: either one non-zero refuses (T13136 review)', async () => {
+      expect(await run({ total: 3, passed: 3, exit: 0, exitCode: 1 })).toMatchObject({
+        ok: false,
+        codeName: 'E_EVIDENCE_TESTS_FAILED',
+        reason: 'test-run reports exit code 1',
+      });
+      expect(await run({ total: 3, passed: 3, exit: 0, exitCode: '1' })).toMatchObject({
+        ok: false,
+        codeName: 'E_EVIDENCE_INVALID',
+      });
+      expect((await run({ total: 3, passed: 3, exit: 0, exitCode: 0 })).ok).toBe(true);
+    });
+
     it('a vitest report wins over summary keys it also carries', async () => {
       const r = await run({ numTotalTests: 2, numPassedTests: 2, numFailedTests: 0, total: 0 });
       expect(r.ok).toBe(true);

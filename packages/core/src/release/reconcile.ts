@@ -1570,21 +1570,28 @@ export async function releaseReconcileV2(
   const orphanCommits: string[] = [];
   // T12557: the write-once key plan.ts used, never a path-derived hash.
   const projectHash = getProjectHashKey(projectRoot);
-  const releaseId = `${projectHash}:${version}`;
   const nowIso = new Date().toISOString();
 
   // ── 4. Idempotency probe: is this release already reconciled? ──
+  // T13176: `version` is UNIQUE, and the row a plan wrote may carry another
+  // id (a plan run from a worktree derives its project hash from that path).
+  // The existing row for this version is the one reconcile updates, under its
+  // own id — inserting a fresh `<hash>:<version>` row would violate the
+  // UNIQUE index, and re-keying a row with children is never safe.
   let reReconciled = false;
+  let existingReleaseId: string | undefined;
   {
     const rows = await db
-      .select({ status: schema.releases.status })
+      .select({ id: schema.releases.id, status: schema.releases.status })
       .from(schema.releases)
       .where(eqVersion(version))
       .all();
+    existingReleaseId = rows[0]?.id;
     if (rows.length > 0 && rows[0]?.status === 'reconciled') {
       reReconciled = true;
     }
   }
+  const releaseId = existingReleaseId ?? `${projectHash}:${version}`;
 
   // ── 5. Discover bump-PR + task-PRs (best-effort, outside TX) ──
   const prNumbers = new Set<number>();
@@ -1940,6 +1947,15 @@ export async function releaseReconcileV2(
               reconciledAt: nowIso,
               mergeCommitSha: safeReleaseMergeSha,
               workflowRunUrl: plan.workflowRunUrl,
+              // T13176: a stale `planned` row is completed from the plan.
+              scheme: plan.scheme,
+              channel: mapChannel(plan.channel),
+              epicId: safeEpicId,
+              releaseKind: plan.releaseKind,
+              previousVersion: plan.previousVersion,
+              prId: bumpPrId,
+              plannedAt: plan.createdAt,
+              projectHash,
             },
           })
           .run();

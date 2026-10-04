@@ -89,6 +89,8 @@ A check-mark `Y` means **the job's workflow triggers fire for that event AND any
 | 10 | `release-prepare.yml` | `prepare` | Prepare Release Branch | N | N | N | N | Y | 15m | `# @task T9781` |
 | 11 | `release.yml` | `release` | Build & Publish | N | N | Y (`v[0-9]+.[0-9]+.[0-9]+*`) | N | Y | (none) | — |
 | 11 | `release.yml` | `execute-payload` | Post-Deploy Execution Payload | N | N | Y | N | Y | 10m | — |
+| 11 | `release-promote.yml` | `plan` | Plan v<version> (registry, verdict, sandbox soak) | N | N | N | N | Y | 30m | header (T13144) |
+| 11 | `release-promote.yml` | `promote` | Move latest to v<version> (environment `npm-promote`, owner approval) | N | N | N | N | Y | 20m | header (T13144) |
 | 12 | `skills-council.yml` | `council-top-n` | Council review of telemetry top-N skills | N | N | N | Y (Sun 06:00 UTC) | Y | 60m | inline (T9662) |
 | 13 | `skills-depth-check.yml` | `depth-check` | progressive-disclosure-depth | paths-y | paths-y | N | N | N | 3m | inline (T9684) |
 | 14 | `skills-grade.yml` | `grade-canonical-skills` | Grade all canonical skills | N | N | N | Y (Mon 07:00 UTC) | Y | 90m | inline (T9667) |
@@ -233,7 +235,7 @@ No required-only-on-PR mismatches detected at this time.
 | `push: [main]` + `pull_request: [main]` (paths-filtered) | `release-pipeline-matrix` (T10274: label gate removed), `skills-depth-check`, `worktree-napi-prebuild` (+ tags) |
 | `push: [main]` + `pull_request: closed` | `worktree-cleanup` |
 | `pull_request: closed` only | `docs-reingest`, `auto-tag-on-release-merge` (title-filtered) |
-| `workflow_dispatch` only | `release-prepare` |
+| `workflow_dispatch` only | `release-prepare`, `release-promote` |
 | `push: tags: [v*]` + `workflow_dispatch` | `release` |
 | `schedule` + `workflow_dispatch` | `freshness-sentinel`, `skills-council`, `skills-grade` |
 
