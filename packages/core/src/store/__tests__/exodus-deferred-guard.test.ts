@@ -21,6 +21,7 @@ import { _resetGovernorStateForTest, governor } from '../../resources/governor.j
 import { ResourceMonitor } from '../../resources/monitor.js';
 import {
   _resetDualScopeDbCache,
+  assertExodusNotDeferred,
   assertWriteDurable,
   ExodusAbortWriteUnsafeError,
   getDualScopeNativeDb,
@@ -201,19 +202,100 @@ describe('deferred exodus-on-open (T13158)', () => {
     expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(LEGACY_TASK_IDS.length + 1);
   });
 
-  it('leaves the store writable when the legacy files hold no rows', async () => {
+  it('legacy files with no rows: no wait, no guard, writable (review MED-2)', async () => {
     seedLegacyTasksStore(cleoDir);
     const { DatabaseSync } = await import('node:sqlite');
     const legacy = new DatabaseSync(join(cleoDir, 'tasks.db'));
     legacy.exec('DELETE FROM tasks');
     legacy.close();
+    vi.stubEnv('CLEO_EXODUS_ADMISSION_WAIT_MS', '3000');
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(calm);
+    const acquire = vi.spyOn(governor, 'acquire');
+    const holder = await governor.acquire('db-heavy', { blocking: false });
+    acquire.mockClear();
+    try {
+      const started = Date.now();
+      const handle = await openDualScopeDb('project', projectDir);
+
+      expect(Date.now() - started).toBeLessThan(2000);
+      expect(acquire).not.toHaveBeenCalled();
+      expect(handle.exodusAbort).toBeUndefined();
+      insertTask(handle, 'T999');
+      expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(1);
+    } finally {
+      if (!holder.deferred) await holder.release();
+    }
+  });
+
+  it('a concurrent in-process open during the admission wait is guarded too (review HIGH-1)', async () => {
+    seedLegacyTasksStore(cleoDir);
+    vi.stubEnv('CLEO_EXODUS_ADMISSION_WAIT_MS', '1500');
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(calm);
+    const holder = await governor.acquire('db-heavy', { blocking: false });
+    expect(holder.deferred).toBe(false);
+    try {
+      const first = openDualScopeDb('project', projectDir);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      // The handle is published while the first open still waits for admission.
+      const second = await openDualScopeDb('project', projectDir);
+      expect(second.exodusAbort?.kind).toBe('deferred');
+      expect(() => insertTask(second, 'T999')).toThrow(EXODUS_DEFERRED_WRITE_CODE);
+      const opened = await first;
+      expect(opened.exodusAbort?.reason).toContain('at capacity');
+      expect(second.exodusAbort?.reason).toContain('at capacity');
+      expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(0);
+    } finally {
+      if (!holder.deferred) await holder.release();
+    }
+    // Nothing reached disk, so a later calm open still migrates every legacy row.
+    _resetDualScopeDbCache();
+    clearExodusAborts();
+    await openDualScopeDb('project', projectDir);
+    expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(LEGACY_TASK_IDS.length);
+  });
+
+  it('a long-lived process recovers once another connection migrates (review MED-1)', async () => {
+    seedLegacyTasksStore(cleoDir);
     vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(memoryPressured);
-
     const handle = await openDualScopeDb('project', projectDir);
+    const native = getDualScopeNativeDb(handle);
+    expect(() => insertTask(handle, 'T999')).toThrow(EXODUS_DEFERRED_WRITE_CODE);
+    await expect(assertExodusNotDeferred(native)).rejects.toBeInstanceOf(
+      ExodusAbortWriteUnsafeError,
+    );
 
-    expect(handle.exodusAbort).toBeUndefined();
+    // Another process fills the store (here: a second connection writes the anchor).
+    const { DatabaseSync } = await import('node:sqlite');
+    const other = new DatabaseSync(dbPath);
+    other
+      .prepare(
+        "INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES ('T1', 'migrated', 'pending', 'medium', 'task', '2026-10-03T00:00:00Z')",
+      )
+      .run();
+    other.close();
+
+    // The cached connection writes again, and the typed guard lifts with the marker.
     insertTask(handle, 'T999');
-    expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(1);
+    await expect(assertExodusNotDeferred(native)).resolves.toBeUndefined();
+    expect(handle.exodusAbort).toBeUndefined();
+    expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(2);
+  });
+
+  it('guards per connection: another store stays writable (review LOW-1)', async () => {
+    seedLegacyTasksStore(cleoDir);
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(memoryPressured);
+    const deferred = await openDualScopeDb('project', projectDir);
+    const otherProject = join(root, 'other');
+    mkdirSync(join(otherProject, '.cleo'), { recursive: true });
+    vi.stubEnv('CLEO_DIR', join(otherProject, '.cleo'));
+    const other = await openDualScopeDb('project', otherProject);
+    expect(other.dbPath).not.toBe(deferred.dbPath);
+
+    await expect(assertExodusNotDeferred(getDualScopeNativeDb(deferred))).rejects.toBeInstanceOf(
+      ExodusAbortWriteUnsafeError,
+    );
+    await expect(assertExodusNotDeferred(getDualScopeNativeDb(other))).resolves.toBeUndefined();
+    expect(other.exodusAbort).toBeUndefined();
   });
 
   it('never asks the governor when no migration is pending', async () => {

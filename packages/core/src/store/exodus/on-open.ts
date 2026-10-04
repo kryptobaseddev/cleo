@@ -556,7 +556,7 @@ async function assessExodusOnOpen(
 
   // Lazy-load the exodus engine via dynamic import to break the import cycle
   // (exodus/migrate.ts imports openDualScopeDb from dual-scope-db.ts).
-  const { buildExodusPlan } = await import('./index.js');
+  const { buildExodusPlan, legacySourcesHoldRows } = await import('./index.js');
 
   const plan = buildExodusPlan(cwd);
   const plannedTarget = scope === 'project' ? plan.projectDbPath : plan.globalDbPath;
@@ -582,6 +582,18 @@ async function assessExodusOnOpen(
       result: {
         outcome: 'skipped',
         reason: `no legacy ${scope}-scope source DBs present (fresh install or cross-scope-only)`,
+      },
+    };
+  }
+
+  // T13158: legacy files that exist but hold no copyable rows owe this store
+  // nothing. Deciding here keeps the open from waiting for `db-heavy` (up to the
+  // admission bound) to migrate nothing.
+  if (!legacySourcesHoldRows(scopeSources)) {
+    return {
+      result: {
+        outcome: 'skipped',
+        reason: `legacy ${scope}-scope source DBs hold no copyable rows`,
       },
     };
   }

@@ -24,6 +24,11 @@ import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import type { DualScope } from '../dual-scope-db.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
+import {
+  clearExodusAborts,
+  type ExodusAbortDetail,
+  getRecordedExodusAbort,
+} from './abort-events.js';
 
 /** Stable error code a deferred-exodus write refusal carries. */
 export const EXODUS_DEFERRED_WRITE_CODE = 'E_EXODUS_DEFERRED_WRITE_UNSAFE';
@@ -85,23 +90,49 @@ function sqlIdent(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
 }
 
+/** An active guard on one connection. */
+export interface ExodusDeferredGuard {
+  /** The scope's anchor table: its first row means the migration has run. */
+  readonly anchor: string;
+  /** Tables carrying a guard trigger. */
+  readonly tables: readonly string[];
+  /** Legacy sources still holding the rows the migration owes. */
+  readonly sources: readonly string[];
+  /** The refusal detail typed write guards raise (updated with the final reason). */
+  detail: ExodusAbortDetail;
+  /** Sets (or, on lift, clears) the opening handle's `exodusAbort` marker. */
+  readonly setMarker: (detail: ExodusAbortDetail | undefined) => void;
+}
+
+/** Active guards, by connection: a guard lives exactly as long as its connection. */
+const activeGuards = new WeakMap<DatabaseSync, ExodusDeferredGuard>();
+
+/** Name of the guard trigger on `table`. */
+function guardTriggerName(table: string): string {
+  return `cleo_exodus_deferred_${table}`;
+}
+
 /**
  * Refuse INSERTs into `tables` on this connection with
- * `E_EXODUS_DEFERRED_WRITE_UNSAFE: <message>`.
+ * `E_EXODUS_DEFERRED_WRITE_UNSAFE: <message>` while the scope's anchor table is
+ * empty, and register the guard for {@link activeExodusDeferredGuard}.
  *
- * Tables absent from the consolidated schema (another scope's) are skipped.
- * Idempotent: an existing guard trigger is kept.
+ * Each trigger fires only `WHEN NOT EXISTS (SELECT 1 FROM main.<anchor>)`: once
+ * any connection (another process, the migration itself) fills the anchor, the
+ * guard stops refusing on its own, so a long-lived process recovers without a
+ * restart. Tables absent from the consolidated schema (another scope's) are
+ * skipped. Idempotent per table.
  *
- * @param nativeDb - The deferred handle's native connection.
- * @param tables - Consolidated tables the pending migration fills.
+ * @param nativeDb - The published handle's native connection.
+ * @param guard - Anchor, candidate tables, sources, refusal detail, marker setter.
  * @param message - Why the write is refused and how to fix it.
- * @returns The tables now guarded.
+ * @returns The registered guard (its `tables` are the ones now guarded).
  */
 export function installExodusDeferredGuard(
   nativeDb: DatabaseSync,
-  tables: readonly string[],
+  guard: ExodusDeferredGuard,
   message: string,
-): string[] {
+): ExodusDeferredGuard {
   const present = new Set(
     nativeDb
       .prepare("SELECT name FROM main.sqlite_master WHERE type = 'table'")
@@ -111,13 +142,62 @@ export function installExodusDeferredGuard(
   );
   const raise = sqlString(`${EXODUS_DEFERRED_WRITE_CODE}: ${message}`);
   const guarded: string[] = [];
-  for (const table of tables) {
+  for (const table of guard.tables) {
     if (!present.has(table)) continue;
     nativeDb.exec(
-      `CREATE TEMP TRIGGER IF NOT EXISTS ${sqlIdent(`cleo_exodus_deferred_${table}`)} ` +
-        `BEFORE INSERT ON main.${sqlIdent(table)} BEGIN SELECT RAISE(ABORT, ${raise}); END`,
+      `CREATE TEMP TRIGGER IF NOT EXISTS ${sqlIdent(guardTriggerName(table))} ` +
+        `BEFORE INSERT ON main.${sqlIdent(table)} ` +
+        `WHEN NOT EXISTS (SELECT 1 FROM main.${sqlIdent(guard.anchor)}) ` +
+        `BEGIN SELECT RAISE(ABORT, ${raise}); END`,
     );
     guarded.push(table);
   }
-  return guarded;
+  const registered: ExodusDeferredGuard = { ...guard, tables: guarded };
+  activeGuards.set(nativeDb, registered);
+  return registered;
+}
+
+/**
+ * The guard active on `nativeDb`, or `undefined`. A guard whose anchor table
+ * has rows (the migration ran, here or in another process) is lifted here and
+ * reported as absent.
+ *
+ * @param nativeDb - A store connection.
+ * @returns The active guard, if the store is still waiting for its migration.
+ */
+export function activeExodusDeferredGuard(nativeDb: DatabaseSync): ExodusDeferredGuard | undefined {
+  const guard = activeGuards.get(nativeDb);
+  if (guard === undefined) return undefined;
+  if (!nativeDb.isOpen) {
+    activeGuards.delete(nativeDb);
+    return undefined;
+  }
+  const populated = nativeDb
+    .prepare(`SELECT 1 AS present FROM main.${sqlIdent(guard.anchor)} LIMIT 1`)
+    .get();
+  if (populated === undefined) return guard;
+  liftExodusDeferredGuard(nativeDb);
+  return undefined;
+}
+
+/**
+ * Remove the guard from `nativeDb`: drop its triggers, forget it, and run its
+ * clear the handle's marker and the process record it set. Safe when no guard
+ * is active.
+ *
+ * @param nativeDb - A store connection.
+ */
+export function liftExodusDeferredGuard(nativeDb: DatabaseSync): void {
+  const guard = activeGuards.get(nativeDb);
+  if (guard === undefined) return;
+  activeGuards.delete(nativeDb);
+  if (nativeDb.isOpen) {
+    for (const table of guard.tables) {
+      nativeDb.exec(`DROP TRIGGER IF EXISTS temp.${sqlIdent(guardTriggerName(table))}`);
+    }
+  }
+  guard.setMarker(undefined);
+  if (getRecordedExodusAbort(guard.detail.scope) === guard.detail) {
+    clearExodusAborts(guard.detail.scope);
+  }
 }

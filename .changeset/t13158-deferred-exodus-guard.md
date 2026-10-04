@@ -14,16 +14,23 @@ first open. The first write then made the store look populated, so no later open
 it. The legacy rows stayed stranded until a manual reconcile.
 
 - **The open now decides first whether a migration is pending.** For a migrated store this
-  costs one `COUNT(*)`, and only a pending migration asks for admission. It waits up to 5 s
-  for the slot (`CLEO_EXODUS_ADMISSION_WAIT_MS`). Memory pressure still defers at once.
-  Opens that need no migration no longer touch the governor at all.
-- **A migration still deferred guards the store.** While legacy rows wait, every INSERT into
-  a table the migration fills is refused with `E_EXODUS_DEFERRED_WRITE_UNSAFE` and the
-  remedy. The guard is a connection-local temp trigger, so it is never persisted. Task
-  writes refuse with the typed `ExodusAbortWriteUnsafeError` (`codeName`
-  `E_EXODUS_DEFERRED_WRITE_UNSAFE`), and so do `assertWriteDurable`, `insertIdempotent` and
-  `upsertIdempotent`. Reads work, and their envelopes carry a `W_EXODUS_DEFERRED` warning.
-  The next admitted open migrates every row.
+  costs one `COUNT(*)`. Legacy files that exist but hold no copyable rows do not count. Only
+  a pending migration asks for admission. It waits up to 5 s for the slot
+  (`CLEO_EXODUS_ADMISSION_WAIT_MS`). Memory pressure still defers at once. Opens that need no
+  migration no longer touch the governor at all.
+- **A pending migration guards the store BEFORE it waits.** The opened handle is already
+  shared with concurrent in-process opens, so they are covered too. Every INSERT into a table
+  the migration fills is refused with `E_EXODUS_DEFERRED_WRITE_UNSAFE` and the remedy. The
+  guard is a connection-local temp trigger, so it is never persisted. It fires only while the
+  scope's anchor table is empty: once any process migrates, a long-lived process writes
+  again without a restart. If the migration is admitted, the guard is lifted before it runs.
+- **Typed refusals.** Task writes refuse with the typed `ExodusAbortWriteUnsafeError`
+  (`codeName` `E_EXODUS_DEFERRED_WRITE_UNSAFE`), and so do `assertWriteDurable`,
+  `insertIdempotent` and `upsertIdempotent`. These checks are matched to the store being
+  written, so one store's deferral or abort no longer refuses writes to another. Every
+  in-process holder of the handle sees the `exodusAbort` marker.
+- **Reads work** and their envelopes carry a `W_EXODUS_DEFERRED` warning. The next admitted
+  open migrates every row.
 - The governor's budget-0 deferral reason now names the signal the budget used: memory
   alone under `ignoreCpuPressure`, else the combined score. The deferral log carries the
   governor's own reason.

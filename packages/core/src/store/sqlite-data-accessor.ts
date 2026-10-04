@@ -2393,7 +2393,7 @@ async function createOwnedSqliteDataAccessor(
       }
       // T13158: an open whose exodus migration was deferred left this store
       // empty while legacy rows wait; refuse with the typed error and remedy.
-      assertExodusNotDeferred(nativeDb.location());
+      await assertExodusNotDeferred(nativeDb);
 
       const context = activeTransactionScope(nativeDb);
       const previous = context?.pending ?? taskTransactionQueue.get(nativeDb) ?? Promise.resolve();
