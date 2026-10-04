@@ -98,6 +98,12 @@ export interface ExodusDeferredGuard {
   readonly tables: readonly string[];
   /** Legacy sources still holding the rows the migration owes. */
   readonly sources: readonly string[];
+  /**
+   * The scope's exodus completion marker. Its appearance means the cutover
+   * sealed (in any process), even when the legacy held no rows for the anchor
+   * table, so the guard lifts.
+   */
+  readonly markerPath: string | null;
   /** The refusal detail typed write guards raise (updated with the final reason). */
   detail: ExodusAbortDetail;
   /** Sets (or, on lift, clears) the opening handle's `exodusAbort` marker. */
@@ -159,8 +165,8 @@ export function installExodusDeferredGuard(
 
 /**
  * The guard active on `nativeDb`, or `undefined`. A guard whose anchor table
- * has rows (the migration ran, here or in another process) is lifted here and
- * reported as absent.
+ * has rows, or whose scope's completion marker exists (the migration ran, here
+ * or in another process), is lifted here and reported as absent.
  *
  * @param nativeDb - A store connection.
  * @returns The active guard, if the store is still waiting for its migration.
@@ -172,10 +178,11 @@ export function activeExodusDeferredGuard(nativeDb: DatabaseSync): ExodusDeferre
     activeGuards.delete(nativeDb);
     return undefined;
   }
-  const populated = nativeDb
-    .prepare(`SELECT 1 AS present FROM main.${sqlIdent(guard.anchor)} LIMIT 1`)
-    .get();
-  if (populated === undefined) return guard;
+  const populated =
+    nativeDb.prepare(`SELECT 1 AS present FROM main.${sqlIdent(guard.anchor)} LIMIT 1`).get() !==
+    undefined;
+  const sealed = guard.markerPath !== null && existsSync(guard.markerPath);
+  if (!populated && !sealed) return guard;
   liftExodusDeferredGuard(nativeDb);
   return undefined;
 }

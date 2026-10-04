@@ -18,12 +18,14 @@ it. The legacy rows stayed stranded until a manual reconcile.
   a pending migration asks for admission. It waits up to 5 s for the slot
   (`CLEO_EXODUS_ADMISSION_WAIT_MS`). Memory pressure still defers at once. Opens that need no
   migration no longer touch the governor at all.
-- **A pending migration guards the store BEFORE it waits.** The opened handle is already
-  shared with concurrent in-process opens, so they are covered too. Every INSERT into a table
-  the migration fills is refused with `E_EXODUS_DEFERRED_WRITE_UNSAFE` and the remedy. The
-  guard is a connection-local temp trigger, so it is never persisted. It fires only while the
-  scope's anchor table is empty: once any process migrates, a long-lived process writes
-  again without a restart. If the migration is admitted, the guard is lifted before it runs.
+- **A pending migration guards the store before the handle is even shared.** The open
+  assesses the store and installs the guard before publishing the handle to concurrent
+  in-process opens. Every INSERT into a table the migration fills is refused with
+  `E_EXODUS_DEFERRED_WRITE_UNSAFE` and the remedy. The guard stays up through the admission
+  wait and the migration itself. The copy runs on dedicated connections that never see the
+  guard. The guard is a connection-local temp trigger, so it is never persisted. It fires
+  only while the scope's anchor table is empty, and it lifts once the cutover is sealed: a
+  long-lived process writes again without a restart after any process migrates.
 - **Typed refusals.** Task writes refuse with the typed `ExodusAbortWriteUnsafeError`
   (`codeName` `E_EXODUS_DEFERRED_WRITE_UNSAFE`), and so do `assertWriteDurable`,
   `insertIdempotent` and `upsertIdempotent`. These checks are matched to the store being

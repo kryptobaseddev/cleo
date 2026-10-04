@@ -12,7 +12,7 @@
  * @task T13158
  */
 
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -34,6 +34,31 @@ import {
   LEGACY_TASK_IDS,
   seedLegacyTasksStore,
 } from './fixtures/legacy-tasks-store.js';
+
+/**
+ * Race injection for the publish-before-guard window (review HIGH-1a): when
+ * set, the next exodus assessment first fires `raceHook.fire` (a concurrent
+ * open + write) and yields a macrotask, as a cold module import does in a real
+ * CLI process, before assessing.
+ */
+const { raceHook } = vi.hoisted(() => ({ raceHook: { fire: null as null | (() => void) } }));
+vi.mock('../exodus/on-open.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../exodus/on-open.js')>();
+  return {
+    ...actual,
+    prepareExodusOnOpen: async (
+      ...args: Parameters<typeof actual.prepareExodusOnOpen>
+    ): ReturnType<typeof actual.prepareExodusOnOpen> => {
+      const fire = raceHook.fire;
+      if (fire !== null) {
+        raceHook.fire = null;
+        fire();
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      }
+      return actual.prepareExodusOnOpen(...args);
+    },
+  };
+});
 
 let root: string;
 let projectDir: string;
@@ -254,6 +279,125 @@ describe('deferred exodus-on-open (T13158)', () => {
     expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(LEGACY_TASK_IDS.length);
   });
 
+  /**
+   * Fire an `openDualScopeDb` + raw INSERT on every turn of the event loop until
+   * `stop.done`, from t=0, without waiting for earlier ones (review HIGH-1a /
+   * HIGH-1b): opens issued after the handle is published get it at once, the
+   * way a concurrent request does. Returns the ids that landed.
+   */
+  async function hammer(stop: { done: boolean }): Promise<string[]> {
+    const landed: string[] = [];
+    const inflight: Promise<void>[] = [];
+    let n = 0;
+    while (!stop.done) {
+      const id = `X${n++}`;
+      inflight.push(
+        (async () => {
+          try {
+            const h = await openDualScopeDb('project', projectDir);
+            insertTask(h, id);
+            landed.push(id);
+          } catch {
+            // Refused (guarded) or a closed handle mid-migration.
+          }
+        })(),
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    await Promise.all(inflight);
+    return landed;
+  }
+
+  /** Legacy ids present in the store, read on a fresh connection. */
+  async function legacyIdsInStore(): Promise<string[]> {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      return db
+        .prepare("SELECT id FROM tasks_tasks WHERE id IN ('T1','T2','T3') ORDER BY id")
+        .all()
+        .map((row) => String(row.id));
+    } finally {
+      db.close();
+    }
+  }
+
+  it('an open arriving while the first open assesses cannot land a write (review HIGH-1a)', async () => {
+    seedLegacyTasksStore(cleoDir);
+    vi.stubEnv('CLEO_EXODUS_ADMISSION_WAIT_MS', '400');
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(calm);
+    const holder = await governor.acquire('db-heavy', { blocking: false });
+    expect(holder.deferred).toBe(false);
+    let racer: Promise<'landed' | 'refused'> | undefined;
+    raceHook.fire = () => {
+      racer = (async () => {
+        try {
+          insertTask(await openDualScopeDb('project', projectDir), 'RACE');
+          return 'landed';
+        } catch {
+          return 'refused';
+        }
+      })();
+    };
+    try {
+      const opened = await openDualScopeDb('project', projectDir);
+      expect(racer).toBeDefined();
+      expect(await racer).toBe('refused');
+      expect(opened.exodusAbort?.kind).toBe('deferred');
+      expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(0);
+    } finally {
+      raceHook.fire = null;
+      if (!holder.deferred) await holder.release();
+    }
+    _resetDualScopeDbCache();
+    clearExodusAborts();
+    await openDualScopeDb('project', projectDir);
+    expect(await legacyIdsInStore()).toEqual(['T1', 'T2', 'T3']);
+  });
+
+  it('concurrent opens writing from t=0 never land before a deferred migration (review HIGH-1a)', async () => {
+    seedLegacyTasksStore(cleoDir);
+    vi.stubEnv('CLEO_EXODUS_ADMISSION_WAIT_MS', '400');
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(calm);
+    const holder = await governor.acquire('db-heavy', { blocking: false });
+    expect(holder.deferred).toBe(false);
+    const stop = { done: false };
+    try {
+      const first = openDualScopeDb('project', projectDir);
+      const writes = hammer(stop);
+      const opened = await first;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      stop.done = true;
+      expect(await writes).toEqual([]);
+      expect(opened.exodusAbort?.kind).toBe('deferred');
+      expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(0);
+    } finally {
+      stop.done = true;
+      if (!holder.deferred) await holder.release();
+    }
+    _resetDualScopeDbCache();
+    clearExodusAborts();
+    await openDualScopeDb('project', projectDir);
+    expect(await legacyIdsInStore()).toEqual(['T1', 'T2', 'T3']);
+  });
+
+  it('concurrent opens writing from t=0 never land before an admitted migration (review HIGH-1a/1b)', async () => {
+    seedLegacyTasksStore(cleoDir);
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(calm);
+    const stop = { done: false };
+    try {
+      const first = openDualScopeDb('project', projectDir);
+      const writes = hammer(stop);
+      await first;
+      stop.done = true;
+      await writes;
+    } finally {
+      stop.done = true;
+    }
+    // No write reached the store before the copy, so the migration ran in full.
+    expect(await legacyIdsInStore()).toEqual(['T1', 'T2', 'T3']);
+  });
+
   it('a long-lived process recovers once another connection migrates (review MED-1)', async () => {
     seedLegacyTasksStore(cleoDir);
     vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(memoryPressured);
@@ -279,6 +423,24 @@ describe('deferred exodus-on-open (T13158)', () => {
     await expect(assertExodusNotDeferred(native)).resolves.toBeUndefined();
     expect(handle.exodusAbort).toBeUndefined();
     expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(2);
+  });
+
+  it('lifts once the cutover is sealed even when the anchor stays empty (review LOW)', async () => {
+    // The legacy held rows, but none for the anchor table: after another process
+    // migrates, tasks_tasks is still empty. The completion marker ends the guard.
+    seedLegacyTasksStore(cleoDir);
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(memoryPressured);
+    const handle = await openDualScopeDb('project', projectDir);
+    const native = getDualScopeNativeDb(handle);
+    expect(() => insertTask(handle, 'T999')).toThrow(EXODUS_DEFERRED_WRITE_CODE);
+
+    const { exodusMarkerPath } = await import('../exodus/archive.js');
+    writeFileSync(exodusMarkerPath('project', projectDir, dbPath), '{}');
+
+    await expect(assertExodusNotDeferred(native)).resolves.toBeUndefined();
+    expect(handle.exodusAbort).toBeUndefined();
+    insertTask(handle, 'T999');
+    expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(1);
   });
 
   it('guards per connection: another store stays writable (review LOW-1)', async () => {

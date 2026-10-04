@@ -435,12 +435,20 @@ async function guardDeferredExodus(
   }
   if (sources.length === 0) return false;
   const detail = deferredDetail(scope, dbPath, reason, sources);
+  let markerPath: string | null = null;
+  try {
+    const { exodusMarkerPath } = await import('./exodus/archive.js');
+    markerPath = exodusMarkerPath(scope, cwd, dbPath);
+  } catch {
+    // No marker location: the guard lifts on the anchor alone.
+  }
   installExodusDeferredGuard(
     nativeDb,
     {
       anchor: exodusAnchorTable(scope),
       tables: [...new Set([...tables, exodusAnchorTable(scope)])],
       sources,
+      markerPath,
       detail,
       setMarker,
     },
@@ -1177,6 +1185,9 @@ export async function openDualScopeDbAtPath(
     // it, so every in-process holder of the cached handle sees a deferral set
     // (or lifted) after publication.
     let exodusMarker: ExodusAbortDetail | undefined;
+    // T13158: the exodus assessment, made BEFORE the handle is published (a
+    // holder object: the lease callback assigns it).
+    const exodusState: { preparation: ExodusOnOpenPreparation | null } = { preparation: null };
     try {
       execution?.assertActive();
       log.debug({ scope, dbPath: normalizedPath }, 'opening dual-scope cleo.db');
@@ -1295,6 +1306,47 @@ export async function openDualScopeDbAtPath(
             },
           };
 
+          // T13158: never publish an unguarded handle for a store that still
+          // owes a migration. Publication hands this connection to every
+          // concurrent in-process open, and an INSERT through it before the
+          // migration (or its guard) would make the store look populated and
+          // strand the legacy rows. So assess first, and when a migration is
+          // pending, guard the connection before anyone else can see it.
+          // Populated stores cost one COUNT(*) here.
+          if (
+            exodusCwd !== undefined &&
+            normalizedPath === resolveDualScopeDbPath(scope, exodusCwd)
+          ) {
+            try {
+              execution?.assertActive();
+              const { prepareExodusOnOpen } = await import('./exodus/on-open.js');
+              execution?.assertActive();
+              exodusState.preparation = await prepareExodusOnOpen(
+                scope,
+                normalizedPath,
+                nativeDb,
+                exodusCwd,
+              );
+              if (exodusState.preparation.kind === 'pending') {
+                execution?.assertActive();
+                await guardDeferredExodus(
+                  nativeDb,
+                  scope,
+                  normalizedPath,
+                  exodusCwd,
+                  'its migration has not run yet',
+                  (detail) => {
+                    exodusMarker = detail;
+                  },
+                );
+              }
+            } catch (err) {
+              execution?.assertActive();
+              exodusState.preparation = null;
+              log.warn({ err, scope }, 'exodus-on-open assessment unavailable (non-fatal)');
+            }
+          }
+
           execution?.assertActive();
           // Update the cache entry to mark init complete.
           const entry = _cache.get(key);
@@ -1357,31 +1409,12 @@ export async function openDualScopeDbAtPath(
         // Fail-open: a governor error proceeds un-gated, as before T12001.
         let releaseDbHeavy: (() => Promise<void>) | null = null;
         let deferral: string | null = null;
-        let preparation: ExodusOnOpenPreparation | null = null;
-        try {
-          execution?.assertActive();
-          const { prepareExodusOnOpen } = await import('./exodus/on-open.js');
-          execution?.assertActive();
-          preparation = await prepareExodusOnOpen(scope, normalizedPath, nativeDb, exodusCwd);
-        } catch (err) {
-          execution?.assertActive();
-          log.warn({ err, scope }, 'exodus-on-open assessment unavailable (non-fatal)');
-        }
+        const preparation = exodusState.preparation;
         if (preparation?.kind === 'pending') {
-          // The handle is already published to the cache, so a concurrent
-          // in-process open receives it during the admission wait: guard it
-          // BEFORE waiting, and lift the guard if the migration is admitted.
-          execution?.assertActive();
-          const guarded = await guardDeferredExodus(
-            nativeDb,
-            scope,
-            normalizedPath,
-            exodusCwd,
-            'waiting for db-heavy admission',
-            (detail) => {
-              exodusMarker = detail;
-            },
-          );
+          // The connection was guarded before publication (above). The guard
+          // stays up through the admission wait AND the migration: the copy runs
+          // on dedicated connections that never see its temp triggers, and the
+          // triggers stop refusing on their own once the copy commits the anchor.
           try {
             execution?.assertActive();
             const { governor } = await import('../resources/governor.js');
@@ -1401,10 +1434,7 @@ export async function openDualScopeDbAtPath(
             // Governor unavailable — fail open (proceed un-gated).
           }
           if (deferral !== null) {
-            if (guarded) await announceDeferredExodus(nativeDb, scope, normalizedPath, deferral);
-          } else {
-            const { liftExodusDeferredGuard } = await import('./exodus/deferred-guard.js');
-            liftExodusDeferredGuard(nativeDb);
+            await announceDeferredExodus(nativeDb, scope, normalizedPath, deferral);
           }
         }
         if (preparation === null || deferral !== null) {
@@ -1417,6 +1447,13 @@ export async function openDualScopeDbAtPath(
             const result = ready.kind === 'decided' ? ready.result : await ready.run();
             execution?.assertActive();
             if (result.outcome === 'migrated' || result.outcome === 'aborted') {
+              if (result.outcome === 'migrated') {
+                // The store now holds the legacy data: the pre-publication guard
+                // (if this connection is still open and cached) comes down (T13158).
+                // On `aborted` it stays: the store is still empty while legacy rows wait.
+                const { liftExodusDeferredGuard } = await import('./exodus/deferred-guard.js');
+                liftExodusDeferredGuard(nativeDb);
+              }
               // The migrate engine closed our handle — re-open fresh (un-armed) so the
               // caller receives a valid, live handle bound to the now-(de)populated DB.
               const reopened =
@@ -1451,6 +1488,11 @@ export async function openDualScopeDbAtPath(
                 clearExodusAborts(scope);
                 finalHandle = reopened;
               }
+            } else if (ready.kind === 'pending') {
+              // Skipped after all (a concurrent process migrated it first): the
+              // store owes nothing more, so the guard comes down (T13158).
+              const { liftExodusDeferredGuard } = await import('./exodus/deferred-guard.js');
+              liftExodusDeferredGuard(nativeDb);
             }
           } catch (err) {
             execution?.assertActive();
