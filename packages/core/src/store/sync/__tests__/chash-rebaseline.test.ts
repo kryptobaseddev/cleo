@@ -27,6 +27,7 @@ import { setSyncFlag } from '../flags.js';
 import { syncMigrationHooks } from '../migration-hooks.js';
 import {
   CHASH_BASELINE_KEY,
+  chashBaselineSnapshot,
   rebaselineChash,
   rowChash,
   sealPending,
@@ -98,6 +99,19 @@ const liveChash = (db: DatabaseSync, uid: string) => {
   return rowChash(db, 'project', def, uid);
 };
 
+function suspended(db: DatabaseSync, sql: string): void {
+  db.exec("INSERT INTO cleo_trigger_suspend (scope) VALUES ('capture')");
+  db.exec(sql);
+  db.exec('DELETE FROM cleo_trigger_suspend');
+}
+
+const suspect = (db: DatabaseSync) =>
+  (
+    db.prepare("SELECT key FROM _sync_meta WHERE key LIKE 'suspect:%'").all() as Array<{
+      key: string;
+    }>
+  ).map((r) => r.key.slice('suspect:'.length));
+
 const n = (db: DatabaseSync, sql: string) => (db.prepare(sql).get() as { n: number }).n;
 
 function migrate(db: DatabaseSync, name: string, sql: string): void {
@@ -148,7 +162,7 @@ describe('migration backfills re-baseline chash and emit nothing (T12775)', () =
     expect(syncSetVersion(db, 'project')).not.toBe(v1);
   });
 
-  it('a tombstone keeps the hash it was deleted with, and a second re-baseline changes nothing', async () => {
+  it('a tombstone keeps the hash it was deleted with', async () => {
     const db = await store();
     addTask(db, 'T1');
     addTask(db, 'T2');
@@ -160,12 +174,61 @@ describe('migration backfills re-baseline chash and emit nothing (T12775)', () =
     db.exec('COMMIT');
     seal(db);
     const tomb = metaChash(db, 'uid-T2');
-    db.exec("INSERT INTO cleo_trigger_suspend (scope) VALUES ('capture')");
-    db.exec("UPDATE tasks_tasks SET title = 'changed' WHERE id = 'T1'");
-    db.exec('DELETE FROM cleo_trigger_suspend');
-    expect(rebaselineChash(db, 'project').rows).toBe(1);
+    migrate(db, '20991231000002_backfill', 'UPDATE `tasks_tasks` SET `title` = upper(`title`)');
     expect(metaChash(db, 'uid-T2')).toBe(tomb);
-    expect(rebaselineChash(db, 'project').rows).toBe(0);
+    expect(metaChash(db, 'uid-T1')).toBe(liveChash(db, 'uid-T1'));
+  });
+
+  it('an uncaptured edit made before an unrelated migration keeps its divergence, and its table goes suspect (review-hotfix HIGH)', async () => {
+    const db = await store();
+    addTask(db, 'T1');
+    seal(db);
+    suspended(db, "UPDATE tasks_tasks SET title = 'unsent local edit' WHERE id = 'T1'");
+    const before = metaChash(db, 'uid-T1');
+    expect(before).not.toBe(liveChash(db, 'uid-T1'));
+
+    migrate(db, '20991231000003_unrelated', 'CREATE TABLE `zz_t12775_unrelated` (`id` TEXT)');
+    expect(metaChash(db, 'uid-T1')).toBe(before);
+
+    migrate(db, '20991231000004_backfill', 'UPDATE `tasks_tasks` SET `priority` = `priority`');
+    expect(metaChash(db, 'uid-T1')).toBe(before);
+    expect(suspect(db)).toContain('tasks_tasks');
+  });
+
+  it('a table already marked suspect, and a row with a live capture, are not re-baselined', async () => {
+    const db = await store();
+    addTask(db, 'T1');
+    addTask(db, 'T2');
+    seal(db);
+    // T2 has a captured, unsealed edit: the sealer will hash it.
+    db.exec('BEGIN IMMEDIATE');
+    const frame = openCaptureFrame(db, 'write', 'test');
+    db.exec("UPDATE tasks_tasks SET title = 'captured' WHERE id = 'T2'");
+    finishCaptureFrame(db, frame);
+    db.exec('COMMIT');
+    const t2 = metaChash(db, 'uid-T2');
+    migrate(db, '20991231000005_backfill', 'UPDATE `tasks_tasks` SET `title` = upper(`title`)');
+    expect(metaChash(db, 'uid-T2')).toBe(t2);
+    expect(metaChash(db, 'uid-T1')).toBe(liveChash(db, 'uid-T1'));
+    expect(suspect(db)).toEqual([]); // a captured edit is not an uncaptured divergence
+
+    // A suspect table (e.g. exodus, #1858) keeps its divergence for the repair diff.
+    db.exec(
+      "INSERT INTO _sync_meta (key, value, updated_at) VALUES ('suspect:tasks_tasks', 'x', 'x')",
+    );
+    const t1 = metaChash(db, 'uid-T1');
+    migrate(db, '20991231000006_backfill', 'UPDATE `tasks_tasks` SET `title` = lower(`title`)');
+    expect(metaChash(db, 'uid-T1')).toBe(t1);
+    expect(t1).not.toBe(liveChash(db, 'uid-T1'));
+  });
+
+  it('a migration that changes no row and no captured column re-hashes nothing', async () => {
+    const db = await store();
+    addTask(db, 'T1');
+    seal(db);
+    const snap = chashBaselineSnapshot(db, 'project');
+    db.exec('CREATE TABLE zz_t12775_quiet (id TEXT)');
+    expect(rebaselineChash(db, 'project', snap)).toMatchObject({ rows: 0 });
   });
 
   it('a store that never sealed gets only the capture hooks', async () => {
