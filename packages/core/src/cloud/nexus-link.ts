@@ -4,13 +4,23 @@
  *
  * ## What is sent
  *
- * `POST /v1/projects` with `{ projectId, label }` only:
+ * `POST /v1/projects` with `{ projectId, label }`, plus `initialKey` for a
+ * new project:
  *
  * - `projectId` is the tracked, immutable `.cleo/project-id`
  *   (`readDeclaredProjectIdentity`), the key the server stores projects under,
  *   so the remote id IS the local id.
  * - `label` is the project's display name in plaintext
  *   ({@link getProjectDisplayName}), or `--label`. It must not look like a path.
+ * - `initialKey` (onboarding B, T13101) is the project's first data key,
+ *   wrapped by the account master key at version 1, which the server stores
+ *   in the same transaction as the project. It is sent only when E3
+ *   (`GET /v1/status?projectId=`) lists {@link NEXUS_FEATURE_PROJECT_INITIAL_KEY},
+ *   names a full-profile device credential, and does not see the project yet.
+ *   A re-link never sends a key. A project registered without one (by an
+ *   older CLI, a server without the feature, or a device that could not
+ *   unlock the account key) gets it from its first `cleo cloud push`
+ *   (cleo-nexus #33).
  *
  * No filesystem path, git remote or directory layout is ever sent.
  *
@@ -38,14 +48,21 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { NexusProjectLink, NexusProjectLinkResult } from '@cleocode/contracts';
+import type { InitialProjectKey } from '@cleocode/contracts/cloud';
+import {
+  NEXUS_FEATURE_PROJECT_INITIAL_KEY,
+  nexusCloudStatusSchema,
+} from '@cleocode/contracts/nexus-cloud.js';
 import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { z } from 'zod';
 import { getCleoDirAbsolute, resolveOrCwd } from '../paths.js';
 import { getProjectDisplayName } from '../project-info.js';
 import { withLock } from '../store/file-utils.js';
-import { Http, NexusError } from './http.js';
+import { type FetchLike, Http, NexusError } from './http.js';
+import { isSendableWrap, newProjectKey, wrapProjectKey } from './keys.js';
 import { attachProjectReplica, type ProjectReplicaBinder } from './nexus-attach.js';
 import {
+  NEXUS_PROJECT_KEY_OWNER_REMEDY,
   NexusAccountError,
   type NexusFlowOptions,
   requireNexusSession,
@@ -54,6 +71,7 @@ import {
 import { FileNexusTokenStore } from './nexus-credentials.js';
 import { isNexusDeviceEnabled, type NexusDeviceStore } from './nexus-device.js';
 import { ensureNexusDeviceCredential, nexusApiErrorToAccountError } from './nexus-enrol.js';
+import type { NexusVaultState } from './nexus-vault-state.js';
 import { registerProject } from './projects.js';
 
 /** File name of the binding, inside the project's `.cleo/` directory. */
@@ -61,6 +79,9 @@ export const NEXUS_LINK_FILE = 'nexus-link.json';
 
 /** Longest label the server accepts (`RegisterProjectRequest.label`). */
 export const NEXUS_LABEL_MAX = 120;
+
+/** Timeout of the E3 probe that decides whether a registration carries the project key. */
+export const NEXUS_LINK_PROBE_TIMEOUT_MS = 15_000;
 
 const linkSchema = z.looseObject({
   apiUrl: z.string(),
@@ -154,6 +175,10 @@ export interface NexusLinkOptions extends NexusFlowOptions {
   cliVersion?: string;
   /** `--rebind`: give this store a new replica id before attaching (see {@link attachProjectReplica}). */
   rebind?: boolean;
+  /** Vault state (trust pins read while unlocking the account key); defaults to `<cleoHome>/nexus-vault.json`. */
+  vaultState?: NexusVaultState;
+  /** Timeout of the E3 probe; default {@link NEXUS_LINK_PROBE_TIMEOUT_MS}. */
+  probeTimeoutMs?: number;
 }
 
 /**
@@ -294,11 +319,138 @@ async function registerProjectOnce(
 }
 
 /**
- * Register the project with Nexus (label only, never a path) and persist the
- * binding in `.cleo/nexus-link.json`. Idempotent.
+ * Whether a refusal of a registration that carried `initialKey` means the
+ * key, not the project, was refused: 409 `keys-exist` (the project was
+ * registered with a key since the E3 probe) or a credential without
+ * `keys:write` (403). Either way the project is registered without it.
+ */
+function initialKeyRefused(err: unknown): boolean {
+  if (!(err instanceof NexusError)) return false;
+  if (err.status === 409) return err.details?.['reason'] === 'keys-exist';
+  return (
+    err.status === 403 &&
+    err.details?.['reason'] === 'insufficient-scope' &&
+    err.details?.['requiredScope'] === 'keys:write'
+  );
+}
+
+/**
+ * {@link registerProjectOnce}. When the server refuses the `initialKey` it
+ * carried ({@link initialKeyRefused}), the registration is sent once more
+ * without it, as a re-link: a project that already has a key never gets a
+ * second one from link.
+ */
+async function registerLinkedProject(
+  http: Http,
+  req: Parameters<typeof registerProject>[1],
+): Promise<Awaited<ReturnType<typeof registerProject>>> {
+  try {
+    return await registerProjectOnce(http, req);
+  } catch (err) {
+    if (req.initialKey === undefined || !initialKeyRefused(err)) throw err;
+    const { initialKey: _refused, ...plain } = req;
+    return registerProjectOnce(http, plain);
+  }
+}
+
+/** What the E3 probe found: the registration carries the key, it does not, or the probe failed (why). */
+type InitialKeyProbe = 'key' | 'no-key' | { failed: string };
+
+/**
+ * Whether this registration may carry the project's first data key: E3 lists
+ * {@link NEXUS_FEATURE_PROJECT_INITIAL_KEY}, the credential is a full-profile
+ * device (`keys:write`), and this account does not see the project yet. A
+ * server without E3 (404) takes no key. Any other failure (a refused, late or
+ * malformed answer) is reported as such, and the registration is then the
+ * one older servers get. One attempt, bounded by
+ * {@link NexusLinkOptions.probeTimeoutMs}.
+ */
+async function probeInitialKey(
+  opts: NexusLinkOptions,
+  apiUrl: string,
+  bearer: string,
+  projectId: string,
+): Promise<InitialKeyProbe> {
+  const base: FetchLike =
+    opts.fetch ?? ((input: string, init?: RequestInit) => globalThis.fetch(input, init));
+  const timeoutMs = opts.probeTimeoutMs ?? NEXUS_LINK_PROBE_TIMEOUT_MS;
+  const http = new Http({
+    baseUrl: apiUrl,
+    token: bearer,
+    maxAttempts: 1,
+    fetch: (input, init) => base(input, { ...init, signal: AbortSignal.timeout(timeoutMs) }),
+  });
+  try {
+    const status = await http.request(
+      'GET',
+      `/v1/status?projectId=${encodeURIComponent(projectId)}`,
+      nexusCloudStatusSchema,
+    );
+    return (status.features ?? []).includes(NEXUS_FEATURE_PROJECT_INITIAL_KEY) &&
+      status.credential.profile === 'device' &&
+      status.project?.registered === false
+      ? 'key'
+      : 'no-key';
+  } catch (err) {
+    if (err instanceof NexusError && err.status === 404 && err.code === 'E_NOT_FOUND') {
+      return 'no-key';
+    }
+    return { failed: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * A new project data key wrapped by the account master key at version 1, for
+ * `initialKey`. The account key is only read here (a read-only unlock): link
+ * never mints it, `cleo login` provisions it (onboarding A). When this device
+ * cannot unlock it, the answer is a warning instead, and the project's first
+ * `cleo cloud push` creates the key. Nothing here logs or returns a key in
+ * plaintext.
+ */
+async function newInitialProjectKey(
+  opts: NexusLinkOptions,
+  apiUrl: string,
+  projectId: string,
+): Promise<{ initialKey: InitialProjectKey } | { warning: string }> {
+  try {
+    // Imported here, not at the top: nexus-vault-keys imports nexus-cloud, which imports this module.
+    const { connectNexusVault, unlockNexusAccountKey } = await import('./nexus-vault-keys.js');
+    const conn = await connectNexusVault({
+      apiUrl,
+      ...(opts.store ? { store: opts.store } : {}),
+      ...(opts.fetch ? { fetch: opts.fetch } : {}),
+      ...(opts.deviceStore ? { deviceStore: opts.deviceStore } : {}),
+      ...(opts.vaultState ? { vaultState: opts.vaultState } : {}),
+    });
+    const { masterKey } = await unlockNexusAccountKey(conn, { readOnly: true });
+    const wrappedProjectKey = wrapProjectKey(masterKey, newProjectKey(), projectId, 1);
+    // Never send an empty or padding-only wrap: cleo-nexus #35 refuses it with 400 (T13101).
+    if (!isSendableWrap(wrappedProjectKey))
+      throw new Error('the new project key wrapped to nothing');
+    return { initialKey: { wrappedProjectKey } };
+  } catch (err) {
+    const why =
+      err instanceof NexusAccountError && err.code === 'E_NEXUS_VAULT_EMPTY'
+        ? 'this account has no encryption key yet'
+        : err instanceof NexusAccountError
+          ? `${err.code}: ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : String(err);
+    return {
+      warning: `the project was registered without its encryption key (${why}); the first \`cleo cloud push\` creates it`,
+    };
+  }
+}
+
+/**
+ * Register the project with Nexus (label only, never a path; a new project
+ * with its first data key when the server takes it) and persist the binding
+ * in `.cleo/nexus-link.json`. Idempotent.
  *
  * @param opts - Project root, label, API URL, store and test overrides.
- * @returns The binding and whether it already existed.
+ * @returns The binding, whether it already existed, and the key version the
+ *   registration stored.
  * @throws {NexusAccountError} Not signed in, expired session, invalid label,
  *   not a CLEO project, or an API refusal (e.g. the id belongs to another account).
  */
@@ -350,6 +502,21 @@ export async function linkProjectToNexus(
   const projectId = identity.projectId;
   const label = resolveLinkLabel(projectRoot, opts.label);
 
+  const warnings: string[] = handle ? [...handle.warnings] : [];
+  // Onboarding B: a new project is registered with its first data key. A 9.24
+  // session has no account key, so it never sends one.
+  let initialKey: InitialProjectKey | undefined;
+  const probe = handle ? await probeInitialKey(opts, apiUrl, bearer, projectId) : 'no-key';
+  if (probe === 'key') {
+    const minted = await newInitialProjectKey(opts, apiUrl, projectId);
+    if ('initialKey' in minted) initialKey = minted.initialKey;
+    else warnings.push(minted.warning);
+  } else if (probe !== 'no-key') {
+    warnings.push(
+      `could not ask Cleo Nexus whether it stores a new project's encryption key with its registration (${probe.failed}), so none was sent; if the project is new, its first \`cleo cloud push\` creates the key`,
+    );
+  }
+
   const http = new Http({
     baseUrl: apiUrl,
     token: bearer,
@@ -357,16 +524,27 @@ export async function linkProjectToNexus(
   });
   let registered: Awaited<ReturnType<typeof registerProject>>;
   try {
-    registered = await registerProjectOnce(http, { projectId, label });
+    registered = await registerLinkedProject(http, {
+      projectId,
+      label,
+      ...(initialKey ? { initialKey } : {}),
+    });
   } catch (err) {
     throw deviceMode ? nexusApiErrorToAccountError(err) : toLinkError(err);
+  }
+  // cleo-nexus #35 stores initialKey only for the project owner role (an org
+  // owner or admin). A member's new project is created without it (201, null),
+  // and this account's first push will be refused, so say so now (T13101).
+  if (initialKey && registered.created && registered.initialKeyVersion === null) {
+    warnings.push(
+      `Cleo Nexus registered the project without its encryption key: only an org owner or admin can create it, so ${NEXUS_PROJECT_KEY_OWNER_REMEDY} before this account can \`cleo cloud push\``,
+    );
   }
 
   // Steps 3 to 5 of §3.6: attach this store's replica to the device and
   // report presence. A 9.24 session cannot attach (the route needs a device).
   // An attach failure never fails the link: the project is registered, the
   // binding below is still written, and the warning names the remedy.
-  const warnings: string[] = handle ? [...handle.warnings] : [];
   let replica: NexusProjectLinkResult['replica'] = null;
   let attachError: NexusProjectLinkResult['attachError'] = null;
   if (handle === null && opts.rebind === true) {
@@ -462,6 +640,7 @@ export async function linkProjectToNexus(
     linkPath,
     replica,
     attachError,
+    initialKeyVersion: initialKey ? (registered.initialKeyVersion ?? null) : null,
     warnings,
   };
 }
