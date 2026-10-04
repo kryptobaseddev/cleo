@@ -83,19 +83,21 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { inspect } from 'node:util';
+import type {
+  DecideProfileConnection,
+  DecideProfileListResult,
+  DecideProfileSummary,
+  DecideProfileUrlSource,
+  DecisionProviderKind,
+} from '@cleocode/contracts';
 import {
   DECIDE_DEFAULT_PROFILE_NAME,
   DECIDE_PROFILE_DEFAULT_URL,
   DECIDE_PROFILE_NAME_PATTERN,
   DECISION_PROVIDER_KINDS,
-  type DecideProfileConnection,
-  type DecideProfileListResult,
-  type DecideProfileSummary,
-  type DecideProfileUrlSource,
-  type DecisionProviderKind,
   decisionProviderConfigSchema,
   decisionProviderKindSchema,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/decide.js';
 import { getCleoHome } from '@cleocode/paths';
 import { z } from 'zod';
 import { withLock } from '../store/file-utils.js';

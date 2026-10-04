@@ -9,7 +9,8 @@
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { ExitCode, type SessionRecordAssumptionParams } from '@cleocode/contracts';
+import type { SessionRecordAssumptionParams } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { requireBoundSession } from '../store/session-store.js';
 import type { AssumptionRecord } from './types.js';

@@ -6,8 +6,8 @@
  * @task T1450 — normalized (projectRoot, params) signature
  */
 
-import type { Session } from '@cleocode/contracts';
-import { ExitCode, type SessionShowParams } from '@cleocode/contracts';
+import type { Session, SessionShowParams } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 

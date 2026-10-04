@@ -15,7 +15,7 @@
  */
 
 import type { AgentSpawnCapability } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 
 /**
  * Maximum number of files a worker-role task may declare before it must be

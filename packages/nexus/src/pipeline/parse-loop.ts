@@ -44,13 +44,13 @@ import type {
   ParserExecutionLimits,
   ParserExecutionPort,
 } from '@cleocode/contracts';
-import { confidenceLabelFromNumeric } from '@cleocode/contracts';
 import type {
   GraphAnalysisCapability,
   GraphFileCapabilityCoverage,
   GraphFileClassification,
   GraphFileRole,
 } from '@cleocode/contracts/graph';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts/graph.js';
 import { type ParseError, parseTree, printParseErrorCode } from 'jsonc-parser';
 import type Parser from 'tree-sitter';
 import { parseOriginalSource } from '../code/parser.js';

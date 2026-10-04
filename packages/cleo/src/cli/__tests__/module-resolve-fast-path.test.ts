@@ -72,6 +72,10 @@ beforeAll(() => {
   put('esm/src/b.js');
   put('esm/src/c.cjs', 'module.exports = 1;\n');
   put('esm/src/nested/d.js');
+  put('esm/lib/node_modules/.keep', '');
+  put('esm/lib/x.js');
+  put('esm/lib/deep/y.js');
+  put('esm/lib/deep/z.js');
   put('cjs/package.json', JSON.stringify({ name: 'cjs', type: 'commonjs' }));
   put('cjs/a.js', 'module.exports = 1;\n');
   put('cjs/b.js', 'module.exports = 2;\n');
@@ -195,18 +199,47 @@ describe('createFastResolve — relative specifiers', () => {
 });
 
 describe('createFastResolve — bare specifiers', () => {
-  it('asks Node once per (specifier, parent directory, conditions)', () => {
+  it('asks Node once per (specifier, package root, conditions)', () => {
     const next = fakeNext();
     const resolve = createFastResolve();
     const first = resolve('zod', ctx('esm/src/a.js'), next);
     const sameDir = resolve('zod', ctx('esm/src/b.js'), next);
+    const nestedDir = resolve('zod', ctx('esm/src/nested/d.js'), next);
     expect(next).toHaveBeenCalledOnce();
     expect(sameDir).toEqual({ url: first.url, format: first.format, shortCircuit: true });
+    expect(nestedDir).toEqual(sameDir);
 
-    resolve('zod', ctx('esm/src/nested/d.js'), next);
-    expect(next).toHaveBeenCalledTimes(2);
     resolve('zod', ctx('esm/src/a.js', { conditions: ['node', 'import', 'custom'] }), next);
+    expect(next).toHaveBeenCalledTimes(2);
+  });
+
+  it('never shares an answer across packages', () => {
+    const next = fakeNext();
+    const resolve = createFastResolve();
+    resolve('zod', ctx('esm/src/a.js'), next);
+    resolve('zod', ctx('cjs/a.js'), next);
+    expect(next).toHaveBeenCalledTimes(2);
+  });
+
+  it('a directory with a node_modules between it and the package root keeps its own entry', () => {
+    // esm/lib/node_modules exists: Node's walk from esm/lib (and below) reaches
+    // it before the package root, so those directories may resolve differently.
+    const next = fakeNext();
+    const resolve = createFastResolve();
+    resolve('zod', ctx('esm/src/a.js'), next);
+    resolve('zod', ctx('esm/lib/x.js'), next);
+    resolve('zod', ctx('esm/lib/deep/y.js'), next);
     expect(next).toHaveBeenCalledTimes(3);
+    resolve('zod', ctx('esm/lib/deep/z.js'), next);
+    expect(next).toHaveBeenCalledTimes(3);
+  });
+
+  it('a package directory under node_modules without its own package.json keeps its own entry', () => {
+    const next = fakeNext();
+    const resolve = createFastResolve();
+    resolve('zod', ctx('app/node_modules/bare/a.js'), next);
+    resolve('zod', ctx('app/a.js'), next);
+    expect(next).toHaveBeenCalledTimes(2);
   });
 
   it('never caches node: builtins, #imports or absolute specifiers', () => {

@@ -33,7 +33,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
+import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
 
 // ---------------------------------------------------------------------------
 // Constants

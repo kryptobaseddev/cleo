@@ -23,12 +23,9 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  CHANGESET_KINDS,
-  type ChangesetEntry,
-  type ChangesetKind,
-  ExitCode,
-} from '@cleocode/contracts';
+import type { ChangesetEntry, ChangesetKind } from '@cleocode/contracts';
+import { CHANGESET_KINDS } from '@cleocode/contracts/changesets.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   changesets,
   dataTable,

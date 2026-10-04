@@ -41,13 +41,13 @@
  */
 
 import type { CloudWarning, NexusAccountSetup, NexusAccountSetupStep } from '@cleocode/contracts';
-import { nexusProjectKeysSchema, nexusUserKeysSchema } from '@cleocode/contracts';
 import {
   type DeviceTrust,
   DeviceTrust as DeviceTrustSchema,
   KeyEscrowGrant,
   PutKeyEscrowResult,
 } from '@cleocode/contracts/cloud';
+import { nexusProjectKeysSchema, nexusUserKeysSchema } from '@cleocode/contracts/nexus-vault.js';
 import { z } from 'zod';
 import { type KeyPair, openSealed, randomKey } from './crypto.js';
 import { type FetchLike, Http, NexusError, type ResponseSchema } from './http.js';
@@ -55,13 +55,18 @@ import {
   certifiedSigners,
   createDeviceGrant,
   homeStreamKey,
+  isSendableWrap,
   masterKeyVerifier,
   newProjectKey,
   type TrustedSigners,
   unwrapProjectKey,
   wrapProjectKey,
 } from './keys.js';
-import { NexusAccountError, resolveNexusApiUrl } from './nexus-auth.js';
+import {
+  NEXUS_PROJECT_KEY_OWNER_REMEDY,
+  NexusAccountError,
+  resolveNexusApiUrl,
+} from './nexus-auth.js';
 import {
   assertNexusCloudDeviceMode,
   NEXUS_CLOUD_TIMEOUT_MS,
@@ -550,10 +555,11 @@ function refusedFirstKey(err: unknown, projectId: string): NexusAccountError | n
       );
     case 'project-role':
       // Checked before the server knows whether the project has a key, so an owner may already
-      // have created one and not shared it with this account.
+      // have created one and not shared it with this account. A device cannot create it for a
+      // project its account does not own (cleo-nexus #35), so the remedy names a session (T13101).
       return keyUnavailable(
         `this account holds no key for project ${projectId}, and only a project owner can create one`,
-        'ask a project owner to share the project key with this account, or, if the project has no key yet, to run the first `cleo cloud push`',
+        `${NEXUS_PROJECT_KEY_OWNER_REMEDY}, or, if the project already has a key, share it with this account`,
       );
     default:
       return null;
@@ -590,9 +596,16 @@ export async function nexusProjectDataKey(
   const have = await read();
   if (have !== null || !mint) return have;
   const pdk = newProjectKey();
+  const wrappedProjectKey = wrapProjectKey(mk, pdk, projectId, 1);
+  // Never send an empty or padding-only wrap: cleo-nexus #35 refuses it with 400 (T13101).
+  if (!isSendableWrap(wrappedProjectKey)) {
+    throw keyUnavailable(
+      `the new key of project ${projectId} wrapped to nothing; nothing was sent`,
+    );
+  }
   try {
     await conn.raw('PUT', `${path}/${encodeURIComponent(conn.userId)}`, z.looseObject({}), {
-      wrappedProjectKey: wrapProjectKey(mk, pdk, projectId, 1),
+      wrappedProjectKey,
       keyVersion: 1,
       // Cleo Nexus accepts a new key version, the first one included, only as a rotation naming
       // the current highest version (cleo-nexus T12856). The two fields stay out of the shared

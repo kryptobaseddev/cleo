@@ -2767,7 +2767,7 @@ export {
 // T11568 — coordinated CLI teardown: terminates the brain-writer worker thread
 // + pino-roll transport + DB handles so short-lived commands exit rc:0 instead
 // of hanging on a live MessagePort.
-export { shutdownCliRuntime } from './shutdown.js';
+export { settleBeforeExit, shutdownCliRuntime } from './shutdown.js';
 export {
   activeHandleSummary,
   armExitBackstop,
@@ -2776,6 +2776,9 @@ export {
   type StepOutcome,
   withDeadline,
 } from './shutdown-deadline.js';
+// T13164 — the CLI tracks its best-effort hook dispatches so teardown, or the
+// settle before an error exit, waits for them.
+export { trackBackgroundOp } from './store/background-ops.js';
 // Store — project detection (used by cleo init tests)
 export { detectProjectType } from './store/project-detect.js';
 export { closeAllDatabases, closeDb, resetDbState } from './store/sqlite.js';

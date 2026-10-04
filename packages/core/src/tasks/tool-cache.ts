@@ -61,7 +61,8 @@ import {
 import { constants as osConstants, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { ExitCode, type HeavyToolResourcePlan } from '@cleocode/contracts';
+import type { HeavyToolResourcePlan } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { ADMISSION_ENV, planFootprintBytes } from '../resources/admission-ledger.js';
 import { activeToolGroups, trackToolGroup } from '../resources/tool-groups.js';

@@ -17,7 +17,7 @@
  * @adr 076
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { getProjectRoot, parseConfigValue, setConfigValue } from '@cleocode/core';
 import { type ValidateScope, validateConfig } from '@cleocode/core/config/registry';
 import { defineCommand } from '../../lib/define-cli-command.js';

@@ -38,14 +38,14 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { availableParallelism, totalmem } from 'node:os';
 import { join } from 'node:path';
-import {
-  type AdmissionResult,
-  DEFAULT_RESOURCE_RETRY_AFTER_MS,
-  type GovernorMode,
-  type ResourceClass,
-  type ResourceDeferral,
-  type ResourceGrant,
+import type {
+  AdmissionResult,
+  GovernorMode,
+  ResourceClass,
+  ResourceDeferral,
+  ResourceGrant,
 } from '@cleocode/contracts';
+import { DEFAULT_RESOURCE_RETRY_AFTER_MS } from '@cleocode/contracts/resource-governor.js';
 import { getLogger } from '../logger.js';
 import { getCleoHome } from '../paths.js';
 import {
@@ -147,18 +147,6 @@ export interface BudgetOptions {
   readonly cpuCount?: number;
   /** Override total RAM bytes (tests). Default {@link totalmem}. */
   readonly totalMemBytes?: number;
-  /**
-   * Budget on MEMORY pressure alone, ignoring the CPU signal (T13119, T13150).
-   *
-   * For work that must not be deferred merely because the machine is busy: a
-   * required migration of the store being opened, whose deferral leaves the
-   * command reading an empty store. CPU saturation slows such work; it cannot
-   * exhaust memory, which is what the governor exists to prevent. On macOS
-   * the CPU signal is derived from the load average (T12981), so any machine
-   * whose load exceeds twice its effective cores (a CI runner under vitest, a
-   * Mac running agents) read as `backoff` and deferred it.
-   */
-  readonly ignoreCpuPressure?: boolean;
 }
 
 const MB = 1024 * 1024;
@@ -175,6 +163,33 @@ function memorySomeAvg10(sample: ResourceSample): number {
 }
 
 /**
+ * Classes whose budget CPU saturation may narrow: the multi-process heavy runs,
+ * where piling more workers onto saturated cores only slows every one of them.
+ * Every other class is budgeted on memory alone (T13170): CPU saturation slows
+ * work, it cannot exhaust memory, which is what the governor exists to
+ * prevent. On macOS the CPU signal is the load average (T12981), which reads a
+ * busy but healthy machine (a CI runner under vitest, a Mac running agents) as
+ * `backoff`; gating db-heavy on it skipped the sentient tick and exodus.
+ */
+const CPU_NARROWED_CLASSES: ReadonlySet<ResourceClass> = new Set<ResourceClass>([
+  'test-run',
+  'scoped-build',
+]);
+
+/** The pressure a class's budget is computed from, and its label for a deferral reason. */
+function budgetSignal(
+  cls: ResourceClass,
+  sample: ResourceSample,
+): { readonly value: number; readonly label: string } {
+  if (CPU_NARROWED_CLASSES.has(cls)) {
+    const value = someAvg10(sample);
+    return { value, label: `some avg10=${value.toFixed(1)}` };
+  }
+  const value = memorySomeAvg10(sample);
+  return { value, label: `memory some avg10=${value.toFixed(1)}` };
+}
+
+/**
  * Compute the slot budget for a class given a point-sample.
  *
  * - `interactive-cli` → `Infinity` (never gated).
@@ -185,8 +200,13 @@ function memorySomeAvg10(sample: ResourceSample): number {
  *   at least `1` otherwise).
  * - `agent-session` → `clamp(1, ⌊(MemAvailable − headroom)/estRamMb⌋, cpus−2)`.
  * - `llm-call` → `max(1, cpus−2)` (primarily gated by the llm-queue elsewhere).
- * - `db-heavy` → `1`, deferred (→0) under `backoff`-level pressure.
- * - `background-autonomous` → `1` only when pressure is `ok`, else `0`.
+ * - `db-heavy` → `1`, deferred (→0) under `backoff`-level MEMORY pressure.
+ * - `background-autonomous` → `1` only when MEMORY pressure is `ok`, else `0`.
+ *
+ * Only `test-run`/`scoped-build` count CPU saturation (the combined
+ * {@link pressureScore}); every other class is budgeted on memory alone
+ * (T13170), so a busy machine never defers a store migration or the sentient
+ * tick.
  *
  * @adr resource-governor-never-oom-architecture §3.4 (budgets)
  */
@@ -202,7 +222,7 @@ export function computeClassBudget(
   const headroomBytes = (opts.headroomMb ?? 2048) * MB;
   const hold = opts.holdSomeAvg10 ?? 10;
   const floor = opts.floorSomeAvg10 ?? 25;
-  const some = opts.ignoreCpuPressure === true ? memorySomeAvg10(sample) : someAvg10(sample);
+  const some = budgetSignal(cls, sample).value;
   // MemAvailable can be null on non-Linux / read error — fall back to total.
   const availBytes = sample.memAvailableBytes ?? totalBytes;
   const fullStall = sample.globalPressure?.full?.avg10 ?? sample.slicePressure?.full?.avg10 ?? 0;
@@ -464,15 +484,10 @@ export class ResourceGovernor {
 
     if (!Number.isFinite(budget)) return passThroughGrant(cls);
     if (budget <= 0) {
-      // Name the signal the budget was computed from: memory alone under
-      // `ignoreCpuPressure`, else the combined memory/CPU score (T13158).
-      const signal =
-        opts.ignoreCpuPressure === true
-          ? `memory some avg10=${memorySomeAvg10(sample).toFixed(1)}`
-          : `some avg10=${someAvg10(sample).toFixed(1)}`;
+      // Name the signal the budget was computed from (T13158, T13170).
       return deferral(
         cls,
-        `class '${cls}' budget is 0 under current pressure (${signal})`,
+        `class '${cls}' budget is 0 under current pressure (${budgetSignal(cls, sample).label})`,
         DEFAULT_RESOURCE_RETRY_AFTER_MS,
       );
     }

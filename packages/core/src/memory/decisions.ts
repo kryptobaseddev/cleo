@@ -10,13 +10,13 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { DialecticInsights } from '@cleocode/contracts';
+import { DecisionValidatorFailedError } from '@cleocode/contracts/errors.js';
 import {
   CANONICAL_TYPE_TAGS,
-  DecisionValidatorFailedError,
-  type DialecticInsights,
   TaxonomyError,
   TaxonomyRegistry,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/taxonomy.js';
 import type { DecideOptions } from '../decide/client.js';
 import type { DecisionSiteMode } from '../decide/site.js';
 import { getLogger } from '../logger.js';

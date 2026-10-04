@@ -73,6 +73,10 @@
       "jobs": {
         "tests": ["Unit Tests*"],
         "qa": ["Type Check", "Lint & Format"]
+      },
+      "covering": {
+        "tests": [{ "paths": ["scripts/**"], "jobs": ["Scripts Tests"] }],
+        "qa": [{ "paths": ["scripts/**"], "jobs": ["Lint & Format"] }]
       }
     }
   }

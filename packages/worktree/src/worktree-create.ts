@@ -46,7 +46,7 @@ interface CreateWorktreeResultWithBootstrap extends CreateWorktreeResult {
   appliedScope: string | null;
 }
 
-import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
+import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
 import { getCleoWorktreesRoot, pathEnvKey, prependPathEntry } from '@cleocode/paths';
 import { countUnmergedCommits, getGitRoot, gitSilent, gitSync, resolveHeadRef } from './git.js';
 import {

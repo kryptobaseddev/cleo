@@ -37,7 +37,7 @@ import type {
   RegisteredInvariant,
   SagaAuditViolation,
 } from '@cleocode/contracts';
-import { INVARIANTS_REGISTRY } from '@cleocode/contracts';
+import { INVARIANTS_REGISTRY } from '@cleocode/contracts/invariants/index.js';
 import { auditSagaHierarchy } from './saga-audit.js';
 
 /**

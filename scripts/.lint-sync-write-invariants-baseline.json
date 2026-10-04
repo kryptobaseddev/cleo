@@ -1,7 +1,76 @@
 {
   "$comment": "Untagged rejection sites on synced write paths, per (file :: code). Shrink-only (T12881, gate 38): tag each site with // @sync-invariant <id> and regenerate with node scripts/lint-sync-write-invariants.mjs --update-baseline --base origin/main. Burn-down: T12946.",
   "burnDown": "T12946",
-  "audited": {},
+  "audited": {
+    "packages/core/src/lifecycle/pipeline.ts :: ExitCode.ALREADY_EXISTS": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/lifecycle/pipeline.ts :: ExitCode.INVALID_INPUT": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 2
+    },
+    "packages/core/src/lifecycle/pipeline.ts :: ExitCode.NOT_FOUND": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 7
+    },
+    "packages/core/src/lifecycle/pipeline.ts :: ExitCode.VALIDATION_ERROR": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/sessions/assumptions.ts :: ExitCode.INVALID_INPUT": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 2
+    },
+    "packages/core/src/sessions/context-inject.ts :: ExitCode.INVALID_INPUT": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/sessions/context-inject.ts :: ExitCode.NOT_FOUND": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/sessions/session-drift.ts :: ExitCode.SESSION_NOT_FOUND": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/sessions/session-show.ts :: ExitCode.SESSION_NOT_FOUND": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/sessions/session-stats.ts :: ExitCode.SESSION_NOT_FOUND": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tasks/add-batch.ts :: E_BATCH_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tasks/cancel-ops.ts :: E_CANNOT_CANCEL": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tasks/cancel-ops.ts :: E_NOT_FOUND": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tasks/sync-ops.ts :: E_INTERNAL": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 3
+    },
+    "packages/core/src/tasks/sync-ops.ts :: E_INVALID_INPUT": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tasks/task-analyze.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tasks/task-context.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
+      "count": 1
+    }
+  },
   "sites": {
     "packages/cleo/src/backfill/audit-columns.ts :: Error": 3,
     "packages/cleo/src/backfill/audit-columns.ts :: silent:cascade": 1,
@@ -331,6 +400,10 @@
     "packages/core/src/lifecycle/index.ts :: ExitCode.LIFECYCLE_TRANSITION_INVALID": 3,
     "packages/core/src/lifecycle/ivtr-loop.ts :: E_LEAD_AUTHORSHIP_BYPASS": 1,
     "packages/core/src/lifecycle/ivtr-loop.ts :: Error": 1,
+    "packages/core/src/lifecycle/pipeline.ts :: ExitCode.ALREADY_EXISTS": 1,
+    "packages/core/src/lifecycle/pipeline.ts :: ExitCode.INVALID_INPUT": 2,
+    "packages/core/src/lifecycle/pipeline.ts :: ExitCode.NOT_FOUND": 7,
+    "packages/core/src/lifecycle/pipeline.ts :: ExitCode.VALIDATION_ERROR": 1,
     "packages/core/src/lifecycle/stages.ts :: Error": 1,
     "packages/core/src/llm/api.ts :: Error": 2,
     "packages/core/src/llm/auxiliary-fallback.ts :: AllProvidersExhaustedError": 2,
@@ -755,6 +828,9 @@
     "packages/core/src/session/engine-ops.ts :: E_SESSION_UNBOUND": 3,
     "packages/core/src/session/engine-ops.ts :: engineError": 3,
     "packages/core/src/session/engine-ops.ts :: W_STALE_FOCUS": 2,
+    "packages/core/src/sessions/assumptions.ts :: ExitCode.INVALID_INPUT": 2,
+    "packages/core/src/sessions/context-inject.ts :: ExitCode.INVALID_INPUT": 1,
+    "packages/core/src/sessions/context-inject.ts :: ExitCode.NOT_FOUND": 1,
     "packages/core/src/sessions/decisions.ts :: ExitCode.INVALID_INPUT": 1,
     "packages/core/src/sessions/focus-state-store.ts :: ExitCode.SESSION_UNBOUND": 2,
     "packages/core/src/sessions/handoff.ts :: ExitCode.ALREADY_EXISTS": 1,
@@ -763,9 +839,12 @@
     "packages/core/src/sessions/index.ts :: ExitCode.SCOPE_INVALID": 1,
     "packages/core/src/sessions/index.ts :: ExitCode.SESSION_NOT_FOUND": 3,
     "packages/core/src/sessions/index.ts :: LeadBypassDetectedError": 1,
+    "packages/core/src/sessions/session-drift.ts :: ExitCode.SESSION_NOT_FOUND": 1,
     "packages/core/src/sessions/session-enforcement.ts :: ExitCode.SESSION_REQUIRED": 1,
     "packages/core/src/sessions/session-enforcement.ts :: ExitCode.TASK_NOT_IN_SCOPE": 1,
     "packages/core/src/sessions/session-enforcement.ts :: W_NO_ACTIVE_SESSION": 1,
+    "packages/core/src/sessions/session-show.ts :: ExitCode.SESSION_NOT_FOUND": 1,
+    "packages/core/src/sessions/session-stats.ts :: ExitCode.SESSION_NOT_FOUND": 1,
     "packages/core/src/sessions/session-suspend.ts :: ExitCode.SESSION_NOT_FOUND": 2,
     "packages/core/src/sessions/session-switch.ts :: ExitCode.SESSION_NOT_FOUND": 2,
     "packages/core/src/sessions/snapshot.ts :: ExitCode.SCOPE_CONFLICT": 1,
@@ -882,7 +961,7 @@
     "packages/core/src/store/sqlite-data-accessor.ts :: ExitCode.SESSION_UNBOUND": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: ExitCode.TASK_RENAMED": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: ExitCode.VALIDATION_ERROR": 2,
-    "packages/core/src/store/sqlite-data-accessor.ts :: silent:cascade": 2,
+    "packages/core/src/store/sqlite-data-accessor.ts :: silent:cascade": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: silent:counter": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: taskClaimedError": 1,
     "packages/core/src/store/sqlite-data-accessor.ts :: taskConflictError": 4,
@@ -927,6 +1006,7 @@
     "packages/core/src/tasks/ac-immutability.ts :: ExitCode.AC_LOCKED": 1,
     "packages/core/src/tasks/ac-table.ts :: ExitCode.VALIDATION_ERROR": 4,
     "packages/core/src/tasks/acceptance-input.ts :: ExitCode.VALIDATION_ERROR": 3,
+    "packages/core/src/tasks/add-batch.ts :: E_BATCH_FAILED": 1,
     "packages/core/src/tasks/add.ts :: ExitCode.DEPTH_EXCEEDED": 2,
     "packages/core/src/tasks/add.ts :: ExitCode.DUPLICATE_TASK_LIKELY": 1,
     "packages/core/src/tasks/add.ts :: ExitCode.INVALID_INPUT": 2,
@@ -938,6 +1018,8 @@
     "packages/core/src/tasks/affected-packages.ts :: Error": 1,
     "packages/core/src/tasks/archive.ts :: E_INTERNAL": 1,
     "packages/core/src/tasks/axis-filters.ts :: ExitCode.VALIDATION_ERROR": 2,
+    "packages/core/src/tasks/cancel-ops.ts :: E_CANNOT_CANCEL": 1,
+    "packages/core/src/tasks/cancel-ops.ts :: E_NOT_FOUND": 1,
     "packages/core/src/tasks/child-disposition.ts :: ExitCode.HAS_CHILDREN": 1,
     "packages/core/src/tasks/command-line.ts :: Error": 4,
     "packages/core/src/tasks/complete.ts :: CleoError": 3,
@@ -1031,6 +1113,10 @@
     "packages/core/src/tasks/show.ts :: E_NOT_INITIALIZED": 4,
     "packages/core/src/tasks/show.ts :: ExitCode.INVALID_INPUT": 2,
     "packages/core/src/tasks/show.ts :: ExitCode.NOT_FOUND": 1,
+    "packages/core/src/tasks/sync-ops.ts :: E_INTERNAL": 3,
+    "packages/core/src/tasks/sync-ops.ts :: E_INVALID_INPUT": 1,
+    "packages/core/src/tasks/task-analyze.ts :: Error": 1,
+    "packages/core/src/tasks/task-context.ts :: Error": 1,
     "packages/core/src/tasks/task-data.ts :: Error": 6,
     "packages/core/src/tasks/task-import.ts :: Error": 2,
     "packages/core/src/tasks/task-reparent.ts :: Error": 25,

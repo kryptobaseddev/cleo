@@ -149,14 +149,16 @@ function waitForEnterOrTimeout(timeoutMs: number): Promise<void> {
  */
 export async function maybePromptFirstRun(): Promise<void> {
   try {
-    const isFirstRun = await detectFirstRun();
-    if (!isFirstRun) return;
-
     // Non-TTY → silently skip. `isTTY` is `undefined` when stdin is not
     // a TTY (e.g. piped, redirected, CI runner) and `true` on an actual
     // interactive terminal. We treat anything other than `true` as
-    // non-interactive.
+    // non-interactive. Checked BEFORE detection (T13126): detection reads the
+    // credential pool, which every agent call would otherwise pay for a prompt
+    // it can never show.
     if (process.stdin.isTTY !== true) return;
+
+    const isFirstRun = await detectFirstRun();
+    if (!isFirstRun) return;
 
     process.stderr.write(
       "CLEO is not configured. Run 'cleo setup' to get started. " +

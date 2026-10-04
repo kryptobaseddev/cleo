@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The domain-handler graph is irrelevant to session lookup and pulls in
 // packages that need a build; the real core session store stays unmocked.
-vi.mock('../../domains/index.js', () => ({ createDomainHandlers: () => new Map() }));
+vi.mock('../../domains/lazy.js', () => ({ createLazyDomainHandlers: () => new Map() }));
 
 import { lookupCliSession } from '../cli.js';
 

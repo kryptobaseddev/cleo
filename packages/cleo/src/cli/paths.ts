@@ -35,7 +35,11 @@
 // the import + re-export. This `@cleocode/runtime` import is external to
 // `packages/cleo/src/` — it does not reintroduce the in-package circular-import
 // risk the module header warns against.
-import { BRAIN_DB_FILENAME, CLEO_DIR_NAME, WORKFLOWS_SUBDIR } from '@cleocode/runtime/gateway';
+import {
+  BRAIN_DB_FILENAME,
+  CLEO_DIR_NAME,
+  WORKFLOWS_SUBDIR,
+} from '@cleocode/runtime/gateway/dispatch';
 
 export { BRAIN_DB_FILENAME, CLEO_DIR_NAME, WORKFLOWS_SUBDIR };
 

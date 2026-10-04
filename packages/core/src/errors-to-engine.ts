@@ -19,6 +19,7 @@
 
 import { type EngineResult, engineError } from './engine-result.js';
 import { CleoError } from './errors.js';
+import { ExodusAbortWriteUnsafeError } from './store/exodus/abort-events.js';
 
 /**
  * Convert a caught value into an {@link EngineResult} failure.
@@ -65,6 +66,31 @@ export function cleoErrorToEngineResult<T>(
       ...(err.details !== undefined ? { details: err.details } : {}),
     });
   }
+  const refusal = exodusRefusalToEngineResult<T>(err);
+  if (refusal !== null) return refusal;
   const e = err as { message?: string };
   return engineError<T>(fallbackCode, e?.message ?? fallbackMessage);
+}
+
+/**
+ * The {@link EngineResult} for a write refused because the store still owes
+ * its legacy migration (an {@link ExodusAbortWriteUnsafeError}: exodus-on-open
+ * deferred or aborted), keeping its code (`E_EXODUS_DEFERRED_WRITE_UNSAFE` /
+ * `E_EXODUS_ABORT_WRITE_UNSAFE`), message and remedy. `null` for any other
+ * value, so a catch block can fall through to its own handling.
+ *
+ * @param err - The caught value.
+ * @returns The refusal result, or `null`.
+ * @example
+ * ```ts
+ * } catch (err) {
+ *   return exodusRefusalToEngineResult(err) ?? engineError('E_INTERNAL', 'failed');
+ * }
+ * ```
+ * @task T13167
+ */
+export function exodusRefusalToEngineResult<T>(err: unknown): EngineResult<T> | null {
+  if (!(err instanceof ExodusAbortWriteUnsafeError)) return null;
+  // @sync-invariant none:local-only this store's own legacy migration is pending or aborted; never replicated
+  return engineError<T>(err.codeName, err.message, { fix: err.fix });
 }

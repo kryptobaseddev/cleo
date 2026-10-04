@@ -16,11 +16,8 @@
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  ExitCode,
-  type SessionDecisionLogParams,
-  type SessionRecordDecisionParams,
-} from '@cleocode/contracts';
+import type { SessionDecisionLogParams, SessionRecordDecisionParams } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { isCurrentMemoryEntry } from '../memory/eligibility.js';
 import type { BrainDataAccessor } from '../store/memory-accessor.js';

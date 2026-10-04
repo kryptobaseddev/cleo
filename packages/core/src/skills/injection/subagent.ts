@@ -19,7 +19,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../../errors.js';
 import { getProjectRoot } from '../../paths.js';
 import { findSkill } from '../discovery.js';
