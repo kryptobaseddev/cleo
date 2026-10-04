@@ -34,6 +34,7 @@ import {
   evaluateMergeCommitChecks,
   listMainDescendants,
   listPathTouchingMainCommits,
+  pathGlobToRegExp,
   type ResolveCiEvidenceOptions,
   readCiChecks,
   readCiSatisfies,
@@ -614,6 +615,17 @@ describe('resolveCiEvidenceAtom', () => {
         fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
       });
       expect(!r.ok && r.reason).toMatch(/job Unit Tests \(ubuntu-latest, shard 1\): skipped/);
+    });
+
+    it('path globs: **/ is whole directories, * stays in a segment, ? is one character', () => {
+      expect(pathGlobToRegExp('scripts/**').test('scripts/lib/a.mjs')).toBe(true);
+      expect(pathGlobToRegExp('**/x.md').test('x.md')).toBe(true);
+      expect(pathGlobToRegExp('**/x.md').test('docs/a/x.md')).toBe(true);
+      expect(pathGlobToRegExp('**/x.md').test('ax.md')).toBe(false);
+      expect(pathGlobToRegExp('scripts/*.mjs').test('scripts/lib/a.mjs')).toBe(false);
+      expect(pathGlobToRegExp('a?.ts').test('ab.ts')).toBe(true);
+      expect(pathGlobToRegExp('a?.ts').test('a/.ts')).toBe(false);
+      expect(pathGlobToRegExp('a.ts').test('aXts')).toBe(false);
     });
 
     it('a malformed covering rule voids the whole list', () => {

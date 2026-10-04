@@ -363,17 +363,30 @@ function globToRegExp(glob: string): RegExp {
   );
 }
 
-/** Path glob (`**` any depth, `*` within one segment) to an anchored regular expression. */
-function pathGlobToRegExp(glob: string): RegExp {
+/**
+ * Path glob to an anchored regular expression (T13175): `**/ ` is any number of
+ * whole directories (including none), a trailing `; /**` everything below, `*`
+ * any run of characters within one segment, `?` one character within a
+ * segment. Everything else is literal.
+ *
+ * @param glob - Repo-relative path glob.
+ * @returns The anchored expression.
+ */
+export function pathGlobToRegExp(glob: string): RegExp {
   let out = '';
   for (let i = 0; i < glob.length; i++) {
     const ch = glob[i] as string;
     if (ch === '*' && glob[i + 1] === '*') {
-      out += '.*';
-      i++;
-      if (glob[i + 1] === '/') i++;
+      if (glob[i + 2] === '/') {
+        out += '(?:.*/)?';
+        i += 2;
+      } else {
+        out += '.*';
+        i++;
+      }
     } else if (ch === '*') out += '[^/]*';
-    else out += ch.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    else if (ch === '?') out += '[^/]';
+    else out += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
   }
   return new RegExp(`^${out}$`);
 }
