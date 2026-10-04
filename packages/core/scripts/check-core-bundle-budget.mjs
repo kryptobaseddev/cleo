@@ -99,8 +99,16 @@ const DIST_DIR = join(PKG_ROOT, 'dist');
  * One thing worth fixing instead of raising next time: the three side-bundles
  * each inline their own copy of core/store, zod and drizzle (~12.6 MB of dist
  * with their maps). Sharing those would buy back more than this raise.
+ *
+ * Lowered 56 MB -> 46 MB (T13129, 2026-10-03). That fix landed: build Wave 7.5
+ * re-emits the `@cleocode/utils` consumers per file instead of as
+ * self-contained side-bundles, so llm/plugin-facade.js, selfimprove/fix-gen.js
+ * and docs/export-document.js are 8-11 KB each and import the canonical core
+ * modules. The tree measured 38.20 MB (5917 files) with that change; the
+ * largest emitted file is now gateway-client/generated/types.gen.d.ts at
+ * 0.40 MB. The same 8 MB of headroom is kept.
  */
-export const MAX_CORE_DIST_MB = 56;
+export const MAX_CORE_DIST_MB = 46;
 
 /** The uncompressed dist budget expressed in bytes. */
 export const MAX_CORE_DIST_BYTES = MAX_CORE_DIST_MB * 1024 * 1024;

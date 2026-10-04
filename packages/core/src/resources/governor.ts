@@ -344,10 +344,9 @@ export interface AcquireOptions extends BudgetOptions {
   /**
    * When `false`, a single non-blocking pass — returns a {@link ResourceDeferral}
    * immediately if no slot is free (admission semantics; spawn/wave clamp).
-   * When `true` (default), polls until admitted or `timeoutMs` elapses
-   * (queue semantics; heavy ops), re-sampling pressure on each pass, so a
-   * memory-gate refusal or a zero budget is waited out too. On timeout,
-   * returns a deferral.
+   * When `true` (default), polls until a slot frees or `timeoutMs` elapses
+   * (queue semantics; heavy ops). On timeout, returns a deferral. A zero
+   * budget (pressure) defers at once.
    */
   readonly blocking?: boolean;
   /** Max wall-clock to wait in blocking mode (ms). Default 3_600_000. */
@@ -356,7 +355,7 @@ export interface AcquireOptions extends BudgetOptions {
   readonly pollMs?: number;
   /**
    * Inject a pre-taken sample (tests, or to avoid re-sampling). When omitted,
-   * a fresh point-sample is taken on each pass of acquire.
+   * a fresh point-sample is taken inside acquire.
    */
   readonly sample?: ResourceSample;
   /** Inject a monitor (tests). Default a fresh {@link ResourceMonitor}. */
@@ -366,29 +365,6 @@ export interface AcquireOptions extends BudgetOptions {
    * ends in an admission (T13127).
    */
   readonly memoryPressure?: MemoryGateReporter;
-}
-
-/**
- * One sample for an admission pass: the injected one, else a fresh
- * point-sample. A sampling error counts as no signal, never as pressure.
- */
-async function sampleForAdmission(
-  opts: AcquireOptions,
-  monitor: () => ResourceMonitor,
-): Promise<ResourceSample> {
-  if (opts.sample) return opts.sample;
-  try {
-    return await monitor().sample();
-  } catch {
-    return {
-      sampledAtMs: 0,
-      pressureAvailable: false,
-      memAvailableBytes: null,
-      globalPressure: null,
-      slicePressure: null,
-      walObservations: [],
-    };
-  }
 }
 
 /**
@@ -483,44 +459,42 @@ export class ResourceGovernor {
       return passThroughGrant(cls);
     }
 
-    let monitor: ResourceMonitor | null = opts.monitor ?? null;
-    const lazyMonitor = (): ResourceMonitor => {
-      monitor ??= new ResourceMonitor();
-      return monitor;
-    };
+    const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
+    const budget = computeClassBudget(cls, sample, opts);
+
+    if (!Number.isFinite(budget)) return passThroughGrant(cls);
+    if (budget <= 0) {
+      // Name the signal the budget was computed from: memory alone under
+      // `ignoreCpuPressure`, else the combined memory/CPU score (T13158).
+      const signal =
+        opts.ignoreCpuPressure === true
+          ? `memory some avg10=${memorySomeAvg10(sample).toFixed(1)}`
+          : `some avg10=${someAvg10(sample).toFixed(1)}`;
+      return deferral(
+        cls,
+        `class '${cls}' budget is 0 under current pressure (${signal})`,
+        DEFAULT_RESOURCE_RETRY_AFTER_MS,
+      );
+    }
+
+    // Supervisor mode (T12001): route the count enforcement through the central
+    // Rust arbiter so heavy ops are bounded machine-wide. The client computes the
+    // budget (above) from its local pressure sample; the supervisor enforces the
+    // in-flight COUNT. An unreachable supervisor degrades to the local slot
+    // engine below — never a deadlock.
+    if (mode === 'supervisor') {
+      const viaSupervisor = await this.acquireViaSupervisor(cls, Math.floor(budget));
+      if (viaSupervisor !== null) return viaSupervisor;
+    }
+
+    const dir = governorSlotDir(cls);
+    const slots = ensureSlotFiles(dir, budget);
     const blocking = opts.blocking ?? true;
     const timeoutMs = opts.timeoutMs ?? 3_600_000;
     const pollMs = opts.pollMs ?? 200;
     const startedAt = Date.now();
-    const remaining = (): number => timeoutMs - (Date.now() - startedAt);
 
-    for (;;) {
-      const sample = await sampleForAdmission(opts, lazyMonitor);
-      const budget = computeClassBudget(cls, sample, opts);
-      if (!Number.isFinite(budget)) return passThroughGrant(cls);
-      if (budget <= 0) {
-        if (!blocking || remaining() <= 0) {
-          return deferral(
-            cls,
-            `class '${cls}' budget is 0 under current pressure (some avg10=${someAvg10(sample).toFixed(1)})`,
-            DEFAULT_RESOURCE_RETRY_AFTER_MS,
-          );
-        }
-        await sleep(Math.min(pollMs, remaining()));
-        continue;
-      }
-
-      // Supervisor mode (T12001): route the count enforcement through the central
-      // Rust arbiter so heavy ops are bounded machine-wide. The client computes the
-      // budget (above) from its local pressure sample; the supervisor enforces the
-      // in-flight COUNT. An unreachable supervisor degrades to the local slot
-      // engine below — never a deadlock.
-      if (mode === 'supervisor') {
-        const viaSupervisor = await this.acquireViaSupervisor(cls, Math.floor(budget));
-        if (viaSupervisor !== null) return viaSupervisor;
-      }
-
-      const slots = ensureSlotFiles(governorSlotDir(cls), budget);
+    do {
       // Re-shuffle each pass so concurrent acquirers don't collide on slot 0.
       const order = shuffledIndices(slots.length);
       let lockError: { readonly err: unknown } | null = null;
@@ -539,17 +513,17 @@ export class ResourceGovernor {
         }
       }
       if (lockError !== null) throw lockError.err;
-      if (!blocking || remaining() <= 0) {
-        return deferral(
-          cls,
-          `class '${cls}' is at capacity (${budget} slot(s)); ` +
-            (blocking ? `timed out after ${timeoutMs}ms` : 'no slot free') +
-            describeSlotHolders(slots),
-          Math.min(pollMs * 4, DEFAULT_RESOURCE_RETRY_AFTER_MS),
-        );
-      }
-      await sleep(Math.min(pollMs, remaining()));
-    }
+      if (!blocking) break;
+      await sleep(pollMs);
+    } while (Date.now() - startedAt < timeoutMs);
+
+    return deferral(
+      cls,
+      `class '${cls}' is at capacity (${budget} slot(s)); ` +
+        (blocking ? `timed out after ${timeoutMs}ms` : 'no slot free') +
+        describeSlotHolders(slots),
+      Math.min(pollMs * 4, DEFAULT_RESOURCE_RETRY_AFTER_MS),
+    );
   }
 
   /**

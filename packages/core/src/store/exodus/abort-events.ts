@@ -50,6 +50,13 @@ export interface ExodusAbortDetail {
   readonly reason: string;
   /** Epoch-ms timestamp the abort was observed. */
   readonly at: number;
+  /**
+   * `aborted` (default): the migration ran and its parity gate rolled it back.
+   * `deferred`: the governor could not admit the migration this open (memory
+   * pressure, or `db-heavy` at capacity), so it never ran (T13158). Either way
+   * the consolidated store is empty while legacy rows wait, and writes refuse.
+   */
+  readonly kind?: 'aborted' | 'deferred';
 }
 
 /**

@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
+import { repoGuardsUnder } from '../../vitest.repo-guards.js';
 
 export default defineConfig({
   test: {
@@ -56,6 +57,9 @@ export default defineConfig({
       '**/e2e/**',
       '**/*.integration.test.ts',
       '**/*-integration.test.ts',
+      // T13142: run in the root config's `repo-guards` project instead. From the
+      // repo root: pnpm exec vitest run --project repo-guards <file>
+      ...repoGuardsUnder('packages/core/'),
     ],
     // Path aliases matching the root tsconfig.
     //

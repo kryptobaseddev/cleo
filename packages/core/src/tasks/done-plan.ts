@@ -25,8 +25,6 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type {
   AcRow,
   DoneNextStep,
@@ -47,7 +45,6 @@ import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getProjectRoot } from '../paths.js';
 import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-evidence.js';
-import { readRequiredCheckPins } from '../release/pr-evidence.js';
 
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { planScopedTestRun } from './affected-packages.js';
@@ -70,22 +67,17 @@ import { loadVerificationGatePolicy } from './verification-policy.js';
 
 /**
  * Whether `ci:<pr>` can attest both tool gates for this change set (T12634):
- * both `evidence.ciChecks` lists are declared, a change that is not purely
- * documentation also declares its job globs, and the PR does not edit a pinned workflow (its own CI would
- * vouch for itself). Otherwise the plan falls back to local tool runs.
+ * both `evidence.ciChecks` lists are declared, and a change that is not purely
+ * documentation also declares its job globs. Otherwise the plan falls back to
+ * local tool runs. A PR that edits a pinned workflow is plannable too: main's
+ * push CI attests it, never its own runs (T13174), and until that run exists
+ * the ci:<pr> refusal says to wait for it — a whole-suite local run is never
+ * the answer.
  */
-function ciPlannable(storeRoot: string, needsJobs: boolean, touched: readonly string[]): boolean {
+function ciPlannable(storeRoot: string, needsJobs: boolean): boolean {
   const lists = readCiChecks(storeRoot);
   if (!lists.tests?.length || !lists.qa?.length) return false;
-  if (needsJobs && (!lists.jobs?.tests?.length || !lists.jobs?.qa?.length)) return false;
-  let context: Record<string, unknown> | null = null;
-  try {
-    context = JSON.parse(readFileSync(join(storeRoot, '.cleo', 'project-context.json'), 'utf-8'));
-  } catch {
-    context = null;
-  }
-  const pins = readRequiredCheckPins(context);
-  return !Object.values(pins).some((pin) => pin.workflow && touched.includes(pin.workflow));
+  return !(needsJobs && (!lists.jobs?.tests?.length || !lists.jobs?.qa?.length));
 }
 
 /** Gates `cleo done` derives evidence for; every other required gate is manual. */
@@ -715,7 +707,6 @@ export async function deriveTaskEvidence(
     ciPlannable(
       storeRoot,
       ![...changeSet.files, ...changeSet.deletedFiles].every(isCiDocumentPath),
-      [...changeSet.files, ...changeSet.deletedFiles],
     );
   const ciPr = ciUsable
     ? await mergeInfo().then((info) => (info.state === 'merged' ? info.prRef : null))

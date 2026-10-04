@@ -65,14 +65,15 @@ vi.mock('../../logger.js', () => ({
 
 /**
  * Where on-open lands each fixture table (T12355): the table the RUNTIME reads.
- * `tasks-schema.ts` binds `architecture_decisions` and `token_usage` bare, so
- * their rows land there — not in the consolidated `tasks_*` twins
- * {@link FIXTURE_EXPECTED_ROWS} names, which no command reads.
+ * `tasks-schema.ts` binds `architecture_decisions` bare, so its rows land there,
+ * not in the consolidated `tasks_architecture_decisions` twin, which no command
+ * reads. `token_usage` is bound to its prefixed twin (T13111), so its rows land
+ * in `tasks_token_usage`.
  */
 const ON_OPEN_EXPECTED_ROWS = {
   tasks_tasks: FIXTURE_EXPECTED_ROWS.tasks_tasks,
   architecture_decisions: FIXTURE_EXPECTED_ROWS.tasks_architecture_decisions,
-  token_usage: FIXTURE_EXPECTED_ROWS.tasks_token_usage,
+  tasks_token_usage: FIXTURE_EXPECTED_ROWS.tasks_token_usage,
   brain_observations: FIXTURE_EXPECTED_ROWS.brain_observations,
 } as const;
 
@@ -243,6 +244,8 @@ describe('exodus-on-open data-continuity (T11553)', () => {
         `${table}: expected ${expected} rows after auto-migration`,
       ).toBe(expected);
     }
+    // …and only there: the bare token_usage twin the runtime no longer reads gets none (T13111).
+    expect(countRows(fx.projectDbPath, 'token_usage')).toBe(0);
   });
 
   it('T12535: a legacy task-id counter lands in tasks_schema_meta, replacing the fresh seed', async () => {
