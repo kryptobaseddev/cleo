@@ -293,7 +293,7 @@ export const EXEMPT = {
     _sync_row_undo: {
       count: 2,
       reason:
-        "row undo (local-only): the hold on an op a rebase replay refused, set and lifted with its row undo (§3.5 Rule 5, T13193)",
+        'row undo (local-only): the hold on an op a rebase replay refused, set and lifted with its row undo (§3.5 Rule 5, T13193)',
     },
   },
   'packages/core/src/store/sync/inbox.ts': {
