@@ -56,6 +56,7 @@ export {
   commandTarget,
   isPausable,
   isWatchCommand,
+  isWholeSuiteTestRun,
   looksHeavy,
   namedTestFileCount,
   RUN_CLASS_ALIASES,

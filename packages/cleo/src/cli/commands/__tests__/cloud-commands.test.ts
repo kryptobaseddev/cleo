@@ -19,6 +19,7 @@ import {
 } from '@cleocode/core/cloud/nexus-device.js';
 import type { CommandDef } from 'citty';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cloudProjectShowSummary, cloudStatusSummary } from '../../lib/nexus-cloud-cli.js';
 import { cloudCommand } from '../cloud.js';
 
 const API = 'https://api.nexus.test';
@@ -237,5 +238,84 @@ describe('cleo cloud', () => {
     const r = await run('status', {});
     expect(r.exit).toBe('__EXIT_6__');
     expect(r.envelope.error.codeName).toBe('E_NEXUS_DEVICE_REQUIRED');
+  });
+});
+
+describe('retired replica labels (T13109)', () => {
+  const retired = [
+    {
+      replicaId: 'r-2',
+      successor: 'r-3',
+      retiredAt: '2026-10-03T02:15:00.000Z',
+      reason: 'vault-restore',
+    },
+    {
+      replicaId: 'r-1',
+      successor: 'r-2',
+      retiredAt: '2026-10-03T00:34:00.000Z',
+      reason: 'vault-restore',
+    },
+  ];
+
+  it("status names this store's retired replicas and their successors", () => {
+    const line = cloudStatusSummary({
+      verdict: 'ok',
+      summary: {
+        signedIn: true,
+        registered: true,
+        profile: 'device',
+        linked: true,
+        replicaAttached: true,
+        devices: 2,
+        lastPresenceAt: null,
+        lastSyncAt: null,
+        headSeq: 3,
+        openConflicts: 0,
+      },
+      local: {
+        apiUrl: API,
+        signedIn: true,
+        nexusDeviceId: 'd-1',
+        profile: 'device',
+        projectId: 'p-1',
+        replicaId: 'r-3',
+        retiredReplicas: retired,
+        linkPath: null,
+        credentialsPath: '/tmp/nexus-device.json',
+      },
+      remote: null,
+      warnings: [],
+    });
+    expect(line).toContain('retired here: r-2 retired → r-3; r-1 retired → r-2');
+  });
+
+  it('projects show labels the listed replicas this device retired', () => {
+    const replica = (replicaId: string) => ({
+      projectId: 'p-1',
+      replicaId,
+      deviceId: 'd-1',
+      deviceName: 'laptop',
+      lastSyncAt: null,
+      presence: null,
+      presenceAt: null,
+    });
+    const line = cloudProjectShowSummary({
+      project: { projectId: 'p-1', label: 'demo', organizationId: 'o-1' },
+      role: 'owner',
+      openConflicts: 0,
+      replicas: [replica('r-1'), replica('r-2'), replica('r-3')],
+      devices: { active: 1, total: 1 },
+      truncated: false,
+      stream: { streamId: 'project:p-1', headSeq: 3, headCheckpointId: null },
+      apiUrl: API,
+      projectId: 'p-1',
+      currentProject: true,
+      replicaPaging: { pages: 1, truncated: false, pageLimitReached: false },
+      retiredHere: retired,
+      warnings: [],
+    });
+    expect(line).toContain(
+      '3 replica(s) (retired on this device: r-2 retired → r-3; r-1 retired → r-2)',
+    );
   });
 });

@@ -32,15 +32,24 @@
  *   it can read and configure the terminal.
  * - A watch/dev/serve command is refused (it would hold a slot forever)
  *   unless `--class` asserts that it is a bounded job.
+ * - A vitest run that names no test file, directory, `--project` or `-t`
+ *   filter (an empty or `.` filter names nothing), or a package script that
+ *   runs vitest (`pnpm test`, `pnpm -r test`) without narrowing arguments, is
+ *   refused: it is the whole suite, and the usual cause is an empty generated
+ *   file list (T13236). `--whole-suite` says it is deliberate.
+ * - Inside a test runner (VITEST, VITEST_WORKER_ID, JEST_WORKER_ID) nothing
+ *   is started (`E_RUN_SPAWN_IN_TEST_RUNNER`, exit 8): a stale mock must not
+ *   start the suite again from one of its own workers (T13236, after T13203).
  *
  * Exit codes: the child's own code; 128+n when a signal killed it; 127 when
- * it could not be started; 75 when not admitted; 6 on invalid input. The same
+ * it could not be started; 75 when not admitted; 6 on invalid input; 8 inside a test runner. The same
  * with `--passthrough`.
  *
  * @task T12979
  * @task T12980
  * @task T12981
  * @task T13133
+ * @task T13236
  * @epic T12978
  */
 
@@ -55,6 +64,7 @@ import { planFootprintBytes } from '@cleocode/core/resources/admission-ledger.js
 import {
   canonicalForClass,
   isWatchCommand,
+  isWholeSuiteTestRun,
   namedTestFileCount,
   resolveRunClass,
 } from '@cleocode/core/resources/run-admission.js';
@@ -64,6 +74,7 @@ import {
   runGoverned,
 } from '@cleocode/core/resources/run-governed.js';
 import { planHeavyToolEnv } from '@cleocode/core/tasks/heavy-tool-env.js';
+import { GovernedRunInTestRunnerError } from '@cleocode/core/tasks/tool-runner-guard.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -148,6 +159,12 @@ export const runCommand = defineCommand({
       type: 'string',
       description: 'With --wait: give up after this many seconds (default 1800)',
     },
+    'whole-suite': {
+      type: 'boolean',
+      description:
+        'Allow a whole-suite test run (a vitest run naming no file, directory, --project or -t filter, or a vitest test script without narrowing arguments): refused by default, since an empty file list is the usual cause',
+      default: false,
+    },
     passthrough: {
       type: 'boolean',
       description:
@@ -173,6 +190,17 @@ export const runCommand = defineCommand({
       invalid(
         `cleo run refuses watch/dev/serve commands, which never exit and would hold a resource slot forever: ${argv.join(' ')}`,
         'Run the watcher directly, without cleo run. If it is a bounded job, say so with --class (cleo run --class test -- <cmd>)',
+        passthrough,
+      );
+    }
+
+    // T13236: `vitest run` with nothing named (or an empty/`.` filter), or a
+    // package `test` script that runs vitest, is the whole suite. Twice an
+    // empty generated file list did exactly that by accident.
+    if (args['whole-suite'] !== true && isWholeSuiteTestRun(argv, process.cwd())) {
+      invalid(
+        `cleo run refuses a test run that names no test file, directory, --project or -t filter: it would run the whole suite (${argv.join(' ')}). An empty generated file list is the usual cause`,
+        'Name what to run: cleo run -- pnpm exec vitest run path/to/a.test.ts (check a generated list is not empty), or pass test files to the script (pnpm test path/to/a.test.ts). For a deliberate whole-suite run: cleo run --whole-suite -- <cmd>',
         passthrough,
       );
     }
@@ -249,6 +277,16 @@ export const runCommand = defineCommand({
       // A runner error is reported here, not by the CLI's top-level catch,
       // which writes to stdout: under --passthrough that is the child's
       // byte stream (#1777 R8-2).
+      if (err instanceof GovernedRunInTestRunnerError) {
+        cliError(
+          err.message,
+          err.codeName,
+          { name: err.codeName, fix: err.fix, details: err.details },
+          { operation: 'resources.run' },
+          { stderr: passthrough },
+        );
+        process.exit(err.code);
+      }
       cliError(
         `cleo run failed: ${err instanceof Error ? err.message : String(err)}`,
         1,

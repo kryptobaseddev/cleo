@@ -42,17 +42,37 @@ export type MergeRuleSet = Omit<TableMergeSpec, 'columns'>;
 /**
  * The `actor.op` values that may leave a terminal task status: today's
  * `validateStatusTransition` table allows done → pending/active and
- * cancelled → pending only through restore (alias reopen, uncancel).
+ * cancelled → pending only through restore. Each name is emitted by core's
+ * own entry point (`taskRestore` for cancelled, `taskReopen` for done,
+ * `taskUnarchive` for archived; T13229), whatever the transport; a test
+ * keeps the two in sync.
  */
 export const TASK_STATUS_LEAVE_OPS: readonly string[] = [
   'tasks.restore',
   'tasks.reopen',
-  'tasks.uncancel',
   'tasks.unarchive',
 ];
 
 /** The `actor.op` values that may move `pipeline_stage` backwards. */
 export const TASK_STAGE_RESTORE_OPS: readonly string[] = ['tasks.restore', 'tasks.reopen'];
+
+/**
+ * The rank order of `pipeline_stage` for the merge: the pipeline, then the
+ * two terminal stages a terminal status requires (T877: done needs
+ * contribution or cancelled, cancelled needs cancelled). They rank highest so
+ * a completion or cancel is never dropped by the stage max, and `cancelled`
+ * above `contribution` so that whichever terminal status wins its LWW, the
+ * merged stage satisfies the T877 trigger (done accepts cancelled).
+ *
+ * Local lowering: the domain refuses a backward stage move (T060,
+ * `validatePipelineTransition`); only restore and reopen lower a stage, and
+ * they name a restore op, so the origin and its receivers never disagree.
+ */
+export const TASK_STAGE_MERGE_ORDER: readonly string[] = [
+  ...PIPELINE_STAGES,
+  'contribution',
+  'cancelled',
+];
 
 /**
  * The typed merge rules by sync-set table. Implemented rule ids:
@@ -73,7 +93,7 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
       pipeline_stage: {
         kind: 'rank-max',
         id: 'task.pipeline-stage.max',
-        order: PIPELINE_STAGES,
+        order: TASK_STAGE_MERGE_ORDER,
         restoreOps: TASK_STAGE_RESTORE_OPS,
       },
       verification_json: {

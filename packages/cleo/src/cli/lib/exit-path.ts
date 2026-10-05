@@ -78,6 +78,13 @@ export function exitPath(): Promise<ExitPath> {
   return preloadExitPath();
 }
 
+/** The string `code` of an error (`ERR_MODULE_NOT_FOUND`, `ENOENT`), else `undefined`. */
+function errorCode(err: unknown): string | undefined {
+  return err instanceof Error && 'code' in err && typeof err.code === 'string'
+    ? err.code
+    : undefined;
+}
+
 /**
  * Whether an error is a module that is no longer on disk: Node's
  * `ERR_MODULE_NOT_FOUND`, or a CommonJS `MODULE_NOT_FOUND`.
@@ -85,8 +92,7 @@ export function exitPath(): Promise<ExitPath> {
  * @param err - a caught error.
  */
 export function isVanishedModule(err: unknown): boolean {
-  const code =
-    err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
+  const code = errorCode(err);
   return code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND';
 }
 
@@ -135,8 +141,7 @@ export function exitPathLoadFailureNotice(
   packageJsonPath?: string,
 ): string {
   if (isVanishedModule(err)) return vanishedModuleNotice(err, runningVersion, packageJsonPath);
-  const code =
-    err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
+  const code = errorCode(err);
   const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
   return `[cleo] the CLI could not load the code that finishes this command${code ? ` (${code})` : ''}:\n${detail}\n`;
 }

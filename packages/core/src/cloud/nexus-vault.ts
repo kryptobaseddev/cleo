@@ -96,7 +96,11 @@ import {
   sha256File,
 } from '../store/portable-bundle-scan.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
-import { readActiveReplicaId } from '../store/sync/replica.js';
+import {
+  fileIdentity,
+  readActiveReplicaId,
+  rebindAfterVaultRestore,
+} from '../store/sync/replica.js';
 import {
   buildVaultManifest,
   type CarriedMachineState,
@@ -1618,6 +1622,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       verified: false,
       tables: 0,
       safetyBackup: null,
+      replica: null,
       warnings,
     };
   }
@@ -1807,11 +1812,44 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
           );
         },
       });
+    let replica: CloudRestoreResult['replica'] = null;
     const placeAndPrune = async () => {
+      // Which file the snapshot replaces: its replica is retired as a vault
+      // restore only if it was bound to that file (T13109 review MED-1).
+      const before = fs.existsSync(t.dbPath) ? fileIdentity(t.dbPath) : null;
       await place();
       // The snapshot's install id never becomes this machine's (T13022).
       if (globalConfig !== null && fs.existsSync(globalConfig)) {
         keepGlobalConfigLocalKeys(globalConfig, ownConfigKeys);
+      }
+      // The placed file is a new store instance: its replica is retired and a
+      // new one bound (§1.5; T13109).
+      const placedReplica = await readActiveReplicaId(t.dbPath, t.scope).catch(() => null);
+      try {
+        const rebound = await rebindAfterVaultRestore(t.dbPath, t.scope, before);
+        if (rebound) {
+          replica = {
+            retired: rebound.previousReplicaId,
+            current: rebound.replicaId,
+            reason: rebound.reason,
+          };
+        }
+      } catch (err) {
+        const why = err instanceof Error ? err.message : String(err);
+        // The store's transaction may have committed before the registry write failed.
+        const now = await readActiveReplicaId(t.dbPath, t.scope).catch(() => null);
+        if (placedReplica !== null && now !== null && now !== placedReplica) {
+          replica = { retired: placedReplica, current: now, reason: null };
+          warnings.push({
+            code: 'W_NEXUS_VAULT_REBIND',
+            message: `this store's replica ${placedReplica} was retired and ${now} bound, but recording it in this device's replica registry failed (${why}), so it may not be a retire candidate`,
+          });
+        } else {
+          warnings.push({
+            code: 'W_NEXUS_VAULT_REBIND',
+            message: `restored, but this store's replica was not rebound (${why}); ${t.scope === 'global' ? 'the next global push' : 'the next `cleo project link`'} rebinds it as a copied file`,
+          });
+        }
       }
       // Deletions propagate: what the snapshot no longer lists goes (T13004);
       // without a synced snapshot, only --force removes anything (T13020).
@@ -1865,6 +1903,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       verified: true,
       tables,
       safetyBackup,
+      replica,
       warnings,
     };
   } finally {
