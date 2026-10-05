@@ -189,6 +189,18 @@ describe('the writer (T13204)', () => {
     expect(db.prepare("SELECT * FROM _sync_row_meta WHERE tbl = 't' AND uid = 'u'").get()).toEqual(
       before,
     );
+    // An all-losing update (not a delete) is a no-op too, ties included.
+    upsertRowMetaFromFields(db, DEF, {
+      tbl: 't',
+      uid: 'u',
+      fieldHlc: { a: 'h4', b: 'h5' },
+      origin: 'r3',
+      actor: 'z',
+      deleted: false,
+    });
+    expect(db.prepare("SELECT * FROM _sync_row_meta WHERE tbl = 't' AND uid = 'u'").get()).toEqual(
+      before,
+    );
   });
 
   it("refuses a row's first write that misses a field", async () => {
