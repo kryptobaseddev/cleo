@@ -154,6 +154,7 @@ export function resolveToolProcessRunner(
 ): ToolProcessRunner {
   if (_injected !== null) return _injected;
   const marker = detectTestRunner(env);
+  // @sync-invariant none:local-only refuses a local child process from a test runner; no row is written
   if (marker !== null) throw new ToolSpawnInTestRunnerError(tool, command, marker);
   return fallback;
 }
