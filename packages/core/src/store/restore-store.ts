@@ -80,6 +80,13 @@ export interface StoreRestoreOptions {
   readonly confirmOwnerStore?: boolean;
   /** The invocation directory (the worktree guard; core never falls back to `process.cwd()`). */
   readonly cwd: string;
+  /**
+   * When the live store cannot even be read (a damaged file), whether another
+   * process uses it cannot be checked: proceed only with this, the operator's
+   * statement that every cleo process is stopped (`--force`). It never
+   * overrides a live writer that WAS detected.
+   */
+  readonly assumeStoppedIfUnverifiable?: boolean;
   /** Clock (tests). */
   readonly now?: Date;
 }
@@ -96,6 +103,7 @@ const STORE_LABELS = ['cleo.db', 'tasks.db', 'brain.db'] as const;
 const SQLITE_HEADER = 'SQLite format 3\u0000';
 
 function restoreError(code: ExitCode, id: string, message: string, fix?: string): CleoError {
+  // @sync-invariant none:local-only a refused restore of the whole local store file; no synced row is written
   return new CleoError(code, `${id}: ${message}`, fix ? { fix } : undefined);
 }
 
@@ -250,7 +258,7 @@ function verifySnapshot(file: string): StoreRestoreVerification {
  * Refuse while another process uses the live store. This process's own
  * handles are closed first.
  */
-async function assertQuiescent(target: string): Promise<void> {
+async function assertQuiescent(target: string, assumeStoppedIfUnverifiable = false): Promise<void> {
   const { closeAllDatabases } = await import('./sqlite.js');
   await closeAllDatabases();
   const { _resetDualScopeDbCache } = await import('./dual-scope-db.js');
@@ -262,12 +270,15 @@ async function assertQuiescent(target: string): Promise<void> {
     held = foreignWriterLeases(target);
     open = storeOpenElsewhere(target);
   } catch (err) {
+    // A damaged live store cannot be probed; the operator vouched that
+    // every cleo process is stopped.
+    if (assumeStoppedIfUnverifiable) return;
     // @sync-invariant none:local-only the liveness of the store cannot be checked; nothing is written
     throw restoreError(
       ExitCode.LOCK_TIMEOUT,
       'E_RESTORE_STORE_BUSY',
       `cannot check whether another process uses ${target}: ${err instanceof Error ? err.message : String(err)}`,
-      'stop every cleo process (sessions, daemons, agents), then run it again',
+      'stop every cleo process (sessions, daemons, agents), then run it again with --force',
     );
   }
   if (held.length > 0) {
@@ -405,14 +416,14 @@ export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<S
   copyDurable(source.path, staged);
   try {
     const verification = verifySnapshot(staged);
-    await assertQuiescent(target);
+    await assertQuiescent(target, opts.assumeStoppedIfUnverifiable === true);
     const now = opts.now ?? new Date();
     const sqliteDir = join(cleoDir, 'backups', 'sqlite');
     const { FIRST_OPEN_LOCK_SUFFIX } = await import('./sqlite.js');
     const placed = await withLock(
       `${target}${FIRST_OPEN_LOCK_SUFFIX}`,
       async (): Promise<{ kept: StoreRestoreKept | null; removed: string[] }> => {
-        await assertQuiescent(target);
+        await assertQuiescent(target, opts.assumeStoppedIfUnverifiable === true);
         const kept = existsSync(target) ? keepLiveStore(target, sqliteDir, now) : null;
         const removed: string[] = [];
         for (const s of SIDECARS) {

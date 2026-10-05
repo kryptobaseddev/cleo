@@ -52,3 +52,17 @@ export interface StoreRestoreResult {
   /** How to undo the restore (`null` on a dry run, or when nothing was replaced). */
   readonly undo: string | null;
 }
+
+/**
+ * `cleo backup recover tasks|brain|conduit`: the freshest valid snapshot of the
+ * project store, restored through the same safe path as `cleo restore backup`
+ * (T13245). All three roles name the one live file, `.cleo/cleo.db`.
+ */
+export interface StoreRecoverResult extends StoreRestoreResult {
+  /** The role asked for (`tasks`, `brain` or `conduit`); the store restored is `cleo.db` either way. */
+  readonly role: string;
+  /** Snapshots that failed `PRAGMA quick_check` before one passed (newest first). */
+  readonly rejected: readonly string[];
+  /** Hours between the chosen snapshot and now, or `null` when its time is unknown. */
+  readonly dataLossWindowHours: number | null;
+}

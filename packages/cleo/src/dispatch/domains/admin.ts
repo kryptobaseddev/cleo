@@ -29,7 +29,7 @@ import { getProjectRoot } from '@cleocode/core/project-scope';
 import { getDefaultSnapshotPath } from '@cleocode/core/snapshot/index';
 import {
   listSystemBackups,
-  restoreBackup,
+  restoreBackupById,
   createBackup as systemCreateBackup,
 } from '@cleocode/core/system/backup';
 import { getSystemPaths } from '@cleocode/core/system/platform-paths';
@@ -1057,7 +1057,8 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
         return lafsError('E_INVALID_INPUT', 'backupId is required', 'backup.mutate');
       }
       try {
-        const data = restoreBackup(projectRoot, {
+        // T13245: the store file goes onto the live cleo.db through the safe restore.
+        const data = await restoreBackupById(projectRoot, {
           backupId,
           force: params.force,
           confirmOwnerStore: params.confirmOwnerStore,

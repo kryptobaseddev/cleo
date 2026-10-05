@@ -28,7 +28,7 @@
 
 import { copyFileSync, existsSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { BackupRecoverResult, DbRole } from '@cleocode/contracts';
+import type { BackupRecoverResult, DbRole, StoreRecoverResult } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
 import {
   collectSnapshotCandidatesForRole,
@@ -529,5 +529,100 @@ function runPinnedRestore(args: {
     integrityOK: true,
     quarantinedTo: quarantineDir,
     dryRun: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Project store recovery (T13245) — tasks, brain and conduit are ONE file
+// ---------------------------------------------------------------------------
+
+/**
+ * Roles whose live data is the consolidated project `.cleo/cleo.db`. Their
+ * inventory paths (`.cleo/tasks.db`, `.cleo/brain.db`, `.cleo/conduit.db`)
+ * name pre-consolidation files nothing reads, so recovering "into" them
+ * repaired a decoy and left the live store as it was (T13245).
+ */
+export const PROJECT_STORE_ROLES: ReadonlySet<DbRole> = new Set<DbRole>([
+  'tasks',
+  'brain',
+  'conduit',
+]);
+
+/** Options of {@link recoverProjectStore}. */
+export interface ProjectStoreRecoverOptions {
+  readonly role: DbRole;
+  readonly projectRoot: string;
+  /** Pin a snapshot: an absolute path, or a timestamp prefix (`2026-05-23`, `20260523`). */
+  readonly fromSnapshot?: string;
+  readonly dryRun?: boolean;
+  /** The live store is unreadable and every cleo process is stopped (`--force`). */
+  readonly force?: boolean;
+  readonly confirmOwnerStore?: boolean;
+  /** The invocation directory (the worktree guard). */
+  readonly cwd: string;
+}
+
+/**
+ * Recover the live project store (`.cleo/cleo.db`) from the freshest snapshot
+ * that passes `PRAGMA quick_check`, or from a pinned one, through
+ * {@link restoreStoreSnapshot}: the snapshot is verified again on a private
+ * copy, a live writer refuses it, the replaced store is kept as a
+ * `pre-restore-*` backup, and the WAL is handled (T13245).
+ *
+ * @param opts - The role asked for, the project and the guards.
+ * @returns What was verified, kept and placed (or would be, on a dry run).
+ * @throws {BackupRecoverError} `E_NO_SNAPSHOT` when no snapshot passes, or
+ *   `E_SNAPSHOT_NOT_FOUND` for a pin that matches nothing; the restore's own
+ *   `CleoError`s otherwise.
+ * @task T13245
+ */
+export async function recoverProjectStore(
+  opts: ProjectStoreRecoverOptions,
+): Promise<StoreRecoverResult> {
+  const dirs = resolveRoleBackupDirs(opts.role, { projectRoot: opts.projectRoot });
+  const candidates = collectSnapshotCandidatesForRole({
+    role: opts.role,
+    snapshotDir: dirs.snapshotDir,
+    vacuumSnapshotDir: dirs.vacuumSnapshotDir,
+    legacyArtifactDir: dirs.legacyArtifactDir,
+  });
+  const pin = opts.fromSnapshot ?? '';
+  const pool = pin ? candidates.filter((c) => snapshotMatchesPin(opts.role, c, pin)) : candidates;
+  if (pin && pool.length === 0) {
+    throw new BackupRecoverError(
+      `No ${opts.role} snapshot matches "${pin}"`,
+      4,
+      'E_SNAPSHOT_NOT_FOUND',
+      `cleo backup recover ${opts.role} --dry-run lists what is available`,
+    );
+  }
+  const rejected: string[] = [];
+  const chosen = pool.find((c) => {
+    if (probeSnapshot(c.path).ok) return true;
+    rejected.push(c.path);
+    return false;
+  });
+  if (!chosen) {
+    throw new BackupRecoverError(
+      `No valid ${opts.role} snapshot to recover from (${rejected.length} failed quick_check)`,
+      4,
+      'E_NO_SNAPSHOT',
+      'cleo backup list, then cleo restore backup --id <backupId> (or --snapshot <file>)',
+    );
+  }
+  const { restoreStoreSnapshot } = await import('./restore-store.js');
+  const result = await restoreStoreSnapshot({
+    projectRoot: opts.projectRoot,
+    snapshot: chosen.path,
+    dryRun: opts.dryRun === true,
+    assumeStoppedIfUnverifiable: opts.force === true,
+    confirmOwnerStore: opts.confirmOwnerStore === true,
+    cwd: opts.cwd,
+  });
+  return {
+    ...result,
+    role: opts.role,
+    rejected,
+    dataLossWindowHours: computeDataLossWindowHours(chosen.timestampMs),
   };
 }

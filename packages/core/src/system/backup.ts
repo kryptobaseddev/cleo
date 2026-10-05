@@ -57,6 +57,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { StoreRestoreResult } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { formatBackupTimestamp, rotateBackupDir } from '../store/backup-sidecar.js';
@@ -469,7 +470,14 @@ export function listSystemBackups(projectRoot: string): BackupEntry[] {
  */
 export function restoreBackup(
   projectRoot: string,
-  params: { backupId: string; force?: boolean; confirmOwnerStore?: boolean; cwd: string },
+  params: {
+    backupId: string;
+    force?: boolean;
+    confirmOwnerStore?: boolean;
+    cwd: string;
+    /** Leave the store-file labels to {@link restoreBackupById} (T13245). */
+    skipStoreFiles?: boolean;
+  },
 ): RestoreResult {
   if (!params.backupId) {
     throw new CleoError(ExitCode.INVALID_INPUT, 'backupId is required');
@@ -519,7 +527,8 @@ export function restoreBackup(
     // T13240: the live store is never plain-copied over: `cleo restore
     // backup --id` (restoreStoreSnapshot) verifies the file, refuses live
     // writers, handles the WAL and keeps the replaced store.
-    if (file === 'cleo.db') continue;
+    if (file === 'cleo.db' || (params.skipStoreFiles === true && STORE_FILE_LABELS.has(file)))
+      continue;
     const backupFile = join(backupDir, `${file}.${params.backupId}`);
     if (!existsSync(backupFile)) continue;
     const destPath = join(cleoDir, file);
@@ -546,6 +555,66 @@ export function restoreBackup(
     backupId: params.backupId,
     timestamp: meta.timestamp ?? new Date().toISOString(),
     filesRestored: restored,
+  };
+}
+
+/**
+ * Labels a backup's copy of the project store carries. Since the store
+ * consolidation they are all `.cleo/cleo.db` (tasks AND brain tables), so
+ * restoring one by its label wrote a file nothing reads (T13245).
+ */
+const STORE_FILE_LABELS: ReadonlySet<string> = new Set(['cleo.db', 'tasks.db', 'brain.db']);
+
+/** Result of {@link restoreBackupById}. */
+export interface BackupIdRestoreResult extends RestoreResult {
+  /** The store restore (`null` when the backup holds no store file). */
+  store: StoreRestoreResult | null;
+}
+
+/**
+ * Restore a backup by id: its store file through {@link restoreStoreSnapshot}
+ * onto the live `.cleo/cleo.db` (verified, live writers refused, the replaced
+ * store kept), then its JSON files as {@link restoreBackup} does (T13245).
+ * The store goes first: when it is refused, nothing is restored.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param params - The backup id, the worktree confirmation and the invocation directory.
+ * @returns What was restored.
+ * @task T13245
+ */
+export async function restoreBackupById(
+  projectRoot: string,
+  params: { backupId: string; force?: boolean; confirmOwnerStore?: boolean; cwd: string },
+): Promise<BackupIdRestoreResult> {
+  const cleoDir = join(projectRoot, '.cleo');
+  const dirs = [
+    join(cleoDir, 'backups', CANONICAL_BACKUP_SUBDIR),
+    join(cleoDir, 'backups', LEGACY_BACKUP_SUBDIR),
+    join(cleoDir, 'backups', 'safety'),
+    join(cleoDir, 'backups', 'migration'),
+  ];
+  const dir = dirs.find((d) => existsSync(join(d, `${params.backupId}.meta.json`)));
+  const storeFile = dir
+    ? [...STORE_FILE_LABELS]
+        .map((label) => join(dir, `${label}.${params.backupId}`))
+        .find((p) => existsSync(p))
+    : undefined;
+  let store: StoreRestoreResult | null = null;
+  if (storeFile) {
+    const { restoreStoreSnapshot } = await import('../store/restore-store.js');
+    store = await restoreStoreSnapshot({
+      projectRoot,
+      snapshot: storeFile,
+      confirmOwnerStore: params.confirmOwnerStore,
+      cwd: params.cwd,
+    });
+  }
+  const files = restoreBackup(projectRoot, { ...params, skipStoreFiles: true });
+  return {
+    ...files,
+    restored: files.restored || store?.restored === true,
+    filesRestored: store?.restored ? ['cleo.db', ...files.filesRestored] : files.filesRestored,
+    store,
   };
 }
 
