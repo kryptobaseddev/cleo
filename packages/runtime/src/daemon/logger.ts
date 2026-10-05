@@ -1,4 +1,3 @@
-import { getLogger } from '@cleocode/core/logger';
 /**
  * Daemon subsystem log-routing primitive.
  *
@@ -42,6 +41,8 @@ import { getLogger } from '@cleocode/core/logger';
  * @task T11368 — log routing primitive (pino getLogger canonical sink)
  * @saga T11243 SG-RUNTIME-UNIFICATION
  */
+
+import { getLogger } from '@cleocode/core/logger';
 
 /**
  * A structured log payload — a plain object of serializable fields merged into

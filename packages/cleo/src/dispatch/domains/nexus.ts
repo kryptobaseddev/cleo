@@ -1,4 +1,3 @@
-import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
 /**
  * Nexus Domain Handler (Dispatch Layer)
  *
@@ -33,6 +32,7 @@ import {
   querySymbolFiles,
   withNexusFreshnessMeta,
 } from '@cleocode/core/nexus/freshness';
+import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { getBrainNativeDb } from '@cleocode/core/store/memory-sqlite';
 import { getNexusNativeDb } from '@cleocode/core/store/nexus-sqlite';
