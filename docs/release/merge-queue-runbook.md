@@ -318,6 +318,12 @@ so never add a new package in a hotfix. The automatic candidate is
 `-rc.ci.<run number>`, so it cannot collide with a hand-cut `-rc.N` prerelease tag
 (which publishes to `beta`).
 
+**Hotfixes.** Plan the release with `cleo release plan … --hotfix`. release.yml
+writes `"cleo": { "hotfix": true }` into `@cleocode/cleo`'s package.json from
+the committed plan (T13184), so the `latest` publish carries the flag, and
+installed CLIs show the stronger HOTFIX notice once it is `latest` (see
+`docs/release/verb-matrix.md`). Nothing else is needed.
+
 ## Operator Commands
 
 ### Add a PR to the merge queue
