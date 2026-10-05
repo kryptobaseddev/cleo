@@ -114,6 +114,8 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * @property {RegExp[]} [require] - Module URL patterns this probe must load:
  *   proof that it still exercises the code path it guards.
  * @property {number} [expectExit] - Exit code the command must return.
+ * @property {boolean} [session] - Run bound to a session started in the sandbox
+ *   project (a mutation refuses without one).
  * @property {number} maxModules - Budget of loaded `file:` modules (the ratchet).
  * @property {number} maxRssMb - Ceiling on peak resident set size, in MB.
  */
@@ -139,6 +141,10 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * `show`, `find` and `current` load ~450 modules (~135 MB). `session status`
  * (a leaf, ~540 modules, ~175 MB) and `briefing` (~710 modules, ~190 MB; it
  * loaded the whole CORE barrel, ~3,000 modules) dispatch barrel-free (T13166).
+ * Every other operation loads `@cleocode/core/registrations` (CORE's
+ * module-load registrations) instead of the barrel: `next` ~665 modules
+ * (~155 MB) and `add`, a mutation bound to a sandbox session, ~820 (~195 MB),
+ * where both loaded ~3,000.
  * `describe` covers
  * the `--describe` path, which loads the operation describer through
  * `require(esm)`. Lower each budget in the PR that lowers its count.
@@ -236,6 +242,33 @@ export const PROBES = Object.freeze([
     maxRssMb: 260,
   },
   {
+    name: 'next',
+    args: ['next'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    maxModules: 735,
+    maxRssMb: 200,
+  },
+  {
+    name: 'add',
+    args: [
+      'add',
+      'Probe saga',
+      '--type',
+      'saga',
+      '--description',
+      'probe',
+      '--acceptance',
+      'a|b|c|d|e',
+    ],
+    needsProject: true,
+    session: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 900,
+    maxRssMb: 240,
+  },
+  {
     name: 'describe',
     args: ['list', '--describe'],
     needsProject: true,
@@ -330,7 +363,7 @@ process.on('exit', () => {
  * Run the built CLI once under the tracer, in a sandbox.
  *
  * @param {Probe} probe
- * @param {{ sandbox: string, tracer: string, project: string }} env
+ * @param {{ sandbox: string, tracer: string, project: string, sessionId: string }} env
  * @returns {ProbeResult}
  */
 function runProbe(probe, env) {
@@ -350,7 +383,10 @@ function runProbe(probe, env) {
       cwd: probe.needsProject ? env.project : env.sandbox,
       encoding: 'utf8',
       timeout: 120_000,
-      env: sandboxEnv(home, traceOut),
+      env: {
+        ...sandboxEnv(home, traceOut),
+        ...(probe.session ? { CLEO_SESSION_ID: env.sessionId } : {}),
+      },
     },
   );
   if (!existsSync(traceOut)) {
@@ -416,6 +452,33 @@ function initSandboxProject(sandbox) {
     throw new Error(`cleo init failed in the sandbox (exit ${init.status}):\n${init.stderr}`);
   }
   return project;
+}
+
+/**
+ * Start a session in the sandbox project, for the probes that need one.
+ *
+ * @param {string} sandbox
+ * @param {string} project
+ * @returns {string} The session id.
+ */
+function startSandboxSession(sandbox, project) {
+  const started = spawnSync(
+    process.execPath,
+    [CLI_ENTRY, 'session', 'start', '--scope', 'global', '--name', 'probe', '--field', '/data/id'],
+    {
+      cwd: project,
+      encoding: 'utf8',
+      timeout: 120_000,
+      env: sandboxEnv(join(sandbox, 'home'), join(sandbox, 'session.trace.json')),
+    },
+  );
+  const id = started.stdout.trim();
+  if (started.status !== 0 || !id.startsWith('ses_')) {
+    throw new Error(
+      `cleo session start failed in the sandbox (exit ${started.status}):\n${started.stderr}`,
+    );
+  }
+  return id;
 }
 
 /**
@@ -585,8 +648,11 @@ function main() {
     const tracer = join(sandbox, 'tracer.mjs');
     writeFileSync(tracer, TRACER_SOURCE);
     const project = PROBES.some((probe) => probe.needsProject) ? initSandboxProject(sandbox) : '';
+    const sessionId = PROBES.some((probe) => probe.session)
+      ? startSandboxSession(sandbox, project)
+      : '';
     for (const probe of PROBES) {
-      const result = runProbe(probe, { sandbox, tracer, project });
+      const result = runProbe(probe, { sandbox, tracer, project, sessionId });
       results.push(result);
       const reasons = judgeProbe(probe, result);
       if (reasons.length > 0) {
