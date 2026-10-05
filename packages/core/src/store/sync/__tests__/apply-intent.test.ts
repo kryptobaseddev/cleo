@@ -449,6 +449,47 @@ describe('merge groups travel whole (T13222)', () => {
     expect(Object.keys(sealedOps(db).filter((o) => o.o === 'U')[1]?.a ?? {})).toEqual(['title']);
   });
 
+  it('real sealer output: a done, then a cancel, each carry the whole status group', async () => {
+    const db = await store();
+    inFrame(db, 'write', () => addTask(db, 'G3'));
+    seal(db);
+    inFrame(db, 'write', () => {
+      db.prepare(
+        "UPDATE tasks_tasks SET status = 'done', pipeline_stage = 'contribution', completed_at = '2026-10-05T00:00:00.000Z' WHERE id = 'G3'",
+      ).run();
+    });
+    seal(db);
+    inFrame(db, 'write', () => {
+      db.prepare(
+        "UPDATE tasks_tasks SET status = 'cancelled', pipeline_stage = 'cancelled', completed_at = NULL, cancelled_at = '2026-10-05T01:00:00.000Z', cancellation_reason = 'dup' WHERE id = 'G3'",
+      ).run();
+    });
+    seal(db);
+    const [done, cancel] = sealedOps(db).filter((o) => o.o === 'U');
+    const group = ['cancellation_reason', 'cancelled_at', 'completed_at', 'status'];
+    expect(
+      Object.keys(done?.a ?? {})
+        .filter((c) => c !== 'pipeline_stage' && c !== 'updated_at')
+        .sort(),
+    ).toEqual(group);
+    expect(done?.a).toMatchObject({
+      status: 'done',
+      cancelled_at: null,
+      cancellation_reason: null,
+    });
+    expect(done?.a?.completed_at).not.toBeNull();
+    expect(
+      Object.keys(cancel?.a ?? {})
+        .filter((c) => c !== 'pipeline_stage' && c !== 'updated_at')
+        .sort(),
+    ).toEqual(group);
+    expect(cancel?.a).toMatchObject({
+      status: 'cancelled',
+      completed_at: null,
+      cancellation_reason: 'dup',
+    });
+  });
+
   it('one residual group member keeps the whole group in an apply frame', async () => {
     const db = await store();
     inFrame(db, 'write', () => addTask(db, 'G2'));
