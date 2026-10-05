@@ -426,6 +426,22 @@ function pageOf(ops: readonly LedgerOp[]): PageRow[] {
   return ops.map((o) => ({ table: o.t, uid: o.o === 'K' && o.nu ? o.nu : o.u }));
 }
 
+/**
+ * The page PAC-01 judges: only rows whose shape this transaction could have
+ * changed (an insert, a re-key, or an op carrying `parent_id` or `type`).
+ * A row that already broke the matrix before (legacy data) never voids an
+ * unrelated edit of it; two valid ops that merge into a bad tree each carry
+ * one of those columns, so nothing introduced is missed (T13244).
+ */
+function treeShapePage(ops: readonly LedgerOp[]): PageRow[] {
+  return pageOf(
+    ops.filter(
+      (o) =>
+        o.o === 'I' || o.o === 'K' || (o.a !== undefined && ('parent_id' in o.a || 'type' in o.a)),
+    ),
+  );
+}
+
 /** The status of an applied transaction from its ops' results. */
 function txnStatus(results: readonly OpResult[], conflicts: number): InboxStatus {
   const voided = results.filter((r) => r === 'void').length;
@@ -782,7 +798,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
           return r.result;
         });
         // Every per-transaction post-apply check, by name (the registry's runtime gates).
-        const violations = [...checkTaskTreeShape(db, pageOf(st.txn.ops))];
+        const violations = [...checkTaskTreeShape(db, treeShapePage(st.txn.ops))];
         if (violations.length > 0) {
           db.exec('ROLLBACK TO apply_txn');
           db.exec('RELEASE apply_txn');

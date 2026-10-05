@@ -1089,8 +1089,44 @@ describe('Gate C post-apply checks (§3.6, PR-5)', () => {
     });
     expect(task(db, 't1')?.title).toBe('title t1');
     const kinds = listConflicts(db).map((c) => `${c.kind}:${c.uid}:${c.rule?.split(':')[0]}`);
-    expect(kinds).toEqual(['post-apply:e1:task.tree.shape', 'post-apply:t1:task.tree.shape']);
+    // t1 only had a title edit: it is not judged; e1's type change strands it.
+    expect(kinds).toEqual(['post-apply:e1:task.tree.shape']);
     expect(seal(db).txns, 'a voided transaction left a residual').toBe(0);
+  });
+
+  it('PAC-01 judges only what the txn could change: a legacy bad tree never voids a title edit (T13244)', async () => {
+    const db = await store();
+    // A legacy task-under-task pair, written with the guard triggers suspended.
+    db.exec("INSERT INTO cleo_trigger_suspend (scope) VALUES ('guard')");
+    db.exec('BEGIN IMMEDIATE');
+    const frame = openCaptureFrame(db, 'write', null);
+    db.exec(
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('LP', 'lp', 'task', 'pending', 'medium', 'lp', 'fp-lp');
+       INSERT INTO tasks_tasks (id, title, type, status, priority, parent_id, uid, birth_fp) VALUES ('LC', 'lc', 'task', 'pending', 'medium', 'LP', 'lc', 'fp-lc');`,
+    );
+    finishCaptureFrame(db, frame);
+    db.exec('COMMIT');
+    db.exec("DELETE FROM cleo_trigger_suspend WHERE scope = 'guard'");
+    seal(db);
+    // The local seal stamped real-clock HLCs: the remote edit must be newer.
+    const now = Date.now();
+    const hn = (ms: number) => `${now + ms}-000000-${R2}`;
+    stage(db, segment(R2, [txn('R2:1', [update('lc', hn(1), { title: 'edited' })])]));
+    expect(apply(db, now + 10)).toMatchObject({ applied: 1, void: 0 });
+    expect(task(db, 'lc')?.title).toBe('edited');
+    // A transaction that introduces a violation still voids: a subtask under an epic
+    // (the trigger allows it; the full matrix does not).
+    stage(
+      db,
+      segment(R2, [
+        txn('R2:2', [
+          insert('ep', hn(2), { type: 'epic' }),
+          insert('st', hn(2), { type: 'subtask', parent_id: 'ep' }),
+        ]),
+      ]),
+    );
+    expect(apply(db, now + 10)).toMatchObject({ void: 1 });
+    expect(task(db, 'st')).toBeUndefined();
   });
 
   it('PAC-03 is trigger-covered: a cycle-closing edge is a guard void', async () => {

@@ -45,7 +45,10 @@ export interface PostApplyViolation {
   readonly message: string;
 }
 
-/** The deepest ancestor chain walked before a cycle is assumed. */
+/**
+ * The deepest ancestor chain walked before a cycle is assumed: far beyond
+ * the four levels the type matrix allows (saga, epic, task, subtask).
+ */
 const MAX_TREE_DEPTH = 64;
 const TASK_TYPES: ReadonlySet<string> = new Set(['saga', 'epic', 'task', 'subtask']);
 const isTaskType = (t: string | null): t is TaskType => t !== null && TASK_TYPES.has(t);
