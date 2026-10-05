@@ -13,17 +13,32 @@
  * 3. **Dependency holds.** A transaction touching a row a pending
  *    transaction writes waits (`pending`) behind it. Holds are scoped to
  *    those rows, never head-of-line.
- * 4. **Decide.** Each op's row state is read from the store (the row, its
- *    row meta and its leaves), carried forward op by op inside the
- *    transaction, and passed to the merge engine ({@link applyOp}). An op the
- *    engine cannot apply yet (an update of a never-seen row) makes the whole
- *    transaction `pending`, with nothing written; so does an op this slice
- *    does not apply yet: a re-key (K), a non-NULL reference, or a secret.
- *    An op naming an unknown table or column makes it `refused-schema`.
- * 5. **Apply.** The effects go through the write API, which records the
- *    apply intents, so the sealer echoes nothing; row meta is set to the
- *    engine's state, conflicts are recorded, and the transaction is marked
- *    `applied`, `conflict` (something recorded) or `void` (every op refused).
+ * 4. **Plan** (nothing written). Each op is decided against the store's
+ *    state carried forward inside the transaction. The transaction is
+ *    `pending` when an op updates a row never seen, re-keys a row never
+ *    seen, references a target never seen (§3.2 NEW-2: no age limit), or
+ *    carries a secret (not unsealed yet); `refused-schema` when an op names
+ *    an unknown table or column, or is malformed.
+ * 5. **Apply**, op by op, each against the store as it is now and inside its
+ *    own savepoint:
+ *    - references travel as target uids and are written as the targets'
+ *      local keys ({@link resolveRef}, following `tasks_uid_aliases`); a
+ *      reference to a deleted target is a `dangling-ref` conflict and a
+ *      revivable void, never pending;
+ *    - a guard trigger or constraint that aborts the write rolls back only
+ *      that op: a `guard` conflict and a void (§3.2 D, T12777);
+ *    - a parent delete whose CASCADE sync-set children remain follows the
+ *      table's `onRemoteParentDelete` policy: `conflict` voids it with a
+ *      `delete-with-live-children` conflict, `cascade-with-ops` deletes the
+ *      children first with tombstones;
+ *    - a K op re-keys the row through the write API (its meta and typed-rule
+ *      state move with it), after `remapPending` moves local captures and
+ *      unsent ops onto the new uid; a re-key onto a live uid is a
+ *      `uid-collision` void.
+ *    The effects go through the write API, which records the apply intents,
+ *    so the sealer echoes nothing; row meta is set to the engine's state,
+ *    conflicts are recorded, and the transaction is marked `applied`,
+ *    `conflict` (something recorded) or `void` (every op refused).
  *
  * Passes repeat while a pass applies something, so a transaction pending on
  * a row a later transaction inserts applies in the same call.
@@ -31,12 +46,12 @@
  * Deletes run with foreign keys ON: the origin journals cascaded child Ds
  * before the parent's D, so a child D whose row is already gone applies as a
  * tombstone, never a missing-row failure; and SET NULL actions are not
- * journaled yet (T13226), so this replica's own FK actions fill that gap.
+ * journaled yet (T13226), so this replica's own FK actions fill that gap
+ * (the delete records their intents, so nothing is re-emitted).
  *
- * Out of this slice: references and re-keys (PR-4: pending, dangling-ref,
- * aliases, `remapPending`), guard-trigger refusals as conflicts and
- * children-first deletes with `onRemoteParentDelete` (PR-4), Gate C
- * validators (PR-5), the scoped rebase (§3.5).
+ * Out of this slice: Gate C validators (PR-5), soft references across
+ * streams (`_sync_soft_ref`), holds that follow a re-keyed uid, and the
+ * scoped rebase (§3.5).
  *
  * @module store/sync/apply/applier
  * @task T12344
@@ -45,7 +60,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import type { LedgerOp, LedgerWireValue } from '@cleocode/contracts/ledger';
-import { BIRTH_FP_COLUMN } from '../../row-identity-registry.js';
+import { BIRTH_FP_COLUMN, UID_COLUMN } from '../../row-identity-registry.js';
 import { type CaptureTableDef, captureTableDef } from '../capture.js';
 import { recordConflicts } from '../conflicts.js';
 import {
@@ -62,14 +77,18 @@ import { applyOp, checkSchemaVersion } from '../merge/engine.js';
 import { mergeSpecFor } from '../merge/rules.js';
 import {
   type FieldState,
+  type MergeConflict,
   type OpOutcome,
   type RowState,
   type TableMergeSpec,
   UNSEEN_ROW,
 } from '../merge/types.js';
+import { remapPending } from '../remap.js';
 import { fieldHlcsOf } from '../row-meta.js';
 import { canonicalJson } from '../sealer-values.js';
 import { type ApplyApi, withApplyFrame } from './frame.js';
+import { parentDeletePolicy } from './parent-delete.js';
+import { resolveRef, uidOfKey } from './refs.js';
 
 /** How {@link applyStagedTxns} runs. */
 export interface ApplyStagedOptions {
@@ -107,11 +126,16 @@ interface Decided {
   readonly def: CaptureTableDef;
   readonly before: RowState;
   readonly out: OpOutcome;
+  /** Reference columns' local keys (wire uid → target key). */
+  readonly refKeys: ReadonlyMap<string, LedgerWireValue>;
 }
+
+/** What applying one op did. */
+type OpResult = 'applied' | 'void' | 'skipped';
 
 /** The decision for a whole transaction. */
 type TxnPlan =
-  | { readonly kind: 'apply'; readonly ops: readonly Decided[] }
+  | { readonly kind: 'apply' }
   | {
       readonly kind: 'pending';
       readonly reason: string;
@@ -145,7 +169,10 @@ function loadRowState(
   const leaves = readFieldLeaves(db, def.table, uid);
   const frontiers = readFieldFrontiers(db, def.table, uid);
   const fields: Record<string, FieldState> = {};
-  for (const [col, value] of Object.entries(row)) {
+  for (const [col, stored] of Object.entries(row)) {
+    // The merge compares stream values: a reference reads as its target's uid.
+    const target = def.refs.get(col);
+    const value = target && stored !== null ? (uidOfKey(db, target, stored) ?? stored) : stored;
     const hlc = fh[col] ?? (meta && !meta.deleted ? meta.hlc : floor);
     const leave = leaves[col];
     const frontier = frontiers[col];
@@ -175,11 +202,36 @@ function ownEcho(op: LedgerOp, st: StagedTxn, localReplica: string): LedgerOp {
 
 /** Why this slice cannot apply `op` yet, or null. */
 function notYet(op: LedgerOp, def: CaptureTableDef): string | null {
-  if (op.o === 'K') return `${op.t}/${op.u}: re-key (applied by the re-key path)`;
   for (const [col, v] of Object.entries(op.a ?? {})) {
-    if (v === null) continue;
-    if (def.refs.has(col)) return `${op.t}/${op.u}: reference ${col} (resolved by the ref path)`;
-    if (def.secret.has(col)) return `${op.t}/${op.u}: secret ${col} (needs unsealing)`;
+    if (v !== null && def.secret.has(col))
+      return `${op.t}/${op.u}: secret ${col} (needs unsealing)`;
+  }
+  return null;
+}
+
+/** Whether a row with `uid` exists in `table`. */
+function rowExists(api: ApplyApi, table: string, uid: string): boolean {
+  return api.readRow(table, uid) !== null;
+}
+
+/**
+ * A missing reference of `op` (a target never seen), or null. A target the
+ * transaction itself inserts or re-keys to counts as present wherever its op
+ * sits: netting keeps an op at its FIRST capture, so a row may reference a
+ * row inserted after it in the same transaction (T13238).
+ */
+function missingRef(
+  db: DatabaseSync,
+  op: LedgerOp,
+  def: CaptureTableDef,
+  inTxn: ReadonlySet<string>,
+): { readonly col: string; readonly uid: string } | 'malformed' | null {
+  for (const [col, v] of Object.entries(op.a ?? {})) {
+    const target = def.refs.get(col);
+    if (!target || v === null) continue;
+    if (typeof v !== 'string') return 'malformed';
+    if (inTxn.has(rowKey(target.table, v))) continue;
+    if (resolveRef(db, target, v).kind === 'missing') return { col, uid: v };
   }
   return null;
 }
@@ -194,7 +246,12 @@ function planTxn(
 ): TxnPlan {
   const states = new Map<string, RowState>();
   const specs = new Map<string, TableMergeSpec>();
-  const decided: Decided[] = [];
+  // Rows the transaction itself creates: its inserts and re-key targets.
+  const txnRows = new Set(
+    st.txn.ops.flatMap((o) =>
+      o.o === 'I' ? [rowKey(o.t, o.u)] : o.o === 'K' && o.nu ? [rowKey(o.t, o.nu)] : [],
+    ),
+  );
   // Rows a pending transaction holds: every row it writes but the one it waits for.
   const holds = (except?: string): string[] => [
     ...new Set(st.txn.ops.map((o) => rowKey(o.t, o.u)).filter((k) => k !== except)),
@@ -205,6 +262,32 @@ function planTxn(
     const blocked = notYet(op, def);
     if (blocked !== null) return { kind: 'pending', reason: blocked, holds: holds() };
     const k = rowKey(op.t, op.u);
+    if (op.o === 'K') {
+      const nu = op.nu ?? op.u;
+      const known = (u: string): boolean =>
+        states.get(rowKey(op.t, u))?.live === true ||
+        rowExists(api, op.t, u) ||
+        api.rowMeta(op.t, u)?.deleted === 1;
+      if (!known(op.u) && !known(nu)) {
+        return {
+          kind: 'pending',
+          reason: `${op.t}/${op.u}: re-key of a row not seen yet`,
+          holds: holds(k),
+        };
+      }
+      continue;
+    }
+    const missing = missingRef(db, op, def, txnRows);
+    if (missing === 'malformed') {
+      return { kind: 'refused-schema', reason: `${op.t}/${op.u}: a reference that is not a uid` };
+    }
+    if (missing !== null) {
+      return {
+        kind: 'pending',
+        reason: `${op.t}/${op.u}: reference ${missing.col} to ${missing.uid} not seen yet`,
+        holds: holds(),
+      };
+    }
     const before = states.get(k) ?? loadRowState(db, api, def, op.u, localReplica);
     let spec = specs.get(op.t);
     if (!spec) {
@@ -225,9 +308,8 @@ function planTxn(
       return { kind: 'pending', reason: `${op.t}/${op.u}: row not seen yet`, holds: holds(k) };
     }
     states.set(k, out.next);
-    decided.push({ op, def, before, out });
   }
-  return { kind: 'apply', ops: decided };
+  return { kind: 'apply' };
 }
 
 /** Values of `cols` in the merged row. */
@@ -236,6 +318,20 @@ function valuesOf(next: RowState, cols: readonly string[]): Record<string, Ledge
   for (const c of cols) {
     const f = next.fields[c];
     if (f) out[c] = f.value;
+  }
+  return out;
+}
+
+/** {@link valuesOf} with reference uids translated to the targets' local keys. */
+function localValues(
+  next: RowState,
+  cols: readonly string[],
+  refKeys: ReadonlyMap<string, LedgerWireValue>,
+): Record<string, LedgerWireValue> {
+  const out = valuesOf(next, cols);
+  for (const c of Object.keys(out)) {
+    const key = refKeys.get(c);
+    if (key !== undefined && out[c] !== null) out[c] = key;
   }
   return out;
 }
@@ -263,7 +359,7 @@ function effect(
     case 'insert': {
       // The sealer sends the birth fingerprint as `bfp`, not in `a` (identity
       // columns are read from the live row at capture); the insert needs it.
-      const values = valuesOf(out.next, out.written);
+      const values = localValues(out.next, out.written, d.refKeys);
       if (def.identity.includes(BIRTH_FP_COLUMN) && values[BIRTH_FP_COLUMN] == null && op.bfp) {
         values[BIRTH_FP_COLUMN] = op.bfp;
       }
@@ -277,7 +373,7 @@ function effect(
       break;
     }
     case 'update':
-      api.writeFields(op.t, op.u, valuesOf(out.next, out.written));
+      api.writeFields(op.t, op.u, localValues(out.next, out.written, d.refKeys));
       api.setMergedRowMeta(op.t, op.u, { ...meta, fieldHlc: liveHlcs(), tombstone: null });
       break;
     case 'delete':
@@ -322,12 +418,254 @@ function effect(
   return out.conflicts.length;
 }
 
-/** The status of an applied transaction from its decisions. */
-function txnStatus(ops: readonly Decided[], conflicts: number): InboxStatus {
-  const voided = ops.filter((d) => d.out.status === 'void').length;
-  const effective = ops.filter((d) => d.out.status === 'applied' || d.out.status === 'partial');
-  if (voided > 0 && effective.length === 0) return 'void';
+/** The status of an applied transaction from its ops' results. */
+function txnStatus(results: readonly OpResult[], conflicts: number): InboxStatus {
+  const voided = results.filter((r) => r === 'void').length;
+  const effective = results.filter((r) => r === 'applied').length;
+  if (voided > 0 && effective === 0) return 'void';
   return conflicts > 0 ? 'conflict' : 'applied';
+}
+
+/** SQLite's primary result code for a constraint violation (trigger RAISE, FK, UNIQUE, CHECK, NOT NULL). */
+const SQLITE_CONSTRAINT = 19;
+
+/**
+ * A write the store refused by rule: a guard trigger's `RAISE(ABORT)` or a
+ * constraint (primary code SQLITE_CONSTRAINT). Anything else (disk full, I/O,
+ * corruption, read-only, a schema error) is not the op's fault: it fails the
+ * pass, to be retried, and never voids a remote op (T13239).
+ */
+function isGuardRefusal(err: unknown): err is Error {
+  return (
+    err instanceof Error &&
+    'errcode' in err &&
+    typeof err.errcode === 'number' &&
+    (err.errcode & 0xff) === SQLITE_CONSTRAINT
+  );
+}
+
+/**
+ * The order to apply a transaction's ops in: its own order, except that an
+ * insert another op references comes before that op (T13238). Netting keeps
+ * each row's single op at its first capture, so `I A(parent = B)` can precede
+ * `I B`; with immediate foreign keys A's insert would fail. Each row has one
+ * op per transaction, so moving an insert never reorders a row's own ops. A
+ * reference cycle keeps the original order (its first insert then fails as a
+ * guard conflict).
+ */
+function applyOrder(
+  ops: readonly LedgerOp[],
+  defs: (table: string) => CaptureTableDef | null,
+): number[] {
+  const insertAt = new Map<string, number>();
+  ops.forEach((o, i) => {
+    if (o.o === 'I') insertAt.set(rowKey(o.t, o.u), i);
+  });
+  const order: number[] = [];
+  const state = new Map<number, 'visiting' | 'done'>();
+  const visit = (i: number): void => {
+    if (state.has(i)) return;
+    state.set(i, 'visiting');
+    const op = ops[i] as LedgerOp;
+    const def = defs(op.t);
+    for (const [col, v] of Object.entries(op.a ?? {})) {
+      const target = def?.refs.get(col);
+      if (!target || typeof v !== 'string') continue;
+      const j = insertAt.get(rowKey(target.table, v));
+      if (j !== undefined && j !== i && state.get(j) !== 'visiting') visit(j);
+    }
+    state.set(i, 'done');
+    order.push(i);
+  };
+  ops.forEach((_, i) => {
+    visit(i);
+  });
+  return order;
+}
+
+/** Everything one op's apply needs. */
+interface OpContext {
+  readonly db: DatabaseSync;
+  readonly api: ApplyApi;
+  readonly st: StagedTxn;
+  readonly defs: (table: string) => CaptureTableDef | null;
+  readonly replica: string;
+  readonly nowIso: string;
+}
+
+const voidWith = (
+  c: OpContext,
+  opIdx: number,
+  conflict: MergeConflict,
+): { readonly result: OpResult; readonly conflicts: number } => {
+  recordConflicts(c.db, { ...c.st.key, opIdx }, [conflict], c.st.replicaId, c.nowIso);
+  return { result: 'void', conflicts: 1 };
+};
+
+/** Apply a K op: move the row to its new uid (and birth fingerprint). */
+function applyRekey(
+  c: OpContext,
+  opIdx: number,
+  op: LedgerOp,
+): { readonly result: OpResult; readonly conflicts: number } {
+  const nu = op.nu ?? op.u;
+  const oldLive = rowExists(c.api, op.t, op.u);
+  const newLive = nu !== op.u && rowExists(c.api, op.t, nu);
+  if (!oldLive) return { result: 'skipped', conflicts: 0 }; // already re-keyed, or deleted
+  if (newLive || (nu !== op.u && c.api.rowMeta(op.t, nu) !== undefined)) {
+    return voidWith(c, opIdx, {
+      kind: 'uid-collision',
+      table: op.t,
+      uid: op.u,
+      columns: [UID_COLUMN],
+      resolution: 'op-voided',
+      opHlc: op.h,
+    });
+  }
+  // Local captures and unsent ops still naming the old uid follow it (§3.3 G).
+  // First: remapping after the re-key would rewrite the re-key's own capture,
+  // and it would no longer match its `*K` intent.
+  remapPending(c.db, { table: op.t, oldUid: op.u, newUid: nu, newBfp: op.bfp ?? null });
+  c.api.rekeyRow(op.t, op.u, nu, op.bfp ?? null);
+  return { result: 'applied', conflicts: 0 };
+}
+
+/**
+ * Delete a row and, depth-first, its CASCADE sync-set children, each with a
+ * tombstone. `seen` stops a reference cycle in the data. Children without a
+ * uid are not listed (`childRows`), so SQLite's own cascade removes them
+ * with no intent; every sync-set row has a uid while row uids are on.
+ */
+function cascadeDelete(
+  c: OpContext,
+  table: string,
+  uid: string,
+  h: string,
+  actor: string | null,
+  seen: Set<string> = new Set(),
+): void {
+  if (seen.has(rowKey(table, uid))) return;
+  seen.add(rowKey(table, uid));
+  for (const child of c.api.childRows(table, uid)) {
+    if (child.key.onDelete === 'CASCADE') {
+      cascadeDelete(c, child.key.child, child.uid, h, actor, seen);
+    }
+  }
+  c.api.deleteRow(table, uid);
+  clearFieldLeaves(c.db, table, uid);
+  c.api.setMergedRowMeta(table, uid, {
+    fieldHlc: {},
+    tombstone: h,
+    origin: c.st.replicaId,
+    actor,
+    chash: c.api.rowMeta(table, uid)?.chash ?? null,
+  });
+}
+
+/**
+ * Decide and apply one op against the store as it is now, inside its own
+ * savepoint: a guard refusal rolls back only this op and records it.
+ */
+function applyOne(
+  c: OpContext,
+  opIdx: number,
+  op: LedgerOp,
+): { readonly result: OpResult; readonly conflicts: number } {
+  if (op.o === 'K') {
+    // A re-key gets the same savepoint and guard path as any op (T13239).
+    const sp = `apply_op_${opIdx}`;
+    c.db.exec(`SAVEPOINT ${sp}`);
+    try {
+      const r = applyRekey(c, opIdx, op);
+      c.db.exec(`RELEASE ${sp}`);
+      return r;
+    } catch (err) {
+      c.db.exec(`ROLLBACK TO ${sp}`);
+      c.db.exec(`RELEASE ${sp}`);
+      if (!isGuardRefusal(err)) throw err;
+      return voidWith(c, opIdx, {
+        kind: 'guard',
+        table: op.t,
+        uid: op.u,
+        columns: [UID_COLUMN],
+        rule: err.message.slice(0, 200),
+        resolution: 'op-voided',
+        opHlc: op.h,
+      });
+    }
+  }
+  const def = c.defs(op.t);
+  // @sync-invariant none:input-shape planning refused-schema'd every op on an unknown table
+  if (!def) throw new Error(`apply: ${op.t} is not a sync-set table`);
+  const refKeys = new Map<string, LedgerWireValue>();
+  for (const [col, v] of Object.entries(op.a ?? {})) {
+    const target = def.refs.get(col);
+    if (!target || typeof v !== 'string') continue;
+    const ref = resolveRef(c.db, target, v);
+    if (ref.kind === 'row') {
+      refKeys.set(col, ref.key);
+      continue;
+    }
+    // Planning saw it; a tombstoned target is a revivable dangling reference.
+    return voidWith(c, opIdx, {
+      kind: 'dangling-ref',
+      table: op.t,
+      uid: op.u,
+      columns: [col],
+      resolution: 'op-voided',
+      opHlc: op.h,
+    });
+  }
+  const before = loadRowState(c.db, c.api, def, op.u, c.replica);
+  const out = applyOp(before, ownEcho(op, c.st, c.replica), {
+    table: mergeSpecFor(op.t, def.columns),
+    actorOp: c.st.txn.actor?.op ?? null,
+  });
+  const live =
+    out.effect === 'delete'
+      ? c.api.childRows(op.t, op.u).filter((x) => x.key.onDelete === 'CASCADE')
+      : [];
+  if (live.length > 0) {
+    if (parentDeletePolicy(op.t) === 'conflict') {
+      return voidWith(c, opIdx, {
+        kind: 'delete-with-live-children',
+        table: op.t,
+        uid: op.u,
+        columns: live.map((x) => `${x.key.child}:${x.uid}`).sort(),
+        resolution: 'op-voided',
+        opHlc: op.h,
+      });
+    }
+  }
+  const sp = `apply_op_${opIdx}`;
+  c.db.exec(`SAVEPOINT ${sp}`);
+  try {
+    // cascade-with-ops: the remaining children go first, with ops' tombstones.
+    const actor = c.st.txn.actor ? JSON.stringify(c.st.txn.actor) : null;
+    for (const x of live) cascadeDelete(c, x.key.child, x.uid, op.h, actor);
+    const n = effect(c.db, c.api, c.st, opIdx, { op, def, before, out, refKeys }, c.nowIso);
+    c.db.exec(`RELEASE ${sp}`);
+    const result: OpResult =
+      out.status === 'applied' || out.status === 'partial'
+        ? 'applied'
+        : out.status === 'void'
+          ? 'void'
+          : 'skipped';
+    return { result, conflicts: n };
+  } catch (err) {
+    c.db.exec(`ROLLBACK TO ${sp}`);
+    c.db.exec(`RELEASE ${sp}`);
+    if (!isGuardRefusal(err)) throw err;
+    return voidWith(c, opIdx, {
+      kind: 'guard',
+      table: op.t,
+      uid: op.u,
+      columns: [...out.written],
+      rule: err.message.slice(0, 200),
+      resolution: 'op-voided',
+      opHlc: op.h,
+    });
+  }
 }
 
 /**
@@ -401,11 +739,14 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
           markTxns(db, st.parts, 'held-skew', { reason: 'clock refused the HLC', nowIso });
           return { status: 'held-skew' as const, holds: [], n: 0 };
         }
+        const c: OpContext = { db, api, st, defs, replica: opts.replica, nowIso };
         let n = 0;
-        plan.ops.forEach((d, i) => {
-          n += effect(db, api, st, i, d, nowIso);
+        const results = applyOrder(st.txn.ops, defs).map((i) => {
+          const r = applyOne(c, i, st.txn.ops[i] as LedgerOp);
+          n += r.conflicts;
+          return r.result;
         });
-        const status = txnStatus(plan.ops, n);
+        const status = txnStatus(results, n);
         markTxns(db, st.parts, status, {
           frame: api.frame,
           reason: n > 0 ? `${n} conflict(s) recorded` : null,
