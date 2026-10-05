@@ -36,8 +36,10 @@
 
 import type { EngineResult } from '@cleocode/core';
 import type { IvtrPhase, IvtrPhaseEntry } from '@cleocode/core/internal';
-import { getIvtrState, getLogger, getProjectRoot } from '@cleocode/core/internal';
-import { engineSuccess } from '@cleocode/runtime/gateway';
+import { getIvtrState } from '@cleocode/core/lifecycle/ivtr-loop';
+import { getLogger } from '@cleocode/core/logger';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { engineSuccess } from '@cleocode/runtime/gateway/dispatch';
 import {
   defineTypedHandler,
   lafsError,

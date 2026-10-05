@@ -53,6 +53,18 @@ vi.mock('@cleocode/core/internal', () => ({
     debug: vi.fn(),
   })),
 }));
+vi.mock('@cleocode/core/lifecycle/ivtr-loop', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), getIvtrState: barrel.getIvtrState };
+});
+vi.mock('@cleocode/core/logger', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), getLogger: barrel.getLogger };
+});
+vi.mock('@cleocode/core/project-scope', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), getProjectRoot: barrel.getProjectRoot };
+});
 
 // ---------------------------------------------------------------------------
 // Imports (after mocks)

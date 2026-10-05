@@ -33,7 +33,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SubsystemHealth, SubsystemState } from '@cleocode/contracts';
-import { getCleoHome } from '@cleocode/core';
+import { getCleoHome } from '@cleocode/core/core-paths';
 import { defineSubsystem } from '@cleocode/runtime/daemon';
 import {
   isProcessAlive,

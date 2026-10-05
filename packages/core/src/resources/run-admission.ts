@@ -2,11 +2,11 @@
  * `cleo run` admission: the one front door for heavy commands an agent runs
  * itself (test runners, compilers, builds, installs).
  *
- * Every heavy command goes through the {@link ResourceGovernor} class budgets,
- * so all `cleo run` jobs share one machine-wide budget per class, whichever
- * agent, session or project asks. `cleo verify` still admits through the tool
- * semaphore until #1775 (T12963) routes it through the governor too. This
- * module holds the pure pieces; `run-governed.ts` runs the loop.
+ * Every heavy command is admitted by the admission ledger
+ * (`admission-ledger.ts`, T13133): one byte budget and one FIFO queue shared
+ * by every `cleo run` job and every `cleo verify` evidence run on the machine,
+ * whichever agent, session or project asks. This module holds the pure
+ * pieces; `run-governed.ts` runs the loop.
  *
  * - {@link resolveRunClass} / {@link isPausable}: the governor class and
  *   whether the job may be paused under pressure
@@ -22,17 +22,18 @@
  * - {@link buildRunDeferral}: the `E_RESOURCE_DEFERRED` details and the ways
  *   an agent can keep making progress
  *
- * The registry and queue are per `CLEO_HOME` (the machine's CLEO data dir).
+ * The registry is per `CLEO_HOME` (the machine's CLEO data dir).
  *
  * @module resources/run-admission
  * @task T12979
  * @task T12980
+ * @task T13127
+ * @task T13133
  * @epic T12978
  */
 
 import { execFileSync } from 'node:child_process';
 import {
-  existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -41,10 +42,10 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { hostname } from 'node:os';
 import { join } from 'node:path';
-import type { ResourceClass } from '@cleocode/contracts';
+import type { MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
+import type { LedgerEntry } from './admission-ledger.js';
 import type { PressureState } from './monitor.js';
 
 // Class resolution lives in the dependency-free run-class module (the provider
@@ -223,11 +224,6 @@ export const JOB_STALE_MS = 60_000;
 /** Registry directory: `<cleoHome>/run/jobs`. */
 export function runJobsDir(cleoHome: string = getCleoHome()): string {
   return join(cleoHome, 'run', 'jobs');
-}
-
-/** Wait-queue directory for a class: `<cleoHome>/run/queue/<class>`. */
-export function runQueueDir(cls: ResourceClass, cleoHome: string = getCleoHome()): string {
-  return join(cleoHome, 'run', 'queue', cls);
 }
 
 function writeAtomic(dir: string, name: string, value: unknown): void {
@@ -522,128 +518,6 @@ export function parentRunJob(input: {
   return null;
 }
 
-/** A job waiting in the `--wait` queue. */
-export interface QueueTicket {
-  readonly id: string;
-  readonly pid: number;
-  readonly runnerStart: string | null;
-  readonly enqueuedAtMs: number;
-  readonly heartbeatAtMs: number;
-  readonly command: string;
-}
-
-/** Add or refresh a wait ticket. Never throws. */
-export function writeQueueTicket(ticket: QueueTicket, dir: string): void {
-  writeAtomic(dir, `${ticket.id}.json`, ticket);
-}
-
-/** Remove a wait ticket. Never throws. */
-export function removeQueueTicket(id: string, dir: string): void {
-  removeRunJob(id, dir);
-}
-
-function isTicket(v: unknown): v is QueueTicket {
-  const t = v as Partial<QueueTicket> | null;
-  return (
-    typeof t === 'object' &&
-    t !== null &&
-    typeof t.id === 'string' &&
-    isSignalablePid(t.pid) &&
-    typeof t.enqueuedAtMs === 'number' &&
-    typeof t.heartbeatAtMs === 'number'
-  );
-}
-
-/**
- * Live tickets in arrival order (FIFO). Invalid tickets, tickets of a dead
- * runner, and tickets whose heartbeat is stale or implausibly far in the
- * future are dropped (#1777 round 3, L-2): an abandoned ticket never blocks
- * a class for longer than the stale window.
- */
-export function listQueueTickets(dir: string, probes: Partial<RegistryProbes> = {}): QueueTicket[] {
-  const p: RegistryProbes = { ...DEFAULT_PROBES, ...probes };
-  let names: string[];
-  try {
-    names = readdirSync(dir).filter((n) => n.endsWith('.json') && !n.startsWith('.'));
-  } catch {
-    return [];
-  }
-  const tickets: QueueTicket[] = [];
-  for (const name of names) {
-    const path = join(dir, name);
-    let v: unknown;
-    try {
-      v = JSON.parse(readFileSync(path, 'utf-8'));
-    } catch {
-      continue; // Torn write: its owner rewrites it within a poll.
-    }
-    if (!isTicket(v) || heartbeatStale(v.heartbeatAtMs, p.now()) || !p.alive(v.pid)) {
-      removeRecord(path);
-      continue;
-    }
-    tickets.push(v);
-  }
-  return tickets.sort((a, b) => a.enqueuedAtMs - b.enqueuedAtMs || a.pid - b.pid);
-}
-
-// ---------------------------------------------------------------------------
-// `cleo verify` holders (read-only view of the tool semaphore)
-// ---------------------------------------------------------------------------
-
-/** One holder of a `cleo verify` tool slot (`<cleoHome>/locks/tool-*`). */
-export interface VerifyHolder {
-  readonly tool: string;
-  readonly pid: number;
-  readonly acquiredAtMs: number;
-}
-
-/**
- * Live holders of `cleo verify` tool slots on this host, read from the tool
- * semaphore's holder sidecars. Read-only: never touches a lock.
- */
-export function listVerifyHolders(
-  cleoHome: string = getCleoHome(),
-  alive: (pid: number) => boolean = pidAlive,
-): VerifyHolder[] {
-  const locks = join(cleoHome, 'locks');
-  const out: VerifyHolder[] = [];
-  let dirs: string[];
-  try {
-    dirs = readdirSync(locks).filter((d) => d.startsWith('tool-'));
-  } catch {
-    return out;
-  }
-  const host = hostname();
-  for (const d of dirs) {
-    let files: string[];
-    try {
-      files = readdirSync(join(locks, d)).filter((f) => f.endsWith('.holder.json'));
-    } catch {
-      continue;
-    }
-    for (const f of files) {
-      try {
-        const slot = join(locks, d, f.slice(0, -'.holder.json'.length));
-        if (!existsSync(`${slot}.lock`)) continue;
-        const h = JSON.parse(readFileSync(join(locks, d, f), 'utf-8')) as {
-          pid: number;
-          host: string;
-          acquiredAt: string;
-        };
-        if (h.host !== host || !alive(h.pid)) continue;
-        out.push({
-          tool: d.slice('tool-'.length),
-          pid: h.pid,
-          acquiredAtMs: Date.parse(h.acquiredAt),
-        });
-      } catch {
-        // Unreadable sidecar: skip.
-      }
-    }
-  }
-  return out.sort((a, b) => a.acquiredAtMs - b.acquiredAtMs);
-}
-
 // ---------------------------------------------------------------------------
 // Pause policy
 // ---------------------------------------------------------------------------
@@ -750,7 +624,7 @@ export interface RunDeferralDetails {
   readonly class: ResourceClass;
   readonly reason: string;
   readonly retryAfterMs: number;
-  /** Position in the class's wait queue when it timed out under `--wait`. */
+  /** Position in the admission queue when it timed out under `--wait`. */
   readonly queuePosition: number | null;
   readonly pressure: {
     readonly state: PressureState;
@@ -759,7 +633,12 @@ export interface RunDeferralDetails {
     readonly reason: string;
     readonly memAvailableBytes: number | null;
   };
-  /** Live `cleo run` jobs and `cleo verify` tool slots, oldest first. */
+  /**
+   * The memory gate's readings when the job was refused for memory pressure
+   * (T13127), else `null`.
+   */
+  readonly memoryPressure: MemoryPressureReading | null;
+  /** Live `cleo run` jobs and the ledger's other admitted runs, oldest first. */
   readonly running: readonly RunningEntry[];
 }
 
@@ -767,11 +646,20 @@ function shellQuote(token: string): string {
   return /^[\w@%+=:,./-]+$/.test(token) ? token : `'${token.replace(/'/g, `'\\''`)}'`;
 }
 
-/** Merge `cleo run` jobs and `cleo verify` holders into one oldest-first list. */
+/**
+ * Merge live `cleo run` jobs and the admission ledger's other admitted runs
+ * (evidence runs, probes) into one oldest-first list. A `cleo run` job's own
+ * ledger entry is represented by its job record, which knows its session and
+ * pause state.
+ */
 export function runningEntries(
   jobs: readonly RunJob[],
-  holders: readonly VerifyHolder[],
+  ledger: readonly Pick<
+    LedgerEntry,
+    'label' | 'pid' | 'command' | 'cwd' | 'state' | 'admittedAtMs' | 'enqueuedAtMs'
+  >[],
 ): RunningEntry[] {
+  const jobPids = new Set(jobs.map((j) => j.pid));
   const entries: RunningEntry[] = [
     ...jobs.map((j) => ({
       source: 'run' as const,
@@ -782,15 +670,17 @@ export function runningEntries(
       sessionId: j.sessionId,
       pausedAtMs: j.pausedAtMs,
     })),
-    ...holders.map((h) => ({
-      source: 'verify' as const,
-      class: `tool:${h.tool}`,
-      command: `cleo verify (${h.tool})`,
-      cwd: null,
-      startedAtMs: h.acquiredAtMs,
-      sessionId: null,
-      pausedAtMs: null,
-    })),
+    ...ledger
+      .filter((e) => e.state === 'admitted' && !jobPids.has(e.pid))
+      .map((e) => ({
+        source: e.label.startsWith('run:') ? ('run' as const) : ('verify' as const),
+        class: e.label,
+        command: e.command,
+        cwd: e.cwd,
+        startedAtMs: e.admittedAtMs ?? e.enqueuedAtMs,
+        sessionId: null,
+        pausedAtMs: null,
+      })),
   ];
   return entries.sort((a, b) => a.startedAtMs - b.startedAtMs);
 }
@@ -807,6 +697,8 @@ export function buildRunDeferral(input: {
   readonly queuePosition?: number | null;
   readonly pressure: RunDeferralDetails['pressure'];
   readonly running: readonly RunningEntry[];
+  /** Set when the refusal was the memory gate's (T13127). */
+  readonly memoryPressure?: MemoryPressureReading | null;
 }): { details: RunDeferralDetails; alternatives: RunAlternative[]; fix: string } {
   const cmd = input.argv.map(shellQuote).join(' ');
   const alternatives: RunAlternative[] = [];
@@ -844,12 +736,29 @@ export function buildRunDeferral(input: {
       retryAfterMs: input.retryAfterMs,
       queuePosition: input.queuePosition ?? null,
       pressure: input.pressure,
+      memoryPressure: input.memoryPressure ?? null,
       running: input.running,
     },
     alternatives,
-    fix:
-      input.pressure.state === 'ok'
-        ? `The ${input.cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue.`
-        : `The machine is under pressure (${input.pressure.state}) and the ${input.cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue.`,
+    fix: deferralFix(input.cls, input.pressure.state, input.memoryPressure ?? null),
   };
+}
+
+/** The one-line remedy for a deferral. */
+function deferralFix(
+  cls: ResourceClass,
+  state: PressureState,
+  memory: MemoryPressureReading | null,
+): string {
+  if (memory !== null) {
+    return (
+      `The machine is short of memory (${memory.summary}); nothing was started. ` +
+      `Heavy work starts again once memory pressure falls to ${memory.resumeAtOrBelow} or below ` +
+      `(now ${memory.score}): continue other work, close memory-heavy apps, or re-run with --wait to start automatically ` +
+      '(CLEO_RESOURCES_MODE=off turns admission off).'
+    );
+  }
+  return state === 'ok'
+    ? `The ${cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue.`
+    : `The machine is under pressure (${state}) and the ${cls} class is at capacity; nothing was started. Continue other work, or re-run with --wait to queue.`;
 }

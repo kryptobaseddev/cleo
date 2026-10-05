@@ -16,16 +16,8 @@
  * @task T12980
  */
 
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-  utimesSync,
-  writeFileSync,
-} from 'node:fs';
-import { hostname, tmpdir } from 'node:os';
+import { chmodSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SLOT_LOCK_STALE_MS, SLOT_LOCK_UPDATE_MS } from '../governor.js';
@@ -35,9 +27,7 @@ import {
   decidePause,
   isPausable,
   JOB_STALE_MS,
-  listQueueTickets,
   listRunJobs,
-  listVerifyHolders,
   looksHeavy,
   MAX_PAUSE_MS,
   parentRunJob,
@@ -50,7 +40,6 @@ import {
   runningEntries,
   signalGroup,
   signalPid,
-  writeQueueTicket,
   writeRunJob,
 } from '../run-admission.js';
 
@@ -583,23 +572,6 @@ describe('a read-only registry never throws (#1777 R8-2)', () => {
       expect(readdirSync(dir)).toEqual(['dead.json']);
     },
   );
-
-  it.skipIf(asRoot)('listQueueTickets drops a stale ticket it cannot delete', () => {
-    writeQueueTicket(
-      {
-        id: 'stale',
-        pid: 4242,
-        runnerStart: null,
-        enqueuedAtMs: 1,
-        heartbeatAtMs: NOW - JOB_STALE_MS - 1,
-        command: 'x',
-      },
-      dir,
-    );
-    chmodSync(dir, 0o555);
-    expect(listQueueTickets(dir, { alive: () => true, now: () => NOW })).toEqual([]);
-    expect(readdirSync(dir)).toEqual(['stale.json']);
-  });
 });
 
 describe('parentRunJob by ancestry: any live job that leads no group, foreground or nested (#1777 R7)', () => {
@@ -712,63 +684,6 @@ describe('parentRunJob by ancestry: any live job that leads no group, foreground
   });
 });
 
-describe('wait queue', () => {
-  const NOW = 5_000_000;
-  const ticket = (id: string, enqueuedAtMs: number, heartbeatAtMs = NOW) => ({
-    id,
-    pid: 4242, // valid (> 1); liveness is faked by the probes
-    runnerStart: null,
-    enqueuedAtMs,
-    heartbeatAtMs,
-    command: 'x',
-  });
-
-  it('is FIFO and drops stale tickets', () => {
-    writeQueueTicket(ticket('late', 20), dir);
-    writeQueueTicket(ticket('early', 10), dir);
-    writeQueueTicket(ticket('stale', 5, NOW - JOB_STALE_MS - 1), dir);
-    const q = listQueueTickets(dir, { alive: () => true, now: () => NOW });
-    expect(q.map((t) => t.id)).toEqual(['early', 'late']);
-  });
-
-  it('drops invalid and future-dated tickets so none can block a class forever (L-2)', () => {
-    writeQueueTicket(ticket('ok', 10), dir);
-    writeQueueTicket(ticket('future', 1, NOW + JOB_STALE_MS + 1), dir);
-    writeFileSync(
-      join(dir, 'bad.json'),
-      JSON.stringify({ id: 'bad', pid: 4242, enqueuedAtMs: 0, heartbeatAtMs: 'soon' }),
-    );
-    const q = listQueueTickets(dir, { alive: () => true, now: () => NOW });
-    expect(q.map((t) => t.id)).toEqual(['ok']);
-    expect(readdirSync(dir).sort()).toEqual(['ok.json']);
-  });
-});
-
-describe('listVerifyHolders', () => {
-  it('reads live holders of held tool slots on this host only', () => {
-    const tool = join(dir, 'locks', 'tool-test');
-    mkdirSync(join(tool, 'slot-0.lock'), { recursive: true });
-    writeFileSync(
-      join(tool, 'slot-0.holder.json'),
-      JSON.stringify({ pid: 42, host: hostname(), acquiredAt: '2026-10-01T00:00:00Z' }),
-    );
-    // Released slot (no .lock dir) and another host's holder are ignored.
-    writeFileSync(
-      join(tool, 'slot-1.holder.json'),
-      JSON.stringify({ pid: 43, host: hostname(), acquiredAt: '2026-10-01T00:00:01Z' }),
-    );
-    mkdirSync(join(tool, 'slot-2.lock'));
-    writeFileSync(
-      join(tool, 'slot-2.holder.json'),
-      JSON.stringify({ pid: 44, host: 'elsewhere', acquiredAt: '2026-10-01T00:00:02Z' }),
-    );
-    expect(listVerifyHolders(dir, () => true)).toEqual([
-      { tool: 'test', pid: 42, acquiredAtMs: Date.parse('2026-10-01T00:00:00Z') },
-    ]);
-    expect(listVerifyHolders(dir, () => false)).toEqual([]);
-  });
-});
-
 describe('decidePause', () => {
   const jobs = [{ id: 'old' }, { id: 'mid' }, { id: 'new' }];
   const self = (id: string, pausable = true) => ({ id, pausable });
@@ -847,13 +762,43 @@ describe('buildRunDeferral / runningEntries', () => {
     memAvailableBytes: 1,
   };
 
-  it('lists cleo run jobs and verify slots together, oldest first', () => {
+  it("lists cleo run jobs and the ledger's other admitted runs together, oldest first (T13133)", () => {
     const entries = runningEntries(
-      [job({ id: 'r', startedAtMs: 20, command: 'npx vitest run' })],
-      [{ tool: 'test', pid: 9, acquiredAtMs: 10 }],
+      [job({ id: 'r', pid: 7, startedAtMs: 20, command: 'npx vitest run' })],
+      [
+        {
+          label: 'tool:test',
+          pid: 9,
+          command: 'cleo verify T1',
+          cwd: '/p',
+          state: 'admitted',
+          admittedAtMs: 10,
+          enqueuedAtMs: 5,
+        },
+        // A cleo run job's own entry is represented by its job record.
+        {
+          label: 'run:test-run',
+          pid: 7,
+          command: 'npx vitest run',
+          cwd: '/p',
+          state: 'admitted',
+          admittedAtMs: 20,
+          enqueuedAtMs: 20,
+        },
+        // Waiting runs hold nothing.
+        {
+          label: 'tool:build',
+          pid: 11,
+          command: 'cleo verify T2',
+          cwd: '/p',
+          state: 'waiting',
+          admittedAtMs: null,
+          enqueuedAtMs: 1,
+        },
+      ],
     );
     expect(entries.map((e) => [e.source, e.class, e.command])).toEqual([
-      ['verify', 'tool:test', 'cleo verify (test)'],
+      ['verify', 'tool:test', 'cleo verify T1'],
       ['run', 'test-run', 'npx vitest run'],
     ]);
   });

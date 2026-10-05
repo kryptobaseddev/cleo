@@ -7,12 +7,14 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@cleocode/core/internal', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@cleocode/core/internal')>()),
+// The orchestrate domain loads pivotTask from its defining module (T13126).
+vi.mock('@cleocode/core/orchestrate/pivot', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/orchestrate/pivot')>()),
   pivotTask: vi.fn(),
 }));
 
-import { CleoError, pivotTask } from '@cleocode/core/internal';
+import { CleoError } from '@cleocode/core/internal';
+import { pivotTask } from '@cleocode/core/orchestrate/pivot';
 import { mapNumericExitCodeToString, STRING_TO_EXIT } from '@cleocode/runtime/gateway';
 import { OrchestrateHandler } from '../orchestrate.js';
 

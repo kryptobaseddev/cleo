@@ -12,16 +12,11 @@
  * @task T3.4
  */
 
-import { createSchemaFactory } from 'drizzle-orm/zod';
 import { z } from 'zod';
+import type { insertAuditLogSchema } from './audit-log-schema.js';
+import { createInsertSchema, createSelectSchema } from './zod-schema-factory.js';
 
-// Use factory to bind our zod instance — ensures drizzle-orm/zod uses
-// the same z we use everywhere. The type assertion is needed because
-// drizzle-orm beta.18's CoerceOptions type doesn't match zod's coerce
-// namespace shape (works correctly at runtime).
-const { createInsertSchema, createSelectSchema } = createSchemaFactory(
-  z as unknown as Parameters<typeof createSchemaFactory>[0],
-);
+export { AuditLogInsertSchema, insertAuditLogSchema } from './audit-log-schema.js';
 
 // Brain enum constants
 import {
@@ -309,25 +304,6 @@ export const insertSchemaMetaSchema = createInsertSchema(schemaMeta);
 export const selectSchemaMetaSchema = createSelectSchema(schemaMeta);
 
 // === AUDIT LOG ===
-
-/**
- * Zod schema for validating audit log insert payloads.
- * @task T4848
- */
-export const insertAuditLogSchema = createInsertSchema(auditLog, {
-  id: (s: z.ZodString) => s.uuid(),
-  timestamp: (s: z.ZodString) =>
-    s.datetime({ offset: true }).or(s.regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)),
-  action: (s: z.ZodString) => s.min(1).max(100),
-  taskId: (s: z.ZodString) => s.min(1).max(20),
-  actor: (s: z.ZodString) => s.min(1).max(50),
-});
-
-/**
- * Canonical named export for audit log insert schema (T4848).
- * Alias for insertAuditLogSchema.
- */
-export const AuditLogInsertSchema = insertAuditLogSchema;
 
 export const selectAuditLogSchema = createSelectSchema(auditLog);
 
