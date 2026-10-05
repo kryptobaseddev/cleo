@@ -34,6 +34,10 @@ import { resourceKillReason, runToolCached } from '../tool-cache.js';
 import { captureResourceEnv, effectiveHeapFlags } from '../tool-cache-env.js';
 import { readFailedFirstPointer } from '../tool-cache-failed-first.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
+import { useRealToolRunner } from './real-tool-runner.js';
+
+// These tests spawn tiny real commands on purpose (T13203 guard opt-in).
+useRealToolRunner();
 
 const OOM_LINE =
   'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory';

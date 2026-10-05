@@ -27,6 +27,10 @@ vi.mock('../tool-semaphore.js', async (importOriginal) => {
 });
 
 import { runToolCached } from '../tool-cache.js';
+import { useRealToolRunner } from './real-tool-runner.js';
+
+// These tests spawn tiny real commands on purpose (T13203 guard opt-in).
+useRealToolRunner();
 
 let repo: string;
 
