@@ -57,6 +57,7 @@ import { doctorRowIdentityCommand } from './doctor-row-identity.js';
 import { doctorSkillFixturesCommand } from './doctor-skill-fixtures.js';
 import { doctorSplitBrainCommand } from './doctor-split-brain.js';
 import { doctorSupersededStoreCommand } from './doctor-superseded-store.js';
+import { doctorSyncJournalCommand } from './doctor-sync-journal.js';
 import { doctorSyncTriggersCommand } from './doctor-sync-triggers.js';
 import { doctorToolLocksCommand } from './doctor-tool-locks.js';
 import { doctorTwinCollapseCommand } from './doctor-twin-collapse.js';
@@ -284,6 +285,8 @@ export const doctorCommand = defineCommand({
     'global-delivery': doctorGlobalDeliveryCommand,
     // T13231 — the explicit from-scratch row-identity refill (dry run; --refill --apply)
     'row-identity': doctorRowIdentityCommand,
+    // T12987 — repair diff of suspect sync tables (read-only plan; + --repair)
+    'sync-journal': doctorSyncJournalCommand,
     // T12754 — project store triggers incl. ones referencing missing objects (+ --repair)
     'sync-triggers': doctorSyncTriggersCommand,
     // T12645 — caamp test fixtures left in the real skills root (quarantine with a receipt)

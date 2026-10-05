@@ -119,6 +119,21 @@ function rulePending(task: string): SyncWriteInvariantPending {
   return { task, reason: 'the typed merge-rule registry does not define it yet (T12344 item)' };
 }
 
+/** Where every implemented typed merge rule is enforced at apply (T12344). */
+const MERGE_ENGINE_GATE = {
+  module: 'packages/core/src/store/sync/merge/engine.ts',
+  functionName: 'applyOp',
+} as const;
+
+/**
+ * A typed merge rule the merge-rule registry defines (`SYNC_MERGE_RULES`),
+ * enforced by the merge engine on every applied op: no longer pending.
+ */
+function implemented(entry: SyncWriteInvariant): SyncWriteInvariant {
+  const { pending: _pending, ...rest } = entry;
+  return { ...rest, runtimeGate: MERGE_ENGINE_GATE };
+}
+
 function trigger(
   id: string,
   tables: readonly string[],
@@ -378,29 +393,35 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
   ),
 
   // §3.6.6: typed merge rules (T12344).
-  rule(
-    'task.status.absorbing',
-    'T12937',
-    'tasks_tasks',
-    ['status', 'completed_at', 'cancelled_at', 'cancellation_reason', 'pipeline_stage'],
-    ['V18', 'V20', 'C22', 'P40', 'P46', 'P47'],
-    'done, cancelled and archived are absorbing; leaving them needs an explicit op',
+  implemented(
+    rule(
+      'task.status.absorbing',
+      'T12937',
+      'tasks_tasks',
+      ['status', 'completed_at', 'cancelled_at', 'cancellation_reason', 'pipeline_stage'],
+      ['V18', 'V20', 'C22', 'P40', 'P46', 'P47'],
+      'done, cancelled and archived are absorbing; leaving them needs an explicit op',
+    ),
   ),
-  rule(
-    'task.pipeline-stage.max',
-    'T12938',
-    'tasks_tasks',
-    ['pipeline_stage'],
-    ['V21', 'C20', 'P01', 'F3'],
-    'pipeline_stage is the maximum by STAGE_ORDER, except an explicit restore',
+  implemented(
+    rule(
+      'task.pipeline-stage.max',
+      'T12938',
+      'tasks_tasks',
+      ['pipeline_stage'],
+      ['V21', 'C20', 'P01', 'F3'],
+      'pipeline_stage is the maximum by STAGE_ORDER, except an explicit restore',
+    ),
   ),
-  rule(
-    'task.verification.frozen-on-done',
-    'T12939',
-    'tasks_tasks',
-    ['verification_json'],
-    ['C01', 'C02', 'C03', 'C17'],
-    'verification is frozen once done; otherwise merged per gate',
+  implemented(
+    rule(
+      'task.verification.frozen-on-done',
+      'T12939',
+      'tasks_tasks',
+      ['verification_json'],
+      ['C01', 'C02', 'C03', 'C17'],
+      'verification is frozen once done; otherwise merged per gate',
+    ),
   ),
   rule(
     'session.status.terminal',

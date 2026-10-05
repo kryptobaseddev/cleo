@@ -196,8 +196,8 @@ describe('full from-scratch identity refill (T13231)', () => {
     });
 
     it('a journal table added later refuses by default', () => {
-      db.exec('CREATE TABLE _sync_inbox (uid TEXT NOT NULL)');
-      db.prepare('INSERT INTO _sync_inbox (uid) VALUES (?)').run(BOGUS_REL);
+      db.exec('CREATE TABLE _sync_future_probe (uid TEXT NOT NULL)');
+      db.prepare('INSERT INTO _sync_future_probe (uid) VALUES (?)').run(BOGUS_REL);
       expect(rowIdentityShareState(db).state).toBe('shared');
     });
 
