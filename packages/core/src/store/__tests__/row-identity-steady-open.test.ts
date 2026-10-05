@@ -18,7 +18,11 @@
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { prepareRowIdentity, rowIdentityFillPending } from '../row-identity.js';
+import {
+  missingRowIdentitySchema,
+  prepareRowIdentity,
+  rowIdentityFillPending,
+} from '../row-identity.js';
 import { getNativeTasksDb } from '../sqlite.js';
 import { createTestDb, seedTasks, type TestDbEnv } from './test-db-helper.js';
 
@@ -116,5 +120,31 @@ describe('row identity on a completed store (T12341 C1)', () => {
     expect(rowIdentityFillPending(db, 'project')).toContain('recipe');
     prepareRowIdentity(db, 'project');
     expect(rowIdentityFillPending(db, 'project')).toEqual([]);
+  });
+
+  it('the fill partial indexes exist only once the fill ran: a fill-off store keeps the migration schema', async () => {
+    const indexes = (db: DatabaseSync) =>
+      (
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%_birth_fp' ORDER BY name",
+          )
+          .all() as Array<{ name: string }>
+      ).map((r) => r.name);
+    expect(indexes(native())).toContain('idx_tasks_tasks_birth_fp');
+    delete process.env.CLEO_ROW_UID_FILL;
+    const off = await createTestDb();
+    try {
+      await seedTasks(off.accessor, [{ id: 'T001', title: 'Off', type: 'task' }]);
+      const db = getNativeTasksDb(off.tempDir);
+      if (!db) throw new Error('no native handle');
+      expect(indexes(db)).toEqual([]);
+      // Nothing for a fill-off open to heal (the heal runs on every open while this is non-empty).
+      expect(missingRowIdentitySchema(db)).toEqual([]);
+      expect(rowIdentityFillPending(db, 'project')).toContain('schema');
+    } finally {
+      process.env.CLEO_ROW_UID_FILL = '1';
+      await off.cleanup();
+    }
   });
 });

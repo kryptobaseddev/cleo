@@ -18,7 +18,9 @@ turning it on (C2).
   - the AC graveyard is non-empty;
   - a row has no uid (found through the unique uid index);
   - a minted row has no birth fingerprint (found through a new partial index,
-    `idx_<table>_birth_fp WHERE birth_fp IS NULL`, which the schema heal adds);
+    `idx_<table>_birth_fp WHERE birth_fp IS NULL`). The fill pass creates it, and only that
+    pass: a store the fill never ran on keeps the migration's schema, and its opens heal nothing
+    new. The spec §13 rollback drops it with the other identity indexes;
   - a NULL stored reference now resolves.
   The probes look for the rows themselves, so a row an older build inserts into a reused rowid
   is still found.

@@ -780,13 +780,6 @@ export function ensureRowIdentitySchema(db: DatabaseSync, scope: TableScope): st
         `CREATE INDEX IF NOT EXISTS main.${q(`idx_${spec.table}_${ref.column}`)} ON ${q(spec.table)} (${q(ref.column)})`,
       );
     }
-    if (spec.kind === 'minted') {
-      // T12341 C1: the open's pending probe finds a NULL birth fingerprint by
-      // index, not a scan. Partial: only rows still waiting are indexed.
-      indexes.push(
-        `CREATE INDEX IF NOT EXISTS main.${q(birthFpNullIndex(spec.table))} ON ${q(spec.table)} (${q(BIRTH_FP_COLUMN)}) WHERE ${q(BIRTH_FP_COLUMN)} IS NULL`,
-      );
-    }
     for (const stmt of indexes) {
       const name = /INDEX IF NOT EXISTS main\."([^"]+)"/.exec(stmt)?.[1];
       const exists =
@@ -1758,11 +1751,39 @@ export function missingRowIdentitySchema(db: DatabaseSync): string[] {
       const index = `idx_${spec.table}_${ref.column}`;
       if (!hasObject(db, 'index', index)) missing.push(`index ${index}`);
     }
-    if (spec.kind === 'minted' && !hasObject(db, 'index', birthFpNullIndex(spec.table))) {
-      missing.push(`index ${birthFpNullIndex(spec.table)}`);
-    }
   }
   return missing;
+}
+
+/**
+ * Create the fill's partial indexes: per minted table, the rows still without
+ * a birth fingerprint, so the open's pending probe finds them by index, not a
+ * scan (T12341 C1). Fill-on only: they serve the fill and nothing else, so a
+ * store the fill never ran on (the default) keeps exactly the identity schema
+ * of the migration, and its opens heal nothing new.
+ *
+ * @returns The statements run (empty when every index exists).
+ */
+function ensureFillIndexes(db: DatabaseSync, scope: TableScope): string[] {
+  const run: string[] = [];
+  for (const spec of ROW_IDENTITY[scope]) {
+    if (spec.kind !== 'minted' || !hasTable(db, spec.table)) continue;
+    if (hasObject(db, 'index', birthFpNullIndex(spec.table))) continue;
+    const stmt = `CREATE INDEX IF NOT EXISTS main.${q(birthFpNullIndex(spec.table))} ON ${q(spec.table)} (${q(BIRTH_FP_COLUMN)}) WHERE ${q(BIRTH_FP_COLUMN)} IS NULL`;
+    db.exec(stmt);
+    run.push(stmt);
+  }
+  return run;
+}
+
+/** Whether every fill partial index ({@link ensureFillIndexes}) exists. */
+function fillIndexesPresent(db: DatabaseSync, scope: TableScope): boolean {
+  return ROW_IDENTITY[scope].every(
+    (spec) =>
+      spec.kind !== 'minted' ||
+      !hasTable(db, spec.table) ||
+      hasObject(db, 'index', birthFpNullIndex(spec.table)),
+  );
 }
 
 /** Name of a minted table's partial index over rows with a NULL birth fingerprint (T12341 C1). */
@@ -1779,7 +1800,8 @@ function birthFpNullIndex(table: string): string {
  * fill pass (and never loads its writers). Every probe is correct regardless
  * of rowid reuse: it looks for the rows themselves, never a rowid watermark.
  *
- * - `schema`: part of the identity schema is missing (the full pass heals it);
+ * - `schema`: part of the identity schema, or a fill partial index, is missing
+ *   (the full pass creates it);
  * - `recipe`: the recipe marker is missing or stale (the refill runs, or is
  *   refused and reported once uids have synced);
  * - `graveyard:<n>`: an older build deleted acceptance criteria whose uids wait
@@ -1804,7 +1826,12 @@ export function rowIdentityFillPending(db: DatabaseSync, scope: TableScope): str
   if (ROW_IDENTITY[scope].length === 0) return [];
   // The probes name identity columns: a store missing any of its identity
   // schema is pending the full pass, which heals it first.
-  if (scope === 'project' && missingRowIdentitySchema(db).length > 0) return ['schema'];
+  if (
+    scope === 'project' &&
+    (missingRowIdentitySchema(db).length > 0 || !fillIndexesPresent(db, scope))
+  ) {
+    return ['schema'];
+  }
   const pending: string[] = [];
   // A stale marker is work even when the identity has synced: the pass then
   // refuses the refill and says so (refill 'refused'), every open, until the
@@ -1882,6 +1909,7 @@ export function prepareRowIdentity(
     const healed = [
       ...(scope === 'project' ? ensureIdentityTables(db) : []),
       ...ensureRowIdentitySchema(db, scope),
+      ...ensureFillIndexes(db, scope),
     ];
     const writers = options.writers ?? requireWriters();
     const refill = resetStaleIdentity(db, scope, writers);
