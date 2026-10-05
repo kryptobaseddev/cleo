@@ -106,7 +106,9 @@ describe('JSON to SQLite migration', () => {
       const native = getNativeTasksDb();
       if (!native) throw new Error('fixture: no tasks store handle');
       const n = (sql: string) => (native.prepare(sql).get() as { n: number }).n;
-      expect((native.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys).toBe(1);
+      expect(
+        (native.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys,
+      ).toBe(1);
       expect(n("SELECT count(*) AS n FROM tasks_tasks WHERE status != 'archived'")).toBe(
         todo.length,
       );
@@ -145,6 +147,48 @@ describe('JSON to SQLite migration', () => {
       expect(
         n("SELECT count(*) AS n FROM tasks_task_dependencies WHERE task_id IN ('T006', 'T007')"),
       ).toBe(1);
+    });
+  });
+
+  describe('one topo order across the active and archive files (T13259)', () => {
+    it('a parent in the archive precedes its active child, so the type guard checks the pair', async () => {
+      // A task cannot parent a task: with the archived parent inserted first,
+      // the parent-type guard sees it and refuses the child, by name.
+      const base = { status: 'pending', priority: 'medium', createdAt: '2026-01-01T00:00:00.000Z' };
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify({
+          tasks: [
+            {
+              ...base,
+              id: 'T021',
+              title: 'child',
+              description: 'child',
+              type: 'task',
+              parentId: 'T020',
+            },
+          ],
+        }),
+      );
+      await writeFile(
+        join(cleoDir, 'todo-archive.json'),
+        JSON.stringify({
+          archivedTasks: [
+            {
+              ...base,
+              id: 'T020',
+              title: 'parent',
+              description: 'parent',
+              type: 'task',
+              status: 'done',
+            },
+          ],
+        }),
+      );
+      const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
+      const result = await migrateJsonToSqlite();
+      expect(result.archivedImported).toBe(1);
+      expect(result.errors.some((e) => e.startsWith('Failed to import task T021'))).toBe(true);
     });
   });
 

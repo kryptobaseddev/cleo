@@ -276,6 +276,22 @@ export async function migrateJsonToSqliteAtomic(
   }
 }
 
+/** An archived legacy task as `todo-archive.json` stores it. */
+type ArchivedTask = Task & { archivedAt?: string; archiveReason?: string; cycleTimeDays?: number };
+
+/** One task of the legacy import, active or archived, in one topo order (T13259). */
+interface ImportQueueEntry {
+  readonly id: string;
+  readonly parentId?: string | null;
+  readonly depends?: string[];
+  readonly task: ArchivedTask;
+  readonly archived: boolean;
+}
+
+function queueEntry(task: ArchivedTask, archived: boolean): ImportQueueEntry {
+  return { id: task.id, parentId: task.parentId, depends: task.depends, task, archived };
+}
+
 /** References the legacy import keeps only when it holds their target (T13259). */
 interface ImportReferences {
   /** The task's parent id, or null when the import holds no such task. */
@@ -348,12 +364,12 @@ function importReferences(cleoDir: string, result: MigrationResult): ImportRefer
  * warning naming it; an edge the cycle guard refuses is skipped with a
  * warning naming the cycle (T12886).
  */
-async function insertImportedDependencyEdges(
+function insertImportedDependencyEdges(
   db: NodeSQLiteDatabase,
   edges: readonly DependencyEdge[],
   refs: ImportReferences,
   result: MigrationResult,
-): Promise<void> {
+): void {
   for (const edge of edges) {
     if (!refs.hasTask(edge.dependsOn)) {
       result.warnings.push(
@@ -412,8 +428,7 @@ async function runMigrationDataImport(
             // Provide default name for sessions with null/undefined names
             const normalizedName = session.name || `session-${session.id}`;
 
-            await db
-              .insert(schema.sessions)
+            db.insert(schema.sessions)
               .values({
                 id: session.id,
                 name: normalizedName,
@@ -477,101 +492,19 @@ async function runMigrationDataImport(
       );
     }
 
-    // === MIGRATE TASKS from todo.json ===
+    // === TASKS: active (todo.json) and archived (todo-archive.json), topo-
+    // sorted TOGETHER, so every parent precedes its children whichever file
+    // holds it and the parent guard triggers always see it (T13259). ===
     const todoPath = join(cleoDir, 'todo.json');
+    const archivePath = join(cleoDir, 'todo-archive.json');
+    const queue: ImportQueueEntry[] = [];
     if (existsSync(todoPath)) {
       try {
         logger?.info('import', 'read-todo', 'Reading todo.json', {
           path: todoPath.replace(cleoDir, '.'),
         });
-
         const todoData = JSON.parse(readFileSync(todoPath, 'utf-8'));
-        const tasks: Task[] = topoSortTasks(todoData.tasks ?? []);
-        const totalTasks = tasks.length;
-
-        logger?.info('import', 'tasks-start', `Starting import of ${totalTasks} tasks`, {
-          totalTasks,
-        });
-
-        for (let i = 0; i < tasks.length; i++) {
-          const task = tasks[i];
-          try {
-            // T877 invariant: derive a terminal pipeline_stage for legacy
-            // status=done/cancelled rows missing it, so imports satisfy the
-            // SQLite trigger that enforces status ↔ pipeline_stage alignment.
-            const importedPipelineStage: string | null =
-              (task as { pipelineStage?: string | null }).pipelineStage ??
-              (task.status === 'done'
-                ? 'contribution'
-                : task.status === 'cancelled'
-                  ? 'cancelled'
-                  : null);
-
-            await db
-              .insert(schema.tasks)
-              .values({
-                id: task.id,
-                title: task.title,
-                description: task.description || `Task: ${task.title}`,
-                status: task.status,
-                priority: task.priority ?? 'medium',
-                type: task.type,
-                parentId: refs.parent(task),
-                phase: task.phase,
-                size: task.size,
-                position: task.position,
-                labelsJson: task.labels ? JSON.stringify(task.labels) : '[]',
-                notesJson: task.notes ? JSON.stringify(task.notes) : '[]',
-                acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : '[]',
-                filesJson: task.files ? JSON.stringify(task.files) : '[]',
-                origin: task.origin,
-                blockedBy: task.blockedBy,
-                epicLifecycle: task.epicLifecycle,
-                noAutoComplete: task.noAutoComplete,
-                createdAt: task.createdAt,
-                updatedAt: task.updatedAt,
-                completedAt: task.completedAt,
-                cancelledAt: task.cancelledAt,
-                cancellationReason: task.cancellationReason,
-                verificationJson: task.verification ? JSON.stringify(task.verification) : undefined,
-                createdBy: task.provenance?.createdBy,
-                modifiedBy: task.provenance?.modifiedBy,
-                sessionId: refs.session(task),
-                pipelineStage: importedPipelineStage,
-              })
-              .onConflictDoNothing()
-              .run();
-
-            // Dependencies wait until every task exists (T13259).
-            for (const depId of task.depends ?? []) {
-              pendingEdges.push({ taskId: task.id, dependsOn: depId });
-            }
-
-            result.tasksImported++;
-
-            // Log progress every 100 tasks
-            if ((i + 1) % 100 === 0 || i === tasks.length - 1) {
-              logger?.logImportProgress('import', 'tasks', result.tasksImported, totalTasks);
-            }
-          } catch (err) {
-            const errorMsg = `Failed to import task ${task.id}: ${String(err)}`;
-            result.errors.push(errorMsg);
-            logger?.error('import', 'task-import', errorMsg, {
-              taskId: task.id,
-              error: String(err),
-            });
-          }
-        }
-
-        logger?.info(
-          'import',
-          'tasks-complete',
-          `Completed importing ${result.tasksImported} tasks`,
-          {
-            imported: result.tasksImported,
-            failed: result.errors.length,
-          },
-        );
+        for (const task of (todoData.tasks ?? []) as Task[]) queue.push(queueEntry(task, false));
       } catch (err) {
         const errorMsg = `Failed to parse todo.json: ${String(err)}`;
         result.errors.push(errorMsg);
@@ -581,100 +514,149 @@ async function runMigrationDataImport(
       result.warnings.push('todo.json not found, skipping task import');
       logger?.warn('import', 'todo-missing', 'todo.json not found, skipping task import');
     }
-
-    // === MIGRATE ARCHIVED TASKS from todo-archive.json ===
-    const archivePath = join(cleoDir, 'todo-archive.json');
     if (existsSync(archivePath)) {
       try {
         logger?.info('import', 'read-archive', 'Reading todo-archive.json', {
           path: archivePath.replace(cleoDir, '.'),
         });
-
         const archiveData = JSON.parse(readFileSync(archivePath, 'utf-8'));
-        const archivedTasks: (Task & {
-          archivedAt?: string;
-          archiveReason?: string;
-          cycleTimeDays?: number;
-        })[] = topoSortTasks(archiveData.tasks ?? archiveData.archivedTasks ?? []);
-        const totalArchived = archivedTasks.length;
-
-        logger?.info(
-          'import',
-          'archive-start',
-          `Starting import of ${totalArchived} archived tasks`,
-          {
-            totalArchived,
-          },
-        );
-
-        for (let i = 0; i < archivedTasks.length; i++) {
-          const task = archivedTasks[i];
-          try {
-            await db
-              .insert(schema.tasks)
-              .values({
-                id: task.id,
-                title: task.title,
-                description: task.description || `Task: ${task.title}`,
-                status: 'archived',
-                priority: task.priority ?? 'medium',
-                type: task.type,
-                parentId: refs.parent(task),
-                phase: task.phase,
-                size: task.size,
-                position: task.position,
-                labelsJson: task.labels ? JSON.stringify(task.labels) : '[]',
-                notesJson: task.notes ? JSON.stringify(task.notes) : '[]',
-                acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : '[]',
-                filesJson: task.files ? JSON.stringify(task.files) : '[]',
-                createdAt: task.createdAt,
-                updatedAt: task.updatedAt,
-                completedAt: task.completedAt,
-                archivedAt: task.archivedAt ?? task.completedAt ?? new Date().toISOString(),
-                archiveReason: normalizeImportedArchiveReason(task.archiveReason),
-                cycleTimeDays: task.cycleTimeDays,
-              })
-              .onConflictDoNothing()
-              .run();
-
-            result.archivedImported++;
-
-            // Log progress every 50 archived tasks
-            if ((i + 1) % 50 === 0 || i === archivedTasks.length - 1) {
-              logger?.logImportProgress(
-                'import',
-                'archived',
-                result.archivedImported,
-                totalArchived,
-              );
-            }
-          } catch (err) {
-            const errorMsg = `Failed to import archived task ${task.id}: ${String(err)}`;
-            result.errors.push(errorMsg);
-            logger?.error('import', 'archived-import', errorMsg, {
-              taskId: task.id,
-              error: String(err),
-            });
-          }
+        for (const task of (archiveData.tasks ??
+          archiveData.archivedTasks ??
+          []) as ArchivedTask[]) {
+          queue.push(queueEntry(task, true));
         }
-
-        logger?.info(
-          'import',
-          'archive-complete',
-          `Completed importing ${result.archivedImported} archived tasks`,
-          {
-            imported: result.archivedImported,
-          },
-        );
       } catch (err) {
         const errorMsg = `Failed to parse todo-archive.json: ${String(err)}`;
         result.errors.push(errorMsg);
         logger?.error('import', 'parse-archive', errorMsg);
       }
     }
+    const ordered = topoSortTasks(queue);
+    logger?.info('import', 'tasks-start', `Starting import of ${ordered.length} tasks`, {
+      totalTasks: ordered.length,
+    });
+    for (const [i, entry] of ordered.entries()) {
+      const { task, archived } = entry;
+      try {
+        // No await inside the transaction: a yield would let another writer
+        // on this shared handle land in it (T13259, LOW-1).
+        if (archived) {
+          db.insert(schema.tasks)
+            .values({
+              id: task.id,
+              title: task.title,
+              description: task.description || `Task: ${task.title}`,
+              status: 'archived',
+              priority: task.priority ?? 'medium',
+              type: task.type,
+              parentId: refs.parent(task),
+              phase: task.phase,
+              size: task.size,
+              position: task.position,
+              labelsJson: task.labels ? JSON.stringify(task.labels) : '[]',
+              notesJson: task.notes ? JSON.stringify(task.notes) : '[]',
+              acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : '[]',
+              filesJson: task.files ? JSON.stringify(task.files) : '[]',
+              createdAt: task.createdAt,
+              updatedAt: task.updatedAt,
+              completedAt: task.completedAt,
+              archivedAt: task.archivedAt ?? task.completedAt ?? new Date().toISOString(),
+              archiveReason: normalizeImportedArchiveReason(task.archiveReason),
+              cycleTimeDays: task.cycleTimeDays,
+            })
+            .onConflictDoNothing()
+            .run();
+          result.archivedImported++;
+        } else {
+          // T877 invariant: derive a terminal pipeline_stage for legacy
+          // status=done/cancelled rows missing it, so imports satisfy the
+          // SQLite trigger that enforces status ↔ pipeline_stage alignment.
+          const importedPipelineStage: string | null =
+            (task as { pipelineStage?: string | null }).pipelineStage ??
+            (task.status === 'done'
+              ? 'contribution'
+              : task.status === 'cancelled'
+                ? 'cancelled'
+                : null);
+          db.insert(schema.tasks)
+            .values({
+              id: task.id,
+              title: task.title,
+              description: task.description || `Task: ${task.title}`,
+              status: task.status,
+              priority: task.priority ?? 'medium',
+              type: task.type,
+              parentId: refs.parent(task),
+              phase: task.phase,
+              size: task.size,
+              position: task.position,
+              labelsJson: task.labels ? JSON.stringify(task.labels) : '[]',
+              notesJson: task.notes ? JSON.stringify(task.notes) : '[]',
+              acceptanceJson: task.acceptance ? JSON.stringify(task.acceptance) : '[]',
+              filesJson: task.files ? JSON.stringify(task.files) : '[]',
+              origin: task.origin,
+              blockedBy: task.blockedBy,
+              epicLifecycle: task.epicLifecycle,
+              noAutoComplete: task.noAutoComplete,
+              createdAt: task.createdAt,
+              updatedAt: task.updatedAt,
+              completedAt: task.completedAt,
+              cancelledAt: task.cancelledAt,
+              cancellationReason: task.cancellationReason,
+              verificationJson: task.verification ? JSON.stringify(task.verification) : undefined,
+              createdBy: task.provenance?.createdBy,
+              modifiedBy: task.provenance?.modifiedBy,
+              sessionId: refs.session(task),
+              pipelineStage: importedPipelineStage,
+            })
+            .onConflictDoNothing()
+            .run();
+          // Dependencies wait until every task exists (T13259).
+          for (const depId of task.depends ?? []) {
+            pendingEdges.push({ taskId: task.id, dependsOn: depId });
+          }
+          result.tasksImported++;
+        }
+        if ((i + 1) % 100 === 0 || i === ordered.length - 1) {
+          logger?.logImportProgress(
+            'import',
+            'tasks',
+            result.tasksImported + result.archivedImported,
+            ordered.length,
+          );
+        }
+      } catch (err) {
+        const errorMsg = `Failed to import ${archived ? 'archived task' : 'task'} ${task.id}: ${String(err)}`;
+        result.errors.push(errorMsg);
+        logger?.error('import', archived ? 'archived-import' : 'task-import', errorMsg, {
+          taskId: task.id,
+          error: String(err),
+        });
+      }
+    }
+    logger?.info('import', 'tasks-complete', 'Completed importing tasks', {
+      imported: result.tasksImported,
+      archived: result.archivedImported,
+      failed: result.errors.length,
+    });
 
     // === DEPENDENCIES, once every task (active and archived) exists ===
-    await insertImportedDependencyEdges(db, pendingEdges, refs, result);
+    insertImportedDependencyEdges(db, pendingEdges, refs, result);
+    // A residual violation would fail COMMIT with a bare constraint error:
+    // name every violating row and its missing parent instead (LOW-2).
+    const violations = native.prepare('PRAGMA foreign_key_check').all() as Array<{
+      table: string;
+      rowid: number | null;
+      parent: string;
+    }>;
+    if (violations.length > 0) {
+      throw new Error(
+        `foreign key violations: ${violations
+          .slice(0, 20)
+          .map((v) => `${v.table} row ${v.rowid ?? '?'} → missing ${v.parent}`)
+          .join('; ')}${violations.length > 20 ? ` (+${violations.length - 20} more)` : ''}`,
+      );
+    }
     native.exec('COMMIT');
   } catch (err) {
     if (native.isTransaction) native.exec('ROLLBACK');
