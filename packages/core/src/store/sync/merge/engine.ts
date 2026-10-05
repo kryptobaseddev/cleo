@@ -70,6 +70,7 @@ import type {
   RowState,
   SkipReason,
 } from './types.js';
+import { UNSEEN_ROW } from './types.js';
 
 /** A K op reached the field merge, or a spec is inconsistent. */
 export class MergeEngineError extends Error {
@@ -751,9 +752,13 @@ export function applyOp(row: RowState, incoming: LedgerOp, ctx: MergeContext): O
       return outcome('skipped', row, 'none');
     }
     if (op.o === 'I') {
-      const next = inserted(op);
-      const d = newDraft(next);
-      d.written.push(...Object.keys(next.fields).sort());
+      const fresh = inserted(op);
+      const d = newDraft(fresh);
+      d.written.push(...Object.keys(fresh.fields).sort());
+      // A terminal status fixes the stage on a fresh row too (a legacy repair
+      // insert of done/testing would otherwise fail T877 everywhere).
+      coupleToStatus(d, UNSEEN_ROW, op, ctx);
+      const next: RowState = { live: true, tombstone: null, fields: d.fields };
       return outcome('applied', next, 'insert', d);
     }
     if (row.tombstone !== null) {
