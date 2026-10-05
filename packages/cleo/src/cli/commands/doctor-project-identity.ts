@@ -15,12 +15,12 @@
  * @see ADR-096 — one committed `.cleo/project.json` (amends ADR-094)
  */
 
-import { getProjectRoot } from '@cleocode/core';
 import {
   inspectProjectIdentity,
   inspectProjectNameDrift,
   resolveProjectIdentity,
 } from '@cleocode/core/doctor/project-identity.js';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
 

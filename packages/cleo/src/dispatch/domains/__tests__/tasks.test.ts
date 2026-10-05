@@ -1,6 +1,6 @@
 import { OPERATIONS } from '@cleocode/contracts';
 import { reconcileSaga } from '@cleocode/core/sagas';
-import { parseGateJson, reqAdd, reqList, reqMigrate } from '@cleocode/core/tasks';
+import { parseGateJson, reqAdd, reqList, reqMigrate } from '@cleocode/core/tasks/req';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock @cleocode/core/internal — createAttachmentStore added by T9966
@@ -12,7 +12,8 @@ vi.mock('@cleocode/core/internal', () => ({
 }));
 
 // Mock only the requirement service boundary; use its real canonical JSON validator.
-vi.mock('@cleocode/core/tasks', async () => {
+// T13126: the tasks domain loads the req operations from their leaf module.
+vi.mock('@cleocode/core/tasks/req', async () => {
   const actual = await vi.importActual<typeof import('../../../../../core/src/tasks/req.js')>(
     '../../../../../core/src/tasks/req.js',
   );
@@ -98,9 +99,12 @@ vi.mock('@cleocode/core/tasks/engine-wrap-ops', async (importOriginal) => ({
   taskDepsCycles: vi.fn(),
   taskDepsOverview: vi.fn(),
 }));
+// T13126: `tasks.current` loads taskCurrentGet from its leaf module.
+vi.mock('@cleocode/core/session/task-current', () => ({
+  taskCurrentGet: vi.fn(),
+}));
 vi.mock('@cleocode/core/session/engine-ops', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@cleocode/core/session/engine-ops')>()),
-  taskCurrentGet: vi.fn(),
   taskStart: vi.fn(),
   taskStop: vi.fn(),
   taskWorkHistory: vi.fn(),
@@ -136,7 +140,8 @@ vi.mock('../../../../../core/src/paths.js', async () => {
   };
 });
 
-import { taskCurrentGet, taskStart, taskStop } from '@cleocode/core/session/engine-ops';
+import { taskStart, taskStop } from '@cleocode/core/session/engine-ops';
+import { taskCurrentGet } from '@cleocode/core/session/task-current';
 import { taskArchive } from '@cleocode/core/tasks/archive';
 import { completeTaskStrict } from '@cleocode/core/tasks/complete';
 import { taskDelete } from '@cleocode/core/tasks/delete';

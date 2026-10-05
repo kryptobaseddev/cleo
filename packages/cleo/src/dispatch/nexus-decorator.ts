@@ -19,4 +19,4 @@ export {
   pickDecoratorMetaExtensions,
   stampNexusMeta,
   validateSuggestedNext,
-} from '@cleocode/runtime/gateway';
+} from '@cleocode/runtime/gateway/dispatch';

@@ -8,21 +8,26 @@
  * the one place that decides when they run:
  *
  * - `schedule` (nightly) and `merge_group`: macOS always.
- * - `pull_request`: macOS when the change is darwin-specific, so a macOS-only
- *   regression is caught on its own PR instead of the next nightly. A
+ * - `pull_request`: a reduced macOS set ({@link MACOS_PR_SHARDS} shards) when
+ *   the change is darwin-specific, so a macOS-only regression is caught on its
+ *   own PR instead of the next nightly. A
  *   platform-agnostic change that happens to break on macOS (realpath
  *   `/var` vs `/private/var`, spaces in "Application Support", the
  *   case-insensitive filesystem, BSD userland flags) is still found by the
  *   nightly or main-push macOS run:
  *   - a changed path names darwin or macOS (`resources/darwin-backend.ts`),
- *     outside `.changeset/` and `docs/`; or
- *   - a changed line of a code or workflow file adds or removes a platform
- *     check: `process.platform`, `os.platform()` / `platform()` from
- *     `node:os`, or a `'darwin'` literal.
+ *     outside `.changeset/`, `docs/` and `macos-main.yml`; or
+ *   - a changed, non-comment line of a code or workflow file names macOS (a
+ *     `'darwin'` / `'macos'` literal, `Darwin`, `target_os`, `uname`,
+ *     `macos-latest`), or adds or removes a platform check that is not only a
+ *     `'win32'` comparison (see {@link touchesMacos}).
  * - Anything else (`push`, `workflow_dispatch`): Linux only.
  *
- * macOS runs {@link MACOS_SHARDS} shards (Linux {@link LINUX_SHARDS}), so its
- * wall time drops to the Linux shards' range when it does run.
+ * The free plan runs at most 5 macOS jobs at once, shared by every pull
+ * request and every main push, so the full {@link MACOS_SHARDS}-shard set is
+ * kept for the nightly and merge-group runs (and macos-main.yml); a darwin
+ * pull request runs {@link MACOS_PR_SHARDS} shards plus its two macOS builds,
+ * which fits the pool in one wave (T13198).
  *
  * Usage (the `changes` job):
  *
@@ -49,13 +54,28 @@ import { pathToFileURL } from 'node:url';
 export const LINUX_SHARDS = 8;
 
 /**
- * macOS unit-test shards. Also 8: the free plan runs at most 5 macOS jobs at
- * once, so more shards would only add waves and setup.
+ * macOS unit-test shards nightly, in merge groups and in macos-main.yml. Also
+ * 8: the free plan runs at most 5 macOS jobs at once, so more shards would
+ * only add waves and setup.
  */
 export const MACOS_SHARDS = 8;
 
+/**
+ * macOS unit-test shards on a darwin-specific pull request (T13198). Two
+ * shards and the two macOS build jobs fit the 5-job macOS pool in one wave,
+ * so one darwin pull request no longer starves every other PR's macOS legs.
+ * ci.yml gives these legs a longer timeout (each runs half the suite).
+ */
+export const MACOS_PR_SHARDS = 2;
+
 /** A path that is darwin-specific by name. */
 const DARWIN_PATH = /(^|[/._-])(darwin|macos)([/._-]|$)/i;
+
+/**
+ * Paths never treated as darwin-specific: prose, and macos-main.yml, which a
+ * pull request's CI does not run (its own main-push run validates it).
+ */
+const NOT_DARWIN_PATH = /^(\.changeset\/|docs\/|\.github\/workflows\/macos-main\.yml$)/;
 
 /** The files whose changed lines are scanned for platform checks. */
 export const CODE_PATHSPECS = [
@@ -71,13 +91,59 @@ export const CODE_PATHSPECS = [
 ];
 
 /**
- * A changed line that adds or removes a platform check: `process.platform`,
- * `os.platform()` / `platform()`, `os.type() === 'Darwin'`, a `'darwin'` or
- * `'macos'` literal, Rust `target_os`, a shell `uname`, or a macOS-only CI step
- * (`macos-latest`, `runner.os`).
+ * A line that names macOS: a `'darwin'` / `'macos'` / `'macOS'` literal,
+ * `os.type() === 'Darwin'`, Rust `target_os`, a shell `uname`, or a macOS CI
+ * runner (`macos-latest`).
  */
-const PLATFORM_LINE =
-  /process\.platform|\bos\.platform\(|\bplatform\(\)|['"`](darwin|macos)['"`]|\bDarwin\b|target_os|\buname\b|macos-latest|runner\.os/;
+const MACOS_LINE = /['"`](darwin|macos)['"`]|\bDarwin\b|target_os|\buname\b|macos-latest/;
+
+/** A quoted `'macOS'` in any case (`runner.os == 'macOS'`). */
+const MACOS_LITERAL = /['"`]macos['"`]/i;
+
+/** A runtime platform check: `process.platform`, `os.platform()` / `platform()`. */
+const PLATFORM_CHECK = /process\.platform|\bos\.platform\(|\bplatform\(\)/;
+
+/**
+ * A `runner.os` comparison (`if: runner.os != 'Linux'`). With the Windows
+ * shards disabled, `!= 'Linux'` means macOS only. A cache key
+ * (`${{ runner.os }}-pnpm-store-…`) has no comparison, so it never counts.
+ */
+const RUNNER_OS_CHECK = /runner\.os\s*[!=]=/;
+
+/** Every quoted runner OS name on a line. */
+const RUNNER_OS_LITERAL = /['"`](Linux|Windows|macOS)['"`]/gi;
+
+/** Every quoted platform name on a line. */
+const PLATFORM_LITERAL =
+  /['"`](aix|android|darwin|freebsd|linux|openbsd|sunos|win32|cygwin|netbsd)['"`]/g;
+
+/** A comment-only line (`//`, `/*`, `*`, or `#` other than a Rust `#[...]` attribute). */
+const COMMENT_LINE = /^\s*(\/\/|\/\*|\*|#(?!\[))/;
+
+/**
+ * Whether one changed line (without its `+`/`-`) touches macOS behaviour.
+ *
+ * A platform check counts unless every platform it names is `'win32'`: such a
+ * check only splits Windows from POSIX, and the POSIX side is the one Linux
+ * already runs. A check naming no platform (`switch (process.platform)`) or
+ * naming `'linux'` (whose else-branch is macOS) counts. A `runner.os`
+ * comparison follows the same rule (only `'Windows'` does not count). Comment
+ * lines and `runner.os` cache keys never count.
+ *
+ * @param {string} line - The changed line's content.
+ * @returns {boolean}
+ */
+export function touchesMacos(line) {
+  if (COMMENT_LINE.test(line)) return false;
+  if (MACOS_LINE.test(line) || MACOS_LITERAL.test(line)) return true;
+  if (RUNNER_OS_CHECK.test(line)) {
+    const oses = [...line.matchAll(RUNNER_OS_LITERAL)].map((m) => m[1].toLowerCase());
+    if (oses.length === 0 || oses.some((o) => o !== 'windows')) return true;
+  }
+  if (!PLATFORM_CHECK.test(line)) return false;
+  const named = [...line.matchAll(PLATFORM_LITERAL)].map((m) => m[1]);
+  return named.length === 0 || named.some((p) => p !== 'win32');
+}
 
 /**
  * Whether a change is darwin-specific.
@@ -87,20 +153,21 @@ const PLATFORM_LINE =
  * @returns {{ darwin: boolean, reason: string }}
  */
 export function detectDarwin(paths, patch) {
-  const named = paths.find(
-    (p) => DARWIN_PATH.test(p) && !p.startsWith('.changeset/') && !p.startsWith('docs/'),
-  );
+  const named = paths.find((p) => DARWIN_PATH.test(p) && !NOT_DARWIN_PATH.test(p));
   if (named) return { darwin: true, reason: `darwin-specific path: ${named}` };
+  let file = '';
   for (const line of patch.split('\n')) {
+    if (line.startsWith('diff --git ')) file = line.slice(line.lastIndexOf(' b/') + 3);
     if (line.startsWith('+++') || line.startsWith('---')) continue;
-    if ((line.startsWith('+') || line.startsWith('-')) && PLATFORM_LINE.test(line)) {
+    if (NOT_DARWIN_PATH.test(file)) continue;
+    if ((line.startsWith('+') || line.startsWith('-')) && touchesMacos(line.slice(1))) {
       return {
         darwin: true,
-        reason: `a changed line touches a platform check: ${line.slice(0, 160)}`,
+        reason: `a changed line touches macOS: ${line.slice(0, 160)}`,
       };
     }
   }
-  return { darwin: false, reason: 'no darwin-specific path or platform check changed' };
+  return { darwin: false, reason: 'no darwin-specific path or macOS-relevant line changed' };
 }
 
 /**
@@ -108,6 +175,8 @@ export function detectDarwin(paths, patch) {
  *
  * @param {string} event - `github.event_name`.
  * @param {boolean} darwin - Whether a pull request's change is darwin-specific.
+ *   A darwin pull request gets {@link MACOS_PR_SHARDS} macOS shards; the
+ *   nightly and merge-group runs get {@link MACOS_SHARDS}.
  * @returns {{ buildOs: string[], testMatrix: Array<{ os: string, shard: number, total: number }> }}
  */
 export function platformMatrix(event, darwin) {
@@ -118,7 +187,9 @@ export function platformMatrix(event, darwin) {
     Array.from({ length: total }, (_, i) => ({ os, shard: i + 1, total }));
   const testMatrix = [
     ...shards('ubuntu-latest', LINUX_SHARDS),
-    ...(macos ? shards('macos-latest', MACOS_SHARDS) : []),
+    ...(macos
+      ? shards('macos-latest', event === 'pull_request' ? MACOS_PR_SHARDS : MACOS_SHARDS)
+      : []),
   ];
   return { buildOs, testMatrix };
 }

@@ -191,6 +191,8 @@ const SYNC_CAPTURE_DDL =
   'packages/core/migrations/sync-journal/20260930120000_t12343-capture/migration.sql';
 const SYNC_SEALER_DDL =
   'packages/core/migrations/sync-journal/20261001170000_t12984-sealer/migration.sql';
+const SYNC_APPLY_INTENT_DDL =
+  'packages/core/migrations/sync-journal/20261004120000_t12757-apply-intent/migration.sql';
 const SYNC_JOURNAL_TABLES = {
   _sync_capture: { class: 'local-only', ddl: SYNC_CAPTURE_DDL },
   _sync_frame: { class: 'local-only', ddl: SYNC_CAPTURE_DDL },
@@ -200,6 +202,7 @@ const SYNC_JOURNAL_TABLES = {
   _sync_row_meta: { class: 'local-only', ddl: SYNC_SEALER_DDL },
   _sync_ledger: { class: 'local-only', ddl: SYNC_SEALER_DDL },
   _sync_quarantine: { class: 'local-only', ddl: SYNC_SEALER_DDL },
+  _sync_apply_intent: { class: 'local-only', ddl: SYNC_APPLY_INTENT_DDL },
   _sync_clock: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
   _sync_meta: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
   _sync_replica: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },

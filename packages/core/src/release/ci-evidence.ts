@@ -364,10 +364,10 @@ function globToRegExp(glob: string): RegExp {
 }
 
 /**
- * Path glob to an anchored regular expression (T13175): `**/ ` is any number of
- * whole directories (including none), a trailing `; /**` everything below, `*`
- * any run of characters within one segment, `?` one character within a
- * segment. Everything else is literal.
+ * Path glob to an anchored regular expression (T13175): `**` followed by `/` is
+ * any number of whole directories (including none), a trailing `/` followed by
+ * `**` is everything below, `*` any run of characters within one segment, `?`
+ * one character within a segment. Everything else is literal.
  *
  * @param glob - Repo-relative path glob.
  * @returns The anchored expression.

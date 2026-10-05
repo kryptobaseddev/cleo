@@ -100,7 +100,8 @@ export type BrainWriteOp =
   | BrainLearningOp
   | BrainPlasticityEventOp
   | BrainWeightUpdateOp
-  | BrainDialecticOp;
+  | BrainDialecticOp
+  | BrainEmbedOp;
 
 /** Insert a new observation row via the canonical `observeBrain` pipeline. */
 export interface BrainObserveOp {
@@ -171,6 +172,19 @@ export interface BrainDialecticOp {
 }
 
 /**
+ * Upsert computed observation embeddings (T13218). The vectors are computed
+ * BEFORE the op (model inference stays outside the chokepoint); only the
+ * `brain_embeddings` writes travel through it, so a backfill never opens a
+ * second write handle beside the worker's.
+ */
+export interface BrainEmbedOp {
+  kind: 'embed';
+  projectRoot: string;
+  /** One row per observation: its id and its embedding vector. */
+  rows: Array<{ id: string; vector: Float32Array }>;
+}
+
+/**
  * Serializable copy of `DialecticInsights` (the `applyInsights` callers pass
  * objects already shaped by the evaluator; we re-declare the shape here so the
  * writer-thread layer does not depend on the evaluator module).
@@ -192,7 +206,8 @@ export type BrainWriteResult =
   | { kind: 'learning'; id: string }
   | { kind: 'plasticity_event'; lastInsertRowid: number | null }
   | { kind: 'weight_update'; ok: true }
-  | { kind: 'dialectic'; ok: true };
+  | { kind: 'dialectic'; ok: true }
+  | { kind: 'embed'; written: number };
 
 // ============================================================================
 // Wire protocol — main ↔ worker

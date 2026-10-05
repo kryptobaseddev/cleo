@@ -42,7 +42,7 @@
  * @saga T11243 SG-RUNTIME-UNIFICATION
  */
 
-import { getLogger } from '@cleocode/core';
+import { getLogger } from '@cleocode/core/logger';
 
 /**
  * A structured log payload — a plain object of serializable fields merged into

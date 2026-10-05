@@ -19,6 +19,9 @@
 
 import { getLogger } from '../logger.js';
 
+/** Set after the first pending-count failure is logged at warn. */
+let countFailureWarned = false;
+
 /** Observations embedded per bounded batch unless the caller says otherwise. */
 export const DEFAULT_EMBEDDING_BACKFILL_LIMIT = 50;
 
@@ -71,10 +74,16 @@ export async function countUnembeddedObservations(projectRoot: string): Promise<
     );
     return row?.n ?? 0;
   } catch (err) {
-    getLogger('embedding-backfill').debug(
-      { err, projectRoot },
-      'Unembedded observation count unavailable; skipping the backfill',
-    );
+    // Warn once per process so a permanently broken vector table is visible,
+    // then stay at debug (the backfill runs every tick and session end).
+    const log = getLogger('embedding-backfill');
+    const record = { err, projectRoot };
+    const msg = 'Unembedded observation count unavailable; skipping the backfill';
+    if (countFailureWarned) log.debug(record, msg);
+    else {
+      countFailureWarned = true;
+      log.warn(record, msg);
+    }
     return 0;
   }
 }

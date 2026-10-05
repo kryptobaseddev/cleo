@@ -1,26 +1,34 @@
 /** Code placed in `packages/cleo/` per Package-Boundary Check — verified against AGENTS.md. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@cleocode/core', () => ({ getProjectRoot: () => '/fixture' }));
-vi.mock('@cleocode/core/internal', () => ({
+vi.mock('@cleocode/core/project-scope', () => ({ getProjectRoot: () => '/fixture' }));
+vi.mock('@cleocode/core/tasks/show', () => ({
   taskShow: vi.fn(async () => ({
     success: true,
     data: { task: { id: 'T123', title: 'Fixture', type: 'task', status: 'pending' } },
   })),
-  taskRelates: vi.fn(),
-  orchestrateReady: vi.fn(),
+}));
+vi.mock('@cleocode/core/tasks/engine-wrap', () => ({ taskRelates: vi.fn() }));
+vi.mock('@cleocode/core/orchestrate/query-ops', () => ({ orchestrateReady: vi.fn() }));
+vi.mock('@cleocode/core/store/attachment-store', () => ({
   createAttachmentStore: vi.fn(() => ({
     listByOwner: async () => [],
     getExtras: async () => null,
   })),
-  memoryFind: vi.fn(async () => ({ success: true, data: { results: [] } })),
-  buildAttentionDigest: vi.fn(async () => null),
-  sagas: { isSagaType: () => false },
 }));
+vi.mock('@cleocode/core/memory/engine-compat', () => ({
+  memoryFind: vi.fn(async () => ({ success: true, data: { results: [] } })),
+}));
+vi.mock('@cleocode/core/memory/attention', () => ({
+  buildAttentionDigest: vi.fn(async () => null),
+}));
+vi.mock('@cleocode/core/sagas/is-saga-type', () => ({ isSagaType: () => false }));
 vi.mock('@cleocode/core/doctor/knowledge', () => ({ runKnowledgeDoctor: vi.fn() }));
 
 import { runKnowledgeDoctor } from '@cleocode/core/doctor/knowledge';
-import { memoryFind, orchestrateReady, taskShow } from '@cleocode/core/internal';
+import { memoryFind } from '@cleocode/core/memory/engine-compat';
+import { orchestrateReady } from '@cleocode/core/orchestrate/query-ops';
+import { taskShow } from '@cleocode/core/tasks/show';
 import { createBudgetEnforcement } from '../../middleware/budget-enforcement.js';
 import { FocusHandler } from '../focus.js';
 

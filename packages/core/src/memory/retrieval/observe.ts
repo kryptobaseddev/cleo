@@ -6,6 +6,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { DatabaseSync } from 'node:sqlite';
 import type {
   BrainSourceConfidence,
   ObserveBrainParams,
@@ -389,12 +390,9 @@ export async function observeBrain(
         try {
           if (!(await ensureEmbeddingProvider())) return;
           const vector = await embedText(text);
-          if (vector && nativeDb) {
-            nativeDb
-              // replace-allowed: brain_embeddings is a vec0 virtual table — never an FK parent, and virtual tables reject UPSERT (T12787)
-              .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
-              .run(id, Buffer.from(vector.buffer));
-          }
+          // In a host this runs inside the brain writer (the worker isolate
+          // that executed observeBrain), on the writer's own handle.
+          if (vector && nativeDb) upsertEmbeddingRowsNative(nativeDb, [{ id, vector }]);
         } catch {
           // Silently skip embedding failures — observation is already persisted
         }
@@ -465,6 +463,33 @@ export async function observeBrain(
 // ============================================================================
 // Embedding Backfill Pipeline (T5387)
 // ============================================================================
+
+/**
+ * Upsert computed embeddings into `brain_embeddings` on the given handle.
+ *
+ * Callers must be the brain single-writer chokepoint: the `embed` write op's
+ * handler (`brain-writer-handlers.ts`, worker or inline under the lease and
+ * mutex) and the host's observe-time embed, which runs inside the writer.
+ *
+ * @param nativeDb - The writer's brain handle.
+ * @param rows - Observation ids and their vectors.
+ * @returns Rows written.
+ * @task T13218
+ */
+export function upsertEmbeddingRowsNative(
+  nativeDb: DatabaseSync,
+  rows: ReadonlyArray<{ id: string; vector: Float32Array }>,
+): number {
+  const stmt = nativeDb
+    // replace-allowed: brain_embeddings is a vec0 virtual table — never an FK parent, and virtual tables reject UPSERT (T12787)
+    .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)');
+  let written = 0;
+  for (const row of rows) {
+    stmt.run(row.id, Buffer.from(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength));
+    written++;
+  }
+  return written;
+}
 
 /** Result from populateEmbeddings backfill. */
 export interface PopulateEmbeddingsResult {
@@ -597,25 +622,30 @@ export async function populateEmbeddings(
   const total = rows.length;
   let attempted = 0;
 
+  // T13218: inference runs here, outside the chokepoint; the writes go through
+  // it, one `embed` op per batch, so this never writes on a second handle
+  // beside the brain writer (worker in a host, lease + mutex elsewhere).
+  const { enqueueBrainWrite } = await import('../brain-writer-thread.js');
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize);
+    const computed: Array<{ id: string; vector: Float32Array }> = [];
     for (const row of batch) {
       try {
         const vector = await embedText(row.narrative || row.title);
-        if (vector) {
-          nativeDb
-            // replace-allowed: brain_embeddings is a vec0 virtual table — never an FK parent, and virtual tables reject UPSERT (T12787)
-            .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
-            .run(row.id, Buffer.from(vector.buffer));
-          processed++;
-        } else {
-          skipped++;
-        }
+        if (vector) computed.push({ id: row.id, vector });
+        else skipped++;
       } catch {
         errors++;
       }
       attempted++;
       onProgress?.(attempted, total);
+    }
+    if (computed.length === 0) continue;
+    try {
+      const result = await enqueueBrainWrite({ kind: 'embed', projectRoot, rows: computed });
+      processed += result.kind === 'embed' ? result.written : 0;
+    } catch {
+      errors += computed.length;
     }
   }
 
