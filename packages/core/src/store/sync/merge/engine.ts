@@ -298,6 +298,52 @@ function rankOf(rule: { readonly order: readonly string[] }, v: LedgerWireValue)
   return rule.order.indexOf(asString(v) ?? '\0');
 }
 
+/** One rank-max candidate write. */
+export interface RankCandidate {
+  readonly value: LedgerWireValue;
+  readonly hlc: string;
+}
+
+/**
+ * The alive, non-dominated candidates of a rank-max column after `write`,
+ * oldest first (T13223). The current value is ALWAYS a candidate, even when
+ * a stored frontier omits it (T13232): a local write changes the row without
+ * the merge, and a frontier that dropped it would lose that write and
+ * diverge from replicas that folded it.
+ *
+ * @param rule - The column's rank-max rule.
+ * @param cur - The column's current state, or undefined.
+ * @param write - The incoming write.
+ * @param floor - The restore floor after the write, or undefined.
+ * @returns The candidates; the best by (rank, HLC) is the column's value.
+ */
+export function rankMaxFrontier(
+  rule: { readonly order: readonly string[] },
+  cur: FieldState | undefined,
+  write: RankCandidate,
+  floor: string | undefined,
+): RankCandidate[] {
+  let cands: RankCandidate[] = cur ? [...(cur.frontier ?? [])] : [];
+  const add = (c: RankCandidate): void => {
+    if (!cands.some((x) => x.hlc === c.hlc && same(x.value, c.value))) cands.push(c);
+  };
+  if (cur) add({ value: cur.value, hlc: cur.hlc });
+  add(write);
+  if (floor !== undefined) cands = cands.filter((c) => cmp(c.hlc, floor) >= 0);
+  return cands
+    .filter(
+      (a) =>
+        !cands.some(
+          (b) =>
+            b !== a &&
+            rankOf(rule, b.value) >= rankOf(rule, a.value) &&
+            cmp(b.hlc, a.hlc) >= 0 &&
+            (rankOf(rule, b.value) > rankOf(rule, a.value) || cmp(b.hlc, a.hlc) > 0),
+        ),
+    )
+    .sort((a, b) => cmp(a.hlc, b.hlc));
+}
+
 /**
  * Merge a rank-max column (T13223): the best alive write by (rank, HLC). A
  * restore raises the floor to its HLC; writes older than the floor are dead.
@@ -318,21 +364,7 @@ function mergeRankMax(
   const restore = rule.restoreOps.includes(ctx.actorOp ?? '');
   const floor = restore ? maxOf(cur?.leave, h) : cur?.leave;
   const value = plain(inc);
-  let cands = cur ? [...(cur.frontier ?? [{ value: cur.value, hlc: cur.hlc }])] : [];
-  if (!cands.some((c) => c.hlc === h && same(c.value, value))) cands.push({ value, hlc: h });
-  if (floor !== undefined) cands = cands.filter((c) => cmp(c.hlc, floor) >= 0);
-  cands = cands
-    .filter(
-      (a) =>
-        !cands.some(
-          (b) =>
-            b !== a &&
-            rankOf(rule, b.value) >= rankOf(rule, a.value) &&
-            cmp(b.hlc, a.hlc) >= 0 &&
-            (rankOf(rule, b.value) > rankOf(rule, a.value) || cmp(b.hlc, a.hlc) > 0),
-        ),
-    )
-    .sort((a, b) => cmp(a.hlc, b.hlc));
+  const cands = rankMaxFrontier(rule, cur, { value, hlc: h }, floor);
   const best = cands.reduce<(typeof cands)[number] | undefined>((m, c) => {
     if (!m) return c;
     const rc = rankOf(rule, c.value) - rankOf(rule, m.value);

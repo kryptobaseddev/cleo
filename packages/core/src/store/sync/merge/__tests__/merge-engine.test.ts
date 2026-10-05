@@ -490,3 +490,36 @@ describe('review #1867: an insert carries a sum counter as its starting value', 
     );
   });
 });
+
+describe('review #1889: a stale stored frontier never drops the current value (T13232)', () => {
+  it('stored frontier, then a local advance, then a remote op: the origin matches the full fold', () => {
+    const stage = (s: string, at: string): LedgerOp => op('U', at, { pipeline_stage: s });
+    // The origin: remote merges stored [implementation@5, research@9]; the
+    // user then advanced to testing@20 locally, outside the merge.
+    const origin: RowState = {
+      live: true,
+      tombstone: null,
+      fields: {
+        pipeline_stage: {
+          value: 'testing',
+          hlc: h(20),
+          frontier: [
+            { value: 'implementation', hlc: h(5, R2) },
+            { value: 'research', hlc: h(9, R2) },
+          ],
+        },
+      },
+    };
+    const remote = stage('validation', h(15, R2));
+    const atOrigin = applyOp(origin, remote, TASKS).next;
+    // A receiver that folded every write.
+    const receiver = [
+      stage('implementation', h(5, R2)),
+      stage('research', h(9, R2)),
+      stage('testing', h(20)),
+      remote,
+    ].reduce((row, o) => applyOp(row, o, TASKS).next, live({ pipeline_stage: 'research' }, h(1)));
+    expect(atOrigin.fields.pipeline_stage).toMatchObject({ value: 'testing', hlc: h(20) });
+    expect(atOrigin.fields.pipeline_stage).toEqual(receiver.fields.pipeline_stage);
+  });
+});

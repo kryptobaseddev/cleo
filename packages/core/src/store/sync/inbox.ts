@@ -92,6 +92,12 @@ type InboxRow = {
  * Stage a verified segment's transactions. Rows already staged (same
  * stream, seq, index) are left alone, so a re-pull is idempotent.
  *
+ * Exactly-once beyond the inbox's own rows is the receiver's: it stages only
+ * segments past its persisted `_sync_cursor` and advances the cursor in the
+ * same transaction (§3.1 step 3), so a segment whose applied rows were
+ * pruned after a verified checkpoint is never staged again. Counter deltas
+ * rely on it.
+ *
  * @param db - The store (the journal schema applied); opens its own
  *   transaction unless the caller holds one.
  * @param stream - The stream id.

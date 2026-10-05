@@ -25,6 +25,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { LedgerActor, LedgerWireValue } from '@cleocode/contracts/ledger';
 import { z } from 'zod';
+import { rankMaxFrontier } from './merge/engine.js';
 import { SYNC_MERGE_RULES } from './merge/rules.js';
 import { canonicalJson } from './sealer-values.js';
 
@@ -201,4 +202,46 @@ export function actorOpOf(actor: string | null): string | null {
   }
   const r = LedgerActor.safeParse(parsed);
   return r.success ? (r.data.op ?? null) : null;
+}
+
+/**
+ * The stored rank-max frontiers a locally authored U op changes (T13232):
+ * the local write joins each frontier the row already has, pruned exactly as
+ * the merge prunes it, so the stored state stays the one every replica
+ * folding the same writes holds. A frontier left with one candidate is
+ * cleared (`null`). Columns without a stored frontier need nothing: the row's
+ * own value is their only candidate.
+ *
+ * @param db - The store, inside the sealer's transaction.
+ * @param tbl - Sync-set table.
+ * @param uid - Row uid.
+ * @param op - The sealed op's changed values and HLC.
+ * @param leaves - The leaves this op records ({@link localLeaves}).
+ * @returns Column → new frontier, or null to clear it.
+ */
+export function localFrontierUpdates(
+  db: DatabaseSync,
+  tbl: string,
+  uid: string,
+  op: { readonly a?: Readonly<Record<string, LedgerWireValue>>; readonly h: string },
+  leaves: FieldLeaves,
+): Record<string, FieldFrontier | null> {
+  const rules = SYNC_MERGE_RULES[tbl]?.rules;
+  if (!rules) return {};
+  const out: Record<string, FieldFrontier | null> = {};
+  let stored: Readonly<Record<string, FieldFrontier>> | undefined;
+  let storedLeaves: FieldLeaves | undefined;
+  for (const [col, rule] of Object.entries(rules)) {
+    const value = op.a?.[col];
+    if (rule.kind !== 'rank-max' || value === undefined) continue;
+    stored ??= readFieldFrontiers(db, tbl, uid);
+    const frontier = stored[col];
+    if (!frontier) continue;
+    storedLeaves ??= readFieldLeaves(db, tbl, uid);
+    const floors = [storedLeaves[col], leaves[col]].filter((x): x is string => x !== undefined);
+    const floor = floors.length > 0 ? floors.reduce((m, x) => (x > m ? x : m)) : undefined;
+    const next = rankMaxFrontier(rule, { value, hlc: op.h, frontier }, { value, hlc: op.h }, floor);
+    out[col] = next.length > 1 ? next : null;
+  }
+  return out;
 }

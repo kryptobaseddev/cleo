@@ -159,6 +159,20 @@ function loadRowState(
   return { live: true, tombstone: null, fields };
 }
 
+/**
+ * This replica's own echo (§3.1: own segments are staged and applied like
+ * any other) without its counter deltas: a `{ $inc }` the replica authored is
+ * already in its row, and applying it again would double it. Everything else
+ * is idempotent for an echo (the fields already carry the op's HLCs).
+ */
+function ownEcho(op: LedgerOp, st: StagedTxn, localReplica: string): LedgerOp {
+  if (st.replicaId !== localReplica || !op.a) return op;
+  const a = Object.fromEntries(
+    Object.entries(op.a).filter(([, v]) => !(typeof v === 'object' && v !== null && '$inc' in v)),
+  );
+  return { ...op, a };
+}
+
 /** Why this slice cannot apply `op` yet, or null. */
 function notYet(op: LedgerOp, def: CaptureTableDef): string | null {
   if (op.o === 'K') return `${op.t}/${op.u}: re-key (applied by the re-key path)`;
@@ -197,7 +211,10 @@ function planTxn(
       spec = mergeSpecFor(op.t, def.columns);
       specs.set(op.t, spec);
     }
-    const out = applyOp(before, op, { table: spec, actorOp: st.txn.actor?.op ?? null });
+    const out = applyOp(before, ownEcho(op, st, localReplica), {
+      table: spec,
+      actorOp: st.txn.actor?.op ?? null,
+    });
     if (out.status === 'refused-schema') {
       const reason = out.malformed?.length
         ? `${op.t}/${op.u}: malformed column(s) ${out.malformed.join(', ')}`
