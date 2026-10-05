@@ -28,7 +28,6 @@ import {
   getCanonicalTemplatesTildePath,
   getCleoHome,
   getCleoTemplatesTildePath,
-  getProjectRoot,
 } from './paths.js';
 import { ensureGlobalHome, getPackageRoot } from './scaffold.js';
 import {
@@ -139,8 +138,12 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
   // null peer cards — defeating Wave 8's enriched-spawn promise.
   await syncCanonicalSigilsStep(ctx);
 
-  // Step 6: Install provider adapters
-  await installProviderAdapters(ctx, options?.packageRoot);
+  // Step 6 (removed, T13128): provider adapter installation. Its discovery
+  // read `<packageRoot>/packages/adapters/<dir>/manifest.json`, which exists in
+  // no installed package and no project, so it never found an adapter. Had it
+  // run, the Claude Code adapter would have written the user-global
+  // `~/.claude/settings.json`, which CLEO must not touch. Provider hooks are
+  // delivered per project by `cleo init` / `cleo upgrade` (T13124).
 
   // Step 7: Verify injection chain health
   await verifyBootstrapHealth(ctx);
@@ -568,47 +571,6 @@ export async function syncCanonicalSigilsStep(ctx: BootstrapContext): Promise<vo
   } catch (err) {
     ctx.warnings.push(
       `sigils (global) sync failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}
-
-// ── Step 6: Provider adapter installation ────────────────────────────
-
-async function installProviderAdapters(
-  ctx: BootstrapContext,
-  packageRootOverride?: string,
-): Promise<void> {
-  try {
-    const { AdapterManager } = await import('./adapters/index.js');
-    const pkgRoot = packageRootOverride ?? getPackageRoot();
-    const manager = AdapterManager.getInstance(pkgRoot);
-    manager.discover();
-    const detected = manager.detectActive();
-
-    for (const adapterId of detected) {
-      try {
-        const adapter = await manager.activate(adapterId);
-        if (adapter.install) {
-          if (!ctx.isDryRun) {
-            const installResult = await adapter.install.install({
-              projectDir: getProjectRoot(),
-            });
-            if (installResult.success) {
-              ctx.created.push(`${adapterId} adapter (installed)`);
-            }
-          } else {
-            ctx.created.push(`${adapterId} adapter (would install)`);
-          }
-        }
-      } catch (activateErr) {
-        ctx.warnings.push(
-          `Adapter ${adapterId} skipped: ${activateErr instanceof Error ? activateErr.message : String(activateErr)}`,
-        );
-      }
-    }
-  } catch (err) {
-    ctx.warnings.push(
-      `Adapter install skipped: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }
