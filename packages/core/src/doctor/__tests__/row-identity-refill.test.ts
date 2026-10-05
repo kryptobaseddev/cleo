@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { RowIdentityNexusAnswer } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { NexusError } from '../../cloud/http.js';
 import {
   askNexusProjectHistory,
   type NexusStreamReader,
@@ -139,6 +140,7 @@ describe('cleo doctor row-identity --refill (T13231)', () => {
     expect(report.applied).toBe(true);
     expect(report.snapshot && existsSync(report.snapshot)).toBe(true);
     expect(report.undo).toContain(String(report.snapshot));
+    expect(report.undo).toMatch(/^STOP EVERY cleo PROCESS FIRST/);
     expect(relUid()).not.toBe(BOGUS_REL);
     expect(relUid()).not.toBeNull();
   });
@@ -178,29 +180,56 @@ describe('cleo doctor row-identity --refill (T13231)', () => {
 });
 
 describe('nexusStreamHistory (T13231)', () => {
-  const reader = (routes: Record<string, object>): NexusStreamReader => ({
-    async find(path, schema) {
+  const base = '/v1/streams/project%3Ap1';
+  /** A fake cleo-nexus: routes answer a body, or fail like the server does. */
+  const reader = (routes: Record<string, object | NexusError>): NexusStreamReader => ({
+    async raw(_method, path, schema) {
       const body = routes[path];
-      if (body === undefined) return null;
+      if (body === undefined) throw new NexusError('E_INTERNAL', 'HTTP 404', 404, null);
+      if (body instanceof NexusError) throw body;
       const parsed = schema.safeParse(body);
       if (!parsed.success || parsed.data === undefined) throw new Error(`bad body for ${path}`);
       return parsed.data;
     },
   });
-  const base = '/v1/streams/project%3Ap1';
+  const notFound = (what: string) => new NexusError('E_NOT_FOUND', `${what} not found`, 404, 'r1');
 
-  it('a missing stream holds nothing', async () => {
-    expect(await nexusStreamHistory(reader({}), 'project:p1')).toEqual({
+  it("the server's explicit 'stream not found' (a visible project, no stream) holds nothing", async () => {
+    expect(await nexusStreamHistory(reader({ [base]: notFound('stream') }), 'project:p1')).toEqual({
       checkpoints: 0,
       headSeq: 0,
     });
   });
 
-  it('a head checkpoint counts even when the list is unavailable', async () => {
+  it("'project not found' (a non-member: the server hides the project) is not 'none'", async () => {
+    await expect(
+      nexusStreamHistory(reader({ [base]: notFound('project') }), 'project:p1'),
+    ).rejects.toThrow(/project not found/);
+  });
+
+  it('a bare 404 (an unknown route) is not "none"', async () => {
+    await expect(nexusStreamHistory(reader({}), 'project:p1')).rejects.toThrow(/HTTP 404/);
+  });
+
+  it('a stream with no checkpoint and head 0 holds nothing', async () => {
     const r = reader({
-      [base]: { streamId: 'project:p1', headSeq: 0, headCheckpointId: 'cp-1' },
+      [base]: { streamId: 'project:p1', headSeq: 0, headCheckpointId: null },
+      [`${base}/checkpoints`]: { checkpoints: [] },
     });
-    expect(await nexusStreamHistory(r, 'project:p1')).toEqual({ checkpoints: 1, headSeq: 0 });
+    expect(await nexusStreamHistory(r, 'project:p1')).toEqual({ checkpoints: 0, headSeq: 0 });
+  });
+
+  it('a head checkpoint counts; an unavailable checkpoint list is not "none"', async () => {
+    const r = reader({ [base]: { streamId: 'project:p1', headSeq: 0, headCheckpointId: 'cp-1' } });
+    await expect(nexusStreamHistory(r, 'project:p1')).rejects.toThrow(/HTTP 404/);
+    const withList = reader({
+      [base]: { streamId: 'project:p1', headSeq: 0, headCheckpointId: 'cp-1' },
+      [`${base}/checkpoints`]: { checkpoints: [] },
+    });
+    expect(await nexusStreamHistory(withList, 'project:p1')).toEqual({
+      checkpoints: 1,
+      headSeq: 0,
+    });
   });
 
   it('journal segments without a checkpoint count through the head sequence', async () => {

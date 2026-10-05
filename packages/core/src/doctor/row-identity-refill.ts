@@ -113,7 +113,9 @@ function remedyOf(verdict: RowIdentityShareState, fillEnabled: boolean): string[
 function undoOf(projectRoot: string, snapshot: string): string {
   const db = resolveDualScopeDbPath('project', projectRoot);
   return (
-    'no `cleo restore` verb restores cleo.db from a named snapshot; stop every cleo process, then: ' +
+    'STOP EVERY cleo PROCESS FIRST (agents, daemons, open terminals): a running writer would ' +
+    'overwrite or corrupt the restored file. No `cleo restore` verb restores cleo.db from a named ' +
+    'snapshot yet (T13240), so the undo is a file copy: ' +
     `cp '${snapshot}' '${db}' && rm -f '${db}-wal' '${db}-shm'`
   );
 }

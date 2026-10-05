@@ -14,22 +14,47 @@
 import type { NexusProjectLink, RowIdentityNexusAnswer } from '@cleocode/contracts';
 import { ListCheckpointsResult } from '@cleocode/contracts/cloud';
 import { nexusStreamHeadSchema } from '@cleocode/contracts/nexus-vault.js';
-import type { ResponseSchema } from './http.js';
+import { NexusError, type ResponseSchema } from './http.js';
 import { readNexusProjectLinks } from './nexus-link.js';
 import { connectNexusVault, type NexusVaultOptions } from './nexus-vault-keys.js';
 import { projectStream } from './streams.js';
 
-/** The read-only slice of a vault connection the probe needs (`GET`, a 404 answers `null`). */
+/**
+ * The read-only slice of a vault connection the probe needs: a request whose
+ * failure stays a raw {@link NexusError}, so the probe can tell the server's
+ * "stream not found" from every other 404.
+ */
 export interface NexusStreamReader {
-  find<T>(path: string, schema: ResponseSchema<T>): Promise<T | null>;
+  raw<T>(method: string, path: string, schema: ResponseSchema<T>): Promise<T>;
+}
+
+/**
+ * The cleo-nexus answer for a project the caller can see whose stream was
+ * never created (`requireStreamAccess`: `notFound('stream')`, after project
+ * access passed). A non-member gets `project not found`, and an unknown route
+ * a bare 404; neither proves the cloud holds nothing.
+ */
+const STREAM_NEVER_CREATED = 'stream not found';
+
+/** Whether a failure is exactly the server's "this project's stream does not exist". */
+function streamNeverCreated(err: unknown): boolean {
+  return (
+    err instanceof NexusError &&
+    err.status === 404 &&
+    err.code === 'E_NOT_FOUND' &&
+    err.serverMessage === STREAM_NEVER_CREATED
+  );
 }
 
 /** Opens a reader for one origin; defaults to {@link connectNexusVault}. */
 export type NexusStreamReaderFactory = (apiUrl: string) => Promise<NexusStreamReader>;
 
 /**
- * What one stream holds: its head and its checkpoint count. A missing stream
- * (404) holds nothing.
+ * What one stream holds: its head and its checkpoint count. Only two answers
+ * count as "nothing": a stream that exists with no checkpoint and head 0, and
+ * the server's explicit "stream not found" for a project the caller can see.
+ * Every other failure, including any other 404, is thrown (the caller treats
+ * it as unknown).
  *
  * @param reader - An authenticated reader.
  * @param streamId - The project's stream.
@@ -41,10 +66,15 @@ export async function nexusStreamHistory(
   streamId: string,
 ): Promise<{ checkpoints: number; headSeq: number }> {
   const base = `/v1/streams/${encodeURIComponent(streamId)}`;
-  const head = await reader.find(base, nexusStreamHeadSchema);
-  if (head === null) return { checkpoints: 0, headSeq: 0 };
-  const list = await reader.find(`${base}/checkpoints`, ListCheckpointsResult);
-  const checkpoints = Math.max(list?.checkpoints.length ?? 0, head.headCheckpointId ? 1 : 0);
+  let head: { headSeq: number; headCheckpointId: string | null };
+  try {
+    head = await reader.raw('GET', base, nexusStreamHeadSchema);
+  } catch (err) {
+    if (streamNeverCreated(err)) return { checkpoints: 0, headSeq: 0 };
+    throw err;
+  }
+  const list = await reader.raw('GET', `${base}/checkpoints`, ListCheckpointsResult);
+  const checkpoints = Math.max(list.checkpoints.length, head.headCheckpointId ? 1 : 0);
   return { checkpoints, headSeq: head.headSeq };
 }
 
