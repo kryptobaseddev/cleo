@@ -404,6 +404,23 @@ export interface CloudProjectsResult {
   warnings: CloudWarning[];
 }
 
+/**
+ * A replica this device retired: the store file it named was replaced (a
+ * vault restore or pull) or rolled back, so a new replica took its place
+ * (journal spec §1.5). The server lists it as history until S4's signed
+ * `retire` transaction announces it (T13109).
+ */
+export interface CloudRetiredReplica {
+  /** The retired replica id. */
+  replicaId: string;
+  /** The replica that replaced it. */
+  successor: string;
+  /** When it was retired on this device. */
+  retiredAt: string;
+  /** The rebind reason(s), e.g. `vault-restore`; `null` when not recorded. */
+  reason: string | null;
+}
+
 /** `cleo cloud projects show [<id>]` (operation `cloud.projects.show`). */
 export interface CloudProjectShowResult extends NexusCloudProjectDetail {
   /** API origin asked. */
@@ -417,6 +434,8 @@ export interface CloudProjectShowResult extends NexusCloudProjectDetail {
    * fetched from E15 and `replicas` holds them all (up to the page budget).
    */
   replicaPaging: CloudPaging;
+  /** Listed replicas this device retired (from its local registry), newest first. */
+  retiredHere: CloudRetiredReplica[];
   /** Non-fatal problems. */
   warnings: CloudWarning[];
 }
@@ -459,6 +478,11 @@ export interface CloudStatusLocal {
   projectId: string | null;
   /** The active replica id of the current project's store (read-only; never bound here). */
   replicaId: string | null;
+  /**
+   * Earlier replicas of the current project's store that this device retired
+   * (from its local registry), newest first: the server still lists them.
+   */
+  retiredReplicas: CloudRetiredReplica[];
   /** `.cleo/nexus-link.json` when it holds an entry for the origin, else `null`. */
   linkPath: string | null;
   /** The device credential store (`nexus-device.json`). */

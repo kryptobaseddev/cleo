@@ -39,6 +39,7 @@ vi.mock('@cleocode/core/cloud/nexus-cloud-status.js', () => ({
 }));
 
 const {
+  cloudRestoreSummary,
   runCloudActivity,
   runCloudLease,
   runCloudPull,
@@ -70,6 +71,7 @@ const restoreResult = {
   verified: true,
   tables: 2,
   safetyBackup: null,
+  replica: null,
 };
 
 let stdout: ReturnType<typeof vi.spyOn>;
@@ -311,6 +313,38 @@ describe('restore relink callback', () => {
     await expect(relink('/r')).resolves.toEqual([
       'restored, but attaching this copy failed (boom); run `cleo project link`',
     ]);
+  });
+});
+
+describe('cloudRestoreSummary (T13109)', () => {
+  it('names the retired and the new replica after a placement', () => {
+    const line = cloudRestoreSummary({
+      ...restoreResult,
+      status: 'restored',
+      replica: { retired: 'r-old', current: 'r-new', reason: 'vault-restore' },
+    });
+    expect(line).toBe(
+      'Restored project snapshot cp-1 into /x: 2 table(s) verified by count and hash; replica r-old retired → r-new.',
+    );
+    const copied = cloudRestoreSummary({
+      ...restoreResult,
+      status: 'restored',
+      replica: { retired: 'r-old', current: 'r-new', reason: 'file-identity' },
+    });
+    expect(copied).toContain(
+      '; this copy now has its own replica r-new (file-identity: it carried r-old from a copied file).',
+    );
+    expect(copied).not.toContain('retired');
+    const foreign = cloudRestoreSummary({
+      ...restoreResult,
+      status: 'restored',
+      replica: { retired: 'r-old', current: 'r-new', reason: 'foreign-device' },
+    });
+    expect(foreign).toContain('(foreign-device: it carried r-old from another device)');
+  });
+
+  it('says nothing about replicas when the store had none', () => {
+    expect(cloudRestoreSummary({ ...restoreResult, status: 'restored' })).not.toContain('replica');
   });
 });
 

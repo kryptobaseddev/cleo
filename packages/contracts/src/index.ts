@@ -3051,6 +3051,7 @@ export type {
   CloudPaging,
   CloudProjectShowResult,
   CloudProjectsResult,
+  CloudRetiredReplica,
   CloudStatusGlobalStore,
   CloudStatusLocal,
   CloudStatusOfflineDetails,
