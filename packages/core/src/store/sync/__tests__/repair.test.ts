@@ -358,3 +358,61 @@ describe('a table never baselined is baselined, not journaled (T12987)', () => {
     ).toBe(1);
   });
 });
+
+describe('NEW-8 order at a migration: seal and repair, then bracket, then re-baseline (T12987)', () => {
+  const migrate = (db: DatabaseSync, sql: string) => {
+    const lineage = join(dir, 'order');
+    mkdirSync(join(lineage, '20991231000001_order'), { recursive: true });
+    writeFileSync(join(lineage, '20991231000001_order', 'migration.sql'), sql);
+    runBracketedMigrations(
+      db,
+      drizzle({ client: db }),
+      [{ folder: lineage }],
+      syncMigrationHooks(db, 'project', { replica: REPLICA, allowUnreleased: true, env: {} }),
+    );
+  };
+
+  /** The sealed ops on `uid`, by `via`, oldest first. */
+  const opsOn = (db: DatabaseSync, uid: string) =>
+    (
+      db
+        .prepare(
+          `SELECT t.via, o.body FROM _sync_op o JOIN _sync_txn t ON t.txn = o.txn
+           WHERE o.uid = ? ORDER BY t.local_seq, o.idx`,
+        )
+        .all(uid) as Array<{ via: string; body: string }>
+    ).map((r) => ({ via: r.via, op: JSON.parse(r.body) as Op }));
+
+  it('the real hooks seal the captured edit and repair the uncaptured one under the OLD values', async () => {
+    const db = await baselinedStore();
+    captured(db, "UPDATE tasks_tasks SET title = 'captured edit' WHERE id = 'T1'");
+    uncaptured(db, "UPDATE tasks_tasks SET title = 'uncaptured edit' WHERE id = 'T2'");
+    markSuspect(db, 'project', ['tasks_tasks']);
+
+    migrate(db, 'UPDATE `tasks_tasks` SET `title` = upper(`title`)');
+
+    // Sealed and repaired BEFORE the bracket: both ops carry pre-migration values.
+    const t1 = opsOn(db, 'uid-T1').at(-1);
+    expect(t1).toEqual({ via: 'accessor', op: expect.objectContaining({ o: 'U' }) });
+    expect(t1?.op.a?.title).toBe('captured edit');
+    const t2 = opsOn(db, 'uid-T2').at(-1);
+    expect(t2).toEqual({ via: 'repair', op: expect.objectContaining({ o: 'U' }) });
+    expect(t2?.op.a?.title).toBe('uncaptured edit');
+    // The backfill itself is never emitted, and the re-baseline (after the
+    // repair cleared the table) moved every row to the migrated hash.
+    expect(n(db, "SELECT count(*) AS n FROM _sync_capture WHERE state = 'live'")).toBe(0);
+    expect(opsOn(db, 'uid-T1').some((o) => o.op.a?.title === 'CAPTURED EDIT')).toBe(false);
+    for (const uid of ['uid-T1', 'uid-T2']) {
+      expect(metaOf(db, 'tasks_tasks', uid)?.chash).toBe(liveChash(db, uid));
+    }
+    expect(suspect(db)).toEqual([]);
+  });
+
+  it('pending captures are sealed before the bracket even when no table is suspect', async () => {
+    const db = await baselinedStore();
+    captured(db, "UPDATE tasks_tasks SET title = 'captured edit' WHERE id = 'T1'");
+    migrate(db, 'UPDATE `tasks_tasks` SET `title` = upper(`title`)');
+    expect(opsOn(db, 'uid-T1').at(-1)?.op.a?.title).toBe('captured edit');
+    expect(metaOf(db, 'tasks_tasks', 'uid-T1')?.chash).toBe(liveChash(db, 'uid-T1'));
+  });
+});
