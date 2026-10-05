@@ -88,6 +88,7 @@ import {
   writeFailedFirstPointer,
 } from './tool-cache-failed-first.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
+import { resolveToolProcessRunner, type ToolProcessResult } from './tool-runner-guard.js';
 import { type AcquireSlotOptions, acquireGlobalSlot } from './tool-semaphore.js';
 
 // ---------------------------------------------------------------------------
@@ -897,33 +898,8 @@ export function resourceKillReason(run: {
 // Repo-state fingerprinting
 // ---------------------------------------------------------------------------
 
-interface CommandResult {
-  exitCode: number | null;
-  /**
-   * POSIX signal name that terminated the child, or `null` when it exited
-   * normally (or never started).
-   *
-   * gh#1381: Node's `close` event is `(code, signal)` and exactly one of them
-   * is non-null. Binding only `code` collapses "killed after running" and
-   * "never started" into the same `exitCode: null`, one line after the two
-   * were distinguishable — and the caller then reports a 41-minute OOM-killed
-   * test suite as "binary missing or spawn error".
-   */
-  signal: NodeJS.Signals | null;
-  stdout: string;
-  stderr: string;
-  /** `true` when the wall-clock deadline was exceeded and the process was force-killed. */
-  timedOut: boolean;
-  /**
-   * Node's spawn-error message (`ENOENT`, `EACCES`, `EAGAIN`, …) when the child
-   * could not be started at all, else `null`.
-   *
-   * gh#1397: the `error` handler used to take no argument and resolve
-   * `(null, null)`, discarding the one object that said WHY nothing started —
-   * the same defect gh#1381 fixed one event-handler over, for `signal`.
-   */
-  spawnError: string | null;
-}
+/** Captured output of one spawned command (shared with the test-runner guard). */
+type CommandResult = ToolProcessResult;
 
 /**
  * Maximum bytes retained from a child's stdout / stderr stream during
@@ -1105,6 +1081,29 @@ export function terminateToolGroupsOnSignal(signal: TerminationSignal): void {
  */
 export function terminateToolGroupsOnExit(): void {
   terminateActiveToolGroups();
+}
+
+/**
+ * The real tool process runner: spawns `cmd` in its own process group with a
+ * tail-bounded capture and a wall-clock kill. A test that means to start a
+ * child process injects it with `injectToolProcessRunner(spawnToolProcess)`
+ * (T13203); production code reaches it through `resolveToolProcessRunner`.
+ *
+ * @param cmd - Executable.
+ * @param args - Arguments.
+ * @param cwd - Working directory.
+ * @param spawnTimeoutMs - Kill the process tree after this many ms.
+ * @param envOverlay - Variables layered over `process.env`.
+ * @returns The captured result.
+ */
+export function spawnToolProcess(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  spawnTimeoutMs?: number,
+  envOverlay?: Readonly<Record<string, string>>,
+): Promise<CommandResult> {
+  return spawnCmd(cmd, args, cwd, spawnTimeoutMs, envOverlay);
 }
 
 function spawnCmd(
@@ -1629,8 +1628,14 @@ async function runFocused(
 ): Promise<FocusedOutcome> {
   for (const run of plan) {
     const limited = withMemoryLimit(command.canonical, run.cmd, run.args, { executionRoot });
+    // T13203: refuse inside a test runner unless a runner was injected.
+    const runner = resolveToolProcessRunner(
+      command.canonical,
+      [run.cmd, ...run.args].join(' '),
+      spawnToolProcess,
+    );
     const startedAt = Date.now();
-    const result = await spawnCmd(limited.cmd, [...limited.args], run.cwd, spawnTimeoutMs, toolEnv);
+    const result = await runner(limited.cmd, [...limited.args], run.cwd, spawnTimeoutMs, toolEnv);
     const durationMs = Date.now() - startedAt;
     if (result.timedOut) return { kind: 'timedOut', result, durationMs, cwd: run.cwd };
     const harnessFailure = confinementStartupFailure(result.stderr, limited.confined);
@@ -2004,9 +2009,16 @@ async function runToolCachedWithPlan(
       // runs in (T12112 / gh#1220).
       executionRoot,
     });
+    // T13203: a tool spawned from inside a test runner is almost always a mock
+    // that stopped intercepting; refuse it unless the test injected a runner.
+    const runner = resolveToolProcessRunner(
+      command.canonical,
+      [command.cmd, ...command.args].join(' '),
+      spawnToolProcess,
+    );
     const spawnNormal = async (): Promise<{ result: CommandResult; durationMs: number }> => {
       const startedAt = Date.now();
-      const result = await spawnCmd(
+      const result = await runner(
         limited.cmd,
         [...limited.args],
         executionRoot,

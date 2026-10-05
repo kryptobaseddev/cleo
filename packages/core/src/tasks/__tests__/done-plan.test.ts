@@ -50,6 +50,10 @@ import {
 import { captureTreeHash, runToolCached } from '../tool-cache.js';
 import { resolveToolCommand } from '../tool-resolver.js';
 import { acquireGlobalSlot } from '../tool-semaphore.js';
+import { useRealToolRunner } from './real-tool-runner.js';
+
+// These tests spawn tiny real commands on purpose (T13203 guard opt-in).
+useRealToolRunner();
 
 function git(dir: string, args: string[]): string {
   return execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();

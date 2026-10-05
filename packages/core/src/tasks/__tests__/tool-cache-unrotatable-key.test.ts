@@ -58,6 +58,10 @@ import {
   TOOL_CACHE_SCHEMA_VERSION,
 } from '../tool-cache.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
+import { useRealToolRunner } from './real-tool-runner.js';
+
+// These tests spawn tiny real commands on purpose (T13203 guard opt-in).
+useRealToolRunner();
 
 function shCommand(script: string, canonical = 'lint'): ResolvedToolCommand {
   return {

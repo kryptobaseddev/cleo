@@ -34,6 +34,10 @@ import {
 } from '../tool-cache.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
 import { semaphoreDir } from '../tool-semaphore.js';
+import { useRealToolRunner } from './real-tool-runner.js';
+
+// These tests spawn tiny real commands on purpose (T13203 guard opt-in).
+useRealToolRunner();
 
 const saved = { home: process.env.CLEO_HOME, test: process.env.CLEO_TOOL_CONCURRENCY_TEST };
 let home: string;
