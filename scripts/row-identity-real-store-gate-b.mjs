@@ -20,9 +20,10 @@
  * - `post-utc`: fill ON, `TZ=UTC`.
  * - `post-utc-2`: fill ON, `TZ=UTC`, a second independent fill.
  * - `post-la`: fill ON, `TZ=America/Los_Angeles`.
- * - `scratch`: every identity column of every declared table set to NULL and
- *   the recipe marker removed BEFORE the open, then fill ON, `TZ=UTC`: what a
- *   device that never saw the old values derives.
+ * - `scratch`: a copy of the migrated `base` with every identity column of
+ *   every declared table set to NULL (owned triggers suspended) and the recipe
+ *   marker removed, then opened with fill ON, `TZ=UTC`: what a device that
+ *   never saw the old values derives.
  *
  * Each open is followed by a `VACUUM INTO` of the opened store; fingerprints
  * and identity statistics are taken on those quiescent files. The checks:
@@ -197,8 +198,13 @@ function identityStats(file) {
         .filter((c) => Number(c.pk) > 0)
         .sort((a, b) => Number(a.pk) - Number(b.pk))
         .map((c) => `quote("${c.name}")`);
-      const key = pk.length > 0 ? pk.join(" || '|' || ") : 'rowid';
-      const order = pk.length > 0 ? pk.join(', ') : 'rowid';
+      // A table without a primary key is keyed on its non-identity columns,
+      // never on rowid: VACUUM may renumber rowids.
+      const identity = new Set(rowIdentityColumns('project', spec.table));
+      const natural = [...cols].filter((c) => !identity.has(c)).map((c) => `quote("${c}")`);
+      const keyCols = pk.length > 0 ? pk : natural;
+      const key = keyCols.join(" || '|' || ");
+      const order = keyCols.join(', ');
       const rows = Number(db.prepare(`SELECT COUNT(*) AS n FROM main."${spec.table}"`).get().n);
       const columns = {};
       for (const column of rowIdentityColumns('project', spec.table)) {
@@ -237,8 +243,14 @@ function identityStats(file) {
 function nullIdentity(file) {
   const db = new DatabaseSync(file);
   try {
-    const suspend = hasTable(db, 'cleo_trigger_suspend');
-    if (suspend) db.exec("INSERT OR IGNORE INTO main.cleo_trigger_suspend (scope) VALUES ('all')");
+    // The copy comes from the migrated `base` open, so the suspend table exists;
+    // refuse rather than null identity with owned triggers live.
+    if (!hasTable(db, 'cleo_trigger_suspend')) {
+      throw new Error(
+        'cleo_trigger_suspend is missing: owned triggers cannot be suspended for check 5',
+      );
+    }
+    db.exec("INSERT OR IGNORE INTO main.cleo_trigger_suspend (scope) VALUES ('all')");
     db.exec('BEGIN');
     for (const spec of ROW_IDENTITY.project) {
       if (!hasTable(db, spec.table)) continue;
@@ -251,7 +263,7 @@ function nullIdentity(file) {
       db.prepare(`DELETE FROM main.${META_TABLE} WHERE key = ?`).run(RECIPE_KEY);
     }
     db.exec('COMMIT');
-    if (suspend) db.exec("DELETE FROM main.cleo_trigger_suspend WHERE scope = 'all'");
+    db.exec("DELETE FROM main.cleo_trigger_suspend WHERE scope = 'all'");
   } finally {
     db.close();
   }
@@ -261,14 +273,15 @@ function nullIdentity(file) {
  * Lay out one copy, optionally prepare it, and open it.
  *
  * @param {string} name - Copy name.
- * @param {{ fill: boolean, tz: string, prepare?: (file: string) => void }} opts
+ * @param {{ fill: boolean, tz: string, prepare?: (file: string) => void, source?: string }} opts
+ *   `source` defaults to `raw.db`; `scratch` starts from the migrated `base` copy.
  * @returns {{ name: string, file: string, openMs: number }}
  */
-function openCopy(name, { fill, tz, prepare }) {
+function openCopy(name, { fill, tz, prepare, source = raw }) {
   const projectDir = join(work, name);
   const cleoDir = join(projectDir, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
-  copyFileSync(raw, join(cleoDir, 'cleo.db'));
+  copyFileSync(source, join(cleoDir, 'cleo.db'));
   prepare?.(join(cleoDir, 'cleo.db'));
   if (values['project-id'])
     copyFileSync(resolve(values['project-id']), join(cleoDir, 'project-id'));
@@ -354,7 +367,7 @@ try {
   const synced = stats.raw.synced !== null;
   const scratch = synced
     ? null
-    : openCopy('scratch', { fill: true, tz: 'UTC', prepare: nullIdentity });
+    : openCopy('scratch', { fill: true, tz: 'UTC', prepare: nullIdentity, source: base.file });
   for (const c of [base, postUtc, postUtc2, postLa, scratch]) {
     if (!c) continue;
     opens[c.name] = { openMs: c.openMs };
