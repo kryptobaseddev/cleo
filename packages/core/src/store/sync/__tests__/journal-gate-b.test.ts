@@ -44,11 +44,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import {
-  _resetDualScopeDbCache,
-  openDualScopeDb,
-  openDualScopeDbAtPath,
-} from '../../dual-scope-db.js';
+import { _resetDualScopeDbCache, openDualScopeDb } from '../../dual-scope-db.js';
+import { reconcileSupersededStores } from '../../exodus/index.js';
 import { getDb } from '../../sqlite.js';
 import { finishCaptureFrame, openCaptureFrame, setCaptureEnabled } from '../capture.js';
 import { setSyncFlag } from '../flags.js';
@@ -180,10 +177,37 @@ interface Run {
   readonly checkpointSeq: number;
 }
 
-/** Steps 1–4 on a scratch store at `file` (a copy; never a live store). */
-async function runWorkload(name: string, file: string): Promise<Run> {
+/** The store's tasks live only in the bare legacy `tasks` table. */
+function legacyOnly(db: DatabaseSync): boolean {
+  const has = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks'")
+    .get();
+  if (!has) return false;
+  const n = (t: string) => (db.prepare(`SELECT count(*) AS n FROM ${t}`).get() as { n: number }).n;
+  return n('tasks') > 0 && n('tasks_tasks') === 0;
+}
+
+/**
+ * Steps 1–4 on a scratch store at `<projectDir>/.cleo/cleo.db` (a copy; never
+ * a live store). It is opened the way the CLI opens a project: the canonical
+ * open plus the tasks-family open (`getDb`), which migrates or rebuilds a
+ * legacy store's bare tables, as a real legacy store (claude-todo) needs.
+ */
+async function runWorkload(name: string, projectDir: string): Promise<Run> {
   const dir = join(testRoot, name);
-  const handle = await openDualScopeDbAtPath('project', file);
+  let handle = await openDualScopeDb('project', projectDir);
+  await getDb(projectDir);
+  if (legacyOnly(handle.db.$client as DatabaseSync)) {
+    // A legacy store (claude-todo) keeps its rows in the bare family: carry
+    // them where the runtime reads them, as `cleo doctor superseded-store
+    // --reconcile` does, before capture is enabled (spec §5.1).
+    const receipt = await reconcileSupersededStores(projectDir);
+    expect(receipt.outcome).not.toBe('refused');
+    _resetDualScopeDbCache();
+    handle = await openDualScopeDb('project', projectDir);
+    await getDb(projectDir);
+    expect(legacyOnly(handle.db.$client as DatabaseSync)).toBe(false);
+  }
   const db = handle.db.$client as DatabaseSync;
   try {
     setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA });
@@ -409,8 +433,8 @@ describe('journal Gate B on fixture stores (T12987)', () => {
   for (const shape of ['cleocode', 'llmtxt', 'claude-todo'] as const) {
     it(`${shape}: replay from genesis and incremental match the source`, async () => {
       const from = await fixture(shape);
-      const work = copyWithId(from, join(testRoot, shape, 'work', '.cleo'));
-      replayAndCompare(shape, await runWorkload(shape, work));
+      copyWithId(from, join(testRoot, shape, 'work', '.cleo'));
+      replayAndCompare(shape, await runWorkload(shape, join(testRoot, shape, 'work')));
     }, 120_000);
   }
 });
@@ -419,8 +443,9 @@ const snapshots = snapshotsFromEnv();
 describe.runIf(snapshots.length > 0)('journal Gate B on real store snapshots (T12987)', () => {
   for (const { name, file } of snapshots) {
     it(`${name}: replay from genesis and incremental match the source`, async () => {
-      const work = copyWithId(file, join(testRoot, `real-${name}`, 'work', '.cleo'));
-      const summary = replayAndCompare(name, await runWorkload(`real-${name}`, work));
+      const projectDir = join(testRoot, `real-${name}`, 'work');
+      copyWithId(file, join(projectDir, '.cleo'));
+      const summary = replayAndCompare(name, await runWorkload(`real-${name}`, projectDir));
       // The run's evidence: one JSON line on stdout.
       process.stdout.write(`GATE-B-SUMMARY ${JSON.stringify(summary)}\n`);
       expect(summary.touchedExisting).toBeGreaterThan(0);
