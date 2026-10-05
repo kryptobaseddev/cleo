@@ -20,10 +20,11 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import type { LedgerOp } from '@cleocode/contracts/ledger';
+import type { LedgerOp, LedgerWireValue } from '@cleocode/contracts/ledger';
 import { UID_COLUMN } from '../../row-identity-registry.js';
-import type { CaptureTableDef } from '../capture.js';
-import { resolveRef } from './refs.js';
+import { type CaptureTableDef, enc } from '../capture.js';
+import { decodeEnc } from '../sealer-values.js';
+import { resolveRef, uidOfKey } from './refs.js';
 
 /**
  * What a guard or a check reads beyond the op's own row:
@@ -232,8 +233,42 @@ function uniqueIndexes(db: DatabaseSync, def: CaptureTableDef): string[][] {
 function uniqueKeyFootprint(db: DatabaseSync, def: CaptureTableDef, op: LedgerOp, add: Add): void {
   if (op.o !== 'I' && op.o !== 'U') return;
   for (const cols of uniqueIndexes(db, def)) {
-    const values = cols.map((c) => op.a?.[c]);
+    // A U that sets part of the key: the rest is the row's current value (T13274).
+    const missing = op.o === 'U' ? cols.filter((c) => !(op.a !== undefined && c in op.a)) : [];
+    if (missing.length === cols.length) continue; // the key does not move
+    const current = missing.length > 0 ? currentWire(db, def, op.u, missing) : {};
+    const values = cols.map((c) => (op.a !== undefined && c in op.a ? op.a[c] : current[c]));
     if (values.some((v) => v === undefined || v === null)) continue;
     add(def.table, `#${cols.join(',')}=${JSON.stringify(values)}`);
   }
+}
+
+/**
+ * `cols` of the row with `uid` as wire values, as an op carries them (stored
+ * values through `enc()`, references as their target's uid).
+ */
+function currentWire(
+  db: DatabaseSync,
+  def: CaptureTableDef,
+  uid: string,
+  cols: readonly string[],
+): Record<string, LedgerWireValue> {
+  const row = db
+    .prepare(
+      `SELECT ${cols.map((c) => `${enc(ident(c))} AS ${ident(c)}`).join(', ')} FROM main.${ident(def.table)} WHERE ${ident(UID_COLUMN)} = ?`,
+    )
+    .get(uid) as Record<string, string> | undefined;
+  const out: Record<string, LedgerWireValue> = {};
+  if (!row) return out;
+  for (const c of cols) {
+    const v = decodeEnc(row[c] as string);
+    const target = def.refs.get(c);
+    out[c] = target && v !== null ? (uidOfKey(db, target, v) ?? v) : v;
+  }
+  return out;
+}
+
+/** Quote an SQL identifier. */
+function ident(name: string): string {
+  return `"${name.replaceAll('"', '""')}"`;
 }

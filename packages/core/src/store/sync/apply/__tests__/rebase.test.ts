@@ -14,7 +14,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { LedgerOp, type LedgerTxn } from '@cleocode/contracts/ledger';
+import { LedgerActor, LedgerOp, type LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { showTask } from '../../../../tasks/show.js';
@@ -39,7 +39,7 @@ import {
   FOREIGN_TOUCH_INCOMPLETE_KEY,
   FOREIGN_TOUCH_MAX,
 } from '../../sequencing.js';
-import { type ApplyReport, applyStagedTxns } from '../applier.js';
+import { type ApplyReport, type ApplyStagedOptions, applyStagedTxns } from '../applier.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../../migrations/sync-journal');
 const STREAM = 'project:t13193-rebase';
@@ -105,9 +105,9 @@ function seal(r: Replica): void {
 }
 
 /** One local write, through a capture frame, sealed; returns its txn id. */
-function write(r: Replica, sql: string): string {
+function write(r: Replica, sql: string, actor: string | null = null): string {
   r.db.exec('BEGIN IMMEDIATE');
-  const frame = openCaptureFrame(r.db, 'write', null);
+  const frame = openCaptureFrame(r.db, 'write', actor);
   r.db.exec(sql);
   finishCaptureFrame(r.db, frame);
   r.db.exec('COMMIT');
@@ -122,11 +122,14 @@ function write(r: Replica, sql: string): string {
 /** Publish these sealed transactions of a replica as one stream segment. */
 function publish(r: Replica, ...ids: string[]): void {
   const txns = ids.map((id): LedgerTxn => {
-    const t = r.db.prepare('SELECT txn, hlc, via, kind FROM _sync_txn WHERE txn = ?').get(id) as {
+    const t = r.db
+      .prepare('SELECT txn, hlc, via, kind, actor FROM _sync_txn WHERE txn = ?')
+      .get(id) as {
       txn: string;
       hlc: string;
       via: LedgerTxn['via'];
       kind: LedgerTxn['kind'];
+      actor: string | null;
     };
     return {
       v: 1,
@@ -136,7 +139,7 @@ function publish(r: Replica, ...ids: string[]): void {
       scope: 'project',
       via: t.via,
       kind: t.kind,
-      actor: null,
+      actor: t.actor?.startsWith('{') ? LedgerActor.parse(JSON.parse(t.actor)) : null,
       ops: (
         r.db.prepare('SELECT body FROM _sync_op WHERE txn = ? ORDER BY idx').all(t.txn) as Array<{
           body: string;
@@ -149,7 +152,11 @@ function publish(r: Replica, ...ids: string[]): void {
 }
 
 /** Stage every segment this replica has not seen (up to `upTo`), then apply. */
-function sync(r: Replica, upTo = published.length): ApplyReport {
+function sync(
+  r: Replica,
+  upTo = published.length,
+  extra: Partial<Pick<ApplyStagedOptions, 'pageOps' | 'pageMs' | 'now'>> = {},
+): ApplyReport {
   for (; r.cursor < upTo; r.cursor++) {
     const s = published[r.cursor] as { replicaId: string; txns: LedgerTxn[] };
     stageTxns(
@@ -172,6 +179,7 @@ function sync(r: Replica, upTo = published.length): ApplyReport {
     replica: r.id,
     now: () => Date.now(),
     seal: () => seal(r),
+    ...extra,
   });
   expect(n(r.db, 'SELECT count(*) AS n FROM cleo_trigger_suspend'), 'triggers left suspended').toBe(
     0,
@@ -822,6 +830,117 @@ describe('natural-key rows (T13273)', () => {
   });
 });
 
+describe('natural twins (D2)', () => {
+  it('a local insert the stream also made is rewound to the stream row, not deleted', async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(a, write(a, `${addTask('TA', 'ta')}; ${addTask('TB', 'tb')}`));
+    for (const r of [a, b, c]) sync(r);
+    const rel = (reason: string) =>
+      `INSERT INTO tasks_task_relations (task_id, related_to, relation_type, reason, uid) VALUES ('TA', 'TB', 'blocks', '${reason}', 'rel-ab')`;
+    // Relations journal under a stored uid; both replicas give the twin the same one.
+    const la = write(a, rel('from A'));
+    publish(b, write(b, rel('from B')));
+    sync(a);
+    publish(b, write(b, "UPDATE tasks_task_relations SET reason = 'B later' WHERE task_id = 'TA'"));
+    expect(sync(a), 'the update of the twin row waits forever').toMatchObject({
+      applied: 1,
+      pending: 0,
+    });
+    const reason = (r: Replica) =>
+      r.db.prepare("SELECT reason FROM tasks_task_relations WHERE task_id = 'TA'").get();
+    expect(reason(a)).toEqual({ reason: 'B later' });
+    publish(a, la);
+    for (const r of [a, b, c]) sync(r);
+    expect(reason(b)).toEqual(reason(a));
+    expect(reason(c)).toEqual(reason(a));
+  });
+});
+
+describe('pages (§3.5 Rule 3)', () => {
+  const frames = (r: Replica) =>
+    (
+      r.db
+        .prepare('SELECT seq, status, applied_frame AS f FROM _sync_inbox ORDER BY seq, txn_idx')
+        .all() as Array<{
+        seq: number;
+        status: string;
+        f: string | null;
+      }>
+    ).map((x) => ({ seq: Number(x.seq), status: x.status, f: x.f }));
+
+  it('a replica applying one transaction per page converges with one applying a page', async () => {
+    const [a, b, c] = await threeReplicas();
+    const la = write(a, "UPDATE tasks_tasks SET priority = 'high' WHERE uid = 'x'");
+    const lb = write(b, "UPDATE tasks_tasks SET title = 'from B' WHERE uid = 'x'");
+    const lc = write(c, "UPDATE tasks_tasks SET title = 'from C' WHERE uid = 'y'");
+    publish(b, lb);
+    publish(c, lc);
+    publish(a, la);
+    expect(sync(a, published.length, { pageOps: 1 })).toMatchObject({ applied: 3, void: 0 });
+    sync(b);
+    sync(c, published.length, { pageOps: 1 });
+    converged([a, b, c]);
+    const fa = frames(a).slice(-3);
+    expect(new Set(fa.map((x) => x.f)).size, 'one transaction per page').toBe(3);
+    const fb = frames(b).slice(-3);
+    expect(new Set(fb.map((x) => x.f)).size, 'one page').toBe(1);
+  });
+
+  it('a post-apply void inside a page rolls back that transaction only', async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(a, write(a, "UPDATE tasks_tasks SET type = 'epic' WHERE uid = 'x'"));
+    for (const r of [a, b, c]) sync(r);
+    // C puts a task under X; B, not yet seeing it, retypes X; B edits Y.
+    publish(c, write(c, addTask('TK', 'k', 'X')));
+    const retype = write(b, "UPDATE tasks_tasks SET type = 'task' WHERE uid = 'x'");
+    const title = write(b, "UPDATE tasks_tasks SET title = 'after' WHERE uid = 'y'");
+    publish(b, retype, title);
+    expect(sync(a)).toMatchObject({ applied: 2, void: 1 });
+    const page = frames(a).slice(-2);
+    expect(page.map((x) => x.status)).toEqual(['void', 'applied']);
+    expect(page[0]?.f, 'one page, one frame').toBe(page[1]?.f);
+    expect(row(a, 'y')).toMatchObject({ title: 'after' });
+    expect(a.db.prepare("SELECT type FROM tasks_tasks WHERE uid = 'x'").get()).toEqual({
+      type: 'epic',
+    });
+    for (const r of [a, b, c]) sync(r);
+    converged([a, b, c]);
+  });
+
+  it('the time bound ends a page between transactions', async () => {
+    const [a, b] = await threeReplicas();
+    publish(b, write(b, "UPDATE tasks_tasks SET title = 't1' WHERE uid = 'x'"));
+    publish(b, write(b, "UPDATE tasks_tasks SET title = 't2' WHERE uid = 'y'"));
+    let t = Date.now();
+    expect(sync(a, published.length, { pageMs: 0, now: () => (t += 5) })).toMatchObject({
+      applied: 2,
+    });
+    const last2 = frames(a).slice(-2);
+    expect(last2[0]?.f).not.toBe(last2[1]?.f);
+  });
+
+  it('a page breaks on an actor change and keeps a larger transaction whole', async () => {
+    const [a, b] = await threeReplicas();
+    publish(
+      b,
+      write(
+        b,
+        "UPDATE tasks_tasks SET title = 'one' WHERE uid = 'x'",
+        JSON.stringify({ op: 'tasks.update' }),
+      ),
+    );
+    publish(b, write(b, "UPDATE tasks_tasks SET title = 'two' WHERE uid = 'y'"));
+    expect(sync(a)).toMatchObject({ applied: 2 });
+    const last2 = frames(a).slice(-2);
+    expect(last2[0]?.f, 'two actors shared one frame').not.toBe(last2[1]?.f);
+    // A two-op transaction under a one-op page is a page alone, never split.
+    publish(b, write(b, "UPDATE tasks_tasks SET priority = 'low' WHERE uid IN ('x', 'y')"));
+    expect(sync(a, published.length, { pageOps: 1 })).toMatchObject({ applied: 1 });
+    expect(row(a, 'x')).toMatchObject({ priority: 'low' });
+    expect(row(a, 'y')).toMatchObject({ priority: 'low' });
+  });
+});
+
 describe('foreign-touch index bounds (#1912 follow-ups)', () => {
   it('a restarted capture counter marks the index incomplete, so the fast path declines', async () => {
     const a = await replica(RA);
@@ -831,7 +950,8 @@ describe('foreign-touch index bounds (#1912 follow-ups)', () => {
     a.db.prepare("DELETE FROM sqlite_sequence WHERE name = '_sync_capture'").run();
     publish(b, write(b, addTask('Q', 'q')));
     publish(a, la);
-    expect(sync(a), 'the fast path trusted a restarted counter').toMatchObject({ rebased: 1 });
+    // One page: B's insert and A's echo, rebased together.
+    expect(sync(a), 'the fast path trusted a restarted counter').toMatchObject({ rebased: 2 });
     expect(
       n(a.db, 'SELECT count(*) AS n FROM _sync_meta WHERE key = ?', FOREIGN_TOUCH_INCOMPLETE_KEY),
     ).toBe(0);
