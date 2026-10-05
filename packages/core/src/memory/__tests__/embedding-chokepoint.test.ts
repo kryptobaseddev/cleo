@@ -168,4 +168,31 @@ describe.skipIf(!vecAvailable())('embedding backfill through the chokepoint (T13
     };
     expect(row.integrity_check).toBe('ok');
   });
+
+  it('a host on the inline fallback sends its observe-time embed through the chokepoint (T13230)', async () => {
+    // No worker file under vitest: an opted-in host runs observeBrain inline on
+    // the main thread. Its deferred embed must then go back through
+    // enqueueBrainWrite (lease + mutex), never write the main handle directly.
+    const { enqueueBrainWrite, useBrainWriterThread } = await import('../brain-writer-thread.js');
+    useBrainWriterThread();
+    await enqueueBrainWrite({
+      kind: 'observe',
+      projectRoot: tempDir,
+      params: {
+        text: `inline host observe ${'q'.repeat(48)}`,
+        title: 'inline-host',
+        sourceType: 'manual',
+      },
+    });
+    const deadline = Date.now() + 10_000;
+    while (!recorder.ops.some((o) => o.kind === 'embed') && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(recorder.ops.filter((o) => o.kind === 'embed')).toEqual([{ kind: 'embed', rows: 1 }]);
+    // The recorder logs the op before forwarding it; wait for the write to land.
+    while ((await embeddingCount()) === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(await embeddingCount()).toBe(1);
+  });
 });

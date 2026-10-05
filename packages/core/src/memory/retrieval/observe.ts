@@ -7,6 +7,7 @@
 
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { isMainThread } from 'node:worker_threads';
 import type {
   BrainSourceConfidence,
   ObserveBrainParams,
@@ -390,9 +391,18 @@ export async function observeBrain(
         try {
           if (!(await ensureEmbeddingProvider())) return;
           const vector = await embedText(text);
-          // In a host this runs inside the brain writer (the worker isolate
-          // that executed observeBrain), on the writer's own handle.
-          if (vector && nativeDb) upsertEmbeddingRowsNative(nativeDb, [{ id, vector }]);
+          if (!vector) return;
+          // T13230: inside the writer isolate this IS the chokepoint's handle,
+          // so write directly (enqueueBrainWrite there would start a nested
+          // manager). On a main thread (a host whose worker is unavailable ran
+          // observeBrain inline) the op has already released the lease and the
+          // mutex, so the write goes back through the chokepoint.
+          if (!isMainThread) {
+            if (nativeDb) upsertEmbeddingRowsNative(nativeDb, [{ id, vector }]);
+            return;
+          }
+          const { enqueueBrainWrite } = await import('../brain-writer-thread.js');
+          await enqueueBrainWrite({ kind: 'embed', projectRoot, rows: [{ id, vector }] });
         } catch {
           // Silently skip embedding failures — observation is already persisted
         }
