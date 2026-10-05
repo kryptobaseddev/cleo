@@ -1022,7 +1022,7 @@
     "packages/core/src/session/engine-ops.ts :: E_INTERNAL": 7,
     "packages/core/src/session/engine-ops.ts :: E_INVALID_INPUT": 3,
     "packages/core/src/session/engine-ops.ts :: E_NOT_FOUND": 5,
-    "packages/core/src/session/engine-ops.ts :: E_NOT_INITIALIZED": 19,
+    "packages/core/src/session/engine-ops.ts :: E_NOT_INITIALIZED": 18,
     "packages/core/src/session/engine-ops.ts :: E_SESSION_CONFLICT": 2,
     "packages/core/src/session/engine-ops.ts :: E_SESSION_NOT_FOUND": 4,
     "packages/core/src/session/engine-ops.ts :: E_SESSION_UNBOUND": 3,

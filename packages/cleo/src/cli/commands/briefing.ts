@@ -16,7 +16,7 @@
  * @task T12580
  */
 
-import { pushWarning } from '@cleocode/core';
+import { pushWarning } from '@cleocode/core/output';
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
