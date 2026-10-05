@@ -99,7 +99,8 @@ describe('detectTestRunner / resolveToolProcessRunner (T13203)', () => {
     [{ VITEST: 'true' }, 'VITEST'],
     [{ VITEST_WORKER_ID: '3' }, 'VITEST_WORKER_ID'],
     [{ JEST_WORKER_ID: '1' }, 'JEST_WORKER_ID'],
-    [{ NODE_ENV: 'test' }, 'NODE_ENV=test'],
+    // NODE_ENV=test alone is a developer shell, not a test runner (T13203 AC).
+    [{ NODE_ENV: 'test' }, null],
     [{ NODE_ENV: 'production' }, null],
     [{}, null],
   ] as const)('detects %o as %s', (env, expected) => {

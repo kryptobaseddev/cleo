@@ -70,14 +70,17 @@ export const TEST_RUNNER_ENV_MARKERS = ['VITEST', 'VITEST_WORKER_ID', 'JEST_WORK
  * Name the test-runner marker present in `env`, if any.
  *
  * @param env - Environment to inspect (injectable for tests).
- * @returns The marker (`VITEST`, `VITEST_WORKER_ID`, `JEST_WORKER_ID` or
- *   `NODE_ENV=test`), or `null` outside a test runner.
+ * `NODE_ENV=test` is deliberately not a marker: developer shells and tools set
+ * it, and refusing a human's `cleo verify` would be a regression. Every vitest
+ * and jest worker sets one of the markers above.
+ *
+ * @returns The marker (`VITEST`, `VITEST_WORKER_ID` or `JEST_WORKER_ID`), or
+ *   `null` outside a test runner.
  */
 export function detectTestRunner(env: NodeJS.ProcessEnv = process.env): string | null {
   for (const name of TEST_RUNNER_ENV_MARKERS) {
     if (env[name] !== undefined && env[name] !== '') return name;
   }
-  if (env['NODE_ENV'] === 'test') return 'NODE_ENV=test';
   return null;
 }
 

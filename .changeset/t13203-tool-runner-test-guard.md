@@ -10,7 +10,8 @@ refuses to spawn a tool when it runs inside a test runner, unless the test injec
 runner.
 
 - **Detection**: a process counts as inside a test runner when `VITEST`, `VITEST_WORKER_ID` or
-  `JEST_WORKER_ID` is set, or when `NODE_ENV=test`.
+  `JEST_WORKER_ID` is set. `NODE_ENV=test` alone does not count: developer shells set it, and a
+  human's `cleo verify` must keep working.
 - **The error**: `ToolSpawnInTestRunnerError`, code `E_TOOL_SPAWN_IN_TEST_RUNNER`, exit 8. It names
   the tool, the command and the marker it detected.
 - **Opting in**: tests that mean to start a child process inject the real runner with
