@@ -80,6 +80,7 @@ import {
   resolveConsolidatedJournalSiblings,
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
+import { assertStoreNotRestoring } from './restore-marker.js';
 import {
   healRowIdentitySchema,
   missingRowIdentitySchema,
@@ -902,6 +903,8 @@ async function openDedicatedDualScopeDb(
   }
 
   execution?.assertActive();
+  // T13258: never open a store file a restore is replacing.
+  assertStoreNotRestoring(dbPath);
   const DatabaseSyncCtor = getDatabaseSyncCtor();
   const nativeDb = new DatabaseSyncCtor(dbPath, { allowExtension: true });
 
@@ -1189,6 +1192,8 @@ export async function openDualScopeDbAtPath(
       // domain — no extension is loaded automatically, and the cache stays
       // single-keyed regardless of which domain opens the handle first.
       execution?.assertActive();
+      // T13258: never open a store file a restore is replacing.
+      assertStoreNotRestoring(normalizedPath);
       const DatabaseSyncCtor = getDatabaseSyncCtor();
       const nativeDb = new DatabaseSyncCtor(normalizedPath, { allowExtension: true });
       openingNative = nativeDb;

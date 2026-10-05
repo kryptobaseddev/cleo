@@ -95,6 +95,7 @@ import {
   scanSection,
   sha256File,
 } from '../store/portable-bundle-scan.js';
+import { writeRestoreMarker } from '../store/restore-marker.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
 import {
   fileIdentity,
@@ -1729,6 +1730,9 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
         ? readGlobalConfigLocalKeys(globalConfig)
         : new Map<string, string | null>();
     if (t.scope === 'project') fs.mkdirSync(t.storeRoot, { recursive: true });
+    // T13258: the restore-in-progress marker, held from the final liveness
+    // check until the placement is done; every store open refuses meanwhile.
+    let releaseMarker: (() => void) | null = null;
     const place = () =>
       importPortableBundle({
         bundlePath,
@@ -1796,7 +1800,9 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
               if (mine !== theirs) keptUnsynced.push(f.relPath);
             }
           }
-          // Checked again under the lock.
+          // Checked again under the lock, with the marker held.
+          fs.mkdirSync(path.dirname(t.dbPath), { recursive: true });
+          releaseMarker = writeRestoreMarker(t.dbPath, 'vault');
           if (hasLocal) await assertStoreQuiescent(t);
           // Keep this machine's own state: local-only tables and columns,
           // credentials (T12966, T12967). A store new to this machine is
@@ -1817,39 +1823,46 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       // Which file the snapshot replaces: its replica is retired as a vault
       // restore only if it was bound to that file (T13109 review MED-1).
       const before = fs.existsSync(t.dbPath) ? fileIdentity(t.dbPath) : null;
-      await place();
-      // The snapshot's install id never becomes this machine's (T13022).
-      if (globalConfig !== null && fs.existsSync(globalConfig)) {
-        keepGlobalConfigLocalKeys(globalConfig, ownConfigKeys);
-      }
-      // The placed file is a new store instance: its replica is retired and a
-      // new one bound (§1.5; T13109).
-      const placedReplica = await readActiveReplicaId(t.dbPath, t.scope).catch(() => null);
+      // T13258: the marker (written in onStaged) is held through the rebind,
+      // so no open can bind the placed file first (T13262).
       try {
-        const rebound = await rebindAfterVaultRestore(t.dbPath, t.scope, before);
-        if (rebound) {
-          replica = {
-            retired: rebound.previousReplicaId,
-            current: rebound.replicaId,
-            reason: rebound.reason,
-          };
+        await place();
+        // The snapshot's install id never becomes this machine's (T13022).
+        if (globalConfig !== null && fs.existsSync(globalConfig)) {
+          keepGlobalConfigLocalKeys(globalConfig, ownConfigKeys);
         }
-      } catch (err) {
-        const why = err instanceof Error ? err.message : String(err);
-        // The store's transaction may have committed before the registry write failed.
-        const now = await readActiveReplicaId(t.dbPath, t.scope).catch(() => null);
-        if (placedReplica !== null && now !== null && now !== placedReplica) {
-          replica = { retired: placedReplica, current: now, reason: null };
-          warnings.push({
-            code: 'W_NEXUS_VAULT_REBIND',
-            message: `this store's replica ${placedReplica} was retired and ${now} bound, but recording it in this device's replica registry failed (${why}), so it may not be a retire candidate`,
-          });
-        } else {
-          warnings.push({
-            code: 'W_NEXUS_VAULT_REBIND',
-            message: `restored, but this store's replica was not rebound (${why}); ${t.scope === 'global' ? 'the next global push' : 'the next `cleo project link`'} rebinds it as a copied file`,
-          });
+        // The placed file is a new store instance: its replica is retired and a
+        // new one bound (§1.5; T13109).
+        const placedReplica = await readActiveReplicaId(t.dbPath, t.scope).catch(() => null);
+        try {
+          const rebound = await rebindAfterVaultRestore(t.dbPath, t.scope, before);
+          if (rebound) {
+            replica = {
+              retired: rebound.previousReplicaId,
+              current: rebound.replicaId,
+              reason: rebound.reason,
+            };
+          }
+        } catch (err) {
+          const why = err instanceof Error ? err.message : String(err);
+          // The store's transaction may have committed before the registry write failed.
+          const now = await readActiveReplicaId(t.dbPath, t.scope).catch(() => null);
+          if (placedReplica !== null && now !== null && now !== placedReplica) {
+            replica = { retired: placedReplica, current: now, reason: null };
+            warnings.push({
+              code: 'W_NEXUS_VAULT_REBIND',
+              message: `this store's replica ${placedReplica} was retired and ${now} bound, but recording it in this device's replica registry failed (${why}), so it may not be a retire candidate`,
+            });
+          } else {
+            warnings.push({
+              code: 'W_NEXUS_VAULT_REBIND',
+              message: `restored, but this store's replica was not rebound (${why}); ${t.scope === 'global' ? 'the next global push' : 'the next `cleo project link`'} rebinds it as a copied file`,
+            });
+          }
         }
+      } finally {
+        releaseMarker?.();
+        releaseMarker = null;
       }
       // Deletions propagate: what the snapshot no longer lists goes (T13004);
       // without a synced snapshot, only --force removes anything (T13020).
