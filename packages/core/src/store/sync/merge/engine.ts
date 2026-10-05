@@ -103,12 +103,14 @@ export function checkSchemaVersion(
 ): SchemaRefusal | null {
   if (segmentSchemaVersion > SYNC_SCHEMA_VERSION) {
     return {
+      // @sync-invariant none:input-shape a stream payload newer than this build is staged refused-schema before any write
       code: 'E_SCHEMA_AHEAD',
       message: `segment schemaVersion ${segmentSchemaVersion} is newer than this build's ${SYNC_SCHEMA_VERSION}; upgrade CLEO to apply it`,
     };
   }
   if (txnVersion !== undefined && txnVersion > LEDGER_TXN_VERSION) {
     return {
+      // @sync-invariant none:input-shape a stream payload newer than this build is staged refused-schema before any write
       code: 'E_SCHEMA_AHEAD',
       message: `transaction format v${txnVersion} is newer than this build's v${LEDGER_TXN_VERSION}; upgrade CLEO to apply it`,
     };
