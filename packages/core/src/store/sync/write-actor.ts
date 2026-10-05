@@ -14,7 +14,10 @@
  * {@link runWithWriteActor} (`op` = `<domain>.<operation>`); the data
  * accessor reads {@link currentWriteActorJson} when it opens a write frame.
  * The context is async-local, so concurrent operations on one process never
- * see each other's actor.
+ * see each other's actor. Work an operation defers (a timer, a fire-and-forget
+ * promise) inherits its actor too, as async context does; that is intended
+ * for a command's own cascade, and a deferred writer that is not part of the
+ * command should run inside its own {@link runWithWriteActor}.
  *
  * @module store/sync/write-actor
  * @task T13229
@@ -40,6 +43,21 @@ const actorScope = new AsyncLocalStorage<LedgerActor>();
  */
 export function runWithWriteActor<T>(actor: LedgerActor, fn: () => T): T {
   return actorScope.run(actor, fn);
+}
+
+/**
+ * Run `fn` with `op` as the write actor's command, keeping the session and
+ * agent of the enclosing actor. Core's own leave entry points (reopen,
+ * restore, unarchive) call it, so a write made through the SDK, Studio or a
+ * daemon host names its domain command exactly as one dispatched from the
+ * CLI does: the leave semantics follow the domain op, not the transport.
+ *
+ * @param op - The domain command, e.g. `tasks.reopen`.
+ * @param fn - The operation.
+ * @returns What `fn` returned.
+ */
+export function runWithWriteActorOp<T>(op: string, fn: () => T): T {
+  return actorScope.run({ ...(actorScope.getStore() ?? {}), op }, fn);
 }
 
 /**

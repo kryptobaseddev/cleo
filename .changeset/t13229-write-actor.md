@@ -13,7 +13,12 @@ typed-rule conflict, and the reopen diverged.
 - **The data accessor** opens each write frame with the current actor.
 - **A new dispatch middleware, `createWriteActor`,** runs every mutate operation with `{ op: '<domain>.<operation>', session }`. It sits
   right after the session resolver.
+- **Core's leave entry points** (`taskRestore`, `taskReopen`, `taskUnarchive`) name their own command with `runWithWriteActorOp`. That
+  keeps the enclosing session. A reopen through the SDK, Studio or a daemon host then carries `tasks.reopen` exactly like one from the CLI.
+- **`TASK_STATUS_LEAVE_OPS`** drops the never-emitted `tasks.uncancel`. A test checks that every leave and restore op in the merge rules
+  is emitted by core.
 - **An end-to-end test** drives the real accessor:
   - a done task is reopened under `tasks.restore`;
   - the sealed transaction names the command, and the sealer records the leave;
   - a second store applies both sealed transactions, and the reopen is applied, with no conflict.
+- **A second end-to-end test** reopens through core's `taskReopen` with no dispatcher; the sealed transaction carries `tasks.reopen`.

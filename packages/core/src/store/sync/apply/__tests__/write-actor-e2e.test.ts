@@ -171,6 +171,35 @@ describe('a local reopen names its command (T13229)', () => {
     await accessor.close();
   });
 
+  it('a reopen through core (no dispatcher) still names its command', async () => {
+    const authorRoot = join(dir, 'author');
+    const accessor = await createSqliteDataAccessor(authorRoot);
+    const { getNativeDb } = await import('../../../sqlite.js');
+    const author = getNativeDb(authorRoot);
+    if (!author) throw new Error('author store not open');
+    enableSync(author);
+    const now = new Date().toISOString();
+    await accessor.transaction(async (tx) =>
+      tx.insertNewTask({
+        id: 'T3',
+        title: 'sdk reopen',
+        type: 'task',
+        status: 'done',
+        priority: 'medium',
+        pipelineStage: 'contribution',
+        createdAt: now,
+        completedAt: now,
+      }),
+    );
+    seal(author, AUTHOR);
+    const { taskReopen } = await import('../../../../tasks/engine-wrap.js');
+    const r = await taskReopen(authorRoot, 'T3', {});
+    expect(r.success, JSON.stringify(r)).toBe(true);
+    seal(author, AUTHOR);
+    expect(sealedTxns(author).at(-1)?.actor).toEqual({ op: 'tasks.reopen' });
+    await accessor.close();
+  });
+
   it('a write outside any actor scope records no actor', async () => {
     const authorRoot = join(dir, 'author');
     const accessor = await createSqliteDataAccessor(authorRoot);
