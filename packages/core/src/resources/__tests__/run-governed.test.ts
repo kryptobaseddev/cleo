@@ -32,11 +32,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AdmissionResult, MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GovernedRunInTestRunnerError } from '../../tasks/tool-runner-guard.js';
 import {
   type AdmissionOutcome,
   type AdmissionRequest,
   type AdmitOptions,
   admissionIoError,
+  footprintForClass,
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
 import { _resetGovernorStateForTest, governorSlotDir, ResourceGovernor } from '../governor.js';
@@ -87,6 +89,8 @@ interface Harness {
   }>;
   acquires: number;
   released: number;
+  /** Every request the ledger was asked (T13132). */
+  requests: AdmissionRequest[];
   clock: { t: number };
   sampleCalls: () => number;
   forward: (sig: NodeJS.Signals) => void;
@@ -137,6 +141,7 @@ function harness(opts: {
     spawned: [],
     acquires: 0,
     released: 0,
+    requests: [],
     clock,
     sampleCalls: () => calls,
     forward: (sig) => handler?.(sig),
@@ -161,7 +166,8 @@ function harness(opts: {
       return sampleOf(level);
     },
     // The admission ledger, scripted by the same `admissions` (T13133).
-    admit: async (_req: AdmissionRequest, o: AdmitOptions): Promise<AdmissionOutcome> => {
+    admit: async (req: AdmissionRequest, o: AdmitOptions): Promise<AdmissionOutcome> => {
+      h.requests.push(req);
       const t0 = clock.t;
       const take = (): 'grant' | 'deny' | 'pressure' | undefined => {
         h.acquires++;
@@ -335,6 +341,20 @@ describe('runGoverned', () => {
     expect(h.released).toBe(1);
     expect(h.signals).toEqual([]);
     expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
+  });
+
+  it('asks the ledger for the planned footprint and scope when given, else the class default (T13132)', async () => {
+    const h = harness({ onSample: (n, hh) => n === 2 && hh.exit(0) });
+    await runGoverned(base(h, { footprintBytes: 6 * 1024 ** 3, scope: 'narrowed' }));
+    expect(h.requests[0]).toMatchObject({
+      label: 'run:test-run',
+      footprintBytes: 6 * 1024 ** 3,
+      scope: 'narrowed',
+    });
+    const d = harness({ onSample: (n, hh) => n === 2 && hh.exit(0) });
+    await runGoverned(base(d));
+    expect(d.requests[0]?.footprintBytes).toBe(footprintForClass('test-run'));
+    expect(d.requests[0]).not.toHaveProperty('scope');
   });
 
   it('a nested or forged grant marker buys nothing: every run is admitted on its own', async () => {
@@ -570,6 +590,25 @@ describe('runGoverned', () => {
     expect(r).toMatchObject({ kind: 'exited', exitCode: null, spawnError: 'ENOENT: no such file' });
     expect(h.released).toBe(1);
     expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
+  });
+});
+
+describe('inside a test runner nothing starts without an injected spawn (T13236)', () => {
+  it('refuses with E_RUN_SPAWN_IN_TEST_RUNNER before admission when deps.spawn is not injected', async () => {
+    // This file runs under vitest, so a VITEST marker is set.
+    const sample = vi.fn();
+    const err = await runGoverned({
+      argv: ['pnpm', 'exec', 'vitest', 'run'],
+      cls: 'test-run',
+      cwd: tmpdir(),
+      env: {},
+      sessionId: null,
+      deps: { sample },
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GovernedRunInTestRunnerError);
+    expect((err as GovernedRunInTestRunnerError).codeName).toBe('E_RUN_SPAWN_IN_TEST_RUNNER');
+    expect((err as GovernedRunInTestRunnerError).message).toMatch(/VITEST/);
+    expect(sample).not.toHaveBeenCalled();
   });
 });
 

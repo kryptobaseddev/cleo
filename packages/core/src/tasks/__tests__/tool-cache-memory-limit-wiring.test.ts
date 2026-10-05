@@ -43,6 +43,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { LimitedCommand } from '../heavy-tool-limit.js';
 import { runToolCached } from '../tool-cache.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
+import { useRealToolRunner } from './real-tool-runner.js';
+
+// These tests spawn tiny real commands on purpose (T13203 guard opt-in).
+useRealToolRunner();
 
 /**
  * Shared with the hoisted `vi.mock` factory below. `vi.mock` is lifted above

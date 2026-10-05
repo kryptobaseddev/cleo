@@ -45,7 +45,7 @@ import {
 import { join } from 'node:path';
 import type { MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
-import type { LedgerEntry } from './admission-ledger.js';
+import type { AdmissionScope, LedgerEntry } from './admission-ledger.js';
 import type { PressureState } from './monitor.js';
 
 // Class resolution lives in the dependency-free run-class module (the provider
@@ -56,7 +56,9 @@ export {
   commandTarget,
   isPausable,
   isWatchCommand,
+  isWholeSuiteTestRun,
   looksHeavy,
+  namedTestFileCount,
   RUN_CLASS_ALIASES,
   resolveRunClass,
 } from './run-class.js';
@@ -617,6 +619,12 @@ export interface RunningEntry {
   readonly startedAtMs: number;
   readonly sessionId: string | null;
   readonly pausedAtMs: number | null;
+  /** How much of the project it covers (`full` = a whole-suite run), when known (T13132). */
+  readonly scope?: AdmissionScope;
+  /** The CLEO task it is evidence for, when known (T13132). */
+  readonly task?: string;
+  /** Bytes of the machine budget it holds, when admitted through the ledger (T13132). */
+  readonly footprintBytes?: number;
 }
 
 /** `error.details` of an `E_RESOURCE_DEFERRED` from `cleo run`. */
@@ -656,10 +664,32 @@ export function runningEntries(
   jobs: readonly RunJob[],
   ledger: readonly Pick<
     LedgerEntry,
-    'label' | 'pid' | 'command' | 'cwd' | 'state' | 'admittedAtMs' | 'enqueuedAtMs'
+    | 'label'
+    | 'pid'
+    | 'command'
+    | 'cwd'
+    | 'state'
+    | 'admittedAtMs'
+    | 'enqueuedAtMs'
+    | 'footprintBytes'
+    | 'scope'
+    | 'task'
   >[],
 ): RunningEntry[] {
   const jobPids = new Set(jobs.map((j) => j.pid));
+  const admittedByPid = new Map(
+    ledger.filter((e) => e.state === 'admitted').map((e) => [e.pid, e] as const),
+  );
+  const ledgerFacts = (
+    e: (typeof ledger)[number] | undefined,
+  ): Pick<RunningEntry, 'scope' | 'task' | 'footprintBytes'> =>
+    e === undefined
+      ? {}
+      : {
+          footprintBytes: e.footprintBytes,
+          ...(e.scope !== undefined ? { scope: e.scope } : {}),
+          ...(e.task !== undefined ? { task: e.task } : {}),
+        };
   const entries: RunningEntry[] = [
     ...jobs.map((j) => ({
       source: 'run' as const,
@@ -669,6 +699,7 @@ export function runningEntries(
       startedAtMs: j.startedAtMs,
       sessionId: j.sessionId,
       pausedAtMs: j.pausedAtMs,
+      ...ledgerFacts(admittedByPid.get(j.pid)),
     })),
     ...ledger
       .filter((e) => e.state === 'admitted' && !jobPids.has(e.pid))
@@ -680,6 +711,7 @@ export function runningEntries(
         startedAtMs: e.admittedAtMs ?? e.enqueuedAtMs,
         sessionId: null,
         pausedAtMs: null,
+        ...ledgerFacts(e),
       })),
   ];
   return entries.sort((a, b) => a.startedAtMs - b.startedAtMs);

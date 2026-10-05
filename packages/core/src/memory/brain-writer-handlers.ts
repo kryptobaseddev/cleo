@@ -22,6 +22,7 @@ import { getLogger } from '../logger.js';
 import type {
   BrainDecisionOp,
   BrainDialecticOp,
+  BrainEmbedOp,
   BrainLearningOp,
   BrainObserveOp,
   BrainPlasticityEventOp,
@@ -113,6 +114,8 @@ export async function handleWriteOp(
       return handleWeightUpdate(op);
     case 'dialectic':
       return handleDialectic(op);
+    case 'embed':
+      return handleEmbed(op);
     default: {
       // Exhaustiveness check — TS enforces this at compile time.
       const _exhaustive: never = op;
@@ -120,6 +123,20 @@ export async function handleWriteOp(
       throw new Error(`Unknown BrainWriteOp kind: ${JSON.stringify(op)}`);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// embed — upsert computed vectors into brain_embeddings (T13218).
+// ---------------------------------------------------------------------------
+
+async function handleEmbed(op: BrainEmbedOp): Promise<BrainWriteResult> {
+  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
+  await getBrainDb(op.projectRoot);
+  const nativeDb = getBrainNativeDb(op.projectRoot);
+  // @sync-invariant none:local-only the local brain handle failed to open; nothing is written
+  if (!nativeDb) throw new Error('brain native DB unavailable for embed op');
+  const { upsertEmbeddingRowsNative } = await import('./retrieval/observe.js');
+  return { kind: 'embed', written: upsertEmbeddingRowsNative(nativeDb, op.rows) };
 }
 
 // ---------------------------------------------------------------------------

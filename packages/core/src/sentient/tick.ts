@@ -234,6 +234,13 @@ export interface TickOptions {
    */
   runDeriverBatch?: boolean;
   /**
+   * When set to `false`, skips the bounded embedding backfill in `safeRunTick`.
+   * Default: true (one bounded batch per tick when observations are pending).
+   *
+   * @task T13126
+   */
+  runEmbeddingBackfill?: boolean;
+  /**
    * Override for the orchestrator-side worker re-verification gate (T1589).
    *
    * When omitted, the default {@link reVerifyWorkerReport} runs the tests in
@@ -1360,6 +1367,18 @@ export async function safeRunTick(options: TickOptions): Promise<TickOutcome> {
       })
       .catch(() => {
         // Ignore.
+      });
+  }
+
+  // Embedding backfill (T13126): one-shot processes store observations
+  // unembedded; the daemon, a long-lived host, embeds a bounded batch per tick.
+  // It reads a pending count first (no model load when none are pending) and
+  // takes the governor's background class itself. Best-effort and detached.
+  if (options.runEmbeddingBackfill !== false) {
+    import('../memory/embedding-backfill.js')
+      .then(({ runBoundedEmbeddingBackfill }) => runBoundedEmbeddingBackfill(options.projectRoot))
+      .catch(() => {
+        // Ignore: the rows stay findable by BM25 until the next batch.
       });
   }
 

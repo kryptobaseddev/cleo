@@ -774,6 +774,9 @@ describe('buildRunDeferral / runningEntries', () => {
           state: 'admitted',
           admittedAtMs: 10,
           enqueuedAtMs: 5,
+          footprintBytes: 18 * 1024 ** 3,
+          scope: 'full',
+          task: 'T1',
         },
         // A cleo run job's own entry is represented by its job record.
         {
@@ -784,6 +787,8 @@ describe('buildRunDeferral / runningEntries', () => {
           state: 'admitted',
           admittedAtMs: 20,
           enqueuedAtMs: 20,
+          footprintBytes: 6 * 1024 ** 3,
+          scope: 'narrowed',
         },
         // Waiting runs hold nothing.
         {
@@ -794,12 +799,19 @@ describe('buildRunDeferral / runningEntries', () => {
           state: 'waiting',
           admittedAtMs: null,
           enqueuedAtMs: 1,
+          footprintBytes: 18 * 1024 ** 3,
         },
       ],
     );
     expect(entries.map((e) => [e.source, e.class, e.command])).toEqual([
       ['verify', 'tool:test', 'cleo verify T1'],
       ['run', 'test-run', 'npx vitest run'],
+    ]);
+    // T13132: status says what holds the budget — scope, task and bytes,
+    // for a cleo run job from its own ledger entry.
+    expect(entries.map((e) => [e.scope, e.task, e.footprintBytes])).toEqual([
+      ['full', 'T1', 18 * 1024 ** 3],
+      ['narrowed', undefined, 6 * 1024 ** 3],
     ]);
   });
 
