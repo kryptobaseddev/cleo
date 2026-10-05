@@ -20,9 +20,10 @@ import {
   getDualScopeNativeDb,
   openDualScopeDbAtPath,
 } from '../../../dual-scope-db.js';
-import { setCaptureEnabled } from '../../capture.js';
+import { captureTableDef, setCaptureEnabled } from '../../capture.js';
 import { setSyncFlag } from '../../flags.js';
-import { sealPending } from '../../sealer.js';
+import { readRowMeta } from '../../row-meta.js';
+import { rowChash, sealPending } from '../../sealer.js';
 import { ApplyFrameError, runApplyFrame, withApplyFrame } from '../frame.js';
 import { ApplyWriteError, wireToSql } from '../write-api.js';
 
@@ -58,14 +59,18 @@ async function store(capture = true): Promise<DatabaseSync> {
   return db;
 }
 
-const seal = (db: DatabaseSync) =>
-  sealPending(db, {
+/** Seal for real; a refused seal would make "seals nothing" vacuous, so it fails the test. */
+function seal(db: DatabaseSync) {
+  const r = sealPending(db, {
     scope: 'project',
     replica: REPLICA,
     now: () => ++clock,
     env: {},
     allowUnreleased: true,
   });
+  expect(r.refused ?? null, 'sealing was refused').toBeNull();
+  return r;
+}
 
 const n = (db: DatabaseSync, sql: string): number => (db.prepare(sql).get() as { n: number }).n;
 
@@ -293,5 +298,108 @@ describe('K11: the apply module writes only through the write API', () => {
         );
       }
     }
+  });
+});
+
+describe('row meta through the shared writer (§1.6)', () => {
+  const R = '22222222-2222-4222-8222-222222222222';
+  const h = (ms: number) => `${String(1_790_000_000_000 + ms).padStart(13, '0')}-000000-${R}`;
+  /** Every non-identity captured column of tasks_tasks at one HLC. */
+  const allAt = (db: DatabaseSync, hlc: string): Record<string, string> => {
+    const def = captureTableDef(db, 'project', 'tasks_tasks');
+    if (!def) throw new Error('tasks_tasks is not captured');
+    return Object.fromEntries(
+      def.columns.filter((c) => !def.identity.includes(c)).map((c) => [c, hlc]),
+    );
+  };
+
+  it('a losing remote field leaves the stored HLC unchanged, and an all-losing write is a no-op', async () => {
+    const db = await store();
+    localTask(db, 'L1');
+    withApplyFrame(db, 'project', null, (api) => {
+      api.setRowMeta('tasks_tasks', 'uid-L1', {
+        fieldHlc: allAt(db, h(10)),
+        origin: R,
+        actor: null,
+        deleted: false,
+      });
+    });
+    const before = readRowMeta(db, 'tasks_tasks', 'uid-L1');
+    const stored = withApplyFrame(db, 'project', null, (api) =>
+      api.setRowMeta('tasks_tasks', 'uid-L1', {
+        fieldHlc: { title: h(5) },
+        origin: R,
+        actor: null,
+        deleted: false,
+      }),
+    );
+    expect(stored).toBe(h(10));
+    expect(readRowMeta(db, 'tasks_tasks', 'uid-L1')).toEqual(before);
+    // A winning field moves only itself.
+    withApplyFrame(db, 'project', null, (api) =>
+      api.setRowMeta('tasks_tasks', 'uid-L1', {
+        fieldHlc: { title: h(20) },
+        origin: R,
+        actor: null,
+        deleted: false,
+      }),
+    );
+    const after = readRowMeta(db, 'tasks_tasks', 'uid-L1');
+    expect(after?.hlc).toBe(h(20));
+    expect(JSON.parse(after?.fhlc ?? '{}')).toMatchObject({ priority: h(10) });
+  });
+
+  it('a remote delete names the fields at its HLC; a stale delete never tombstones the row', async () => {
+    const db = await store();
+    localTask(db, 'L1');
+    withApplyFrame(db, 'project', null, (api) => {
+      api.setRowMeta('tasks_tasks', 'uid-L1', {
+        fieldHlc: allAt(db, h(10)),
+        origin: R,
+        actor: null,
+        deleted: false,
+      });
+    });
+    withApplyFrame(db, 'project', null, (api) => {
+      api.setRowMeta('tasks_tasks', 'uid-L1', {
+        fieldHlc: allAt(db, h(5)),
+        origin: R,
+        actor: null,
+        deleted: true,
+      });
+    });
+    expect(readRowMeta(db, 'tasks_tasks', 'uid-L1')?.deleted).toBe(0);
+    withApplyFrame(db, 'project', null, (api) => {
+      expect(api.deleteRow('tasks_tasks', 'uid-L1')).toBe(true);
+      api.setRowMeta('tasks_tasks', 'uid-L1', {
+        fieldHlc: allAt(db, h(30)),
+        origin: R,
+        actor: null,
+        deleted: true,
+      });
+    });
+    expect(readRowMeta(db, 'tasks_tasks', 'uid-L1')).toMatchObject({ deleted: 1, hlc: h(30) });
+  });
+});
+
+describe('integers bind as integers (§2.6)', () => {
+  it('an applied integer is stored as an integer, and its chash matches the locally written value', async () => {
+    const db = await store();
+    localTask(db, 'L1');
+    db.exec("UPDATE tasks_tasks SET position = 7 WHERE id = 'L1'");
+    const def = captureTableDef(db, 'project', 'tasks_tasks');
+    if (!def) throw new Error('tasks_tasks is not captured');
+    const local = rowChash(db, 'project', def, 'uid-L1');
+    withApplyFrame(db, 'project', null, (api) => {
+      api.writeFields('tasks_tasks', 'uid-L1', { position: 8 });
+      api.writeFields('tasks_tasks', 'uid-L1', { position: 7 });
+    });
+    expect(
+      n(
+        db,
+        "SELECT count(*) AS n FROM tasks_tasks WHERE id = 'L1' AND typeof(position) = 'integer'",
+      ),
+    ).toBe(1);
+    expect(rowChash(db, 'project', def, 'uid-L1')).toBe(local);
   });
 });

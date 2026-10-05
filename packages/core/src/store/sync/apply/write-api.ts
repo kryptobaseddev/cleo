@@ -41,6 +41,7 @@ import {
   SECRET_INTENT,
 } from '../apply-intent.js';
 import { type CaptureTableDef, captureTableDef, enc } from '../capture.js';
+import { type RowMetaRow, readRowMeta, upsertRowMetaFromFields } from '../row-meta.js';
 import { decodeEnc } from '../sealer-values.js';
 
 /** A write the API refuses (unknown table or column, a missing row). */
@@ -116,6 +117,32 @@ export interface ApplyWriteApi {
   deleteRow(table: string, uid: string): boolean;
   /** The row's captured columns as wire values, or null when it does not exist. */
   readRow(table: string, uid: string): Record<string, LedgerWireValue> | null;
+  /** The row's stored replication meta, or undefined when it has none. */
+  rowMeta(table: string, uid: string): RowMetaRow | undefined;
+  /**
+   * Record the row's replication meta after the merge (§1.6) through the
+   * shared writer (`upsertRowMetaFromFields`, the sealer's own). Pass the
+   * post-merge WINNING field HLCs; the writer keeps the newer of stored and
+   * incoming per field, so a losing field never moves back, and a write in
+   * which no field wins changes nothing. A remote delete names the row's
+   * fields at the delete's HLC with `deleted: true`. The first write of a
+   * row names every non-identity column.
+   *
+   * @returns The row HLC stored.
+   */
+  setRowMeta(
+    table: string,
+    uid: string,
+    meta: {
+      readonly fieldHlc: Readonly<Record<string, string>>;
+      readonly origin: string;
+      readonly actor: string | null;
+      readonly deleted: boolean;
+      readonly keyJson?: string | null;
+      readonly chash?: string | null;
+      readonly bfp?: string | null;
+    },
+  ): string;
 }
 
 /**
@@ -254,6 +281,17 @@ export function createApplyWriteApi(
       const out: Record<string, LedgerWireValue> = {};
       for (const [c, e] of Object.entries(unpack(row, cols))) out[c] = decodeEnc(e);
       return out;
+    },
+
+    rowMeta(table, uid) {
+      assertActive();
+      defOf(table);
+      return readRowMeta(db, table, uid);
+    },
+
+    setRowMeta(table, uid, meta) {
+      assertActive();
+      return upsertRowMetaFromFields(db, defOf(table), { tbl: table, uid, ...meta });
     },
   };
 }
