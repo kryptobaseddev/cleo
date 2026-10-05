@@ -10,7 +10,7 @@
  * @task T13240
  */
 
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import {
   copyFileSync,
   existsSync,
@@ -275,5 +275,80 @@ describe('restoreStoreSnapshot (T13240)', () => {
     const result = restoreBackup(env.tempDir, { backupId: 'legacy-1', cwd: env.tempDir });
     expect(result.filesRestored).toEqual([]);
     expect(readFileSync(live).equals(before)).toBe(true);
+  });
+
+  describe('an open racing the swap (T13258)', () => {
+    const CORE_DIST = join(import.meta.dirname, '../../../dist/store/restore-marker.js');
+
+    it('another process opening inside the swap window is refused, and the restored store is intact', async () => {
+      const snap = snapshot('snap.db');
+      await seedTasks(env.accessor, [{ id: 'T002', title: 'live', type: 'task' }]);
+      resetDbState();
+      let child: ReturnType<typeof spawnSync> | undefined;
+      const result = await restoreStoreSnapshot({
+        projectRoot: env.tempDir,
+        cwd: env.tempDir,
+        snapshot: snap,
+        beforeSwap: () => {
+          expect(existsSync(`${live}.restoring`)).toBe(true);
+          child = spawnSync(
+            process.execPath,
+            [
+              '--input-type=module',
+              '-e',
+              `const { assertStoreNotRestoring } = await import(${JSON.stringify(`file://${CORE_DIST}`)});
+               try { assertStoreNotRestoring(${JSON.stringify(live)}, 100); process.exit(0); }
+               catch (e) { process.stdout.write(String(e.message)); process.exit(7); }`,
+            ],
+            { encoding: 'utf8' },
+          );
+        },
+      });
+      expect(child?.status).toBe(7);
+      expect(String(child?.stdout)).toMatch(/E_STORE_RESTORING/);
+      expect(result.restored).toBe(true);
+      expect(taskIds(live)).toEqual(['T001']);
+      expect(existsSync(`${live}.restoring`)).toBe(false);
+    });
+
+    it('an opener that ignores the marker and leaves a WAL by name fails the restore loudly; the stray WAL is removed', async () => {
+      const snap = snapshot('snap.db');
+      await seedTasks(env.accessor, [{ id: 'T002', title: 'live', type: 'task' }]);
+      resetDbState();
+      await expect(
+        restoreStoreSnapshot({
+          projectRoot: env.tempDir,
+          cwd: env.tempDir,
+          snapshot: snap,
+          // A WAL created by name for the OLD database inside the window.
+          beforeSwap: () => writeFileSync(`${live}-wal`, Buffer.alloc(4096, 0x5a)),
+        }),
+      ).rejects.toMatchObject({
+        message: expect.stringMatching(/E_RESTORE_RACED/),
+        fix: expect.stringMatching(/kept as backup pre-restore-/),
+      });
+      // The restored file is whole: the stray WAL never reaches it.
+      expect(existsSync(`${live}-wal`) && statSync(`${live}-wal`).size > 0).toBe(false);
+      const db = new DatabaseSync(live, { readOnly: true });
+      try {
+        expect(db.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' });
+      } finally {
+        db.close();
+      }
+      expect(taskIds(live)).toEqual(['T001']);
+      expect(existsSync(`${live}.restoring`)).toBe(false);
+    });
+
+    it('verifying a WAL-mode staged copy leaves no staged sidecars behind', async () => {
+      const snap = snapshot('snap.db');
+      // A raw WAL-mode copy (a pre-restore file, a copied live store): its
+      // read-only verification opens -wal/-shm beside the staged copy.
+      const w = new DatabaseSync(snap);
+      w.exec('PRAGMA journal_mode = WAL');
+      w.close();
+      resetDbState();
+      await restoreStoreSnapshot({ projectRoot: env.tempDir, cwd: env.tempDir, snapshot: snap });
+      expect(staged()).toEqual([]);
+    });
   });
 });

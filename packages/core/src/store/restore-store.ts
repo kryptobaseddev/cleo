@@ -61,6 +61,7 @@ import { formatBackupTimestamp } from './backup-sidecar.js';
 import { resolveDualScopeDbPath } from './dual-scope-db.js';
 import { withLock } from './lock.js';
 import { openCleoDbSnapshot } from './open-cleo-db.js';
+import { writeRestoreMarker } from './restore-marker.js';
 import { assertRestoreTargetConfirmed } from './worktree-isolation-guard.js';
 import { foreignWriterLeases, storeOpenElsewhere } from './writer-lease.js';
 
@@ -82,6 +83,13 @@ export interface StoreRestoreOptions {
   readonly cwd: string;
   /** Clock (tests). */
   readonly now?: Date;
+  /**
+   * Called inside the swap window, after the live sidecars are removed and
+   * before the rename, with the marker held (tests: a racing open).
+   *
+   * @internal
+   */
+  readonly beforeSwap?: () => void;
 }
 
 /** A project store's file sidecars, in the order SQLite reads them. */
@@ -412,17 +420,26 @@ export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<S
     const placed = await withLock(
       `${target}${FIRST_OPEN_LOCK_SUFFIX}`,
       async (): Promise<{ kept: StoreRestoreKept | null; removed: string[] }> => {
-        await assertQuiescent(target);
-        const kept = existsSync(target) ? keepLiveStore(target, sqliteDir, now) : null;
-        const removed: string[] = [];
-        for (const s of SIDECARS) {
-          if (existsSync(target + s)) {
-            unlinkSync(target + s);
-            removed.push(target + s);
+        // T13258: from here until the swap is done, every store open (they
+        // never take this lock) waits on, then refuses, this marker.
+        const release = writeRestoreMarker(target, 'restore');
+        try {
+          await assertQuiescent(target);
+          const kept = existsSync(target) ? keepLiveStore(target, sqliteDir, now) : null;
+          const removed: string[] = [];
+          for (const s of SIDECARS) {
+            if (existsSync(target + s)) {
+              unlinkSync(target + s);
+              removed.push(target + s);
+            }
           }
+          opts.beforeSwap?.();
+          renameSync(staged, target);
+          assertNoStraySidecars(target, kept);
+          return { kept, removed };
+        } finally {
+          release();
         }
-        renameSync(staged, target);
-        return { kept, removed };
       },
     );
     // The placed file is the verified copy; check it reads in place.
@@ -442,6 +459,27 @@ export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<S
       undo: placed.kept ? `cleo restore backup --id ${placed.kept.backupId}` : null,
     };
   } finally {
-    rmSync(staged, { force: true });
+    // Verifying a WAL-mode copy can leave its own sidecars beside it.
+    for (const p of [staged, ...SIDECARS.map((x) => staged + x)]) rmSync(p, { force: true });
   }
+}
+
+/**
+ * After the swap, still under the marker: a `-wal`/`-shm`/`-journal` beside
+ * the restored file was created by something that opened the OLD file inside
+ * the window (the restore removed every sidecar before the rename). Its pages
+ * belong to the replaced database, so it is removed before anything reads the
+ * restored file, and the restore fails loudly (T13258).
+ */
+function assertNoStraySidecars(target: string, kept: StoreRestoreKept | null): void {
+  const stray = SIDECARS.map((s) => target + s).filter((p) => existsSync(p));
+  if (stray.length === 0) return;
+  for (const p of stray) rmSync(p, { force: true });
+  // @sync-invariant none:local-only a raced local store swap; the stray sidecars of the replaced file are removed, no synced row is written
+  throw restoreError(
+    ExitCode.CONCURRENT_MODIFICATION,
+    'E_RESTORE_RACED',
+    `another process opened ${target} during the swap and left ${stray.map((p) => basename(p)).join(', ')} (removed: they belong to the replaced store)`,
+    `stop every cleo process, run \`PRAGMA integrity_check\` on the store (cleo doctor), and re-run the restore${kept ? `; the replaced store is kept as backup ${kept.backupId}` : ''}`,
+  );
 }

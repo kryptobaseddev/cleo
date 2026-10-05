@@ -45,6 +45,7 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 // and zero CLEO-module deps — so importing it here does NOT re-introduce the TDZ
 // cycle described in T1331/T1325. The cycle risk was from full CLEO imports; a
 // type-only import leaf is safe. Confirmed by the full Vitest suite passing.
+import { assertStoreNotRestoring } from './restore-marker.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 
 const _require = createRequire(import.meta.url);
@@ -202,6 +203,8 @@ export function openNativeDatabase(
   },
 ): DatabaseSync {
   assertVitestSafePath(path);
+  // T13258: never open a store file a restore is replacing.
+  assertStoreNotRestoring(path);
   const DatabaseSyncCtor = getDbSyncConstructor();
   const db = new DatabaseSyncCtor(path, {
     // schema-guard-exempt: the native chokepoint; every writable caller installs the guard

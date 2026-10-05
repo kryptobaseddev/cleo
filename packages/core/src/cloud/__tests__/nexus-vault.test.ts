@@ -125,6 +125,19 @@ import {
   segmentSigningVersion,
 } from '../signing.js';
 
+/** Restore markers the vault wrote (T13258), recorded and passed through. */
+const markerCalls = vi.hoisted(() => [] as Array<{ dbPath: string; kind: string }>);
+vi.mock('../../store/restore-marker.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../store/restore-marker.js')>();
+  return {
+    ...mod,
+    writeRestoreMarker: (dbPath: string, kind: 'restore' | 'vault') => {
+      markerCalls.push({ dbPath, kind });
+      return mod.writeRestoreMarker(dbPath, kind);
+    },
+  };
+});
+
 /** Runs just before the vault places a verified snapshot (after its safety export). */
 const importHooks = vi.hoisted(() => ({ beforeImport: null as (() => void) | null }));
 vi.mock('../../store/portable-bundle-import.js', async (importOriginal) => {
@@ -1740,6 +1753,38 @@ describe('cloud vault restore and verify across two devices', () => {
     // A pull with nothing new is up-to-date.
     const again = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
     expect(again.status).toBe('up-to-date');
+  });
+
+  it('a pull refuses while another live process holds the restore marker, and clears its own (T13258)', async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    await on(a, () => releaseNexusVaultLease(vopts(a)));
+    exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B1', 'from b')");
+    await on(b, () => pushNexusVault(vopts(b)));
+    await on(b, () => releaseNexusVaultLease(vopts(b)));
+
+    const marker = path.join(a.root, '.cleo', 'cleo.db.restoring');
+    fs.writeFileSync(
+      marker,
+      JSON.stringify({ pid: process.ppid, host: os.hostname(), startedAt: NOW, kind: 'restore' }),
+    );
+    vi.stubEnv('CLEO_RESTORE_WAIT_MS', '50');
+    try {
+      await expect(
+        on(a, () => restoreNexusVault(vopts(a, { mode: 'pull', force: true }))),
+      ).rejects.toThrow(/E_STORE_RESTORING/);
+      expect(taskCount(a)).toBe(5);
+    } finally {
+      fs.rmSync(marker, { force: true });
+      vi.unstubAllEnvs();
+    }
+    markerCalls.length = 0;
+    const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull', force: true })));
+    expect(pulled.status).toBe('restored');
+    // The placement held the marker on A's store, and released it.
+    expect(markerCalls).toEqual([{ dbPath: path.join(a.root, '.cleo', 'cleo.db'), kind: 'vault' }]);
+    expect(fs.existsSync(marker)).toBe(false);
   });
 });
 

@@ -95,6 +95,7 @@ import {
   scanSection,
   sha256File,
 } from '../store/portable-bundle-scan.js';
+import { writeRestoreMarker } from '../store/restore-marker.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
 import { readActiveReplicaId } from '../store/sync/replica.js';
 import {
@@ -1724,6 +1725,9 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
         ? readGlobalConfigLocalKeys(globalConfig)
         : new Map<string, string | null>();
     if (t.scope === 'project') fs.mkdirSync(t.storeRoot, { recursive: true });
+    // T13258: the restore-in-progress marker, held from the final liveness
+    // check until the placement is done; every store open refuses meanwhile.
+    let releaseMarker: (() => void) | null = null;
     const place = () =>
       importPortableBundle({
         bundlePath,
@@ -1791,7 +1795,9 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
               if (mine !== theirs) keptUnsynced.push(f.relPath);
             }
           }
-          // Checked again under the lock.
+          // Checked again under the lock, with the marker held.
+          fs.mkdirSync(path.dirname(t.dbPath), { recursive: true });
+          releaseMarker = writeRestoreMarker(t.dbPath, 'vault');
           if (hasLocal) await assertStoreQuiescent(t);
           // Keep this machine's own state: local-only tables and columns,
           // credentials (T12966, T12967). A store new to this machine is
@@ -1808,7 +1814,12 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
         },
       });
     const placeAndPrune = async () => {
-      await place();
+      try {
+        await place();
+      } finally {
+        releaseMarker?.();
+        releaseMarker = null;
+      }
       // The snapshot's install id never becomes this machine's (T13022).
       if (globalConfig !== null && fs.existsSync(globalConfig)) {
         keepGlobalConfigLocalKeys(globalConfig, ownConfigKeys);
