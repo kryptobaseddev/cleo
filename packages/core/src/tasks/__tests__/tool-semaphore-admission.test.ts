@@ -91,22 +91,31 @@ afterEach(() => {
 describe('one ledger for evidence runs and governor classes (T13133)', () => {
   it('a cleo run admission (governor class) and an evidence run wait for each other', async () => {
     scriptPressure([0]);
+    // Two heavy runs fill the budget (each plans half of it, T13132).
     const job = await governor.acquire('test-run', { totalMemBytes: 48 * GIB, blocking: false });
+    const job2 = await governor.acquire('scoped-build', {
+      totalMemBytes: 48 * GIB,
+      blocking: false,
+    });
     expect(job.deferred).toBe(false);
+    expect(job2.deferred).toBe(false);
     try {
       await expect(acquireGlobalSlot('test', { ...MACHINE, timeoutMs: 60 })).rejects.toThrow(
         /class:test-run pid \d+/,
       );
     } finally {
       if (!job.deferred) await job.release();
+      if (!job2.deferred) await job2.release();
     }
     const release = await acquireGlobalSlot('test', { ...MACHINE, timeoutMs: 1_000 });
+    const release2 = await acquireGlobalSlot('build', { ...MACHINE, timeoutMs: 1_000 });
     const blocked = await governor.acquire('scoped-build', {
       totalMemBytes: 48 * GIB,
       blocking: false,
     });
     expect(blocked.deferred).toBe(true);
     await release();
+    await release2();
   });
 
   it('no darwin one-slot rule: a machine with room admits two heavy runs', async () => {

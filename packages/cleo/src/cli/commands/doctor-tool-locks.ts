@@ -96,6 +96,9 @@ export const doctorToolLocksCommand = defineCommand({
           command: e.command,
           cwd: e.cwd,
           footprintBytes: e.footprintBytes,
+          // T13132: what the run covers (`full` = a whole-suite run) and its task.
+          scope: e.scope ?? null,
+          task: e.task ?? null,
           enqueuedAt: new Date(e.enqueuedAtMs).toISOString(),
           admittedAt: e.admittedAtMs === null ? null : new Date(e.admittedAtMs).toISOString(),
           toolGroups: e.toolGroups,
