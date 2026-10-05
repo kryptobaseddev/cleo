@@ -1,6 +1,6 @@
 ---
 id: t13231-identity-full-refill
-tasks: [T13231, T12749]
+tasks: [T13231, T12749, T13249]
 kind: fix
 summary: a provably unshared store with a stale identity recipe re-derives ALL of its row identity from scratch; anything that may have left the store is kept
 ---
@@ -31,6 +31,10 @@ provably unshared, the open:
 Any of these makes it unknown:
 - a Nexus-linked project with no local vault record;
 - an unreadable link or vault-state file.
+
+**A snapshot carrying uids counts as sharing them (T13249).** `cleo snapshot export` with row uids
+on, and a snapshot import that inserts a task with its carried uid, set `row_identity_synced`
+(send or receive). A committed snapshot then never names uids that a later refill re-derived.
 
 **Shared or unknown means refuse.** The open keeps every value, refuses the refill and logs
 the reasons with a remedy. A store whose fill never ran just gets its marker.
