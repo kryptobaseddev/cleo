@@ -522,6 +522,10 @@ describe('local leaves (field-leave)', () => {
       localLeaves('tasks_tasks', { ...op, a: { status: 'cancelled' } }, 'tasks.reopen'),
     ).toEqual({});
     expect(localLeaves('brain_observations', op, 'tasks.reopen')).toEqual({});
+    // A repair U carries no before-image (#1879 unknownBefore): no leave inferred.
+    expect(
+      localLeaves('tasks_tasks', { a: { status: 'active' }, h: h(4) }, 'tasks.reopen'),
+    ).toEqual({});
     // A rank-max restore raises the stage's floor.
     expect(
       localLeaves('tasks_tasks', { a: { pipeline_stage: 'research' }, h: h(6) }, 'tasks.restore'),
