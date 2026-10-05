@@ -22,3 +22,11 @@ suite by accident.
 stale mock can therefore no longer start a suite again from one of that suite's own
 workers. This is the T13203 guard applied to `cleo run`. A test that means to start a
 process passes `deps.spawn` (`spawnGovernedChild`) to `runGoverned`.
+
+Any process that inherits `VITEST`, `VITEST_WORKER_ID` or `JEST_WORKER_ID` now refuses to
+start a tool. That covers the evidence tool runner (T13203) and `cleo run` (this change),
+and also a built `cleo` that a test spawns with the test's own environment. An end-to-end
+test that starts the CLI must either scrub those variables from the child's environment
+(build the env explicitly, as `run-hook-contract.test.ts` does) or opt in through an
+injected runner or spawner.
+
