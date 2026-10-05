@@ -758,6 +758,70 @@ describe('footprints widened by what guards read (R7-6)', () => {
   });
 });
 
+describe('natural-key rows (T13273)', () => {
+  it("a dependency insert's own echo applies on its origin and is sequenced", async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(a, write(a, `${addTask('TA', 'ta')}; ${addTask('TB', 'tb')}`));
+    for (const r of [a, b, c]) sync(r);
+    const la = write(
+      a,
+      "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('TA', 'TB')",
+    );
+    publish(a, la);
+    expect(sync(a), 'the echo of an unfilled natural row voided on its origin').toMatchObject({
+      applied: 1,
+      void: 0,
+      conflicts: 0,
+    });
+    expect(outcome(a, la)).toBe('applied');
+    const sealed = n(a.db, 'SELECT count(*) AS n FROM _sync_txn');
+    seal(a);
+    expect(n(a.db, 'SELECT count(*) AS n FROM _sync_txn'), 'filling the uid was journaled').toBe(
+      sealed,
+    );
+    sync(b);
+    sync(c);
+    const deps = (r: Replica) =>
+      r.db
+        .prepare('SELECT task_id, depends_on, uid FROM tasks_task_dependencies ORDER BY 1, 2')
+        .all();
+    expect(deps(b)).toEqual(deps(a));
+    expect(deps(c)).toEqual(deps(a));
+  });
+
+  it('a dependency cycle closed through edges neither txn names converges (closure)', async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(
+      a,
+      write(
+        a,
+        `${addTask('TA', 'ta')}; ${addTask('TB', 'tb')}; ${addTask('TC', 'tc')}; ${addTask('TD', 'td')};
+         INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('TB', 'TC'), ('TD', 'TA')`,
+      ),
+    );
+    for (const r of [a, b, c]) sync(r);
+    const la = write(
+      a,
+      "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('TA', 'TB')",
+    );
+    publish(
+      b,
+      write(b, "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('TC', 'TD')"),
+    );
+    expect(sync(a), 'the foreign edge met the local one only through the closure').toMatchObject({
+      rebased: 1,
+    });
+    publish(a, la);
+    for (const r of [a, b, c]) sync(r);
+    expect(outcome(a, la)).toBe('void');
+    const deps = (r: Replica) =>
+      r.db.prepare('SELECT task_id, depends_on FROM tasks_task_dependencies ORDER BY 1, 2').all();
+    expect(deps(b)).toEqual(deps(a));
+    expect(deps(c)).toEqual(deps(a));
+    converged([a, b, c]);
+  });
+});
+
 describe('foreign-touch index bounds (#1912 follow-ups)', () => {
   it('a restarted capture counter marks the index incomplete, so the fast path declines', async () => {
     const a = await replica(RA);

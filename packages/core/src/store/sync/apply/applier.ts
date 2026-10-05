@@ -769,6 +769,43 @@ function touchedRows(ops: readonly LedgerOp[]): TouchedRow[] {
   );
 }
 
+/**
+ * Give the unfilled natural-key rows `ops` name their uid (T13273): the
+ * op's key (`k`, references as uids) resolved to local keys. A key whose
+ * reference does not resolve is left for planning to judge.
+ */
+function adoptNaturalRows(
+  db: DatabaseSync,
+  api: ApplyApi,
+  defs: (table: string) => CaptureTableDef | null,
+  ops: readonly LedgerOp[],
+): void {
+  for (const op of ops) {
+    const def = defs(op.t);
+    if (!def || !op.k) continue;
+    const local: Record<string, LedgerWireValue> = {};
+    let resolved = true;
+    for (const [col, v] of Object.entries(op.k)) {
+      if (typeof v === 'object' && v !== null && '$inc' in v) {
+        resolved = false;
+        break;
+      }
+      const target = def.refs.get(col);
+      if (target && typeof v === 'string') {
+        const ref = resolveRef(db, target, v);
+        if (ref.kind !== 'row') {
+          resolved = false;
+          break;
+        }
+        local[col] = ref.key;
+      } else {
+        local[col] = v;
+      }
+    }
+    if (resolved) api.adoptNaturalRow(op.t, op.u, local);
+  }
+}
+
 /** Whether `op` writes an append-only table (insert-only rows, never rewound). */
 function isAppendOnly(defs: (table: string) => CaptureTableDef | null, op: LedgerOp): boolean {
   return defs(op.t)?.appendOnly === true;
@@ -943,6 +980,7 @@ function rewindTxns(c: OpContext, plan: RebasePlan): Rewound {
   const after = new Map<string, RowMetaFull | null>();
   withTriggersSuspended(c.db, ['capture', 'guard', 'side-effect'], 'rewind', () => {
     for (const l of [...plan.rewind].reverse()) {
+      adoptNaturalRows(c.db, c.api, c.defs, l.ops);
       for (let i = l.ops.length - 1; i >= 0; i--) {
         const op = l.ops[i] as LedgerOp;
         const def = c.defs(op.t);
@@ -1141,6 +1179,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
       }
       const actor = st.txn.actor ? JSON.stringify(st.txn.actor) : null;
       const result = withApplyFrame(db, opts.scope, actor, (api) => {
+        adoptNaturalRows(db, api, defs, st.txn.ops);
         const plan = planTxn(db, api, st, defs, opts.replica);
         if (plan.kind !== 'apply') {
           markTxns(db, st.parts, plan.kind, { reason: plan.reason, nowIso });
