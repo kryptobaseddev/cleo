@@ -285,6 +285,11 @@ describe('cleo cloud conflicts (T12344 PR-6)', () => {
       total: 1,
       conflicts: [],
     });
+    // Counts follow --stream.
+    expect((await run('conflicts', { all: true, stream: 'other' })).envelope.data).toMatchObject({
+      open: 0,
+      total: 0,
+    });
     const all = await run('conflicts', { all: true });
     expect(all.envelope.data.conflicts[0].resolvedAt).toEqual(expect.any(String));
   });

@@ -14,7 +14,8 @@
  * - `cleo cloud conflicts [resolve <id>]` — the store's recorded sync
  *   conflicts (T12344 PR-6); local only.
  *
- * Every request these commands make is a GET. Getting the device credential
+ * Every request these commands make is a GET (`conflicts resolve` makes
+ * none: it is a local write to this store's conflict log). Getting the device credential
  * can still write, as every device-credential command does (contract §3.4,
  * §3.5): a 9.24 session is upgraded once through E1, and unsettled logouts are
  * retried through E9/E10. Thin handlers: the flows live in
@@ -269,7 +270,7 @@ const conflictsSubCommand = defineCommand({
   meta: {
     name: 'conflicts',
     description:
-      "The sync conflicts this store's apply recorded (typed-rule refusals, edits of deleted rows, deletes over newer edits, divergent edits, dangling references, guard refusals, parent deletes with live children, uid collisions, post-apply invariants), oldest first: open ones by default, --all for every one. `resolve <id>` marks one resolved once its resolution (an ordinary write) is made. Local only.",
+      "The sync conflicts this store's apply recorded (typed-rule refusals, edits of deleted rows, deletes over newer edits, divergent edits, dangling references, guard refusals, parent deletes with live children, uid collisions, post-apply invariants), oldest first: open ones by default, --all for every one. `resolve <id>` acknowledges one (marks it resolved) once its resolution, an ordinary write, is made; it never replays the voided op. Local only; counts follow --stream.",
   },
   args: {
     action: {

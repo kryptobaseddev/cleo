@@ -7,8 +7,9 @@
  * a concurrent divergent edit, a dangling reference, a guard refusal, a
  * parent delete with live children, a uid collision, a broken post-apply
  * invariant. Nothing is silently dropped; this lists them, and `resolve`
- * marks one resolved once its resolution (an ordinary write) is made or it
- * was reviewed. Local only: no request leaves the machine.
+ * acknowledges one once its resolution (an ordinary write) is made or it
+ * was reviewed; it never replays the voided op. Local only: no request
+ * leaves the machine.
  *
  * @module cloud/nexus-cloud-conflicts
  * @task T12344
@@ -69,14 +70,15 @@ export async function nexusCloudConflicts(
   });
   return {
     scope,
-    ...conflictCounts(db),
+    ...conflictCounts(db, opts.stream),
     conflicts: rows.map((c) => ({ ...c, columns: [...c.columns] })),
     warnings: [],
   };
 }
 
 /**
- * Mark one open conflict resolved.
+ * Acknowledge one open conflict (mark it resolved). It does not replay or
+ * revive the voided transaction: the resolution is an ordinary write.
  *
  * @param opts - Store, scope and the conflict id.
  * @returns Whether an open conflict had that id.
