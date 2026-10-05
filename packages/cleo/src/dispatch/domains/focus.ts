@@ -32,21 +32,19 @@ import type {
   FocusShowResult,
 } from '@cleocode/contracts/operations/focus';
 import type { MemoryCompactHit } from '@cleocode/contracts/operations/memory';
-import { getProjectRoot } from '@cleocode/core';
 import { runKnowledgeDoctor } from '@cleocode/core/doctor/knowledge';
 import {
   compactKnowledgeCoverage,
   compactKnowledgeHealth,
 } from '@cleocode/core/doctor/knowledge-summary';
-import {
-  buildAttentionDigest,
-  createAttachmentStore,
-  memoryFind,
-  orchestrateReady,
-  sagas,
-  taskRelates,
-  taskShow,
-} from '@cleocode/core/internal';
+import { buildAttentionDigest } from '@cleocode/core/memory/attention';
+import { memoryFind } from '@cleocode/core/memory/engine-compat';
+import { orchestrateReady } from '@cleocode/core/orchestrate/query-ops';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { isSagaType } from '@cleocode/core/sagas/is-saga-type';
+import { createAttachmentStore } from '@cleocode/core/store/attachment-store';
+import { taskRelates } from '@cleocode/core/tasks/engine-wrap';
+import { taskShow } from '@cleocode/core/tasks/show';
 import { lafsSuccess } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
@@ -336,7 +334,7 @@ async function buildFocusEnvelope(
 
   // ── 2. Determine entity tier ──────────────────────────────────────────────
   // T10638 (E10.W5): saga detected via type='saga' (isSagaType) only.
-  const isSaga = sagas.isSagaType(task);
+  const isSaga = isSagaType(task);
   const isEpic = task.type === 'epic' && !isSaga;
   const entityType = isSaga ? 'saga' : isEpic ? 'epic' : 'task';
 

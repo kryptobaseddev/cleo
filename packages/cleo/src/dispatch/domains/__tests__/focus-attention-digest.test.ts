@@ -16,9 +16,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const projectRootRef = { current: '/unset' };
 
-vi.mock('../../../../../core/src/paths.js', async () => {
-  const actual = await vi.importActual<typeof import('../../../../../core/src/paths.js')>(
-    '../../../../../core/src/paths.js',
+vi.mock('../../../../../core/src/project-scope.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../../../core/src/project-scope.js')>(
+    '../../../../../core/src/project-scope.js',
   );
   return {
     ...actual,

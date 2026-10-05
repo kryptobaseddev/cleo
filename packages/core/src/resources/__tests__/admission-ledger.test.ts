@@ -285,6 +285,16 @@ describe('enclosingGrant (re-entrancy)', () => {
     expect(enclosingGrant([holder], 1000, {}, facts({ startedAt: () => 'other' }))).toBeNull();
   });
 
+  it('a holder recorded without a start time rides by ancestry only with its token (T13188)', () => {
+    const unknown = { ...holder, startedAt: null };
+    // Its pid may have been recycled into our ancestry: ancestry alone proves nothing.
+    expect(enclosingGrant([unknown], 1000, {}, facts())).toBeNull();
+    expect(enclosingGrant([unknown], 1000, { [ADMISSION_ENV]: 'h.wrong' }, facts())).toBeNull();
+    expect(
+      enclosingGrant([unknown], 1000, { [ADMISSION_ENV]: admissionToken(unknown) }, facts()),
+    ).toBe(unknown);
+  });
+
   it('membership of a tool group the holder started proves it only with the token (MED-1)', () => {
     const inGroup = facts({ ancestorsOf: () => [1], groupOf: () => 600 });
     expect(

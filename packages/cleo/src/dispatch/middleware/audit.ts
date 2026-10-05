@@ -105,7 +105,7 @@ async function writeToSqlite(
   try {
     const { getDb } = await import('@cleocode/core/store/sqlite');
     const { auditLog } = await import('@cleocode/core/store/schema/audit');
-    const { AuditLogInsertSchema } = await import('@cleocode/core/store/validation-schemas');
+    const { AuditLogInsertSchema } = await import('@cleocode/core/store/audit-log-schema');
     const { randomUUID } = await import('node:crypto');
 
     const payload = {

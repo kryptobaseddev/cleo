@@ -28,34 +28,8 @@ import type {
   SessionStartParams,
   SessionSuspendParams,
 } from '@cleocode/contracts';
-import {
-  getDb,
-  getLogger,
-  getProjectRoot,
-  lintSessionForCanonViolations,
-  sessions,
-} from '@cleocode/core/internal';
-import {
-  sessionAdopt,
-  sessionBriefing,
-  sessionComputeDebrief,
-  sessionComputeHandoff,
-  sessionContextDrift,
-  sessionDebriefShow,
-  sessionDecisionLog,
-  sessionEnd,
-  sessionFind,
-  sessionGc,
-  sessionHandoff,
-  sessionList,
-  sessionRecordAssumption,
-  sessionRecordDecision,
-  sessionResume,
-  sessionShow,
-  sessionStart,
-  sessionStatus,
-  sessionSuspend,
-} from '@cleocode/runtime/gateway';
+import { getLogger } from '@cleocode/core/logger';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { eq } from 'drizzle-orm';
 import {
   defineTypedHandler,
@@ -68,6 +42,67 @@ import {
 import { bindSession, unbindSession } from '../context/session-context.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { envelopeToEngineResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
+import { lazyOperation } from './lazy.js';
+
+// CORE session operations load on first call (T13126): `cleo session status`
+// loads its leaf, not the session engine and the hook registrations it carries.
+const sessionAdopt = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionAdopt,
+);
+const sessionBriefing = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionBriefing,
+);
+const sessionComputeDebrief = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionComputeDebrief,
+);
+const sessionComputeHandoff = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionComputeHandoff,
+);
+const sessionContextDrift = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionContextDrift,
+);
+const sessionDebriefShow = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionDebriefShow,
+);
+const sessionDecisionLog = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionDecisionLog,
+);
+const sessionEnd = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionEnd,
+);
+const sessionFind = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionFind,
+);
+const sessionGc = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionGc,
+);
+const sessionHandoff = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionHandoff,
+);
+const sessionList = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionList,
+);
+const sessionRecordAssumption = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionRecordAssumption,
+);
+const sessionRecordDecision = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionRecordDecision,
+);
+const sessionResume = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionResume,
+);
+const sessionShow = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionShow,
+);
+const sessionStart = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionStart,
+);
+const sessionStatus = lazyOperation(
+  async () => (await import('@cleocode/core/session/status-op')).sessionStatus,
+);
+const sessionSuspend = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionSuspend,
+);
 
 async function sessionStatusOp() {
   return sessionStatus(getProjectRoot());
@@ -174,6 +209,7 @@ async function sessionLintOp(params: SessionLintParams) {
     };
   }
   try {
+    const { lintSessionForCanonViolations } = await import('@cleocode/core/session/canon-lint');
     const result = lintSessionForCanonViolations({
       transcriptPath: params.transcript,
       projectRoot: getProjectRoot(),
@@ -691,6 +727,10 @@ async function storeSessionOwnerAuthToken(
 ): Promise<void> {
   // The native DB is always available at this point because session.start
   // already successfully ran.
+  const [{ getDb }, { sessions }] = await Promise.all([
+    import('@cleocode/core/store/sqlite'),
+    import('@cleocode/core/store/tasks-schema'),
+  ]);
   const db = await getDb(projectRoot);
   db.update(sessions).set({ ownerAuthToken: token }).where(eq(sessions.id, sessionId)).run();
 }

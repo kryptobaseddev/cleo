@@ -22,14 +22,14 @@
 import type { TaskRecord } from '@cleocode/contracts';
 import { TASK_SEVERITIES } from '@cleocode/contracts/enums.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { INPUT_CONTRACTS } from '@cleocode/core/dispatch/contracts/input-contracts';
+import { validateOperationInput } from '@cleocode/core/dispatch/validation';
+import { parseAcceptanceCriteria } from '@cleocode/core/tasks/acceptance-input';
 import {
-  INPUT_CONTRACTS,
   isPipelineTransitionForward,
   isValidPipelineStage,
-  parseAcceptanceCriteria,
   TASK_PIPELINE_STAGES,
-  validateOperationInput,
-} from '@cleocode/core';
+} from '@cleocode/core/tasks/pipeline-stage';
 import { defineCommand, showUsage } from 'citty';
 import {
   dispatchFromCli,

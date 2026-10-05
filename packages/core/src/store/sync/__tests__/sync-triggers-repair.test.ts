@@ -115,6 +115,21 @@ describe('no false positives from text that only looks like a reference (T12754,
     expect(danglingTriggers(db)).toEqual([]);
   });
 
+  it('every table of a comma-separated FROM list is checked (T13206)', async () => {
+    const db = await openStore();
+    db.exec(`
+      CREATE TABLE t13206_b (x TEXT);
+      CREATE TABLE t13206_gone (x TEXT);
+      CREATE TRIGGER t13206_comma AFTER INSERT ON tasks_sessions
+      BEGIN SELECT count(*) FROM t13206_b AS b, t13206_gone g, json_each('[1]') WHERE b.x = g.x; END;
+    `);
+    expect(danglingTriggers(db)).toEqual([]);
+    db.exec('DROP TABLE t13206_gone');
+    expect(danglingTriggers(db)).toEqual([
+      { name: 't13206_comma', missing: ['table t13206_gone'] },
+    ]);
+  });
+
   it('a quoted name with a space is read whole', async () => {
     const db = await openStore();
     db.exec(`

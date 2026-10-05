@@ -69,11 +69,266 @@
     "packages/core/src/tasks/task-context.ts :: Error": {
       "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the tasks domain now imports these CORE modules directly instead of through the @cleocode/runtime/gateway engine re-export of @cleocode/core/internal, which the reachability walk does not follow. They were already on the tasks mutate path at runtime.",
       "count": 1
+    },
+    "packages/cleo/src/cli/renderers/index.ts :: cliError": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 4
+    },
+    "packages/cleo/src/cli/renderers/index.ts :: success:false": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/cleo/src/cli/renderers/lafs-validator.ts :: ExitCode.LAFS_VIOLATION": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/cleo/src/cli/renderers/lafs-validator.ts :: LafsViolationError": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/cleo/src/cli/renderers/output-mode.ts :: E_OUTPUT_IDENTITY_UNDECLARED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/cleo/src/cli/renderers/output-mode.ts :: UnsupportedRendererError": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 2
+    },
+    "packages/cleo/src/dispatch/adapters/cli.ts :: cliError": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 2
+    },
+    "packages/cleo/src/dispatch/lib/config-loader.ts :: ConfigValidationError": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 6
+    },
+    "packages/cleo/src/dispatch/middleware/budget-enforcement.ts :: success:false": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 2
+    },
+    "packages/cleo/src/dispatch/middleware/idempotency.ts :: E_IDEMPOTENCY_KEY_CONFLICT": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/cleo/src/dispatch/middleware/idempotency.ts :: E_IDEMPOTENCY_UNSUPPORTED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/cleo/src/dispatch/middleware/mutate-minimal-envelope.ts :: E_FIELD_NOT_FOUND": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/cleo/src/dispatch/middleware/mutate-minimal-envelope.ts :: W_MUTATE_PROJECTION_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/cleo/src/dispatch/middleware/rate-limiter.ts :: E_RATE_LIMIT_EXCEEDED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/cleo/src/dispatch/middleware/sanitizer.ts :: E_VALIDATION_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/cleo/src/dispatch/middleware/store-write-guard.ts :: E_TWIN_COLLAPSE_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/adapters/adapter-registry.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 2
+    },
+    "packages/core/src/adapters/manager.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/dispatch/projection.ts :: TypeError": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/llm/pi/pi-agent-adapter.ts :: E_PI_LOOP_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/memory/retrieval/build-retrieval-bundle.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 4
+    },
+    "packages/core/src/scaffold/ensure-skills.ts :: W_SCAFFOLD_PARTIAL": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/security/input-sanitization.ts :: E_CONTENT_TOO_LARGE": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/security/input-sanitization.ts :: E_INVALID_CONTENT": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/security/input-sanitization.ts :: E_INVALID_ENUM": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 2
+    },
+    "packages/core/src/security/input-sanitization.ts :: E_INVALID_PATH": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 3
+    },
+    "packages/core/src/security/input-sanitization.ts :: E_INVALID_TASK_ID": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 3
+    },
+    "packages/core/src/security/input-sanitization.ts :: E_PATH_TRAVERSAL": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 2
+    },
+    "packages/core/src/skills/dispatch.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/skills/injection/token.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/store/schedule-store.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tools/agent-registry.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 3
+    },
+    "packages/core/src/tools/browser-driver.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tools/dispatch.ts :: ToolAbortError": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tools/exec-code-agent-tool.ts :: E_EXEC_CODE_EGRESS_DENIED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tools/mcp-agent-tool.ts :: E_MCP_CALL_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tools/mcp-agent-tool.ts :: E_MCP_CONNECTION_DEAD": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tools/media-agent-tools.ts :: E_IMAGE_READ_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tools/schedule-agent-tools.ts :: E_SCHEDULE_STORE_UNAVAILABLE": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tools/skill-agent-tool.ts :: E_SKILL_NOT_FOUND": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tools/skill-agent-tool.ts :: E_SKILL_NOT_INVOCABLE": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 1
+    },
+    "packages/core/src/tools/web-search-backends.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. These sites were already on those paths at runtime.",
+      "count": 3
+    },
+    "packages/core/src/shutdown.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. This site was already on that path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/agents/resolveAgentTemplates.ts :: W_DEPRECATED_AGENT_PATH": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_KEY_NOT_FOUND": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_READ_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_WRITE_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 4
+    },
+    "packages/core/src/config/engine-ops.ts :: E_INVALID_INPUT": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 3
+    },
+    "packages/core/src/config/engine-ops.ts :: E_NOT_INITIALIZED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/git/hooks-install.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 3
+    },
+    "packages/core/src/init.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 2
+    },
+    "packages/core/src/init.ts :: ExitCode.GENERAL_ERROR": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init.ts :: ExitCode.PROJECT_MOVED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init.ts :: initRefusal": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 7
+    },
+    "packages/core/src/init.ts :: projectMovedError": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init.ts :: W_DEPRECATED_AGENT_PATH": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_ALREADY_INITIALIZED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_INIT_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_NOT_INITIALIZED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_PROJECT_MOVED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_VERSION_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: engineError": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
     }
   },
   "sites": {
     "packages/cleo/src/backfill/audit-columns.ts :: Error": 3,
     "packages/cleo/src/backfill/audit-columns.ts :: silent:cascade": 1,
+    "packages/cleo/src/cli/renderers/index.ts :: cliError": 4,
+    "packages/cleo/src/cli/renderers/index.ts :: success:false": 1,
+    "packages/cleo/src/cli/renderers/lafs-validator.ts :: ExitCode.LAFS_VIOLATION": 1,
+    "packages/cleo/src/cli/renderers/lafs-validator.ts :: LafsViolationError": 1,
+    "packages/cleo/src/cli/renderers/output-mode.ts :: E_OUTPUT_IDENTITY_UNDECLARED": 1,
+    "packages/cleo/src/cli/renderers/output-mode.ts :: UnsupportedRendererError": 2,
+    "packages/cleo/src/dispatch/adapters/cli.ts :: cliError": 2,
     "packages/cleo/src/dispatch/adapters/typed.ts :: E_CONDUIT": 1,
     "packages/cleo/src/dispatch/adapters/typed.ts :: success:false": 2,
     "packages/cleo/src/dispatch/context/session-context.ts :: Error": 1,
@@ -193,10 +448,22 @@
     "packages/cleo/src/dispatch/domains/worktree.ts :: E_DESTROY_FAILED": 1,
     "packages/cleo/src/dispatch/domains/worktree.ts :: E_VALIDATION": 3,
     "packages/cleo/src/dispatch/domains/worktree.ts :: E_WORKTREE_RECOVERY_FAILED": 1,
+    "packages/cleo/src/dispatch/lib/config-loader.ts :: ConfigValidationError": 6,
+    "packages/cleo/src/dispatch/middleware/budget-enforcement.ts :: success:false": 2,
+    "packages/cleo/src/dispatch/middleware/idempotency.ts :: E_IDEMPOTENCY_KEY_CONFLICT": 1,
+    "packages/cleo/src/dispatch/middleware/idempotency.ts :: E_IDEMPOTENCY_UNSUPPORTED": 1,
+    "packages/cleo/src/dispatch/middleware/mutate-minimal-envelope.ts :: E_FIELD_NOT_FOUND": 1,
+    "packages/cleo/src/dispatch/middleware/mutate-minimal-envelope.ts :: W_MUTATE_PROJECTION_FAILED": 1,
+    "packages/cleo/src/dispatch/middleware/rate-limiter.ts :: E_RATE_LIMIT_EXCEEDED": 1,
+    "packages/cleo/src/dispatch/middleware/sanitizer.ts :: E_VALIDATION_FAILED": 1,
+    "packages/cleo/src/dispatch/middleware/store-write-guard.ts :: E_TWIN_COLLAPSE_FAILED": 1,
+    "packages/core/src/adapters/adapter-registry.ts :: Error": 2,
+    "packages/core/src/adapters/manager.ts :: Error": 1,
     "packages/core/src/admin/import-tasks.ts :: Error": 6,
     "packages/core/src/admin/import.ts :: Error": 3,
     "packages/core/src/adrs/link-pipeline.ts :: silent:cascade": 1,
     "packages/core/src/adrs/sync.ts :: silent:cascade": 1,
+    "packages/core/src/agents/resolveAgentTemplates.ts :: W_DEPRECATED_AGENT_PATH": 1,
     "packages/core/src/agents/retry.ts :: success:false": 1,
     "packages/core/src/agents/seed-install.ts :: Error": 1,
     "packages/core/src/agents/seed-install.ts :: silent:cascade": 1,
@@ -212,6 +479,11 @@
     "packages/core/src/code/parser.ts :: Error": 1,
     "packages/core/src/conduit/local-transport.ts :: Error": 4,
     "packages/core/src/conduit/local-transport.ts :: silent:cascade": 4,
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_KEY_NOT_FOUND": 1,
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_READ_FAILED": 1,
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_WRITE_FAILED": 4,
+    "packages/core/src/config/engine-ops.ts :: E_INVALID_INPUT": 3,
+    "packages/core/src/config/engine-ops.ts :: E_NOT_INITIALIZED": 1,
     "packages/core/src/config/registry.ts :: Error": 2,
     "packages/core/src/crypto/credentials.ts :: Error": 12,
     "packages/core/src/decide/credentials.ts :: DecideCredentialsError": 16,
@@ -232,6 +504,7 @@
     "packages/core/src/dispatch/config-domain-handler.ts :: E_CONFIG_VALIDATE_FAILED": 1,
     "packages/core/src/dispatch/config-domain-handler.ts :: E_INVALID_INPUT": 5,
     "packages/core/src/dispatch/mvi-projection.ts :: ExitCode.VALIDATION_ERROR": 2,
+    "packages/core/src/dispatch/projection.ts :: TypeError": 1,
     "packages/core/src/docs/adr-allocator.ts :: E_ADR_NUMBER_EXHAUSTED": 1,
     "packages/core/src/docs/adr-allocator.ts :: E_VALIDATION": 1,
     "packages/core/src/docs/display-alias.ts :: ExitCode.GENERAL_ERROR": 1,
@@ -391,8 +664,21 @@
     "packages/core/src/errors.ts :: this.code": 1,
     "packages/core/src/gc/cleanup.ts :: Error": 1,
     "packages/core/src/gc/transcript.ts :: Error": 1,
+    "packages/core/src/git/hooks-install.ts :: Error": 3,
     "packages/core/src/goal/store.ts :: Error": 1,
     "packages/core/src/identity/cleo-identity.ts :: TypeError": 2,
+    "packages/core/src/init.ts :: Error": 2,
+    "packages/core/src/init.ts :: ExitCode.GENERAL_ERROR": 1,
+    "packages/core/src/init.ts :: ExitCode.PROJECT_MOVED": 1,
+    "packages/core/src/init.ts :: initRefusal": 7,
+    "packages/core/src/init.ts :: projectMovedError": 1,
+    "packages/core/src/init.ts :: W_DEPRECATED_AGENT_PATH": 1,
+    "packages/core/src/init/engine-ops.ts :: E_ALREADY_INITIALIZED": 1,
+    "packages/core/src/init/engine-ops.ts :: E_INIT_FAILED": 1,
+    "packages/core/src/init/engine-ops.ts :: E_NOT_INITIALIZED": 1,
+    "packages/core/src/init/engine-ops.ts :: E_PROJECT_MOVED": 1,
+    "packages/core/src/init/engine-ops.ts :: E_VERSION_FAILED": 1,
+    "packages/core/src/init/engine-ops.ts :: engineError": 1,
     "packages/core/src/json-schema-validator.ts :: ExitCode.NOT_FOUND": 1,
     "packages/core/src/json-schema-validator.ts :: ExitCode.VALIDATION_ERROR": 1,
     "packages/core/src/lifecycle/index.ts :: ExitCode.INVALID_INPUT": 11,
@@ -444,6 +730,7 @@
     "packages/core/src/llm/oauth/device-code.ts :: Error": 6,
     "packages/core/src/llm/oauth/google-pkce.ts :: Error": 3,
     "packages/core/src/llm/oauth/pkce.ts :: Error": 4,
+    "packages/core/src/llm/pi/pi-agent-adapter.ts :: E_PI_LOOP_FAILED": 1,
     "packages/core/src/llm/pi/pi-errors.ts :: E_PI_ABORTED": 2,
     "packages/core/src/llm/pi/pi-errors.ts :: E_PI_EXIT_CODE_MUTATION_TRAPPED": 1,
     "packages/core/src/llm/pi/pi-errors.ts :: E_PI_LOOP_FAILED": 1,
@@ -573,6 +860,7 @@
     "packages/core/src/memory/pipeline-manifest-sqlite.ts :: error.code": 1,
     "packages/core/src/memory/pipeline-manifest-sqlite.ts :: success:false": 2,
     "packages/core/src/memory/public-api.ts :: Error": 6,
+    "packages/core/src/memory/retrieval/build-retrieval-bundle.ts :: Error": 4,
     "packages/core/src/memory/retrieval/observe.ts :: Error": 5,
     "packages/core/src/memory/retrieval/observe.ts :: silent:cascade": 1,
     "packages/core/src/memory/retrieval/observe.ts :: W_EMBEDDINGS_UNAVAILABLE": 1,
@@ -786,10 +1074,17 @@
     "packages/core/src/sagas/repair.ts :: E_GENERAL": 1,
     "packages/core/src/sagas/repair.ts :: E_INVALID_INPUT": 2,
     "packages/core/src/sagas/repair.ts :: E_NOT_FOUND": 1,
+    "packages/core/src/scaffold/ensure-skills.ts :: W_SCAFFOLD_PARTIAL": 1,
     "packages/core/src/scaffold/ensure-templates.ts :: Error": 1,
     "packages/core/src/scaffold/global-scaffold.ts :: W_SCAFFOLD_PARTIAL": 4,
     "packages/core/src/scaffold/project-identity.ts :: ExitCode.CONFIG_ERROR": 3,
     "packages/core/src/scaffold/project-identity.ts :: ExitCode.VALIDATION_ERROR": 1,
+    "packages/core/src/security/input-sanitization.ts :: E_CONTENT_TOO_LARGE": 1,
+    "packages/core/src/security/input-sanitization.ts :: E_INVALID_CONTENT": 1,
+    "packages/core/src/security/input-sanitization.ts :: E_INVALID_ENUM": 2,
+    "packages/core/src/security/input-sanitization.ts :: E_INVALID_PATH": 3,
+    "packages/core/src/security/input-sanitization.ts :: E_INVALID_TASK_ID": 3,
+    "packages/core/src/security/input-sanitization.ts :: E_PATH_TRAVERSAL": 2,
     "packages/core/src/security/shared-evidence-tracker.ts :: W_EVIDENCE_AUDIT_MISS": 1,
     "packages/core/src/selfimprove/draft-pr.ts :: E_DRAFT_PR_FAILED": 1,
     "packages/core/src/selfimprove/draft-pr.ts :: E_GH_UNAVAILABLE": 1,
@@ -822,12 +1117,12 @@
     "packages/core/src/session/engine-ops.ts :: E_INTERNAL": 7,
     "packages/core/src/session/engine-ops.ts :: E_INVALID_INPUT": 3,
     "packages/core/src/session/engine-ops.ts :: E_NOT_FOUND": 5,
-    "packages/core/src/session/engine-ops.ts :: E_NOT_INITIALIZED": 20,
+    "packages/core/src/session/engine-ops.ts :: E_NOT_INITIALIZED": 18,
     "packages/core/src/session/engine-ops.ts :: E_SESSION_CONFLICT": 2,
     "packages/core/src/session/engine-ops.ts :: E_SESSION_NOT_FOUND": 4,
     "packages/core/src/session/engine-ops.ts :: E_SESSION_UNBOUND": 3,
     "packages/core/src/session/engine-ops.ts :: engineError": 3,
-    "packages/core/src/session/engine-ops.ts :: W_STALE_FOCUS": 2,
+    "packages/core/src/session/engine-ops.ts :: W_STALE_FOCUS": 1,
     "packages/core/src/sessions/assumptions.ts :: ExitCode.INVALID_INPUT": 2,
     "packages/core/src/sessions/context-inject.ts :: ExitCode.INVALID_INPUT": 1,
     "packages/core/src/sessions/context-inject.ts :: ExitCode.NOT_FOUND": 1,
@@ -850,6 +1145,9 @@
     "packages/core/src/sessions/snapshot.ts :: ExitCode.SCOPE_CONFLICT": 1,
     "packages/core/src/sessions/snapshot.ts :: ExitCode.SESSION_NOT_FOUND": 1,
     "packages/core/src/sessions/snapshot.ts :: ExitCode.VALIDATION_ERROR": 1,
+    "packages/core/src/shutdown.ts :: Error": 1,
+    "packages/core/src/skills/dispatch.ts :: Error": 1,
+    "packages/core/src/skills/injection/token.ts :: Error": 1,
     "packages/core/src/snapshot/index.ts :: Error": 1,
     "packages/core/src/stats/index.ts :: ExitCode.INVALID_INPUT": 1,
     "packages/core/src/sticky/convert.ts :: E_CONVERT_FAILED": 6,
@@ -947,6 +1245,7 @@
     "packages/core/src/store/resolve-migrations-folder.ts :: Error": 1,
     "packages/core/src/store/role-accessors-impl.ts :: Error": 1,
     "packages/core/src/store/row-identity.ts :: Error": 12,
+    "packages/core/src/store/schedule-store.ts :: Error": 1,
     "packages/core/src/store/schema/jsonb.ts :: Error": 1,
     "packages/core/src/store/selfimprove-dhq-schema.ts :: Error": 1,
     "packages/core/src/store/selfimprove-dhq-store.ts :: Error": 1,
@@ -1136,7 +1435,18 @@
     "packages/core/src/tasks/update.ts :: silent:cascade": 1,
     "packages/core/src/tasks/update.ts :: W_RANKING_REASON_MISSING": 1,
     "packages/core/src/templates/registry.ts :: Error": 4,
+    "packages/core/src/tools/agent-registry.ts :: Error": 3,
+    "packages/core/src/tools/browser-driver.ts :: Error": 1,
+    "packages/core/src/tools/dispatch.ts :: ToolAbortError": 1,
+    "packages/core/src/tools/exec-code-agent-tool.ts :: E_EXEC_CODE_EGRESS_DENIED": 1,
     "packages/core/src/tools/guard.ts :: GuardDeniedError": 2,
+    "packages/core/src/tools/mcp-agent-tool.ts :: E_MCP_CALL_FAILED": 1,
+    "packages/core/src/tools/mcp-agent-tool.ts :: E_MCP_CONNECTION_DEAD": 1,
+    "packages/core/src/tools/media-agent-tools.ts :: E_IMAGE_READ_FAILED": 1,
+    "packages/core/src/tools/schedule-agent-tools.ts :: E_SCHEDULE_STORE_UNAVAILABLE": 1,
+    "packages/core/src/tools/skill-agent-tool.ts :: E_SKILL_NOT_FOUND": 1,
+    "packages/core/src/tools/skill-agent-tool.ts :: E_SKILL_NOT_INVOCABLE": 1,
+    "packages/core/src/tools/web-search-backends.ts :: Error": 3,
     "packages/core/src/validation/doctor/checks.ts :: Error": 1,
     "packages/core/src/validation/engine-ops.ts :: E_ALREADY_DONE": 1,
     "packages/core/src/validation/engine-ops.ts :: E_CRITICAL_GATE_OVERRIDE_REJECTED": 1,
