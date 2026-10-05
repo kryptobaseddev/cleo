@@ -934,6 +934,29 @@ export function clearBirthFpNative(nativeDb: DatabaseSync, table: string, rowid:
 }
 
 /**
+ * Set the given identity columns of every row of a declared identity table to
+ * NULL: the clearing step of a full from-scratch refill on a provably unshared
+ * store (T13231). The fill re-derives every value right after.
+ *
+ * @param nativeDb - The project `cleo.db` handle.
+ * @param table - Declared identity table.
+ * @param columns - Its identity columns present in the store.
+ * @task T13231
+ */
+export function clearIdentityColumnsNative(
+  nativeDb: DatabaseSync,
+  table: string,
+  columns: readonly string[],
+): void {
+  if (columns.length === 0) return;
+  nativeDb
+    .prepare(
+      `UPDATE main.${quoteIdent(table)} SET ${columns.map((c) => `${quoteIdent(c)} = NULL`).join(', ')}`,
+    )
+    .run();
+}
+
+/**
  * Insert one row into a declared identity table, with the columns the row
  * carries that the table has (a row released from the identity quarantine).
  *
@@ -3096,4 +3119,5 @@ registerRowIdentityWriters({
   writeRowIdentityMetaNative,
   fillIdentityColumnNative,
   clearBirthFpNative,
+  clearIdentityColumnsNative,
 });
