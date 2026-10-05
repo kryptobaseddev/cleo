@@ -228,6 +228,21 @@ class TableContext {
     return row?.f ?? undefined;
   }
 
+  /**
+   * A natural row's key as row meta recorded it (refs as uids), for a repair
+   * D whose row is gone (T12987).
+   */
+  metaKey(table: string, uid: string): Record<string, WireValue> {
+    const row = this.stmt('SELECT key_json AS k FROM _sync_row_meta WHERE tbl = ? AND uid = ?').get(
+      table,
+      uid,
+    ) as { k: string | null } | undefined;
+    if (!row?.k)
+      // @sync-invariant none:input-shape a repair D of a natural row without a recorded key is quarantined, never sealed
+      throw new SealInputError(`${table} ${uid}: orphaned natural row has no recorded key`);
+    return JSON.parse(row.k) as Record<string, WireValue>;
+  }
+
   /** The live row's uid by its local key (the capture's `rk`). */
   uidByKey(table: string, rk: string): string | null {
     const def = this.def(table);
@@ -491,11 +506,21 @@ function intentUid(ctx: TableContext, c: CaptureRow): string | null {
   return resolveCaptureUid(ctx, c, img, natural);
 }
 
-function buildDraft(ctx: TableContext, c: CaptureRow, births: BatchBirths): DraftOp {
+function buildDraft(
+  ctx: TableContext,
+  c: CaptureRow,
+  births: BatchBirths,
+  repair = false,
+): DraftOp {
   const def = ctx.def(c.tbl);
   const img = JSON.parse(c.img) as Record<string, unknown>;
   const minted = ctx.minted(c.tbl);
-  const natural = !minted ? { k: naturalKey(ctx, def, c.rk) } : {};
+  // A repair D of an orphaned meta row (§4.4, T12987) has no live row and no
+  // local key: its image is empty, and a natural row's key comes from meta.
+  const orphan = repair && c.op === 'D' && c.uid !== null && Object.keys(img).length === 0;
+  const natural = minted
+    ? {}
+    : { k: orphan && c.uid !== null ? ctx.metaKey(c.tbl, c.uid) : naturalKey(ctx, def, c.rk) };
   const base = { t: c.tbl, rk: c.rk, seq: c.seq };
   if (c.op === 'K') {
     const pair = (col: string) => {
@@ -535,16 +560,32 @@ function buildDraft(ctx: TableContext, c: CaptureRow, births: BatchBirths): Draf
     case 'U': {
       const a: Record<string, WireValue> = {};
       const b: Record<string, WireValue> = {};
+      let unknownBefore = false;
       for (const [col, pair] of Object.entries(img)) {
         if (ctx.refSources(def.table).has(col)) continue;
         const [before, after] = pair as [unknown, unknown];
         const nv = columnValue(ctx, def, col, after);
-        const ov = columnValue(ctx, def, col, before);
         if (nv !== undefined) a[col] = nv;
+        // A JSON null before is a repair U's (§4.4, T12987): only the content
+        // hash was kept, so the before-image is unknown. No trigger writes
+        // one: a NULL value is the text 'NULL'.
+        if (before === null && repair) {
+          unknownBefore = true;
+          continue;
+        }
+        const ov = columnValue(ctx, def, col, before);
         if (ov !== undefined) b[col] = ov;
       }
       const bfp = minted ? resolveBirthFp(ctx, births, c.tbl, uid) : undefined;
-      return { ...base, o: 'U', u: uid, ...(bfp ? { bfp } : {}), ...natural, a, b };
+      return {
+        ...base,
+        o: 'U',
+        u: uid,
+        ...(bfp ? { bfp } : {}),
+        ...natural,
+        a,
+        ...(unknownBefore ? { unknownBefore: true as const } : { b }),
+      };
     }
     case 'D': {
       const bfp =
@@ -598,6 +639,39 @@ export function rowChash(
   uid: string,
 ): string | null {
   return chashOf(new TableContext(db, scope), def, uid);
+}
+
+/**
+ * The facts of live rows the repair diff (§4.4, T12987) reads, from the same
+ * code the sealer uses, so a repaired row hashes exactly as a sealed one.
+ * Statements are prepared once per view.
+ */
+export interface SealerRowView {
+  /** The row's content hash ({@link rowChash}). */
+  chash(def: CaptureTableDef, uid: string): string | null;
+  /** A natural row's key with refs as uids (canonical JSON), from its local key `rk`. */
+  naturalKeyJson(def: CaptureTableDef, rk: string): string;
+  /** The live row's birth_fp, or undefined. */
+  liveBirthFp(table: string, uid: string): string | undefined;
+  /** A natural row's uid from its local key `rk` (null for a minted or symmetric table). */
+  naturalUid(def: CaptureTableDef, rk: string): string | null;
+}
+
+/**
+ * A {@link SealerRowView} over `db`, valid while its schema does not change.
+ *
+ * @param db - The store.
+ * @param scope - Its scope.
+ */
+export function sealerRowView(db: DatabaseSync, scope: TableScope): SealerRowView {
+  const ctx = new TableContext(db, scope);
+  return {
+    chash: (def, uid) => chashOf(ctx, def, uid),
+    naturalKeyJson: (def, rk) => canonicalJson(naturalKey(ctx, def, rk)),
+    liveBirthFp: (table, uid) => ctx.liveBirthFp(table, uid),
+    naturalUid: (def, rk) =>
+      ctx.minted(def.table) ? null : ctx.naturalUid(def.table, naturalKey(ctx, def, rk)),
+  };
 }
 
 function chashOf(ctx: TableContext, def: CaptureTableDef, uid: string): string | null {
@@ -965,7 +1039,7 @@ function sealInTransaction(
     let partial = false;
     for (const c of captures) {
       try {
-        drafts.push(buildDraft(ctx, c, births));
+        drafts.push(buildDraft(ctx, c, births, g.kind === 'repair'));
       } catch (err) {
         if (!(err instanceof SealInputError)) throw err;
         // T13036: an unreadable capture never stalls the outbox. It moves to
@@ -1072,7 +1146,7 @@ function sealInTransaction(
       replica,
       txnHlc,
       opts.scope,
-      g.frame === null ? 'foreign' : 'accessor',
+      g.frame === null ? 'foreign' : g.kind === 'repair' ? 'repair' : 'accessor',
       kind,
       g.actor,
       g.frame,

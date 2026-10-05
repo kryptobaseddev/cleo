@@ -583,6 +583,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorSupersededStoreCommand as CommandDef,
   },
   {
+    exportName: 'doctorSyncJournalCommand',
+    name: 'sync-journal',
+    description:
+      "Plan the repair diff of the project store's suspect tables (rows written uncaptured). ",
+    load: async () =>
+      (await import('../commands/doctor-sync-journal.js')).doctorSyncJournalCommand as CommandDef,
+  },
+  {
     exportName: 'doctorSyncTriggersCommand',
     name: 'sync-triggers',
     description:
