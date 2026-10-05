@@ -70,23 +70,37 @@ export function claudeSettingsPath(): string {
   );
 }
 
+/** Volumes on these platforms are case-insensitive by default (APFS, NTFS). */
+const CASE_INSENSITIVE_DEFAULT = process.platform === 'darwin' || process.platform === 'win32';
+
 /**
  * `path` with every existing leading part resolved through symlinks, so two
- * spellings of one location compare equal even before the leaf exists.
+ * spellings of one location compare equal even before the leaf exists. Uses
+ * the native realpath, which returns the case stored on disk, so `~/.Claude`
+ * on a case-insensitive volume canonicalizes to `~/.claude` (T13227 review).
  */
 function canonicalPath(path: string): string {
   const abs = resolve(path);
   try {
-    return realpathSync(abs);
+    return realpathSync.native(abs);
   } catch {
     const parent = dirname(abs);
     return parent === abs ? abs : join(canonicalPath(parent), basename(abs));
   }
 }
 
+/**
+ * Fold case where volumes are case-insensitive by default, for the parts of
+ * a path that do not exist yet (the native realpath cannot fix their case).
+ * On a case-sensitive volume there this only refuses more, never less.
+ */
+function comparable(path: string): string {
+  return CASE_INSENSITIVE_DEFAULT ? path.toLowerCase() : path;
+}
+
 /** Whether `path` is `dir` or lies inside it (both canonical). */
 function isAtOrInside(path: string, dir: string): boolean {
-  const rel = relative(dir, path);
+  const rel = relative(comparable(dir), comparable(path));
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
@@ -119,16 +133,19 @@ export class UserGlobalClaudeConfigError extends Error {
  *
  * @param projectDir - the project root the write is for.
  * @param target - the file or directory about to be written.
+ * @param homeRule - also refuse a project that is the home directory (for
+ *   targets under its `.claude/`); a file at the project root, such as
+ *   `CLAUDE.md`, sets it `false`.
  * @returns `target`, absolute, when it is project-level.
  * @throws {@link UserGlobalClaudeConfigError} otherwise; nothing is written.
  */
-function assertProjectScoped(projectDir: string, target: string): string {
+function assertProjectScoped(projectDir: string, target: string, homeRule = true): string {
   const abs = resolve(target);
-  if (isUserHomeDir(projectDir)) {
+  if (homeRule && isUserHomeDir(projectDir)) {
     throw new UserGlobalClaudeConfigError(abs, 'the project is the home directory');
   }
   const canonical = canonicalPath(abs);
-  if (canonical === canonicalPath(claudeSettingsPath())) {
+  if (comparable(canonical) === comparable(canonicalPath(claudeSettingsPath()))) {
     throw new UserGlobalClaudeConfigError(abs, 'it is the user-global Claude settings file');
   }
   if (isAtOrInside(canonical, canonicalPath(new ClaudeCodePathProvider().getProviderDir()))) {
@@ -171,6 +188,26 @@ export function projectClaudeSettingsPath(projectDir: string): string {
  */
 export function projectClaudeHooksDir(projectDir: string): string {
   return assertProjectScoped(projectDir, join(projectDir, '.claude', 'hooks'));
+}
+
+/**
+ * Refuse a project whose root lies inside the user-global Claude config dir
+ * (in any spelling), where writing its `CLAUDE.md` would write Claude Code's
+ * user-global memory file `~/.claude/CLAUDE.md` (T13227 review). A project
+ * that is the home directory is allowed: `~/CLAUDE.md` is not user-global
+ * Claude config.
+ *
+ * @param projectDir - the project root.
+ * @throws {@link UserGlobalClaudeConfigError} when the project root is inside
+ *   the user-global Claude config dir.
+ *
+ * @example
+ * ```typescript
+ * assertProjectInstructionScope('/repo'); // ok
+ * ```
+ */
+export function assertProjectInstructionScope(projectDir: string): void {
+  assertProjectScoped(projectDir, join(projectDir, 'CLAUDE.md'), false);
 }
 
 /**

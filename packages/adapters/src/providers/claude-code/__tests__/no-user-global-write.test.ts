@@ -192,6 +192,53 @@ describe('Claude Code adapter never writes the user-global Claude config (T13227
     expect(install.details?.hookTemplates).toBe('skipped');
   });
 
+  it('the Claude dir itself as the project is refused, CLAUDE.md included', async () => {
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const before = snapshot(claudeHome);
+
+    const { install } = await runAllWriters(claudeHome);
+
+    expect(snapshot(claudeHome)).toEqual(before);
+    expect(install.details?.instructionFile).toBe('skipped');
+    expect(install.details?.commands).toBe('skipped');
+    await expect(
+      new ClaudeCodeInstallProvider().ensureInstructionReferences(claudeHome),
+    ).rejects.toThrow(/inside the user-global Claude config dir/);
+    expect(existsSync(join(claudeHome, 'CLAUDE.md'))).toBe(false);
+  });
+
+  it('a differently cased spelling of the Claude dir is refused on a case-insensitive volume', async (ctx) => {
+    const variant = join(home, '.CLAUDE');
+    // Only meaningful where the volume folds case (default APFS / NTFS).
+    if (!existsSync(variant)) ctx.skip();
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const before = snapshot(claudeHome);
+
+    const hooks = new ClaudeCodeHookProvider();
+    await hooks.registerNativeHooks(variant);
+    const { install } = await runAllWriters(variant);
+
+    expect(snapshot(claudeHome)).toEqual(before);
+    expect(hooks.getSettingsError()).toMatch(/inside the user-global Claude config dir/);
+    expect(install.details?.instructionFile).toBe('skipped');
+    expect(install.details?.plugin).toBe('skipped');
+    expect(install.details?.hookTemplates).toBe('skipped');
+    expect(install.details?.commands).toBe('skipped');
+  });
+
+  it('a differently cased spelling of the home directory is refused on a case-insensitive volume', async (ctx) => {
+    const variant = home.replace(/home$/, 'HOME');
+    if (!existsSync(variant)) ctx.skip();
+    process.env.CLAUDE_HOME = join(root, 'elsewhere', '.claude');
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const before = snapshot(claudeHome);
+
+    const { install } = await runAllWriters(variant);
+
+    expect(snapshot(claudeHome)).toEqual(before);
+    expect(install.details?.plugin).toBe('skipped');
+  });
+
   it('CLAUDE_SETTINGS naming the project settings.local.json is refused: nothing written', async () => {
     const local = join(projectDir, '.claude', 'settings.local.json');
     process.env.CLAUDE_SETTINGS = local;
