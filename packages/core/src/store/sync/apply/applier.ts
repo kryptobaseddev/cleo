@@ -459,7 +459,8 @@ function isGuardRefusal(err: unknown): err is Error {
  * `I B`; with immediate foreign keys A's insert would fail. Each row has one
  * op per transaction, so moving an insert never reorders a row's own ops. A
  * reference cycle keeps the original order (its first insert then fails as a
- * guard conflict).
+ * guard conflict). An insert is never hoisted ahead of an earlier delete on
+ * its table, so a natural-key re-add keeps its order.
  */
 function applyOrder(
   ops: readonly LedgerOp[],
@@ -475,6 +476,14 @@ function applyOrder(
     if (state.has(i)) return;
     state.set(i, 'visiting');
     const op = ops[i] as LedgerOp;
+    // An insert never moves ahead of a delete on its table that preceded it:
+    // a natural-key re-add (D X, I Y with X's key) must keep its order.
+    if (op.o === 'I') {
+      for (let k = 0; k < i; k++) {
+        const prior = ops[k] as LedgerOp;
+        if (prior.o === 'D' && prior.t === op.t && state.get(k) !== 'visiting') visit(k);
+      }
+    }
     const def = defs(op.t);
     for (const [col, v] of Object.entries(op.a ?? {})) {
       const target = def?.refs.get(col);

@@ -146,6 +146,22 @@ const keyOf = (r: InboxRow): InboxKey => ({ stream: r.stream, seq: r.seq, txnIdx
  * A staged row's transaction, or why it cannot be read (T13234): a format
  * newer than this build (`E_SCHEMA_AHEAD`), or a malformed row.
  */
+/** The split-transaction marker a refused part's reason carries (T13242). */
+const txnMarker = (txn: string): string => `[txn ${txn}]`;
+
+/** A refused row's txn id, from its JSON or, when that is unreadable, its text. */
+function txnIdOf(text: string): string | null {
+  try {
+    const raw: unknown = JSON.parse(text);
+    if (typeof raw === 'object' && raw !== null && 'txn' in raw && typeof raw.txn === 'string') {
+      return raw.txn;
+    }
+  } catch {
+    // not JSON: fall back to the text
+  }
+  return /"txn"\s*:\s*"([^"\\]+)"/.exec(text)?.[1] ?? null;
+}
+
 function parseStaged(r: InboxRow): LedgerTxn | string {
   let raw: unknown;
   try {
@@ -188,7 +204,11 @@ export function stagedTxns(db: DatabaseSync, stream: string, limit = 0): StagedT
     if (typeof txn === 'string') {
       // One unreadable row (a newer writer's format) never stalls the stream:
       // it is refused, kept for replay after an upgrade, and the rest flows.
-      markTxns(db, [keyOf(r)], 'refused-schema', { reason: txn, nowIso });
+      // Its txn id rides in the reason, so its sibling parts are found even
+      // when its JSON is unreadable.
+      const id = txnIdOf(r.txn_json);
+      const reason = id !== null ? `${txn} ${txnMarker(id)}` : txn;
+      markTxns(db, [keyOf(r)], 'refused-schema', { reason, nowIso });
       continue;
     }
     parsed.push({ row: r, txn });
@@ -197,12 +217,13 @@ export function stagedTxns(db: DatabaseSync, stream: string, limit = 0): StagedT
   // refused (now or in an earlier pass), its other parts can never complete.
   const refusedPart = db.prepare(
     `SELECT 1 FROM _sync_inbox WHERE stream = ? AND replica_id = ? AND status = 'refused-schema'
-       AND json_valid(txn_json) AND json_extract(txn_json, '$.txn') = ? LIMIT 1`,
+       AND ((json_valid(txn_json) AND json_extract(txn_json, '$.txn') = ?)
+         OR instr(coalesce(reason, ''), ?) > 0) LIMIT 1`,
   );
   for (let i = parsed.length - 1; i >= 0; i--) {
     const p = parsed[i] as (typeof parsed)[number];
     if (!p.txn.part) continue;
-    if (!refusedPart.get(stream, p.row.replica_id, p.txn.txn)) continue;
+    if (!refusedPart.get(stream, p.row.replica_id, p.txn.txn, txnMarker(p.txn.txn))) continue;
     markTxns(db, [keyOf(p.row)], 'refused-schema', {
       reason: `another part of split transaction ${p.txn.txn} was refused`,
       nowIso,

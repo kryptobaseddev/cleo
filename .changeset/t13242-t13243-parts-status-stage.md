@@ -18,3 +18,8 @@ Two follow-ups from the review of the apply slices.
   - The value is recomputed at every op that carries the status or the stage, so an unrelated or refused write never rewrites a stage.
   - A new property test (P8) folds cancel/complete races with the stages the domain writes, in every interleaving: the state converges
     and status and stage match.
+- **Review LOWs.**
+  - Coupling also runs on a fresh insert, so a legacy repair insert of done/testing lands as done/contribution, not a T877 void.
+  - A refused part's txn id is kept in its reason, read from the text when its JSON is unreadable, so its sibling parts are still refused.
+  - Apply never hoists a referenced insert ahead of an earlier delete on its table, so a natural-key re-add keeps its order.
+

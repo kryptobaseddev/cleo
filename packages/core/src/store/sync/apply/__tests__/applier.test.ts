@@ -1123,3 +1123,62 @@ describe('Gate C post-apply checks (§3.6, PR-5)', () => {
     expect(listConflicts(db)).toEqual([expect.objectContaining({ kind: 'guard', uid: 'd1' })]);
   });
 });
+
+describe('review #1903 LOWs', () => {
+  it('a referenced insert is not hoisted ahead of a natural-key delete it follows', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('x', h(1)), insert('z', h(1))])]));
+    apply(db);
+    // Netted order: Z (references Y) first, then D X, then I Y re-using X's id.
+    stage(
+      db,
+      segment(R2, [
+        txn('R2:1', [
+          update('z', h(5, R2), { parent_id: 'y' }),
+          del('x', h(5, R2)),
+          insert('y', h(5, R2), { id: 'X', type: 'epic' }),
+        ]),
+      ]),
+    );
+    expect(apply(db)).toMatchObject({ applied: 1, conflict: 0 });
+    expect(task(db, 'x')).toBeUndefined();
+    expect(task(db, 'y')?.id).toBe('X');
+    expect(
+      (db.prepare("SELECT parent_id AS p FROM tasks_tasks WHERE uid = 'z'").get() as { p: string })
+        .p,
+    ).toBe('X');
+  });
+
+  it('a fresh insert with a terminal status and a stale stage is coupled, never a T877 void', async () => {
+    const db = await store();
+    stage(
+      db,
+      segment(R1, [
+        txn('R1:1', [
+          insert('d1', h(1), {
+            status: 'done',
+            pipeline_stage: 'testing',
+            completed_at: '2026-10-05T00:00:00.000Z',
+          }),
+        ]),
+      ]),
+    );
+    expect(apply(db)).toMatchObject({ applied: 1, conflict: 0 });
+    expect(task(db, 'd1')).toMatchObject({ status: 'done', pipeline_stage: 'contribution' });
+  });
+
+  it('a split part whose JSON is unreadable still refuses its siblings', async () => {
+    const db = await store();
+    const p1 = txn('R1:9', [insert('s1', h(1))], { part: [1, 2] });
+    const raw = db.prepare(
+      `INSERT INTO _sync_inbox (stream, seq, txn_idx, replica_id, replica_seq, device_id,
+         schema_version, txn_json, hlc, status, staged_at)
+       VALUES (?, ?, 0, ?, ?, 'dev', ?, ?, ?, 'staged', 'now')`,
+    );
+    raw.run(STREAM, 1, R1, 1, SYNC_SCHEMA_VERSION, JSON.stringify(p1), h(1));
+    raw.run(STREAM, 2, R1, 2, SYNC_SCHEMA_VERSION, '{"txn":"R1:9","part":[2,2],', h(1));
+    seq = 2;
+    apply(db);
+    expect(statuses(db)).toEqual(['1.0:refused-schema', '2.0:refused-schema']);
+  });
+});
