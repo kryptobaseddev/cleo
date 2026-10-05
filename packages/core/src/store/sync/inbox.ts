@@ -142,10 +142,6 @@ export function stageTxns(
 
 const keyOf = (r: InboxRow): InboxKey => ({ stream: r.stream, seq: r.seq, txnIdx: r.txn_idx });
 
-/**
- * A staged row's transaction, or why it cannot be read (T13234): a format
- * newer than this build (`E_SCHEMA_AHEAD`), or a malformed row.
- */
 /** The split-transaction marker a refused part's reason carries (T13242). */
 const txnMarker = (txn: string): string => `[txn ${txn}]`;
 
@@ -162,6 +158,10 @@ function txnIdOf(text: string): string | null {
   return /"txn"\s*:\s*"([^"\\]+)"/.exec(text)?.[1] ?? null;
 }
 
+/**
+ * A staged row's transaction, or why it cannot be read (T13234): a format
+ * newer than this build (`E_SCHEMA_AHEAD`), or a malformed row.
+ */
 function parseStaged(r: InboxRow): LedgerTxn | string {
   let raw: unknown;
   try {
