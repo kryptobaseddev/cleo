@@ -148,6 +148,24 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §3.3 (T12757)',
     note: "what an apply frame wrote, per (tbl, uid, col), for the sealer to subtract from that frame's captures; deleted with the frame. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12757)",
   },
+  _sync_inbox: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1, §3.2 (T12344)',
+    note: 'every received transaction with its apply status; applied rows go once a verified checkpoint covers them, the rest stay until resolved. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12344)',
+  },
+  _sync_conflict: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.2 (T12344)',
+    note: 'one row per conflict an apply recorded, kept until resolved; `cleo cloud conflicts` reads it. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12344)',
+  },
+  _sync_field_leave: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.6 (T12344)',
+    note: 'the HLC of the latest explicit leave of an absorbing state per (tbl, uid, col), which the merge reads; rebuilt from the stream. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12344)',
+  },
   _sync_row_meta: {
     class: 'local-only',
     status: 'optional-transient',
@@ -1333,6 +1351,24 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §3.3 (T12757)',
     note: "what an apply frame wrote, per (tbl, uid, col), for the sealer to subtract from that frame's captures; deleted with the frame. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12757)",
+  },
+  _sync_inbox: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1, §3.2 (T12344)',
+    note: 'every received transaction with its apply status; applied rows go once a verified checkpoint covers them, the rest stay until resolved. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12344)',
+  },
+  _sync_conflict: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.2 (T12344)',
+    note: 'one row per conflict an apply recorded, kept until resolved; `cleo cloud conflicts` reads it. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12344)',
+  },
+  _sync_field_leave: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.6 (T12344)',
+    note: 'the HLC of the latest explicit leave of an absorbing state per (tbl, uid, col), which the merge reads; rebuilt from the stream. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12344)',
   },
   _sync_row_meta: {
     class: 'local-only',

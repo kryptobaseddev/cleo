@@ -59,4 +59,33 @@ export function isLongLivedBrainHost(): boolean {
  */
 export function _resetLongLivedBrainHostForTests(): void {
   _longLivedHost = false;
+  _writerIsolate = false;
+}
+
+let _writerIsolate = false;
+
+/**
+ * Declare this isolate the brain writer worker (`brain-writer-worker.ts`
+ * calls it once). Only there is the open store handle the chokepoint's own,
+ * so only there may `observeBrain` write an embedding directly (T13246). Any
+ * other worker thread, `CLEO_BRAIN_WRITER_THREAD=1` in its environment or
+ * not, goes through `enqueueBrainWrite`.
+ *
+ * @example
+ * ```ts
+ * markBrainWriterIsolate();
+ * isBrainWriterIsolate(); // true
+ * ```
+ */
+export function markBrainWriterIsolate(): void {
+  _writerIsolate = true;
+}
+
+/**
+ * Whether this isolate is the brain writer worker.
+ *
+ * @returns `true` only after {@link markBrainWriterIsolate}; never from the environment.
+ */
+export function isBrainWriterIsolate(): boolean {
+  return _writerIsolate;
 }

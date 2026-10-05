@@ -32,17 +32,28 @@
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import type { LedgerWireValue } from '@cleocode/contracts/ledger';
-import { UID_COLUMN } from '../../row-identity-registry.js';
+import { BIRTH_FP_COLUMN, UID_COLUMN } from '../../row-identity-registry.js';
 import {
   type ApplyIntent,
   INTENT_DELETE,
   INTENT_INSERT,
+  INTENT_REKEY,
   recordApplyIntents,
   SECRET_INTENT,
 } from '../apply-intent.js';
 import { type CaptureTableDef, captureTableDef, enc } from '../capture.js';
-import { type RowMetaRow, readRowMeta, upsertRowMetaFromFields } from '../row-meta.js';
+import { moveFieldState } from '../field-leave.js';
+import {
+  compressFieldHlcs,
+  fieldHlcsOf,
+  moveRowMeta,
+  type RowMetaRow,
+  readRowMeta,
+  upsertRowMeta,
+  upsertRowMetaFromFields,
+} from '../row-meta.js';
 import { decodeEnc } from '../sealer-values.js';
+import { type ChildKey, syncSetChildKeys } from './fk.js';
 
 /** A write the API refuses (unknown table or column, a missing row). */
 export class ApplyWriteError extends Error {
@@ -111,11 +122,26 @@ export interface ApplyWriteApi {
     values: Readonly<Record<string, LedgerWireValue>>,
   ): StoredEncs;
   /**
-   * DELETE the row; records `*D`.
+   * DELETE the row; records `*D`, plus an intent for every sync-set child
+   * column the delete's `ON DELETE SET NULL` action clears, so the FK
+   * action is never sealed as a local write (§3.2 FK actions).
    *
    * @returns Whether a row was deleted.
    */
   deleteRow(table: string, uid: string): boolean;
+  /**
+   * Re-key a row (a K op): its uid, and its birth fingerprint when `newBfp`
+   * is given. Records `*K` (enc = the new uid) and moves the row's meta and
+   * typed-rule state to the new uid.
+   *
+   * @returns Whether a row was re-keyed.
+   */
+  rekeyRow(table: string, uid: string, newUid: string, newBfp: string | null): boolean;
+  /** The live sync-set children of a row, per child key (for the parent-delete policy). */
+  childRows(
+    table: string,
+    uid: string,
+  ): ReadonlyArray<{ readonly key: ChildKey; readonly uid: string }>;
   /** The row's captured columns as wire values, or null when it does not exist. */
   readRow(table: string, uid: string): Record<string, LedgerWireValue> | null;
   /** The row's stored replication meta, or undefined when it has none. */
@@ -139,6 +165,33 @@ export interface ApplyWriteApi {
       readonly origin: string;
       readonly actor: string | null;
       readonly deleted: boolean;
+      readonly keyJson?: string | null;
+      readonly chash?: string | null;
+      readonly bfp?: string | null;
+    },
+  ): string;
+  /**
+   * Record the row's replication meta EXACTLY as the merge engine decided
+   * it (the applier's writer). Unlike {@link ApplyWriteApi.setRowMeta} it
+   * does not keep the newer of stored and incoming per field: the engine
+   * already did, and some of its decisions move a field HLC back on purpose
+   * (an absorbing write that overrides a newer edit keeps its own HLC), or
+   * pin the tombstone to the delete's HLC although a field was newer.
+   *
+   * - Live row: `fieldHlc` names the merged HLC per field; a column it omits
+   *   keeps its stored HLC, and a first write must name every field.
+   * - Tombstone: `tombstone` is the delete's HLC; `fieldHlc` is ignored.
+   *
+   * @returns The row HLC stored.
+   */
+  setMergedRowMeta(
+    table: string,
+    uid: string,
+    meta: {
+      readonly fieldHlc: Readonly<Record<string, string>>;
+      readonly tombstone: string | null;
+      readonly origin: string;
+      readonly actor: string | null;
       readonly keyJson?: string | null;
       readonly chash?: string | null;
       readonly bfp?: string | null;
@@ -181,6 +234,30 @@ export function createApplyWriteApi(
       // @sync-invariant none:input-shape the merge engine refuses unknown columns before any write
       throw new ApplyWriteError(`${def.table}: cannot write ${bad.join(', ')}`);
     }
+  };
+  let childKeys: ReadonlyMap<string, readonly ChildKey[]> | undefined;
+  /** The live sync-set rows referencing `table`/`uid` through a foreign key. */
+  const children = (
+    table: string,
+    uid: string,
+  ): Array<{ readonly key: ChildKey; readonly uid: string }> => {
+    childKeys ??= syncSetChildKeys(db, scope);
+    const out: Array<{ key: ChildKey; uid: string }> = [];
+    for (const key of childKeys.get(table) ?? []) {
+      const parent = db
+        .prepare(
+          `SELECT ${ident(key.to)} AS v FROM main.${ident(table)} WHERE ${ident(UID_COLUMN)} = ?`,
+        )
+        .get(uid) as { v: SQLInputValue } | undefined;
+      if (!parent || parent.v === null) continue;
+      const rows = db
+        .prepare(
+          `SELECT ${ident(UID_COLUMN)} AS uid FROM main.${ident(key.child)} WHERE ${ident(key.from)} = ? AND ${ident(UID_COLUMN)} IS NOT NULL`,
+        )
+        .all(parent.v) as Array<{ uid: string }>;
+      for (const r of rows) out.push({ key, uid: r.uid });
+    }
+    return out;
   };
   const record = (intents: ApplyIntent[]): void => {
     if (frame !== null && intents.length > 0) recordApplyIntents(db, frame, intents);
@@ -270,12 +347,40 @@ export function createApplyWriteApi(
     deleteRow(table, uid) {
       assertActive();
       defOf(table);
+      const nulled = children(table, uid).filter((c) => c.key.onDelete === 'SET NULL');
       const res = db
         .prepare(`DELETE FROM main.${ident(table)} WHERE ${ident(UID_COLUMN)} = ?`)
         .run(uid);
       if (Number(res.changes) === 0) return false;
-      record([{ tbl: table, uid, col: INTENT_DELETE, enc: '' }]);
+      record([
+        { tbl: table, uid, col: INTENT_DELETE, enc: '' },
+        ...nulled.map((c) => ({ tbl: c.key.child, uid: c.uid, col: c.key.from, enc: 'NULL' })),
+      ]);
       return true;
+    },
+
+    rekeyRow(table, uid, newUid, newBfp) {
+      assertActive();
+      const def = defOf(table);
+      const setBfp = newBfp !== null && def.identity.includes(BIRTH_FP_COLUMN);
+      const res = db
+        .prepare(
+          `UPDATE main.${ident(table)} SET ${ident(UID_COLUMN)} = ?` +
+            (setBfp ? `, ${ident(BIRTH_FP_COLUMN)} = ?` : '') +
+            ` WHERE ${ident(UID_COLUMN)} = ?`,
+        )
+        .run(...(setBfp ? [newUid, newBfp, uid] : [newUid, uid]));
+      if (Number(res.changes) === 0) return false;
+      record([{ tbl: table, uid, col: INTENT_REKEY, enc: newUid }]);
+      if (newUid !== uid || newBfp !== null) moveRowMeta(db, table, uid, newUid, newBfp);
+      moveFieldState(db, table, uid, newUid);
+      return true;
+    },
+
+    childRows(table, uid) {
+      assertActive();
+      defOf(table);
+      return children(table, uid);
     },
 
     readRow(table, uid) {
@@ -302,6 +407,44 @@ export function createApplyWriteApi(
     setRowMeta(table, uid, meta) {
       assertActive();
       return upsertRowMetaFromFields(db, defOf(table), { tbl: table, uid, ...meta });
+    },
+
+    setMergedRowMeta(table, uid, meta) {
+      assertActive();
+      const def = defOf(table);
+      const prev = readRowMeta(db, table, uid);
+      let hlc: string;
+      let fhlc: string | null = null;
+      if (meta.tombstone !== null) {
+        hlc = meta.tombstone;
+      } else {
+        const fields: Record<string, string> = prev && !prev.deleted ? fieldHlcsOf(def, prev) : {};
+        for (const c of def.columns) {
+          const at = meta.fieldHlc[c];
+          if (!def.identity.includes(c) && at !== undefined) fields[c] = at;
+        }
+        const missing = def.columns.filter((c) => !def.identity.includes(c) && !fields[c]);
+        if (missing.length > 0) {
+          // @sync-invariant none:input-shape the applier names every field of a row's first live meta; nothing is written
+          throw new ApplyWriteError(`row meta for ${table}/${uid}: misses ${missing.join(', ')}`);
+        }
+        hlc = Object.values(fields).reduce((m, h) => (h > m ? h : m));
+        fhlc = compressFieldHlcs(def, fields, hlc);
+      }
+      upsertRowMeta(db, {
+        tbl: table,
+        uid,
+        hlc,
+        fhlc,
+        origin: meta.origin,
+        actor: meta.actor,
+        version: (prev?.version ?? 0) + 1,
+        deleted: meta.tombstone !== null,
+        keyJson: meta.keyJson,
+        chash: meta.chash,
+        bfp: meta.bfp,
+      });
+      return hlc;
     },
   };
 }

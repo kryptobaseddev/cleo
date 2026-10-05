@@ -14,6 +14,7 @@ import {
   commandTarget,
   isPausable,
   isWatchCommand,
+  isWholeSuiteTestRun,
   looksHeavy,
   namedTestFileCount,
   resolveRunClass,
@@ -506,5 +507,90 @@ describe('namedTestFileCount (T13132)', () => {
       namedTestFileCount('test-run', ['vitest', 'run', 'b.test.ts', '--exclude', 'a.test.ts']),
     ).toBe(1);
     expect(namedTestFileCount('test-run', ['vitest', 'run', 'src/**/*.test.ts'])).toBeNull();
+  });
+});
+
+describe('isWholeSuiteTestRun (T13236)', () => {
+  let pkgDir: string;
+  beforeEach(() => {
+    pkgDir = mkdtempSync(join(tmpdir(), 'cleo-whole-suite-'));
+    writeFileSync(
+      join(pkgDir, 'package.json'),
+      JSON.stringify({
+        scripts: {
+          test: 'vitest run',
+          'test:pkg': 'vitest run --project',
+          'test:cleo': 'cd ../.. && vitest run packages/cleo/src',
+          'test:node': 'node --test',
+          'test:changed': 'pnpm --filter "...[HEAD~1]" run test',
+        },
+      }),
+    );
+  });
+  afterEach(() => rmSync(pkgDir, { recursive: true, force: true }));
+
+  it.each([
+    [['vitest', 'run']],
+    [['pnpm', 'exec', 'vitest', 'run']],
+    [['npx', 'vitest', 'run']],
+    [['pnpm', 'vitest', 'run']],
+    [['pnpm', '--filter', '@cleocode/core', 'exec', 'vitest', 'run']],
+    [['pnpm', 'exec', 'vitest', 'run', '--reporter', 'json']],
+    [['pnpm', 'exec', 'vitest', 'run', '--reporter=json', '--maxWorkers', '2']],
+    [['vitest', 'run', '--exclude', 'a.test.ts']],
+    [['vitest', 'run', '--', '--silent']],
+    // The quoted empty list and the current directory narrow nothing (#1897 review MED).
+    [['pnpm', 'exec', 'vitest', 'run', '']],
+    [['pnpm', 'exec', 'vitest', 'run', '   ']],
+    [['pnpm', 'exec', 'vitest', 'run', '.']],
+    [['pnpm', 'exec', 'vitest', 'run', './']],
+    [['pnpm', 'exec', 'vitest', 'run', '', '--reporter', 'dot']],
+    [['vitest', 'run', '-t', '']],
+    [['vitest', 'run', '--project=']],
+    // Package scripts that run vitest, with nothing narrowing them.
+    [['pnpm', 'test']],
+    [['pnpm', 'run', 'test']],
+    [['pnpm', '-r', 'test']],
+    [['pnpm', '--filter', '@cleocode/core', 'test']],
+    [['npm', 'test']],
+    [['pnpm', 'test', '']],
+    [['pnpm', 'run', 'test:cleo']],
+    [['pnpm', 'test:pkg']],
+  ])('%j is the whole suite', (argv) => {
+    expect(isWholeSuiteTestRun(argv, pkgDir)).toBe(true);
+  });
+
+  it.each([
+    [['vitest', 'run', 'src/a.test.ts']],
+    [['pnpm', 'exec', 'vitest', 'run', 'src/cloud']],
+    [['vitest', 'run', '--project', 'core']],
+    [['vitest', 'run', '--project=core']],
+    [['vitest', 'run', '-t', 'parses']],
+    [['vitest', 'run', '--testNamePattern=parses']],
+    [['vitest', 'run', '--changed']],
+    [['vitest', 'related', 'src/a.ts']],
+    [['vitest', 'list']],
+    [['vitest', 'run', '--reporter', 'json', 'src/a.test.ts']],
+    [['vitest', 'run', '--unknown-flag', 'value']],
+    [['pnpm', 'test', 'src/a.test.ts']],
+    [['pnpm', '--filter', '@cleocode/core', 'test', 'src/a.test.ts']],
+    [['pnpm', 'test', '--', '-t', 'parses']],
+    [['pnpm', 'test:pkg', '@cleocode/core']],
+    [['pnpm', 'run', 'test:node']],
+    [['pnpm', 'run', 'test:changed']],
+    [['pnpm', 'run', 'no-such-script']],
+    [['tsc', '-b']],
+    [['jest']],
+  ])('%j is narrowed or not a vitest run', (argv) => {
+    expect(isWholeSuiteTestRun(argv, pkgDir)).toBe(false);
+  });
+
+  it('a script with no package.json up the tree is not refused', () => {
+    const bare = mkdtempSync(join(tmpdir(), 'cleo-no-pkg-'));
+    try {
+      expect(isWholeSuiteTestRun(['pnpm', 'test'], bare)).toBe(false);
+    } finally {
+      rmSync(bare, { recursive: true, force: true });
+    }
   });
 });

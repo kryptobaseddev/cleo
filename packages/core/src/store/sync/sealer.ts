@@ -61,7 +61,16 @@ import {
   syncSetTables,
 } from './capture.js';
 import { tickClock, withImmediateTransaction } from './clock-store.js';
+import {
+  actorOpOf,
+  clearFieldLeaves,
+  localFrontierUpdates,
+  localLeaves,
+  recordFieldLeaves,
+  setFieldFrontiers,
+} from './field-leave.js';
 import { isSyncFlagOn, UNRELEASED_FLAGS } from './flags.js';
+import { mergeGroupsOf } from './merge/rules.js';
 import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './netting.js';
 import { remapCapture, remapPending } from './remap.js';
 import { activeReplica } from './replica.js';
@@ -226,6 +235,21 @@ class TableContext {
       uid,
     ) as { f: string | null } | undefined;
     return row?.f ?? undefined;
+  }
+
+  /**
+   * A natural row's key as row meta recorded it (refs as uids), for a repair
+   * D whose row is gone (T12987).
+   */
+  metaKey(table: string, uid: string): Record<string, WireValue> {
+    const row = this.stmt('SELECT key_json AS k FROM _sync_row_meta WHERE tbl = ? AND uid = ?').get(
+      table,
+      uid,
+    ) as { k: string | null } | undefined;
+    if (!row?.k)
+      // @sync-invariant none:input-shape a repair D of a natural row without a recorded key is quarantined, never sealed
+      throw new SealInputError(`${table} ${uid}: orphaned natural row has no recorded key`);
+    return JSON.parse(row.k) as Record<string, WireValue>;
   }
 
   /** The live row's uid by its local key (the capture's `rk`). */
@@ -491,11 +515,21 @@ function intentUid(ctx: TableContext, c: CaptureRow): string | null {
   return resolveCaptureUid(ctx, c, img, natural);
 }
 
-function buildDraft(ctx: TableContext, c: CaptureRow, births: BatchBirths): DraftOp {
+function buildDraft(
+  ctx: TableContext,
+  c: CaptureRow,
+  births: BatchBirths,
+  repair = false,
+): DraftOp {
   const def = ctx.def(c.tbl);
   const img = JSON.parse(c.img) as Record<string, unknown>;
   const minted = ctx.minted(c.tbl);
-  const natural = !minted ? { k: naturalKey(ctx, def, c.rk) } : {};
+  // A repair D of an orphaned meta row (§4.4, T12987) has no live row and no
+  // local key: its image is empty, and a natural row's key comes from meta.
+  const orphan = repair && c.op === 'D' && c.uid !== null && Object.keys(img).length === 0;
+  const natural = minted
+    ? {}
+    : { k: orphan && c.uid !== null ? ctx.metaKey(c.tbl, c.uid) : naturalKey(ctx, def, c.rk) };
   const base = { t: c.tbl, rk: c.rk, seq: c.seq };
   if (c.op === 'K') {
     const pair = (col: string) => {
@@ -535,16 +569,32 @@ function buildDraft(ctx: TableContext, c: CaptureRow, births: BatchBirths): Draf
     case 'U': {
       const a: Record<string, WireValue> = {};
       const b: Record<string, WireValue> = {};
+      let unknownBefore = false;
       for (const [col, pair] of Object.entries(img)) {
         if (ctx.refSources(def.table).has(col)) continue;
         const [before, after] = pair as [unknown, unknown];
         const nv = columnValue(ctx, def, col, after);
-        const ov = columnValue(ctx, def, col, before);
         if (nv !== undefined) a[col] = nv;
+        // A JSON null before is a repair U's (§4.4, T12987): only the content
+        // hash was kept, so the before-image is unknown. No trigger writes
+        // one: a NULL value is the text 'NULL'.
+        if (before === null && repair) {
+          unknownBefore = true;
+          continue;
+        }
+        const ov = columnValue(ctx, def, col, before);
         if (ov !== undefined) b[col] = ov;
       }
       const bfp = minted ? resolveBirthFp(ctx, births, c.tbl, uid) : undefined;
-      return { ...base, o: 'U', u: uid, ...(bfp ? { bfp } : {}), ...natural, a, b };
+      return {
+        ...base,
+        o: 'U',
+        u: uid,
+        ...(bfp ? { bfp } : {}),
+        ...natural,
+        a,
+        ...(unknownBefore ? { unknownBefore: true as const } : { b }),
+      };
     }
     case 'D': {
       const bfp =
@@ -598,6 +648,39 @@ export function rowChash(
   uid: string,
 ): string | null {
   return chashOf(new TableContext(db, scope), def, uid);
+}
+
+/**
+ * The facts of live rows the repair diff (§4.4, T12987) reads, from the same
+ * code the sealer uses, so a repaired row hashes exactly as a sealed one.
+ * Statements are prepared once per view.
+ */
+export interface SealerRowView {
+  /** The row's content hash ({@link rowChash}). */
+  chash(def: CaptureTableDef, uid: string): string | null;
+  /** A natural row's key with refs as uids (canonical JSON), from its local key `rk`. */
+  naturalKeyJson(def: CaptureTableDef, rk: string): string;
+  /** The live row's birth_fp, or undefined. */
+  liveBirthFp(table: string, uid: string): string | undefined;
+  /** A natural row's uid from its local key `rk` (null for a minted or symmetric table). */
+  naturalUid(def: CaptureTableDef, rk: string): string | null;
+}
+
+/**
+ * A {@link SealerRowView} over `db`, valid while its schema does not change.
+ *
+ * @param db - The store.
+ * @param scope - Its scope.
+ */
+export function sealerRowView(db: DatabaseSync, scope: TableScope): SealerRowView {
+  const ctx = new TableContext(db, scope);
+  return {
+    chash: (def, uid) => chashOf(ctx, def, uid),
+    naturalKeyJson: (def, rk) => canonicalJson(naturalKey(ctx, def, rk)),
+    liveBirthFp: (table, uid) => ctx.liveBirthFp(table, uid),
+    naturalUid: (def, rk) =>
+      ctx.minted(def.table) ? null : ctx.naturalUid(def.table, naturalKey(ctx, def, rk)),
+  };
 }
 
 function chashOf(ctx: TableContext, def: CaptureTableDef, uid: string): string | null {
@@ -800,6 +883,160 @@ function waitingEffect(db: DatabaseSync, tbl: string, facts: MetaFacts): number 
   return n;
 }
 
+/** Write one `_sync_meta` value (the sealer's own bookkeeping keys). */
+function setSealMeta(db: DatabaseSync, key: string, value: string, atIso: string): void {
+  db.prepare(
+    'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
+      'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+  ).run(key, value, atIso);
+}
+
+/** Set once the sealed-but-unsent ops have been made group-whole (T13233). */
+export const LEGACY_GROUPS_KEY = 'sealer.group_whole_v1';
+
+/** The merge-group members a U image or op carries part of, and lacks. */
+function missingGroupMembers(
+  def: CaptureTableDef,
+  carried: Readonly<Record<string, unknown>>,
+): string[] {
+  return mergeGroupsOf(def.table, def.columns).flatMap((g) =>
+    g.some((m) => m in carried) ? g.filter((m) => !(m in carried)) : [],
+  );
+}
+
+/** `enc()` of SQL NULL. */
+const ENC_NULL = 'NULL';
+
+/**
+ * A column's `enc()` value at the time of capture `c`:
+ * - the before-image of the row's next live U capture that recorded it;
+ * - else, at the row's next I or D capture, its image (which omits NULL
+ *   columns, so a member it does not name was NULL, T13235);
+ * - else the live row; a row that no longer exists held NULL.
+ */
+function encAtCapture(ctx: TableContext, c: CaptureRow, col: string): string {
+  const later = ctx
+    .stmt(
+      "SELECT op, img FROM _sync_capture WHERE state = 'live' AND tbl = ? AND rk = ? AND seq > ? ORDER BY seq",
+    )
+    .all(c.tbl, c.rk, c.seq) as Array<{ op: string; img: string }>;
+  for (const l of later) {
+    if (l.op !== 'U' && l.op !== 'I' && l.op !== 'D') continue;
+    const img = JSON.parse(l.img) as Record<string, unknown>;
+    if (!(col in img)) {
+      if (l.op === 'U') continue;
+      return ENC_NULL;
+    }
+    const raw = img[col];
+    const v = l.op === 'U' && Array.isArray(raw) ? raw[0] : raw;
+    return typeof v === 'string' ? v : ENC_NULL;
+  }
+  if (c.uid === null) return ENC_NULL;
+  const row = ctx
+    .stmt(`SELECT ${enc(q(col))} AS v FROM main.${q(c.tbl)} WHERE ${q(UID_COLUMN)} = ?`)
+    .get(c.uid) as { v: unknown } | undefined;
+  return typeof row?.v === 'string' ? row.v : ENC_NULL;
+}
+
+/**
+ * Complete the merge groups of U captures the pre-T13222 trigger recorded
+ * (changed columns only, T13233): each missing member is added unchanged
+ * (before = after) with its value at the capture, so the sealed op carries
+ * the whole group instead of being refused by every receiver. A capture
+ * from the current trigger always records whole groups and is untouched.
+ */
+function completeLegacyCaptureGroups(ctx: TableContext, batch: CaptureRow[]): CaptureRow[] {
+  return batch.map((c) => {
+    if (c.op !== 'U') return c;
+    const img = JSON.parse(c.img) as Record<string, unknown>;
+    if (mergeGroupsOf(c.tbl, Object.keys(img)).length === 0) return c;
+    const def = ctx.def(c.tbl);
+    const missing = missingGroupMembers(def, img);
+    if (missing.length === 0) return c;
+    for (const m of missing) {
+      const v = encAtCapture(ctx, c, m);
+      img[m] = [v, v];
+    }
+    return { ...c, img: JSON.stringify(img) };
+  });
+}
+
+/**
+ * Make sealed-but-unsent U ops group-whole once (T13233): ops sealed from
+ * pre-T13222 captures carry part of a merge group. Only `state = 'sealed'`
+ * transactions are rewritten (in place, `_sync_op.body`): segmented ops have
+ * left the device and inherited ones belong to another replica. A missing
+ * member's value at the op is the before-image of the row's next sealed U
+ * that carries it, or of its next D (which omits NULL columns, so an absent
+ * member was NULL), else the live row's; a row that no longer exists held
+ * NULL. Runs once per store ({@link LEGACY_GROUPS_KEY}), set only when every
+ * op came out whole.
+ *
+ * Per-field HLCs: the completed members travel at the op's HLC, while the
+ * origin's row meta keeps their older field HLC. Group LWW decides on the
+ * group's newest HLC, so merges agree; only a per-field HLC comparison (the
+ * repair diff) can see the difference.
+ *
+ * @returns How many ops were completed.
+ */
+function completeLegacySealedGroups(ctx: TableContext, atIso: string): number {
+  const db = ctx.db;
+  if (db.prepare('SELECT 1 FROM _sync_meta WHERE key = ?').get(LEGACY_GROUPS_KEY)) return 0;
+  const rows = db
+    .prepare(
+      "SELECT o.txn, o.idx, o.body FROM _sync_op o JOIN _sync_txn t ON t.txn = o.txn WHERE t.state = 'sealed' ORDER BY t.local_seq, o.idx",
+    )
+    .all() as Array<{ txn: string; idx: number; body: string }>;
+  const ops = rows.map((r) => ({ ...r, op: JSON.parse(r.body) as SealedOp }));
+  let fixed = 0;
+  let incomplete = 0;
+  ops.forEach((r, i) => {
+    if (r.op.o !== 'U' || !r.op.a) return;
+    if (mergeGroupsOf(r.op.t, Object.keys(r.op.a)).length === 0) return;
+    const def = ctx.def(r.op.t);
+    const missing = missingGroupMembers(def, r.op.a);
+    if (missing.length === 0) return;
+    const a: Record<string, WireValue> = { ...r.op.a };
+    const b: Record<string, WireValue> = { ...(r.op.b ?? {}) };
+    for (const m of missing) {
+      // The row's next sealed op that tells: a U carrying the member in `b`,
+      // or a D, whose before-image omits NULL columns (T13235).
+      const next = ops
+        .slice(i + 1)
+        .find(
+          (x) =>
+            x.op.t === r.op.t &&
+            x.op.u === r.op.u &&
+            (x.op.o === 'D' || (x.op.o === 'U' && x.op.b !== undefined && m in x.op.b)),
+        );
+      let v: WireValue | undefined;
+      if (next) {
+        v = next.op.b?.[m] ?? null;
+      } else {
+        const row = ctx
+          .stmt(`SELECT ${enc(q(m))} AS v FROM main.${q(r.op.t)} WHERE ${q(UID_COLUMN)} = ?`)
+          .get(r.op.u) as { v: unknown } | undefined;
+        // A row that no longer exists held NULL.
+        v = typeof row?.v === 'string' ? columnValue(ctx, def, m, row.v) : null;
+      }
+      if (v === undefined) {
+        incomplete += 1; // a secret member: never sealed whole by this pass
+        continue;
+      }
+      a[m] = v;
+      b[m] = v;
+    }
+    const body = canonicalJson({ ...r.op, a, b });
+    db.prepare('UPDATE _sync_op SET body = ? WHERE txn = ? AND idx = ?').run(body, r.txn, r.idx);
+    r.op = { ...r.op, a, b };
+    fixed += 1;
+  });
+  // Marked done only when every op is whole: an op left partial is retried
+  // on the next seal, never pushed as if the pass had covered it.
+  if (incomplete === 0) setSealMeta(db, LEGACY_GROUPS_KEY, String(fixed), atIso);
+  return fixed;
+}
+
 function sealInTransaction(
   db: DatabaseSync,
   opts: SealOptions & { readonly replica: string },
@@ -817,6 +1054,8 @@ function sealInTransaction(
   let batch = db
     .prepare(`SELECT ${CAPTURE_COLS} FROM _sync_capture WHERE state = 'live' ORDER BY seq LIMIT ?`)
     .all(budget) as unknown as CaptureRow[];
+  // T13233: ops sealed from pre-T13222 captures become group-whole, once.
+  completeLegacySealedGroups(ctx, new Date(now()).toISOString());
   if (batch.length === 0) return emptyReport(null);
   const lastFrame = batch[batch.length - 1]?.frame ?? null;
   if (lastFrame !== null && batch.length === budget) {
@@ -833,6 +1072,7 @@ function sealInTransaction(
       batch = batch.filter((c) => c.frame !== lastFrame);
     }
   }
+  batch = completeLegacyCaptureGroups(ctx, batch);
   const births = batchBirths(batch);
 
   // 2. Group: a validated frame is one transaction; anything else a singleton.
@@ -900,6 +1140,7 @@ function sealInTransaction(
   const pending: Array<{ firstSeq: number; reason: string }> = [];
   const touched = new Map<string, { tbl: string; uid: string; rk: string }>();
   const ledgerDelta = new Map<string, number>();
+  const leaveTable = hasTable(db, '_sync_field_leave');
 
   const metaFacts: MetaFacts = {
     sent: (t, u) => (meta.flags.get(t, u) as { sent: number } | undefined)?.sent === 1,
@@ -965,7 +1206,7 @@ function sealInTransaction(
     let partial = false;
     for (const c of captures) {
       try {
-        drafts.push(buildDraft(ctx, c, births));
+        drafts.push(buildDraft(ctx, c, births, g.kind === 'repair'));
       } catch (err) {
         if (!(err instanceof SealInputError)) throw err;
         // T13036: an unreadable capture never stalls the outbox. It moves to
@@ -1072,7 +1313,7 @@ function sealInTransaction(
       replica,
       txnHlc,
       opts.scope,
-      g.frame === null ? 'foreign' : 'accessor',
+      g.frame === null ? 'foreign' : g.kind === 'repair' ? 'repair' : 'accessor',
       kind,
       g.actor,
       g.frame,
@@ -1134,6 +1375,14 @@ function sealInTransaction(
         chash: op.o === 'D' ? (prev?.chash ?? null) : null,
         bfp: op.bfp ?? null,
       });
+      // Explicit leaves of absorbing states, which the merge reads (T12344).
+      if (leaveTable && op.o === 'U') {
+        const leaves = localLeaves(op.t, op, actorOpOf(g.actor));
+        recordFieldLeaves(db, op.t, op.u, leaves);
+        // A local rank-max write joins the stored frontier (T13232).
+        setFieldFrontiers(db, op.t, op.u, localFrontierUpdates(db, op.t, op.u, op, leaves));
+      }
+      if (leaveTable && op.o === 'D') clearFieldLeaves(db, op.t, op.u);
       if (op.o === 'I') ledgerDelta.set(op.t, (ledgerDelta.get(op.t) ?? 0) + 1);
       if (op.o === 'D') ledgerDelta.set(op.t, (ledgerDelta.get(op.t) ?? 0) - 1);
       if (op.o === 'D') touched.delete(rowKey(op.t, op.u));
@@ -1145,10 +1394,7 @@ function sealInTransaction(
   }
 
   if (localSeq !== firstSeq) {
-    db.prepare(
-      'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
-        'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-    ).run(SEAL_COUNTER_KEY, String(localSeq), new Date(now()).toISOString());
+    setSealMeta(db, SEAL_COUNTER_KEY, String(localSeq), new Date(now()).toISOString());
   }
 
   // Consume the sealed captures (and frames nothing references any more).
@@ -1383,10 +1629,7 @@ export function rebaselineChash(
       setChash.run(next, m.tbl, m.uid);
       rows += 1;
     }
-    db.prepare(
-      'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
-        'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-    ).run(CHASH_BASELINE_KEY, version, new Date().toISOString());
+    setSealMeta(db, CHASH_BASELINE_KEY, version, new Date().toISOString());
     return {
       rows,
       version,
