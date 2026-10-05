@@ -33,6 +33,10 @@ import {
   TWIN_COLLAPSE_MARKER_PREFIX,
   twinCollapseFailureOf,
 } from '../twin-collapse.js';
+import { optOutOfForeignKeys } from './test-db-helper.js';
+
+// T13228: fixtures seed bare legacy rows with references the drain resolves; they run with foreign keys OFF.
+optOutOfForeignKeys();
 
 const MARKER = `${TWIN_COLLAPSE_MARKER_PREFIX}token_usage`;
 /** Index of the token pair in the receipts and in the inspect output. */
