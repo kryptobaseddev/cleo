@@ -262,9 +262,8 @@ function readProcCmdline(pid: number): string {
  */
 function estimateProcessStartMs(pid: number): number {
   try {
-    const stat = readFileSync(`/proc/${pid}/stat`, 'utf-8').trim().split(' ');
-    const startTicks = Number.parseInt(stat[21] ?? '0', 10);
-    if (!Number.isFinite(startTicks) || startTicks <= 0) return 0;
+    const startTicks = procStatStartTicks(readFileSync(`/proc/${pid}/stat`, 'utf-8'));
+    if (startTicks === null) return 0;
     const uptimeSec = Number.parseFloat(readFileSync('/proc/uptime', 'utf-8').split(' ')[0] ?? '0');
     if (!Number.isFinite(uptimeSec) || uptimeSec <= 0) return 0;
     const clkTck = 100; // USER_HZ on Linux x86_64
@@ -273,6 +272,36 @@ function estimateProcessStartMs(pid: number): number {
   } catch {
     return 0;
   }
+}
+
+/**
+ * The `starttime` field (22) of a `/proc/<pid>/stat` line, in clock ticks
+ * since boot, or `null` when the line does not parse.
+ *
+ * Field 2, `comm`, is the parenthesised process name and may itself contain
+ * spaces and parentheses: Node and npm set it from `process.title`, so an MCP
+ * server reads `(npm exec @playw)`. Splitting the whole line on spaces shifted
+ * every later field and read the wrong number as the start time (T13146). The
+ * fields after `comm` begin after its LAST `)`.
+ *
+ * @param stat - the contents of `/proc/<pid>/stat`.
+ *
+ * @example
+ * ```ts
+ * procStatStartTicks('42 (npm exec @playw) S 1 42 42 0 -1 4194560 ' + '0 '.repeat(13) + '12345 …');
+ * ```
+ * @task T13146
+ */
+export function procStatStartTicks(stat: string): number | null {
+  const close = stat.lastIndexOf(')');
+  if (close < 0) return null;
+  // Fields 3.. after comm: state is field 3, so starttime (22) is index 19.
+  const rest = stat
+    .slice(close + 1)
+    .trim()
+    .split(/\s+/);
+  const ticks = Number.parseInt(rest[19] ?? '', 10);
+  return Number.isFinite(ticks) && ticks > 0 ? ticks : null;
 }
 
 /**
