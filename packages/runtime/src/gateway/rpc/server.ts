@@ -42,6 +42,7 @@ import type {
 } from '@cleocode/contracts/gateway/rpc';
 import { GATEWAY_RPC_PROTOCOL_VERSION } from '@cleocode/contracts/gateway/rpc';
 import { getLogger } from '@cleocode/core/logger';
+import { useBrainWriterThread } from '@cleocode/core/memory/brain-writer-thread';
 import {
   bindConnectionSession,
   runWithConnectionHandle,
@@ -217,6 +218,8 @@ export function startRpcServer(
   handler: GatewayHandler,
   opts: RpcServerOptions,
 ): Promise<RpcServerHandle> {
+  // A long-lived host: brain writes run on the worker thread (T13126).
+  useBrainWriterThread();
   const log = getLogger('gateway-rpc');
   const removeStale = opts.removeStaleSocket ?? true;
 

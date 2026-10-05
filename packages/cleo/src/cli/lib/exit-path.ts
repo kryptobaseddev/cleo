@@ -85,7 +85,8 @@ export function exitPath(): Promise<ExitPath> {
  * @param err - a caught error.
  */
 export function isVanishedModule(err: unknown): boolean {
-  const code = (err as NodeJS.ErrnoException | null)?.code;
+  const code =
+    err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
   return code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND';
 }
 
@@ -114,6 +115,30 @@ export function vanishedModuleNotice(
     );
   }
   return `[cleo] a CLEO module is missing from the installation (${missing}). Reinstall CLEO.\n`;
+}
+
+/**
+ * What to print when the exit path could not be loaded: the upgrade/reinstall
+ * notice only for a module that is genuinely missing ({@link isVanishedModule});
+ * for any other failure (a syntax error, a throwing module initializer) the
+ * real error with its code and stack, so a bug is never disguised as a broken
+ * install (#1878 review).
+ *
+ * @param err - the load failure.
+ * @param runningVersion - the version this process started as.
+ * @param packageJsonPath - see {@link vanishedModuleNotice}.
+ * @returns the stderr line(s) to print.
+ */
+export function exitPathLoadFailureNotice(
+  err: unknown,
+  runningVersion: string,
+  packageJsonPath?: string,
+): string {
+  if (isVanishedModule(err)) return vanishedModuleNotice(err, runningVersion, packageJsonPath);
+  const code =
+    err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
+  const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+  return `[cleo] the CLI could not load the code that finishes this command${code ? ` (${code})` : ''}:\n${detail}\n`;
 }
 
 function defaultPackageJson(): string {

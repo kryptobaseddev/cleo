@@ -7,7 +7,7 @@
  * @task T5240
  */
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -108,11 +108,16 @@ describe('ClaudeCodeHookProvider — integration', () => {
   });
 
   it('tracks registration state', async () => {
-    expect(hooks.isRegistered()).toBe(false);
-    await hooks.registerNativeHooks('/tmp/test');
-    expect(hooks.isRegistered()).toBe(true);
-    await hooks.unregisterNativeHooks();
-    expect(hooks.isRegistered()).toBe(false);
+    const projectDir = mkdtempSync(join(tmpdir(), 'cleo-claude-hooks-'));
+    try {
+      expect(hooks.isRegistered()).toBe(false);
+      await hooks.registerNativeHooks(projectDir);
+      expect(hooks.isRegistered()).toBe(true);
+      await hooks.unregisterNativeHooks();
+      expect(hooks.isRegistered()).toBe(false);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
   });
 
   it('exposes event map for introspection', () => {
