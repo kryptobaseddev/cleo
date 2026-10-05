@@ -830,28 +830,38 @@ function missingGroupMembers(
   );
 }
 
+/** `enc()` of SQL NULL. */
+const ENC_NULL = 'NULL';
+
 /**
- * A column's `enc()` value at the time of capture `c`: the before-image of
- * the next live capture of the row that recorded it, else the live row.
+ * A column's `enc()` value at the time of capture `c`:
+ * - the before-image of the row's next live U capture that recorded it;
+ * - else, at the row's next I or D capture, its image (which omits NULL
+ *   columns, so a member it does not name was NULL, T13235);
+ * - else the live row; a row that no longer exists held NULL.
  */
-function encAtCapture(ctx: TableContext, c: CaptureRow, col: string): string | undefined {
+function encAtCapture(ctx: TableContext, c: CaptureRow, col: string): string {
   const later = ctx
     .stmt(
       "SELECT op, img FROM _sync_capture WHERE state = 'live' AND tbl = ? AND rk = ? AND seq > ? ORDER BY seq",
     )
     .all(c.tbl, c.rk, c.seq) as Array<{ op: string; img: string }>;
   for (const l of later) {
+    if (l.op !== 'U' && l.op !== 'I' && l.op !== 'D') continue;
     const img = JSON.parse(l.img) as Record<string, unknown>;
-    if (!(col in img)) continue;
+    if (!(col in img)) {
+      if (l.op === 'U') continue;
+      return ENC_NULL;
+    }
     const raw = img[col];
     const v = l.op === 'U' && Array.isArray(raw) ? raw[0] : raw;
-    return typeof v === 'string' ? v : undefined;
+    return typeof v === 'string' ? v : ENC_NULL;
   }
-  if (c.uid === null) return undefined;
+  if (c.uid === null) return ENC_NULL;
   const row = ctx
     .stmt(`SELECT ${enc(q(col))} AS v FROM main.${q(c.tbl)} WHERE ${q(UID_COLUMN)} = ?`)
     .get(c.uid) as { v: unknown } | undefined;
-  return typeof row?.v === 'string' ? row.v : undefined;
+  return typeof row?.v === 'string' ? row.v : ENC_NULL;
 }
 
 /**
@@ -871,7 +881,7 @@ function completeLegacyCaptureGroups(ctx: TableContext, batch: CaptureRow[]): Ca
     if (missing.length === 0) return c;
     for (const m of missing) {
       const v = encAtCapture(ctx, c, m);
-      if (v !== undefined) img[m] = [v, v];
+      img[m] = [v, v];
     }
     return { ...c, img: JSON.stringify(img) };
   });
@@ -879,9 +889,19 @@ function completeLegacyCaptureGroups(ctx: TableContext, batch: CaptureRow[]): Ca
 
 /**
  * Make sealed-but-unsent U ops group-whole once (T13233): ops sealed from
- * pre-T13222 captures carry part of a merge group. A missing member's value
- * at the op is the before-image of the next sealed op of the row that
- * carries it, else the live row's. Runs once per store ({@link LEGACY_GROUPS_KEY}).
+ * pre-T13222 captures carry part of a merge group. Only `state = 'sealed'`
+ * transactions are rewritten (in place, `_sync_op.body`): segmented ops have
+ * left the device and inherited ones belong to another replica. A missing
+ * member's value at the op is the before-image of the row's next sealed U
+ * that carries it, or of its next D (which omits NULL columns, so an absent
+ * member was NULL), else the live row's; a row that no longer exists held
+ * NULL. Runs once per store ({@link LEGACY_GROUPS_KEY}), set only when every
+ * op came out whole.
+ *
+ * Per-field HLCs: the completed members travel at the op's HLC, while the
+ * origin's row meta keeps their older field HLC. Group LWW decides on the
+ * group's newest HLC, so merges agree; only a per-field HLC comparison (the
+ * repair diff) can see the difference.
  *
  * @returns How many ops were completed.
  */
@@ -890,11 +910,12 @@ function completeLegacySealedGroups(ctx: TableContext, atIso: string): number {
   if (db.prepare('SELECT 1 FROM _sync_meta WHERE key = ?').get(LEGACY_GROUPS_KEY)) return 0;
   const rows = db
     .prepare(
-      'SELECT o.txn, o.idx, o.body FROM _sync_op o JOIN _sync_txn t ON t.txn = o.txn ORDER BY t.local_seq, o.idx',
+      "SELECT o.txn, o.idx, o.body FROM _sync_op o JOIN _sync_txn t ON t.txn = o.txn WHERE t.state = 'sealed' ORDER BY t.local_seq, o.idx",
     )
     .all() as Array<{ txn: string; idx: number; body: string }>;
   const ops = rows.map((r) => ({ ...r, op: JSON.parse(r.body) as SealedOp }));
   let fixed = 0;
+  let incomplete = 0;
   ops.forEach((r, i) => {
     if (r.op.o !== 'U' || !r.op.a) return;
     if (mergeGroupsOf(r.op.t, Object.keys(r.op.a)).length === 0) return;
@@ -904,17 +925,30 @@ function completeLegacySealedGroups(ctx: TableContext, atIso: string): number {
     const a: Record<string, WireValue> = { ...r.op.a };
     const b: Record<string, WireValue> = { ...(r.op.b ?? {}) };
     for (const m of missing) {
+      // The row's next sealed op that tells: a U carrying the member in `b`,
+      // or a D, whose before-image omits NULL columns (T13235).
       const next = ops
         .slice(i + 1)
-        .find((x) => x.op.t === r.op.t && x.op.u === r.op.u && x.op.b && m in x.op.b);
-      let v: WireValue | undefined = next?.op.b?.[m];
-      if (v === undefined) {
+        .find(
+          (x) =>
+            x.op.t === r.op.t &&
+            x.op.u === r.op.u &&
+            (x.op.o === 'D' || (x.op.o === 'U' && x.op.b !== undefined && m in x.op.b)),
+        );
+      let v: WireValue | undefined;
+      if (next) {
+        v = next.op.b?.[m] ?? null;
+      } else {
         const row = ctx
           .stmt(`SELECT ${enc(q(m))} AS v FROM main.${q(r.op.t)} WHERE ${q(UID_COLUMN)} = ?`)
           .get(r.op.u) as { v: unknown } | undefined;
-        v = typeof row?.v === 'string' ? columnValue(ctx, def, m, row.v) : undefined;
+        // A row that no longer exists held NULL.
+        v = typeof row?.v === 'string' ? columnValue(ctx, def, m, row.v) : null;
       }
-      if (v === undefined) continue;
+      if (v === undefined) {
+        incomplete += 1; // a secret member: never sealed whole by this pass
+        continue;
+      }
       a[m] = v;
       b[m] = v;
     }
@@ -923,7 +957,9 @@ function completeLegacySealedGroups(ctx: TableContext, atIso: string): number {
     r.op = { ...r.op, a, b };
     fixed += 1;
   });
-  setSealMeta(db, LEGACY_GROUPS_KEY, String(fixed), atIso);
+  // Marked done only when every op is whole: an op left partial is retried
+  // on the next seal, never pushed as if the pass had covered it.
+  if (incomplete === 0) setSealMeta(db, LEGACY_GROUPS_KEY, String(fixed), atIso);
   return fixed;
 }
 

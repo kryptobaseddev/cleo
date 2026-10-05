@@ -214,3 +214,162 @@ describe('T13233: pre-T13222 partial groups are completed', () => {
     expect(report).toMatchObject({ refusedSchema: 0, void: 0, pending: 0, applied: 2 });
   });
 });
+
+describe('T13235: members a later I/D image omits were NULL', () => {
+  const partialize = (db: DatabaseSync, which: number): void => {
+    const rows = db
+      .prepare(
+        "SELECT o.txn, o.idx, o.body FROM _sync_op o JOIN _sync_txn t ON t.txn = o.txn WHERE o.o = 'U' ORDER BY t.local_seq, o.idx",
+      )
+      .all() as Array<{ txn: string; idx: number; body: string }>;
+    const row = rows[which] as { txn: string; idx: number; body: string };
+    const op = JSON.parse(row.body) as { a: Record<string, unknown>; b: Record<string, unknown> };
+    const keep = (x: Record<string, unknown>) =>
+      // The old trigger's shape: the unchanged group members are absent.
+      Object.fromEntries(
+        Object.entries(x).filter(([k]) => k !== 'cancelled_at' && k !== 'cancellation_reason'),
+      );
+    db.prepare('UPDATE _sync_op SET body = ? WHERE txn = ? AND idx = ?').run(
+      JSON.stringify({ ...op, a: keep(op.a), b: keep(op.b) }),
+      row.txn,
+      row.idx,
+    );
+    db.prepare('DELETE FROM _sync_meta WHERE key = ?').run(LEGACY_GROUPS_KEY);
+  };
+  const done = `UPDATE tasks_tasks SET status = 'done', pipeline_stage = 'contribution', completed_at = '${DONE_AT}' WHERE uid = 'uid-T1'`;
+  const deleteTask = "DELETE FROM tasks_tasks WHERE uid = 'uid-T1'";
+
+  it('capture path: an old partial done, then a delete, seals whole and applies', async () => {
+    const db = await store('author');
+    addTask(db);
+    seal(db);
+    write(db, done);
+    asOldTriggerCapture(db);
+    write(db, deleteTask);
+    seal(db);
+    const [u] = sealedUs(db);
+    expect(
+      Object.keys(u?.a ?? {})
+        .filter((k) => GROUP.includes(k))
+        .sort(),
+    ).toEqual(GROUP);
+    expect(u?.a).toMatchObject({ status: 'done', cancelled_at: null, cancellation_reason: null });
+    const { report } = await applyOnReceiver(sealedTxns(db));
+    expect(report).toMatchObject({ refusedSchema: 0, void: 0, pending: 0 });
+  });
+
+  it('sealed path: a partial done followed by a sealed delete is completed with NULLs', async () => {
+    const db = await store('author');
+    addTask(db);
+    seal(db);
+    write(db, done);
+    seal(db);
+    write(db, deleteTask);
+    seal(db);
+    partialize(db, 0);
+    seal(db);
+    const [u] = sealedUs(db);
+    expect(u?.a).toMatchObject({ status: 'done', cancelled_at: null, cancellation_reason: null });
+    expect(
+      db.prepare('SELECT 1 AS ok FROM _sync_meta WHERE key = ?').get(LEGACY_GROUPS_KEY),
+    ).toEqual({
+      ok: 1,
+    });
+    const { report } = await applyOnReceiver(sealedTxns(db));
+    expect(report).toMatchObject({ refusedSchema: 0, void: 0, pending: 0 });
+  });
+
+  it("sealed path: a member's value comes from the next sealed op's before-image, not the live row", async () => {
+    const db = await store('author');
+    addTask(db);
+    seal(db);
+    write(db, "UPDATE tasks_tasks SET status = 'blocked' WHERE uid = 'uid-T1'");
+    seal(db);
+    write(
+      db,
+      `UPDATE tasks_tasks SET status = 'cancelled', pipeline_stage = 'cancelled', cancelled_at = '${DONE_AT}', cancellation_reason = 'dup' WHERE uid = 'uid-T1'`,
+    );
+    seal(db);
+    // The blocked op as a pre-fix sealer left it: no cancelled_at, no cancellation_reason.
+    partialize(db, 0);
+    seal(db);
+    const [blocked] = sealedUs(db);
+    // Both were NULL at the blocked write (the cancel's before-image); the live row holds 'dup'.
+    expect(blocked?.a).toMatchObject({
+      status: 'blocked',
+      cancelled_at: null,
+      cancellation_reason: null,
+    });
+  });
+
+  const reinsert = `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp, cancellation_reason)
+     VALUES ('T1', 'again', 'task', 'pending', 'medium', 'uid-T1', 'fp-T1', 'later')`;
+
+  it('capture path: the next D decides, even when the row was re-inserted since', async () => {
+    const db = await store('author');
+    addTask(db);
+    seal(db);
+    write(db, done);
+    asOldTriggerCapture(db);
+    write(db, deleteTask);
+    write(db, reinsert);
+    seal(db);
+    const [u] = sealedUs(db);
+    // NULL at the done (the D's image omits it), not the re-inserted row's 'later'.
+    expect(u?.a).toMatchObject({ status: 'done', cancellation_reason: null });
+  });
+
+  it('sealed path: the next D decides, even when the row was re-inserted since', async () => {
+    const db = await store('author');
+    addTask(db);
+    seal(db);
+    write(db, done);
+    seal(db);
+    write(db, deleteTask);
+    seal(db);
+    write(db, reinsert);
+    seal(db);
+    partialize(db, 0);
+    seal(db);
+    const [u] = sealedUs(db);
+    expect(u?.a).toMatchObject({ status: 'done', cancellation_reason: null });
+  });
+
+  it('sealed path: a row gone with no later unsent op held NULL', async () => {
+    const db = await store('author');
+    addTask(db);
+    seal(db);
+    write(db, done);
+    seal(db);
+    write(db, deleteTask);
+    seal(db);
+    // The delete already left the device: no unsent op tells, and the row is gone.
+    db.prepare(
+      "UPDATE _sync_txn SET state = 'segmented' WHERE txn = (SELECT txn FROM _sync_op WHERE o = 'D')",
+    ).run();
+    partialize(db, 0);
+    seal(db);
+    const [u] = sealedUs(db);
+    expect(u?.a).toMatchObject({ status: 'done', cancelled_at: null, cancellation_reason: null });
+    expect(
+      db.prepare('SELECT 1 AS ok FROM _sync_meta WHERE key = ?').get(LEGACY_GROUPS_KEY),
+    ).toEqual({
+      ok: 1,
+    });
+  });
+
+  it('a segmented transaction is never rewritten', async () => {
+    const db = await store('author');
+    addTask(db);
+    seal(db);
+    write(db, "UPDATE tasks_tasks SET status = 'blocked' WHERE uid = 'uid-T1'");
+    seal(db);
+    partialize(db, 0);
+    db.prepare(
+      "UPDATE _sync_txn SET state = 'segmented' WHERE txn = (SELECT txn FROM _sync_op WHERE o = 'U')",
+    ).run();
+    const before = db.prepare("SELECT body FROM _sync_op WHERE o = 'U'").get();
+    seal(db);
+    expect(db.prepare("SELECT body FROM _sync_op WHERE o = 'U'").get()).toEqual(before);
+  });
+});
