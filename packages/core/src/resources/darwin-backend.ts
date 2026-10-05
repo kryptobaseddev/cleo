@@ -50,7 +50,8 @@
  *   {@link darwinHeadroomFloorBytes} (a quarter of RAM, at least 6 GiB, at most
  *   half of RAM). Below that floor the score rises to 30 as headroom runs out,
  *   but while the kernel says normal it stops at
- *   {@link DARWIN_NORMAL_HEADROOM_CAP} (20): it can hold, never back off.
+ *   {@link DARWIN_NORMAL_HEADROOM_CAP} (15, the memory gate's resume
+ *   threshold): it can hold, never back off or keep a latched gate shut.
  *   Anonymous memory apps hold is not headroom, which the neither-wired-nor-
  *   compressed share counted as if it were (T13132). A box with large wired
  *   local-model weights but plenty left is not short.
@@ -95,6 +96,7 @@ import type {
   WalSizeObservation,
 } from './backend.js';
 import type { StatFileFn } from './linux-backend.js';
+import { MEMORY_GATE_RESUME_AT_OR_BELOW } from './pressure-gate.js';
 
 /** The sysctl names one sample reads, in one exec. */
 export const DARWIN_SYSCTL_NAMES = [
@@ -257,13 +259,16 @@ const SWAP_WEIGHT = 50;
 const HEADROOM_SCORE_MAX = 30;
 
 /**
- * The most headroom alone can score while the kernel says normal: below the
- * backoff and memory-gate thresholds (25), so low reclaimable memory can
+ * The most headroom alone can score while the kernel says normal: the memory
+ * gate's resume threshold ({@link MEMORY_GATE_RESUME_AT_OR_BELOW}, 15), below
+ * backoff and the gate's refuse threshold (25). Low reclaimable memory can
  * narrow admission (hold, half the budget) but never refuse heavy work or
- * defer db-heavy (the sentient tick, exodus-on-open) on its own. Only a kernel
- * warning or critical level goes past it (T13132, #1865 review MED-2).
+ * defer db-heavy (the sentient tick, exodus-on-open) on its own, and a gate
+ * latched by a passing kernel warning releases once the kernel is back to
+ * normal. Only a kernel warning or critical level goes past it (T13132, #1865
+ * review).
  */
-export const DARWIN_NORMAL_HEADROOM_CAP = 20;
+export const DARWIN_NORMAL_HEADROOM_CAP = MEMORY_GATE_RESUME_AT_OR_BELOW;
 
 const GIB = 1024 ** 3;
 

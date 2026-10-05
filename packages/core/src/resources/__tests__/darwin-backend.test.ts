@@ -41,7 +41,7 @@ import {
   evaluateState,
   pressureScore,
 } from '../monitor.js';
-import { evaluateMemoryGate } from '../pressure-gate.js';
+import { evaluateMemoryGate, MEMORY_GATE_RESUME_AT_OR_BELOW } from '../pressure-gate.js';
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
@@ -240,6 +240,8 @@ describe('PSI-equivalent mapping', () => {
     );
     expect(stateOf(`kern.memorystatus_vm_pressure_level: 1\n${empty}`, RAM8)).toBe('hold');
     expect(DARWIN_NORMAL_HEADROOM_CAP).toBeLessThan(25);
+    // ... and no higher than the latched gate's resume threshold.
+    expect(DARWIN_NORMAL_HEADROOM_CAP).toBeLessThanOrEqual(MEMORY_GATE_RESUME_AT_OR_BELOW);
     // Kernel warning with the same headroom: the full headroom score, backoff.
     expect(some(`kern.memorystatus_vm_pressure_level: 2\n${empty}`, RAM8)).toBeGreaterThan(25);
     expect(stateOf(`kern.memorystatus_vm_pressure_level: 2\n${empty}`, RAM8)).toBe('backoff');
@@ -558,6 +560,9 @@ describe('healthy small Macs with little reclaimable memory are never refused (#
       // The memory gate does not refuse; heavy and light runs get half the budget.
       const gate = evaluateMemoryGate(sample, false);
       expect(gate.refuse).toBe(false);
+      // A gate latched by a passing kernel warning releases at normal level
+      // with the same low headroom (#1865 review).
+      expect(evaluateMemoryGate(sample, true).refuse).toBe(false);
       expect(budgetShare(sample, gate.refuse)).toBe('half');
       expect(lightBudgetShare(sample, gate.refuse)).toBe('half');
       expect(

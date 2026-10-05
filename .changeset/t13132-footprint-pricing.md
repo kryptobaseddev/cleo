@@ -41,6 +41,7 @@ prices the runs it admits.
   compressed, which counted memory apps hold as free. The floor below which headroom
   scores is a quarter of RAM, at least 6 GiB, at most half of RAM (it was a fixed 6 GiB).
   While the kernel says normal, low headroom alone can narrow admission but never refuse
-  heavy work or defer db-heavy work (its score stops at 20, below the backoff and gate
-  thresholds of 25); only a kernel warning or critical level goes past it.
+  heavy work or defer db-heavy work: its score stops at 15, the memory gate's resume
+  threshold, so a gate latched by a passing kernel warning also releases once the kernel
+  is back to normal. Only a kernel warning or critical level goes past it.
   `memAvailableBytes` on macOS is the reclaimable figure, and pressure summaries print it.
