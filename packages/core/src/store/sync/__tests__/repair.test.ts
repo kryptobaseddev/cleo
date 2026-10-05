@@ -10,10 +10,10 @@
  * @task T12987
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../../dual-scope-db.js';
@@ -22,12 +22,18 @@ import { naturalRowUid } from '../../row-identity.js';
 import {
   captureTableDef,
   finishCaptureFrame,
+  generateCaptureTriggers,
   openCaptureFrame,
   setCaptureEnabled,
 } from '../capture.js';
 import { setSyncFlag } from '../flags.js';
 import { syncMigrationHooks } from '../migration-hooks.js';
-import { BASELINE_KEY_PREFIX, planRepair, repairSuspectTables } from '../repair.js';
+import {
+  BASELINE_KEY_PREFIX,
+  baselineRowMeta,
+  planRepair,
+  repairSuspectTables,
+} from '../repair.js';
 import { rowChash, sealPending } from '../sealer.js';
 import { markSuspect } from '../structural.js';
 
@@ -414,5 +420,128 @@ describe('NEW-8 order at a migration: seal and repair, then bracket, then re-bas
     migrate(db, 'UPDATE `tasks_tasks` SET `title` = upper(`title`)');
     expect(opsOn(db, 'uid-T1').at(-1)?.op.a?.title).toBe('captured edit');
     expect(metaOf(db, 'tasks_tasks', 'uid-T1')?.chash).toBe(liveChash(db, 'uid-T1'));
+  });
+});
+
+describe('baselineRowMeta, the one row-meta initializer (T12987, for T12342)', () => {
+  it('baselines every live row without meta once, with the ledger and the marker', async () => {
+    const db = await store();
+    for (const id of ['P1', 'P2']) {
+      uncaptured(
+        db,
+        `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp)
+         VALUES ('${id}', 'pre-sync', 'task', 'pending', 'medium', 'uid-${id}', 'fp-${id}')`,
+      );
+    }
+    expect(baselineRowMeta(db, 'project', 'tasks_tasks', REPLICA, T0)).toBe(2);
+    expect(metaOf(db, 'tasks_tasks', 'uid-P1')?.chash).toBe(liveChash(db, 'uid-P1'));
+    expect(ledger(db, 'tasks_tasks')?.live).toBe(2);
+    expect(
+      n(db, `SELECT count(*) AS n FROM _sync_meta WHERE key = '${BASELINE_KEY_PREFIX}tasks_tasks'`),
+    ).toBe(1);
+    expect(baselineRowMeta(db, 'project', 'tasks_tasks', REPLICA, T0)).toBe(0);
+    expect(baselineRowMeta(db, 'project', 'not_a_table', REPLICA, T0)).toBeNull();
+  });
+});
+
+describe('a crash mid-baseline leaves nothing half-written (T12987)', () => {
+  it('the on-disk state of a process killed mid-baseline re-runs cleanly', async () => {
+    const db = await store();
+    for (const id of ['P1', 'P2', 'P3']) {
+      uncaptured(
+        db,
+        `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp)
+         VALUES ('${id}', 'pre-sync ${id}', 'task', 'pending', 'medium', 'uid-${id}', 'fp-${id}')`,
+      );
+    }
+    markSuspect(db, 'project', ['tasks_tasks']);
+    // At P2's meta write, copy the files exactly as a SIGKILL would leave
+    // them (the WAL holds P1's uncommitted meta), then abort.
+    const crash = join(dir, 'crash');
+    mkdirSync(crash, { recursive: true });
+    db.function('kill_mid_baseline', () => {
+      for (const suffix of ['', '-wal']) {
+        if (existsSync(dbPath + suffix))
+          copyFileSync(dbPath + suffix, join(crash, `cleo.db${suffix}`));
+      }
+      throw new Error('killed mid-baseline');
+    });
+    db.exec(
+      `CREATE TEMP TRIGGER kill_mid_baseline AFTER INSERT ON _sync_row_meta
+       WHEN NEW.uid = 'uid-P2' BEGIN SELECT kill_mid_baseline(); END`,
+    );
+    expect(() => repair(db)).toThrow(/killed mid-baseline/);
+    _resetDualScopeDbCache();
+
+    const after = new DatabaseSync(join(crash, 'cleo.db'));
+    try {
+      // Nothing of the baseline survived: no meta, no marker, no ledger.
+      expect(n(after, "SELECT count(*) AS n FROM _sync_row_meta WHERE tbl = 'tasks_tasks'")).toBe(
+        0,
+      );
+      expect(
+        n(
+          after,
+          `SELECT count(*) AS n FROM _sync_meta WHERE key = '${BASELINE_KEY_PREFIX}tasks_tasks'`,
+        ),
+      ).toBe(0);
+      expect(ledger(after, 'tasks_tasks')).toBeUndefined();
+      expect(suspect(after)).toContain('tasks_tasks');
+      // The re-run baselines all three and clears the key.
+      const r = repair(after);
+      expect(r.tables[0]?.counts.baselinedRows).toBe(3);
+      expect(r.tables[0]?.cleared).toBe(true);
+      expect(n(after, "SELECT count(*) AS n FROM _sync_row_meta WHERE tbl = 'tasks_tasks'")).toBe(
+        3,
+      );
+      expect(ledger(after, 'tasks_tasks')?.live).toBe(3);
+      expect(suspect(after)).toEqual([]);
+    } finally {
+      after.close();
+    }
+  });
+});
+
+describe('the JSON-null before slot is a repair capture only (T12987)', () => {
+  it('no generated U trigger writes a null before slot; the repair image does', async () => {
+    const db = await store();
+    const triggers = generateCaptureTriggers(db, 'project').filter((t) => t.name.endsWith('_u'));
+    expect(triggers.length).toBeGreaterThan(5);
+    for (const t of triggers) expect(t.sql).not.toMatch(/json_array\(NULL/);
+  });
+
+  it('a captured update never records a null before or after, NULLs and references included', async () => {
+    const db = await baselinedStore();
+    captured(
+      db,
+      "UPDATE tasks_tasks SET type = 'subtask', description = 'd', parent_id = 'T1' WHERE id = 'T2'",
+    );
+    captured(
+      db,
+      "UPDATE tasks_tasks SET type = 'task', description = NULL, parent_id = NULL WHERE id = 'T2'",
+    );
+    const imgs = (
+      db.prepare("SELECT img FROM _sync_capture WHERE op = 'U' AND state = 'live'").all() as Array<{
+        img: string;
+      }>
+    ).map((r) => JSON.parse(r.img) as Record<string, [unknown, unknown]>);
+    expect(imgs.length).toBe(2);
+    for (const img of imgs) {
+      expect(Object.keys(img)).toEqual(expect.arrayContaining(['description', 'parent_id']));
+      for (const [before, after] of Object.values(img)) {
+        expect(before).not.toBeNull();
+        expect(after).not.toBeNull();
+      }
+    }
+  });
+
+  it('a null before outside a repair frame is quarantined, never sealed as unknown', async () => {
+    const db = await baselinedStore();
+    db.prepare(
+      `INSERT INTO _sync_capture (tbl, op, rk, uid, img, at_ms) VALUES ('tasks_tasks', 'U', ?, 'uid-T1', ?, 1)`,
+    ).run(JSON.stringify(["'T1'"]), JSON.stringify({ title: [null, "'forged'"] }));
+    const r = seal(db);
+    expect(r.quarantined).toEqual([expect.objectContaining({ tbl: 'tasks_tasks' })]);
+    expect(r.ops).toBe(0);
   });
 });
