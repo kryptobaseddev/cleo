@@ -477,6 +477,43 @@ describe('review fixes carried into apply (T13222, T13223)', () => {
   });
 });
 
+describe('terminal stages merge with their status (T877)', () => {
+  it('a remote cancel and a remote completion apply over an advanced stage, never a guard void', async () => {
+    const db = await store();
+    stage(
+      db,
+      segment(R1, [
+        txn('R1:1', [
+          insert('x1', h(1), { pipeline_stage: 'testing' }),
+          insert('x2', h(1), { pipeline_stage: 'release' }),
+        ]),
+      ]),
+    );
+    apply(db);
+    stage(
+      db,
+      segment(R2, [
+        txn('R2:1', [
+          update('x1', h(5, R2), {
+            ...grp('cancelled'),
+            cancelled_at: '2026-10-05T00:00:00.000Z',
+            pipeline_stage: 'cancelled',
+          }),
+          update('x2', h(5, R2), {
+            ...grp('done'),
+            completed_at: '2026-10-05T00:00:00.000Z',
+            pipeline_stage: 'contribution',
+          }),
+        ]),
+      ]),
+    );
+    expect(apply(db)).toMatchObject({ applied: 1, conflict: 0, void: 0 });
+    expect(task(db, 'x1')).toMatchObject({ status: 'cancelled', pipeline_stage: 'cancelled' });
+    expect(task(db, 'x2')).toMatchObject({ status: 'done', pipeline_stage: 'contribution' });
+    expect(listConflicts(db)).toEqual([]);
+  });
+});
+
 describe('pending, holds and retries (§3.2)', () => {
   it('an update of a never-seen row waits, and applies once its insert arrives', async () => {
     const db = await store();
@@ -557,6 +594,28 @@ describe('schema and skew refusals (§2.9, §1.3)', () => {
     }>;
     expect(reasons[0]?.reason).toMatch(/^E_SCHEMA_AHEAD/);
     expect(reasons[2]?.reason).toMatch(/no_such_column/);
+  });
+
+  it('a txn from a newer writer with an unknown field is refused-schema, and the stream flows (T13234)', async () => {
+    const db = await store();
+    const future = {
+      ...txn('R1:1', [insert('f1', h(1))]),
+      v: 2,
+      ops: [{ ...insert('f1', h(1)), zz_future: 1 }],
+    };
+    db.prepare(
+      `INSERT INTO _sync_inbox (stream, seq, txn_idx, replica_id, replica_seq, device_id,
+         schema_version, txn_json, hlc, status, staged_at)
+       VALUES (?, 1, 0, ?, 1, 'dev', ?, ?, ?, 'staged', 'now')`,
+    ).run(STREAM, R1, SYNC_SCHEMA_VERSION, JSON.stringify(future), h(1));
+    seq = 1;
+    stage(db, segment(R2, [txn('R2:1', [insert('n1', h(2, R2))])]));
+    expect(apply(db)).toMatchObject({ applied: 1 });
+    expect(task(db, 'n1')).toBeDefined();
+    expect(statuses(db)).toEqual(['1.0:refused-schema', '2.0:applied']);
+    expect(db.prepare('SELECT reason FROM _sync_inbox WHERE seq = 1').get()).toEqual({
+      reason: expect.stringMatching(/^E_SCHEMA_AHEAD/),
+    });
   });
 
   it('holds a skewed replica FIFO while others flow, and releases it in order', async () => {
