@@ -6,6 +6,7 @@
  * @task T12344
  */
 
+export { type ApplyReport, type ApplyStagedOptions, applyStagedTxns } from './applier.js';
 export {
   type ApplyApi,
   ApplyFrameError,

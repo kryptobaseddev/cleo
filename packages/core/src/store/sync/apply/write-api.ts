@@ -41,7 +41,14 @@ import {
   SECRET_INTENT,
 } from '../apply-intent.js';
 import { type CaptureTableDef, captureTableDef, enc } from '../capture.js';
-import { type RowMetaRow, readRowMeta, upsertRowMetaFromFields } from '../row-meta.js';
+import {
+  compressFieldHlcs,
+  fieldHlcsOf,
+  type RowMetaRow,
+  readRowMeta,
+  upsertRowMeta,
+  upsertRowMetaFromFields,
+} from '../row-meta.js';
 import { decodeEnc } from '../sealer-values.js';
 
 /** A write the API refuses (unknown table or column, a missing row). */
@@ -139,6 +146,33 @@ export interface ApplyWriteApi {
       readonly origin: string;
       readonly actor: string | null;
       readonly deleted: boolean;
+      readonly keyJson?: string | null;
+      readonly chash?: string | null;
+      readonly bfp?: string | null;
+    },
+  ): string;
+  /**
+   * Record the row's replication meta EXACTLY as the merge engine decided
+   * it (the applier's writer). Unlike {@link ApplyWriteApi.setRowMeta} it
+   * does not keep the newer of stored and incoming per field: the engine
+   * already did, and some of its decisions move a field HLC back on purpose
+   * (an absorbing write that overrides a newer edit keeps its own HLC), or
+   * pin the tombstone to the delete's HLC although a field was newer.
+   *
+   * - Live row: `fieldHlc` names the merged HLC per field; a column it omits
+   *   keeps its stored HLC, and a first write must name every field.
+   * - Tombstone: `tombstone` is the delete's HLC; `fieldHlc` is ignored.
+   *
+   * @returns The row HLC stored.
+   */
+  setMergedRowMeta(
+    table: string,
+    uid: string,
+    meta: {
+      readonly fieldHlc: Readonly<Record<string, string>>;
+      readonly tombstone: string | null;
+      readonly origin: string;
+      readonly actor: string | null;
       readonly keyJson?: string | null;
       readonly chash?: string | null;
       readonly bfp?: string | null;
@@ -302,6 +336,44 @@ export function createApplyWriteApi(
     setRowMeta(table, uid, meta) {
       assertActive();
       return upsertRowMetaFromFields(db, defOf(table), { tbl: table, uid, ...meta });
+    },
+
+    setMergedRowMeta(table, uid, meta) {
+      assertActive();
+      const def = defOf(table);
+      const prev = readRowMeta(db, table, uid);
+      let hlc: string;
+      let fhlc: string | null = null;
+      if (meta.tombstone !== null) {
+        hlc = meta.tombstone;
+      } else {
+        const fields: Record<string, string> = prev && !prev.deleted ? fieldHlcsOf(def, prev) : {};
+        for (const c of def.columns) {
+          const at = meta.fieldHlc[c];
+          if (!def.identity.includes(c) && at !== undefined) fields[c] = at;
+        }
+        const missing = def.columns.filter((c) => !def.identity.includes(c) && !fields[c]);
+        if (missing.length > 0) {
+          // @sync-invariant none:input-shape the applier names every field of a row's first live meta; nothing is written
+          throw new ApplyWriteError(`row meta for ${table}/${uid}: misses ${missing.join(', ')}`);
+        }
+        hlc = Object.values(fields).reduce((m, h) => (h > m ? h : m));
+        fhlc = compressFieldHlcs(def, fields, hlc);
+      }
+      upsertRowMeta(db, {
+        tbl: table,
+        uid,
+        hlc,
+        fhlc,
+        origin: meta.origin,
+        actor: meta.actor,
+        version: (prev?.version ?? 0) + 1,
+        deleted: meta.tombstone !== null,
+        keyJson: meta.keyJson,
+        chash: meta.chash,
+        bfp: meta.bfp,
+      });
+      return hlc;
     },
   };
 }

@@ -270,6 +270,27 @@ export const EXEMPT = {
         "apply intents (local-only): what an apply frame wrote, recorded in the apply's own transaction for the sealer to subtract (T12757)",
     },
   },
+  'packages/core/src/store/sync/conflicts.ts': {
+    _sync_conflict: {
+      count: 1,
+      reason:
+        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction (T12344)",
+    },
+  },
+  'packages/core/src/store/sync/field-leave.ts': {
+    _sync_field_leave: {
+      count: 3,
+      reason:
+        'typed-rule field state (local-only): leaves and rank-max frontiers, merge input that row meta has no place for, rebuilt from the stream (T12344)',
+    },
+  },
+  'packages/core/src/store/sync/inbox.ts': {
+    _sync_inbox: {
+      count: 2,
+      reason:
+        'receive inbox (local-only): received transactions staged in stream order with their apply status (T12344)',
+    },
+  },
   'packages/core/src/store/sync/capture.ts': {
     _sync_capture: { count: 4, reason: CAPTURE_MACHINERY },
     _sync_frame: { count: 2, reason: CAPTURE_MACHINERY },

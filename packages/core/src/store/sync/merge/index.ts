@@ -6,7 +6,14 @@
  * @task T12344
  */
 
-export { applyOp, checkSchemaVersion, MergeEngineError, type SchemaRefusal } from './engine.js';
+export {
+  applyOp,
+  checkSchemaVersion,
+  MergeEngineError,
+  type RankCandidate,
+  rankMaxFrontier,
+  type SchemaRefusal,
+} from './engine.js';
 export {
   implementedMergeRuleIds,
   type MergeRuleSet,
