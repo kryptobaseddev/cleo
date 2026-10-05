@@ -27,7 +27,11 @@ import { setSyncFlag } from '../../flags.js';
 import { stageTxns } from '../../inbox.js';
 import { readRowMeta } from '../../row-meta.js';
 import { sealPending } from '../../sealer.js';
-import { FOREIGN_TOUCH_INCOMPLETE_KEY } from '../../sequencing.js';
+import {
+  DROP_NETTED_UNDO_SQL,
+  FOREIGN_TOUCH_INCOMPLETE_KEY,
+  OLDEST_UNSEQUENCED_SQL,
+} from '../../sequencing.js';
 import { applyStagedTxns } from '../applier.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../../migrations/sync-journal');
@@ -267,6 +271,19 @@ describe('own-echo fast path (§3.5 Rule 3)', () => {
     apply(db);
     expect(sequenced(db, l2)).toBe(true);
     expect(n(db, 'SELECT count(*) AS n FROM _sync_foreign_touch')).toBe(1);
+  });
+});
+
+describe('sequencing queries under the write lock (T13260)', () => {
+  it('reach _sync_txn through its frame index, never a scan of the sealed history', async () => {
+    const db = await store();
+    for (const sql of [OLDEST_UNSEQUENCED_SQL, DROP_NETTED_UNDO_SQL]) {
+      const plan = (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as Array<{ detail: string }>)
+        .map((r) => r.detail)
+        .join(' | ');
+      expect(plan, sql).toMatch(/\b_sync_txn_frame\b/);
+      expect(plan, sql).not.toMatch(/SCAN t\b(?! USING)/);
+    }
   });
 });
 

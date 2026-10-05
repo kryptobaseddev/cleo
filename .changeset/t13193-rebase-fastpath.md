@@ -17,5 +17,7 @@ This is the first slice of the scoped rebase (T13193 R-1), against journal spec 
   the backlog drains.
 - **`_sync_row_undo`.** While undo is on, the sealer snapshots each sealed local op's prior row meta, leaves and frontiers, so a rewind
   can restore merge state together with values.
+- **`_sync_txn_frame` index.** Sequencing joins a local transaction to its frame's undo on every echo and every foreign apply, while
+  the write lock is held. A partial index on `_sync_txn(frame)` stops each of those joins from scanning the whole sealed history (T13260).
 - **New sync-journal migration** `t13193-rebase-undo` (all local-only). Undo still turns on only with S4's genesis cut, so this is inert
   on real stores until then.
