@@ -71,10 +71,16 @@ export interface HeldOp {
 }
 
 /** A tagged JSON value: bigints and blobs survive the round trip. */
-type KeptJson = string | number | null | { $i: string } | { $b: string };
+type KeptJson = string | number | null | { $i: string } | { $r: string } | { $b: string };
 
+/**
+ * A stored value as tagged JSON (T13272): integers travel as `$i` (they are
+ * read as BigInt), and a REAL JSON cannot carry (±Infinity) as `$r`, like
+ * the ledger wire format. (SQLite stores no NaN or -0.0.)
+ */
 function encodeValue(v: SQLInputValue): KeptJson {
   if (typeof v === 'bigint') return { $i: v.toString() };
+  if (typeof v === 'number' && !Number.isFinite(v)) return { $r: String(v) };
   if (v === null || typeof v === 'string' || typeof v === 'number') return v;
   return { $b: Buffer.from(v.buffer, v.byteOffset, v.byteLength).toString('base64') };
 }
@@ -82,6 +88,7 @@ function encodeValue(v: SQLInputValue): KeptJson {
 function decodeValue(v: KeptJson): SQLInputValue {
   if (v === null || typeof v === 'string' || typeof v === 'number') return v;
   if ('$i' in v) return BigInt(v.$i);
+  if ('$r' in v) return Number(v.$r);
   return Buffer.from(v.$b, 'base64');
 }
 
