@@ -139,7 +139,8 @@ function parseSize(value: string): number | null {
   if (!m?.[1]) return null;
   const n = Number.parseFloat(m[1]);
   const unit = { K: 1024, M: MIB, G: 1024 * MIB, T: 1024 * 1024 * MIB }[m[2] ?? ''] ?? 1;
-  return Number.isFinite(n) ? n * unit : null;
+  // Whole bytes: "1.88M" is not a whole number of bytes, and reports print bytes.
+  return Number.isFinite(n) ? Math.round(n * unit) : null;
 }
 
 /**
