@@ -88,7 +88,8 @@ export function prepareRowIdentityUnderCapture(
   try {
     // T13231: a full from-scratch refill needs its pre-refill snapshot, and a
     // VACUUM INTO cannot run inside the bracket's transaction: take it first.
-    const refillSnapshot = options.refillSnapshot ?? snapshotIfFullRefillDue(db, scope);
+    const refillSnapshot =
+      options.refillSnapshot ?? snapshotIfFullRefillDue(db, scope, options.share);
     return bracketedFill(db, scope, { ...options, refillSnapshot });
   } catch (err) {
     getLogger('row-identity').warn(

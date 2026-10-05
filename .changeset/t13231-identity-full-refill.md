@@ -19,8 +19,11 @@ provably unshared, the open:
 
 **"Unshared" is strict.** Any of these makes the store shared:
 - the shared marker is set;
-- a sync stream has started (`sync.seal`, `sync.push` or `sync.pull` on, or rows in a sealed-op,
-  ledger, apply-intent or quarantine table);
+- `sync.seal`, `sync.push` or `sync.pull` is on;
+- any `_sync_*` table other than `_sync_meta`, `_sync_replica` and `_sync_clock` holds rows.
+  Those tables (captures, frames, row meta and repair baselines, undo images, sealed ops, the
+  ledger, and any table added later) key their rows by uid;
+- `_sync_meta` holds `suspect:` or `baseline:` keys (exact prefixes);
 - identity aliases exist;
 - the store was rebound (copied, moved or restored);
 - a vault push or restore of this store root is recorded in `nexus-vault.json`.
@@ -31,6 +34,19 @@ Any of these makes it unknown:
 
 **Shared or unknown means refuse.** The open keeps every value, refuses the refill and logs
 the reasons with a remedy. A store whose fill never ran just gets its marker.
+
+**`cleo doctor row-identity --refill`** is the explicit remedy for a linked store. It is a dry
+run by default and prints:
+- the verdict and its evidence (link, vault state, journal state);
+- what Cleo Nexus answered, asked read-only with the device credential, for every linked origin:
+  does it hold ANY checkpoint or journal segment of the project, from any device;
+- the rows per table the refill would clear.
+
+A checkpoint in the cloud refuses, and the command names the T12344 re-key with aliases as the
+remedy. An unreachable origin is unknown, and unknown refuses. `--refill --apply` (with
+`CLEO_ROW_UID_FILL=1`) snapshots the store, refills it, then prints the snapshot path and how to
+undo the refill. No `cleo restore` verb restores `cleo.db` from a named snapshot yet, so the undo
+is a file copy with every cleo process stopped.
 
 **Under sync capture,** the snapshot is taken before the capture bracket, because a `VACUUM INTO`
 cannot run inside a transaction.

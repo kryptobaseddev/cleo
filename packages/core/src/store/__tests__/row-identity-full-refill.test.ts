@@ -28,6 +28,7 @@ import {
   rowIdentityShareState,
 } from '../row-identity.js';
 import { getNativeTasksDb } from '../sqlite.js';
+import { ensureSyncSchema } from '../sync/schema.js';
 import { createTestDb, seedTasks, type TestDbEnv } from './test-db-helper.js';
 
 const BOGUS_REL = '00000000-0000-8000-8000-0000000000a1';
@@ -169,5 +170,63 @@ describe('full from-scratch identity refill (T13231)', () => {
     expect(rowIdentityShareState(db).state).toBe('shared');
     expect(prepareRowIdentity(db, 'project')?.refill).toBe('refused');
     expect(relUid()).toBe(BOGUS_REL);
+  });
+
+  describe('journal state refuses (any uid-bearing _sync_* state)', () => {
+    beforeEach(() => {
+      ensureSyncSchema(db);
+    });
+
+    it('the sync schema alone (cleo project link) leaves the store unshared', () => {
+      expect(rowIdentityShareState(db)).toMatchObject({ state: 'unshared', reasons: [] });
+    });
+
+    it('a repair baseline with no transaction (_sync_row_meta only) is shared: refused', () => {
+      db.prepare(
+        "INSERT INTO _sync_row_meta (tbl, uid, hlc, origin, version) VALUES ('tasks_tasks', ?, '0', 'baseline', 0)",
+      ).run(BOGUS_REL);
+      expect(db.prepare('SELECT count(*) AS n FROM _sync_txn').get()).toEqual({ n: 0 });
+      plantStale();
+      const share = rowIdentityShareState(db);
+      expect(share.state).toBe('shared');
+      expect(share.signals.map((s) => s.code)).toEqual(['journal-rows']);
+      expect(share.reasons.join(' ')).toMatch(/_sync_row_meta/);
+      expect(prepareRowIdentity(db, 'project')?.refill).toBe('refused');
+      expect(relUid()).toBe(BOGUS_REL);
+    });
+
+    it('a journal table added later refuses by default', () => {
+      db.exec('CREATE TABLE _sync_inbox (uid TEXT NOT NULL)');
+      db.prepare('INSERT INTO _sync_inbox (uid) VALUES (?)').run(BOGUS_REL);
+      expect(rowIdentityShareState(db).state).toBe('shared');
+    });
+
+    it('captured changes refuse: they reference the old uids', () => {
+      db.exec('CREATE TABLE IF NOT EXISTS _sync_capture_probe (x)');
+      db.exec("INSERT INTO _sync_capture_probe VALUES ('row')");
+      expect(rowIdentityShareState(db).reasons.join(' ')).toMatch(/_sync_capture_probe holds rows/);
+    });
+
+    it.each([
+      'suspect:tasks_tasks',
+      'baseline:tasks_tasks',
+    ])('a %s key in _sync_meta is shared: refused', (key) => {
+      db.prepare(
+        "INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, '1', '2026-10-05')",
+      ).run(key);
+      plantStale();
+      expect(rowIdentityShareState(db).signals.map((s) => s.code)).toEqual(['journal-meta']);
+      expect(prepareRowIdentity(db, 'project')?.refill).toBe('refused');
+      expect(acUid()).toBe(BOGUS_AC);
+    });
+
+    it('prefixes match exactly: no LIKE wildcard matches a near name', () => {
+      db.prepare(
+        "INSERT INTO _sync_meta (key, value, updated_at) VALUES ('suspectXtasks', '1', '2026-10-05')",
+      ).run();
+      // `_` is a LIKE wildcard: LIKE '_sync_%' would match this table.
+      db.exec("CREATE TABLE async_notes (x); INSERT INTO async_notes VALUES ('n');");
+      expect(rowIdentityShareState(db).state).toBe('unshared');
+    });
   });
 });

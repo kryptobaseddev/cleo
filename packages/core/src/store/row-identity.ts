@@ -66,7 +66,14 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type { RowIdentityRef, RowIdentitySpec, TableScope } from '@cleocode/contracts';
+import type {
+  RowIdentityRef,
+  RowIdentityShareSignal,
+  RowIdentityShareSignalCode,
+  RowIdentityShareState,
+  RowIdentitySpec,
+  TableScope,
+} from '@cleocode/contracts';
 import { resolveNexusVaultStatePath } from '@cleocode/paths';
 import { uuidv7 } from '../cloud/uuidv7.js';
 import { getLogger } from '../logger.js';
@@ -1424,33 +1431,20 @@ export function preReleaseBirthFp(
 }
 
 /**
- * Whether a store's row identity may have left this store (T13231).
- *
- * - `shared`: its uids have, or may have, reached another store;
- * - `unknown`: that cannot be ruled out locally;
- * - `unshared`: provably local, so a deterministic refill changes nothing any
- *   other store holds.
+ * `_sync_*` tables whose rows do NOT make a store shared: the flags and
+ * bookkeeping (`_sync_meta`, read key by key below), the replica binding
+ * (`_sync_replica`, judged for a rebind below) and the clock. Every other
+ * journal table keys its rows by uid, so a refill would orphan them, and a
+ * journal table added later refuses by default (T13231).
  */
-export interface RowIdentityShareState {
-  readonly state: 'shared' | 'unknown' | 'unshared';
-  /** Why, one entry per signal that decided it (empty when unshared). */
-  readonly reasons: readonly string[];
-}
+const JOURNAL_TABLES_NOT_SHARING: ReadonlySet<string> = new Set([
+  '_sync_meta',
+  '_sync_replica',
+  '_sync_clock',
+]);
 
-/**
- * Sync tables whose rows mean a stream has started (sealed, applied or pending
- * ops). `_sync_capture` and `_sync_frame` are not: captured changes and their
- * frames are local until sealed,
- * and the fill already runs inside the capture bracket (identity-fill.ts),
- * which marks the rewritten tables suspect.
- */
-const STREAM_TABLES = [
-  '_sync_txn',
-  '_sync_op',
-  '_sync_ledger',
-  '_sync_apply_intent',
-  '_sync_quarantine',
-] as const;
+/** `_sync_meta` key prefixes that record journal state about this store (exact prefixes). */
+const JOURNAL_META_PREFIXES = ['suspect:', 'baseline:'] as const;
 
 /**
  * Alias tables: their rows point at uids (a re-key, a re-mint, a split-brain
@@ -1459,15 +1453,36 @@ const STREAM_TABLES = [
  */
 const IDENTITY_ALIAS_TABLES = ['tasks_display_id_aliases', 'tasks_uid_aliases'] as const;
 
+/** Options of {@link rowIdentityShareState}. */
+export interface RowIdentityShareOptions {
+  /**
+   * Cleo Nexus answered, on every linked origin, that it holds no checkpoint
+   * and no journal segment of this project (`cleo doctor row-identity
+   * --refill`): the `nexus-linked-no-vault` signal is resolved. Every other
+   * signal still counts.
+   */
+  readonly nexusCheckedNone?: boolean;
+}
+
+/** Whether `table` holds at least one row. */
+function hasRows(db: DatabaseSync, table: string): boolean {
+  return db.prepare(`SELECT 1 FROM main.${q(table)} LIMIT 1`).get() !== undefined;
+}
+
 /**
  * Decide, strictly, whether a project store's row identity is unshared
- * (T13231). Every signal that the uids may have left the store makes it
- * `shared`; any record that cannot be read makes it `unknown`:
+ * (T13231). Every signal that the uids may have left the store, or that
+ * local journal state references them, makes it `shared`; any record that
+ * cannot be read makes it `unknown`:
  *
  * - the shared marker (`row_identity_synced`: a receive or a send happened);
- * - a sync stream started: `sync.seal`/`sync.push`/`sync.pull` on, or rows in
- *   a sealed-op, ledger, apply-intent or quarantine table (a local
- *   proxy until T13217's `streamStarted`);
+ * - `sync.seal`/`sync.push`/`sync.pull` on;
+ * - rows in any `_sync_*` table except `_sync_meta`, `_sync_replica` and
+ *   `_sync_clock` (captures, frames, row meta and repair baselines, undo
+ *   images, sealed ops, the ledger, inbox, conflicts: all keyed by uid; a
+ *   table added later counts by default);
+ * - `suspect:` or `baseline:` keys in `_sync_meta` (journal state about this
+ *   store a refill would invalidate);
  * - identity aliases exist (a re-key, re-mint or split-brain import pointed
  *   at uids);
  * - the store was rebound: a `_sync_replica` row not bound at `genesis`, or
@@ -1476,35 +1491,53 @@ const IDENTITY_ALIAS_TABLES = ['tasks_display_id_aliases', 'tasks_uid_aliases'] 
  *   `<CLEO_HOME>/nexus-vault.json` with a checkpoint or a push in flight);
  * - the project is linked to Cleo Nexus with no local vault entry for this
  *   root: the path-keyed vault state cannot rule out a push from a moved path
- *   or another CLEO_HOME, so this is `unknown`.
+ *   or another CLEO_HOME, so this is `unknown` (resolved only by asking
+ *   Nexus: {@link RowIdentityShareOptions.nexusCheckedNone}).
  *
  * @param db - Connection on a project `cleo.db` (its file locates the root).
+ * @param options - Whether Cleo Nexus was asked and answered "none".
  * @returns The state and the signals behind it.
  * @task T13231
  */
-export function rowIdentityShareState(db: DatabaseSync): RowIdentityShareState {
-  const shared: string[] = [];
-  const unknown: string[] = [];
+export function rowIdentityShareState(
+  db: DatabaseSync,
+  options: RowIdentityShareOptions = {},
+): RowIdentityShareState {
+  const signals: RowIdentityShareSignal[] = [];
+  const shared = (code: RowIdentityShareSignalCode, detail: string) =>
+    signals.push({ code, kind: 'shared', detail });
+  const unknown = (code: RowIdentityShareSignalCode, detail: string) =>
+    signals.push({ code, kind: 'unknown', detail });
   if (readMeta(db, ROW_IDENTITY_SYNCED_KEY) !== undefined)
-    shared.push('row_identity_synced is set');
+    shared('synced-marker', 'row_identity_synced is set');
   const flags = readSyncFlags(db);
   for (const flag of ['sync.seal', 'sync.push', 'sync.pull'] as const) {
-    if (flags[flag]) shared.push(`${flag} is on`);
+    if (flags[flag]) shared('sync-flag', `${flag} is on`);
   }
-  for (const table of STREAM_TABLES) {
-    if (
-      hasTable(db, table) &&
-      db.prepare(`SELECT 1 FROM main.${table} LIMIT 1`).get() !== undefined
-    ) {
-      shared.push(`${table} holds rows`);
+  // Exact prefix match: `_` is a LIKE wildcard.
+  const journal = db
+    .prepare(
+      "SELECT name FROM main.sqlite_master WHERE type = 'table' AND substr(name, 1, 6) = '_sync_' ORDER BY name",
+    )
+    .all() as Array<{ name: string }>;
+  for (const { name } of journal) {
+    if (!JOURNAL_TABLES_NOT_SHARING.has(name) && hasRows(db, name)) {
+      shared('journal-rows', `${name} holds rows (journal state keyed by uid)`);
+    }
+  }
+  if (hasTable(db, '_sync_meta')) {
+    for (const prefix of JOURNAL_META_PREFIXES) {
+      const n = (
+        db
+          .prepare('SELECT count(*) AS n FROM main._sync_meta WHERE substr(key, 1, ?) = ?')
+          .get(prefix.length, prefix) as { n: number }
+      ).n;
+      if (n > 0) shared('journal-meta', `_sync_meta holds ${n} ${prefix} key(s)`);
     }
   }
   for (const table of IDENTITY_ALIAS_TABLES) {
-    if (
-      hasTable(db, table) &&
-      db.prepare(`SELECT 1 FROM main.${table} LIMIT 1`).get() !== undefined
-    ) {
-      shared.push(`${table} holds rows (uids were re-keyed, re-minted or imported)`);
+    if (hasTable(db, table) && hasRows(db, table)) {
+      shared('identity-aliases', `${table} holds rows (uids were re-keyed, re-minted or imported)`);
     }
   }
   if (hasTable(db, '_sync_replica')) {
@@ -1512,12 +1545,12 @@ export function rowIdentityShareState(db: DatabaseSync): RowIdentityShareState {
       why: string;
     }>;
     if (rows.length > 1 || rows.some((r) => r.why !== 'genesis')) {
-      shared.push('the store was rebound (copied, moved or restored)');
+      shared('rebound', 'the store was rebound (copied, moved or restored)');
     }
   }
   const location = db.location();
   if (!location) {
-    unknown.push('the store file has no location (in-memory)');
+    unknown('unreadable', 'the store file has no location (in-memory)');
   } else {
     const root = resolve(dirname(dirname(location)));
     let linked = false;
@@ -1529,7 +1562,7 @@ export function rowIdentityShareState(db: DatabaseSync): RowIdentityShareState {
         };
         linked = Object.keys(parsed.links ?? {}).length > 0;
       } catch {
-        unknown.push(`${linkFile} is unreadable`);
+        unknown('unreadable', `${linkFile} is unreadable`);
       }
     }
     let vaultEntry = false;
@@ -1549,23 +1582,40 @@ export function rowIdentityShareState(db: DatabaseSync): RowIdentityShareState {
             if (!key.endsWith(`|${root}`)) continue;
             vaultEntry = true;
             if (stream.lastCheckpointId || stream.pushInFlight) {
-              shared.push('a vault snapshot of this project was pushed or restored');
+              shared('vault-pushed', 'a vault snapshot of this project was pushed or restored');
             }
           }
         }
       } catch {
-        unknown.push(`${stateFile} is unreadable`);
+        unknown('unreadable', `${stateFile} is unreadable`);
       }
     }
-    if (linked && !vaultEntry) {
-      unknown.push(
+    if (linked && !vaultEntry && options.nexusCheckedNone !== true) {
+      unknown(
+        'nexus-linked-no-vault',
         'the project is linked to Cleo Nexus and no local vault record proves it was never pushed',
       );
     }
   }
-  if (shared.length > 0) return { state: 'shared', reasons: [...shared, ...unknown] };
-  if (unknown.length > 0) return { state: 'unknown', reasons: unknown };
-  return { state: 'unshared', reasons: [] };
+  return shareStateOf(signals);
+}
+
+/**
+ * Fold signals into a verdict: any `shared` signal makes it `shared`, else any
+ * `unknown` one makes it `unknown`, else `unshared`.
+ *
+ * @param signals - Every signal found.
+ * @returns The verdict.
+ * @task T13231
+ */
+export function shareStateOf(signals: readonly RowIdentityShareSignal[]): RowIdentityShareState {
+  const ordered = [
+    ...signals.filter((s) => s.kind === 'shared'),
+    ...signals.filter((s) => s.kind === 'unknown'),
+  ];
+  const state =
+    ordered.length === 0 ? 'unshared' : ordered[0]?.kind === 'shared' ? 'shared' : 'unknown';
+  return { state, signals: ordered, reasons: ordered.map((s) => s.detail) };
 }
 
 /** Meta key recording the snapshot taken before the last full identity refill (T13231). */
@@ -1598,10 +1648,15 @@ function snapshotBeforeRefill(db: DatabaseSync): string {
  *
  * @param db - Connection on a project `cleo.db`, outside any transaction.
  * @param scope - The store's scope.
+ * @param share - Share-state options (whether Cleo Nexus answered "none").
  * @returns The snapshot path, or `null` when no full refill is due.
  * @task T13231
  */
-export function snapshotIfFullRefillDue(db: DatabaseSync, scope: TableScope): string | null {
+export function snapshotIfFullRefillDue(
+  db: DatabaseSync,
+  scope: TableScope,
+  share: RowIdentityShareOptions = {},
+): string | null {
   if (scope !== 'project' || !rowUidFillEnabled() || !hasTable(db, ROW_IDENTITY_META_TABLE))
     return null;
   if (readMeta(db, ROW_IDENTITY_RECIPE_KEY) === ROW_IDENTITY_RECIPE) return null;
@@ -1609,8 +1664,61 @@ export function snapshotIfFullRefillDue(db: DatabaseSync, scope: TableScope): st
     hasTable(db, AC_UID_GRAVEYARD) &&
     db.prepare(`SELECT 1 FROM main.${AC_UID_GRAVEYARD} LIMIT 1`).get() !== undefined;
   if (!anyIdentityValue(db, scope) && !graveyard) return null;
-  if (rowIdentityShareState(db).state !== 'unshared') return null;
+  if (rowIdentityShareState(db, share).state !== 'unshared') return null;
   return snapshotBeforeRefill(db);
+}
+
+/**
+ * Whether the store's identity follows the current recipe (its marker is
+ * {@link ROW_IDENTITY_RECIPE}): no refill is due. Read-only.
+ *
+ * @param db - Connection on a project `cleo.db` (read-only is fine).
+ * @returns `true` when the marker is current.
+ * @task T13231
+ */
+export function rowIdentityRecipeCurrent(db: DatabaseSync): boolean {
+  return (
+    hasTable(db, ROW_IDENTITY_META_TABLE) &&
+    readMeta(db, ROW_IDENTITY_RECIPE_KEY) === ROW_IDENTITY_RECIPE
+  );
+}
+
+/**
+ * What a full from-scratch refill clears: per declared table (alias tables
+ * excluded), the rows carrying any identity value, plus the AC uid graveyard
+ * rows under its table name. Read-only.
+ *
+ * @param db - Connection on a project `cleo.db` (read-only is fine).
+ * @returns Row count per table; tables with nothing to clear are omitted.
+ * @task T13231
+ */
+export function fullRefillPlan(db: DatabaseSync): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const spec of ROW_IDENTITY.project) {
+    if (
+      !hasTable(db, spec.table) ||
+      (IDENTITY_ALIAS_TABLES as readonly string[]).includes(spec.table)
+    ) {
+      continue;
+    }
+    const cols = columnsOf(db, spec.table);
+    const present = rowIdentityColumns('project', spec.table).filter((c) => cols.has(c));
+    if (present.length === 0) continue;
+    const where = present.map((c) => `${q(c)} IS NOT NULL`).join(' OR ');
+    const n = (
+      db.prepare(`SELECT count(*) AS n FROM main.${q(spec.table)} WHERE ${where}`).get() as {
+        n: number;
+      }
+    ).n;
+    if (n > 0) out[spec.table] = n;
+  }
+  if (hasTable(db, AC_UID_GRAVEYARD)) {
+    const n = (
+      db.prepare(`SELECT count(*) AS n FROM main.${AC_UID_GRAVEYARD}`).get() as { n: number }
+    ).n;
+    if (n > 0) out[AC_UID_GRAVEYARD] = n;
+  }
+  return out;
 }
 
 /** Whether any identity column of any declared table holds a value. */
@@ -1633,21 +1741,26 @@ function anyIdentityValue(db: DatabaseSync, scope: TableScope): boolean {
 }
 
 /**
- * Birth fingerprints a pre-release build derived (e.g. a worktree CLI that
- * opened live cleocode, 2026-09-28) are cleared, so the fill re-derives them
- * with the release recipe. Targeted: a value is cleared ONLY when it equals
- * {@link preReleaseBirthFp} of its row, or hashes a fingerprint cleared here
- * (@ownerFp / @refFp; T12801); values from any other source (a
- * device that received them by sync, a store whose meta table was lost) are
- * kept, and alias rows are never touched. The uid recipe did not change, so
- * uids are kept. Runs only while the recipe marker is missing or stale, and
- * never once uids have synced ({@link ROW_IDENTITY_SYNCED_KEY}): `refused`.
+ * Reset identity derived under an older recipe (T13231). Runs only while the
+ * recipe marker is missing or stale:
+ *
+ * - no identity value and no graveyard row (a store the fill never ran on):
+ *   `none`, and the fill writes the marker;
+ * - provably unshared ({@link rowIdentityShareState}): a pre-refill snapshot
+ *   (taken by the caller outside its transaction, or here when the fill runs
+ *   bare), then every identity column of every declared table except the
+ *   alias tables is cleared, so the fill re-derives the store from scratch:
+ *   `cleared`;
+ * - shared or unknown: every value is kept and the reasons are logged:
+ *   `refused` (the marker is not written, so a later open, or
+ *   `cleo doctor row-identity --refill`, can still decide).
  */
 function resetStaleIdentity(
   db: DatabaseSync,
   scope: TableScope,
   writers: RowIdentityWriters,
   refillSnapshot?: string | null,
+  shareOptions: RowIdentityShareOptions = {},
 ): RowUidFillReport['refill'] {
   if (scope !== 'project' || !hasTable(db, ROW_IDENTITY_META_TABLE)) return 'none';
   if (readMeta(db, ROW_IDENTITY_RECIPE_KEY) === ROW_IDENTITY_RECIPE) return 'none';
@@ -1662,7 +1775,7 @@ function resetStaleIdentity(
     ? (db.prepare(`SELECT count(*) AS n FROM main.${AC_UID_GRAVEYARD}`).get() as { n: number }).n
     : 0;
   if (!anyIdentityValue(db, scope) && graveyardRows === 0) return 'none';
-  const share = rowIdentityShareState(db);
+  const share = rowIdentityShareState(db, shareOptions);
   if (share.state === 'unshared') {
     // The snapshot is taken outside any transaction: by the caller of a
     // bracketed fill, or here when the fill runs bare.
@@ -1707,7 +1820,7 @@ function resetStaleIdentity(
     share.state === 'shared'
       ? 'identity values predate the current recipe but may have left this store; kept as they are'
       : 'identity values predate the current recipe and the store cannot be proven unshared; kept as they are. ' +
-          'Remedy: confirm the project was never pushed to the vault or synced, then refill explicitly',
+          'Remedy: `cleo doctor row-identity --refill` asks Cleo Nexus and shows the plan',
   );
   return 'refused';
 }
@@ -1965,6 +2078,8 @@ export function prepareRowIdentity(
     readonly writers?: RowIdentityWriters;
     /** A pre-refill snapshot the caller took outside its transaction ({@link snapshotIfFullRefillDue}). */
     readonly refillSnapshot?: string | null;
+    /** Share-state options: Cleo Nexus answered "none" (`cleo doctor row-identity --refill`). */
+    readonly share?: RowIdentityShareOptions;
   } = {},
 ): RowUidFillReport | null {
   if (ROW_IDENTITY[scope].length === 0) return null;
@@ -1977,13 +2092,7 @@ export function prepareRowIdentity(
     ];
     registerRowUidFunction(db, scope);
     const writers = options.writers ?? requireWriters();
-    const refill = resetStaleIdentity(db, scope, writers, options.refillSnapshot);
-    if (refill === 'refused') {
-      log.error(
-        { scope, marker: readMeta(db, ROW_IDENTITY_RECIPE_KEY) },
-        'identity values predate the current recipe but uids have synced; kept as they are',
-      );
-    }
+    const refill = resetStaleIdentity(db, scope, writers, options.refillSnapshot, options.share);
     const filled = fillRowUids(db, scope, writers);
     if (refill !== 'refused') writeRecipeMarker(db, writers);
     const findings = rowIdentityFindings(db, scope);
