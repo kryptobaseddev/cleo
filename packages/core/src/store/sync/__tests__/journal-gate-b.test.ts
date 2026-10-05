@@ -64,10 +64,10 @@ const STUB_PROJECT_ID = 'dfd4e5d8-080f-7449-81cd-ff8dcef1049c';
 
 /**
  * Tables a strict (foreign keys OFF) replay is KNOWN to differ on, each with
- * its blocking task. T13226: an FK SET NULL caused by a parent delete in the
- * same transaction is netted away.
+ * its blocking task. Empty: T13226 (an FK SET NULL caused by a parent delete
+ * was netted away) is fixed. A new entry needs a filed blocking task.
  */
-const STRICT_GAP: readonly string[] = ['tasks_task_acceptance_criteria'];
+const STRICT_GAP: readonly string[] = [];
 
 let testRoot: string;
 let keyFile: string;
@@ -391,10 +391,8 @@ function replayAndCompare(name: string, run: Run): GateBSummary {
   for (const { i } of childDs) expect(i).toBeLessThan(parentD);
 
   // Strict journal check: replay with foreign keys OFF, so every change,
-  // cascades included, must be an op. KNOWN GAP (T13226, blocks seal and
-  // push): the SET NULL of gb-ac-1.target_task_id by GB-4's delete is netted
-  // away, so the strict replay differs on exactly that table. When T13226
-  // lands this assertion fails: empty STRICT_GAP and require a PASS.
+  // cascades included, must be an op: the SET NULL of gb-ac-1.target_task_id
+  // by GB-4's delete travels as a U (T13226). Findings must equal STRICT_GAP.
   const strictFile = copyWithId(run.genesis, join(dir, 'replay-strict'));
   const sdb = new DatabaseSync(strictFile);
   try {
