@@ -20,6 +20,7 @@ const runGoverned = vi.hoisted(() =>
 );
 vi.mock('@cleocode/core/resources/run-governed.js', () => ({ runGoverned }));
 
+import { GovernedRunInTestRunnerError } from '@cleocode/core/tasks/tool-runner-guard.js';
 import { runCommand, runExitCode } from '../commands/run.js';
 import { extractIdempotencyKeyArg } from '../idempotency-context.js';
 
@@ -303,5 +304,59 @@ describe('an explicit --class asserts a bounded job (#1777 R7-2)', () => {
       cls: 'scoped-build',
       argv: ['pnpm', 'dev'],
     });
+  });
+});
+
+describe('cleo run refuses accidental whole-suite runs (T13236)', () => {
+  let err: string[];
+  beforeEach(() => {
+    for (const name of PLAN_INPUTS) vi.stubEnv(name, '');
+    err = [];
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      err.push(String(chunk));
+      return true;
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    runGoverned.mockReset();
+  });
+
+  it.each([
+    [['pnpm', 'exec', 'vitest', 'run']],
+    [['npx', 'vitest', 'run', '--reporter', 'json']],
+  ])('%j (an empty file list) exits 6 naming the remedy, without admission', async (argv) => {
+    await expect(invoke({ passthrough: true }, argv)).rejects.toThrow('exit 6');
+    expect(runGoverned).not.toHaveBeenCalled();
+    const text = err.join('');
+    expect(text).toContain('would run the whole suite');
+    expect(text).toContain('--whole-suite');
+  });
+
+  it('--whole-suite lets a deliberate whole-suite run through', async () => {
+    runGoverned.mockResolvedValue(exited());
+    await invoke({ 'whole-suite': true }, ['pnpm', 'exec', 'vitest', 'run']);
+    expect(runGoverned).toHaveBeenCalledTimes(1);
+  });
+
+  it('a run that names a file is not refused', async () => {
+    runGoverned.mockResolvedValue(exited());
+    await invoke({}, ['pnpm', 'exec', 'vitest', 'run', 'src/a.test.ts']);
+    expect(runGoverned).toHaveBeenCalledTimes(1);
+  });
+
+  it('inside a test runner the governed runner refusal exits 8 with its code on stderr', async () => {
+    runGoverned.mockRejectedValue(
+      new GovernedRunInTestRunnerError('npx vitest run a.test.ts', 'VITEST'),
+    );
+    await expect(
+      invoke({ passthrough: true }, ['npx', 'vitest', 'run', 'a.test.ts']),
+    ).rejects.toThrow('exit 8');
+    expect(err.join('')).toContain('E_RUN_SPAWN_IN_TEST_RUNNER');
   });
 });

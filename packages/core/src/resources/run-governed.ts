@@ -46,6 +46,7 @@ import { spawn as nodeSpawn } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import { setPriority } from 'node:os';
 import type { AdmissionResult, MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
+import { detectTestRunner, GovernedRunInTestRunnerError } from '../tasks/tool-runner-guard.js';
 import {
   ADMISSION_ENV,
   type AdmissionOutcome,
@@ -227,21 +228,34 @@ interface RunAdmission {
 // The classifier moved to the governor, which every admission shares (R8-1).
 export { governorIoError } from './governor.js';
 
+/**
+ * The real child spawner {@link runGoverned} uses. Unless passed through,
+ * stdout is reserved for the caller's envelope: output goes to stderr.
+ *
+ * Exported as the explicit opt-in for a test that means to start a process:
+ * inside a test runner `runGoverned` refuses to spawn unless `deps.spawn` is
+ * injected (T13236), and passing this one says "really spawn".
+ *
+ * @param file - Executable.
+ * @param args - Arguments.
+ * @param opts - Working directory, environment, process-group and stdio mode.
+ * @returns The started child.
+ */
+export const spawnGovernedChild: RunGovernedDeps['spawn'] = (file, args, opts) =>
+  nodeSpawn(file, [...args], {
+    cwd: opts.cwd,
+    env: opts.env,
+    stdio: opts.passthrough ? 'inherit' : ['inherit', 2, 2],
+    detached: opts.detached,
+  });
+
 function defaultDeps(): RunGovernedDeps {
   const monitor = new ResourceMonitor();
   return {
     sample: () => monitor.sample(),
     admit,
     tryAcquire: (cls, sample) => governor.tryAcquire(cls, { sample }),
-    spawn: (file, args, opts) =>
-      nodeSpawn(file, [...args], {
-        cwd: opts.cwd,
-        env: opts.env,
-        // Unless passed through, stdout is reserved for the caller's envelope:
-        // output goes to stderr.
-        stdio: opts.passthrough ? 'inherit' : ['inherit', 2, 2],
-        detached: opts.detached,
-      }),
+    spawn: spawnGovernedChild,
     signal: signalGroup,
     signalPid,
     start: processStart,
@@ -323,9 +337,16 @@ async function deferral(
  * child failures; those are results.
  */
 export async function runGoverned(opts: RunGovernedOptions): Promise<RunGovernedResult> {
+  const command = redactCommand(opts.argv);
+  // T13236: inside a test runner nothing starts unless the test injected a
+  // spawner on purpose — a stale mock must not start the suite again from one
+  // of its own workers (the T13203 class, through cleo run's front door).
+  if (opts.deps?.spawn === undefined) {
+    const marker = detectTestRunner(process.env);
+    if (marker !== null) throw new GovernedRunInTestRunnerError(command, marker);
+  }
   const d: RunGovernedDeps = { ...defaultDeps(), ...opts.deps };
   const notice = opts.notice ?? (() => {});
-  const command = redactCommand(opts.argv);
   const t0 = d.now();
 
   // ---- 1. admission -------------------------------------------------------

@@ -55,6 +55,7 @@ export {
   canonicalForClass,
   commandTarget,
   isPausable,
+  isUnnarrowedVitestRun,
   isWatchCommand,
   looksHeavy,
   namedTestFileCount,

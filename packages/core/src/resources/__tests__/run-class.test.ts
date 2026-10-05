@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   commandTarget,
   isPausable,
+  isUnnarrowedVitestRun,
   isWatchCommand,
   looksHeavy,
   namedTestFileCount,
@@ -506,5 +507,41 @@ describe('namedTestFileCount (T13132)', () => {
       namedTestFileCount('test-run', ['vitest', 'run', 'b.test.ts', '--exclude', 'a.test.ts']),
     ).toBe(1);
     expect(namedTestFileCount('test-run', ['vitest', 'run', 'src/**/*.test.ts'])).toBeNull();
+  });
+});
+
+describe('isUnnarrowedVitestRun (T13236)', () => {
+  it.each([
+    [['vitest', 'run']],
+    [['pnpm', 'exec', 'vitest', 'run']],
+    [['npx', 'vitest', 'run']],
+    [['pnpm', 'vitest', 'run']],
+    [['pnpm', '--filter', '@cleocode/core', 'exec', 'vitest', 'run']],
+    [['pnpm', 'exec', 'vitest', 'run', '--reporter', 'json']],
+    [['pnpm', 'exec', 'vitest', 'run', '--reporter=json', '--maxWorkers', '2']],
+    [['vitest', 'run', '--exclude', 'a.test.ts']],
+    [['vitest', 'run', '--', '--silent']],
+  ])('%j is the whole suite', (argv) => {
+    expect(isUnnarrowedVitestRun(argv)).toBe(true);
+  });
+
+  it.each([
+    [['vitest', 'run', 'src/a.test.ts']],
+    [['pnpm', 'exec', 'vitest', 'run', 'src/cloud']],
+    [['vitest', 'run', '--project', 'core']],
+    [['vitest', 'run', '--project=core']],
+    [['vitest', 'run', '-t', 'parses']],
+    [['vitest', 'run', '--testNamePattern=parses']],
+    [['vitest', 'run', '--changed']],
+    [['vitest', 'related', 'src/a.ts']],
+    [['vitest', 'list']],
+    [['vitest', 'run', '--reporter', 'json', 'src/a.test.ts']],
+    [['vitest', 'run', '--unknown-flag', 'value']],
+    [['pnpm', 'test']],
+    [['pnpm', 'run', 'test']],
+    [['tsc', '-b']],
+    [['jest']],
+  ])('%j is narrowed or not a vitest run', (argv) => {
+    expect(isUnnarrowedVitestRun(argv)).toBe(false);
   });
 });

@@ -664,6 +664,88 @@ export function namedTestFileCount(cls: ResourceClass, argv: readonly string[]):
   return n > 0 ? n : null;
 }
 
+/** vitest flags that narrow a run to part of the suite (a project, a name filter, changed files). */
+const VITEST_NARROWING_FLAGS: ReadonlySet<string> = new Set([
+  '--project',
+  '-t',
+  '--testNamePattern',
+  '--changed',
+  '--related',
+]);
+
+/** vitest flags whose separate value is not a test filter (so it is not read as one). */
+const VITEST_VALUE_FLAGS: ReadonlySet<string> = new Set([
+  '-c',
+  '--config',
+  '-r',
+  '--root',
+  '--dir',
+  '--reporter',
+  '--outputFile',
+  '--maxWorkers',
+  '--minWorkers',
+  '--pool',
+  '--environment',
+  '--exclude',
+  '--mode',
+  '--shard',
+  '--testTimeout',
+  '--hookTimeout',
+  '--retry',
+  '--bail',
+]);
+
+/** vitest subcommands that run the suite; any other (`related`, `list`, `bench`) is not refused. */
+const VITEST_SUITE_SUBCOMMANDS: ReadonlySet<string> = new Set(['run']);
+
+/**
+ * Whether a command is a vitest run that names nothing to narrow it: no test
+ * file, directory or name filter, no `--project`, `-t`, `--changed` or
+ * `--related` (T13236). Such a run is the WHOLE suite of its directory. The
+ * usual cause is an empty generated file list (`vitest run $files` with
+ * `$files` empty), which twice ran a whole package suite by accident, so
+ * `cleo run` refuses it unless `--whole-suite` says it is deliberate.
+ *
+ * Only vitest's own arguments count; a package-manager `--filter` still runs
+ * the whole suite of that package. A word that might be a filter (an unknown
+ * flag's value) counts as one, so a doubtful command is let through, never
+ * refused. Scripts (`pnpm test`) are not inspected: their arguments go to a
+ * command this cannot see.
+ *
+ * @param argv - the command.
+ * @returns `true` when the command is an unnarrowed vitest run.
+ *
+ * @example
+ * ```ts
+ * isUnnarrowedVitestRun(['pnpm', 'exec', 'vitest', 'run']);                    // true
+ * isUnnarrowedVitestRun(['pnpm', 'exec', 'vitest', 'run', 'src/a.test.ts']);  // false
+ * isUnnarrowedVitestRun(['npx', 'vitest', 'run', '--project', 'core']);       // false
+ * ```
+ */
+export function isUnnarrowedVitestRun(argv: readonly string[]): boolean {
+  const t = commandTarget(argv);
+  if (t.tool !== 'vitest' || t.script !== null) return false;
+  let sawSubcommand = false;
+  for (let i = 0; i < t.rest.length; i++) {
+    const w = t.rest[i] as string;
+    if (w === '--') continue;
+    if (w.startsWith('-')) {
+      const flag = w.includes('=') ? w.slice(0, w.indexOf('=')) : w;
+      if (VITEST_NARROWING_FLAGS.has(flag)) return false;
+      if (!w.includes('=') && VITEST_VALUE_FLAGS.has(flag)) i++;
+      continue;
+    }
+    if (!sawSubcommand) {
+      sawSubcommand = true;
+      if (VITEST_SUITE_SUBCOMMANDS.has(w)) continue;
+      // `vitest related …`, `vitest list`, or `vitest <filter>` (no subcommand).
+      return false;
+    }
+    return false; // a file, directory or name filter
+  }
+  return true;
+}
+
 /** Flags whose value names test files to leave out. */
 const EXCLUDE_FLAGS: ReadonlySet<string> = new Set([
   '--exclude',
