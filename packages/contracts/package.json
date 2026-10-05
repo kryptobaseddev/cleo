@@ -26,6 +26,10 @@
       "types": "./dist/cloud/index.d.ts",
       "import": "./dist/cloud/index.js"
     },
+    "./ledger": {
+      "types": "./dist/ledger/index.d.ts",
+      "import": "./dist/ledger/index.js"
+    },
     "./config.js": {
       "types": "./dist/config/index.d.ts",
       "import": "./dist/config/index.js"

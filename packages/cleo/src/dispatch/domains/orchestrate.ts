@@ -20,42 +20,88 @@
  */
 
 import type { EngineResult } from '@cleocode/core';
-import { CleoError, getLogger, getProjectRoot, pivotTask } from '@cleocode/core/internal';
-import {
-  CLEO_DIR_NAME,
-  orchestrateAnalyze,
-  orchestrateBootstrap,
-  orchestrateContext,
-  orchestrateHandoff,
-  orchestrateNext,
-  orchestrateParallelEnd,
-  orchestrateParallelStart,
-  orchestratePlan,
-  orchestrateReady,
-  orchestrateReport,
-  orchestrateSpawn,
-  orchestrateSpawnExecute,
-  orchestrateStartup,
-  orchestrateStatus,
-  orchestrateUnblockOpportunities,
-  orchestrateValidate,
-  orchestrateWaves,
-  sessionContextInject,
-  sessionEnd,
-  sessionStatus,
-  WORKFLOWS_SUBDIR,
-} from '@cleocode/runtime/gateway';
+import { CleoError } from '@cleocode/core/errors';
+import { getLogger } from '@cleocode/core/logger';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { sessionContextInject } from '@cleocode/core/session/engine-ops';
+import { CLEO_DIR_NAME, WORKFLOWS_SUBDIR } from '@cleocode/runtime/gateway/dispatch';
 import type { OpsFromCore } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, wrapResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';
 import { routeByParam } from './_routing.js';
 import { IvtrHandler } from './ivtr.js';
+import { lazyOperation } from './lazy.js';
 import {
   acquirePlaybookDb,
   listPendingApprovalsForDispatch,
   lookupApprovalByTokenForDispatch,
 } from './playbook.js';
+
+// CORE operations load on first call (T13126): a command loads its own
+// modules, not every operation's in this domain.
+
+const orchestrateAnalyze = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/query-ops')).orchestrateAnalyze,
+);
+const orchestrateBootstrap = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/lifecycle-ops')).orchestrateBootstrap,
+);
+const orchestrateContext = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/query-ops')).orchestrateContext,
+);
+const orchestrateHandoff = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/handoff-ops')).orchestrateHandoff,
+);
+const orchestrateNext = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/query-ops')).orchestrateNext,
+);
+const orchestrateParallelEnd = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/lifecycle-ops')).orchestrateParallelEnd,
+);
+const orchestrateParallelStart = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/lifecycle-ops')).orchestrateParallelStart,
+);
+const orchestratePlan = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/plan')).orchestratePlan,
+);
+const orchestrateReady = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/query-ops')).orchestrateReady,
+);
+const orchestrateReport = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/query-ops')).orchestrateReport,
+);
+const orchestrateSpawn = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/spawn-ops')).orchestrateSpawn,
+);
+const orchestrateSpawnExecute = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/spawn-ops')).orchestrateSpawnExecute,
+);
+const orchestrateStartup = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/lifecycle-ops')).orchestrateStartup,
+);
+const orchestrateStatus = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/query-ops')).orchestrateStatus,
+);
+const orchestrateUnblockOpportunities = lazyOperation(
+  async () =>
+    (await import('@cleocode/core/orchestrate/lifecycle-ops')).orchestrateUnblockOpportunities,
+);
+const orchestrateValidate = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/query-ops')).orchestrateValidate,
+);
+const orchestrateWaves = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/query-ops')).orchestrateWaves,
+);
+const pivotTask = lazyOperation(
+  async () => (await import('@cleocode/core/orchestrate/pivot')).pivotTask,
+);
+const sessionEnd = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionEnd,
+);
+const sessionStatus = lazyOperation(
+  async () => (await import('@cleocode/core/session/status-op')).sessionStatus,
+);
 
 /** Shared IvtrHandler instance for ivtr.* sub-operations (T811). */
 const ivtrHandler = new IvtrHandler();
@@ -1211,7 +1257,7 @@ async function orchestrateClassify(
   // ── Task-ID path: delegate to classifyTask (T11499 AC2) ──────────────────
   if (taskId) {
     try {
-      const { getDb } = await import('@cleocode/core/internal');
+      const { getDb } = await import('@cleocode/core/store/sqlite');
       const { tasks } = await import('@cleocode/core/store/tasks-schema');
       const { eq } = await import('drizzle-orm');
       const { classifyTask } = await import('@cleocode/core');
@@ -1282,7 +1328,7 @@ async function orchestrateClassify(
 
   // ── CANT team-registry path (original W7a keyword scan) ──────────────────
   try {
-    const { getCleoCantWorkflowsDir } = await import('@cleocode/core/internal');
+    const { getCleoCantWorkflowsDir } = await import('@cleocode/core/core-paths');
     const { readFileSync, readdirSync, existsSync } = await import('node:fs');
     const { join } = await import('node:path');
 
@@ -1479,7 +1525,7 @@ async function orchestrateAnalyzeParallelSafety(
   }
 
   try {
-    const { getTaskAccessor } = await import('@cleocode/core/internal');
+    const { getTaskAccessor } = await import('@cleocode/core/store/data-accessor');
     const accessor = await getTaskAccessor(projectRoot);
     const result = await accessor.queryTasks({});
     const allTasks = result?.tasks ?? [];
@@ -1580,7 +1626,9 @@ async function handleWorktreeComplete(
     //  - Idempotency (re-run on completed worktree = noop)
     //  - `--resolve manual` support (skip auto-merge, record audit row)
     //  - Conflict envelope with recovery instructions
-    const { completeWorktreeForTask } = await import('@cleocode/core/internal');
+    const { completeWorktreeForTask } = await import(
+      '@cleocode/core/orchestrate/worktree-complete'
+    );
     const result = completeWorktreeForTask(taskId, projectRoot, {
       resolve: resolve ?? 'auto',
     });
@@ -1622,7 +1670,7 @@ async function handleWorktreeCleanup(
   taskIds: string[] | undefined,
 ): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
   try {
-    const { pruneOrphanedWorktrees } = await import('@cleocode/core/internal');
+    const { pruneOrphanedWorktrees } = await import('@cleocode/core/spawn/branch-lock');
     const activeSet = taskIds ? new Set(taskIds) : undefined;
     const result = pruneOrphanedWorktrees(projectRoot, activeSet);
     return { success: true, data: result };
@@ -1646,7 +1694,9 @@ async function handleWorktreePrune(
   taskId: string | undefined,
 ): Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }> {
   try {
-    const { pruneWorktree, pruneOrphanedWorktrees } = await import('@cleocode/core/internal');
+    const { pruneWorktree, pruneOrphanedWorktrees } = await import(
+      '@cleocode/core/spawn/branch-lock'
+    );
     if (taskId) {
       const result = pruneWorktree(taskId, projectRoot);
       return { success: true, data: result };

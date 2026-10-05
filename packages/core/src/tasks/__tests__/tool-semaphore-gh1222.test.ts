@@ -128,13 +128,16 @@ describe('a killed verify does not hold the budget (gh#1222 on the ledger)', () 
   });
 
   it('the timeout error names the holder instead of just saying busy', async () => {
+    // Two heavy runs fill the budget (each plans half, T13132).
     const held = await acquireGlobalSlot('test', MACHINE);
+    const also = await acquireGlobalSlot('build', MACHINE);
     try {
       await expect(acquireGlobalSlot('test', { ...MACHINE, timeoutMs: 60 })).rejects.toThrow(
         new RegExp(`Current holders — tool:test pid ${process.pid} \\(`),
       );
     } finally {
       await held();
+      await also();
     }
   });
 

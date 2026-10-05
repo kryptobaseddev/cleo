@@ -150,7 +150,15 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * where both loaded ~3,000. `dash` (~640 modules, ~150 MB, was ~3,000 and
  * ~275 MB) loads the admin domain's operations one at a time. `config get`
  * (~420 modules, ~120 MB, was ~2,750 and ~250 MB) imports its helpers from
- * their defining modules.
+ * their defining modules, and its probe reads a real key so it measures the
+ * success path. The agent hot-path domains (verify, deps, orchestrate, memory,
+ * docs, nexus, doctor) load their handlers per operation and import CORE from
+ * defining modules (T13126): `verify` ~920 modules (~225 MB, was ~265),
+ * `deps show` ~650 (~155 MB, was ~260), `orchestrate status` ~845 (~190 MB,
+ * was ~270), `memory find` ~670 (~160 MB, was ~275; the `@cleocode/core/memory`
+ * barrel pulled the model runner and every provider SDK), `docs list` ~835
+ * (~205 MB, was ~270), `nexus status` ~645 (~190 MB, was ~275) and `doctor`
+ * ~925 (~210 MB, was ~280).
  * `describe` covers
  * the `--describe` path, which loads the operation describer through
  * `require(esm)`. Lower each budget in the PR that lowers its count.
@@ -284,9 +292,10 @@ export const PROBES = Object.freeze([
   },
   {
     name: 'config-get',
-    args: ['config', 'get'],
+    args: ['config', 'get', 'output.defaultFormat'],
     needsProject: true,
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
     maxModules: 465,
     maxRssMb: 170,
   },
@@ -334,6 +343,69 @@ export const PROBES = Object.freeze([
     noMoreModulesThan: 'show-existing',
     maxModules: 500,
     maxRssMb: 200,
+  },
+  {
+    name: 'verify',
+    args: ['verify', 'T001'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 1000,
+    maxRssMb: 280,
+  },
+  {
+    name: 'deps-show',
+    args: ['deps', 'show', 'T001'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 710,
+    maxRssMb: 210,
+  },
+  {
+    name: 'orchestrate-status',
+    args: ['orchestrate', 'status'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 920,
+    maxRssMb: 250,
+  },
+  {
+    name: 'memory-find',
+    args: ['memory', 'find', 'probe'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 735,
+    maxRssMb: 210,
+  },
+  {
+    name: 'docs-list',
+    args: ['docs', 'list'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 915,
+    maxRssMb: 260,
+  },
+  {
+    name: 'nexus-status',
+    args: ['nexus', 'status'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 705,
+    maxRssMb: 250,
+  },
+  {
+    name: 'doctor',
+    args: ['doctor'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 1015,
+    maxRssMb: 260,
   },
 ]);
 

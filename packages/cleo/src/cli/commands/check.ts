@@ -9,7 +9,8 @@
  * @task T1136 — provenance subcommand: audit git log for untagged commits
  */
 
-import { formatPrGateSummary, type PrGateSummary, runPrGate } from '@cleocode/core/internal';
+import { formatPrGateSummary, runPrGate } from '@cleocode/core/check/pr-gate';
+import type { PrGateSummary } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { negatedFlag } from '../lib/negated-flag.js';

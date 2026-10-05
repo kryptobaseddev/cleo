@@ -12,7 +12,7 @@
 
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { getCleoHome } from '@cleocode/core/internal';
+import { getCleoHome } from '@cleocode/core/core-paths';
 
 /** Shape of the JSON document persisted on disk. */
 export interface ViewerPidRecord {

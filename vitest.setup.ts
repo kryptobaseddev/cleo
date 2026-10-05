@@ -238,6 +238,10 @@ process.env.CLEO_DISABLE_LOCAL_INFERENCE = '1';
 // into a refusal. Tests of pressure behaviour pass their own sampler, or
 // delete this in their own setup.
 process.env.CLEO_ADMISSION_PRESSURE = 'off';
+// Heavy runs plan for half the budget in every test fork, CI runner or not
+// (T13132): `CI` would otherwise switch the per-run share to the whole budget.
+// Tests of the CI mode pass their own environment.
+process.env.CLEO_PER_RUN_SHARE = '0.5';
 // Tests do not need real signaldock peer permission checks.
 if (!process.env.NEXUS_SKIP_PERMISSION_CHECK) {
   process.env.NEXUS_SKIP_PERMISSION_CHECK = 'true';

@@ -295,3 +295,14 @@ describe('macos-main.yml: the newest main push gets a macOS result (T13143, opti
     }
   });
 });
+
+describe('Build & Verify timeout (T13205)', () => {
+  const ci = parseYaml(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8'));
+
+  it('gives the macOS cold build 20 minutes and keeps Linux at 10', () => {
+    expect(ci.jobs['build-verify']['timeout-minutes']).toBe(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
+      "${{ matrix.os == 'macos-latest' && 20 || 10 }}",
+    );
+  });
+});

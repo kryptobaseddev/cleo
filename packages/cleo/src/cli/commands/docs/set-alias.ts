@@ -22,7 +22,9 @@
  */
 
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { CleoError, getProjectRoot, setDisplayAlias } from '@cleocode/core/internal'; // core-first-allowed: T11875 setDisplayAlias not yet promoted to public barrel
+import { setDisplayAlias } from '@cleocode/core/docs/display-alias';
+import { CleoError } from '@cleocode/core/errors';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../../renderers/index.js';
 
