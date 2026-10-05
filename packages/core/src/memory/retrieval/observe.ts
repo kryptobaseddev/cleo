@@ -7,7 +7,6 @@
 
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { isMainThread } from 'node:worker_threads';
 import type {
   BrainSourceConfidence,
   ObserveBrainParams,
@@ -25,7 +24,7 @@ import { getBrainAccessor } from '../../store/memory-accessor.js';
 import type { BrainMemoryTier } from '../../store/schema/memory-schema.js';
 import { getDb } from '../../store/sqlite.js';
 import { embedText, ensureEmbeddingProvider, isEmbeddingAvailable } from '../brain-embedding.js';
-import { isLongLivedBrainHost } from '../brain-host.js';
+import { isBrainWriterIsolate, isLongLivedBrainHost } from '../brain-host.js';
 import { addGraphEdge, upsertGraphNode } from '../graph-auto-populate.js';
 import {
   classifyObservationTypeByKeywords,
@@ -394,10 +393,11 @@ export async function observeBrain(
           if (!vector) return;
           // T13230: inside the writer isolate this IS the chokepoint's handle,
           // so write directly (enqueueBrainWrite there would start a nested
-          // manager). On a main thread (a host whose worker is unavailable ran
-          // observeBrain inline) the op has already released the lease and the
-          // mutex, so the write goes back through the chokepoint.
-          if (!isMainThread) {
+          // manager). Anywhere else (a main thread whose host ran observeBrain
+          // inline, or any other worker thread, T13246) the op has already
+          // released the lease and the mutex, so the write goes back through
+          // the chokepoint.
+          if (isBrainWriterIsolate()) {
             if (nativeDb) upsertEmbeddingRowsNative(nativeDb, [{ id, vector }]);
             return;
           }
