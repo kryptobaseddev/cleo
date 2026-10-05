@@ -31,13 +31,13 @@
  * @task T12344
  */
 
-import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import {
   LEDGER_TXN_VERSION,
   type LedgerOp,
   type LedgerValue,
   type LedgerWireValue,
 } from '@cleocode/contracts/ledger';
+import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { compareHlc, parseHlc } from '../hlc.js';
 import { canonicalJson } from '../sealer-values.js';
 import type {

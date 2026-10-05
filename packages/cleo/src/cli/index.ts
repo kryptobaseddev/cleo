@@ -311,6 +311,12 @@ async function startCli(): Promise<void> {
       const { setLoggerQuiet } = await import('@cleocode/core/logger');
       setLoggerQuiet(true);
     }
+    // T13137 — tell an installed CLI that a newer release (or a hotfix) exists:
+    // one stderr line from a cached dist-tags check that a detached child
+    // refreshes daily. Never stdout, never waits on the network, never throws.
+    // Loaded here, not statically, so --version/--help never load it.
+    const { showUpdateNotice } = await import('./lib/update-notice.js');
+    showUpdateNotice({ version: CLI_VERSION, argv, quiet: rawOpts['quiet'] === true });
     await runStartupMaintenance();
   }
 
