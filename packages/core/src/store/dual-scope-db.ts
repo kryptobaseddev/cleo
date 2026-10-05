@@ -80,7 +80,7 @@ import {
   resolveConsolidatedJournalSiblings,
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
-import { assertStoreNotRestoring } from './restore-marker.js';
+import { openUnlessRestoring } from './restore-marker.js';
 import {
   healRowIdentitySchema,
   missingRowIdentitySchema,
@@ -903,10 +903,12 @@ async function openDedicatedDualScopeDb(
   }
 
   execution?.assertActive();
-  // T13258: never open a store file a restore is replacing.
-  assertStoreNotRestoring(dbPath);
   const DatabaseSyncCtor = getDatabaseSyncCtor();
-  const nativeDb = new DatabaseSyncCtor(dbPath, { allowExtension: true });
+  // T13258: never open a store file a restore is replacing (before and after the open).
+  const nativeDb = openUnlessRestoring(
+    dbPath,
+    () => new DatabaseSyncCtor(dbPath, { allowExtension: true }),
+  );
 
   // Every operation after construction is wrapped so any exception —
   // pragmas, Drizzle wrapping, migration-folder resolution, lease, or
@@ -1192,10 +1194,12 @@ export async function openDualScopeDbAtPath(
       // domain — no extension is loaded automatically, and the cache stays
       // single-keyed regardless of which domain opens the handle first.
       execution?.assertActive();
-      // T13258: never open a store file a restore is replacing.
-      assertStoreNotRestoring(normalizedPath);
       const DatabaseSyncCtor = getDatabaseSyncCtor();
-      const nativeDb = new DatabaseSyncCtor(normalizedPath, { allowExtension: true });
+      // T13258: never open a store file a restore is replacing (before and after the open).
+      const nativeDb = openUnlessRestoring(
+        normalizedPath,
+        () => new DatabaseSyncCtor(normalizedPath, { allowExtension: true }),
+      );
       openingNative = nativeDb;
 
       // Apply canonical pragma set (specs/sqlite-pragmas.json SSoT), bounding

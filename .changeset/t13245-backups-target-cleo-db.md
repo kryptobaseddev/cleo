@@ -1,6 +1,6 @@
 ---
 id: t13245-backups-target-cleo-db
-tasks: [T13245]
+tasks: [T13245, T13258]
 kind: fix
 summary: backup recover and restore-by-id now restore the live cleo.db; the global store gets backups and a restore path; backup add writes one cleo.db copy
 ---
@@ -38,3 +38,12 @@ missed it:
   conduit` or `global`). Backups with the old labels are still listed with their contents, and
   restore, recover and verify all still read them. A failed `VACUUM INTO` no longer leaves an
   empty file that reads as a backup.
+
+**Restore marker hardening (T13258 review LOWs on #1902).**
+- **Stale detection survives a hostname change.** A marker records its holder's stable device id,
+  so a crashed restore on this machine is recognised as stale even after the hostname changes
+  (macOS changes it with the network). Any marker older than an hour is also stale.
+- **Opens re-check after opening.** An open checks the marker again after it opens: one written
+  in between means the handle may be on the file being replaced, so it is closed and the open
+  waits again.
+

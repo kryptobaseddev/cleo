@@ -1771,7 +1771,12 @@ describe('cloud vault restore and verify across two devices', () => {
     const marker = path.join(a.root, '.cleo', 'cleo.db.restoring');
     fs.writeFileSync(
       marker,
-      JSON.stringify({ pid: process.ppid, host: os.hostname(), startedAt: NOW, kind: 'restore' }),
+      JSON.stringify({
+        pid: process.ppid,
+        host: os.hostname(),
+        startedAt: new Date().toISOString(),
+        kind: 'restore',
+      }),
     );
     vi.stubEnv('CLEO_RESTORE_WAIT_MS', '50');
     try {
