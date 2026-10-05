@@ -126,6 +126,16 @@ describe('one ledger for evidence runs and governor classes (T13133)', () => {
     await a();
     await b();
   });
+
+  it('T13237: an evidence build takes the machine-wide full-build slot; a second one waits', async () => {
+    scriptPressure([0]);
+    const a = await acquireGlobalSlot('build', { totalRamGib: 256, pollMs: 5 });
+    expect(readLedger().find((e) => e.state === 'admitted')?.exclusive).toBe(true);
+    await expect(
+      acquireGlobalSlot('build', { totalRamGib: 256, pollMs: 5, timeoutMs: 200 }),
+    ).rejects.toThrow(/full-build slot/);
+    await a();
+  });
 });
 
 describe('a run nested in an admitted run rides it (T13133)', () => {
