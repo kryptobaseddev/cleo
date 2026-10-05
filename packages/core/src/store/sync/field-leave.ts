@@ -1,31 +1,44 @@
 /**
- * Explicit leaves of absorbing states (T12344; journal spec §3.6, inventory
- * §3.6.6 `task.status.absorbing`).
+ * Typed-rule field state that row meta has no place for (T12344; journal spec
+ * §3.6, inventory §3.6.6 `task.status.absorbing`, `task.pipeline-stage.max`).
  *
- * An absorbing write (a task cancelled or done) overrides a newer ordinary
- * edit of its column, unless an explicit leave (a reopen, restore …) newer
- * than it produced the current value. Every replica must therefore know the
- * HLC of the latest explicit leave per (tbl, uid, col), whether the leave was
- * applied from the stream or authored here: row meta keeps only field HLCs,
- * so `_sync_field_leave` keeps the leaves.
+ * - **Leaves.** An absorbing write (a task cancelled or done) overrides a
+ *   newer ordinary edit of its column, unless an explicit leave (a reopen …)
+ *   newer than it produced the current value; a rank-max restore raises a
+ *   floor below which writes are dead. Both are `FieldState.leave`.
+ * - **Frontiers.** A rank-max column keeps its alive candidate writes
+ *   (`FieldState.frontier`), so a later restore still finds the next best.
  *
- * - The apply engine records the leave its merge decided (`FieldState.leave`).
- * - The sealer records a local leave: a sealed U whose `actor.op` is a leave
- *   op of the column's absorbing rule, moving it from an absorbing value
- *   to an ordinary one — the case in which a receiving replica's merge
- *   records the same leave.
- * - A delete clears the row's leaves with its fields.
+ * Every replica must know both, whether applied from the stream or authored
+ * here, so `_sync_field_leave` keeps them per (tbl, uid, col):
+ * - the apply engine records what its merge decided;
+ * - the sealer records a local leave: a sealed U whose `actor.op` is a leave
+ *   op of the column's absorbing rule moving it off an absorbing value, or a
+ *   restore op of its rank-max rule — the cases in which a receiving
+ *   replica's merge records the same leave;
+ * - a delete clears the row's state with its fields.
  *
  * @module store/sync/field-leave
  * @task T12344
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { LedgerActor, type LedgerWireValue } from '@cleocode/contracts/ledger';
+import { LedgerActor, LedgerWireValue } from '@cleocode/contracts/ledger';
+import { z } from 'zod';
 import { SYNC_MERGE_RULES } from './merge/rules.js';
+import { canonicalJson } from './sealer-values.js';
+
+/** The stored frontier shape. */
+const FrontierJson = z.array(z.object({ value: LedgerWireValue, hlc: z.string() }).strict());
 
 /** Column → encoded HLC of its latest explicit leave. */
 export type FieldLeaves = Readonly<Record<string, string>>;
+
+/** A rank-max column's alive candidate writes, oldest first. */
+export type FieldFrontier = ReadonlyArray<{
+  readonly value: LedgerWireValue;
+  readonly hlc: string;
+}>;
 
 /**
  * The row's recorded leaves.
@@ -37,10 +50,12 @@ export type FieldLeaves = Readonly<Record<string, string>>;
  */
 export function readFieldLeaves(db: DatabaseSync, tbl: string, uid: string): FieldLeaves {
   const rows = db
-    .prepare('SELECT col, hlc FROM _sync_field_leave WHERE tbl = ? AND uid = ?')
-    .all(tbl, uid) as Array<{ col: string; hlc: string }>;
+    .prepare(
+      'SELECT col, leave FROM _sync_field_leave WHERE tbl = ? AND uid = ? AND leave IS NOT NULL',
+    )
+    .all(tbl, uid) as Array<{ col: string; leave: string }>;
   const out: Record<string, string> = {};
-  for (const r of rows) out[r.col] = r.hlc;
+  for (const r of rows) out[r.col] = r.leave;
   return out;
 }
 
@@ -61,10 +76,61 @@ export function recordFieldLeaves(
   const entries = Object.entries(leaves);
   if (entries.length === 0) return;
   const up = db.prepare(
-    `INSERT INTO _sync_field_leave (tbl, uid, col, hlc) VALUES (?, ?, ?, ?)
-     ON CONFLICT (tbl, uid, col) DO UPDATE SET hlc = excluded.hlc WHERE excluded.hlc > hlc`,
+    `INSERT INTO _sync_field_leave (tbl, uid, col, leave) VALUES (?, ?, ?, ?)
+     ON CONFLICT (tbl, uid, col) DO UPDATE SET leave = excluded.leave
+     WHERE leave IS NULL OR excluded.leave > leave`,
   );
   for (const [col, hlc] of entries) up.run(tbl, uid, col, hlc);
+}
+
+/**
+ * The row's rank-max frontiers.
+ *
+ * @param db - The store (the journal schema applied).
+ * @param tbl - Sync-set table.
+ * @param uid - Row uid.
+ * @returns Column → frontier; empty when none.
+ */
+export function readFieldFrontiers(
+  db: DatabaseSync,
+  tbl: string,
+  uid: string,
+): Readonly<Record<string, FieldFrontier>> {
+  const rows = db
+    .prepare(
+      'SELECT col, frontier FROM _sync_field_leave WHERE tbl = ? AND uid = ? AND frontier IS NOT NULL',
+    )
+    .all(tbl, uid) as Array<{ col: string; frontier: string }>;
+  const out: Record<string, FieldFrontier> = {};
+  for (const r of rows) {
+    const parsed = FrontierJson.safeParse(JSON.parse(r.frontier));
+    if (parsed.success) out[r.col] = parsed.data;
+  }
+  return out;
+}
+
+/**
+ * Set rank-max frontiers as the merge left them; `null` clears one (the
+ * current value is the only candidate again).
+ *
+ * @param db - The store, inside the writer's transaction.
+ * @param tbl - Sync-set table.
+ * @param uid - Row uid.
+ * @param frontiers - Column → frontier, or null.
+ */
+export function setFieldFrontiers(
+  db: DatabaseSync,
+  tbl: string,
+  uid: string,
+  frontiers: Readonly<Record<string, FieldFrontier | null>>,
+): void {
+  const entries = Object.entries(frontiers);
+  if (entries.length === 0) return;
+  const up = db.prepare(
+    `INSERT INTO _sync_field_leave (tbl, uid, col, frontier) VALUES (?, ?, ?, ?)
+     ON CONFLICT (tbl, uid, col) DO UPDATE SET frontier = excluded.frontier`,
+  );
+  for (const [col, f] of entries) up.run(tbl, uid, col, f === null ? null : canonicalJson(f));
 }
 
 /**
@@ -81,7 +147,8 @@ export function clearFieldLeaves(db: DatabaseSync, tbl: string, uid: string): vo
 /**
  * The explicit leaves a locally authored U op makes: per absorbing-rule
  * column, `actorOp` is one of the rule's leave ops and the column moves from
- * an absorbing value (`b`) to an ordinary one (`a`).
+ * an absorbing value (`b`) to an ordinary one (`a`); per rank-max column the
+ * op writes, `actorOp` is one of the rule's restore ops.
  *
  * @param tbl - Sync-set table.
  * @param op - The sealed op's changed values, before-image and HLC.
@@ -101,6 +168,11 @@ export function localLeaves(
   if (!rules || actorOp === null) return {};
   const out: Record<string, string> = {};
   for (const [col, rule] of Object.entries(rules)) {
+    if (rule.kind === 'rank-max') {
+      // A restore raises the column's floor to its own HLC.
+      if (rule.restoreOps.includes(actorOp) && op.a?.[col] !== undefined) out[col] = op.h;
+      continue;
+    }
     if (rule.kind !== 'absorbing' || !rule.leaveOps.includes(actorOp)) continue;
     const before = op.b?.[col];
     const after = op.a?.[col];

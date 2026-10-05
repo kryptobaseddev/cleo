@@ -279,9 +279,9 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/field-leave.ts': {
     _sync_field_leave: {
-      count: 2,
+      count: 3,
       reason:
-        'explicit leaves of absorbing states (local-only): merge input that row meta has no place for, rebuilt from the stream (T12344)',
+        'typed-rule field state (local-only): leaves and rank-max frontiers, merge input that row meta has no place for, rebuilt from the stream (T12344)',
     },
   },
   'packages/core/src/store/sync/inbox.ts': {

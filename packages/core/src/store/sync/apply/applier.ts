@@ -28,6 +28,11 @@
  * Passes repeat while a pass applies something, so a transaction pending on
  * a row a later transaction inserts applies in the same call.
  *
+ * Deletes run with foreign keys ON: the origin journals cascaded child Ds
+ * before the parent's D, so a child D whose row is already gone applies as a
+ * tombstone, never a missing-row failure; and SET NULL actions are not
+ * journaled yet (T13226), so this replica's own FK actions fill that gap.
+ *
  * Out of this slice: references and re-keys (PR-4: pending, dangling-ref,
  * aliases, `remapPending`), guard-trigger refusals as conflicts and
  * children-first deletes with `onRemoteParentDelete` (PR-4), Gate C
@@ -42,7 +47,14 @@ import type { TableScope } from '@cleocode/contracts';
 import type { LedgerOp, LedgerWireValue } from '@cleocode/contracts/ledger';
 import { type CaptureTableDef, captureTableDef } from '../capture.js';
 import { recordConflicts } from '../conflicts.js';
-import { clearFieldLeaves, readFieldLeaves, recordFieldLeaves } from '../field-leave.js';
+import {
+  clearFieldLeaves,
+  type FieldFrontier,
+  readFieldFrontiers,
+  readFieldLeaves,
+  recordFieldLeaves,
+  setFieldFrontiers,
+} from '../field-leave.js';
 import { encodeHlc, genesisHlc, isWithinSkew, parseHlc } from '../hlc.js';
 import { type InboxKey, type InboxStatus, markTxns, type StagedTxn, stagedTxns } from '../inbox.js';
 import { applyOp, checkSchemaVersion } from '../merge/engine.js';
@@ -130,11 +142,18 @@ function loadRowState(
   const floor = encodeHlc(genesisHlc(localReplica));
   const fh = meta && !meta.deleted ? fieldHlcsOf(def, meta) : {};
   const leaves = readFieldLeaves(db, def.table, uid);
+  const frontiers = readFieldFrontiers(db, def.table, uid);
   const fields: Record<string, FieldState> = {};
   for (const [col, value] of Object.entries(row)) {
     const hlc = fh[col] ?? (meta && !meta.deleted ? meta.hlc : floor);
     const leave = leaves[col];
-    fields[col] = leave !== undefined ? { value, hlc, leave } : { value, hlc };
+    const frontier = frontiers[col];
+    fields[col] = {
+      value,
+      hlc,
+      ...(leave !== undefined ? { leave } : {}),
+      ...(frontier !== undefined ? { frontier } : {}),
+    };
   }
   return { live: true, tombstone: null, fields };
 }
@@ -179,10 +198,10 @@ function planTxn(
     }
     const out = applyOp(before, op, { table: spec, actorOp: st.txn.actor?.op ?? null });
     if (out.status === 'refused-schema') {
-      return {
-        kind: 'refused-schema',
-        reason: `${op.t}: unknown column(s) ${(out.unknownColumns ?? []).join(', ')}`,
-      };
+      const reason = out.malformed?.length
+        ? `${op.t}/${op.u}: malformed column(s) ${out.malformed.join(', ')}`
+        : `${op.t}: unknown column(s) ${(out.unknownColumns ?? []).join(', ')}`;
+      return { kind: 'refused-schema', reason };
     }
     if (out.status === 'pending') {
       return { kind: 'pending', reason: `${op.t}/${op.u}: row not seen yet`, holds: holds(k) };
@@ -263,10 +282,16 @@ function effect(
   }
   if (out.next.live) {
     const leaves: Record<string, string> = {};
+    const frontiers: Record<string, FieldFrontier | null> = {};
     for (const [c, f] of Object.entries(out.next.fields)) {
-      if (f.leave !== undefined && f.leave !== before.fields[c]?.leave) leaves[c] = f.leave;
+      const was = before.fields[c];
+      if (f.leave !== undefined && f.leave !== was?.leave) leaves[c] = f.leave;
+      if (canonicalJson(f.frontier ?? null) !== canonicalJson(was?.frontier ?? null)) {
+        frontiers[c] = f.frontier ?? null;
+      }
     }
     recordFieldLeaves(db, op.t, op.u, leaves);
+    setFieldFrontiers(db, op.t, op.u, frontiers);
   }
   recordConflicts(db, { ...st.key, opIdx }, out.conflicts, st.replicaId, nowIso);
   return out.conflicts.length;

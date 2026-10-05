@@ -130,7 +130,14 @@ const insert = (uid: string, at: string, a: Record<string, string> = {}): Ledger
     ...a,
   },
 });
-const update = (uid: string, at: string, a: Record<string, string>): LedgerOp => ({
+/** A status change as the sealer emits it: the whole status group (T13222). */
+const grp = (status: string): Record<string, string | null> => ({
+  status,
+  completed_at: null,
+  cancelled_at: null,
+  cancellation_reason: null,
+});
+const update = (uid: string, at: string, a: Record<string, string | null>): LedgerOp => ({
   t: 'tasks_tasks',
   u: uid,
   o: 'U',
@@ -298,7 +305,7 @@ describe('typed rules and conflict records (§3.6)', () => {
         txn('R1:1', [insert('t1', h(1), { status: 'done', pipeline_stage: 'contribution' })]),
       ]),
     );
-    stage(db, segment(R2, [txn('R2:1', [update('t1', h(5, R2), { status: 'active' })])]));
+    stage(db, segment(R2, [txn('R2:1', [update('t1', h(5, R2), grp('active'))])]));
     const r = apply(db);
     expect(r).toMatchObject({ applied: 1, void: 1, conflicts: 1 });
     expect(task(db, 't1')?.status).toBe('done');
@@ -319,7 +326,7 @@ describe('typed rules and conflict records (§3.6)', () => {
     stage(
       db,
       segment(R3, [
-        txn('R3:1', [update('t1', h(10, R3), { status: 'active' })], {
+        txn('R3:1', [update('t1', h(10, R3), grp('active'))], {
           actor: { op: 'tasks.reopen' },
         }),
       ]),
@@ -340,16 +347,67 @@ describe('typed rules and conflict records (§3.6)', () => {
     stage(
       db,
       segment(R3, [
-        txn('R3:1', [update('t1', h(10, R3), { status: 'active' })], {
+        txn('R3:1', [update('t1', h(10, R3), grp('active'))], {
           actor: { op: 'tasks.reopen' },
         }),
       ]),
     );
     apply(db);
     // A concurrent completion older than the reopen arrives in a later pass.
-    stage(db, segment(R2, [txn('R2:1', [update('t1', h(8, R2), { status: 'done' })])]));
+    stage(db, segment(R2, [txn('R2:1', [update('t1', h(8, R2), grp('done'))])]));
     apply(db);
     expect(task(db, 't1')?.status).toBe('active');
+  });
+});
+
+describe('review fixes carried into apply (T13222, T13223)', () => {
+  it('a partial status group is refused-schema with the missing members named', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('t1', h(1))])]));
+    stage(db, segment(R2, [txn('R2:1', [update('t1', h(5, R2), { status: 'active' })])]));
+    expect(apply(db)).toMatchObject({ applied: 1, refusedSchema: 1 });
+    expect(db.prepare('SELECT reason FROM _sync_inbox WHERE seq = 2').get()).toEqual({
+      reason: 'tasks_tasks/t1: malformed column(s) cancellation_reason, cancelled_at, completed_at',
+    });
+  });
+
+  it('the rank-max frontier persists across apply calls, so a late restore finds the next best', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('s1', h(1), { pipeline_stage: 'research' })])]));
+    stage(db, segment(R1, [txn('R1:2', [update('s1', h(5), { pipeline_stage: 'release' })])]));
+    stage(
+      db,
+      segment(R2, [txn('R2:1', [update('s1', h(20, R2), { pipeline_stage: 'implementation' })])]),
+    );
+    apply(db);
+    expect(task(db, 's1')?.pipeline_stage).toBe('release');
+    // A restore at h10 kills release@h5; implementation@h20 is still alive.
+    stage(
+      db,
+      segment(R3, [
+        txn('R3:1', [update('s1', h(10, R3), { pipeline_stage: 'research' })], {
+          actor: { op: 'tasks.restore' },
+        }),
+      ]),
+    );
+    apply(db);
+    expect(task(db, 's1')?.pipeline_stage).toBe('implementation');
+    // The winner keeps its own HLC, the row's newest.
+    expect(readRowMeta(db, 'tasks_tasks', 's1')?.hlc).toBe(h(20, R2));
+  });
+
+  it("a child D whose row the parent's local cascade already removed applies as a tombstone", async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('c1', h(1))])]));
+    apply(db);
+    // The row vanishes locally without a delete op reaching meta (an FK cascade).
+    db.exec('BEGIN IMMEDIATE');
+    db.prepare("DELETE FROM tasks_tasks WHERE uid = 'c1'").run();
+    db.exec('COMMIT');
+    db.prepare("DELETE FROM _sync_capture WHERE tbl = 'tasks_tasks'").run();
+    stage(db, segment(R1, [txn('R1:2', [del('c1', h(3))])]));
+    expect(apply(db)).toMatchObject({ applied: 1, pending: 0 });
+    expect(readRowMeta(db, 'tasks_tasks', 'c1')).toMatchObject({ deleted: 1, hlc: h(3) });
   });
 });
 
@@ -464,6 +522,10 @@ describe('local leaves (field-leave)', () => {
       localLeaves('tasks_tasks', { ...op, a: { status: 'cancelled' } }, 'tasks.reopen'),
     ).toEqual({});
     expect(localLeaves('brain_observations', op, 'tasks.reopen')).toEqual({});
+    // A rank-max restore raises the stage's floor.
+    expect(
+      localLeaves('tasks_tasks', { a: { pipeline_stage: 'research' }, h: h(6) }, 'tasks.restore'),
+    ).toEqual({ pipeline_stage: h(6) });
   });
 
   it('the sealer records the leave of a local reopen, and a local delete clears it', async () => {
