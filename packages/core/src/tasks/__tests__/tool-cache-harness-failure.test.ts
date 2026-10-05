@@ -60,6 +60,10 @@ import { validateAtom } from '../evidence.js';
 import { confinementStartupFailure, type LimitedCommand } from '../heavy-tool-limit.js';
 import { readCacheEntry, runToolCached } from '../tool-cache.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
+import { useRealToolRunner } from './real-tool-runner.js';
+
+// These tests spawn tiny real commands on purpose (T13203 guard opt-in).
+useRealToolRunner();
 
 /** The exact diagnostic systemd emits, and the exact text of gh#1396. */
 const GH1396_STDERR =

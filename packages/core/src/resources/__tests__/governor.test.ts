@@ -76,9 +76,9 @@ describe('computeClassBudget (T11999)', () => {
     expect(computeClassBudget('test-run', makeSample({ someAvg10: 30 }), big)).toBe(0); // memory gate
   });
 
-  it('one heavy run fills a 48 GiB machine, and nothing replaces the floor of one', () => {
+  it('a 48 GiB machine holds two heavy runs, one at hold, and nothing replaces the floor of one (T13132)', () => {
     const mac = { cpuCount: 18, totalMemBytes: 48 * GB } as const;
-    expect(computeClassBudget('test-run', makeSample(), mac)).toBe(1);
+    expect(computeClassBudget('test-run', makeSample(), mac)).toBe(2);
     expect(computeClassBudget('test-run', makeSample({ someAvg10: 15 }), mac)).toBe(1);
   });
 
@@ -433,7 +433,14 @@ describe('heavy classes go through the admission ledger (T13127, T13133)', () =>
     if (isResourceGrant(r)) await r.release();
   });
 
-  it('a held heavy run defers the next, naming the holder, and a release frees it', async () => {
+  it('two held heavy runs defer the next, naming the holders, and a release frees it', async () => {
+    // Each heavy run plans half the budget (T13132): two fill it.
+    const other = await gov.acquire('scoped-build', {
+      ...BUDGET_OPTS,
+      sample: makeSample(),
+      blocking: false,
+    });
+    expect(other.deferred).toBe(false);
     const held = await gov.acquire('test-run', {
       ...BUDGET_OPTS,
       sample: makeSample(),
@@ -446,7 +453,9 @@ describe('heavy classes go through the admission ledger (T13127, T13133)', () =>
       blocking: false,
     });
     expect(next.deferred).toBe(true);
-    if (next.deferred) expect(next.reason).toMatch(/held by class:test-run pid \d+/);
+    if (next.deferred) {
+      expect(next.reason).toMatch(/held by class:scoped-build pid \d+.*class:test-run pid \d+/);
+    }
     if (isResourceGrant(held)) await held.release();
     const after = await gov.acquire('full-build', {
       ...BUDGET_OPTS,
@@ -455,19 +464,20 @@ describe('heavy classes go through the admission ledger (T13127, T13133)', () =>
     });
     expect(after.deferred).toBe(false);
     if (isResourceGrant(after)) await after.release();
+    if (isResourceGrant(other)) await other.release();
   });
 
   it('available() is 0 while the gate refuses, and recovers with it', async () => {
-    // 64 GiB: capacity 48 GiB holds one 36 GiB heavy run.
+    // 64 GiB: capacity 48 GiB holds two 24 GiB heavy runs (T13132).
     const at = (some: number) =>
       gov.available('test-run', {
         ...BUDGET_OPTS,
         sample: makeSample({ memAvailableGb: 128, someAvg10: some }),
       });
-    expect(await at(0)).toBe(1);
+    expect(await at(0)).toBe(2);
     expect(await at(40)).toBe(0);
     expect(await at(20)).toBe(0); // latched until it falls to 15
-    expect(await at(10)).toBe(1);
+    expect(await at(10)).toBe(2);
   });
 
   it('CPU saturation alone narrows test-run to 1 and never refuses it', async () => {

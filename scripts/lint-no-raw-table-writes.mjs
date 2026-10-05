@@ -316,6 +316,28 @@ export const EXEMPT = {
     _sync_replica: { count: 2, reason: SYNC_BOOKKEEPING },
   },
   'packages/core/src/store/sync/schema.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
+  'packages/core/src/store/sync/repair.ts': {
+    _sync_capture: {
+      count: 2,
+      reason:
+        "repair diff (local-only): writes THIS store's repair captures (I/U from the live row, D for an orphan) for the sealer to seal (§4.4, T12987)",
+    },
+    _sync_frame: {
+      count: 1,
+      reason:
+        "repair diff (local-only): opens the repair frame its captures seal in, in THIS store's outbox (§4.4, T12987)",
+    },
+    _sync_ledger: {
+      count: 1,
+      reason:
+        "repair diff (local-only): sets THIS store's sealer ledger to the verified row count when it baselines a table (§4.4, T12987)",
+    },
+    _sync_meta: {
+      count: 2,
+      reason:
+        "repair diff (local-only): records a table's row-meta baseline and clears its verified suspect: key in THIS store (§4.4, T12987)",
+    },
+  },
   'packages/core/src/store/sync/row-meta.ts': {
     _sync_row_meta: {
       count: 2,
@@ -327,8 +349,11 @@ export const EXEMPT = {
     _sync_capture: { count: 2, reason: SEALER },
     _sync_frame: { count: 1, reason: SEALER },
     _sync_ledger: { count: 1, reason: SEALER },
-    _sync_meta: { count: 2, reason: SEALER },
-    _sync_op: { count: 1, reason: SEALER },
+    _sync_meta: { count: 1, reason: SEALER },
+    _sync_op: {
+      count: 2,
+      reason: `${SEALER}; plus the one-time T13233 completion of pre-T13222 partial-group ops not yet sent`,
+    },
     _sync_quarantine: { count: 1, reason: SEALER },
     _sync_row_meta: { count: 4, reason: SEALER },
     _sync_txn: { count: 1, reason: SEALER },

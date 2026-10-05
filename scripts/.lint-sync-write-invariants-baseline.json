@@ -886,7 +886,6 @@
     "packages/core/src/memory/public-api.ts :: Error": 6,
     "packages/core/src/memory/retrieval/build-retrieval-bundle.ts :: Error": 4,
     "packages/core/src/memory/retrieval/observe.ts :: Error": 5,
-    "packages/core/src/memory/retrieval/observe.ts :: silent:cascade": 1,
     "packages/core/src/memory/retrieval/observe.ts :: W_EMBEDDINGS_UNAVAILABLE": 1,
     "packages/core/src/memory/retrieval/search.ts :: Error": 2,
     "packages/core/src/memory/session-narrative.ts :: Error": 1,

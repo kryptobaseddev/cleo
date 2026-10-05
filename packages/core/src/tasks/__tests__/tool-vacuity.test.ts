@@ -24,6 +24,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { validateAtom } from '../evidence.js';
 import { captureDirtyFingerprint } from '../tool-cache.js';
 import { resolveToolCommand } from '../tool-resolver.js';
+import { useRealToolRunner } from './real-tool-runner.js';
+
+// These tests spawn tiny real commands on purpose (T13203 guard opt-in).
+useRealToolRunner();
 
 const TYPESCRIPT_DIR = dirname(createRequire(import.meta.url).resolve('typescript/package.json'));
 
