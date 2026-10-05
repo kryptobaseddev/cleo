@@ -2,11 +2,11 @@
  * CLI command: cleo run [--class <c>] [--wait [--timeout <s>]] [--passthrough] -- <command...>
  *
  * The one front door for heavy commands an agent runs itself: test runners,
- * compilers, builds, installs. The command is admitted through the
- * machine-wide ResourceGovernor, so every `cleo run` job, from any agent,
- * session or project, shares one budget per class. (`cleo verify` joins the
- * same budgets once #1775, T12963, routes it through the governor.) The
- * engine is `runGoverned` in core.
+ * compilers, builds, installs. The command is admitted through the admission
+ * ledger (T13133): one machine-wide memory budget and one FIFO queue shared by
+ * every `cleo run` job and every `cleo verify` evidence run, from any agent,
+ * session or project. A `cleo run` nested in an admitted run rides its
+ * admission. The engine is `runGoverned` in core.
  *
  * - Admitted: the command runs niced, with heap and worker limits sized for a
  *   heavy tool, as its own process group; its output streams to stderr.
@@ -16,7 +16,7 @@
  *   printed as a warning, so it shows even with `--passthrough`.
  * - Not admitted (default): an immediate `E_RESOURCE_DEFERRED` envelope, exit
  *   75, with who is running what and concrete ways to keep making progress.
- *   Nothing was started. `--wait` joins the class's FIFO queue instead.
+ *   Nothing was started. `--wait` joins the machine-wide FIFO queue instead.
  * - While it runs: at `backoff` only the oldest `cleo run` job keeps going;
  *   younger pausable ones are SIGSTOPped and resumed later; pressure never
  *   kills a job. (Only the orphaned group of a runner that died is stopped.)
@@ -40,6 +40,7 @@
  * @task T12979
  * @task T12980
  * @task T12981
+ * @task T13133
  * @epic T12978
  */
 
@@ -50,9 +51,11 @@ import {
   RUN_COMMAND_FAILED_CODE,
   RUN_DEFERRED_EXIT_CODE,
 } from '@cleocode/contracts/resource-governor.js';
+import { planFootprintBytes } from '@cleocode/core/resources/admission-ledger.js';
 import {
   canonicalForClass,
   isWatchCommand,
+  namedTestFileCount,
   resolveRunClass,
 } from '@cleocode/core/resources/run-admission.js';
 import {
@@ -137,7 +140,8 @@ export const runCommand = defineCommand({
     },
     wait: {
       type: 'boolean',
-      description: 'Join the FIFO queue for the class instead of returning E_RESOURCE_DEFERRED',
+      description:
+        'Join the machine-wide FIFO admission queue instead of returning E_RESOURCE_DEFERRED',
       default: false,
     },
     timeout: {
@@ -208,7 +212,15 @@ export const runCommand = defineCommand({
     // T13122: the heap and worker plan, and why — printed before admission, so
     // it is labelled as planned (a deferred run never starts). A clamped
     // inherited value is a warning, so it shows even under --passthrough.
-    const { overlay, resources } = planHeavyToolEnv(canonicalForClass(cls));
+    // T13132: a test run that names its files needs at most one worker per
+    // file; it is planned, charged and spawned with that many.
+    const namedFiles = namedTestFileCount(cls, argv);
+    const { overlay, resources } = planHeavyToolEnv(
+      canonicalForClass(cls),
+      process.env,
+      undefined,
+      namedFiles ?? undefined,
+    );
     if (resources !== null) {
       notice(
         `planned resources: ${resources.summary}`,
@@ -230,6 +242,8 @@ export const runCommand = defineCommand({
         // A terminal on stdin: keep the child in its foreground group.
         foreground: passthrough && process.stdin.isTTY === true,
         notice,
+        ...(resources !== null ? { footprintBytes: planFootprintBytes(resources) } : {}),
+        ...(namedFiles !== null ? { scope: 'narrowed' as const } : {}),
       });
     } catch (err) {
       // A runner error is reported here, not by the CLI's top-level catch,

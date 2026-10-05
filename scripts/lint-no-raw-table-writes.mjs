@@ -295,6 +295,9 @@ export const EXEMPT = {
     _sync_replica: { count: 2, reason: SYNC_BOOKKEEPING },
   },
   'packages/core/src/store/sync/schema.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
+  'packages/core/src/store/sync/row-meta.ts': {
+    _sync_row_meta: { count: 1, reason: SEALER },
+  },
   'packages/core/src/store/sync/sealer.ts': {
     _sync_apply_intent: { count: 1, reason: SEALER },
     _sync_capture: { count: 2, reason: SEALER },
@@ -303,7 +306,7 @@ export const EXEMPT = {
     _sync_meta: { count: 2, reason: SEALER },
     _sync_op: { count: 1, reason: SEALER },
     _sync_quarantine: { count: 1, reason: SEALER },
-    _sync_row_meta: { count: 5, reason: SEALER },
+    _sync_row_meta: { count: 4, reason: SEALER },
     _sync_txn: { count: 1, reason: SEALER },
   },
   'packages/core/src/store/sync/structural.ts': {

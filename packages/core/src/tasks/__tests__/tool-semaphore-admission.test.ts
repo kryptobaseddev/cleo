@@ -1,46 +1,61 @@
 /**
- * Machine-wide heavy-run admission (T12963), and typecheck/lint slots (T13123).
+ * Machine-wide heavy-run admission for evidence runs (T12963, T13127, T13133).
  *
- * - On darwin (no PSI) `test`/`build` default to ONE slot machine-wide.
- * - A heavy tool slot also takes a slot of the governor class (`test` →
- *   `test-run`, `build` → `scoped-build`), released with the tool slot.
- * - `CLEO_TOOL_CONCURRENCY_*` overrides still decide the count and skip the
- *   governor, whose budget would otherwise cap them.
- * - A SIGKILLed run leaves both slots held by a dead pid; the next run reaps
- *   both instead of waiting out the governor's 10 min stale timeout.
+ * - Evidence runs and `cleo run` jobs share ONE ledger: a governor-class
+ *   admission (what `cleo run` takes) and an evidence run wait for each other,
+ *   with no second slot taken in a second order (the T13133 inversion).
+ * - There is no darwin one-slot rule: the budget is bytes on every platform.
+ * - A run nested in an admitted run's process tree rides its admission: a
+ *   `cleo verify` under `cleo run` never waits for the budget its ancestor
+ *   holds.
+ * - Under memory pressure a run waits, says "waiting: memory pressure" with
+ *   the readings, and starts when it falls; lint is never refused by the gate
+ *   except through the budget it shares; a 1 ms probe still gets a free share.
  *
  * @task T12963
- * @task T13123
+ * @task T13127
+ * @task T13133
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { hostname, tmpdir } from 'node:os';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ResourceSample } from '../../resources/backend.js';
-import { _resetGovernorStateForTest, governor, governorSlotDir } from '../../resources/governor.js';
-import { currentLockId, writeGovernorHolder } from '../../resources/slot-holder.js';
 import {
-  acquireGlobalSlot,
-  defaultMaxConcurrent,
-  governorClassFor,
-  resolveMaxConcurrent,
-  semaphoreDir,
-} from '../tool-semaphore.js';
+  ADMISSION_ENV,
+  admissionCapacityBytes,
+  admit,
+  GIB,
+  readLedger,
+} from '../../resources/admission-ledger.js';
+import type { ResourceSample } from '../../resources/backend.js';
+import { _resetGovernorStateForTest, governor } from '../../resources/governor.js';
+import { ResourceMonitor } from '../../resources/monitor.js';
+import { systemPidProbe } from '../../resources/slot-holder.js';
+import { _resetToolSemaphoreForTest, acquireGlobalSlot } from '../tool-semaphore.js';
 
-const GIB = 1024 ** 3;
+const MACHINE = { totalRamGib: 48, pollMs: 5 } as const;
 
-/** A no-pressure sample with `availGib` of available memory. */
-function sample(availGib: number): ResourceSample {
+function sampleAt(memSome: number): ResourceSample {
+  const line = { avg10: memSome, avg60: memSome, avg300: memSome, totalUs: 0 };
   return {
     sampledAtMs: 1,
-    pressureAvailable: false,
-    memAvailableBytes: availGib * GIB,
-    globalPressure: null,
+    pressureAvailable: true,
+    memAvailableBytes: 32 * GIB,
+    globalPressure: { some: line, full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 } },
     slicePressure: null,
     walObservations: [],
   };
+}
+
+/** Live samples follow a script of memory `some avg10` values (then stay on the last). */
+function scriptPressure(series: readonly number[]): () => number {
+  let n = 0;
+  vi.spyOn(ResourceMonitor.prototype, 'sample').mockImplementation(async () =>
+    sampleAt(series[Math.min(n++, series.length - 1)] ?? 0),
+  );
+  return () => n;
 }
 
 let home: string;
@@ -50,15 +65,20 @@ beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'cleo-home-admission-'));
   process.env.CLEO_HOME = home;
   delete process.env.CLEO_RESOURCES_MODE;
+  // These tests script the live sampler (ResourceMonitor), so it must be used.
+  delete process.env.CLEO_ADMISSION_PRESSURE;
+  delete process.env[ADMISSION_ENV];
   for (const k of Object.keys(process.env)) {
     if (k.startsWith('CLEO_TOOL_CONCURRENCY_')) delete process.env[k];
   }
   _resetGovernorStateForTest();
+  _resetToolSemaphoreForTest();
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   rmSync(home, { recursive: true, force: true });
-  for (const k of ['CLEO_HOME', 'CLEO_RESOURCES_MODE']) {
+  for (const k of ['CLEO_HOME', 'CLEO_RESOURCES_MODE', 'CLEO_ADMISSION_PRESSURE', ADMISSION_ENV]) {
     if (saved[k] === undefined) delete process.env[k];
     else process.env[k] = saved[k];
   }
@@ -68,261 +88,142 @@ afterEach(() => {
   _resetGovernorStateForTest();
 });
 
-describe('darwin heavy-slot default (T12963)', () => {
-  it('gives test and build ONE slot on darwin however large the machine', () => {
-    expect(defaultMaxConcurrent('test', 16, 1024, 'darwin')).toBe(1);
-    expect(defaultMaxConcurrent('build', 16, 1024, 'darwin')).toBe(1);
-    expect(defaultMaxConcurrent('test', 16, 1024, 'linux')).toBe(4);
-  });
-
-  it('leaves network-bound tools on the core budget on darwin', () => {
-    expect(defaultMaxConcurrent('audit', 16, 8, 'darwin')).toBe(8);
-    expect(defaultMaxConcurrent('security-scan', 16, 8, 'darwin')).toBe(8);
-  });
-
-  it('gives typecheck and lint a small fixed number on darwin, never more than RAM allows (T13123)', () => {
-    expect(defaultMaxConcurrent('typecheck', 18, 1024, 'darwin')).toBe(2);
-    expect(defaultMaxConcurrent('lint', 18, 1024, 'darwin')).toBe(2);
-    expect(defaultMaxConcurrent('typecheck', 4, 8, 'darwin')).toBe(1);
-  });
-
-  it('still honours CLEO_TOOL_CONCURRENCY_TEST on darwin', () => {
-    process.env.CLEO_TOOL_CONCURRENCY_TEST = '3';
-    expect(resolveMaxConcurrent('test', 16, 1024, 'darwin')).toBe(3);
-  });
-
-  it('blocks a second darwin test run while the first holds the only slot', async () => {
-    const opts = {
-      platform: 'darwin' as const,
-      cpuCount: 16,
-      totalRamGib: 1024,
-      skipGovernor: true,
-    };
-    const first = await acquireGlobalSlot('test', opts);
-    try {
-      await expect(
-        acquireGlobalSlot('test', { ...opts, pollMs: 10, timeoutMs: 100 }),
-      ).rejects.toThrow(/Timed out/);
-    } finally {
-      await first();
-    }
-    const again = await acquireGlobalSlot('test', { ...opts, timeoutMs: 500 });
-    await again();
-  });
-});
-
-describe('governor admission on the heavy slot (T12963)', () => {
-  it('maps heavy tools to governor classes and the rest to none', () => {
-    expect(governorClassFor('test')).toBe('test-run');
-    expect(governorClassFor('build')).toBe('scoped-build');
-    // T13123: no governor class of their own; the tool semaphore bounds them.
-    expect(governorClassFor('typecheck')).toBeNull();
-    expect(governorClassFor('lint')).toBeNull();
-    expect(governorClassFor('audit')).toBeNull();
-  });
-
-  it('holds one test-run slot while the tool slot is held and frees it on release', async () => {
-    const s = sample(64); // governor budget: min(⌊62/24⌋=2, ⌊16/4⌋=4) = 2
-    const budget = { cpuCount: 16, sample: s };
-    expect(await governor.available('test-run', budget)).toBe(2);
-
-    const release = await acquireGlobalSlot('test', {
-      platform: 'linux',
-      cpuCount: 16,
-      totalRamGib: 1024,
-      pressureSample: s,
+describe('one ledger for evidence runs and governor classes (T13133)', () => {
+  it('a cleo run admission (governor class) and an evidence run wait for each other', async () => {
+    scriptPressure([0]);
+    // Two heavy runs fill the budget (each plans half of it, T13132).
+    const job = await governor.acquire('test-run', { totalMemBytes: 48 * GIB, blocking: false });
+    const job2 = await governor.acquire('scoped-build', {
+      totalMemBytes: 48 * GIB,
+      blocking: false,
     });
-    expect(await governor.available('test-run', budget)).toBe(1);
-
+    expect(job.deferred).toBe(false);
+    expect(job2.deferred).toBe(false);
+    try {
+      await expect(acquireGlobalSlot('test', { ...MACHINE, timeoutMs: 60 })).rejects.toThrow(
+        /class:test-run pid \d+/,
+      );
+    } finally {
+      if (!job.deferred) await job.release();
+      if (!job2.deferred) await job2.release();
+    }
+    const release = await acquireGlobalSlot('test', { ...MACHINE, timeoutMs: 1_000 });
+    const release2 = await acquireGlobalSlot('build', { ...MACHINE, timeoutMs: 1_000 });
+    const blocked = await governor.acquire('scoped-build', {
+      totalMemBytes: 48 * GIB,
+      blocking: false,
+    });
+    expect(blocked.deferred).toBe(true);
     await release();
-    expect(await governor.available('test-run', budget)).toBe(2);
+    await release2();
   });
 
-  it('a build run takes the scoped-build class, not test-run', async () => {
-    const s = sample(64);
-    const release = await acquireGlobalSlot('build', {
-      platform: 'linux',
-      cpuCount: 16,
-      totalRamGib: 1024,
-      pressureSample: s,
-    });
-    try {
-      expect(await governor.available('scoped-build', { cpuCount: 16, sample: s })).toBe(1);
-      expect(await governor.available('test-run', { cpuCount: 16, sample: s })).toBe(2);
-    } finally {
-      await release();
-    }
-  });
-
-  it('gives back the tool slot when the governor budget is exhausted', async () => {
-    const s = sample(26); // governor budget: ⌊24/24⌋ = 1
-    const held = await governor.acquire('test-run', { cpuCount: 16, sample: s });
-    expect(held.deferred).toBe(false);
-    try {
-      await expect(
-        acquireGlobalSlot('test', {
-          platform: 'linux',
-          cpuCount: 16,
-          totalRamGib: 1024,
-          pressureSample: s,
-          pollMs: 10,
-          timeoutMs: 150,
-        }),
-      ).rejects.toThrow(/test-run/);
-      // The tool slot was released on the way out: a governor-free acquire succeeds.
-      const free = await acquireGlobalSlot('test', {
-        platform: 'darwin',
-        skipGovernor: true,
-        timeoutMs: 200,
-      });
-      await free();
-    } finally {
-      if (!held.deferred) await held.release();
-    }
-  });
-
-  it('skips the governor under an explicit CLEO_TOOL_CONCURRENCY_TEST override', async () => {
-    process.env.CLEO_TOOL_CONCURRENCY_TEST = '2';
-    const s = sample(26); // governor budget 1 — the override must not be capped by it
-    const a = await acquireGlobalSlot('test', { pressureSample: s, cpuCount: 16, timeoutMs: 500 });
-    const b = await acquireGlobalSlot('test', { pressureSample: s, cpuCount: 16, timeoutMs: 500 });
-    expect(await governor.available('test-run', { cpuCount: 16, sample: s })).toBe(1);
+  it('no darwin one-slot rule: a machine with room admits two heavy runs', async () => {
+    scriptPressure([0]);
+    const a = await acquireGlobalSlot('test', { totalRamGib: 256, pollMs: 5 });
+    const b = await acquireGlobalSlot('build', { totalRamGib: 256, pollMs: 5, timeoutMs: 1_000 });
+    expect(readLedger().filter((e) => e.state === 'admitted')).toHaveLength(2);
     await a();
     await b();
   });
-
-  it('takes no governor slot for light or single-process tools', async () => {
-    const s = sample(26);
-    for (const tool of ['lint', 'typecheck', 'audit'] as const) {
-      const release = await acquireGlobalSlot(tool, { cpuCount: 16, pressureSample: s });
-      try {
-        expect(await governor.available('test-run', { cpuCount: 16, sample: s })).toBe(1);
-        expect(await governor.available('scoped-build', { cpuCount: 16, sample: s })).toBe(1);
-      } finally {
-        await release();
-      }
-    }
-  });
-
-  it('a typecheck slot is sized from the heap the run gets (T13123)', async () => {
-    // 64 GiB Linux box, 16 cores: ⌊32768 / (24576 + 2048)⌋ = 1 slot at a 24 GiB heap.
-    const opts = {
-      platform: 'linux' as const,
-      cpuCount: 16,
-      totalRamGib: 64,
-      pressureSample: sample(64),
-      heapMb: 24576,
-    };
-    const first = await acquireGlobalSlot('typecheck', opts);
-    try {
-      await expect(
-        acquireGlobalSlot('typecheck', { ...opts, pollMs: 10, timeoutMs: 100 }),
-      ).rejects.toThrow(/Timed out/);
-    } finally {
-      await first();
-    }
-  });
 });
 
-describe('a killed heavy run frees both slots (T12963)', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('reaps the dead holder of the tool slot AND the test-run slot', async () => {
-    // What a SIGKILLed `cleo verify tool:test` leaves behind on darwin: the only
-    // tool slot and the only test-run slot, both held by a pid that is gone.
-    // process.kill is stubbed: the planted pid answers ESRCH, this process
-    // answers alive, and the real process.kill is never reached.
-    const exited = 4_000_001;
-    vi.spyOn(process, 'kill').mockImplementation((pid: number, signal?: string | number) => {
-      if (signal !== 0) throw new Error(`test sent signal ${String(signal)} to ${pid}`);
-      if (pid === process.pid) return true;
-      const err: NodeJS.ErrnoException = new Error('kill ESRCH');
-      err.code = 'ESRCH';
-      throw err;
-    });
-
-    const toolDir = semaphoreDir('test');
-    mkdirSync(toolDir, { recursive: true });
-    const toolSlot = join(toolDir, 'slot-0.lock');
-    mkdirSync(`${toolSlot}.lock`);
-    writeFileSync(
-      `${toolSlot}.holder.json`,
-      JSON.stringify({
-        pid: exited,
-        host: hostname(),
-        acquiredAt: new Date().toISOString(),
-        canonical: 'test',
-        slot: toolSlot,
-        startedAt: null,
-        lockId: currentLockId(toolSlot),
-      }),
+describe('a run nested in an admitted run rides it (T13133)', () => {
+  it("an evidence run under our parent's admission is admitted at once, with no entry of its own", async () => {
+    scriptPressure([0]);
+    // Our parent process holds the whole budget (as a cleo run job would).
+    const parentStart = systemPidProbe.startedAt(process.ppid);
+    const outer = await admit(
+      { label: 'run:test-run', footprintBytes: 99 * GIB, command: 'cleo run -- cleo verify' },
+      {
+        wait: false,
+        pid: process.ppid,
+        capacityBytes: admissionCapacityBytes(48 * GIB),
+        facts: { ancestorsOf: () => [], groupOf: () => null, startedAt: () => parentStart },
+        env: {},
+      },
     );
-
-    const govDir = governorSlotDir('test-run');
-    mkdirSync(govDir, { recursive: true });
-    const govSlot = join(govDir, 'slot-0.lock');
-    mkdirSync(`${govSlot}.lock`);
-    writeGovernorHolder(govSlot, {
-      pid: exited,
-      startedAt: null,
-      host: hostname(),
-      cls: 'test-run',
-      acquiredAtMs: Date.now(),
-    });
-
-    const started = Date.now();
-    const release = await acquireGlobalSlot('test', {
-      platform: 'darwin',
-      cpuCount: 16,
-      totalRamGib: 1024,
-      pressureSample: sample(26), // governor budget: ⌊24/24⌋ = 1
-      pollMs: 10,
-      timeoutMs: 5_000,
-    });
-    try {
-      expect(Date.now() - started).toBeLessThan(5_000);
-      expect(await governor.available('test-run', { cpuCount: 16, sample: sample(26) })).toBe(0);
-    } finally {
-      await release();
-    }
-    expect(await governor.available('test-run', { cpuCount: 16, sample: sample(26) })).toBe(1);
-  });
-});
-
-describe('a probe makes at least one pass (T13127)', () => {
-  it('timeoutMs 0 still takes a free slot: the loop tries before it checks the clock', async () => {
-    // Deterministic: with a zero budget the deadline has passed before the
-    // first pass, so a loop that checks the clock first never tries at all.
-    const release = await acquireGlobalSlot('test', {
-      platform: 'darwin',
-      skipGovernor: true,
-      pressureSample: null,
-      timeoutMs: 0,
-    });
+    if (!outer.admitted) throw new Error('expected the planted holder to be admitted');
+    process.env[ADMISSION_ENV] = outer.grant.token;
+    const release = await acquireGlobalSlot('test', { ...MACHINE, timeoutMs: 1_000 });
+    expect(release.admission).toBe(outer.grant.token);
+    expect(readLedger()).toHaveLength(1);
     await release();
   });
 
-  it('timeoutMs 0 on a held slot gives up after that one pass, naming the holder', async () => {
-    const held = await acquireGlobalSlot('test', {
-      platform: 'darwin',
-      skipGovernor: true,
-      timeoutMs: 200,
+  it('a forged token (not a descendant of its holder) grants nothing', async () => {
+    scriptPressure([0]);
+    const outer = await admit(
+      { label: 'run:test-run', footprintBytes: 99 * GIB },
+      {
+        wait: false,
+        pid: 4_000_003,
+        capacityBytes: admissionCapacityBytes(48 * GIB),
+        facts: { ancestorsOf: () => [], groupOf: () => null, startedAt: () => null },
+        env: {},
+        probe: { liveness: () => 'alive', startedAt: () => null, groupLiveness: () => 'gone' },
+      },
+    );
+    if (!outer.admitted) throw new Error('expected the planted holder to be admitted');
+    process.env[ADMISSION_ENV] = outer.grant.token;
+    vi.spyOn(process, 'kill').mockImplementation((pid: number, signal?: string | number) => {
+      if (signal !== 0) throw new Error(`test sent signal ${String(signal)} to ${pid}`);
+      return true; // every holder alive: the planted one keeps the budget
     });
-    try {
-      await expect(
-        acquireGlobalSlot('test', {
-          platform: 'darwin',
-          skipGovernor: true,
-          pressureSample: null,
-          timeoutMs: 0,
-        }),
-      ).rejects.toThrow(
-        /Timed out after 0ms waiting for a free 'test' tool slot \(max 1 concurrent\)\. Current holders/,
-      );
-    } finally {
-      await held();
-    }
+    await expect(acquireGlobalSlot('test', { ...MACHINE, timeoutMs: 60 })).rejects.toThrow(
+      /Timed out/,
+    );
+  });
+});
+
+describe('evidence runs wait out memory pressure (T13127)', () => {
+  it('a test run waits, saying so with the readings, and starts when pressure falls', async () => {
+    scriptPressure([40, 40, 30, 20, 10]);
+    const lines: string[] = [];
+    const release = await acquireGlobalSlot('test', {
+      ...MACHINE,
+      timeoutMs: 20_000,
+      notice: (l) => lines.push(l),
+    });
+    await release();
+    expect(lines[0]).toMatch(
+      /^waiting: memory pressure 40 \(refused above 25, resumes at 15 or below\): /,
+    );
+    expect(lines[0]).toContain("The 'test' run starts when pressure falls");
+    expect(lines.at(-1)).toMatch(
+      /^memory pressure fell after waiting \d+s: admitting the 'test' run\.$/,
+    );
+  }, 30_000);
+
+  it('a test run under lasting pressure gives up with the readings, holding nothing', async () => {
+    scriptPressure([50]);
+    await expect(
+      acquireGlobalSlot('test', { ...MACHINE, timeoutMs: 80, notice: () => {} }),
+    ).rejects.toThrow(
+      /admission of a 'test' run: memory pressure 50 \(refused above 25, resumes at 15 or below\): memory PSI some avg10 50\.0%/,
+    );
+    expect(readLedger()).toEqual([]);
+  });
+
+  it('typecheck and lint are refused by the gate as well: everything in the ledger is heavy work', async () => {
+    scriptPressure([50]);
+    await expect(
+      acquireGlobalSlot('typecheck', { ...MACHINE, timeoutMs: 60, notice: () => {} }),
+    ).rejects.toThrow(/memory pressure 50/);
+  });
+
+  it('a 1 ms probe still takes a free share after a slow sample (listVitestProjects)', async () => {
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      return sampleAt(0);
+    });
+    const release = await acquireGlobalSlot('test', {
+      ...MACHINE,
+      footprintBytes: GIB,
+      timeoutMs: 1,
+      pollMs: 1,
+      notice: () => {},
+    });
+    await release();
   });
 });

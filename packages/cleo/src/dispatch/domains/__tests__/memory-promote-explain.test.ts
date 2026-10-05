@@ -78,6 +78,15 @@ vi.mock('@cleocode/core/internal', async () => {
     generateMemoryBridgeContent: (...args: unknown[]) => mockGenerateMemoryBridgeContent(...args),
   };
 });
+vi.mock('@cleocode/core/memory/memory-bridge', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  generateMemoryBridgeContent: (...args: unknown[]) => mockGenerateMemoryBridgeContent(...args),
+}));
+vi.mock('@cleocode/core/store/memory-sqlite', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getBrainDb: (...args: unknown[]) => mockGetBrainDb(...args),
+  getBrainNativeDb: () => mockGetBrainNativeDb(),
+}));
 
 // Mock precompact-flush subpath export (not aliased in vitest.config)
 vi.mock('@cleocode/core/memory/precompact-flush.js', () => ({

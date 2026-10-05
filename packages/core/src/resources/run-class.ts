@@ -625,6 +625,52 @@ export function resolveRunClass(
   return 'scoped-build';
 }
 
+/** A test file path: `foo.test.ts`, `bar.spec.mjs`, `baz.test.tsx`. */
+const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
+
+/**
+ * How many test files a test run names (`vitest run a.test.ts b.test.ts` → 2),
+ * or `null` when it names none (a whole suite, a filter or a script). Such a
+ * run needs at most one worker per file, so `cleo run` plans and charges it
+ * that many and spawns it with that worker cap: a single-file run takes one
+ * worker's share of the machine budget, not a whole suite's (T13132). The
+ * value of `--exclude`/`--ignore` is not counted, and a glob makes the count
+ * unknown (`null`). A `--maxWorkers=N` of the command's own still outranks
+ * the cap and the charge.
+ *
+ * @param cls - the run's class; only `test-run` names test files.
+ * @param argv - the command.
+ *
+ * @example
+ * ```ts
+ * namedTestFileCount('test-run', ['pnpm', 'exec', 'vitest', 'run', 'src/a.test.ts']); // 1
+ * namedTestFileCount('test-run', ['pnpm', 'test']);                                     // null
+ * ```
+ */
+export function namedTestFileCount(cls: ResourceClass, argv: readonly string[]): number | null {
+  if (cls !== 'test-run') return null;
+  let n = 0;
+  for (let i = 0; i < argv.length; i++) {
+    const w = argv[i] as string;
+    // `--exclude a.test.ts` names a file NOT to run; skip the flag's value.
+    if (EXCLUDE_FLAGS.has(w)) {
+      i++;
+      continue;
+    }
+    // A glob (`src/**/*.test.ts`) may match any number of files.
+    if (w.includes('*')) return null;
+    if (TEST_FILE.test(w)) n++;
+  }
+  return n > 0 ? n : null;
+}
+
+/** Flags whose value names test files to leave out. */
+const EXCLUDE_FLAGS: ReadonlySet<string> = new Set([
+  '--exclude',
+  '--ignore',
+  '--testPathIgnorePatterns',
+]);
+
 /** The `heavyToolEnv` canonical tool a run class sizes its env from. */
 export function canonicalForClass(cls: ResourceClass): CanonicalTool {
   return cls === 'test-run' ? 'test' : 'build';
@@ -663,10 +709,10 @@ function isCleoCommand(t: CommandTarget): boolean {
  * is meant to keep the machine moving.
  *
  * CLEO's own commands are never paused either (#1777 R7-1): `cleo verify
- * --evidence tool:test` holds the tool-semaphore and tool-cache locks and
- * spawns its heavy tool DETACHED, out of the paused group. A pause would
- * freeze only the lock holder while the test keeps running; its locks stop
- * refreshing, go stale and are taken, and it crashes on resume.
+ * --evidence tool:test` holds the tool-cache lock and spawns its heavy tool
+ * DETACHED, out of the paused group. A pause would freeze only the lock
+ * holder while the test keeps running; its lock stops refreshing, goes stale
+ * and is taken, and it crashes on resume.
  */
 export function isPausable(cls: ResourceClass, argv: readonly string[]): boolean {
   if (cls === 'db-heavy') return false;

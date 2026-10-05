@@ -5,13 +5,18 @@
  *
  * Lifecycle:
  *
- * 1. **Admission.** First, orphans of dead runners are reaped. A run nested
- *    inside a running job's process group runs on that job's slot. Otherwise
- *    admission is non-blocking by default: a denied admission (or anyone
- *    already waiting) returns a `deferred` result, with nothing started. With
- *    `wait`, the job takes a ticket in the class's FIFO queue before its
- *    first try; only the head of the queue tries to acquire, re-sampling
- *    pressure each time, until admitted or `timeoutMs`.
+ * 1. **Admission.** First, orphans of dead runners are reaped. Test, build
+ *    and full-build jobs are admitted by the admission ledger (T13133): one
+ *    byte budget and one FIFO queue shared with every evidence run on the
+ *    machine. Nested in an admitted run's process tree (a `cleo run` under a
+ *    `cleo run` or a `cleo verify`), a job rides that admission. Admission is
+ *    non-blocking by default: a refused job returns a `deferred` result, with
+ *    nothing started. With `wait`, it waits in the queue until admitted or
+ *    `timeoutMs`; while the memory gate refuses heavy work (T13127) it warns
+ *    "waiting: memory pressure" with the readings (at most once a minute),
+ *    after a minute it names the holders and any suspected wait cycle, and it
+ *    warns again when pressure falls. Other classes (db-heavy) keep their
+ *    governor slot.
  * 2. **Run.** The command is spawned as its own process group (so a pause or
  *    a cancel reaches its workers too), niced, with the caller's env. The job
  *    is recorded in the registry with its start times and a heartbeat. Its
@@ -32,24 +37,37 @@
  * @task T12979
  * @task T12980
  * @task T12981
+ * @task T13127
+ * @task T13133
  * @epic T12978
  */
 
 import { spawn as nodeSpawn } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import { setPriority } from 'node:os';
-import type { AdmissionResult, ResourceClass } from '@cleocode/contracts';
-import { DEFAULT_RESOURCE_RETRY_AFTER_MS } from '@cleocode/contracts/resource-governor.js';
+import type { AdmissionResult, MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
+import {
+  ADMISSION_ENV,
+  type AdmissionOutcome,
+  type AdmissionRequest,
+  type AdmissionScope,
+  type AdmitOptions,
+  admit,
+  describeAdmissionIoError,
+  footprintForClass,
+  isLedgerClass,
+  type LedgerEntry,
+  readLedger,
+} from './admission-ledger.js';
 import type { ResourceSample } from './backend.js';
-import { admitFailOpen, type GovernorIoError, governor, passThroughGrant } from './governor.js';
+import { admitFailOpen, type GovernorIoError, governor } from './governor.js';
 import { classifyPressure, type PressureState, pressureScore, ResourceMonitor } from './monitor.js';
+import { memoryGateReporter } from './pressure-gate.js';
 import {
   buildRunDeferral,
   decidePause,
   isPausable,
-  listQueueTickets,
   listRunJobs,
-  listVerifyHolders,
   parentRunJob,
   processAncestors,
   processGroupOf,
@@ -59,14 +77,11 @@ import {
   type RunJob,
   reapOrphans,
   redactCommand,
-  removeQueueTicket,
   removeRunJob,
   runJobsDir,
   runningEntries,
-  runQueueDir,
   signalGroup,
   signalPid,
-  writeQueueTicket,
   writeRunJob,
 } from './run-admission.js';
 import { trackToolGroup } from './tool-groups.js';
@@ -90,6 +105,9 @@ export type RunNoticeLevel = 'info' | 'warn';
 /** Injectable effects. Defaults are the real process, governor and clock. */
 export interface RunGovernedDeps {
   readonly sample: () => Promise<ResourceSample>;
+  /** Admission for a ledger class (test, build, full-build): the admission ledger. */
+  readonly admit: (req: AdmissionRequest, opts: AdmitOptions) => Promise<AdmissionOutcome>;
+  /** Admission for any other class (db-heavy): a governor slot. */
   readonly tryAcquire: (cls: ResourceClass, sample: ResourceSample) => Promise<AdmissionResult>;
   /**
    * Start the child. `passthrough`: it gets the runner's stdin, stdout and
@@ -115,8 +133,8 @@ export interface RunGovernedDeps {
   /** Install runner signal forwarding; returns an uninstall function. */
   readonly onRunnerSignal: (handler: (signal: NodeJS.Signals) => void) => () => void;
   readonly jobsDir: string;
-  readonly queueDir: (cls: ResourceClass) => string;
-  readonly verifyHolders: () => ReturnType<typeof listVerifyHolders>;
+  /** The admission ledger's entries (for the `running[]` of a deferral). */
+  readonly ledger: () => readonly LedgerEntry[];
   readonly pid: number;
   /** Process group of a pid (`ps -o pgid=`), or null when unknown. */
   readonly groupOf: (pid: number) => number | null;
@@ -156,6 +174,13 @@ export interface RunGovernedOptions {
   readonly foreground?: boolean;
   /** One-line notices (stderr in the CLI); see {@link RunNoticeLevel}. */
   readonly notice?: (line: string, level: RunNoticeLevel) => void;
+  /**
+   * Bytes to ask the ledger for: what the planned env lets the child start
+   * (`planFootprintBytes`, T13132). @defaultValue the class's default footprint
+   */
+  readonly footprintBytes?: number;
+  /** How much of the project the run covers, for status (T13132). */
+  readonly scope?: AdmissionScope;
   readonly deps?: Partial<RunGovernedDeps>;
 }
 
@@ -188,6 +213,17 @@ export type RunGovernedResult =
       readonly ungoverned: GovernorIoError | null;
     };
 
+/** What admission handed the run: how to give it back, and what to tell the child. */
+interface RunAdmission {
+  readonly release: () => Promise<void>;
+  /** The slot index (governor classes), `0` for a ledger share, `-1` when riding another's. */
+  readonly slot: number;
+  /** The `CLEO_ADMISSION` value for the child, or `''`. */
+  readonly token: string;
+  /** Whether this run holds a share or slot of its own (not riding an enclosing one). */
+  readonly holdsShare: boolean;
+}
+
 // The classifier moved to the governor, which every admission shares (R8-1).
 export { governorIoError } from './governor.js';
 
@@ -195,6 +231,7 @@ function defaultDeps(): RunGovernedDeps {
   const monitor = new ResourceMonitor();
   return {
     sample: () => monitor.sample(),
+    admit,
     tryAcquire: (cls, sample) => governor.tryAcquire(cls, { sample }),
     spawn: (file, args, opts) =>
       nodeSpawn(file, [...args], {
@@ -241,8 +278,7 @@ function defaultDeps(): RunGovernedDeps {
       };
     },
     jobsDir: runJobsDir(),
-    queueDir: (cls) => runQueueDir(cls),
-    verifyHolders: () => listVerifyHolders(),
+    ledger: () => readLedger(),
     pid: process.pid,
     groupOf: processGroupOf,
     ancestorsOf: processAncestors,
@@ -261,6 +297,7 @@ async function deferral(
   retryAfterMs: number,
   sample: ResourceSample,
   queuePosition: number | null,
+  memoryPressure: MemoryPressureReading | null = null,
 ): Promise<RunGovernedResult> {
   const pressure = classifyPressure(sample);
   const built = buildRunDeferral({
@@ -269,13 +306,14 @@ async function deferral(
     reason,
     retryAfterMs,
     queuePosition,
+    memoryPressure,
     pressure: {
       state: pressure.state,
       score: Number(pressureScore(sample).toFixed(1)),
       reason: pressure.reason,
       memAvailableBytes: sample.memAvailableBytes,
     },
-    running: runningEntries(listRunJobs(d.jobsDir, probesOf(d)), d.verifyHolders()),
+    running: runningEntries(listRunJobs(d.jobsDir, probesOf(d)), d.ledger()),
   });
   return { kind: 'deferred', reason, ...built };
 }
@@ -309,104 +347,110 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     ancestorsOf: d.ancestorsOf,
   });
   const nested = enclosing !== null;
-  const parent = enclosing !== null && enclosing.class === opts.cls ? enclosing : null;
-  if (enclosing && !parent) {
-    notice(
-      `nested in a running ${enclosing.class} job (${enclosing.command}): admitted on its own ${opts.cls} slot, inside that job's process group`,
-      'info',
-    );
-  }
-  // Fail open (#1781 review, HIGH): when the governor cannot write its slot locks (Codex's
+  // Fail open (#1781 review, HIGH): when admission state cannot be written (Codex's
   // workspace-write sandbox, Claude Code's sandboxed Bash, a read-only CLEO home), run the command
   // ungoverned instead of failing a test that would have passed. Only filesystem errors; anything
   // else is a bug and propagates. E_RESOURCE_DEFERRED is unchanged.
   let ungoverned: GovernorIoError | null = null;
-  const tryAcquire = async (s: ResourceSample): Promise<AdmissionResult> => {
-    const r = await admitFailOpen(opts.cls, () => d.tryAcquire(opts.cls, s));
-    if (r.ungoverned !== null) {
-      const io = r.ungoverned;
-      ungoverned = io;
-      notice(
-        `governor state is not writable (${io.code}${io.path ? ` ${io.path}` : ''}): running ungoverned`,
-        'warn',
+  const sayUngoverned = (io: GovernorIoError): void => {
+    ungoverned = io;
+    notice(`${describeAdmissionIoError(io)}: running ungoverned`, 'warn');
+  };
+  const deadline = t0 + (opts.timeoutMs ?? 30 * 60_000);
+  let admission: RunAdmission;
+  if (isLedgerClass(opts.cls)) {
+    // T13133: one budget and one FIFO queue for every heavy run. Nested in an
+    // admitted run's process tree (any class), it rides that admission; a
+    // memory-pressure wait and, after a minute, the holders are warnings, so
+    // --passthrough shows them.
+    const out = await d.admit(
+      {
+        label: `run:${opts.cls}`,
+        footprintBytes: opts.footprintBytes ?? footprintForClass(opts.cls),
+        ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+        command,
+        cwd: opts.cwd,
+      },
+      {
+        wait: opts.wait === true,
+        timeoutMs: Math.max(1, deadline - d.now()),
+        ...(opts.queuePollMs !== undefined ? { pollMs: opts.queuePollMs } : {}),
+        memoryPressure: memoryGateReporter((line) => notice(line, 'warn'), `${opts.cls} job`, {
+          now: d.now,
+        }),
+        notice: (line) => notice(line, 'warn'),
+        now: d.now,
+        sleep: (ms) => d.sleep(ms),
+      },
+    );
+    if (!out.admitted) {
+      const { refusal } = out;
+      return deferral(
+        opts,
+        d,
+        opts.wait
+          ? `timed out after ${Math.round((d.now() - t0) / 1000)}s waiting for the machine budget (position ${refusal.ahead + 1}): ${refusal.reason}`
+          : refusal.reason,
+        refusal.retryAfterMs,
+        sample,
+        opts.wait ? refusal.ahead + 1 : null,
+        refusal.memoryPressure,
       );
     }
-    return r.admission;
-  };
-  let admission: AdmissionResult;
-  if (parent) {
-    admission = passThroughGrant(opts.cls);
-    notice(
-      `nested in a running ${parent.class} job (${parent.command}): running on its slot`,
-      'info',
-    );
+    const { grant } = out;
+    if (grant.ungoverned) sayUngoverned(grant.ungoverned);
+    if (grant.nested) {
+      notice('nested in an admitted run: riding its admission, inside its process tree', 'info');
+    } else if (grant.waitedMs >= 1_000 && opts.wait) {
+      notice(`admitted after ${Math.round(grant.waitedMs / 1000)}s in the queue`, 'info');
+    }
+    admission = {
+      release: () => grant.release(),
+      slot: grant.id === null ? -1 : 0,
+      token: grant.token,
+      holdsShare: grant.id !== null,
+    };
   } else {
-    const qdir = d.queueDir(opts.cls);
-    const ticketId = `${d.pid}-${t0}`;
-    const ticket = {
-      id: ticketId,
-      pid: d.pid,
-      runnerStart: d.start(d.pid),
-      enqueuedAtMs: t0,
-      heartbeatAtMs: t0,
-      command,
-    };
-    // With --wait the ticket goes in BEFORE the first try (L-1): nobody can
-    // slip in between a denied try and the enqueue.
-    if (opts.wait) writeQueueTicket(ticket, qdir);
-    /** How many tickets are ahead of this job (all of them without --wait). */
-    const ahead = (): number => {
-      const queue = listQueueTickets(qdir, probesOf(d));
-      if (!opts.wait) return queue.length;
-      const at = queue.findIndex((t) => t.id === ticketId);
-      if (at >= 0) return at;
-      writeQueueTicket({ ...ticket, heartbeatAtMs: d.now() }, qdir); // lost: re-enqueue
-      return queue.length;
-    };
-    const queued = (n: number): AdmissionResult => ({
-      deferred: true,
-      class: opts.cls,
-      retryAfterMs: DEFAULT_RESOURCE_RETRY_AFTER_MS,
-      reason: `${n} job(s) ahead in the ${opts.cls} queue`,
-    });
-    try {
-      // No barging (M5): while anyone waits ahead, never try first.
-      let position = ahead();
-      admission = position > 0 ? queued(position) : await tryAcquire(sample);
-      if (admission.deferred && opts.wait) {
-        const deadline = t0 + (opts.timeoutMs ?? 30 * 60_000);
-        while (admission.deferred) {
-          if (d.now() >= deadline) {
-            return await deferral(
-              opts,
-              d,
-              `timed out after ${Math.round((d.now() - t0) / 1000)}s in the ${opts.cls} queue (position ${position + 1}): ${admission.reason}`,
-              admission.retryAfterMs,
-              sample,
-              position + 1,
-            );
-          }
-          await d.sleep(opts.queuePollMs ?? 1000);
-          writeQueueTicket({ ...ticket, heartbeatAtMs: d.now() }, qdir);
-          position = ahead();
-          if (position !== 0) {
-            admission = queued(position);
-            continue; // FIFO: only the head tries.
-          }
-          sample = await d.sample();
-          admission = await tryAcquire(sample);
-        }
-        notice(
-          `admitted after ${Math.round((d.now() - t0) / 1000)}s in the ${opts.cls} queue`,
-          'info',
+    // Classes outside the ledger (db-heavy) keep their governor slots. A run
+    // nested in a job of the SAME class rides its slot (#1777 round 3, M-2).
+    const parent = enclosing !== null && enclosing.class === opts.cls ? enclosing : null;
+    if (parent) {
+      notice(
+        `nested in a running ${parent.class} job (${parent.command}): running on its slot`,
+        'info',
+      );
+      admission = { release: async () => {}, slot: -1, token: '', holdsShare: false };
+    } else {
+      const tryAcquire = async (s: ResourceSample): Promise<AdmissionResult> => {
+        const r = await admitFailOpen(opts.cls, () => d.tryAcquire(opts.cls, s));
+        if (r.ungoverned !== null) sayUngoverned(r.ungoverned);
+        return r.admission;
+      };
+      let result = await tryAcquire(sample);
+      while (result.deferred && opts.wait && d.now() < deadline) {
+        await d.sleep(opts.queuePollMs ?? 1000);
+        sample = await d.sample();
+        result = await tryAcquire(sample);
+      }
+      if (result.deferred) {
+        return deferral(
+          opts,
+          d,
+          result.reason,
+          result.retryAfterMs,
+          sample,
+          null,
+          result.memoryPressure ?? null,
         );
       }
-    } finally {
-      if (opts.wait) removeQueueTicket(ticketId, qdir);
+      const granted = result;
+      admission = {
+        release: () => granted.release(),
+        slot: granted.slot,
+        token: '',
+        holdsShare: true,
+      };
     }
-  }
-  if (admission.deferred) {
-    return deferral(opts, d, admission.reason, admission.retryAfterMs, sample, null);
   }
   const grant = admission;
   const waitedMs = d.now() - t0;
@@ -421,7 +465,13 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   const [file, ...args] = opts.argv as [string, ...string[]];
   // No inherited grant marker (#1777 round 2): every nested `cleo run` is
   // admitted on its own; verify joins the same budgets with #1775 (T12963).
-  const env: NodeJS.ProcessEnv = { ...opts.env, CLEO_RUN_CLASS: opts.cls };
+  // T13133: the child carries the admission token, so a cleo command it runs
+  // rides this job's admission instead of queueing behind it.
+  const env: NodeJS.ProcessEnv = {
+    ...opts.env,
+    CLEO_RUN_CLASS: opts.cls,
+    ...(grant.token ? { [ADMISSION_ENV]: grant.token } : {}),
+  };
 
   let job: RunJob = {
     id: `${d.pid}-${startedAtMs}`,
@@ -438,7 +488,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     pausable,
     heartbeatAtMs: startedAtMs,
     parentJob: enclosing?.id ?? null,
-    holdsSlot: parent === null,
+    holdsSlot: grant.holdsShare,
     leadsGroup,
   };
   writeRunJob(job, d.jobsDir);

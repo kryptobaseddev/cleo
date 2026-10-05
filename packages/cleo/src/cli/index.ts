@@ -591,9 +591,10 @@ async function runMainWithLafsEnvelope(
         ({ cliError } = await exitPath());
       } catch (loadError) {
         // Upgraded mid-run (T13159), or a real load error: no renderer to print
-        // with; say which, and fail.
+        // with; say which, and fail. `return` so the compiler sees this branch
+        // end (settleThenExit exits).
         process.stderr.write(exitPathLoadFailureNotice(loadError, CLI_VERSION));
-        await settleThenExit(1);
+        return await settleThenExit(1);
       }
       // Citty's CLIError extends Error with a string `code` (e.g. 'EARG') and
       // sets `name === 'CLIError'`. Narrow without lying to the type system.

@@ -30,10 +30,11 @@
 
 import { dirname } from 'node:path';
 import type { DbSubstrateAuditResult, DbSubstrateSurveyOptions } from '@cleocode/contracts';
-import { getProjectRoot, pushWarning } from '@cleocode/core';
 import { surveyDbSubstrate, surveyFleetDbSubstrate } from '@cleocode/core/doctor/db-substrate.js';
 import { NexusRegistryReadError } from '@cleocode/core/nexus/registry-errors.js';
 import { listRegistryParentRoots } from '@cleocode/core/nexus/registry-roots.js';
+import { pushWarning } from '@cleocode/core/output';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError, cliOutput } from '../renderers/index.js';

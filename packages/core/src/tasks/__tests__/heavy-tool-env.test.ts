@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  admissionCapacityBytes,
   boundMakeflags,
   defaultHeavyHeapMb,
   defaultSingleProcessHeapMb,
@@ -26,6 +27,8 @@ import {
   MAX_SEMI_SPACE_MB,
   MIN_HEAVY_WORKERS,
   mergeNodeOptions,
+  PER_RUN_BUDGET_SHARE,
+  perRunBudgetShare,
   planHeavyToolEnv,
   WORKSPACE_CONCURRENCY,
   withHeapCeiling,
@@ -33,16 +36,37 @@ import {
 } from '../heavy-tool-env.js';
 
 describe('heavyToolWorkers (T12096)', () => {
-  it('scales with RAM and clamps at both ends', () => {
-    expect(heavyToolWorkers(62)).toBe(MAX_HEAVY_WORKERS); // ⌊62/6⌋=10 → 6
-    expect(heavyToolWorkers(24)).toBe(4);
-    expect(heavyToolWorkers(12)).toBe(2);
-    expect(heavyToolWorkers(4)).toBe(MIN_HEAVY_WORKERS); // ⌊4/6⌋=0 → 1
+  it('plans for half the admission budget and clamps at both ends (T13132)', () => {
+    // 62 GiB: budget 46.5 GiB, half 23.25 → ⌊23.25/6⌋ = 3 (it was 6, the whole budget).
+    expect(heavyToolWorkers(62)).toBe(3);
+    expect(heavyToolWorkers(128)).toBe(MAX_HEAVY_WORKERS); // ⌊48/6⌋ = 8 → 6
+    expect(heavyToolWorkers(24)).toBe(1); // budget 18, half 9 → 1
+    expect(heavyToolWorkers(4)).toBe(MIN_HEAVY_WORKERS);
     expect(heavyToolWorkers(0)).toBe(MIN_HEAVY_WORKERS);
   });
 
-  it('uses GIB_PER_WORKER as the divisor', () => {
-    expect(heavyToolWorkers(GIB_PER_WORKER * 3)).toBe(3);
+  it('a CI runner plans for the whole budget, so CI keeps its parallelism (T13132)', () => {
+    // A 16 GiB GitHub runner: 2 workers, as before T13132; a shared 16 GiB laptop: 1.
+    expect(heavyToolWorkers(16, { GITHUB_ACTIONS: 'true' })).toBe(2);
+    expect(heavyToolWorkers(16, {})).toBe(1);
+    expect(heavyToolWorkers(64, { GITLAB_CI: 'true' })).toBe(MAX_HEAVY_WORKERS);
+    expect(planHeavyToolEnv('test', { GITHUB_ACTIONS: 'true' }, 16).resources?.workers).toBe(2);
+    expect(planHeavyToolEnv('test', {}, 16).resources?.workers).toBe(1);
+    // CI=false is not CI; CLEO_PER_RUN_SHARE overrides both ways.
+    // A bare CI is not trusted: agent harnesses and devcontainers export it (#1865 LOW-2).
+    expect(perRunBudgetShare({ CI: '1' })).toBe(PER_RUN_BUDGET_SHARE);
+    expect(perRunBudgetShare({ GITHUB_ACTIONS: 'false' })).toBe(PER_RUN_BUDGET_SHARE);
+    expect(perRunBudgetShare({ GITHUB_ACTIONS: 'true', CLEO_PER_RUN_SHARE: '0.5' })).toBe(0.5);
+    expect(perRunBudgetShare({ CLEO_PER_RUN_SHARE: '1' })).toBe(1);
+    expect(perRunBudgetShare({ CLEO_PER_RUN_SHARE: '7' })).toBe(PER_RUN_BUDGET_SHARE);
+  });
+
+  it('uses GIB_PER_WORKER as the divisor of half the budget', () => {
+    // 48 GiB: budget 36, half 18.
+    expect(heavyToolWorkers(48)).toBe(Math.floor(18 / GIB_PER_WORKER));
+    expect(heavyToolWorkers(48) * GIB_PER_WORKER).toBeLessThanOrEqual(
+      (admissionCapacityBytes(48 * 1024 ** 3) / 1024 ** 3) * PER_RUN_BUDGET_SHARE,
+    );
   });
 });
 
@@ -73,7 +97,7 @@ describe('heavyToolEnv (T12096)', () => {
     // config capping anything.
     const env = heavyToolEnv('test', {}, 62);
     expect(env.NODE_OPTIONS).toBe(`--max-old-space-size=${HEAVY_TOOL_HEAP_MB}`);
-    expect(env.VITEST_MAX_WORKERS).toBe(String(MAX_HEAVY_WORKERS));
+    expect(env.VITEST_MAX_WORKERS).toBe(String(heavyToolWorkers(62)));
     expect(env.npm_config_workspace_concurrency).toBe(String(WORKSPACE_CONCURRENCY));
   });
 
@@ -111,8 +135,10 @@ describe('heavyToolEnv (T12096)', () => {
       },
       62,
     );
-    expect(env.NODE_OPTIONS).toBe('--max-old-space-size=16384'); // fits the 24 GiB budget
-    expect(env.VITEST_MAX_WORKERS).toBe('1'); // ⌊24576 / 16384⌋
+    // The budget is 3 workers × 4096 = 12288 MiB (T13132): the 16 GiB heap is
+    // clamped to it, and one worker fits.
+    expect(env.NODE_OPTIONS).toBe('--max-old-space-size=12288');
+    expect(env.VITEST_MAX_WORKERS).toBe('1'); // ⌊12288 / 12288⌋
     expect(env.npm_config_workspace_concurrency).toBe(String(WORKSPACE_CONCURRENCY));
 
     const low = heavyToolEnv('test', { VITEST_MAX_WORKERS: '2' }, 62);
@@ -135,9 +161,10 @@ describe('heavyToolEnv (T12096)', () => {
 });
 
 describe('heap budget (T13122)', () => {
-  it('leaves the default plan unchanged on 8 GiB and up', () => {
-    expect(heavyRunBudgetMb(64)).toBe(MAX_HEAVY_WORKERS * HEAVY_TOOL_HEAP_MB);
-    expect(heavyRunBudgetMb(16)).toBe(2 * HEAVY_TOOL_HEAP_MB);
+  it('budgets the default heap for half the admission budget (T13132)', () => {
+    expect(heavyRunBudgetMb(64)).toBe(4 * HEAVY_TOOL_HEAP_MB);
+    expect(heavyRunBudgetMb(128)).toBe(MAX_HEAVY_WORKERS * HEAVY_TOOL_HEAP_MB);
+    expect(heavyRunBudgetMb(16)).toBe(HEAVY_TOOL_HEAP_MB);
     expect(heavyRunBudgetMb(8)).toBe(HEAVY_TOOL_HEAP_MB);
     expect(defaultHeavyHeapMb(8)).toBe(HEAVY_TOOL_HEAP_MB);
   });
@@ -191,14 +218,15 @@ describe('planHeavyToolEnv (T13122)', () => {
       { NODE_OPTIONS: '--max-old-space-size=8192' },
       48,
     );
+    // Half the 36 GiB budget is 3 × 4096 = 12288 MiB: one 8 GiB worker fits.
     expect(resources?.heapMb).toBe(8192);
     expect(resources?.heapSource).toBe('inherited');
-    expect(resources?.workers).toBe(3);
-    expect(overlay.VITEST_MAX_WORKERS).toBe('3');
+    expect(resources?.workers).toBe(1);
+    expect(overlay.VITEST_MAX_WORKERS).toBe('1');
     expect(overlay.NODE_OPTIONS).toBe('--max-old-space-size=8192');
     expect(product(resources!)).toBeLessThanOrEqual(resources!.budgetMb);
     expect(resources?.summary).toContain('heap 8192 MiB (inherited NODE_OPTIONS)');
-    expect(resources?.summary).toContain('3 worker(s)');
+    expect(resources?.summary).toContain('1 worker(s)');
   });
 
   it('clamps an inherited heap above the budget, and says so (8 GiB laptop)', () => {
@@ -257,14 +285,24 @@ describe('planHeavyToolEnv (T13122)', () => {
     expect(resources?.clamped).toEqual([]);
   });
 
+  it('maxWorkers narrows the plan and its budget: a run naming one test file gets one worker (T13132)', () => {
+    const { overlay, resources } = planHeavyToolEnv('test', {}, 64, 1);
+    expect(resources?.workers).toBe(1);
+    expect(resources?.budgetMb).toBe(HEAVY_TOOL_HEAP_MB);
+    expect(overlay.VITEST_MAX_WORKERS).toBe('1');
+    // Never above the machine's plan, never below one.
+    expect(planHeavyToolEnv('test', {}, 64, 50).resources?.workers).toBe(4);
+    expect(planHeavyToolEnv('test', {}, 64, 0).resources?.workers).toBe(1);
+  });
+
   it('clamps inherited worker counts above the plan and keeps those within it', () => {
     const { overlay, resources } = planHeavyToolEnv(
       'test',
       { VITEST_MAX_WORKERS: '16', JEST_MAX_WORKERS: '50%', RUST_TEST_THREADS: '2' },
       64,
     );
-    expect(overlay.VITEST_MAX_WORKERS).toBe('6');
-    expect(overlay.JEST_MAX_WORKERS).toBe('6'); // not a count CLEO can bound: replaced
+    expect(overlay.VITEST_MAX_WORKERS).toBe('4'); // the plan on 64 GiB (T13132)
+    expect(overlay.JEST_MAX_WORKERS).toBe('4'); // not a count CLEO can bound: replaced
     expect(overlay.RUST_TEST_THREADS).toBeUndefined();
     expect(resources?.kept).toContain('RUST_TEST_THREADS=2');
     expect(resources?.clamped.map((c) => c.name)).toEqual([
@@ -290,7 +328,7 @@ describe('planHeavyToolEnv (T13122)', () => {
 
     const asked = planHeavyToolEnv('test', { CLEO_HEAVY_WORKSPACE_CONCURRENCY: '2' }, 64);
     expect(asked.resources?.workspaceConcurrency).toBe(2);
-    expect(asked.resources?.workers).toBe(3); // ⌊24576 / (2 × 4096)⌋
+    expect(asked.resources?.workers).toBe(2); // ⌊16384 / (2 × 4096)⌋
     expect(asked.resources?.overBudget).toBe(false);
   });
 
@@ -360,8 +398,8 @@ describe('planHeavyToolEnv (T13122)', () => {
     expect(boundMakeflags('-Ij18', 3)).toBeNull();
     expect(boundMakeflags('-Cj', 3)).toBeNull();
     const { overlay, resources } = planHeavyToolEnv('test', { MAKEFLAGS: '-j18' }, 64);
-    expect(overlay.MAKEFLAGS).toBe('-j6');
-    expect(resources?.clamped).toContainEqual({ name: 'MAKEFLAGS', from: '-j18', to: '-j6' });
+    expect(overlay.MAKEFLAGS).toBe('-j4');
+    expect(resources?.clamped).toContainEqual({ name: 'MAKEFLAGS', from: '-j18', to: '-j4' });
   });
 
   it('bounds a dash spelling of the workspace variable too (review NIT)', () => {

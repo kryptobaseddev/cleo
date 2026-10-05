@@ -28,11 +28,12 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, matchesGlob, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { isCiDocumentPath, readCiSatisfies } from '../release/ci-evidence.js';
+import { LIGHT_FOOTPRINT_BYTES } from '../resources/admission-ledger.js';
 import type { MergeVerdict } from './affected-scope.js';
 import { type AffectedTemplate, resolveAffectedTemplate } from './affected-template.js';
 import { splitCommandLine } from './command-line.js';
 import { parseRawProjectContext, type ResolvedToolCommand } from './tool-resolver.js';
-import { acquireGlobalSlot, type ReleaseSlotFn } from './tool-semaphore.js';
+import { AdmissionTimeoutError, acquireGlobalSlot, type ReleaseSlotFn } from './tool-semaphore.js';
 
 /**
  * A path with `/` separators. `path.relative` and Windows callers produce `\`,
@@ -207,21 +208,28 @@ export type VitestProjectsResult =
   | {
       ok: false;
       reason: string;
-      /** The `test` slot was busy and the caller would not wait (T12656 review). */
+      /** Admission refused it now and the caller would not wait (T12656 review, T13133). */
       busy?: true;
     };
 
-/** The report a caller that will not wait gets while the `test` slot is held. */
-export const TEST_SLOT_BUSY = 'scope pending: test slot busy';
+/**
+ * The report a caller that will not wait gets while the machine budget is in
+ * use (T13133: the admission ledger replaced the `test` slot).
+ */
+export const TEST_SLOT_BUSY = 'scope pending: the machine budget is in use';
+
+/** The report a caller that will not wait gets while memory pressure refuses heavy work. */
+export const MEMORY_PRESSURE_BUSY = 'scope pending: memory pressure';
 
 /** Options for {@link listVitestProjects}. */
 export interface ListVitestProjectsOptions {
-  /** Heavy-tool slot acquisition (tests inject; defaults to the global `test` semaphore). */
+  /** Admission (tests inject; defaults to the admission ledger as a light `test` run). */
   acquireSlot?: (canonical: 'test') => Promise<ReleaseSlotFn>;
   /**
-   * Queue for the `test` slot (true: `cleo done`, about to run tests anyway),
-   * or take it only if free now (false: `--plan`, which never waits — a held
-   * slot reports {@link TEST_SLOT_BUSY}). Default false.
+   * Queue for admission (true: `cleo done`, about to run tests anyway), or
+   * take it only if admitted now (false: `--plan`, which never waits — a
+   * refusal reports {@link TEST_SLOT_BUSY} or {@link MEMORY_PRESSURE_BUSY}).
+   * Default false.
    */
   wait?: boolean;
 }
@@ -259,9 +267,10 @@ function treeStateKey(root: string): string | null {
  * unnamed projects and every future config shape are named exactly as
  * `--project` will match them. No config parsing happens here.
  *
- * The child runs asynchronously under the heavy-tool `test` semaphore (loading
- * a workspace's configs is test tooling), and results are memoized per tree
- * state, so `cleo done` planning and recording resolve once (T12657).
+ * The child runs asynchronously under machine-wide admission as a light `test`
+ * run (loading a workspace's configs is test tooling, but one small process),
+ * and results are memoized per tree state, so `cleo done` planning and
+ * recording resolve once (T12657, T13133).
  *
  * @param root - Workspace root.
  * @param opts - Slot acquisition override.
@@ -276,11 +285,19 @@ export function listVitestProjects(
   const key = treeStateKey(root);
   const hit = key === null ? undefined : vitestProjectsMemo.get(key);
   if (hit) return hit;
+  // Loading a workspace's vitest configs is one small process: it asks the
+  // admission ledger for a light footprint, not a whole test run's (T13133).
   const acquire =
     opts.acquireSlot ??
     (opts.wait === true
-      ? acquireGlobalSlot
-      : (canonical: 'test') => acquireGlobalSlot(canonical, { timeoutMs: 1, pollMs: 1 }));
+      ? (canonical: 'test') =>
+          acquireGlobalSlot(canonical, { footprintBytes: LIGHT_FOOTPRINT_BYTES })
+      : (canonical: 'test') =>
+          acquireGlobalSlot(canonical, {
+            footprintBytes: LIGHT_FOOTPRINT_BYTES,
+            timeoutMs: 1,
+            pollMs: 1,
+          }));
   const pending = resolveVitestProjects(root, acquire);
   if (key !== null) {
     vitestProjectsMemo.set(key, pending);
@@ -308,8 +325,10 @@ async function resolveVitestProjects(
   let release: ReleaseSlotFn;
   try {
     release = await acquireSlot('test');
-  } catch {
-    return { ok: false, busy: true, reason: TEST_SLOT_BUSY };
+  } catch (err) {
+    // Pressure is reported as pressure, not as a busy budget.
+    const pressure = err instanceof AdmissionTimeoutError && err.refusal.memoryPressure !== null;
+    return { ok: false, busy: true, reason: pressure ? MEMORY_PRESSURE_BUSY : TEST_SLOT_BUSY };
   }
   try {
     ({ stdout } = await promisify(execFile)(

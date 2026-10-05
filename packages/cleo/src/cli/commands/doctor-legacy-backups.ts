@@ -18,8 +18,8 @@
  */
 
 import type { LegacyBackupScanResult } from '@cleocode/contracts';
-import { getProjectRoot } from '@cleocode/core';
 import { pruneLegacyBackups, scanLegacyBackups } from '@cleocode/core/doctor/legacy-backups.js';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
 

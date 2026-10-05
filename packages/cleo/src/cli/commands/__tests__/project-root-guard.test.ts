@@ -43,15 +43,16 @@ describe('T9582 — project-root normalization guard', () => {
       const source = readFileSync(abs, 'utf8');
 
       it('imports getProjectRoot from @cleocode/core', () => {
-        // Match `import { ... getProjectRoot ... } from '@cleocode/core(/internal)?'`
+        // Match `import { ... getProjectRoot ... } from '@cleocode/core(/internal|/project-scope)?'`
+        // (T13126: the CLI imports it from its defining module, project-scope).
         // across single-line and multi-line bracket forms. Using [\s\S] (DOTALL
         // shim) handles imports that span many lines (e.g. dispatch/nexus.ts
         // pulls 50+ symbols from @cleocode/core/internal in a multi-line block).
         const pattern =
-          /import\s*\{[\s\S]*?getProjectRoot[\s\S]*?\}\s*from\s*['"]@cleocode\/core(\/internal)?['"]/;
+          /import\s*\{[^}]*\bgetProjectRoot\b[^}]*\}\s*from\s*['"]@cleocode\/core(\/internal|\/project-scope)?['"]/;
         expect(
           pattern.test(source),
-          `expected a multi-line import of getProjectRoot from @cleocode/core(/internal)? in ${relPath}`,
+          `expected an import of getProjectRoot from @cleocode/core(/internal|/project-scope)? in ${relPath}`,
         ).toBe(true);
       });
 

@@ -85,7 +85,8 @@ export function exitPath(): Promise<ExitPath> {
  * @param err - a caught error.
  */
 export function isVanishedModule(err: unknown): boolean {
-  const code = (err as NodeJS.ErrnoException | null)?.code;
+  const code =
+    err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
   return code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND';
 }
 
@@ -126,6 +127,7 @@ export function vanishedModuleNotice(
  * @param err - the load failure.
  * @param runningVersion - the version this process started as.
  * @param packageJsonPath - see {@link vanishedModuleNotice}.
+ * @returns the stderr line(s) to print.
  */
 export function exitPathLoadFailureNotice(
   err: unknown,
@@ -133,7 +135,8 @@ export function exitPathLoadFailureNotice(
   packageJsonPath?: string,
 ): string {
   if (isVanishedModule(err)) return vanishedModuleNotice(err, runningVersion, packageJsonPath);
-  const code = (err as NodeJS.ErrnoException | null)?.code;
+  const code =
+    err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : undefined;
   const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
   return `[cleo] the CLI could not load the code that finishes this command${code ? ` (${code})` : ''}:\n${detail}\n`;
 }
