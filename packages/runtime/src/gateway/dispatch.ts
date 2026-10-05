@@ -13,8 +13,16 @@
 
 export type { DispatcherConfig } from './dispatcher.js';
 export { Dispatcher } from './dispatcher.js';
+export { engineSuccess } from './engine-error.js';
 export { createGatewayHandler, type GatewayHandler } from './gateway-handler.js';
 export { createDispatchMeta } from './meta.js';
+export {
+  buildNexusMetaExtensions,
+  formatSuggestedNext,
+  pickDecoratorMetaExtensions,
+  stampNexusMeta,
+  validateSuggestedNext,
+} from './nexus-decorator.js';
 export { BRAIN_DB_FILENAME, CLEO_DIR_NAME, WORKFLOWS_SUBDIR } from './paths.js';
 export { compose } from './pipeline.js';
 export type { OperationDef, Resolution } from './registry.js';

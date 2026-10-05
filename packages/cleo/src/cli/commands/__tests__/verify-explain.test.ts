@@ -289,12 +289,62 @@ vi.mock('@cleocode/core/internal', async () => {
     validateProtocolProvenance: vi.fn(),
   };
 });
+vi.mock('@cleocode/core/lifecycle/verification/explain', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  checkExplainVerification: (
+    rawData: Parameters<
+      typeof import('@cleocode/core/lifecycle/verification/explain').checkExplainVerification
+    >[0],
+    _projectRoot: string,
+    taskId: string,
+  ) => mockCheckExplainVerification(rawData, _projectRoot, taskId),
+}));
+vi.mock('@cleocode/core/logger', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getLogger: vi.fn(() => ({
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+  })),
+}));
+vi.mock('@cleocode/core/project-scope', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getProjectRoot: vi.fn(() => '/mock/project'),
+}));
+vi.mock('@cleocode/core/tasks/evidence', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  revalidateEvidence: (...args: Parameters<typeof mockRevalidateEvidence>) =>
+    mockRevalidateEvidence(...args),
+}));
+vi.mock('@cleocode/core/validation/engine-ops', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  validateGateVerify: vi.fn(),
+  validateProtocolConsensus: vi.fn(),
+  validateProtocolContribution: vi.fn(),
+  validateProtocolDecomposition: vi.fn(),
+  validateProtocolImplementation: vi.fn(),
+  validateProtocolSpecification: vi.fn(),
+  validateProtocolResearch: vi.fn(),
+  validateProtocolArchitectureDecision: vi.fn(),
+  validateProtocolValidation: vi.fn(),
+  validateProtocolTesting: vi.fn(),
+  validateProtocolRelease: vi.fn(),
+  validateProtocolArtifactPublish: vi.fn(),
+  validateProtocolProvenance: vi.fn(),
+}));
+vi.mock('@cleocode/core/validation/ops', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  checkRevalidateEvidence: (_projectRoot: string, params: { evidence: unknown }) =>
+    mockRevalidateEvidence(params.evidence as never, _projectRoot),
+}));
 
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { validateGateVerify } from '@cleocode/core/internal';
+// The check domain loads validateGateVerify from its defining module (T13126).
+import { validateGateVerify } from '@cleocode/core/validation/engine-ops';
 import { CheckHandler } from '../../../dispatch/domains/check.js';
 import { verifyCommand } from '../verify.js';
 

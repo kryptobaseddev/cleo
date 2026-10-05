@@ -29,4 +29,4 @@ export {
   statusColor,
   statusSymbol,
   YELLOW,
-} from '@cleocode/core';
+} from '@cleocode/core/render/colors';
