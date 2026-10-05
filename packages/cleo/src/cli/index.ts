@@ -52,7 +52,12 @@ import { extractIdempotencyKeyArg, setIdempotencyKeyContext } from './idempotenc
 import { lazyCommand } from './lazy-command.js';
 import { releaseCliThreadpoolEnv } from './lib/cli-threadpool-env.js';
 import { didYouMean } from './lib/did-you-mean.js';
-import { type ExitPath, exitPath, preloadExitPath, vanishedModuleNotice } from './lib/exit-path.js';
+import {
+  type ExitPath,
+  exitPath,
+  exitPathLoadFailureNotice,
+  preloadExitPath,
+} from './lib/exit-path.js';
 import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { isInteractiveInvocation } from './lib/interactive-commands.js';
 import { settleThenExit } from './lib/settle-then-exit.js';
@@ -585,8 +590,9 @@ async function runMainWithLafsEnvelope(
       try {
         ({ cliError } = await exitPath());
       } catch (loadError) {
-        // Upgraded mid-run (T13159): no renderer to print with; say so and fail.
-        process.stderr.write(vanishedModuleNotice(loadError, CLI_VERSION));
+        // Upgraded mid-run (T13159), or a real load error: no renderer to print
+        // with; say which, and fail.
+        process.stderr.write(exitPathLoadFailureNotice(loadError, CLI_VERSION));
         await settleThenExit(1);
       }
       // Citty's CLIError extends Error with a string `code` (e.g. 'EARG') and
@@ -640,8 +646,9 @@ async function runMainWithLafsEnvelope(
       } catch (loadError) {
         // T13159: the command succeeded, but an upgrade removed the teardown
         // code mid-run. Keep the command's exit code; a hard exit releases the
-        // handles the teardown would have closed.
-        process.stderr.write(vanishedModuleNotice(loadError, CLI_VERSION));
+        // handles the teardown would have closed. Any other load error prints
+        // as itself.
+        process.stderr.write(exitPathLoadFailureNotice(loadError, CLI_VERSION));
         process.exit(process.exitCode ?? 0);
       }
       const { shutdownCliRuntime, armExitBackstop, formatShutdownOutcomes } = teardown;

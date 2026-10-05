@@ -116,6 +116,28 @@ export function vanishedModuleNotice(
   return `[cleo] a CLEO module is missing from the installation (${missing}). Reinstall CLEO.\n`;
 }
 
+/**
+ * What to print when the exit path could not be loaded: the upgrade/reinstall
+ * notice only for a module that is genuinely missing ({@link isVanishedModule});
+ * for any other failure (a syntax error, a throwing module initializer) the
+ * real error with its code and stack, so a bug is never disguised as a broken
+ * install (#1878 review).
+ *
+ * @param err - the load failure.
+ * @param runningVersion - the version this process started as.
+ * @param packageJsonPath - see {@link vanishedModuleNotice}.
+ */
+export function exitPathLoadFailureNotice(
+  err: unknown,
+  runningVersion: string,
+  packageJsonPath?: string,
+): string {
+  if (isVanishedModule(err)) return vanishedModuleNotice(err, runningVersion, packageJsonPath);
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+  return `[cleo] the CLI could not load the code that finishes this command${code ? ` (${code})` : ''}:\n${detail}\n`;
+}
+
 function defaultPackageJson(): string {
   return join(dirname(fileURLToPath(import.meta.url)), '../../package.json');
 }
