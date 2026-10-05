@@ -88,11 +88,87 @@ describe('checkUserGlobalClaudeLeftovers (T13221)', () => {
     expect(checkUserGlobalClaudeLeftovers(claudeHome).status).toBe('passed');
   });
 
-  it('a malformed settings file is reported as not checked, never touched', () => {
+  it('a malformed settings file is a warning naming the repair, never touched', () => {
     writeFileSync(settingsPath, '{ not json');
     const r = checkUserGlobalClaudeLeftovers(claudeHome);
-    expect(r.status).toBe('passed');
-    expect(r.message).toContain('not checked');
+    expect(r.status).toBe('warning');
+    expect(r.message).toContain('not valid JSON');
+    expect(r.fix).toContain(`repair the JSON in ${settingsPath}`);
     expect(readFileSync(settingsPath, 'utf-8')).toBe('{ not json');
+  });
+
+  it('a top-level non-object settings file is a warning too', () => {
+    writeFileSync(settingsPath, '[]');
+    expect(checkUserGlobalClaudeLeftovers(claudeHome).status).toBe('warning');
+  });
+
+  it('reports the Stop and PostToolUse cleo-hooks registerNativeHooks wrote, one step per hook object', () => {
+    // The exact commands from packages/adapters/src/providers/claude-code/hooks.ts.
+    const stop = 'cleo session end --quiet # cleo-hook';
+    const observe =
+      'cleo observe "File modified via $TOOL_NAME" --title "tool-use" --quiet # cleo-hook';
+    const nexus =
+      'cleo nexus analyze --incremental --json > /dev/null 2>&1 && cleo observe "NEXUS re-indexed after $TOOL_NAME on $TOOL_INPUT_file_path" --title "nexus-post-check" --quiet # cleo-hook';
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        hooks: {
+          Stop: [{ matcher: '', hooks: [{ type: 'command', command: stop }] }],
+          PostToolUse: [
+            {
+              matcher: 'Write|Edit',
+              hooks: [
+                { type: 'command', command: observe },
+                { type: 'command', command: 'prettier --write "$TOOL_INPUT_file_path"' },
+                { type: 'command', command: nexus },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+
+    const r = checkUserGlobalClaudeLeftovers(claudeHome);
+
+    expect(r.status).toBe('warning');
+    expect(r.message).toContain('3 entries');
+    const found = (r.details as { found: string[] }).found;
+    expect(found).toEqual([
+      `Stop hook ${stop}`,
+      `PostToolUse hook ${observe}`,
+      `PostToolUse hook ${nexus}`,
+    ]);
+    expect(r.fix).toContain('under "hooks.Stop" (matcher "")');
+    expect(r.fix).toContain('under "hooks.PostToolUse" (matcher "Write|Edit")');
+    expect(r.fix).toContain(`remove the one hook object whose command is ${JSON.stringify(nexus)}`);
+    expect(r.fix).toContain('delete the entry if its "hooks" array is left empty');
+    // The user's own hook sharing that entry is not CLEO's and must survive.
+    expect(r.fix).not.toContain('prettier');
+  });
+
+  it('an unmarked safestop counts only as the exact CLEO path, under PreCompact', () => {
+    const exact = join(claudeHome, 'hooks', 'precompact-safestop.sh');
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        hooks: {
+          PreCompact: [
+            {
+              matcher: '',
+              hooks: [
+                { type: 'command', command: `"${exact}"` },
+                { type: 'command', command: '/opt/mine/my-precompact-safestop.sh' },
+                { type: 'command', command: 'echo precompact-safestop.sh' },
+              ],
+            },
+          ],
+          Stop: [{ matcher: '', hooks: [{ type: 'command', command: exact }] }],
+        },
+      }),
+    );
+
+    const found = (checkUserGlobalClaudeLeftovers(claudeHome).details as { found: string[] }).found;
+
+    expect(found).toEqual([`PreCompact hook "${exact}"`]);
   });
 });
