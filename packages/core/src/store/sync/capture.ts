@@ -315,6 +315,20 @@ function undoInsert(
 /**
  * Generate every capture trigger for one table. Pure: the same definition
  * always yields the same text, so the open pass can compare live text.
+ *
+ * The image contract the sealer reads (§2.3):
+ * - I and D: `{col: value}` for every non-NULL captured column
+ *   ({@link fullImage}); a reference is `[localKey, uid]`, a secret
+ *   {@link SECRET_MARKER}.
+ * - U: `{col: [before, after]}` for every changed column. Both slots are
+ *   always present and never JSON null: a value is an `enc()` text (a SQL
+ *   NULL is the text `'NULL'`), a reference a `[localKey, uid]` array, a
+ *   secret the marker.
+ * - The ONE exception is a repair capture (§4.4, T12987;
+ *   {@link repairImageSql}): its before slot is JSON null, meaning "unknown"
+ *   (only the content hash was kept). It is valid only inside a `repair`
+ *   frame; anywhere else the sealer quarantines it.
+ * - K: `{uid: [old, new], birth_fp?: [old, new]}`.
  */
 export function captureTriggers(def: CaptureTableDef): CaptureTrigger[] {
   const t = q(def.table);

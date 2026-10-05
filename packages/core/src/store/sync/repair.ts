@@ -364,6 +364,97 @@ function baselineRows(
   }
 }
 
+/** Set `table`'s sealed-row count in the ledger. */
+function setLedger(db: DatabaseSync, table: string, live: number): void {
+  db.prepare(
+    'INSERT INTO _sync_ledger (tbl, live) VALUES (?, ?) ON CONFLICT (tbl) DO UPDATE SET live = excluded.live',
+  ).run(table, live);
+}
+
+/**
+ * Baseline `rows` and record it, in the caller's transaction: their meta,
+ * the ledger set to `count(*) + held`, and `baseline:<table>` commit (or roll
+ * back, or die with the process) together, so a crash mid-baseline leaves
+ * nothing half-written and the next run starts over.
+ */
+function baselineTable(
+  db: DatabaseSync,
+  scope: TableScope,
+  def: CaptureTableDef,
+  rows: readonly RepairRow[],
+  replica: string,
+  view: SealerRowView,
+  now: number,
+): void {
+  baselineRows(db, scope, def, rows, replica, view, now);
+  const count = (db.prepare(`SELECT count(*) AS n FROM ${q(def.table)}`).get() as { n: number }).n;
+  const held =
+    (
+      db.prepare('SELECT held FROM _sync_ledger WHERE tbl = ?').get(def.table) as
+        | { held: number }
+        | undefined
+    )?.held ?? 0;
+  setLedger(db, def.table, count + held);
+  const at = new Date(now).toISOString();
+  db.prepare(
+    'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
+      'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+  ).run(`${BASELINE_KEY_PREFIX}${def.table}`, at, at);
+}
+
+/**
+ * Baseline one table's row meta (§1.2 "genesis of an existing row"; §1.6
+ * "one live meta row per live sync-set row"): every live row with a uid and
+ * no meta gets meta with its genesis HLC and no op, the ledger is set to
+ * `count(*) + held`, and `baseline:<table>` is recorded, atomically. The
+ * repair diff calls it for a table never baselined; T12342's first-enable
+ * init is meant to call it for every sync-set table, so row meta keeps one
+ * initializer.
+ *
+ * Runs in the caller's transaction when there is one, else in its own
+ * `BEGIN IMMEDIATE`.
+ *
+ * @param db - The store.
+ * @param scope - Its scope.
+ * @param table - A sync-set table with a uid column.
+ * @param replica - The replica the baseline meta names as origin.
+ * @param now - Wall milliseconds (the genesis HLC is clamped to it).
+ * @returns The rows baselined, or null when the table is not in the sync set.
+ */
+export function baselineRowMeta(
+  db: DatabaseSync,
+  scope: TableScope,
+  table: string,
+  replica: string,
+  now: number = Date.now(),
+): number | null {
+  const def = captureTableDef(db, scope, table);
+  if (!def) return null;
+  if (!def.identity.includes(UID_COLUMN)) return null;
+  const run = <T>(fn: () => T): T => (db.isTransaction ? fn() : withImmediateTransaction(db, fn));
+  return run(() => {
+    const view = sealerRowView(db, scope);
+    const known = new Set(
+      (
+        db.prepare('SELECT uid FROM _sync_row_meta WHERE tbl = ?').all(table) as Array<{
+          uid: string;
+        }>
+      ).map((r) => r.uid),
+    );
+    const rows: RepairRow[] = [];
+    for (const r of db
+      .prepare(
+        `SELECT x.${q(UID_COLUMN)} AS uid, ${repairImageSql(def, 'x').rk} AS rk FROM ${q(table)} x`,
+      )
+      .iterate() as Iterable<{ uid: string | null; rk: string }>) {
+      const uid = r.uid ?? view.naturalUid(def, r.rk);
+      if (uid !== null && !known.has(uid)) rows.push({ uid, rk: r.rk });
+    }
+    baselineTable(db, scope, def, rows, replica, view, now);
+    return rows.length;
+  });
+}
+
 function resultOf(
   plan: RepairPlan,
   frame: string | null,
@@ -422,25 +513,10 @@ function verifyAndClear(
     const ledger = db.prepare('SELECT live, held FROM _sync_ledger WHERE tbl = ?').get(table) as
       | { live: number; held: number }
       | undefined;
-    const setLedger = (live: number) =>
-      db
-        .prepare(
-          'INSERT INTO _sync_ledger (tbl, live) VALUES (?, ?) ON CONFLICT (tbl) DO UPDATE SET live = excluded.live',
-        )
-        .run(table, live);
     if (!plan.baselined) {
-      baselineRows(db, scope, def, plan.unbaselined, replica, view, now);
-      setLedger(count + (ledger?.held ?? 0));
-      db.prepare(
-        'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
-          'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-      ).run(
-        `${BASELINE_KEY_PREFIX}${table}`,
-        new Date(now).toISOString(),
-        new Date(now).toISOString(),
-      );
+      baselineTable(db, scope, def, plan.unbaselined, replica, view, now);
     } else if (!ledger) {
-      setLedger(count);
+      setLedger(db, table, count);
     } else if (ledger.live !== count + ledger.held) {
       return `ledger ${ledger.live} differs from count ${count} + held ${ledger.held}`;
     }
