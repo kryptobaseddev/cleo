@@ -530,16 +530,26 @@ function applyRekey(
   return { result: 'applied', conflicts: 0 };
 }
 
-/** Delete a row and, depth-first, its CASCADE sync-set children, each with a tombstone. */
+/**
+ * Delete a row and, depth-first, its CASCADE sync-set children, each with a
+ * tombstone. `seen` stops a reference cycle in the data. Children without a
+ * uid are not listed (`childRows`), so SQLite's own cascade removes them
+ * with no intent; every sync-set row has a uid while row uids are on.
+ */
 function cascadeDelete(
   c: OpContext,
   table: string,
   uid: string,
   h: string,
   actor: string | null,
+  seen: Set<string> = new Set(),
 ): void {
+  if (seen.has(rowKey(table, uid))) return;
+  seen.add(rowKey(table, uid));
   for (const child of c.api.childRows(table, uid)) {
-    if (child.key.onDelete === 'CASCADE') cascadeDelete(c, child.key.child, child.uid, h, actor);
+    if (child.key.onDelete === 'CASCADE') {
+      cascadeDelete(c, child.key.child, child.uid, h, actor, seen);
+    }
   }
   c.api.deleteRow(table, uid);
   clearFieldLeaves(c.db, table, uid);
