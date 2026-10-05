@@ -642,22 +642,27 @@ async function runMigrationDataImport(
 
     // === DEPENDENCIES, once every task (active and archived) exists ===
     insertImportedDependencyEdges(db, pendingEdges, refs, result);
-    // A residual violation would fail COMMIT with a bare constraint error:
-    // name every violating row and its missing parent instead (LOW-2).
-    const violations = native.prepare('PRAGMA foreign_key_check').all() as Array<{
-      table: string;
-      rowid: number | null;
-      parent: string;
-    }>;
-    if (violations.length > 0) {
+    // COMMIT is the real gate: the deferred counter counts only violations
+    // this transaction created, so an orphan already in an existing store
+    // never blocks it. Only when it refuses are the violating rows named
+    // (LOW-2); the catch below rolls back.
+    try {
+      native.exec('COMMIT');
+    } catch (err) {
+      const violations = native.prepare('PRAGMA foreign_key_check').all() as Array<{
+        table: string;
+        rowid: number | null;
+        parent: string;
+      }>;
+      if (violations.length === 0) throw err;
       throw new Error(
         `foreign key violations: ${violations
           .slice(0, 20)
           .map((v) => `${v.table} row ${v.rowid ?? '?'} → missing ${v.parent}`)
           .join('; ')}${violations.length > 20 ? ` (+${violations.length - 20} more)` : ''}`,
+        { cause: err },
       );
     }
-    native.exec('COMMIT');
   } catch (err) {
     if (native.isTransaction) native.exec('ROLLBACK');
     result.errors.push(`Import rolled back: ${String(err)}`);

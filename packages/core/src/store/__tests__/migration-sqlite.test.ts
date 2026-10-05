@@ -192,6 +192,42 @@ describe('JSON to SQLite migration', () => {
     });
   });
 
+  describe('a pre-existing orphan in an existing store (T13259)', () => {
+    it('never blocks a --force re-import: COMMIT, not a whole-store check, is the gate', async () => {
+      const { getDb, getNativeTasksDb } = await import('../sqlite.js');
+      await getDb();
+      const native = getNativeTasksDb();
+      if (!native) throw new Error('fixture: no tasks store handle');
+      // An old build wrote this orphan with foreign keys off.
+      native.exec('PRAGMA foreign_keys = OFF');
+      native.exec(
+        "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('T-OLD-1', 'T-OLD-2')",
+      );
+      native.exec('PRAGMA foreign_keys = ON');
+      expect(native.prepare('PRAGMA foreign_key_check').all().length).toBeGreaterThan(0);
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify({
+          tasks: [
+            {
+              id: 'T001',
+              title: 'new',
+              description: 'new',
+              status: 'pending',
+              priority: 'medium',
+              type: 'task',
+              createdAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      );
+      const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
+      const result = await migrateJsonToSqlite(undefined, { force: true });
+      expect(result.errors).toEqual([]);
+      expect(result.tasksImported).toBe(1);
+    });
+  });
+
   describe('migrateJsonToSqlite', () => {
     it('migrates tasks from todo.json', async () => {
       const todoData = {
