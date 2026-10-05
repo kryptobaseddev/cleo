@@ -166,7 +166,9 @@ export interface RowMetaFromFields {
  * HLC, `fhlc` holds only the older ones, and the version rises by one.
  *
  * The map may be partial when the row already has meta: an absent column
- * keeps the field HLC it had (never silently advanced to the new row HLC).
+ * keeps the field HLC it had (never silently advanced to the new row HLC),
+ * and a named column keeps the newer of its stored and incoming HLC (never
+ * moved back, T13207).
  * A row's first write must name every non-identity column.
  *
  * @returns The row HLC written.
@@ -182,7 +184,13 @@ export function upsertRowMetaFromFields(
   const named = def.columns.filter((c) => !def.identity.includes(c) && w.fieldHlc[c] !== undefined);
   // @sync-invariant none:input-shape a row-meta write needs at least one field HLC; nothing is written
   if (named.length === 0) throw new Error(`row meta for ${w.tbl}/${w.uid}: no field HLC`);
-  for (const c of named) fields[c] = w.fieldHlc[c] as string;
+  // Keep the newer HLC per field (T13207): a field the caller names with an
+  // older HLC than the stored one (a losing remote field) never moves back.
+  for (const c of named) {
+    const incoming = w.fieldHlc[c] as string;
+    const stored = fields[c];
+    fields[c] = stored !== undefined && stored > incoming ? stored : incoming;
+  }
   const missing = def.columns.filter((c) => !def.identity.includes(c) && fields[c] === undefined);
   if (missing.length > 0) {
     // @sync-invariant none:input-shape a row's first meta write must name every field; nothing is written

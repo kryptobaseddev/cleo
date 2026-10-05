@@ -141,6 +141,29 @@ describe('the writer (T13204)', () => {
     expect(fieldHlcsOf(DEF, meta as RowMetaRow)).toEqual({ a: 'h1', b: 'h9', c: 'h3' });
   });
 
+  it('an older incoming field HLC leaves the stored one, and the row hlc, unchanged (T13207)', async () => {
+    const db = await store();
+    upsertRowMetaFromFields(db, DEF, {
+      tbl: 't',
+      uid: 'u',
+      fieldHlc: { a: 'h5', b: 'h2', c: 'h2' },
+      origin: 'r',
+      actor: null,
+      deleted: false,
+    });
+    upsertRowMetaFromFields(db, DEF, {
+      tbl: 't',
+      uid: 'u',
+      fieldHlc: { a: 'h3', b: 'h4' },
+      origin: 'r2',
+      actor: null,
+      deleted: false,
+    });
+    const meta = readRowMeta(db, 't', 'u') as RowMetaRow;
+    expect(meta.hlc).toBe('h5');
+    expect(fieldHlcsOf(DEF, meta)).toEqual({ a: 'h5', b: 'h4', c: 'h2' });
+  });
+
   it("refuses a row's first write that misses a field", async () => {
     const db = await store();
     expect(() =>
