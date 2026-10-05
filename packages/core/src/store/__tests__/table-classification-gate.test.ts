@@ -195,6 +195,8 @@ const SYNC_APPLY_INTENT_DDL =
   'packages/core/migrations/sync-journal/20261004120000_t12757-apply-intent/migration.sql';
 const SYNC_INBOX_DDL =
   'packages/core/migrations/sync-journal/20261005120000_t12344-inbox/migration.sql';
+const SYNC_REBASE_DDL =
+  'packages/core/migrations/sync-journal/20261006120000_t13193-rebase-undo/migration.sql';
 const SYNC_JOURNAL_TABLES = {
   _sync_capture: { class: 'local-only', ddl: SYNC_CAPTURE_DDL },
   _sync_frame: { class: 'local-only', ddl: SYNC_CAPTURE_DDL },
@@ -208,6 +210,9 @@ const SYNC_JOURNAL_TABLES = {
   _sync_inbox: { class: 'local-only', ddl: SYNC_INBOX_DDL },
   _sync_conflict: { class: 'local-only', ddl: SYNC_INBOX_DDL },
   _sync_field_leave: { class: 'local-only', ddl: SYNC_INBOX_DDL },
+  _sync_row_undo: { class: 'local-only', ddl: SYNC_REBASE_DDL },
+  _sync_foreign_touch: { class: 'local-only', ddl: SYNC_REBASE_DDL },
+  _sync_sequenced: { class: 'local-only', ddl: SYNC_REBASE_DDL },
   _sync_clock: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
   _sync_meta: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
   _sync_replica: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
