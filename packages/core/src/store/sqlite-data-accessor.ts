@@ -1141,8 +1141,23 @@ function activeTransactionScope(native: DatabaseSync): TaskTransactionScope | un
   return undefined;
 }
 
-/** Serialize committed effects with foreground writers without opening a SQL transaction. */
-async function scheduleTaskBackground(
+/**
+ * Serialize work with the foreground writers and committed effects of one
+ * native handle, without opening a SQL transaction: `work` starts once every
+ * earlier queued transaction or effect on `native` has finished, and later
+ * ones wait for it. The change journal's apply frame (T12344, spec §3.2 step
+ * 2) runs through this so a remote apply never interleaves with a local
+ * accessor transaction on the same handle.
+ *
+ * @param native - The shared native handle.
+ * @param work - The work; it opens its own transaction if it needs one.
+ * @returns What `work` returned.
+ * @example
+ * ```ts
+ * await scheduleTaskBackground(native, async () => applyFrame());
+ * ```
+ */
+export async function scheduleTaskBackground(
   native: DatabaseSync,
   work: () => Promise<unknown>,
 ): Promise<unknown> {
