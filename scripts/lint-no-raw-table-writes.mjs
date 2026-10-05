@@ -263,6 +263,13 @@ export const EXEMPT = {
     tasks_schema_meta: { count: 1, reason: SCHEMA_STAMP },
   },
   'packages/core/src/store/sqlite.ts': { tasks_schema_meta: { count: 2, reason: SCHEMA_STAMP } },
+  'packages/core/src/store/sync/apply-intent.ts': {
+    _sync_apply_intent: {
+      count: 1,
+      reason:
+        "apply intents (local-only): what an apply frame wrote, recorded in the apply's own transaction for the sealer to subtract (T12757)",
+    },
+  },
   'packages/core/src/store/sync/capture.ts': {
     _sync_capture: { count: 4, reason: CAPTURE_MACHINERY },
     _sync_frame: { count: 2, reason: CAPTURE_MACHINERY },
@@ -288,11 +295,15 @@ export const EXEMPT = {
     _sync_replica: { count: 2, reason: SYNC_BOOKKEEPING },
   },
   'packages/core/src/store/sync/schema.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
+  'packages/core/src/store/sync/row-meta.ts': {
+    _sync_row_meta: { count: 1, reason: SEALER },
+  },
   'packages/core/src/store/sync/sealer.ts': {
+    _sync_apply_intent: { count: 1, reason: SEALER },
     _sync_capture: { count: 2, reason: SEALER },
     _sync_frame: { count: 1, reason: SEALER },
     _sync_ledger: { count: 1, reason: SEALER },
-    _sync_meta: { count: 1, reason: SEALER },
+    _sync_meta: { count: 2, reason: SEALER },
     _sync_op: { count: 1, reason: SEALER },
     _sync_quarantine: { count: 1, reason: SEALER },
     _sync_row_meta: { count: 4, reason: SEALER },

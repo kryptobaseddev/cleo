@@ -82,8 +82,9 @@ import {
 import { healRowIdentitySchema, missingRowIdentitySchema, ROW_IDENTITY } from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
-import { captureBracketHooks, syncCaptureOpenPass } from './sync/capture.js';
+import { syncCaptureOpenPass } from './sync/capture.js';
 import { prepareRowIdentityUnderCapture } from './sync/identity-fill.js';
+import { syncMigrationHooks } from './sync/migration-hooks.js';
 import { ensureTriggerSuspendTable, verifyOwnedTriggers } from './sync/trigger-classes.js';
 import { assertWriterVersion } from './sync/writer-version.js';
 import { explainSchemaWriteDenial, installSchemaWriteGuard } from './worktree-build-guard.js';
@@ -789,7 +790,7 @@ async function migrateScopeSchema(
     existenceTable(scope),
     `dual-scope-db[${scope}]`,
     resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
-    captureBracketHooks(nativeDb, scope),
+    syncMigrationHooks(nativeDb, scope),
   );
   // NEW-6: the handle leaves the schema pass in its configured FK mode.
   assertHandleForeignKeys(nativeDb);

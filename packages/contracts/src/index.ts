@@ -2282,6 +2282,7 @@ export type {
   HeavyHeapSource,
   HeavyLeverChange,
   HeavyToolResourcePlan,
+  MemoryPressureReading,
   ResourceClass,
   ResourceDeferral,
   ResourceGrant,

@@ -21,6 +21,7 @@ import {
 const resources = [
   'dist/cli/index.js',
   'dist/cli/hook-entry.js',
+  'dist/cli/update-check-entry.js',
   'studio-dist/index.js',
   'studio-dist/handler.js',
   'studio-dist/server/index.js',
@@ -427,7 +428,7 @@ describe('independent real npm-packed fixtures', () => {
 });
 
 describe('published CLI build shape', () => {
-  it('accepts the declared CLI bundle, hook runtime and Studio resources', () => {
+  it('accepts the declared CLI bundle, hook runtime, update check and Studio resources', () => {
     expect(assertCleoShippedBuildShape(fixture().files)).toEqual([]);
   });
   it('requires the hook runtime that bin/cleo.js imports for cleo hook (T12983)', () => {
@@ -436,6 +437,16 @@ describe('published CLI build shape', () => {
     expect(result.valid).toBe(false);
     expect(result.issues).toContainEqual(
       expect.objectContaining({ code: 'missing', subject: 'cli-hook-entry' }),
+    );
+  });
+  it('requires the update check the CLI spawns for its update notice (T13137)', () => {
+    const files = fixture().files.filter(
+      (file) => file.path !== 'dist/cli/update-check-entry.js',
+    );
+    const result = validatePackageArtifact(fixture(files), policy);
+    expect(result.valid).toBe(false);
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ code: 'missing', subject: 'cli-update-check-entry' }),
     );
   });
   it.each([
