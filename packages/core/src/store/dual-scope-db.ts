@@ -68,6 +68,7 @@ import {
   EXODUS_DEFERRED_FIX,
   type ExodusAbortDetail,
   ExodusAbortWriteUnsafeError,
+  ExodusGuardFailedError,
   exodusRefusalMessage,
   getRecordedExodusAbort,
 } from './exodus/abort-events.js';
@@ -82,8 +83,9 @@ import {
 import { healRowIdentitySchema, missingRowIdentitySchema, ROW_IDENTITY } from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
-import { captureBracketHooks, syncCaptureOpenPass } from './sync/capture.js';
+import { syncCaptureOpenPass } from './sync/capture.js';
 import { prepareRowIdentityUnderCapture } from './sync/identity-fill.js';
+import { syncMigrationHooks } from './sync/migration-hooks.js';
 import { ensureTriggerSuspendTable, verifyOwnedTriggers } from './sync/trigger-classes.js';
 import { assertWriterVersion } from './sync/writer-version.js';
 import { explainSchemaWriteDenial, installSchemaWriteGuard } from './worktree-build-guard.js';
@@ -360,8 +362,9 @@ async function guardStrandedStore(
   const { pendingExodusTargets } = await import('./exodus/write-guard.js');
   let sources: readonly string[];
   let tables: readonly string[];
+  let sentinels: Readonly<Record<string, readonly string[]>> = {};
   try {
-    ({ sources, tables } = await pendingExodusTargets(scope, cwd));
+    ({ sources, tables, sentinels } = await pendingExodusTargets(scope, cwd));
   } catch (err) {
     // The legacy files could not be read: assume they hold rows and protect the
     // anchor table, whose first row would stop the migration for good.
@@ -383,6 +386,7 @@ async function guardStrandedStore(
     {
       anchor: exodusAnchorTable(scope),
       tables: [...new Set([...tables, exodusAnchorTable(scope)])],
+      sentinels,
       sources,
       markerPath,
       detail,
@@ -405,6 +409,9 @@ async function guardStrandedStore(
  * @param dbPath - The consolidated store.
  * @param kind - `deferred` (not run yet) or `aborted`.
  * @param reason - Why no migration has run, or why it aborted.
+ * @throws {ExodusGuardFailedError} When not even the anchor trigger can be
+ *   installed: the open is refused rather than publishing a store any write
+ *   (raw SQL included) could strand (T13171).
  */
 function guardAnchorOnly(
   nativeDb: DatabaseSync,
@@ -414,10 +421,10 @@ function guardAnchorOnly(
   reason: string,
 ): void {
   if (peekExodusWriteGuard(nativeDb) !== undefined) return;
+  const anchor = exodusAnchorTable(scope);
+  const sources = ['stores'];
+  const detail = strandedDetail(scope, dbPath, kind, reason, sources);
   try {
-    const anchor = exodusAnchorTable(scope);
-    const sources = ['stores'];
-    const detail = strandedDetail(scope, dbPath, kind, reason, sources);
     installExodusWriteGuard(
       nativeDb,
       { anchor, tables: [anchor], sources, markerPath: null, detail },
@@ -426,8 +433,10 @@ function guardAnchorOnly(
   } catch (err) {
     getLogger('dual-scope-db').error(
       { err, scope },
-      'exodus-on-open: the store could not be guarded before its migration',
+      'exodus-on-open: the store could not be guarded before its migration; refusing the open',
     );
+    // @sync-invariant none:local-only this store's own legacy migration could not be guarded; never replicated
+    throw new ExodusGuardFailedError(scope, err);
   }
 }
 
@@ -789,7 +798,7 @@ async function migrateScopeSchema(
     existenceTable(scope),
     `dual-scope-db[${scope}]`,
     resolveConsolidatedJournalSiblings(migrationsSetName(scope)),
-    captureBracketHooks(nativeDb, scope),
+    syncMigrationHooks(nativeDb, scope),
   );
   // NEW-6: the handle leaves the schema pass in its configured FK mode.
   assertHandleForeignKeys(nativeDb);
@@ -1314,7 +1323,8 @@ export async function openDualScopeDbAtPath(
                 // A failed guard must cost neither the migration nor the
                 // protection (#1836 review LOW-a): the preparation stays
                 // pending, so the migration still runs after the lease, and the
-                // anchor table is guarded at the least.
+                // anchor table is guarded at the least. If even that fails, the
+                // open is refused (E_EXODUS_GUARD_FAILED, T13171).
                 log.warn(
                   { err, scope },
                   'exodus-on-open: the store could not be fully guarded before its migration',

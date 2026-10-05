@@ -27,12 +27,12 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { installAgentFromCant } from '@cleocode/core/store/agent-install';
 import {
   ensureGlobalAgentRegistryDb,
   getGlobalAgentRegistryNativeDb,
-  getProjectRoot,
-  installAgentFromCant,
-} from '@cleocode/core/internal';
+} from '@cleocode/core/store/agent-registry-store';
 import { defineCommand } from 'citty';
 import { cliError, cliOutput, humanInfo, humanLine, humanWarn } from '../renderers/index.js';
 

@@ -30,6 +30,7 @@ import {
   DEFAULT_GRACE_MS,
   DEFAULT_SEMAPHORE_STALE_MS,
   isPidAlive,
+  procStatStartTicks,
   runJanitor,
 } from '../janitor.js';
 
@@ -575,5 +576,28 @@ describe('module exports', () => {
 
   it('exports isPidAlive as a function', () => {
     expect(typeof isPidAlive).toBe('function');
+  });
+});
+
+describe('procStatStartTicks (T13146)', () => {
+  // Fields 3..21 before starttime (field 22): state, ppid, pgrp, … , itrealvalue.
+  const before = 'S 1 42 42 0 -1 4194560 100 0 0 0 5 3 0 0 20 0 11 0';
+  const line = (comm: string): string => `4242 (${comm}) ${before} 987654 123456789 2048`;
+
+  it('reads starttime after a plain comm', () => {
+    expect(procStatStartTicks(line('node'))).toBe(987654);
+  });
+
+  it('reads starttime when comm contains spaces (an MCP server titled by npm)', () => {
+    expect(procStatStartTicks(line('npm exec @playw'))).toBe(987654);
+  });
+
+  it('reads starttime when comm contains parentheses', () => {
+    expect(procStatStartTicks(line('a) b (c'))).toBe(987654);
+  });
+
+  it('is null for a line that does not parse', () => {
+    expect(procStatStartTicks('garbage')).toBeNull();
+    expect(procStatStartTicks('1 (x) S 1')).toBeNull();
   });
 });

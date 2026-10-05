@@ -6,7 +6,10 @@
  *   triggers are dropped, `fn` runs its DDL or data rewrite, and the triggers
  *   are regenerated for the new schema, all in ONE transaction the bracket
  *   opens and commits itself. A second connection's write waits on the
- *   bracket's write lock and is captured by the reinstalled triggers.
+ *   bracket's write lock and is captured by the reinstalled triggers. A body
+ *   that rebuilds tables declares them, and the bracket applies rule 2 (A,
+ *   T12774): foreign keys off before BEGIN, a foreign_key_check that refuses
+ *   only new violations before COMMIT, and the FK mode restored after.
  * - {@link touchSet}: the tables a rewrite can change, generated rather than
  *   hand-written: the written tables, their FK-action children (CASCADE,
  *   SET NULL, SET DEFAULT on delete; CASCADE on update), and every table a
@@ -23,6 +26,12 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
+import {
+  ForeignKeysNotRestoredError,
+  foreignKeyScope,
+  foreignKeyViolations,
+  newViolations,
+} from '../migration-runner.js';
 import { isSqliteBusy } from '../with-retry.js';
 import { dropCaptureTriggers, installCaptureTriggers, syncSetTables } from './capture.js';
 import { readSyncFlags } from './flags.js';
@@ -39,7 +48,38 @@ export class BracketTransactionError extends Error {
   }
 }
 
+/** A bracketed rebuild that would leave foreign-key violations it did not find. */
+export class BracketForeignKeyError extends Error {
+  readonly code = 'E_SYNC_BRACKET_FK_VIOLATION';
+
+  constructor(readonly violations: readonly string[]) {
+    super(
+      `A bracketed rebuild would leave ${violations.length} new foreign-key violation(s); ` +
+        `rolled back. First: ${violations.slice(0, 3).join('; ')}`,
+    );
+    this.name = 'BracketForeignKeyError';
+  }
+}
+
+/** Options of {@link withSyncTriggersSuspended}. */
+export interface SyncSuspensionOptions {
+  /**
+   * The tables `fn` rebuilds (create a copy, copy the rows, DROP the original,
+   * RENAME the copy), named as they are after the rebuild. Inside a
+   * transaction `PRAGMA foreign_keys` is a no-op, so without this a rebuild's
+   * DROP would cascade-delete child rows, uncaptured (§2.3a rule 2, A T12774).
+   * When non-empty, the bracket turns foreign keys off BEFORE its BEGIN,
+   * snapshots the violations of these tables and their FK children, refuses
+   * only violations the snapshot did not hold, and restores the FK mode after.
+   */
+  readonly rebuilds?: readonly string[];
+}
+
 const MAX_BUSY_RETRIES = 5;
+
+function readForeignKeys(db: DatabaseSync): number {
+  return Number((db.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys);
+}
 
 function sleepMs(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.round(ms));
@@ -51,14 +91,57 @@ function sleepMs(ms: number): void {
  * the schema `fn` leaves, before COMMIT. When capture is off, `fn` still runs
  * in the bracket's transaction and nothing is dropped.
  *
+ * @param db - The store handle; must not be inside a transaction.
+ * @param scope - The store's scope (selects the capture triggers to reinstall).
+ * @param fn - The DDL or data rewrite. Must not end the transaction.
+ * @param options - {@link SyncSuspensionOptions}: declare rebuilt tables.
  * @throws {BracketTransactionError} When called inside a transaction, or when
  *   `fn` ends the bracket's transaction.
+ * @throws {BracketForeignKeyError} When a declared rebuild leaves new FK violations.
+ * @throws {ForeignKeysNotRestoredError} When the FK mode could not be restored.
  */
-export function withSyncTriggersSuspended<T>(db: DatabaseSync, scope: TableScope, fn: () => T): T {
+export function withSyncTriggersSuspended<T>(
+  db: DatabaseSync,
+  scope: TableScope,
+  fn: () => T,
+  options: SyncSuspensionOptions = {},
+): T {
   if (db.isTransaction) {
     // @sync-invariant none:local-only programming-error guard on the local suspension bracket
     throw new BracketTransactionError('withSyncTriggersSuspended must open the only transaction');
   }
+  const rebuilds = options.rebuilds ?? [];
+  if (rebuilds.length === 0) return bracket(db, scope, fn, []);
+  // Rule 2: FK off BEFORE BEGIN (a no-op inside one), restored after, always.
+  const prev = readForeignKeys(db);
+  db.exec('PRAGMA foreign_keys = OFF');
+  let out: T | undefined;
+  let failure: unknown;
+  let ok = false;
+  try {
+    out = bracket(db, scope, fn, rebuilds);
+    ok = true;
+  } catch (err) {
+    failure = err;
+  }
+  if (db.isTransaction) db.exec('ROLLBACK');
+  db.exec(`PRAGMA foreign_keys = ${prev}`);
+  const now = readForeignKeys(db);
+  if (now !== prev) {
+    // @sync-invariant none:local-only the suspension bracket restores this handle's FK mode; local only
+    throw Object.assign(new ForeignKeysNotRestoredError(prev, now), { cause: failure });
+  }
+  if (!ok) throw failure;
+  return out as T;
+}
+
+/** The rule-1 bracket itself; `rebuilds` non-empty means FK is already off. */
+function bracket<T>(
+  db: DatabaseSync,
+  scope: TableScope,
+  fn: () => T,
+  rebuilds: readonly string[],
+): T {
   for (let attempt = 1; ; attempt++) {
     try {
       db.exec('BEGIN IMMEDIATE');
@@ -71,11 +154,22 @@ export function withSyncTriggersSuspended<T>(db: DatabaseSync, scope: TableScope
     let capture = false;
     try {
       capture = readSyncFlags(db)['sync.capture'] && hasTable(db, '_sync_capture');
+      const before =
+        rebuilds.length > 0 ? foreignKeyViolations(db, foreignKeyScope(db, rebuilds)) : null;
       if (capture) dropCaptureTriggers(db);
       const out = fn();
       if (!db.isTransaction) {
         // @sync-invariant none:local-only programming-error guard on the local suspension bracket
         throw new BracketTransactionError('the bracket body ended its transaction');
+      }
+      if (before !== null) {
+        // Pre-existing orphans never block; only violations the rebuild made do (NEW-1).
+        const added = newViolations(
+          before,
+          foreignKeyViolations(db, foreignKeyScope(db, rebuilds)),
+        );
+        // @sync-invariant none:local-only a rebuild that adds FK violations is refused locally before commit
+        if (added.length > 0) throw new BracketForeignKeyError(added);
       }
       if (capture) installCaptureTriggers(db, scope);
       db.exec('COMMIT');

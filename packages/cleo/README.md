@@ -259,7 +259,14 @@ cleo --mvi <level> <command>      # Control detail level
 export CLEO_LOG_LEVEL=debug
 export CLEO_PROJECT_ROOT=/path/to/project   # Override cwd-based project detection
 export CLEO_ROOT=/path/to/project           # Alias for CLEO_PROJECT_ROOT
+export CLEO_NO_UPDATE_NOTICE=1              # Hide the update notice and skip its daily registry check
 ```
+
+An installed CLI checks npm for a newer release at most once a day, in a
+detached background process, and prints one line on stderr naming the version
+and `cleo self-update` (at most once a day; every 15 minutes for a release
+flagged as a hotfix). It never writes to stdout, and it stays silent in CI and
+from a source checkout.
 
 ### Configuration File
 
