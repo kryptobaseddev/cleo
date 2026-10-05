@@ -264,6 +264,88 @@ describe('the full-build slot is exclusive whatever the footprint (T13237)', () 
   });
 });
 
+describe('no two exclusive runs ever overlap (T13237, #1899 review HIGH)', () => {
+  // A 16 GiB host: capacity 12 GiB, and a full build is charged exactly
+  // HEAVY_FOOTPRINT_BYTES (6 GiB), so it counts as LIGHT.
+  const capacityBytes = admissionCapacityBytes(16 * GIB);
+
+  it('the reviewer sequence: three light exclusive entries past the reservation admit one', () => {
+    const entries = [
+      entry({ id: 'e1', state: 'admitted', footprintBytes: 6 * GIB, exclusive: true }),
+      entry({ id: 'e2', enqueuedAtMs: 0, footprintBytes: 6 * GIB, exclusive: true }),
+      entry({ id: 'e3', enqueuedAtMs: 1_000, footprintBytes: 6 * GIB, exclusive: true }),
+    ];
+    // Also on a 48 GiB host's capacity, where e3 fits beside the reserved
+    // head by bytes, so only the exclusive check keeps it out.
+    for (const cap of [capacityBytes, admissionCapacityBytes(48 * GIB)]) {
+      for (const nowMs of [60_000, 200_000]) {
+        const out = schedulePass(entries, { capacityBytes: cap, share: 'full', nowMs });
+        expect(admittedIds(out)).toEqual(['e1']);
+      }
+    }
+  });
+
+  it('a light exclusive does not pass a CPU-reserved heavy head while another holds the slot', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'fb', state: 'admitted', footprintBytes: GIB, exclusive: true }),
+        entry({ id: 'heavy-run', state: 'admitted', footprintBytes: 7 * GIB }),
+        entry({ id: 'heavy-head', enqueuedAtMs: 0, footprintBytes: 7 * GIB }),
+        entry({ id: 'fb2', enqueuedAtMs: 1, footprintBytes: GIB, exclusive: true }),
+      ],
+      { capacityBytes: 36 * GIB, share: 'one', lightShare: 'full', nowMs: 10 * 60_000 },
+    );
+    expect(admittedIds(out).sort()).toEqual(['fb', 'heavy-run']);
+  });
+
+  it('property: over random arrivals, completions and pressure, at most one exclusive run is admitted', () => {
+    // Deterministic PRNG (mulberry32), so a failure reproduces from its seed.
+    const rng = (seed: number) => () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const sizes = [GIB, 6 * GIB, 6 * GIB, 7 * GIB, 12 * GIB, 40 * GIB];
+    const shares = ['full', 'full', 'half', 'one'] as const;
+    for (let seed = 1; seed <= 300; seed++) {
+      const r = rng(seed);
+      const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)] as T;
+      let ledger: LedgerEntry[] = [];
+      let nowMs = 0;
+      let n = 0;
+      for (let step = 0; step < 60; step++) {
+        nowMs += Math.floor(r() * 90_000);
+        // Arrivals.
+        const arrivals = Math.floor(r() * 3);
+        for (let k = 0; k < arrivals; k++) {
+          ledger.push(
+            entry({
+              id: `s${seed}-${n++}`,
+              enqueuedAtMs: nowMs,
+              footprintBytes: pick(sizes),
+              ...(r() < 0.5 ? { exclusive: true } : {}),
+            }),
+          );
+        }
+        // Completions.
+        ledger = ledger.filter((e) => e.state !== 'admitted' || r() > 0.3);
+        const cap = pick([admissionCapacityBytes(16 * GIB), 36 * GIB]);
+        ledger = schedulePass(ledger, {
+          capacityBytes: cap,
+          share: pick(shares),
+          lightShare: pick(['full', 'half'] as const),
+          nowMs,
+        });
+        const exclusives = ledger.filter((e) => e.state === 'admitted' && e.exclusive === true);
+        if (exclusives.length > 1) {
+          throw new Error(`seed ${seed} step ${step}: ${exclusives.map((e) => e.id).join(', ')}`);
+        }
+      }
+    }
+  });
+});
+
 describe('entryLiveness', () => {
   const probe = (over: Partial<PidProbe>): PidProbe => ({
     liveness: () => 'alive',

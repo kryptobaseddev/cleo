@@ -790,13 +790,27 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   // Bytes held for a reserved heavy head that only the `one` rule blocks: light
   // runs may still pass it, but only within what is left after its share.
   let reservedForHead: number | null = null;
+  /** Admit `w` (every admission goes through here, so the counters stay true). */
+  const take = (w: LedgerEntry, cost: number): void => {
+    admit.add(w.id);
+    used += cost;
+    running++;
+    if (isHeavy(w)) heavyRunning++;
+    if (w.exclusive === true) exclusiveRunning++;
+  };
   for (const w of waiting) {
     const cost = charged(w, ctx.capacityBytes);
     if (reservedForHead !== null) {
-      if (!isHeavy(w) && lightShare !== 'none' && used + cost + reservedForHead <= lightBudget) {
-        admit.add(w.id);
-        used += cost;
-        running++;
+      // Only light runs pass a reserved head, within what its share leaves —
+      // and never a second exclusive run (T13237, #1899 review HIGH: a full
+      // build is "light" at exactly HEAVY_FOOTPRINT_BYTES on a 16 GiB host).
+      if (
+        !isHeavy(w) &&
+        !(w.exclusive === true && exclusiveRunning > 0) &&
+        lightShare !== 'none' &&
+        used + cost + reservedForHead <= lightBudget
+      ) {
+        take(w, cost);
       }
       continue;
     }
@@ -805,11 +819,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
     // charged at most the capacity), so pressure narrows but never stops work;
     // only the memory gate (`none`) stops it.
     if (fits(w, cost) || (running === 0 && share !== 'none')) {
-      admit.add(w.id);
-      used += cost;
-      running++;
-      if (isHeavy(w)) heavyRunning++;
-      if (w.exclusive === true) exclusiveRunning++;
+      take(w, cost);
       continue;
     }
     if (!blocked) {
