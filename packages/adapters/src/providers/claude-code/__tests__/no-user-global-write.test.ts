@@ -162,6 +162,13 @@ describe('Claude Code adapter never writes the user-global Claude config (T13227
     );
     expect(install.details?.plugin).toBe('skipped');
     expect(install.details?.hookTemplates).toBe('skipped');
+    // ~/CLAUDE.md is loaded into every session under $HOME (#1898 review MED).
+    expect(install.details?.instructionFile).toBe('skipped');
+    expect(existsSync(join(home, 'CLAUDE.md'))).toBe(false);
+    await expect(new ClaudeCodeInstallProvider().ensureInstructionReferences(home)).rejects.toThrow(
+      /the project is the home directory/,
+    );
+    expect(existsSync(join(home, 'CLAUDE.md'))).toBe(false);
     expect(stderr).toHaveBeenCalled();
   });
 
@@ -173,6 +180,8 @@ describe('Claude Code adapter never writes the user-global Claude config (T13227
     const { install } = await runAllWriters(home);
 
     expect(snapshot(join(home, '.claude'))).toEqual(before);
+    expect(install.details?.instructionFile).toBe('skipped');
+    expect(existsSync(join(home, 'CLAUDE.md'))).toBe(false);
     expect(install.details?.plugin).toBe('skipped');
     expect(install.details?.commands).toBe('skipped');
   });

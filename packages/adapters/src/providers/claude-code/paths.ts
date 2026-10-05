@@ -129,19 +129,17 @@ export class UserGlobalClaudeConfigError extends Error {
  * Refuse `target` when it is user-global Claude Code config: the settings
  * file {@link claudeSettingsPath} resolves (`CLAUDE_SETTINGS`), anything in
  * the Claude config dir (`CLAUDE_HOME`, else `~/.claude`), or anything when
- * the project is the home directory (its `.claude/` IS the user-global dir).
+ * the project is the home directory (its `.claude/` IS the user-global dir,
+ * and its `CLAUDE.md` is loaded into every session under it).
  *
  * @param projectDir - the project root the write is for.
  * @param target - the file or directory about to be written.
- * @param homeRule - also refuse a project that is the home directory (for
- *   targets under its `.claude/`); a file at the project root, such as
- *   `CLAUDE.md`, sets it `false`.
  * @returns `target`, absolute, when it is project-level.
  * @throws {@link UserGlobalClaudeConfigError} otherwise; nothing is written.
  */
-function assertProjectScoped(projectDir: string, target: string, homeRule = true): string {
+function assertProjectScoped(projectDir: string, target: string): string {
   const abs = resolve(target);
-  if (homeRule && isUserHomeDir(projectDir)) {
+  if (isUserHomeDir(projectDir)) {
     throw new UserGlobalClaudeConfigError(abs, 'the project is the home directory');
   }
   const canonical = canonicalPath(abs);
@@ -191,15 +189,16 @@ export function projectClaudeHooksDir(projectDir: string): string {
 }
 
 /**
- * Refuse a project whose root lies inside the user-global Claude config dir
- * (in any spelling), where writing its `CLAUDE.md` would write Claude Code's
- * user-global memory file `~/.claude/CLAUDE.md` (T13227 review). A project
- * that is the home directory is allowed: `~/CLAUDE.md` is not user-global
- * Claude config.
+ * Refuse a project whose `CLAUDE.md` would be user-global in effect (T13227
+ * review): a root inside the user-global Claude config dir (in any spelling),
+ * where it is Claude Code's user-global memory file `~/.claude/CLAUDE.md`, or
+ * the home directory itself — Claude Code loads `CLAUDE.md` from the working
+ * directory up through every ancestor, so `~/CLAUDE.md` reaches every session
+ * under `$HOME`.
  *
  * @param projectDir - the project root.
- * @throws {@link UserGlobalClaudeConfigError} when the project root is inside
- *   the user-global Claude config dir.
+ * @throws {@link UserGlobalClaudeConfigError} when the project root is the
+ *   home directory or inside the user-global Claude config dir.
  *
  * @example
  * ```typescript
@@ -207,7 +206,7 @@ export function projectClaudeHooksDir(projectDir: string): string {
  * ```
  */
 export function assertProjectInstructionScope(projectDir: string): void {
-  assertProjectScoped(projectDir, join(projectDir, 'CLAUDE.md'), false);
+  assertProjectScoped(projectDir, join(projectDir, 'CLAUDE.md'));
 }
 
 /**
