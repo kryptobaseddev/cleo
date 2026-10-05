@@ -62,6 +62,15 @@ function live(values: Record<string, LedgerWireValue>, hlc: string): RowState {
 
 const val = (row: RowState, col: string): LedgerWireValue | undefined => row.fields[col]?.value;
 
+/** A status change as the sealer emits it: the whole status group (T13222). */
+const grp = (status: string, stamps: Record<string, string> = {}): Record<string, LedgerValue> => ({
+  status,
+  completed_at: null,
+  cancelled_at: null,
+  cancellation_reason: null,
+  ...stamps,
+});
+
 describe('per-field LWW by HLC', () => {
   it('a newer field wins, an older one is skipped, untouched fields stay', () => {
     const row = live({ title: 'a', priority: 'low' }, h(10));
@@ -142,7 +151,7 @@ describe('groups and counters', () => {
     const row = live({ status: 'active', completed_at: null }, h(10));
     const out = applyOp(
       row,
-      op('U', h(20), { status: 'pending', completed_at: null }, undefined, { completed_at: h(5) }),
+      op('U', h(20), grp('pending'), undefined, { completed_at: h(5) }),
       TASKS,
     );
     // The unit's newest HLC (20) beats 10: both columns come from the op.
@@ -227,7 +236,7 @@ describe('tombstones (§1.7)', () => {
 describe('typed rules (§3.6.6)', () => {
   it('done is absorbing: an ordinary status change is refused with a typed-rule conflict', () => {
     const row = live({ status: 'done' }, h(10));
-    const out = applyOp(row, op('U', h(20, R2), { status: 'active' }), TASKS);
+    const out = applyOp(row, op('U', h(20, R2), grp('active')), TASKS);
     expect(out.status).toBe('void');
     expect(val(out.next, 'status')).toBe('done');
     expect(out.conflicts).toEqual([
@@ -241,7 +250,7 @@ describe('typed rules (§3.6.6)', () => {
 
   it('an explicit reopen leaves done', () => {
     const row = live({ status: 'done' }, h(10));
-    const out = applyOp(row, op('U', h(20), { status: 'pending' }), as(TASKS, 'tasks.restore'));
+    const out = applyOp(row, op('U', h(20), grp('pending')), as(TASKS, 'tasks.restore'));
     expect(out.status).toBe('applied');
     expect(val(out.next, 'status')).toBe('pending');
     expect(out.next.fields.status?.leave).toBe(h(20));
@@ -249,7 +258,7 @@ describe('typed rules (§3.6.6)', () => {
 
   it('done overrides a newer ordinary edit, recorded as a typed-rule conflict', () => {
     const row = live({ status: 'active' }, h(30, R2));
-    const out = applyOp(row, op('U', h(20), { status: 'done', completed_at: 'T' }), TASKS);
+    const out = applyOp(row, op('U', h(20), grp('done', { completed_at: 'T' })), TASKS);
     expect(val(out.next, 'status')).toBe('done');
     expect(val(out.next, 'completed_at')).toBe('T');
     expect(out.conflicts).toEqual([
@@ -260,10 +269,10 @@ describe('typed rules (§3.6.6)', () => {
   it('done does not override a newer explicit reopen', () => {
     const reopened = applyOp(
       live({ status: 'done' }, h(10)),
-      op('U', h(30), { status: 'pending' }),
+      op('U', h(30), grp('pending')),
       as(TASKS, 'tasks.restore'),
     ).next;
-    const out = applyOp(reopened, op('U', h(20, R2), { status: 'done' }), TASKS);
+    const out = applyOp(reopened, op('U', h(20, R2), grp('done')), TASKS);
     expect(val(out.next, 'status')).toBe('pending');
     expect(out.status).toBe('skipped');
   });
@@ -292,14 +301,14 @@ describe('typed rules (§3.6.6)', () => {
     const active = live({ status: 'active', verification_json: '{"v":1}' }, h(10));
     const complete = applyOp(
       active,
-      op('U', h(20), { status: 'done', verification_json: '{"v":2}' }),
+      op('U', h(20), { ...grp('done'), verification_json: '{"v":2}' }),
       TASKS,
     );
     expect(complete.status).toBe('applied');
     // A reopen unfreezes.
     const reopen = applyOp(
       done,
-      op('U', h(20), { status: 'pending', verification_json: '{"v":0}' }),
+      op('U', h(20), { ...grp('pending'), verification_json: '{"v":0}' }),
       as(TASKS, 'tasks.restore'),
     );
     expect(val(reopen.next, 'verification_json')).toBe('{"v":0}');
@@ -312,6 +321,122 @@ describe('typed rules (§3.6.6)', () => {
     const row = live({ k: 'first' }, h(10));
     expect(applyOp(row, op('U', h(20), { k: 'second' }), spec).status).toBe('void');
     expect(applyOp(row, op('U', h(20), { k: 'first' }), spec).status).toBe('applied');
+  });
+});
+
+describe('review #1867: groups travel whole (T13222)', () => {
+  const base = live(grp('active'), h(1));
+  const done = op('U', h(3), grp('done', { completed_at: 'X' }), grp('active'));
+  const cancel = op(
+    'U',
+    h(5, R2),
+    grp('cancelled', { cancelled_at: 'C', cancellation_reason: 'dup' }),
+    grp('active'),
+  );
+
+  it('done@h3 and cancel@h5 converge in both orders, with no stray completion stamp', () => {
+    const ab = applyOp(applyOp(base, done, TASKS).next, cancel, TASKS).next;
+    const ba = applyOp(applyOp(base, cancel, TASKS).next, done, TASKS).next;
+    expect(ab).toEqual(ba);
+    expect(val(ab, 'status')).toBe('cancelled');
+    expect(val(ab, 'completed_at')).toBeNull();
+    expect(val(ab, 'cancelled_at')).toBe('C');
+  });
+
+  it('a U op carrying part of a group is refused as malformed, nothing applied', () => {
+    const out = applyOp(base, op('U', h(9), { status: 'done', completed_at: 'X' }), TASKS);
+    expect(out.status).toBe('refused-schema');
+    expect(out.malformed).toEqual(['cancellation_reason', 'cancelled_at']);
+    expect(out.next).toBe(base);
+  });
+
+  it("an insert's omitted group members are NULL, so a concurrent insert merges the group whole", () => {
+    const row = live(grp('done', { completed_at: 'X' }), h(1));
+    const out = applyOp(row, op('I', h(4, R2), { status: 'cancelled', cancelled_at: 'C' }), TASKS);
+    expect(val(out.next, 'status')).toBe('cancelled');
+    expect(val(out.next, 'completed_at')).toBeNull();
+  });
+});
+
+describe('review #1867: rank-max is a max over (rank, HLC) (T13223)', () => {
+  const stage = (s: string | null, at: string): LedgerOp => op('U', at, { pipeline_stage: s });
+  const fold = (ops: LedgerOp[], ctx: (o: LedgerOp) => MergeContext = () => TASKS): RowState =>
+    ops.reduce(
+      (row, o) => applyOp(row, o, ctx(o)).next,
+      live({ pipeline_stage: 'research' }, h(1)),
+    );
+  const orders = <T>(xs: T[]): T[][] =>
+    xs.length <= 1
+      ? [xs]
+      : xs.flatMap((x, i) => orders([...xs.slice(0, i), ...xs.slice(i + 1)]).map((r) => [x, ...r]));
+
+  it('release@h5 vs implementation@h9: release with its OWN HLC in both orders', () => {
+    const a = stage('release', h(5));
+    const b = stage('implementation', h(9, R2));
+    const ab = fold([a, b]);
+    const ba = fold([b, a]);
+    expect(ab).toEqual(ba);
+    expect(ab.fields.pipeline_stage).toMatchObject({ value: 'release', hlc: h(5) });
+  });
+
+  it('a clear to NULL ranks lowest: every order ends at release, HLCs equal', () => {
+    const ops = [stage('release', h(5)), stage('implementation', h(9, R2)), stage(null, h(7))];
+    const results = orders(ops).map((o) => fold(o));
+    for (const r of results) expect(r).toEqual(results[0]);
+    expect(val(results[0] as RowState, 'pipeline_stage')).toBe('release');
+  });
+
+  it('a restore kills older writes; the best alive one wins in every order', () => {
+    const restore = stage('research', h(10, R2));
+    const ops = [stage('release', h(5)), stage('implementation', h(20)), restore];
+    const ctx = (o: LedgerOp) => (o === restore ? as(TASKS, 'tasks.restore') : TASKS);
+    const results = orders(ops).map((o) => fold(o, ctx));
+    for (const r of results) expect(r).toEqual(results[0]);
+    expect(results[0]?.fields.pipeline_stage).toMatchObject({
+      value: 'implementation',
+      hlc: h(20),
+      leave: h(10, R2),
+    });
+  });
+
+  it('a newer lower-ranked write is dropped with a typed-rule conflict', () => {
+    const out = applyOp(
+      live({ pipeline_stage: 'testing' }, h(10)),
+      stage('research', h(50)),
+      TASKS,
+    );
+    expect(out.conflicts).toEqual([
+      expect.objectContaining({
+        kind: 'typed-rule',
+        rule: 'task.pipeline-stage.max',
+        resolution: 'incoming-dropped',
+      }),
+    ]);
+  });
+});
+
+describe('review #1867: counters take only their own shape (LOW-1)', () => {
+  const row = live({ hits: 5, peak: 3, title: 'a' }, h(10));
+  it.each([
+    ['an absolute value on a sum counter', { hits: 10 }, ['hits']],
+    ['a delta on a max counter', { peak: { $inc: 1 } }, ['peak']],
+    ['a delta on a plain column', { title: { $inc: 1 } }, ['title']],
+  ] as const)('%s is refused as malformed', (_name, a, bad) => {
+    const out = applyOp(row, op('U', h(20), { ...a }), PLAIN);
+    expect(out.status).toBe('refused-schema');
+    expect(out.malformed).toEqual(bad);
+  });
+});
+
+describe('review #1867: a re-insert racing a delete is order-sensitive (LOW-2)', () => {
+  it('[D@h3, I@h5] re-creates the row; [I@h5, D@h3] deletes it: deterministic per stream', () => {
+    const row = live({ title: 'a' }, h(1));
+    const d = op('D', h(3));
+    const i = op('I', h(5, R2), { title: 'again' });
+    const di = applyOp(applyOp(row, d, PLAIN).next, i, PLAIN).next;
+    const id = applyOp(applyOp(row, i, PLAIN).next, d, PLAIN).next;
+    expect(di.live).toBe(true);
+    expect(id.live).toBe(false);
   });
 });
 
@@ -354,5 +479,14 @@ describe('the merge-rule registry matches the write-invariant registry', () => {
       'task.status.absorbing',
       'task.verification.frozen-on-done',
     ]);
+  });
+});
+
+describe('review #1867: an insert carries a sum counter as its starting value', () => {
+  it('an absolute sum value in an I is accepted; in a U it is refused', () => {
+    expect(applyOp(UNSEEN_ROW, op('I', h(5), { hits: 3 }), PLAIN).status).toBe('applied');
+    expect(applyOp(live({ hits: 1 }, h(1)), op('U', h(5), { hits: 3 }), PLAIN).status).toBe(
+      'refused-schema',
+    );
   });
 });

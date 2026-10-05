@@ -423,3 +423,50 @@ describe('subtractApplyIntents (T12757)', () => {
     expect(unknown.residual).toHaveLength(1);
   });
 });
+
+describe('merge groups travel whole (T13222)', () => {
+  it('a status-only change is captured and sealed with its whole status group', async () => {
+    const db = await store();
+    inFrame(db, 'write', () => addTask(db, 'G1'));
+    seal(db);
+    inFrame(db, 'write', () => {
+      db.prepare("UPDATE tasks_tasks SET status = 'blocked' WHERE id = 'G1'").run();
+    });
+    seal(db);
+    const u = sealedOps(db).filter((o) => o.o === 'U');
+    expect(u).toHaveLength(1);
+    expect(Object.keys(u[0]?.a ?? {}).sort()).toEqual([
+      'cancellation_reason',
+      'cancelled_at',
+      'completed_at',
+      'status',
+    ]);
+    // A loose column still travels alone.
+    inFrame(db, 'write', () => {
+      db.prepare("UPDATE tasks_tasks SET title = 'renamed' WHERE id = 'G1'").run();
+    });
+    seal(db);
+    expect(Object.keys(sealedOps(db).filter((o) => o.o === 'U')[1]?.a ?? {})).toEqual(['title']);
+  });
+
+  it('one residual group member keeps the whole group in an apply frame', async () => {
+    const db = await store();
+    inFrame(db, 'write', () => addTask(db, 'G2'));
+    seal(db);
+    inFrame(db, 'apply', (frame) => {
+      db.prepare("UPDATE tasks_tasks SET status = 'blocked' WHERE id = 'G2'").run();
+      // The apply explains status only; a trigger-like local write sets a stamp.
+      recordApplyIntents(db, frame, storedIntents(db, 'G2', ['status']));
+      db.prepare("UPDATE tasks_tasks SET cancellation_reason = 'local' WHERE id = 'G2'").run();
+    });
+    seal(db);
+    const u = sealedOps(db).filter((o) => o.o === 'U');
+    expect(u).toHaveLength(1);
+    expect(Object.keys(u[0]?.a ?? {}).sort()).toEqual([
+      'cancellation_reason',
+      'cancelled_at',
+      'completed_at',
+      'status',
+    ]);
+  });
+});
