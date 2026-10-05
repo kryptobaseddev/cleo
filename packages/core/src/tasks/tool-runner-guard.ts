@@ -124,6 +124,48 @@ export class ToolSpawnInTestRunnerError extends CleoError {
   }
 }
 
+/**
+ * `cleo run` (`runGoverned`) refused to start a command inside a test runner
+ * (T13236): the same recursion class as {@link ToolSpawnInTestRunnerError},
+ * reached through the CLI's front door instead of the evidence runner — a
+ * test that spawns `cleo run`, or calls `runGoverned` with the real spawner,
+ * would start the suite again from inside one of its own workers.
+ *
+ * @example
+ * ```ts
+ * try { await runGoverned(opts); }
+ * catch (e) { if (e instanceof GovernedRunInTestRunnerError) console.error(e.codeName); }
+ * ```
+ */
+export class GovernedRunInTestRunnerError extends CleoError {
+  /** Stable machine-readable error code. */
+  readonly codeName = 'E_RUN_SPAWN_IN_TEST_RUNNER';
+
+  /**
+   * @param command - The command line that was refused (redacted).
+   * @param marker - The test-runner marker that was detected.
+   */
+  constructor(command: string, marker: string) {
+    super(
+      ExitCode.CONFIG_ERROR,
+      `cleo run refused to start '${command}' inside a test runner (${marker}): ` +
+        'a test reached the real governed runner, usually through a mock that no longer intercepts.',
+      {
+        fix:
+          'Mock @cleocode/core/resources/run-governed.js, or pass deps.spawn to runGoverned ' +
+          'in the test that means to start a process (spawnGovernedChild is the real one).',
+        details: {
+          field: 'command',
+          expected: 'an injected spawn inside a test runner',
+          actual: marker,
+          command,
+        },
+      },
+    );
+    this.name = 'GovernedRunInTestRunnerError';
+  }
+}
+
 let _injected: ToolProcessRunner | null = null;
 
 /**

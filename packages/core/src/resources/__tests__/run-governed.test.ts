@@ -32,6 +32,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AdmissionResult, MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GovernedRunInTestRunnerError } from '../../tasks/tool-runner-guard.js';
 import {
   type AdmissionOutcome,
   type AdmissionRequest,
@@ -589,6 +590,25 @@ describe('runGoverned', () => {
     expect(r).toMatchObject({ kind: 'exited', exitCode: null, spawnError: 'ENOENT: no such file' });
     expect(h.released).toBe(1);
     expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
+  });
+});
+
+describe('inside a test runner nothing starts without an injected spawn (T13236)', () => {
+  it('refuses with E_RUN_SPAWN_IN_TEST_RUNNER before admission when deps.spawn is not injected', async () => {
+    // This file runs under vitest, so a VITEST marker is set.
+    const sample = vi.fn();
+    const err = await runGoverned({
+      argv: ['pnpm', 'exec', 'vitest', 'run'],
+      cls: 'test-run',
+      cwd: tmpdir(),
+      env: {},
+      sessionId: null,
+      deps: { sample },
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GovernedRunInTestRunnerError);
+    expect((err as GovernedRunInTestRunnerError).codeName).toBe('E_RUN_SPAWN_IN_TEST_RUNNER');
+    expect((err as GovernedRunInTestRunnerError).message).toMatch(/VITEST/);
+    expect(sample).not.toHaveBeenCalled();
   });
 });
 
