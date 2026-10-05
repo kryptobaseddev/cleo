@@ -33,6 +33,7 @@ import { randomUUID } from 'node:crypto';
 import * as readline from 'node:readline';
 import type { DispatchRequest, DispatchResponse } from '@cleocode/contracts/gateway';
 import { getLogger } from '@cleocode/core';
+import { useBrainWriterThread } from '@cleocode/core/memory/brain-writer-thread';
 import type { GatewayHandler } from '../index.js';
 import { toolNameToOperationKey } from './tool-naming.js';
 import { buildToolsList, exposedOperations } from './tools-list.js';
@@ -240,6 +241,8 @@ export interface McpServerOptions {
  * @param opts - Optional stream + lifecycle overrides (defaults to stdio).
  */
 export function startMcpServer(handler: GatewayHandler, opts?: McpServerOptions): void {
+  // A long-lived host: brain writes run on the worker thread (T13126).
+  useBrainWriterThread();
   const input = opts?.input ?? process.stdin;
   const output = opts?.output ?? process.stdout;
   const exitOnClose = opts?.exitOnClose ?? true;

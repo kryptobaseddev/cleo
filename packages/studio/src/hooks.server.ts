@@ -16,6 +16,7 @@
  * @wave 1E
  */
 
+import { useBrainWriterThread } from '@cleocode/core/memory/brain-writer-thread';
 import { type Handle, json } from '@sveltejs/kit';
 import { isSameOriginRequest, refreshCsrfToken } from '$lib/server/csrf.js';
 import {
@@ -23,6 +24,9 @@ import {
   resolveDefaultProjectContext,
   resolveProjectContext,
 } from '$lib/server/project-context.js';
+
+// Studio is a long-lived server: its brain writes run on the worker thread (T13126).
+useBrainWriterThread();
 
 /**
  * Path prefixes whose mutation verbs must pass the same-origin guard.
