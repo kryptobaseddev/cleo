@@ -26,3 +26,10 @@ actions) and §3.3 G.
   - `remapPending` first moves local captures and unsent ops onto the new uid.
   - A re-key onto a live uid is a `uid-collision` void.
   - A re-key of a row never seen waits.
+- **Intra-transaction references** (review T13238). Netting keeps a row's single op at its first capture, so `I A(parent = B)` can
+  precede `I B` in one transaction. Planning counts the transaction's own inserts and re-key targets as present, and apply runs a
+  referenced insert before the op that references it, so the transaction applies whole with immediate foreign keys.
+- **Guard scope** (review T13239). A re-key gets the same savepoint and guard path as any op. Only SQLITE_CONSTRAINT (trigger RAISE,
+  FK, UNIQUE, CHECK, NOT NULL) is a guard refusal. Disk-full, I/O, corruption and schema errors fail the pass and leave the
+  transaction staged, never voided.
+

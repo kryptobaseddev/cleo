@@ -14,7 +14,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type { LedgerOp, LedgerTxn } from '@cleocode/contracts/ledger';
+import { LedgerOp, type LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -917,5 +917,101 @@ describe('PR-4: references, guards, parent deletes and re-keys (§3.2)', () => {
       segment(R2, [txn('R2:1', [{ t: 'tasks_tasks', u: 'k9', o: 'K', h: h(3, R2), nu: 'k10' }])]),
     );
     expect(apply(db)).toMatchObject({ pending: 1 });
+  });
+});
+
+describe('review #1896: intra-transaction references and guard scope (T13238, T13239)', () => {
+  const parentOf = (db: DatabaseSync, uid: string) =>
+    (
+      db.prepare('SELECT parent_id AS p FROM tasks_tasks WHERE uid = ?').get(uid) as {
+        p: string | null;
+      }
+    ).p;
+  /** The store's sealed transactions, as a receiver stages them. */
+  const sealedTxns = (db: DatabaseSync): LedgerTxn[] =>
+    (
+      db.prepare('SELECT txn, hlc, via, kind FROM _sync_txn ORDER BY local_seq').all() as Array<{
+        txn: string;
+        hlc: string;
+        via: LedgerTxn['via'];
+        kind: LedgerTxn['kind'];
+      }>
+    ).map((t) => ({
+      v: 1,
+      txn: t.txn,
+      hlc: t.hlc,
+      project: null,
+      scope: 'project',
+      via: t.via,
+      kind: t.kind,
+      actor: null,
+      ops: (
+        db.prepare('SELECT body FROM _sync_op WHERE txn = ? ORDER BY idx').all(t.txn) as Array<{
+          body: string;
+        }>
+      ).map((o) => LedgerOp.parse(JSON.parse(o.body))),
+      sig: '',
+    }));
+
+  it('a real frame inserting A, inserting B, then A.parent = B applies whole on a receiver', async () => {
+    const origin = await store('origin');
+    origin.exec('BEGIN IMMEDIATE');
+    const frame = openCaptureFrame(origin, 'write', null);
+    origin
+      .prepare(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('A', 'a', 'task', 'pending', 'medium', 'uid-a', 'fp-a')",
+      )
+      .run();
+    origin
+      .prepare(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('B', 'b', 'epic', 'pending', 'medium', 'uid-b', 'fp-b')",
+      )
+      .run();
+    origin.prepare("UPDATE tasks_tasks SET parent_id = 'B' WHERE id = 'A'").run();
+    finishCaptureFrame(origin, frame);
+    origin.exec('COMMIT');
+    seal(origin);
+    const txns = sealedTxns(origin);
+    // Netting keeps A's op first, carrying the reference to B.
+    expect(txns[0]?.ops.map((o) => `${o.o}:${o.u}`)).toEqual(['I:uid-a', 'I:uid-b']);
+
+    const receiver = await store('receiver');
+    receiver.exec('PRAGMA foreign_keys = ON');
+    stage(receiver, segment(R1, txns));
+    // The origin's sealer stamps HLCs from its real clock.
+    expect(apply(receiver, Date.now())).toMatchObject({ applied: 1, pending: 0, conflict: 0 });
+    expect(parentOf(receiver, 'uid-a')).toBe('B');
+  });
+
+  it('a guard refusal of a re-key voids only that op; the stream keeps flowing', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('k1', h(1))])]));
+    apply(db);
+    db.exec(
+      "CREATE TEMP TRIGGER no_rekey BEFORE UPDATE OF uid ON main.tasks_tasks BEGIN SELECT RAISE(ABORT, 'no rekey here'); END",
+    );
+    stage(
+      db,
+      segment(R1, [txn('R1:2', [{ t: 'tasks_tasks', u: 'k1', o: 'K', h: h(2), nu: 'k2' }])]),
+    );
+    stage(db, segment(R2, [txn('R2:1', [insert('z9', h(3, R2))])]));
+    expect(apply(db)).toMatchObject({ void: 1, applied: 1 });
+    expect(listConflicts(db)).toEqual([
+      expect.objectContaining({ kind: 'guard', uid: 'k1', rule: 'no rekey here' }),
+    ]);
+    expect(task(db, 'k1')).toBeDefined();
+  });
+
+  it('a non-constraint store error fails the pass and keeps the txn staged, never a void', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('e1', h(1))])]));
+    apply(db);
+    db.exec(
+      'CREATE TEMP TRIGGER broken AFTER UPDATE ON main.tasks_tasks BEGIN INSERT INTO main.no_such_table VALUES (1); END',
+    );
+    stage(db, segment(R2, [txn('R2:1', [update('e1', h(5, R2), { title: 'x' })])]));
+    expect(() => apply(db)).toThrow(/no such table/);
+    expect(statuses(db)).toEqual(['1.0:applied', '2.0:staged']);
+    expect(listConflicts(db)).toEqual([]);
   });
 });

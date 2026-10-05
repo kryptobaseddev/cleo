@@ -214,18 +214,23 @@ function rowExists(api: ApplyApi, table: string, uid: string): boolean {
   return api.readRow(table, uid) !== null;
 }
 
-/** A missing reference of `op` (a target never seen), or null; refs to rows in `inTxn` count as present. */
+/**
+ * A missing reference of `op` (a target never seen), or null. A target the
+ * transaction itself inserts or re-keys to counts as present wherever its op
+ * sits: netting keeps an op at its FIRST capture, so a row may reference a
+ * row inserted after it in the same transaction (T13238).
+ */
 function missingRef(
   db: DatabaseSync,
   op: LedgerOp,
   def: CaptureTableDef,
-  inTxn: ReadonlyMap<string, RowState>,
+  inTxn: ReadonlySet<string>,
 ): { readonly col: string; readonly uid: string } | 'malformed' | null {
   for (const [col, v] of Object.entries(op.a ?? {})) {
     const target = def.refs.get(col);
     if (!target || v === null) continue;
     if (typeof v !== 'string') return 'malformed';
-    if (inTxn.get(rowKey(target.table, v))?.live) continue;
+    if (inTxn.has(rowKey(target.table, v))) continue;
     if (resolveRef(db, target, v).kind === 'missing') return { col, uid: v };
   }
   return null;
@@ -241,6 +246,12 @@ function planTxn(
 ): TxnPlan {
   const states = new Map<string, RowState>();
   const specs = new Map<string, TableMergeSpec>();
+  // Rows the transaction itself creates: its inserts and re-key targets.
+  const txnRows = new Set(
+    st.txn.ops.flatMap((o) =>
+      o.o === 'I' ? [rowKey(o.t, o.u)] : o.o === 'K' && o.nu ? [rowKey(o.t, o.nu)] : [],
+    ),
+  );
   // Rows a pending transaction holds: every row it writes but the one it waits for.
   const holds = (except?: string): string[] => [
     ...new Set(st.txn.ops.map((o) => rowKey(o.t, o.u)).filter((k) => k !== except)),
@@ -266,7 +277,7 @@ function planTxn(
       }
       continue;
     }
-    const missing = missingRef(db, op, def, states);
+    const missing = missingRef(db, op, def, txnRows);
     if (missing === 'malformed') {
       return { kind: 'refused-schema', reason: `${op.t}/${op.u}: a reference that is not a uid` };
     }
@@ -415,14 +426,61 @@ function txnStatus(results: readonly OpResult[], conflicts: number): InboxStatus
   return conflicts > 0 ? 'conflict' : 'applied';
 }
 
-/** A write the store refused: a guard trigger's RAISE, or a constraint. Never BUSY. */
+/** SQLite's primary result code for a constraint violation (trigger RAISE, FK, UNIQUE, CHECK, NOT NULL). */
+const SQLITE_CONSTRAINT = 19;
+
+/**
+ * A write the store refused by rule: a guard trigger's `RAISE(ABORT)` or a
+ * constraint (primary code SQLITE_CONSTRAINT). Anything else (disk full, I/O,
+ * corruption, read-only, a schema error) is not the op's fault: it fails the
+ * pass, to be retried, and never voids a remote op (T13239).
+ */
 function isGuardRefusal(err: unknown): err is Error {
   return (
     err instanceof Error &&
-    'code' in err &&
-    err.code === 'ERR_SQLITE_ERROR' &&
-    !/sqlite_busy|database is locked/i.test(err.message)
+    'errcode' in err &&
+    typeof err.errcode === 'number' &&
+    (err.errcode & 0xff) === SQLITE_CONSTRAINT
   );
+}
+
+/**
+ * The order to apply a transaction's ops in: its own order, except that an
+ * insert another op references comes before that op (T13238). Netting keeps
+ * each row's single op at its first capture, so `I A(parent = B)` can precede
+ * `I B`; with immediate foreign keys A's insert would fail. Each row has one
+ * op per transaction, so moving an insert never reorders a row's own ops. A
+ * reference cycle keeps the original order (its first insert then fails as a
+ * guard conflict).
+ */
+function applyOrder(
+  ops: readonly LedgerOp[],
+  defs: (table: string) => CaptureTableDef | null,
+): number[] {
+  const insertAt = new Map<string, number>();
+  ops.forEach((o, i) => {
+    if (o.o === 'I') insertAt.set(rowKey(o.t, o.u), i);
+  });
+  const order: number[] = [];
+  const state = new Map<number, 'visiting' | 'done'>();
+  const visit = (i: number): void => {
+    if (state.has(i)) return;
+    state.set(i, 'visiting');
+    const op = ops[i] as LedgerOp;
+    const def = defs(op.t);
+    for (const [col, v] of Object.entries(op.a ?? {})) {
+      const target = def?.refs.get(col);
+      if (!target || typeof v !== 'string') continue;
+      const j = insertAt.get(rowKey(target.table, v));
+      if (j !== undefined && j !== i && state.get(j) !== 'visiting') visit(j);
+    }
+    state.set(i, 'done');
+    order.push(i);
+  };
+  ops.forEach((_, i) => {
+    visit(i);
+  });
+  return order;
 }
 
 /** Everything one op's apply needs. */
@@ -503,7 +561,29 @@ function applyOne(
   opIdx: number,
   op: LedgerOp,
 ): { readonly result: OpResult; readonly conflicts: number } {
-  if (op.o === 'K') return applyRekey(c, opIdx, op);
+  if (op.o === 'K') {
+    // A re-key gets the same savepoint and guard path as any op (T13239).
+    const sp = `apply_op_${opIdx}`;
+    c.db.exec(`SAVEPOINT ${sp}`);
+    try {
+      const r = applyRekey(c, opIdx, op);
+      c.db.exec(`RELEASE ${sp}`);
+      return r;
+    } catch (err) {
+      c.db.exec(`ROLLBACK TO ${sp}`);
+      c.db.exec(`RELEASE ${sp}`);
+      if (!isGuardRefusal(err)) throw err;
+      return voidWith(c, opIdx, {
+        kind: 'guard',
+        table: op.t,
+        uid: op.u,
+        columns: [UID_COLUMN],
+        rule: err.message.slice(0, 200),
+        resolution: 'op-voided',
+        opHlc: op.h,
+      });
+    }
+  }
   const def = c.defs(op.t);
   // @sync-invariant none:input-shape planning refused-schema'd every op on an unknown table
   if (!def) throw new Error(`apply: ${op.t} is not a sync-set table`);
@@ -651,8 +731,8 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
         }
         const c: OpContext = { db, api, st, defs, replica: opts.replica, nowIso };
         let n = 0;
-        const results = st.txn.ops.map((op, i) => {
-          const r = applyOne(c, i, op);
+        const results = applyOrder(st.txn.ops, defs).map((i) => {
+          const r = applyOne(c, i, st.txn.ops[i] as LedgerOp);
           n += r.conflicts;
           return r.result;
         });
