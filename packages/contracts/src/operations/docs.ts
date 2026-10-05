@@ -39,6 +39,7 @@ import type {
   OperationExecutionIdentity,
 } from '../jobs.js';
 import type { DocAttachmentObservationPayload } from '../memory/observe.js';
+import type { DocsLifecycleStatus } from './docs-lifecycle.js';
 
 // ============================================================================
 // Shared Attachment Types (API wire format)
@@ -686,25 +687,9 @@ export interface DocsRemoveResult {
 // docs.update — UPDATE-in-place via slug (T10161)
 // --------------------------------------------------------------------------
 
-/**
- * Allowed `lifecycle_status` values mirrored from the attachments-table enum
- * (`ATTACHMENT_LIFECYCLE_STATUSES` in
- * `packages/core/src/store/schema/attachments.ts`). Kept inline here so the
- * contract surface stays self-contained — the dispatch handler narrows raw
- * `--status` input against this set before touching the store.
- *
- * @task T10161 (Epic T10157 / Saga T9855)
- */
-export const DOCS_LIFECYCLE_STATUSES = [
-  'draft',
-  'proposed',
-  'accepted',
-  'superseded',
-  'archived',
-  'deprecated',
-] as const;
-
-export type DocsLifecycleStatus = (typeof DOCS_LIFECYCLE_STATUSES)[number];
+// The lifecycle statuses live in `./docs-lifecycle.js`, a leaf without zod: the
+// operation registry reads them on every dispatch (T13126).
+export { DOCS_LIFECYCLE_STATUSES, type DocsLifecycleStatus } from './docs-lifecycle.js';
 
 /**
  * Parameters for `docs.update`.

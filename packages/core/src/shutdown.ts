@@ -61,9 +61,11 @@ import {
   awaitBackgroundOps,
   type BackgroundDrainReport,
   pendingBackgroundOpCount,
+  settleBackgroundOps,
 } from './store/background-ops.js';
 import { closeAllDatabases } from './store/sqlite.js';
 import { markShuttingDown } from './teardown-signal.js';
+import { flushTelemetryBuffer } from './telemetry/index.js';
 
 /** Run only within the original shutdown deadline; never refresh a step's budget. */
 async function safely(
@@ -201,4 +203,33 @@ export async function shutdownCliRuntime(): Promise<StepOutcome[]> {
       blockedReason = outcome.status === 'not-started' ? outcome.reason : 'prior-step-incomplete';
   }
   return outcomes;
+}
+
+/**
+ * Settle the CLI's best-effort writes before an error exit (T13164).
+ *
+ * The CLI's error paths print the error envelope and call `process.exit(code)`,
+ * which kills whatever is still pending, and `beforeExit` (where buffered
+ * telemetry flushes) never fires. This waits, within {@link STEP_DEADLINE_MS},
+ * for tracked producers (the hook dispatches the CLI adapter tracks, post-commit
+ * graph writes) and flushes buffered telemetry.
+ *
+ * Unlike {@link shutdownCliRuntime} it closes nothing and latches nothing, so it
+ * is safe where `process.exit` does not actually end the process (a test that
+ * stubs it) and where the caller continues after a failed dispatch.
+ *
+ * @param budgetMs - Upper bound on the producer wait.
+ * @returns Number of tracked producers still pending when the wait ended.
+ * @example
+ * ```ts
+ * cliError(message, code, details);
+ * await settleBeforeExit();
+ * process.exit(code);
+ * ```
+ * @task T13164
+ */
+export async function settleBeforeExit(budgetMs: number = STEP_DEADLINE_MS): Promise<number> {
+  const pending = await settleBackgroundOps(budgetMs);
+  await flushTelemetryBuffer();
+  return pending;
 }

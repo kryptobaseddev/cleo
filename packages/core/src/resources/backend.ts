@@ -3,7 +3,7 @@
  *
  * Concrete implementations read OS-level pressure/memory data: Linux
  * (`linux-backend.ts`, PSI) and macOS (`darwin-backend.ts`, kernel pressure
- * level + load mapped onto the same PSI shape). {@link defaultResourceBackend}
+ * level, RAM squeeze, swap and load mapped onto the same PSI shape). {@link defaultResourceBackend}
  * in `monitor.ts` picks one by platform.
  *
  * ## Sampling discipline
@@ -72,6 +72,36 @@ export interface WalSizeObservation {
 }
 
 /**
+ * The macOS memory signals one sample read (one `sysctl` exec). Each is
+ * `null` when its sysctl was absent.
+ *
+ * @task T13127
+ */
+export interface DarwinMemorySignals {
+  /** `kern.memorystatus_vm_pressure_level`: 1 normal, 2 warning, 4 critical. */
+  readonly pressureLevel: number | null;
+  /**
+   * `kern.memorystatus_level`: share of RAM (0–100) that is neither wired nor
+   * held by the compressor.
+   */
+  readonly availablePercent: number | null;
+  /** `vm.compressor_bytes_used`: RAM the compressor occupies, in bytes. */
+  readonly compressorBytes: number | null;
+  /** `vm.swapusage` used, in bytes. */
+  readonly swapUsedBytes: number | null;
+  /** `vm.swapusage` total (swapfiles allocated so far), in bytes. */
+  readonly swapTotalBytes: number | null;
+  /**
+   * Free + speculative + file-backed + purgeable pages, in bytes: memory the
+   * kernel can hand out without compressing or swapping (T13132). Optional so
+   * samples built before it stay valid.
+   */
+  readonly reclaimableBytes?: number | null;
+  /** Physical RAM in bytes. */
+  readonly totalBytes: number;
+}
+
+/**
  * A complete point-in-time resource sample.
  *
  * Produced by {@link ResourceBackend.sample} on every poll interval.
@@ -113,6 +143,14 @@ export interface ResourceSample {
    * @task T12981
    */
   readonly cpuPressure?: PsiData | null;
+
+  /**
+   * The macOS signals behind `globalPressure` (kernel level, swap, compressor),
+   * so a refusal can report the numbers. Absent or `null` off macOS.
+   *
+   * @task T13127
+   */
+  readonly darwinMemory?: DarwinMemorySignals | null;
 
   /**
    * WAL sidecar size observations for configured DB paths.

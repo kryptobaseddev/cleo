@@ -9,17 +9,15 @@
 import '../hooks/handlers/index.js';
 
 import type { KnowledgeCoverage, TaskClaim, TaskWorkState } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
 import { resolveOrCwd } from '../paths.js';
 import {
   readFocusState,
-  readLiveFocus,
   releaseLegacyPointer,
   requireFocusSessionId,
   resolveFocusSessionId,
-  type StaleFocusPointer,
   writeFocusState,
 } from '../sessions/focus-state-store.js';
 import { trackBackgroundOp } from '../store/background-ops.js';
@@ -34,6 +32,7 @@ import {
   releaseOwnClaim,
   resolveClaimant,
 } from './claims.js';
+import { currentTask, type TaskCurrentResult } from './current.js';
 
 export type {
   Claimant,
@@ -53,6 +52,10 @@ export {
   resolveClaimant,
 } from './claims.js';
 
+// currentTask lives in `./current.js`, a leaf without this module's hook
+// registrations: `cleo current` reads focus and nothing else (T13126).
+export { currentTask, type TaskCurrentResult };
+
 /**
  * RCASD planning stages — tasks in these stages auto-advance to 'implementation'
  * when work begins (cleo start TXXX).
@@ -64,19 +67,6 @@ const PLANNING_STAGES = new Set([
   'specification',
   'decomposition',
 ]);
-
-/** Result of getting current task. */
-export interface TaskCurrentResult {
-  currentTask: string | null;
-  currentPhase: string | null;
-  sessionNote: string | null;
-  nextAction: string | null;
-  /**
-   * The focus pointer when it names a done, cancelled, archived or missing
-   * task. `currentTask` is then `null`: a finished task is never current (T12660).
-   */
-  staleFocus?: StaleFocusPointer;
-}
 
 /** Result of starting work on a task. */
 export interface TaskStartResult {
@@ -102,33 +92,6 @@ export type StartTaskOptions = ClaimOverrideFlags;
 export interface TaskWorkHistoryEntry {
   taskId: string;
   timestamp: string;
-}
-
-/**
- * Show current task work state.
- * @task T4462
- * @task T4750
- */
-export async function currentTask(
-  cwd?: string,
-  accessor?: DataAccessor,
-): Promise<TaskCurrentResult> {
-  const acc = accessor ?? (await getTaskAccessor(cwd));
-  // T12660/T12684: the one validating focus reader — a pointer left behind by
-  // a completion (or the never-cleared legacy key) comes back stale.
-  const {
-    state: focus,
-    currentTask: live,
-    staleFocus,
-  } = await readLiveFocus(acc, await resolveFocusSessionId(cwd));
-
-  return {
-    currentTask: live,
-    ...(staleFocus ? { staleFocus } : {}),
-    currentPhase: focus?.currentPhase ?? null,
-    sessionNote: focus?.sessionNote ?? null,
-    nextAction: focus?.nextAction ?? null,
-  };
 }
 
 /**

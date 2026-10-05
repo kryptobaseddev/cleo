@@ -18,8 +18,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { InvariantAuditResult } from '@cleocode/contracts';
 import type { HookMatrixResult } from '@cleocode/core';
-import { getProjectRoot, pushWarning } from '@cleocode/core';
 import { renderInvariantAuditLines } from '@cleocode/core/doctor/invariant-audit-render.js';
+import { pushWarning } from '@cleocode/core/output';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import {
   quarantineRogueCleoDir,
   scanRogueCleoDirs,
@@ -38,6 +39,7 @@ import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorFkCheckCommand } from './doctor-fk-check.js';
 import { doctorGlobalDeliveryCommand } from './doctor-global-delivery.js';
+import { doctorHeavyCommandHookCommand } from './doctor-heavy-command-hook.js';
 import { doctorKnowledgeSubcommand } from './doctor-knowledge.js';
 import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
 import { doctorLegacyReaperCommand } from './doctor-legacy-reaper.js';
@@ -54,6 +56,8 @@ import { doctorRepairCommand } from './doctor-repair.js';
 import { doctorSkillFixturesCommand } from './doctor-skill-fixtures.js';
 import { doctorSplitBrainCommand } from './doctor-split-brain.js';
 import { doctorSupersededStoreCommand } from './doctor-superseded-store.js';
+import { doctorSyncJournalCommand } from './doctor-sync-journal.js';
+import { doctorSyncTriggersCommand } from './doctor-sync-triggers.js';
 import { doctorToolLocksCommand } from './doctor-tool-locks.js';
 import { doctorTwinCollapseCommand } from './doctor-twin-collapse.js';
 import { doctorWorktreeStoresCommand } from './doctor-worktree-stores.js';
@@ -272,10 +276,16 @@ export const doctorCommand = defineCommand({
     'worktree-stores': doctorWorktreeStoresCommand,
     // T12097 — machine-wide guard for test runs started OUTSIDE cleo verify
     'memory-guard': doctorMemoryGuardCommand,
+    // T13124 — the heavy-command hook per agent harness in use (+ --fix installs it)
+    'heavy-command-hook': doctorHeavyCommandHookCommand,
     // T12353 · T12716 — tracked .cleo/project.json / project-id vs project-info.json (+ --resolve migrate / re-key)
     'project-identity': doctorProjectIdentityCommand,
     // T12596 · T12598 — ~/.cleo, the global hub and every harness skill install must resolve
     'global-delivery': doctorGlobalDeliveryCommand,
+    // T12987 — repair diff of suspect sync tables (read-only plan; + --repair)
+    'sync-journal': doctorSyncJournalCommand,
+    // T12754 — project store triggers incl. ones referencing missing objects (+ --repair)
+    'sync-triggers': doctorSyncTriggersCommand,
     // T12645 — caamp test fixtures left in the real skills root (quarantine with a receipt)
     'skill-fixtures': doctorSkillFixturesCommand,
     // T12471 — machine-wide registry integrity: rebind moved by id, flag split/missing/temp
@@ -776,7 +786,7 @@ export const doctorCommand = defineCommand({
         const { detectAndRemoveLegacyGlobalFiles, detectAndRemoveStrayProjectNexus } = await import(
           '@cleocode/core/store/cleanup-legacy.js'
         );
-        const { getCleoHome } = await import('@cleocode/core');
+        const { getCleoHome } = await import('@cleocode/core/core-paths');
         const cleoHome = getCleoHome();
         const projectRoot = getProjectRoot();
 
@@ -1011,7 +1021,9 @@ export const doctorCommand = defineCommand({
           0,
           `${isDryRun ? '[DRY RUN] ' : ''}Migrating .cleo/worktree-include → .worktreeinclude`,
         );
-        const { migrateWorktreeIncludeFile } = await import('@cleocode/core');
+        const { migrateWorktreeIncludeFile } = await import(
+          '@cleocode/core/scaffold/migrate-worktree-include'
+        );
         const projectRoot = getProjectRoot();
         const result = await migrateWorktreeIncludeFile(projectRoot, { dryRun: isDryRun });
         progress.complete(`Migration ${result.action}`);

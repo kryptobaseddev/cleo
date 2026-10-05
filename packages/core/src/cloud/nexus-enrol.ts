@@ -31,18 +31,21 @@
 
 import { randomBytes } from 'node:crypto';
 import { hostname as osHostname } from 'node:os';
+import type {
+  NexusAccountOrganization,
+  NexusAccountSetup,
+  NexusAccountUser,
+  NexusErrorMapping,
+  NexusLoginResult,
+} from '@cleocode/contracts';
+import { nexusAccountOrganizationSchema } from '@cleocode/contracts/nexus-account.js';
 import {
   NEXUS_CONFLICT_ERRORS,
   NEXUS_FORBIDDEN_ERRORS,
   NEXUS_REVOKED_REASON_ERRORS,
   NEXUS_UNAUTHENTICATED_ERRORS,
   NEXUS_UNREACHABLE_ERROR,
-  type NexusAccountOrganization,
-  type NexusAccountUser,
-  type NexusErrorMapping,
-  type NexusLoginResult,
-  nexusAccountOrganizationSchema,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/nexus-cloud.js';
 import { z } from 'zod';
 import type { DeviceCodeStartResponse } from '../llm/oauth/device-code.js';
 import { generateEd25519, generateX25519, signEd25519 } from './crypto.js';
@@ -86,6 +89,7 @@ import {
   UnreadableNexusDevice,
 } from './nexus-device.js';
 import { retryNexusDeviceEnds } from './nexus-logout.js';
+import type { NexusVaultState } from './nexus-vault-state.js';
 import { deviceEnrollmentMessage } from './signing.js';
 import { uuidv7 } from './uuidv7.js';
 
@@ -233,6 +237,8 @@ export interface NexusDeviceLoginOptions extends NexusDeviceFlowOptions {
   signal?: AbortSignal;
   /** Wait override for device-code polling (tests). */
   pollSleep?: (ms: number) => Promise<void>;
+  /** Vault state store the account setup records signer trust in; defaults to `<cleoHome>/nexus-vault.json`. */
+  vaultState?: NexusVaultState;
 }
 
 /** Result of {@link upgradeNexusSession}. Holds no secret. */
@@ -1166,6 +1172,12 @@ function stagingTestBearer(apiUrl: string, warnings: string[]): string | null {
  * stored, sealed, in `nexus-device.json`. `nexus-credentials.json` is never
  * written.
  *
+ * Then, on that new device credential, the account is made ready for
+ * encrypted backups (onboarding A, T13100): the escrowed account key is read,
+ * or minted and escrowed on the account's first device, and this device is
+ * certified under it ({@link NexusLoginResult.account}). That setup never
+ * fails the login; a problem is a warning naming the step and the remedy.
+ *
  * Environment:
  *
  * - `CLEO_NEXUS_API_URL`: the API origin when `opts.apiUrl` is not given.
@@ -1238,7 +1250,50 @@ export async function loginToNexusDevice(
     warnings,
   );
   const confirmed = await finish(ctx, session, enrolled.device, false, warnings);
-  return loginResult(ctx, me, confirmed, enrolled, warnings);
+  const account = await setUpAccount(ctx, profile, enrolled.device, opts.vaultState, warnings);
+  return loginResult(ctx, me, confirmed, enrolled, warnings, account);
+}
+
+/**
+ * Onboarding A (T13100), after steps 8 and 9 so the browser session is
+ * already signed out and E2 has seen the credential: on the new device
+ * credential (the escrow routes refuse a session with 403 `device-required`),
+ * read or mint the account key and certify this device, so the first
+ * `cleo cloud push` has nothing left to set up. It never fails the login: a
+ * server without escrow, or a failed step, is a warning naming the step and
+ * the remedy. A read-only device skips it (it never mints or certifies).
+ */
+async function setUpAccount(
+  ctx: Ctx,
+  profile: NexusDeviceProfile,
+  device: SealedNexusDevice,
+  vaultState: NexusVaultState | undefined,
+  warnings: string[],
+): Promise<NexusAccountSetup> {
+  // The profile of the credential actually stored: a login that lost a same-home race acts with
+  // the winner's credential, which may be read-only even when this login asked for a full device.
+  if ((device.unseal().current?.profile ?? profile) === 'read-only') {
+    return {
+      status: 'skipped',
+      summary:
+        'This read-only device does not set up encrypted backups; it reads the account key when it restores.',
+    };
+  }
+  // Loaded on use: nexus-vault-keys imports this module.
+  const { provisionNexusAccount } = await import('./nexus-vault-keys.js');
+  const stateModule = await import('./nexus-vault-state.js');
+  const state = vaultState ?? new stateModule.NexusVaultState();
+  const account = await provisionNexusAccount({
+    apiUrl: ctx.apiUrl,
+    fetch: ctx.fetch,
+    device,
+    vaultState: state,
+  });
+  for (const w of state.drainWarnings()) warnings.push(`${w.code}: ${w.message}`);
+  if (account.status === 'unsupported' || account.status === 'failed') {
+    warnings.push(account.summary);
+  }
+  return account;
 }
 
 /** Build the step-10 result. */
@@ -1248,6 +1303,7 @@ function loginResult(
   confirmed: Whoami | null,
   enrolled: Enrolled,
   warnings: string[],
+  account: NexusAccountSetup,
 ): NexusLoginResult {
   const who = confirmed ?? me;
   const user: NexusAccountUser = {
@@ -1271,6 +1327,7 @@ function loginResult(
       created: enrolled.created,
     },
     scopes: confirmed?.credential?.scopes ?? stored?.scopes ?? [],
+    account,
   };
 }
 

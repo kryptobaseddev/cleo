@@ -4,13 +4,8 @@
  * @epic T4454
  */
 
-import {
-  ARCHIVE_REASON_TOMBSTONE_ENV,
-  ArchiveReason,
-  type ArchiveReasonValue,
-  type Task,
-  type TaskStatus,
-} from '@cleocode/contracts';
+import type { ArchiveReasonValue, Task, TaskStatus } from '@cleocode/contracts';
+import { ARCHIVE_REASON_TOMBSTONE_ENV, ArchiveReason } from '@cleocode/contracts/tasks/archive.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import type { DataAccessor } from '../store/data-accessor.js';

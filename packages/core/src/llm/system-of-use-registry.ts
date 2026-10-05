@@ -30,13 +30,13 @@
  * @epic T11745
  */
 
-import {
-  BUILTIN_SYSTEMS_OF_USE,
-  type RegisteredSystemOfUse,
-  type SystemOfUseDefaults,
-  type SystemOfUseKind,
-  type SystemOfUsePickerEntry,
+import type {
+  RegisteredSystemOfUse,
+  SystemOfUseDefaults,
+  SystemOfUseKind,
+  SystemOfUsePickerEntry,
 } from '@cleocode/contracts';
+import { BUILTIN_SYSTEMS_OF_USE } from '@cleocode/contracts/llm/system-of-use.js';
 import { getLogger } from '../logger.js';
 import { formatSystemKey, systemKeyKind } from './system-key.js';
 

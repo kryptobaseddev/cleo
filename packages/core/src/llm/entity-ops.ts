@@ -36,14 +36,9 @@
  * @task T11700
  */
 
-import {
-  type EngineResult,
-  engineError,
-  engineSuccess,
-  type ModelTransport,
-  type StoredAuthTypeWire,
-  WHOAMI_ROLE_IDS,
-} from '@cleocode/contracts';
+import type { EngineResult, ModelTransport, StoredAuthTypeWire } from '@cleocode/contracts';
+import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
+import { WHOAMI_ROLE_IDS } from '@cleocode/contracts/llm/system-of-use.js';
 import { loadConfig, setConfigValue } from '../config.js';
 import { openDualScopeDb } from '../store/dual-scope-db.js';
 import { catalogKeyForProvider, validateModelForProvider } from './catalog-model-resolver.js';

@@ -14,7 +14,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { getTemplateById } from '@cleocode/core/templates/registry';
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../../renderers/index.js';

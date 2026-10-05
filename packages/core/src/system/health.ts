@@ -50,6 +50,7 @@ import {
 } from '../store/dependency-cycles.js';
 import {
   type CheckResult,
+  checkAffectedTestScope,
   checkCanonicalRcasdPaths,
   checkCleoGitignore,
   checkCoreFilesNotIgnored,
@@ -433,6 +434,19 @@ export async function getSystemHealth(
     }
   }
 
+  // T13125: is tool:test evidence scoped to the affected packages, or does
+  // every verify run the whole workspace suite? An `info` proposal (a derived
+  // affectedCommand to pin) passes; a workspace with no scope at all warns.
+  {
+    const scope = checkAffectedTestScope(projectRoot);
+    checks.push({
+      name: 'affected_test_scope',
+      status: scope.status === 'warning' || scope.status === 'failed' ? 'warn' : 'pass',
+      message: scope.fix ? `${scope.message} Fix: ${scope.fix}` : scope.message,
+      details: scope.details,
+    });
+  }
+
   // Check for stale JSON files alongside tasks.db
   if (existsSync(dbPath)) {
     const staleFiles = STALE_JSON_FILES.filter((f) => existsSync(join(cleoDir, f)));
@@ -496,6 +510,18 @@ export async function getSystemHealth(
       name: sealer.check,
       status: sealer.status === 'error' ? 'fail' : sealer.status === 'warning' ? 'warn' : 'pass',
       message: sealer.fix ? `${sealer.message}. ${sealer.fix}` : sealer.message,
+    });
+  }
+
+  // T13124: the heavy-command hook per agent harness in use, and whether the
+  // `cleo` it calls can answer it. In plain `cleo doctor` too: a missing hook
+  // means agent-run tests and builds bypass the machine-wide budget.
+  for (const hook of await checkHeavyCommandHooks(projectRoot)) {
+    checks.push({
+      name: hook.check,
+      status: hook.status === 'error' ? 'fail' : hook.status === 'warning' ? 'warn' : 'pass',
+      message: hook.fix ? `${hook.message}. Remedy: ${hook.fix}` : hook.message,
+      ...(hook.details === undefined ? {} : { details: hook.details }),
     });
   }
 
@@ -806,6 +832,80 @@ function checkContributorChannel(projectRoot: string): DoctorCheck {
 }
 
 /**
+ * One doctor check per provider in use: is CLEO's heavy-command hook (T12983)
+ * installed, outdated, missing or blocked in this project, with the exact
+ * remedy (T13124). Where a hook is in place, one more check says whether the
+ * `cleo` on PATH can answer it (an older CLEO governs nothing). Providers not
+ * in use add nothing; when none is in use, one `ok` check says so. A delivery
+ * module that cannot load is a warning, never a crash of the report.
+ *
+ * @param projectRoot - Absolute path to the project root
+ * @returns The `heavy_command_hook*` checks
+ * @task T13124
+ */
+export async function checkHeavyCommandHooks(projectRoot: string): Promise<DoctorCheck[]> {
+  try {
+    const {
+      HEAVY_HOOK_FIX,
+      heavyHookPresent,
+      inspectHeavyCommandHooks,
+      isHeavyHookProblem,
+      probeHeavyHookCliFor,
+    } = await import('../resources/heavy-command-hook-delivery.js');
+    const { mode, inspections } = await inspectHeavyCommandHooks(projectRoot);
+    const checks: DoctorCheck[] = [];
+    for (const inspection of inspections) {
+      if (inspection.state === 'not-detected') continue;
+      const problem = isHeavyHookProblem(inspection) || inspection.state === 'unsupported';
+      const governs =
+        inspection.provider === 'claude-code' && inspection.state === 'installed'
+          ? ' (bypassPermissions/auto mode: every heavy command; default/acceptEdits/dontAsk: those your allow rules pre-approve)'
+          : '';
+      checks.push({
+        check: `heavy_command_hook_${inspection.provider.replace(/-/g, '_')}`,
+        status: problem ? 'warning' : 'ok',
+        message: `heavy-command hook (${inspection.provider}): ${inspection.state}, ${inspection.detail}${governs}`,
+        details: {
+          mode,
+          target: inspection.target,
+          state: inspection.state,
+          ...(inspection.snippet === undefined ? {} : { snippet: inspection.snippet }),
+        },
+        ...(inspection.remedy === undefined ? {} : { fix: inspection.remedy }),
+      });
+    }
+    // An installed hook only governs when the `cleo` it calls has `cleo hook`.
+    if (mode !== 'off' && heavyHookPresent(inspections)) {
+      const cli = await probeHeavyHookCliFor(projectRoot);
+      checks.push({
+        check: 'heavy_command_hook_cli',
+        status: cli.state === 'current' ? 'ok' : 'warning',
+        message: `heavy-command hook CLI: ${cli.state}, ${cli.detail}`,
+        details: { state: cli.state, path: cli.path },
+        ...(cli.remedy === undefined ? {} : { fix: cli.remedy }),
+      });
+    }
+    if (checks.length === 0) {
+      checks.push({
+        check: 'heavy_command_hook',
+        status: 'ok',
+        message: `heavy-command hook: no supported agent harness in use here (mode ${mode}); ${HEAVY_HOOK_FIX} installs it once one is`,
+      });
+    }
+    return checks;
+  } catch (err) {
+    return [
+      {
+        check: 'heavy_command_hook',
+        status: 'warning',
+        message: `heavy-command hook state unknown: ${err instanceof Error ? err.message : String(err)}`,
+        fix: 'reinstall CLEO (npm i -g @cleocode/cleo), then run: cleo doctor heavy-command-hook --fix',
+      },
+    ];
+  }
+}
+
+/**
  * Run adapter health checks for all discovered adapters and return doctor
  * check entries. Returns an empty array when no adapters are initialized
  * (adapters are optional — their absence is not an error).
@@ -1067,6 +1167,8 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
 
   // Project context check
   checks.push(mapCheckResult(checkProjectContext(projectRoot)));
+  // T13125: is tool:test scoped to the affected packages, or the whole suite?
+  checks.push(mapCheckResult(checkAffectedTestScope(projectRoot)));
 
   checks.push(mapCheckResult(checkInjection(projectRoot)));
 
@@ -1076,6 +1178,9 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
     checks.push(mapCheckResult(result));
   }
   checks.push(mapCheckResult(checkCaampBinary()));
+
+  // T13124: is the heavy-command hook in place for every agent harness in use?
+  checks.push(...(await checkHeavyCommandHooks(projectRoot)));
 
   // Contributor project channel check (ADR-029)
   checks.push(checkContributorChannel(projectRoot));

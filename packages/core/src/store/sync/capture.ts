@@ -56,6 +56,7 @@ import {
 } from '../row-identity-registry.js';
 import { classifyTable, isPortableTableClass } from '../table-classification.js';
 import { readSyncFlags, setSyncFlag } from './flags.js';
+import { mergeGroupsOf } from './merge/rules.js';
 import { ensureSyncSchema, hasTable, healSyncSchema } from './schema.js';
 import { canonicalizeStoreTimestamps } from './timestamps.js';
 import {
@@ -234,6 +235,31 @@ function fullImage(def: CaptureTableDef, row: string, liveIdentity: boolean): st
   )})`;
 }
 
+/**
+ * The SQL images of a repair capture (§4.4, T12987), read from the live row
+ * aliased `row`, in the shapes the triggers write, so the sealer reads a
+ * repair capture like any other:
+ * - `rk`: the row's local key;
+ * - `insert`: the I image ({@link fullImage});
+ * - `update`: a U image of every updatable column, `[null, after]`. The
+ *   before slot is JSON null because only the content hash was kept; a
+ *   trigger's before is always an `enc()` text, so null marks a repair.
+ *   Secret columns are left out (their `shash` is a follow-up).
+ */
+export function repairImageSql(
+  def: CaptureTableDef,
+  row: string,
+): { readonly rk: string; readonly insert: string; readonly update: string } {
+  const updatable = def.columns.filter((c) => !def.identity.includes(c) && !def.secret.has(c));
+  return {
+    rk: rkExpr(def, row),
+    insert: fullImage(def, row, false),
+    update: chunkedObject(
+      updatable.map((c) => [c, `json_array(NULL, ${valueExpr(def, c, row, false)})`] as const),
+    ),
+  };
+}
+
 /** The undo image: every captured column, secret ciphertext and strip included (Rule 2). */
 function undoImage(def: CaptureTableDef, row: string, liveIdentity: boolean): string {
   return chunkedObject(
@@ -290,6 +316,20 @@ function undoInsert(
 /**
  * Generate every capture trigger for one table. Pure: the same definition
  * always yields the same text, so the open pass can compare live text.
+ *
+ * The image contract the sealer reads (§2.3):
+ * - I and D: `{col: value}` for every non-NULL captured column
+ *   ({@link fullImage}); a reference is `[localKey, uid]`, a secret
+ *   {@link SECRET_MARKER}.
+ * - U: `{col: [before, after]}` for every changed column. Both slots are
+ *   always present and never JSON null: a value is an `enc()` text (a SQL
+ *   NULL is the text `'NULL'`), a reference a `[localKey, uid]` array, a
+ *   secret the marker.
+ * - The ONE exception is a repair capture (§4.4, T12987;
+ *   {@link repairImageSql}): its before slot is JSON null, meaning "unknown"
+ *   (only the content hash was kept). It is valid only inside a `repair`
+ *   frame; anywhere else the sealer quarantines it.
+ * - K: `{uid: [old, new], birth_fp?: [old, new]}`.
  */
 export function captureTriggers(def: CaptureTableDef): CaptureTrigger[] {
   const t = q(def.table);
@@ -323,12 +363,20 @@ export function captureTriggers(def: CaptureTableDef): CaptureTrigger[] {
   const updatable = def.columns.filter((c) => !def.identity.includes(c));
   if (updatable.length > 0) {
     const changed = updatable.map((c) => `OLD.${q(c)} IS NOT NEW.${q(c)}`).join(' OR ');
+    // A merge group is recorded whole when any of its columns changes
+    // (T13222), so the sealed op carries the group as one unit.
+    const groups = mergeGroupsOf(def.table, updatable);
+    const when = (c: string): string => {
+      const g = groups.find((grp) => grp.includes(c)) ?? [c];
+      const terms = g.map((x) => `OLD.${q(x)} IS NOT NEW.${q(x)}`);
+      return terms.length === 1 ? (terms[0] as string) : `(${terms.join(' OR ')})`;
+    };
     const terms = updatable
       .map((c) => {
         const v = def.secret.has(c)
           ? `json_array(${lit(SECRET_MARKER)}, ${lit(SECRET_MARKER)})`
           : `json_array(${valueExpr(def, c, 'OLD', false)}, ${valueExpr(def, c, 'NEW', false)})`;
-        return `SELECT ${lit(c)} AS k, ${v} AS v WHERE OLD.${q(c)} IS NOT NEW.${q(c)}`;
+        return `SELECT ${lit(c)} AS k, ${v} AS v WHERE ${when(c)}`;
       })
       .join(' UNION ALL ');
     const img = `(SELECT json_group_object(k, json(v)) FROM (${terms}))`;

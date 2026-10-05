@@ -34,7 +34,9 @@ import {
   evaluateMergeCommitChecks,
   listMainDescendants,
   listPathTouchingMainCommits,
+  pathGlobToRegExp,
   type ResolveCiEvidenceOptions,
+  readCiChecks,
   readCiSatisfies,
   recheckCiDescendantAtom,
   resolveCiEvidenceAtom,
@@ -432,16 +434,212 @@ describe('resolveCiEvidenceAtom', () => {
     );
   });
 
-  it('refuses a PR that edits a pinned workflow file (round 2 #2)', async () => {
-    writeContext(optedIn);
-    const r = await resolve({
-      resolvePr: async () => ({
-        ...merged,
-        changedPaths: ['a.ts', '.github/workflows/ci.yml'],
-        changedFileCount: 2,
-      }),
+  describe('a PR that edits a pinned workflow: main push CI only (T13174)', () => {
+    beforeEach(() => writeContext(optedIn));
+    const editing: PrAtomResolution = {
+      ...merged,
+      changedPaths: ['a.ts', '.github/workflows/ci.yml'],
+      changedFileCount: 2,
+    };
+    const DESC = '1'.repeat(40);
+    const onDesc = allGreen.map((c) => ({ ...c, headSha: DESC, event: 'push' }));
+    const cancelledMerge = allGreen.map((c) =>
+      c.workflowPath === '.github/workflows/ci.yml' ? { ...c, conclusion: 'cancelled' } : c,
+    );
+    const redHead = onHead.map((c) => ({ ...c, conclusion: 'failure' }));
+
+    it("is attested by the merge commit's push CI, never consulting the PR's own runs", async () => {
+      const fetched: string[] = [];
+      const r = await resolve({
+        context: context('T1', ['testsPassed', 'qaPassed']),
+        resolvePr: async () => editing,
+        // A tree-equal head would normally be consulted; for an edited workflow it is not.
+        treeOf: () => TREE,
+        isAncestor: () => true,
+        fetchChecks: async (sha) => {
+          fetched.push(sha);
+          return { ok: true, checks: sha === MERGE ? allGreen : redHead };
+        },
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.kind === 'ci' && r.atom.mainOnly).toBe(true);
+      expect(fetched).toEqual([MERGE]);
     });
-    expect(!r.ok && r.reason).toMatch(/edits the pinned workflow \.github\/workflows\/ci\.yml/);
+
+    it('a merge-commit push run whose jobs were skipped never counts', async () => {
+      const unitSkipped = allGreen.map((c) =>
+        c.name.startsWith('Unit Tests') ? { ...c, conclusion: 'skipped' } : c,
+      );
+      const r = await resolve({
+        resolvePr: async () => editing,
+        fetchChecks: async (sha) => ({ ok: true, checks: sha === MERGE ? unitSkipped : onHead }),
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/job Unit Tests \(ubuntu-latest, shard 1\): skipped/);
+    });
+
+    it('no main push run yet: refused with a wait-for-main-CI message, no local run', async () => {
+      const r = await resolve({
+        resolvePr: async () => editing,
+        fetchChecks: async () => ({ ok: true, checks: [] }),
+        listDescendants: () => [],
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(
+        /only main's push CI attests it \(T13174\): wait for the push run on aaaaaaaaaaaa/,
+      );
+      expect(!r.ok && r.reason).not.toMatch(/tool:test/);
+    });
+
+    it('a cancelled merge-commit run stands in for by a later green main run, even with a red PR head', async () => {
+      const r = await resolve({
+        context: context('T1', ['testsPassed', 'qaPassed']),
+        resolvePr: async () => editing,
+        fetchChecks: async (sha) => ({
+          ok: true,
+          checks: sha === MERGE ? cancelledMerge : sha === DESC ? onDesc : redHead,
+        }),
+        listDescendants: () => [DESC],
+        isAncestor: (a, d) => a === MERGE && d === DESC,
+        touchingCommits: () => [],
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom?.descendantSha).toBe(DESC);
+      expect(atom?.descendantPrHeadSha).toBeUndefined();
+      expect(atom?.mainOnly).toBe(true);
+    });
+  });
+
+  describe('jobs covering the changed paths (T13175)', () => {
+    const covering = {
+      ...optedIn,
+      ciChecks: {
+        ...optedIn.ciChecks,
+        covering: {
+          tests: [{ paths: ['scripts/**'], jobs: ['Scripts Tests'] }],
+          qa: [{ paths: ['scripts/**'], jobs: ['Lint & Format'] }],
+        },
+      },
+    };
+    beforeEach(() => writeContext(covering));
+    // Detect Changes skipped the package jobs; Scripts Tests ran.
+    const scriptsRun = [
+      ...allGreen.map((c) =>
+        c.name.startsWith('Unit Tests') || c.name === 'Type Check'
+          ? { ...c, conclusion: 'skipped' }
+          : c,
+      ),
+      check('Scripts Tests', { id: 9, workflowPath: '.github/workflows/ci.yml' }),
+    ];
+    const pr = (paths: string[]) => async () => ({
+      ...merged,
+      changedPaths: paths,
+      changedFileCount: paths.length,
+    });
+
+    it('a scripts-only PR with the unit shards skipped by their filter: accepted via Scripts Tests', async () => {
+      const r = await resolve({
+        context: context('T1', ['testsPassed', 'qaPassed']),
+        resolvePr: pr(['scripts/__tests__/x.test.mjs']),
+        fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.kind === 'ci' && r.atom.gateChecks?.testsPassed).toContain(
+        'Scripts Tests',
+      );
+      expect(r.ok && r.atom.kind === 'ci' && r.atom.gateChecks?.qaPassed).toContain(
+        'Lint & Format',
+      );
+    });
+
+    it('a package PR whose unit shards were skipped: refused, no rule covers its path', async () => {
+      const r = await resolve({
+        resolvePr: pr(['packages/core/src/a.ts']),
+        fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/packages\/core\/src\/a\.ts is covered by no evidence/);
+    });
+
+    it('a mixed PR (scripts plus a package): refused', async () => {
+      const r = await resolve({
+        resolvePr: pr(['scripts/a.mjs', 'packages/core/src/a.ts']),
+        fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
+      });
+      expect(r.ok).toBe(false);
+    });
+
+    it('a CANCELLED unit shard is not a filter skip: refused even for a scripts-only PR', async () => {
+      const cancelled = scriptsRun.map((c) =>
+        c.name === 'Unit Tests (ubuntu-latest, shard 1)' ? { ...c, conclusion: 'cancelled' } : c,
+      );
+      const r = await resolve({
+        resolvePr: pr(['scripts/a.mjs']),
+        fetchChecks: async () => ({ ok: true, checks: cancelled }),
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/cancelled, not skipped by its filter/);
+    });
+
+    it('a required job missing entirely is not a filter skip: refused', async () => {
+      const r = await resolve({
+        resolvePr: pr(['scripts/a.mjs']),
+        fetchChecks: async () => ({
+          ok: true,
+          checks: scriptsRun.filter((c) => !c.name.startsWith('Unit Tests')),
+        }),
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/missing, not skipped/);
+    });
+
+    it('the covering job itself failed: refused', async () => {
+      const r = await resolve({
+        resolvePr: pr(['scripts/a.mjs']),
+        fetchChecks: async () => ({
+          ok: true,
+          checks: scriptsRun.map((c) =>
+            c.name === 'Scripts Tests' ? { ...c, conclusion: 'failure' } : c,
+          ),
+        }),
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/job Scripts Tests: failure/);
+    });
+
+    it('without a covering rule configured, the skip is refused as before', async () => {
+      writeContext(optedIn);
+      const r = await resolve({
+        resolvePr: pr(['scripts/a.mjs']),
+        fetchChecks: async () => ({ ok: true, checks: scriptsRun }),
+      });
+      expect(!r.ok && r.reason).toMatch(/job Unit Tests \(ubuntu-latest, shard 1\): skipped/);
+    });
+
+    it('path globs: **/ is whole directories, * stays in a segment, ? is one character', () => {
+      expect(pathGlobToRegExp('scripts/**').test('scripts/lib/a.mjs')).toBe(true);
+      expect(pathGlobToRegExp('**/x.md').test('x.md')).toBe(true);
+      expect(pathGlobToRegExp('**/x.md').test('docs/a/x.md')).toBe(true);
+      expect(pathGlobToRegExp('**/x.md').test('ax.md')).toBe(false);
+      expect(pathGlobToRegExp('scripts/*.mjs').test('scripts/lib/a.mjs')).toBe(false);
+      expect(pathGlobToRegExp('a?.ts').test('ab.ts')).toBe(true);
+      expect(pathGlobToRegExp('a?.ts').test('a/.ts')).toBe(false);
+      expect(pathGlobToRegExp('a.ts').test('aXts')).toBe(false);
+    });
+
+    it('a malformed covering rule voids the whole list', () => {
+      writeContext({
+        ...optedIn,
+        ciChecks: {
+          ...optedIn.ciChecks,
+          covering: {
+            tests: [{ paths: ['scripts/**'], jobs: ['Scripts Tests'] }, { paths: ['x/**'] }],
+          },
+        },
+      });
+      expect(readCiChecks(root).covering).toBeUndefined();
+    });
   });
 
   describe('skipped jobs on a code task (round 2 #1)', () => {
@@ -964,6 +1162,19 @@ describe('resolveCiEvidenceAtom', () => {
         reason: 'offline',
       }));
       expect(!r.ok && r.reason).toMatch(/cannot re-check ci:42.*offline/);
+    });
+
+    it('a main-only atom re-checks the descendant push run alone (T13174)', async () => {
+      const mainOnlyAtom = { ...atom, descendantPrHeadSha: undefined, mainOnly: true };
+      const asked: string[] = [];
+      const r = await recheckCiDescendantAtom(mainOnlyAtom, '/nowhere', async (sha) => {
+        asked.push(sha);
+        return { ok: true as const, checks: onDesc };
+      });
+      expect(r).toEqual({ ok: true });
+      expect(asked).toEqual([DESC]);
+      const noHead = { ...atom, descendantPrHeadSha: undefined };
+      expect((await recheckCiDescendantAtom(noHead, '/nowhere', fetchFrom(onDesc))).ok).toBe(false);
     });
 
     it('an atom without a descendant is untouched', async () => {

@@ -20,6 +20,7 @@ import type {
   ConduitUnsubscribe,
   Transport,
 } from '@cleocode/contracts';
+import { conduitFetch } from './cloud-endpoint.js';
 
 /** ConduitClient wraps a Transport, adding high-level messaging semantics. */
 export class ConduitClient implements Conduit {
@@ -112,7 +113,7 @@ export class ConduitClient implements Conduit {
   async isOnline(agentId: string): Promise<boolean> {
     // Delegate to cloud API check — stub for now
     try {
-      const response = await fetch(`${this.credential.apiBaseUrl}/agents/${agentId}`, {
+      const response = await conduitFetch(`${this.credential.apiBaseUrl}/agents/${agentId}`, {
         headers: {
           Authorization: `Bearer ${this.credential.apiKey}`,
           'X-Agent-Id': this.credential.agentId,

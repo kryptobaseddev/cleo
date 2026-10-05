@@ -27,10 +27,13 @@
 
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { BlobAttachment } from '@cleocode/contracts';
-import { type ChangesetEntry, ChangesetEntrySchema, DocKindRegistry } from '@cleocode/contracts';
+import type { BlobAttachment, ChangesetEntry } from '@cleocode/contracts';
+import { ChangesetEntrySchema } from '@cleocode/contracts/changesets.js';
+import { DocKindRegistry } from '@cleocode/contracts/docs-taxonomy.js';
+import { parse as parseYaml } from 'yaml';
 import { releaseReservedSlug, reserveSlug } from '../docs/slug-allocator.js';
 import { createAttachmentStore, SlugCollisionError } from '../store/attachment-store.js';
+import { parseChangesetFrontmatter } from './parse-frontmatter.js';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -108,6 +111,24 @@ export type WriteChangesetOutcome =
 // ─── Markdown serialisation ──────────────────────────────────────────────────
 
 /**
+ * `value` as a YAML scalar that parses back to exactly `value`: plain when
+ * that is already true, else double-quoted with JSON escapes.
+ *
+ * @internal
+ */
+export function yamlScalar(value: string): string {
+  if (!value.includes('\n')) {
+    try {
+      const back = (parseYaml(`v: ${value}`) as { v?: unknown } | null)?.v;
+      if (back === value) return value;
+    } catch {
+      // Not a valid plain scalar: quote it.
+    }
+  }
+  return JSON.stringify(value);
+}
+
+/**
  * Render a {@link ChangesetEntry} as the canonical `---`-fenced markdown form.
  *
  * The output matches what {@link parseChangesetFile} round-trips: identical
@@ -120,9 +141,10 @@ export function renderChangesetMarkdown(entry: ChangesetEntry): string {
   lines.push(`id: ${entry.id}`);
   lines.push(`tasks: [${entry.tasks.join(', ')}]`);
   lines.push(`kind: ${entry.kind}`);
-  // The summary may contain colons or quotes — pass through unchanged because
-  // the parser uses a permissive YAML parse and the field is a scalar.
-  lines.push(`summary: ${entry.summary}`);
+  // A plain scalar only when it parses back to itself; anything else (': ',
+  // a leading quote or backtick, '#', a newline) is double-quoted. JSON
+  // string syntax is a valid YAML double-quoted scalar (T13163).
+  lines.push(`summary: ${yamlScalar(entry.summary)}`);
   if (entry.prs && entry.prs.length > 0) {
     lines.push(`prs: [${entry.prs.join(', ')}]`);
   }
@@ -146,6 +168,21 @@ export function renderChangesetMarkdown(entry: ChangesetEntry): string {
   }
   lines.push('');
   return lines.join('\n');
+}
+
+/** The first field a parsed-back entry disagrees on, or null when it round-trips. */
+function roundTripMismatch(wrote: ChangesetEntry, read: ChangesetEntry): string | null {
+  for (const field of ['id', 'kind', 'summary', 'breaking', 'notes'] as const) {
+    const a = wrote[field] ?? '';
+    const b = read[field] ?? '';
+    if (field === 'notes' ? a.trimEnd() !== b.trimEnd() : a !== b) {
+      return `rendered changeset does not round-trip: ${field} changed`;
+    }
+  }
+  if (wrote.tasks.join(',') !== read.tasks.join(',')) {
+    return 'rendered changeset does not round-trip: tasks changed';
+  }
+  return null;
 }
 
 // ─── Dual-write transaction ──────────────────────────────────────────────────
@@ -249,8 +286,18 @@ export async function writeChangesetEntry(
     };
   }
 
-  // ── 2. Render bytes. ────────────────────────────────────────────────────
+  // ── 2. Render bytes, and parse them back as the changeset lint will
+  //       (T13163): a file the lint would reject is never written.
   const markdown = renderChangesetMarkdown(validated);
+  const roundTrip = parseChangesetFrontmatter(markdown);
+  const mismatch = !roundTrip.ok
+    ? `rendered changeset does not parse: ${roundTrip.error}`
+    : roundTripMismatch(validated, roundTrip.entry);
+  if (mismatch !== null) {
+    releaseReservedSlug(validated.id, opts.projectRoot);
+    // @sync-invariant none:input-shape a changeset that would not parse back is refused before any write
+    return { ok: false, error: { code: 'E_INVALID_ENTRY', message: mismatch } };
+  }
   const bytes = Buffer.from(markdown, 'utf-8');
 
   // ── 3. File write (tmp-then-rename for atomicity). ──────────────────────

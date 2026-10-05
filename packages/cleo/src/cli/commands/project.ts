@@ -16,7 +16,7 @@ import type {
   RenderableEnvelope,
   RerootProjectResult,
 } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   CleoError,
   getProjectRoot,
@@ -354,7 +354,11 @@ const linkSubCommand = defineCommand({
     const attached = replica
       ? ` This machine (device ${replica.deviceId}) holds it as replica ${replica.replicaId}${replica.reboundFrom ? ` (rebound from ${replica.reboundFrom})` : ''}${replica.presenceAt ? '; presence reported' : ''}.`
       : '';
-    const summary = `${verb}: project ${link.localProjectId} as "${link.label ?? ''}" on ${link.apiUrl}.${attached}`;
+    const keyed =
+      result.initialKeyVersion !== null
+        ? ` Its encryption key (version ${result.initialKeyVersion}) was stored with the registration.`
+        : '';
+    const summary = `${verb}: project ${link.localProjectId} as "${link.label ?? ''}" on ${link.apiUrl}.${attached}${keyed}`;
     writeNexusWarnings(result.warnings);
     emitNexusResult(result, summary, 'project', 'project.link');
   },

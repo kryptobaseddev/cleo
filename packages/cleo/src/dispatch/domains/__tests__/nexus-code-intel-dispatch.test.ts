@@ -15,6 +15,13 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Engine wiring is tested here; registry.test.ts covers real identity reads,
+// aliases and refusals. The mock checkout has a controlled canonical identity.
+vi.mock('@cleocode/core/nexus/registry.js', async (original) => ({
+  ...(await original<typeof import('@cleocode/core/nexus/registry.js')>()),
+  resolveNexusQueryProjectId: vi.fn(async () => 'mock-project-id'),
+}));
+
 // Mock core internals used by the handler
 // Mock the nexus-engine — stub all functions referenced by NexusHandler
 vi.mock('@cleocode/core/internal', async () => ({
@@ -61,6 +68,86 @@ vi.mock('@cleocode/core/internal', async () => ({
   nexusSearchCode: vi.fn(),
   nexusWiki: vi.fn(),
 }));
+vi.mock('@cleocode/core/logger', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), getLogger: barrel.getLogger };
+});
+vi.mock('@cleocode/core/nexus/augment', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    nexusAugment: barrel.nexusAugment,
+    nexusSearchCode: barrel.nexusSearchCode,
+  };
+});
+vi.mock('@cleocode/core/nexus/deps', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    nexusDepsQuery: barrel.nexusDepsQuery,
+    nexusGraph: barrel.nexusGraph,
+    nexusCriticalPath: barrel.nexusCriticalPath,
+    nexusBlockers: barrel.nexusBlockers,
+    nexusOrphans: barrel.nexusOrphans,
+  };
+});
+vi.mock('@cleocode/core/nexus/discover', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    nexusDiscover: barrel.nexusDiscover,
+    nexusSearch: barrel.nexusSearch,
+  };
+});
+vi.mock('@cleocode/core/nexus/living-brain', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    nexusFullContext: barrel.nexusFullContext,
+    nexusTaskFootprint: barrel.nexusTaskFootprint,
+    nexusBrainAnchors: barrel.nexusBrainAnchors,
+    nexusWhy: barrel.nexusWhy,
+    nexusImpactFull: barrel.nexusImpactFull,
+  };
+});
+vi.mock('@cleocode/core/nexus/permissions', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), nexusSetPermission: barrel.nexusSetPermission };
+});
+vi.mock('@cleocode/core/nexus/query', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), nexusResolve: barrel.nexusResolve };
+});
+vi.mock('@cleocode/core/nexus/route-analysis', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    nexusRouteMap: barrel.nexusRouteMap,
+    nexusShapeCheck: barrel.nexusShapeCheck,
+  };
+});
+vi.mock('@cleocode/core/nexus/sharing/index', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), nexusShareStatus: barrel.nexusShareStatus };
+});
+vi.mock('@cleocode/core/nexus/transfer', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    nexusShareSnapshotExport: barrel.nexusShareSnapshotExport,
+    nexusShareSnapshotImport: barrel.nexusShareSnapshotImport,
+    nexusTransferPreview: barrel.nexusTransferPreview,
+    nexusTransferExecute: barrel.nexusTransferExecute,
+  };
+});
+vi.mock('@cleocode/core/nexus/wiki-index', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), nexusWiki: barrel.nexusWiki };
+});
+vi.mock('@cleocode/core/project-scope', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), getProjectRoot: barrel.getProjectRoot };
+});
 
 import {
   nexusRouteMap,
@@ -68,6 +155,7 @@ import {
   nexusShapeCheck,
   nexusWiki,
 } from '@cleocode/core/internal';
+import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
 import { NexusHandler } from '../nexus.js';
 
 // ---------------------------------------------------------------------------
@@ -154,11 +242,10 @@ describe('NexusHandler — T1116 Code Intelligence CLI surface', () => {
       expect(result.data).toMatchObject({
         routes: expect.arrayContaining([expect.objectContaining({ handlerName: 'getUserById' })]),
       });
-      // projectId auto-derived from projectRoot when not provided
-      expect(vi.mocked(nexusRouteMap)).toHaveBeenCalledWith(expect.any(String), '/mock/project');
+      expect(vi.mocked(nexusRouteMap)).toHaveBeenCalledWith('mock-project-id', '/mock/project');
     });
 
-    it('uses provided projectId when supplied', async () => {
+    it('resolves a provided selector before passing canonical identity to the engine', async () => {
       vi.mocked(nexusRouteMap).mockResolvedValue({
         success: true,
         data: ROUTE_MAP_RESULT_FIXTURE,
@@ -166,7 +253,8 @@ describe('NexusHandler — T1116 Code Intelligence CLI surface', () => {
 
       await handler.query('route-map', { projectId: 'explicit-id' });
 
-      expect(vi.mocked(nexusRouteMap)).toHaveBeenCalledWith('explicit-id', '/mock/project');
+      expect(resolveNexusQueryProjectId).toHaveBeenCalledWith('/mock/project', 'explicit-id');
+      expect(vi.mocked(nexusRouteMap)).toHaveBeenCalledWith('mock-project-id', '/mock/project');
     });
 
     it('propagates engine error to LAFS envelope', async () => {
@@ -179,6 +267,13 @@ describe('NexusHandler — T1116 Code Intelligence CLI surface', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INTERNAL');
+    });
+
+    it('does not call the graph engine when identity resolution refuses the selector', async () => {
+      vi.mocked(resolveNexusQueryProjectId).mockRejectedValueOnce(new Error('identity refused'));
+      const result = await handler.query('route-map', { projectId: 'foreign-selector' });
+      expect(result.success).toBe(false);
+      expect(nexusRouteMap).not.toHaveBeenCalled();
     });
   });
 

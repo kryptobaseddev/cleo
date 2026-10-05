@@ -122,6 +122,35 @@ A failed step halts the walker. The envelope still reports every prior
 step and the highest lifecycle state reached, so the operator can
 resume from the failure point.
 
+## Flagging a hotfix — release metadata (T13137 · T13184)
+
+An installed CLI reads `@cleocode/cleo`'s dist-tags and the `latest` version's
+registry manifest once a day (a detached background check; never on a
+command's own path) and prints one stderr line when its channel tag (`latest`,
+or `beta` for a beta/rc install) names a newer version. A release that fixes a
+defect users must not keep running is planned as a hotfix:
+
+```bash
+cleo release plan v2026.X.Y --epic TXXXX --hotfix   # plan releaseKind: hotfix
+```
+
+release.yml's `Flag a hotfix release in the cleo manifest` step
+(`scripts/mark-hotfix-release.mjs`) reads the committed plan and writes
+`"cleo": { "hotfix": true }` into `@cleocode/cleo`'s package.json, so the flag
+ships through the ordinary tokenless publish (npm Trusted Publishing cannot
+move dist-tags, and nothing in the release path holds a token). No dist-tag
+flags a hotfix, and there is no manual npm step.
+
+Once the release publishes under `latest`, every installed CLI below it prints a
+stronger HOTFIX notice (at most every 15 minutes) until it updates; installs
+reach it within a day (their next check). The check remembers the highest
+flagged version it has seen, so a later regular release does not hide a hotfix
+an install is still missing. The flag only strengthens a notice that
+`cleo self-update` can act on: it counts when it names a version above the
+install and at or below the channel tag. A flag cannot be withdrawn after
+publishing; the next release replaces it as `latest`. Users silence every
+notice with `CLEO_NO_UPDATE_NOTICE=1`; CI runs never show one.
+
 ## Related docs
 
 - `docs/release/branch-protection-setup.md` — GitHub branch protection setup

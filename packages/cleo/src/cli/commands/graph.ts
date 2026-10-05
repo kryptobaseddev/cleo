@@ -21,6 +21,7 @@
 
 import path from 'node:path';
 import { pushWarning } from '@cleocode/core';
+import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { getFormatContext, setFormatContext } from '../format-context.js';
@@ -71,8 +72,7 @@ const statusCommand = defineCommand({
         import('@cleocode/nexus/pipeline' as string),
       ]);
 
-      const projectId =
-        projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+      const projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
       const db = await getNexusDb();
       const tables = {
         nexusNodes: nexusSchema.nexusNodes,
@@ -286,7 +286,7 @@ const contextCommand = defineCommand({
     applyJsonFlag(args.json as boolean | undefined);
     const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
     const projectIdOverride = args['project-id'] as string | undefined;
-    const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
     const limit = Number.parseInt(args.limit as string, 10) || 20;
     const kind = (args.kind as string | undefined) ?? undefined;
     const params: Record<string, unknown> = { projectId, limit };
@@ -432,7 +432,7 @@ const routeMapCommand = defineCommand({
     applyJsonFlag(args.json as boolean | undefined);
     const repoPath = args.path ? path.resolve(args.path as string) : process.cwd();
     const projectIdOverride = args['project-id'] as string | undefined;
-    const projectId = projectIdOverride ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
     await dispatchFromCli('query', 'nexus', 'route-map', { projectId }, { command: 'graph' });
   },
 });

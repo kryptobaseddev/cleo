@@ -25,10 +25,11 @@
  * behind that; S4 reports it through {@link rebindReplica}.
  *
  * A rebind retires the old row, mints a new replica id and nonce, carries the
- * clock forward, and runs the registered {@link RebindHook}s in the same
- * transaction. Marking inherited journal rows, discarding the pull cursor,
- * pausing push, the reconcile and the signed retire transaction arrive with
- * those tables (S4); they plug in as hooks.
+ * clock forward, marks the old replica's live captures and sealed
+ * transactions `inherited` (T12753, {@link markInheritedRows}), and runs the
+ * registered {@link RebindHook}s in the same transaction. Discarding the pull
+ * cursor, pausing push, the reconcile and the signed retire transaction
+ * arrive with those tables (S4); they plug in as hooks.
  *
  * {@link syncOpenPass} is behind the store-level `sync.*` flags: with every
  * flag off it reads and writes nothing. The one exception is
@@ -47,6 +48,7 @@ import { getStableDeviceId } from '../../llm/stable-device-id.js';
 import { healClock, loadClock, storeClock, withImmediateTransaction } from './clock-store.js';
 import { anySyncFlagOn } from './flags.js';
 import { encodeHlc } from './hlc.js';
+import { markInheritedRows } from './inherit.js';
 import { ReplicaRegistry, type ReplicaRegistryEntry } from './replica-registry.js';
 import { ensureSyncSchema, hasTable } from './schema.js';
 
@@ -122,9 +124,10 @@ export interface RebindContext {
 }
 
 /**
- * Runs inside the rebind transaction, after the new replica is bound. S4
- * registers the hooks that mark inherited rows, discard the cursor and pause
- * push. A throw rolls the whole rebind back.
+ * Runs inside the rebind transaction, after the new replica is bound and the
+ * old replica's outbox rows are marked inherited. S4 registers the hooks that
+ * mark unpushed segments, discard the cursor and pause push. A throw rolls the
+ * whole rebind back.
  */
 export type RebindHook = (db: DatabaseSync, ctx: RebindContext) => void;
 
@@ -244,7 +247,9 @@ export function persistStoreSeq(
   seq: number,
   now: Date = new Date(),
 ): void {
+  // @sync-invariant none:local-only programming-error guard on this store's replica sequence
   if (!db.isTransaction) throw new Error('persistStoreSeq must run inside a transaction');
+  // @sync-invariant none:local-only a malformed local replica sequence is refused; machine-local bookkeeping
   if (!Number.isSafeInteger(seq) || seq < 0) throw new Error(`invalid replicaSeq ${seq}`);
   db.prepare(
     'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
@@ -321,7 +326,9 @@ function mintRow(
 /**
  * Retire `previous` and bind a new replica in its place, in the caller's
  * transaction. The new replica's clock starts from the old one, so HLCs
- * issued by this store keep increasing. Runs the rebind hooks.
+ * issued by this store keep increasing. The old replica's live captures and
+ * sealed transactions become `inherited`, so the new replica never seals or
+ * sends them (§1.5 H3). Runs the rebind hooks.
  */
 function rebindInTransaction(
   db: DatabaseSync,
@@ -340,12 +347,13 @@ function rebindInTransaction(
   insertReplica(db, current);
   const old = healClock(db, previous.replicaId);
   storeClock(db, { phys: old.phys, ctr: old.ctr, replica: current.replicaId });
+  const inherited = markInheritedRows(db);
   db.prepare(
     'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
       'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
   ).run(
     'rebind:last',
-    JSON.stringify({ from: previous.replicaId, to: current.replicaId, reasons }),
+    JSON.stringify({ from: previous.replicaId, to: current.replicaId, reasons, inherited }),
     now.toISOString(),
   );
   const retired: ReplicaRow = {
@@ -387,11 +395,13 @@ export type SyncOpenResult =
 
 function resolveContext(opts: SyncOpenOptions): { deviceId: string; registry: ReplicaRegistry } {
   if (opts.mode === 'test' && !opts.registry) {
+    // @sync-invariant none:local-only test-mode guard: a test open never touches the device registry
     throw new Error("sync open mode 'test' needs an explicit registry; it never uses the device's");
   }
   const deviceId = opts.deviceId ?? opts.registry?.deviceId ?? getStableDeviceId();
   const registry = opts.registry ?? ReplicaRegistry.forDevice(deviceId);
   if (registry.deviceId !== deviceId) {
+    // @sync-invariant none:local-only the registry passed in is another device's; machine-local bookkeeping
     throw new Error(`registry belongs to device ${registry.deviceId}, not ${deviceId}`);
   }
   return { deviceId, registry };
@@ -451,9 +461,11 @@ export function ensureProjectReplica(
   db: DatabaseSync,
   opts: Omit<SyncOpenOptions, 'scope'>,
 ): { replicaId: string; reboundFrom?: string } {
+  // @sync-invariant none:local-only programming-error guard on binding this store's replica
   if (opts.mode === 'off') throw new Error('ensureProjectReplica needs a live or test open');
   const result = bindPass(db, { ...opts, scope: 'project' });
   if (result.status !== 'bound' && result.status !== 'rebound') {
+    // @sync-invariant none:local-only the bind pass returned an unexpected status; machine-local bookkeeping
     throw new Error(`ensureProjectReplica: unexpected status ${result.status}`);
   }
   return {
@@ -477,9 +489,11 @@ export function ensureGlobalReplica(
   db: DatabaseSync,
   opts: Omit<SyncOpenOptions, 'scope'>,
 ): { replicaId: string; reboundFrom?: string } {
+  // @sync-invariant none:local-only programming-error guard on binding this store's replica
   if (opts.mode === 'off') throw new Error('ensureGlobalReplica needs a live or test open');
   const result = bindPass(db, { ...opts, scope: 'global' });
   if (result.status !== 'bound' && result.status !== 'rebound') {
+    // @sync-invariant none:local-only the bind pass returned an unexpected status; machine-local bookkeeping
     throw new Error(`ensureGlobalReplica: unexpected status ${result.status}`);
   }
   return {
@@ -581,6 +595,7 @@ export function rebindReplica(
   const realpath = realpathSync(opts.dbPath);
   const { previous, current, hwm } = withImmediateTransaction(db, () => {
     const row = activeReplica(db, opts.scope);
+    // @sync-invariant none:local-only no active replica to rebind; machine-local bookkeeping
     if (!row) throw new Error(`no active ${opts.scope} replica to rebind`);
     const persisted = storeHwm(db, row.replicaId);
     return {

@@ -39,6 +39,9 @@
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { resolveCleoDir } from '../paths.js';
+import { loadPriorRecoveries, priorRecoveries } from '../store/exodus/prior-recoveries.js';
+import { TASK_ID_COLLISIONS_SQL } from '../store/exodus/task-id-collision-sql.js';
 
 /**
  * A store file that has been superseded by `cleo.db` but still exists under the
@@ -175,6 +178,45 @@ function countMissingById(
   }
 }
 
+/**
+ * Legacy tasks in `supersededPath` whose id a DIFFERENT live task holds and
+ * that no live task matches yet (T13172): present by key, absent in substance.
+ * `null` when the comparison could not run.
+ */
+function countShadowedTasks(
+  livePath: string,
+  supersededPath: string,
+  cleoDir: string,
+): number | null {
+  let db: DatabaseSync | null = null;
+  try {
+    db = new DatabaseSync(livePath, { readOnly: true }); // db-open-allowed: read-only probe of a superseded, unowned file
+    db.exec(`ATTACH DATABASE '${supersededPath.replace(/'/g, "''")}' AS legacy`);
+    // A table without the columns that tell two tasks apart cannot show a
+    // collision; its id-based count stands alone.
+    const hasColumns = (schema: string, table: string): boolean => {
+      const names = new Set(
+        (db?.prepare(`PRAGMA ${schema}.table_info("${table}")`).all() ?? []).map((c) => c.name),
+      );
+      return names.has('title') && names.has('created_at');
+    };
+    if (!hasColumns('legacy', 'tasks') || !hasColumns('main', 'tasks_tasks')) return 0;
+    loadPriorRecoveries(db, priorRecoveries(cleoDir));
+    const row = db
+      .prepare(`SELECT COUNT(*) AS c FROM (${TASK_ID_COLLISIONS_SQL}) WHERE recoveredAs IS NULL`)
+      .get() as { c: number } | undefined;
+    return row?.c ?? null;
+  } catch {
+    return null;
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      /* already closed or never opened */
+    }
+  }
+}
+
 /** The supported command that copies stranded rows into `cleo.db` (T12319). */
 export const SUPERSEDED_STORE_RECONCILE_COMMAND = 'cleo doctor superseded-store --reconcile';
 
@@ -199,6 +241,8 @@ export const SUPERSEDED_STORE_RECONCILE_COMMAND = 'cleo doctor superseded-store 
  */
 export function scanSupersededStores(projectRoot: string): SupersededStoreScanResult {
   const liveStorePath = join(projectRoot, '.cleo', LIVE_STORE_FILENAME);
+  // Where the reconcile writes its receipts (T13183): the resolved .cleo.
+  const cleoDir = resolveCleoDir(projectRoot);
   const liveStoreExists = existsSync(liveStorePath);
 
   if (!liveStoreExists) {
@@ -232,8 +276,13 @@ export function scanSupersededStores(projectRoot: string): SupersededStoreScanRe
     // is the one case where being wrong loses data.
     // T12319: a file whose every row is already in cleo.db (reconciled) is
     // equally dead — proven by key, never by a count comparison.
-    const missingInLive =
+    const missingById =
       stat.size === 0 ? 0 : countMissingById(liveStorePath, path, bareTable, liveTable);
+    // T13172: a legacy task whose id a different live task holds is present by
+    // key and absent in substance, so it counts as missing.
+    const shadowed =
+      file === 'tasks.db' && stat.size !== 0 ? countShadowedTasks(liveStorePath, path, cleoDir) : 0;
+    const missingInLive = missingById === null || shadowed === null ? null : missingById + shadowed;
     const safeToArchive = (rowsInLive ?? 0) > 0 && (rowsInSuperseded === 0 || missingInLive === 0);
 
     let reason: string;
@@ -259,7 +308,11 @@ export function scanSupersededStores(projectRoot: string): SupersededStoreScanRe
       reason =
         `predates ${LIVE_STORE_FILENAME} but still holds ${rowsInSuperseded ?? 'an unknown number of'} ` +
         `rows in ${bareTable} (live ${liveTable}: ${rowsInLive ?? 'unreadable'}; ` +
-        `${missingInLive ?? 'an unknown number of'} missing from it). NOT recommended for removal. ` +
+        `${missingInLive ?? 'an unknown number of'} missing from it` +
+        (shadowed !== null && shadowed > 0
+          ? `, of which ${shadowed} task id(s) a different live task now holds; the reconcile recovers those under new ids`
+          : '') +
+        `). NOT recommended for removal: keep ${file} until the reconcile reports them present. ` +
         `Preview the copy with \`${SUPERSEDED_STORE_RECONCILE_COMMAND} --dry-run\`, then run ` +
         `\`${SUPERSEDED_STORE_RECONCILE_COMMAND}\` to copy the missing rows into ` +
         `${LIVE_STORE_FILENAME} (additive, verified, legacy file left in place).`;

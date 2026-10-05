@@ -21,7 +21,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import type { OwnerOverrideAuditRecord } from '@cleocode/contracts';
-import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts';
+import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
 
 // ---------------------------------------------------------------------------
 // L4b — Bootstrap env snapshot

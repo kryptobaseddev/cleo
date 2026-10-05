@@ -12,5 +12,5 @@
  * @task T11447
  */
 
-export type { DispatcherConfig, GatewayHandler } from '@cleocode/runtime/gateway';
-export { createGatewayHandler, Dispatcher } from '@cleocode/runtime/gateway';
+export type { DispatcherConfig, GatewayHandler } from '@cleocode/runtime/gateway/dispatch';
+export { createGatewayHandler, Dispatcher } from '@cleocode/runtime/gateway/dispatch';

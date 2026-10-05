@@ -23,77 +23,9 @@
  */
 
 import type { tasks as coreTasks } from '@cleocode/core';
-import { getLogger, getProjectRoot, TASKS_SUGGESTED_NEXT_BUILDERS } from '@cleocode/core';
-import { taskContext } from '@cleocode/core/internal';
-// Saga core ops — pure business logic moved out of dispatch in T10124.
-// T10117 adds `sagaRepair` (`saga.repair`) for I5 violation cleanup.
-// T10118 adds the `detach` op for repair of nested-saga relations.
-// T10121 adds the `reconcile` op for idempotent cron-safe auto-close repair.
-import {
-  sagaAdd as coreSagaAdd,
-  sagaCreate as coreSagaCreate,
-  detachSagaMember as coreSagaDetach,
-  sagaList as coreSagaList,
-  sagaMembers as coreSagaMembers,
-  reconcileSaga as coreSagaReconcile,
-  repairSaga as coreSagaRepair,
-  sagaRollup as coreSagaRollup,
-} from '@cleocode/core/sagas';
-import { parseGateJson, reqAdd, reqList, reqMigrate } from '@cleocode/core/tasks';
-import {
-  addTaskWithSessionScope,
-  completeTaskStrict,
-  taskAnalyze,
-  taskArchive,
-  // T11786 (epic T11556) — bulk task mutate ops Studio's Kanban binds to.
-  taskAssignee,
-  taskBlockers,
-  taskBulkMove,
-  taskCancel,
-  taskClaim,
-  taskComplexityEstimate,
-  taskCurrentGet,
-  taskDecompose,
-  taskDelete,
-  taskDepends,
-  taskDepsCycles,
-  taskDepsOverview,
-  taskDepsTree,
-  taskDepsValidate,
-  taskFind,
-  taskHistory,
-  taskImpact,
-  taskLabelList,
-  taskList,
-  taskNext,
-  taskPlan,
-  taskRankingHistory,
-  taskRankingRevert,
-  taskReconcileScope,
-  taskRelates,
-  taskRelatesAdd,
-  taskRelatesAddBatch,
-  taskRelatesFind,
-  taskRelatesRemove,
-  taskReopen,
-  taskReorder,
-  taskReorderRank,
-  taskReparent,
-  taskRestore,
-  taskShowOperation,
-  taskSlice,
-  taskStart,
-  taskStop,
-  taskSyncLinks,
-  taskSyncLinksRemove,
-  taskSyncReconcile,
-  tasksAddBatchOp,
-  taskTree,
-  taskUnarchive,
-  taskUnclaim,
-  taskUpdate,
-  taskWorkHistory,
-} from '@cleocode/runtime/gateway';
+import { TASKS_SUGGESTED_NEXT_BUILDERS } from '@cleocode/core/dispatch/suggested-next';
+import { getLogger } from '@cleocode/core/logger';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import {
   defineTypedHandler,
   lafsError,
@@ -110,6 +42,181 @@ import {
   unsupportedOp,
   wrapResult,
 } from './_base.js';
+import { lazyOperation } from './lazy.js';
+
+// CORE operations load on first call, so a command loads only the modules its
+// own operation uses: `cleo show` never loads sagas, sync or archive (T13126).
+// Saga core ops — pure business logic moved out of dispatch in T10124.
+// T10117 adds `sagaRepair` (`saga.repair`) for I5 violation cleanup.
+// T10118 adds the `detach` op for repair of nested-saga relations.
+// T10121 adds the `reconcile` op for idempotent cron-safe auto-close repair.
+const coreSagaAdd = lazyOperation(async () => (await import('@cleocode/core/sagas')).sagaAdd);
+const coreSagaCreate = lazyOperation(async () => (await import('@cleocode/core/sagas')).sagaCreate);
+const coreSagaDetach = lazyOperation(
+  async () => (await import('@cleocode/core/sagas')).detachSagaMember,
+);
+const coreSagaList = lazyOperation(async () => (await import('@cleocode/core/sagas')).sagaList);
+const coreSagaMembers = lazyOperation(
+  async () => (await import('@cleocode/core/sagas')).sagaMembers,
+);
+const coreSagaReconcile = lazyOperation(
+  async () => (await import('@cleocode/core/sagas')).reconcileSaga,
+);
+const coreSagaRepair = lazyOperation(async () => (await import('@cleocode/core/sagas')).repairSaga);
+const coreSagaRollup = lazyOperation(async () => (await import('@cleocode/core/sagas')).sagaRollup);
+const taskCurrentGet = lazyOperation(
+  async () => (await import('@cleocode/core/session/task-current')).taskCurrentGet,
+);
+const taskStart = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).taskStart,
+);
+const taskStop = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).taskStop,
+);
+const taskWorkHistory = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).taskWorkHistory,
+);
+const reqAdd = lazyOperation(async () => (await import('@cleocode/core/tasks/req')).reqAdd);
+const reqList = lazyOperation(async () => (await import('@cleocode/core/tasks/req')).reqList);
+const reqMigrate = lazyOperation(async () => (await import('@cleocode/core/tasks/req')).reqMigrate);
+const tasksAddBatchOp = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/add-batch')).tasksAddBatchOp,
+);
+const taskArchive = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/archive')).taskArchive,
+);
+const completeTaskStrict = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/complete')).completeTaskStrict,
+);
+const taskDecompose = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/decompose')).taskDecompose,
+);
+const taskDelete = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/delete')).taskDelete,
+);
+const taskAnalyze = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskAnalyze,
+);
+const taskAssignee = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskAssignee,
+);
+const taskBlockers = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskBlockers,
+);
+const taskBulkMove = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskBulkMove,
+);
+const taskCancel = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskCancel,
+);
+const taskImpact = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskImpact,
+);
+const taskNext = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskNext,
+);
+const taskRelates = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskRelates,
+);
+const taskRelatesAdd = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskRelatesAdd,
+);
+const taskRelatesAddBatch = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskRelatesAddBatch,
+);
+const taskRelatesFind = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskRelatesFind,
+);
+const taskRelatesRemove = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskRelatesRemove,
+);
+const taskReopen = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskReopen,
+);
+const taskReorder = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskReorder,
+);
+const taskReorderRank = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskReorderRank,
+);
+const taskReparent = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskReparent,
+);
+const taskRestore = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskRestore,
+);
+const taskTree = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskTree,
+);
+const taskUnarchive = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap')).taskUnarchive,
+);
+const taskClaim = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap-ops')).taskClaim,
+);
+const taskComplexityEstimate = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap-ops')).taskComplexityEstimate,
+);
+const taskContext = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap-ops')).taskContext,
+);
+const taskDepends = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap-ops')).taskDepends,
+);
+const taskDepsCycles = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap-ops')).taskDepsCycles,
+);
+const taskDepsOverview = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap-ops')).taskDepsOverview,
+);
+const taskDepsTree = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap-ops')).taskDepsTree,
+);
+const taskDepsValidate = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap-ops')).taskDepsValidate,
+);
+const taskHistory = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap-ops')).taskHistory,
+);
+const taskRankingHistory = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap-ops')).taskRankingHistory,
+);
+const taskRankingRevert = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap-ops')).taskRankingRevert,
+);
+const taskSlice = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap-ops')).taskSlice,
+);
+const taskUnclaim = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/engine-wrap-ops')).taskUnclaim,
+);
+const taskFind = lazyOperation(async () => (await import('@cleocode/core/tasks/find')).taskFind);
+const taskLabelList = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/labels')).taskLabelList,
+);
+const taskList = lazyOperation(async () => (await import('@cleocode/core/tasks/list')).taskList);
+const taskPlan = lazyOperation(async () => (await import('@cleocode/core/tasks/plan')).taskPlan);
+const taskReconcileScope = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/reconcile-scope')).taskReconcileScope,
+);
+const addTaskWithSessionScope = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/session-scope')).addTaskWithSessionScope,
+);
+const taskShowOperation = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/show')).taskShowOperation,
+);
+const taskSyncLinks = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/sync-ops')).taskSyncLinks,
+);
+const taskSyncLinksRemove = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/sync-ops')).taskSyncLinksRemove,
+);
+const taskSyncReconcile = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/sync-ops')).taskSyncReconcile,
+);
+const taskUpdate = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/update')).taskUpdate,
+);
 
 // ---------------------------------------------------------------------------
 // OpsFromCore inference (T1445 — Core as type SSoT)
@@ -418,7 +525,7 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
     // SSoT-EXEMPT: fire-and-forget side-effect that must not block the complete flow
     setImmediate(async () => {
       try {
-        const { trackMemoryUsage } = await import('@cleocode/core/internal');
+        const { trackMemoryUsage } = await import('@cleocode/core/memory/quality-feedback');
         await trackMemoryUsage(projectRoot, params.taskId, true, params.taskId, 'success');
       } catch {
         // Quality tracking errors must never surface to the complete flow
@@ -1068,6 +1175,7 @@ export class TasksHandler implements DomainHandler {
               startTime,
             );
           }
+          const { parseGateJson } = await import('@cleocode/core/tasks/req');
           const gate = parseGateJson(params.gate);
           const data = await reqAdd(getProjectRoot(), params.taskId, gate);
           return wrapResult({ success: true, data }, 'mutate', 'tasks', operation, startTime);

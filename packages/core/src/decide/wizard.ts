@@ -20,7 +20,10 @@
  * @epic T12486
  */
 
-import { DECIDE_DEFAULT_PROFILE_NAME, DECIDE_PROFILE_DEFAULT_URL } from '@cleocode/contracts';
+import {
+  DECIDE_DEFAULT_PROFILE_NAME,
+  DECIDE_PROFILE_DEFAULT_URL,
+} from '@cleocode/contracts/decide.js';
 import type { WizardIO } from '../setup/wizard.js';
 import {
   decideProfileId,

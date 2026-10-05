@@ -18,6 +18,7 @@
  */
 
 import type {
+  EngineResult,
   LlmAddParams,
   LlmAddResult,
   LlmAuxiliaryStatusParams,
@@ -41,12 +42,8 @@ import type {
   ModelTransport,
   StoredAuthTypeWire,
 } from '@cleocode/contracts';
-import {
-  type EngineResult,
-  engineError,
-  engineSuccess,
-  WHOAMI_ROLE_IDS,
-} from '@cleocode/contracts';
+import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
+import { WHOAMI_ROLE_IDS } from '@cleocode/contracts/llm/system-of-use.js';
 import { setConfigValue } from '../config.js';
 import { getLogger } from '../logger.js';
 // S-13 (CWE-209): wrap any user-facing error string in the project-wide

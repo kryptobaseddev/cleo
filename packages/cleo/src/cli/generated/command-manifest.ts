@@ -450,6 +450,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorGlobalDeliveryCommand as CommandDef,
   },
   {
+    exportName: 'doctorHeavyCommandHookCommand',
+    name: 'heavy-command-hook',
+    description:
+      'Report, per agent harness in use, whether the heavy-command hook (routes agent-run tests and ',
+    load: async () =>
+      (await import('../commands/doctor-heavy-command-hook.js'))
+        .doctorHeavyCommandHookCommand as CommandDef,
+  },
+  {
     exportName: 'doctorLegacyBackupsCommand',
     name: 'legacy-backups',
     description:
@@ -574,10 +583,26 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorSupersededStoreCommand as CommandDef,
   },
   {
+    exportName: 'doctorSyncJournalCommand',
+    name: 'sync-journal',
+    description:
+      "Plan the repair diff of the project store's suspect tables (rows written uncaptured). ",
+    load: async () =>
+      (await import('../commands/doctor-sync-journal.js')).doctorSyncJournalCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorSyncTriggersCommand',
+    name: 'sync-triggers',
+    description:
+      "Check the project store's triggers: the suspension table, owned guard triggers, capture ",
+    load: async () =>
+      (await import('../commands/doctor-sync-triggers.js')).doctorSyncTriggersCommand as CommandDef,
+  },
+  {
     exportName: 'doctorToolLocksCommand',
     name: 'tool-locks',
     description:
-      'Inspect the machine-wide evidence-tool semaphore: which slots are held, by which pid, ',
+      'Inspect the machine-wide admission ledger: which heavy runs hold the memory budget or ',
     load: async () =>
       (await import('../commands/doctor-tool-locks.js')).doctorToolLocksCommand as CommandDef,
   },
@@ -836,7 +861,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'loginCommand',
     name: 'login',
     description:
-      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
+      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. After a Cleo Nexus sign-in inside an unlinked CLEO project it offers to link the project and back it up (--yes does it; a non-interactive run prints the next command); outside a project it lists your projects with the cleo cloud restore command for each. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
     load: async () => (await import('../commands/login.js')).loginCommand as CommandDef,
   },
   {

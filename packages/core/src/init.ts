@@ -53,7 +53,7 @@ import {
 import { platform } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { Provider } from '@cleocode/caamp';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { isAbsolutePath } from '@cleocode/paths';
 import { classifyProject, type ProjectClassification } from './discovery.js';
 import { CleoError } from './errors.js';
@@ -1783,6 +1783,8 @@ async function scaffoldInitTarget(
     const detectResult = await ensureProjectContext(projRoot, { force: !!opts.detect });
     if (detectResult.action !== 'skipped') {
       created.push('project-context.json');
+      // T13125: the affected-scope command tool:test will derive, proposed.
+      if (detectResult.details) created.push(`affected test scope: ${detectResult.details}`);
     }
   } catch (err) {
     warnings.push(`Project detection failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -1848,48 +1850,27 @@ async function scaffoldInitTarget(
     ...(opts.forceRebind ? { forceRebind: true } : {}),
   });
 
-  // T5240: Adapter discovery, activation, and install
-  try {
-    const { AdapterManager } = await import('./adapters/index.js');
-    const mgr = AdapterManager.getInstance(projRoot);
-    const manifests = mgr.discover();
-    if (manifests.length > 0) {
-      created.push(`adapters: ${manifests.length} adapter(s) discovered`);
-      const detected = mgr.detectActive();
-      if (detected.length > 0) {
-        created.push(`adapters: active provider detected (${detected.join(', ')})`);
+  // T13128: the adapter discovery/install step was removed. Its discovery read
+  // `<project>/packages/adapters/<dir>/manifest.json`, which no project has, so
+  // it never ran; repaired, it would have written the user-global
+  // `~/.claude/settings.json`. Provider hooks are delivered per project below.
 
-        // Activate and install detected adapters. T12983: the heavy-command
-        // hook mode comes from `resources.heavyCommandHook` (default rewrite).
-        const { configuredHeavyHookMode, resolveHeavyHookMode } = await import(
-          './resources/heavy-command.js'
-        );
-        const heavyCommandHook = resolveHeavyHookMode(
-          undefined,
-          await configuredHeavyHookMode(projRoot),
-        );
-        for (const adapterId of detected) {
-          try {
-            const adapter = await mgr.activate(adapterId);
-            const installResult = await adapter.install.install({
-              projectDir: projRoot,
-              heavyCommandHook,
-            });
-            if (installResult.success) {
-              created.push(`adapter install (${adapterId}): installed`);
-            } else {
-              warnings.push(`adapter install (${adapterId}): failed`);
-            }
-          } catch (err) {
-            warnings.push(
-              `adapter activate/install (${adapterId}): ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
-      }
+  // T13124: the heavy-command hook (T12983), synced per provider. Writes are
+  // listed as created;
+  // a provider in use whose hook could not be put in place is a warning.
+  try {
+    const { deliverHeavyCommandHooks, heavyHookReportLines } = await import(
+      './resources/heavy-command-hook-delivery.js'
+    );
+    const { outcomes } = await deliverHeavyCommandHooks(projRoot);
+    for (const line of heavyHookReportLines(outcomes)) {
+      if (line.status === 'applied') created.push(line.details);
+      else warnings.push(`${line.reason ?? line.details}${line.fix ? ` Remedy: ${line.fix}` : ''}`);
     }
   } catch (err) {
-    warnings.push(`Adapter discovery: ${err instanceof Error ? err.message : String(err)}`);
+    warnings.push(
+      `heavy-command hook delivery failed: ${err instanceof Error ? err.message : String(err)}. Remedy: cleo doctor heavy-command-hook --fix`,
+    );
   }
 
   // GitHub issue/PR templates (.github/ directory)

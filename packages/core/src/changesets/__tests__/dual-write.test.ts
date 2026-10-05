@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import type { ChangesetEntry } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseChangesetFile } from '../parser.js';
-import { renderChangesetMarkdown, writeChangesetEntry } from '../writer.js';
+import { renderChangesetMarkdown, writeChangesetEntry, yamlScalar } from '../writer.js';
 
 /**
  * Per-test temp project root. Each test gets a fresh `.changeset/`-bearing
@@ -341,5 +341,53 @@ describe('writeChangesetEntry — written file content', () => {
 
     const actual = readFileSync(outcome.result.filePath, 'utf-8');
     expect(actual).toBe(expected);
+  });
+});
+
+describe('summaries that are not plain YAML scalars round-trip (T13163)', () => {
+  const hard = [
+    'Sync journal S3d: the repair diff re-checks every row',
+    'a "quoted" word and a trailing colon:',
+    "'starts with a single quote",
+    '`starts with a backtick`',
+    '- looks like a list item',
+    'has # a comment marker',
+    'yes',
+    '123',
+    'line one\nline two',
+    'back\\slash and unicode \u00e9',
+  ];
+
+  for (const summary of hard) {
+    it(`writes a file the changeset lint parses back: ${JSON.stringify(summary)}`, async () => {
+      const id = `t13163-case-${hard.indexOf(summary)}`;
+      const entry: ChangesetEntry = { id, tasks: ['T13163'], kind: 'fix', summary };
+      const outcome = await writeChangesetEntry(entry, { projectRoot });
+      expect(outcome.ok).toBe(true);
+      // The same reader the lint (scripts/lint-changesets.mjs) uses.
+      const back = parseChangesetFile(join(projectRoot, '.changeset', `${id}.md`));
+      expect(back.summary).toBe(summary);
+    });
+  }
+
+  it('keeps a plain summary unquoted', () => {
+    expect(yamlScalar('Dual-write via the CLI.')).toBe('Dual-write via the CLI.');
+    expect(yamlScalar('Sync journal S3d: x')).toBe('"Sync journal S3d: x"');
+  });
+
+  it('refuses, writing nothing, an entry whose rendered file would not parse back', async () => {
+    // A breaking note whose first line is indented deeper than the rest does
+    // not survive the block scalar: the round-trip check refuses it.
+    const entry: ChangesetEntry = {
+      id: 't13163-bad-breaking',
+      tasks: ['T13163'],
+      kind: 'breaking',
+      summary: 'Bad breaking note.',
+      breaking: '    deeper first line\nshallow second line',
+    };
+    const outcome = await writeChangesetEntry(entry, { projectRoot });
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.error.code).toBe('E_INVALID_ENTRY');
+    expect(existsSync(join(projectRoot, '.changeset', 't13163-bad-breaking.md'))).toBe(false);
   });
 });

@@ -67,6 +67,22 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     await rm(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
+  it('never writes the user-global Claude settings, even with Claude Code detected (T13128)', async () => {
+    const claudeHome = join(testDir, 'claude-home');
+    const saved = { home: process.env['CLAUDE_HOME'], code: process.env['CLAUDECODE'] };
+    process.env['CLAUDE_HOME'] = claudeHome;
+    process.env['CLAUDECODE'] = '1';
+    try {
+      await initProject({ name: 'test-project' });
+      expect(await fileExists(join(claudeHome, 'settings.json'))).toBe(false);
+    } finally {
+      if (saved.home === undefined) delete process.env['CLAUDE_HOME'];
+      else process.env['CLAUDE_HOME'] = saved.home;
+      if (saved.code === undefined) delete process.env['CLAUDECODE'];
+      else process.env['CLAUDECODE'] = saved.code;
+    }
+  });
+
   it('creates .cleo/ directory', async () => {
     const result = await initProject({ name: 'test-project' });
     expect(result.initialized).toBe(true);
@@ -172,6 +188,20 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
       expect((err as Error).message).toContain('DANGER ZONE');
       expect((err as Error).message).toContain('--force');
     }
+  });
+
+  it('installs the heavy-command hook for a harness the project uses, and warns about a blocked one (T13124)', async () => {
+    await mkdir(join(testDir, '.claude'));
+    await writeFile(join(testDir, '.codex'), '');
+    const result = await initProject({ name: 'hooked' });
+    expect(result.created).toContain(
+      `heavy-command hook (claude-code): installed ${join(testDir, '.claude', 'settings.local.json')}`,
+    );
+    const settings = await readFile(join(testDir, '.claude', 'settings.local.json'), 'utf-8');
+    expect(settings).toContain('cleo hook heavy-command');
+    expect(result.warnings.join('\n')).toMatch(
+      /codex blocked: .*\.codex exists but is not a directory.* Remedy: remove or rename/,
+    );
   });
 
   it('returns initialized=true on success', async () => {

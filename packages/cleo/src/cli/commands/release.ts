@@ -462,7 +462,7 @@ const openCommand = defineCommand({
     'commit-plan': {
       type: 'boolean',
       description:
-        'Commit the plan file to the active branch before dispatching (DEFAULT). The workflow cannot regenerate a task- or epic-scoped plan on the runner — the task store is untracked — so the committed plan is the only path that can succeed (T12309).',
+        'Commit the plan file to the active branch before dispatching (DEFAULT). The workflow cannot regenerate a task- or epic-scoped plan on the runner — the task store is untracked — so the committed plan is the only path that can succeed (T12309). After a release-plan PR has merged, pass --no-commit-plan: the plan on the default branch is verified (read from there when this checkout lacks it) and dispatched by its sha256 (T13050). Either way the dispatch carries the verified preflight skips (T13140).',
       default: true,
     },
     // T12089: the workflow regenerates the plan when no committed plan is

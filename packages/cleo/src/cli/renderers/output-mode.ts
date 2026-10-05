@@ -24,8 +24,8 @@ import {
   COLLECTION_IDENTITY_FIELDS,
   COLLECTION_KEYS as CONTRACT_COLLECTION_KEYS,
   DEFAULT_IDENTITY_FIELD,
-} from '@cleocode/contracts';
-import { truncateString } from '@cleocode/core';
+} from '@cleocode/contracts/collection-keys.js';
+import { truncateString } from '@cleocode/core/render/helpers';
 import type { OutputMode } from '../output-context.js';
 
 /**

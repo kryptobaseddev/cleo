@@ -31,7 +31,7 @@
  */
 
 import type { RoleName } from '@cleocode/contracts';
-import { WHOAMI_ROLE_IDS } from '@cleocode/contracts';
+import { WHOAMI_ROLE_IDS } from '@cleocode/contracts/llm/system-of-use.js';
 import { loadConfig, setConfigValue } from '../../config.js';
 import {
   catalogKeyForProvider,

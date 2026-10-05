@@ -74,7 +74,10 @@ function reportOf(files: FileAssertions, startTime?: number): string {
       numTotalTests: statuses.length,
       numPassedTests: count('passed'),
       numFailedTests: count('failed'),
-      numPendingTests: count('skipped'),
+      // As vitest/jest count them: skipped and pending are pending, todo is its
+      // own bucket, so the counts add up to the total (T13136 checks that).
+      numPendingTests: count('skipped') + count('pending'),
+      numTodoTests: count('todo'),
       testResults: Object.entries(files).map(([name, assertions]) => ({
         name,
         status: 'passed',
@@ -332,6 +335,34 @@ describe('a report must be fresher than the change and cover it (T12965 review)'
       const r = await validateAtom({ kind: 'test-run', path }, root);
       expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
         /covers no test file of @x\/a \(changed\)/,
+      );
+    });
+
+    it('red (review of #1823): a change cannot exclude its own code from scope', async () => {
+      // review-p0's probe: the change itself declares packages/a and .cleo out
+      // of scope, then binds a report that covers only packages/b.
+      mkdirSync(join(root, '.cleo'), { recursive: true });
+      writeFileSync(
+        join(root, '.cleo', 'project-context.json'),
+        JSON.stringify({ evidence: { scopeExcludes: ['packages/a/**', '.cleo/**'] } }),
+      );
+      git(root, ['add', '-f', '.cleo/project-context.json']);
+      git(root, ['commit', '-q', '-m', 'T1: exclude my own change']);
+      const path = report([pkgTest('b')], Date.now() + 5_000);
+      const r = await validateAtom({ kind: 'test-run', path }, root);
+      expect(r.ok, JSON.stringify(r)).toBe(false);
+    });
+
+    it('red (T13135): a change whose every path is excluded does not pass vacuously', async () => {
+      git(root, ['switch', '-q', '-c', 'task/T2', 'main']);
+      mkdirSync(join(root, '.claude'), { recursive: true });
+      writeFileSync(join(root, '.claude', 'settings.local.json'), '{"hooks":{}}\n');
+      git(root, ['add', '-f', '.claude/settings.local.json']);
+      git(root, ['commit', '-q', '-m', 'T2: hook settings only']);
+      const path = report([pkgTest('b')], Date.now() + 5_000);
+      const r = await validateAtom({ kind: 'test-run', path }, root);
+      expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+        /Every path this change touches is excluded from evidence scope \(\.claude\/settings\.local\.json\).*tool:test, or ci:<pr>/,
       );
     });
 

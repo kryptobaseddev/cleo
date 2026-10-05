@@ -141,6 +141,7 @@ export class ReplicaRegistry {
       renameSync(tmp, this.path);
     } catch (err) {
       rmSync(tmp, { force: true });
+      // @sync-invariant none:local-only a device-registry write failure is rethrown; the registry file is machine-local
       throw err;
     }
   }
@@ -195,6 +196,7 @@ export class ReplicaRegistry {
   advanceHwm(replicaId: string, stream: string, seq: number, now: Date = new Date()): boolean {
     const prev = this.get(replicaId);
     if (!prev) {
+      // @sync-invariant none:local-only the device registry has no entry for this replica; machine-local bookkeeping
       throw new Error(`replica ${replicaId} is not registered on device ${this.deviceId}`);
     }
     return this.upsert(replicaId, { ...prev, hwm: { [stream]: seq } }, now);

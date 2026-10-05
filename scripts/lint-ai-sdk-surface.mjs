@@ -68,6 +68,10 @@ const RUNTIME_REACH = [
   /^\s*import\s+\{[^}]*\}\s+from\s+'ai'/m,
   /\bcreate(?:Anthropic|OpenAI|OpenAICompatible|GoogleGenerativeAI|Ollama)\s*\(/,
   /await\s+import\('@ai-sdk\//,
+  // T13126: `await import('ai')` at the call site is still a runtime reach. The
+  // memory modules moved their `generateObject` import there so loading the
+  // core barrel stops evaluating `ai`; the inventory must keep counting them.
+  /\bimport\(\s*'ai'\s*\)/,
 ];
 
 /** Strip comments so a docblock example is never read as code. */

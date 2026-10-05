@@ -16,9 +16,9 @@
  * @adr 076
  */
 
-import { ExitCode } from '@cleocode/contracts';
-import { getProjectRoot } from '@cleocode/core';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { checkDrift, type DriftScope } from '@cleocode/core/config/registry';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../../renderers/index.js';
 

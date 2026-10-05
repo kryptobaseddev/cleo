@@ -13,6 +13,9 @@
  * 2. No escrow and no account keys: this is the account's first vault use.
  *    The client mints MK and escrows it (`PUT`, insert-only). A concurrent
  *    first device loses the insert with 409 and reads the winner's key.
+ *    Since T13100 `cleo login nexus` runs steps 1 to 4 right after enrolment
+ *    ({@link provisionNexusAccount}); `cleo cloud push` still does them for a
+ *    device that logged in before that.
  * 3. The device certifies itself under MK (a self-grant, `PUT
  *    /v1/devices/:id/key`), so other devices can verify its snapshots.
  * 4. Signer trust comes from `certifiedSigners` over `GET /v1/devices/trust`,
@@ -33,17 +36,18 @@
  * No function here logs a key, and no error carries one.
  *
  * @task T12336
+ * @task T13100
  * @epic T12322
  */
 
-import type { CloudWarning } from '@cleocode/contracts';
-import { nexusProjectKeysSchema, nexusUserKeysSchema } from '@cleocode/contracts';
+import type { CloudWarning, NexusAccountSetup, NexusAccountSetupStep } from '@cleocode/contracts';
 import {
   type DeviceTrust,
   DeviceTrust as DeviceTrustSchema,
   KeyEscrowGrant,
   PutKeyEscrowResult,
 } from '@cleocode/contracts/cloud';
+import { nexusProjectKeysSchema, nexusUserKeysSchema } from '@cleocode/contracts/nexus-vault.js';
 import { z } from 'zod';
 import { type KeyPair, openSealed, randomKey } from './crypto.js';
 import { type FetchLike, Http, NexusError, type ResponseSchema } from './http.js';
@@ -51,20 +55,25 @@ import {
   certifiedSigners,
   createDeviceGrant,
   homeStreamKey,
+  isSendableWrap,
   masterKeyVerifier,
   newProjectKey,
   type TrustedSigners,
   unwrapProjectKey,
   wrapProjectKey,
 } from './keys.js';
-import { NexusAccountError, resolveNexusApiUrl } from './nexus-auth.js';
+import {
+  NEXUS_PROJECT_KEY_OWNER_REMEDY,
+  NexusAccountError,
+  resolveNexusApiUrl,
+} from './nexus-auth.js';
 import {
   assertNexusCloudDeviceMode,
   NEXUS_CLOUD_TIMEOUT_MS,
   type NexusCloudOptions,
   nexusCredentialWarnings,
 } from './nexus-cloud.js';
-import type { SealedNexusDevice } from './nexus-device.js';
+import { redactNexusDeviceSecrets, type SealedNexusDevice } from './nexus-device.js';
 import { ensureNexusDeviceCredential, nexusApiErrorToAccountError } from './nexus-enrol.js';
 import { NexusVaultState } from './nexus-vault-state.js';
 
@@ -124,7 +133,16 @@ export async function connectNexusVault(
   assertNexusCloudDeviceMode();
   const apiUrl = resolveNexusApiUrl(opts.apiUrl);
   const handle = await ensureNexusDeviceCredential({ ...opts, apiUrl });
-  const device = handle.device;
+  return vaultConnectionOf(handle.device, apiUrl, opts, handle.warnings);
+}
+
+/** A vault connection acting as `device` (its current credential and keys). */
+function vaultConnectionOf(
+  device: SealedNexusDevice,
+  apiUrl: string,
+  opts: NexusVaultOptions,
+  credentialWarnings: readonly string[],
+): NexusVaultConnection {
   const bearer = device.currentBearer();
   if (bearer === null) {
     throw new NexusAccountError(
@@ -164,7 +182,7 @@ export async function connectNexusVault(
     blobFetch: (input, init) =>
       base(input, { ...init, signal: AbortSignal.timeout(blobTimeoutMs) }),
     state: opts.vaultState ?? new NexusVaultState(),
-    warnings: nexusCredentialWarnings(handle.warnings),
+    warnings: nexusCredentialWarnings(credentialWarnings),
     raw,
     async call<T>(method: string, path: string, schema: ResponseSchema<T>, body?: unknown) {
       try {
@@ -257,7 +275,13 @@ async function openEscrow(conn: NexusVaultConnection): Promise<{ mk: Buffer; kv:
   return { mk, kv: grant.keyVersion };
 }
 
-async function mintEscrow(conn: NexusVaultConnection): Promise<{ mk: Buffer; kv: number }> {
+/**
+ * Mint the account master key and escrow it (insert-only). `adopted` is `true` when another
+ * device escrowed first (409): its key is read and used, and this device never mints again.
+ */
+async function mintEscrow(
+  conn: NexusVaultConnection,
+): Promise<{ mk: Buffer; kv: number; adopted: boolean }> {
   const existing = await conn.find('/v1/account/keys', nexusUserKeysSchema);
   if (existing !== null) {
     throw keyUnavailable(
@@ -272,7 +296,7 @@ async function mintEscrow(conn: NexusVaultConnection): Promise<{ mk: Buffer; kv:
       keyVersion: 1,
       masterKeyVerifier: masterKeyVerifier(mk),
     });
-    return { mk, kv: 1 };
+    return { mk, kv: 1, adopted: false };
   } catch (err) {
     // Backstop: unreachable while GET and PUT escrow ship together (cleo-nexus #24), since
     // openEscrow already refused; kept for a server that exposes one without the other.
@@ -282,22 +306,23 @@ async function mintEscrow(conn: NexusVaultConnection): Promise<{ mk: Buffer; kv:
     const won = await openEscrow(conn);
     if (won === null)
       throw keyUnavailable('the account key was escrowed concurrently but is not readable');
-    return won;
+    return { ...won, adopted: true };
   }
 }
 
+/** Certify this device under MK unless it already is; `wrote` says whether this call did. */
 async function ensureCertified(
   conn: NexusVaultConnection,
   mk: Buffer,
   kv: number,
-): Promise<DeviceTrust> {
+): Promise<{ trust: DeviceTrust; wrote: boolean }> {
   const trust = await conn.call('GET', '/v1/devices/trust', DeviceTrustSchema);
   const mine = conn.keys.signing.publicKey.toString('base64');
   const certified = trust.certificates.some(
     (c) =>
       c.deviceId === conn.deviceId && c.keyVersion === kv && c.signingPublicKey === mine && c.live,
   );
-  if (certified) return trust;
+  if (certified) return { trust, wrote: false };
   const grant = createDeviceGrant({
     masterKey: mk,
     userId: conn.userId,
@@ -315,7 +340,7 @@ async function ensureCertified(
     z.looseObject({}),
     grant,
   );
-  return conn.call('GET', '/v1/devices/trust', DeviceTrustSchema);
+  return { trust: await conn.call('GET', '/v1/devices/trust', DeviceTrustSchema), wrote: true };
 }
 
 /**
@@ -334,8 +359,29 @@ export async function unlockNexusAccountKey(
   conn: NexusVaultConnection,
   opts: { readOnly?: boolean } = {},
 ): Promise<NexusAccountKey> {
+  return (await unlockAccount(conn, opts.readOnly === true, { step: 'escrow-read' })).key;
+}
+
+/** How {@link unlockAccount} obtained the key; holds the key itself, so never print it. */
+interface UnlockedAccount {
+  key: NexusAccountKey;
+  escrow: 'fetched' | 'minted' | 'adopted';
+  /** `null` on a read-only unlock (nothing certified). */
+  certificate: 'new' | 'existing' | null;
+}
+
+/**
+ * {@link unlockNexusAccountKey}, reporting how the key was obtained. `progress.step` names the
+ * step running, so a caller that catches a failure can say where it happened.
+ */
+async function unlockAccount(
+  conn: NexusVaultConnection,
+  readOnly: boolean,
+  progress: { step: NexusAccountSetupStep },
+): Promise<UnlockedAccount> {
+  progress.step = 'escrow-read';
   const escrowed = await openEscrow(conn);
-  if (escrowed === null && opts.readOnly === true) {
+  if (escrowed === null && readOnly) {
     // Nothing was ever pushed from any device: a read has nothing to read, and
     // must not mint the account key as a side effect.
     throw new NexusAccountError(
@@ -344,11 +390,30 @@ export async function unlockNexusAccountKey(
       'run `cleo cloud push` on a device that has the data',
     );
   }
-  const unlocked = escrowed ?? (await mintEscrow(conn));
-  const trust =
-    opts.readOnly === true
-      ? await conn.call('GET', '/v1/devices/trust', DeviceTrustSchema)
-      : await ensureCertified(conn, unlocked.mk, unlocked.kv);
+  let unlocked: { mk: Buffer; kv: number };
+  let escrow: UnlockedAccount['escrow'];
+  if (escrowed !== null) {
+    unlocked = escrowed;
+    escrow = 'fetched';
+  } else {
+    // The account's first device. Since T13100 `cleo login nexus` does this right after
+    // enrolment; a push still gets here for a device that logged in before that.
+    progress.step = 'escrow-mint';
+    const minted = await mintEscrow(conn);
+    unlocked = minted;
+    escrow = minted.adopted ? 'adopted' : 'minted';
+  }
+  progress.step = 'certify';
+  let trust: DeviceTrust;
+  let certificate: UnlockedAccount['certificate'] = null;
+  if (readOnly) {
+    trust = await conn.call('GET', '/v1/devices/trust', DeviceTrustSchema);
+  } else {
+    const certified = await ensureCertified(conn, unlocked.mk, unlocked.kv);
+    trust = certified.trust;
+    certificate = certified.wrote ? 'new' : 'existing';
+  }
+  progress.step = 'trust';
   // Read, evaluate and persist the trust state under one lock, so two
   // concurrent commands cannot interleave and lose a narrowed pin.
   const evaluation = conn.state.updateTrust(conn.apiUrl, conn.userId, (current) => {
@@ -368,7 +433,137 @@ export async function unlockNexusAccountKey(
         : 'the server declared an account key version no rotation explains',
     );
   }
-  return { masterKey: unlocked.mk, keyVersion: unlocked.kv, signers: evaluation.signers };
+  return {
+    key: { masterKey: unlocked.mk, keyVersion: unlocked.kv, signers: evaluation.signers },
+    escrow,
+    certificate,
+  };
+}
+
+/** Options of {@link provisionNexusAccount}. */
+export interface ProvisionNexusAccountOptions extends NexusVaultOptions {
+  /**
+   * The device entry to act as. `cleo login nexus` passes the entry it just
+   * stored, so the setup runs on that new device credential (the escrow routes
+   * accept only device credentials). Default: the stored credential, as
+   * {@link connectNexusVault} finds it.
+   */
+  device?: SealedNexusDevice;
+}
+
+/** What each setup step does, for a failure message. */
+const SETUP_STEP_LABELS: Readonly<Record<NexusAccountSetupStep, string>> = {
+  connect: 'opening the vault connection with the device credential',
+  'escrow-read': 'reading the escrowed account key',
+  'escrow-mint': 'creating and escrowing the account key',
+  certify: 'certifying this device under the account key',
+  trust: 'recording the device trust state',
+};
+
+/** The remedy of a failed setup step whose error carried none. */
+const SETUP_RETRY_FIX =
+  'run `cleo login nexus` again; `cleo cloud push` also finishes the setup on this device';
+
+/**
+ * Make the account ready for encrypted backups on this device (onboarding A,
+ * T13100): read the escrowed account master key, or mint and escrow it when
+ * the account has none (a 409 means another device won: its key is read,
+ * never re-minted), then certify this device under it and record the signer
+ * trust state in {@link NexusVaultState}. It is {@link unlockNexusAccountKey}
+ * with a report, so a later `cleo cloud push` finds everything in place and
+ * mints nothing; it is idempotent.
+ *
+ * It never throws: a server without key escrow answers `unsupported`, any
+ * other failure answers `failed` with the step and the remedy. No key is in
+ * the result, and a failure message is redacted of the device credential.
+ *
+ * @param opts - API URL, stores, the device to act as, and test overrides.
+ * @returns What the setup did.
+ */
+export async function provisionNexusAccount(
+  opts: ProvisionNexusAccountOptions = {},
+): Promise<NexusAccountSetup> {
+  const progress: { step: NexusAccountSetupStep } = { step: 'connect' };
+  // The bearer in use, so a failure message that quotes it (fetch quotes a malformed header
+  // value) is redacted even when it does not have the credential's shape.
+  let bearer = opts.device?.currentBearer() ?? null;
+  try {
+    const conn =
+      opts.device !== undefined
+        ? vaultConnectionOf(opts.device, resolveNexusApiUrl(opts.apiUrl), opts, [])
+        : await connectNexusVault(opts);
+    bearer = conn.device.currentBearer();
+    const unlocked = await unlockAccount(conn, false, progress);
+    const how =
+      unlocked.escrow === 'minted'
+        ? 'the account key was created and escrowed on Cleo Nexus'
+        : 'this device received the account key from Cleo Nexus escrow';
+    return {
+      status: 'ready',
+      escrow: unlocked.escrow,
+      certificate: unlocked.certificate ?? 'existing',
+      keyVersion: unlocked.key.keyVersion,
+      summary: `Your account is ready for encrypted backups: ${how}, and this device is certified to use it.`,
+    };
+  } catch (err) {
+    if (err instanceof NexusAccountError && err.code === 'E_NEXUS_VAULT_UNSUPPORTED') {
+      const fix = err.fix ?? 'upgrade the Cleo Nexus server';
+      return {
+        status: 'unsupported',
+        code: err.code,
+        fix,
+        summary: `signed in, but encrypted backups are not available: ${err.message}. Fix: ${fix}`,
+      };
+    }
+    const code = err instanceof NexusAccountError ? err.code : 'E_NEXUS_REQUEST_FAILED';
+    const raw = err instanceof Error ? err.message : String(err);
+    const message = redactNexusDeviceSecrets(
+      bearer !== null && bearer !== '' ? raw.split(bearer).join('[redacted]') : raw,
+    );
+    const fix = (err instanceof NexusAccountError ? err.fix : undefined) ?? SETUP_RETRY_FIX;
+    const step = progress.step;
+    return {
+      status: 'failed',
+      step,
+      code,
+      message,
+      fix,
+      summary: `signed in, but encrypted backups are not set up: step ${step} (${SETUP_STEP_LABELS[step]}) failed with ${code}: ${message}. Fix: ${fix}`,
+    };
+  }
+}
+
+/**
+ * Why Cleo Nexus refused this device's first key for a project (403), as an
+ * account error with a remedy, or `null` for any other failure. A device may
+ * create only version 1, of a keyless project its own user registered
+ * (cleo-nexus #33); this function is reached only when this account holds no
+ * key for the project (T13098).
+ */
+function refusedFirstKey(err: unknown, projectId: string): NexusAccountError | null {
+  if (!(err instanceof NexusError) || err.status !== 403) return null;
+  switch (err.details?.['reason']) {
+    case 'not-registrant':
+      return keyUnavailable(
+        `project ${projectId} has no key yet, and only a device of the account that registered it may create the first one`,
+        'run the first `cleo cloud push` from a device of the account that first ran `cleo project link` for this project',
+      );
+    case 'session-required':
+      return keyUnavailable(
+        `project ${projectId} already has a key, but it has not been shared with this account`,
+        'ask the project owner to share the project key with this account',
+      );
+    case 'project-role':
+      // Checked before the server knows whether the project has a key, so an owner may already
+      // have created one and not shared it with this account. A device cannot create it for a
+      // project its account does not own (cleo-nexus #35), so the remedy names a session (T13101).
+      return keyUnavailable(
+        `this account holds no key for project ${projectId}, and only a project owner can create one`,
+        `${NEXUS_PROJECT_KEY_OWNER_REMEDY}, or, if the project already has a key, share it with this account`,
+      );
+    default:
+      return null;
+  }
 }
 
 /**
@@ -401,17 +596,46 @@ export async function nexusProjectDataKey(
   const have = await read();
   if (have !== null || !mint) return have;
   const pdk = newProjectKey();
+  const wrappedProjectKey = wrapProjectKey(mk, pdk, projectId, 1);
+  // Never send an empty or padding-only wrap: cleo-nexus #35 refuses it with 400 (T13101).
+  if (!isSendableWrap(wrappedProjectKey)) {
+    throw keyUnavailable(
+      `the new key of project ${projectId} wrapped to nothing; nothing was sent`,
+    );
+  }
   try {
     await conn.raw('PUT', `${path}/${encodeURIComponent(conn.userId)}`, z.looseObject({}), {
-      wrappedProjectKey: wrapProjectKey(mk, pdk, projectId, 1),
+      wrappedProjectKey,
       keyVersion: 1,
+      // Cleo Nexus accepts a new key version, the first one included, only as a rotation naming
+      // the current highest version (cleo-nexus T12856). The two fields stay out of the shared
+      // contract until cleo-nexus adds them there too (T064), as the server does.
+      rotate: true,
+      expectedMax: 0,
     });
     return pdk;
   } catch (err) {
-    if (!isConflict(err)) throw nexusApiErrorToAccountError(err);
-    const won = await read();
-    if (won === null) throw keyUnavailable(`the project key of ${projectId} is not readable`);
-    return won;
+    const refused = refusedFirstKey(err, projectId);
+    if (refused) throw refused;
+    if (isConflict(err, 'rotation-stale') || isConflict(err, 'keys-exist')) {
+      // Another device created version 1 first: use its key (T13098).
+      const won = await read();
+      if (won === null) {
+        throw keyUnavailable(
+          `the project key of ${projectId} was created by another account and has not been shared with this one`,
+          'ask the project owner to share the project with this account',
+        );
+      }
+      return won;
+    }
+    if (isConflict(err)) {
+      const e = err as NexusError;
+      const reason = typeof e.details?.['reason'] === 'string' ? ` (${e.details['reason']})` : '';
+      throw keyUnavailable(
+        `Cleo Nexus refused to store the project key of ${projectId}${reason}: ${e.serverMessage}`,
+      );
+    }
+    throw nexusApiErrorToAccountError(err);
   }
 }
 

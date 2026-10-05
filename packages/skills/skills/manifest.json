@@ -226,7 +226,7 @@
     },
     {
       "name": "ct-cleo",
-      "version": "2.24.4",
+      "version": "2.24.7",
       "description": "CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.",
       "path": "skills/ct-cleo",
       "tier": 0,
@@ -302,7 +302,7 @@
     },
     {
       "name": "ct-codebase-mapper",
-      "version": "2.1.0",
+      "version": "2.1.2",
       "description": "Orient in an unfamiliar or large codebase with CLEO's code-intelligence graph (cleo nexus) and project map (cleo map). Use before planning or editing unfamiliar code, for brownfield onboarding, to find what a change would break, or to map a project's structure, communities and execution flows. Triggers on \"map the codebase\", \"understand this project\", \"what calls X\", \"what would break\", \"brownfield analysis\", \"project structure\".",
       "path": "skills/ct-codebase-mapper",
       "tier": 1,
@@ -566,7 +566,7 @@
     },
     {
       "name": "ct-dev-workflow",
-      "version": "3.1.5",
+      "version": "3.1.7",
       "description": "Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.",
       "path": "skills/ct-dev-workflow",
       "tier": 0,
@@ -642,7 +642,7 @@
     },
     {
       "name": "ct-documentor",
-      "version": "3.17.4",
+      "version": "3.17.5",
       "description": "Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.",
       "path": "skills/ct-documentor",
       "tier": 0,
@@ -983,7 +983,7 @@
     },
     {
       "name": "ct-orchestrator",
-      "version": "4.0.8",
+      "version": "4.0.10",
       "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \\\"orchestrate\\\", \\\"orchestrator mode\\\", \\\"run as orchestrator\\\", \\\"delegate to subagents\\\", \\\"coordinate agents\\\", \\\"spawn subagents\\\", \\\"multi-agent workflow\\\", \\\"context-protected workflow\\\", \\\"agent farm\\\", \\\"HITL orchestration\\\", \\\"pipeline management\\\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime.",
       "path": "skills/ct-orchestrator",
       "tier": 0,
@@ -1150,7 +1150,7 @@
     },
     {
       "name": "ct-release-orchestrator",
-      "version": "3.0.2",
+      "version": "3.2.0",
       "description": "Orchestrates the canonical 4-verb release pipeline introduced by SPEC-T9345: cleo release plan, then cleo release open, then PR + GHA tag workflow, then cleo release reconcile. The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/release/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status.",
       "path": "skills/ct-release-orchestrator",
       "tier": 1,
@@ -1472,7 +1472,7 @@
     },
     {
       "name": "ct-task-executor",
-      "version": "2.7.7",
+      "version": "2.7.8",
       "description": "General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.",
       "path": "skills/ct-task-executor",
       "tier": 0,

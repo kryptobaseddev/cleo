@@ -17,7 +17,7 @@ import {
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import {
   isAbsolutePath,

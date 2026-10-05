@@ -15,22 +15,22 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
-import {
-  ExitCode,
-  type NexusInitParams,
-  type NexusListParams,
-  type NexusPermissionSetParams,
-  type NexusProjectCandidate,
-  type NexusProjectsFleetParams,
-  type NexusProjectsFleetResult,
-  type NexusProjectsStatusParams,
-  type NexusProjectsStatusResult,
-  type NexusReconcileParams,
-  type NexusRegisterParams,
-  type NexusShowParams,
-  type NexusSyncParams,
-  type NexusUnregisterParams,
+import type {
+  NexusInitParams,
+  NexusListParams,
+  NexusPermissionSetParams,
+  NexusProjectCandidate,
+  NexusProjectsFleetParams,
+  NexusProjectsFleetResult,
+  NexusProjectsStatusParams,
+  NexusProjectsStatusResult,
+  NexusReconcileParams,
+  NexusRegisterParams,
+  NexusShowParams,
+  NexusSyncParams,
+  NexusUnregisterParams,
 } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { pushWarning } from '@cleocode/lafs';
 import { isVaultRemotePath, readPortableProjectId } from '@cleocode/paths';
 import { desc, eq, inArray } from 'drizzle-orm';
@@ -55,7 +55,12 @@ import {
 import { ensureCheckoutNonce } from './checkout-nonce.js';
 import { listNexusDevices } from './devices.js';
 import { generateProjectHash } from './hash.js';
-import { collectCheckoutEvidence, legacyProjectId, projectPathFingerprint } from './identity.js';
+import {
+  collectCheckoutEvidence,
+  legacyProjectId,
+  projectPathFingerprint,
+  requireNexusProjectId,
+} from './identity.js';
 import { registryAliasClaimants, resolveProjectAlias } from './legacy-alias.js';
 import {
   isSupersededRegistryPath,
@@ -792,6 +797,88 @@ export class NexusProjectAmbiguityError extends CleoError {
     this.name = 'NexusProjectAmbiguityError';
     this.candidates = candidates;
   }
+}
+
+/**
+ * Look up a portable project id or an unambiguous recorded legacy alias.
+ * Names and path hashes are not project ids and are not accepted here.
+ *
+ * @param projectRoot - Calling checkout (consistent with the registry API).
+ * @param projectId - Portable id, or a recorded alias retained for compatibility.
+ * @returns The registered project, or null when the id is not registered.
+ * @throws {NexusProjectAmbiguityError} When several projects claim an alias.
+ * @throws {NexusRegistryReadError} When registry access fails.
+ */
+export async function nexusGetProjectById(
+  _projectRoot: string,
+  projectId: string,
+): Promise<NexusProject | null> {
+  try {
+    const row = await withLiveNexusDb(async (db) => {
+      const exact = db
+        .select()
+        .from(projectRegistry)
+        .where(eq(projectRegistry.projectId, projectId))
+        .get();
+      if (exact) return exact;
+      const alias = resolveProjectAlias(db, projectId);
+      if (alias.status === 'none') return null;
+      if (alias.status === 'ambiguous') {
+        const claimants = db
+          .select()
+          .from(projectRegistry)
+          .where(inArray(projectRegistry.projectId, [...alias.claimants]))
+          .all();
+        // @sync-invariant none:local-only ambiguous query selectors cannot select a local registry project
+        throw new NexusProjectAmbiguityError(projectId, claimants, 'alias');
+      }
+      const canonical = db
+        .select()
+        .from(projectRegistry)
+        .where(eq(projectRegistry.projectId, alias.canonicalId))
+        .get();
+      if (canonical) {
+        pushWarning({
+          // @sync-invariant none:local-only a successful legacy query resolution emits an advisory, not a synced write rejection
+          code: 'W_NEXUS_LEGACY_PROJECT_ID',
+          severity: 'warn',
+          message: `Project alias '${projectId}' is deprecated; use '${canonical.projectId}'.`,
+          context: { alias: projectId, projectId: canonical.projectId },
+        });
+      }
+      return canonical ?? null;
+    });
+    return row ? rowToProject(row) : null;
+  } catch (error) {
+    // @sync-invariant none:local-only a registry query failure remains a typed read error, never an empty result
+    throw toRegistryReadError('get project by id', error);
+  }
+}
+
+/**
+ * Bind a project-scoped graph query to its checkout's portable identity.
+ * An override may name that identity or its unique legacy alias, never another
+ * project: the graph store cannot be selected by relabeling its counts.
+ *
+ * @param projectRoot - Checkout whose project-scoped graph will be queried.
+ * @param requestedId - Optional explicit portable id or recorded legacy alias.
+ * @returns The current checkout's canonical id.
+ * @throws {CleoError} On missing identity or a foreign/unresolved override.
+ */
+export async function resolveNexusQueryProjectId(
+  projectRoot: string,
+  requestedId?: string,
+): Promise<string> {
+  const projectId = requireNexusProjectId(projectRoot);
+  if (requestedId === undefined || requestedId === projectId) return projectId;
+  const registered = await nexusGetProjectById(projectRoot, requestedId);
+  if (registered?.projectId === projectId) return projectId;
+  // @sync-invariant none:local-only a foreign query id cannot relabel the current project graph; no synced write occurs
+  throw new CleoError(
+    ExitCode.INVALID_INPUT,
+    `Project '${requestedId}' cannot select the graph for '${projectId}' at ${projectRoot}.`,
+    { fix: 'Run the query from the intended project, using its portable project id.' },
+  );
 }
 
 /**

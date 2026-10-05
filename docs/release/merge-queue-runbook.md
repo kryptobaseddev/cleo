@@ -1,7 +1,7 @@
 # Merge Queue Runbook
 
 > **Status:** Live · **Owner:** Saga T10431 · **Task:** T10446  
-> **Last updated:** 2026-05-24
+> **Last updated:** 2026-10-03
 
 This document is the operator-facing runbook for GitHub Merge Queue on the
 `cleocode` repository. It covers setup, day-to-day commands, the zero-admin-merge
@@ -170,6 +170,18 @@ own. The `CI` check that DOES run is the `workflow_dispatch` run that
 attach to the PR head SHA. Waiting for the `pull_request` runs, or approving
 them one by one, adds nothing that run has not already proven.
 
+**The dispatched run is the reduced, version-only run (T13141).** The bump
+commit changes only `"version"` lines in `package.json` files (and, when
+present, `CHANGELOG.md` and `.changeset/` moves). The `changes` job runs
+`scripts/ci-detect-version-only.mjs` on a `workflow_dispatch` run of a
+`release/v*` branch too, diffing the branch against its merge-base with
+`main`. When the diff has that shape, `version_only` is `true`. Unit tests,
+builds, the packed artifact, install tests and the other heavy jobs then skip,
+while lint, typecheck and the separate Lockfile Check workflow still run, so
+the run takes minutes instead of ~22. Any other change on the branch, or a
+failed fetch or merge-base, runs the full suite. To see which one ran, open the
+run's `Detect Changes` job: the detector prints its verdict and the reason.
+
 **Procedure (the orchestrator runs this, not the release workflow):**
 
 ```bash
@@ -187,9 +199,11 @@ gh pr merge "$PR" --admin --merge
 Rules:
 
 - Merge only when the dispatched `CI` run for the **current** head SHA is
-  `completed` / `success`. A green run for an earlier head does not count; if
-  the branch moved, re-dispatch (`gh workflow run ci.yml --ref release/v2026.X.Y`)
-  and wait.
+  `completed` / `success`. That holds for the reduced version-only run exactly
+  as for a full run: the `CI` aggregate is green only when every job that ran
+  succeeded. A green run for an earlier head does not count; if the branch
+  moved, re-dispatch (`gh workflow run ci.yml --ref release/v2026.X.Y`) and
+  wait.
 - `--merge` (a merge commit), not squash: the tag is cut from `main` after the
   merge and must contain the bump commit as prepared.
 - This is the ONE sanctioned use of `--admin` under the Zero-Admin-Merge Policy
@@ -227,6 +241,88 @@ learned. Both are recorded where an operator can see them.
   hashes from the tagged commit and refuses any binary that lacks the stamp.
   To force a rebuild, delete the cache entry:
   `gh cache delete cant-napi-bundle-v1-<hash>`.
+
+## Flaky tests: re-run once, file, quarantine (T13145)
+
+Each unit shard runs vitest through `scripts/ci-flaky-quarantine.mjs`:
+
+- When a test fails, its file is re-run once, without `--shard`. If it passes on the re-run, it is a
+  **flake**: CI stays green, and the test is listed in the run summary and in the shard's
+  `flaky-report-<os>-<shard>` artifact.
+- A test that fails twice blocks. Three other cases block without a re-run:
+  - more than 10 files fail (a broad failure, not a flake);
+  - vitest reports an error outside any test (an `Unhandled Errors` section or an `Errors` summary
+    line), even when another failure is a flake;
+  - a crash or heap kill leaves no failing test in the JSON report.
+- On `main` (push and nightly), the `Flaky Test Quarantine` job files each confirmed flake as an
+  open issue labelled `flaky-quarantine`, or renews the existing issue. **The open issues filed by
+  GitHub Actions are the quarantine**; an issue anyone else opens or labels does not count, and
+  neither does a bot issue whose body someone else has edited or whose title no longer names the test
+  its body state names (the state is what the quarantine reads, and it is editable). While a
+  test's issue is open, a failure of it that also fails its re-run does not block CI, and it does not
+  renew the quarantine either. A whole-file entry excuses only a whole-file failure.
+- On the nightly run, an issue with no confirmed flake for 14 days is closed, and the test blocks
+  again. A test that is broken rather than flaky therefore leaves quarantine within 14 days. Close an
+  issue by hand once its flake is fixed. Duplicate issues for one test (two main runs filing it at
+  once) are closed, keeping the oldest.
+- Main's CI (push and nightly) fails while more than 10 tests are quarantined, so the quarantine
+  cannot grow without tests being fixed. A pull request only warns about it, so one bad day on main
+  does not block every PR.
+- If the quarantine cannot be read (a `gh` error), it is treated as empty, so failures block.
+
+## Release candidate gate: canary first, then latest (T13144, T13181)
+
+A stable release reaches users only after its release candidate has been
+installed from npm and checked. Everything runs inside `release.yml`, through
+npm trusted publishing (OIDC). There is no npm token, no approval environment
+and no dist-tag move anywhere.
+
+For a tag `v2026.X.Y`, the Publish job:
+
+1. publishes every package as `2026.X.Y-rc.ci.<run number>` under the `canary`
+   dist-tag, from the tagged commit's build. pnpm pins each @cleocode
+   dependency at the candidate's exact version, so the candidate is a coherent
+   set;
+2. proves the candidate installable from npm: `scripts/execute-payload.mjs`
+   checks metadata, tarball and `dist-tags.canary` for every package (15 minute
+   budget);
+3. installs `@cleocode/cleo@2026.X.Y-rc.ci.<n>` from npm into a sandbox and runs
+   the health checks (`scripts/release-canary-soak.mjs`: coherent @cleocode
+   versions, `--version`, `init`, `session start`, a saga and epic write,
+   `show`, `find`, `doctor`);
+4. only if both pass, publishes `2026.X.Y` under `latest` from the same commit.
+
+Steps 2 and 3 are blocking: a failure stops the job before `latest` is touched,
+and users keep the previous release. The Post-Deploy and Release Verdict jobs
+then verify `2026.X.Y` under `latest` as before. Prereleases (`-beta`, `-dev`)
+skip the candidate and publish to their own tags directly.
+
+**Re-runs.** The candidate's number is the run number, so re-running failed
+jobs of the same run reuses the same candidate and skips every package already
+published. A registry that has not finished propagating the candidate inside
+the 15 minute budget (it has happened for `@cleocode/cleo`) fails step 2; re-run
+the failed job later and it continues from there. A re-run after `2026.X.Y`
+itself published skips the candidate.
+
+**Try a candidate yourself.** `npm i -g @cleocode/cleo@canary` installs the
+newest candidate; `node scripts/release-canary-soak.mjs` (or `--version
+2026.X.Y-rc.ci.<n>`) runs the same health checks in a sandbox.
+
+**Rolling back.** Without a token, `latest` cannot be moved by hand. A bad
+release is fixed forward: revert or fix on main and ship the next patch version,
+which goes through the same candidate gate. A package's first-ever publish gets
+`latest` from the registry regardless of `--tag canary` (npm tags a package's
+first version `latest`): when a package is added to `publish_pkg`, its first
+candidate is that package's `latest` until the final phase publishes the release,
+so never add a new package in a hotfix. The automatic candidate is
+`-rc.ci.<run number>`, so it cannot collide with a hand-cut `-rc.N` prerelease tag
+(which publishes to `beta`).
+
+**Hotfixes.** Plan the release with `cleo release plan … --hotfix`. release.yml
+writes `"cleo": { "hotfix": true }` into `@cleocode/cleo`'s package.json from
+the committed plan (T13184), so the `latest` publish carries the flag, and
+installed CLIs show the stronger HOTFIX notice once it is `latest` (see
+`docs/release/verb-matrix.md`). Nothing else is needed.
 
 ## Operator Commands
 

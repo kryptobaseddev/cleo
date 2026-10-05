@@ -11,6 +11,7 @@
 import { chmodSync, existsSync } from 'node:fs';
 import { isResourceGrant, RESOURCE_DEFERRED_CODE } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { readLedger } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
 import {
   _resetGovernorStateForTest,
@@ -19,7 +20,14 @@ import {
   governorSlotDir,
   ResourceGovernor,
   resolveGovernorMode,
+  slotFileCount,
 } from '../governor.js';
+import { ResourceMonitor } from '../monitor.js';
+import {
+  MEMORY_GATE_RETRY_AFTER_MS,
+  type MemoryGateReporter,
+  memoryGateReporter,
+} from '../pressure-gate.js';
 import {
   processGroupOf,
   processStart,
@@ -58,55 +66,20 @@ describe('computeClassBudget (T11999)', () => {
     );
   });
 
-  it('full-build is pinned to 1 machine-wide regardless of pressure', () => {
-    expect(computeClassBudget('full-build', makeSample({ someAvg10: 0 }), BUDGET_OPTS)).toBe(1);
-    expect(computeClassBudget('full-build', makeSample({ someAvg10: 90 }), BUDGET_OPTS)).toBe(1);
+  it('ledger classes: the budget is a count view of the admission ledger (T13133)', () => {
+    // 256 GiB: capacity 192 GiB, a heavy run is 6 workers × 6 GiB = 36 GiB → 5 runs.
+    const big = { cpuCount: 16, totalMemBytes: 256 * GB } as const;
+    expect(computeClassBudget('test-run', makeSample(), big)).toBe(5);
+    expect(computeClassBudget('scoped-build', makeSample(), big)).toBe(5);
+    expect(computeClassBudget('full-build', makeSample(), big)).toBe(5);
+    expect(computeClassBudget('test-run', makeSample({ someAvg10: 15 }), big)).toBe(2); // hold: half
+    expect(computeClassBudget('test-run', makeSample({ someAvg10: 30 }), big)).toBe(0); // memory gate
   });
 
-  it('test-run scales down under pressure: base → half (some>10) → 1 (some>25)', () => {
-    // T12091: base is now clamped by MemAvailable too, so this case needs enough
-    // free RAM for the core budget to be the binding constraint —
-    // ⌊(128−2)/24⌋ = 5, clamped to ⌊16/4⌋ = 4.
-    const ample = { memAvailableGb: 128 };
-    const base = computeClassBudget('test-run', makeSample({ ...ample }), BUDGET_OPTS);
-    expect(base).toBe(4);
-    expect(
-      computeClassBudget('test-run', makeSample({ ...ample, someAvg10: 15 }), BUDGET_OPTS),
-    ).toBe(2); // halved
-    expect(
-      computeClassBudget('test-run', makeSample({ ...ample, someAvg10: 30 }), BUDGET_OPTS),
-    ).toBe(1); // floor
-  });
-
-  it('test-run is bounded by MemAvailable, not just cores (T12091)', () => {
-    // The measured freeze: a core-only budget admitted ⌊24/4⌋ = 6 concurrent
-    // runs while each run is permitted 6 vitest forks × 4 GiB — 144 GiB of heap
-    // on a 62 GiB box, with no single bound violated.
-    const opts = { cpuCount: 24, totalMemBytes: 62 * GB } as const;
-    // 60 GiB available − 2 GiB headroom = 58; ⌊58/24⌋ = 2 (was 6).
-    expect(computeClassBudget('test-run', makeSample({ memAvailableGb: 60 }), opts)).toBe(2);
-    // 30 GiB available → ⌊28/24⌋ = 1.
-    expect(computeClassBudget('test-run', makeSample({ memAvailableGb: 30 }), opts)).toBe(1);
-    // Not even one run fits — still 1, never 0: the per-run vitest cap governs
-    // from there, and refusing outright would make tests unrunnable on a small
-    // machine rather than merely slow.
-    expect(computeClassBudget('test-run', makeSample({ memAvailableGb: 8 }), opts)).toBe(1);
-  });
-
-  it('scoped-build shares the test-run memory bound', () => {
-    const opts = { cpuCount: 24, totalMemBytes: 62 * GB } as const;
-    expect(computeClassBudget('scoped-build', makeSample({ memAvailableGb: 60 }), opts)).toBe(2);
-  });
-
-  it('honours an explicit testRunEstRamMb estimate', () => {
-    // A project whose suite is light should not be pinned by the monorepo's
-    // 24 GiB worst case: ⌊(60−2)/2⌋ = 29, clamped to ⌊16/4⌋ = 4.
-    expect(
-      computeClassBudget('test-run', makeSample({ memAvailableGb: 60 }), {
-        ...BUDGET_OPTS,
-        testRunEstRamMb: 2048,
-      }),
-    ).toBe(4);
+  it('a 48 GiB machine holds two heavy runs, one at hold, and nothing replaces the floor of one (T13132)', () => {
+    const mac = { cpuCount: 18, totalMemBytes: 48 * GB } as const;
+    expect(computeClassBudget('test-run', makeSample(), mac)).toBe(2);
+    expect(computeClassBudget('test-run', makeSample({ someAvg10: 15 }), mac)).toBe(1);
   });
 
   it('agent-session clamps by MemAvailable and cpus-2', () => {
@@ -123,6 +96,29 @@ describe('computeClassBudget (T11999)', () => {
   it('db-heavy defers (0) under backoff-level pressure, else 1', () => {
     expect(computeClassBudget('db-heavy', makeSample({ someAvg10: 0 }), BUDGET_OPTS)).toBe(1);
     expect(computeClassBudget('db-heavy', makeSample({ someAvg10: 30 }), BUDGET_OPTS)).toBe(0);
+  });
+
+  it('CPU saturation alone defers no class but the heavy runs; memory pressure still does (T13170)', () => {
+    // A busy, healthy Mac: macOS derives CPU pressure from the load average
+    // (T12981), so load at 2.4x the effective cores reads as cpu some avg10 ≈ 58,
+    // well past backoff, while memory is calm.
+    const cpuSaturated: ResourceSample = {
+      ...makeSample({ someAvg10: 0 }),
+      cpuPressure: {
+        some: { avg10: 58, avg60: 58, avg300: 58, totalUs: 0 },
+        full: null,
+      },
+    };
+    expect(computeClassBudget('db-heavy', cpuSaturated, BUDGET_OPTS)).toBe(1);
+    expect(computeClassBudget('background-autonomous', cpuSaturated, BUDGET_OPTS)).toBe(1);
+    // Heavy multi-process runs still narrow: more workers on saturated cores
+    // only slow every one of them.
+    expect(computeClassBudget('test-run', cpuSaturated, BUDGET_OPTS)).toBe(1);
+    const memoryPressured: ResourceSample = { ...cpuSaturated, ...makeSample({ someAvg10: 30 }) };
+    expect(computeClassBudget('db-heavy', memoryPressured, BUDGET_OPTS)).toBe(0);
+    expect(computeClassBudget('background-autonomous', memoryPressured, BUDGET_OPTS)).toBe(0);
+    const memoryStalled = makeSample({ someAvg10: 0, fullAvg10: 20 });
+    expect(computeClassBudget('db-heavy', memoryStalled, BUDGET_OPTS)).toBe(0);
   });
 
   it('background-autonomous defers (0) under any hold-level pressure', () => {
@@ -309,6 +305,203 @@ describe('ResourceGovernor.acquire (T11999)', () => {
   });
 });
 
+describe('heavy classes go through the admission ledger (T13127, T13133)', () => {
+  let gov: ResourceGovernor;
+
+  beforeEach(() => {
+    _resetGovernorStateForTest();
+    delete process.env.CLEO_RESOURCES_MODE;
+    gov = new ResourceGovernor();
+  });
+  afterEach(() => {
+    _resetGovernorStateForTest();
+  });
+
+  /** A monitor whose samples follow a script of memory `some avg10` values. */
+  function scriptedMonitor(series: readonly number[]): {
+    monitor: ResourceMonitor;
+    calls: () => number;
+  } {
+    let n = 0;
+    const monitor = new ResourceMonitor({
+      backend: {
+        sample: async () =>
+          makeSample({
+            memAvailableGb: 128,
+            someAvg10: series[Math.min(n++, series.length - 1)] ?? 0,
+          }),
+        sweepChildRss: async () => ({ sampledAtMs: 0, entries: [] }),
+      },
+    });
+    return { monitor, calls: () => n };
+  }
+
+  function collector(): { reporter: MemoryGateReporter; lines: string[] } {
+    const lines: string[] = [];
+    return {
+      reporter: memoryGateReporter((l) => lines.push(l), 'test run', { intervalMs: 0 }),
+      lines,
+    };
+  }
+
+  it('a non-blocking acquire under memory pressure is a deferral with the readings', async () => {
+    const r = await gov.acquire('test-run', {
+      ...BUDGET_OPTS,
+      sample: makeSample({ memAvailableGb: 128, someAvg10: 40 }),
+      blocking: false,
+    });
+    expect(r.deferred).toBe(true);
+    if (!r.deferred) return;
+    expect(r.memoryPressure).toMatchObject({ score: 40, refuseAbove: 25, resumeAtOrBelow: 15 });
+    expect(r.reason).toMatch(/^memory pressure 40 \(refused above 25, resumes at 15 or below\)/);
+    expect(r.retryAfterMs).toBe(MEMORY_GATE_RETRY_AFTER_MS);
+    expect(readLedger()).toEqual([]); // nothing was started or held
+    expect(slotFileCount('test-run')).toBe(0); // and no slot dir exists any more
+  });
+
+  it('a blocking acquire waits, saying so, and is admitted when pressure falls', async () => {
+    const { monitor, calls } = scriptedMonitor([40, 30, 20, 12]);
+    const { reporter, lines } = collector();
+    const r = await gov.acquire('test-run', {
+      ...BUDGET_OPTS,
+      monitor,
+      memoryPressure: reporter,
+      pollMs: 5,
+      timeoutMs: 20_000,
+    });
+    expect(isResourceGrant(r)).toBe(true);
+    if (isResourceGrant(r)) await r.release();
+    // 40 and 30 refuse; 20 is still refused (latched: not yet down to 15); 12
+    // admits; the release samples once more for its scheduling pass.
+    expect(calls()).toBe(5);
+    expect(
+      lines.filter((l) => l.startsWith('waiting: memory pressure')).length,
+    ).toBeGreaterThanOrEqual(3);
+    expect(lines.at(-1)).toMatch(
+      /^memory pressure fell after waiting \d+s: admitting the test run\.$/,
+    );
+  }, 30_000);
+
+  it('a blocking acquire under lasting pressure gives up at its timeout with the readings', async () => {
+    const { monitor } = scriptedMonitor([50]);
+    const t0 = Date.now();
+    const r = await gov.acquire('scoped-build', {
+      ...BUDGET_OPTS,
+      monitor,
+      pollMs: 5,
+      timeoutMs: 60,
+    });
+    expect(Date.now() - t0).toBeLessThan(5_000);
+    expect(r.deferred).toBe(true);
+    if (!r.deferred) return;
+    expect(r.memoryPressure?.score).toBe(50);
+  });
+
+  it('hysteresis holds across acquirers: refused at 30, still refused at 20, admitted at 14', async () => {
+    const at = (some: number) =>
+      gov.acquire('test-run', {
+        ...BUDGET_OPTS,
+        sample: makeSample({ memAvailableGb: 128, someAvg10: some }),
+        blocking: false,
+      });
+    const first = await at(20); // unlatched: 20 is not above 25
+    expect(first.deferred).toBe(false);
+    if (isResourceGrant(first)) await first.release();
+    expect((await at(30)).deferred).toBe(true);
+    const latched = await at(20);
+    expect(latched.deferred).toBe(true);
+    if (latched.deferred) expect(latched.memoryPressure?.latched).toBe(true);
+    const resumed = await at(14);
+    expect(resumed.deferred).toBe(false);
+    if (isResourceGrant(resumed)) await resumed.release();
+    const after = await at(20);
+    expect(after.deferred).toBe(false);
+    if (isResourceGrant(after)) await after.release();
+  });
+
+  it('a monitor that throws counts as no signal: admitted, never blocked', async () => {
+    const monitor = new ResourceMonitor({
+      backend: {
+        sample: async () => {
+          throw new Error('sysctl unavailable');
+        },
+        sweepChildRss: async () => ({ sampledAtMs: 0, entries: [] }),
+      },
+    });
+    const r = await gov.acquire('test-run', { ...BUDGET_OPTS, monitor, timeoutMs: 1_000 });
+    expect(isResourceGrant(r)).toBe(true);
+    if (isResourceGrant(r)) await r.release();
+  });
+
+  it('two held heavy runs defer the next, naming the holders, and a release frees it', async () => {
+    // Each heavy run plans half the budget (T13132): two fill it.
+    const other = await gov.acquire('scoped-build', {
+      ...BUDGET_OPTS,
+      sample: makeSample(),
+      blocking: false,
+    });
+    expect(other.deferred).toBe(false);
+    const held = await gov.acquire('test-run', {
+      ...BUDGET_OPTS,
+      sample: makeSample(),
+      blocking: false,
+    });
+    expect(held.deferred).toBe(false);
+    const next = await gov.acquire('full-build', {
+      ...BUDGET_OPTS,
+      sample: makeSample(),
+      blocking: false,
+    });
+    expect(next.deferred).toBe(true);
+    if (next.deferred) {
+      expect(next.reason).toMatch(/held by class:scoped-build pid \d+.*class:test-run pid \d+/);
+    }
+    if (isResourceGrant(held)) await held.release();
+    const after = await gov.acquire('full-build', {
+      ...BUDGET_OPTS,
+      sample: makeSample(),
+      blocking: false,
+    });
+    expect(after.deferred).toBe(false);
+    if (isResourceGrant(after)) await after.release();
+    if (isResourceGrant(other)) await other.release();
+  });
+
+  it('available() is 0 while the gate refuses, and recovers with it', async () => {
+    // 64 GiB: capacity 48 GiB holds two 24 GiB heavy runs (T13132).
+    const at = (some: number) =>
+      gov.available('test-run', {
+        ...BUDGET_OPTS,
+        sample: makeSample({ memAvailableGb: 128, someAvg10: some }),
+      });
+    expect(await at(0)).toBe(2);
+    expect(await at(40)).toBe(0);
+    expect(await at(20)).toBe(0); // latched until it falls to 15
+    expect(await at(10)).toBe(2);
+  });
+
+  it('CPU saturation alone narrows test-run to 1 and never refuses it', async () => {
+    const cpuBound: ResourceSample = {
+      ...makeSample({ memAvailableGb: 128 }),
+      cpuPressure: { some: { avg10: 95, avg60: 95, avg300: 95, totalUs: 0 }, full: null },
+    };
+    expect(await gov.available('test-run', { ...BUDGET_OPTS, sample: cpuBound })).toBe(1);
+    const r = await gov.acquire('test-run', { ...BUDGET_OPTS, sample: cpuBound, blocking: false });
+    expect(isResourceGrant(r)).toBe(true);
+    if (isResourceGrant(r)) await r.release();
+  });
+
+  it('classes outside the ledger are not refused by the memory gate', async () => {
+    const r = await gov.acquire('agent-session', {
+      ...BUDGET_OPTS,
+      sample: makeSample({ memAvailableGb: 128, someAvg10: 40 }),
+      blocking: false,
+    });
+    expect(isResourceGrant(r)).toBe(true);
+    if (isResourceGrant(r)) await r.release();
+  });
+});
+
 describe('resolveGovernorMode (T11999)', () => {
   afterEach(() => {
     _resetGovernorStateForTest();
@@ -415,5 +608,34 @@ describe('an unwritable slot dir is an error, never a busy slot (#1777 R8-1)', (
         throw new TypeError('cannot read properties of undefined');
       }),
     ).rejects.toThrow(TypeError);
+  });
+});
+
+describe('deferral reasons name the signal the budget used (T13158)', () => {
+  beforeEach(() => {
+    _resetGovernorStateForTest();
+    delete process.env.CLEO_RESOURCES_MODE;
+  });
+  afterEach(() => {
+    _resetGovernorStateForTest();
+  });
+
+  // Memory at 30 (backoff) on a CPU-saturated host: the combined score is the
+  // CPU one, but a memory-budgeted class deferred on memory, and must say so.
+  const sample: ResourceSample = {
+    ...makeSample({ someAvg10: 30 }),
+    cpuPressure: { some: { avg10: 58, avg60: 58, avg300: 58, totalUs: 0 }, full: null },
+  };
+
+  it('a memory-budgeted class reports memory some avg10', async () => {
+    const r = await new ResourceGovernor().tryAcquire('db-heavy', { sample });
+    expect(r.deferred).toBe(true);
+    if (r.deferred) expect(r.reason).toContain('(memory some avg10=30.0)');
+  });
+
+  it('background-autonomous names memory too', async () => {
+    const r = await new ResourceGovernor().tryAcquire('background-autonomous', { sample });
+    expect(r.deferred).toBe(true);
+    if (r.deferred) expect(r.reason).toContain('(memory some avg10=30.0)');
   });
 });

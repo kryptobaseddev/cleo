@@ -13,12 +13,10 @@
  * @task T4844
  */
 
-import {
-  getLogger,
-  getProjectInfoSync,
-  resolveBoundSession,
-  resolveSessionIdFromEnv,
-} from '@cleocode/core/internal';
+import { getLogger } from '@cleocode/core/logger';
+import { getProjectInfoSync } from '@cleocode/core/project-info';
+import { resolveSessionIdFromEnv } from '@cleocode/core/sessions/session-id';
+import { resolveBoundSession } from '@cleocode/core/store/session-store';
 import { getConfig } from '../lib/config.js';
 import type { DispatchNext, DispatchRequest, DispatchResponse, Middleware } from '../types.js';
 
@@ -95,7 +93,7 @@ async function getActiveSessionInfo(): Promise<{ id: string; gradeMode: boolean 
 /**
  * Write audit entry to SQLite audit_log table.
  * Validates the payload with Zod before inserting.
- * Fire-and-forget — errors are logged to Pino but never thrown.
+ * Errors are logged to Pino but never thrown.
  *
  * @task T4848
  */
@@ -105,9 +103,9 @@ async function writeToSqlite(
   response?: DispatchResponse,
 ): Promise<void> {
   try {
-    const { getDb } = await import('@cleocode/core/internal');
-    const { auditLog } = await import('@cleocode/core/internal');
-    const { AuditLogInsertSchema } = await import('@cleocode/core/internal');
+    const { getDb } = await import('@cleocode/core/store/sqlite');
+    const { auditLog } = await import('@cleocode/core/store/schema/audit');
+    const { AuditLogInsertSchema } = await import('@cleocode/core/store/audit-log-schema');
     const { randomUUID } = await import('node:crypto');
 
     const payload = {
@@ -222,22 +220,16 @@ export function createAudit(): Middleware {
       `${entry.metadata.gateway ?? 'dispatch'} ${entry.domain}.${entry.operation}`,
     );
 
-    // SQLite write — await in grade mode to avoid race with grading query;
-    // fire-and-forget otherwise for performance.
-    const shouldAwaitSqlite =
-      isGradeSession ||
-      (req.gateway === 'mutate' && typeof req.params?.['idempotencyKey'] === 'string');
-    if (shouldAwaitSqlite) {
-      await writeToSqlite(entry, req.requestId, response);
-    } else {
-      writeToSqlite(entry, req.requestId, response).catch((err) => {
-        log.error({ err }, 'Failed to persist audit entry to SQLite');
-      });
-    }
+    // SQLite write — awaited, so the row exists before the response leaves the
+    // dispatcher (T13164). It was fire-and-forget outside grade mode, and the
+    // CLI's error path calls process.exit right after printing the envelope,
+    // which killed the pending insert: no failed mutation was ever audited.
+    // One insert on an already-open handle; writeToSqlite never throws.
+    await writeToSqlite(entry, req.requestId, response);
 
     return response;
   };
 }
 
 // queryAudit re-exported from core (canonical location)
-export { queryAudit } from '@cleocode/core/internal';
+export { queryAudit } from '@cleocode/core/audit';

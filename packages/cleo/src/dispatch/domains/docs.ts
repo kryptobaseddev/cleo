@@ -32,7 +32,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { BlobAttachment } from '@cleocode/contracts';
-import { DocKindRegistry } from '@cleocode/contracts';
+import { DocKindRegistry } from '@cleocode/contracts/docs-taxonomy.js';
 import type {
   DocsAddParams,
   DocsAddResult,
@@ -55,67 +55,108 @@ import type {
   LlmOutputMode,
 } from '@cleocode/contracts/operations/docs';
 import { LLM_OUTPUT_MODES } from '@cleocode/contracts/operations/docs';
-import { pushWarning } from '@cleocode/core';
+import { parseChangesetFrontmatter } from '@cleocode/core/changesets/parse-frontmatter';
+import { readAuditLog, verifyAuditTrail, writeAuditEntry } from '@cleocode/core/docs/docs-audit';
+import { createDocsReadModel } from '@cleocode/core/docs/docs-read-model';
+import {
+  DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
+  isLifecycleStatus,
+} from '@cleocode/core/docs/docs-update';
+import { createAttachmentStoreDocsAccessor } from '@cleocode/core/docs/import/attachment-store-accessor';
+import { makeClassifierForScanRoot } from '@cleocode/core/docs/import/scanner';
+import { AUTO_TOKEN } from '@cleocode/core/docs/numbering';
 import {
   captureDocumentProjection,
   projectDocumentAttachment,
 } from '@cleocode/core/docs/projection';
+import { consumeReservedSlug, releaseReservedSlug } from '@cleocode/core/docs/slug-allocator';
+import { SUPERSEDE_NOT_FOUND_CODE, SUPERSEDE_SAME_SLUG_CODE } from '@cleocode/core/docs/supersede';
+import { validateDocBody } from '@cleocode/core/docs/validate-body';
 import type {
+  AttachmentBackend,
   AttachmentRef,
+  DerefResult,
   ExportDocumentOptions,
   LlmsTxtAttachment,
   LocalFileAttachment,
   UrlAttachment,
 } from '@cleocode/core/internal';
+import { generateProjectHash } from '@cleocode/core/nexus/hash';
+import { pushWarning } from '@cleocode/core/output';
+import { resolveCleoDir, worktreeScope } from '@cleocode/core/paths.js';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import {
-  type AttachmentBackend,
-  AUTO_TOKEN,
-  allocateAdrSlug,
-  allocateAutoSlugForDispatch,
-  consumeReservedSlug,
   createAttachmentBlobStore,
   createAttachmentStore,
-  createAttachmentStoreDocsAccessor,
-  createDocsReadModel,
-  type DerefResult,
-  DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
-  exportDocument,
-  findSimilarDocs,
-  generateDocsLlmsTxt,
-  getProjectRoot,
-  isLifecycleStatus,
-  listDocVersions,
-  makeClassifierForScanRoot,
-  mergeDocs,
-  parseChangesetFrontmatter,
-  publishDocs,
-  publishDocsAsPr,
-  rankDocs,
-  readAuditLog,
-  recordPublication,
-  releaseReservedSlug,
-  reserveSlugForDispatch,
-  resolveAttachmentBackend,
-  runDocsImport,
   SlugCollisionError,
-  SUPERSEDE_NOT_FOUND_CODE,
-  SUPERSEDE_SAME_SLUG_CODE,
-  searchAllProjectDocs,
-  searchDocs,
-  supersedeDoc,
-  syncFromGit,
-  updateDocBySlug,
-  validateDocBody,
-  verifyAuditTrail,
-  writeAuditEntry,
-  writeChangesetEntry,
-} from '@cleocode/core/internal';
-import { generateProjectHash } from '@cleocode/core/nexus/hash';
-import { resolveCleoDir, worktreeScope } from '@cleocode/core/paths.js';
+} from '@cleocode/core/store/attachment-store';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
 import { dispatchMeta } from './_meta.js';
+import { lazyOperation } from './lazy.js';
+
+// CORE operations load on first call (T13126): a command loads its own
+// modules, not every operation's in this domain.
+
+const allocateAdrSlug = lazyOperation(
+  async () => (await import('@cleocode/core/docs/adr-allocator')).allocateAdrSlug,
+);
+const allocateAutoSlugForDispatch = lazyOperation(
+  async () => (await import('@cleocode/core/docs/numbering')).allocateAutoSlugForDispatch,
+);
+const exportDocument = lazyOperation(
+  async () => (await import('@cleocode/core/docs/export-document')).exportDocument,
+);
+const findSimilarDocs = lazyOperation(
+  async () => (await import('@cleocode/core/docs/docs-ops')).findSimilarDocs,
+);
+const generateDocsLlmsTxt = lazyOperation(
+  async () => (await import('@cleocode/core/docs/docs-generator')).generateDocsLlmsTxt,
+);
+const listDocVersions = lazyOperation(
+  async () => (await import('@cleocode/core/docs/docs-ops')).listDocVersions,
+);
+const mergeDocs = lazyOperation(
+  async () => (await import('@cleocode/core/docs/docs-ops')).mergeDocs,
+);
+const publishDocs = lazyOperation(
+  async () => (await import('@cleocode/core/docs/docs-ops')).publishDocs,
+);
+const publishDocsAsPr = lazyOperation(
+  async () => (await import('@cleocode/core/docs/publish-pr')).publishDocsAsPr,
+);
+const rankDocs = lazyOperation(async () => (await import('@cleocode/core/docs/docs-ops')).rankDocs);
+const recordPublication = lazyOperation(
+  async () => (await import('@cleocode/core/docs/docs-ops')).recordPublication,
+);
+const reserveSlugForDispatch = lazyOperation(
+  async () => (await import('@cleocode/core/docs/slug-allocator')).reserveSlugForDispatch,
+);
+const resolveAttachmentBackend = lazyOperation(
+  async () => (await import('@cleocode/core/store/attachment-store')).resolveAttachmentBackend,
+);
+const runDocsImport = lazyOperation(
+  async () => (await import('@cleocode/core/docs/import/import-orchestrator')).runDocsImport,
+);
+const searchAllProjectDocs = lazyOperation(
+  async () => (await import('@cleocode/core/docs/docs-ops')).searchAllProjectDocs,
+);
+const searchDocs = lazyOperation(
+  async () => (await import('@cleocode/core/docs/docs-ops')).searchDocs,
+);
+const supersedeDoc = lazyOperation(
+  async () => (await import('@cleocode/core/docs/supersede')).supersedeDoc,
+);
+const syncFromGit = lazyOperation(
+  async () => (await import('@cleocode/core/docs/docs-ops')).syncFromGit,
+);
+const updateDocBySlug = lazyOperation(
+  async () => (await import('@cleocode/core/docs/docs-update')).updateDocBySlug,
+);
+const writeChangesetEntry = lazyOperation(
+  async () => (await import('@cleocode/core/changesets/writer')).writeChangesetEntry,
+);
 
 /**
  * Local mirror of `DOCS_LIST_DEFAULT_LIMIT` from `@cleocode/contracts`.
@@ -690,7 +731,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     let aid: string | undefined, asha: string | undefined;
     if (params.attach) {
       const store = createAttachmentStore();
-      const desc: Omit<import('@cleocode/core/internal').LlmsTxtAttachment, 'sha256'> = {
+      const desc: Omit<LlmsTxtAttachment, 'sha256'> = {
         kind: 'llms-txt' as const,
         source: 'generated',
         content: result.content,

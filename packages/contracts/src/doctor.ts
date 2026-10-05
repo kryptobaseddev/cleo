@@ -699,11 +699,10 @@ export interface DbSubstrateProjectSurvey {
   /** Absolute path to the project root that was surveyed. */
   projectRoot: string;
   /**
-   * Stable identifier for the project — currently the `base64url(path)`
-   * truncated to 32 chars, matching the convention used by `cleo nexus`
-   * project resolution.
+   * Declared portable project identity, or null when identity is missing.
+   * A survey never creates an identity or derives it from a filesystem path.
    */
-  projectId: string;
+  projectId: string | null;
   /** Per-role survey result, keyed by canonical role name. */
   dbs: Readonly<Record<string, DbSubstrateEntry>>;
 }
@@ -1125,8 +1124,53 @@ export interface SupersededStoreConflict {
   targetTable: string;
   /** Legacy rows left uncopied. */
   rows: number;
-  /** Why they were left. */
-  reason: 'live-authoritative' | 'collides-with-live';
+  /**
+   * Why they were left. `id-collision-undecided` (full mode, T13172): a live
+   * task holds the legacy task's id and one of the two creation times does
+   * not parse, so the run cannot tell whether they are the same task; it
+   * neither renumbers nor copies the legacy task. `withheld-undecided`: a
+   * task-graph table such a run did not copy at all, so the undecided task's
+   * children, dependencies and criteria cannot attach to the live task.
+   */
+  reason:
+    | 'live-authoritative'
+    | 'collides-with-live'
+    | 'id-collision-undecided'
+    | 'withheld-undecided';
+  /** The legacy ids left uncopied, when the run can name them. */
+  ids?: string[];
+}
+
+/**
+ * A legacy task recovered under a fresh id because a DIFFERENT live task holds
+ * its id (a task written into the empty store after a deferred exodus, T13172).
+ * The renumbering happens in a scratch copy of the legacy file, with every
+ * reference to the task re-pointed; the legacy file and live rows are untouched.
+ *
+ * @task T13172
+ */
+export interface SupersededStoreIdRemap {
+  /** Logical legacy source. */
+  sourceDb: string;
+  /** The legacy task's id, which the live store uses for another task. */
+  legacyId: string;
+  /** The id the legacy task is recovered under. */
+  newId: string;
+  /** The legacy task's title. */
+  legacyTitle: string;
+  /** Title of the live task that holds `legacyId`. */
+  liveTitle: string;
+  /** `true` when a previous run already recovered it as `newId` (nothing new is copied). */
+  alreadyRecovered: boolean;
+  /** Legacy rows re-pointed from `legacyId` to `newId` (children, dependencies, criteria, …). */
+  referencesRepointed: number;
+  /**
+   * The legacy task's creation time and type, which a later run (and
+   * `cleo show <legacy id>`) checks against the recovered task before trusting
+   * this record (T13183). Absent in receipts written before T13183.
+   */
+  legacyCreatedAt?: string;
+  legacyType?: string | null;
 }
 
 /**
@@ -1162,8 +1206,17 @@ export interface SupersededStoreReconcileResult {
    * touch the live task graph, and list everything left in `conflicts`.
    */
   mode: 'full' | 'additive';
-  /** Legacy rows deliberately left uncopied (additive mode); empty in full mode. */
+  /**
+   * Legacy rows deliberately left uncopied: additive mode's live-authoritative
+   * tables, and in full mode the task-id collisions the run cannot decide.
+   */
   conflicts: SupersededStoreConflict[];
+  /**
+   * Legacy tasks whose id a different live task holds, recovered (full mode)
+   * or to be recovered (dry-run) under a new id. Empty in additive mode, which
+   * never writes the task graph.
+   */
+  remaps: SupersededStoreIdRemap[];
   /** `true` when nothing was written. */
   dryRun: boolean;
   /** Absolute project root. */

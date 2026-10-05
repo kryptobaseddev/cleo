@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/contracts",
-  "version": "2026.10.2",
+  "version": "2026.10.4",
   "description": "Domain types, interfaces, and contracts for the CLEO ecosystem",
   "type": "module",
   "main": "./dist/index.js",
@@ -25,6 +25,10 @@
     "./cloud": {
       "types": "./dist/cloud/index.d.ts",
       "import": "./dist/cloud/index.js"
+    },
+    "./ledger": {
+      "types": "./dist/ledger/index.d.ts",
+      "import": "./dist/ledger/index.js"
     },
     "./config.js": {
       "types": "./dist/config/index.d.ts",

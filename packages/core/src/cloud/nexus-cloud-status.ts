@@ -37,25 +37,31 @@
  */
 
 import { accessSync, existsSync, constants as fsConstants } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
+import type {
+  CloudStatusGlobalStore,
+  CloudStatusLocal,
+  CloudStatusOfflineDetails,
+  CloudStatusResult,
+  CloudStatusSummary,
+  CloudStatusSync,
+  CloudStatusSyncStream,
+  CloudStatusVerdict,
+  CloudSyncUnknown,
+  CloudWarning,
+  NexusCloudReplica,
+  NexusCloudStatus,
+  NexusCloudStatusCheck,
+  NexusCloudWhoami,
+} from '@cleocode/contracts';
 import {
-  type CloudStatusGlobalStore,
-  type CloudStatusLocal,
-  type CloudStatusOfflineDetails,
-  type CloudStatusResult,
-  type CloudStatusSummary,
-  type CloudStatusVerdict,
-  type CloudWarning,
   NEXUS_PRESENCE_FRESH_SECONDS,
-  type NexusCloudReplica,
-  type NexusCloudStatus,
-  type NexusCloudStatusCheck,
-  type NexusCloudWhoami,
   nexusCloudProjectDetailSchema,
   nexusCloudStatusSchema,
   nexusCloudWhoamiSchema,
-} from '@cleocode/contracts';
-import { resolveCleoDir } from '../paths.js';
+} from '@cleocode/contracts/nexus-cloud.js';
+import { getCleoHome, resolveCleoDir } from '../paths.js';
 import { NexusAccountError, resolveNexusApiUrl } from './nexus-auth.js';
 import {
   assertNexusCloudDeviceMode,
@@ -71,6 +77,7 @@ import {
 import { FileNexusTokenStore, type NexusTokenStore, nexusOriginKey } from './nexus-credentials.js';
 import { NexusDeviceStore, UnreadableNexusDevice } from './nexus-device.js';
 import { nexusHomeReplicaListSchema } from './nexus-home.js';
+import { projectStream } from './streams.js';
 
 /** Warning: the server has no E3, so the status was composed from E2, E14 and E15. */
 export const W_NEXUS_STATUS_COMPOSED = 'W_NEXUS_STATUS_COMPOSED';
@@ -183,26 +190,193 @@ function unreadableStore(reason: string): NexusLocalReplicaRead {
  */
 export async function readNexusLocalReplicaId(projectRoot: string): Promise<NexusLocalReplicaRead> {
   // The project store path, as resolveDualScopeDbPath('project', root) builds it.
-  const dir = resolveCleoDir(projectRoot);
-  const path = join(dir, 'cleo.db');
-  if (!existsSync(path)) return { replicaId: null, unreadable: false, warning: null };
-  if (!existsSync(`${path}-wal`) && !isWritable(dir)) {
-    return unreadableStore(
-      'the store has no -wal file and its directory is not writable, so a read-only open would fail or leave sidecars behind',
-    );
+  const path = join(resolveCleoDir(projectRoot), 'cleo.db');
+  const { activeReplica } = await import('../store/sync/replica.js');
+  const read = await readStoreSnapshot(
+    path,
+    (db) => activeReplica(db, 'project')?.replicaId ?? null,
+  );
+  if (read.kind === 'absent') return { replicaId: null, unreadable: false, warning: null };
+  if (read.kind === 'unreadable') return unreadableStore(read.reason);
+  return { replicaId: read.value, unreadable: false, warning: null };
+}
+
+/** What {@link readStoreSnapshot} found. */
+type StoreSnapshotRead<T> =
+  | { readonly kind: 'absent' }
+  | { readonly kind: 'unreadable'; readonly reason: string }
+  | { readonly kind: 'read'; readonly value: T };
+
+/**
+ * Run `read` on a read-only snapshot of a store: no migrations, no pragmas,
+ * closed before returning. Never writes a row.
+ *
+ * SQLite side effect: a read-only open of a WAL-mode store needs the `-wal`
+ * and `-shm` sidecars, and SQLite creates them (empty) when they are missing
+ * and the directory is writable. Run as another user (for example under
+ * `sudo`), those sidecars would be left owned by that user, so when the store
+ * has no `-wal` and the directory is not writable by the caller the open is
+ * skipped and the store reported unreadable instead.
+ */
+async function readStoreSnapshot<T>(
+  path: string,
+  read: (db: DatabaseSync) => T | Promise<T>,
+): Promise<StoreSnapshotRead<T>> {
+  if (!existsSync(path)) return { kind: 'absent' };
+  if (!existsSync(`${path}-wal`) && !isWritable(dirname(path))) {
+    return {
+      kind: 'unreadable',
+      reason:
+        'the store has no -wal file and its directory is not writable, so a read-only open would fail or leave sidecars behind',
+    };
   }
   const { openCleoDbSnapshot } = await import('../store/open-cleo-db.js');
-  const { activeReplica } = await import('../store/sync/replica.js');
   let snap: ReturnType<typeof openCleoDbSnapshot> | undefined;
   try {
     snap = openCleoDbSnapshot(path, { readOnly: true, applyPragmas: false });
-    const replicaId = activeReplica(snap.db, 'project')?.replicaId ?? null;
-    return { replicaId, unreadable: false, warning: null };
+    return { kind: 'read', value: await read(snap.db) };
   } catch (err) {
-    return unreadableStore(err instanceof Error ? err.message : String(err));
+    return { kind: 'unreadable', reason: err instanceof Error ? err.message : String(err) };
   } finally {
     snap?.close();
   }
+}
+
+/** Warning: a store's sync journal could not be read for `cleo cloud status` (T12998). */
+export const W_NEXUS_SYNC_UNREADABLE = 'W_NEXUS_SYNC_UNREADABLE';
+
+/** The outbox (T12343) is what will know which sealed ops are not yet sent. */
+const UNSENT_UNKNOWN: CloudSyncUnknown = {
+  known: false,
+  needs: 'T12343',
+  reason: 'the transactional outbox that tracks unsent ops (T12343) is not built yet',
+};
+
+/** Segment push/pull (S4) is what will record exchanged sequences and the server head. */
+function needsPush(what: string): CloudSyncUnknown {
+  return {
+    known: false,
+    needs: 'S4',
+    reason: `${what} is recorded once segment push/pull (S4) lands; this build reads the local journal only`,
+  };
+}
+
+/**
+ * One store's local sync journal for `cleo cloud status` (T12998). Read-only:
+ * never seals, pushes or binds. Every reader returns empty values when its
+ * table is absent, so a store without the journal reports every flag off.
+ *
+ * @param db - The store, opened read-only.
+ * @param scope - Which store it is.
+ * @param stream - Its stream when known locally, else `null`.
+ * @param dbPath - The store file.
+ * @returns The stream's sync block; the server-side fields are unknown, each
+ *   with the reason.
+ *
+ * @task T12998
+ */
+export async function readStoreSyncStream(
+  db: DatabaseSync,
+  scope: 'project' | 'global',
+  stream: string | null,
+  dbPath: string,
+): Promise<CloudStatusSyncStream> {
+  const [{ readSyncFlags }, { hasTable }, { sealBacklog }, { suspectTables }] = await Promise.all([
+    import('../store/sync/flags.js'),
+    import('../store/sync/schema.js'),
+    import('../store/sync/seal-backlog.js'),
+    import('../store/sync/structural.js'),
+  ]);
+  const flags = readSyncFlags(db);
+  const backlog = sealBacklog(db);
+  let lastSealedSeq: number | null = null;
+  if (hasTable(db, '_sync_txn')) {
+    // Inherited and folded txns belong to another replica's history.
+    const row = db
+      .prepare("SELECT max(local_seq) AS seq FROM _sync_txn WHERE state IN ('sealed', 'segmented')")
+      .get() as { seq: number | null } | undefined;
+    lastSealedSeq = row?.seq ?? null;
+  }
+  const quarantined: Record<string, number> = {};
+  if (hasTable(db, '_sync_quarantine')) {
+    for (const r of db
+      .prepare('SELECT tbl, count(*) AS n FROM _sync_quarantine GROUP BY tbl ORDER BY tbl')
+      .all() as Array<{ tbl: string; n: number }>) {
+      quarantined[r.tbl] = r.n;
+    }
+  }
+  return {
+    scope,
+    stream,
+    dbPath,
+    journalInstalled: hasTable(db, '_sync_capture') && hasTable(db, '_sync_txn'),
+    flags: {
+      capture: flags['sync.capture'],
+      seal: flags['sync.seal'],
+      push: flags['sync.push'],
+      pull: flags['sync.pull'],
+      strict: flags['sync.strict'],
+    },
+    unsealedOps: backlog.live,
+    oldestUnsealedAtMs: backlog.oldestAtMs,
+    lastSealedSeq,
+    quarantined,
+    suspectTables: hasTable(db, '_sync_meta') ? suspectTables(db) : [],
+    unsentOps: UNSENT_UNKNOWN,
+    lastPushedSeq: needsPush('the last pushed sequence'),
+    lastPulledSeq: needsPush('the last pulled sequence'),
+    serverHeadSeq: needsPush("the server's head for this stream"),
+    devices: needsPush('per-device last sync'),
+    openConflicts: needsPush('the conflicts held open on this stream'),
+    lag: needsPush('lag behind the server'),
+  };
+}
+
+/**
+ * The local sync journal of the project and global stores, for
+ * `cleo cloud status` (T12998). Read-only; a store that cannot be read is a
+ * warning, never a failure.
+ *
+ * @param projectRoot - The current project, or `null` outside one.
+ * @param projectStream - The project's stream when its link records one.
+ * @param warnings - Collects `W_NEXUS_SYNC_UNREADABLE`.
+ * @param globalHome - The CLEO home holding the global store. @defaultValue getCleoHome()
+ * @returns The sync block, or `undefined` when neither store exists.
+ *
+ * @task T12998
+ */
+export async function readCloudSyncStatus(
+  projectRoot: string | null,
+  projectStream: string | null,
+  warnings: CloudWarning[],
+  globalHome: string = getCleoHome(),
+): Promise<CloudStatusSync | undefined> {
+  const stores: Array<{ scope: 'project' | 'global'; path: string; stream: string | null }> = [];
+  if (projectRoot !== null) {
+    stores.push({
+      scope: 'project',
+      path: join(resolveCleoDir(projectRoot), 'cleo.db'),
+      stream: projectStream,
+    });
+  }
+  // The home stream needs the account's user id, which only the server knows.
+  stores.push({ scope: 'global', path: join(globalHome, 'cleo.db'), stream: null });
+  const streams: CloudStatusSyncStream[] = [];
+  for (const store of stores) {
+    const read = await readStoreSnapshot(store.path, (db) =>
+      readStoreSyncStream(db, store.scope, store.stream, store.path),
+    );
+    if (read.kind === 'absent') continue;
+    if (read.kind === 'unreadable') {
+      warnings.push({
+        code: W_NEXUS_SYNC_UNREADABLE,
+        message: `could not read the ${store.scope} store's sync journal read-only: ${read.reason}`,
+      });
+      continue;
+    }
+    streams.push(read.value);
+  }
+  return streams.length === 0 ? undefined : { streams, partial: true };
 }
 
 /** True when the caller may write into `dir`. */
@@ -517,6 +691,17 @@ export async function getNexusCloudStatus(
     retiredReplicas = await retiredReplicasOfProject(project.root);
   }
   const replicaId = replica.replicaId;
+  // T12998: the local sync journal, read on every path (signed in or not,
+  // online or offline). The current project's store only when it is the
+  // project asked about.
+  const sync = await readCloudSyncStatus(
+    isLocal && project !== null ? project.root : null,
+    isLocal && project?.link
+      ? project.link.streamId || projectStream(project.link.remoteProjectId)
+      : null,
+    warnings,
+  );
+  const withSync = sync === undefined ? {} : { sync };
   const local: CloudStatusLocal = {
     apiUrl,
     signedIn: false,
@@ -533,6 +718,7 @@ export async function getNexusCloudStatus(
     summary: emptySummary(local),
     local,
     remote: null,
+    ...withSync,
     warnings,
   });
   if (!(await hasLocalCredential(apiUrl, devices, sessions))) return notSignedIn();
@@ -555,6 +741,7 @@ export async function getNexusCloudStatus(
       local,
       remote,
       global: await globalStoreOf(conn, warnings),
+      ...withSync,
       warnings,
     };
   } catch (err) {
@@ -568,7 +755,7 @@ export async function getNexusCloudStatus(
     if (err instanceof NexusAccountError && err.code === 'E_NEXUS_UNREACHABLE') {
       throw new NexusCloudOfflineError(
         err.message,
-        { local, summary: emptySummary(local), warnings },
+        { local, summary: emptySummary(local), warnings, ...withSync },
         err.fix,
       );
     }

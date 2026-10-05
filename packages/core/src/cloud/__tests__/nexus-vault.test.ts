@@ -9,7 +9,9 @@
  * journal spec §2.11 with the v3 ratchet (E_REGRESSION, E_MANIFEST_ACCOUNTING,
  * E_STREAM_VERSION via checkManifestV3) and the stream's voided set, the
  * replica map check, blob presign/upload/complete, writer leases
- * (E_LEASE_HELD, forced takes labelled as forks) and key escrow.
+ * (E_LEASE_HELD, forced takes labelled as forks) and key escrow. It also
+ * serves the device login (device code, E2, E1), so a machine can be set up
+ * by `cleo login nexus` itself (onboarding A, T13100).
  *
  * No request leaves the process; every store lives in a temp directory.
  *
@@ -18,6 +20,7 @@
  * @task T12338
  * @task T12951
  * @task T13034
+ * @task T13100
  * @epic T12322
  */
 
@@ -29,7 +32,12 @@ import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
-import { type PortableBundleManifest, SYNC_SCHEMA_VERSION } from '@cleocode/contracts';
+import {
+  NEXUS_FEATURE_PROJECT_INITIAL_KEY,
+  type NexusLoginResult,
+  type PortableBundleManifest,
+  SYNC_SCHEMA_VERSION,
+} from '@cleocode/contracts';
 import {
   AppendSegmentRequest,
   type Checkpoint,
@@ -75,7 +83,7 @@ import {
   replicasHash,
   segmentMetaHash,
 } from '../journal.js';
-import { masterKeyVerifier, unwrapProjectKey } from '../keys.js';
+import { isSendableWrap, masterKeyVerifier, unwrapProjectKey, wrapProjectKey } from '../keys.js';
 import {
   checkManifestV3,
   type DeclaredTxn,
@@ -95,6 +103,10 @@ import {
   NexusDeviceEnrolment,
   NexusDeviceStore,
 } from '../nexus-device.js';
+import { loginToNexusDevice } from '../nexus-enrol.js';
+import { hasUnsyncedNexusBackup, runNexusFirstRun } from '../nexus-first-run.js';
+import { linkProjectToNexus } from '../nexus-link.js';
+import { listNexusNamedProjects, resolveNexusProjectRef } from '../nexus-project-names.js';
 import {
   nexusVaultStatus,
   pushNexusVault,
@@ -109,6 +121,7 @@ import {
   unlockNexusAccountKey,
 } from '../nexus-vault-keys.js';
 import { NexusVaultState } from '../nexus-vault-state.js';
+import { registerProject } from '../projects.js';
 import {
   checkpointSigningMessage,
   replicasCanonical,
@@ -168,6 +181,8 @@ const { DatabaseSync } = _require('node:sqlite') as {
 const API = 'https://api.nexus.test';
 const BLOB_HOST = 'https://blobs.nexus.test';
 const USER = '0198a1b2-0000-7000-8000-0000000000aa';
+/** Another account, e.g. an owner who keyed a project and did not share it (T13098). */
+const OTHER_USER = '0198a1b2-0000-7000-8000-0000000000bb';
 const DEVICE_A = '0198a1b2-0000-7000-8000-0000000000d1';
 const DEVICE_B = '0198a1b2-0000-7000-8000-0000000000d2';
 const REPLICA_A = '0198a1b2-0000-7000-8000-0000000000e1';
@@ -190,6 +205,10 @@ interface FakeDevice {
   token: string;
   encryptionPublicKey: string;
   signingPublicKey: string;
+  /** The credential's profile; default `device` (T13101). */
+  profile?: 'device' | 'read-only';
+  /** The credential's scopes; default every scope (T13101). */
+  scopes?: string[];
 }
 
 interface FakeLease {
@@ -264,7 +283,46 @@ class FakeNexus {
   escrowHtml404 = false;
   /** Runs before an escrow PUT is applied (simulates a concurrent first device). */
   beforeEscrowPut: (() => void) | null = null;
-  projectKeys = new Map<string, Array<{ wrappedProjectKey: string; keyVersion: number }>>();
+  /** Runs before a project key PUT is judged, e.g. to let another device store version 1 first (T13098). */
+  beforeProjectKeyPut: ((projectId: string) => void) | null = null;
+  /** Every project key PUT body, in order (T13098). */
+  projectKeyPuts: Array<Record<string, unknown>> = [];
+  /** The user who registered each project (cleo-nexus #33: only they may create v1 from a device). */
+  registrants = new Map<string, string>();
+  /** Projects on which USER is a writer, not an owner (cleo-nexus T12860: only owners create key versions). */
+  writerProjects = new Set<string>();
+  /**
+   * Every user's wrapped keys of each project, one row per (user, version), as cleo-nexus stores them.
+   * The fake has no grants, so each row's user also created it.
+   */
+  projectKeys = new Map<
+    string,
+    Array<{ userId: string; wrappedProjectKey: string; keyVersion: number }>
+  >();
+  /** projectId -> what `GET /v1/projects` (E13) reports as its label and encrypted name (T13102). */
+  projectNames = new Map<string, { label: string | null; encryptedName: string | null }>();
+  /**
+   * E3's `features`; `undefined` omits the field, as servers before it do. With
+   * `project.initial-key`, POST /v1/projects stores `initialKey` (cleo-nexus T095, T13101);
+   * without it, the field is stripped like any unknown one.
+   */
+  features: string[] | undefined = undefined;
+  /** `false` plays a server without E3 (`GET /v1/status` is not a route). */
+  statusRoute = true;
+  /** An HTTP status E3 fails with (a transient server error), or `null`. */
+  statusFailure: number | null = null;
+  /**
+   * USER's role in the organization a new project is created in. cleo-nexus #35 honours `initialKey`
+   * only for the project owner role (org owner or admin): a `member` gets 201 with
+   * `initialKeyVersion: null`, and the project is one USER writes, not owns (T13101).
+   */
+  orgRole: 'owner' | 'admin' | 'member' = 'owner';
+  /** Every POST /v1/projects body, in order (T13101). */
+  projectPosts: Array<Record<string, unknown>> = [];
+  /** Runs before a POST /v1/projects is judged, e.g. to register the id concurrently (T13101). */
+  beforeProjectPost: (() => void) | null = null;
+  /** Every API request (method and path, reads included), in order (T13101). */
+  calls: string[] = [];
   /** projectId -> replicaId -> deviceId. */
   replicas = new Map<string, Map<string, string>>();
   streams = new Map<string, FakeStream>();
@@ -292,7 +350,8 @@ class FakeNexus {
     this.devices.set(d.deviceId, d);
   }
 
-  addProject(projectId: string, replicas: Record<string, string>): void {
+  addProject(projectId: string, replicas: Record<string, string>, registrant = USER): void {
+    this.registrants.set(projectId, registrant);
     this.replicas.set(projectId, new Map(Object.entries(replicas)));
     this.streams.set(`project:${projectId}`, {
       streamId: `project:${projectId}`,
@@ -337,6 +396,8 @@ class FakeNexus {
   readonly fetch: FetchLike = async (input, init) => {
     const url = new URL(input);
     const method = init?.method ?? 'GET';
+    const login = this.login(url, init);
+    if (login !== null) return login;
     if (this.escrowHtml404 && url.pathname.endsWith('/v1/account/keys/escrow')) {
       return new Response('<html><body>Not Found</body></html>', {
         status: 404,
@@ -345,6 +406,7 @@ class FakeNexus {
     }
     try {
       if (url.origin === BLOB_HOST) return this.blob(method, url, init);
+      this.calls.push(`${method} ${url.pathname}`);
       const token = (new Headers(init?.headers).get('authorization') ?? '').replace(/^Bearer /, '');
       const device = [...this.devices.values()].find((d) => d.token === token);
       if (!device) throw new ApiFail(401, 'E_UNAUTHENTICATED');
@@ -388,6 +450,81 @@ class FakeNexus {
     }
   };
 
+  /** Browser sessions the device-code login handed out (better-auth bearers). */
+  sessions = new Set<string>();
+
+  /**
+   * The device login surface `cleo login nexus` uses (T13100): device code,
+   * token, sign-out, E2 (`/v1/whoami`) and E1 (`/v1/devices/enroll`, which
+   * registers the device with the keys it sent). `null` for every other
+   * request, and for E2/E1 without a session (they then fail as unauthenticated).
+   */
+  private login(url: URL, init?: RequestInit): Response | null {
+    const auth = (new Headers(init?.headers).get('authorization') ?? '').replace(/^Bearer /, '');
+    switch (url.pathname) {
+      case '/api/auth/device/code':
+        return json(200, {
+          device_code: 'dev-code',
+          user_code: 'ABCD-EFGH',
+          verification_uri: 'https://nexus.test/device',
+          expires_in: 900,
+          interval: 1,
+        });
+      case '/api/auth/device/token': {
+        const session = `sess_${randomBytes(16).toString('hex')}`;
+        this.sessions.add(session);
+        return json(200, { access_token: session, token_type: 'Bearer', expires_in: 900 });
+      }
+      case '/api/auth/sign-out':
+        this.sessions.delete(auth);
+        return json(200, { success: true });
+      case '/v1/whoami': {
+        const device = [...this.devices.values()].find((d) => d.token === auth);
+        if (!this.sessions.has(auth) && !device) return null;
+        return this.ok({
+          user: { id: USER, email: 'dev@example.test', name: 'Dev' },
+          organizations: [],
+          credential: device
+            ? { kind: 'device', credentialId: null, profile: 'device', scopes: [] }
+            : { kind: 'session', credentialId: null, profile: null, scopes: [] },
+          device: device
+            ? { deviceId: device.deviceId, name: device.name, state: 'active', profile: 'device' }
+            : null,
+        });
+      }
+      case '/v1/devices/enroll': {
+        if (!this.sessions.has(auth)) return null;
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        const deviceId = String(body['deviceId']);
+        const name = String(body['name']);
+        const token = `cnx_d1_${randomBytes(32).toString('base64url')}`;
+        this.addDevice({
+          deviceId,
+          name,
+          token,
+          encryptionPublicKey: String(body['encryptionPublicKey']),
+          signingPublicKey: String(body['signingPublicKey']),
+        });
+        return this.ok(
+          {
+            device: { deviceId, name, state: 'active', profile: 'device' },
+            credential: {
+              credentialId: uuidv7(),
+              token,
+              profile: 'device',
+              scopes: ['account:read', 'devices:read', 'projects:read', 'sync:write', 'keys:write'],
+              createdAt: NOW,
+            },
+            created: true,
+          },
+          201,
+        );
+      }
+      default:
+        return null;
+    }
+  }
+
   private blob(method: string, url: URL, init?: RequestInit): Response {
     const sha = url.pathname.slice(1);
     const b = this.blobs.get(sha);
@@ -405,6 +542,131 @@ class FakeNexus {
 
   private ok(data: object, status = 200): Response {
     return json(status, { success: true, data, meta: { requestId: 'r' } });
+  }
+
+  /** Whether POST /v1/projects stores `initialKey` (cleo-nexus T095). */
+  private takesInitialKey(): boolean {
+    return this.features?.includes(NEXUS_FEATURE_PROJECT_INITIAL_KEY) === true;
+  }
+
+  /** E3 `GET /v1/status`, as far as link reads it. */
+  private status(dev: FakeDevice, url: URL): Response {
+    if (!this.statusRoute) throw new ApiFail(404, 'E_NOT_FOUND', undefined, 'route not found');
+    if (this.statusFailure !== null) throw new ApiFail(this.statusFailure, 'E_INTERNAL');
+    const projectId = url.searchParams.get('projectId');
+    const visible = projectId !== null && this.registrants.get(projectId) === USER;
+    return this.ok({
+      serverTime: NOW,
+      apiVersion: 'v1',
+      ...(this.features ? { features: this.features } : {}),
+      user: { id: USER, email: 'dev@example.test', name: 'Dev' },
+      credential: { kind: 'device', profile: dev.profile ?? 'device' },
+      device: {
+        deviceId: dev.deviceId,
+        name: dev.name,
+        state: 'active',
+        profile: dev.profile ?? 'device',
+        current: true,
+      },
+      project:
+        projectId === null
+          ? null
+          : {
+              projectId,
+              registered: visible,
+              organizationId: visible ? ORG : null,
+              organizationName: visible ? 'Personal' : null,
+              role: visible ? (this.writerProjects.has(projectId) ? 'writer' : 'owner') : null,
+            },
+      replica: null,
+      stream: null,
+      checks: [],
+      verdict: 'ok',
+    });
+  }
+
+  /**
+   * POST /v1/projects, with cleo-nexus T095's `initialKey` rules: stored as version 1 in the same
+   * call only when the call creates the project (keys:write checked first); a re-registration with a
+   * key ignores it while the project has none, answers 200 for the caller's identical version 1, and
+   * refuses anything else with 409 `keys-exist`. A server without the feature strips the field.
+   */
+  private registerProject(dev: FakeDevice, body: Record<string, unknown>): Response {
+    this.projectPosts.push(body);
+    this.beforeProjectPost?.();
+    const projectId = body['projectId'] as string;
+    const keyed = this.takesInitialKey();
+    const initial = keyed
+      ? (body['initialKey'] as { wrappedProjectKey: string } | undefined)
+      : undefined;
+    const answer = (label: string | null, initialKeyVersion: number | null, status: number) =>
+      this.ok(
+        {
+          project: {
+            projectId,
+            label,
+            encryptedName: null,
+            remoteUrl: null,
+            organizationId: ORG,
+            createdByUserId: this.registrants.get(projectId) ?? null,
+            createdAt: NOW,
+          },
+          streamId: `project:${projectId}`,
+          ...(keyed ? { initialKeyVersion } : {}),
+        },
+        status,
+      );
+    const label = typeof body['label'] === 'string' ? body['label'] : null;
+    const registrant = this.registrants.get(projectId);
+    if (registrant !== undefined) {
+      if (registrant !== USER) {
+        throw new ApiFail(
+          409,
+          'E_CONFLICT',
+          undefined,
+          'this project id is registered to another account',
+        );
+      }
+      let initialKeyVersion: number | null = null;
+      const keys = this.projectKeys.get(projectId) ?? [];
+      if (initial && keys.length > 0) {
+        const mine = keys.find((k) => k.keyVersion === 1 && k.userId === USER);
+        if (mine?.wrappedProjectKey !== initial.wrappedProjectKey) {
+          throw new ApiFail(409, 'E_CONFLICT', { reason: 'keys-exist' });
+        }
+        initialKeyVersion = 1;
+      }
+      const kept = label ?? this.projectNames.get(projectId)?.label ?? null;
+      this.projectNames.set(projectId, {
+        label: kept,
+        encryptedName: this.projectNames.get(projectId)?.encryptedName ?? null,
+      });
+      return answer(kept, initialKeyVersion, 200);
+    }
+    if (initial && !(dev.scopes ?? ['keys:write']).includes('keys:write')) {
+      throw new ApiFail(403, 'E_FORBIDDEN', {
+        reason: 'insufficient-scope',
+        requiredScope: 'keys:write',
+      });
+    }
+    if (initial && initial.wrappedProjectKey.replace(/=+$/, '') === '') {
+      // cleo-nexus #35: an empty or padding-only wrap is a bad request, not a key.
+      throw new ApiFail(400, 'E_VALIDATION', undefined, 'initialKey.wrappedProjectKey is empty');
+    }
+    this.addProject(projectId, {});
+    this.projectNames.set(projectId, { label, encryptedName: null });
+    // cleo-nexus #35: only the project owner role (org owner or admin) stores initialKey; a member's
+    // project is created without it and is one the member writes, not owns.
+    const owner = this.orgRole !== 'member';
+    if (!owner) this.writerProjects.add(projectId);
+    const stored = initial !== undefined && owner;
+    if (stored) {
+      this.projectKeys.set(projectId, [
+        { userId: USER, wrappedProjectKey: initial.wrappedProjectKey, keyVersion: 1 },
+      ]);
+    }
+    this.record(dev, 'project.register', `project:${projectId}`);
+    return answer(label, stored ? 1 : null, 201);
   }
 
   private route(
@@ -506,24 +768,158 @@ class FakeNexus {
         updatedAt: NOW,
       });
     }
+    if (route === 'GET /v1/status') return this.status(dev, url);
+    if (route === 'POST /v1/projects') return this.registerProject(dev, body);
+    m = route.match(/^POST \/v1\/projects\/([^/]+)\/replicas$/);
+    if (m) {
+      const projectId = decodeURIComponent(m[1] ?? '');
+      const replicaId = body['replicaId'] as string;
+      const held = this.replicas.get(projectId);
+      if (!held) throw new ApiFail(404, 'E_NOT_FOUND');
+      const holder = held.get(replicaId);
+      if (holder !== undefined && holder !== dev.deviceId) throw new ApiFail(409, 'E_CONFLICT');
+      held.set(replicaId, dev.deviceId);
+      return this.ok({ projectId, replicaId, deviceId: dev.deviceId });
+    }
+    m = route.match(/^PUT \/v1\/projects\/([^/]+)\/replicas\/([^/]+)\/presence$/);
+    if (m) {
+      return this.ok({
+        projectId: decodeURIComponent(m[1] ?? ''),
+        replicaId: decodeURIComponent(m[2] ?? ''),
+        presenceAt: NOW,
+      });
+    }
     m = route.match(/^GET \/v1\/projects\/([^/]+)\/keys$/);
     if (m) {
-      return this.ok({ keys: this.projectKeys.get(decodeURIComponent(m[1] ?? '')) ?? [] });
+      // The caller's own wraps only, newest first.
+      const keys = (this.projectKeys.get(decodeURIComponent(m[1] ?? '')) ?? [])
+        .filter((k) => k.userId === USER)
+        .sort((x, y) => y.keyVersion - x.keyVersion)
+        .map(({ wrappedProjectKey, keyVersion }) => ({ wrappedProjectKey, keyVersion }));
+      return this.ok({ keys });
+    }
+    m = route.match(/^GET \/v1\/projects\/([^/]+)$/);
+    if (m) {
+      // E14 (T13102): enough of the project detail for the first run's unsynced-backup check.
+      const projectId = decodeURIComponent(m[1] ?? '');
+      const replicas = this.replicas.get(projectId);
+      if (!replicas) throw new ApiFail(404, 'E_NOT_FOUND');
+      const s = this.streams.get(`project:${projectId}`);
+      return this.ok({
+        project: {
+          projectId,
+          label: this.projectNames.get(projectId)?.label ?? null,
+          organizationId: ORG,
+        },
+        role: 'owner',
+        openConflicts: 0,
+        replicas: [],
+        devices: { active: replicas.size, total: replicas.size },
+        truncated: false,
+        stream: s
+          ? { streamId: s.streamId, headSeq: s.headSeq, headCheckpointId: s.headCheckpointId }
+          : null,
+      });
     }
     m = route.match(/^PUT \/v1\/projects\/([^/]+)\/keys\/([^/]+)$/);
     if (m) {
       const projectId = decodeURIComponent(m[1] ?? '');
       if (decodeURIComponent(m[2] ?? '') !== USER) throw new ApiFail(403, 'E_FORBIDDEN');
-      if ((this.projectKeys.get(projectId) ?? []).length > 0) {
+      this.projectKeyPuts.push(body);
+      this.beforeProjectKeyPut?.(projectId);
+      // cleo-nexus T12860 checks the role before it reads the project's keys.
+      if (body['rotate'] === true && this.writerProjects.has(projectId)) {
+        throw new ApiFail(
+          403,
+          'E_FORBIDDEN',
+          { reason: 'project-role' },
+          'rotating the project key needs the project owner role (organization owners and admins, or a project owner override)',
+        );
+      }
+      // As cleo-nexus does (T12856): a new key version, the first included, is accepted only as a
+      // rotation naming the current highest version (T13098). The versions span every user's rows.
+      const existing = this.projectKeys.get(projectId) ?? [];
+      const max = existing.reduce((acc, k) => Math.max(acc, k.keyVersion), 0);
+      const kv = body['keyVersion'] as number;
+      const atVersion = existing.filter((k) => k.keyVersion === kv);
+      if (body['rotate'] === true) {
+        if (kv !== max + 1 || body['expectedMax'] !== max) {
+          throw new ApiFail(409, 'E_CONFLICT', { reason: 'rotation-stale', max });
+        }
+        // Every fake caller is a device credential (cleo-nexus T12877 + #33): it may create only
+        // v1, and only of a project its own user registered.
+        if (max > 0) {
+          throw new ApiFail(
+            403,
+            'E_FORBIDDEN',
+            { reason: 'session-required' },
+            'rotating the project key needs a signed-in session',
+          );
+        }
+        if ((this.registrants.get(projectId) ?? USER) !== USER) {
+          throw new ApiFail(
+            403,
+            'E_FORBIDDEN',
+            { reason: 'not-registrant' },
+            "only the project's registrant may create its first key from a device; use a signed-in session",
+          );
+        }
+      } else if (atVersion.length === 0) {
+        throw new ApiFail(
+          409,
+          'E_CONFLICT',
+          { reason: kv === max + 1 ? 'rotation-required' : 'key-version-gap', max },
+          max === 0 ? 'the first project key version must be 1, as a rotation' : undefined,
+        );
+      } else if (atVersion.some((k) => k.userId !== USER)) {
+        // Only the user who created a version may add to it.
+        throw new ApiFail(409, 'E_CONFLICT', { reason: 'key-version-not-creator', max });
+      }
+      // Insert-only per (project, user, version).
+      if (atVersion.some((k) => k.userId === USER)) {
         throw new ApiFail(409, 'E_CONFLICT', { reason: 'keys-exist' });
       }
       this.projectKeys.set(projectId, [
-        {
-          wrappedProjectKey: body['wrappedProjectKey'] as string,
-          keyVersion: body['keyVersion'] as number,
-        },
+        ...existing,
+        { userId: USER, wrappedProjectKey: body['wrappedProjectKey'] as string, keyVersion: kv },
       ]);
-      return this.ok({ projectId, keyVersion: body['keyVersion'] as number });
+      return this.ok({ projectId, keyVersion: kv });
+    }
+    if (route === 'GET /v1/projects') {
+      return this.ok({
+        projects: [...this.replicas].map(([projectId, replicas]) => {
+          const s = this.streams.get(`project:${projectId}`);
+          const names = this.projectNames.get(projectId);
+          return {
+            projectId,
+            label: names?.label ?? null,
+            encryptedName: names?.encryptedName ?? null,
+            remoteUrl: null,
+            organizationId: ORG,
+            organizationName: 'Personal',
+            createdByUserId: USER,
+            createdAt: NOW,
+            role: 'owner',
+            streamId: `project:${projectId}`,
+            headSeq: s?.headSeq ?? 0,
+            headCheckpointId: s?.headCheckpointId ?? null,
+            openConflicts: 0,
+            replicas: [...replicas].map(([replicaId, deviceId]) => ({
+              projectId,
+              replicaId,
+              deviceId,
+              deviceName: this.devices.get(deviceId)?.name ?? 'device',
+              attachedAt: NOW,
+              lastSyncAt: null,
+              presence: null,
+              presenceAt: null,
+            })),
+            replicasTruncated: false,
+          };
+        }),
+        nextCursor: null,
+        truncated: false,
+      });
     }
     if (route === 'GET /v1/account/activity') {
       const limit = Math.min(Number(url.searchParams.get('limit') ?? 50), this.activityPageSize);
@@ -943,6 +1339,62 @@ async function machine(name: string, deviceId: string, replicaId: string): Promi
     state: new NexusVaultState(path.join(home, 'nexus-vault.json')),
     token,
     keys: { encryption, signing },
+  };
+}
+
+/**
+ * A machine whose device came from `cleo login nexus` itself (T13100), not
+ * from a seeded credential: the login enrols it and sets up the account key.
+ */
+async function loginMachine(
+  name: string,
+  replicaId: string,
+): Promise<{ m: Machine; login: NexusLoginResult }> {
+  const home = path.join(base, name, 'cleo-home');
+  const configHome = path.join(base, name, 'config');
+  const root = path.join(base, name, 'proj');
+  fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(configHome, { recursive: true });
+  const devices = new NexusDeviceStore(path.join(home, 'nexus-device.json'), {
+    cleoHome: home,
+    lockWaitMs: 10_000,
+  });
+  const sessions = new FileNexusTokenStore(path.join(home, 'nexus-credentials.json'));
+  const state = new NexusVaultState(path.join(home, 'nexus-vault.json'));
+  process.env['CLEO_HOME'] = home;
+  process.env['CLEO_CONFIG_HOME'] = configHome;
+  const login = await loginToNexusDevice({
+    apiUrl: API,
+    fetch: fake.fetch,
+    deviceStore: devices,
+    store: sessions,
+    vaultState: state,
+    cliVersion: '2026.10.2-test',
+    pollSleep: async () => {},
+  });
+  const deviceId = login.device?.deviceId ?? '';
+  const keys = (await devices.get(API, USER))?.unseal().keys;
+  const registered = fake.devices.get(deviceId);
+  if (!keys || !registered) throw new Error('fixture: the login did not enrol the device');
+  const pair = (kp: { publicKey: string; privateKey: string }): KeyPair => ({
+    publicKey: Buffer.from(kp.publicKey, 'base64'),
+    privateKey: Buffer.from(kp.privateKey, 'base64'),
+  });
+  return {
+    m: {
+      name,
+      deviceId,
+      replicaId,
+      home,
+      configHome,
+      root,
+      devices,
+      sessions,
+      state,
+      token: registered.token,
+      keys: { encryption: pair(keys.encryption), signing: pair(keys.signing) },
+    },
+    login,
   };
 }
 
@@ -1772,6 +2224,144 @@ describe('cloud vault key escrow', () => {
     expect(vb.warnings.some((w) => w.code === 'W_NEXUS_VAULT_UNTRUSTED_SNAPSHOT')).toBe(false);
   });
 
+  it('the first push mints the project key as a rotation to version 1 (T13098)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    link(a);
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    expect(fake.projectKeyPuts).toHaveLength(1);
+    expect(fake.projectKeyPuts[0]).toMatchObject({ keyVersion: 1, rotate: true, expectedMax: 0 });
+    expect(fake.projectKeys.get(REMOTE_PROJECT)?.map((k) => k.keyVersion)).toEqual([1]);
+  });
+
+  it('a first push that loses the project key race uses the winner key (T13098)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    link(a);
+    const winner = randomBytes(32);
+    fake.beforeProjectKeyPut = (projectId) => {
+      fake.beforeProjectKeyPut = null;
+      if (!fake.escrow) throw new Error('fixture: escrow first');
+      fake.projectKeys.set(projectId, [
+        {
+          userId: USER,
+          wrappedProjectKey: wrapProjectKey(fake.escrow.mk, winner, projectId, 1),
+          keyVersion: 1,
+        },
+      ]);
+    };
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    const stored = fake.projectKeys.get(REMOTE_PROJECT) ?? [];
+    expect(stored).toHaveLength(1);
+    if (!fake.escrow || !stored[0]) throw new Error('fixture');
+    expect(
+      unwrapProjectKey(fake.escrow.mk, stored[0].wrappedProjectKey, REMOTE_PROJECT, 1).equals(
+        winner,
+      ),
+    ).toBe(true);
+  });
+
+  it("a project another account registered: the device's first key is refused with a remedy (T13098)", async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A }, OTHER_USER);
+    seedProject(a, 2);
+    link(a);
+    const err = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(err.code).toBe('E_NEXUS_VAULT_KEY_UNAVAILABLE');
+    expect(err.message).toMatch(/only a device of the account that registered it/);
+    expect(err.fix).toMatch(/cleo project link/);
+    expect(fake.projectKeys.size).toBe(0);
+  });
+
+  it('a project another account keyed and did not share: the lost rotation explains it (T13098)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A }, OTHER_USER);
+    seedProject(a, 2);
+    link(a);
+    const theirs = {
+      userId: OTHER_USER,
+      wrappedProjectKey: wrapProjectKey(randomBytes(32), randomBytes(32), REMOTE_PROJECT, 1),
+      keyVersion: 1,
+    };
+    fake.projectKeys.set(REMOTE_PROJECT, [theirs]);
+    const err = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(err.code).toBe('E_NEXUS_VAULT_KEY_UNAVAILABLE');
+    expect(err.message).toMatch(/was created by another account and has not been shared/);
+    expect(err.fix).toMatch(/share the project with this account/);
+    expect(fake.projectKeyPuts).toEqual([
+      expect.objectContaining({ keyVersion: 1, rotate: true, expectedMax: 0 }),
+    ]);
+    expect(fake.projectKeys.get(REMOTE_PROJECT)).toEqual([theirs]);
+  });
+
+  it('a writer without a key: project-role names the owner-session remedy (T13098, T13101)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A }, OTHER_USER);
+    fake.writerProjects.add(REMOTE_PROJECT);
+    seedProject(a, 2);
+    link(a);
+    // The owner already created version 1: the server refuses the role before it sees the version.
+    const theirs = {
+      userId: OTHER_USER,
+      wrappedProjectKey: wrapProjectKey(randomBytes(32), randomBytes(32), REMOTE_PROJECT, 1),
+      keyVersion: 1,
+    };
+    fake.projectKeys.set(REMOTE_PROJECT, [theirs]);
+    const err = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(err.code).toBe('E_NEXUS_VAULT_KEY_UNAVAILABLE');
+    expect(err.message).toMatch(/holds no key for project .*only a project owner can create one/);
+    expect(err.fix).toMatch(
+      /^an org owner or admin must create the project key from a signed-in session, or, if the project already has a key, share it with this account$/,
+    );
+    expect(fake.projectKeys.get(REMOTE_PROJECT)).toEqual([theirs]);
+  });
+
+  it('a session-required refusal, a backstop the first key cannot meet, explains it (T13098)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    link(a);
+    // cleo-nexus answers rotation-stale first whenever a key exists, so only a server change could
+    // send this for version 1.
+    fake.beforeProjectKeyPut = () => {
+      fake.beforeProjectKeyPut = null;
+      throw new ApiFail(
+        403,
+        'E_FORBIDDEN',
+        { reason: 'session-required' },
+        'rotating the project key needs a signed-in session',
+      );
+    };
+    const err = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(err.code).toBe('E_NEXUS_VAULT_KEY_UNAVAILABLE');
+    expect(err.message).toMatch(/has not been shared with this account/);
+  });
+
+  it("any other refusal of the project key names the server's reason, never 'not readable' (T13098)", async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    link(a);
+    fake.beforeProjectKeyPut = () => {
+      fake.beforeProjectKeyPut = null;
+      throw new ApiFail(
+        409,
+        'E_CONFLICT',
+        { reason: 'key-version-not-creator' },
+        'only the user who created this key version may add to it',
+      );
+    };
+    const err = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(err.code).toBe('E_NEXUS_VAULT_KEY_UNAVAILABLE');
+    expect(err.message).toMatch(/key-version-not-creator/);
+    expect(err.message).toMatch(/only the user who created this key version/);
+    expect(err.message).not.toMatch(/not readable/);
+  });
+
   it('g: a device that loses the escrow race reads the winner key', async () => {
     const a = await machine('a', DEVICE_A, REPLICA_A);
     const winner = randomBytes(32);
@@ -1952,10 +2542,16 @@ describe('cloud vault global scope', () => {
     }
   }
 
-  it('a vault snapshot carries no local change journal: capture, undo, frame, quarantine (T13042)', async () => {
+  it('a vault snapshot carries no local change journal: capture, undo, frame, quarantine, apply intents (T13042, T12757)', async () => {
     const a = await machine('a', DEVICE_A, REPLICA_A);
     await seedHome(a, ['p1']);
-    const journal = ['_sync_capture', '_sync_undo', '_sync_frame', '_sync_quarantine'];
+    const journal = [
+      '_sync_capture',
+      '_sync_undo',
+      '_sync_frame',
+      '_sync_quarantine',
+      '_sync_apply_intent',
+    ];
     const sentinel = 'JOURNAL-IMAGE-SENTINEL-T13042';
     const live = new DatabaseSync(path.join(a.home, 'cleo.db'));
     ensureSyncSchema(live, {
@@ -1978,6 +2574,11 @@ describe('cloud vault global scope', () => {
         "INSERT INTO _sync_quarantine (seq, tbl, op, rk, img, at_ms, reason, quarantined_at_ms) VALUES (1, 'nexus_project_registry', 'U', 'p1', ?, 0, 'test', 0)",
       )
       .run(img);
+    live
+      .prepare(
+        "INSERT INTO _sync_apply_intent (frame, tbl, uid, col, enc) VALUES ('f1', 'nexus_project_registry', 'p1', 'name', ?)",
+      )
+      .run(sentinel);
     live.close();
     await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
     const head = fake.stream(HOME_STREAM).checkpoints.at(-1);
@@ -3433,6 +4034,264 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
   });
 });
 
+describe('guided first run against the fake server (T13102)', () => {
+  /** The first run's link step for machine `m`: the binding `cleo project link` would write. */
+  function linkStep(m: Machine) {
+    return async () => {
+      link(m);
+      return {
+        link: {
+          apiUrl: API,
+          localProjectId: LOCAL_PROJECT,
+          remoteProjectId: REMOTE_PROJECT,
+          organizationId: ORG,
+          label: 'demo',
+          streamId: STREAM,
+          linkedAt: NOW,
+          replicaId: m.replicaId,
+          nexusDeviceId: m.deviceId,
+          attachedAt: NOW,
+        },
+        alreadyLinked: false,
+        linkPath: path.join(m.root, '.cleo', 'nexus-link.json'),
+        replica: {
+          replicaId: m.replicaId,
+          deviceId: m.deviceId,
+          reboundFrom: null,
+          presenceAt: NOW,
+        },
+        attachError: null,
+        warnings: [],
+      };
+    };
+  }
+
+  /** A: `cleo login nexus --yes` inside its unlinked project; B: an empty folder outside any project. */
+  async function firstRunOnA() {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 5);
+    const result = await on(a, () =>
+      runNexusFirstRun({
+        ...vopts(a),
+        consent: 'yes',
+        deviceId: DEVICE_A,
+        link: linkStep(a),
+      }),
+    );
+    return { a, b, result };
+  }
+
+  /** The server's label and an opaque encryptedName (its format is not specified yet: T098). */
+  function nameOnServer(label: string): void {
+    fake.projectNames.set(REMOTE_PROJECT, { label, encryptedName: 'c2VhbGVkLW5hbWU=' });
+  }
+
+  it('--yes links, then takes the first encrypted backup with the real push', async () => {
+    const { result } = await firstRunOnA();
+    expect(result.state).toBe('backed-up');
+    expect(result.backup?.status).toBe('pushed');
+    const head = fake.streams.get(STREAM)?.headCheckpointId ?? null;
+    expect(head).not.toBeNull();
+    expect(result.backup?.snapshot?.checkpointId).toBe(head);
+    // The push minted the account and project keys (the fallback path until onboarding A/B land).
+    expect(fake.escrow).not.toBeNull();
+    expect(fake.projectKeys.get(REMOTE_PROJECT)).toHaveLength(1);
+  });
+
+  it('on a machine with no linked project, login lists the project by name with the restore command, writing nothing', async () => {
+    const { b } = await firstRunOnA();
+    nameOnServer('Demo Board');
+    const emptyDir = path.join(base, 'b', 'empty');
+    fs.mkdirSync(emptyDir, { recursive: true });
+    const writesBefore = fake.writes.length;
+    const result = await on(b, () =>
+      runNexusFirstRun({
+        ...vopts(b, { projectRoot: emptyDir }),
+        consent: 'never',
+        deviceId: DEVICE_B,
+      }),
+    );
+    expect(result.state).toBe('projects');
+    expect(result.projects).toHaveLength(1);
+    expect(result.projects[0]).toMatchObject({
+      projectId: REMOTE_PROJECT,
+      // The encryptedName is not opened: no reader for its format exists yet.
+      name: 'Demo Board',
+      nameSource: 'label',
+      hasBackup: true,
+      onThisDevice: false,
+      // The fake API is not the default origin, so the commands name it. The machine-read
+      // command is by id; the by-name one is for a person.
+      restoreCommand: `cleo cloud restore ${REMOTE_PROJECT} --api-url ${API}`,
+      restoreByNameCommand: `cleo cloud restore 'Demo Board' --api-url ${API}`,
+    });
+    expect(result.nextCommand).toBe(`cleo cloud restore ${REMOTE_PROJECT} --api-url ${API}`);
+    // Listing is a read: no mint, escrow, certify or key write.
+    expect(fake.writes.slice(writesBefore)).toEqual([]);
+    // A, which holds the project, is told it is already there.
+    const onA = await listNexusNamedProjects(vopts(b, { deviceId: DEVICE_A }));
+    expect(onA.projects[0]?.onThisDevice).toBe(true);
+    expect(onA.projects[0]?.restoreCommand).toBeNull();
+  });
+
+  it('cleo cloud restore <name> resolves the name and restores the project onto the new machine', async () => {
+    const { b } = await firstRunOnA();
+    nameOnServer('Demo Board');
+    const ref = await on(b, () => resolveNexusProjectRef('demo board', vopts(b)));
+    expect(ref).toEqual({ projectId: REMOTE_PROJECT, name: 'Demo Board', matchedBy: 'name' });
+    const restored = await on(b, () =>
+      restoreNexusVault(
+        vopts(b, {
+          mode: 'restore',
+          projectId: ref.projectId,
+          into: b.root,
+          relink: async () => {
+            link(b);
+            return [];
+          },
+        }),
+      ),
+    );
+    expect(restored.status).toBe('restored');
+    expect(taskCount(b)).toBe(5);
+    // The id resolves without listing.
+    expect((await on(b, () => resolveNexusProjectRef(REMOTE_PROJECT, vopts(b)))).matchedBy).toBe(
+      'id',
+    );
+  });
+
+  it('a non-interactive run inside the unlinked project pushes nothing and prints the next command', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    seedProject(a, 2);
+    const result = await on(a, () =>
+      runNexusFirstRun({ ...vopts(a), consent: 'never', deviceId: DEVICE_A }),
+    );
+    expect(result.state).toBe('offered');
+    expect(result.nextCommand).toBe(
+      `cleo project link --api-url ${API} && cleo cloud push --api-url ${API}`,
+    );
+    expect(fake.writes).toEqual([]);
+    expect(fs.existsSync(path.join(a.root, '.cleo', 'nexus-link.json'))).toBe(false);
+  });
+  /** This project's link with the server id equal to the tracked local id, as in production. */
+  function linkSameId(m: Machine): void {
+    fs.mkdirSync(path.join(m.root, '.cleo'), { recursive: true });
+    fs.writeFileSync(
+      path.join(m.root, '.cleo', 'nexus-link.json'),
+      JSON.stringify({
+        version: 1,
+        links: {
+          [API]: {
+            apiUrl: API,
+            localProjectId: LOCAL_PROJECT,
+            remoteProjectId: LOCAL_PROJECT,
+            organizationId: ORG,
+            label: 'demo',
+            streamId: `project:${LOCAL_PROJECT}`,
+            linkedAt: NOW,
+            replicaId: m.replicaId,
+            nexusDeviceId: m.deviceId,
+            attachedAt: NOW,
+          },
+        },
+      }),
+    );
+  }
+
+  /** A pushed the project (server id = local id); B holds a fresh git clone: the tracked id, no store. */
+  async function backedUpAndCloned() {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.addProject(LOCAL_PROJECT, { [REPLICA_A]: DEVICE_A, [REPLICA_B]: DEVICE_B });
+    seedProject(a, 5);
+    linkSameId(a);
+    await on(a, () => pushNexusVault(vopts(a)));
+    fs.mkdirSync(path.join(b.root, '.cleo'), { recursive: true });
+    fs.writeFileSync(path.join(b.root, '.cleo', 'project-id'), `${LOCAL_PROJECT}\n`);
+    return { a, b };
+  }
+
+  function sameIdLinkResult(m: Machine) {
+    return async () => {
+      linkSameId(m);
+      return {
+        link: {
+          apiUrl: API,
+          localProjectId: LOCAL_PROJECT,
+          remoteProjectId: LOCAL_PROJECT,
+          organizationId: ORG,
+          label: 'demo',
+          streamId: `project:${LOCAL_PROJECT}`,
+          linkedAt: NOW,
+        },
+        alreadyLinked: true,
+        linkPath: path.join(m.root, '.cleo', 'nexus-link.json'),
+        replica: {
+          replicaId: m.replicaId,
+          deviceId: m.deviceId,
+          reboundFrom: null,
+          presenceAt: NOW,
+        },
+        attachError: null,
+        warnings: [],
+      };
+    };
+  }
+
+  it('the unsynced-backup check: true for a fresh clone, false for the copy that pushed it', async () => {
+    const { a, b } = await backedUpAndCloned();
+    const query = (m: Machine) => ({
+      ...vopts(m),
+      apiUrl: API,
+      projectRoot: m.root,
+      projectId: LOCAL_PROJECT,
+    });
+    expect(await on(b, () => hasUnsyncedNexusBackup(query(b)))).toBe(true);
+    expect(await on(a, () => hasUnsyncedNexusBackup(query(a)))).toBe(false);
+    // A project the server does not have, or with no snapshot, needs a backup, not a restore.
+    expect(
+      await on(b, () => hasUnsyncedNexusBackup({ ...query(b), projectId: OTHER_PROJECT })),
+    ).toBe(false);
+  });
+
+  it('a fresh clone on a new machine: --yes restores the backup there and links it, pushing nothing', async () => {
+    const { b } = await backedUpAndCloned();
+    const writesBefore = fake.writes.length;
+    const result = await on(b, () =>
+      runNexusFirstRun({
+        ...vopts(b),
+        consent: 'yes',
+        deviceId: DEVICE_B,
+        link: sameIdLinkResult(b),
+      }),
+    );
+    expect(result.state).toBe('restored');
+    expect(result.offer).toBe('restore');
+    expect(result.restore?.status).toBe('restored');
+    expect(result.link?.remoteProjectId).toBe(LOCAL_PROJECT);
+    expect(taskCount(b)).toBe(5);
+    // Restoring reads the snapshot; it never pushes a segment or checkpoint.
+    expect(
+      fake.writes.slice(writesBefore).filter((w) => /segments|checkpoints|blobs/.test(w)),
+    ).toEqual([]);
+  });
+
+  it('a fresh clone, non-interactive: restores nothing and names the restore command', async () => {
+    const { b } = await backedUpAndCloned();
+    const result = await on(b, () =>
+      runNexusFirstRun({ ...vopts(b), consent: 'never', deviceId: DEVICE_B }),
+    );
+    expect(result.state).toBe('offered');
+    expect(result.offer).toBe('restore');
+    expect(result.nextCommand).toContain(`cleo cloud restore ${LOCAL_PROJECT} --into `);
+    expect(result.nextCommand).toContain(`--api-url ${API}`);
+    expect(fs.existsSync(path.join(b.root, '.cleo', 'cleo.db'))).toBe(false);
+  });
+});
+
 describe("cloud vault restore keeps the store's migration journal (T13104)", () => {
   /** A project store built by the real migrations. */
   async function seedMigratedProject(m: Machine): Promise<void> {
@@ -3704,5 +4563,396 @@ describe('cloud vault pull rebinds the store as vault-restore (T13109)', () => {
       [r2, r3],
       [r1, r2],
     ]);
+  });
+});
+
+describe('onboarding A: cleo login sets up the account key, so push mints none (T13100)', () => {
+  it('a fresh account: login mints, escrows and certifies; the first push writes no account key or certificate, and a second login restores', async () => {
+    const { m: a, login } = await loginMachine('a', REPLICA_A);
+    expect(login.account).toMatchObject({ status: 'ready', escrow: 'minted', certificate: 'new' });
+    expect(login.warnings).toEqual([]);
+    expect(fake.escrow).not.toBeNull();
+    expect(fake.writes).toEqual([
+      'PUT /v1/account/keys/escrow',
+      `PUT /v1/devices/${a.deviceId}/key`,
+    ]);
+
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: a.deviceId });
+    seedProject(a, 5);
+    link(a);
+    const before = fake.writes.length;
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    const pushWrites = fake.writes.slice(before);
+    expect(pushWrites).not.toContain('PUT /v1/account/keys/escrow');
+    expect(pushWrites.some((w) => /^PUT \/v1\/devices\/[^/]+\/key$/.test(w))).toBe(false);
+    expect(fake.certificates.map((c) => c.deviceId)).toEqual([a.deviceId]);
+
+    // A second device's login receives the same key from escrow and certifies itself,
+    // so it restores A's snapshot with no push of its own.
+    const mk = fake.escrow?.mk ?? Buffer.alloc(0);
+    const { m: b, login: second } = await loginMachine('b', REPLICA_B);
+    expect(second.account).toMatchObject({
+      status: 'ready',
+      escrow: 'fetched',
+      certificate: 'new',
+    });
+    expect(fake.escrow?.mk.equals(mk)).toBe(true);
+    expect(fake.certificates.map((c) => c.deviceId).sort()).toEqual(
+      [a.deviceId, b.deviceId].sort(),
+    );
+    fake.replicas.get(REMOTE_PROJECT)?.set(REPLICA_B, b.deviceId);
+    const { result } = await restoreOntoB(b);
+    expect(result.status).toBe('restored');
+    expect(taskCount(b)).toBe(5);
+  });
+
+  it('a device that logged in before T13100 (no escrow, not certified) still pushes: push sets the account up itself', async () => {
+    const { a } = await twoMachines();
+    expect(fake.escrow).toBeNull();
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    expect(fake.writes).toContain('PUT /v1/account/keys/escrow');
+    expect(fake.writes).toContain(`PUT /v1/devices/${DEVICE_A}/key`);
+    expect(fake.certificates.map((c) => c.deviceId)).toEqual([DEVICE_A]);
+  });
+
+  it('an older device on an account another device set up at login certifies itself on its first push', async () => {
+    const { m: a } = await loginMachine('a', REPLICA_A);
+    const mk = fake.escrow?.mk ?? Buffer.alloc(0);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: a.deviceId, [REPLICA_B]: DEVICE_B });
+    seedProject(b, 2);
+    link(b);
+    const before = fake.writes.length;
+    const pushed = await on(b, () => pushNexusVault(vopts(b)));
+    expect(pushed.status).toBe('pushed');
+    const pushWrites = fake.writes.slice(before);
+    expect(pushWrites).not.toContain('PUT /v1/account/keys/escrow');
+    expect(pushWrites).toContain(`PUT /v1/devices/${DEVICE_B}/key`);
+    expect(fake.escrow?.mk.equals(mk)).toBe(true);
+  });
+});
+
+describe('cloud project link stores a new project key with its registration (onboarding B, T13101)', () => {
+  const FEATURES = [NEXUS_FEATURE_PROJECT_INITIAL_KEY];
+
+  /** The account key, escrowed as `cleo login` leaves it (onboarding A). */
+  function escrowed(): Buffer {
+    const mk = randomBytes(32);
+    fake.escrow = { mk, keyVersion: 1, verifier: masterKeyVerifier(mk), updatedAt: NOW };
+    return mk;
+  }
+
+  /** `cleo project link` from `m`: its store is bound to `m.replicaId`. */
+  function linkOn(m: Machine, extra: Record<string, unknown> = {}) {
+    return on(m, () =>
+      linkProjectToNexus({
+        ...vopts(m),
+        cliVersion: '2026.10.2',
+        replicaBinder: {
+          ensure: async () => ({ replicaId: m.replicaId }),
+          rebindReenrolled: async () => {
+            throw new Error('not expected');
+          },
+        },
+        ...extra,
+      }),
+    );
+  }
+
+  const sentKey = (i: number) =>
+    fake.projectPosts[i]?.['initialKey'] as { wrappedProjectKey: string } | undefined;
+
+  it('a new project is registered with its v1 key in one call, and the first push mints nothing', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.features = FEATURES;
+    const mk = escrowed();
+    seedProject(a, 2);
+    const linked = await linkOn(a);
+    expect(linked.alreadyLinked).toBe(false);
+    expect(linked.initialKeyVersion).toBe(1);
+    expect(linked.warnings).toEqual([]);
+    const sent = sentKey(0);
+    // The contract's shape: the wrap only, its version implied as 1 (cleo-nexus T095).
+    expect(Object.keys(sent ?? {})).toEqual(['wrappedProjectKey']);
+    if (!sent) throw new Error('fixture');
+    expect(unwrapProjectKey(mk, sent.wrappedProjectKey, LOCAL_PROJECT, 1)).toHaveLength(32);
+    expect(fake.projectKeys.get(LOCAL_PROJECT)).toEqual([
+      { userId: USER, wrappedProjectKey: sent.wrappedProjectKey, keyVersion: 1 },
+    ]);
+    // One registration call carried the key: no key PUT, no escrow write, no certificate.
+    expect(fake.writes).toEqual([
+      'POST /v1/projects',
+      `POST /v1/projects/${LOCAL_PROJECT}/replicas`,
+      `PUT /v1/projects/${LOCAL_PROJECT}/replicas/${REPLICA_A}/presence`,
+    ]);
+
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    expect(fake.projectKeyPuts).toHaveLength(0);
+    expect(fake.projectKeys.get(LOCAL_PROJECT)).toHaveLength(1);
+  });
+
+  it('re-linking, from this machine or another of the account, never sends a second key', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.features = FEATURES;
+    escrowed();
+    seedProject(a, 2);
+    seedProject(b, 1);
+    await linkOn(a);
+    const stored = fake.projectKeys.get(LOCAL_PROJECT);
+    const again = await linkOn(a);
+    const other = await linkOn(b);
+    for (const r of [again, other]) {
+      expect(r.alreadyLinked).toBe(true);
+      expect(r.initialKeyVersion).toBeNull();
+    }
+    expect(fake.projectPosts).toHaveLength(3);
+    expect(fake.projectPosts[1]).not.toHaveProperty('initialKey');
+    expect(fake.projectPosts[2]).not.toHaveProperty('initialKey');
+    expect(fake.projectKeys.get(LOCAL_PROJECT)).toEqual(stored);
+  });
+
+  it('a project registered before onboarding B, with no key, keeps the #33 path: its first push mints v1', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.features = FEATURES;
+    escrowed();
+    seedProject(a, 2);
+    fake.addProject(LOCAL_PROJECT, {});
+    const linked = await linkOn(a);
+    expect(linked.alreadyLinked).toBe(true);
+    expect(linked.initialKeyVersion).toBeNull();
+    expect(fake.projectPosts[0]).not.toHaveProperty('initialKey');
+    expect(fake.projectKeys.has(LOCAL_PROJECT)).toBe(false);
+
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    expect(fake.projectKeyPuts).toHaveLength(1);
+    expect(fake.projectKeyPuts[0]).toMatchObject({ keyVersion: 1, rotate: true, expectedMax: 0 });
+  });
+
+  it.each([
+    ['a server whose E3 names no features', () => {}],
+    [
+      'a server without E3',
+      () => {
+        fake.statusRoute = false;
+      },
+    ],
+    [
+      'a read-only device credential',
+      () => {
+        fake.features = FEATURES;
+        const d = fake.devices.get(DEVICE_A);
+        if (d) d.profile = 'read-only';
+      },
+    ],
+  ])('%s: link sends the same registration as before and touches no key', async (_name, arrange) => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    escrowed();
+    seedProject(a, 2);
+    arrange();
+    const linked = await linkOn(a);
+    expect(linked.alreadyLinked).toBe(false);
+    expect(linked.initialKeyVersion).toBeNull();
+    expect(linked.warnings).toEqual([]);
+    expect(fake.projectPosts).toEqual([{ projectId: LOCAL_PROJECT, label: 'demo' }]);
+    // The account key was never even read.
+    expect(fake.calls.some((c) => c.includes('/v1/account/keys'))).toBe(false);
+    expect(fake.projectKeys.has(LOCAL_PROJECT)).toBe(false);
+  });
+
+  it('an account with no escrowed key yet: registered without a key, never minting the account key', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.features = FEATURES;
+    seedProject(a, 2);
+    const linked = await linkOn(a);
+    expect(linked.alreadyLinked).toBe(false);
+    expect(linked.initialKeyVersion).toBeNull();
+    expect(linked.warnings.join('\n')).toMatch(
+      /registered without its encryption key \(this account has no encryption key yet\); the first `cleo cloud push` creates it/,
+    );
+    expect(fake.projectPosts[0]).not.toHaveProperty('initialKey');
+    expect(fake.escrow).toBeNull();
+    expect(fake.certificates).toEqual([]);
+  });
+
+  it('a project keyed since the probe (409 keys-exist) is re-sent once without the key, keeping the winner key', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.features = FEATURES;
+    const mk = escrowed();
+    seedProject(a, 2);
+    const winner = wrapProjectKey(mk, randomBytes(32), LOCAL_PROJECT, 1);
+    fake.beforeProjectPost = () => {
+      fake.beforeProjectPost = null;
+      fake.addProject(LOCAL_PROJECT, {});
+      fake.projectKeys.set(LOCAL_PROJECT, [
+        { userId: USER, wrappedProjectKey: winner, keyVersion: 1 },
+      ]);
+    };
+    const linked = await linkOn(a);
+    expect(fake.projectPosts).toHaveLength(2);
+    expect(sentKey(0)).toBeDefined();
+    expect(fake.projectPosts[1]).not.toHaveProperty('initialKey');
+    expect(linked.alreadyLinked).toBe(true);
+    expect(linked.initialKeyVersion).toBeNull();
+    expect(fake.projectKeys.get(LOCAL_PROJECT)).toEqual([
+      { userId: USER, wrappedProjectKey: winner, keyVersion: 1 },
+    ]);
+  });
+
+  it('a credential without keys:write (403, no project created) is re-sent once without the key', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.features = FEATURES;
+    escrowed();
+    seedProject(a, 2);
+    const d = fake.devices.get(DEVICE_A);
+    if (d) d.scopes = ['account:read', 'projects:read', 'projects:write', 'sync:write'];
+    const linked = await linkOn(a);
+    expect(fake.projectPosts).toHaveLength(2);
+    expect(sentKey(0)).toBeDefined();
+    expect(fake.projectPosts[1]).not.toHaveProperty('initialKey');
+    expect(linked.alreadyLinked).toBe(false);
+    expect(linked.initialKeyVersion).toBeNull();
+    expect(fake.projectKeys.has(LOCAL_PROJECT)).toBe(false);
+  });
+
+  it('a registration whose answer was lost is retried with the identical wrap: 200 with version 1', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.features = FEATURES;
+    escrowed();
+    seedProject(a, 2);
+    let dropped = false;
+    const flaky: FetchLike = async (input, init) => {
+      const res = await fake.fetch(input, init);
+      if (!dropped && init?.method === 'POST' && new URL(input).pathname === '/v1/projects') {
+        dropped = true;
+        throw new TypeError('fetch failed: the answer was lost');
+      }
+      return res;
+    };
+    const linked = await linkOn(a, { fetch: flaky });
+    expect(fake.projectPosts).toHaveLength(2);
+    expect(sentKey(1)).toEqual(sentKey(0));
+    expect(linked.alreadyLinked).toBe(true);
+    expect(linked.initialKeyVersion).toBe(1);
+    expect(fake.projectKeys.get(LOCAL_PROJECT)).toHaveLength(1);
+  });
+
+  it.each([
+    ['keyed', true],
+    ['keyless', false],
+  ])('a project-id-taken race won by a %s registration: the key is never stored twice', async (_name, keyed) => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.features = FEATURES;
+    const mk = escrowed();
+    seedProject(a, 2);
+    const winner = wrapProjectKey(mk, randomBytes(32), LOCAL_PROJECT, 1);
+    fake.beforeProjectPost = () => {
+      fake.beforeProjectPost = null;
+      fake.addProject(LOCAL_PROJECT, {});
+      if (keyed)
+        fake.projectKeys.set(LOCAL_PROJECT, [
+          { userId: USER, wrappedProjectKey: winner, keyVersion: 1 },
+        ]);
+      throw new ApiFail(409, 'E_CONFLICT', { reason: 'project-id-taken' });
+    };
+    const linked = await linkOn(a);
+    // The project-id-taken retry repeats the same body; a keyed winner then refuses the key once more.
+    expect(sentKey(1)).toEqual(sentKey(0));
+    expect(fake.projectPosts).toHaveLength(keyed ? 3 : 2);
+    if (keyed) expect(fake.projectPosts[2]).not.toHaveProperty('initialKey');
+    expect(linked.alreadyLinked).toBe(true);
+    expect(linked.initialKeyVersion).toBeNull();
+    expect(fake.projectKeys.get(LOCAL_PROJECT) ?? []).toEqual(
+      keyed ? [{ userId: USER, wrappedProjectKey: winner, keyVersion: 1 }] : [],
+    );
+  });
+
+  it.each([
+    [
+      'fails (a transient 503)',
+      (_m: Machine) => {
+        fake.statusFailure = 503;
+        return {};
+      },
+    ],
+    [
+      'stalls past its timeout',
+      (_m: Machine) => {
+        const stalling: FetchLike = (input, init) =>
+          new URL(input).pathname === '/v1/status'
+            ? new Promise<Response>((_resolve, reject) => {
+                init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+              })
+            : fake.fetch(input, init);
+        return { fetch: stalling, probeTimeoutMs: 50 };
+      },
+    ],
+  ])('a probe that %s: registered without a key, and a warning says so', async (_name, arrange) => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.features = FEATURES;
+    escrowed();
+    seedProject(a, 2);
+    const linked = await linkOn(a, arrange(a));
+    expect(linked.alreadyLinked).toBe(false);
+    expect(linked.initialKeyVersion).toBeNull();
+    expect(linked.warnings.join('\n')).toMatch(
+      /could not ask Cleo Nexus whether it stores a new project's encryption key with its registration .*first `cleo cloud push` creates the key/,
+    );
+    expect(fake.projectPosts).toEqual([{ projectId: LOCAL_PROJECT, label: 'demo' }]);
+    expect(fake.calls.some((c) => c.includes('/v1/account/keys'))).toBe(false);
+  });
+  it('a team member: the server ignores the key (201, null), link warns, and the first push gets 403 project-role once (cleo-nexus #35)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    fake.features = FEATURES;
+    fake.orgRole = 'member';
+    escrowed();
+    seedProject(a, 2);
+    const linked = await linkOn(a);
+    // The key was sent, the project created, the key not stored, and the registration not retried.
+    expect(sentKey(0)).toBeDefined();
+    expect(fake.projectPosts).toHaveLength(1);
+    expect(linked.alreadyLinked).toBe(false);
+    expect(linked.initialKeyVersion).toBeNull();
+    expect(fake.projectKeys.has(LOCAL_PROJECT)).toBe(false);
+    expect(linked.warnings.join('\n')).toMatch(
+      /registered the project without its encryption key: only an org owner or admin can create it, so an org owner or admin must create the project key from a signed-in session/,
+    );
+
+    const err = await failure(on(a, () => pushNexusVault(vopts(a))));
+    expect(err.code).toBe('E_NEXUS_VAULT_KEY_UNAVAILABLE');
+    expect(err.fix).toMatch(
+      /^an org owner or admin must create the project key from a signed-in session/,
+    );
+    // One v1 PUT, refused for the role, never retried; still no key on the server.
+    expect(fake.projectKeyPuts).toEqual([
+      expect.objectContaining({ keyVersion: 1, rotate: true, expectedMax: 0 }),
+    ]);
+    expect(
+      fake.writes.filter((w) => w.startsWith(`PUT /v1/projects/${LOCAL_PROJECT}/keys/`)),
+    ).toHaveLength(1);
+    expect(fake.projectKeys.has(LOCAL_PROJECT)).toBe(false);
+  });
+
+  it('never sends an empty or padding-only wrap (cleo-nexus #35 answers 400)', async () => {
+    expect(isSendableWrap('')).toBe(false);
+    expect(isSendableWrap('=')).toBe(false);
+    expect(isSendableWrap('====')).toBe(false);
+    expect(isSendableWrap('AA==')).toBe(true);
+    expect(isSendableWrap(wrapProjectKey(randomBytes(32), randomBytes(32), LOCAL_PROJECT, 1))).toBe(
+      true,
+    );
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const http = new Http({ baseUrl: API, token: a.token, fetch: fake.fetch });
+    for (const wrappedProjectKey of ['', '==', '====']) {
+      await expect(
+        registerProject(http, { projectId: LOCAL_PROJECT, initialKey: { wrappedProjectKey } }),
+      ).rejects.toThrow(/empty initialKey wrap/);
+    }
+    expect(fake.projectPosts).toEqual([]);
+    expect(fake.calls.filter((c) => c === 'POST /v1/projects')).toEqual([]);
   });
 });

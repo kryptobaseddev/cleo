@@ -26,19 +26,36 @@ export const CLEO_ARTIFACT_BUDGETS: Readonly<PackageArtifactBudgets> = Object.fr
 
 /**
  * The JavaScript files `build.mjs` declares for the published CLI: the CLI
- * bundle, and the provider hook runtime that `bin/cleo.js` imports directly for
- * `cleo hook heavy-command` (T12983), skipping the CLI bootstrap. Any other
- * `.js` under `dist/` is development output.
+ * bundle, the provider hook runtime that `bin/cleo.js` imports directly for
+ * `cleo hook heavy-command` (T12983), skipping the CLI bootstrap, and the
+ * detached dist-tags check the CLI spawns for its update notice (T13137). Any
+ * other `.js` under `dist/` is development output.
  */
 const CLEO_SHIPPED_JS_ENTRIES: ReadonlySet<string> = new Set([
   'dist/cli/index.js',
   'dist/cli/hook-entry.js',
+  'dist/cli/update-check-entry.js',
 ]);
+
+/**
+ * A code-split chunk of the CLI bundle (T13126): `dist/cli/<name>-<HASH>.js`,
+ * where `<HASH>` is esbuild's 8-character content hash.
+ *
+ * `build.mjs` bundles the CLI with `splitting` so each `import()` loads its own
+ * chunk instead of the whole CLI and all of CORE at startup. Its
+ * `CLEO_CHUNK_NAMES` (`cli/[name]-[hash]`) writes every chunk directly beside
+ * `cli/index.js`; change both together. A chunk in any other directory is not
+ * build output and stays rejected. `<name>` is the source file's basename in
+ * any case (T13159): a source file named `TaskCard.ts` must not fail the
+ * artifact check.
+ */
+export const CLEO_CLI_CHUNK_PATTERN: RegExp = /^dist\/cli\/[A-Za-z0-9_.-]+-[A-Z0-9]{8}\.js$/;
 
 /** Required CLI and adapter-node resources, independent of historical byte/file-count floors. */
 export const CLEO_ARTIFACT_REQUIREMENTS: readonly PackageArtifactRequirement[] = Object.freeze([
   { id: 'cli-entry', path: 'dist/cli/index.js', match: 'exact' },
   { id: 'cli-hook-entry', path: 'dist/cli/hook-entry.js', match: 'exact' },
+  { id: 'cli-update-check-entry', path: 'dist/cli/update-check-entry.js', match: 'exact' },
   { id: 'studio-server-entry', path: 'studio-dist/index.js', match: 'exact' },
   { id: 'studio-handler', path: 'studio-dist/handler.js', match: 'exact' },
   { id: 'studio-server', path: 'studio-dist/server/index.js', match: 'exact' },
@@ -269,7 +286,8 @@ export function validatePackageArtifact(
 /**
  * Reject declaration and stray JavaScript output absent from the published CLI
  * bundle: only `build.mjs`'s declared entries (the CLI bundle and the hook
- * runtime) may ship as `.js` under `dist/`.
+ * runtime) and their code-split chunks ({@link CLEO_CLI_CHUNK_PATTERN}) may ship
+ * as `.js` under `dist/`.
  *
  * @param files - Actual selected package files, not a development directory listing.
  * @returns Concrete build-shape failures; this does not load the bundle.
@@ -289,11 +307,14 @@ export function assertCleoShippedBuildShape(files: readonly PackageArtifactFile[
       `${declarations.length} declaration file(s) under dist/ — the esbuild bundle emits none`,
     );
   const stray = dist.filter(
-    (file) => file.path.endsWith('.js') && !CLEO_SHIPPED_JS_ENTRIES.has(file.path),
+    (file) =>
+      file.path.endsWith('.js') &&
+      !CLEO_SHIPPED_JS_ENTRIES.has(file.path) &&
+      !CLEO_CLI_CHUNK_PATTERN.test(file.path),
   );
   if (stray.length)
     reasons.push(
-      `${stray.length} .js file(s) under dist/ outside the declared entries ${[...CLEO_SHIPPED_JS_ENTRIES].join(', ')}, e.g. ${stray[0]?.path}`,
+      `${stray.length} .js file(s) under dist/ outside the declared entries ${[...CLEO_SHIPPED_JS_ENTRIES].join(', ')} and their chunks, e.g. ${stray[0]?.path}`,
     );
   return reasons;
 }

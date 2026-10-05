@@ -68,7 +68,7 @@ import type {
   SpawnResult,
   WorktreeHook,
 } from '@cleocode/contracts';
-import { RESOURCE_DEFERRED_CODE } from '@cleocode/contracts';
+import { RESOURCE_DEFERRED_CODE } from '@cleocode/contracts/resource-governor.js';
 import {
   acquireWorktreeTaskLock,
   destroyWorktree,

@@ -2,23 +2,32 @@
  * Tests for the macOS ResourceMonitor backend (T12981).
  *
  * Coverage:
- *   - parseDarwinSysctl: full output, unknown names, malformed values
- *   - darwinMemorySome / cpuSomeFromLoad: the PSI-equivalent mapping
+ *   - parseDarwinSysctl: full output, unknown names, malformed values,
+ *     compressor occupancy
+ *   - darwinMemorySome / cpuSomeFromLoad: the PSI-equivalent mapping and the
+ *     monitor's verdict on every sampled shape: normal, warning, critical, the
+ *     incident, a cold compressor with old swap, laptops and wired local-model
+ *     weights at a normal kernel level, headroom running out, no signal (T13127)
  *   - DarwinResourceBackend.sample: shape, one sysctl per TTL, degraded on
- *     failure, memAvailable from free%
+ *     failure, memAvailable from free%, the readings carried on the sample
  *   - sweepChildRss: ps parsing
  *   - evaluateState: CPU saturation alone holds/backs off; the worse of
  *     memory and CPU wins; CPU hysteresis
  *   - defaultResourceBackend: platform selection
  *
  * @task T12981
+ * @task T13127
  */
 
 import { describe, expect, it } from 'vitest';
+import { budgetShare, lightBudgetShare } from '../admission-ledger.js';
 import type { PsiData, ResourceSample } from '../backend.js';
 import {
   cpuSomeFromLoad,
+  DARWIN_NORMAL_HEADROOM_CAP,
   DarwinResourceBackend,
+  darwinHeadroomBytes,
+  darwinHeadroomFloorBytes,
   darwinMemorySome,
   darwinPressure,
   effectiveCores,
@@ -32,6 +41,7 @@ import {
   evaluateState,
   pressureScore,
 } from '../monitor.js';
+import { evaluateMemoryGate, MEMORY_GATE_RESUME_AT_OR_BELOW } from '../pressure-gate.js';
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
@@ -87,12 +97,25 @@ function sample(memSome: number, cpuSome: number | null): ResourceSample {
 }
 
 describe('parseDarwinSysctl', () => {
+  it('parses the compressor occupancy', () => {
+    expect(parseDarwinSysctl('vm.compressor_bytes_used: 2018082816\n').compressorBytes).toBe(
+      2018082816,
+    );
+    expect(parseDarwinSysctl(LOADED).compressorBytes).toBeNull();
+  });
+
   it('parses every signal from real output', () => {
     const s = parseDarwinSysctl(LOADED);
     expect(s.pressureLevel).toBe(2);
     expect(s.freePercent).toBe(41);
     expect(s.swapTotalBytes).toBe(13312 * MB);
-    expect(s.swapUsedBytes).toBeCloseTo(11625.69 * MB, 0);
+    expect(s.swapUsedBytes).toBe(Math.round(11625.69 * MB));
+    expect(
+      Number.isInteger(
+        parseDarwinSysctl('vm.swapusage: total = 2.00M  used = 1.88M  free = 0.12M\n')
+          .swapUsedBytes,
+      ),
+    ).toBe(true);
     expect(s.loadAvg).toEqual([21.53, 26.57, 41.3]);
     expect(s.ncpu).toBe(18);
   });
@@ -108,47 +131,160 @@ describe('parseDarwinSysctl', () => {
 });
 
 describe('PSI-equivalent mapping', () => {
-  it('kernel warning alone crosses the memory hold threshold', () => {
-    const some = darwinMemorySome(parseDarwinSysctl('kern.memorystatus_vm_pressure_level: 2\n'));
-    expect(some).toBeGreaterThan(THRESHOLDS.holdSomeAvg10);
-    expect(some).toBeLessThanOrEqual(THRESHOLDS.backoffSomeAvg10);
-  });
-
-  it('kernel critical crosses backoff', () => {
-    const some = darwinMemorySome(parseDarwinSysctl('kern.memorystatus_vm_pressure_level: 4\n'));
-    expect(some).toBeGreaterThan(THRESHOLDS.backoffSomeAvg10);
-  });
-
-  it('a calm box scores zero', () => {
-    expect(darwinMemorySome(parseDarwinSysctl(CALM))).toBe(0);
-  });
-
-  it('low free memory scores even when the kernel still says normal', () => {
-    const some = darwinMemorySome(
-      parseDarwinSysctl('kern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 8\n'),
-    );
-    expect(some).toBe(24);
-  });
-
-  it('swap is reported but not scored (macOS grows swapfiles on demand)', () => {
-    const base = darwinMemorySome(parseDarwinSysctl('kern.memorystatus_vm_pressure_level: 2\n'));
-    expect(darwinMemorySome(parseDarwinSysctl(LOADED))).toBe(base);
-    expect(base).toBe(15);
-  });
-
-  it('the loaded fixture is exactly hold, not backoff (kernel warning, 41% free, swap 87%)', () => {
-    const s = parseDarwinSysctl(LOADED);
-    const { memory, cpu } = darwinPressure(s);
-    const sampleOf: ResourceSample = {
+  const RAM8 = 8 * GB;
+  const RAM16 = 16 * GB;
+  const RAM48 = 48 * GB;
+  const RAM64 = 64 * GB;
+  const some = (out: string, ram = RAM48): number | null =>
+    darwinMemorySome(parseDarwinSysctl(out), ram);
+  /** A sample built the way the backend builds one, for the monitor's verdict. */
+  const stateOf = (out: string, ram = RAM48) => {
+    const { memory, cpu } = darwinPressure(parseDarwinSysctl(out), ram);
+    const s: ResourceSample = {
       sampledAtMs: 0,
-      pressureAvailable: true,
+      pressureAvailable: memory !== null,
       memAvailableBytes: 1,
       globalPressure: memory,
       slicePressure: null,
       cpuPressure: cpu,
       walObservations: [],
     };
-    expect(classifyPressure(sampleOf).state).toBe('hold');
+    return classifyPressure(s).state;
+  };
+  const swap = (usedGib: number, totalGib = usedGib + 1) =>
+    `vm.swapusage: total = ${totalGib * 1024}.00M  used = ${usedGib * 1024}.00M  free = ${(totalGib - usedGib) * 1024}.00M  (encrypted)\n`;
+  const normal = (level: number) =>
+    `kern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: ${level}\n`;
+  const warning = (level: number) =>
+    `kern.memorystatus_vm_pressure_level: 2\nkern.memorystatus_level: ${level}\n`;
+
+  it('normal: an idle Mac (89% neither wired nor compressed, no swap) scores zero', () => {
+    expect(some(`${normal(89)}vm.compressor_bytes_used: 2018082816\n${swap(0, 0)}`, RAM64)).toBe(0);
+    expect(some(CALM)).toBe(0);
+  });
+
+  it('warning: the kernel warning alone holds', () => {
+    const s = some('kern.memorystatus_vm_pressure_level: 2\n');
+    expect(s).toBe(15);
+    expect(stateOf('kern.memorystatus_vm_pressure_level: 2\n')).toBe('hold');
+  });
+
+  it('critical: the kernel critical level backs off', () => {
+    expect(some('kern.memorystatus_vm_pressure_level: 4\n')).toBeGreaterThan(
+      THRESHOLDS.backoffSomeAvg10,
+    );
+    expect(stateOf('kern.memorystatus_vm_pressure_level: 4\n')).toBe('backoff');
+  });
+
+  it('the 2026-10-03 incident shape backs off (it scored 15, hold, before T13127)', () => {
+    const out = `${warning(41)}vm.compressor_bytes_used: ${15 * GB}\n${swap(13.6, 15.4)}`;
+    // 15 + (0.59 − 0.50) × 100 + 50 × 13.6/48
+    expect(some(out)).toBeCloseTo(15 + 9 + 50 * (13.6 / 48), 6);
+    expect(stateOf(out)).toBe('backoff');
+  });
+
+  it('the loaded capture (kernel warning, 41% free, 11.4 GiB swap) backs off too', () => {
+    expect(some(LOADED)).toBeCloseTo(15 + 9 + 50 * ((11625.69 * MB) / RAM48), 6);
+    expect(stateOf(LOADED)).toBe('backoff');
+  });
+
+  it('a kernel warning with a cold compressor and old swap only holds', () => {
+    // 35% wired or compressed: swap counts at a quarter weight.
+    const out = `${warning(65)}${swap(13)}`;
+    expect(some(out)).toBeCloseTo(15 + 50 * 0.25 * (13 / 48), 6);
+    expect(stateOf(out)).toBe('hold');
+  });
+
+  describe('a normal kernel level is never pressure from old swap or a big wired share (review MED 1)', () => {
+    it('16 GiB laptop, 44% wired or compressed, 6 GiB of old swap', () => {
+      expect(some(`${normal(56)}${swap(6, 7)}`, RAM16)).toBe(0);
+    });
+    it('16 GiB laptop, 42% wired or compressed, 4 GiB of old swap', () => {
+      expect(some(`${normal(58)}${swap(4, 5)}`, RAM16)).toBe(0);
+    });
+    it('8 GiB Air, 44% wired or compressed, 3 GiB of swap', () => {
+      expect(some(`${normal(56)}${swap(3, 4)}`, RAM8)).toBe(0);
+    });
+    it('64 GiB Mac, 40 GiB of wired model weights, 21 GiB left', () => {
+      expect(some(normal(33), RAM64)).toBe(0);
+    });
+    it('128 GiB Mac, 80 GiB wired, 45 GiB left', () => {
+      expect(some(normal(35), 128 * GB)).toBe(0);
+    });
+    it('even swap nearly full on the swapfiles allocated so far', () => {
+      expect(some(`${normal(70)}${swap(6.9, 7)}`, RAM16)).toBe(0);
+    });
+  });
+
+  it('headroom running out scores at any kernel level, in bytes against the floor', () => {
+    // 48 GiB: floor 12 GiB (a quarter). 92% wired or compressed leaves 3.84 GiB.
+    expect(some(normal(8))).toBeCloseTo(
+      Math.min(DARWIN_NORMAL_HEADROOM_CAP, 30 * (1 - (0.08 * RAM48) / (12 * GB))),
+      6,
+    );
+    // 8 GiB Air: floor 4 GiB (6 GiB capped at half). 95% leaves 0.4 GiB: at a
+    // normal kernel level headroom alone stops at the cap — hold, never backoff.
+    expect(some(normal(5), RAM8)).toBe(DARWIN_NORMAL_HEADROOM_CAP);
+    expect(stateOf(normal(5), RAM8)).toBe('hold');
+    // A quarter of RAM, at least 6 GiB, at most half (T13132, #1806 review).
+    expect(darwinHeadroomFloorBytes(RAM48)).toBe(12 * GB);
+    expect(darwinHeadroomFloorBytes(16 * GB)).toBe(6 * GB);
+    expect(darwinHeadroomFloorBytes(RAM8)).toBe(4 * GB);
+  });
+
+  it('at a normal kernel level headroom alone never backs off or refuses; a warning with low headroom does (#1865 MED-2)', () => {
+    const empty = 'hw.pagesize: 16384\nvm.page_free_count: 0\n';
+    // Kernel normal, nothing reclaimable: hold at most (the gate refuses above 25).
+    expect(some(`kern.memorystatus_vm_pressure_level: 1\n${empty}`, RAM8)).toBe(
+      DARWIN_NORMAL_HEADROOM_CAP,
+    );
+    expect(stateOf(`kern.memorystatus_vm_pressure_level: 1\n${empty}`, RAM8)).toBe('hold');
+    expect(DARWIN_NORMAL_HEADROOM_CAP).toBeLessThan(25);
+    // ... and no higher than the latched gate's resume threshold.
+    expect(DARWIN_NORMAL_HEADROOM_CAP).toBeLessThanOrEqual(MEMORY_GATE_RESUME_AT_OR_BELOW);
+    // Kernel warning with the same headroom: the full headroom score, backoff.
+    expect(some(`kern.memorystatus_vm_pressure_level: 2\n${empty}`, RAM8)).toBeGreaterThan(25);
+    expect(stateOf(`kern.memorystatus_vm_pressure_level: 2\n${empty}`, RAM8)).toBe('backoff');
+  });
+
+  it('reclaimable pages are the headroom when readable: anonymous memory is not (T13132)', () => {
+    const pages = (gib: number): string =>
+      `hw.pagesize: 16384\nvm.page_free_count: ${(gib * GB) / 16384 / 2}\n` +
+      `vm.page_pageable_external_count: ${(gib * GB) / 16384 / 2}\n`;
+    const parsed = parseDarwinSysctl(`kern.memorystatus_level: 60\n${pages(3)}`);
+    expect(parsed.reclaimableBytes).toBe(3 * GB);
+    expect(darwinHeadroomBytes(parsed, RAM48)).toBe(3 * GB);
+    // 60% neither wired nor compressed (28.8 GiB) read as plenty; only 3 GiB is
+    // reclaimable, below the 12 GiB floor.
+    expect(
+      some(`kern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 60\n${pages(3)}`),
+    ).toBe(Math.min(DARWIN_NORMAL_HEADROOM_CAP, 30 * (1 - 3 / 12)));
+    // Without a page size the old reading stands.
+    expect(parseDarwinSysctl('vm.page_free_count: 10\n').reclaimableBytes).toBeNull();
+  });
+
+  it('the compressor share counts when the kernel level is unreadable, or larger', () => {
+    // 47 GiB compressed on 48 GiB, no memorystatus_level: 1 GiB headroom left
+    // against the 12 GiB floor (27.5), capped without a kernel warning
+    const crushed = 30 * (1 - 1 / 12);
+    expect(some(`vm.compressor_bytes_used: ${47 * GB}\n`)).toBe(
+      Math.min(DARWIN_NORMAL_HEADROOM_CAP, crushed),
+    );
+    // the larger of the two wins: 1 GiB left, not 30%
+    expect(some(`kern.memorystatus_level: 70\nvm.compressor_bytes_used: ${47 * GB}\n`)).toBe(
+      DARWIN_NORMAL_HEADROOM_CAP,
+    );
+    // with a kernel warning the uncapped headroom score counts
+    expect(
+      some(
+        `kern.memorystatus_vm_pressure_level: 2\nkern.memorystatus_level: 70\nvm.compressor_bytes_used: ${47 * GB}\n`,
+      ),
+    ).toBeGreaterThanOrEqual(crushed);
+  });
+
+  it('returns null when no memory signal is readable; swap alone is not a signal', () => {
+    expect(some('hw.ncpu: 4\n')).toBeNull();
+    expect(some(swap(2, 2))).toBeNull();
   });
 
   it('effective cores: performance plus half the efficiency cores', () => {
@@ -162,11 +298,7 @@ describe('PSI-equivalent mapping', () => {
     const loaded = parseDarwinSysctl(
       'vm.loadavg: { 24.0 24.0 24.0 }\nhw.ncpu: 18\nhw.perflevel0.logicalcpu: 6\nhw.perflevel1.logicalcpu: 12\n',
     );
-    expect(darwinPressure(loaded).cpu?.some.avg10).toBe(50);
-  });
-
-  it('returns null when no memory signal is readable', () => {
-    expect(darwinMemorySome(parseDarwinSysctl('hw.ncpu: 4\n'))).toBeNull();
+    expect(darwinPressure(loaded, 48 * GB).cpu?.some.avg10).toBe(50);
   });
 
   it('cpu: idle and exactly-saturated score 0; 2x cores scores 50', () => {
@@ -187,10 +319,35 @@ describe('DarwinResourceBackend.sample', () => {
     const s = await backend.sample();
     expect(s.pressureAvailable).toBe(true);
     expect(s.memAvailableBytes).toBe(Math.round(0.41 * 48 * GB));
-    expect(s.globalPressure?.some.avg10).toBe(15);
+    expect(s.globalPressure?.some.avg10).toBeCloseTo(
+      15 + 9 + 50 * ((11625.69 * MB) / (48 * GB)),
+      6,
+    );
     expect(s.slicePressure).toBeNull();
+    // The readings travel with the sample, so status and reports can show them.
+    expect(s.darwinMemory).toEqual({
+      pressureLevel: 2,
+      availablePercent: 41,
+      compressorBytes: null,
+      swapUsedBytes: Math.round(11625.69 * MB),
+      swapTotalBytes: 13312 * MB,
+      reclaimableBytes: null,
+      totalBytes: 48 * GB,
+    });
     expect(s.cpuPressure?.some.avg10).toBeCloseTo((100 * (21.53 / 18 - 1)) / (21.53 / 18), 5);
     expect(s.cpuPressure?.some.avg300).toBeGreaterThan(s.cpuPressure?.some.avg10 ?? 0);
+  });
+
+  it('memAvailableBytes is the reclaimable memory when the page counts are readable (T13132)', async () => {
+    const backend = new DarwinResourceBackend({
+      sysctlFn: async () =>
+        `kern.memorystatus_level: 60\nhw.pagesize: 16384\nvm.page_free_count: ${GB / 16384}\n` +
+        `vm.page_speculative_count: ${GB / 16384}\n`,
+      totalMemBytes: 48 * GB,
+    });
+    const s = await backend.sample();
+    expect(s.memAvailableBytes).toBe(2 * GB);
+    expect(s.darwinMemory?.reclaimableBytes).toBe(2 * GB);
   });
 
   it('runs at most one sysctl per TTL', async () => {
@@ -224,6 +381,26 @@ describe('DarwinResourceBackend.sample', () => {
     expect(s.globalPressure).toBeNull();
     expect(s.cpuPressure).toBeNull();
     expect(s.memAvailableBytes).toBeNull();
+    expect(s.darwinMemory).toBeNull();
+    // sysctl unavailable: no memory signal, so the monitor runs in degraded mode.
+    expect(classifyPressure(s).state).toBe('ok');
+  });
+
+  it('reads the compressor in the same single sysctl exec (no vm_stat spawn)', async () => {
+    const asked: string[][] = [];
+    const backend = new DarwinResourceBackend({
+      sysctlFn: async (names) => {
+        asked.push([...names]);
+        return `${LOADED}vm.compressor_bytes_used: ${20 * GB}\n`;
+      },
+      totalMemBytes: 48 * GB,
+    });
+    const s = await backend.sample();
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain('vm.compressor_bytes_used');
+    expect(asked[0]).toContain('vm.swapusage');
+    expect(asked[0]).toContain('kern.memorystatus_vm_pressure_level');
+    expect(s.darwinMemory?.compressorBytes).toBe(20 * GB);
   });
 
   it('reports WAL sizes through the injected stat', async () => {
@@ -320,15 +497,77 @@ describe('pressureScore (memory scale)', () => {
 });
 
 describe('governor budgets react to cpu saturation', () => {
-  const opts = { cpuCount: 18, totalMemBytes: 256 * GB, testRunEstRamMb: 1024 };
+  const opts = { cpuCount: 18, totalMemBytes: 256 * GB };
   it('test-run narrows to 1 when cores are 2.5x oversubscribed', () => {
     const calm = computeClassBudget('test-run', sample(0, 0), opts);
     expect(calm).toBeGreaterThan(1);
     expect(computeClassBudget('test-run', sample(0, 60), opts)).toBe(1);
   });
 
-  it('db-heavy is refused at cpu backoff', () => {
+  it('db-heavy is budgeted on memory alone: cpu backoff never refuses it (T13170)', () => {
     expect(computeClassBudget('db-heavy', sample(0, 0), opts)).toBe(1);
-    expect(computeClassBudget('db-heavy', sample(0, 60), opts)).toBe(0);
+    expect(computeClassBudget('db-heavy', sample(0, 60), opts)).toBe(1);
   });
+});
+
+describe('a live macOS sample (runs on darwin only)', () => {
+  // Evidence from the machine running the suite (#1865 review MED-2): it reads
+  // reclaimable pages, and a normal kernel level never scores past the cap
+  // however low that headroom is.
+  it.runIf(process.platform === 'darwin')(
+    'reads reclaimable pages and stays within the cap at a normal kernel level',
+    async () => {
+      const backend = new DarwinResourceBackend({ cacheTtlMs: 0 });
+      const s = await backend.sample();
+      const d = s.darwinMemory;
+      expect(d).not.toBeNull();
+      expect(d?.reclaimableBytes).not.toBeNull();
+      if (d?.pressureLevel === 1) {
+        expect(s.globalPressure?.some.avg10 ?? 0).toBeLessThanOrEqual(DARWIN_NORMAL_HEADROOM_CAP);
+      }
+    },
+  );
+});
+
+describe('healthy small Macs with little reclaimable memory are never refused (#1865 MED-2)', () => {
+  // Injected samples, so this runs on every platform: kernel level normal, no
+  // swap, and almost nothing reclaimable (free + file cache ≈ 0.25 GiB) — the
+  // reading a busy but healthy 8 GiB Air, 16 GiB laptop or 7 GiB macOS CI
+  // runner gives under vitest.
+  const machines = [
+    ['8 GiB Mac', 8],
+    ['16 GiB Mac', 16],
+    ['7 GiB macOS runner', 7],
+  ] as const;
+  const sampleFor = async (gib: number): Promise<ResourceSample> => {
+    const pages = (0.25 * GB) / 16384;
+    const backend = new DarwinResourceBackend({
+      totalMemBytes: gib * GB,
+      sysctlFn: async () =>
+        'kern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 55\n' +
+        `hw.pagesize: 16384\nvm.page_free_count: ${pages}\n` +
+        'vm.swapusage: total = 0.00M  used = 0.00M  free = 0.00M  (encrypted)\n',
+    });
+    return backend.sample();
+  };
+
+  for (const [name, gib] of machines) {
+    it(`${name}: db-heavy (exodus-on-open, the sentient tick) is admitted; heavy runs narrow, never refuse`, async () => {
+      const sample = await sampleFor(gib);
+      expect(sample.globalPressure?.some.avg10).toBe(DARWIN_NORMAL_HEADROOM_CAP);
+      // db-heavy is budgeted on memory alone (T13170) and still admitted.
+      expect(computeClassBudget('db-heavy', sample, { totalMemBytes: gib * GB })).toBe(1);
+      // The memory gate does not refuse; heavy and light runs get half the budget.
+      const gate = evaluateMemoryGate(sample, false);
+      expect(gate.refuse).toBe(false);
+      // A gate latched by a passing kernel warning releases at normal level
+      // with the same low headroom (#1865 review).
+      expect(evaluateMemoryGate(sample, true).refuse).toBe(false);
+      expect(budgetShare(sample, gate.refuse)).toBe('half');
+      expect(lightBudgetShare(sample, gate.refuse)).toBe('half');
+      expect(
+        computeClassBudget('test-run', sample, { totalMemBytes: gib * GB }),
+      ).toBeGreaterThanOrEqual(1);
+    });
+  }
 });

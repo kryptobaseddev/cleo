@@ -67,7 +67,7 @@
  * @see cleo docs fetch adr-090-nexus-graph-residency-split
  */
 
-import { USER_PROFILE_SCOPES } from '@cleocode/contracts';
+import { USER_PROFILE_SCOPES } from '@cleocode/contracts/operations/nexus-user-profile.js';
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { makeSchemaMetaTable } from '../schema-utils.js';

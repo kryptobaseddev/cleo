@@ -22,7 +22,7 @@ import type {
   ProjectRelocationPlan,
   RerootProjectResult,
 } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   canonicalizePath,
   computeProjectHash,

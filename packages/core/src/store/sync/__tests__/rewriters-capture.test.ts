@@ -75,7 +75,7 @@ afterEach(async () => {
 });
 
 describe('rewriters with capture on (§2.3a rule 11)', () => {
-  it('exodus reconcile copies legacy rows into a capture-enabled store; each copy is captured', async () => {
+  it('exodus reconcile copies legacy rows into a capture-enabled store inside rule-1 brackets; the sync set is suspect', async () => {
     legacyTasksDb(cleoDir);
     await captureStore();
     const { reconcileSupersededStores } = await import('../../exodus/index.js');
@@ -84,9 +84,14 @@ describe('rewriters with capture on (§2.3a rule 11)', () => {
     const db = new DatabaseSync(liveDb, { readOnly: true });
     try {
       expect(count(db, 'SELECT count(*) FROM tasks_tasks')).toBe(2);
+      // §2.3a rule 1 (T12785): a staged rewriter drops the capture triggers
+      // inside each stage's one transaction, so the copy is uncaptured, and
+      // the run marks the sync set suspect for the sealer's repair diff
+      // (rule 3) instead.
       expect(
         count(db, "SELECT count(*) FROM _sync_capture WHERE tbl = 'tasks_tasks' AND op = 'I'"),
-      ).toBe(2);
+      ).toBe(0);
+      expect(suspectTables(db)).toContain('tasks_tasks');
       expect(
         count(
           db,

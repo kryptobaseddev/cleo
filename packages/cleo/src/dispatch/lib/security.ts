@@ -24,4 +24,4 @@ export {
   VALID_MANIFEST_STATUSES,
   VALID_PRIORITIES,
   validateEnum,
-} from '@cleocode/core/internal';
+} from '@cleocode/core/security/input-sanitization';

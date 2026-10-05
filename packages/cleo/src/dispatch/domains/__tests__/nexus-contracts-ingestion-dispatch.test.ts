@@ -18,6 +18,13 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// These tests verify engine wiring with a mock checkout. Real-store identity
+// and alias validation are covered in registry.test.ts.
+vi.mock('@cleocode/core/nexus/registry.js', async (original) => ({
+  ...(await original<typeof import('@cleocode/core/nexus/registry.js')>()),
+  resolveNexusQueryProjectId: vi.fn(async () => 'canonical-ingestion-id'),
+}));
+
 // Mock core internals used by the handler
 // Mock the nexus-engine — stub all functions referenced by NexusHandler
 vi.mock('@cleocode/core/internal', async () => ({
@@ -70,6 +77,97 @@ vi.mock('@cleocode/core/internal', async () => ({
   nexusConduitScan: vi.fn(),
   nexusTaskSymbols: vi.fn(),
 }));
+vi.mock('@cleocode/core/logger', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), getLogger: barrel.getLogger };
+});
+vi.mock('@cleocode/core/nexus/api-contracts', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    nexusContractsShow: barrel.nexusContractsShow,
+    nexusContractsSync: barrel.nexusContractsSync,
+    nexusContractsLinkTasks: barrel.nexusContractsLinkTasks,
+    nexusConduitScan: barrel.nexusConduitScan,
+    nexusTaskSymbols: barrel.nexusTaskSymbols,
+  };
+});
+vi.mock('@cleocode/core/nexus/augment', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    nexusAugment: barrel.nexusAugment,
+    nexusSearchCode: barrel.nexusSearchCode,
+  };
+});
+vi.mock('@cleocode/core/nexus/deps', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    nexusDepsQuery: barrel.nexusDepsQuery,
+    nexusGraph: barrel.nexusGraph,
+    nexusCriticalPath: barrel.nexusCriticalPath,
+    nexusBlockers: barrel.nexusBlockers,
+    nexusOrphans: barrel.nexusOrphans,
+  };
+});
+vi.mock('@cleocode/core/nexus/discover', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    nexusDiscover: barrel.nexusDiscover,
+    nexusSearch: barrel.nexusSearch,
+  };
+});
+vi.mock('@cleocode/core/nexus/living-brain', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    nexusFullContext: barrel.nexusFullContext,
+    nexusTaskFootprint: barrel.nexusTaskFootprint,
+    nexusBrainAnchors: barrel.nexusBrainAnchors,
+    nexusWhy: barrel.nexusWhy,
+    nexusImpactFull: barrel.nexusImpactFull,
+  };
+});
+vi.mock('@cleocode/core/nexus/permissions', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), nexusSetPermission: barrel.nexusSetPermission };
+});
+vi.mock('@cleocode/core/nexus/query', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), nexusResolve: barrel.nexusResolve };
+});
+vi.mock('@cleocode/core/nexus/route-analysis', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    nexusRouteMap: barrel.nexusRouteMap,
+    nexusShapeCheck: barrel.nexusShapeCheck,
+  };
+});
+vi.mock('@cleocode/core/nexus/sharing/index', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), nexusShareStatus: barrel.nexusShareStatus };
+});
+vi.mock('@cleocode/core/nexus/transfer', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    nexusShareSnapshotExport: barrel.nexusShareSnapshotExport,
+    nexusShareSnapshotImport: barrel.nexusShareSnapshotImport,
+    nexusTransferPreview: barrel.nexusTransferPreview,
+    nexusTransferExecute: barrel.nexusTransferExecute,
+  };
+});
+vi.mock('@cleocode/core/nexus/wiki-index', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), nexusWiki: barrel.nexusWiki };
+});
+vi.mock('@cleocode/core/project-scope', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), getProjectRoot: barrel.getProjectRoot };
+});
 
 import {
   nexusConduitScan,
@@ -323,7 +421,7 @@ describe('NexusHandler — T1117 Contracts + Ingestion Bridge', () => {
       );
     });
 
-    it('uses explicit projectId when provided', async () => {
+    it('uses the resolved canonical projectId for an explicit selector', async () => {
       vi.mocked(nexusContractsSync).mockResolvedValue({
         success: true,
         data: CONTRACTS_SYNC_FIXTURE,
@@ -334,7 +432,10 @@ describe('NexusHandler — T1117 Contracts + Ingestion Bridge', () => {
         repoPath: '/mock/project',
       });
 
-      expect(vi.mocked(nexusContractsSync)).toHaveBeenCalledWith('explicit-id', '/mock/project');
+      expect(vi.mocked(nexusContractsSync)).toHaveBeenCalledWith(
+        'canonical-ingestion-id',
+        '/mock/project',
+      );
     });
 
     it('propagates engine error to LAFS envelope', async () => {

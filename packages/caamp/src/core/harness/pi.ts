@@ -38,8 +38,8 @@ import {
 } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
-import { parseDocument, validateDocument } from '@cleocode/cant';
-import { provisionIsolatedShell } from '@cleocode/contracts';
+import type { parseDocument } from '@cleocode/cant';
+import { provisionIsolatedShell } from '@cleocode/contracts/branch-lock.js';
 import { CAAMP_BLOCK_PATTERN_SOURCE } from '@cleocode/contracts/caamp-markers';
 import { writeFileAtomic } from '@cleocode/core/tools/fs.js';
 import type { Provider } from '../../types.js';
@@ -1627,6 +1627,7 @@ export class PiHarness implements Harness {
     }
 
     const counts = await extractCantCounts(sourcePath);
+    const { validateDocument } = await import('@cleocode/cant');
     const validation = await validateDocument(sourcePath);
     const errors: CantValidationDiagnostic[] = validation.diagnostics.map((d) => ({
       ruleId: d.ruleId,
@@ -1885,7 +1886,8 @@ function collectSkillNames(value: unknown, out: Set<string>): void {
 async function extractCantCounts(sourcePath: string): Promise<CantProfileCounts> {
   let parsed: Awaited<ReturnType<typeof parseDocument>>;
   try {
-    parsed = await parseDocument(sourcePath);
+    const cant = await import('@cleocode/cant');
+    parsed = await cant.parseDocument(sourcePath);
   } catch {
     return { ...EMPTY_CANT_COUNTS };
   }

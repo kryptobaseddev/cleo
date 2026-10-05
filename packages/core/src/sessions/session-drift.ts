@@ -7,7 +7,7 @@
  */
 
 import type { Session, SessionContextDriftParams, Task } from '@cleocode/contracts';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveCurrentSession } from '../store/session-store.js';

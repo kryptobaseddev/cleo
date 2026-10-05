@@ -16,7 +16,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   CleoError,
   getProjectRoot,

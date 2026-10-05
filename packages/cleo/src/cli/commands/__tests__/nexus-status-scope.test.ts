@@ -76,7 +76,7 @@ describe('nexus status — scope honesty (gh#1329)', () => {
     expect(src).toContain('E_NEXUS_PATH_NOT_A_DIRECTORY');
     // The guard must run BEFORE the id is derived, or it guards nothing.
     expect(src.indexOf('E_NEXUS_PATH_NOT_A_DIRECTORY')).toBeLessThan(
-      src.indexOf('const derivedProjectId'),
+      src.indexOf('projectId = await resolveNexusQueryProjectId'),
     );
   });
 
@@ -85,9 +85,9 @@ describe('nexus status — scope honesty (gh#1329)', () => {
     // — the graph DB is project-scoped, so an override relabels this project's
     // counts as another's rather than selecting anything.
     const src = readFileSync(NEXUS_COMMAND, 'utf-8');
-    expect(src).toContain('derivedProjectId');
-    expect(src).toMatch(
-      /projectIdOverride !== undefined && projectIdOverride !== derivedProjectId/,
+    expect(src).toContain('await resolveNexusQueryProjectId(repoPath, projectIdOverride)');
+    expect(src.indexOf('E_NEXUS_CROSS_PROJECT_STATUS')).toBeLessThan(
+      src.indexOf('const db = await getNexusDb()'),
     );
   });
 

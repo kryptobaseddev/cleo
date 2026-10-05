@@ -8,7 +8,7 @@
  */
 
 import type { ProblemDetails } from '@cleocode/contracts';
-import { ExitCode, getExitCodeName, isRecoverableCode } from '@cleocode/contracts';
+import { ExitCode, getExitCodeName, isRecoverableCode } from '@cleocode/contracts/exit-codes.js';
 import type { LAFSError, LAFSErrorCategory } from '@cleocode/lafs';
 import { getErrorDefinition } from './error-catalog.js';
 

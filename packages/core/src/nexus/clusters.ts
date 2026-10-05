@@ -50,7 +50,7 @@ export async function getProjectClusters(
   projectId: string,
   repoPath: string,
 ): Promise<NexusClustersResult> {
-  const db = await getNexusDb();
+  const db = await getNexusDb(repoPath);
 
   let communities: Array<Record<string, unknown>> = [];
   try {

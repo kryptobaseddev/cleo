@@ -18,7 +18,7 @@ import type {
   TaskStatus,
   TaskType,
 } from '@cleocode/contracts';
-import { acceptanceItemSchema } from '@cleocode/contracts';
+import { acceptanceItemSchema } from '@cleocode/contracts/acceptance-gate-schema.js';
 import { z } from 'zod';
 import { safeParseJson, safeParseJsonArray } from './parsers.js';
 import type { SessionStatus } from './status-registry.js';

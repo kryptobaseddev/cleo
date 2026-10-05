@@ -70,17 +70,17 @@ import type {
   PortableBundleManifest,
 } from '@cleocode/contracts';
 import {
-  NEXUS_VAULT_LEASE_ROLE,
-  nexusCloudDevicePageSchema,
-  nexusLeaseAcquireSchema,
-  nexusStreamHeadSchema,
-  SYNC_SCHEMA_VERSION,
-} from '@cleocode/contracts';
-import {
   type Checkpoint,
   ListCheckpointsResult,
   ListLeasesResult,
 } from '@cleocode/contracts/cloud';
+import { nexusCloudDevicePageSchema } from '@cleocode/contracts/nexus-cloud.js';
+import {
+  NEXUS_VAULT_LEASE_ROLE,
+  nexusLeaseAcquireSchema,
+  nexusStreamHeadSchema,
+} from '@cleocode/contracts/nexus-vault.js';
+import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { extract as tarExtract } from 'tar';
 import { z } from 'zod';
@@ -771,14 +771,16 @@ function compareWithSynced(
 
 /**
  * This device's local-only change journal, emptied in every vault snapshot
- * (T13042): capture, undo and quarantined images hold values the snapshot
- * strips, and a restore takes these tables from the live store anyway.
+ * (T13042): capture, undo and quarantined images, and apply intents (T12757),
+ * hold values the snapshot strips, and a restore takes these tables from the
+ * live store anyway.
  */
 const VAULT_CLEARED_JOURNAL_TABLES = [
   '_sync_capture',
   '_sync_undo',
   '_sync_frame',
   '_sync_quarantine',
+  '_sync_apply_intent',
 ] as const;
 
 /**

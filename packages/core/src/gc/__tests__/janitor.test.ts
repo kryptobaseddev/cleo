@@ -30,6 +30,7 @@ import {
   DEFAULT_GRACE_MS,
   DEFAULT_SEMAPHORE_STALE_MS,
   isPidAlive,
+  procStatStartTicks,
   runJanitor,
 } from '../janitor.js';
 
@@ -330,6 +331,50 @@ describe('runJanitor — stale semaphore slots', () => {
 
     vi.restoreAllMocks();
   });
+
+  it('removes the slot dirs of the layers the admission ledger replaced once nothing holds them (T13133)', async () => {
+    const cleoDir = makeCleoDir(testRoot);
+    const locksRoot = join(testRoot, '.local', 'share', 'cleo', 'locks');
+    // Unheld legacy dirs: slot files and holder records, no lock directory.
+    for (const name of ['tool-test', 'resource-test-run', 'resource-full-build']) {
+      mkdirSync(join(locksRoot, name), { recursive: true });
+      writeFileSync(join(locksRoot, name, 'slot-0.lock'), '', 'utf-8');
+      writeFileSync(join(locksRoot, name, 'slot-0.lock.holder.json'), '{}', 'utf-8');
+    }
+    // A class the governor still owns, and a legacy dir an older CLEO holds now.
+    mkdirSync(join(locksRoot, 'resource-db-heavy'), { recursive: true });
+    const held = join(locksRoot, 'tool-build', 'slot-0.lock.lock');
+    mkdirSync(held, { recursive: true });
+    writeFileSync(join(held, 'pid'), String(process.pid), 'utf-8');
+
+    vi.spyOn(
+      (await import('../../paths.js')) as { getCleoHome: () => string },
+      'getCleoHome',
+    ).mockReturnValue(join(testRoot, '.local', 'share', 'cleo'));
+
+    const result = await runJanitor({
+      dryRun: false,
+      cleoDir,
+      skip: {
+        processes: true,
+        scopes: true,
+        locks: true,
+        worktrees: true,
+        tmp: true,
+        attachments: true,
+        config: true,
+      },
+    });
+
+    expect(result.semaphoreSlotsCleared).toBe(3);
+    expect(existsSync(join(locksRoot, 'tool-test'))).toBe(false);
+    expect(existsSync(join(locksRoot, 'resource-test-run'))).toBe(false);
+    expect(existsSync(join(locksRoot, 'resource-full-build'))).toBe(false);
+    expect(existsSync(join(locksRoot, 'resource-db-heavy'))).toBe(true);
+    expect(existsSync(held)).toBe(true);
+
+    vi.restoreAllMocks();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -531,5 +576,28 @@ describe('module exports', () => {
 
   it('exports isPidAlive as a function', () => {
     expect(typeof isPidAlive).toBe('function');
+  });
+});
+
+describe('procStatStartTicks (T13146)', () => {
+  // Fields 3..21 before starttime (field 22): state, ppid, pgrp, … , itrealvalue.
+  const before = 'S 1 42 42 0 -1 4194560 100 0 0 0 5 3 0 0 20 0 11 0';
+  const line = (comm: string): string => `4242 (${comm}) ${before} 987654 123456789 2048`;
+
+  it('reads starttime after a plain comm', () => {
+    expect(procStatStartTicks(line('node'))).toBe(987654);
+  });
+
+  it('reads starttime when comm contains spaces (an MCP server titled by npm)', () => {
+    expect(procStatStartTicks(line('npm exec @playw'))).toBe(987654);
+  });
+
+  it('reads starttime when comm contains parentheses', () => {
+    expect(procStatStartTicks(line('a) b (c'))).toBe(987654);
+  });
+
+  it('is null for a line that does not parse', () => {
+    expect(procStatStartTicks('garbage')).toBeNull();
+    expect(procStatStartTicks('1 (x) S 1')).toBeNull();
   });
 });

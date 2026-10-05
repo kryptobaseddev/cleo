@@ -41,9 +41,9 @@
  * @epic T12978
  */
 
-import { accessSync, existsSync, constants as fsConstants } from 'node:fs';
+import { accessSync, existsSync, constants as fsConstants, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type {
   HeavyCommandHookMode,
   HeavyCommandPlan,
@@ -69,6 +69,11 @@ interface Word {
   readonly assignment: boolean;
   /** Entirely unquoted and unescaped (a reserved word can only be bare). */
   readonly bare: boolean;
+  /**
+   * A glob or brace character (`*`, `?`, `[`, `{`, and zsh EXTENDED_GLOB's
+   * `^`, `~`, `#`) appeared outside quotes (T13124).
+   */
+  readonly globby: boolean;
 }
 
 /** A control or redirection operator. */
@@ -122,6 +127,8 @@ const OPERATORS = [
 ];
 
 const OPERATOR_START = new Set(['|', '&', ';', '<', '>', '(', ')']);
+/** A `$name` or special parameter right after a `$` (sticky: matched at `lastIndex`). */
+const PARAM_NAME = /[A-Za-z_][A-Za-z0-9_]*|[0-9?$!#@*-]/y;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** Mutable word under construction. */
@@ -131,6 +138,7 @@ interface Draft {
   expands: boolean;
   assignment: boolean;
   bare: boolean;
+  globby: boolean;
 }
 
 /** A heredoc whose body starts after the next newline. */
@@ -161,6 +169,7 @@ function lexShell(src: string, from: number, mode: 'top' | 'paren'): Lexed {
       expands: false,
       assignment: false,
       bare: true,
+      globby: false,
     };
     return cur;
   };
@@ -174,6 +183,7 @@ function lexShell(src: string, from: number, mode: 'top' | 'paren'): Lexed {
       expands: cur.expands,
       assignment: cur.assignment,
       bare: cur.bare,
+      globby: cur.globby,
     };
     tokens.push(word);
     cur = null;
@@ -230,7 +240,9 @@ function lexShell(src: string, from: number, mode: 'top' | 'paren'): Lexed {
       draft.bare = false;
       return j + 1;
     }
-    const name = /^(?:[A-Za-z_][A-Za-z0-9_]*|[0-9?$!#@*-])/.exec(src.slice(at + 1));
+    // Matched in place at `lastIndex` (sticky), anchored to the `$`.
+    PARAM_NAME.lastIndex = at + 1;
+    const name = PARAM_NAME.exec(src);
     if (name) {
       draft.value += `$${name[0]}`;
       draft.expands = true;
@@ -351,6 +363,8 @@ function lexShell(src: string, from: number, mode: 'top' | 'paren'): Lexed {
     } else {
       const d = begin(i);
       d.value += ch;
+      // zsh's EXTENDED_GLOB adds `^`, `~` and a mid-word `#` to `*?[` and braces.
+      if ('*?[{^~#'.includes(ch)) d.globby = true;
       i++;
     }
   }
@@ -702,11 +716,518 @@ export function planHeavyCommand(command: string, opts: HeavyCommandPlanOptions)
   if (blockers.length > 0) {
     return { action: 'warn', reason: [...new Set(blockers)].join('; '), segments };
   }
-  let rewritten = command;
-  for (const edit of [...edits].sort((a, b) => b.at - a.at)) {
-    rewritten = rewritten.slice(0, edit.at) + edit.text + rewritten.slice(edit.at);
+  // One pass over the sorted edits (linear; re-slicing per edit was quadratic).
+  const parts: string[] = [];
+  let at = 0;
+  for (const edit of [...edits].sort((a, b) => a.at - b.at)) {
+    parts.push(command.slice(at, edit.at), edit.text);
+    at = edit.at;
   }
-  return { action: 'rewrite', command: rewritten, segments };
+  parts.push(command.slice(at));
+  return { action: 'rewrite', command: parts.join(''), segments };
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code pre-approval (T13124)
+// ---------------------------------------------------------------------------
+
+/** Claude Code prompts for any Bash command longer than this, whatever the rules. */
+const CLAUDE_PARSE_LIMIT = 10_000;
+
+/**
+ * Commands from Claude Code's built-in read-only set accepted without an allow
+ * rule, in the narrow form {@link claudePreApproval} checks. A subset: `find`,
+ * `diff`, `stat`, `du`, `which` and read-only `git` are left to the rules.
+ */
+const CLAUDE_READ_ONLY = new Set(['cat', 'echo', 'pwd', 'head', 'tail', 'grep', 'wc', 'ls']);
+
+/** The flags a rule-free read-only command may take: an exact allowlist, never a prefix. */
+interface ReadOnlyFlags {
+  /** Short flags that take no value (combinable in one cluster). */
+  readonly short: string;
+  /** Short flags that take a numeric value, glued (`-n5`) or as the next word. */
+  readonly numericShort: string;
+  /** Exact long flags that take no value. */
+  readonly long: readonly string[];
+  /** Exact long flags that take a numeric value (`--lines=5` or `--lines 5`). */
+  readonly numericLong: readonly string[];
+  /** `-20`: a bare count (head and tail). */
+  readonly bareCount: boolean;
+  /** How many non-flag arguments it takes (grep: its one pattern). */
+  readonly positionals: number;
+}
+
+/**
+ * Exact flag allowlists for the rule-free read-only commands (fail-closed,
+ * T13124 review MED-2b). getopt_long accepts any unique prefix (`grep --rec`
+ * is `--recursive`, `--der` `--dereference-recursive`, GNU `wc --files` is
+ * `--files0-from`), so a denylist of long flags cannot hold: only these exact
+ * spellings pass. Nothing here reads a file, recurses, follows a symlink or
+ * takes a non-numeric value; `ls` has no `-R`, `-L` or `-H`.
+ */
+const READ_ONLY_FLAGS: Readonly<Record<string, ReadOnlyFlags>> = {
+  cat: {
+    short: 'benstuv',
+    numericShort: '',
+    long: ['--number', '--number-nonblank', '--squeeze-blank', '--show-ends', '--show-tabs'],
+    numericLong: [],
+    bareCount: false,
+    positionals: 0,
+  },
+  head: {
+    short: 'qv',
+    numericShort: 'nc',
+    long: ['--quiet', '--silent', '--verbose'],
+    numericLong: ['--lines', '--bytes'],
+    bareCount: true,
+    positionals: 0,
+  },
+  tail: {
+    short: 'qv',
+    numericShort: 'nc',
+    long: ['--quiet', '--silent', '--verbose'],
+    numericLong: ['--lines', '--bytes'],
+    bareCount: true,
+    positionals: 0,
+  },
+  wc: {
+    short: 'clmw',
+    numericShort: '',
+    long: ['--bytes', '--chars', '--lines', '--words'],
+    numericLong: [],
+    bareCount: false,
+    positionals: 0,
+  },
+  ls: {
+    short: 'aAdFhilnpstu1',
+    numericShort: '',
+    long: ['--all', '--almost-all', '--human-readable'],
+    numericLong: [],
+    bareCount: false,
+    positionals: 0,
+  },
+  grep: {
+    short: 'EFGHIVabchinoqsvwxz',
+    numericShort: 'ABCm',
+    long: [
+      '--ignore-case',
+      '--invert-match',
+      '--count',
+      '--line-number',
+      '--word-regexp',
+      '--line-regexp',
+      '--only-matching',
+      '--quiet',
+      '--silent',
+      '--extended-regexp',
+      '--fixed-strings',
+      '--no-filename',
+      '--with-filename',
+    ],
+    numericLong: ['--max-count', '--after-context', '--before-context', '--context'],
+    bareCount: false,
+    positionals: 1,
+  },
+};
+
+/**
+ * Why the arguments of a rule-free read-only command could make it read a
+ * file, or `null` when they cannot (T13124 review MED-2: a project symlink
+ * `notes.txt -> /etc/hosts` made `cat notes.txt` a read outside the project).
+ * Fail-closed: these commands only filter stdin. Every flag must be in
+ * {@link READ_ONLY_FLAGS} exactly, a numeric value may follow only a flag that
+ * takes one, and only grep takes a positional (its one pattern). `echo`
+ * prints its arguments; `pwd` takes none. Anything unrecognised refuses.
+ */
+function readOnlyArgsRefusal(cmd: string, args: readonly string[]): string | null {
+  if (cmd === 'echo') return null;
+  if (cmd === 'pwd') return args.length === 0 ? null : '`pwd` takes no arguments here';
+  const spec = READ_ONLY_FLAGS[cmd];
+  if (spec === undefined) return `\`${cmd}\` is not a known stdin filter`;
+  const refuse = (arg: string) =>
+    `\`${cmd}\` takes \`${arg}\`, which is not in its stdin-filter allowlist`;
+  let positionals = 0;
+  for (let k = 0; k < args.length; k++) {
+    const arg = args[k] as string;
+    const numericNext = (): boolean => {
+      const value = args[k + 1];
+      if (value === undefined || !/^\+?\d+$/.test(value)) return false;
+      k++;
+      return true;
+    };
+    // With POSIXLY_CORRECT, option parsing stops at the first operand, so a
+    // flag after grep's pattern would be a file name (review LOW).
+    if (positionals > 0 && arg.startsWith('-')) {
+      return `\`${cmd}\` takes a flag after its pattern (a file name under POSIXLY_CORRECT)`;
+    }
+    if (arg.startsWith('--')) {
+      if (spec.long.includes(arg)) continue;
+      const eq = arg.indexOf('=');
+      if (
+        eq === -1
+          ? spec.numericLong.includes(arg) && numericNext()
+          : spec.numericLong.includes(arg.slice(0, eq)) && /^\d+$/.test(arg.slice(eq + 1))
+      ) {
+        continue;
+      }
+      return refuse(arg);
+    }
+    if (arg.startsWith('-') && arg.length > 1) {
+      if (spec.bareCount && /^-\d+$/.test(arg)) continue;
+      let ok = true;
+      for (let c = 1; c < arg.length; c++) {
+        const ch = arg[c] as string;
+        if (spec.short.includes(ch)) continue;
+        if (spec.numericShort.includes(ch)) {
+          const glued = arg.slice(c + 1);
+          ok = glued === '' ? numericNext() : /^\d+$/.test(glued);
+          break;
+        }
+        ok = false;
+        break;
+      }
+      if (!ok) return refuse(arg);
+      continue;
+    }
+    if (positionals < spec.positionals) {
+      positionals++;
+      continue;
+    }
+    return `\`${cmd}\` names a file (only stdin filters are accepted without a rule)`;
+  }
+  return null;
+}
+
+/** Operators that end a line Claude Code then treats as unparseable. */
+const DANGLING = new Set(['&&', '||', '|', '|&']);
+
+/**
+ * The only word shapes a pre-approved line may hold (fail-closed allowlist,
+ * T13124 review): runs of `[A-Za-z0-9_./:@%+=,-]`, `'single-quoted'`
+ * literals, and `"double-quoted"` literals with no `$`, backtick, backslash or
+ * `!`. Quoted text is printable ASCII only (no control characters, no
+ * newline, no non-ASCII). Everything else is refused: `$` in any form
+ * (variables, `$'…'`, `$"…"`, substitutions), backticks, backslash escapes,
+ * globs (`*?[`), braces, `~`, `!`, `#`, `^`, operators, whitespace and any
+ * byte outside printable ASCII. A word may not start with `=` (zsh EQUALS
+ * expansion). Each alternative consumes a single plain character or one whole
+ * quoted literal, so matching is linear (no nested quantifier; T13124 review
+ * HIGH-1: `[…]+` inside `(…)+` backtracked exponentially).
+ */
+const STRICT_WORD =
+  /^(?!=)(?:[A-Za-z0-9_./:@%+=,-]|'[\x20-\x26\x28-\x7e]*'|"[\x20\x23\x25-\x5b\x5d-\x5f\x61-\x7e]*")+$/;
+
+/**
+ * zsh EQUALS expansion: a word-initial `=cmd` becomes the command's absolute
+ * path, and with MAGIC_EQUAL_SUBST so does `=cmd` after `=` or `:` in an
+ * `x=…` word. {@link STRICT_WORD} refuses the first; this the others.
+ */
+const ZSH_EQUALS = /[=:]=/;
+
+/**
+ * Operators a pre-approved line may hold: list and pipe separators, and the
+ * redirections {@link claudeSubcommands} narrows to `/dev/null` and file
+ * descriptors. Anything else (`&`, `|&`, subshell parentheses, heredocs,
+ * newlines, case terminators) is refused.
+ */
+const STRICT_OPS: ReadonlySet<string> = new Set([
+  '&&',
+  '||',
+  ';',
+  '|',
+  '>',
+  '>>',
+  '&>',
+  '&>>',
+  '>&',
+  '<&',
+]);
+
+/**
+ * Why a lexed line falls outside the strict pre-approval grammar, or `null`
+ * when every token is in it: each word matches {@link STRICT_WORD}, each
+ * operator is in {@link STRICT_OPS}, and nothing but spaces sits between
+ * tokens (no tab, comment or line continuation). Fail-closed: a construct
+ * this grammar does not name is refused, whatever the lexer made of it.
+ */
+function outsideStrictGrammar(lexed: Lexed): string | null {
+  let at = 0;
+  for (const t of lexed.tokens) {
+    if (!/^ *$/.test(lexed.src.slice(at, t.start))) {
+      return 'it holds text outside any word (a comment or line continuation)';
+    }
+    at = t.end;
+    if (t.kind === 'op') {
+      if (!STRICT_OPS.has(t.op)) return `it uses \`${t.op === '\n' ? 'newline' : t.op}\``;
+      continue;
+    }
+    const raw = lexed.src.slice(t.start, t.end);
+    // zsh EQUALS also fires on the quote-removed word (`""=ls` is `/bin/ls`;
+    // review LOW-1), so check the value as well as the raw text.
+    if (
+      !STRICT_WORD.test(raw) ||
+      ZSH_EQUALS.test(raw) ||
+      t.value.startsWith('=') ||
+      ZSH_EQUALS.test(t.value)
+    ) {
+      return 'a word is not a plain or simply quoted literal (an expansion, escape, glob, brace or tilde)';
+    }
+  }
+  return /^ *$/.test(lexed.src.slice(at)) ? null : 'it holds text after the last word';
+}
+
+/**
+ * Whether a Claude Code Bash rule pattern (the text inside `Bash(…)`) matches
+ * one subcommand's text, as the permissions reference specifies: `*` stands for
+ * any text including spaces, a trailing `:*` equals a trailing ` *`, a trailing
+ * ` *` that is the rule's only wildcard also matches the bare command, and a
+ * rule without `*` matches one exact command. The bare `Bash` rule is `*`.
+ *
+ * @param pattern - the rule pattern, e.g. `pnpm test *` or `npm run test:*`.
+ * @param text - one subcommand as written.
+ *
+ * @example
+ * ```ts
+ * claudeBashRuleMatches('pnpm test *', 'pnpm test'); // true
+ * claudeBashRuleMatches('pnpm test:*', 'pnpm test --run'); // true
+ * claudeBashRuleMatches('ls *', 'lsof'); // false
+ * ```
+ */
+export function claudeBashRuleMatches(pattern: string, text: string): boolean {
+  const normalized = pattern.endsWith(':*') ? `${pattern.slice(0, -2)} *` : pattern;
+  if (wildcardMatch(normalized, text)) return true;
+  return (
+    normalized.endsWith(' *') &&
+    normalized.indexOf('*') === normalized.length - 1 &&
+    text === normalized.slice(0, -2)
+  );
+}
+
+/**
+ * Whether `text` matches `pattern`, where `*` stands for any run of
+ * characters and everything else is literal. Iterative with one backtrack
+ * point, so it runs in O(pattern × text) at worst; a `RegExp` built from the
+ * pattern backtracks polynomially in the number of `*`s (T13124 review).
+ */
+function wildcardMatch(pattern: string, text: string): boolean {
+  let p = 0;
+  let t = 0;
+  let star = -1;
+  let mark = 0;
+  while (t < text.length) {
+    if (p < pattern.length && pattern[p] !== '*' && pattern[p] === text[t]) {
+      p++;
+      t++;
+    } else if (p < pattern.length && pattern[p] === '*') {
+      star = p++;
+      mark = t;
+    } else if (star !== -1) {
+      p = star + 1;
+      t = ++mark;
+    } else {
+      return false;
+    }
+  }
+  while (p < pattern.length && pattern[p] === '*') p++;
+  return p === pattern.length;
+}
+
+/** Options for {@link claudePreApproval}. */
+export interface ClaudePreApprovalOptions {
+  /** The directory the command line starts in. */
+  readonly cwd: string;
+  /**
+   * Claude Code's primary working directory (`CLAUDE_PROJECT_DIR`). A `cd`
+   * and the read-only commands are accepted only inside it.
+   */
+  readonly workingDir: string;
+}
+
+/** Whether Claude Code would run a command line without a prompt. */
+export type ClaudePreApproval =
+  | { readonly approved: true }
+  | { readonly approved: false; readonly reason: string };
+
+function inside(dir: string, path: string): boolean {
+  const rel = relative(dir, path);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+function canonicalPath(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/** One pipeline stage as Claude Code sees it: words, and its text with and without redirections. */
+interface ClaudeSubcommand {
+  readonly words: readonly Word[];
+  /** The stage exactly as written, redirections included. */
+  readonly text: string;
+  /** The words alone, joined by single spaces. */
+  readonly wordsText: string;
+}
+
+/**
+ * Split one list element into pipeline stages, or a reason Claude Code might
+ * prompt for it regardless of rules: a redirection to anything but
+ * `/dev/null` or a file descriptor, or a `$` or backtick expansion.
+ */
+function claudeSubcommands(src: string, tokens: readonly Token[]): ClaudeSubcommand[] | string {
+  const out: ClaudeSubcommand[] = [];
+  let stage: Token[] = [];
+  const flush = (): string | null => {
+    if (stage.length === 0) return 'it has an empty pipeline stage';
+    const words: Word[] = [];
+    for (let k = 0; k < stage.length; k++) {
+      const t = stage[k] as Token;
+      if (t.kind === 'word') {
+        if (t.expands) return 'it expands a variable or command';
+        words.push(t);
+        continue;
+      }
+      const target = stage[k + 1];
+      if (target?.kind !== 'word' || target.expands) return `it redirects (${t.op})`;
+      // The raw operator includes its fd prefix (`2>&`). Only stdout and stderr
+      // may be redirected: to /dev/null, or duplicated onto each other (review LOW).
+      const rawOp = src.slice(t.start, t.end);
+      const toNull = /^(?:[12]?>>?|&>>?)$/.test(rawOp) && target.value === '/dev/null';
+      const toFd = /^[12]?>&$/.test(rawOp) && /^[12]$/.test(target.value);
+      if (!toNull && !toFd) return `it redirects (${t.op} ${target.value})`;
+      k++;
+    }
+    const first = stage[0] as Token;
+    const last = stage[stage.length - 1] as Token;
+    out.push({
+      words,
+      text: src.slice(first.start, last.end),
+      wordsText: words.map((w) => src.slice(w.start, w.end)).join(' '),
+    });
+    stage = [];
+    return null;
+  };
+  for (const t of tokens) {
+    if (t.kind === 'op' && (t.op === '|' || t.op === '|&')) {
+      const err = flush();
+      if (err !== null) return err;
+    } else {
+      stage.push(t);
+    }
+  }
+  const err = flush();
+  return err ?? out;
+}
+
+/**
+ * Whether Claude Code would run `command` WITHOUT a prompt because the user's
+ * Bash allow rules approve it: every subcommand (split at `&&`, `||`, `;`,
+ * `|`, `|&` and newlines, as Claude Code splits) matches an allow rule, or is
+ * a narrow read-only form Claude Code runs unprompted (`cd` into the working
+ * directory, `tail -50`, `grep -v x`, …).
+ *
+ * The heavy-command hook uses this to rewrite a command in Claude Code's
+ * default, acceptEdits, dontAsk and auto modes with `permissionDecision:
+ * "allow"`: the user already approved the command, and the rewrite only makes
+ * it queue for the machine-wide budget. So this check must never approve more
+ * than Claude Code would. It is deliberately narrower: no wrapper stripping
+ * (`timeout`, `nice`), no leading assignments, no expansions, no
+ * substitutions, subshells, compound commands or background jobs, no
+ * redirection except to `/dev/null` or a file descriptor, and both the stage
+ * as written and its words alone must match the same rule. Anything else is
+ * "not pre-approved" and the hook falls back to a warning. Deny and ask rules
+ * are not checked here (the hook checks them, and Claude Code enforces them
+ * on the rewritten command regardless).
+ *
+ * @param command - the command line as the agent wrote it.
+ * @param allowPatterns - the patterns of the user's `Bash(…)` allow rules (`*` for a bare `Bash`).
+ * @param opts - where the line starts, and Claude Code's working directory.
+ * @returns approved, or the first reason it is not.
+ *
+ * @example
+ * ```ts
+ * claudePreApproval('pnpm test 2>&1 | tail -50', ['pnpm test *'], { cwd: '/repo', workingDir: '/repo' });
+ * // { approved: true }
+ * claudePreApproval('pnpm test && rm -rf dist', ['pnpm test *'], { cwd: '/repo', workingDir: '/repo' });
+ * // { approved: false, reason: '`rm` is not approved by an allow rule' }
+ * ```
+ */
+export function claudePreApproval(
+  command: string,
+  allowPatterns: readonly string[],
+  opts: ClaudePreApprovalOptions,
+): ClaudePreApproval {
+  const no = (reason: string): ClaudePreApproval => ({ approved: false, reason });
+  if (command.length > CLAUDE_PARSE_LIMIT) return no('it is longer than Claude Code parses');
+  const lexed = lexShell(command, 0, 'top');
+  if (lexed.error !== null) return no('it does not parse');
+  if (lexed.substitutions.length > 0) return no('it has a command or process substitution');
+  // Fail-closed (review HIGH-1): every token must be a plain or simply quoted
+  // literal, so the values checked below are exactly what the shell passes.
+  // `$'\x2fetc'` is `/etc` to the shell but `\x2fetc` to the lexer.
+  const outside = outsideStrictGrammar(lexed);
+  if (outside !== null) return no(outside);
+  const last = lexed.tokens[lexed.tokens.length - 1];
+  if (last?.kind === 'op' && DANGLING.has(last.op)) return no('it ends in an operator');
+  const stages: ClaudeSubcommand[] = [];
+  for (const element of splitElements(lexed.tokens)) {
+    if (element.nested || element.background) {
+      return no('it has a subshell, compound command or background job');
+    }
+    const split = claudeSubcommands(lexed.src, element.tokens);
+    if (typeof split === 'string') return no(split);
+    stages.push(...split);
+  }
+  if (stages.length === 0) return no('it is empty');
+  const name = (s: ClaudeSubcommand): string => s.words[0]?.value ?? '';
+  if (stages.filter((s) => name(s) === 'cd').length > 1) {
+    return no('it changes directory more than once');
+  }
+  const withGit = stages.some((s) => name(s) === 'git');
+  const workingDir = canonicalPath(opts.workingDir);
+  let cwd = opts.cwd;
+  for (const stage of stages) {
+    const ruled = allowPatterns.some(
+      (p) => claudeBashRuleMatches(p, stage.text) && claudeBashRuleMatches(p, stage.wordsText),
+    );
+    if (ruled) continue;
+    const cmd = name(stage);
+    const readOnly = cmd === 'cd' || CLAUDE_READ_ONLY.has(cmd);
+    if (!readOnly || stage.words.some((w) => w.assignment)) {
+      return no(`\`${cmd}\` is not approved by an allow rule`);
+    }
+    if (workingDir === null) return no('the working directory cannot be resolved');
+    if (cmd === 'cd') {
+      const target = stage.words[1]?.value;
+      if (
+        stage.words.length !== 2 ||
+        target === undefined ||
+        target === '-' ||
+        target.startsWith('~') ||
+        stage.words[1]?.globby === true
+      ) {
+        return no('its `cd` is not a plain path');
+      }
+      if (withGit) return no('it runs git after a `cd`');
+      const next = resolve(cwd, target);
+      const real = canonicalPath(next);
+      if (!inside(opts.workingDir, next) || real === null || !inside(workingDir, real)) {
+        return no('its `cd` leaves the working directory');
+      }
+      cwd = next;
+      continue;
+    }
+    const here = canonicalPath(cwd);
+    if (here === null || !inside(workingDir, here))
+      return no('it runs outside the working directory');
+    const refused = readOnlyArgsRefusal(
+      cmd,
+      stage.words.slice(1).map((w) => w.value),
+    );
+    if (refused !== null) return no(refused);
+  }
+  return { approved: true };
 }
 
 // ---------------------------------------------------------------------------

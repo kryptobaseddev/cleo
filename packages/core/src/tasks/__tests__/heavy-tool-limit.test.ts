@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { heavyToolEnv, isHeavyTool } from '../heavy-tool-env.js';
+import { heavyToolEnv, isHeavyTool, isMemoryBoundTool } from '../heavy-tool-env.js';
 import {
   HEAVY_TOOL_MEMORY_CEILING_MB,
   HEAVY_TOOL_MEMORY_FLOOR_MB,
@@ -119,14 +119,20 @@ describe('heavyToolEnv beyond vitest', () => {
     expect(counts.size).toBe(1);
   });
 
-  it('never overrides a value the project set deliberately', () => {
-    const overlay = heavyToolEnv('test', { RUST_TEST_THREADS: '32', GOMAXPROCS: '64' }, 62);
+  it('keeps an inherited count within the plan and clamps one above it (T13122)', () => {
+    // An inherited value is the caller's environment (a shell profile), not a
+    // project decision: above the plan it would multiply the budget.
+    const overlay = heavyToolEnv('test', { RUST_TEST_THREADS: '2', GOMAXPROCS: '64' }, 62);
     expect(overlay.RUST_TEST_THREADS).toBeUndefined();
-    expect(overlay.GOMAXPROCS).toBeUndefined();
+    expect(overlay.GOMAXPROCS).toBe(overlay.VITEST_MAX_WORKERS);
   });
 
-  it('still leaves cheap tools alone', () => {
-    expect(heavyToolEnv('lint', {}, 62)).toEqual({});
+  it('gives single-process tools no worker variables (T13123)', () => {
+    const lint = heavyToolEnv('lint', {}, 62);
+    expect(lint.VITEST_MAX_WORKERS).toBeUndefined();
+    expect(lint.GOMAXPROCS).toBeUndefined();
+    expect(lint.MAKEFLAGS).toBeUndefined();
+    expect(heavyToolEnv('audit', {}, 62)).toEqual({});
   });
 });
 
@@ -157,10 +163,14 @@ describe('isHeavyTool — one definition, not four', () => {
     // without the other — which is worse than neither, because a tool with a
     // raised worker cap and no memory ceiling is unbounded by construction.
     const confined = withMemoryLimit(c, 'pnpm', [], { available: true, env: {} }).confined;
-    const capped = Object.keys(heavyToolEnv(c, {}, 62)).length > 0;
+    const overlay = heavyToolEnv(c, {}, 62);
+    const capped = overlay.VITEST_MAX_WORKERS !== undefined;
 
     expect(confined).toBe(isHeavyTool(c));
     expect(capped).toBe(isHeavyTool(c));
+    // T13123: the heap ceiling reaches every memory-bound tool, a superset.
+    expect(overlay.NODE_OPTIONS !== undefined).toBe(isMemoryBoundTool(c));
+    if (isHeavyTool(c)) expect(isMemoryBoundTool(c)).toBe(true);
   });
 });
 

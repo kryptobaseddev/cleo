@@ -2,18 +2,21 @@
  * CLI command: cleo run [--class <c>] [--wait [--timeout <s>]] [--passthrough] -- <command...>
  *
  * The one front door for heavy commands an agent runs itself: test runners,
- * compilers, builds, installs. The command is admitted through the
- * machine-wide ResourceGovernor, so every `cleo run` job, from any agent,
- * session or project, shares one budget per class. (`cleo verify` joins the
- * same budgets once #1775, T12963, routes it through the governor.) The
- * engine is `runGoverned` in core.
+ * compilers, builds, installs. The command is admitted through the admission
+ * ledger (T13133): one machine-wide memory budget and one FIFO queue shared by
+ * every `cleo run` job and every `cleo verify` evidence run, from any agent,
+ * session or project. A `cleo run` nested in an admitted run rides its
+ * admission. The engine is `runGoverned` in core.
  *
  * - Admitted: the command runs niced, with heap and worker limits sized for a
  *   heavy tool, as its own process group; its output streams to stderr.
- *   stdout carries one LAFS envelope at the end.
+ *   stdout carries one LAFS envelope at the end, whose `resources` names the
+ *   heap and worker count chosen and why (T13122). An inherited NODE_OPTIONS
+ *   heap or worker count above the run's budget is clamped, and that is
+ *   printed as a warning, so it shows even with `--passthrough`.
  * - Not admitted (default): an immediate `E_RESOURCE_DEFERRED` envelope, exit
  *   75, with who is running what and concrete ways to keep making progress.
- *   Nothing was started. `--wait` joins the class's FIFO queue instead.
+ *   Nothing was started. `--wait` joins the machine-wide FIFO queue instead.
  * - While it runs: at `backoff` only the oldest `cleo run` job keeps going;
  *   younger pausable ones are SIGSTOPped and resumed later; pressure never
  *   kills a job. (Only the orphaned group of a runner that died is stopped.)
@@ -29,30 +32,49 @@
  *   it can read and configure the terminal.
  * - A watch/dev/serve command is refused (it would hold a slot forever)
  *   unless `--class` asserts that it is a bounded job.
+ * - A vitest run that names no test file, directory, `--project` or `-t`
+ *   filter (an empty or `.` filter names nothing), or a package script that
+ *   runs vitest (`pnpm test`, `pnpm -r test`) without narrowing arguments, is
+ *   refused: it is the whole suite, and the usual cause is an empty generated
+ *   file list (T13236). `--whole-suite` says it is deliberate.
+ * - Inside a test runner (VITEST, VITEST_WORKER_ID, JEST_WORKER_ID) nothing
+ *   is started (`E_RUN_SPAWN_IN_TEST_RUNNER`, exit 8): a stale mock must not
+ *   start the suite again from one of its own workers (T13236, after T13203).
  *
  * Exit codes: the child's own code; 128+n when a signal killed it; 127 when
- * it could not be started; 75 when not admitted; 6 on invalid input. The same
+ * it could not be started; 75 when not admitted; 6 on invalid input; 8 inside a test runner. The same
  * with `--passthrough`.
  *
  * @task T12979
  * @task T12980
  * @task T12981
+ * @task T13133
+ * @task T13236
  * @epic T12978
  */
 
 import { constants } from 'node:os';
+import type { HeavyToolResourcePlan } from '@cleocode/contracts';
 import {
   RESOURCE_DEFERRED_CODE,
   RUN_COMMAND_FAILED_CODE,
   RUN_DEFERRED_EXIT_CODE,
-} from '@cleocode/contracts';
+} from '@cleocode/contracts/resource-governor.js';
+import { planFootprintBytes } from '@cleocode/core/resources/admission-ledger.js';
 import {
   canonicalForClass,
   isWatchCommand,
+  isWholeSuiteTestRun,
+  namedTestFileCount,
   resolveRunClass,
 } from '@cleocode/core/resources/run-admission.js';
-import { type RunGovernedResult, runGoverned } from '@cleocode/core/resources/run-governed.js';
-import { heavyToolEnv } from '@cleocode/core/tasks/heavy-tool-env.js';
+import {
+  type RunGovernedResult,
+  type RunNoticeLevel,
+  runGoverned,
+} from '@cleocode/core/resources/run-governed.js';
+import { planHeavyToolEnv } from '@cleocode/core/tasks/heavy-tool-env.js';
+import { GovernedRunInTestRunnerError } from '@cleocode/core/tasks/tool-runner-guard.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -92,8 +114,10 @@ function exitFailed(
   result: Extract<RunGovernedResult, { kind: 'exited' }>,
   code: number,
   passthrough: boolean,
+  resources: HeavyToolResourcePlan | null,
 ): never {
-  const { kind: _kind, ...data } = result;
+  const { kind: _kind, ...rest } = result;
+  const data = resources === null ? rest : { ...rest, resources };
   const message =
     result.spawnError !== null
       ? `could not start command: ${result.spawnError}`
@@ -127,12 +151,19 @@ export const runCommand = defineCommand({
     },
     wait: {
       type: 'boolean',
-      description: 'Join the FIFO queue for the class instead of returning E_RESOURCE_DEFERRED',
+      description:
+        'Join the machine-wide FIFO admission queue instead of returning E_RESOURCE_DEFERRED',
       default: false,
     },
     timeout: {
       type: 'string',
       description: 'With --wait: give up after this many seconds (default 1800)',
+    },
+    'whole-suite': {
+      type: 'boolean',
+      description:
+        'Allow a whole-suite test run (a vitest run naming no file, directory, --project or -t filter, or a vitest test script without narrowing arguments): refused by default, since an empty file list is the usual cause',
+      default: false,
     },
     passthrough: {
       type: 'boolean',
@@ -163,6 +194,17 @@ export const runCommand = defineCommand({
       );
     }
 
+    // T13236: `vitest run` with nothing named (or an empty/`.` filter), or a
+    // package `test` script that runs vitest, is the whole suite. Twice an
+    // empty generated file list did exactly that by accident.
+    if (args['whole-suite'] !== true && isWholeSuiteTestRun(argv, process.cwd())) {
+      invalid(
+        `cleo run refuses a test run that names no test file, directory, --project or -t filter: it would run the whole suite (${argv.join(' ')}). An empty generated file list is the usual cause`,
+        'Name what to run: cleo run -- pnpm exec vitest run path/to/a.test.ts (check a generated list is not empty), or pass test files to the script (pnpm test path/to/a.test.ts). For a deliberate whole-suite run: cleo run --whole-suite -- <cmd>',
+        passthrough,
+      );
+    }
+
     let timeoutMs = 1_800_000;
     if (args.timeout !== undefined) {
       if (!args.wait)
@@ -189,30 +231,62 @@ export const runCommand = defineCommand({
       );
     }
 
+    // Notices go to stderr; stdout carries only the final LAFS envelope, or
+    // with --passthrough only the child's output (and then only warnings).
+    const notice = (line: string, level: RunNoticeLevel): void => {
+      if (passthrough && level === 'info') return;
+      process.stderr.write(`[cleo run] ${line}\n`); // json-stream-hygiene-allowed: progress notices, not data
+    };
+    // T13122: the heap and worker plan, and why — printed before admission, so
+    // it is labelled as planned (a deferred run never starts). A clamped
+    // inherited value is a warning, so it shows even under --passthrough.
+    // T13132: a test run that names its files needs at most one worker per
+    // file; it is planned, charged and spawned with that many.
+    const namedFiles = namedTestFileCount(cls, argv);
+    const { overlay, resources } = planHeavyToolEnv(
+      canonicalForClass(cls),
+      process.env,
+      undefined,
+      namedFiles ?? undefined,
+    );
+    if (resources !== null) {
+      notice(
+        `planned resources: ${resources.summary}`,
+        resources.clamped.length > 0 || resources.overBudget ? 'warn' : 'info',
+      );
+    }
+
     let result: RunGovernedResult;
     try {
       result = await runGoverned({
         argv,
         cls,
         cwd: process.cwd(),
-        env: { ...process.env, ...heavyToolEnv(canonicalForClass(cls)) },
+        env: { ...process.env, ...overlay },
         sessionId: process.env.CLEO_SESSION_ID ?? process.env.CLAUDE_CODE_SESSION_ID ?? null,
         wait: Boolean(args.wait),
         timeoutMs,
         passthrough,
         // A terminal on stdin: keep the child in its foreground group.
         foreground: passthrough && process.stdin.isTTY === true,
-        // Notices go to stderr; stdout carries only the final LAFS envelope, or
-        // with --passthrough only the child's output (and then only warnings).
-        notice: (line, level) => {
-          if (passthrough && level === 'info') return;
-          process.stderr.write(`[cleo run] ${line}\n`); // json-stream-hygiene-allowed: progress notices, not data
-        },
+        notice,
+        ...(resources !== null ? { footprintBytes: planFootprintBytes(resources) } : {}),
+        ...(namedFiles !== null ? { scope: 'narrowed' as const } : {}),
       });
     } catch (err) {
       // A runner error is reported here, not by the CLI's top-level catch,
       // which writes to stdout: under --passthrough that is the child's
       // byte stream (#1777 R8-2).
+      if (err instanceof GovernedRunInTestRunnerError) {
+        cliError(
+          err.message,
+          err.codeName,
+          { name: err.codeName, fix: err.fix, details: err.details },
+          { operation: 'resources.run' },
+          { stderr: passthrough },
+        );
+        process.exit(err.code);
+      }
       cliError(
         `cleo run failed: ${err instanceof Error ? err.message : String(err)}`,
         1,
@@ -240,9 +314,12 @@ export const runCommand = defineCommand({
     }
 
     const code = runExitCode(result);
-    if (code !== 0) exitFailed(result, code, passthrough);
+    if (code !== 0) exitFailed(result, code, passthrough, resources);
     if (passthrough) return;
     const { kind: _kind, ...data } = result;
-    cliOutput(data, { command: 'run', operation: 'resources.run' });
+    cliOutput(resources === null ? data : { ...data, resources }, {
+      command: 'run',
+      operation: 'resources.run',
+    });
   },
 });

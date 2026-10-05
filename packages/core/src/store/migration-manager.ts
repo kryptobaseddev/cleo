@@ -14,13 +14,13 @@
 import { copyFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { MigrationConfig, MigrationMeta } from 'drizzle-orm/migrator';
-import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { migrateSync } from 'drizzle-orm/sqlite-core';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
+import { readMigrationFilesCached } from './migration-files.js';
 import { isSqliteBusy } from './with-retry.js';
 import { assertNoPendingMigrationsForWorktreeBuild } from './worktree-build-guard.js';
 
@@ -200,7 +200,7 @@ export function resolveConsolidationCutoverPrefix(migrationsFolder: string): str
     const folder = join(parent, setName);
     if (!existsSync(folder)) continue;
     try {
-      const consolidation = readMigrationFiles({ migrationsFolder: folder }).find((m) =>
+      const consolidation = readMigrationFilesCached(folder).find((m) =>
         /-consolidation-cleo-/.test(m.name ?? ''),
       );
       if (consolidation?.name) {
@@ -643,7 +643,7 @@ function probeAndMarkApplied(
  */
 function readSiblingMigrationHashes(siblingFolder: string): Set<string> {
   try {
-    return new Set(readMigrationFiles({ migrationsFolder: siblingFolder }).map((m) => m.hash));
+    return new Set(readMigrationFilesCached(siblingFolder).map((m) => m.hash));
   } catch {
     return new Set();
   }
@@ -658,10 +658,7 @@ function readSiblingMigrationHashes(siblingFolder: string): Set<string> {
  */
 function readSiblingNewestMillis(siblingFolder: string): number {
   try {
-    return Math.max(
-      0,
-      ...readMigrationFiles({ migrationsFolder: siblingFolder }).map((m) => m.folderMillis),
-    );
+    return Math.max(0, ...readMigrationFilesCached(siblingFolder).map((m) => m.folderMillis));
   } catch {
     return 0;
   }
@@ -742,7 +739,7 @@ export function upgradeSharedJournalFormat(
   const nameByHash = new Map<string, string>();
   for (const folder of lineageFolders) {
     try {
-      for (const m of readMigrationFiles({ migrationsFolder: folder })) {
+      for (const m of readMigrationFilesCached(folder)) {
         if (m.name) nameByHash.set(m.hash, m.name);
       }
     } catch {
@@ -827,7 +824,7 @@ export function reconcileJournal(
 ): void {
   // T12687: a worktree build with pending (possibly unreleased) migrations
   // never touches the journal of a store outside its worktree: it fails fast.
-  assertNoPendingMigrationsForWorktreeBuild(nativeDb, readMigrationFiles({ migrationsFolder }));
+  assertNoPendingMigrationsForWorktreeBuild(nativeDb, readMigrationFilesCached(migrationsFolder));
 
   // bug #2 (T11553): pre-compute the tables this lineage CREATEs and a LATER
   // migration permanently ELIMINATES (DROP TABLE, no recreate — e.g.
@@ -835,7 +832,7 @@ export function reconcileJournal(
   // eliminated table (and its indexes) as already satisfied, so a fully-migrated
   // DB — where that table is correctly absent — doesn't make drizzle re-run the
   // creating migration's bare `CREATE TABLE` and crash.
-  const eliminatedTables = computeEliminatedTables(readMigrationFiles({ migrationsFolder }));
+  const eliminatedTables = computeEliminatedTables(readMigrationFilesCached(migrationsFolder));
 
   // bug #2 follow-up (T11553): the consolidation cutover timestamp-prefix gates
   // the zero-DDL stamp/run decision in probeAndMarkApplied — pre-cutover legacy
@@ -851,7 +848,7 @@ export function reconcileJournal(
 
   // Scenario 1: Tables exist but no migration journal — bootstrap baseline
   if (tableExists(nativeDb, existenceTable) && !tableExists(nativeDb, '__drizzle_migrations')) {
-    const migrations = readMigrationFiles({ migrationsFolder });
+    const migrations = readMigrationFilesCached(migrationsFolder);
     const baseline = migrations[0];
     if (baseline) {
       nativeDb.exec(`
@@ -903,7 +900,7 @@ export function reconcileJournal(
   // of a local post-consolidation migration with a different hash, instead of
   // deleting it and stamping the new hash without running the new SQL.
   if (tableExists(nativeDb, '__drizzle_migrations') && tableExists(nativeDb, existenceTable)) {
-    const localMigrations = readMigrationFiles({ migrationsFolder });
+    const localMigrations = readMigrationFilesCached(migrationsFolder);
     const localHashes = new Set(localMigrations.map((m) => m.hash));
 
     // T11829 (OOM root fix): the orphan-DELETE decision must use the UNION of
@@ -1023,7 +1020,7 @@ export function reconcileJournal(
   // errors). Fix: add any missing ALTER columns via idempotent ALTER TABLE, then mark
   // the migration as applied so Drizzle skips it.
   if (tableExists(nativeDb, '__drizzle_migrations') && tableExists(nativeDb, existenceTable)) {
-    const localMigrations = readMigrationFiles({ migrationsFolder });
+    const localMigrations = readMigrationFilesCached(migrationsFolder);
     const journalEntries = nativeDb
       .prepare('SELECT hash FROM "__drizzle_migrations"')
       .all() as Array<{ hash: string }>;
@@ -1216,7 +1213,7 @@ export function reconcileJournal(
     const hasMigNameCol = migCols.some((c) => c.name === 'name');
     if (!hasMigNameCol) return; // name column absent — upgradeSyncIfNeeded will handle it
 
-    const localMigrations = readMigrationFiles({ migrationsFolder });
+    const localMigrations = readMigrationFilesCached(migrationsFolder);
     const hashToName = new Map(localMigrations.map((m) => [m.hash, m.name ?? '']));
 
     const unnamedEntries = nativeDb
@@ -1301,7 +1298,7 @@ export function reconcileBrainMigrationsForConsolidatedDb(
       applied_at TEXT
     )
   `);
-  const localMigrations = sanitizeMigrationStatements(readMigrationFiles({ migrationsFolder }));
+  const localMigrations = sanitizeMigrationStatements(readMigrationFilesCached(migrationsFolder));
   const existingHashes = new Set(
     (
       nativeDb.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{ hash: string }>
@@ -1529,7 +1526,7 @@ export function migrateSanitized(
   db: NodeSQLiteDatabase<any>,
   config: MigrationConfig,
 ): void {
-  const raw = readMigrationFiles(config);
+  const raw = readMigrationFilesCached(config.migrationsFolder);
   // T12687: a CLI built inside a linked worktree never applies its (possibly
   // unreleased) migrations to a store outside that worktree — it fails fast.
   // `drizzle()` attaches the native handle as `$client`; the declared type omits it.

@@ -18,7 +18,7 @@ import type {
   CloudWhoamiResult,
   NexusDeviceListState,
 } from '@cleocode/contracts';
-import { NEXUS_DEVICE_LIST_STATES } from '@cleocode/contracts';
+import { NEXUS_DEVICE_LIST_STATES } from '@cleocode/contracts/nexus-cloud.js';
 import { emitNexusResult, failNexus, nexusApiUrlArg } from './nexus-account-cli.js';
 
 /** Parsed citty args. */
@@ -66,7 +66,7 @@ function retiredList(retired: readonly CloudRetiredReplica[]): string {
  */
 export function cloudStatusSummary(r: CloudStatusResult): string {
   if (r.verdict === 'not-signed-in') {
-    return `Cloud status: not signed in to ${r.local.apiUrl}. Run \`cleo login nexus\`.`;
+    return `Cloud status: not signed in to ${r.local.apiUrl}. Run \`cleo login nexus\`.${syncSummary(r)}`;
   }
   const s = r.summary;
   const parts = [`device ${r.local.nexusDeviceId ?? 'unknown'} (${s.profile ?? 'no profile'})`];
@@ -80,7 +80,35 @@ export function cloudStatusSummary(r: CloudStatusResult): string {
     if (s.headSeq !== null) parts.push(`head ${s.headSeq}`);
     if (s.openConflicts !== null) parts.push(`${s.openConflicts} open conflict(s)`);
   }
-  return `Cloud status: ${r.verdict}. ${parts.join('; ')}.`;
+  return `Cloud status: ${r.verdict}. ${parts.join('; ')}.${syncSummary(r)}`;
+}
+
+/**
+ * The local sync journal of each store, one clause per store (T12998), e.g.
+ * ` Sync (project): capture on; 3 unsealed; last sealed seq 41; server fields unknown until T12343/S4.`
+ */
+function syncSummary(r: CloudStatusResult): string {
+  if (r.sync === undefined) return '';
+  return r.sync.streams
+    .map((st) => {
+      const on = Object.entries(st.flags)
+        .filter(([, v]) => v)
+        .map(([k]) => k);
+      const quarantined = Object.values(st.quarantined).reduce((n, c) => n + c, 0);
+      const parts = [
+        !st.journalInstalled
+          ? 'journal not installed'
+          : on.length > 0
+            ? `${on.join(', ')} on`
+            : 'all flags off',
+        `${st.unsealedOps} unsealed`,
+        `last sealed seq ${st.lastSealedSeq ?? 'none'}`,
+        ...(quarantined > 0 ? [`${quarantined} quarantined`] : []),
+        'server fields unknown until T12343/S4',
+      ];
+      return ` Sync (${st.scope}${st.stream ? ` ${st.stream}` : ''}): ${parts.join('; ')}.`;
+    })
+    .join('');
 }
 
 /**

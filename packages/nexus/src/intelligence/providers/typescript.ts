@@ -19,7 +19,7 @@
  */
 
 import type { GraphNode, GraphNodeKind, GraphRelation } from '@cleocode/contracts';
-import { confidenceLabelFromNumeric } from '@cleocode/contracts';
+import { confidenceLabelFromNumeric } from '@cleocode/contracts/graph.js';
 import type { LanguageProvider, SyntaxNode, SyntaxTree } from '../language-provider.js';
 
 // ---------------------------------------------------------------------------

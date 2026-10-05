@@ -35,7 +35,8 @@ import type {
 // `validateEvidenceForGate` + `GATE_EVIDENCE_REQUIREMENTS` are the shipped SSoT
 // in @cleocode/contracts; `core/src/tasks/evidence.ts` is the matching core
 // surface (it imports the SAME two symbols and is the gate machinery's home).
-import { GATE_EVIDENCE_REQUIREMENTS, isTaskCompletionGoal } from '@cleocode/contracts';
+import { GATE_EVIDENCE_REQUIREMENTS } from '@cleocode/contracts/evidence-atom-schema.js';
+import { isTaskCompletionGoal } from '@cleocode/contracts/goal.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 // Sourced from tasks/evidence.ts so the judge sits on the canonical core
 // evidence module rather than re-deriving validation (AC: no re-implementation).

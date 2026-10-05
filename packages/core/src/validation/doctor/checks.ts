@@ -30,6 +30,7 @@ import {
 } from '../../platform.js';
 import { checkWorktreeInclude, getGitignoreContent } from '../../scaffold.js';
 import { checkGlobalSchemas as checkGlobalSchemasRaw } from '../../schema-management.js';
+import { isWorkspaceRoot, resolveAffectedTemplate } from '../../tasks/affected-template.js';
 import { getTemplateById } from '../../templates/registry.js';
 
 // ============================================================================
@@ -1915,6 +1916,93 @@ export async function checkProjectNameDrift(
 }
 
 /**
+ * Check that a workspace's `tool:test` evidence runs the affected packages,
+ * not the whole suite, and name `ci:<pr>` as the preferred `testsPassed`
+ * evidence when the project accepts it (T13125).
+ *
+ * - `passed`: `testing.affectedCommand` is declared, or the project is not a
+ *   workspace (nothing to scope).
+ * - `info`: none declared, but one derives from `testing.command`; the fix
+ *   proposes pinning it.
+ * - `warning`: a workspace with no declared or derivable template, so every
+ *   `cleo verify --evidence tool:test` runs the whole suite.
+ *
+ * @param projectRoot - Project root; defaults to the resolved current project.
+ * @returns The check result.
+ * @task T13125
+ */
+export function checkAffectedTestScope(projectRoot?: string): CheckResult {
+  // An explicit root is used as given: this runs inside the default doctor,
+  // which must not throw on a project without a .git beside its .cleo.
+  const root = projectRoot ?? getProjectRoot();
+  let context: {
+    testing?: { affectedCommand?: unknown; command?: unknown };
+    evidence?: { ciSatisfies?: unknown };
+  } | null = null;
+  try {
+    context = JSON.parse(readFileSync(join(root, '.cleo', 'project-context.json'), 'utf-8'));
+  } catch {
+    context = null;
+  }
+  const base = { id: 'affected_test_scope', category: 'configuration' } as const;
+  if (context === null) {
+    return {
+      ...base,
+      status: 'info',
+      message: 'No readable .cleo/project-context.json: the tool:test scope cannot be assessed',
+      details: {},
+      fix: 'cleo detect',
+    };
+  }
+  const ci = context.evidence?.ciSatisfies === true;
+  const ciNote = ci
+    ? " evidence.ciSatisfies is set: ci:<pr> (the merged PR's CI) is the preferred testsPassed evidence; a local tool:test is only for before merge."
+    : '';
+  const resolved = resolveAffectedTemplate(context.testing, root);
+  if (resolved?.source === 'declared') {
+    return {
+      ...base,
+      status: 'passed',
+      message: `testing.affectedCommand is declared: tool:test runs only changed packages and their dependents.${ciNote}`,
+      details: { affectedCommand: resolved.template, ciSatisfies: ci },
+      fix: null,
+    };
+  }
+  if (resolved !== null) {
+    return {
+      ...base,
+      status: 'info',
+      message:
+        `testing.affectedCommand is not declared; tool:test derives "${resolved.template}" from ` +
+        `the workspace test command "${resolved.basis}".${ciNote}`,
+      details: { proposed: resolved.template, basis: resolved.basis, ciSatisfies: ci },
+      fix: `Pin it: set testing.affectedCommand to ${JSON.stringify(resolved.template)} in .cleo/project-context.json (cleo detect writes it)`,
+    };
+  }
+  if (!isWorkspaceRoot(root)) {
+    return {
+      ...base,
+      status: 'passed',
+      message: `Not a workspace: tool:test has no package scope to narrow.${ciNote}`,
+      details: { ciSatisfies: ci },
+      fix: null,
+    };
+  }
+  return {
+    ...base,
+    status: 'warning',
+    message:
+      'A workspace with no testing.affectedCommand, and none derivable from testing.command: every ' +
+      `cleo verify --evidence tool:test runs the whole suite.${ciNote}`,
+    details: { ciSatisfies: ci },
+    fix:
+      'Declare testing.affectedCommand in .cleo/project-context.json, e.g. "pnpm exec vitest run {projects}" ' +
+      '(vitest projects) or "pnpm {filters} run test" (per-package test scripts)' +
+      (ci ? '' : ', or set evidence.ciSatisfies so merged-PR CI carries testsPassed'),
+  };
+}
+
+/**
  * Warn about CANT files left in the pre-T12602 Linux-style dirs on macOS and
  * Windows.
  *
@@ -1972,6 +2060,184 @@ export function checkLegacyCantDirs(home: string = homedir()): CheckResult {
   };
 }
 
+/** The plugin key an old CLEO enabled in the user-global Claude settings. */
+const OLD_CLEO_CLAUDE_PLUGIN = 'cleo@cleocode';
+
+/** Hook scripts an old CLEO copied into the user-global Claude hooks dir. */
+const OLD_CLEO_CLAUDE_HOOK_FILES = ['precompact-safestop.sh', 'cleo-precompact-core.sh'] as const;
+
+/** The marker every hook command an old CLEO wrote carries. */
+const OLD_CLEO_HOOK_MARKER = '# cleo-hook';
+
+/** One hook object an old CLEO wrote into the user-global Claude settings. */
+interface OldCleoHook {
+  /** The hook event it sits under (`Stop`, `PostToolUse`, `PreCompact`, ...). */
+  event: string;
+  /** The `matcher` of the entry holding it (`''` when absent). */
+  matcher: string;
+  /** The hook's command. */
+  command: string;
+}
+
+/** The first shell word of a command, with surrounding double quotes removed. */
+function firstCommandWord(command: string): string {
+  const trimmed = command.trim();
+  if (trimmed.startsWith('"')) {
+    const close = trimmed.indexOf('"', 1);
+    return close === -1 ? trimmed.slice(1) : trimmed.slice(1, close);
+  }
+  return trimmed.split(/\s+/, 1)[0] ?? '';
+}
+
+/**
+ * Whether a hook command was written by an old CLEO install: it carries the
+ * `# cleo-hook` marker under any event, or — unmarked — it runs exactly the
+ * `precompact-safestop.sh` CLEO copied into `<claudeHome>/hooks/`, under
+ * `PreCompact` only. A user's own script that merely mentions that name is
+ * not CLEO's.
+ */
+function isOldCleoHookCommand(event: string, command: string, claudeHome: string): boolean {
+  if (command.includes(OLD_CLEO_HOOK_MARKER)) return true;
+  return (
+    event === 'PreCompact' &&
+    firstCommandWord(command) === join(claudeHome, 'hooks', 'precompact-safestop.sh')
+  );
+}
+
+/**
+ * Every hook object, under every hook event of a parsed Claude settings
+ * object, that an old CLEO wrote: `Stop` → `cleo session end`,
+ * `PostToolUse` (`Write|Edit`) → `cleo observe` / `cleo nexus analyze`, and
+ * `PreCompact` → `precompact-safestop.sh`.
+ */
+function oldCleoHooks(settings: Record<string, unknown>, claudeHome: string): OldCleoHook[] {
+  const hooks = settings.hooks;
+  if (typeof hooks !== 'object' || hooks === null || Array.isArray(hooks)) return [];
+  const found: OldCleoHook[] = [];
+  for (const [event, entries] of Object.entries(hooks as Record<string, unknown>)) {
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (typeof entry !== 'object' || entry === null) continue;
+      const record = entry as Record<string, unknown>;
+      const inner = record.hooks;
+      if (!Array.isArray(inner)) continue;
+      const matcher = typeof record.matcher === 'string' ? record.matcher : '';
+      for (const hook of inner) {
+        if (typeof hook !== 'object' || hook === null) continue;
+        const command = (hook as Record<string, unknown>).command;
+        if (typeof command === 'string' && isOldCleoHookCommand(event, command, claudeHome)) {
+          found.push({ event, matcher, command });
+        }
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Report what an old CLEO left in the user-global Claude settings (T13221).
+ *
+ * Releases whose Claude Code adapter install ran (before T13128 removed that
+ * step) could enable the `cleo@cleocode` plugin, add hooks tagged
+ * `# cleo-hook` under any event (`Stop`, `PostToolUse`, `PreCompact`) in the
+ * user-global `settings.json`, and copy hook scripts into its `hooks/` dir.
+ * CLEO never writes the user-global Claude settings, and removing an entry is
+ * writing, so this check is REPORT-ONLY: it reads, and its `fix` spells out
+ * the manual removal steps. It never edits or deletes anything there.
+ *
+ * @param claudeHome - The user-global Claude dir.
+ *   @defaultValue `CLAUDE_HOME`, else `~/.claude`
+ * @returns `warning` listing each leftover and how to remove it by hand, or
+ *   naming a settings file it could not parse; `passed` when there is none.
+ *
+ * @example
+ * ```ts
+ * checkUserGlobalClaudeLeftovers('/tmp/sandbox/.claude');
+ * ```
+ *
+ * @task T13221
+ */
+export function checkUserGlobalClaudeLeftovers(
+  claudeHome: string = process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude'),
+): CheckResult {
+  const settingsPath = join(claudeHome, 'settings.json');
+  const steps: string[] = [];
+  const found: string[] = [];
+  let unreadable: string | null = null;
+  if (existsSync(settingsPath)) {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        unreadable = 'the top level is not a JSON object';
+      } else {
+        const settings = parsed as Record<string, unknown>;
+        const plugins = settings.enabledPlugins;
+        if (
+          typeof plugins === 'object' &&
+          plugins !== null &&
+          (plugins as Record<string, unknown>)[OLD_CLEO_CLAUDE_PLUGIN] === true
+        ) {
+          found.push(`plugin ${OLD_CLEO_CLAUDE_PLUGIN} enabled`);
+          steps.push(
+            `in ${settingsPath}, delete the "${OLD_CLEO_CLAUDE_PLUGIN}": true entry from "enabledPlugins"`,
+          );
+        }
+        for (const hook of oldCleoHooks(settings, claudeHome)) {
+          found.push(`${hook.event} hook ${hook.command}`);
+          steps.push(
+            `in ${settingsPath}, under "hooks.${hook.event}" (matcher ${JSON.stringify(hook.matcher)}), ` +
+              `remove the one hook object whose command is ${JSON.stringify(hook.command)} from that entry's "hooks" array, ` +
+              `then delete the entry if its "hooks" array is left empty, and "${hook.event}" if it has no entries left`,
+          );
+        }
+      }
+    } catch (err) {
+      unreadable = err instanceof Error ? err.message : String(err);
+    }
+  }
+  for (const file of OLD_CLEO_CLAUDE_HOOK_FILES) {
+    const path = join(claudeHome, 'hooks', file);
+    if (existsSync(path)) {
+      found.push(`hook script ${path}`);
+      steps.push(`delete ${path}`);
+    }
+  }
+  if (unreadable !== null) {
+    steps.unshift(`repair the JSON in ${settingsPath}, then re-run \`cleo doctor\` to check it`);
+  }
+  if (found.length === 0 && unreadable === null) {
+    return {
+      id: 'user_global_claude_leftovers',
+      category: 'configuration',
+      status: 'passed',
+      message: 'No CLEO entries in the user-global Claude settings',
+      details: { settingsPath, found, unreadable },
+      fix: null,
+    };
+  }
+  const parts: string[] = [];
+  if (unreadable !== null) {
+    parts.push(
+      `${settingsPath} is not valid JSON (${unreadable}), so it was not checked for old CLEO entries`,
+    );
+  }
+  if (found.length > 0) {
+    parts.push(
+      `an old CLEO left ${found.length} entr${found.length === 1 ? 'y' : 'ies'} in the user-global ` +
+        `Claude settings (${claudeHome}); CLEO no longer writes there and will not remove them for you`,
+    );
+  }
+  const message = parts.join('; ');
+  return {
+    id: 'user_global_claude_leftovers',
+    category: 'configuration',
+    status: 'warning',
+    message: message.charAt(0).toUpperCase() + message.slice(1),
+    details: { settingsPath, found, unreadable },
+    fix: `By hand (back up ${settingsPath} first): ${steps.join('; ')}.`,
+  };
+}
+
 /**
  * Run all global health checks and return results array.
  * @task T4525
@@ -1989,6 +2255,7 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     checkRootGitignore(projectRoot),
     checkCleoGitignore(projectRoot),
     checkProjectIdentity(projectRoot),
+    checkAffectedTestScope(projectRoot),
     checkWorktreeInclude(projectRoot),
     checkVitalFilesTracked(projectRoot),
     checkCoreFilesNotIgnored(projectRoot),
@@ -2008,6 +2275,8 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     auditOrphanWorktrees(),
     // CANT files stranded in pre-T12602 Linux-style dirs (T12602)
     checkLegacyCantDirs(),
+    // Old CLEO entries in the user-global Claude settings, report-only (T13221)
+    checkUserGlobalClaudeLeftovers(),
     // Shared-worktree git hazards (T12161)
     checkSharedWorktreeStashes(projectRoot),
     checkSharedGitIdentity(projectRoot),

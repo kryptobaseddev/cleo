@@ -50,6 +50,13 @@ export interface ExodusAbortDetail {
   readonly reason: string;
   /** Epoch-ms timestamp the abort was observed. */
   readonly at: number;
+  /**
+   * `aborted` (default): the migration ran and its parity gate rolled it back.
+   * `deferred`: the governor could not admit the migration this open (memory
+   * pressure, or `db-heavy` at capacity), so it never ran (T13158). Either way
+   * the consolidated store is empty while legacy rows wait, and writes refuse.
+   */
+  readonly kind?: 'aborted' | 'deferred';
 }
 
 /**
@@ -160,4 +167,126 @@ export function clearExodusAborts(scope?: DualScope): void {
     return;
   }
   _abortedScopes.clear();
+}
+
+/** Remedy for a write refused because exodus-on-open was deferred (T13158). */
+export const EXODUS_DEFERRED_FIX =
+  'Retry when the machine is less busy (the next open migrates automatically), or run ' +
+  '`cleo exodus migrate` now. Nothing was written.';
+
+/** Remedy for a write refused because exodus-on-open aborted (T11828). */
+export const EXODUS_ABORTED_FIX =
+  'Resolve the aborted migration (`cleo doctor exodus-health` → `cleo exodus migrate`) ' +
+  'so the consolidated cleo.db carries your data before mutating it.';
+
+/**
+ * Why a write was refused on a store that still owes its legacy migration.
+ *
+ * @param scope - The scope.
+ * @param reason - The deferral or abort detail.
+ * @param kind - `deferred` (the migration has not run yet) or `aborted`.
+ * @returns The refusal message, remedy included.
+ */
+export function exodusRefusalMessage(
+  scope: DualScope,
+  reason: string,
+  kind: 'aborted' | 'deferred' = 'deferred',
+): string {
+  if (kind === 'aborted') {
+    return (
+      `Refusing to write to consolidated ${scope} cleo.db — exodus-on-open ABORTED ` +
+      `(${reason}). The DB is empty; legacy data is the source of truth. ` +
+      `Run \`cleo doctor exodus-health\` then \`cleo exodus migrate\` (or restore via ` +
+      `\`cleo doctor repair --role ${scope === 'project' ? 'tasks' : 'nexus'}\`) before writing.`
+    );
+  }
+  return (
+    `Refusing to write to the ${scope} cleo.db: its migration from the legacy stores has not ` +
+    `run yet (${reason}), so the store is empty and a write now would strand the legacy ` +
+    `data. ${EXODUS_DEFERRED_FIX}`
+  );
+}
+
+/**
+ * Thrown by {@link assertWriteDurable} when a MUTATING caller is about to write
+ * through a {@link DualScopeDbHandle} whose first-open exodus auto-migration
+ * ABORTED (T11828 · DHQ-059).
+ *
+ * The consolidated `cleo.db` is internally consistent but EMPTY: the user's real
+ * data is still in the legacy fleet (kept as the source of truth). Writing here
+ * would land in a DB that does not reflect that data, so the write is NOT durable
+ * against the source of truth. Read paths never raise this — they intentionally
+ * skip {@link assertWriteDurable} and operate on the empty-but-consistent DB.
+ *
+ * Self-contained (mirrors `BackupRecoverError`) rather than a `CleoError` subclass
+ * so the store layer does not need a new numeric `ExitCode` in `@cleocode/contracts`
+ * for a condition that is surfaced structurally on the handle.
+ *
+ * @task T11828
+ * @epic T11833
+ * @saga T11242
+ * @public
+ */
+export class ExodusAbortWriteUnsafeError extends Error {
+  /**
+   * Stable string error code for envelope `codeName` / log correlation:
+   * `E_EXODUS_DEFERRED_WRITE_UNSAFE` when the migration was deferred (T13158),
+   * else `E_EXODUS_ABORT_WRITE_UNSAFE`.
+   */
+  readonly codeName: 'E_EXODUS_ABORT_WRITE_UNSAFE' | 'E_EXODUS_DEFERRED_WRITE_UNSAFE';
+  /** The structured abort detail carried by the handle. */
+  readonly detail: ExodusAbortDetail;
+  /** Remediation hint surfaced to the operator. */
+  readonly fix: string;
+
+  /**
+   * @param detail - The {@link ExodusAbortDetail} stamped on the handle.
+   */
+  constructor(detail: ExodusAbortDetail) {
+    const kind = detail.kind === 'deferred' ? 'deferred' : 'aborted';
+    super(exodusRefusalMessage(detail.scope, detail.reason, kind));
+    this.name = 'ExodusAbortWriteUnsafeError';
+    this.codeName =
+      kind === 'deferred' ? 'E_EXODUS_DEFERRED_WRITE_UNSAFE' : 'E_EXODUS_ABORT_WRITE_UNSAFE';
+    this.detail = detail;
+    this.fix = kind === 'deferred' ? EXODUS_DEFERRED_FIX : EXODUS_ABORTED_FIX;
+  }
+}
+
+/** Remedy when a store that owes its migration could not be guarded (T13171). */
+export const EXODUS_GUARD_FAILED_FIX =
+  'Retry the command. If it keeps failing, check that the temp directory SQLite uses is ' +
+  'writable and not full, then run `cleo exodus migrate`. Nothing was written.';
+
+/**
+ * Thrown by an open of a store that still owes its legacy migration when no
+ * write guard could be installed at all (T13171): not even the anchor table's
+ * trigger. Publishing the handle would let any write, raw SQL included, land
+ * in the empty store and strand the legacy rows for good (the #1826 class), so
+ * the open is refused instead. Retryable: a later open tries again.
+ *
+ * @task T13171
+ */
+export class ExodusGuardFailedError extends Error {
+  /** Stable string error code for envelope `codeName` / log correlation. */
+  readonly codeName = 'E_EXODUS_GUARD_FAILED' as const;
+  /** The scope whose store could not be guarded. */
+  readonly scope: DualScope;
+  /** Remediation hint surfaced to the operator. */
+  readonly fix: string = EXODUS_GUARD_FAILED_FIX;
+
+  /**
+   * @param scope - The scope whose store could not be guarded.
+   * @param cause - The trigger installation failure.
+   */
+  constructor(scope: DualScope, cause: unknown) {
+    super(
+      `Refusing to open the ${scope} cleo.db: its migration from the legacy stores has not ` +
+        'completed and the store could not be protected against writes that would strand the ' +
+        `legacy data (${cause instanceof Error ? cause.message : String(cause)}).`,
+      { cause },
+    );
+    this.name = 'ExodusGuardFailedError';
+    this.scope = scope;
+  }
 }

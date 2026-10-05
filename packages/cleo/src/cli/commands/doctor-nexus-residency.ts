@@ -17,8 +17,9 @@
  * @task T12158
  */
 
-import { getCleoHome, getProjectRoot } from '@cleocode/core';
+import { getCleoHome } from '@cleocode/core/core-paths';
 import { scanNexusSchemaResidency } from '@cleocode/core/doctor/nexus-schema-residency.js';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
 

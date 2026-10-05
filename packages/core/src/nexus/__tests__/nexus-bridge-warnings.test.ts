@@ -39,6 +39,7 @@ function setupBlockedProject(): string {
   const projectRoot = tempDir;
   const cleoDir = join(projectRoot, '.cleo');
   mkdirSync(cleoDir, { recursive: true });
+  writeFileSync(join(cleoDir, 'project-id'), 'blocked-bridge-project\n');
   writeFileSync(
     join(cleoDir, 'config.json'),
     JSON.stringify({ brain: { memoryBridge: { mode: 'file' } } }),
@@ -88,6 +89,7 @@ describe('T9771 — nexus-bridge warnings → meta.warnings', () => {
     expect(warning!.severity).toBe('warn');
     expect(warning!.context?.['bridge']).toBe('nexus');
     expect(typeof warning!.context?.['error']).toBe('string');
+    expect(warning!.context?.['error']).toMatch(/EISDIR/);
 
     expect(bridgeStderrCalls(stderrSpy)).toEqual([]);
     expect(stdoutSpy).not.toHaveBeenCalled();

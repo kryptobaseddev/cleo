@@ -16,12 +16,12 @@
  * @adr ADR-078
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import {
   buildDocProvenanceGraph,
   DocProvenanceRootNotFoundError,
   renderProvenanceGraphAsDot,
-} from '@cleocode/core/internal'; // core-first-allowed: T10164 docs.graph helpers not yet promoted to public barrel
+} from '@cleocode/core/docs/build-provenance-graph';
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../../renderers/index.js';
 

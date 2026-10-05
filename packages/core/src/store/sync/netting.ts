@@ -51,6 +51,7 @@
  * @epic T12323
  */
 
+import { mergeGroupsOf } from './merge/rules.js';
 import { canonicalJson, type WireValue } from './sealer-values.js';
 
 /**
@@ -82,6 +83,11 @@ export interface DraftOp {
   readonly k?: Record<string, WireValue>;
   readonly a?: Record<string, WireValue | IncValue>;
   readonly b?: Record<string, WireValue>;
+  /**
+   * A repair U (§4.4, T12987): the before-image is unknown, so every column
+   * of `a` is kept (none can be judged unchanged) and the op carries no `b`.
+   */
+  readonly unknownBefore?: true;
 }
 
 /** A netted op, ready for an HLC. `last` is its last capture's seq. */
@@ -196,10 +202,38 @@ function counterize(
   for (const col of counters) {
     const after = a[col];
     const before = b[col];
-    if (typeof after === 'number' && typeof before === 'number')
-      out[col] = { $inc: after - before };
+    // A NULL counter counts as 0, so the merge always receives a delta: it
+    // refuses an absolute value on a `sum` counter (T12344 review LOW-1).
+    if (typeof after === 'number' && (typeof before === 'number' || before === null))
+      out[col] = { $inc: after - (before ?? 0) };
   }
   return out;
+}
+
+/**
+ * Keep every merge group whole (T13222): when one member of a group changed,
+ * every member the captures recorded travels with it, unchanged ones too, so
+ * the merge resolves the group as one unit on every replica.
+ */
+function wholeGroups(
+  table: string,
+  acc: {
+    readonly a: Readonly<Record<string, WireValue | IncValue>>;
+    readonly b: Readonly<Record<string, WireValue>>;
+  },
+  a: Record<string, WireValue | IncValue>,
+  b: Record<string, WireValue>,
+  skip: readonly string[] = [],
+): void {
+  const seen = [...new Set([...Object.keys(acc.a), ...Object.keys(acc.b)])];
+  for (const g of mergeGroupsOf(table, seen)) {
+    if (!g.some((c) => c in a)) continue;
+    for (const c of g) {
+      if (skip.includes(c)) continue;
+      if (!(c in a) && c in acc.a) a[c] = acc.a[c] ?? null;
+      if (!(c in b) && c in acc.b) b[c] = acc.b[c] ?? null;
+    }
+  }
 }
 
 /** Turn one stretch's accumulator into at most one op. */
@@ -232,6 +266,7 @@ function settle(
       return { ...base(acc.first), o: 'I', a: acc.a };
     }
     case 'U': {
+      if (acc.first.unknownBefore === true) return { ...base(acc.first), o: 'U', a: acc.a };
       const a: Record<string, WireValue | IncValue> = {};
       const b: Record<string, WireValue> = {};
       for (const col of new Set([...Object.keys(acc.a), ...Object.keys(acc.b)])) {
@@ -240,6 +275,7 @@ function settle(
         if (col in acc.b) b[col] = acc.b[col] as WireValue;
       }
       if (Object.keys(a).length === 0) return null;
+      wholeGroups(acc.first.t, acc, a, b);
       return { ...base(acc.first), o: 'U', a: counterize(acc.first.t, a, b, counters), b };
     }
     case 'D':
@@ -257,6 +293,7 @@ function settle(
         b[col] = was;
       }
       if (Object.keys(a).length === 0) return null;
+      wholeGroups(acc.first.t, acc, a, b, keys);
       return { ...base(acc.first), o: 'U', a: counterize(acc.first.t, a, b, counters), b };
     }
   }

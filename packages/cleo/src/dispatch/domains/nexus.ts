@@ -19,86 +19,24 @@
  * @task T1440 — Core-derived OpsFromCore inference
  */
 
-import { getNexusDescriptor, NEXUS_SCOPE_MAP } from '@cleocode/contracts';
-import type { nexus as coreNexus } from '@cleocode/core';
 import {
-  assessNexusFreshnessForQuery,
+  getNexusDescriptor,
+  NEXUS_SCOPE_MAP,
+} from '@cleocode/contracts/operations/nexus-scope-map.js';
+import type { nexus as coreNexus } from '@cleocode/core';
+import type { NexusFreshnessAssessment, NexusPermissionLevel } from '@cleocode/core/internal';
+import { getLogger } from '@cleocode/core/logger';
+import {
   discloseNexusFreshness,
-  getBrainNativeDb,
-  getLogger,
-  getNexusNativeDb,
-  getProjectRoot,
   judgeSymbolFiles,
-  type NexusFreshnessAssessment,
-  type NexusPermissionLevel,
-  nexusAugment,
-  nexusBlockers,
-  nexusBrainAnchors,
-  nexusClusters,
-  nexusColdSymbols,
-  nexusConduitScan,
-  nexusContext,
-  nexusContractsLinkTasks,
-  nexusContractsShow,
-  nexusContractsSync,
-  nexusCriticalPath,
-  nexusDepsQuery,
-  nexusDiff,
-  nexusDiscover,
-  nexusFlows,
-  nexusFullContext,
-  nexusGraph,
-  nexusHotNodes,
-  nexusHotPaths,
-  nexusImpact,
-  nexusImpactFull,
-  nexusInitialize,
-  nexusListProjects,
-  nexusOrphans,
-  nexusProfileExport,
-  nexusProfileGet,
-  nexusProfileImport,
-  nexusProfileReinforce,
-  nexusProfileSupersede,
-  nexusProfileUpsert,
-  nexusProfileView,
-  nexusProjectsClean,
-  nexusProjectsFleet,
-  nexusProjectsList,
-  nexusProjectsRegister,
-  nexusProjectsRemove,
-  nexusProjectsScan,
-  nexusProjectsStatus,
-  nexusQueryCte,
-  nexusReconcileProject,
-  nexusRefreshBridge,
-  nexusRegisterProject,
-  nexusResolve,
-  nexusRouteMap,
-  nexusSearch,
-  nexusSearchCode,
-  nexusSetPermission,
-  nexusShapeCheck,
-  nexusShareSnapshotExport,
-  nexusShareSnapshotImport,
-  nexusShareStatus,
-  nexusShowProject,
-  nexusSigilList,
-  nexusSigilSync,
-  nexusStatus,
-  nexusSyncProject,
-  nexusTaskFootprint,
-  nexusTaskSymbols,
-  nexusTopEntries,
-  nexusTransferExecute,
-  nexusTransferPreview,
-  nexusUnregisterProject,
-  nexusWhy,
-  nexusWiki,
   querySymbolFiles,
   withNexusFreshnessMeta,
-} from '@cleocode/core/internal';
-import { stampNexusMeta } from '@cleocode/runtime/gateway';
+} from '@cleocode/core/nexus/freshness';
+import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { getBrainNativeDb } from '@cleocode/core/store/memory-sqlite';
+import { getNexusNativeDb } from '@cleocode/core/store/nexus-sqlite';
+import { stampNexusMeta } from '@cleocode/runtime/gateway/dispatch';
 import {
   defineTypedHandler,
   lafsError,
@@ -115,6 +53,204 @@ import {
   unsupportedOp,
   wrapResult,
 } from './_base.js';
+import { lazyOperation } from './lazy.js';
+
+// CORE operations load on first call (T13126): a command loads its own
+// modules, not every operation's in this domain.
+
+const assessNexusFreshnessForQuery = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/freshness')).assessNexusFreshnessForQuery,
+);
+const nexusAugment = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/augment')).nexusAugment,
+);
+const nexusBlockers = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/deps')).nexusBlockers,
+);
+const nexusBrainAnchors = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/living-brain')).nexusBrainAnchors,
+);
+const nexusClusters = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/clusters')).nexusClusters,
+);
+const nexusColdSymbols = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/plasticity-queries')).nexusColdSymbols,
+);
+const nexusConduitScan = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/api-contracts')).nexusConduitScan,
+);
+const nexusContext = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/context')).nexusContext,
+);
+const nexusContractsLinkTasks = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/api-contracts')).nexusContractsLinkTasks,
+);
+const nexusContractsShow = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/api-contracts')).nexusContractsShow,
+);
+const nexusContractsSync = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/api-contracts')).nexusContractsSync,
+);
+const nexusCriticalPath = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/deps')).nexusCriticalPath,
+);
+const nexusDepsQuery = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/deps')).nexusDepsQuery,
+);
+const nexusDiff = lazyOperation(async () => (await import('@cleocode/core/nexus/diff')).nexusDiff);
+const nexusDiscover = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/discover')).nexusDiscover,
+);
+const nexusFlows = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/flows')).nexusFlows,
+);
+const nexusFullContext = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/living-brain')).nexusFullContext,
+);
+const nexusGraph = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/deps')).nexusGraph,
+);
+const nexusHotNodes = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/plasticity-queries')).nexusHotNodes,
+);
+const nexusHotPaths = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/plasticity-queries')).nexusHotPaths,
+);
+const nexusImpact = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/impact')).nexusImpact,
+);
+const nexusImpactFull = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/living-brain')).nexusImpactFull,
+);
+const nexusInitialize = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/registry')).nexusInitialize,
+);
+const nexusListProjects = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/registry')).nexusListProjects,
+);
+const nexusOrphans = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/deps')).nexusOrphans,
+);
+const nexusProfileExport = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/user-profile')).nexusProfileExport,
+);
+const nexusProfileGet = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/user-profile')).nexusProfileGet,
+);
+const nexusProfileImport = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/user-profile')).nexusProfileImport,
+);
+const nexusProfileReinforce = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/user-profile')).nexusProfileReinforce,
+);
+const nexusProfileSupersede = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/user-profile')).nexusProfileSupersede,
+);
+const nexusProfileUpsert = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/user-profile')).nexusProfileUpsert,
+);
+const nexusProfileView = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/user-profile')).nexusProfileView,
+);
+const nexusProjectsClean = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/projects-clean')).nexusProjectsClean,
+);
+const nexusProjectsFleet = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/registry')).nexusProjectsFleet,
+);
+const nexusProjectsList = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/registry')).nexusProjectsList,
+);
+const nexusProjectsRegister = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/registry')).nexusProjectsRegister,
+);
+const nexusProjectsRemove = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/registry')).nexusProjectsRemove,
+);
+const nexusProjectsScan = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/projects-scan')).nexusProjectsScan,
+);
+const nexusProjectsStatus = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/registry')).nexusProjectsStatus,
+);
+const nexusQueryCte = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/query-dsl')).nexusQueryCte,
+);
+const nexusReconcileProject = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/registry')).nexusReconcileProject,
+);
+const nexusRefreshBridge = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/nexus-bridge')).nexusRefreshBridge,
+);
+const nexusRegisterProject = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/registry')).nexusRegisterProject,
+);
+const nexusResolve = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/query')).nexusResolve,
+);
+const nexusRouteMap = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/route-analysis')).nexusRouteMap,
+);
+const nexusSearch = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/discover')).nexusSearch,
+);
+const nexusSearchCode = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/augment')).nexusSearchCode,
+);
+const nexusSetPermission = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/permissions')).nexusSetPermission,
+);
+const nexusShapeCheck = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/route-analysis')).nexusShapeCheck,
+);
+const nexusShareSnapshotExport = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/transfer')).nexusShareSnapshotExport,
+);
+const nexusShareSnapshotImport = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/transfer')).nexusShareSnapshotImport,
+);
+const nexusShareStatus = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/sharing/index')).nexusShareStatus,
+);
+const nexusShowProject = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/registry')).nexusShowProject,
+);
+const nexusSigilList = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/sigil')).nexusSigilList,
+);
+const nexusSigilSync = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/sigil-sync')).nexusSigilSync,
+);
+const nexusStatus = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/registry')).nexusStatus,
+);
+const nexusSyncProject = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/registry')).nexusSyncProject,
+);
+const nexusTaskFootprint = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/living-brain')).nexusTaskFootprint,
+);
+const nexusTaskSymbols = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/api-contracts')).nexusTaskSymbols,
+);
+const nexusTopEntries = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/query')).nexusTopEntries,
+);
+const nexusTransferExecute = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/transfer')).nexusTransferExecute,
+);
+const nexusTransferPreview = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/transfer')).nexusTransferPreview,
+);
+const nexusUnregisterProject = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/registry')).nexusUnregisterProject,
+);
+const nexusWhy = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/living-brain')).nexusWhy,
+);
+const nexusWiki = lazyOperation(
+  async () => (await import('@cleocode/core/nexus/wiki-index')).nexusWiki,
+);
 
 // ---------------------------------------------------------------------------
 // Core-derived operation type (T1440 — OpsFromCore inference)
@@ -306,8 +442,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
 
   'route-map': async (params) => {
     const projectRoot = getProjectRoot();
-    const projectId =
-      params.projectId ?? Buffer.from(projectRoot).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(projectRoot, params.projectId);
     return wrapCoreResult(await nexusRouteMap(projectId, projectRoot), 'route-map');
   },
 
@@ -315,8 +450,7 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
     if (!params.routeSymbol)
       return lafsError('E_INVALID_INPUT', 'routeSymbol is required', 'shape-check');
     const projectRoot = getProjectRoot();
-    const projectId =
-      params.projectId ?? Buffer.from(projectRoot).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(projectRoot, params.projectId);
     return wrapCoreResult(
       await nexusShapeCheck(params.routeSymbol, projectId, projectRoot),
       'shape-check',
@@ -375,27 +509,21 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   clusters: async (params) => {
     const projectRoot = getProjectRoot();
     const repoPath = (params.repoPath as string | undefined) ?? projectRoot;
-    const projectId =
-      (params.projectId as string | undefined) ??
-      Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, params.projectId);
     return wrapCoreResult(await nexusClusters(projectId, repoPath), 'clusters');
   },
 
   flows: async (params) => {
     const projectRoot = getProjectRoot();
     const repoPath = (params.repoPath as string | undefined) ?? projectRoot;
-    const projectId =
-      (params.projectId as string | undefined) ??
-      Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, params.projectId);
     return wrapCoreResult(await nexusFlows(projectId, repoPath), 'flows');
   },
 
   context: async (params) => {
     if (!params.symbol) return lafsError('E_INVALID_INPUT', 'symbol is required', 'context');
     const projectRoot = getProjectRoot();
-    const projectId =
-      (params.projectId as string | undefined) ??
-      Buffer.from(projectRoot).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(projectRoot, params.projectId);
     const limit = typeof params.limit === 'number' ? params.limit : 20;
     const showContent = params.content === true;
     return wrapCoreResult(
@@ -613,14 +741,14 @@ const _nexusTypedHandler = defineTypedHandler<NexusOps>('nexus', {
   'contracts-sync': async (params) => {
     const projectRoot = getProjectRoot();
     const repoPath = params.repoPath ?? projectRoot;
-    const projectId = params.projectId ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, params.projectId);
     return wrapCoreResult(await nexusContractsSync(projectId, repoPath), 'contracts-sync');
   },
 
   'contracts-link-tasks': async (params) => {
     const projectRoot = getProjectRoot();
     const repoPath = params.repoPath ?? projectRoot;
-    const projectId = params.projectId ?? Buffer.from(repoPath).toString('base64url').slice(0, 32);
+    const projectId = await resolveNexusQueryProjectId(repoPath, params.projectId);
     return wrapCoreResult(
       await nexusContractsLinkTasks(projectId, repoPath),
       'contracts-link-tasks',

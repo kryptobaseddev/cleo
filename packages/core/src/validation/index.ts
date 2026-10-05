@@ -10,7 +10,7 @@
  */
 
 // Core validation engine — also re-export registry constants for convenience
-export { TASK_STATUSES } from '@cleocode/contracts';
+export { TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 // Inferred types
 export type {
   AuditLogInsert,

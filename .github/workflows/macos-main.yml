@@ -1,0 +1,174 @@
+# macOS unit tests for main pushes (T13143, owner option B).
+#
+# ci.yml runs macOS only nightly, in merge groups and on darwin-specific pull
+# requests. Releases happen mid-day after merges, so the nightly commit is
+# rarely test-equivalent to a release commit, and release-prepare re-ran its
+# macOS shards (32–42 min) for want of a verified result. This workflow gives
+# the newest main push a macOS result: `cleo release open` reads it
+# (MACOS_WORKFLOWS in packages/core/src/release/preflight-skip.ts) for the
+# release commit or any test-equivalent ancestor, and skips the macOS shards.
+#
+# It is NOT a required check. T13187: a running run is never cancelled
+# (`cancel-in-progress: false`). With `true`, every main push cancelled the run
+# still going, so in a merge burst no macOS verdict ever landed (the last four
+# completed runs were all cancelled, eight shards each, three minutes before
+# they would have finished). With `false`, GitHub keeps the running run and at
+# most ONE pending run per group: each new push replaces the pending one, so a
+# burst coalesces to the newest push instead of queuing every push behind the
+# free plan's five macOS jobs. ci.yml's nightly schedule already runs the macOS
+# shards on main every night, so this workflow carries no schedule of its own.
+#
+# The build and test steps mirror ci.yml's `build` and `unit-tests` jobs for
+# macos-latest; scripts/__tests__/ci-platform-matrix.test.mjs checks the pins
+# (node, pnpm, shard count) stay in step.
+name: macOS (main)
+
+on:
+  push:
+    branches: [main]
+    # The same paths as ci.yml's `code` filter: a push that changes none of
+    # them changes nothing the unit tests read.
+    paths:
+      - 'packages/**'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'tsconfig*.json'
+      - 'vitest.config.ts'
+      - 'vitest.memory-safe.ts'
+      - 'vitest.repo-guards.ts'
+      - 'build.mjs'
+      - '.cleo/adrs/**'
+      - '.cleo/cant/**'
+      - '.cleo/deprecations*'
+      - 'scripts/compare-fingerprints.mjs'
+      - 'scripts/fingerprint-store.mjs'
+      - 'scripts/heal-malformed-blob-attachments.mjs'
+      - 'scripts/hooks/commit-msg-release-lint.mjs'
+      - 'scripts/inject-consolidation-checks.mjs'
+      - 'scripts/lib/**'
+      - 'scripts/lint-changesets.mjs'
+      - 'scripts/lint-format-error-misuse.mjs'
+      - 'scripts/lint-injection-flags.mjs'
+      - 'scripts/lint-no-esm-bare-require.mjs'
+      - 'scripts/lint-no-raw-db-opens.mjs'
+      - 'scripts/lint-row-identity-coverage.mjs'
+      - 'scripts/lint-sync-write-invariants.mjs'
+      - 'scripts/migrate-nested-nexus.mjs'
+      - 'scripts/sweep-manual-doc-writes.mjs'
+      - 'crates/**'
+      - '.github/workflows/macos-main.yml'
+
+concurrency:
+  group: macos-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Build worktree-napi native addon BEFORE pnpm install (T9982)
+        shell: bash
+        run: |
+          cargo build --release -p worktree-napi
+          triple="darwin-x64"
+          if [[ "$(uname -m)" == "arm64" ]]; then
+            triple="darwin-arm64"
+          fi
+          cp target/release/libworktree_napi.dylib "crates/worktree-napi/worktree-napi.${triple}.node"
+      - run: pnpm install --frozen-lockfile
+      - name: Build cant-napi native addon for CANT tests
+        shell: bash
+        run: pnpm --filter @cleocode/cant run build:napi
+      - name: Build packages (required for cross-package imports)
+        run: pnpm run build
+      - name: Pack build output
+        shell: bash
+        run: |
+          set -euo pipefail
+          list="$RUNNER_TEMP/build-output.list"
+          { git ls-files --others --ignored --exclude-standard --directory
+            git ls-files --others --exclude-standard
+          } | grep -vE '(^|/)node_modules/?$' | grep -vE '^target/?$' | sort -u > "$list"
+          for required in packages/cleo/dist/ packages/core/dist/ packages/cant/napi/; do
+            grep -qxF "$required" "$list" || { echo "::error::build output is missing $required"; exit 1; }
+          done
+          mkdir -p "$RUNNER_TEMP/build-output"
+          tar -czf "$RUNNER_TEMP/build-output/build-output.tgz" -T "$list"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-output-macos-main
+          path: ${{ runner.temp }}/build-output/build-output.tgz
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  unit-tests:
+    name: Unit Tests (macos-latest, shard ${{ matrix.shard }})
+    needs: [build]
+    runs-on: macos-latest
+    timeout-minutes: 55
+    strategy:
+      matrix:
+        # Keep in step with MACOS_SHARDS in scripts/ci-platform-matrix.mjs.
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-output-macos-main
+          path: ${{ runner.temp }}/build-output
+      - name: Restore shared build output
+        shell: bash
+        run: tar -xzf "$RUNNER_TEMP/build-output/build-output.tgz"
+      - run: pnpm install --frozen-lockfile
+      - name: Install ripgrep (required for T1605 callsite-coverage validator)
+        uses: ./.github/actions/install-ripgrep
+      - name: Generate SvelteKit type stubs (required for studio tests)
+        run: pnpm --filter @cleocode/studio exec svelte-kit sync
+      - name: Run unit tests (shard ${{ matrix.shard }}/8)
+        shell: bash
+        # retry=2 as in ci.yml's macOS shards (T10490).
+        run: pnpm exec vitest run --shard=${{ matrix.shard }}/8 --retry=2

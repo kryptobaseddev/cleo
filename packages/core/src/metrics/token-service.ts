@@ -566,6 +566,15 @@ export async function summarizeTokenUsage(
   };
 }
 
+/**
+ * Delete one token usage record. Records live only in `tasks_token_usage`:
+ * the twin collapse drains the bare `token_usage` table into it at every open
+ * (T13115), so the bare table holds nothing a report shows.
+ *
+ * @param projectRoot - Project root.
+ * @param params - The record id.
+ * @returns The id, and `deleted: true`.
+ */
 export async function deleteTokenUsage(
   projectRoot: string,
   params: DeleteTokenUsageParams,
@@ -577,6 +586,14 @@ export async function deleteTokenUsage(
   return { deleted: true, id: params.id };
 }
 
+/**
+ * Delete the token usage records matching the filters (see
+ * {@link deleteTokenUsage}).
+ *
+ * @param projectRoot - Project root.
+ * @param params - Filters; none clears everything.
+ * @returns How many records were deleted.
+ */
 export async function clearTokenUsage(
   projectRoot: string,
   params: ClearTokenUsageParams = {},
@@ -591,7 +608,24 @@ export async function clearTokenUsage(
   return { deleted: countRows[0]?.count ?? 0 };
 }
 
+/**
+ * Record the token cost of a successful dispatch, for mutations only.
+ *
+ * `token_usage` is portable-personal (cleo-dev ruling 2026-09-29, journal
+ * spec Q9): its rows are cost history that syncs and is backed up. A row
+ * written by a read would make a read-only command change synced state: after
+ * a `cleo show`, `cleo cloud verify` turned from `match` to `ahead`, and with
+ * change capture on every read would become a sync op (T13106). So a query
+ * (any gateway but `mutate`) records nothing. A mutation changes synced state
+ * anyway, and its cost row travels with that change. Read cost comes back
+ * through a device-local ledger folded into `token_usage` at push (T13114).
+ *
+ * Never throws: token telemetry must not break a command.
+ *
+ * @param input - The exchange; `gateway` decides whether it is recorded, `cwd` names the project.
+ */
 export async function autoRecordDispatchTokenUsage(input: TokenExchangeInput): Promise<void> {
+  if (input.gateway !== 'mutate') return;
   try {
     const { cwd, ...rest } = input;
     await recordTokenExchange(cwd ?? '', rest);

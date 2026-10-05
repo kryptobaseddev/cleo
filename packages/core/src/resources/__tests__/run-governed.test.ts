@@ -30,11 +30,19 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AdmissionResult, ResourceClass } from '@cleocode/contracts';
+import type { AdmissionResult, MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GovernedRunInTestRunnerError } from '../../tasks/tool-runner-guard.js';
+import {
+  type AdmissionOutcome,
+  type AdmissionRequest,
+  type AdmitOptions,
+  admissionIoError,
+  footprintForClass,
+} from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
 import { _resetGovernorStateForTest, governorSlotDir, ResourceGovernor } from '../governor.js';
-import { type RunJob, writeQueueTicket, writeRunJob } from '../run-admission.js';
+import { type RunJob, writeRunJob } from '../run-admission.js';
 import { type GovernedChild, type RunGovernedDeps, runGoverned } from '../run-governed.js';
 import {
   assessGovernorHolder,
@@ -81,15 +89,29 @@ interface Harness {
   }>;
   acquires: number;
   released: number;
+  /** Every request the ledger was asked (T13132). */
+  requests: AdmissionRequest[];
   clock: { t: number };
   sampleCalls: () => number;
   forward: (sig: NodeJS.Signals) => void;
   exit: (code: number | null, signal?: NodeJS.Signals | null) => void;
 }
 
+/** The memory gate's readings on a refused test run (T13127). */
+const PRESSURE_READING: MemoryPressureReading = {
+  score: 40,
+  fullStall: 0,
+  refuseAbove: 25,
+  resumeAtOrBelow: 15,
+  latched: false,
+  memAvailableBytes: 2 * 1024 ** 3,
+  summary:
+    'kernel level warning; 62% of RAM wired or compressed; swap 13.6 GiB used of 15.4 GiB (28% of RAM)',
+};
+
 function harness(opts: {
   levels?: Level[];
-  admissions?: Array<'grant' | 'deny'>;
+  admissions?: Array<'grant' | 'deny' | 'pressure'>;
   onSample?: (n: number, h: Harness) => void;
   onSleep?: (n: number, h: Harness) => void;
   spawnThrows?: boolean;
@@ -100,6 +122,8 @@ function harness(opts: {
   jobsDir?: string;
   /** The fake child's pid. @defaultValue 500 */
   childPid?: number;
+  /** The ledger finds an enclosing admission: the run rides it (T13133). */
+  ledgerNested?: boolean;
 }): Harness {
   const clock = { t: 1_000_000 };
   let calls = 0;
@@ -117,6 +141,7 @@ function harness(opts: {
     spawned: [],
     acquires: 0,
     released: 0,
+    requests: [],
     clock,
     sampleCalls: () => calls,
     forward: (sig) => handler?.(sig),
@@ -140,11 +165,86 @@ function harness(opts: {
       opts.onSample?.(calls, h);
       return sampleOf(level);
     },
+    // The admission ledger, scripted by the same `admissions` (T13133).
+    admit: async (req: AdmissionRequest, o: AdmitOptions): Promise<AdmissionOutcome> => {
+      h.requests.push(req);
+      const t0 = clock.t;
+      const take = (): 'grant' | 'deny' | 'pressure' | undefined => {
+        h.acquires++;
+        opts.onAcquire?.(h);
+        if (opts.acquireThrows) throw opts.acquireThrows;
+        return admissions.length > 1 ? admissions.shift() : admissions[0];
+      };
+      let next: 'grant' | 'deny' | 'pressure' | undefined;
+      try {
+        next = take();
+      } catch (err) {
+        const io = admissionIoError(err);
+        if (io === null) throw err;
+        return {
+          admitted: true,
+          grant: {
+            id: null,
+            token: '',
+            nested: false,
+            ungoverned: io,
+            waitedMs: 0,
+            footprintBytes: 0,
+            release: async () => {},
+          },
+        };
+      }
+      while (next !== 'grant' && o.wait && clock.t - t0 < (o.timeoutMs ?? 0)) {
+        if (next === 'pressure') o.memoryPressure?.waiting(PRESSURE_READING, clock.t - t0);
+        await (o.sleep ?? (async () => {}))(o.pollMs ?? 1000);
+        next = take();
+      }
+      if (next === 'grant') {
+        if (clock.t > t0) o.memoryPressure?.admitted(clock.t - t0, null);
+        const nested = opts.ledgerNested === true;
+        return {
+          admitted: true,
+          grant: {
+            id: nested ? null : 'g1',
+            token: nested ? 'outer.tok' : 'g1.tok',
+            nested,
+            ungoverned: null,
+            waitedMs: clock.t - t0,
+            footprintBytes: nested ? 0 : 1,
+            release: async () => {
+              h.released++;
+            },
+          },
+        };
+      }
+      const pressure = next === 'pressure';
+      return {
+        admitted: false,
+        refusal: {
+          reason: pressure
+            ? `memory pressure 40 (refused above 25, resumes at 15 or below): ${PRESSURE_READING.summary}`
+            : 'machine budget in use: 36 GiB of 36 GiB by 1 run(s)',
+          retryAfterMs: pressure ? 10_000 : 2_000,
+          memoryPressure: pressure ? PRESSURE_READING : null,
+          ahead: 0,
+          holders: [],
+        },
+      };
+    },
     tryAcquire: async (cls: ResourceClass) => {
       h.acquires++;
       opts.onAcquire?.(h);
       if (opts.acquireThrows) throw opts.acquireThrows;
       const next = admissions.length > 1 ? admissions.shift() : admissions[0];
+      if (next === 'pressure') {
+        return {
+          deferred: true,
+          class: cls,
+          retryAfterMs: 10_000,
+          reason: `memory pressure 40 is above 25 (${PRESSURE_READING.summary})`,
+          memoryPressure: PRESSURE_READING,
+        };
+      }
       return next === 'grant'
         ? grant()
         : { deferred: true, class: cls, retryAfterMs: 1000, reason: 'no slot free' };
@@ -184,8 +284,7 @@ function harness(opts: {
       };
     },
     jobsDir: opts.jobsDir ?? join(dir, 'jobs'),
-    queueDir: () => join(dir, 'queue'),
-    verifyHolders: () => [],
+    ledger: () => [],
     pid: process.pid, // alive for the registry's liveness probe
     groupOf: opts.groupOf ?? (() => null),
     ancestorsOf: opts.ancestorsOf ?? (() => []),
@@ -244,31 +343,26 @@ describe('runGoverned', () => {
     expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
   });
 
+  it('asks the ledger for the planned footprint and scope when given, else the class default (T13132)', async () => {
+    const h = harness({ onSample: (n, hh) => n === 2 && hh.exit(0) });
+    await runGoverned(base(h, { footprintBytes: 6 * 1024 ** 3, scope: 'narrowed' }));
+    expect(h.requests[0]).toMatchObject({
+      label: 'run:test-run',
+      footprintBytes: 6 * 1024 ** 3,
+      scope: 'narrowed',
+    });
+    const d = harness({ onSample: (n, hh) => n === 2 && hh.exit(0) });
+    await runGoverned(base(d));
+    expect(d.requests[0]?.footprintBytes).toBe(footprintForClass('test-run'));
+    expect(d.requests[0]).not.toHaveProperty('scope');
+  });
+
   it('a nested or forged grant marker buys nothing: every run is admitted on its own', async () => {
     const h = harness({ admissions: ['deny'] });
     const r = await runGoverned(base(h, { env: { CLEO_GOVERNOR_GRANT: 'test-run' } }));
     expect(h.acquires).toBe(1);
     expect(r.kind).toBe('deferred');
     expect(h.spawned).toEqual([]);
-  });
-
-  it('no barging: while someone waits in the queue, a newcomer defers without trying', async () => {
-    writeQueueTicket(
-      {
-        id: 'ahead',
-        pid: process.pid,
-        runnerStart: null,
-        enqueuedAtMs: 1,
-        heartbeatAtMs: FRESH,
-        command: 'x',
-      },
-      join(dir, 'queue'),
-    );
-    const h = harness({ admissions: ['grant'] });
-    const r = await runGoverned(base(h));
-    expect(h.acquires).toBe(0);
-    expect(r.kind).toBe('deferred');
-    if (r.kind === 'deferred') expect(r.reason).toMatch(/1 job\(s\) ahead in the test-run queue/);
   });
 
   it('defers without --wait: nothing spawned, holders listed', async () => {
@@ -283,41 +377,12 @@ describe('runGoverned', () => {
     expect(r.alternatives.at(-1)?.command).toContain('--wait');
   });
 
-  it('--wait is FIFO: only the head of the queue tries to acquire', async () => {
-    const qdir = join(dir, 'queue');
-    writeQueueTicket(
-      {
-        id: 'ahead',
-        pid: process.pid,
-        runnerStart: null,
-        enqueuedAtMs: 1,
-        heartbeatAtMs: FRESH,
-        command: 'x',
-      },
-      qdir,
-    );
-    const h = harness({
-      admissions: ['grant'],
-      onSleep: (n) => {
-        if (n === 3) rmSync(join(qdir, 'ahead.json'));
-      },
-      // sample 1: arrival; 2: the first attempt as head; 3: supervision.
-      onSample: (n, hh) => n === 3 && hh.exit(0),
-    });
-    const r = await runGoverned(base(h, { wait: true, queuePollMs: 1000, timeoutMs: 60_000 }));
-    expect(r.kind).toBe('exited');
-    // No attempt on arrival (someone was waiting), none while behind 'ahead',
-    // exactly one as head.
-    expect(h.acquires).toBe(1);
-    expect(existsSync(qdir) ? readdirSync(qdir) : []).toEqual([]);
-  });
-
   it('--wait times out with the queue position', async () => {
     const h = harness({ admissions: ['deny'] });
     const r = await runGoverned(base(h, { wait: true, queuePollMs: 1000, timeoutMs: 5000 }));
     expect(r.kind).toBe('deferred');
     if (r.kind !== 'deferred') return;
-    expect(r.reason).toMatch(/timed out after \d+s in the test-run queue \(position 1\)/);
+    expect(r.reason).toMatch(/timed out after \d+s waiting for the machine budget \(position 1\)/);
     expect(r.details.queuePosition).toBe(1);
     expect(h.spawned).toEqual([]);
   });
@@ -398,20 +463,23 @@ describe('runGoverned', () => {
     expect(r).toMatchObject({ kind: 'exited', signal: 'SIGTERM' });
   });
 
-  it("a nested run inside a live job's group runs on its slot: no acquire, not detached, never paused", async () => {
+  it("a nested run inside a live job's group rides its admission: not detached, never paused", async () => {
     writeRunJob(
       { ...olderJob(), id: 'outer', childPid: 777, childStart: 'start-777' },
       join(dir, 'jobs'),
     );
     const h = harness({
       groupOf: () => 777,
+      ledgerNested: true,
       levels: ['ok', 'backoff', 'backoff'],
       onSample: (n, hh) => n === 3 && hh.exit(0),
     });
     const r = await runGoverned(base(h));
     expect(r).toMatchObject({ kind: 'exited', exitCode: 0, slot: -1, pauses: 0 });
-    expect(h.acquires).toBe(0);
     expect(h.spawned[0]?.detached).toBe(false);
+    // The child carries the enclosing admission, so its own cleo commands ride it too.
+    expect(h.spawned[0]?.env).toMatchObject({ CLEO_ADMISSION: 'outer.tok' });
+    expect(h.released).toBe(1);
     expect(h.signals).toEqual([]);
   });
 
@@ -436,18 +504,22 @@ describe('runGoverned', () => {
     ]);
   });
 
-  it('a nested run under a parent of ANOTHER class is admitted on its own (MED-1)', async () => {
+  it('a nested run under a parent of ANOTHER class rides it too: one budget, no inversion (T13133)', async () => {
     writeRunJob(
       { ...olderJob(), id: 'outer', class: 'full-build', childPid: 777, childStart: 'start-777' },
       join(dir, 'jobs'),
     );
-    const h = harness({ groupOf: () => 777, admissions: ['deny'] });
+    const h = harness({
+      groupOf: () => 777,
+      ledgerNested: true,
+      onSample: (n, hh) => n === 2 && hh.exit(0),
+    });
     const r = await runGoverned(base(h));
     expect(h.acquires).toBe(1);
-    expect(r.kind).toBe('deferred');
+    expect(r).toMatchObject({ kind: 'exited', slot: -1 });
   });
 
-  it('a nested run of ANOTHER class takes its own slot but stays in the enclosing group (N1)', async () => {
+  it('a nested run of ANOTHER class rides the admission and stays in the enclosing group (N1)', async () => {
     writeRunJob(
       { ...olderJob(), id: 'outer', class: 'full-build', childPid: 777, childStart: 'start-777' },
       join(dir, 'jobs'),
@@ -455,6 +527,7 @@ describe('runGoverned', () => {
     let record: RunJob | undefined;
     const h = harness({
       groupOf: () => 777,
+      ledgerNested: true,
       levels: ['ok', 'backoff', 'backoff'],
       onSample: (n, hh) => {
         if (n === 2) {
@@ -467,9 +540,9 @@ describe('runGoverned', () => {
     });
     const r = await runGoverned(base(h));
     expect(h.acquires).toBe(1);
-    expect(r).toMatchObject({ kind: 'exited', slot: 0, pauses: 0 });
+    expect(r).toMatchObject({ kind: 'exited', slot: -1, pauses: 0 });
     expect(h.spawned[0]?.detached).toBe(false);
-    expect(record).toMatchObject({ parentJob: 'outer', holdsSlot: true, pausable: false });
+    expect(record).toMatchObject({ parentJob: 'outer', holdsSlot: false, pausable: false });
     // Never SIGSTOPped on its own (backoff, younger), and forwarded by pid.
     expect(h.signals).toEqual([
       [500, 'pid:SIGCONT'],
@@ -511,26 +584,31 @@ describe('runGoverned', () => {
     expect(h.spawned[0]?.detached).toBe(true);
   });
 
-  it('with --wait the ticket is written before the first try (L-1)', async () => {
-    let ticketsAtFirstTry = -1;
-    const h = harness({
-      admissions: ['grant'],
-      onAcquire: () => {
-        if (ticketsAtFirstTry < 0) ticketsAtFirstTry = readdirSync(join(dir, 'queue')).length;
-      },
-      onSample: (n, hh) => n === 2 && hh.exit(0),
-    });
-    await runGoverned(base(h, { wait: true, queuePollMs: 1000, timeoutMs: 60_000 }));
-    expect(ticketsAtFirstTry).toBe(1);
-    expect(readdirSync(join(dir, 'queue'))).toEqual([]); // removed once admitted
-  });
-
   it('a spawn failure releases the grant and leaves no record', async () => {
     const h = harness({ spawnThrows: true });
     const r = await runGoverned(base(h));
     expect(r).toMatchObject({ kind: 'exited', exitCode: null, spawnError: 'ENOENT: no such file' });
     expect(h.released).toBe(1);
     expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
+  });
+});
+
+describe('inside a test runner nothing starts without an injected spawn (T13236)', () => {
+  it('refuses with E_RUN_SPAWN_IN_TEST_RUNNER before admission when deps.spawn is not injected', async () => {
+    // This file runs under vitest, so a VITEST marker is set.
+    const sample = vi.fn();
+    const err = await runGoverned({
+      argv: ['pnpm', 'exec', 'vitest', 'run'],
+      cls: 'test-run',
+      cwd: tmpdir(),
+      env: {},
+      sessionId: null,
+      deps: { sample },
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GovernedRunInTestRunnerError);
+    expect((err as GovernedRunInTestRunnerError).codeName).toBe('E_RUN_SPAWN_IN_TEST_RUNNER');
+    expect((err as GovernedRunInTestRunnerError).message).toMatch(/VITEST/);
+    expect(sample).not.toHaveBeenCalled();
   });
 });
 
@@ -716,12 +794,76 @@ describe('--passthrough and a terminal in the foreground (#1777 R7)', () => {
     const h = harness({
       groupOf: () => 650, // the terminal's group: says nothing
       ancestorsOf: () => [640, 777, 600],
+      ledgerNested: true,
       onSample: (n, hh) => n === 2 && hh.exit(0),
     });
     const r = await runGoverned(base(h));
     expect(r).toMatchObject({ kind: 'exited', exitCode: 0, slot: -1 });
-    expect(h.acquires).toBe(0);
     expect(h.spawned[0]?.detached).toBe(false);
+  });
+});
+
+describe('memory pressure (T13127)', () => {
+  it('--wait says "waiting: memory pressure" with the readings, then starts when it falls', async () => {
+    const notices: Array<[string, string]> = [];
+    const h = harness({
+      admissions: ['pressure', 'pressure', 'pressure', 'grant'],
+      // samples 1-4: arrival and three tries; 5: supervision.
+      onSample: (n, hh) => n === 5 && hh.exit(0),
+    });
+    const r = await runGoverned(
+      base(h, {
+        wait: true,
+        queuePollMs: 1000,
+        timeoutMs: 600_000,
+        notice: (m: string, l: string) => notices.push([l, m]),
+      }),
+    );
+    expect(r.kind).toBe('exited');
+    expect(h.spawned).toHaveLength(1);
+    // A warning, so --passthrough (which drops info) still shows it; repeated
+    // at most once a minute, not on every poll.
+    const waiting = notices.filter(([, m]) => m.startsWith('waiting: memory pressure'));
+    expect(waiting).toEqual([['warn', expect.stringContaining(PRESSURE_READING.summary)]]);
+    expect(waiting[0]?.[1]).toContain(
+      'memory pressure 40 (refused above 25, resumes at 15 or below)',
+    );
+    expect(notices).toContainEqual([
+      'warn',
+      'memory pressure fell after waiting 3s: admitting the test-run job.',
+    ]);
+  });
+
+  it('without --wait the refusal is a deferral carrying the readings and a memory remedy', async () => {
+    const h = harness({ admissions: ['pressure'] });
+    const r = await runGoverned(base(h));
+    expect(r.kind).toBe('deferred');
+    if (r.kind !== 'deferred') return;
+    expect(h.spawned).toEqual([]);
+    expect(r.details.memoryPressure).toEqual(PRESSURE_READING);
+    expect(r.reason).toMatch(/^memory pressure 40 \(refused above 25, resumes at 15 or below\)/);
+    expect(r.fix).toContain('short of memory');
+    expect(r.fix).toContain('falls to 15 or below');
+  });
+
+  it('--wait under lasting pressure times out with the readings in the details', async () => {
+    const h = harness({ admissions: ['pressure'] });
+    const r = await runGoverned(base(h, { wait: true, queuePollMs: 1000, timeoutMs: 5000 }));
+    expect(r.kind).toBe('deferred');
+    if (r.kind !== 'deferred') return;
+    expect(r.reason).toMatch(
+      /timed out after \d+s waiting for the machine budget \(position 1\): memory pressure 40/,
+    );
+    expect(r.details.memoryPressure?.score).toBe(40);
+    expect(h.spawned).toEqual([]);
+  });
+
+  it('a capacity deferral carries no memory readings', async () => {
+    const h = harness({ admissions: ['deny'] });
+    const r = await runGoverned(base(h));
+    if (r.kind !== 'deferred') throw new Error('expected a deferral');
+    expect(r.details.memoryPressure).toBeNull();
+    expect(r.fix).not.toContain('short of memory');
   });
 });
 
@@ -771,9 +913,13 @@ describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
       join(dir, 'jobs'),
     );
     const nested: Array<[string, string]> = [];
-    const h = harness({ groupOf: () => 777, onSample: (n, hh) => n === 2 && hh.exit(0) });
+    const h = harness({
+      groupOf: () => 777,
+      ledgerNested: true,
+      onSample: (n, hh) => n === 2 && hh.exit(0),
+    });
     await runGoverned(base(h, { notice: (m: string, l: string) => nested.push([l, m]) }));
-    expect(nested).toEqual([['info', expect.stringContaining('nested in a running')]]);
+    expect(nested).toEqual([['info', expect.stringContaining('nested in an admitted run')]]);
   });
 });
 

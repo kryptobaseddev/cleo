@@ -61,11 +61,17 @@ import {
 import { constants as osConstants, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { ExitCode } from '@cleocode/contracts';
+import type { HeavyToolResourcePlan } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
+import { ADMISSION_ENV, planFootprintBytes } from '../resources/admission-ledger.js';
 import { activeToolGroups, trackToolGroup } from '../resources/tool-groups.js';
 import { isLocked, withLock } from '../store/lock.js';
-import { heavyToolEnv } from './heavy-tool-env.js';
+import {
+  type HeavyToolSpawnPlan,
+  planHeavyToolEnv,
+  withoutNpmEnvConfigWarnings,
+} from './heavy-tool-env.js';
 import {
   confinementStartupFailure,
   isSystemdRunCommand,
@@ -83,6 +89,7 @@ import {
   writeFailedFirstPointer,
 } from './tool-cache-failed-first.js';
 import type { ResolvedToolCommand } from './tool-resolver.js';
+import { resolveToolProcessRunner, type ToolProcessResult } from './tool-runner-guard.js';
 import { type AcquireSlotOptions, acquireGlobalSlot } from './tool-semaphore.js';
 
 // ---------------------------------------------------------------------------
@@ -349,6 +356,13 @@ export interface ToolRunResult {
    * clean one, for evidence atoms and gates to surface.
    */
   flaky?: string[];
+  /**
+   * The heap, worker count and workspace concurrency a memory-bound tool was
+   * spawned with (or, on a hit, that this call's environment plans — the cache
+   * key includes them, so a hit was produced under the same limits), and why
+   * (T13122). Absent for tools that are not memory-bound.
+   */
+  resources?: HeavyToolResourcePlan;
   /** Full cache entry — useful for audit / debugging. */
   entry: ToolCacheEntry;
 }
@@ -386,16 +400,15 @@ export interface RunToolOptions {
    */
   tailBytes?: number;
   /**
-   * When `true`, skip the global cross-process semaphore that bounds the
-   * total number of concurrent runs of this canonical tool across the
-   * whole machine. Use only in tests where the semaphore would block
-   * arbitrary parallel sibling tests.
+   * When `true`, skip machine-wide admission (the admission ledger that
+   * bounds every heavy run's memory across the machine, T13133). Use only in
+   * tests where admission would block arbitrary parallel sibling tests.
    *
    * @defaultValue `false`
    */
   skipGlobalSemaphore?: boolean;
   /**
-   * Tuning for the global semaphore acquisition. Forwarded to
+   * Tuning for the machine-wide admission. Forwarded to
    * {@link acquireGlobalSlot}.
    *
    * @internal
@@ -545,8 +558,7 @@ export function defaultSpawnTimeoutMs(canonical: string): number {
  *
  * Precedence:
  *   1. `CLEO_TOOL_TIMEOUT_<CANONICAL>` env var (canonical name uppercased,
- *      dashes → underscores — the same convention as
- *      `CLEO_TOOL_CONCURRENCY_<CANONICAL>` in tool-semaphore.ts). Value is
+ *      dashes → underscores). Value is
  *      milliseconds, digits only, strictly positive.
  *   2. {@link DEFAULT_SPAWN_TIMEOUT_MS}.
  *
@@ -885,33 +897,8 @@ export function resourceKillReason(run: {
 // Repo-state fingerprinting
 // ---------------------------------------------------------------------------
 
-interface CommandResult {
-  exitCode: number | null;
-  /**
-   * POSIX signal name that terminated the child, or `null` when it exited
-   * normally (or never started).
-   *
-   * gh#1381: Node's `close` event is `(code, signal)` and exactly one of them
-   * is non-null. Binding only `code` collapses "killed after running" and
-   * "never started" into the same `exitCode: null`, one line after the two
-   * were distinguishable — and the caller then reports a 41-minute OOM-killed
-   * test suite as "binary missing or spawn error".
-   */
-  signal: NodeJS.Signals | null;
-  stdout: string;
-  stderr: string;
-  /** `true` when the wall-clock deadline was exceeded and the process was force-killed. */
-  timedOut: boolean;
-  /**
-   * Node's spawn-error message (`ENOENT`, `EACCES`, `EAGAIN`, …) when the child
-   * could not be started at all, else `null`.
-   *
-   * gh#1397: the `error` handler used to take no argument and resolve
-   * `(null, null)`, discarding the one object that said WHY nothing started —
-   * the same defect gh#1381 fixed one event-handler over, for `signal`.
-   */
-  spawnError: string | null;
-}
+/** Captured output of one spawned command (shared with the test-runner guard). */
+type CommandResult = ToolProcessResult;
 
 /**
  * Maximum bytes retained from a child's stdout / stderr stream during
@@ -1095,6 +1082,29 @@ export function terminateToolGroupsOnExit(): void {
   terminateActiveToolGroups();
 }
 
+/**
+ * The real tool process runner: spawns `cmd` in its own process group with a
+ * tail-bounded capture and a wall-clock kill. A test that means to start a
+ * child process injects it with `injectToolProcessRunner(spawnToolProcess)`
+ * (T13203); production code reaches it through `resolveToolProcessRunner`.
+ *
+ * @param cmd - Executable.
+ * @param args - Arguments.
+ * @param cwd - Working directory.
+ * @param spawnTimeoutMs - Kill the process tree after this many ms.
+ * @param envOverlay - Variables layered over `process.env`.
+ * @returns The captured result.
+ */
+export function spawnToolProcess(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  spawnTimeoutMs?: number,
+  envOverlay?: Readonly<Record<string, string>>,
+): Promise<CommandResult> {
+  return spawnCmd(cmd, args, cwd, spawnTimeoutMs, envOverlay);
+}
+
 function spawnCmd(
   cmd: string,
   args: string[],
@@ -1146,7 +1156,9 @@ function spawnCmd(
       clearTimers();
       untrackGroup();
       syncTerminationCleanup();
-      const stderr = stderrBuf.toString();
+      // T13122: npm's per-run `Unknown env config` warnings (the overlay's
+      // pnpm spellings) never reach the failure tail CLEO quotes.
+      const stderr = withoutNpmEnvConfigWarnings(stderrBuf.toString());
       resolve({
         exitCode,
         signal,
@@ -1615,8 +1627,14 @@ async function runFocused(
 ): Promise<FocusedOutcome> {
   for (const run of plan) {
     const limited = withMemoryLimit(command.canonical, run.cmd, run.args, { executionRoot });
+    // T13203: refuse inside a test runner unless a runner was injected.
+    const runner = resolveToolProcessRunner(
+      command.canonical,
+      [run.cmd, ...run.args].join(' '),
+      spawnToolProcess,
+    );
     const startedAt = Date.now();
-    const result = await spawnCmd(limited.cmd, [...limited.args], run.cwd, spawnTimeoutMs, toolEnv);
+    const result = await runner(limited.cmd, [...limited.args], run.cwd, spawnTimeoutMs, toolEnv);
     const durationMs = Date.now() - startedAt;
     if (result.timedOut) return { kind: 'timedOut', result, durationMs, cwd: run.cwd };
     const harnessFailure = confinementStartupFailure(result.stderr, limited.confined);
@@ -1694,6 +1712,22 @@ export async function runToolCached(
   projectRoot: string,
   opts: RunToolOptions = {},
 ): Promise<ToolRunResult> {
+  // T12989 / T13122: the overlay is planned ONCE and both spawned with and
+  // keyed on, so the key describes the heap and worker limits the run actually
+  // got; the plan behind it rides on every result, hit or miss.
+  const spawnPlan = planHeavyToolEnv(command.canonical);
+  const result = await runToolCachedWithPlan(command, projectRoot, opts, spawnPlan);
+  return spawnPlan.resources === null ? result : { ...result, resources: spawnPlan.resources };
+}
+
+/** {@link runToolCached} with its heavy-tool overlay already planned. */
+async function runToolCachedWithPlan(
+  command: ResolvedToolCommand,
+  projectRoot: string,
+  opts: RunToolOptions,
+  spawnPlan: HeavyToolSpawnPlan,
+): Promise<ToolRunResult> {
+  const toolEnv = spawnPlan.overlay;
   const callStartedAt = Date.now();
   const tailBytes = opts.tailBytes ?? 512;
   const lockStaleMs = opts.lockStaleMs ?? 600_000;
@@ -1717,10 +1751,11 @@ export async function runToolCached(
 
   const treeHash = await captureTreeHash(executionRoot);
   const envFingerprint = captureEnvFingerprint(executionRoot, command.canonical);
-  // T12989: the overlay is computed ONCE and both spawned with and keyed on,
-  // so the key describes the heap and worker limits the run actually got.
-  const toolEnv = heavyToolEnv(command.canonical);
   const resourceEnv = captureResourceEnv(command.canonical, process.env, toolEnv);
+  // T13133: the admission token goes to the spawned tool (so a cleo command it
+  // runs rides this run's grant) but never into the cache key: it differs on
+  // every run.
+  let admissionEnv: Readonly<Record<string, string>> = {};
   const head = await captureHead(executionRoot);
   const key = computeCacheKey(command, treeHash, envFingerprint, resourceEnv);
 
@@ -1844,18 +1879,18 @@ export async function runToolCached(
   }
 
   // Slow path:
-  //   1. Acquire the global per-tool semaphore (bounds total concurrent
-  //      runs of this canonical across all worktrees / projects on the
-  //      machine — protects CPU and resident memory).
-  //   2. Inside the semaphore, acquire a per-key file lock to coalesce
+  //   1. Wait for machine-wide admission (the admission ledger, T13133: one
+  //      memory budget across all worktrees, projects and heavy-run kinds).
+  //   2. Holding the admission, try the per-key file lock to coalesce
   //      concurrent verifies that share the same cache key.
   //   3. Re-check cache inside the per-key lock; spawn only if still
   //      missing; write the entry; release in reverse order.
   //
-  // Order matters: acquiring the semaphore FIRST means workers blocked on
-  // the global limit are not also holding per-key locks, which keeps the
-  // per-key lock turnover fast. Acquiring the per-key lock SECOND means
-  // we still get cache-hit coalescing for sibling verifies.
+  // Order matters: admission FIRST means runs waiting on the budget hold no
+  // per-key lock, which keeps per-key lock turnover fast. The per-key lock is
+  // only ever tried while admitted: a holder finding it taken gives the
+  // admission back and waits outside (below), so no wait is ever held across
+  // the two.
   ensureCacheDir(projectRoot);
   const cachePath = cacheEntryPath(projectRoot, key);
   if (!existsSync(cachePath)) {
@@ -1910,7 +1945,10 @@ export async function runToolCached(
           files: [...pointer.files],
           outcome,
         });
-        const focused = await runFocused(command, plan, executionRoot, spawnTimeoutMs, toolEnv);
+        const focused = await runFocused(command, plan, executionRoot, spawnTimeoutMs, {
+          ...toolEnv,
+          ...admissionEnv,
+        });
         switch (focused.kind) {
           case 'timedOut':
             return timedOutResult(focused.result, focused.durationMs, report('inconclusive'));
@@ -1977,15 +2015,19 @@ export async function runToolCached(
       // runs in (T12112 / gh#1220).
       executionRoot,
     });
+    // T13203: a tool spawned from inside a test runner is almost always a mock
+    // that stopped intercepting; refuse it unless the test injected a runner.
+    const runner = resolveToolProcessRunner(
+      command.canonical,
+      [command.cmd, ...command.args].join(' '),
+      spawnToolProcess,
+    );
     const spawnNormal = async (): Promise<{ result: CommandResult; durationMs: number }> => {
       const startedAt = Date.now();
-      const result = await spawnCmd(
-        limited.cmd,
-        [...limited.args],
-        executionRoot,
-        spawnTimeoutMs,
-        toolEnv,
-      );
+      const result = await runner(limited.cmd, [...limited.args], executionRoot, spawnTimeoutMs, {
+        ...toolEnv,
+        ...admissionEnv,
+      });
       return { result, durationMs: Date.now() - startedAt };
     };
     // gh#1397: `limited.confined` OR the project's own pinned wrapper:
@@ -2146,9 +2188,22 @@ export async function runToolCached(
     !bypassCache || Date.parse(e.capturedAt) >= callStartedAt;
 
   for (;;) {
+    // T13132: a memory-bound run is charged what its plan lets it start —
+    // packages × workers × (heap + overhead) — the limits it is spawned with.
     const releaseSemaphore = opts.skipGlobalSemaphore
       ? undefined
-      : await acquireGlobalSlot(command.canonical, opts.semaphoreOptions);
+      : await acquireGlobalSlot(command.canonical, {
+          ...(spawnPlan.resources
+            ? {
+                heapMb: spawnPlan.resources.heapMb,
+                footprintBytes: planFootprintBytes(spawnPlan.resources),
+              }
+            : {}),
+          ...opts.semaphoreOptions,
+        });
+    admissionEnv = releaseSemaphore?.admission
+      ? { [ADMISSION_ENV]: releaseSemaphore.admission }
+      : {};
     try {
       return await withLock(cachePath, runLocked, { stale: lockStaleMs, retries: 3 });
     } catch (err: unknown) {

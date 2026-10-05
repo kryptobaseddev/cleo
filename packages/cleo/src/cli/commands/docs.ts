@@ -21,21 +21,23 @@ import {
   DocKindRegistry,
   ExitCode,
 } from '@cleocode/contracts';
-import { pushWarning } from '@cleocode/core';
-import { createDocsReadModel } from '@cleocode/core/docs/docs-read-model';
 import {
-  CleoError,
-  CounterMismatchError,
+  detectStrayCleoDb,
+  getAgentOutputsAbsolute,
+  resolveWorktreeFilePath,
+  resolveWorktreeRouting,
+} from '@cleocode/core/core-paths';
+import { createDocsReadModel } from '@cleocode/core/docs/docs-read-model';
+import { CounterMismatchError } from '@cleocode/core/docs/import/import-orchestrator';
+import {
   checkSlugSimilarity,
   DEFAULT_SIMILARITY_MODE,
   DEFAULT_SIMILARITY_THRESHOLD,
-  detectStrayCleoDb,
-  getAgentOutputsAbsolute,
-  getProjectRoot,
-  readJson,
-  resolveWorktreeFilePath,
-  resolveWorktreeRouting,
-} from '@cleocode/core/internal';
+} from '@cleocode/core/docs/similarity-check';
+import { CleoError } from '@cleocode/core/errors';
+import { pushWarning } from '@cleocode/core/output';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { readJson } from '@cleocode/core/store/json';
 import { describeOperation } from '@cleocode/lafs';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
@@ -2735,7 +2737,7 @@ const schemaCommand = defineCommand({
     let counts: Record<string, number> | undefined;
     if (wantCounts) {
       counts = {};
-      const { createAttachmentStore } = await import('@cleocode/core/internal');
+      const { createAttachmentStore } = await import('@cleocode/core/store/attachment-store');
       const store = createAttachmentStore();
       for (const k of kinds) counts[k.kind] = 0;
       try {
@@ -2806,7 +2808,7 @@ const listTypesCommand = defineCommand({
     let counts: Record<string, number> | undefined;
     if (wantCounts) {
       counts = {};
-      const { createAttachmentStore } = await import('@cleocode/core/internal');
+      const { createAttachmentStore } = await import('@cleocode/core/store/attachment-store');
       const store = createAttachmentStore();
       for (const k of kinds) counts[k.kind] = 0;
       try {

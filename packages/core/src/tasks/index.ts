@@ -177,16 +177,31 @@ export {
   verifyAuditHistory,
 } from './gate-audit.js';
 // T12096 — hard memory ceiling injected into every heavy tool CLEO spawns.
-export type { HeavyToolEnv } from './heavy-tool-env.js';
+// T13122 — planned against the run's budget; inherited values can only tighten it.
+export type { HeavyToolEnv, HeavyToolSpawnPlan } from './heavy-tool-env.js';
 export {
+  defaultHeavyHeapMb,
+  defaultSingleProcessHeapMb,
   GIB_PER_WORKER,
+  HEAVY_HEAP_ENV,
+  HEAVY_HEAP_RAM_FRACTION,
   HEAVY_TOOL_HEAP_MB,
+  HEAVY_WORKERS_ENV,
+  HEAVY_WORKSPACE_CONCURRENCY_ENV,
+  heavyRunBudgetMb,
   heavyToolEnv,
   heavyToolWorkers,
+  inheritedHeapMb,
   MAX_HEAVY_WORKERS,
+  MIN_HEAVY_HEAP_MB,
   MIN_HEAVY_WORKERS,
   mergeNodeOptions,
+  planHeavyToolEnv,
   WORKSPACE_CONCURRENCY,
+  WORKSPACE_CONCURRENCY_VARS,
+  withHeapCeiling,
+  withSemiSpaceCap,
+  workspaceConcurrencyNames,
 } from './heavy-tool-env.js';
 // Pre-dispatch inference for cleo add (T1490)
 export {
@@ -314,19 +329,12 @@ export {
   type ResolveToolResult,
   resolveToolCommand,
 } from './tool-resolver.js';
-// Cross-process global per-tool concurrency semaphore (T1534 / ADR-061)
+// Machine-wide evidence-run admission over the admission ledger (T1534 / ADR-061, T13133)
 export {
   type AcquireSlotOptions,
+  AdmissionTimeoutError,
   acquireGlobalSlot,
-  defaultMaxConcurrent,
-  isHolderAlive,
-  listSlotHolders,
+  legacyConcurrencyOverride,
   type ReleaseSlotFn,
-  readHolder,
-  reapOrphanedSlots,
-  reapSlotIfOrphaned,
-  resolveMaxConcurrent,
-  type SlotHolder,
-  semaphoreDir,
 } from './tool-semaphore.js';
 export { taskUpdate, type UpdateTaskOptions, type UpdateTaskResult, updateTask } from './update.js';

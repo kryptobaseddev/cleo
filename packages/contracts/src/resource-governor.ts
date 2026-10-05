@@ -89,6 +89,41 @@ export const RUN_DEFERRED_EXIT_CODE = 75;
 export const RESOURCE_BACKPRESSURE_CODE = 'E_RESOURCE_BACKPRESSURE' as const;
 
 /**
+ * The numbers behind a memory-pressure refusal of a heavy class (T13127).
+ *
+ * The memory gate refuses `test-run`, `scoped-build` and `full-build` while
+ * memory pressure is above {@link MemoryPressureReading.refuseAbove}; once it
+ * has refused, it admits again only when pressure falls to
+ * {@link MemoryPressureReading.resumeAtOrBelow} (hysteresis), so admission
+ * does not flap at the threshold.
+ *
+ * @example
+ * ```ts
+ * const r: MemoryPressureReading = {
+ *   score: 31, fullStall: 0, refuseAbove: 25, resumeAtOrBelow: 15, latched: false,
+ *   memAvailableBytes: 21_000_000_000,
+ *   summary: 'kernel level warn; 59% of RAM wired or compressed; swap 11.4 GiB used (24% of RAM)',
+ * };
+ * ```
+ */
+export interface MemoryPressureReading {
+  /** Memory pressure on the PSI `some avg10` scale (0–100). */
+  readonly score: number;
+  /** Memory `full avg10` stall (0–100); 0 when the platform reports none. */
+  readonly fullStall: number;
+  /** Heavy classes are refused while {@link score} is above this. */
+  readonly refuseAbove: number;
+  /** A refusing gate admits again once {@link score} is at or below this. */
+  readonly resumeAtOrBelow: number;
+  /** `true` when the gate was already refusing, so the resume threshold applied. */
+  readonly latched: boolean;
+  /** Available memory in bytes, when the platform reports it. */
+  readonly memAvailableBytes: number | null;
+  /** The platform signals in one line (kernel level, swap, compressor, PSI). */
+  readonly summary: string;
+}
+
+/**
  * Structured, retryable deferral returned when admission is denied. Never a
  * silent drop; callers back off `retryAfterMs` and re-request, or annotate the
  * unit as deferred and let a pull-based retry pick it up.
@@ -102,6 +137,11 @@ export interface ResourceDeferral {
   readonly retryAfterMs: number;
   /** Human-readable reason (pressure state, budget, held count). */
   readonly reason: string;
+  /**
+   * Set when the deferral is a memory-pressure refusal of a heavy class rather
+   * than a full budget: the readings behind it (T13127).
+   */
+  readonly memoryPressure?: MemoryPressureReading;
 }
 
 /**
@@ -137,6 +177,66 @@ export const DEFAULT_RESOURCE_RETRY_AFTER_MS = 2_000;
 /** Type guard: did an admission attempt produce a usable grant? */
 export function isResourceGrant(r: AdmissionResult): r is ResourceGrant {
   return r.deferred === false;
+}
+
+/**
+ * Where the heap ceiling of a heavy tool run came from (T13122).
+ *
+ * - `default` — no heap in the caller's `NODE_OPTIONS`; CLEO's default applies.
+ * - `inherited` — the caller's `NODE_OPTIONS` heap fits the run's budget and is
+ *   kept; the worker count shrinks so the run still fits.
+ * - `clamped` — the caller's `NODE_OPTIONS` heap exceeds the run's budget (a
+ *   shell-profile export is not a per-project choice) and was lowered to it.
+ * - `override` — `CLEO_HEAVY_HEAP_MB` set it explicitly; never clamped.
+ */
+export type HeavyHeapSource = 'default' | 'inherited' | 'clamped' | 'override';
+
+/** One inherited environment value CLEO replaced because it exceeded the plan (T13122). */
+export interface HeavyLeverChange {
+  /** Variable name, e.g. `VITEST_MAX_WORKERS` or `NODE_OPTIONS`. */
+  readonly name: string;
+  /** The inherited value, as the caller's environment carried it. */
+  readonly from: string;
+  /** The value the tool was spawned with. */
+  readonly to: string;
+}
+
+/**
+ * The resource plan a memory-bound tool (`test`, `build`, and since T13123
+ * `typecheck`, `lint`) was spawned with, and why (T13122). Reported by
+ * `cleo verify` (on the `tool` evidence atom and in a resource-kill message)
+ * and by `cleo run`, so an operator can see when an inherited value was
+ * clamped. A single-process tool's plan has one worker.
+ *
+ * The invariant it describes: `workspaceConcurrency × workers × heapMb` stays
+ * within `budgetMb`, unless an explicit `CLEO_HEAVY_*` override asked for more
+ * (`overBudget`).
+ */
+export interface HeavyToolResourcePlan {
+  /** V8 old-space ceiling given to every Node process in the tool's tree, in MiB. */
+  readonly heapMb: number;
+  /** Where {@link heapMb} came from. */
+  readonly heapSource: HeavyHeapSource;
+  /** The heap the caller's `NODE_OPTIONS` asked for, in MiB; `null` when it set none. */
+  readonly inheritedHeapMb: number | null;
+  /** Worker count given to every runner that reads one (`VITEST_MAX_WORKERS`, `GOMAXPROCS`, …). */
+  readonly workers: number;
+  /** `plan` when derived from the heap and budget; `override` when `CLEO_HEAVY_WORKERS` set it. */
+  readonly workersSource: 'plan' | 'override';
+  /** Workspace packages allowed to run their script at once (`npm_config_workspace_concurrency`). */
+  readonly workspaceConcurrency: number;
+  /** Heap budget for the whole run, in MiB: the default worker count times the default heap. */
+  readonly budgetMb: number;
+  /** Total RAM the budget derives from, in MiB. */
+  readonly totalRamMb: number;
+  /** Inherited values replaced because they exceeded the plan. Empty when nothing was clamped. */
+  readonly clamped: readonly HeavyLeverChange[];
+  /** Inherited worker or concurrency values kept because they were within the plan, as `NAME=value`. */
+  readonly kept: readonly string[];
+  /** `true` when explicit `CLEO_HEAVY_*` overrides put the run over {@link budgetMb}. */
+  readonly overBudget: boolean;
+  /** One line naming the heap and worker count chosen and why. */
+  readonly summary: string;
 }
 
 /** Explicit local user-manager connection for resource-controlled process launch. */

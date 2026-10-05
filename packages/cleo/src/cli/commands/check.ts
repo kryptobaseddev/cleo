@@ -9,7 +9,8 @@
  * @task T1136 — provenance subcommand: audit git log for untagged commits
  */
 
-import { formatPrGateSummary, type PrGateSummary, runPrGate } from '@cleocode/core/internal';
+import { formatPrGateSummary, runPrGate } from '@cleocode/core/check/pr-gate';
+import type { PrGateSummary } from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { negatedFlag } from '../lib/negated-flag.js';
@@ -41,6 +42,22 @@ function emitPrGateSummary(summary: PrGateSummary): void {
   // Human report is formatted in core; single stderr write keeps the CLI thin.
   process.stderr.write(`${formatPrGateSummary(summary)}\n`);
 }
+
+/**
+ * Exit code with which an arch-gate script reports "precondition absent
+ * locally, nothing checked" (gate 39 without a current build). `cleo check
+ * arch` records it as skipped, never as a failure, but only for the scripts
+ * in {@link GATE_SKIP_REPORTING_SCRIPTS} (T13126).
+ */
+const GATE_SKIPPED_EXIT = 78;
+
+/**
+ * Arch-gate scripts that declare the {@link GATE_SKIPPED_EXIT} convention. Any
+ * other script exiting 78 crashed or failed, and is reported as a failure.
+ */
+const GATE_SKIP_REPORTING_SCRIPTS: ReadonlySet<string> = new Set([
+  'scripts/check-cli-startup-graph.mjs',
+]);
 
 /**
  * The 12 supported protocol types — must stay in sync with
@@ -469,7 +486,10 @@ const checkProvenanceCommand = defineCommand({
  *
  * Each gate is run in --check mode (baseline tolerance). A gate whose script
  * does not yet exist on disk is reported as "skipped" (non-blocking) to allow
- * incremental rollout as sibling tasks land.
+ * incremental rollout as sibling tasks land. So is a gate that exits
+ * {@link GATE_SKIPPED_EXIT} and declares that convention
+ * ({@link GATE_SKIP_REPORTING_SCRIPTS}): its precondition is absent locally
+ * (gate 39 with no current build), and CI enforces it.
  *
  * Exit codes:
  *   0 — all present gates passed (skipped gates are non-blocking)
@@ -847,6 +867,31 @@ const checkArchCommand = defineCommand({
         script: 'scripts/lint-sync-write-invariants.mjs',
         description: 'Every synced-write rejection site is classified (ratchet)',
       },
+      {
+        // T13126: gates 19 and 25 read the CLI SOURCE graph, and stayed green
+        // while every `cleo` call evaluated all of CORE: the unsplit esbuild
+        // bundle hoisted each lazy `import()`'s externals to static imports.
+        // This gate measures the BUILT CLI instead: the entry's static graph
+        // must not import a barrel, and `--version`, `--help` and `show` run in
+        // a throwaway sandbox under module-count budgets (the ratchet) and RSS
+        // ceilings. Needs a current `pnpm run build`; a missing or stale build
+        // fails rather than measuring code that is no longer there.
+        id: 'gate-39',
+        task: 'T13126',
+        script: 'scripts/check-cli-startup-graph.mjs',
+        description: 'Built CLI startup graph and per-command module budgets (ratchet)',
+      },
+      {
+        // T13126: the @cleocode/contracts barrel evaluates every contracts zod
+        // schema (~40 MB of heap). Runtime source of the packages the CLI
+        // loads imports VALUES from the declaring leaf module; type-only
+        // imports may stay on the barrel (erased). Core's own public barrels
+        // are exempt. A 6-file baseline (skill-covered files) may only shrink.
+        id: 'gate-40',
+        task: 'T13126',
+        script: 'scripts/lint-no-contracts-barrel-value-imports.mjs',
+        description: 'No runtime value import from the @cleocode/contracts barrel',
+      },
     ] as const;
 
     const scriptArgs = strict ? ['--strict'] : ['--check'];
@@ -890,15 +935,19 @@ const checkArchCommand = defineCommand({
         cwd: repoRoot,
       });
 
+      // A gate exits GATE_SKIPPED_EXIT when its precondition is absent locally
+      // (gate 39 without a current build): reported, never blocking (T13126).
+      const skipped =
+        result.status === GATE_SKIPPED_EXIT && GATE_SKIP_REPORTING_SCRIPTS.has(gate.script);
       const passed = result.status === 0;
-      if (!passed) anyFailed = true;
+      if (!passed && !skipped) anyFailed = true;
 
       results.push({
         id: gate.id,
         task: gate.task,
         script: gate.script,
         description: gate.description,
-        status: passed ? 'pass' : 'fail',
+        status: skipped ? 'skipped' : passed ? 'pass' : 'fail',
         exitCode: result.status,
         stdout: result.stdout ?? '',
         stderr: result.stderr ?? '',
