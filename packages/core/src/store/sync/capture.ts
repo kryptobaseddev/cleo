@@ -234,6 +234,31 @@ function fullImage(def: CaptureTableDef, row: string, liveIdentity: boolean): st
   )})`;
 }
 
+/**
+ * The SQL images of a repair capture (§4.4, T12987), read from the live row
+ * aliased `row`, in the shapes the triggers write, so the sealer reads a
+ * repair capture like any other:
+ * - `rk`: the row's local key;
+ * - `insert`: the I image ({@link fullImage});
+ * - `update`: a U image of every updatable column, `[null, after]`. The
+ *   before slot is JSON null because only the content hash was kept; a
+ *   trigger's before is always an `enc()` text, so null marks a repair.
+ *   Secret columns are left out (their `shash` is a follow-up).
+ */
+export function repairImageSql(
+  def: CaptureTableDef,
+  row: string,
+): { readonly rk: string; readonly insert: string; readonly update: string } {
+  const updatable = def.columns.filter((c) => !def.identity.includes(c) && !def.secret.has(c));
+  return {
+    rk: rkExpr(def, row),
+    insert: fullImage(def, row, false),
+    update: chunkedObject(
+      updatable.map((c) => [c, `json_array(NULL, ${valueExpr(def, c, row, false)})`] as const),
+    ),
+  };
+}
+
 /** The undo image: every captured column, secret ciphertext and strip included (Rule 2). */
 function undoImage(def: CaptureTableDef, row: string, liveIdentity: boolean): string {
   return chunkedObject(

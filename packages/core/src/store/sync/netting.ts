@@ -82,6 +82,11 @@ export interface DraftOp {
   readonly k?: Record<string, WireValue>;
   readonly a?: Record<string, WireValue | IncValue>;
   readonly b?: Record<string, WireValue>;
+  /**
+   * A repair U (§4.4, T12987): the before-image is unknown, so every column
+   * of `a` is kept (none can be judged unchanged) and the op carries no `b`.
+   */
+  readonly unknownBefore?: true;
 }
 
 /** A netted op, ready for an HLC. `last` is its last capture's seq. */
@@ -232,6 +237,7 @@ function settle(
       return { ...base(acc.first), o: 'I', a: acc.a };
     }
     case 'U': {
+      if (acc.first.unknownBefore === true) return { ...base(acc.first), o: 'U', a: acc.a };
       const a: Record<string, WireValue | IncValue> = {};
       const b: Record<string, WireValue> = {};
       for (const col of new Set([...Object.keys(acc.a), ...Object.keys(acc.b)])) {
