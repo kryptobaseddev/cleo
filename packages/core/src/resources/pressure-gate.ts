@@ -117,6 +117,7 @@ export function describeMemoryPressure(sample: ResourceSample): string {
       parts.push(`${100 - d.availablePercent}% of RAM wired or compressed`);
     }
     if (d.compressorBytes !== null) parts.push(`compressor ${bytes(d.compressorBytes)}`);
+    if (d.reclaimableBytes != null) parts.push(`${bytes(d.reclaimableBytes)} reclaimable`);
     if (d.swapUsedBytes !== null) {
       const total = d.swapTotalBytes !== null ? ` of ${bytes(d.swapTotalBytes)}` : '';
       const share =

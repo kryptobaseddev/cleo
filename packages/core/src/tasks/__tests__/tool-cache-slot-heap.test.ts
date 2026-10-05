@@ -63,6 +63,9 @@ describe('runToolCached sizes the typecheck slot from the planned heap (T13123)'
     );
     expect(result.exitCode).toBe(0);
     expect(result.resources?.heapMb).toBe(1024);
-    expect(acquired).toEqual([{ canonical: 'typecheck', opts: { heapMb: 1024 } }]);
+    // T13132: charged what the plan lets it start — 1 process × (1024 + 2048) MiB.
+    expect(acquired).toEqual([
+      { canonical: 'typecheck', opts: { heapMb: 1024, footprintBytes: (1024 + 2048) * 1024 ** 2 } },
+    ]);
   });
 });
