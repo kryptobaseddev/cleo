@@ -301,12 +301,24 @@ export const PROBES = Object.freeze([
     maxRssMb: 200,
   },
   {
+    // T12341 C1: the same read on the same (now non-empty) store with row uids
+    // off, the yardstick for the two probes below.
+    name: 'show-existing',
+    args: ['show', 'T001'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 500,
+    maxRssMb: 200,
+  },
+  {
     // T12341 C1: the first open with row uids on fills the sandbox store.
     name: 'show-fill-first',
     args: ['show', 'T001'],
     needsProject: true,
     env: { CLEO_ROW_UID_FILL: '1' },
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
     maxModules: 500,
     maxRssMb: 200,
   },
@@ -318,7 +330,8 @@ export const PROBES = Object.freeze([
     needsProject: true,
     env: { CLEO_ROW_UID_FILL: '1' },
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
-    noMoreModulesThan: 'show',
+    expectExit: 0,
+    noMoreModulesThan: 'show-existing',
     maxModules: 500,
     maxRssMb: 200,
   },
