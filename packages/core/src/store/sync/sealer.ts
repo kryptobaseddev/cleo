@@ -70,6 +70,7 @@ import {
   setFieldFrontiers,
 } from './field-leave.js';
 import { isSyncFlagOn, UNRELEASED_FLAGS } from './flags.js';
+import { mergeGroupsOf } from './merge/rules.js';
 import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './netting.js';
 import { remapCapture, remapPending } from './remap.js';
 import { activeReplica } from './replica.js';
@@ -808,6 +809,124 @@ function waitingEffect(db: DatabaseSync, tbl: string, facts: MetaFacts): number 
   return n;
 }
 
+/** Write one `_sync_meta` value (the sealer's own bookkeeping keys). */
+function setSealMeta(db: DatabaseSync, key: string, value: string, atIso: string): void {
+  db.prepare(
+    'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
+      'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+  ).run(key, value, atIso);
+}
+
+/** Set once the sealed-but-unsent ops have been made group-whole (T13233). */
+export const LEGACY_GROUPS_KEY = 'sealer.group_whole_v1';
+
+/** The merge-group members a U image or op carries part of, and lacks. */
+function missingGroupMembers(
+  def: CaptureTableDef,
+  carried: Readonly<Record<string, unknown>>,
+): string[] {
+  return mergeGroupsOf(def.table, def.columns).flatMap((g) =>
+    g.some((m) => m in carried) ? g.filter((m) => !(m in carried)) : [],
+  );
+}
+
+/**
+ * A column's `enc()` value at the time of capture `c`: the before-image of
+ * the next live capture of the row that recorded it, else the live row.
+ */
+function encAtCapture(ctx: TableContext, c: CaptureRow, col: string): string | undefined {
+  const later = ctx
+    .stmt(
+      "SELECT op, img FROM _sync_capture WHERE state = 'live' AND tbl = ? AND rk = ? AND seq > ? ORDER BY seq",
+    )
+    .all(c.tbl, c.rk, c.seq) as Array<{ op: string; img: string }>;
+  for (const l of later) {
+    const img = JSON.parse(l.img) as Record<string, unknown>;
+    if (!(col in img)) continue;
+    const raw = img[col];
+    const v = l.op === 'U' && Array.isArray(raw) ? raw[0] : raw;
+    return typeof v === 'string' ? v : undefined;
+  }
+  if (c.uid === null) return undefined;
+  const row = ctx
+    .stmt(`SELECT ${enc(q(col))} AS v FROM main.${q(c.tbl)} WHERE ${q(UID_COLUMN)} = ?`)
+    .get(c.uid) as { v: unknown } | undefined;
+  return typeof row?.v === 'string' ? row.v : undefined;
+}
+
+/**
+ * Complete the merge groups of U captures the pre-T13222 trigger recorded
+ * (changed columns only, T13233): each missing member is added unchanged
+ * (before = after) with its value at the capture, so the sealed op carries
+ * the whole group instead of being refused by every receiver. A capture
+ * from the current trigger always records whole groups and is untouched.
+ */
+function completeLegacyCaptureGroups(ctx: TableContext, batch: CaptureRow[]): CaptureRow[] {
+  return batch.map((c) => {
+    if (c.op !== 'U') return c;
+    const img = JSON.parse(c.img) as Record<string, unknown>;
+    if (mergeGroupsOf(c.tbl, Object.keys(img)).length === 0) return c;
+    const def = ctx.def(c.tbl);
+    const missing = missingGroupMembers(def, img);
+    if (missing.length === 0) return c;
+    for (const m of missing) {
+      const v = encAtCapture(ctx, c, m);
+      if (v !== undefined) img[m] = [v, v];
+    }
+    return { ...c, img: JSON.stringify(img) };
+  });
+}
+
+/**
+ * Make sealed-but-unsent U ops group-whole once (T13233): ops sealed from
+ * pre-T13222 captures carry part of a merge group. A missing member's value
+ * at the op is the before-image of the next sealed op of the row that
+ * carries it, else the live row's. Runs once per store ({@link LEGACY_GROUPS_KEY}).
+ *
+ * @returns How many ops were completed.
+ */
+function completeLegacySealedGroups(ctx: TableContext, atIso: string): number {
+  const db = ctx.db;
+  if (db.prepare('SELECT 1 FROM _sync_meta WHERE key = ?').get(LEGACY_GROUPS_KEY)) return 0;
+  const rows = db
+    .prepare(
+      'SELECT o.txn, o.idx, o.body FROM _sync_op o JOIN _sync_txn t ON t.txn = o.txn ORDER BY t.local_seq, o.idx',
+    )
+    .all() as Array<{ txn: string; idx: number; body: string }>;
+  const ops = rows.map((r) => ({ ...r, op: JSON.parse(r.body) as SealedOp }));
+  let fixed = 0;
+  ops.forEach((r, i) => {
+    if (r.op.o !== 'U' || !r.op.a) return;
+    if (mergeGroupsOf(r.op.t, Object.keys(r.op.a)).length === 0) return;
+    const def = ctx.def(r.op.t);
+    const missing = missingGroupMembers(def, r.op.a);
+    if (missing.length === 0) return;
+    const a: Record<string, WireValue> = { ...r.op.a };
+    const b: Record<string, WireValue> = { ...(r.op.b ?? {}) };
+    for (const m of missing) {
+      const next = ops
+        .slice(i + 1)
+        .find((x) => x.op.t === r.op.t && x.op.u === r.op.u && x.op.b && m in x.op.b);
+      let v: WireValue | undefined = next?.op.b?.[m];
+      if (v === undefined) {
+        const row = ctx
+          .stmt(`SELECT ${enc(q(m))} AS v FROM main.${q(r.op.t)} WHERE ${q(UID_COLUMN)} = ?`)
+          .get(r.op.u) as { v: unknown } | undefined;
+        v = typeof row?.v === 'string' ? columnValue(ctx, def, m, row.v) : undefined;
+      }
+      if (v === undefined) continue;
+      a[m] = v;
+      b[m] = v;
+    }
+    const body = canonicalJson({ ...r.op, a, b });
+    db.prepare('UPDATE _sync_op SET body = ? WHERE txn = ? AND idx = ?').run(body, r.txn, r.idx);
+    r.op = { ...r.op, a, b };
+    fixed += 1;
+  });
+  setSealMeta(db, LEGACY_GROUPS_KEY, String(fixed), atIso);
+  return fixed;
+}
+
 function sealInTransaction(
   db: DatabaseSync,
   opts: SealOptions & { readonly replica: string },
@@ -825,6 +944,8 @@ function sealInTransaction(
   let batch = db
     .prepare(`SELECT ${CAPTURE_COLS} FROM _sync_capture WHERE state = 'live' ORDER BY seq LIMIT ?`)
     .all(budget) as unknown as CaptureRow[];
+  // T13233: ops sealed from pre-T13222 captures become group-whole, once.
+  completeLegacySealedGroups(ctx, new Date(now()).toISOString());
   if (batch.length === 0) return emptyReport(null);
   const lastFrame = batch[batch.length - 1]?.frame ?? null;
   if (lastFrame !== null && batch.length === budget) {
@@ -841,6 +962,7 @@ function sealInTransaction(
       batch = batch.filter((c) => c.frame !== lastFrame);
     }
   }
+  batch = completeLegacyCaptureGroups(ctx, batch);
   const births = batchBirths(batch);
 
   // 2. Group: a validated frame is one transaction; anything else a singleton.
@@ -1162,10 +1284,7 @@ function sealInTransaction(
   }
 
   if (localSeq !== firstSeq) {
-    db.prepare(
-      'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
-        'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-    ).run(SEAL_COUNTER_KEY, String(localSeq), new Date(now()).toISOString());
+    setSealMeta(db, SEAL_COUNTER_KEY, String(localSeq), new Date(now()).toISOString());
   }
 
   // Consume the sealed captures (and frames nothing references any more).
@@ -1400,10 +1519,7 @@ export function rebaselineChash(
       setChash.run(next, m.tbl, m.uid);
       rows += 1;
     }
-    db.prepare(
-      'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
-        'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-    ).run(CHASH_BASELINE_KEY, version, new Date().toISOString());
+    setSealMeta(db, CHASH_BASELINE_KEY, version, new Date().toISOString());
     return {
       rows,
       version,
