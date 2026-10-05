@@ -2,12 +2,19 @@
 id: t13236-cleo-run-suite-guard
 tasks: [T13236]
 kind: fix
-summary: cleo run refuses a vitest run that names nothing (the whole suite, usually from an empty file list) unless --whole-suite, and refuses to start anything inside a test runner
+summary: cleo run refuses a whole-suite test run nobody asked for (a vitest run naming nothing, an empty or '.' filter, or pnpm test) unless --whole-suite, and refuses to start anything inside a test runner (exit 8)
 ---
 
 `cleo run` now refuses `vitest run`, `pnpm exec vitest run` or `npx vitest run` when the
 command names no test file, directory, `--project`, `-t` filter, `--changed` or
-`--related`. Such a run is the whole suite, and the usual cause is an empty generated
+`--related`. An empty or blank argument, `.` and `./` don't count as naming anything:
+`vitest run "$files"` with `$files` empty passes `''`, and vitest's substring filter `''`
+matches every file. A package-manager script that runs vitest is treated the same way:
+`pnpm test`, `pnpm run test`, `pnpm -r test` and `pnpm --filter <pkg> test` (every `test`
+script in this repo is `vitest run …`) are refused unless your own arguments narrow them,
+as in `pnpm test path/to/a.test.ts`. The script is read from the nearest `package.json`; a
+script that doesn't run vitest is never refused, and a `--filter` alone still runs that
+package's whole suite. Such a run is the whole suite, and the usual cause is an empty generated
 file list: `vitest run $files` with `$files` empty. That has twice run a whole package
 suite by accident.
 

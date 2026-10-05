@@ -330,6 +330,10 @@ describe('cleo run refuses accidental whole-suite runs (T13236)', () => {
   it.each([
     [['pnpm', 'exec', 'vitest', 'run']],
     [['npx', 'vitest', 'run', '--reporter', 'json']],
+    [['pnpm', 'exec', 'vitest', 'run', '']],
+    [['pnpm', 'exec', 'vitest', 'run', '.']],
+    // This package's (and the root's) `test` script is a vitest run.
+    [['pnpm', 'test']],
   ])('%j (an empty file list) exits 6 naming the remedy, without admission', async (argv) => {
     await expect(invoke({ passthrough: true }, argv)).rejects.toThrow('exit 6');
     expect(runGoverned).not.toHaveBeenCalled();

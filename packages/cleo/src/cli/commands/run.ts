@@ -33,8 +33,10 @@
  * - A watch/dev/serve command is refused (it would hold a slot forever)
  *   unless `--class` asserts that it is a bounded job.
  * - A vitest run that names no test file, directory, `--project` or `-t`
- *   filter is refused: it is the whole suite, and the usual cause is an empty
- *   generated file list (T13236). `--whole-suite` says it is deliberate.
+ *   filter (an empty or `.` filter names nothing), or a package script that
+ *   runs vitest (`pnpm test`, `pnpm -r test`) without narrowing arguments, is
+ *   refused: it is the whole suite, and the usual cause is an empty generated
+ *   file list (T13236). `--whole-suite` says it is deliberate.
  * - Inside a test runner (VITEST, VITEST_WORKER_ID, JEST_WORKER_ID) nothing
  *   is started (`E_RUN_SPAWN_IN_TEST_RUNNER`, exit 8): a stale mock must not
  *   start the suite again from one of its own workers (T13236, after T13203).
@@ -61,8 +63,8 @@ import {
 import { planFootprintBytes } from '@cleocode/core/resources/admission-ledger.js';
 import {
   canonicalForClass,
-  isUnnarrowedVitestRun,
   isWatchCommand,
+  isWholeSuiteTestRun,
   namedTestFileCount,
   resolveRunClass,
 } from '@cleocode/core/resources/run-admission.js';
@@ -160,7 +162,7 @@ export const runCommand = defineCommand({
     'whole-suite': {
       type: 'boolean',
       description:
-        'Allow a vitest run that names no test file, directory, --project or -t filter: a deliberate whole-suite run (refused by default, since an empty file list is the usual cause)',
+        'Allow a whole-suite test run (a vitest run naming no file, directory, --project or -t filter, or a vitest test script without narrowing arguments): refused by default, since an empty file list is the usual cause',
       default: false,
     },
     passthrough: {
@@ -192,12 +194,13 @@ export const runCommand = defineCommand({
       );
     }
 
-    // T13236: `vitest run` with nothing named runs the whole suite. Twice an
+    // T13236: `vitest run` with nothing named (or an empty/`.` filter), or a
+    // package `test` script that runs vitest, is the whole suite. Twice an
     // empty generated file list did exactly that by accident.
-    if (args['whole-suite'] !== true && isUnnarrowedVitestRun(argv)) {
+    if (args['whole-suite'] !== true && isWholeSuiteTestRun(argv, process.cwd())) {
       invalid(
-        `cleo run refuses a vitest run that names no test file, directory, --project or -t filter: it would run the whole suite (${argv.join(' ')}). An empty generated file list is the usual cause`,
-        'Name what to run: cleo run -- pnpm exec vitest run path/to/a.test.ts (check a generated list is not empty). For a deliberate whole-suite run: cleo run --whole-suite -- <cmd>',
+        `cleo run refuses a test run that names no test file, directory, --project or -t filter: it would run the whole suite (${argv.join(' ')}). An empty generated file list is the usual cause`,
+        'Name what to run: cleo run -- pnpm exec vitest run path/to/a.test.ts (check a generated list is not empty), or pass test files to the script (pnpm test path/to/a.test.ts). For a deliberate whole-suite run: cleo run --whole-suite -- <cmd>',
         passthrough,
       );
     }

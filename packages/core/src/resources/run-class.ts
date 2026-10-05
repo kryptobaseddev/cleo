@@ -18,8 +18,8 @@
  * @epic T12978
  */
 
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import type { ResourceClass } from '@cleocode/contracts';
 import type { CanonicalTool } from '../tasks/tool-resolver.js';
 
@@ -699,51 +699,145 @@ const VITEST_VALUE_FLAGS: ReadonlySet<string> = new Set([
 const VITEST_SUITE_SUBCOMMANDS: ReadonlySet<string> = new Set(['run']);
 
 /**
- * Whether a command is a vitest run that names nothing to narrow it: no test
- * file, directory or name filter, no `--project`, `-t`, `--changed` or
- * `--related` (T13236). Such a run is the WHOLE suite of its directory. The
- * usual cause is an empty generated file list (`vitest run $files` with
- * `$files` empty), which twice ran a whole package suite by accident, so
- * `cleo run` refuses it unless `--whole-suite` says it is deliberate.
- *
- * Only vitest's own arguments count; a package-manager `--filter` still runs
- * the whole suite of that package. A word that might be a filter (an unknown
- * flag's value) counts as one, so a doubtful command is let through, never
- * refused. Scripts (`pnpm test`) are not inspected: their arguments go to a
- * command this cannot see.
- *
- * @param argv - the command.
- * @returns `true` when the command is an unnarrowed vitest run.
- *
- * @example
- * ```ts
- * isUnnarrowedVitestRun(['pnpm', 'exec', 'vitest', 'run']);                    // true
- * isUnnarrowedVitestRun(['pnpm', 'exec', 'vitest', 'run', 'src/a.test.ts']);  // false
- * isUnnarrowedVitestRun(['npx', 'vitest', 'run', '--project', 'core']);       // false
- * ```
+ * A positional that narrows nothing: an empty or blank word (`vitest run
+ * "$files"` with `$files` empty passes `''`, and vitest's substring filter
+ * `''` matches every file) or the current directory (`.`, `./`).
  */
-export function isUnnarrowedVitestRun(argv: readonly string[]): boolean {
-  const t = commandTarget(argv);
-  if (t.tool !== 'vitest' || t.script !== null) return false;
-  let sawSubcommand = false;
-  for (let i = 0; i < t.rest.length; i++) {
-    const w = t.rest[i] as string;
+function isEmptyFilter(word: string): boolean {
+  const w = word.trim();
+  return w === '' || w === '.' || w === './';
+}
+
+/**
+ * Whether vitest arguments narrow the run. `fixed` leading words come from a
+ * package script: their flags count (a dangling `--project` takes the
+ * caller's next word as its value), their positionals do not — a script's
+ * own path (`vitest run packages/cleo/src`) is that package's whole suite,
+ * not a narrowing the caller chose.
+ *
+ * @returns `'narrowed'`, `'whole'`, or `'other'` for a non-suite subcommand.
+ */
+function vitestArgsScope(
+  args: readonly string[],
+  fixed: number,
+  sawRun: boolean,
+): 'narrowed' | 'whole' | 'other' {
+  let sawSubcommand = sawRun;
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i] as string;
     if (w === '--') continue;
     if (w.startsWith('-')) {
       const flag = w.includes('=') ? w.slice(0, w.indexOf('=')) : w;
-      if (VITEST_NARROWING_FLAGS.has(flag)) return false;
+      if (VITEST_NARROWING_FLAGS.has(flag)) {
+        if (w.includes('=')) {
+          if (!isEmptyFilter(w.slice(w.indexOf('=') + 1))) return 'narrowed';
+          continue;
+        }
+        const value = args[i + 1];
+        // A bare `--changed` narrows on its own; a valued flag needs a real value.
+        if (flag === '--changed' || flag === '--related') return 'narrowed';
+        if (value !== undefined && !value.startsWith('-') && !isEmptyFilter(value)) {
+          return 'narrowed';
+        }
+        i++;
+        continue;
+      }
       if (!w.includes('=') && VITEST_VALUE_FLAGS.has(flag)) i++;
       continue;
     }
     if (!sawSubcommand) {
       sawSubcommand = true;
       if (VITEST_SUITE_SUBCOMMANDS.has(w)) continue;
+      if (isEmptyFilter(w)) continue;
       // `vitest related …`, `vitest list`, or `vitest <filter>` (no subcommand).
-      return false;
+      return i < fixed ? 'other' : 'narrowed';
     }
-    return false; // a file, directory or name filter
+    if (i < fixed || isEmptyFilter(w)) continue;
+    return 'narrowed'; // a file, directory or name filter
   }
-  return true;
+  return 'whole';
+}
+
+/** The `scripts[name]` of the package.json nearest `cwd` (walking up), else null. */
+function packageScript(cwd: string, name: string): string | null {
+  let dir = resolve(cwd);
+  for (;;) {
+    const pkg = join(dir, 'package.json');
+    if (existsSync(pkg)) {
+      try {
+        const parsed: unknown = JSON.parse(readFileSync(pkg, 'utf-8'));
+        if (typeof parsed !== 'object' || parsed === null) return null;
+        const scripts = (parsed as { scripts?: unknown }).scripts;
+        if (typeof scripts !== 'object' || scripts === null) return null;
+        const script = (scripts as Record<string, unknown>)[name];
+        return typeof script === 'string' ? script : null;
+      } catch {
+        return null;
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/** The arguments after `vitest` in a package script's vitest command, else null. */
+function scriptVitestArgs(script: string): string[] | null {
+  for (const segment of script.split(/&&|\|\||;/)) {
+    const words = segment.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+    const t = commandTarget(words);
+    if (t.tool === 'vitest' && t.script === null) return [...t.rest];
+  }
+  return null;
+}
+
+/**
+ * Whether a command runs a WHOLE vitest suite without saying so (T13236):
+ *
+ * - `vitest run` (`pnpm exec`, `npx`, `pnpm vitest`) naming no test file,
+ *   directory or name filter and no `--project`, `-t`, `--changed` or
+ *   `--related`. An empty or blank word, `.` and `./` narrow nothing: an
+ *   empty generated list (`vitest run $files`, or quoted `"$files"`, which
+ *   passes `''` — a substring filter matching every file) is the usual
+ *   cause, and twice ran a whole package suite by accident.
+ * - a package-manager script whose text runs vitest (`pnpm test`,
+ *   `pnpm run test`, `pnpm -r test`, `pnpm --filter x test`; every `test`
+ *   script in this repo is `vitest run …`), unless the caller's own
+ *   arguments narrow it (`pnpm test src/a.test.ts`, `pnpm test:pkg core`).
+ *   The script is read from the package.json nearest `cwd`; one that does
+ *   not run vitest (or is missing) is not refused.
+ *
+ * `cleo run` refuses these unless `--whole-suite` says it is deliberate.
+ * Only vitest's arguments narrow: a package-manager `--filter` still runs
+ * that package's whole suite. An unknown flag's separate value counts as a
+ * filter, so a doubtful command is let through, never refused.
+ *
+ * @param argv - the command.
+ * @param cwd - where it runs (for a package script). @defaultValue process.cwd()
+ * @returns `true` for an unnarrowed whole-suite run.
+ *
+ * @example
+ * ```ts
+ * isWholeSuiteTestRun(['pnpm', 'exec', 'vitest', 'run']);                    // true
+ * isWholeSuiteTestRun(['pnpm', 'exec', 'vitest', 'run', '']);                // true (quoted empty list)
+ * isWholeSuiteTestRun(['pnpm', 'exec', 'vitest', 'run', 'src/a.test.ts']);  // false
+ * isWholeSuiteTestRun(['pnpm', 'test'], '/repo');                            // true when its script is `vitest run`
+ * ```
+ */
+export function isWholeSuiteTestRun(
+  argv: readonly string[],
+  cwd: string = process.cwd(), // CWD-OK: default for a caller's own command line
+): boolean {
+  const t = commandTarget(argv);
+  if (t.tool === 'vitest' && t.script === null)
+    return vitestArgsScope(t.rest, 0, false) === 'whole';
+  if (t.pm === null || t.script === null) return false;
+  const script = packageScript(cwd, t.script);
+  if (script === null) return false;
+  const fixed = scriptVitestArgs(script);
+  if (fixed === null) return false;
+  return vitestArgsScope([...fixed, ...t.rest], fixed.length, false) === 'whole';
 }
 
 /** Flags whose value names test files to leave out. */
