@@ -12,6 +12,8 @@
 
 import type {
   CloudActivityResult,
+  CloudConflictResolveResult,
+  CloudConflictsResult,
   CloudLeaseReleaseResult,
   CloudPushResult,
   CloudRestoreResult,
@@ -278,5 +280,69 @@ export async function runCloudActivity(args: Args): Promise<void> {
             `${i.at} ${who(i.deviceName, i.deviceId ?? 'account')}${i.thisDevice ? ' (this machine)' : ''} ${i.action}${i.target ? ` ${i.target}` : ''}`,
         )
         .join('; ')}${r.items.length > 10 ? '; …' : ''}`,
+  );
+}
+
+/**
+ * `cleo cloud conflicts [list|resolve <id>] [--all] [--stream] [--scope]`:
+ * the sync conflicts this store's apply recorded (T12344 PR-6). Local only.
+ *
+ * @param args - Parsed args.
+ */
+export async function runCloudConflicts(args: Args): Promise<void> {
+  const action = stringArg(args, 'action') ?? 'list';
+  const conflicts = () =>
+    import(/* webpackIgnore: true */ '@cleocode/core/cloud/nexus-cloud-conflicts.js');
+  if (action === 'resolve') {
+    const raw = stringArg(args, 'id');
+    const id = raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+    if (!Number.isSafeInteger(id)) {
+      failNexus(
+        Object.assign(new Error('resolve needs a conflict id'), {
+          code: 'E_VALIDATION',
+          fix: 'use `cleo cloud conflicts resolve <id>` (ids from `cleo cloud conflicts`)',
+        }),
+        'cloud.conflicts.resolve',
+      );
+    }
+    await runCloudRead<CloudConflictResolveResult>(
+      'cloud.conflicts.resolve',
+      async () =>
+        (await conflicts()).resolveNexusCloudConflict({
+          id,
+          scope: scopeArg(args, 'cloud.conflicts.resolve'),
+        }),
+      (r) => (r.resolved ? `Conflict ${r.id} resolved.` : `No open conflict ${r.id}.`),
+    );
+    return;
+  }
+  if (action !== 'list') {
+    failNexus(
+      Object.assign(new Error(`unknown action '${action}'`), {
+        code: 'E_VALIDATION',
+        fix: 'use `cleo cloud conflicts` (list) or `cleo cloud conflicts resolve <id>`',
+      }),
+      'cloud.conflicts',
+    );
+  }
+  const stream = stringArg(args, 'stream');
+  await runCloudRead<CloudConflictsResult>(
+    'cloud.conflicts',
+    async () =>
+      (await conflicts()).nexusCloudConflicts({
+        scope: scopeArg(args, 'cloud.conflicts'),
+        all: args.all === true,
+        ...(stream !== undefined ? { stream } : {}),
+      }),
+    (r) =>
+      r.conflicts.length === 0
+        ? `No ${args.all === true ? '' : 'open '}sync conflicts (${r.total} recorded).`
+        : [
+            `${r.open} open of ${r.total} sync conflict(s):`,
+            ...r.conflicts.map(
+              (c) =>
+                `  #${c.id} ${c.kind} ${c.table}/${c.uid}${c.columns.length ? ` [${c.columns.join(', ')}]` : ''}${c.rule ? ` ${c.rule}` : ''}: ${c.resolution}${c.resolvedAt ? ' (resolved)' : ''}`,
+            ),
+          ].join('\n'),
   );
 }

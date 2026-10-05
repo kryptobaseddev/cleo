@@ -11,6 +11,8 @@
  * - `cleo cloud projects show [<id>]` — E14 (default: the current project).
  * - `cleo cloud restore <name>` — a project onto this machine by name, label
  *   or id (T13102).
+ * - `cleo cloud conflicts [resolve <id>]` — the store's recorded sync
+ *   conflicts (T12344 PR-6); local only.
  *
  * Every request these commands make is a GET. Getting the device credential
  * can still write, as every device-credential command does (contract §3.4,
@@ -33,6 +35,7 @@ import {
 } from '../lib/nexus-cloud-cli.js';
 import {
   runCloudActivity,
+  runCloudConflicts,
   runCloudLease,
   runCloudPull,
   runCloudPush,
@@ -262,6 +265,33 @@ const activitySubCommand = defineCommand({
   },
 });
 
+const conflictsSubCommand = defineCommand({
+  meta: {
+    name: 'conflicts',
+    description:
+      "The sync conflicts this store's apply recorded (typed-rule refusals, edits of deleted rows, deletes over newer edits, divergent edits, dangling references, guard refusals, parent deletes with live children, uid collisions, post-apply invariants), oldest first: open ones by default, --all for every one. `resolve <id>` marks one resolved once its resolution (an ordinary write) is made. Local only.",
+  },
+  args: {
+    action: {
+      type: 'positional',
+      description: "'list' (default) or 'resolve'.",
+      required: false,
+    },
+    id: {
+      type: 'positional',
+      description: 'Conflict id for resolve (from the list).',
+      required: false,
+    },
+    all: { type: 'boolean', description: 'Include resolved conflicts.' },
+    stream: { type: 'string', description: 'Only conflicts from this stream.' },
+    scope: SCOPE_ARG,
+    json: JSON_ARG,
+  },
+  async run({ args }) {
+    await runCloudConflicts(args as Record<string, unknown>);
+  },
+});
+
 /**
  * `cleo cloud` — read-only Cleo Nexus reads.
  *
@@ -271,7 +301,7 @@ export const cloudCommand = defineCommand({
   meta: {
     name: 'cloud',
     description:
-      'Cleo Nexus with the device credential: status (one-call verification), whoami, devices, projects [show], activity; the encrypted vault: push, pull, restore, verify, vault, lease release.',
+      'Cleo Nexus with the device credential: status (one-call verification), whoami, devices, projects [show], activity; the encrypted vault: push, pull, restore, verify, vault, lease release; the local sync conflict log: conflicts [resolve <id>].',
   },
   subCommands: {
     status: statusSubCommand,
@@ -279,6 +309,7 @@ export const cloudCommand = defineCommand({
     devices: devicesSubCommand,
     projects: projectsSubCommand,
     activity: activitySubCommand,
+    conflicts: conflictsSubCommand,
     push: pushSubCommand,
     pull: pullSubCommand,
     restore: restoreSubCommand,

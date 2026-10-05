@@ -3123,6 +3123,9 @@ export {
 export {
   type CloudActivityItem,
   type CloudActivityResult,
+  type CloudConflict,
+  type CloudConflictResolveResult,
+  type CloudConflictsResult,
   type CloudLeaseReleaseResult,
   type CloudPushResult,
   type CloudRestoreResult,
