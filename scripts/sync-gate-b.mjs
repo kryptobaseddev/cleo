@@ -27,7 +27,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -55,10 +55,21 @@ export function parseSnapshots(values) {
     if (!isAbsolute(file)) throw new Error(`snapshot path must be absolute: ${file}`);
     if (!existsSync(file) || !statSync(file).isFile())
       throw new Error(`no snapshot file at ${file}`);
-    if (basename(file) === 'cleo.db' && basename(dirname(file)) === '.cleo') {
+    // Resolve symlinks, and compare case-insensitively (APFS is).
+    const real = realpathSync(file);
+    const lower = real.toLowerCase();
+    const live =
+      (basename(lower) === 'cleo.db' && basename(dirname(lower)) === '.cleo') ||
+      (process.env.CLEO_HOME !== undefined &&
+        lower === resolve(process.env.CLEO_HOME, 'cleo.db').toLowerCase());
+    if (live) {
       throw new Error(
-        `${file} is a live project store: take a snapshot with \`cleo backup add\` and pass that file`,
+        `${file} is a live store: take a snapshot with \`cleo backup add\` and pass that file`,
       );
+    }
+    const wal = `${real}-wal`;
+    if (existsSync(wal) && statSync(wal).size > 0) {
+      throw new Error(`${file} is not a quiesced snapshot: its -wal is not empty`);
     }
     if (file.includes(',')) throw new Error(`snapshot path must not contain a comma: ${file}`);
     return { name, file };

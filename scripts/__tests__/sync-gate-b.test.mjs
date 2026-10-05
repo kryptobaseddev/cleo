@@ -5,7 +5,7 @@
  * @task T12987
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -26,8 +26,33 @@ describe('sync-gate-b snapshot arguments (T12987)', () => {
     expect(parseSnapshots([`llmtxt=${snapshot}`])).toEqual([{ name: 'llmtxt', file: snapshot }]);
   });
 
-  it('refuses a live project store', () => {
-    expect(() => parseSnapshots([`cleocode=${live}`])).toThrow(/live project store/);
+  it('refuses a live project store, through a symlink and in any letter case', () => {
+    expect(() => parseSnapshots([`cleocode=${live}`])).toThrow(/live store/);
+    const link = join(root, 'link.db');
+    symlinkSync(live, link);
+    expect(() => parseSnapshots([`cleocode=${link}`])).toThrow(/live store/);
+    const upper = join(root, 'upper', '.CLEO', 'CLEO.db');
+    mkdirSync(join(root, 'upper', '.CLEO'), { recursive: true });
+    writeFileSync(upper, '');
+    expect(() => parseSnapshots([`cleocode=${upper}`])).toThrow(/live store/);
+  });
+
+  it('refuses the global store and a snapshot with a non-empty -wal', () => {
+    const home = join(root, 'cleo-home');
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, 'cleo.db'), '');
+    const prev = process.env.CLEO_HOME;
+    process.env.CLEO_HOME = home;
+    try {
+      expect(() => parseSnapshots([`global=${join(home, 'cleo.db')}`])).toThrow(/live store/);
+    } finally {
+      if (prev === undefined) delete process.env.CLEO_HOME;
+      else process.env.CLEO_HOME = prev;
+    }
+    const busy = join(root, 'backups', 'busy.db');
+    writeFileSync(busy, '');
+    writeFileSync(`${busy}-wal`, 'x');
+    expect(() => parseSnapshots([`busy=${busy}`])).toThrow(/not a quiesced snapshot/);
   });
 
   it('refuses a relative path, a missing file, a bad name and no snapshot at all', () => {

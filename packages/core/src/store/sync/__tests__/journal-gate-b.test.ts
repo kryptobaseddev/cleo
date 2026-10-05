@@ -62,6 +62,13 @@ const REPLICA = '01929a3e-7f00-7000-8000-0000000000b0';
 /** The project id every copy carries beside it (llmtxt has none of its own). */
 const STUB_PROJECT_ID = 'dfd4e5d8-080f-7449-81cd-ff8dcef1049c';
 
+/**
+ * Tables a strict (foreign keys OFF) replay is KNOWN to differ on, each with
+ * its blocking task. T13226: an FK SET NULL caused by a parent delete in the
+ * same transaction is netted away.
+ */
+const STRICT_GAP: readonly string[] = ['tasks_task_acceptance_criteria'];
+
 let testRoot: string;
 let keyFile: string;
 let clock = 1_790_000_000_000;
@@ -137,6 +144,19 @@ function workloadA(db: DatabaseSync): string[] {
       ...old.map((id) => `UPDATE tasks_tasks SET title = title || ' (A)' WHERE id = ${sql(id)};`),
       "INSERT INTO tasks_task_labels (task_id, label) VALUES ('GB-1', 'gate-b');",
       "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('GB-2', 'GB-1');",
+      // GB-4 is a parent with children of every FK action: a label and an
+      // acceptance criterion (CASCADE), a dependency each way (CASCADE), and
+      // a criterion of GB-1 that targets it (SET NULL). Workload B deletes it.
+      insertTask('GB-4', 'gate b parent'),
+      "UPDATE tasks_tasks SET type = 'epic' WHERE id = 'GB-1';",
+      "UPDATE tasks_tasks SET parent_id = 'GB-1' WHERE id = 'GB-4';",
+      "INSERT INTO tasks_task_labels (task_id, label) VALUES ('GB-4', 'parent');",
+      "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('GB-4', 'GB-1');",
+      "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('GB-2', 'GB-4');",
+      `INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, uid, birth_fp)
+       VALUES ('gb-ac-4', 'GB-4', 1, 'parent criterion', 'gb-uid-ac-4', 'gb-fp-ac-4');`,
+      `INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, kind, target_task_id, text, uid, birth_fp)
+       VALUES ('gb-ac-1', 'GB-1', 1, 'child_task', 'GB-4', 'targets the parent', 'gb-uid-ac-1', 'gb-fp-ac-1');`,
     ].join('\n'),
   );
   return old;
@@ -148,6 +168,7 @@ function workloadB(db: DatabaseSync, old: readonly string[]): void {
     db,
     [
       "DELETE FROM tasks_tasks WHERE id = 'GB-3';",
+      "DELETE FROM tasks_tasks WHERE id = 'GB-4';",
       "UPDATE tasks_tasks SET priority = 'high' WHERE id = 'GB-1';",
       "DELETE FROM tasks_task_labels WHERE task_id = 'GB-1' AND label = 'gate-b';",
       "INSERT INTO tasks_task_labels (task_id, label) VALUES ('GB-2', 'gate-b-2');",
@@ -209,6 +230,9 @@ async function runWorkload(name: string, projectDir: string): Promise<Run> {
     expect(legacyOnly(handle.db.$client as DatabaseSync)).toBe(false);
   }
   const db = handle.db.$client as DatabaseSync;
+  // getDb turns foreign keys OFF under vitest (fixture convenience); the
+  // workload must run with production semantics, so cascades really fire.
+  db.exec('PRAGMA foreign_keys = ON');
   try {
     setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA });
     setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_SCHEMA, allowUnreleased: true });
@@ -231,13 +255,21 @@ async function runWorkload(name: string, projectDir: string): Promise<Run> {
 }
 
 /** Replay `ops` onto a copy of `base`; returns the replayed copy. */
-function replayOnto(base: string, dir: string, ops: ReturnType<typeof sealedOps>): string {
+function replayOnto(
+  base: string,
+  dir: string,
+  ops: ReturnType<typeof sealedOps>,
+  lossy = false,
+): string {
   const file = copyWithId(base, dir);
   const db = new DatabaseSync(file);
   try {
     const r = replaySealedOps(db, 'project', ops);
-    expect(r.missingRows).toBe(0);
-    expect(r.unresolvedRefs).toBe(0);
+    // A lossy control may leave a later op without its row; a real replay never.
+    if (!lossy) {
+      expect(r.missingRows).toBe(0);
+      expect(r.unresolvedRefs).toBe(0);
+    }
   } finally {
     db.close();
   }
@@ -309,7 +341,7 @@ interface GateBSummary {
   readonly incremental: 'PASS';
 }
 
-/** Steps 5–6, plus the negative control. */
+/** Steps 5–6, the cascade and strict-journal checks, and the negative controls. */
 function replayAndCompare(name: string, run: Run): GateBSummary {
   const dir = join(testRoot, name);
   const src = copyWithId(run.source, join(dir, 'source'));
@@ -336,18 +368,84 @@ function replayAndCompare(name: string, run: Run): GateBSummary {
   expect(incremental.out, incremental.out).toContain('PASS (replay)');
   expect(incremental.code).toBe(0);
 
+  // Cascades (review-p0 MED): deleting GB-4 cascades its criterion and both
+  // dependencies, and each child's D is journaled BEFORE the parent's, so a
+  // replay never looks for a row its own FK action already removed.
+  const at = (t: string, o: string, u: string) =>
+    tail.findIndex((op) => op.t === t && op.o === o && op.u === u);
+  const parentD = at('tasks_tasks', 'D', 'gb-uid-GB-4');
+  expect(parentD).toBeGreaterThan(-1);
+  const childDs = tail
+    .map((op, i) => ({ op, i }))
+    .filter(
+      ({ op }) =>
+        op.o === 'D' &&
+        (op.t === 'tasks_task_dependencies' ||
+          (op.t === 'tasks_task_acceptance_criteria' && op.u === 'gb-uid-ac-4')),
+    );
+  expect(childDs.map(({ op }) => op.t).sort()).toEqual([
+    'tasks_task_acceptance_criteria',
+    'tasks_task_dependencies',
+    'tasks_task_dependencies',
+  ]);
+  for (const { i } of childDs) expect(i).toBeLessThan(parentD);
+
+  // Strict journal check: replay with foreign keys OFF, so every change,
+  // cascades included, must be an op. KNOWN GAP (T13226, blocks seal and
+  // push): the SET NULL of gb-ac-1.target_task_id by GB-4's delete is netted
+  // away, so the strict replay differs on exactly that table. When T13226
+  // lands this assertion fails: empty STRICT_GAP and require a PASS.
+  const strictFile = copyWithId(run.genesis, join(dir, 'replay-strict'));
+  const sdb = new DatabaseSync(strictFile);
+  try {
+    expect(replaySealedOps(sdb, 'project', all, { foreignKeys: false }).missingRows).toBe(0);
+  } finally {
+    sdb.close();
+  }
+  const strict = compare(sourceFp, fingerprint(strictFile, `${name}-strict`, 'replica'));
+  const strictFindings = [...strict.out.matchAll(/GATE B FAIL ([a-z_]+):/g)].map((m) => m[1]);
+  expect(strictFindings, strict.out).toEqual(STRICT_GAP);
+
   // The two sides must agree on the timestamp mode.
   const mixed = compare(sourceFp, fingerprint(fromGenesis, `${name}-raw-stamps`, 'replica', false));
   expect(mixed.code).not.toBe(0);
   expect(mixed.out).toContain('timestamp modes differ');
 
-  // Negative control: the repair op left out must fail the gate.
-  const lossy = all.filter((o) => !(o.t === 'tasks_tasks' && o.a?.title === 'edited uncaptured'));
-  expect(lossy.length).toBe(all.length - 1);
-  const dropped = replayOnto(run.genesis, join(dir, 'replay-lossy'), lossy);
-  const fail = compare(sourceFp, fingerprint(dropped, `${name}-lossy`, 'replica'));
-  expect(fail.code).not.toBe(0);
-  expect(fail.out).toContain('tasks_tasks');
+  // Negative controls: each lossy replay must fail on its table.
+  const controls: Array<{ label: string; table: string; ops: typeof all }> = [
+    {
+      label: 'repair-u-dropped',
+      table: 'tasks_tasks',
+      ops: all.filter((o) => !(o.t === 'tasks_tasks' && o.a?.title === 'edited uncaptured')),
+    },
+    {
+      label: 'd-dropped',
+      table: 'tasks_tasks',
+      ops: all.filter((o) => !(o.t === 'tasks_tasks' && o.o === 'D' && o.u === 'gb-uid-GB-3')),
+    },
+    {
+      label: 'natural-op-dropped',
+      table: 'tasks_task_labels',
+      ops: all.filter((o) => !(o.t === 'tasks_task_labels' && o.k?.label === 'gate-b-2')),
+    },
+    {
+      label: 'value-corrupted',
+      table: 'tasks_tasks',
+      ops: all.map((o) =>
+        o.t === 'tasks_tasks' && o.u === 'gb-uid-GB-1' && o.a?.priority === 'high'
+          ? { ...o, a: { ...o.a, priority: 'low' } }
+          : o,
+      ),
+    },
+  ];
+  for (const c of controls) {
+    const changed = c.ops.length !== all.length || c.ops.some((o, i) => o !== all[i]);
+    expect(changed, c.label).toBe(true);
+    const file = replayOnto(run.genesis, join(dir, `replay-${c.label}`), c.ops, true);
+    const fail = compare(sourceFp, fingerprint(file, `${name}-${c.label}`, 'replica'));
+    expect(fail.code, c.label).not.toBe(0);
+    expect(fail.out, c.label).toContain(`GATE B FAIL ${c.table}:`);
+  }
   return {
     store: name,
     tasks,

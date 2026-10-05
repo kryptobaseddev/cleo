@@ -12,6 +12,10 @@
  * `ac_uid`) is derived again. Every trigger is suspended while it applies
  * (`cleo_trigger_suspend` scope `all`), as an apply frame does.
  *
+ * Self-replay shortcuts, NOT apply semantics (do not copy into T12344): an I
+ * whose uid already exists becomes an UPDATE (T12344 decides it by field
+ * LWW), and a U or D whose row is missing is only counted.
+ *
  * Test-only: it writes raw SQL to a scratch copy and never to a live store.
  *
  * @task T12987
@@ -22,6 +26,16 @@ import type { TableScope } from '@cleocode/contracts';
 import { BIRTH_FP_COLUMN, rowIdentitySpec, UID_COLUMN } from '../../row-identity-registry.js';
 import { type CaptureTableDef, captureTableDef } from '../capture.js';
 import type { SealedOp, WireValue } from '../sealer.js';
+
+/** Options of {@link replaySealedOps}. */
+export interface ReplayOptions {
+  /**
+   * `true` (default): FK actions fire as on a real replica (a parent D
+   * cascades). `false`: the strict journal check, where every change,
+   * cascades included, must be an op.
+   */
+  readonly foreignKeys?: boolean;
+}
 
 /** What one replay applied. */
 export interface ReplayReport {
@@ -225,8 +239,11 @@ export function replaySealedOps(
   db: DatabaseSync,
   scope: TableScope,
   ops: readonly SealedOp[],
+  options: ReplayOptions = {},
 ): ReplayReport {
   const applier = new Applier(db, scope);
+  // Outside the transaction: PRAGMA foreign_keys is a no-op inside one.
+  db.exec(`PRAGMA foreign_keys = ${options.foreignKeys === false ? 'OFF' : 'ON'}`);
   db.exec('BEGIN IMMEDIATE');
   try {
     db.exec('PRAGMA defer_foreign_keys = ON');
