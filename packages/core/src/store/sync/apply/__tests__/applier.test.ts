@@ -514,6 +514,21 @@ describe('terminal stages merge with their status (T877)', () => {
   });
 });
 
+describe('T13243: an imposed stage survives a reload as imposed', () => {
+  it('a status-only completion imposes contribution; archiving returns the stage to its real best', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('y1', h(1), { pipeline_stage: 'testing' })])]));
+    apply(db);
+    stage(db, segment(R2, [txn('R2:1', [update('y1', h(5, R2), grp('done'))])]));
+    apply(db);
+    expect(task(db, 'y1')).toMatchObject({ status: 'done', pipeline_stage: 'contribution' });
+    // Applied in a later call: the row is reloaded, and contribution is still not a write.
+    stage(db, segment(R2, [txn('R2:2', [update('y1', h(9, R2), grp('archived'))])]));
+    apply(db);
+    expect(task(db, 'y1')).toMatchObject({ status: 'archived', pipeline_stage: 'testing' });
+  });
+});
+
 describe('pending, holds and retries (§3.2)', () => {
   it('an update of a never-seen row waits, and applies once its insert arrives', async () => {
     const db = await store();
@@ -616,6 +631,24 @@ describe('schema and skew refusals (§2.9, §1.3)', () => {
     expect(db.prepare('SELECT reason FROM _sync_inbox WHERE seq = 1').get()).toEqual({
       reason: expect.stringMatching(/^E_SCHEMA_AHEAD/),
     });
+  });
+
+  it('a split transaction with one unreadable part is refused whole; the stream flows (T13242)', async () => {
+    const db = await store();
+    const p1 = txn('R1:9', [insert('s1', h(1))], { part: [1, 2] });
+    const p2 = { ...txn('R1:9', [insert('s2', h(1))], { part: [2, 2] }), v: 2, zz: 1 };
+    const raw = db.prepare(
+      `INSERT INTO _sync_inbox (stream, seq, txn_idx, replica_id, replica_seq, device_id,
+         schema_version, txn_json, hlc, status, staged_at)
+       VALUES (?, ?, 0, ?, ?, 'dev', ?, ?, ?, 'staged', 'now')`,
+    );
+    raw.run(STREAM, 1, R1, 1, SYNC_SCHEMA_VERSION, JSON.stringify(p1), h(1));
+    raw.run(STREAM, 2, R1, 2, SYNC_SCHEMA_VERSION, JSON.stringify(p2), h(1));
+    seq = 2;
+    stage(db, segment(R2, [txn('R2:1', [insert('n1', h(2, R2))])]));
+    expect(apply(db)).toMatchObject({ applied: 1 });
+    expect(statuses(db)).toEqual(['1.0:refused-schema', '2.0:refused-schema', '3.0:applied']);
+    expect(task(db, 's1')).toBeUndefined();
   });
 
   it('holds a skewed replica FIFO while others flow, and releases it in order', async () => {
@@ -786,19 +819,22 @@ describe('PR-4: references, guards, parent deletes and re-keys (§3.2)', () => {
     const db = await store();
     stage(db, segment(R1, [txn('R1:1', [insert('g1', h(1)), insert('g2', h(1))])]));
     apply(db);
-    // done without a terminal pipeline stage: the T877 trigger aborts the write.
+    // A task under a task: the parent-type trigger aborts the write.
     stage(
       db,
       segment(R2, [
-        txn('R2:1', [update('g1', h(5, R2), grp('done')), update('g2', h(5, R2), { title: 'ok' })]),
+        txn('R2:1', [
+          update('g1', h(5, R2), { parent_id: 'g2' }),
+          update('g2', h(5, R2), { title: 'ok' }),
+        ]),
       ]),
     );
     expect(apply(db)).toMatchObject({ conflict: 1 });
-    expect(task(db, 'g1')?.status).toBe('pending');
+    expect(task(db, 'g1')?.title).toBe('title g1');
     expect(task(db, 'g2')?.title).toBe('ok');
     const [c] = listConflicts(db);
     expect(c).toMatchObject({ kind: 'guard', uid: 'g1', resolution: 'op-voided', opIdx: 0 });
-    expect(c?.rule).toMatch(/T877_INVARIANT_VIOLATION/);
+    expect(c?.rule).toMatch(/E_TASK_PARENT_TYPE_MATRIX/);
     expect(seal(db).txns, 'the voided op left a residual').toBe(0);
   });
 
@@ -1013,5 +1049,64 @@ describe('review #1896: intra-transaction references and guard scope (T13238, T1
     expect(() => apply(db)).toThrow(/no such table/);
     expect(statuses(db)).toEqual(['1.0:applied', '2.0:staged']);
     expect(listConflicts(db)).toEqual([]);
+  });
+});
+
+describe('review #1903 LOWs', () => {
+  it('a referenced insert is not hoisted ahead of a natural-key delete it follows', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('x', h(1)), insert('z', h(1))])]));
+    apply(db);
+    // Netted order: Z (references Y) first, then D X, then I Y re-using X's id.
+    stage(
+      db,
+      segment(R2, [
+        txn('R2:1', [
+          update('z', h(5, R2), { parent_id: 'y' }),
+          del('x', h(5, R2)),
+          insert('y', h(5, R2), { id: 'X', type: 'epic' }),
+        ]),
+      ]),
+    );
+    expect(apply(db)).toMatchObject({ applied: 1, conflict: 0 });
+    expect(task(db, 'x')).toBeUndefined();
+    expect(task(db, 'y')?.id).toBe('X');
+    expect(
+      (db.prepare("SELECT parent_id AS p FROM tasks_tasks WHERE uid = 'z'").get() as { p: string })
+        .p,
+    ).toBe('X');
+  });
+
+  it('a fresh insert with a terminal status and a stale stage is coupled, never a T877 void', async () => {
+    const db = await store();
+    stage(
+      db,
+      segment(R1, [
+        txn('R1:1', [
+          insert('d1', h(1), {
+            status: 'done',
+            pipeline_stage: 'testing',
+            completed_at: '2026-10-05T00:00:00.000Z',
+          }),
+        ]),
+      ]),
+    );
+    expect(apply(db)).toMatchObject({ applied: 1, conflict: 0 });
+    expect(task(db, 'd1')).toMatchObject({ status: 'done', pipeline_stage: 'contribution' });
+  });
+
+  it('a split part whose JSON is unreadable still refuses its siblings', async () => {
+    const db = await store();
+    const p1 = txn('R1:9', [insert('s1', h(1))], { part: [1, 2] });
+    const raw = db.prepare(
+      `INSERT INTO _sync_inbox (stream, seq, txn_idx, replica_id, replica_seq, device_id,
+         schema_version, txn_json, hlc, status, staged_at)
+       VALUES (?, ?, 0, ?, ?, 'dev', ?, ?, ?, 'staged', 'now')`,
+    );
+    raw.run(STREAM, 1, R1, 1, SYNC_SCHEMA_VERSION, JSON.stringify(p1), h(1));
+    raw.run(STREAM, 2, R1, 2, SYNC_SCHEMA_VERSION, '{"txn":"R1:9","part":[2,2],', h(1));
+    seq = 2;
+    apply(db);
+    expect(statuses(db)).toEqual(['1.0:refused-schema', '2.0:refused-schema']);
   });
 });
