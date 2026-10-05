@@ -23,7 +23,8 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { LedgerTxn } from '@cleocode/contracts/ledger';
+import { LEDGER_TXN_VERSION, LedgerTxn } from '@cleocode/contracts/ledger';
+import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { withImmediateTransaction } from './clock-store.js';
 
 /** A transaction's apply status in the inbox. */
@@ -142,6 +143,27 @@ export function stageTxns(
 const keyOf = (r: InboxRow): InboxKey => ({ stream: r.stream, seq: r.seq, txnIdx: r.txn_idx });
 
 /**
+ * A staged row's transaction, or why it cannot be read (T13234): a format
+ * newer than this build (`E_SCHEMA_AHEAD`), or a malformed row.
+ */
+function parseStaged(r: InboxRow): LedgerTxn | string {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(r.txn_json);
+  } catch {
+    return 'malformed transaction: not JSON';
+  }
+  const ok = LedgerTxn.safeParse(raw);
+  if (ok.success) return ok.data;
+  const v =
+    typeof raw === 'object' && raw !== null && 'v' in raw && typeof raw.v === 'number' ? raw.v : 0;
+  if (v > LEDGER_TXN_VERSION || r.schema_version > SYNC_SCHEMA_VERSION) {
+    return `E_SCHEMA_AHEAD: transaction format v${v} (segment schemaVersion ${r.schema_version}) is newer than this build; upgrade CLEO to apply it`;
+  }
+  return `malformed transaction: ${ok.error.issues[0]?.message ?? 'invalid'}`;
+}
+
+/**
  * The transactions the applier may try, in `(seq, txn_idx)` order: every
  * `staged`, `pending` and `held-skew` row, a split transaction once all of
  * its parts are staged.
@@ -159,7 +181,17 @@ export function stagedTxns(db: DatabaseSync, stream: string, limit = 0): StagedT
        ORDER BY seq, txn_idx`,
     )
     .all(stream, ...OPEN_INBOX_STATUSES) as InboxRow[];
-  const parsed = rows.map((r) => ({ row: r, txn: LedgerTxn.parse(JSON.parse(r.txn_json)) }));
+  const parsed: Array<{ row: InboxRow; txn: LedgerTxn }> = [];
+  for (const r of rows) {
+    const txn = parseStaged(r);
+    if (typeof txn === 'string') {
+      // One unreadable row (a newer writer's format) never stalls the stream:
+      // it is refused, kept for replay after an upgrade, and the rest flows.
+      markTxns(db, [keyOf(r)], 'refused-schema', { reason: txn, nowIso: new Date().toISOString() });
+      continue;
+    }
+    parsed.push({ row: r, txn });
+  }
   // Parts of one split transaction: same origin replica and txn id.
   const groups = new Map<string, Array<(typeof parsed)[number]>>();
   for (const p of parsed) {
