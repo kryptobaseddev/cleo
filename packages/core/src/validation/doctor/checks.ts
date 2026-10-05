@@ -2060,6 +2060,129 @@ export function checkLegacyCantDirs(home: string = homedir()): CheckResult {
   };
 }
 
+/** The plugin key an old CLEO enabled in the user-global Claude settings. */
+const OLD_CLEO_CLAUDE_PLUGIN = 'cleo@cleocode';
+
+/** Hook scripts an old CLEO copied into the user-global Claude hooks dir. */
+const OLD_CLEO_CLAUDE_HOOK_FILES = ['precompact-safestop.sh', 'cleo-precompact-core.sh'] as const;
+
+/** Whether a hook command was written by an old CLEO install. */
+function isOldCleoHookCommand(command: string): boolean {
+  return command.includes('# cleo-hook') || command.includes('precompact-safestop.sh');
+}
+
+/**
+ * The `PreCompact` hook commands in a parsed Claude settings object that an
+ * old CLEO wrote.
+ */
+function oldCleoPreCompactCommands(settings: Record<string, unknown>): string[] {
+  const hooks = settings.hooks;
+  if (typeof hooks !== 'object' || hooks === null) return [];
+  const entries = (hooks as Record<string, unknown>).PreCompact;
+  if (!Array.isArray(entries)) return [];
+  const found: string[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const inner = (entry as Record<string, unknown>).hooks;
+    if (!Array.isArray(inner)) continue;
+    for (const hook of inner) {
+      if (typeof hook !== 'object' || hook === null) continue;
+      const command = (hook as Record<string, unknown>).command;
+      if (typeof command === 'string' && isOldCleoHookCommand(command)) found.push(command);
+    }
+  }
+  return found;
+}
+
+/**
+ * Report what an old CLEO left in the user-global Claude settings (T13221).
+ *
+ * Releases whose Claude Code adapter install ran (before T13128 removed that
+ * step) could enable the `cleo@cleocode` plugin and add a `PreCompact` hook
+ * (`precompact-safestop.sh`, tagged `# cleo-hook`) in the user-global
+ * `settings.json`, and copy hook scripts into its `hooks/` dir. CLEO never
+ * writes the user-global Claude settings, and removing an entry is writing, so
+ * this check is REPORT-ONLY: it reads, and its `fix` spells out the manual
+ * removal steps. It never edits or deletes anything there.
+ *
+ * @param claudeHome - The user-global Claude dir.
+ *   @defaultValue `CLAUDE_HOME`, else `~/.claude`
+ * @returns `warning` listing each leftover and how to remove it by hand;
+ *   `passed` when there is none (or nothing to read).
+ *
+ * @example
+ * ```ts
+ * checkUserGlobalClaudeLeftovers('/tmp/sandbox/.claude');
+ * ```
+ *
+ * @task T13221
+ */
+export function checkUserGlobalClaudeLeftovers(
+  claudeHome: string = process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude'),
+): CheckResult {
+  const settingsPath = join(claudeHome, 'settings.json');
+  const steps: string[] = [];
+  const found: string[] = [];
+  let unreadable: string | null = null;
+  if (existsSync(settingsPath)) {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        const settings = parsed as Record<string, unknown>;
+        const plugins = settings.enabledPlugins;
+        if (
+          typeof plugins === 'object' &&
+          plugins !== null &&
+          (plugins as Record<string, unknown>)[OLD_CLEO_CLAUDE_PLUGIN] === true
+        ) {
+          found.push(`plugin ${OLD_CLEO_CLAUDE_PLUGIN} enabled`);
+          steps.push(
+            `in ${settingsPath}, delete the "${OLD_CLEO_CLAUDE_PLUGIN}": true entry from "enabledPlugins"`,
+          );
+        }
+        for (const command of oldCleoPreCompactCommands(settings)) {
+          found.push(`PreCompact hook ${command}`);
+          steps.push(
+            `in ${settingsPath}, delete the "hooks.PreCompact" entry whose command is ${JSON.stringify(command)} (drop "PreCompact" if it is left empty)`,
+          );
+        }
+      }
+    } catch (err) {
+      unreadable = err instanceof Error ? err.message : String(err);
+    }
+  }
+  for (const file of OLD_CLEO_CLAUDE_HOOK_FILES) {
+    const path = join(claudeHome, 'hooks', file);
+    if (existsSync(path)) {
+      found.push(`hook script ${path}`);
+      steps.push(`delete ${path}`);
+    }
+  }
+  if (found.length === 0) {
+    return {
+      id: 'user_global_claude_leftovers',
+      category: 'configuration',
+      status: 'passed',
+      message:
+        unreadable === null
+          ? 'No CLEO entries in the user-global Claude settings'
+          : `User-global Claude settings not checked: ${settingsPath} is not valid JSON (${unreadable})`,
+      details: { settingsPath, found, unreadable },
+      fix: null,
+    };
+  }
+  return {
+    id: 'user_global_claude_leftovers',
+    category: 'configuration',
+    status: 'warning',
+    message:
+      `An old CLEO left ${found.length} entr${found.length === 1 ? 'y' : 'ies'} in the user-global ` +
+      `Claude settings (${claudeHome}); CLEO no longer writes there and will not remove them for you`,
+    details: { settingsPath, found, unreadable },
+    fix: `By hand (back up ${settingsPath} first): ${steps.join('; ')}.`,
+  };
+}
+
 /**
  * Run all global health checks and return results array.
  * @task T4525
@@ -2097,6 +2220,8 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     auditOrphanWorktrees(),
     // CANT files stranded in pre-T12602 Linux-style dirs (T12602)
     checkLegacyCantDirs(),
+    // Old CLEO entries in the user-global Claude settings, report-only (T13221)
+    checkUserGlobalClaudeLeftovers(),
     // Shared-worktree git hazards (T12161)
     checkSharedWorktreeStashes(projectRoot),
     checkSharedGitIdentity(projectRoot),
