@@ -108,7 +108,7 @@ vi.mock('../../../../../core/src/store/tasks-schema.js', async (importOriginal) 
 });
 
 // Mock validation-schemas so Zod check passes without real validation
-vi.mock('../../../../../core/src/store/validation-schemas.js', () => ({
+vi.mock('../../../../../core/src/store/audit-log-schema.js', () => ({
   AuditLogInsertSchema: {
     safeParse: vi.fn((data: unknown) => ({ success: true, data })),
   },

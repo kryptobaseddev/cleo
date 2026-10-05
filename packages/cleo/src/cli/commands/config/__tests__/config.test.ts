@@ -40,6 +40,11 @@ vi.mock('@cleocode/core/paths.js', async (importOriginal) => {
   const orig = await importOriginal<typeof import('@cleocode/core/paths.js')>();
   return { ...orig, getProjectRoot: () => currentProjectRoot };
 });
+// get/set/drift-check import getProjectRoot from its defining module (T13126).
+vi.mock('@cleocode/core/project-scope', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('@cleocode/core/project-scope')>();
+  return { ...orig, getProjectRoot: () => currentProjectRoot };
+});
 
 // Import AFTER mocks are wired (vi.mock is hoisted, but the bindings the
 // commands close over are captured at import time).

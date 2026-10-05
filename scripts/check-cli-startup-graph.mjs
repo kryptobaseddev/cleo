@@ -145,7 +145,9 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * module-load registrations) instead of the barrel: `next` ~665 modules
  * (~155 MB) and `add`, a mutation bound to a sandbox session, ~820 (~195 MB),
  * where both loaded ~3,000. `dash` (~640 modules, ~150 MB, was ~3,000 and
- * ~275 MB) loads the admin domain's operations one at a time.
+ * ~275 MB) loads the admin domain's operations one at a time. `config get`
+ * (~420 modules, ~120 MB, was ~2,750 and ~250 MB) imports its helpers from
+ * their defining modules.
  * `describe` covers
  * the `--describe` path, which loads the operation describer through
  * `require(esm)`. Lower each budget in the PR that lowers its count.
@@ -276,6 +278,14 @@ export const PROBES = Object.freeze([
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     maxModules: 700,
     maxRssMb: 200,
+  },
+  {
+    name: 'config-get',
+    args: ['config', 'get'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    maxModules: 465,
+    maxRssMb: 170,
   },
   {
     name: 'describe',

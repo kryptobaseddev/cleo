@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { resolveProviderFromModelIndex } from '../model-provider-registry.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  resetModelsDevCache,
+  resolveProviderFromModelIndex,
+  resolveProviderFromModelRegistry,
+} from '../model-provider-registry.js';
 
 describe('resolveProviderFromModelIndex', () => {
   const index = {
@@ -44,5 +48,37 @@ describe('resolveProviderFromModelIndex', () => {
       source: 'models.dev-suffix',
       candidates: ['openai', 'openrouter'],
     });
+  });
+});
+
+describe('resolveProviderFromModelRegistry', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetModelsDevCache();
+  });
+
+  it.each([
+    undefined,
+    '',
+    '   ',
+  ])('never fetches the models.dev catalog without a model (%j) (T13126)', async (model) => {
+    const fetchSpy = vi.fn(async () => new Response('{}'));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    expect(await resolveProviderFromModelRegistry(model)).toEqual({ source: 'none' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('still looks a bare model up in the catalog', async () => {
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ anthropic: { models: { 'claude-x': { id: 'claude-x' } } } })),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    expect(await resolveProviderFromModelRegistry('claude-x')).toMatchObject({
+      provider: 'anthropic',
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
