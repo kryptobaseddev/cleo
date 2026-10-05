@@ -3,9 +3,10 @@
  *
  * Validates that:
  * - Shared `cleo-precompact-core.sh` and provider-specific
- *   `precompact-safestop.sh` are copied into `~/.claude/hooks/`.
- * - `~/.claude/settings.json` gains a `PreCompact` entry pointing at the
- *   installed shim, tagged with the `# cleo-hook` sentinel for clean uninstall.
+ *   `precompact-safestop.sh` are copied into the PROJECT's `.claude/hooks/`.
+ * - The project's `.claude/settings.local.json` gains a `PreCompact` entry
+ *   pointing at the installed shim, tagged with the `# cleo-hook` sentinel.
+ * - The user-global `$CLAUDE_HOME` is never written (T13227).
  * - Repeat invocations are idempotent (no duplicate settings entries).
  * - The source templates contain the universal CLEO CLI invocations so the
  *   bash contract remains DRY across providers.
@@ -14,6 +15,7 @@
  * impersonates `$HOME` via the `HOME` env var, so no user config is touched.
  *
  * @task T1013
+ * @task T13227
  * @epic T1000
  */
 
@@ -67,7 +69,7 @@ describe('ClaudeCodeInstallProvider — PreCompact hook templates', () => {
     rmSync(projectDir, { recursive: true, force: true });
   });
 
-  it('installs both bash templates into $HOME/.claude/hooks/', async () => {
+  it('installs both bash templates into the project .claude/hooks/', async () => {
     const provider = new ClaudeCodeInstallProvider();
 
     const result = await provider.install({ projectDir });
@@ -79,20 +81,21 @@ describe('ClaudeCodeInstallProvider — PreCompact hook templates', () => {
     } | null;
 
     expect(hookTemplates).not.toBeNull();
-    expect(hookTemplates?.templates.targetDir).toBe(join(fakeHome, '.claude', 'hooks'));
+    expect(hookTemplates?.templates.targetDir).toBe(join(projectDir, '.claude', 'hooks'));
+    expect(existsSync(join(fakeHome, '.claude'))).toBe(false);
     const installed = hookTemplates?.templates.installedFiles ?? [];
     expect(installed.some((p) => p.endsWith('cleo-precompact-core.sh'))).toBe(true);
     expect(installed.some((p) => p.endsWith('precompact-safestop.sh'))).toBe(true);
 
     // Installed shim sources the shared helper.
     const shim = readFileSync(
-      join(fakeHome, '.claude', 'hooks', 'precompact-safestop.sh'),
+      join(projectDir, '.claude', 'hooks', 'precompact-safestop.sh'),
       'utf-8',
     );
     expect(shim).toContain('cleo-precompact-core.sh');
     // Shared helper invokes the universal CLEO CLI.
     const core = readFileSync(
-      join(fakeHome, '.claude', 'hooks', 'cleo-precompact-core.sh'),
+      join(projectDir, '.claude', 'hooks', 'cleo-precompact-core.sh'),
       'utf-8',
     );
     expect(core).toContain('cleo memory precompact-flush');
@@ -100,11 +103,11 @@ describe('ClaudeCodeInstallProvider — PreCompact hook templates', () => {
     expect(core).toMatch(/cleo_cmd.*safestop/);
   });
 
-  it('writes a PreCompact entry into $HOME/.claude/settings.json tagged # cleo-hook', async () => {
+  it('writes a PreCompact entry into the project settings.local.json tagged # cleo-hook', async () => {
     const provider = new ClaudeCodeInstallProvider();
     await provider.install({ projectDir });
 
-    const settingsPath = join(fakeHome, '.claude', 'settings.json');
+    const settingsPath = join(projectDir, '.claude', 'settings.local.json');
     const settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as {
       hooks?: Record<string, Array<{ hooks?: Array<{ command?: string; type?: string }> }>>;
     };
@@ -124,7 +127,7 @@ describe('ClaudeCodeInstallProvider — PreCompact hook templates', () => {
     await provider.install({ projectDir });
     await provider.install({ projectDir });
 
-    const settingsPath = join(fakeHome, '.claude', 'settings.json');
+    const settingsPath = join(projectDir, '.claude', 'settings.local.json');
     const settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as {
       hooks?: { PreCompact?: unknown[] };
     };
@@ -134,12 +137,12 @@ describe('ClaudeCodeInstallProvider — PreCompact hook templates', () => {
   // T12385 — a malformed settings.json used to be replaced with an object
   // holding only CLEO's entries (the parse error was caught and the writer
   // "started fresh"). It must now be reported and left byte-identical.
-  describe('T12385 — malformed settings.json is never rewritten', () => {
+  describe('T12385 — malformed settings file is never rewritten', () => {
     const malformed = '{\n  "permissions": { "allow": ["Bash(ls)"] },\n  "model": "opus",\n';
 
     it('install reports the parse error and leaves the file byte-identical', async () => {
-      const settingsPath = join(fakeHome, '.claude', 'settings.json');
-      mkdirSync(join(fakeHome, '.claude'), { recursive: true });
+      const settingsPath = join(projectDir, '.claude', 'settings.local.json');
+      mkdirSync(join(projectDir, '.claude'), { recursive: true });
       writeFileSync(settingsPath, malformed, 'utf-8');
 
       const result = await new ClaudeCodeInstallProvider().install({ projectDir });
@@ -153,8 +156,8 @@ describe('ClaudeCodeInstallProvider — PreCompact hook templates', () => {
     });
 
     it('hook registration reports the parse error and leaves the file byte-identical', async () => {
-      const settingsPath = join(fakeHome, '.claude', 'settings.json');
-      mkdirSync(join(fakeHome, '.claude'), { recursive: true });
+      const settingsPath = join(projectDir, '.claude', 'settings.local.json');
+      mkdirSync(join(projectDir, '.claude'), { recursive: true });
       writeFileSync(settingsPath, malformed, 'utf-8');
       const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
@@ -168,8 +171,8 @@ describe('ClaudeCodeInstallProvider — PreCompact hook templates', () => {
     });
 
     it('preserves unrelated user settings when it does write', async () => {
-      const settingsPath = join(fakeHome, '.claude', 'settings.json');
-      mkdirSync(join(fakeHome, '.claude'), { recursive: true });
+      const settingsPath = join(projectDir, '.claude', 'settings.local.json');
+      mkdirSync(join(projectDir, '.claude'), { recursive: true });
       writeFileSync(
         settingsPath,
         JSON.stringify({ model: 'opus', hooks: { Stop: [{ matcher: 'x', hooks: [] }] } }),
