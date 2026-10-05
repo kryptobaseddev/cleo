@@ -919,6 +919,23 @@ describe('pages (§3.5 Rule 3)', () => {
     expect(last2[0]?.f).not.toBe(last2[1]?.f);
   });
 
+  it("the time bound counts applying, not the page's rewind (T13275)", async () => {
+    const [a, b] = await threeReplicas();
+    write(a, "UPDATE tasks_tasks SET priority = 'high' WHERE uid = 'x'");
+    for (const t of ['t1', 't2', 't3']) {
+      publish(b, write(b, `UPDATE tasks_tasks SET title = '${t}' WHERE uid = 'x'`));
+    }
+    // Opening the page (its rewind) takes 100 ms; applying takes no time.
+    const base = Date.now();
+    const clock = () => (a.db.isTransaction ? base + 100 : base);
+    expect(sync(a, published.length, { pageMs: 50, now: clock })).toMatchObject({
+      applied: 3,
+      rebased: 3,
+    });
+    const last3 = frames(a).slice(-3);
+    expect(new Set(last3.map((x) => x.f)).size, 'the rewind used up the page budget').toBe(1);
+  });
+
   it('a page breaks on an actor change and keeps a larger transaction whole', async () => {
     const [a, b] = await threeReplicas();
     publish(
