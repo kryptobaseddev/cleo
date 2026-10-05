@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   _resetExitPathForTest,
   exitPath,
+  exitPathLoadFailureNotice,
   isVanishedModule,
   preloadExitPath,
   vanishedModuleNotice,
@@ -79,5 +80,18 @@ describe('exit path (T13159)', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('prints the upgrade/reinstall notice only for a missing module; any other load error as itself (#1878 review)', () => {
+    expect(exitPathLoadFailureNotice(vanished(), '2026.10.5', '/nonexistent/package.json')).toMatch(
+      /Reinstall CLEO/,
+    );
+    const broken = Object.assign(new SyntaxError("Unexpected token '<'"), {
+      code: 'ERR_INVALID_SYNTAX',
+    });
+    const notice = exitPathLoadFailureNotice(broken, '2026.10.5', '/nonexistent/package.json');
+    expect(notice).toContain('(ERR_INVALID_SYNTAX)');
+    expect(notice).toContain("SyntaxError: Unexpected token '<'");
+    expect(notice).not.toMatch(/Reinstall|upgraded/);
   });
 });
