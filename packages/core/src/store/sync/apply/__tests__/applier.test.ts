@@ -24,7 +24,7 @@ import {
 } from '../../../dual-scope-db.js';
 import { finishCaptureFrame, openCaptureFrame, setCaptureEnabled } from '../../capture.js';
 import { listConflicts } from '../../conflicts.js';
-import { actorOpOf, localLeaves, readFieldLeaves } from '../../field-leave.js';
+import { actorOpOf, localLeaves, readFieldFrontiers, readFieldLeaves } from '../../field-leave.js';
 import { setSyncFlag } from '../../flags.js';
 import { type InboxSegment, inboxCounts, stagedTxns, stageTxns } from '../../inbox.js';
 import { readRowMeta } from '../../row-meta.js';
@@ -406,6 +406,52 @@ describe('review fixes carried into apply (T13222, T13223)', () => {
     expect(task(db, 's1')?.pipeline_stage).toBe('implementation');
     // The winner keeps its own HLC, the row's newest.
     expect(readRowMeta(db, 'tasks_tasks', 's1')?.hlc).toBe(h(20, R2));
+  });
+
+  it('a local stage advance joins the stored frontier, and the next remote op keeps it (T13232)', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('s2', h(1), { pipeline_stage: 'research' })])]));
+    stage(
+      db,
+      segment(R1, [txn('R1:2', [update('s2', h(5), { pipeline_stage: 'implementation' })])]),
+    );
+    stage(db, segment(R2, [txn('R2:1', [update('s2', h(9, R2), { pipeline_stage: 'research' })])]));
+    apply(db);
+    expect(Object.keys(readFieldFrontiers(db, 'tasks_tasks', 's2'))).toEqual(['pipeline_stage']);
+    // The user advances the stage locally.
+    db.exec('BEGIN IMMEDIATE');
+    const frame = openCaptureFrame(db, 'write', null);
+    db.prepare("UPDATE tasks_tasks SET pipeline_stage = 'testing' WHERE uid = 's2'").run();
+    finishCaptureFrame(db, frame);
+    db.exec('COMMIT');
+    seal(db);
+    // testing dominates both stored candidates: the frontier collapses.
+    expect(readFieldFrontiers(db, 'tasks_tasks', 's2')).toEqual({});
+    stage(
+      db,
+      segment(R2, [txn('R2:2', [update('s2', h(15, R2), { pipeline_stage: 'validation' })])]),
+    );
+    apply(db);
+    expect(task(db, 's2')?.pipeline_stage).toBe('testing');
+  });
+
+  it("this replica's own echo is applied without re-applying its counter deltas", async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('e9', h(1))])]));
+    // A $inc on a plain column is malformed; an own echo drops it before the merge.
+    stage(
+      db,
+      segment(LOCAL, [
+        txn('L:1', [
+          {
+            ...update('e9', h(3, LOCAL), { title: 'mine' }),
+            a: { title: 'mine', priority: { $inc: 1 } },
+          },
+        ]),
+      ]),
+    );
+    expect(apply(db)).toMatchObject({ applied: 2, refusedSchema: 0 });
+    expect(task(db, 'e9')?.title).toBe('mine');
   });
 
   it("a child D whose row the parent's local cascade already removed applies as a tombstone", async () => {
