@@ -20,66 +20,19 @@
  */
 
 import type { admin as coreAdmin } from '@cleocode/core';
+import { computeHelp } from '@cleocode/core/admin/help';
+import { getContextWindow } from '@cleocode/core/context/index';
+import { configDomainHandler } from '@cleocode/core/dispatch/config-domain-handler';
+import { getLogger } from '@cleocode/core/logger';
+import { paginate } from '@cleocode/core/pagination';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { getDefaultSnapshotPath } from '@cleocode/core/snapshot/index';
 import {
-  checkSequence,
-  cleanupSystem,
-  clearTokenUsage,
-  computeHelp,
-  configDomainHandler,
-  coreDoctorReport,
-  deleteTokenUsage,
-  ensureCleoOsHub,
-  exportSnapshot,
-  exportTasks,
-  exportTasksPackage,
-  fileRestore,
-  findAdrs,
-  generateInjection,
-  getContextWindow,
-  getDashboard,
-  getDefaultSnapshotPath,
-  getLogger,
-  getMigrationStatus,
-  getProjectRoot,
-  getProjectStatsExtended,
-  getRoadmap,
-  getRuntimeDiagnostics,
-  getSystemHealth,
-  getSystemPaths,
-  getTaskAccessor,
-  importSnapshot,
-  importTasks,
-  importTasksPackage,
-  listAdrs,
   listSystemBackups,
-  listTokenUsage,
-  mapCodebase,
-  paginate,
-  queryAuditLog,
-  readSnapshot,
-  recordTokenExchange,
   restoreBackup,
-  runDoctorFixes,
-  safestop,
-  showAdr,
-  showSequence,
-  showTokenUsage,
-  summarizeTokenUsage,
-  syncAdrsToDb,
-  systemCreateBackup,
-  validateAllAdrs,
-  writeSnapshot,
-} from '@cleocode/core/internal';
-import {
-  configGet,
-  configListPresets,
-  configSet,
-  configSetPreset,
-  getVersion,
-  initProject,
-  sessionContextInject,
-  systemHooksMatrix,
-} from '@cleocode/runtime/gateway';
+  createBackup as systemCreateBackup,
+} from '@cleocode/core/system/backup';
+import { getSystemPaths } from '@cleocode/core/system/platform-paths';
 import {
   defineTypedHandler,
   lafsError,
@@ -97,6 +50,140 @@ import {
   wrapResult,
 } from './_base.js';
 import { dispatchMeta } from './_meta.js';
+import { lazyOperation } from './lazy.js';
+
+// CORE operations load on first call (T13126): `cleo dash` and `cleo stats`
+// load their own modules, not every admin operation's.
+
+const checkSequence = lazyOperation(
+  async () => (await import('@cleocode/core/sequence/index')).checkSequence,
+);
+const cleanupSystem = lazyOperation(
+  async () => (await import('@cleocode/core/system/cleanup')).cleanupSystem,
+);
+const clearTokenUsage = lazyOperation(
+  async () => (await import('@cleocode/core/metrics/token-service')).clearTokenUsage,
+);
+const configGet = lazyOperation(
+  async () => (await import('@cleocode/core/config/engine-ops')).configGet,
+);
+const configListPresets = lazyOperation(
+  async () => (await import('@cleocode/core/config/engine-ops')).configListPresets,
+);
+const configSet = lazyOperation(
+  async () => (await import('@cleocode/core/config/engine-ops')).configSet,
+);
+const configSetPreset = lazyOperation(
+  async () => (await import('@cleocode/core/config/engine-ops')).configSetPreset,
+);
+const coreDoctorReport = lazyOperation(
+  async () => (await import('@cleocode/core/system/health')).coreDoctorReport,
+);
+const deleteTokenUsage = lazyOperation(
+  async () => (await import('@cleocode/core/metrics/token-service')).deleteTokenUsage,
+);
+const ensureCleoOsHub = lazyOperation(
+  async () => (await import('@cleocode/core/scaffold/global-scaffold')).ensureCleoOsHub,
+);
+const exportSnapshot = lazyOperation(
+  async () => (await import('@cleocode/core/snapshot/index')).exportSnapshot,
+);
+const exportTasks = lazyOperation(
+  async () => (await import('@cleocode/core/admin/export')).exportTasks,
+);
+const exportTasksPackage = lazyOperation(
+  async () => (await import('@cleocode/core/admin/export-tasks')).exportTasksPackage,
+);
+const fileRestore = lazyOperation(
+  async () => (await import('@cleocode/core/system/backup')).fileRestore,
+);
+const findAdrs = lazyOperation(async () => (await import('@cleocode/core/adrs/find')).findAdrs);
+const generateInjection = lazyOperation(
+  async () => (await import('@cleocode/core/system/inject-generate')).generateInjection,
+);
+const getDashboard = lazyOperation(
+  async () => (await import('@cleocode/core/stats/index')).getDashboard,
+);
+const getMigrationStatus = lazyOperation(
+  async () => (await import('@cleocode/core/system/migrate')).getMigrationStatus,
+);
+const getProjectStatsExtended = lazyOperation(
+  async () => (await import('@cleocode/core/stats/index')).getProjectStatsExtended,
+);
+const getRoadmap = lazyOperation(
+  async () => (await import('@cleocode/core/roadmap/index')).getRoadmap,
+);
+const getRuntimeDiagnostics = lazyOperation(
+  async () => (await import('@cleocode/core/system/runtime')).getRuntimeDiagnostics,
+);
+const getSystemHealth = lazyOperation(
+  async () => (await import('@cleocode/core/system/health')).getSystemHealth,
+);
+const getTaskAccessor = lazyOperation(
+  async () => (await import('@cleocode/core/store/data-accessor')).getTaskAccessor,
+);
+const getVersion = lazyOperation(
+  async () => (await import('@cleocode/core/init/engine-ops')).getVersion,
+);
+const importSnapshot = lazyOperation(
+  async () => (await import('@cleocode/core/snapshot/index')).importSnapshot,
+);
+const importTasks = lazyOperation(
+  async () => (await import('@cleocode/core/admin/import')).importTasks,
+);
+const importTasksPackage = lazyOperation(
+  async () => (await import('@cleocode/core/admin/import-tasks')).importTasksPackage,
+);
+const initProject = lazyOperation(
+  async () => (await import('@cleocode/core/init/engine-ops')).initProject,
+);
+const listAdrs = lazyOperation(async () => (await import('@cleocode/core/adrs/list')).listAdrs);
+const listTokenUsage = lazyOperation(
+  async () => (await import('@cleocode/core/metrics/token-service')).listTokenUsage,
+);
+const mapCodebase = lazyOperation(
+  async () => (await import('@cleocode/core/codebase-map/index')).mapCodebase,
+);
+const queryAuditLog = lazyOperation(
+  async () => (await import('@cleocode/core/system/audit')).queryAuditLog,
+);
+const readSnapshot = lazyOperation(
+  async () => (await import('@cleocode/core/snapshot/index')).readSnapshot,
+);
+const recordTokenExchange = lazyOperation(
+  async () => (await import('@cleocode/core/metrics/token-service')).recordTokenExchange,
+);
+const runDoctorFixes = lazyOperation(
+  async () => (await import('@cleocode/core/system/health')).runDoctorFixes,
+);
+const safestop = lazyOperation(
+  async () => (await import('@cleocode/core/system/safestop')).safestop,
+);
+const sessionContextInject = lazyOperation(
+  async () => (await import('@cleocode/core/session/engine-ops')).sessionContextInject,
+);
+const showAdr = lazyOperation(async () => (await import('@cleocode/core/adrs/show')).showAdr);
+const showSequence = lazyOperation(
+  async () => (await import('@cleocode/core/sequence/index')).showSequence,
+);
+const showTokenUsage = lazyOperation(
+  async () => (await import('@cleocode/core/metrics/token-service')).showTokenUsage,
+);
+const summarizeTokenUsage = lazyOperation(
+  async () => (await import('@cleocode/core/metrics/token-service')).summarizeTokenUsage,
+);
+const syncAdrsToDb = lazyOperation(
+  async () => (await import('@cleocode/core/adrs/sync')).syncAdrsToDb,
+);
+const systemHooksMatrix = lazyOperation(
+  async () => (await import('@cleocode/core/hooks/engine-ops')).systemHooksMatrix,
+);
+const validateAllAdrs = lazyOperation(
+  async () => (await import('@cleocode/core/adrs/validate')).validateAllAdrs,
+);
+const writeSnapshot = lazyOperation(
+  async () => (await import('@cleocode/core/snapshot/index')).writeSnapshot,
+);
 
 type AdminOps = OpsFromCore<typeof coreAdmin.adminCoreOps>;
 
@@ -366,7 +453,7 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
   },
 
   'config.presets': async (_params) => {
-    const result = configListPresets();
+    const result = await configListPresets();
     if (!result.success) {
       return lafsError(
         String(result.error?.code ?? 'E_INTERNAL'),
@@ -1228,7 +1315,7 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
 
   'context.inject': async (params) => {
     const projectRoot = getProjectRoot();
-    const result = sessionContextInject(
+    const result = await sessionContextInject(
       params.protocolType,
       {
         taskId: params.taskId,

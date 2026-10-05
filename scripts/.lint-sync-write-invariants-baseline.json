@@ -241,6 +241,82 @@
     "packages/core/src/shutdown.ts :: Error": {
       "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. This site was already on that path at runtime.",
       "count": 1
+    },
+    "packages/core/src/agents/resolveAgentTemplates.ts :: W_DEPRECATED_AGENT_PATH": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_KEY_NOT_FOUND": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_READ_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_WRITE_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 4
+    },
+    "packages/core/src/config/engine-ops.ts :: E_INVALID_INPUT": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 3
+    },
+    "packages/core/src/config/engine-ops.ts :: E_NOT_INITIALIZED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/git/hooks-install.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 3
+    },
+    "packages/core/src/init.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 2
+    },
+    "packages/core/src/init.ts :: ExitCode.GENERAL_ERROR": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init.ts :: ExitCode.PROJECT_MOVED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init.ts :: initRefusal": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 7
+    },
+    "packages/core/src/init.ts :: projectMovedError": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init.ts :: W_DEPRECATED_AGENT_PATH": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_ALREADY_INITIALIZED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_INIT_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_NOT_INITIALIZED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_PROJECT_MOVED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_VERSION_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: engineError": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
     }
   },
   "sites": {
@@ -387,6 +463,7 @@
     "packages/core/src/admin/import.ts :: Error": 3,
     "packages/core/src/adrs/link-pipeline.ts :: silent:cascade": 1,
     "packages/core/src/adrs/sync.ts :: silent:cascade": 1,
+    "packages/core/src/agents/resolveAgentTemplates.ts :: W_DEPRECATED_AGENT_PATH": 1,
     "packages/core/src/agents/retry.ts :: success:false": 1,
     "packages/core/src/agents/seed-install.ts :: Error": 1,
     "packages/core/src/agents/seed-install.ts :: silent:cascade": 1,
@@ -402,6 +479,11 @@
     "packages/core/src/code/parser.ts :: Error": 1,
     "packages/core/src/conduit/local-transport.ts :: Error": 4,
     "packages/core/src/conduit/local-transport.ts :: silent:cascade": 4,
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_KEY_NOT_FOUND": 1,
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_READ_FAILED": 1,
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_WRITE_FAILED": 4,
+    "packages/core/src/config/engine-ops.ts :: E_INVALID_INPUT": 3,
+    "packages/core/src/config/engine-ops.ts :: E_NOT_INITIALIZED": 1,
     "packages/core/src/config/registry.ts :: Error": 2,
     "packages/core/src/crypto/credentials.ts :: Error": 12,
     "packages/core/src/decide/credentials.ts :: DecideCredentialsError": 16,
@@ -582,8 +664,21 @@
     "packages/core/src/errors.ts :: this.code": 1,
     "packages/core/src/gc/cleanup.ts :: Error": 1,
     "packages/core/src/gc/transcript.ts :: Error": 1,
+    "packages/core/src/git/hooks-install.ts :: Error": 3,
     "packages/core/src/goal/store.ts :: Error": 1,
     "packages/core/src/identity/cleo-identity.ts :: TypeError": 2,
+    "packages/core/src/init.ts :: Error": 2,
+    "packages/core/src/init.ts :: ExitCode.GENERAL_ERROR": 1,
+    "packages/core/src/init.ts :: ExitCode.PROJECT_MOVED": 1,
+    "packages/core/src/init.ts :: initRefusal": 7,
+    "packages/core/src/init.ts :: projectMovedError": 1,
+    "packages/core/src/init.ts :: W_DEPRECATED_AGENT_PATH": 1,
+    "packages/core/src/init/engine-ops.ts :: E_ALREADY_INITIALIZED": 1,
+    "packages/core/src/init/engine-ops.ts :: E_INIT_FAILED": 1,
+    "packages/core/src/init/engine-ops.ts :: E_NOT_INITIALIZED": 1,
+    "packages/core/src/init/engine-ops.ts :: E_PROJECT_MOVED": 1,
+    "packages/core/src/init/engine-ops.ts :: E_VERSION_FAILED": 1,
+    "packages/core/src/init/engine-ops.ts :: engineError": 1,
     "packages/core/src/json-schema-validator.ts :: ExitCode.NOT_FOUND": 1,
     "packages/core/src/json-schema-validator.ts :: ExitCode.VALIDATION_ERROR": 1,
     "packages/core/src/lifecycle/index.ts :: ExitCode.INVALID_INPUT": 11,

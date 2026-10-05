@@ -144,7 +144,8 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * Every other operation loads `@cleocode/core/registrations` (CORE's
  * module-load registrations) instead of the barrel: `next` ~665 modules
  * (~155 MB) and `add`, a mutation bound to a sandbox session, ~820 (~195 MB),
- * where both loaded ~3,000.
+ * where both loaded ~3,000. `dash` (~640 modules, ~150 MB, was ~3,000 and
+ * ~275 MB) loads the admin domain's operations one at a time.
  * `describe` covers
  * the `--describe` path, which loads the operation describer through
  * `require(esm)`. Lower each budget in the PR that lowers its count.
@@ -267,6 +268,14 @@ export const PROBES = Object.freeze([
     expectExit: 0,
     maxModules: 900,
     maxRssMb: 240,
+  },
+  {
+    name: 'dash',
+    args: ['dash'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    maxModules: 700,
+    maxRssMb: 200,
   },
   {
     name: 'describe',
