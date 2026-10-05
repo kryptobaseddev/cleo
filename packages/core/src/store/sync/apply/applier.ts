@@ -45,6 +45,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import type { LedgerOp, LedgerWireValue } from '@cleocode/contracts/ledger';
+import { BIRTH_FP_COLUMN } from '../../row-identity-registry.js';
 import { type CaptureTableDef, captureTableDef } from '../capture.js';
 import { recordConflicts } from '../conflicts.js';
 import {
@@ -242,8 +243,14 @@ function effect(
     return m;
   };
   switch (out.effect) {
-    case 'insert':
-      api.insertRow(op.t, op.u, valuesOf(out.next, out.written));
+    case 'insert': {
+      // The sealer sends the birth fingerprint as `bfp`, not in `a` (identity
+      // columns are read from the live row at capture); the insert needs it.
+      const values = valuesOf(out.next, out.written);
+      if (def.identity.includes(BIRTH_FP_COLUMN) && values[BIRTH_FP_COLUMN] == null && op.bfp) {
+        values[BIRTH_FP_COLUMN] = op.bfp;
+      }
+      api.insertRow(op.t, op.u, values);
       api.setMergedRowMeta(op.t, op.u, {
         ...meta,
         fieldHlc: liveHlcs(),
@@ -251,6 +258,7 @@ function effect(
         bfp: op.bfp ?? null,
       });
       break;
+    }
     case 'update':
       api.writeFields(op.t, op.u, valuesOf(out.next, out.written));
       api.setMergedRowMeta(op.t, op.u, { ...meta, fieldHlc: liveHlcs(), tombstone: null });

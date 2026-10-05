@@ -361,6 +361,18 @@ describe('typed rules and conflict records (§3.6)', () => {
 });
 
 describe('review fixes carried into apply (T13222, T13223)', () => {
+  it('a sealer-shaped insert carries birth_fp as bfp, and the applied row gets it', async () => {
+    const db = await store();
+    const op = insert('b1', h(1));
+    const { birth_fp: _fp, ...a } = op.a ?? {};
+    stage(db, segment(R1, [txn('R1:1', [{ ...op, a, bfp: 'fp-sealed' }])]));
+    expect(apply(db).applied).toBe(1);
+    expect(db.prepare("SELECT birth_fp FROM tasks_tasks WHERE uid = 'b1'").get()).toEqual({
+      birth_fp: 'fp-sealed',
+    });
+    expect(seal(db).txns, 'the applied insert was echoed').toBe(0);
+  });
+
   it('a partial status group is refused-schema with the missing members named', async () => {
     const db = await store();
     stage(db, segment(R1, [txn('R1:1', [insert('t1', h(1))])]));
