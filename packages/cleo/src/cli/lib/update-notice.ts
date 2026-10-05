@@ -11,7 +11,8 @@
  * A command only READS a small cache file (`<state>/update-check.json`). When the
  * cache is older than a day (an hour after a failed check), the command claims a
  * lock file and starts a detached, unref'd child (`update-check-entry.js`) that
- * asks the registry for the package's dist-tags and rewrites the cache. The
+ * asks the registry for the package's dist-tags (and the latest version's
+ * manifest, for the hotfix flag) and rewrites the cache. The
  * command never waits on the network, and the lock keeps a burst of concurrent
  * agents to one check. The notice itself is one line on stderr; stdout (the LAFS
  * envelope) is never touched.
@@ -24,10 +25,13 @@
  * - A release flagged as a hotfix: a stronger line at most every 15 minutes
  *   (not on every command: agents run hundreds of commands a session, each line
  *   lands in their context, and an agent usually cannot update on its own) until
- *   the install moves past it. A maintainer flags one with the `hotfix` dist-tag:
- *   `npm dist-tag add @cleocode/cleo@<version> hotfix`. The tag arrives in the
- *   same dist-tags response, so the flag costs no extra request, can be set after
- *   publishing, and is withdrawn with `npm dist-tag rm`.
+ *   the install moves past it. The flag is release metadata, not a dist-tag
+ *   (T13184): a release planned with `cleo release plan <v> --hotfix` has
+ *   `"cleo": { "hotfix": true }` written into `@cleocode/cleo`'s package.json by
+ *   release.yml, so it ships through the ordinary tokenless (OIDC) publish. The
+ *   check reads the field from the latest version's registry manifest and
+ *   remembers the highest flagged version it has seen, so a hotfix followed by
+ *   a regular release still reads as "you are missing a hotfix".
  *
  * ## When it stays silent
  *
@@ -66,9 +70,6 @@ import { getCleoStateDir } from '@cleocode/paths';
 
 /** npm package whose dist-tags the check reads. */
 export const CLEO_PACKAGE_NAME = '@cleocode/cleo';
-
-/** dist-tag a maintainer points at a release to flag it as a hotfix. */
-export const HOTFIX_DIST_TAG = 'hotfix';
 
 /** Set to `1` to silence the notice and skip the registry check everywhere. */
 export const UPDATE_NOTICE_OPT_OUT_ENV = 'CLEO_NO_UPDATE_NOTICE';
@@ -144,6 +145,8 @@ export interface UpdateCheckCache {
   readonly ok: boolean;
   /** dist-tag → version, from the last check that reached the registry. */
   readonly distTags: Readonly<Record<string, string>>;
+  /** Highest version seen whose published manifest carries `cleo.hotfix: true`. */
+  readonly hotfix?: string;
 }
 
 /** Everything the background check needs, passed to it on its command line. */
@@ -305,34 +308,34 @@ export function releaseChannelTag(version: string): 'latest' | 'beta' | null {
 }
 
 /**
- * Decide which notice, if any, an installed version should get from a set of
- * dist-tags.
+ * Decide which notice, if any, an installed version should get.
  *
- * The target is the install's channel tag. A hotfix notice needs the `hotfix`
- * tag to name a version newer than the install and no newer than the target:
- * then `cleo self-update` delivers the fix. A hotfix tag at or below the install
+ * The target is the install's channel tag. A hotfix notice needs a flagged
+ * version newer than the install and no newer than the target: then
+ * `cleo self-update` delivers the fix. A flagged version at or below the install
  * (already have it) or above the target (self-update would not deliver it) is
- * ignored.
+ * ignored. No dist-tag ever flags a hotfix.
  *
  * @param installed - Version of the running CLI.
  * @param distTags - dist-tag → version.
+ * @param hotfix - Highest version known to carry `cleo.hotfix: true`, if any.
  * @returns The notice, or `null` when the install is current.
  *
  * @example
  * ```ts
- * decideUpdateNotice('2026.10.3', { latest: '2026.10.5', hotfix: '2026.10.4' });
+ * decideUpdateNotice('2026.10.3', { latest: '2026.10.5' }, '2026.10.4');
  * // → { kind: 'hotfix', installed: '2026.10.3', target: '2026.10.5', hotfix: '2026.10.4' }
  * ```
  */
 export function decideUpdateNotice(
   installed: string,
   distTags: Readonly<Record<string, string>>,
+  hotfix?: string,
 ): UpdateNotice | null {
   const channel = releaseChannelTag(installed);
   if (channel === null) return null;
   const target = distTags[channel];
   if (target === undefined || compareVersions(target, installed) !== 1) return null;
-  const hotfix = distTags[HOTFIX_DIST_TAG];
   if (
     hotfix !== undefined &&
     compareVersions(hotfix, installed) === 1 &&
@@ -408,7 +411,14 @@ export function parseUpdateCache(raw: string): UpdateCheckCache | null {
   for (const [tag, version] of Object.entries(tags)) {
     if (typeof version === 'string' && parseVersion(version)) distTags[tag] = version;
   }
-  return { schemaVersion: 1, checkedAt, ok: record['ok'] === true, distTags };
+  const hotfix = record['hotfix'];
+  return {
+    schemaVersion: 1,
+    checkedAt,
+    ok: record['ok'] === true,
+    distTags,
+    ...(typeof hotfix === 'string' && parseVersion(hotfix) ? { hotfix } : {}),
+  };
 }
 
 /**
@@ -553,7 +563,7 @@ export function showUpdateNotice(options: ShowUpdateNoticeOptions): UpdateNotice
     if (cache === null || options.quiet === true) {
       return { suppressed: null, checkStarted, shown };
     }
-    const notice = decideUpdateNotice(options.version, cache.distTags);
+    const notice = decideUpdateNotice(options.version, cache.distTags, cache.hotfix);
     if (notice === null) return { suppressed: null, checkStarted, shown };
 
     // Each kind has its own stamp, so a hotfix flagged after a regular notice

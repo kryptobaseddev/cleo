@@ -42,18 +42,13 @@
  * @epic T4763 T627
  */
 
-import { getProjectRoot } from '@cleocode/core';
-import {
-  getBrainDb,
-  getDreamStatus,
-  getTierStats,
-  runConsolidation,
-  scanDuplicateEntries,
-  setEntryTier,
-  triggerManualDream,
-} from '@cleocode/core/memory';
+import { runConsolidation } from '@cleocode/core/memory/brain-lifecycle';
+import { getDreamStatus, triggerManualDream } from '@cleocode/core/memory/dream-cycle';
 import { importMemoryFiles } from '@cleocode/core/memory/import-from-provider.js';
+import { getTierStats, scanDuplicateEntries, setEntryTier } from '@cleocode/core/memory/public-api';
 import { streamMemoryWatchEvents } from '@cleocode/core/memory/watch-stream.js';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { getBrainDb } from '@cleocode/core/store/memory-sqlite';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { CLEO_DIR_NAME, MIGRATE_MEMORY_HASHES_JSON } from '../paths.js';

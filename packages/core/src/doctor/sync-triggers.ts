@@ -224,6 +224,71 @@ function tableAt(tokens: readonly SqlToken[], at: number): { name: string; next:
   return { name: first.ident, next: at + 1 };
 }
 
+/** Words that end a table reference in a FROM list (so they are never an alias). */
+const FROM_LIST_STOP = new Set([
+  'where',
+  'join',
+  'inner',
+  'left',
+  'right',
+  'full',
+  'outer',
+  'cross',
+  'natural',
+  'on',
+  'using',
+  'group',
+  'order',
+  'limit',
+  'having',
+  'window',
+  'union',
+  'except',
+  'intersect',
+  'end',
+  'and',
+  'or',
+  'then',
+  'else',
+  'when',
+  'select',
+  'values',
+  'set',
+  'returning',
+  'indexed',
+  'not',
+]);
+
+/**
+ * The tables of a FROM list starting at tokens[at]: `t [AS] [alias], u, …`.
+ * A table-valued function (`name(…)`) is skipped, not a table.
+ */
+function fromList(tokens: readonly SqlToken[], at: number): string[] {
+  const names: string[] = [];
+  let k = at;
+  for (;;) {
+    const target = tableAt(tokens, k);
+    if (!target) break;
+    let n = target.next;
+    if (tokens[n]?.text === '(') {
+      let depth = 0;
+      for (; n < tokens.length; n += 1) {
+        if (tokens[n]?.text === '(') depth += 1;
+        else if (tokens[n]?.text === ')' && --depth === 0) break;
+      }
+      n += 1;
+    } else {
+      names.push(target.name);
+    }
+    const next = tokens[n]?.ident;
+    if (next === 'as') n += 2;
+    else if (next && !FROM_LIST_STOP.has(next)) n += 1;
+    if (tokens[n]?.text !== ',') break;
+    k = n + 1;
+  }
+  return names;
+}
+
 /**
  * Every trigger whose text references a table the store lacks, or inserts
  * into a column its table lacks (T12754). SQLite resolves trigger bodies only
@@ -235,6 +300,8 @@ function tableAt(tokens: readonly SqlToken[], at: number): { name: string; next:
  * `INSERT … INTO`, `REPLACE INTO`, `UPDATE` or `DELETE FROM` in the body.
  * A name followed by `(` is a table-valued function, a CTE name is local to
  * its statement, and a schema other than `main` is not judged.
+ *
+ * Every table of a comma-separated FROM list is checked (T13206).
  *
  * Not checked (false negatives by design): `UPDATE … SET` columns and
  * `NEW.` / `OLD.` columns.
@@ -283,8 +350,8 @@ export function danglingTriggers(db: DatabaseSync): DanglingTrigger[] {
       const prev = tokens[k - 1]?.ident;
       let target: { name: string; next: number } | null = null;
       if ((t.ident === 'from' || t.ident === 'join') && prev !== 'distinct') {
-        target = tableAt(tokens, k + 1);
-        if (target && tokens[target.next]?.text === '(') target = null; // table-valued function
+        // A FROM list may name several tables, comma-separated (T13206).
+        for (const name of fromList(tokens, k + 1)) referenced.add(name);
       } else if (k > begin && begin !== -1) {
         if (
           t.ident === 'into' &&

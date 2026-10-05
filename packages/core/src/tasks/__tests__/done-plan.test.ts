@@ -30,8 +30,10 @@ import {
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { EvidenceAtom, VerificationGate } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { engineSuccess } from '../../engine-result.js';
+import { ResourceMonitor } from '../../resources/monitor.js';
+import { _resetMemoryGateForTest } from '../../resources/pressure-gate.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
@@ -958,15 +960,14 @@ describe('affected-scope test runs (T12635, D11150)', () => {
     expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
   });
 
-  it('T12656: --plan never waits for a busy test slot; it reports the scope as pending', async () => {
+  it('T12656: --plan never waits for a busy machine budget; it reports the scope as pending', async () => {
     workspaceWithPackages();
     const id = await seedTask(['Change pkgs/a/i.ts']);
     git(root, ['switch', '-q', '-c', `task/${id}`]);
     writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 3;\n');
     git(root, ['commit', '-q', '-am', `${id}: a`]);
-    const saved = process.env['CLEO_TOOL_CONCURRENCY_TEST'];
-    process.env['CLEO_TOOL_CONCURRENCY_TEST'] = '1';
-    const release = await acquireGlobalSlot('test');
+    // T13133: one run that fills the whole machine budget leaves no room for the probe.
+    const release = await acquireGlobalSlot('test', { footprintBytes: Number.MAX_SAFE_INTEGER });
     try {
       const started = Date.now();
       const plan = await deriveTaskEvidence(id, {
@@ -979,12 +980,47 @@ describe('affected-scope test runs (T12635, D11150)', () => {
       expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')).toMatchObject({
         tool: 'test-affected',
         command: null,
-        reason: 'scope pending: test slot busy',
+        reason: 'scope pending: the machine budget is in use',
       });
     } finally {
       await release();
-      if (saved === undefined) delete process.env['CLEO_TOOL_CONCURRENCY_TEST'];
-      else process.env['CLEO_TOOL_CONCURRENCY_TEST'] = saved;
+    }
+  }, 30_000);
+
+  it('T13133: under memory pressure --plan reports pressure, not a busy budget', async () => {
+    workspaceWithPackages();
+    const id = await seedTask(['Change pkgs/a/i.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'a', 'i.ts'), 'export const x = 4;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a`]);
+    const saved = process.env['CLEO_ADMISSION_PRESSURE'];
+    delete process.env['CLEO_ADMISSION_PRESSURE'];
+    const line = { avg10: 40, avg60: 40, avg300: 40, totalUs: 0 };
+    const spy = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue({
+      sampledAtMs: 1,
+      pressureAvailable: true,
+      memAvailableBytes: 1024 ** 3,
+      globalPressure: { some: line, full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 } },
+      slicePressure: null,
+      walObservations: [],
+    });
+    try {
+      const plan = await deriveTaskEvidence(id, {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        deps,
+      });
+      expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')).toMatchObject({
+        tool: 'test-affected',
+        command: null,
+        reason: 'scope pending: memory pressure',
+      });
+    } finally {
+      spy.mockRestore();
+      _resetMemoryGateForTest();
+      if (saved === undefined) delete process.env['CLEO_ADMISSION_PRESSURE'];
+      else process.env['CLEO_ADMISSION_PRESSURE'] = saved;
     }
   }, 30_000);
 

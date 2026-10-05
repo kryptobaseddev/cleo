@@ -16,8 +16,8 @@
  * @task T13104
  */
 
-import { getProjectRoot } from '@cleocode/core';
 import { inspectMigrations } from '@cleocode/core/doctor/migrations.js';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
 

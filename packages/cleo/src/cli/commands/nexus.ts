@@ -23,7 +23,6 @@ import {
   type NexusProjectsStatusResult,
   type NexusTaskSymbolsResult,
 } from '@cleocode/contracts';
-import { getProjectRoot } from '@cleocode/core';
 import { getSymbolImpact } from '@cleocode/core/nexus';
 import { runNexusAnalysis } from '@cleocode/core/nexus/analyze-orchestrator.js';
 import {
@@ -43,6 +42,7 @@ import {
 import { KnowledgeSymbolAmbiguityError } from '@cleocode/core/nexus/knowledge.js';
 import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
 import { runNexusWiki } from '@cleocode/core/nexus/wiki-orchestrator.js';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { getCleoStateDir } from '@cleocode/paths';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
@@ -547,7 +547,7 @@ const setupCommand = defineCommand({
   async run() {
     try {
       const { homedir } = await import('node:os');
-      const { installNexusAugmentHook } = await import('@cleocode/core/internal');
+      const { installNexusAugmentHook } = await import('@cleocode/core/nexus/hooks-augment');
 
       const homeDir = homedir();
       installNexusAugmentHook(homeDir);

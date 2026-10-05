@@ -41,12 +41,12 @@ import type {
   GatewayRpcResponseFrame,
 } from '@cleocode/contracts/gateway/rpc';
 import { GATEWAY_RPC_PROTOCOL_VERSION } from '@cleocode/contracts/gateway/rpc';
-import { getLogger } from '@cleocode/core';
+import { getLogger } from '@cleocode/core/logger';
 import {
   bindConnectionSession,
   runWithConnectionHandle,
   unbindConnectionSession,
-} from '@cleocode/core/internal';
+} from '@cleocode/core/sessions/connection-session-handle';
 import type { GatewayHandler } from '../index.js';
 import { buildErrorFrame, decodeLine, encodeFrame, LineBuffer } from './codec.js';
 import type { RpcServerHandle, RpcServerOptions } from './types.js';

@@ -80,7 +80,8 @@ describe('update notice in the built CLI (T13137)', () => {
         schemaVersion: 1,
         checkedAt: new Date().toISOString(),
         ok: true,
-        distTags: { latest: '9999.1.0', hotfix: '9999.1.0' },
+        distTags: { latest: '9999.1.0' },
+        hotfix: '9999.1.0',
       }),
     );
   });

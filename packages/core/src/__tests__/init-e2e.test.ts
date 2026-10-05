@@ -67,6 +67,22 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     await rm(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   });
 
+  it('never writes the user-global Claude settings, even with Claude Code detected (T13128)', async () => {
+    const claudeHome = join(testDir, 'claude-home');
+    const saved = { home: process.env['CLAUDE_HOME'], code: process.env['CLAUDECODE'] };
+    process.env['CLAUDE_HOME'] = claudeHome;
+    process.env['CLAUDECODE'] = '1';
+    try {
+      await initProject({ name: 'test-project' });
+      expect(await fileExists(join(claudeHome, 'settings.json'))).toBe(false);
+    } finally {
+      if (saved.home === undefined) delete process.env['CLAUDE_HOME'];
+      else process.env['CLAUDE_HOME'] = saved.home;
+      if (saved.code === undefined) delete process.env['CLAUDECODE'];
+      else process.env['CLAUDECODE'] = saved.code;
+    }
+  });
+
   it('creates .cleo/ directory', async () => {
     const result = await initProject({ name: 'test-project' });
     expect(result.initialized).toBe(true);

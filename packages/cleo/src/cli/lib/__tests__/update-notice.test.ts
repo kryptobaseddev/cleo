@@ -85,13 +85,13 @@ describe('decideUpdateNotice', () => {
   });
 
   it('gives a hotfix notice when self-update delivers a flagged release the install lacks', () => {
-    expect(decideUpdateNotice('2026.10.3', { latest: '2026.10.5', hotfix: '2026.10.4' })).toEqual({
+    expect(decideUpdateNotice('2026.10.3', { latest: '2026.10.5' }, '2026.10.4')).toEqual({
       kind: 'hotfix',
       installed: '2026.10.3',
       target: '2026.10.5',
       hotfix: '2026.10.4',
     });
-    expect(decideUpdateNotice('2026.10.3', { latest: '2026.10.4', hotfix: '2026.10.4' })).toEqual({
+    expect(decideUpdateNotice('2026.10.3', { latest: '2026.10.4' }, '2026.10.4')).toEqual({
       kind: 'hotfix',
       installed: '2026.10.3',
       target: '2026.10.4',
@@ -99,19 +99,25 @@ describe('decideUpdateNotice', () => {
     });
   });
 
+  it('never reads a hotfix dist-tag: only release metadata flags a hotfix (T13184)', () => {
+    expect(decideUpdateNotice('2026.10.3', { latest: '2026.10.4', hotfix: '2026.10.4' })).toEqual({
+      kind: 'update',
+      installed: '2026.10.3',
+      target: '2026.10.4',
+    });
+  });
+
   it('ignores a hotfix the install already has, or one self-update would not deliver', () => {
     // Already past the hotfix: a plain update notice.
-    expect(
-      decideUpdateNotice('2026.10.4', { latest: '2026.10.5', hotfix: '2026.10.4' })?.kind,
-    ).toBe('update');
+    expect(decideUpdateNotice('2026.10.4', { latest: '2026.10.5' }, '2026.10.4')?.kind).toBe(
+      'update',
+    );
     // Hotfix tag above the channel target (self-update installs the target).
-    expect(
-      decideUpdateNotice('2026.10.3', { latest: '2026.10.4', hotfix: '2026.10.6' })?.kind,
-    ).toBe('update');
-    // No newer release at all: a stale hotfix tag alone says nothing.
-    expect(
-      decideUpdateNotice('2026.10.4', { latest: '2026.10.4', hotfix: '2026.10.4' }),
-    ).toBeNull();
+    expect(decideUpdateNotice('2026.10.3', { latest: '2026.10.4' }, '2026.10.6')?.kind).toBe(
+      'update',
+    );
+    // No newer release at all: a stale hotfix flag alone says nothing.
+    expect(decideUpdateNotice('2026.10.4', { latest: '2026.10.4' }, '2026.10.4')).toBeNull();
   });
 });
 
@@ -205,6 +211,21 @@ describe('cache and lock', () => {
     ).toBeNull();
   });
 
+  it('reads the flagged hotfix version and drops a malformed one (T13184)', () => {
+    const base = {
+      schemaVersion: 1,
+      checkedAt: new Date(T0).toISOString(),
+      ok: true,
+      distTags: {},
+    };
+    expect(parseUpdateCache(JSON.stringify({ ...base, hotfix: '2026.10.4' }))?.hotfix).toBe(
+      '2026.10.4',
+    );
+    expect(parseUpdateCache(JSON.stringify({ ...base, hotfix: 'yes' }))).not.toHaveProperty(
+      'hotfix',
+    );
+  });
+
   it('keeps only well-formed versions from the cache', () => {
     const cache = parseUpdateCache(
       JSON.stringify({
@@ -264,12 +285,18 @@ describe('showUpdateNotice', () => {
     };
   }
 
-  function seedCache(distTags: Record<string, string>, checkedAt = T0, ok = true): void {
+  function seedCache(
+    distTags: Record<string, string>,
+    checkedAt = T0,
+    ok = true,
+    hotfix?: string,
+  ): void {
     const cache: UpdateCheckCache = {
       schemaVersion: 1,
       checkedAt: new Date(checkedAt).toISOString(),
       ok,
       distTags,
+      ...(hotfix === undefined ? {} : { hotfix }),
     };
     writeFileSync(join(stateDir, UPDATE_CACHE_FILE), JSON.stringify(cache));
   }
@@ -325,7 +352,7 @@ describe('showUpdateNotice', () => {
   });
 
   it('shows a hotfix notice at most every 15 minutes, not on every command', () => {
-    seedCache({ latest: '2026.10.4', hotfix: '2026.10.4' });
+    seedCache({ latest: '2026.10.4' }, T0, true, '2026.10.4');
     const at = (ms: number) => showUpdateNotice(options({ now: () => T0 + ms })).shown?.kind;
     expect(at(0)).toBe('hotfix');
     expect(at(1000)).toBeUndefined();
@@ -338,13 +365,13 @@ describe('showUpdateNotice', () => {
   it('announces a hotfix at once even right after a regular notice', () => {
     seedCache({ latest: '2026.10.4' });
     expect(showUpdateNotice(options()).shown?.kind).toBe('update');
-    seedCache({ latest: '2026.10.4', hotfix: '2026.10.4' });
+    seedCache({ latest: '2026.10.4' }, T0, true, '2026.10.4');
     expect(showUpdateNotice(options({ now: () => T0 + 1000 })).shown?.kind).toBe('hotfix');
     expect(lines).toHaveLength(2);
   });
 
   it('writes only to stderr when no stream is injected', () => {
-    seedCache({ latest: '2026.10.4', hotfix: '2026.10.4' });
+    seedCache({ latest: '2026.10.4' }, T0, true, '2026.10.4');
     const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const { stderr: _injected, ...rest } = options();
@@ -355,7 +382,7 @@ describe('showUpdateNotice', () => {
   });
 
   it('--quiet prints nothing but still refreshes a stale cache', () => {
-    seedCache({ latest: '2026.10.4', hotfix: '2026.10.4' }, T0 - UPDATE_CHECK_INTERVAL_MS);
+    seedCache({ latest: '2026.10.4' }, T0 - UPDATE_CHECK_INTERVAL_MS, true, '2026.10.4');
     const outcome = showUpdateNotice(options({ quiet: true }));
     expect(outcome.shown).toBeNull();
     expect(outcome.checkStarted).toBe(true);
@@ -363,7 +390,7 @@ describe('showUpdateNotice', () => {
   });
 
   it('when suppressed (CI or opt-out), neither prints, checks nor writes state', () => {
-    seedCache({ latest: '2026.10.4', hotfix: '2026.10.4' }, T0 - UPDATE_CHECK_INTERVAL_MS);
+    seedCache({ latest: '2026.10.4' }, T0 - UPDATE_CHECK_INTERVAL_MS, true, '2026.10.4');
     for (const env of [{ CI: 'true' }, { CLEO_NO_UPDATE_NOTICE: '1' }]) {
       const outcome = showUpdateNotice(options({ env }));
       expect(outcome.checkStarted).toBe(false);

@@ -122,28 +122,34 @@ A failed step halts the walker. The envelope still reports every prior
 step and the highest lifecycle state reached, so the operator can
 resume from the failure point.
 
-## Flagging a hotfix — the `hotfix` dist-tag (T13137)
+## Flagging a hotfix — release metadata (T13137 · T13184)
 
-An installed CLI reads `@cleocode/cleo`'s dist-tags once a day (a detached
-background check; never on a command's own path) and prints one stderr line
-when its channel tag (`latest`, or `beta` for a beta/rc install) names a newer
-version. Point the `hotfix` dist-tag at a release that fixes a defect users
-must not keep running, and every installed CLI below it prints a stronger
-notice (at most every 15 minutes) until it updates:
+An installed CLI reads `@cleocode/cleo`'s dist-tags and the `latest` version's
+registry manifest once a day (a detached background check; never on a
+command's own path) and prints one stderr line when its channel tag (`latest`,
+or `beta` for a beta/rc install) names a newer version. A release that fixes a
+defect users must not keep running is planned as a hotfix:
 
 ```bash
-npm dist-tag add @cleocode/cleo@<version> hotfix   # flag (after publish, or later)
-npm dist-tag ls @cleocode/cleo                     # confirm
-npm dist-tag rm @cleocode/cleo hotfix              # withdraw the flag
+cleo release plan v2026.X.Y --epic TXXXX --hotfix   # plan releaseKind: hotfix
 ```
 
-The tag only strengthens a notice that `cleo self-update` can act on: it counts
-when it names a version above the install and at or below the channel tag.
-Releases publish through npm Trusted Publishing (OIDC), which cannot move
-dist-tags, so a maintainer with npm credentials runs this by hand after the
-release publishes under `latest`. Installs
-reach the flag within a day (their next check). Users silence every notice
-with `CLEO_NO_UPDATE_NOTICE=1`; CI runs never show one.
+release.yml's `Flag a hotfix release in the cleo manifest` step
+(`scripts/mark-hotfix-release.mjs`) reads the committed plan and writes
+`"cleo": { "hotfix": true }` into `@cleocode/cleo`'s package.json, so the flag
+ships through the ordinary tokenless publish (npm Trusted Publishing cannot
+move dist-tags, and nothing in the release path holds a token). No dist-tag
+flags a hotfix, and there is no manual npm step.
+
+Once the release publishes under `latest`, every installed CLI below it prints a
+stronger HOTFIX notice (at most every 15 minutes) until it updates; installs
+reach it within a day (their next check). The check remembers the highest
+flagged version it has seen, so a later regular release does not hide a hotfix
+an install is still missing. The flag only strengthens a notice that
+`cleo self-update` can act on: it counts when it names a version above the
+install and at or below the channel tag. A flag cannot be withdrawn after
+publishing; the next release replaces it as `latest`. Users silence every
+notice with `CLEO_NO_UPDATE_NOTICE=1`; CI runs never show one.
 
 ## Related docs
 

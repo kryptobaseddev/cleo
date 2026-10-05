@@ -38,8 +38,9 @@
 
 import { execFileSync } from 'node:child_process';
 import type { EpicRollup, WaveRollup } from '@cleocode/contracts';
-import { orchestration } from '@cleocode/core';
-import { BUILD_CONFIG, getProjectRoot } from '@cleocode/core/internal';
+import { BUILD_CONFIG } from '@cleocode/core/config/build-config';
+import * as orchestration from '@cleocode/core/orchestration/index';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliOutput } from '../renderers/index.js';
