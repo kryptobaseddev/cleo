@@ -96,6 +96,8 @@ const STORE_STACK = /\/drizzle-orm\/|^node:sqlite$/;
 const MODEL_SDKS = /\/(@anthropic-ai|openai|@ai-sdk|@aws-sdk|@google|js-tiktoken)\//;
 /** CORE's human-renderer entry point: JSON output (`--version`, agents) never needs it. */
 const CORE_RENDER = /\/core\/dist\/render\/index\.js$/;
+/** The operation describer `--describe` loads (its output contracts pull in zod schemas). */
+const DESCRIBE_OPERATION = /\/core\/dist\/dispatch\/describe-operation\.js$/;
 /** The output-contract table a failed `--field` pointer loads for its remedy. */
 const OUTPUT_CONTRACTS = /\/core\/dist\/dispatch\/contracts\/output-contracts\.js$/;
 /** drizzle's ES module `node-sqlite` driver, the build the store loads (T13126). */
@@ -108,10 +110,15 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * @property {string} name - Label used in reports.
  * @property {string[]} args - CLI arguments.
  * @property {boolean} [needsProject] - Run inside an initialised throwaway project.
+ * @property {Record<string, string>} [env] - Extra environment for this probe (e.g. a feature flag).
+ * @property {string} [noMoreModulesThan] - Name of an earlier probe whose module count this
+ *   probe may not exceed (a flag must cost the same command no extra modules).
  * @property {RegExp[]} forbid - Module URL patterns this probe must not load.
  * @property {RegExp[]} [require] - Module URL patterns this probe must load:
  *   proof that it still exercises the code path it guards.
  * @property {number} [expectExit] - Exit code the command must return.
+ * @property {boolean} [session] - Run bound to a session started in the sandbox
+ *   project (a mutation refuses without one).
  * @property {number} maxModules - Budget of loaded `file:` modules (the ratchet).
  * @property {number} maxRssMb - Ceiling on peak resident set size, in MB.
  */
@@ -132,13 +139,36 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * `@cleocode/runtime/gateway/dispatch`, narrow imports): `show` and `find`
  * load ~1,050 modules. With contracts values imported from their leaf modules
  * and the read-path leaves, `show` and `find` load ~820 modules (~190 MB) and
- * `list --human` ~880. Lower each budget in the PR that lowers its count.
+ * `list --human` ~880. With the tasks domain handlers loaded per operation,
+ * the token recorder loaded only for mutations and `cleo current` on a leaf,
+ * `show`, `find` and `current` load ~450 modules (~135 MB). `session status`
+ * (a leaf, ~540 modules, ~175 MB) and `briefing` (~710 modules, ~190 MB; it
+ * loaded the whole CORE barrel, ~3,000 modules) dispatch barrel-free (T13166).
+ * Every other operation loads `@cleocode/core/registrations` (CORE's
+ * module-load registrations) instead of the barrel: `next` ~665 modules
+ * (~155 MB) and `add`, a mutation bound to a sandbox session, ~820 (~195 MB),
+ * where both loaded ~3,000. `dash` (~640 modules, ~150 MB, was ~3,000 and
+ * ~275 MB) loads the admin domain's operations one at a time. `config get`
+ * (~420 modules, ~120 MB, was ~2,750 and ~250 MB) imports its helpers from
+ * their defining modules, and its probe reads a real key so it measures the
+ * success path. The agent hot-path domains (verify, deps, orchestrate, memory,
+ * docs, nexus, doctor) load their handlers per operation and import CORE from
+ * defining modules (T13126): `verify` ~920 modules (~225 MB, was ~265),
+ * `deps show` ~650 (~155 MB, was ~260), `orchestrate status` ~845 (~190 MB,
+ * was ~270), `memory find` ~670 (~160 MB, was ~275; the `@cleocode/core/memory`
+ * barrel pulled the model runner and every provider SDK), `docs list` ~835
+ * (~205 MB, was ~270), `nexus status` ~645 (~190 MB, was ~275) and `doctor`
+ * ~925 (~210 MB, was ~280).
+ * `describe` covers
+ * the `--describe` path, which loads the operation describer through
+ * `require(esm)`. Lower each budget in the PR that lowers its count.
  *
  * Three CLI paths load ES modules through `require(esm)`, which throws
  * `ERR_REQUIRE_ASYNC_MODULE` when the loaded graph uses top-level await: the
  * store's drizzle driver (`core/src/store/drizzle-node-sqlite.ts`), CORE's
- * human renderers, and the output-contract table behind a failed `--field`
- * pointer (both through `cleo/src/cli/lib/load-esm-sync.ts`). `list-human` and
+ * human renderers, the output-contract table behind a failed `--field` pointer
+ * and the operation describer behind `--describe` (all three through
+ * `cleo/src/cli/lib/load-esm-sync.ts`). `list-human` and
  * `field-miss` run the last two and must exit as expected, so top-level await
  * reaching either graph fails this gate. The drizzle driver falls back to its
  * CommonJS build instead of failing, so every store-opening probe forbids
@@ -167,8 +197,8 @@ export const PROBES = Object.freeze([
     needsProject: true,
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     require: [DRIZZLE_ESM_DRIVER],
-    maxModules: 910,
-    maxRssMb: 260,
+    maxModules: 500,
+    maxRssMb: 200,
   },
   {
     name: 'find',
@@ -176,8 +206,8 @@ export const PROBES = Object.freeze([
     needsProject: true,
     forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     require: [DRIZZLE_ESM_DRIVER],
-    maxModules: 910,
-    maxRssMb: 260,
+    maxModules: 500,
+    maxRssMb: 200,
   },
   {
     name: 'list-human',
@@ -187,8 +217,8 @@ export const PROBES = Object.freeze([
     require: [CORE_RENDER, DRIZZLE_ESM_DRIVER],
     // ExitCode.NO_DATA: the throwaway project has no tasks; the renderer still runs.
     expectExit: 100,
-    maxModules: 970,
-    maxRssMb: 260,
+    maxModules: 565,
+    maxRssMb: 200,
   },
   {
     name: 'field-miss',
@@ -198,7 +228,183 @@ export const PROBES = Object.freeze([
     require: [OUTPUT_CONTRACTS],
     // ExitCode.NOT_FOUND: E_FIELD_NOT_FOUND, with the contract's valid pointers as the fix.
     expectExit: 4,
-    maxModules: 910,
+    maxModules: 505,
+    maxRssMb: 200,
+  },
+  {
+    name: 'current',
+    args: ['current'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    maxModules: 500,
+    maxRssMb: 200,
+  },
+  {
+    name: 'session-status',
+    args: ['session', 'status'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    maxModules: 600,
+    maxRssMb: 240,
+  },
+  {
+    name: 'briefing',
+    args: ['briefing'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    maxModules: 785,
+    maxRssMb: 260,
+  },
+  {
+    name: 'next',
+    args: ['next'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    maxModules: 735,
+    maxRssMb: 200,
+  },
+  {
+    name: 'add',
+    args: [
+      'add',
+      'Probe saga',
+      '--type',
+      'saga',
+      '--description',
+      'probe',
+      '--acceptance',
+      'a|b|c|d|e',
+    ],
+    needsProject: true,
+    session: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 900,
+    maxRssMb: 240,
+  },
+  {
+    name: 'dash',
+    args: ['dash'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    maxModules: 700,
+    maxRssMb: 200,
+  },
+  {
+    name: 'config-get',
+    args: ['config', 'get', 'output.defaultFormat'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 465,
+    maxRssMb: 170,
+  },
+  {
+    name: 'describe',
+    args: ['list', '--describe'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    require: [DESCRIBE_OPERATION],
+    expectExit: 0,
+    maxModules: 465,
+    maxRssMb: 200,
+  },
+  {
+    // T12341 C1: the same read on the same (now non-empty) store with row uids
+    // off, the yardstick for the two probes below.
+    name: 'show-existing',
+    args: ['show', 'T001'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 500,
+    maxRssMb: 200,
+  },
+  {
+    // T12341 C1: the first open with row uids on fills the sandbox store.
+    name: 'show-fill-first',
+    args: ['show', 'T001'],
+    needsProject: true,
+    env: { CLEO_ROW_UID_FILL: '1' },
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 500,
+    maxRssMb: 200,
+  },
+  {
+    // T12341 C1: once filled, an open with row uids on loads no more than the
+    // same command with them off (the fill pass and its writers are skipped).
+    name: 'show-filled',
+    args: ['show', 'T001'],
+    needsProject: true,
+    env: { CLEO_ROW_UID_FILL: '1' },
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    noMoreModulesThan: 'show-existing',
+    maxModules: 500,
+    maxRssMb: 200,
+  },
+  {
+    name: 'verify',
+    args: ['verify', 'T001'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 1000,
+    maxRssMb: 280,
+  },
+  {
+    name: 'deps-show',
+    args: ['deps', 'show', 'T001'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 710,
+    maxRssMb: 210,
+  },
+  {
+    name: 'orchestrate-status',
+    args: ['orchestrate', 'status'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 920,
+    maxRssMb: 250,
+  },
+  {
+    name: 'memory-find',
+    args: ['memory', 'find', 'probe'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 735,
+    maxRssMb: 210,
+  },
+  {
+    name: 'docs-list',
+    args: ['docs', 'list'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 915,
+    maxRssMb: 260,
+  },
+  {
+    name: 'nexus-status',
+    args: ['nexus', 'status'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 705,
+    maxRssMb: 250,
+  },
+  {
+    name: 'doctor',
+    args: ['doctor'],
+    needsProject: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 1015,
     maxRssMb: 260,
   },
 ]);
@@ -286,7 +492,7 @@ process.on('exit', () => {
  * Run the built CLI once under the tracer, in a sandbox.
  *
  * @param {Probe} probe
- * @param {{ sandbox: string, tracer: string, project: string }} env
+ * @param {{ sandbox: string, tracer: string, project: string, sessionId: string }} env
  * @returns {ProbeResult}
  */
 function runProbe(probe, env) {
@@ -306,7 +512,11 @@ function runProbe(probe, env) {
       cwd: probe.needsProject ? env.project : env.sandbox,
       encoding: 'utf8',
       timeout: 120_000,
-      env: sandboxEnv(home, traceOut),
+      env: {
+        ...sandboxEnv(home, traceOut),
+        ...(probe.session ? { CLEO_SESSION_ID: env.sessionId } : {}),
+        ...(probe.env ?? {}),
+      },
     },
   );
   if (!existsSync(traceOut)) {
@@ -372,6 +582,33 @@ function initSandboxProject(sandbox) {
     throw new Error(`cleo init failed in the sandbox (exit ${init.status}):\n${init.stderr}`);
   }
   return project;
+}
+
+/**
+ * Start a session in the sandbox project, for the probes that need one.
+ *
+ * @param {string} sandbox
+ * @param {string} project
+ * @returns {string} The session id.
+ */
+function startSandboxSession(sandbox, project) {
+  const started = spawnSync(
+    process.execPath,
+    [CLI_ENTRY, 'session', 'start', '--scope', 'global', '--name', 'probe', '--field', '/data/id'],
+    {
+      cwd: project,
+      encoding: 'utf8',
+      timeout: 120_000,
+      env: sandboxEnv(join(sandbox, 'home'), join(sandbox, 'session.trace.json')),
+    },
+  );
+  const id = started.stdout.trim();
+  if (started.status !== 0 || !id.startsWith('ses_')) {
+    throw new Error(
+      `cleo session start failed in the sandbox (exit ${started.status}):\n${started.stderr}`,
+    );
+  }
+  return id;
 }
 
 /**
@@ -541,10 +778,25 @@ function main() {
     const tracer = join(sandbox, 'tracer.mjs');
     writeFileSync(tracer, TRACER_SOURCE);
     const project = PROBES.some((probe) => probe.needsProject) ? initSandboxProject(sandbox) : '';
+    const sessionId = PROBES.some((probe) => probe.session)
+      ? startSandboxSession(sandbox, project)
+      : '';
     for (const probe of PROBES) {
-      const result = runProbe(probe, { sandbox, tracer, project });
+      const result = runProbe(probe, { sandbox, tracer, project, sessionId });
       results.push(result);
       const reasons = judgeProbe(probe, result);
+      if (probe.noMoreModulesThan !== undefined) {
+        const peer = results.find((r) => r.name === probe.noMoreModulesThan);
+        if (peer === undefined) {
+          reasons.push(
+            `${probe.name}: noMoreModulesThan names '${probe.noMoreModulesThan}', which has not run`,
+          );
+        } else if (result.modules > peer.modules) {
+          reasons.push(
+            `${probe.name}: loads ${result.modules} modules, more than '${peer.name}' (${peer.modules})`,
+          );
+        }
+      }
       if (reasons.length > 0) {
         failures.push(...reasons, ...topPackages(result.urls).map((line) => `    ${line}`));
       }

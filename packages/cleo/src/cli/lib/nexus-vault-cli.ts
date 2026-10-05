@@ -177,11 +177,35 @@ async function runCloudRestoreLike(
         },
       });
     },
-    (r) =>
-      r.status === 'up-to-date'
-        ? `Up to date: this ${r.scope} store already holds snapshot ${r.snapshot?.checkpointId ?? 'none'}.`
-        : `Restored ${r.scope} snapshot ${r.snapshot?.checkpointId} into ${r.target}: ${r.tables} table(s) verified by count and hash${r.safetyBackup ? `; previous state saved to ${r.safetyBackup}` : ''}.`,
+    cloudRestoreSummary,
   );
+}
+
+/**
+ * One human line for `cleo cloud pull` and `cleo cloud restore`.
+ *
+ * @param r - Restore result.
+ * @returns e.g. `Restored project snapshot cp-1 into /p: 12 table(s) verified by count and hash; replica r-1 retired → r-2.`
+ */
+export function cloudRestoreSummary(r: CloudRestoreResult): string {
+  if (r.status === 'up-to-date') {
+    return `Up to date: this ${r.scope} store already holds snapshot ${r.snapshot?.checkpointId ?? 'none'}.`;
+  }
+  const backup = r.safetyBackup ? `; previous state saved to ${r.safetyBackup}` : '';
+  // The placed file is a new store instance: its replica was retired (T13109).
+  // A copy's carried replica stays live where it belongs; only the copy moves on.
+  const carried =
+    r.replica?.reason === 'file-identity'
+      ? 'from a copied file'
+      : r.replica?.reason === 'foreign-device'
+        ? 'from another device'
+        : null;
+  const replica = !r.replica
+    ? ''
+    : carried
+      ? `; this copy now has its own replica ${r.replica.current} (${r.replica.reason}: it carried ${r.replica.retired} ${carried})`
+      : `; replica ${r.replica.retired} retired → ${r.replica.current}`;
+  return `Restored ${r.scope} snapshot ${r.snapshot?.checkpointId} into ${r.target}: ${r.tables} table(s) verified by count and hash${backup}${replica}.`;
 }
 
 /**

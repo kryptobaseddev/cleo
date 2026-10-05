@@ -425,10 +425,8 @@ const coreBuildOptions = {
  * no subdirectory). The `-[hash]` suffix is what
  * `CLEO_CLI_CHUNK_PATTERN` in `packages/caamp/src/core/artifacts/validation.ts`
  * recognises as a shipped chunk; change both together. That pattern accepts
- * only lowercase `[a-z0-9_.-]` names (`[name]` is the source file's basename,
- * kebab-case by convention): a source file with an uppercase basename would
- * emit a chunk the artifact check rejects, loudly, in CI. Widen both if that
- * convention ever changes.
+ * `[name]` (the source file's basename) in any case, `[A-Za-z0-9_.-]` (T13159),
+ * and esbuild's 8-character uppercase hash.
  */
 const CLEO_CHUNK_NAMES = 'cli/[name]-[hash]';
 
@@ -439,6 +437,9 @@ const cleoBuildOptions = {
     // T12983: `bin/cleo.js` imports this directly for `cleo hook …` (a hook
     // runs before every agent shell command, so it skips the CLI bootstrap).
     { in: 'packages/cleo/src/cli/hook-entry.ts', out: 'cli/hook-entry' },
+    // T13137: the detached dist-tags check behind the passive update notice,
+    // spawned by `lib/update-notice.ts` from the file beside `cli/index.js`.
+    { in: 'packages/cleo/src/cli/update-check-entry.ts', out: 'cli/update-check-entry' },
   ],
   bundle: true,
   platform: 'node',

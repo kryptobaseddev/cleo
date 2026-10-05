@@ -18,8 +18,12 @@
  * @epic T1929
  */
 
-import { getProjectRoot, migrateClaudeMem } from '@cleocode/core/internal';
-import { ingestLooseAgentOutputs, ingestRcasdDirectories } from '@cleocode/core/memory';
+import { migrateClaudeMem } from '@cleocode/core/memory/claude-mem-migration';
+import {
+  ingestLooseAgentOutputs,
+  ingestRcasdDirectories,
+} from '@cleocode/core/memory/manifest-ingestion';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { getDb } from '@cleocode/core/store/sqlite';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';

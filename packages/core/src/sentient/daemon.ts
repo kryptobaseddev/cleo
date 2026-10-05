@@ -34,6 +34,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
 import { installDaemonExitGuard } from '../llm/pi/pi-errors.js';
+import { useBrainWriterThread } from '../memory/brain-writer-thread.js';
 import { reVerifyWorkerReport } from '../orchestrate/worker-verify.js';
 import { spawnWrapped } from '../resources/spawn-wrapper.js';
 import { safeRunCrossProjectHygiene } from './cross-project-hygiene.js';
@@ -686,6 +687,8 @@ export async function bootstrapDaemon(
   projectRoot: string,
   opts: BootstrapDaemonOptions = {},
 ): Promise<void> {
+  // A long-lived host: brain writes run on the worker thread (T13126).
+  useBrainWriterThread();
   const statePath = join(projectRoot, SENTIENT_STATE_FILE);
   const lockPath = join(projectRoot, SENTIENT_LOCK_FILE);
 

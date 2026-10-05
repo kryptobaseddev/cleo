@@ -404,6 +404,23 @@ export interface CloudProjectsResult {
   warnings: CloudWarning[];
 }
 
+/**
+ * A replica this device retired: the store file it named was replaced (a
+ * vault restore or pull) or rolled back, so a new replica took its place
+ * (journal spec §1.5). The server lists it as history until S4's signed
+ * `retire` transaction announces it (T13109).
+ */
+export interface CloudRetiredReplica {
+  /** The retired replica id. */
+  replicaId: string;
+  /** The replica that replaced it. */
+  successor: string;
+  /** When it was retired on this device. */
+  retiredAt: string;
+  /** The rebind reason(s), e.g. `vault-restore`; `null` when not recorded. */
+  reason: string | null;
+}
+
 /** `cleo cloud projects show [<id>]` (operation `cloud.projects.show`). */
 export interface CloudProjectShowResult extends NexusCloudProjectDetail {
   /** API origin asked. */
@@ -417,6 +434,8 @@ export interface CloudProjectShowResult extends NexusCloudProjectDetail {
    * fetched from E15 and `replicas` holds them all (up to the page budget).
    */
   replicaPaging: CloudPaging;
+  /** Listed replicas this device retired (from its local registry), newest first. */
+  retiredHere: CloudRetiredReplica[];
   /** Non-fatal problems. */
   warnings: CloudWarning[];
 }
@@ -459,6 +478,11 @@ export interface CloudStatusLocal {
   projectId: string | null;
   /** The active replica id of the current project's store (read-only; never bound here). */
   replicaId: string | null;
+  /**
+   * Earlier replicas of the current project's store that this device retired
+   * (from its local registry), newest first: the server still lists them.
+   */
+  retiredReplicas: CloudRetiredReplica[];
   /** `.cleo/nexus-link.json` when it holds an entry for the origin, else `null`. */
   linkPath: string | null;
   /** The device credential store (`nexus-device.json`). */
@@ -477,8 +501,104 @@ export interface CloudStatusResult {
   remote: NexusCloudStatus | null;
   /** This device's global store on the account's home stream (T12952); absent when not signed in. */
   global?: CloudStatusGlobalStore;
+  /**
+   * The local sync journal of each store this machine holds (T12998): the
+   * project store and the global store. Read on every path (signed in or not,
+   * online or offline); absent when no store could be read.
+   */
+  sync?: CloudStatusSync;
   /** Non-fatal problems. */
   warnings: CloudWarning[];
+}
+
+/**
+ * A sync fact this build cannot know yet, and why (T12998). The block's shape
+ * is fixed now, so the fields keep their names when the outbox (T12343) and
+ * segment push (S4) fill them in.
+ */
+export interface CloudSyncUnknown {
+  readonly known: false;
+  /** What is missing: the transactional outbox (T12343) or segment push/pull (S4). */
+  readonly needs: 'T12343' | 'S4';
+  /** One sentence for the operator. */
+  readonly reason: string;
+}
+
+/** A sync fact this build knows. */
+export interface CloudSyncKnown<T> {
+  readonly known: true;
+  readonly value: T;
+}
+
+/** A sync fact: known, or unknown with the reason (T12998). */
+export type CloudSyncFact<T> = CloudSyncKnown<T> | CloudSyncUnknown;
+
+/** The sync flags of a store (`_sync_meta`; all off when the journal is absent). */
+export interface CloudSyncFlags {
+  readonly capture: boolean;
+  readonly seal: boolean;
+  readonly push: boolean;
+  readonly pull: boolean;
+  readonly strict: boolean;
+}
+
+/** How far a stream lags the server. */
+export interface CloudSyncLag {
+  /** Ops on the server this store has not pulled, plus ops here not yet pushed. */
+  readonly ops: number;
+  /** Age of the oldest op not yet exchanged, in milliseconds. */
+  readonly ms: number;
+}
+
+/** One store's local sync journal, as `cleo cloud status` reports it (T12998). Read-only. */
+export interface CloudStatusSyncStream {
+  /** Which store. */
+  readonly scope: 'project' | 'global';
+  /** Its stream (`project:<id>`, `home:<userId>`) when known locally, else `null`. */
+  readonly stream: string | null;
+  /** The store file. */
+  readonly dbPath: string;
+  /** The sync journal tables are installed in this store. */
+  readonly journalInstalled: boolean;
+  /** The store's sync flags. */
+  readonly flags: CloudSyncFlags;
+  /** Captured changes not yet sealed into ops (`_sync_capture` live rows). */
+  readonly unsealedOps: number;
+  /** When the oldest unsealed change was captured (epoch ms), or `null`. */
+  readonly oldestUnsealedAtMs: number | null;
+  /** The highest sealed local sequence (`_sync_txn.local_seq`), or `null` before the first seal. */
+  readonly lastSealedSeq: number | null;
+  /** Captures the sealer could not read and holds aside (`_sync_quarantine`), per table. */
+  readonly quarantined: Readonly<Record<string, number>>;
+  /** Tables marked suspect until a repair re-emits them. */
+  readonly suspectTables: readonly string[];
+  /** Sealed ops not yet handed to the outbox for sending. */
+  readonly unsentOps: CloudSyncFact<number>;
+  /** The last sequence this store pushed to the server. */
+  readonly lastPushedSeq: CloudSyncFact<number>;
+  /** The last server sequence this store pulled. */
+  readonly lastPulledSeq: CloudSyncFact<number>;
+  /** The server's head sequence for this stream. */
+  readonly serverHeadSeq: CloudSyncFact<number>;
+  /** Devices attached to this stream and when each last synced. */
+  readonly devices: CloudSyncFact<
+    ReadonlyArray<{ readonly deviceId: string; readonly lastSyncAt: string | null }>
+  >;
+  /** Conflicts held open on this stream. */
+  readonly openConflicts: CloudSyncFact<number>;
+  /** How far this store lags the server. */
+  readonly lag: CloudSyncFact<CloudSyncLag>;
+}
+
+/** `CloudStatusResult.sync` (T12998). */
+export interface CloudStatusSync {
+  /** One entry per store this machine holds (project, then global), when its file exists. */
+  readonly streams: readonly CloudStatusSyncStream[];
+  /**
+   * This build reads the local journal only; the server-side fields stay
+   * unknown until the outbox (T12343) and segment push/pull (S4) land.
+   */
+  readonly partial: true;
 }
 
 /** `cleo cloud status`: this device's global store (the main brain) on Cleo Nexus (T12952). */
@@ -503,6 +623,8 @@ export interface CloudStatusOfflineDetails {
   summary: CloudStatusSummary;
   /** Warnings collected before the server stopped answering. */
   warnings: CloudWarning[];
+  /** The local sync journal, read before the server was asked (T12998). */
+  sync?: CloudStatusSync;
 }
 
 // ---------- error mapping (§4.0.4) ----------

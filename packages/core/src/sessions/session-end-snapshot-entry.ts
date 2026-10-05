@@ -18,13 +18,18 @@
  * `.cleo/logs/session-end-snapshot.log` (never stdout: this process has no
  * reader, and CLEO keeps stdout for LAFS envelopes).
  *
+ * After the snapshot it embeds one bounded batch of observations that one-shot
+ * processes stored unembedded (T13126, `memory/embedding-backfill.ts`).
+ *
  * argv: `<projectRoot> <markerToken>`
  *
  * @task T12508
+ * @task T13126
  */
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { runBoundedEmbeddingBackfill } from '../memory/embedding-backfill.js';
 import { getCleoDir } from '../paths.js';
 import { SNAPSHOT_LOCK_WAIT_RETRIES } from '../store/snapshot-gate.js';
 import { releaseSessionEndWorkerMarker, snapshotAfterSessionEnd } from './session-end-snapshot.js';
@@ -44,6 +49,12 @@ const result = await snapshotAfterSessionEnd(projectRoot, {
 // Also on lock-timeout or failure: never leave the marker to block others.
 releaseSessionEndWorkerMarker(projectRoot, markerToken);
 
+// T13126: one-shot observes leave new observations unembedded. Embed one bounded
+// batch here, off the agent's critical path and under the governor's background
+// class, so the model loads once per session instead of once per observe. It is
+// a no-op when nothing is pending. Best-effort: it never throws.
+const embeddings = await runBoundedEmbeddingBackfill(projectRoot);
+
 try {
   const logsDir = join(getCleoDir(projectRoot), 'logs');
   mkdirSync(logsDir, { recursive: true });
@@ -55,6 +66,7 @@ try {
       pid: process.pid,
       projectRoot,
       result,
+      embeddings,
     })}\n`,
   );
 } catch {

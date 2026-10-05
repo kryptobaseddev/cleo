@@ -95,6 +95,91 @@ export const MAX_HEAVY_WORKERS = 6;
 /** Never grant fewer than this many — one worker must always be able to run. */
 export const MIN_HEAVY_WORKERS = 1;
 
+const GIB_BYTES = 1024 ** 3;
+
+/**
+ * RAM the admission ledger never hands out: the OS, resident apps, VMs and
+ * agent CLIs — `max(4 GiB, 25%)`.
+ *
+ * @param totalBytes - physical RAM in bytes.
+ * @task T13133
+ */
+export function admissionReserveBytes(totalBytes: number): number {
+  return Math.max(4 * GIB_BYTES, totalBytes * 0.25);
+}
+
+/**
+ * The machine-wide budget the admission ledger shares between heavy runs, in
+ * bytes (at least 1 GiB): total RAM minus {@link admissionReserveBytes}.
+ *
+ * @param totalBytes - physical RAM. @defaultValue os.totalmem()
+ *
+ * @example
+ * ```ts
+ * admissionCapacityBytes(48 * 1024 ** 3); // 36 GiB
+ * ```
+ *
+ * @task T13133
+ */
+export function admissionCapacityBytes(totalBytes: number = totalmem()): number {
+  return Math.max(GIB_BYTES, totalBytes - admissionReserveBytes(totalBytes));
+}
+
+/**
+ * Share of the admission budget one heavy run plans its workers for (T13132).
+ * A whole-suite run sized to the entire budget left nothing for anyone else:
+ * on a 48 GiB Mac it planned 6 workers × 6 GiB = all 36 GiB, and 49 single-file
+ * runs queued behind it for 17 minutes. Planning for half keeps the other half
+ * open, at the cost of a slower whole-suite run.
+ */
+export const PER_RUN_BUDGET_SHARE = 0.5;
+
+/** Overrides the per-run share: a number in `(0, 1]` (e.g. `1` on a dedicated box). */
+export const PER_RUN_SHARE_ENV = 'CLEO_PER_RUN_SHARE';
+
+/**
+ * Variables a hosted CI runner sets, each with the value that marks it. A bare
+ * `CI` is not trusted: agent harnesses and devcontainers export it locally.
+ */
+const CI_RUNNER_MARKERS: readonly (readonly [string, string | null])[] = [
+  ['GITHUB_ACTIONS', 'true'],
+  ['GITLAB_CI', null],
+  ['BUILDKITE', 'true'],
+  ['CIRCLECI', 'true'],
+  ['TF_BUILD', 'True'],
+];
+
+/**
+ * Share of the admission budget one heavy run plans for:
+ * `CLEO_PER_RUN_SHARE` when it is a number in `(0, 1]`; the whole budget on a
+ * hosted CI runner (GitHub Actions, GitLab CI, Buildkite, CircleCI, Azure
+ * Pipelines), which is single-tenant, so CI keeps its parallelism (2 workers on
+ * a 16 GiB GitHub runner, as before T13132); else {@link PER_RUN_BUDGET_SHARE}.
+ * Fixed per environment, so the worker count in the tool cache key is stable.
+ *
+ * @param env - the environment.
+ *
+ * @example
+ * ```ts
+ * perRunBudgetShare({});                          // 0.5
+ * perRunBudgetShare({ GITHUB_ACTIONS: 'true' });  // 1
+ * perRunBudgetShare({ CI: '1' });                 // 0.5 (a bare CI is not trusted)
+ * perRunBudgetShare({ CLEO_PER_RUN_SHARE: '1' }); // 1
+ * ```
+ */
+export function perRunBudgetShare(env: NodeJS.ProcessEnv): number {
+  const raw = env[PER_RUN_SHARE_ENV]?.trim();
+  if (raw !== undefined && raw !== '') {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0 && n <= 1) return n;
+  }
+  const onRunner = CI_RUNNER_MARKERS.some(([name, value]) => {
+    const v = env[name];
+    return v !== undefined && v !== '' && (value === null || v === value);
+  });
+  return onRunner ? 1 : PER_RUN_BUDGET_SHARE;
+}
+
 /**
  * Workspace packages allowed to run their test/build script concurrently.
  *
@@ -308,17 +393,34 @@ const WORKER_COUNT_VARS = [
 ] as const;
 
 /**
- * Default worker count this machine can hold, given {@link GIB_PER_WORKER}.
+ * Default worker count one heavy run plans for, given {@link GIB_PER_WORKER}:
+ * {@link perRunBudgetShare} of the admission budget
+ * ({@link admissionCapacityBytes}) — half on a shared machine, so a
+ * whole-suite run never takes the budget other runs need (T13132), the whole
+ * budget on a single-tenant CI runner. Fixed per machine and environment, so
+ * the worker count — part of the tool cache key (T12989) — is stable.
  *
  * The planned count ({@link planHeavyToolEnv}) never exceeds this: a small
  * inherited heap does not buy extra workers, because each worker also costs
  * memory outside its heap.
  *
  * @param totalRamGib - total RAM in GiB; defaults to a live reading.
+ * @param env - the environment ({@link perRunBudgetShare}). @defaultValue process.env
  * @returns a value in `[MIN_HEAVY_WORKERS, MAX_HEAVY_WORKERS]`.
+ *
+ * @example
+ * ```ts
+ * heavyToolWorkers(48, {});            // 3 (half of the 36 GiB budget)
+ * heavyToolWorkers(16, {});            // 1
+ * heavyToolWorkers(16, { GITHUB_ACTIONS: 'true' }); // 2 (the whole 12 GiB budget)
+ * ```
  */
-export function heavyToolWorkers(totalRamGib: number = totalmem() / 1024 ** 3): number {
-  const byRam = Math.floor(totalRamGib / GIB_PER_WORKER);
+export function heavyToolWorkers(
+  totalRamGib: number = totalmem() / 1024 ** 3,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const capacityGib = admissionCapacityBytes(Math.max(0, totalRamGib) * GIB_BYTES) / GIB_BYTES;
+  const byRam = Math.floor((capacityGib * perRunBudgetShare(env)) / GIB_PER_WORKER);
   return Math.min(MAX_HEAVY_WORKERS, Math.max(MIN_HEAVY_WORKERS, byRam));
 }
 
@@ -371,24 +473,28 @@ export function defaultSingleProcessHeapMb(totalRamGib: number = totalmem() / 10
  * Heap budget for one heavy run, in MiB: the default worker count times the
  * default heap. `workspace concurrency × workers × heap` must fit in it.
  *
- * Unchanged by T13122 for the default case (6 × 4096 = 24 GiB on 36 GiB and
- * up, 1 × 4096 on 8 GiB); what changed is that an inherited heap is now planned
- * against it instead of multiplying it.
+ * Since T13132 the worker count is half the admission budget's worth
+ * ({@link heavyToolWorkers}); an inherited heap is planned against the budget
+ * instead of multiplying it (T13122).
  *
  * @param totalRamGib - total RAM in GiB; defaults to a live reading.
+ * @param env - the environment ({@link perRunBudgetShare}). @defaultValue process.env
  * @returns the budget in MiB.
  *
  * @example
  * ```ts
- * heavyRunBudgetMb(64); // → 24576 (6 workers × 4096)
- * heavyRunBudgetMb(16); // → 8192  (2 workers × 4096)
- * heavyRunBudgetMb(8);  // → 4096  (1 worker  × 4096)
+ * heavyRunBudgetMb(64, {}); // → 16384 (4 workers × 4096)
+ * heavyRunBudgetMb(16, {}); // → 4096  (1 worker  × 4096)
  * ```
  *
  * @task T13122
+ * @task T13132
  */
-export function heavyRunBudgetMb(totalRamGib: number = totalmem() / 1024 ** 3): number {
-  return heavyToolWorkers(totalRamGib) * defaultHeavyHeapMb(totalRamGib);
+export function heavyRunBudgetMb(
+  totalRamGib: number = totalmem() / 1024 ** 3,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  return heavyToolWorkers(totalRamGib, env) * defaultHeavyHeapMb(totalRamGib);
 }
 
 /**
@@ -866,6 +972,8 @@ function heapReason(choice: HeapChoice): string {
  * @param canonical - the canonical tool about to be spawned.
  * @param env - the environment the child would otherwise inherit.
  * @param totalRamGib - total RAM in GiB; injectable for deterministic tests.
+ * @param maxWorkers - at most this many workers (a run that names its test
+ *   files needs no more than one per file, T13132). @defaultValue no limit
  * @returns the overlay and plan; an empty overlay and `null` plan for a tool
  *          that is not memory-bound (`audit`, `security-scan`).
  *
@@ -874,23 +982,28 @@ function heapReason(choice: HeapChoice): string {
  * // A shell profile exported an 8 GiB heap on a 64 GiB machine:
  * const { overlay, resources } = planHeavyToolEnv(
  *   'test', { NODE_OPTIONS: '--max-old-space-size=8192' }, 64);
- * overlay.VITEST_MAX_WORKERS; // → '3' (3 × 8192 = the 24576 MiB budget)
+ * overlay.VITEST_MAX_WORKERS; // → '2' (2 × 8192 = the 16384 MiB budget)
  * resources?.heapSource;      // → 'inherited'
  * ```
  *
  * @task T12096
  * @task T13122
  * @task T13123
+ * @task T13132
  */
 export function planHeavyToolEnv(
   canonical: CanonicalTool,
   env: NodeJS.ProcessEnv = process.env,
   totalRamGib: number = totalmem() / 1024 ** 3,
+  maxWorkers?: number,
 ): HeavyToolSpawnPlan {
   if (!isMemoryBoundTool(canonical)) return { overlay: {}, resources: null };
 
   const totalRamMb = Math.floor(totalRamGib * 1024);
-  const defaultWorkers = heavyToolWorkers(totalRamGib);
+  const defaultWorkers = Math.min(
+    heavyToolWorkers(totalRamGib, env),
+    Math.max(MIN_HEAVY_WORKERS, Math.floor(maxWorkers ?? Number.POSITIVE_INFINITY)),
+  );
   // A single process starts from Node's own default ceiling on its machine; a
   // forking tool from the heavy default. Both share the heavy run's budget.
   const defaultHeapMb = isHeavyTool(canonical)

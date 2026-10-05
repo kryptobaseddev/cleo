@@ -13,7 +13,12 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DispatchResponse, DomainHandler } from '../../types.js';
 import { dispatchMeta } from '../_meta.js';
 import { createDomainHandlers } from '../index.js';
-import { createLazyDomainHandlers, DOMAIN_LOADERS, LazyDomainHandler } from '../lazy.js';
+import {
+  createLazyDomainHandlers,
+  DOMAIN_LOADERS,
+  LazyDomainHandler,
+  lazyOperation,
+} from '../lazy.js';
 
 /** A well-formed successful response for the stub handlers below. */
 function ok(data: Record<string, unknown>): DispatchResponse {
@@ -74,5 +79,34 @@ describe('createLazyDomainHandlers (T13126)', () => {
     await expect(lazy.resolve()).rejects.toThrow('transient');
     await expect(lazy.resolve()).resolves.toBe(real);
     expect(load).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('lazyOperation (T13126)', () => {
+  it('loads nothing until the first call, then forwards each call’s arguments and result', async () => {
+    const op = vi.fn(async (a: number, b: string) => `${b}:${a}`);
+    const load = vi.fn(async () => op);
+    const lazy = lazyOperation(load);
+    expect(load).not.toHaveBeenCalled();
+
+    await expect(lazy(1, 'x')).resolves.toBe('x:1');
+    await expect(lazy(2, 'y')).resolves.toBe('y:2');
+    expect(op).toHaveBeenNthCalledWith(1, 1, 'x');
+    expect(op).toHaveBeenNthCalledWith(2, 2, 'y');
+  });
+
+  it('rejects the call, not the definition, when the module fails to load', async () => {
+    const lazy = lazyOperation(async (): Promise<() => string> => {
+      throw new Error('module missing');
+    });
+    await expect(lazy()).rejects.toThrow('module missing');
+  });
+
+  it('propagates the operation’s own rejection unchanged', async () => {
+    const failure = new Error('E_NOT_FOUND');
+    const lazy = lazyOperation(async () => async (): Promise<string> => {
+      throw failure;
+    });
+    await expect(lazy()).rejects.toBe(failure);
   });
 });
