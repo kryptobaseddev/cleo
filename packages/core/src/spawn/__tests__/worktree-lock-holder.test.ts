@@ -14,10 +14,14 @@ import type { Session } from '@cleocode/contracts';
 import { readWorktreeTaskLock } from '@cleocode/worktree';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type ProcessAncestor, resolveOwnerProcess } from '../../sessions/terminal-identity.js';
+import { optOutOfForeignKeys } from '../../store/__tests__/test-db-helper.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { allocateSpawnSession, electSpawnSession } from '../agent-identity.js';
 import { createAgentWorktree, pruneWorktree } from '../branch-lock.js';
 import { resolveSpawnLockHolder } from '../worktree-lock-holder.js';
+
+// T13228: fixture spawns allocate sessions for task ids that are never seeded; they run with foreign keys OFF.
+optOutOfForeignKeys();
 
 /** Fake process table: pid → entry. */
 function table(entries: ProcessAncestor[]): (pid: number) => ProcessAncestor | null {
