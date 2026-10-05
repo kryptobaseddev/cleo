@@ -61,6 +61,7 @@ import {
   syncSetTables,
 } from './capture.js';
 import { tickClock, withImmediateTransaction } from './clock-store.js';
+import { actorOpOf, clearFieldLeaves, localLeaves, recordFieldLeaves } from './field-leave.js';
 import { isSyncFlagOn, UNRELEASED_FLAGS } from './flags.js';
 import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './netting.js';
 import { remapCapture, remapPending } from './remap.js';
@@ -900,6 +901,7 @@ function sealInTransaction(
   const pending: Array<{ firstSeq: number; reason: string }> = [];
   const touched = new Map<string, { tbl: string; uid: string; rk: string }>();
   const ledgerDelta = new Map<string, number>();
+  const leaveTable = hasTable(db, '_sync_field_leave');
 
   const metaFacts: MetaFacts = {
     sent: (t, u) => (meta.flags.get(t, u) as { sent: number } | undefined)?.sent === 1,
@@ -1134,6 +1136,11 @@ function sealInTransaction(
         chash: op.o === 'D' ? (prev?.chash ?? null) : null,
         bfp: op.bfp ?? null,
       });
+      // Explicit leaves of absorbing states, which the merge reads (T12344).
+      if (leaveTable && op.o === 'U') {
+        recordFieldLeaves(db, op.t, op.u, localLeaves(op.t, op, actorOpOf(g.actor)));
+      }
+      if (leaveTable && op.o === 'D') clearFieldLeaves(db, op.t, op.u);
       if (op.o === 'I') ledgerDelta.set(op.t, (ledgerDelta.get(op.t) ?? 0) + 1);
       if (op.o === 'D') ledgerDelta.set(op.t, (ledgerDelta.get(op.t) ?? 0) - 1);
       if (op.o === 'D') touched.delete(rowKey(op.t, op.u));
