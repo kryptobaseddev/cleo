@@ -425,10 +425,8 @@ const coreBuildOptions = {
  * no subdirectory). The `-[hash]` suffix is what
  * `CLEO_CLI_CHUNK_PATTERN` in `packages/caamp/src/core/artifacts/validation.ts`
  * recognises as a shipped chunk; change both together. That pattern accepts
- * only lowercase `[a-z0-9_.-]` names (`[name]` is the source file's basename,
- * kebab-case by convention): a source file with an uppercase basename would
- * emit a chunk the artifact check rejects, loudly, in CI. Widen both if that
- * convention ever changes.
+ * `[name]` (the source file's basename) in any case, `[A-Za-z0-9_.-]` (T13159),
+ * and esbuild's 8-character uppercase hash.
  */
 const CLEO_CHUNK_NAMES = 'cli/[name]-[hash]';
 

@@ -1,15 +1,30 @@
 /**
  * BRAIN single-writer chokepoint — main-thread queue manager.
  *
- * All hot-path writes to `brain.db` MUST route through `enqueueBrainWrite` so
- * that a single Node.js `worker_threads.Worker` owns the only write handle and
- * serializes every INSERT/UPDATE through one consumer. This eliminates the
+ * All hot-path writes to `brain.db` MUST route through `enqueueBrainWrite`,
+ * which serializes every INSERT/UPDATE through one consumer. This eliminates the
  * within-process race documented in the T10301 RCA (page-1 sqlite_schema
  * B-tree corruption caused by concurrent setImmediate writers + dialectic-hook
  * + propose-tick reconciler + STDP plasticity loop all opening their own
  * `getBrainDb` singletons).
  *
- * ## Architecture
+ * ## Serialization primitive
+ *
+ * Every write holds the cross-process `brain` writer lease (batch-granular, see
+ * `enterBrainBatchLease`) and runs through one in-process async mutex
+ * (`runInline`). That pair is the chokepoint in every process (T13126).
+ *
+ * ## Worker thread (explicit opt-in for long-lived hosts)
+ *
+ * A long-lived host (the sentient daemon, the gateway daemon, the HTTP/MCP
+ * servers, agent harness hosts) calls {@link useBrainWriterThread} at startup,
+ * or is launched with `CLEO_BRAIN_WRITER_THREAD=1`. Its writes then run on one
+ * `worker_threads.Worker` that owns the only write handle. A one-shot CLI
+ * command does not opt in: spawning a second isolate and opening the store a
+ * second time cost ~300 MB per `cleo memory observe` for a single write. A host
+ * that forgets to opt in still writes correctly, inline under the mutex.
+ *
+ * ## Worker architecture
  *
  *  Main thread                         Worker thread
  *  ───────────                         ─────────────
@@ -61,6 +76,11 @@ import {
   type LeaseHandle,
   resolveLeaseMode,
 } from '../store/writer-lease.js';
+import {
+  _resetLongLivedBrainHostForTests,
+  isLongLivedBrainHost,
+  markLongLivedBrainHost,
+} from './brain-host.js';
 
 // ============================================================================
 // Discriminated union — BrainWriteOp
@@ -80,7 +100,8 @@ export type BrainWriteOp =
   | BrainLearningOp
   | BrainPlasticityEventOp
   | BrainWeightUpdateOp
-  | BrainDialecticOp;
+  | BrainDialecticOp
+  | BrainEmbedOp;
 
 /** Insert a new observation row via the canonical `observeBrain` pipeline. */
 export interface BrainObserveOp {
@@ -151,6 +172,19 @@ export interface BrainDialecticOp {
 }
 
 /**
+ * Upsert computed observation embeddings (T13218). The vectors are computed
+ * BEFORE the op (model inference stays outside the chokepoint); only the
+ * `brain_embeddings` writes travel through it, so a backfill never opens a
+ * second write handle beside the worker's.
+ */
+export interface BrainEmbedOp {
+  kind: 'embed';
+  projectRoot: string;
+  /** One row per observation: its id and its embedding vector. */
+  rows: Array<{ id: string; vector: Float32Array }>;
+}
+
+/**
  * Serializable copy of `DialecticInsights` (the `applyInsights` callers pass
  * objects already shaped by the evaluator; we re-declare the shape here so the
  * writer-thread layer does not depend on the evaluator module).
@@ -172,7 +206,8 @@ export type BrainWriteResult =
   | { kind: 'learning'; id: string }
   | { kind: 'plasticity_event'; lastInsertRowid: number | null }
   | { kind: 'weight_update'; ok: true }
-  | { kind: 'dialectic'; ok: true };
+  | { kind: 'dialectic'; ok: true }
+  | { kind: 'embed'; written: number };
 
 // ============================================================================
 // Wire protocol — main ↔ worker
@@ -212,6 +247,40 @@ function bypassEnabled(): boolean {
     return true;
   }
   return false;
+}
+
+// ============================================================================
+// Worker-thread opt-in (T13126)
+// ============================================================================
+
+/**
+ * Opt this process in to the worker-thread brain writer.
+ *
+ * Call once at startup from a long-lived host (daemon, gateway server, agent
+ * harness host) whose writes are frequent enough to amortise a second isolate.
+ * One-shot CLI commands must not call it: without it, writes run inline under
+ * the same writer lease and async mutex, which is equally serialized. The same
+ * declaration makes `observeBrain` embed new observations as they are stored
+ * (see `brain-host.ts`).
+ *
+ * @example
+ * ```ts
+ * import { useBrainWriterThread } from '@cleocode/core/memory/brain-writer-thread';
+ * useBrainWriterThread();
+ * ```
+ */
+export function useBrainWriterThread(): void {
+  markLongLivedBrainHost();
+}
+
+/**
+ * Whether brain writes in this process run on the worker thread.
+ *
+ * @returns `true` after {@link useBrainWriterThread} or with
+ *   `CLEO_BRAIN_WRITER_THREAD=1`; `false` otherwise (inline, serialized).
+ */
+export function brainWriterThreadEnabled(): boolean {
+  return isLongLivedBrainHost();
 }
 
 // ============================================================================
@@ -532,14 +601,14 @@ async function enterBrainBatchLease(
 }
 
 // ============================================================================
-// Inline-mode fallback (bypass + worker-unavailable cases)
+// Inline writer (default path; also bypass + worker-unavailable fallback)
 // ============================================================================
 
 /**
- * Async mutex used by the inline fallback path so that bypass-mode writes
- * (and the test-env path where the worker file is unavailable) still
- * serialize within the process. Without this guard, the bypass would
- * reintroduce the very race condition the chokepoint exists to eliminate.
+ * Async mutex that serializes inline writes within the process: every write in a
+ * process that has not opted in to the worker thread, plus bypass-mode writes and
+ * the fallback when the worker file is unavailable. Without it, inline writes
+ * would reintroduce the very race condition the chokepoint exists to eliminate.
  */
 let inlineQueueTail: Promise<unknown> = Promise.resolve();
 
@@ -556,6 +625,7 @@ function runInline(
 /**
  * Inline executor — imports the worker's handler module dynamically and runs
  * the op on the main thread. Used by:
+ *  - every process that has not opted in to the worker thread (the default)
  *  - bypass mode (`CLEO_BRAIN_BYPASS_WRITER_THREAD=1`)
  *  - worker-unavailable contexts (tests, esbuild bundle context)
  *
@@ -672,8 +742,11 @@ function getManager(kind: BrainWriteOp['kind'] = 'observe'): BrainWriterManager 
 /**
  * Enqueue a brain.db write op through the single-writer chokepoint.
  *
+ * Runs inline under the brain writer lease and the in-process mutex, or on the
+ * worker thread when the host opted in ({@link useBrainWriterThread}).
+ *
  * Resolves with the typed result for the op's `kind`. Rejects when:
- *  - the op fails inside the worker (worker forwards the error message)
+ *  - the op fails (inline, or inside the worker, which forwards the message)
  *  - the worker crashes (the in-flight promise rejects with the worker error)
  *  - bypass mode is on AND the inline execution fails
  *
@@ -737,6 +810,11 @@ export async function enqueueBrainWrite(
     if (bypassEnabled()) {
       return await runInline(op, execution);
     }
+    // Default: inline under the lease + mutex. Only an opted-in long-lived host
+    // pays for the worker isolate (T13126).
+    if (!brainWriterThreadEnabled()) {
+      return await runInline(op, execution);
+    }
 
     try {
       return await getManager(op.kind).enqueue(op, execution, transfer?.transfer);
@@ -796,6 +874,7 @@ export function _resetBrainWriterForTests(): void {
   // latch, the first teardown would leave every subsequent test in the file
   // running against a permanently shut-down writer.
   _brainWriterShutDown = false;
+  _resetLongLivedBrainHostForTests();
   inlineQueueTail = Promise.resolve();
   _brainBatches.clear();
 }

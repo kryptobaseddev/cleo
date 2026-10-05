@@ -159,7 +159,9 @@ export class ClaudeCodeAdapter implements CLEOProviderAdapter {
     }
 
     // Activate CLEO hook bridge for this project — connects Claude Code
-    // native events to CLEO's internal hook dispatch (T555).
+    // native events to CLEO's internal hook dispatch (T555). Written to the
+    // project's .claude/settings.local.json only, never the user-global
+    // ~/.claude/settings.json (T13227).
     await this.hooks.registerNativeHooks(projectDir);
   }
 

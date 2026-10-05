@@ -11,6 +11,7 @@ import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { predictImpact } from '../intelligence/impact.js';
 import type { ImpactReport } from '../intelligence/types.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { runWithWriteActorOp } from '../store/sync/write-actor.js';
 import { canCancel } from './cancel-ops.js';
 import type { ChildStrategy } from './deletion-strategy.js';
 import { discoverRelated, suggestRelated } from './relates.js';
@@ -578,7 +579,10 @@ export async function taskRestore(
   params?: { cascade?: boolean; notes?: string },
 ): Promise<EngineResult<{ task: string; restored: string[]; count: number }>> {
   try {
-    const result = await coreTaskRestore(projectRoot, taskId, params);
+    // T13229: the leave's command travels with the write on every transport.
+    const result = await runWithWriteActorOp('tasks.restore', () =>
+      coreTaskRestore(projectRoot, taskId, params),
+    );
     return engineSuccess(result);
   } catch (err: unknown) {
     return nonCrudEngineError(err, 'Failed to restore task');
@@ -596,7 +600,10 @@ export async function taskUnarchive(
   params?: { status?: string; preserveStatus?: boolean },
 ): Promise<EngineResult<{ task: string; unarchived: boolean; title: string; status: string }>> {
   try {
-    const result = await coreTaskUnarchive(projectRoot, taskId, params);
+    // T13229: the leave's command travels with the write on every transport.
+    const result = await runWithWriteActorOp('tasks.unarchive', () =>
+      coreTaskUnarchive(projectRoot, taskId, params),
+    );
     return engineSuccess(result);
   } catch (err: unknown) {
     return nonCrudEngineError(err, 'Failed to unarchive task');
@@ -753,7 +760,10 @@ export async function taskReopen(
   }>
 > {
   try {
-    const result = await coreTaskReopen(projectRoot, taskId, params);
+    // T13229: the leave's command travels with the write on every transport.
+    const result = await runWithWriteActorOp('tasks.reopen', () =>
+      coreTaskReopen(projectRoot, taskId, params),
+    );
     return engineSuccess(result);
   } catch (err: unknown) {
     return nonCrudEngineError(err, 'Failed to reopen task');

@@ -6,6 +6,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { DatabaseSync } from 'node:sqlite';
 import type {
   BrainSourceConfidence,
   ObserveBrainParams,
@@ -23,6 +24,7 @@ import { getBrainAccessor } from '../../store/memory-accessor.js';
 import type { BrainMemoryTier } from '../../store/schema/memory-schema.js';
 import { getDb } from '../../store/sqlite.js';
 import { embedText, ensureEmbeddingProvider, isEmbeddingAvailable } from '../brain-embedding.js';
+import { isBrainWriterIsolate, isLongLivedBrainHost } from '../brain-host.js';
 import { addGraphEdge, upsertGraphNode } from '../graph-auto-populate.js';
 import {
   classifyObservationTypeByKeywords,
@@ -374,30 +376,39 @@ export async function observeBrain(
     return { id: row.id, type: row.type, createdAt: row.createdAt };
   }
 
-  // Populate embedding for this observation (T5387).
-  // Fire-and-forget: embedding runs in the background so it never blocks the CLI.
-  // T12314: the availability check used to happen HERE, before the deferred
-  // provider registration had run, so a write early in a process saw no
-  // provider and silently skipped embedding the observation it had just
-  // stored. The check now happens inside the deferred work, after ensuring a
-  // provider exists — registration is free, and the model load is bounded by
-  // the same fire-and-forget contract as before.
-  setImmediate(() => {
-    void (async () => {
-      try {
-        if (!(await ensureEmbeddingProvider())) return;
-        const vector = await embedText(text);
-        if (vector && nativeDb) {
-          nativeDb
-            // replace-allowed: brain_embeddings is a vec0 virtual table — never an FK parent, and virtual tables reject UPSERT (T12787)
-            .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
-            .run(id, Buffer.from(vector.buffer));
+  // Populate embedding for this observation (T5387) — in a long-lived host only.
+  // T13126: loading the local embedding model costs ~280 MB, and a one-shot
+  // process paid it on every observe for a single vector. A one-shot process
+  // now leaves the row unembedded; `populateEmbeddings` fills it later (an
+  // opted-in host's tick, the `cleo session end` background batch, or
+  // `cleo backfill`). Until then the observation is found by BM25/FTS5 only.
+  // T12314: the availability check happens inside the deferred work, after
+  // ensuring a provider exists — registration is free.
+  if (isLongLivedBrainHost()) {
+    setImmediate(() => {
+      void (async () => {
+        try {
+          if (!(await ensureEmbeddingProvider())) return;
+          const vector = await embedText(text);
+          if (!vector) return;
+          // T13230: inside the writer isolate this IS the chokepoint's handle,
+          // so write directly (enqueueBrainWrite there would start a nested
+          // manager). Anywhere else (a main thread whose host ran observeBrain
+          // inline, or any other worker thread, T13246) the op has already
+          // released the lease and the mutex, so the write goes back through
+          // the chokepoint.
+          if (isBrainWriterIsolate()) {
+            if (nativeDb) upsertEmbeddingRowsNative(nativeDb, [{ id, vector }]);
+            return;
+          }
+          const { enqueueBrainWrite } = await import('../brain-writer-thread.js');
+          await enqueueBrainWrite({ kind: 'embed', projectRoot, rows: [{ id, vector }] });
+        } catch {
+          // Silently skip embedding failures — observation is already persisted
         }
-      } catch {
-        // Silently skip embedding failures — observation is already persisted
-      }
-    })();
-  });
+      })();
+    });
+  }
 
   // Regenerate memory bridge for high-value observation types (T5240).
   // Only learning and decision types trigger bridge refresh to avoid excessive writes.
@@ -463,6 +474,33 @@ export async function observeBrain(
 // Embedding Backfill Pipeline (T5387)
 // ============================================================================
 
+/**
+ * Upsert computed embeddings into `brain_embeddings` on the given handle.
+ *
+ * Callers must be the brain single-writer chokepoint: the `embed` write op's
+ * handler (`brain-writer-handlers.ts`, worker or inline under the lease and
+ * mutex) and the host's observe-time embed, which runs inside the writer.
+ *
+ * @param nativeDb - The writer's brain handle.
+ * @param rows - Observation ids and their vectors.
+ * @returns Rows written.
+ * @task T13218
+ */
+export function upsertEmbeddingRowsNative(
+  nativeDb: DatabaseSync,
+  rows: ReadonlyArray<{ id: string; vector: Float32Array }>,
+): number {
+  const stmt = nativeDb
+    // replace-allowed: brain_embeddings is a vec0 virtual table — never an FK parent, and virtual tables reject UPSERT (T12787)
+    .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)');
+  let written = 0;
+  for (const row of rows) {
+    stmt.run(row.id, Buffer.from(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength));
+    written++;
+  }
+  return written;
+}
+
 /** Result from populateEmbeddings backfill. */
 export interface PopulateEmbeddingsResult {
   processed: number;
@@ -498,6 +536,12 @@ export interface PopulateEmbeddingsResult {
 export interface PopulateEmbeddingsOptions {
   /** Maximum items processed per batch cycle. Defaults to 50. */
   batchSize?: number;
+  /**
+   * Maximum observations embedded by this call, newest first (T13126). Bounds a
+   * background batch so it cannot run for the whole backlog at once.
+   * @defaultValue undefined — every unembedded observation.
+   */
+  limit?: number;
   /**
    * Progress callback invoked after each observation is attempted.
    * `current` is the 1-based count of observations attempted so far;
@@ -580,32 +624,38 @@ export async function populateEmbeddings(
     FROM brain_observations o
     LEFT JOIN brain_embeddings e ON o.id = e.id
     WHERE e.id IS NULL AND o.narrative IS NOT NULL
-    ORDER BY o.created_at DESC
+    ORDER BY o.created_at DESC${options?.limit !== undefined ? ' LIMIT ?' : ''}
   `),
+    ...(options?.limit !== undefined ? [Math.max(0, Math.floor(options.limit))] : []),
   );
 
   const total = rows.length;
   let attempted = 0;
 
+  // T13218: inference runs here, outside the chokepoint; the writes go through
+  // it, one `embed` op per batch, so this never writes on a second handle
+  // beside the brain writer (worker in a host, lease + mutex elsewhere).
+  const { enqueueBrainWrite } = await import('../brain-writer-thread.js');
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize);
+    const computed: Array<{ id: string; vector: Float32Array }> = [];
     for (const row of batch) {
       try {
         const vector = await embedText(row.narrative || row.title);
-        if (vector) {
-          nativeDb
-            // replace-allowed: brain_embeddings is a vec0 virtual table — never an FK parent, and virtual tables reject UPSERT (T12787)
-            .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
-            .run(row.id, Buffer.from(vector.buffer));
-          processed++;
-        } else {
-          skipped++;
-        }
+        if (vector) computed.push({ id: row.id, vector });
+        else skipped++;
       } catch {
         errors++;
       }
       attempted++;
       onProgress?.(attempted, total);
+    }
+    if (computed.length === 0) continue;
+    try {
+      const result = await enqueueBrainWrite({ kind: 'embed', projectRoot, rows: computed });
+      processed += result.kind === 'embed' ? result.written : 0;
+    } catch {
+      errors += computed.length;
     }
   }
 
