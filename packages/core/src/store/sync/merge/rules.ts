@@ -42,12 +42,14 @@ export type MergeRuleSet = Omit<TableMergeSpec, 'columns'>;
 /**
  * The `actor.op` values that may leave a terminal task status: today's
  * `validateStatusTransition` table allows done → pending/active and
- * cancelled → pending only through restore (alias reopen, uncancel).
+ * cancelled → pending only through restore. Each name is emitted by core's
+ * own entry point (`taskRestore` for cancelled, `taskReopen` for done,
+ * `taskUnarchive` for archived; T13229), whatever the transport; a test
+ * keeps the two in sync.
  */
 export const TASK_STATUS_LEAVE_OPS: readonly string[] = [
   'tasks.restore',
   'tasks.reopen',
-  'tasks.uncancel',
   'tasks.unarchive',
 ];
 

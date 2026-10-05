@@ -96,6 +96,7 @@ import { resolveCurrentSession } from './session-store.js';
 import { closeDb, getDb, getNativeTasksDb } from './sqlite.js';
 import { TERMINAL_TASK_STATUSES } from './status-registry.js';
 import { clearCaptureFrame, finishCaptureFrame, openCaptureFrame } from './sync/capture.js';
+import { currentWriteActorJson } from './sync/write-actor.js';
 import {
   claimAllows,
   claimColumnsOf,
@@ -2491,7 +2492,9 @@ async function createOwnedSqliteDataAccessor(
             // connection in its transaction holding RESERVED (T13024).
             let frame: string | null = null;
             try {
-              frame = isOuter ? openCaptureFrame(nativeDb, 'write') : null;
+              // T13229: the frame records the dispatching command as actor.op,
+              // which the typed merge rules read on every receiving replica.
+              frame = isOuter ? openCaptureFrame(nativeDb, 'write', currentWriteActorJson()) : null;
               // The birth of each task an upsert replaced, for clearTaskIdentity
               // (T12806): sameness is decided on the birth before the overwrite.
               const replacedBirths = new Map<string, ReplacedTaskBirth>();
