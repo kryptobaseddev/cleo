@@ -182,15 +182,32 @@ export function stagedTxns(db: DatabaseSync, stream: string, limit = 0): StagedT
     )
     .all(stream, ...OPEN_INBOX_STATUSES) as InboxRow[];
   const parsed: Array<{ row: InboxRow; txn: LedgerTxn }> = [];
+  const nowIso = new Date().toISOString();
   for (const r of rows) {
     const txn = parseStaged(r);
     if (typeof txn === 'string') {
       // One unreadable row (a newer writer's format) never stalls the stream:
       // it is refused, kept for replay after an upgrade, and the rest flows.
-      markTxns(db, [keyOf(r)], 'refused-schema', { reason: txn, nowIso: new Date().toISOString() });
+      markTxns(db, [keyOf(r)], 'refused-schema', { reason: txn, nowIso });
       continue;
     }
     parsed.push({ row: r, txn });
+  }
+  // A split transaction is refused whole (T13242): when one of its parts was
+  // refused (now or in an earlier pass), its other parts can never complete.
+  const refusedPart = db.prepare(
+    `SELECT 1 FROM _sync_inbox WHERE stream = ? AND replica_id = ? AND status = 'refused-schema'
+       AND json_valid(txn_json) AND json_extract(txn_json, '$.txn') = ? LIMIT 1`,
+  );
+  for (let i = parsed.length - 1; i >= 0; i--) {
+    const p = parsed[i] as (typeof parsed)[number];
+    if (!p.txn.part) continue;
+    if (!refusedPart.get(stream, p.row.replica_id, p.txn.txn)) continue;
+    markTxns(db, [keyOf(p.row)], 'refused-schema', {
+      reason: `another part of split transaction ${p.txn.txn} was refused`,
+      nowIso,
+    });
+    parsed.splice(i, 1);
   }
   // Parts of one split transaction: same origin replica and txn id.
   const groups = new Map<string, Array<(typeof parsed)[number]>>();

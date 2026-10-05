@@ -329,7 +329,8 @@ export function rankMaxFrontier(
   const add = (c: RankCandidate): void => {
     if (!cands.some((x) => x.hlc === c.hlc && same(x.value, c.value))) cands.push(c);
   };
-  if (cur) add({ value: cur.value, hlc: cur.hlc });
+  // A value a terminal status imposes is not a write (T13243).
+  if (cur && !cur.derived) add({ value: cur.value, hlc: cur.hlc });
   add(write);
   if (floor !== undefined) cands = cands.filter((c) => cmp(c.hlc, floor) >= 0);
   return cands
@@ -559,6 +560,87 @@ function mergeFields(d: Draft, base: RowState, op: LedgerOp, ctx: MergeContext):
   }
 }
 
+/** The best candidate by (rank, HLC). */
+function bestCandidate(
+  rule: { readonly order: readonly string[] },
+  cands: readonly RankCandidate[],
+): RankCandidate | undefined {
+  return cands.reduce<RankCandidate | undefined>((m, c) => {
+    if (!m) return c;
+    const rc = rankOf(rule, c.value) - rankOf(rule, m.value);
+    return rc > 0 || (rc === 0 && cmp(c.hlc, m.hlc) > 0) ? c : m;
+  }, undefined);
+}
+
+/** Mark a coupled column `derived` when the row's status imposes its value (before the merge). */
+function markDerived(fields: Record<string, FieldState>, ctx: MergeContext): void {
+  for (const c of ctx.table.coupled ?? []) {
+    const s = asString(fields[c.status]?.value);
+    const cur = fields[c.column];
+    if (s !== null && c.map[s] !== undefined && cur && same(cur.value, c.map[s] as string)) {
+      fields[c.column] = { ...cur, derived: true };
+    }
+  }
+}
+
+/**
+ * Show the columns a terminal status determines (T13243), as a function of
+ * the merged status and the column's candidates: a mapped status imposes its
+ * value at the status's HLC, with the real candidates kept in `frontier`; an
+ * unmapped status returns the column to its best candidate.
+ */
+function coupleToStatus(d: Draft, before: RowState, op: LedgerOp, ctx: MergeContext): void {
+  const rules = ctx.table.rules ?? {};
+  for (const c of ctx.table.coupled ?? []) {
+    // Only after an op that carries the status or the column (whether or not
+    // it won): an unrelated write never rewrites the row's stage, and every
+    // replica recomputes at the same ops.
+    if (!(c.status in (op.a ?? {})) && !(c.column in (op.a ?? {}))) continue;
+    const status = d.fields[c.status];
+    const cur = d.fields[c.column];
+    const rule = rules[c.column];
+    const order = rule?.kind === 'rank-max' ? rule : { order: [] as string[] };
+    const cands: RankCandidate[] = cur
+      ? cur.derived
+        ? [...(cur.frontier ?? [])]
+        : [...(cur.frontier ?? [{ value: cur.value, hlc: cur.hlc }])]
+      : [];
+    const s = asString(status?.value);
+    const want = s !== null ? c.map[s] : undefined;
+    let next: FieldState | undefined;
+    if (status && want !== undefined) {
+      next = {
+        value: want,
+        hlc: status.hlc,
+        ...(cur?.leave !== undefined ? { leave: cur.leave } : {}),
+        ...(cands.length > 0 ? { frontier: cands } : {}),
+        derived: true,
+      };
+    } else if (cur?.derived) {
+      const best = bestCandidate(order, cands);
+      next = best
+        ? {
+            value: best.value,
+            hlc: best.hlc,
+            ...(cur.leave !== undefined ? { leave: cur.leave } : {}),
+            ...(cands.length > 1 ? { frontier: cands } : {}),
+          }
+        : {
+            value: cur.value,
+            hlc: cur.hlc,
+            ...(cur.leave !== undefined ? { leave: cur.leave } : {}),
+          };
+    }
+    if (!next) continue;
+    d.fields[c.column] = next;
+    const was = before.fields[c.column];
+    if (!was || !same(was.value, next.value)) {
+      if (!d.written.includes(c.column)) d.written.push(c.column);
+      d.applied++;
+    }
+  }
+}
+
 function outcome(
   status: OpOutcome['status'],
   next: RowState,
@@ -688,7 +770,9 @@ export function applyOp(row: RowState, incoming: LedgerOp, ctx: MergeContext): O
 
   // A live row: I (same-uid concurrent insert) and U merge field by field.
   const d = newDraft(row);
+  markDerived(d.fields, ctx);
   mergeFields(d, row, op, ctx);
+  coupleToStatus(d, row, op, ctx);
   const next: RowState = { live: true, tombstone: null, fields: d.fields };
   const status: OpOutcome['status'] =
     d.applied > 0
