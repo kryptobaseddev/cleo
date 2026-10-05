@@ -2,7 +2,7 @@
 id: t13171-exodus-guard-followups
 tasks: [T13171]
 kind: fix
-summary: "The exodus write guard lifts per legacy source, so no table takes writes while its own copy is pending; a store no trigger can guard is still refused by the typed write checks; a deferral that ended in an abort refuses as the abort"
+summary: "The exodus write guard lifts per legacy source, so no table takes writes while its own copy is pending; a store no trigger can guard refuses the open (E_EXODUS_GUARD_FAILED); a deferral that ended in an abort refuses as the abort"
 ---
 
 Follow-ups to the deferred-exodus guard (T13158, review of #1836):
@@ -14,11 +14,14 @@ Follow-ups to the deferred-exodus guard (T13158, review of #1836):
   sentinels of the sources that fill it (per source, the first table in copy order that
   has legacy rows); a sentinel holding rows means that source committed. The typed write
   checks lift only when every source has committed.
-- **Never fail open.** When even the anchor table's trigger cannot be created, the guard
-  is still registered for the typed write checks that every production write path calls
-  first, so the store is never published as if it owed nothing.
+- **Never fail open.** When not even the anchor table's trigger can be created, the open
+  is refused with the retryable `E_EXODUS_GUARD_FAILED` (and its remedy) instead of
+  publishing an empty store any write, raw SQL included, could strand. The next open tries
+  again.
 - **An abort is named as an abort.** A connection guarded while its migration waited for
   admission (a handle concurrent opens received) kept saying `deferred` after that
-  migration ran and aborted. A later recorded abort now supersedes the deferral: the
+  migration ran and aborted. A later recorded abort of the same store (matched by path,
+  not just scope, so a multi-project host never reports another project's abort) now
+  supersedes the deferral: the
   handle's `exodusAbort` reports it, and the typed check re-arms the triggers so a refused
   write carries `E_EXODUS_ABORT_WRITE_UNSAFE` and the abort's remedy.

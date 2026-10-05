@@ -26,6 +26,7 @@
  */
 
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { DualScope } from '../dual-scope-db.js';
 import {
@@ -141,7 +142,10 @@ export interface ExodusWriteGuard {
    * has committed its copy ({@link PendingExodusTargets.sentinels}). A table
    * stays guarded until all of them hold rows, so no table accepts writes while
    * its own copy is pending (T13171). A table without sentinels waits on the
-   * anchor.
+   * anchor. Fails closed: if a source's sentinel table is skipped or only
+   * partly copied while its other tables commit, that source's tables stay
+   * guarded on this connection until the process restarts (a later open
+   * assesses afresh).
    */
   readonly sentinels?: Readonly<Record<string, readonly string[]>>;
   /** Legacy sources still holding the rows the migration owes. */
@@ -216,27 +220,6 @@ export function installExodusWriteGuard(
     throw error;
   }
   const registered: ExodusWriteGuard = { ...guard, tables: guarded };
-  activeGuards.set(nativeDb, registered);
-  return registered;
-}
-
-/**
- * Register a guard on `nativeDb` WITHOUT triggers: the last resort when even
- * the anchor table's trigger cannot be created (T13171). The typed write
- * checks ({@link activeExodusWriteGuard}, behind every production write
- * chokepoint) still refuse and the handle still reports `exodusAbort`, so the
- * store never opens as if it owed nothing; only a raw write that bypasses the
- * chokepoints goes unchecked.
- *
- * @param nativeDb - The handle's native connection.
- * @param guard - The guard to register (its `tables` are recorded as none).
- * @returns The registered guard.
- */
-export function registerExodusWriteGuard(
-  nativeDb: DatabaseSync,
-  guard: ExodusWriteGuard,
-): ExodusWriteGuard {
-  const registered: ExodusWriteGuard = { ...guard, tables: [] };
   activeGuards.set(nativeDb, registered);
   return registered;
 }
@@ -323,7 +306,12 @@ export function peekExodusWriteGuard(nativeDb: DatabaseSync): ExodusWriteGuard |
 function supersedingAbort(guard: ExodusWriteGuard): ExodusAbortDetail | undefined {
   if (guard.detail.kind !== 'deferred') return undefined;
   const recorded = getRecordedExodusAbort(guard.detail.scope);
-  return recorded !== undefined && recorded.kind === 'aborted' && recorded.at >= guard.detail.at
+  // The same STORE, not just the same scope: a long-lived host (Studio, the
+  // daemon) holds stores of several projects (#1880 review).
+  return recorded !== undefined &&
+    recorded.kind === 'aborted' &&
+    recorded.at >= guard.detail.at &&
+    resolve(recorded.dbPath) === resolve(guard.detail.dbPath)
     ? recorded
     : undefined;
 }

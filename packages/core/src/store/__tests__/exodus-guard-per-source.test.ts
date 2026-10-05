@@ -12,7 +12,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { clearExodusAborts, emitExodusAbort } from '../exodus/abort-events.js';
+import { exodusRefusalToEngineResult } from '../../errors-to-engine.js';
+import {
+  clearExodusAborts,
+  EXODUS_GUARD_FAILED_FIX,
+  ExodusGuardFailedError,
+  emitExodusAbort,
+} from '../exodus/abort-events.js';
 import {
   activeExodusWriteGuard,
   EXODUS_ABORT_WRITE_CODE,
@@ -129,5 +135,29 @@ describe('exodus write guard lifts per source (T13171)', () => {
     clearExodusAborts();
     emitExodusAbort({ scope: 'project', dbPath: path, reason: 'old', at: -1, kind: 'aborted' });
     expect(peekExodusWriteGuard(guarded)?.detail.kind).toBe('deferred');
+  });
+
+  it("another store's abort in the same scope does not supersede (#1880 review)", () => {
+    emitExodusAbort({
+      scope: 'project',
+      dbPath: join(dir, 'other-project', 'cleo.db'),
+      reason: 'parity deficit elsewhere',
+      at: 1,
+      kind: 'aborted',
+    });
+    expect(peekExodusWriteGuard(guarded)?.detail.kind).toBe('deferred');
+    expect(activeExodusWriteGuard(guarded)?.detail.kind).toBe('deferred');
+  });
+});
+
+describe('E_EXODUS_GUARD_FAILED reaches the envelope (T13171)', () => {
+  it('maps to its code, message and retry remedy', () => {
+    const r = exodusRefusalToEngineResult(
+      new ExodusGuardFailedError('project', new Error('temp store full')),
+    );
+    expect(r?.success).toBe(false);
+    expect(JSON.stringify(r)).toContain('E_EXODUS_GUARD_FAILED');
+    expect(JSON.stringify(r)).toContain('temp store full');
+    expect(JSON.stringify(r)).toContain(JSON.stringify(EXODUS_GUARD_FAILED_FIX).slice(1, 30));
   });
 });

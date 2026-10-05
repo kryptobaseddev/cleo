@@ -533,27 +533,23 @@ describe('deferred exodus-on-open (T13158)', () => {
     expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(LEGACY_TASK_IDS.length);
   });
 
-  it('a store no trigger can guard is still refused by the typed write checks, never published as owing nothing (T13171)', async () => {
+  it('a store no trigger can guard refuses the open with a retryable typed error; the next open guards it (T13171)', async () => {
     seedLegacyTasksStore(cleoDir);
     vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(memoryPressured);
     // Both the full guard and the anchor-only fallback fail to install.
     faults.failInstallCount = 2;
-    const { getTaskAccessor } = await import('../data-accessor.js');
 
-    const deferred = await openDualScopeDb('project', projectDir);
+    await expect(openDualScopeDb('project', projectDir)).rejects.toMatchObject({
+      name: 'ExodusGuardFailedError',
+      codeName: 'E_EXODUS_GUARD_FAILED',
+    });
     expect(faults.failInstallCount).toBe(0);
+    expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(0);
+
+    // Retryable: the next open installs the guard and the store refuses writes.
+    const deferred = await openDualScopeDb('project', projectDir);
     expect(deferred.exodusAbort?.kind).toBe('deferred');
-    const accessor = await getTaskAccessor(projectDir);
-    await expect(
-      accessor.upsertSingleTask({
-        id: 'T999',
-        title: 'written while no trigger guards the store',
-        status: 'pending',
-        priority: 'medium',
-        type: 'task',
-        createdAt: '2026-10-03T00:00:00Z',
-      }),
-    ).rejects.toMatchObject({ codeName: EXODUS_DEFERRED_WRITE_CODE });
+    expect(() => insertTask(deferred, 'T999')).toThrow(EXODUS_DEFERRED_WRITE_CODE);
     expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(0);
   });
 
