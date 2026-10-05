@@ -53,6 +53,7 @@ import {
   upsertRowMetaFromFields,
 } from '../row-meta.js';
 import { decodeEnc } from '../sealer-values.js';
+import { isTriggerClassSuspended } from '../trigger-classes.js';
 import { type ChildKey, syncSetChildKeys } from './fk.js';
 
 /** A write the API refuses (unknown table or column, a missing row). */
@@ -137,6 +138,14 @@ export interface ApplyWriteApi {
    * @returns Whether a row was re-keyed.
    */
   rekeyRow(table: string, uid: string, newUid: string, newBfp: string | null): boolean;
+  /**
+   * The row's local-only columns (every column capture never records: claims,
+   * leases, local keys of other devices), or null when the row is absent. A
+   * rebase snapshots them before it rewinds an insert (§3.5 R7-2).
+   */
+  readLocalOnly(table: string, uid: string): Record<string, SQLInputValue> | null;
+  /** Write back local-only columns a rebase snapshotted (never captured, never intents). */
+  writeLocalOnly(table: string, uid: string, values: Readonly<Record<string, SQLInputValue>>): void;
   /** The live sync-set children of a row, per child key (for the parent-delete policy). */
   childRows(
     table: string,
@@ -235,6 +244,25 @@ export function createApplyWriteApi(
       throw new ApplyWriteError(`${def.table}: cannot write ${bad.join(', ')}`);
     }
   };
+  const localOnly = new Map<string, string[]>();
+  /** Columns of `table` capture never records (minus the uid, which identifies the row). */
+  const localOnlyColumns = (table: string): string[] => {
+    let cols = localOnly.get(table);
+    if (!cols) {
+      const def = defOf(table);
+      const captured = new Set([...def.columns, ...def.identity, UID_COLUMN]);
+      cols = (
+        db.prepare('SELECT name FROM pragma_table_info(?)').all(table) as Array<{ name: string }>
+      )
+        .map((r) => r.name)
+        .filter((c) => !captured.has(c));
+      localOnly.set(table, cols);
+    }
+    return cols;
+  };
+  const rowExists = (table: string, uid: string): boolean =>
+    db.prepare(`SELECT 1 FROM main.${ident(table)} WHERE ${ident(UID_COLUMN)} = ?`).get(uid) !==
+    undefined;
   let childKeys: ReadonlyMap<string, readonly ChildKey[]> | undefined;
   /** The live sync-set rows referencing `table`/`uid` through a foreign key. */
   const children = (
@@ -259,8 +287,13 @@ export function createApplyWriteApi(
     }
     return out;
   };
+  // An intent mirrors a capture: while capture is suspended (a rebase rewind
+  // or replay, §3.5 Rule 4) nothing is captured, so nothing is recorded, and
+  // the incoming op's own intents stay the ones its captures are matched to.
   const record = (intents: ApplyIntent[]): void => {
-    if (frame !== null && intents.length > 0) recordApplyIntents(db, frame, intents);
+    if (frame === null || intents.length === 0) return;
+    if (isTriggerClassSuspended(db, 'capture')) return;
+    recordApplyIntents(db, frame, intents);
   };
   const intentFor = (
     def: CaptureTableDef,
@@ -375,6 +408,28 @@ export function createApplyWriteApi(
       if (newUid !== uid || newBfp !== null) moveRowMeta(db, table, uid, newUid, newBfp);
       moveFieldState(db, table, uid, newUid);
       return true;
+    },
+
+    readLocalOnly(table, uid) {
+      assertActive();
+      const cols = localOnlyColumns(table);
+      if (cols.length === 0) return rowExists(table, uid) ? {} : null;
+      const row = db
+        .prepare(
+          `SELECT ${cols.map(ident).join(', ')} FROM main.${ident(table)} WHERE ${ident(UID_COLUMN)} = ?`,
+        )
+        .get(uid) as Record<string, SQLInputValue> | undefined;
+      return row ?? null;
+    },
+
+    writeLocalOnly(table, uid, values) {
+      assertActive();
+      const allowed = new Set(localOnlyColumns(table));
+      const cols = Object.keys(values).filter((c) => allowed.has(c));
+      if (cols.length === 0) return;
+      db.prepare(
+        `UPDATE main.${ident(table)} SET ${cols.map((c) => `${ident(c)} = ?`).join(', ')} WHERE ${ident(UID_COLUMN)} = ?`,
+      ).run(...cols.map((c) => values[c] as SQLInputValue), uid);
     },
 
     childRows(table, uid) {

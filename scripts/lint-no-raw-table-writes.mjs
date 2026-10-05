@@ -279,9 +279,9 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/field-leave.ts': {
     _sync_field_leave: {
-      count: 4,
+      count: 6,
       reason:
-        'typed-rule field state (local-only): leaves and rank-max frontiers, merge input that row meta has no place for, rebuilt from the stream (T12344)',
+        'typed-rule field state (local-only): leaves and rank-max frontiers, merge input that row meta has no place for, rebuilt from the stream (T12344); a rebase rewind restores a row snapshot (T13193)',
     },
   },
   'packages/core/src/store/sync/inbox.ts': {
@@ -340,8 +340,8 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/row-meta.ts': {
     _sync_row_meta: {
-      count: 2,
-      reason: `${SEALER}; plus the re-key move of a row's meta (T12344)`,
+      count: 4,
+      reason: `${SEALER}; plus the re-key move of a row's meta (T12344) and a rebase rewind restoring a row's meta snapshot (T13193)`,
     },
   },
   'packages/core/src/store/sync/sealer.ts': {
@@ -364,11 +364,11 @@ export const EXEMPT = {
       reason:
         'foreign-touch index (local-only): rows applied foreign txns touched, for the own-echo fast path; pruned past the oldest unsequenced local txn (T13193)',
     },
-    _sync_meta: { count: 2, reason: SYNC_BOOKKEEPING },
+    _sync_meta: { count: 3, reason: SYNC_BOOKKEEPING },
     _sync_row_undo: {
-      count: 2,
+      count: 3,
       reason:
-        "row undo (local-only): a sealed local op's prior merge state, dropped when its echo is sequenced (T13193)",
+        "row undo (local-only): a sealed local op's prior merge state, re-snapshotted before each rebase replay, dropped when its echo is sequenced (T13193)",
     },
     _sync_sequenced: {
       count: 1,

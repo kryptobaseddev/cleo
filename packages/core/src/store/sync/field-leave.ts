@@ -267,3 +267,36 @@ export function moveFieldState(
     oldUid,
   );
 }
+
+/** A row's typed-rule state as a rebase snapshot keeps it. */
+export interface FieldStateSnapshot {
+  readonly leaves: FieldLeaves;
+  readonly frontiers: Readonly<Record<string, FieldFrontier>>;
+}
+
+/**
+ * Put a row's typed-rule state back exactly as a snapshot holds it (none
+ * when null). A rebase rewind's writer (T13193).
+ *
+ * @param db - The store, inside the rebase frame.
+ * @param tbl - Sync-set table.
+ * @param uid - Row uid.
+ * @param state - The snapshot, or null.
+ */
+export function restoreFieldState(
+  db: DatabaseSync,
+  tbl: string,
+  uid: string,
+  state: FieldStateSnapshot | null,
+): void {
+  db.prepare('DELETE FROM _sync_field_leave WHERE tbl = ? AND uid = ?').run(tbl, uid);
+  if (state === null) return;
+  const cols = new Set([...Object.keys(state.leaves), ...Object.keys(state.frontiers)]);
+  const ins = db.prepare(
+    'INSERT INTO _sync_field_leave (tbl, uid, col, leave, frontier) VALUES (?, ?, ?, ?, ?)',
+  );
+  for (const col of cols) {
+    const f = state.frontiers[col];
+    ins.run(tbl, uid, col, state.leaves[col] ?? null, f === undefined ? null : canonicalJson(f));
+  }
+}
