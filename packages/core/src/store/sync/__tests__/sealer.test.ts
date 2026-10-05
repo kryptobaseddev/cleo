@@ -661,16 +661,16 @@ describe('#1779 round 2 (T13035–T13037)', () => {
     ).toMatchObject({ bfp: 'fp-T9' });
   });
 
-  it('an apply frame waits for S5 intent subtraction (T13037)', async () => {
+  it('a rebase frame waits for the S5 scoped rebase; apply frames seal their residual (T13037, T12757)', async () => {
     const db = await store();
     db.exec('BEGIN IMMEDIATE');
-    const frame = openCaptureFrame(db, 'apply', 'test');
+    const frame = openCaptureFrame(db, 'rebase', 'test');
     addTask(db, 'T1');
     finishCaptureFrame(db, frame);
     db.exec('COMMIT');
     const r = seal(db);
     expect(r.txns).toBe(0);
-    expect(r.pending[0]?.reason).toMatch(/apply frames wait for S5/);
+    expect(r.pending[0]?.reason).toMatch(/rebase frames wait/);
   });
 
   it('a persisted sync.seal is refused while the flag is unreleased (T13037)', async () => {

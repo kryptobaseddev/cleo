@@ -439,6 +439,9 @@ const cleoBuildOptions = {
     // T12983: `bin/cleo.js` imports this directly for `cleo hook …` (a hook
     // runs before every agent shell command, so it skips the CLI bootstrap).
     { in: 'packages/cleo/src/cli/hook-entry.ts', out: 'cli/hook-entry' },
+    // T13137: the detached dist-tags check behind the passive update notice,
+    // spawned by `lib/update-notice.ts` from the file beside `cli/index.js`.
+    { in: 'packages/cleo/src/cli/update-check-entry.ts', out: 'cli/update-check-entry' },
   ],
   bundle: true,
   platform: 'node',
