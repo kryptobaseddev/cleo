@@ -21,13 +21,85 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { updateJsonConfigFile } from '@cleocode/caamp';
 import type { AdapterHookProvider } from '@cleocode/contracts';
-import {
-  appendHookEntry,
-  claudeSettingsPath,
-  hasCleoHook,
-  hookMap,
-  removeCleoHookEntries,
-} from './paths.js';
+import { excludeLocalSettingsFromGit } from '../shared/heavy-command-hook-install.js';
+import { appendHookEntry, hookMap, isPlainObject, projectClaudeSettingsPath } from './paths.js';
+
+/** The `Stop` hook command: end the CLEO session when Claude Code stops. */
+export const NATIVE_STOP_HOOK_COMMAND = 'cleo session end --quiet # cleo-hook';
+
+/** The `PostToolUse` (`Write|Edit`) hook command: a brain observation per file write. */
+export const NATIVE_OBSERVE_HOOK_COMMAND =
+  'cleo observe "File modified via $TOOL_NAME" --title "tool-use" --quiet # cleo-hook';
+
+/**
+ * The `PostToolUse` (`Write|Edit`) NEXUS post-check: re-index changed files and
+ * flag regressions. `$TOOL_INPUT_file_path` is populated by Claude Code for
+ * Write/Edit events.
+ */
+export const NATIVE_NEXUS_HOOK_COMMAND =
+  'cleo nexus analyze --incremental --json > /dev/null 2>&1 && cleo observe "NEXUS re-indexed after $TOOL_NAME on $TOOL_INPUT_file_path" --title "nexus-post-check" --quiet # cleo-hook';
+
+/** Every command {@link ClaudeCodeHookProvider.registerNativeHooks} writes, and alone may remove. */
+const NATIVE_HOOK_COMMANDS: ReadonlySet<string> = new Set([
+  NATIVE_STOP_HOOK_COMMAND,
+  NATIVE_OBSERVE_HOOK_COMMAND,
+  NATIVE_NEXUS_HOOK_COMMAND,
+]);
+
+/** Whether a hook object is one of the adapter's native hooks (never the heavy-command hook or a user's). */
+function isNativeHookObject(hook: unknown): boolean {
+  return (
+    isPlainObject(hook) &&
+    typeof hook.command === 'string' &&
+    NATIVE_HOOK_COMMANDS.has(hook.command)
+  );
+}
+
+/** Whether any event of a `hooks` map already holds a native hook. */
+function hasNativeHooks(hooks: Record<string, unknown>): boolean {
+  return Object.values(hooks).some(
+    (entries) =>
+      Array.isArray(entries) &&
+      entries.some(
+        (entry) =>
+          isPlainObject(entry) &&
+          Array.isArray(entry.hooks) &&
+          entry.hooks.some(isNativeHookObject),
+      ),
+  );
+}
+
+/**
+ * Remove the native hook objects from every event, then any entry left with
+ * no hooks and any event left with no entries. Other hooks sharing an entry
+ * (the heavy-command hook, the user's own) stay.
+ */
+function removeNativeHooks(hooks: Record<string, unknown>): boolean {
+  let changed = false;
+  for (const [event, entries] of Object.entries(hooks)) {
+    if (!Array.isArray(entries)) continue;
+    const kept: unknown[] = [];
+    let eventChanged = false;
+    for (const entry of entries) {
+      if (
+        !isPlainObject(entry) ||
+        !Array.isArray(entry.hooks) ||
+        !entry.hooks.some(isNativeHookObject)
+      ) {
+        kept.push(entry);
+        continue;
+      }
+      eventChanged = true;
+      const rest = entry.hooks.filter((hook) => !isNativeHookObject(hook));
+      if (rest.length > 0) kept.push({ ...entry, hooks: rest });
+    }
+    if (!eventChanged) continue;
+    changed = true;
+    if (kept.length === 0) delete hooks[event];
+    else hooks[event] = kept;
+  }
+  return changed;
+}
 
 /** CAAMP provider identifier for Claude Code. */
 const PROVIDER_ID = 'claude-code' as const;
@@ -76,8 +148,10 @@ const CLAUDE_CODE_EVENT_MAP: Record<string, string> = {
 /**
  * Hook provider for Claude Code.
  *
- * Claude Code registers hooks via its global config at `~/.claude/settings.json`.
- * Supported handler types: command, http, prompt, agent.
+ * CLEO registers its Claude Code hooks in the project's per-machine
+ * `<project>/.claude/settings.local.json`, never in the user-global
+ * `~/.claude/settings.json` (T13227). Supported handler types: command, http,
+ * prompt, agent.
  *
  * Event mapping is based on `getProviderHookProfile('claude-code')` from
  * CAAMP 1.9.1. Async accessors (`getSupportedCanonicalEvents`,
@@ -122,76 +196,79 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
   /**
    * Register native hooks for a project.
    *
-   * Writes CLEO hook entries to `~/.claude/settings.json` so that Claude Code's
-   * native event system calls cleo CLI commands when events fire. This bridges
-   * Claude Code's event loop to CLEO's internal hook dispatch.
+   * Writes CLEO hook entries to the project's per-machine
+   * `<project>/.claude/settings.local.json` so that Claude Code's native event
+   * system calls cleo CLI commands when events fire in this project. This
+   * bridges Claude Code's event loop to CLEO's internal hook dispatch.
+   * CLEO never writes the user-global `~/.claude/settings.json` (T13227): a
+   * project that is the home directory, or whose settings file resolves into
+   * the user-global Claude config, is refused and nothing is written. When
+   * git does not ignore `settings.local.json` yet, a marked `info/exclude`
+   * block keeps it out of git (the T12983 heavy-command rule).
    *
-   * Idempotent: skips writing if CLEO hooks already exist in settings.json.
+   * Idempotent: skips writing if the native hooks are already present.
    *
    * Hook entries registered:
    * - `Stop` → `cleo session end --quiet` (triggers LLM extraction, reflector, consolidation)
    * - `PostToolUse` (Write|Edit) → brain observation for file modifications
-   * - `SubagentStop` → brain observation for agent completion
+   *   and the NEXUS post-check
    *
-   * @param projectDir - Project directory for context-scoped hook commands
-   * @task T164 @task T555
+   * @param projectDir - Project whose Claude Code settings receive the hooks
+   * @task T164 @task T555 @task T13227
    */
   async registerNativeHooks(projectDir: string): Promise<void> {
     this.projectDir = projectDir;
     this.registered = true;
 
-    // Write CLEO hook entries to settings.json (idempotent). T12385: locked,
-    // atomic, and a malformed file is reported and left untouched — never
-    // replaced with an object holding only CLEO's entries.
-    await this.updateSettings((settings) => {
+    // T12385: locked, atomic, and a malformed file is reported and left
+    // untouched — never replaced with an object holding only CLEO's entries.
+    const wrote = await this.updateSettings(projectDir, (settings) => {
       const hooks = hookMap(settings);
-      if (Object.values(hooks).some((entries) => hasCleoHook(entries))) {
-        return false; // Already wired — idempotent
-      }
+      if (hasNativeHooks(hooks)) return false; // Already wired — idempotent
 
-      // Register Stop hook → triggers cleo session end (LLM extraction, reflector, consolidation)
       appendHookEntry(hooks, 'Stop', {
         matcher: '',
-        hooks: [{ type: 'command', command: `cleo session end --quiet # cleo-hook` }],
+        hooks: [{ type: 'command', command: NATIVE_STOP_HOOK_COMMAND }],
       });
-
-      // Register PostToolUse hook → brain observation for file writes + NEXUS post-check (T625)
       appendHookEntry(hooks, 'PostToolUse', {
         matcher: 'Write|Edit',
         hooks: [
-          {
-            type: 'command',
-            command: `cleo observe "File modified via $TOOL_NAME" --title "tool-use" --quiet # cleo-hook`,
-          },
-          {
-            // NEXUS post-modification check: re-index changed files and flag regressions.
-            // $TOOL_INPUT_file_path is populated by Claude Code for Write/Edit events.
-            type: 'command',
-            command: `cleo nexus analyze --incremental --json > /dev/null 2>&1 && cleo observe "NEXUS re-indexed after $TOOL_NAME on $TOOL_INPUT_file_path" --title "nexus-post-check" --quiet # cleo-hook`,
-          },
+          { type: 'command', command: NATIVE_OBSERVE_HOOK_COMMAND },
+          { type: 'command', command: NATIVE_NEXUS_HOOK_COMMAND },
         ],
       });
       return true;
     });
+    if (wrote) excludeLocalSettingsFromGit(projectDir);
   }
 
   /**
    * Unregister native hooks.
    *
-   * Removes CLEO hook entries from Claude Code's `settings.json` by filtering
-   * out entries containing the `# cleo-hook` marker. Same locking, atomicity
-   * and parse-error rules as {@link registerNativeHooks}.
+   * Removes the hook objects {@link registerNativeHooks} wrote from the
+   * project's `settings.local.json`, and nothing else: the heavy-command hook
+   * and the user's own hooks stay, and an entry or event is dropped only when
+   * left empty. Same locking, atomicity, parse-error and project-scope rules
+   * as {@link registerNativeHooks}.
    *
-   * @task T164 @task T555
+   * @task T164 @task T555 @task T13227
    */
   async unregisterNativeHooks(): Promise<void> {
+    const projectDir = this.projectDir;
     this.registered = false;
     this.projectDir = null;
+    if (projectDir === null) return;
 
-    if (!existsSync(claudeSettingsPath())) return;
-    await this.updateSettings((settings) => {
+    let settingsPath: string;
+    try {
+      settingsPath = projectClaudeSettingsPath(projectDir);
+    } catch {
+      return; // Never written there, so nothing to remove.
+    }
+    if (!existsSync(settingsPath)) return;
+    await this.updateSettings(projectDir, (settings) => {
       if (settings.hooks === undefined) return false;
-      return removeCleoHookEntries(hookMap(settings));
+      return removeNativeHooks(hookMap(settings));
     });
   }
 
@@ -199,12 +276,13 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
   private settingsError: string | null = null;
 
   /**
-   * Why the last settings.json update did not happen, or `null`.
+   * Why the last settings update did not happen, or `null`.
    *
    * @remarks
    * Hook registration stays non-fatal for adapter initialisation, so a
-   * refused write (malformed settings.json, lock timeout) is surfaced here and
-   * on stderr instead of being swallowed (T12385).
+   * refused write (malformed settings file, lock timeout, a user-global
+   * target) is surfaced here and on stderr instead of being swallowed
+   * (T12385, T13227).
    *
    * @returns The failure message, or `null`
    */
@@ -212,19 +290,28 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
     return this.settingsError;
   }
 
-  /** Apply `mutate` to settings.json via CAAMP's locked, atomic JSON writer. */
+  /**
+   * Apply `mutate` to the project's `settings.local.json` via CAAMP's locked,
+   * atomic JSON writer.
+   *
+   * @returns whether the file was written.
+   */
   private async updateSettings(
+    projectDir: string,
     mutate: (settings: Record<string, unknown>) => boolean,
-  ): Promise<void> {
-    const settingsPath = claudeSettingsPath();
+  ): Promise<boolean> {
+    let settingsPath = `${projectDir}/.claude/settings.local.json`;
     try {
-      await updateJsonConfigFile(settingsPath, mutate);
+      settingsPath = projectClaudeSettingsPath(projectDir);
+      const wrote = await updateJsonConfigFile(settingsPath, mutate);
       this.settingsError = null;
+      return wrote;
     } catch (err) {
       this.settingsError = err instanceof Error ? err.message : String(err);
       process.stderr.write(
         `[cleo:claude-code] hooks not written to ${settingsPath}: ${this.settingsError}\n`,
       );
+      return false;
     }
   }
 
