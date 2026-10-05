@@ -19,6 +19,14 @@
  * the same transaction, and the cascade must not be voided on receivers.
  *
  * Groups are part of the wire contract (T13222): see {@link mergeGroupsOf}.
+ * Sealer shape, settled from real sealer output (`apply-intent.test.ts`,
+ * "real sealer output"): before T13222 the capture trigger recorded only the
+ * changed columns, so a done sealed as {status, completed_at} and a cancel as
+ * {status, completed_at, cancelled_at, cancellation_reason}. Since T13222
+ * every U touching a group carries all four members, unchanged ones
+ * included, so the engine never fills an uncarried member: there is no NULL
+ * reset, and a lone correction of `completed_at` travels with the status it
+ * belongs to. A partial-group U is refused as malformed.
  *
  * @module store/sync/merge/rules
  * @task T12344
