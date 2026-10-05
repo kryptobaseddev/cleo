@@ -40,6 +40,8 @@ export interface StoreRestoreKept {
 /** Result of a store restore (or its dry run). */
 export interface StoreRestoreResult {
   readonly dryRun: boolean;
+  /** `project` (`.cleo/cleo.db`) or `global` (`<CLEO_HOME>/cleo.db`, T13245). */
+  readonly scope: 'project' | 'global';
   readonly restored: boolean;
   /** The live store file. */
   readonly target: string;

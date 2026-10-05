@@ -67,8 +67,14 @@ import { foreignWriterLeases, storeOpenElsewhere } from './writer-lease.js';
 
 /** Options of {@link restoreStoreSnapshot}. Exactly one of `snapshot` and `backupId`. */
 export interface StoreRestoreOptions {
-  /** The project whose `.cleo/cleo.db` is restored. */
+  /** The project whose `.cleo/cleo.db` is restored (project scope). */
   readonly projectRoot: string;
+  /**
+   * `project` (default): the project's `.cleo/cleo.db` (tasks and brain).
+   * `global`: `<CLEO_HOME>/cleo.db`, the global store (global brain, nexus,
+   * agent registry), with its backups under `<CLEO_HOME>/backups/` (T13245).
+   */
+  readonly scope?: 'project' | 'global';
   /** A snapshot file (a `VACUUM INTO` copy, e.g. `cleo-identity-refill-*.db` or `tasks-*.db`). */
   readonly snapshot?: string;
   /** A backup id from `cleo backup list`. */
@@ -210,7 +216,10 @@ function hasSqliteHeader(file: string): boolean {
  * Verify a snapshot file read-only: the header, `PRAGMA integrity_check`, and
  * a project store's shape (`tasks_tasks`). Throws on any failure.
  */
-function verifySnapshot(file: string): StoreRestoreVerification {
+function verifySnapshot(
+  file: string,
+  scope: 'project' | 'global' = 'project',
+): StoreRestoreVerification {
   const sizeBytes = statSync(file).size;
   if (sizeBytes === 0 || !hasSqliteHeader(file)) {
     // @sync-invariant none:input-shape not a SQLite database
@@ -235,19 +244,29 @@ function verifySnapshot(file: string): StoreRestoreVerification {
         `${file} fails integrity_check: ${integrity.slice(0, 500)}`,
       );
     }
-    const shaped = snap.db
-      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks_tasks'")
-      .get();
-    if (shaped === undefined) {
-      // @sync-invariant none:input-shape not a project store
+    const db = snap.db;
+    const has = (table: string) =>
+      db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) !==
+      undefined;
+    // A project store holds the task tables; the global store holds the
+    // nexus registry and no task tables. Neither is ever placed as the other.
+    const shaped =
+      scope === 'project'
+        ? has('tasks_tasks')
+        : has('nexus_project_registry') && !has('tasks_tasks');
+    if (!shaped) {
+      // @sync-invariant none:input-shape not a store of this scope
       throw restoreError(
         ExitCode.VALIDATION_ERROR,
         'E_RESTORE_SNAPSHOT_SHAPE',
-        `${file} is not a project cleo.db (no tasks_tasks table)`,
+        scope === 'project'
+          ? `${file} is not a project cleo.db (no tasks_tasks table)`
+          : `${file} is not the global cleo.db (no nexus_project_registry table, or it holds task tables)`,
       );
     }
-    const tasks = (snap.db.prepare('SELECT count(*) AS n FROM tasks_tasks').get() as { n: number })
-      .n;
+    const tasks = has('tasks_tasks')
+      ? (db.prepare('SELECT count(*) AS n FROM tasks_tasks').get() as { n: number }).n
+      : 0;
     return { integrity, tasks, sizeBytes };
   } catch (err) {
     if (err instanceof CleoError) throw err;
@@ -393,7 +412,11 @@ function keepLiveStore(target: string, sqliteDir: string, now: Date): StoreResto
  * @task T13240
  */
 export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<StoreRestoreResult> {
-  const target = resolveDualScopeDbPath('project', opts.projectRoot);
+  const scope = opts.scope ?? 'project';
+  const target =
+    scope === 'project'
+      ? resolveDualScopeDbPath('project', opts.projectRoot)
+      : resolveDualScopeDbPath('global');
   const cleoDir = dirname(target);
   const source = resolveSource(opts, cleoDir);
   const live = existsSync(target) ? realpathSync(target) : target;
@@ -405,25 +428,29 @@ export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<S
   if (opts.dryRun === true) {
     return {
       dryRun: true,
+      scope,
       restored: false,
       target,
       source,
-      verification: verifySnapshot(source.path),
+      verification: verifySnapshot(source.path, scope),
       kept: null,
       removedSidecars: [],
       undo: null,
     };
   }
-  assertRestoreTargetConfirmed(opts.projectRoot, {
-    cwd: opts.cwd,
-    confirmOwnerStore: opts.confirmOwnerStore,
-  });
+  // A worktree may hold its own project store, never its own global one.
+  if (scope === 'project') {
+    assertRestoreTargetConfirmed(opts.projectRoot, {
+      cwd: opts.cwd,
+      confirmOwnerStore: opts.confirmOwnerStore,
+    });
+  }
   // The private copy is what gets verified and placed.
   mkdirSync(cleoDir, { recursive: true });
   const staged = `${target}.restore-${process.pid}-${Date.now()}`;
   copyDurable(source.path, staged);
   try {
-    const verification = verifySnapshot(staged);
+    const verification = verifySnapshot(staged, scope);
     await assertQuiescent(target, opts.assumeStoppedIfUnverifiable === true);
     const now = opts.now ?? new Date();
     const sqliteDir = join(cleoDir, 'backups', 'sqlite');
@@ -454,20 +481,23 @@ export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<S
       },
     );
     // The placed file is the verified copy; check it reads in place.
-    const after = verifySnapshot(target);
+    const after = verifySnapshot(target, scope);
     getLogger('store-restore').warn(
       { target, source: source.path, kept: placed.kept?.path ?? null, tasks: after.tasks },
-      'project store restored from a snapshot (T13240)',
+      `${scope} store restored from a snapshot (T13240)`,
     );
     return {
       dryRun: false,
+      scope,
       restored: true,
       target,
       source,
       verification,
       kept: placed.kept,
       removedSidecars: placed.removed,
-      undo: placed.kept ? `cleo restore backup --id ${placed.kept.backupId}` : null,
+      undo: placed.kept
+        ? `cleo restore backup${scope === 'global' ? ' --scope global' : ''} --id ${placed.kept.backupId}`
+        : null,
     };
   } finally {
     // Verifying a WAL-mode copy can leave its own sidecars beside it.

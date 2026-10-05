@@ -182,7 +182,8 @@ const backupSubCommand = defineCommand({
     },
     scope: {
       type: 'string',
-      description: 'Backup scope to restore from: project or global (default: project)',
+      description:
+        'With --snapshot/--id: project (.cleo/cleo.db, the default) or global (<CLEO_HOME>/cleo.db: the global brain, nexus, agent registry)',
       default: 'project',
     },
     'confirm-owner-store': {
@@ -196,8 +197,10 @@ const backupSubCommand = defineCommand({
     try {
       if (args.snapshot !== undefined || args.id !== undefined) {
         const { restoreStoreSnapshot } = await import('@cleocode/core/store/restore-store.js');
+        const scope = args.scope === 'global' ? 'global' : 'project';
         const result = await restoreStoreSnapshot({
-          projectRoot: getProjectRoot(),
+          scope,
+          projectRoot: scope === 'global' ? process.cwd() : getProjectRoot(),
           snapshot: args.snapshot,
           backupId: args.id,
           dryRun: args['dry-run'] === true,

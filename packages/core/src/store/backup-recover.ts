@@ -26,7 +26,7 @@
  * @saga T10281
  */
 
-import { copyFileSync, existsSync } from 'node:fs';
+import { copyFileSync, existsSync, readdirSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { BackupRecoverResult, DbRole, StoreRecoverResult } from '@cleocode/contracts';
 import { CleoError } from '../errors.js';
@@ -548,6 +548,37 @@ export const PROJECT_STORE_ROLES: ReadonlySet<DbRole> = new Set<DbRole>([
   'conduit',
 ]);
 
+/**
+ * A `cleo backup add` copy of the project store (`cleo.db.<type>-YYYYMMDD-HHmmss`,
+ * or the older identical `tasks.db.`/`brain.db.` labels): each is a whole
+ * `cleo.db` (T13245).
+ */
+const STORE_COPY = /^(?:cleo|tasks|brain)\.db\.[A-Za-z][A-Za-z-]*-(\d{8})-(\d{6})(?:-\d+)?$/;
+
+/** The store copies {@link STORE_COPY} names under `dir`, timestamped from their names. */
+function storeBackupCopies(dir: string): SnapshotCandidate[] {
+  if (!existsSync(dir)) return [];
+  const out: SnapshotCandidate[] = [];
+  for (const name of readdirSync(dir)) {
+    // A kept pre-restore store is the undo of a restore (`cleo restore backup
+    // --id`), never a recovery source picked by age.
+    if (name.includes('.pre-restore-')) continue;
+    const m = STORE_COPY.exec(name);
+    if (!m?.[1] || !m[2]) continue;
+    const [d, t] = [m[1], m[2]];
+    const ms = new Date(
+      Number(d.slice(0, 4)),
+      Number(d.slice(4, 6)) - 1,
+      Number(d.slice(6, 8)),
+      Number(t.slice(0, 2)),
+      Number(t.slice(2, 4)),
+      Number(t.slice(4, 6)),
+    ).getTime();
+    out.push({ path: join(dir, name), timestampMs: ms, source: 'system-snapshot' });
+  }
+  return out;
+}
+
 /** Options of {@link recoverProjectStore}. */
 export interface ProjectStoreRecoverOptions {
   readonly role: DbRole;
@@ -580,14 +611,23 @@ export async function recoverProjectStore(
   opts: ProjectStoreRecoverOptions,
 ): Promise<StoreRecoverResult> {
   const dirs = resolveRoleBackupDirs(opts.role, { projectRoot: opts.projectRoot });
-  const candidates = collectSnapshotCandidatesForRole({
-    role: opts.role,
-    snapshotDir: dirs.snapshotDir,
-    vacuumSnapshotDir: dirs.vacuumSnapshotDir,
-    legacyArtifactDir: dirs.legacyArtifactDir,
-  });
+  const candidates = [
+    ...collectSnapshotCandidatesForRole({
+      role: opts.role,
+      snapshotDir: dirs.snapshotDir,
+      vacuumSnapshotDir: dirs.vacuumSnapshotDir,
+      legacyArtifactDir: dirs.legacyArtifactDir,
+    }),
+    ...storeBackupCopies(dirs.vacuumSnapshotDir),
+  ].sort((a, b) => b.timestampMs - a.timestampMs);
   const pin = opts.fromSnapshot ?? '';
-  const pool = pin ? candidates.filter((c) => snapshotMatchesPin(opts.role, c, pin)) : candidates;
+  const pool = pin
+    ? candidates.filter(
+        (c) =>
+          snapshotMatchesPin(opts.role, c, pin) ||
+          (STORE_COPY.test(basename(c.path)) && basename(c.path).includes(pin)),
+      )
+    : candidates;
   if (pin && pool.length === 0) {
     throw new BackupRecoverError(
       `No ${opts.role} snapshot matches "${pin}"`,

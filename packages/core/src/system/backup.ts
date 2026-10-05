@@ -53,6 +53,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -61,7 +62,7 @@ import type { StoreRestoreResult } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { formatBackupTimestamp, rotateBackupDir } from '../store/backup-sidecar.js';
-import { getBrainNativeDb } from '../store/memory-sqlite.js';
+import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import { getNativeDb } from '../store/sqlite.js';
 import { assertRestoreTargetConfirmed } from '../store/worktree-isolation-guard.js';
 
@@ -126,7 +127,14 @@ function safeSqliteSnapshot(db: { exec: (sql: string) => void } | null, destPath
   if (!db) return false;
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   const safeDest = destPath.replace(/'/g, "''");
-  db.exec(`VACUUM INTO '${safeDest}'`);
+  try {
+    db.exec(`VACUUM INTO '${safeDest}'`);
+  } catch (err) {
+    // A failed VACUUM INTO can leave a partial (often empty) file that would
+    // read as a backup (T13245).
+    rmSync(destPath, { force: true });
+    throw err;
+  }
   return true;
 }
 
@@ -234,22 +242,14 @@ export async function createBackup(
     mkdirSync(backupDir, { recursive: true });
   }
 
-  // Ensure both SQLite engines are initialized so getNativeDb/
-  // getBrainNativeDb return live handles when we call them below. Both
-  // opens are best-effort — if one fails we still snapshot whatever we
-  // can reach (plus the JSON files). Dynamic imports avoid pulling
-  // drizzle into test suites that mock the store layer.
+  // Open the project store so getNativeDb returns its live handle. Best
+  // effort: if it fails, the JSON files are still backed up. A dynamic import
+  // keeps drizzle out of test suites that mock the store layer.
   try {
     const { getDb } = await import('../store/sqlite.js');
     await getDb(projectRoot);
   } catch {
-    // tasks.db open failed — will be skipped by the sqlite target below
-  }
-  try {
-    const { getBrainDb } = await import('../store/memory-sqlite.js');
-    await getBrainDb(projectRoot);
-  } catch {
-    // brain.db open failed — will be skipped by the sqlite target below
+    // the store open failed: the sqlite target below is skipped
   }
 
   /**
@@ -261,8 +261,10 @@ export async function createBackup(
     file: string;
     getDb: () => { exec: (sql: string) => void } | null;
   }> = [
-    { file: 'tasks.db', getDb: () => getNativeDb(projectRoot) },
-    { file: 'brain.db', getDb: () => getBrainNativeDb(projectRoot) },
+    // T13245: ONE copy of the project store. `.cleo/cleo.db` holds the tasks,
+    // brain and conduit tables; the old `tasks.db`/`brain.db` labels were two
+    // identical copies of it (still read by every reader).
+    { file: 'cleo.db', getDb: () => getNativeDb(projectRoot) },
   ];
   const jsonTargets: string[] = ['config.json', 'project-info.json'];
   const backedUp: string[] = [];
@@ -309,6 +311,8 @@ export async function createBackup(
           timestamp,
           note: opts?.note,
           files: backedUp,
+          scope: 'project',
+          ...(backedUp.includes('cleo.db') ? { contains: [...PROJECT_STORE_CONTENTS] } : {}),
         },
         null,
         2,
@@ -355,7 +359,25 @@ export interface BackupEntry {
   pinned?: boolean;
   /** Why it is pinned. */
   pinnedReason?: string;
+  /** Which store the backup is of: `project` (`.cleo/cleo.db`) or `global` (`<CLEO_HOME>/cleo.db`). */
+  scope?: 'project' | 'global';
+  /**
+   * What its store file holds (T13245): `tasks`, `brain` and `conduit` for a
+   * project backup (one `cleo.db` copy, or the old `tasks.db`/`brain.db`
+   * labels, which are identical copies of it), `global` for the global store.
+   */
+  contains?: string[];
 }
+
+/**
+ * Labels a backup's copy of the project store carries. Since the store
+ * consolidation they are all `.cleo/cleo.db` (tasks AND brain tables), so
+ * restoring one by its label wrote a file nothing reads (T13245).
+ */
+const STORE_FILE_LABELS: ReadonlySet<string> = new Set(['cleo.db', 'tasks.db', 'brain.db']);
+
+/** What a project store backup holds: the consolidated `cleo.db` (T13245). */
+const PROJECT_STORE_CONTENTS = ['tasks', 'brain', 'conduit'] as const;
 
 /**
  * Read all `.meta.json` sidecars from a single directory, tagging each
@@ -388,6 +410,12 @@ function readMetaSidecarsFromDir(
           };
           if (meta.note !== undefined) entry.note = meta.note;
           if (legacy) entry.legacy = true;
+          if (meta.scope === 'project' || meta.scope === 'global') entry.scope = meta.scope;
+          // An older sidecar names the store by its labels; they are all cleo.db.
+          const contains =
+            meta.contains ??
+            (entry.files.some((f) => STORE_FILE_LABELS.has(f)) ? [...PROJECT_STORE_CONTENTS] : []);
+          if (contains.length > 0) entry.contains = contains;
           if (meta.pinned === true) {
             entry.pinned = true;
             if (meta.pinnedReason !== undefined) entry.pinnedReason = meta.pinnedReason;
@@ -448,6 +476,102 @@ export function listSystemBackups(projectRoot: string): BackupEntry[] {
 
   // Sort newest first.
   return entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+}
+
+/** The global store's backup directory: `<CLEO_HOME>/backups/sqlite`. */
+function globalBackupDir(): string {
+  return join(dirname(resolveDualScopeDbPath('global')), 'backups', CANONICAL_BACKUP_SUBDIR);
+}
+
+/**
+ * List the backups of the global store (`<CLEO_HOME>/cleo.db`, T13245), newest
+ * first. Read-only.
+ *
+ * @returns The global backups, each tagged `scope: 'global'`.
+ * @task T13245
+ */
+export function listGlobalBackups(): BackupEntry[] {
+  return readMetaSidecarsFromDir(globalBackupDir(), 'snapshot', false)
+    .map((e) => ({ ...e, scope: 'global' as const, contains: e.contains ?? ['global'] }))
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+}
+
+/** Minimum age of the newest automatic global backup before another is taken. */
+export const AUTO_GLOBAL_BACKUP_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
+ * The session-end backup of the global store (T13245): an `auto` backup via
+ * {@link createGlobalBackup}, at most once per
+ * {@link AUTO_GLOBAL_BACKUP_INTERVAL_MS} (the global store is shared by every
+ * project, so every session end would otherwise copy it). Never throws.
+ *
+ * @param now - Clock (tests).
+ * @returns The backup id written, or `null` when skipped or failed.
+ * @task T13245
+ */
+export async function autoGlobalBackup(now: Date = new Date()): Promise<string | null> {
+  try {
+    const newest = listGlobalBackups().find((b) => b.type === 'auto');
+    if (newest && now.getTime() - Date.parse(newest.timestamp) < AUTO_GLOBAL_BACKUP_INTERVAL_MS) {
+      return null;
+    }
+    const r = await createGlobalBackup({ type: 'auto' });
+    return r.files.length > 0 ? r.backupId : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Back up the global store (`<CLEO_HOME>/cleo.db`: the global brain, nexus,
+ * agent registry; T13245) as one `VACUUM INTO` copy under
+ * `<CLEO_HOME>/backups/sqlite/cleo.db.<backupId>`, with a sidecar, rotated
+ * like project backups. `cleo restore backup --scope global --id <backupId>`
+ * restores it.
+ *
+ * @param opts - Backup type, note and rotation cap.
+ * @returns What was written (`files` is empty when the store could not be opened).
+ * @task T13245
+ */
+export async function createGlobalBackup(opts?: {
+  type?: string;
+  note?: string;
+  maxSnapshots?: number;
+}): Promise<BackupResult> {
+  const btype = opts?.type || 'snapshot';
+  const now = new Date();
+  const timestamp = now.toISOString();
+  const backupId = `${btype}-${formatBackupTimestamp(now)}`;
+  const backupDir = globalBackupDir();
+  mkdirSync(backupDir, { recursive: true });
+  const backedUp: string[] = [];
+  try {
+    const { openDualScopeDb, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
+    const db = getDualScopeNativeDb(await openDualScopeDb('global'));
+    if (safeSqliteSnapshot(db, join(backupDir, `cleo.db.${backupId}`))) backedUp.push('cleo.db');
+  } catch {
+    // the global store could not be opened: nothing to back up
+  }
+  if (backedUp.length > 0) {
+    atomicWriteSync(
+      join(backupDir, `${backupId}.meta.json`),
+      JSON.stringify(
+        {
+          backupId,
+          type: btype,
+          timestamp,
+          note: opts?.note,
+          files: backedUp,
+          scope: 'global',
+          contains: ['global'],
+        },
+        null,
+        2,
+      ),
+    );
+    rotateBackupDir(backupDir, opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS, btype);
+  }
+  return { backupId, path: backupDir, timestamp, type: btype, files: backedUp };
 }
 
 /**
@@ -558,13 +682,6 @@ export function restoreBackup(
   };
 }
 
-/**
- * Labels a backup's copy of the project store carries. Since the store
- * consolidation they are all `.cleo/cleo.db` (tasks AND brain tables), so
- * restoring one by its label wrote a file nothing reads (T13245).
- */
-const STORE_FILE_LABELS: ReadonlySet<string> = new Set(['cleo.db', 'tasks.db', 'brain.db']);
-
 /** Result of {@link restoreBackupById}. */
 export interface BackupIdRestoreResult extends RestoreResult {
   /** The store restore (`null` when the backup holds no store file). */
@@ -584,8 +701,16 @@ export interface BackupIdRestoreResult extends RestoreResult {
  */
 export async function restoreBackupById(
   projectRoot: string,
-  params: { backupId: string; force?: boolean; confirmOwnerStore?: boolean; cwd: string },
+  params: {
+    backupId: string;
+    force?: boolean;
+    confirmOwnerStore?: boolean;
+    cwd: string;
+    /** `global`: a backup of `<CLEO_HOME>/cleo.db` ({@link createGlobalBackup}). */
+    scope?: 'project' | 'global';
+  },
 ): Promise<BackupIdRestoreResult> {
+  if (params.scope === 'global') return restoreGlobalBackupById(params);
   const cleoDir = join(projectRoot, '.cleo');
   const dirs = [
     join(cleoDir, 'backups', CANONICAL_BACKUP_SUBDIR),
@@ -614,6 +739,35 @@ export async function restoreBackupById(
     ...files,
     restored: files.restored || store?.restored === true,
     filesRestored: store?.restored ? ['cleo.db', ...files.filesRestored] : files.filesRestored,
+    store,
+  };
+}
+
+/** {@link restoreBackupById} for the global store: its one store file, no JSON (T13245). */
+async function restoreGlobalBackupById(params: {
+  backupId: string;
+  confirmOwnerStore?: boolean;
+  cwd: string;
+}): Promise<BackupIdRestoreResult> {
+  const dir = globalBackupDir();
+  const meta = join(dir, `${params.backupId}.meta.json`);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(params.backupId) || !existsSync(meta)) {
+    // @sync-invariant none:input-shape no such global backup; nothing is written
+    throw new CleoError(ExitCode.NOT_FOUND, `Global backup not found: ${params.backupId}`);
+  }
+  const { restoreStoreSnapshot } = await import('../store/restore-store.js');
+  const store = await restoreStoreSnapshot({
+    scope: 'global',
+    projectRoot: params.cwd,
+    snapshot: join(dir, `cleo.db.${params.backupId}`),
+    cwd: params.cwd,
+  });
+  const timestamp = (JSON.parse(readFileSync(meta, 'utf-8')) as { timestamp?: string }).timestamp;
+  return {
+    restored: store.restored,
+    backupId: params.backupId,
+    timestamp: timestamp ?? new Date().toISOString(),
+    filesRestored: store.restored ? ['cleo.db'] : [],
     store,
   };
 }

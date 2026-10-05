@@ -1,0 +1,40 @@
+---
+id: t13245-backups-target-cleo-db
+tasks: [T13245]
+kind: fix
+summary: backup recover and restore-by-id now restore the live cleo.db; the global store gets backups and a restore path; backup add writes one cleo.db copy
+---
+
+**Backups always captured the live store.** `backup add` and the session-end snapshots copy
+`.cleo/cleo.db`, which holds the tasks, brain and conduit tables. The recovery paths were what
+missed it:
+- `cleo backup recover tasks|brain` repaired `.cleo/tasks.db` / `.cleo/brain.db`, files nothing
+  reads, because the database inventory still names them.
+- The dispatch restore by id copied the labelled files onto those same paths.
+- `cleo backup recover tasks` was not even reachable: citty resolved `tasks` as an unknown
+  subcommand.
+- `cleo backup recover brain` ran twice: citty runs the parent after the matched leaf, passing
+  the leaf name as the positional argument.
+
+**Now:**
+- **`cleo backup recover tasks|brain|conduit`** picks the freshest snapshot that passes
+  `quick_check`, or a pinned one. Candidates include session-end snapshots and `backup add`
+  copies, but never a kept `pre-restore-*` store. It restores through the safe path of
+  `cleo restore backup`: verified private copy, live writers refused, restore marker, replaced
+  store kept, WAL handled. `--force` lets it proceed when the live store is too damaged to check
+  for writers and every cleo process is stopped. Each leaf runs once.
+- **The dispatch restore by id** places the store file on the live `cleo.db` through that same
+  path, then restores the JSON files.
+- **The global store** (`<CLEO_HOME>/cleo.db`: the global brain, nexus and agent registry) had no
+  backup and no restore. Now:
+  - `cleo backup add --global` writes one `VACUUM INTO` copy to `<CLEO_HOME>/backups/sqlite/`;
+  - the session end takes an `auto` global backup at most once an hour;
+  - `cleo backup list --scope global|project|all` honours its scope;
+  - `cleo restore backup --scope global --id|--snapshot` restores it the same safe way.
+
+  A project snapshot is never placed as the global store, nor the reverse.
+- **Dedup.** `backup add` writes one `cleo.db.<backupId>` instead of two identical `tasks.db.` /
+  `brain.db.` copies. `backup list` shows what each backup holds (`contains: tasks, brain,
+  conduit` or `global`). Backups with the old labels are still listed with their contents, and
+  restore, recover and verify all still read them. A failed `VACUUM INTO` no longer leaves an
+  empty file that reads as a backup.
