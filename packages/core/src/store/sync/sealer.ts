@@ -69,7 +69,7 @@ import {
   recordFieldLeaves,
   setFieldFrontiers,
 } from './field-leave.js';
-import { isSyncFlagOn, UNRELEASED_FLAGS } from './flags.js';
+import { isLegacyOnlyStore, isSyncFlagOn, LEGACY_ONLY_REMEDY, UNRELEASED_FLAGS } from './flags.js';
 import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './netting.js';
 import { remapCapture, remapPending } from './remap.js';
 import { activeReplica } from './replica.js';
@@ -730,6 +730,11 @@ export function sealPreconditions(
   if (!isSyncFlagOn(db, 'sync.seal', env)) return 'sync.seal is off';
   if (UNRELEASED_FLAGS.has('sync.seal') && !allowUnreleased) {
     return 'sync.seal is unreleased until S3b–S3d land (T13032)';
+  }
+  // T13224: a flag persisted before the store's rows were stranded in the
+  // bare family still never seals an empty view of it.
+  if (isLegacyOnlyStore(db)) {
+    return `legacy-only store: its rows are in the bare legacy tables; run \`${LEGACY_ONLY_REMEDY}\``;
   }
   return null;
 }
