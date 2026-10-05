@@ -106,6 +106,7 @@ import { type ApplyApi, withApplyFrame } from './frame.js';
 import { parentDeletePolicy } from './parent-delete.js';
 import { checkApplyPreconditions, checkTaskTreeShape, type PageRow } from './post-apply.js';
 import { resolveRef, uidOfKey } from './refs.js';
+import type { LocalDescendants } from './write-api.js';
 
 /** How {@link applyStagedTxns} runs. */
 export interface ApplyStagedOptions {
@@ -862,6 +863,44 @@ function toLocal(
 }
 
 /**
+ * What a rewound insert held that the stream cannot bring back: its
+ * local-only columns and, outside the sync set, the rows and columns its
+ * DELETE removed through FK actions (R7-2, T13267).
+ */
+interface KeptRow {
+  readonly local: Record<string, SQLInputValue> | null;
+  readonly descendants: LocalDescendants;
+}
+
+/** Put back what a rewound insert kept, once its insert applied again. */
+function restoreKept(
+  c: OpContext,
+  op: LedgerOp,
+  result: OpResult,
+  kept: ReadonlyMap<string, KeptRow>,
+): void {
+  if (op.o !== 'I' || result !== 'applied') return;
+  const k = kept.get(rowKey(op.t, op.u));
+  if (!k) return;
+  if (k.local) c.api.writeLocalOnly(op.t, op.u, k.local);
+  c.api.writeLocalDescendants(k.descendants);
+}
+
+/** Re-snapshot op `i`'s row undo with the row as it stands now (D2). */
+function resnapshotOp(c: OpContext, l: UnsequencedTxn, i: number, op: LedgerOp): void {
+  const def = c.defs(op.t);
+  if (!def) return;
+  const state = loadRowState(c.db, c.api, def, op.u, c.replica);
+  const now: Record<string, LedgerWireValue> = {};
+  const cols = op.o === 'U' ? Object.keys(op.a ?? {}) : Object.keys(state.fields);
+  for (const col of cols) {
+    const f = state.fields[col];
+    if (f) now[col] = f.value;
+  }
+  resnapshotRowUndo(c.db, l.txn, i, op.t, op.u, now);
+}
+
+/**
  * Rewind the plan's local transactions, newest op first (Rules 2, 4): each
  * row's values go back to what they were before the op (its last replay's
  * snapshot, else the sealed op's own before-image), and its row meta, leaves
@@ -869,8 +908,8 @@ function toLocal(
  * triggers are suspended; local-only columns of rewound inserts are kept for
  * the replay (R7-2).
  */
-function rewindTxns(c: OpContext, plan: RebasePlan): Map<string, Record<string, SQLInputValue>> {
-  const kept = new Map<string, Record<string, SQLInputValue>>();
+function rewindTxns(c: OpContext, plan: RebasePlan): Map<string, KeptRow> {
+  const kept = new Map<string, KeptRow>();
   withTriggersSuspended(c.db, ['capture', 'guard', 'side-effect'], 'rewind', () => {
     for (const l of [...plan.rewind].reverse()) {
       for (let i = l.ops.length - 1; i >= 0; i--) {
@@ -883,8 +922,10 @@ function rewindTxns(c: OpContext, plan: RebasePlan): Map<string, Record<string, 
         // A replay that found its row already gone snapshotted it as absent.
         const absent = undo.values !== null && Object.keys(undo.values).length === 0;
         if (op.o === 'I' && exists(op.u)) {
-          const local = c.api.readLocalOnly(op.t, op.u);
-          if (local) kept.set(rowKey(op.t, op.u), local);
+          kept.set(rowKey(op.t, op.u), {
+            local: c.api.readLocalOnly(op.t, op.u),
+            descendants: c.api.readLocalDescendants(op.t, op.u),
+          });
           c.api.deleteRow(op.t, op.u);
         } else if (op.o === 'U' && exists(op.u)) {
           const cols = Object.keys(op.a ?? {});
@@ -916,33 +957,28 @@ function rewindTxns(c: OpContext, plan: RebasePlan): Map<string, Record<string, 
  * (R6-7), and an op the stream now refuses stays rewound (Rule 6). Before each
  * op its row undo is re-snapshotted, so the next rewind restores exactly what
  * this replay sat on (D2). Capture and side-effect triggers are suspended;
- * guards stay active.
+ * guards stay active, and each replayed transaction gets the post-apply
+ * checks: one that fails them stays rewound whole (Rule 6, T13268).
  */
-function replayTxns(
-  c: OpContext,
-  plan: RebasePlan,
-  kept: ReadonlyMap<string, Record<string, SQLInputValue>>,
-): void {
+function replayTxns(c: OpContext, plan: RebasePlan, kept: ReadonlyMap<string, KeptRow>): void {
   withTriggersSuspended(c.db, ['capture', 'side-effect'], 'forward', () => {
     for (const l of plan.replay) {
       const rc: OpContext = { ...c, replay: { actor: l.actor } };
+      c.db.exec('SAVEPOINT replay_txn');
       l.ops.forEach((op, i) => {
-        const def = c.defs(op.t);
-        if (def) {
-          const state = loadRowState(c.db, c.api, def, op.u, c.replica);
-          const now: Record<string, LedgerWireValue> = {};
-          const cols = op.o === 'U' ? Object.keys(op.a ?? {}) : Object.keys(state.fields);
-          for (const col of cols) {
-            const f = state.fields[col];
-            if (f) now[col] = f.value;
-          }
-          resnapshotRowUndo(c.db, l.txn, i, op.t, op.u, now);
-        }
-        const r = applyOne(rc, i, op);
-        const local = kept.get(rowKey(op.t, op.u));
-        if (op.o === 'I' && r.result === 'applied' && local)
-          c.api.writeLocalOnly(op.t, op.u, local);
+        resnapshotOp(c, l, i, op);
+        restoreKept(c, op, applyOne(rc, i, op).result, kept);
       });
+      // Gate C over the replay too (T13268): a replayed transaction that
+      // breaks a post-apply check stays rewound whole, as its echo will be
+      // voided on every receiver. Every op of it now sits on the rewound row.
+      if (checkTaskTreeShape(c.db, treeShapePage(l.ops)).length > 0) {
+        c.db.exec('ROLLBACK TO replay_txn');
+        l.ops.forEach((op, i) => {
+          resnapshotOp(c, l, i, op);
+        });
+      }
+      c.db.exec('RELEASE replay_txn');
     }
   });
 }
@@ -1062,12 +1098,17 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
         // multi-row invariant rolls all of it back.
         db.exec('SAVEPOINT apply_txn');
         // Inside the savepoint: a post-apply void rolls the rewind back too.
-        const kept = rebase
-          ? rewindTxns(c, rebase)
-          : new Map<string, Record<string, SQLInputValue>>();
+        const kept = rebase ? rewindTxns(c, rebase) : new Map<string, KeptRow>();
         const results = applyOrder(st.txn.ops, defs).map((i) => {
-          const r = applyOne(c, i, st.txn.ops[i] as LedgerOp);
+          const op = st.txn.ops[i] as LedgerOp;
+          const r = applyOne(c, i, op);
           n += r.conflicts;
+          // A rewound own insert applies again here: put back what it kept.
+          if (rebase?.own && r.result === 'applied' && op.o === 'I') {
+            withTriggersSuspended(db, ['capture', 'side-effect'], 'forward', () => {
+              restoreKept(c, op, r.result, kept);
+            });
+          }
           return r.result;
         });
         // Every per-transaction post-apply check, by name (the registry's runtime gates).
@@ -1090,12 +1131,32 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
             st.replicaId,
             nowIso,
           );
+          // A refused own echo stays rewound and keeps its undo (Rule 6): the
+          // rollback put back whatever of it the store held, so rewind it.
+          const own =
+            sequencingOn && st.replicaId === opts.replica
+              ? planRebase(db, st, defs, opts.replica)
+              : null;
+          if (own?.own) {
+            replayTxns(c, own, rewindTxns(c, own));
+            markSequenced(db, own.own, {
+              stream: st.key.stream,
+              seq: st.key.seq,
+              nowIso,
+              outcome: 'void',
+            });
+          }
           markTxns(db, st.parts, 'void', {
             frame: api.frame,
             reason: `post-apply: ${violations.map((v) => v.check).join(', ')}`,
             nowIso,
           });
-          return { status: 'void' as const, holds: [], n: violations.length, rebased: false };
+          return {
+            status: 'void' as const,
+            holds: [],
+            n: violations.length,
+            rebased: own?.own != null,
+          };
         }
         if (rebase) replayTxns(c, rebase, kept);
         db.exec('RELEASE apply_txn');

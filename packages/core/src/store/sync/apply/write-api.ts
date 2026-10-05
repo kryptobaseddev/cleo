@@ -54,7 +54,7 @@ import {
 } from '../row-meta.js';
 import { decodeEnc } from '../sealer-values.js';
 import { isTriggerClassSuspended } from '../trigger-classes.js';
-import { type ChildKey, syncSetChildKeys } from './fk.js';
+import { type ChildKey, localChildKeys, syncSetChildKeys } from './fk.js';
 
 /** A write the API refuses (unknown table or column, a missing row). */
 export class ApplyWriteError extends Error {
@@ -96,6 +96,28 @@ export function wireToSql(v: LedgerWireValue): SQLInputValue {
 
 /** What one write stored, per column, as `enc()` text. */
 export type StoredEncs = Readonly<Record<string, string>>;
+
+/**
+ * What a DELETE of a row would remove outside the sync set through foreign
+ * key actions: the rows a `CASCADE` deletes (parents before children) and the
+ * columns a `SET NULL` / `SET DEFAULT` clears. Capture never records these,
+ * so a rebase rewind snapshots them before deleting a row it will replay
+ * (§3.5 R7-2, T13267).
+ */
+export interface LocalDescendants {
+  /** Rows a cascade deletes, each with every column as stored. */
+  readonly rows: ReadonlyArray<{
+    readonly table: string;
+    readonly values: Readonly<Record<string, SQLInputValue>>;
+  }>;
+  /** Child columns an action clears: the child row's key, the column, its value. */
+  readonly cleared: ReadonlyArray<{
+    readonly table: string;
+    readonly where: Readonly<Record<string, SQLInputValue>>;
+    readonly column: string;
+    readonly value: SQLInputValue;
+  }>;
+}
 
 /** The write API bound to one apply frame. */
 export interface ApplyWriteApi {
@@ -146,6 +168,14 @@ export interface ApplyWriteApi {
   readLocalOnly(table: string, uid: string): Record<string, SQLInputValue> | null;
   /** Write back local-only columns a rebase snapshotted (never captured, never intents). */
   writeLocalOnly(table: string, uid: string, values: Readonly<Record<string, SQLInputValue>>): void;
+  /**
+   * What deleting the row would remove outside the sync set through FK
+   * actions (recursively through cascades), for a rebase rewind to put back
+   * after the replay (§3.5 R7-2). Empty when the row is absent.
+   */
+  readLocalDescendants(table: string, uid: string): LocalDescendants;
+  /** Put back what {@link ApplyWriteApi.readLocalDescendants} saw (never captured, never intents). */
+  writeLocalDescendants(snapshot: LocalDescendants): void;
   /** The live sync-set children of a row, per child key (for the parent-delete policy). */
   childRows(
     table: string,
@@ -259,6 +289,62 @@ export function createApplyWriteApi(
       localOnly.set(table, cols);
     }
     return cols;
+  };
+  let localKeys: ReadonlyMap<string, readonly ChildKey[]> | undefined;
+  const keyCols = new Map<string, string[]>();
+  /** The columns identifying a row of `table`: `rowid`, or a WITHOUT ROWID table's primary key. */
+  const rowKeyColumns = (table: string): string[] => {
+    let cols = keyCols.get(table);
+    if (!cols) {
+      const wr = db
+        .prepare("SELECT wr FROM pragma_table_list WHERE schema = 'main' AND name = ?")
+        .get(table) as { wr: number } | undefined;
+      cols =
+        wr?.wr === 1
+          ? (
+              db
+                .prepare('SELECT name FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk')
+                .all(table) as Array<{ name: string }>
+            ).map((r) => r.name)
+          : ['rowid'];
+      keyCols.set(table, cols);
+    }
+    return cols;
+  };
+  /** Rows of `table` where `col = v`, with `rowid` when the table has one. */
+  const rowsWhere = (table: string, col: string, v: SQLInputValue) =>
+    db
+      .prepare(
+        `SELECT ${rowKeyColumns(table)[0] === 'rowid' ? 'rowid AS "rowid", ' : ''}* FROM main.${ident(table)} WHERE ${ident(col)} = ?`,
+      )
+      .all(v) as Array<Record<string, SQLInputValue>>;
+  const collectDescendants = (
+    table: string,
+    row: Readonly<Record<string, SQLInputValue>>,
+    out: {
+      rows: LocalDescendants['rows'][number][];
+      cleared: LocalDescendants['cleared'][number][];
+    },
+    depth: number,
+  ): void => {
+    localKeys ??= localChildKeys(db, scope);
+    for (const key of localKeys.get(table) ?? []) {
+      const v = row[key.to];
+      if (v === undefined || v === null) continue;
+      const kcols = rowKeyColumns(key.child);
+      for (const kid of rowsWhere(key.child, key.from, v)) {
+        if (key.onDelete === 'CASCADE') {
+          const values: Record<string, SQLInputValue> = {};
+          for (const [c, x] of Object.entries(kid)) if (c !== 'rowid') values[c] = x;
+          out.rows.push({ table: key.child, values });
+          if (depth < 32) collectDescendants(key.child, kid, out, depth + 1);
+        } else {
+          const where: Record<string, SQLInputValue> = {};
+          for (const c of kcols) where[c] = kid[c] as SQLInputValue;
+          out.cleared.push({ table: key.child, where, column: key.from, value: v });
+        }
+      }
+    }
   };
   const rowExists = (table: string, uid: string): boolean =>
     db.prepare(`SELECT 1 FROM main.${ident(table)} WHERE ${ident(UID_COLUMN)} = ?`).get(uid) !==
@@ -430,6 +516,34 @@ export function createApplyWriteApi(
       db.prepare(
         `UPDATE main.${ident(table)} SET ${cols.map((c) => `${ident(c)} = ?`).join(', ')} WHERE ${ident(UID_COLUMN)} = ?`,
       ).run(...cols.map((c) => values[c] as SQLInputValue), uid);
+    },
+
+    readLocalDescendants(table, uid) {
+      assertActive();
+      defOf(table);
+      const out: {
+        rows: LocalDescendants['rows'][number][];
+        cleared: LocalDescendants['cleared'][number][];
+      } = { rows: [], cleared: [] };
+      const [root] = rowsWhere(table, UID_COLUMN, uid);
+      if (root) collectDescendants(table, root, out, 0);
+      return out;
+    },
+
+    writeLocalDescendants(snapshot) {
+      assertActive();
+      for (const r of snapshot.rows) {
+        const cols = Object.keys(r.values);
+        db.prepare(
+          `INSERT INTO main.${ident(r.table)} (${cols.map(ident).join(', ')}) VALUES (${cols.map(() => '?').join(', ')}) ON CONFLICT DO NOTHING`,
+        ).run(...cols.map((c) => r.values[c] as SQLInputValue));
+      }
+      for (const c of snapshot.cleared) {
+        const keys = Object.keys(c.where);
+        db.prepare(
+          `UPDATE main.${ident(c.table)} SET ${ident(c.column)} = ? WHERE ${keys.map((k) => `${ident(k)} = ?`).join(' AND ')}`,
+        ).run(c.value, ...keys.map((k) => c.where[k] as SQLInputValue));
+      }
     },
 
     childRows(table, uid) {

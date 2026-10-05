@@ -17,6 +17,13 @@ This is the second slice of the scoped rebase (T13193 R-2), against journal spec
   and frontiers come back from the row undo.
 - **Each replay re-snapshots the row undo first (D2).** The next rewind restores exactly what the replay sat on, never the sealed
   before-image. A row the replay found already deleted is recorded as absent and is not re-inserted.
+- **Rows outside the sync set survive a rewound insert (T13267).** Deleting a rewound insert fires its FK actions. Before the delete,
+  the rewind snapshots that row's local children: the rows a cascade removes (task work history, session handoff entries, external
+  links, and so on, recursively) and the columns a `SET NULL` clears. It puts them back once the replay, or the own echo, inserts the
+  row again.
+- **Gate C covers the replay (T13268).** Each replayed local transaction gets the post-apply checks. A transaction that fails them
+  stays rewound whole, and its row undo is re-snapshotted on the rewound row. An own echo voided by Gate C is rewound, then sequenced
+  `void`.
 - **The replay respects LWW (R6-7).** It runs through the merge engine with the local actor, so a newer stream write of the same
   column is not overwritten. Its conflicts are left to the echo to record.
 - **Rule 6.** An own echo the stream refuses is sequenced with outcome `void` (`_sync_sequenced.outcome`) and keeps its undo. The

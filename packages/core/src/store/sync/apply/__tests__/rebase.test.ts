@@ -333,6 +333,95 @@ describe('own-echo fast path with later local txns (§3.5 Rule 3)', () => {
   });
 });
 
+describe('rows outside the sync set survive a rewound insert (R7-2, T13267)', () => {
+  it("a rewound task's and session's cascade children come back with the replay and the echo", async () => {
+    const [a, b, c] = await threeReplicas();
+    expect(captureTableDef(a.db, 'project', 'tasks_task_work_history')).toBeUndefined();
+    expect(captureTableDef(a.db, 'project', 'tasks_session_handoff_entries')).toBeUndefined();
+    // No sync-set table has a SET NULL child outside the sync set today: a
+    // local table stands in for one (a column the delete would clear).
+    a.db.exec(
+      'CREATE TABLE local_pin (id INTEGER PRIMARY KEY, task_id TEXT REFERENCES tasks_tasks(id) ON DELETE SET NULL)',
+    );
+    const la = write(
+      a,
+      `INSERT INTO tasks_sessions (id, name, uid, birth_fp) VALUES ('S1', 'local session', 's1', 'fp-s1');
+       ${addTask('Z', 'z')};
+       INSERT INTO tasks_task_work_history (session_id, task_id) VALUES ('S1', 'Z');
+       INSERT INTO tasks_session_handoff_entries (session_id, handoff_json) VALUES ('S1', '{}');
+       INSERT INTO tasks_external_task_links (id, task_id, provider_id, external_id, link_type) VALUES ('L1', 'Z', 'gh', '42', 'manual');
+       UPDATE tasks_tasks SET priority = 'high' WHERE uid = 'y'`,
+    );
+    a.db.exec("INSERT INTO local_pin (id, task_id) VALUES (1, 'Z')");
+    const children = () => ({
+      pin: n(a.db, "SELECT count(*) AS n FROM local_pin WHERE task_id = 'Z'"),
+      history: n(a.db, "SELECT count(*) AS n FROM tasks_task_work_history WHERE task_id = 'Z'"),
+      handoff: n(
+        a.db,
+        "SELECT count(*) AS n FROM tasks_session_handoff_entries WHERE session_id = 'S1'",
+      ),
+      links: n(a.db, "SELECT count(*) AS n FROM tasks_external_task_links WHERE task_id = 'Z'"),
+    });
+    const all = { pin: 1, history: 1, handoff: 1, links: 1 };
+    expect(children()).toEqual(all);
+    publish(b, write(b, "UPDATE tasks_tasks SET title = 'from B' WHERE uid = 'y'"));
+    expect(sync(a)).toMatchObject({ rebased: 1 });
+    expect(children(), 'the replay lost cascade children').toEqual(all);
+    publish(a, la);
+    expect(sync(a)).toMatchObject({ rebased: 1 });
+    expect(children(), 'the echo lost cascade children').toEqual(all);
+    sync(b);
+    sync(c);
+    converged([a, b, c]);
+  });
+});
+
+describe('Gate C over the replay (T13268)', () => {
+  it('a replayed type change that strands a stream child stays rewound, as receivers void it', async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(a, write(a, "UPDATE tasks_tasks SET type = 'epic' WHERE uid = 'x'"));
+    for (const r of [a, b, c]) sync(r);
+    const la = write(a, "UPDATE tasks_tasks SET type = 'task' WHERE uid = 'x'");
+    publish(b, write(b, addTask('K', 'k', 'X')));
+    sync(a);
+    expect(
+      a.db.prepare("SELECT type FROM tasks_tasks WHERE uid = 'x'").get(),
+      'the replay made a task contain a task',
+    ).toEqual({ type: 'epic' });
+    publish(a, la);
+    for (const r of [a, b, c]) sync(r);
+    expect(outcome(a, la)).toBe('void');
+    expect(undoOf(a, la)).toBeGreaterThan(0);
+    converged([a, b, c]);
+  });
+});
+
+describe('Gate C over the replay: the rolled-back replay re-snapshots (T13268, D2)', () => {
+  it('a later rewind restores what the stream wrote, not the sealed before-image', async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(a, write(a, "UPDATE tasks_tasks SET type = 'epic' WHERE uid = 'x'"));
+    for (const r of [a, b, c]) sync(r);
+    // B (older HLC) makes X a saga with an epic child; A (newer) makes X a task.
+    const fb = write(
+      b,
+      `UPDATE tasks_tasks SET type = 'saga' WHERE uid = 'x'; ${addTask('K', 'k', 'X').replace("'task'", "'epic'")}`,
+    );
+    const la = write(a, "UPDATE tasks_tasks SET type = 'task' WHERE uid = 'x'");
+    publish(b, fb);
+    sync(a);
+    expect(a.db.prepare("SELECT type FROM tasks_tasks WHERE uid = 'x'").get()).toEqual({
+      type: 'saga',
+    });
+    publish(a, la);
+    for (const r of [a, b, c]) sync(r);
+    expect(outcome(a, la)).toBe('void');
+    expect(a.db.prepare("SELECT type FROM tasks_tasks WHERE uid = 'x'").get()).toEqual({
+      type: 'saga',
+    });
+    converged([a, b, c]);
+  });
+});
+
 describe('a voided local txn stays rewound (§3.5 Rule 6)', () => {
   it('a foreign completion before a local non-leave edit voids the echo, keeping its undo', async () => {
     const [a, b, c] = await threeReplicas();
