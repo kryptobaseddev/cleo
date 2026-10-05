@@ -100,14 +100,26 @@ export function capturePosition(db: DatabaseSync): number {
   return Number(row?.seq ?? 0);
 }
 
+/**
+ * The oldest unsequenced local transaction's position: its frame's first
+ * undo seq. Joins through the `_sync_txn_frame` index (T13260), since it
+ * runs on every echo and foreign apply under the write lock.
+ */
+export const OLDEST_UNSEQUENCED_SQL = `SELECT min(u.seq) AS p FROM _sync_undo u JOIN _sync_txn t ON t.frame = u.txn_local
+  WHERE t.state = 'sealed' AND NOT EXISTS (SELECT 1 FROM _sync_sequenced s WHERE s.txn = t.txn)`;
+
+/**
+ * Drop the undo of frames sealed into no transaction (netted away, or
+ * inherited/folded) that hold no live capture. Probes `_sync_txn` through
+ * the `_sync_txn_frame` index (T13260).
+ */
+export const DROP_NETTED_UNDO_SQL = `DELETE FROM _sync_undo WHERE txn_local IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM _sync_txn t WHERE t.frame = _sync_undo.txn_local)
+  AND NOT EXISTS (SELECT 1 FROM _sync_capture c WHERE c.frame = _sync_undo.txn_local AND c.state = 'live')`;
+
 /** The oldest unsequenced local transaction's position, or null when none has undo. */
 function oldestUnsequencedPosition(db: DatabaseSync): number | null {
-  const row = db
-    .prepare(
-      `SELECT min(u.seq) AS p FROM _sync_undo u JOIN _sync_txn t ON t.frame = u.txn_local
-        WHERE t.state = 'sealed' AND NOT EXISTS (SELECT 1 FROM _sync_sequenced s WHERE s.txn = t.txn)`,
-    )
-    .get() as { p: number | null };
+  const row = db.prepare(OLDEST_UNSEQUENCED_SQL).get() as { p: number | null };
   return row.p === null ? null : Number(row.p);
 }
 
@@ -264,11 +276,7 @@ export function markSequenced(
   // A frame whose ops all netted away was sealed into no transaction: its
   // undo can never be sequenced or rewound, so it goes too (its captures are
   // consumed; a frame still waiting to seal keeps live captures).
-  db.prepare(
-    `DELETE FROM _sync_undo WHERE txn_local IS NOT NULL
-       AND NOT EXISTS (SELECT 1 FROM _sync_txn t WHERE t.frame = _sync_undo.txn_local)
-       AND NOT EXISTS (SELECT 1 FROM _sync_capture c WHERE c.frame = _sync_undo.txn_local AND c.state = 'live')`,
-  ).run();
+  db.prepare(DROP_NETTED_UNDO_SQL).run();
   const oldest = oldestUnsequencedPosition(db);
   if (oldest === null) {
     db.prepare('DELETE FROM _sync_foreign_touch').run();
