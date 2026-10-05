@@ -24,6 +24,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Session, Task } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { optOutOfForeignKeys } from './test-db-helper.js';
+
+// T13228: the legacy JSON import inserts tasks before the sessions and later tasks they reference (bug T13259); they run with foreign keys OFF.
+optOutOfForeignKeys();
 
 describe('Migration Safety Integration Tests', () => {
   let tempDir: string;

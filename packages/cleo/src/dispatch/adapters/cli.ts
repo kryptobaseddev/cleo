@@ -39,6 +39,7 @@ import { createSanitizer } from '../middleware/sanitizer.js';
 import { createSessionResolver } from '../middleware/session-resolver.js';
 import { createStoreWriteGuard } from '../middleware/store-write-guard.js';
 import { createTelemetry } from '../middleware/telemetry.js';
+import { createWriteActor } from '../middleware/write-actor.js';
 import type { DispatchRequest, DispatchResponse, Gateway } from '../types.js';
 
 // Reverse mapping from string error codes to numeric exit codes.
@@ -334,6 +335,7 @@ export function createCliDispatcher(): Dispatcher {
       // (reads stay available, served from the merged TEMP shadows).
       createStoreWriteGuard(() => getProjectRoot()),
       createSessionResolver(lookupCliSession, warnUnboundMutation), // T4959: session identity first; T12500: warn when unbound
+      createWriteActor(), // T13229: local write frames record the command as actor.op
       createClaimHeartbeat(heartbeatCliSession), // T12502 · T12540: a bound session's mutation refreshes lastActivity + renews its leases
       createSanitizer(() => getProjectRoot()),
       createFieldFilter(),

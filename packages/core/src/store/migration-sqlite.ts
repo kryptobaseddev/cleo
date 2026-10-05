@@ -21,6 +21,7 @@ import { resolveCleoDir } from '../paths.js';
 import { insertDependencyEdgeOrSkipCycle } from './dependency-cycles.js';
 import { migrateSanitized } from './migration-manager.js';
 import { dbExists, getDb, openNativeDatabase, resolveMigrationsFolder } from './sqlite.js';
+import { testForeignKeysOff } from './sqlite-pragmas.js';
 import type { SessionStatus } from './status-registry.js';
 import * as schema from './tasks-schema.js';
 import { installSchemaWriteGuard } from './worktree-build-guard.js';
@@ -222,9 +223,9 @@ export async function migrateJsonToSqliteAtomic(
     const migrationsFolder = resolveMigrationsFolder();
     migrateSanitized(db, { migrationsFolder });
 
-    // Migration SQL contains PRAGMA foreign_keys=ON. In test mode, disable
-    // FKs so test fixtures can import data with orphan references.
-    if (process.env.VITEST) {
+    // Foreign keys stay ON under vitest, as in production (T13228); a test
+    // importing fixtures with orphan references opts out explicitly.
+    if (testForeignKeysOff()) {
       nativeDb.exec('PRAGMA foreign_keys=OFF');
     }
 

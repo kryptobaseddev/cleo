@@ -16,7 +16,7 @@
 import { parentPort } from 'node:worker_threads';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { receiveOperationContext } from '../store/background-ops.js';
-import { markLongLivedBrainHost } from './brain-host.js';
+import { markBrainWriterIsolate, markLongLivedBrainHost } from './brain-host.js';
 import { handleWriteOp } from './brain-writer-handlers.js';
 import type { WriterRequestEnvelope, WriterResponseEnvelope } from './brain-writer-thread.js';
 
@@ -30,6 +30,8 @@ const port = parentPort;
 // share the parent's module state: declare the host here so `observeBrain`
 // embeds new observations inline in this isolate, as the host expects (T13126).
 markLongLivedBrainHost();
+// The one isolate whose store handle is the chokepoint's own (T13246).
+markBrainWriterIsolate();
 
 /**
  * Process one request envelope and emit a corresponding response.

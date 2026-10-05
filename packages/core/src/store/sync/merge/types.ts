@@ -133,7 +133,15 @@ export type MergeConflictKind =
   /** An update of a row the stream has deleted: the op is voided and stays revivable. */
   | 'edit-vs-delete'
   /** A delete of a row whose fields carry newer writes than the delete. */
-  | 'delete-vs-edit';
+  | 'delete-vs-edit'
+  /** (applier) A reference to a deleted row: the op is voided and stays revivable. */
+  | 'dangling-ref'
+  /** (applier) A guard trigger or constraint aborted the op's write: voided, revivable. */
+  | 'guard'
+  /** (applier) A parent delete whose sync-set children remain: the delete is voided. */
+  | 'delete-with-live-children'
+  /** (applier) A re-key onto a uid another live row holds: voided. */
+  | 'uid-collision';
 
 /** One recorded conflict. Never silently dropped: the applier persists it. */
 export interface MergeConflict {

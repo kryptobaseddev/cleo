@@ -50,10 +50,13 @@ import {
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { create as tarCreate, extract as tarExtract } from 'tar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { _resetDeviceIdCacheForTests } from '../../llm/stable-device-id.js';
 import { _resetDualScopeDbCache, openDualScopeDb } from '../../store/dual-scope-db.js';
 import { runBracketedMigrations } from '../../store/migration-runner.js';
 import { computeManifestHash, exportPortableBundle } from '../../store/portable-bundle.js';
 import { resolveCorePackageMigrationsFolder } from '../../store/resolve-migrations-folder.js';
+import { ensureProjectReplica } from '../../store/sync/replica.js';
+import { readDeviceRegistry } from '../../store/sync/replica-registry.js';
 import { ensureSyncSchema } from '../../store/sync/schema.js';
 import {
   emptyVaultTableHash,
@@ -91,6 +94,7 @@ import {
   windowOf,
 } from '../manifest-check.js';
 import { NexusAccountError } from '../nexus-auth.js';
+import { retiredReplicasAmong, retiredReplicasOfProject } from '../nexus-cloud.js';
 import { nexusCloudActivity } from '../nexus-cloud-activity.js';
 import { FileNexusTokenStore } from '../nexus-credentials.js';
 import {
@@ -2703,6 +2707,7 @@ describe('cloud vault global scope', () => {
       homeSql(m, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = '${t}'`).length >
       0;
 
+    _resetDeviceIdCacheForTests(); // A's host device id (each machine writes its own)
     const pushed = await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
     expect(pushed.status).toBe('pushed');
     expect(pushed.scope).toBe('global');
@@ -2734,6 +2739,7 @@ describe('cloud vault global scope', () => {
     expect(again.status).toBe('up-to-date');
 
     // Reads never write (T12974): B's status binds no replica.
+    _resetDeviceIdCacheForTests(); // B's host device id from here on
     await on(b, () => nexusVaultStatus(vopts(b, { scope: 'global' })));
     expect(tableExists(b, '_sync_replica')).toBe(false);
 
@@ -2806,6 +2812,7 @@ describe('cloud vault global scope', () => {
     const pushedB = await on(b, () => pushNexusVault(vopts(b, { scope: 'global' })));
     expect(pushedB.status).toBe('pushed');
     expect(pushedB.parentCheckpointId).toBe(cp?.checkpointId);
+    _resetDeviceIdCacheForTests(); // A's own host device id (T13109 review LOW-3)
     const pulled = await on(a, () =>
       restoreNexusVault(vopts(a, { scope: 'global', mode: 'pull' })),
     );
@@ -2818,7 +2825,37 @@ describe('cloud vault global scope', () => {
     expect(homeSql(a, 'SELECT remote_url FROM nexus_project_git_state')).toEqual([
       { remote_url: null },
     ]);
-    expect(replicaRows(a)).toEqual(replicasA);
+    // A's own replica rows are carried, never B's; the placed file is a new store
+    // instance, so A's replica is retired and a new one bound (T13109).
+    expect(pulled.replica).toEqual({
+      retired: cp?.replicaId,
+      current: expect.any(String),
+      reason: 'vault-restore',
+    });
+    // Recorded in A's own replica registry as a retire candidate for S4.
+    const candidates = await on(a, async () => readDeviceRegistry()?.retireCandidates() ?? []);
+    expect(candidates).toEqual([
+      expect.objectContaining({
+        replicaId: cp?.replicaId,
+        successor: pulled.replica?.current,
+        reason: 'vault-restore',
+        scope: 'global',
+      }),
+    ]);
+    const afterPull = homeSql<{ replica_id: string; bound_why: string; successor: string | null }>(
+      a,
+      'SELECT replica_id, bound_why, successor FROM _sync_replica ORDER BY bound_at',
+    );
+    expect(afterPull.map((r) => r.replica_id).sort()).toEqual(
+      [...replicasA.map((r) => r.replica_id), pulled.replica?.current].sort(),
+    );
+    expect(afterPull.find((r) => r.replica_id === cp?.replicaId)).toMatchObject({
+      successor: pulled.replica?.current,
+    });
+    expect(afterPull.find((r) => r.replica_id === pulled.replica?.current)).toMatchObject({
+      bound_why: 'rebind:vault-restore',
+      successor: null,
+    });
     expect(fs.readFileSync(path.join(a.home, 'device-id'), 'utf8')).toBe('device-a\n');
     // A's agent key had nowhere to go (B deleted the agent): reported with its remedy.
     const lost = pulled.warnings.find((w) => w.code === 'W_NEXUS_VAULT_CREDENTIALS_LOST');
@@ -4470,6 +4507,107 @@ describe("cloud vault restore keeps the store's migration journal (T13104)", () 
     await openStore(b);
     expect(stamped()).toEqual([]);
     expect(journalOf(b)).toEqual(journal);
+  });
+});
+
+describe('cloud vault pull rebinds the store as vault-restore (T13109)', () => {
+  /** Make `m` its own host device for the replica registry (the id is cached per process). */
+  function hostDevice(m: Machine): void {
+    fs.writeFileSync(path.join(m.home, 'device-id'), `host-${m.name}\n`);
+    _resetDeviceIdCacheForTests();
+  }
+  /** Bind `m`'s project replica, as `cleo project link` does (ensureProjectReplica). */
+  async function bindReplica(m: Machine): Promise<string> {
+    hostDevice(m);
+    return on(m, async () => {
+      const dbPath = path.join(m.root, '.cleo', 'cleo.db');
+      const db = new DatabaseSync(dbPath);
+      try {
+        return ensureProjectReplica(db, { dbPath, mode: 'live' }).replicaId;
+      } finally {
+        db.close();
+      }
+    });
+  }
+  /** Two machines whose stores carry the real sync schema, as linked projects do. */
+  async function linkedMachines(): Promise<{ a: Machine; b: Machine }> {
+    const { a, b } = await twoMachines();
+    // The fixture's simplified `_sync_replica` stands in for the real table: replace it.
+    exec(a, 'DROP TABLE _sync_replica');
+    await bindReplica(a);
+    return { a, b };
+  }
+  const replicaRows = (m: Machine) =>
+    sql<{
+      replica_id: string;
+      bound_why: string;
+      retired_at: string | null;
+      successor: string | null;
+    }>(
+      m,
+      'SELECT replica_id, bound_why, retired_at, successor FROM _sync_replica ORDER BY bound_at',
+    );
+
+  it('a pull retires the replica, binds a new one, records the candidate and labels it', async () => {
+    const { a, b } = await linkedMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    const first = await restoreOntoB(b);
+    // A project new to this machine has no replica to retire.
+    expect(first.result.replica).toBeNull();
+    const r1 = await bindReplica(b);
+
+    exec(a, "INSERT INTO tasks_tasks (id, title) VALUES ('T100', 'new')");
+    hostDevice(a);
+    await on(a, () => pushNexusVault(vopts(a)));
+    hostDevice(b);
+    const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    const r2 = pulled.replica?.current;
+    expect(pulled.replica).toEqual({
+      retired: r1,
+      current: expect.any(String),
+      reason: 'vault-restore',
+    });
+    expect(r2).not.toBe(r1);
+    expect(replicaRows(b)).toEqual([
+      { replica_id: r1, bound_why: 'genesis', retired_at: expect.any(String), successor: r2 },
+      { replica_id: r2, bound_why: 'rebind:vault-restore', retired_at: null, successor: null },
+    ]);
+    // The next link finds the placed file bound already: no second, unlabelled rebind.
+    expect(await bindReplica(b)).toBe(r2);
+
+    // Recorded for S4's retire transaction, and labelled for status and projects show.
+    const candidates = await on(b, async () => readDeviceRegistry()?.retireCandidates() ?? []);
+    expect(candidates).toEqual([
+      expect.objectContaining({ replicaId: r1, successor: r2, reason: 'vault-restore' }),
+    ]);
+    const label = [
+      { replicaId: r1, successor: r2, retiredAt: expect.any(String), reason: 'vault-restore' },
+    ];
+    expect(await on(b, () => retiredReplicasOfProject(b.root))).toEqual(label);
+    expect(await on(b, () => retiredReplicasAmong([REPLICA_A, r1, r2 ?? '']))).toEqual(label);
+  });
+
+  it('every pull retires the previous replica; the labels list them newest first', async () => {
+    const { a, b } = await linkedMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    const r1 = await bindReplica(b);
+    const pulls: string[] = [];
+    for (const id of ['T101', 'T102']) {
+      exec(a, `INSERT INTO tasks_tasks (id, title) VALUES ('${id}', 'new')`);
+      hostDevice(a);
+      await on(a, () => pushNexusVault(vopts(a)));
+      hostDevice(b);
+      const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+      pulls.push(pulled.replica?.current ?? '');
+    }
+    const [r2, r3] = pulls;
+    const retired = await on(b, () => retiredReplicasOfProject(b.root));
+    expect(retired.map((r) => [r.replicaId, r.successor])).toEqual([
+      [r2, r3],
+      [r1, r2],
+    ]);
   });
 });
 
