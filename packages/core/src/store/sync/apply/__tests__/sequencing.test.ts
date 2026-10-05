@@ -270,6 +270,28 @@ describe('own-echo fast path (§3.5 Rule 3)', () => {
   });
 });
 
+describe('undo of a frame that netted to nothing', () => {
+  it('is dropped at the next sequencing', async () => {
+    const db = await store();
+    // Insert and delete in one frame: it nets to nothing, so no txn is sealed.
+    write(db, `${addTask('N', 'n')}; DELETE FROM tasks_tasks WHERE uid = 'n'`);
+    seal(db);
+    const orphan = () =>
+      n(
+        db,
+        'SELECT count(*) AS n FROM _sync_undo WHERE txn_local IS NOT NULL AND txn_local NOT IN (SELECT frame FROM _sync_txn WHERE frame IS NOT NULL)',
+      );
+    expect(orphan()).toBeGreaterThan(0);
+    write(db, addTask('A', 'a'));
+    seal(db);
+    const l1 = lastTxn(db);
+    stage(db, LOCAL, own(db, [l1]));
+    apply(db);
+    expect(sequenced(db, l1)).toBe(true);
+    expect(orphan()).toBe(0);
+  });
+});
+
 describe('row undo: the merge state a local op moved (§3.5 Rule 2)', () => {
   it("snapshots the row's prior meta for each sealed local op while undo is on", async () => {
     const db = await store();

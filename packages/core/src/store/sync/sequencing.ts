@@ -15,6 +15,12 @@
  * records the capture sequence (`sqlite_sequence` of `_sync_capture`) when its
  * transaction applied. Both come from the one AUTOINCREMENT counter.
  *
+ * Unframed writers (foreign connections) seal as singleton transactions with
+ * no frame and undo rows with no `txn_local`: they have no position here, are
+ * sequenced on echo without a check, and keep their undo until R-2 keys it by
+ * capture seq. A split part-set (`LedgerTxn.part`, not sealed today) would map
+ * one frame to several transactions.
+ *
  * The index holds only entries at or after the oldest unsequenced local
  * transaction and is bounded by {@link FOREIGN_TOUCH_MAX}; past the bound it
  * is marked incomplete and the fast path declines (falling back to the scoped
@@ -189,7 +195,8 @@ export function ownEchoFastPath(
 
 /**
  * Mark an own transaction sequenced by its echo: record it, drop its undo
- * and row undo, and prune the foreign-touch index past the new oldest
+ * and row undo (and the undo of frames that netted to no transaction), and
+ * prune the foreign-touch index past the new oldest
  * unsequenced transaction (resetting it, and its incomplete mark, when none
  * is left).
  *
@@ -209,6 +216,14 @@ export function markSequenced(
     db.prepare('DELETE FROM _sync_undo WHERE txn_local = ?').run(local.frame);
   }
   db.prepare('DELETE FROM _sync_row_undo WHERE txn = ?').run(local.txn);
+  // A frame whose ops all netted away was sealed into no transaction: its
+  // undo can never be sequenced or rewound, so it goes too (its captures are
+  // consumed; a frame still waiting to seal keeps live captures).
+  db.prepare(
+    `DELETE FROM _sync_undo WHERE txn_local IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM _sync_txn t WHERE t.frame = _sync_undo.txn_local)
+       AND NOT EXISTS (SELECT 1 FROM _sync_capture c WHERE c.frame = _sync_undo.txn_local AND c.state = 'live')`,
+  ).run();
   const oldest = oldestUnsequencedPosition(db);
   if (oldest === null) {
     db.prepare('DELETE FROM _sync_foreign_touch').run();

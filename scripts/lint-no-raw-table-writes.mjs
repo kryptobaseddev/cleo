@@ -375,9 +375,9 @@ export const EXEMPT = {
       reason: 'sequenced own txns (local-only): echoes the stream sequenced (T13193)',
     },
     _sync_undo: {
-      count: 1,
+      count: 2,
       reason:
-        "undo log (local-only): a sequenced own txn's undo is dropped (§3.5 drop rule, T13193)",
+        "undo log (local-only): a sequenced own txn's undo, and a netted-away frame's, are dropped (§3.5 drop rule, T13193)",
     },
   },
   'packages/core/src/store/sync/structural.ts': {
