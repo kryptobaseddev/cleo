@@ -368,6 +368,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         label: `run:${opts.cls}`,
         footprintBytes: opts.footprintBytes ?? footprintForClass(opts.cls),
         ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+        // T13237: one full-build machine-wide, whatever its footprint.
+        ...(opts.cls === 'full-build' ? { exclusive: true } : {}),
         command,
         cwd: opts.cwd,
       },

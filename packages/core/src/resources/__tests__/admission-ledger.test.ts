@@ -224,6 +224,46 @@ describe('schedulePass', () => {
   });
 });
 
+describe('the full-build slot is exclusive whatever the footprint (T13237)', () => {
+  const ctx = { capacityBytes: 36 * GIB, share: 'full' as const, nowMs: 1_000 };
+
+  it('admits one exclusive run at a time even when two fit the budget', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'fb1', enqueuedAtMs: 1, footprintBytes: 12 * GIB, exclusive: true }),
+        entry({ id: 'fb2', enqueuedAtMs: 2, footprintBytes: 12 * GIB, exclusive: true }),
+      ],
+      ctx,
+    );
+    expect(admittedIds(out)).toEqual(['fb1']);
+  });
+
+  it('an admitted full build keeps a second one waiting; other runs still share the budget', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'fb1', state: 'admitted', footprintBytes: 12 * GIB, exclusive: true }),
+        entry({ id: 'fb2', enqueuedAtMs: 2, footprintBytes: 2 * GIB, exclusive: true }),
+        entry({ id: 'test', enqueuedAtMs: 3, footprintBytes: 12 * GIB }),
+      ],
+      ctx,
+    );
+    expect(admittedIds(out).sort()).toEqual(['fb1', 'test']);
+  });
+
+  it('a reserved full-build head blocked only by the slot lets light runs pass but no heavy run', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'fb1', state: 'admitted', footprintBytes: 12 * GIB, exclusive: true }),
+        entry({ id: 'fb2', enqueuedAtMs: 0, footprintBytes: 12 * GIB, exclusive: true }),
+        entry({ id: 'heavy', enqueuedAtMs: 1, footprintBytes: 12 * GIB }),
+        entry({ id: 'light', enqueuedAtMs: 2, footprintBytes: GIB }),
+      ],
+      { ...ctx, nowMs: 10 * 60_000 },
+    );
+    expect(admittedIds(out).sort()).toEqual(['fb1', 'light']);
+  });
+});
+
 describe('entryLiveness', () => {
   const probe = (over: Partial<PidProbe>): PidProbe => ({
     liveness: () => 'alive',
@@ -510,6 +550,37 @@ describe('admit (one ledger, real critical section)', () => {
     );
     expect(c.admitted).toBe(true);
     if (c.admitted) await c.grant.release();
+  });
+
+  it('T13237: a second full build is refused while one holds the slot, naming it; free on release', async () => {
+    const first = await admit(
+      { label: 'run:full-build', footprintBytes: 2 * GIB, exclusive: true },
+      { ...base, dir, wait: false },
+    );
+    expect(first.admitted).toBe(true);
+    const second = await admit(
+      { label: 'run:full-build', footprintBytes: 2 * GIB, exclusive: true },
+      { ...base, dir, wait: false },
+    );
+    expect(second.admitted).toBe(false);
+    if (!second.admitted) {
+      expect(second.refusal.reason).toMatch(
+        /holds the machine-wide full-build slot \(run:full-build pid \d+\)/,
+      );
+    }
+    const other = await admit(
+      { label: 'tool:test', footprintBytes: 2 * GIB },
+      { ...base, dir, wait: false },
+    );
+    expect(other.admitted).toBe(true);
+    if (other.admitted) await other.grant.release();
+    if (first.admitted) await first.grant.release();
+    const third = await admit(
+      { label: 'run:full-build', footprintBytes: 2 * GIB, exclusive: true },
+      { ...base, dir, wait: false },
+    );
+    expect(third.admitted).toBe(true);
+    if (third.admitted) await third.grant.release();
   });
 
   it('a run larger than the budget is charged the budget: it runs alone, and the report says so', async () => {

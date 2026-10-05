@@ -20,6 +20,15 @@
  * a CPU-saturated `backoff` admits one run at a time (each keeps one run
  * going when nothing else is running).
  *
+ * ## Exclusive runs
+ *
+ * A `full-build` (`cleo run --class full-build`: a workspace-wide build,
+ * turbo/nx across every package) is EXCLUSIVE: at most one exclusive run is
+ * admitted machine-wide at a time, whatever its footprint (T13237). Bytes
+ * alone stopped guaranteeing that once T13132 charged a heavy run half the
+ * budget: two whole-workspace builds fit and ran at once, the saturation
+ * shape behind the P0 crash. Other runs still share the budget beside it.
+ *
  * ## Queue
  *
  * FIFO with backfill: the oldest waiting run starts when it fits; a later run
@@ -310,6 +319,11 @@ export interface LedgerEntry {
   readonly scope?: AdmissionScope;
   /** The CLEO task the run is evidence for, when known (T13132). */
   readonly task?: string;
+  /**
+   * Holds the machine-wide exclusive slot: no other exclusive entry is
+   * admitted while it is (T13237). Set for the `full-build` class.
+   */
+  readonly exclusive?: boolean;
 }
 
 /**
@@ -751,14 +765,18 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   let running = ctx.foreign?.count ?? 0;
   // Conservative: an entry of an unknown format counts as heavy under `one`.
   let heavyRunning = ctx.foreign?.count ?? 0;
+  // T13237: admitted exclusive runs (a full-build holds the machine-wide slot).
+  let exclusiveRunning = 0;
   for (const e of entries) {
     if (e.state === 'admitted') {
       used += charged(e, ctx.capacityBytes);
       running++;
       if (isHeavy(e)) heavyRunning++;
+      if (e.exclusive === true) exclusiveRunning++;
     }
   }
   const fits = (w: LedgerEntry, cost: number): boolean => {
+    if (w.exclusive === true && exclusiveRunning > 0) return false;
     if (!isHeavy(w)) return lightShare !== 'none' && used + cost <= lightBudget;
     if (ctx.share === 'none') return false;
     if (ctx.share === 'one' && heavyRunning > 0) return false;
@@ -791,6 +809,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
       used += cost;
       running++;
       if (isHeavy(w)) heavyRunning++;
+      if (w.exclusive === true) exclusiveRunning++;
       continue;
     }
     if (!blocked) {
@@ -802,7 +821,13 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
         // around them (T13132, #1865 review MED-1).
         const cpuOnly =
           isHeavy(w) && ctx.share === 'one' && heavyRunning > 0 && used + cost <= heavyBudget;
-        if (!cpuOnly) break;
+        // Likewise a head blocked only because another exclusive run holds
+        // the slot (T13237): reserve its bytes, let light runs pass around it.
+        const exclusiveOnly =
+          w.exclusive === true &&
+          exclusiveRunning > 0 &&
+          used + cost <= (isHeavy(w) ? heavyBudget : lightBudget);
+        if (!cpuOnly && !exclusiveOnly) break;
         reservedForHead = cost;
       }
     }
@@ -1086,6 +1111,8 @@ export interface AdmissionRequest {
   readonly scope?: AdmissionScope;
   /** The CLEO task it is evidence for, for status (T13132). */
   readonly task?: string;
+  /** Take the machine-wide exclusive slot (T13237: a `full-build`). */
+  readonly exclusive?: boolean;
 }
 
 /** How to wait, and where to report. */
@@ -1413,6 +1440,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     toolGroups: [],
     ...(req.scope !== undefined ? { scope: req.scope } : {}),
     ...(req.task !== undefined ? { task: req.task } : {}),
+    ...(req.exclusive === true ? { exclusive: true } : {}),
   };
 
   /** One pass: reap, (re-)enqueue ourselves, schedule; returns our entry's state. */
@@ -1461,12 +1489,21 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       (e) => e.state === 'waiting' && e.id !== entry.id && e.enqueuedAtMs <= entry.enqueuedAtMs,
     ).length;
     const load = budgetLoad(doc, capacityBytes);
+    const exclusiveHolder =
+      entry.exclusive === true
+        ? doc.entries.find(
+            (e) => e.state === 'admitted' && e.exclusive === true && e.id !== entry.id,
+          )
+        : undefined;
     const reason =
       reading !== null
         ? `memory pressure ${reading.score} (refused above ${reading.refuseAbove}, resumes at ` +
           `${reading.resumeAtOrBelow} or below): ${reading.summary}`
-        : `machine budget in use: ${gib(load.bytes)} of ${gib(capacityBytes)} by ${load.runs} run(s); ` +
-          `this run needs ${gib(charged(entry, capacityBytes))}${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`;
+        : exclusiveHolder !== undefined
+          ? `another full build holds the machine-wide full-build slot (${exclusiveHolder.label} pid ` +
+            `${exclusiveHolder.pid}); one runs at a time, whatever its size${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`
+          : `machine budget in use: ${gib(load.bytes)} of ${gib(capacityBytes)} by ${load.runs} run(s); ` +
+            `this run needs ${gib(charged(entry, capacityBytes))}${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`;
     return {
       reason,
       retryAfterMs: reading !== null ? MEMORY_GATE_RETRY_AFTER_MS : 2_000,

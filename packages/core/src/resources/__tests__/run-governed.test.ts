@@ -342,6 +342,15 @@ describe('runGoverned', () => {
     expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
   });
 
+  it('T13237: a full-build asks the ledger for the exclusive slot; other classes do not', async () => {
+    const h = harness({ onSample: (n, hh) => n === 2 && hh.exit(0) });
+    await runGoverned(base(h, { cls: 'full-build', argv: ['pnpm', 'run', 'build'] }));
+    expect(h.requests[0]?.exclusive).toBe(true);
+    const t = harness({ onSample: (n, hh) => n === 2 && hh.exit(0) });
+    await runGoverned(base(t));
+    expect(t.requests[0]?.exclusive).toBeUndefined();
+  });
+
   it('asks the ledger for the planned footprint and scope when given, else the class default (T13132)', async () => {
     const h = harness({ onSample: (n, hh) => n === 2 && hh.exit(0) });
     await runGoverned(base(h, { footprintBytes: 6 * 1024 ** 3, scope: 'narrowed' }));
