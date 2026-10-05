@@ -118,3 +118,24 @@ export function createLazyDomainHandlers(): Map<string, DomainHandler> {
     DOMAIN_LOADERS.map(([domain, load]) => [domain, new LazyDomainHandler(domain, load)]),
   );
 }
+
+/**
+ * Wrap a CORE operation so its module loads on the first call, not when the
+ * domain module loads. A domain module imports every operation it serves, and
+ * the CLI runs one operation per process, so static imports load modules the
+ * command never calls (`cleo show` loaded sagas, sync and archive).
+ *
+ * @param load - Imports the module and returns the operation.
+ * @returns An async function with the operation's parameters that resolves to
+ *   its result. An import failure rejects the call instead of failing the
+ *   domain module's load.
+ * @example
+ * ```ts
+ * const taskShow = lazyOperation(async () => (await import('@cleocode/core/tasks/show')).taskShowOperation);
+ * ```
+ */
+export function lazyOperation<A extends unknown[], R>(
+  load: () => Promise<(...args: A) => R>,
+): (...args: A) => Promise<Awaited<R>> {
+  return async (...args: A): Promise<Awaited<R>> => await (await load())(...args);
+}

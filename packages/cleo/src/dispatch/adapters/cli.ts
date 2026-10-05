@@ -14,9 +14,8 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describeOperation } from '@cleocode/core/dispatch/describe-operation';
+import type * as DescribeOperation from '@cleocode/core/dispatch/describe-operation';
 import { hooks } from '@cleocode/core/hooks/registry';
-import { autoRecordDispatchTokenUsage } from '@cleocode/core/metrics/token-service';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { trackBackgroundOp } from '@cleocode/core/store/background-ops';
 import type { GatewayHandler } from '@cleocode/runtime/gateway/dispatch';
@@ -24,6 +23,7 @@ import { createDispatchSpinner } from '../../cli/animation-bridge.js';
 import { isDescribeMode } from '../../cli/describe-context.js';
 import { getFormatContext } from '../../cli/format-context.js';
 import { getIdempotencyKeyContext } from '../../cli/idempotency-context.js';
+import { loadEsmSync } from '../../cli/lib/load-esm-sync.js';
 import { settleThenExit } from '../../cli/lib/settle-then-exit.js';
 import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/index.js';
 import { Dispatcher } from '../dispatcher.js';
@@ -389,6 +389,11 @@ export function maybeEmitDescribe(
   if (!isDescribeMode()) return false;
 
   const key = `${domain}.${operation}`;
+  // Loaded only under --describe (T13126): deriving output contracts loads the
+  // zod workgraph schemas, which a command that runs never needs.
+  const { describeOperation } = loadEsmSync<typeof DescribeOperation>(
+    '@cleocode/core/dispatch/describe-operation',
+  );
   const descriptor = describeOperation(key);
   const command = outputOpts?.command ?? operation;
 
@@ -505,17 +510,22 @@ export async function dispatchFromCli(
 
   if (response.success) {
     // Records mutations only: a read must not write a portable row (T13106).
-    await autoRecordDispatchTokenUsage({
-      requestPayload: mergedParams,
-      responsePayload: { data: response.data, page: response.page },
-      transport: 'cli',
-      gateway,
-      domain,
-      operation,
-      sessionId: response.meta.sessionId,
-      requestId: response.meta.requestId,
-      cwd: getProjectRoot(),
-    });
+    // The recorder is loaded only then: its provider detection imports all of
+    // CAAMP, which a read verb would otherwise load for nothing (T13126).
+    if (gateway === 'mutate') {
+      const { autoRecordDispatchTokenUsage } = await import('@cleocode/core/metrics/token-service');
+      await autoRecordDispatchTokenUsage({
+        requestPayload: mergedParams,
+        responsePayload: { data: response.data, page: response.page },
+        transport: 'cli',
+        gateway,
+        domain,
+        operation,
+        sessionId: response.meta.sessionId,
+        requestId: response.meta.requestId,
+        cwd: getProjectRoot(),
+      });
+    }
 
     const opts: CliOutputOptions = {
       command: outputOpts?.command ?? operation,
