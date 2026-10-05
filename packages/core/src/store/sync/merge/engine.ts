@@ -9,18 +9,38 @@
  * - **Per-field LWW by HLC.** A column's incoming HLC is `fh[col] ?? h`; it
  *   wins when it is greater than the column's stored HLC. LWW is commutative,
  *   so plain columns converge whatever the order.
- * - **Groups** merge as one unit: the unit's newest HLC decides, and every
- *   carried column of the unit comes from the winner.
- * - **Counters** merge by delta (`sum`) or by `max`/`min`, never by plain LWW.
- * - **Typed rules** (absorbing states, rank-max, frozen-while, write-once) are
- *   evaluated against the current state, so they depend on stream order and
- *   are deterministic for a given stream (§3.5 Rule 1).
- * - **Tombstones** never resurrect: an op older than the delete is skipped; a
- *   newer update of a deleted row is voided with an `edit-vs-delete`
- *   conflict; a newer insert re-creates the row (a natural-key re-add).
+ * - **Groups** merge as one LWW unit and travel whole (T13222): a U op
+ *   carries every member of a group it touches (the capture trigger records
+ *   the whole group, subtraction keeps it whole), an I op's omitted members
+ *   are NULL, and the winner sets every member. A U op carrying part of a
+ *   group is refused (`malformed`), never half-applied.
+ * - **Counters** merge by delta (`sum`: a U carries `{ $inc }` only) or by
+ *   `max`/`min` (absolute numbers only), never by plain LWW; any other shape
+ *   is refused (`malformed`), since mixing deltas and absolute values would
+ *   make the result depend on order.
+ * - **Rank-max** (pipeline_stage) is a max over (rank, HLC), with NULL and
+ *   unranked values lowest, and the winner keeps its own HLC; a restore
+ *   raises a floor below which writes are dead (T13223). It converges in
+ *   every order, HLCs included.
+ * - **Other typed rules** (absorbing states, frozen-while, write-once) are
+ *   evaluated against the current state, so where an explicit op races them
+ *   they depend on stream order and are deterministic for a given stream
+ *   (§3.5 Rule 1).
+ * - **Leave, restore and unfreeze are granted per transaction:** every op of
+ *   a transaction whose `actor.op` is such a command may use it, on every row
+ *   the transaction writes. That is deliberate: the command's own cascade
+ *   (children restored or reopened with their parent) is part of its
+ *   transaction.
+ * - **Deletes:** a D removes a live row whatever its HLC, recording the newer
+ *   edits it removes. Tombstones never resurrect: an op older than the delete
+ *   is skipped; a newer update of a deleted row is voided with an
+ *   `edit-vs-delete` conflict. A newer insert re-creates the row (a
+ *   natural-key re-add), so a re-insert racing a delete is ORDER-SENSITIVE:
+ *   deterministic per stream (§3.5 Rule 1), not order-free, since the row
+ *   state keeps no birth HLC to compare the delete against.
  * - **Conflicts are never dropped:** a concurrent divergent edit (the op's
  *   before-image differs from the current value) is recorded whichever side
- *   wins, as is every typed-rule refusal or override.
+ *   wins, as is every typed-rule refusal or override, rank-max included.
  * - **Schema skew is refused** explicitly: an op naming a column this schema
  *   lacks is `refused-schema`, never partly applied ({@link checkSchemaVersion}
  *   covers the segment level).
@@ -208,11 +228,12 @@ function conflict(
 }
 
 /**
- * Apply a counter column's value (§2.6 "Counters"). A `{ $inc }` delta is
- * summed; an absolute value on a `max`/`min` column keeps the extreme. Both
- * are commutative, so counters converge in any order and never conflict. An
- * absolute value on a `sum` column (a sealer that could not emit a delta) is
- * taken as is, by HLC like any field.
+ * Apply a counter column's value (§2.6 "Counters"). A `sum` column takes
+ * `{ $inc }` deltas, summed (an insert's absolute starting value goes by
+ * HLC); a `max`/`min` column takes only absolute numbers and keeps the
+ * extreme. Deltas and extremes are commutative, so counters converge in any
+ * order and never conflict; {@link malformedColumns} refuses every other
+ * shape before the merge.
  */
 function mergeCounter(d: Draft, op: LedgerOp, col: string, mode: CounterMode): void {
   const inc = op.a?.[col];
@@ -224,21 +245,139 @@ function mergeCounter(d: Draft, op: LedgerOp, col: string, mode: CounterMode): v
   let value: LedgerWireValue;
   if (isIncrement(inc)) {
     value = fromNumber((curN ?? 0) + inc.$inc);
-  } else {
-    const n = asNumber(inc);
-    if (mode !== 'sum' && n !== null && curN !== null) {
-      value = fromNumber(mode === 'max' ? Math.max(curN, n) : Math.min(curN, n));
-    } else if (cur === undefined || cmp(h, cur.hlc) > 0) {
-      value = inc;
-    } else {
+  } else if (mode === 'sum') {
+    // A concurrent insert's starting value: by HLC, like any field.
+    if (cur !== undefined && cmp(h, cur.hlc) <= 0) {
       d.skipped.push({ column: col, reason: 'older' });
       d.older++;
       return;
     }
+    value = inc;
+  } else {
+    const n = asNumber(inc) as number;
+    value =
+      curN === null
+        ? fromNumber(n)
+        : fromNumber(mode === 'max' ? Math.max(curN, n) : Math.min(curN, n));
   }
   d.fields[col] = { value, hlc };
   d.written.push(col);
   d.applied++;
+}
+
+/** The op's columns its merge cannot take: wrong counter shapes, partly carried groups. */
+function malformedColumns(op: LedgerOp, ctx: MergeContext): string[] {
+  const bad: string[] = [];
+  const counters = ctx.table.counters ?? {};
+  for (const [col, v] of Object.entries(op.a ?? {})) {
+    const mode = counters[col];
+    if (isIncrement(v)) {
+      if (mode !== 'sum') bad.push(col);
+    } else if (
+      (mode === 'sum' && op.o === 'U') ||
+      ((mode === 'max' || mode === 'min') && asNumber(v) === null)
+    ) {
+      // An insert carries a sum counter's absolute starting value.
+      bad.push(col);
+    }
+  }
+  if (op.o === 'U') {
+    const cols = Object.keys(op.a ?? {});
+    for (const g of ctx.table.groups ?? []) {
+      const known = g.filter((c) => ctx.table.columns.includes(c));
+      if (known.some((c) => cols.includes(c))) {
+        for (const c of known) if (!cols.includes(c)) bad.push(c);
+      }
+    }
+  }
+  return [...new Set(bad)].sort();
+}
+
+/** Rank of a value in a rank-max order; NULL and unranked values are -1. */
+function rankOf(rule: { readonly order: readonly string[] }, v: LedgerWireValue): number {
+  return rule.order.indexOf(asString(v) ?? '\0');
+}
+
+/**
+ * Merge a rank-max column (T13223): the best alive write by (rank, HLC). A
+ * restore raises the floor to its HLC; writes older than the floor are dead.
+ * The state keeps the alive Pareto frontier over (rank, HLC), so the result
+ * is the same in every order, HLCs included.
+ */
+function mergeRankMax(
+  d: Draft,
+  op: LedgerOp,
+  col: string,
+  rule: Extract<FieldRule, { kind: 'rank-max' }>,
+  ctx: MergeContext,
+): void {
+  const inc = op.a?.[col];
+  if (inc === undefined || isIncrement(inc)) return;
+  const cur = d.fields[col];
+  const h = opFieldHlc(op, col);
+  const restore = rule.restoreOps.includes(ctx.actorOp ?? '');
+  const floor = restore ? maxOf(cur?.leave, h) : cur?.leave;
+  const value = plain(inc);
+  let cands = cur ? [...(cur.frontier ?? [{ value: cur.value, hlc: cur.hlc }])] : [];
+  if (!cands.some((c) => c.hlc === h && same(c.value, value))) cands.push({ value, hlc: h });
+  if (floor !== undefined) cands = cands.filter((c) => cmp(c.hlc, floor) >= 0);
+  cands = cands
+    .filter(
+      (a) =>
+        !cands.some(
+          (b) =>
+            b !== a &&
+            rankOf(rule, b.value) >= rankOf(rule, a.value) &&
+            cmp(b.hlc, a.hlc) >= 0 &&
+            (rankOf(rule, b.value) > rankOf(rule, a.value) || cmp(b.hlc, a.hlc) > 0),
+        ),
+    )
+    .sort((a, b) => cmp(a.hlc, b.hlc));
+  const best = cands.reduce<(typeof cands)[number] | undefined>((m, c) => {
+    if (!m) return c;
+    const rc = rankOf(rule, c.value) - rankOf(rule, m.value);
+    return rc > 0 || (rc === 0 && cmp(c.hlc, m.hlc) > 0) ? c : m;
+  }, undefined);
+  if (!best) return; // unreachable: a restore keeps itself alive
+  const next: FieldState = {
+    value: best.value,
+    hlc: best.hlc,
+    ...(floor !== undefined ? { leave: floor } : {}),
+    ...(cands.length > 1 ? { frontier: cands } : {}),
+  };
+  const changed =
+    !cur ||
+    !same(cur.value, next.value) ||
+    cur.hlc !== next.hlc ||
+    cur.leave !== next.leave ||
+    canonicalJson(cur.frontier ?? null) !== canonicalJson(next.frontier ?? null);
+  d.fields[col] = next;
+  const won = best.hlc === h && same(best.value, value);
+  const newer = cur === undefined || cmp(h, cur.hlc) > 0;
+  if (won) {
+    d.written.push(col);
+    d.applied++;
+    if (!newer && cur !== undefined) {
+      // The rule picked an older write over a newer one.
+      d.conflicts.push(
+        conflict(op, 'typed-rule', [col], 'incoming-applied', { rule: rule.id, localHlc: cur.hlc }),
+      );
+    }
+    return;
+  }
+  if (changed && !same(cur?.value, next.value)) {
+    // A restore's floor killed the old best; the next best alive write wins.
+    d.written.push(col);
+    d.applied++;
+    return;
+  }
+  d.skipped.push({ column: col, reason: newer ? 'rule' : 'older' });
+  d.older++;
+  if (newer && cur !== undefined) {
+    d.conflicts.push(
+      conflict(op, 'typed-rule', [col], 'incoming-dropped', { rule: rule.id, localHlc: cur.hlc }),
+    );
+  }
 }
 
 interface RuleVerdict {
@@ -246,10 +385,6 @@ interface RuleVerdict {
   refuse?: string;
   /** Force the incoming unit to win despite LWW, with a conflict. */
   force?: string;
-  /** Drop the unit by the rule's own resolution (no conflict). */
-  drop?: true;
-  /** Ignore HLC: the rule picked the winner (rank-max). */
-  winsByRule?: true;
   /** Record an explicit leave on this column. */
   leave?: string;
 }
@@ -285,15 +420,8 @@ function ruleVerdict(
       }
       return {};
     }
-    case 'rank-max': {
-      if (rule.restoreOps.includes(actorOp)) return {};
-      const ri = rule.order.indexOf(asString(inc) ?? '\0');
-      const rc = cur === undefined ? -1 : rule.order.indexOf(asString(cur.value) ?? '\0');
-      if (ri < 0 || rc < 0) return {};
-      if (ri > rc) return { winsByRule: true };
-      if (ri < rc) return { drop: true };
-      return {};
-    }
+    case 'rank-max':
+      return {}; // merged by mergeRankMax
     case 'frozen-while': {
       // Judged against the row before the op: completing a task writes its
       // verification and its status together.
@@ -325,6 +453,11 @@ function mergeFields(d: Draft, base: RowState, op: LedgerOp, ctx: MergeContext):
       mergeCounter(d, op, first, counters[first] as CounterMode);
       continue;
     }
+    const only = unit.length === 1 && first !== undefined ? rules[first] : undefined;
+    if (first !== undefined && only?.kind === 'rank-max') {
+      mergeRankMax(d, op, first, only, ctx);
+      continue;
+    }
     const group = (ctx.table.groups ?? []).find((g) => unit.every((c) => g.includes(c))) ?? unit;
     let hi: string | undefined;
     for (const c of unit) hi = maxOf(hi, opFieldHlc(op, c));
@@ -335,8 +468,6 @@ function mergeFields(d: Draft, base: RowState, op: LedgerOp, ctx: MergeContext):
 
     let refuse: string | undefined;
     let force: string | undefined;
-    let drop = false;
-    let winsByRule = false;
     const leaves: Record<string, string> = {};
     for (const c of unit) {
       const rule = rules[c];
@@ -344,8 +475,6 @@ function mergeFields(d: Draft, base: RowState, op: LedgerOp, ctx: MergeContext):
       const v = ruleVerdict(rule, c, d, base, op, ctx, incomingWins, hiv);
       if (v.refuse) refuse = refuse ?? v.refuse;
       if (v.force) force = force ?? v.force;
-      if (v.drop) drop = true;
-      if (v.winsByRule) winsByRule = true;
       if (v.leave) leaves[c] = v.leave;
     }
 
@@ -357,12 +486,7 @@ function mergeFields(d: Draft, base: RowState, op: LedgerOp, ctx: MergeContext):
       d.refused++;
       continue;
     }
-    if (drop && !force) {
-      for (const c of unit) d.skipped.push({ column: c, reason: 'rule' });
-      d.older++;
-      continue;
-    }
-    const wins = incomingWins || force !== undefined || winsByRule;
+    const wins = incomingWins || force !== undefined;
     // A concurrent divergent edit: the writer started from another value.
     const divergent = unit.filter((c) => {
       const before = op.b?.[c];
@@ -375,12 +499,10 @@ function mergeFields(d: Draft, base: RowState, op: LedgerOp, ctx: MergeContext):
       for (const c of unit) {
         const v = after[c];
         if (v === undefined) continue;
-        const h = opFieldHlc(op, c);
+        const hlc = opFieldHlc(op, c);
         const prev = d.fields[c];
-        // A rank-max winner keeps the newest HLC (the column only moves up). A
-        // forced absorbing write keeps its own HLC, so a later absorbing write
-        // still wins against it by LWW whatever the stream order.
-        const hlc = winsByRule ? (maxOf(prev?.hlc, h) ?? h) : h;
+        // A forced absorbing write keeps its own HLC, so a later absorbing
+        // write still wins against it by LWW whatever the stream order.
         const leave = leaves[c] ?? prev?.leave;
         d.fields[c] = { value: plain(v), hlc, ...(leave !== undefined ? { leave } : {}) };
         d.written.push(c);
@@ -433,6 +555,19 @@ function newDraft(row: RowState): Draft {
   };
 }
 
+/**
+ * The op with every merge group whole: an I omits NULL columns, so a group
+ * member it leaves out is NULL.
+ */
+function withWholeGroups(op: LedgerOp, ctx: MergeContext): LedgerOp {
+  if (op.o !== 'I') return op;
+  const a: Record<string, LedgerValue> = { ...(op.a ?? {}) };
+  for (const g of ctx.table.groups ?? []) {
+    for (const c of g) if (ctx.table.columns.includes(c) && !(c in a)) a[c] = null;
+  }
+  return { ...op, a };
+}
+
 /** A fresh row from an insert's after-values. */
 function inserted(op: LedgerOp): RowState {
   const fields: Record<string, FieldState> = {};
@@ -458,7 +593,8 @@ function inserted(op: LedgerOp): RowState {
  * if (out.status === 'refused-schema') stage('refused-schema');
  * ```
  */
-export function applyOp(row: RowState, op: LedgerOp, ctx: MergeContext): OpOutcome {
+export function applyOp(row: RowState, incoming: LedgerOp, ctx: MergeContext): OpOutcome {
+  const op = withWholeGroups(incoming, ctx);
   if (op.o === 'K') {
     // @sync-invariant none:input-shape K ops are applied by the re-key path; the field merge never receives one
     throw new MergeEngineError('K ops are applied by the re-key path, not the field merge');
@@ -467,6 +603,10 @@ export function applyOp(row: RowState, op: LedgerOp, ctx: MergeContext): OpOutco
   const known = new Set(ctx.table.columns);
   const unknown = Object.keys(op.a ?? {}).filter((c) => !known.has(c));
   if (unknown.length > 0) return outcome('refused-schema', row, 'none', undefined, unknown);
+  const malformed = malformedColumns(op, ctx);
+  if (malformed.length > 0) {
+    return { ...outcome('refused-schema', row, 'none'), malformed };
+  }
 
   if (op.o === 'D') {
     if (row.live) {

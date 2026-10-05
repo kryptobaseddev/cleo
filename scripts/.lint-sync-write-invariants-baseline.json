@@ -241,6 +241,82 @@
     "packages/core/src/shutdown.ts :: Error": {
       "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: gate 38 now follows destructured dynamic imports (const { a } = await import(s)) on mutate paths, which the reachability walk skipped before. This site was already on that path at runtime.",
       "count": 1
+    },
+    "packages/core/src/agents/resolveAgentTemplates.ts :: W_DEPRECATED_AGENT_PATH": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_KEY_NOT_FOUND": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_READ_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_WRITE_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 4
+    },
+    "packages/core/src/config/engine-ops.ts :: E_INVALID_INPUT": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 3
+    },
+    "packages/core/src/config/engine-ops.ts :: E_NOT_INITIALIZED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/git/hooks-install.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 3
+    },
+    "packages/core/src/init.ts :: Error": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 2
+    },
+    "packages/core/src/init.ts :: ExitCode.GENERAL_ERROR": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init.ts :: ExitCode.PROJECT_MOVED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init.ts :: initRefusal": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 7
+    },
+    "packages/core/src/init.ts :: projectMovedError": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init.ts :: W_DEPRECATED_AGENT_PATH": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_ALREADY_INITIALIZED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_INIT_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_NOT_INITIALIZED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_PROJECT_MOVED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: E_VERSION_FAILED": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
+    },
+    "packages/core/src/init/engine-ops.ts :: engineError": {
+      "reason": "T12946 burn-down; newly visible to the scan by T13126, not new code: the admin dispatch domain now loads these CORE modules directly (narrow imports and lazy handlers) instead of through the @cleocode/core/internal and @cleocode/runtime/gateway re-exports, which the reachability walk does not follow. They were already on the admin mutate path at runtime.",
+      "count": 1
     }
   },
   "sites": {
@@ -387,6 +463,8 @@
     "packages/core/src/admin/import.ts :: Error": 3,
     "packages/core/src/adrs/link-pipeline.ts :: silent:cascade": 1,
     "packages/core/src/adrs/sync.ts :: silent:cascade": 1,
+    "packages/core/src/agents/capacity.ts :: Error": 1,
+    "packages/core/src/agents/resolveAgentTemplates.ts :: W_DEPRECATED_AGENT_PATH": 1,
     "packages/core/src/agents/retry.ts :: success:false": 1,
     "packages/core/src/agents/seed-install.ts :: Error": 1,
     "packages/core/src/agents/seed-install.ts :: silent:cascade": 1,
@@ -400,8 +478,17 @@
     "packages/core/src/changesets/writer.ts :: E_SLUG_RESERVED": 2,
     "packages/core/src/changesets/writer.ts :: E_SSOT_WRITE_FAILED": 1,
     "packages/core/src/code/parser.ts :: Error": 1,
+    "packages/core/src/conduit/conduit-client.ts :: Error": 4,
+    "packages/core/src/conduit/factory.ts :: Error": 1,
+    "packages/core/src/conduit/http-transport.ts :: Error": 2,
     "packages/core/src/conduit/local-transport.ts :: Error": 4,
     "packages/core/src/conduit/local-transport.ts :: silent:cascade": 4,
+    "packages/core/src/conduit/sse-transport.ts :: Error": 4,
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_KEY_NOT_FOUND": 1,
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_READ_FAILED": 1,
+    "packages/core/src/config/engine-ops.ts :: E_CONFIG_WRITE_FAILED": 4,
+    "packages/core/src/config/engine-ops.ts :: E_INVALID_INPUT": 3,
+    "packages/core/src/config/engine-ops.ts :: E_NOT_INITIALIZED": 1,
     "packages/core/src/config/registry.ts :: Error": 2,
     "packages/core/src/crypto/credentials.ts :: Error": 12,
     "packages/core/src/decide/credentials.ts :: DecideCredentialsError": 16,
@@ -582,10 +669,43 @@
     "packages/core/src/errors.ts :: this.code": 1,
     "packages/core/src/gc/cleanup.ts :: Error": 1,
     "packages/core/src/gc/transcript.ts :: Error": 1,
+    "packages/core/src/git/hooks-install.ts :: Error": 3,
     "packages/core/src/goal/store.ts :: Error": 1,
+    "packages/core/src/harness/spawn-provider-selection.ts :: E_GENERAL": 1,
+    "packages/core/src/harness/spawn-provider-selection.ts :: E_INVALID_INPUT": 1,
+    "packages/core/src/harness/spawn-provider-selection.ts :: E_SPAWN_ADAPTER_UNAVAILABLE": 1,
+    "packages/core/src/harness/spawn-provider-selection.ts :: E_SPAWN_NO_ADAPTER": 1,
+    "packages/core/src/harness/spawn-provider-selection.ts :: E_SPAWN_NO_PROVIDER": 1,
+    "packages/core/src/harness/spawn-provider-selection.ts :: success:false": 1,
     "packages/core/src/identity/cleo-identity.ts :: TypeError": 2,
+    "packages/core/src/init.ts :: Error": 2,
+    "packages/core/src/init.ts :: ExitCode.GENERAL_ERROR": 1,
+    "packages/core/src/init.ts :: ExitCode.PROJECT_MOVED": 1,
+    "packages/core/src/init.ts :: initRefusal": 7,
+    "packages/core/src/init.ts :: projectMovedError": 1,
+    "packages/core/src/init.ts :: W_DEPRECATED_AGENT_PATH": 1,
+    "packages/core/src/init/engine-ops.ts :: E_ALREADY_INITIALIZED": 1,
+    "packages/core/src/init/engine-ops.ts :: E_INIT_FAILED": 1,
+    "packages/core/src/init/engine-ops.ts :: E_NOT_INITIALIZED": 1,
+    "packages/core/src/init/engine-ops.ts :: E_PROJECT_MOVED": 1,
+    "packages/core/src/init/engine-ops.ts :: E_VERSION_FAILED": 1,
+    "packages/core/src/init/engine-ops.ts :: engineError": 1,
     "packages/core/src/json-schema-validator.ts :: ExitCode.NOT_FOUND": 1,
     "packages/core/src/json-schema-validator.ts :: ExitCode.VALIDATION_ERROR": 1,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_INVALID_INPUT": 8,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_LIFECYCLE_BACKWARD": 1,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_LIFECYCLE_CHECK": 1,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_LIFECYCLE_GATE_FAIL": 1,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_LIFECYCLE_GATE_FAILED": 1,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_LIFECYCLE_GATE_PASS": 1,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_LIFECYCLE_GATES": 1,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_LIFECYCLE_HISTORY": 1,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_LIFECYCLE_PREREQUISITES": 1,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_LIFECYCLE_PROGRESS": 1,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_LIFECYCLE_RESET": 1,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_LIFECYCLE_SCOPE_DENIED": 1,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_LIFECYCLE_SKIP": 1,
+    "packages/core/src/lifecycle/engine-ops.ts :: E_LIFECYCLE_STATUS": 1,
     "packages/core/src/lifecycle/index.ts :: ExitCode.INVALID_INPUT": 11,
     "packages/core/src/lifecycle/index.ts :: ExitCode.LIFECYCLE_GATE_FAILED": 1,
     "packages/core/src/lifecycle/index.ts :: ExitCode.LIFECYCLE_TRANSITION_INVALID": 3,
@@ -635,7 +755,6 @@
     "packages/core/src/llm/oauth/device-code.ts :: Error": 6,
     "packages/core/src/llm/oauth/google-pkce.ts :: Error": 3,
     "packages/core/src/llm/oauth/pkce.ts :: Error": 4,
-    "packages/core/src/llm/pi/pi-agent-adapter.ts :: E_PI_LOOP_FAILED": 1,
     "packages/core/src/llm/pi/pi-errors.ts :: E_PI_ABORTED": 2,
     "packages/core/src/llm/pi/pi-errors.ts :: E_PI_EXIT_CODE_MUTATION_TRAPPED": 1,
     "packages/core/src/llm/pi/pi-errors.ts :: E_PI_LOOP_FAILED": 1,
@@ -865,6 +984,10 @@
     "packages/core/src/nexus/user-profile.ts :: silent:cascade": 2,
     "packages/core/src/nexus/wiki-index.ts :: E_INTERNAL": 1,
     "packages/core/src/nexus/wiki-index.ts :: success:false": 1,
+    "packages/core/src/orchestrate/handoff-ops.ts :: E_CONCURRENT_SESSION": 1,
+    "packages/core/src/orchestrate/handoff-ops.ts :: E_INVALID_INPUT": 2,
+    "packages/core/src/orchestrate/handoff-ops.ts :: E_SESSION_REQUIRED": 1,
+    "packages/core/src/orchestrate/handoff-ops.ts :: engineError": 1,
     "packages/core/src/orchestrate/lifecycle-ops.ts :: E_GENERAL": 8,
     "packages/core/src/orchestrate/lifecycle-ops.ts :: E_INVALID_INPUT": 7,
     "packages/core/src/orchestrate/lifecycle-ops.ts :: E_LIFECYCLE_INIT_FAILED": 1,
@@ -874,6 +997,12 @@
     "packages/core/src/orchestrate/pivot.ts :: ExitCode.INVALID_INPUT": 3,
     "packages/core/src/orchestrate/pivot.ts :: ExitCode.NOT_FOUND": 2,
     "packages/core/src/orchestrate/pivot.ts :: ExitCode.VALIDATION_ERROR": 1,
+    "packages/core/src/orchestrate/plan.ts :: E_AGENT_NOT_FOUND": 1,
+    "packages/core/src/orchestrate/plan.ts :: E_INVALID_INPUT": 1,
+    "packages/core/src/orchestrate/plan.ts :: E_NOT_FOUND": 1,
+    "packages/core/src/orchestrate/plan.ts :: E_VALIDATION": 1,
+    "packages/core/src/orchestrate/plan.ts :: engineError": 1,
+    "packages/core/src/orchestrate/plan.ts :: W_NO_ATOMIC_SCOPE": 1,
     "packages/core/src/orchestrate/query-ops.ts :: E_DEP_GRAPH_INVALID": 1,
     "packages/core/src/orchestrate/query-ops.ts :: E_GENERAL": 2,
     "packages/core/src/orchestrate/query-ops.ts :: E_INVALID_INPUT": 6,
@@ -911,6 +1040,7 @@
     "packages/core/src/orchestration/protocol-validators.ts :: ExitCode.CONCURRENT_SESSION": 1,
     "packages/core/src/orchestration/skill-ops.ts :: ExitCode.INVALID_INPUT": 1,
     "packages/core/src/orchestration/skill-ops.ts :: ExitCode.NOT_FOUND": 2,
+    "packages/core/src/orchestration/spawn.ts :: ThinAgentViolationError": 1,
     "packages/core/src/output.ts :: success:false": 1,
     "packages/core/src/paths.ts :: Error": 1,
     "packages/core/src/paths.ts :: ExitCode.CONFIG_ERROR": 2,
@@ -922,6 +1052,9 @@
     "packages/core/src/phases/index.ts :: ExitCode.NO_DATA": 1,
     "packages/core/src/phases/index.ts :: ExitCode.NOT_FOUND": 10,
     "packages/core/src/phases/index.ts :: ExitCode.VALIDATION_ERROR": 7,
+    "packages/core/src/pipeline/engine-ops.ts :: E_INVALID_INPUT": 5,
+    "packages/core/src/pipeline/engine-ops.ts :: E_PHASE_LIST": 1,
+    "packages/core/src/pipeline/engine-ops.ts :: engineError": 7,
     "packages/core/src/playbooks/playbook-resolver.ts :: PlaybookNotFoundError": 1,
     "packages/core/src/project-info.ts :: Error": 2,
     "packages/core/src/project-lifecycle.ts :: E_CHECKPOINT_FAILED": 1,
@@ -950,6 +1083,15 @@
     "packages/core/src/project-tombstone.ts :: ExitCode.PROJECT_MOVED": 1,
     "packages/core/src/project-tombstone.ts :: W_TOMBSTONE_IGNORED": 1,
     "packages/core/src/release/backfill.ts :: E_GIT_TAG_ENUM_FAILED": 1,
+    "packages/core/src/release/engine-ops.ts :: E_GENERAL": 4,
+    "packages/core/src/release/engine-ops.ts :: E_INVALID_INPUT": 5,
+    "packages/core/src/release/engine-ops.ts :: E_IVTR_INCOMPLETE": 1,
+    "packages/core/src/release/engine-ops.ts :: E_LIST_FAILED": 1,
+    "packages/core/src/release/engine-ops.ts :: E_NOT_FOUND": 2,
+    "packages/core/src/release/engine-ops.ts :: E_PROTOCOL_RELEASE": 1,
+    "packages/core/src/release/engine-ops.ts :: E_VALIDATION": 1,
+    "packages/core/src/release/engine-ops.ts :: engineError": 9,
+    "packages/core/src/release/engine-ops.ts :: Error": 2,
     "packages/core/src/release/reconcile.ts :: E_DRY_RUN_UNSUPPORTED": 1,
     "packages/core/src/release/reconcile.ts :: E_EVIDENCE_STALE": 1,
     "packages/core/src/release/reconcile.ts :: E_GIT_LOG_FAILED": 1,
@@ -961,6 +1103,9 @@
     "packages/core/src/release/reconcile.ts :: Error": 1,
     "packages/core/src/release/reconcile.ts :: ProvenanceTableError": 9,
     "packages/core/src/release/release-manifest.ts :: Error": 19,
+    "packages/core/src/release/version-bump.ts :: ExitCode.GENERAL_ERROR": 1,
+    "packages/core/src/release/version-bump.ts :: ExitCode.VALIDATION_ERROR": 4,
+    "packages/core/src/release/version-bump.ts :: success:false": 6,
     "packages/core/src/remote/index.ts :: Error": 4,
     "packages/core/src/render/render-envelope.ts :: E_RENDERER_UNSUPPORTED": 1,
     "packages/core/src/resources/spawn-wrapper.ts :: Error": 8,
@@ -1028,6 +1173,7 @@
     "packages/core/src/session/engine-ops.ts :: E_SESSION_UNBOUND": 3,
     "packages/core/src/session/engine-ops.ts :: engineError": 3,
     "packages/core/src/session/engine-ops.ts :: W_STALE_FOCUS": 1,
+    "packages/core/src/session/status-op.ts :: E_NOT_INITIALIZED": 1,
     "packages/core/src/sessions/assumptions.ts :: ExitCode.INVALID_INPUT": 2,
     "packages/core/src/sessions/context-inject.ts :: ExitCode.INVALID_INPUT": 1,
     "packages/core/src/sessions/context-inject.ts :: ExitCode.NOT_FOUND": 1,
@@ -1051,8 +1197,6 @@
     "packages/core/src/sessions/snapshot.ts :: ExitCode.SESSION_NOT_FOUND": 1,
     "packages/core/src/sessions/snapshot.ts :: ExitCode.VALIDATION_ERROR": 1,
     "packages/core/src/shutdown.ts :: Error": 1,
-    "packages/core/src/skills/dispatch.ts :: Error": 1,
-    "packages/core/src/skills/injection/token.ts :: Error": 1,
     "packages/core/src/snapshot/index.ts :: Error": 1,
     "packages/core/src/stats/index.ts :: ExitCode.INVALID_INPUT": 1,
     "packages/core/src/sticky/convert.ts :: E_CONVERT_FAILED": 6,
@@ -1150,7 +1294,6 @@
     "packages/core/src/store/resolve-migrations-folder.ts :: Error": 1,
     "packages/core/src/store/role-accessors-impl.ts :: Error": 1,
     "packages/core/src/store/row-identity.ts :: Error": 12,
-    "packages/core/src/store/schedule-store.ts :: Error": 1,
     "packages/core/src/store/schema/jsonb.ts :: Error": 1,
     "packages/core/src/store/selfimprove-dhq-schema.ts :: Error": 1,
     "packages/core/src/store/selfimprove-dhq-store.ts :: Error": 1,
@@ -1340,18 +1483,7 @@
     "packages/core/src/tasks/update.ts :: silent:cascade": 1,
     "packages/core/src/tasks/update.ts :: W_RANKING_REASON_MISSING": 1,
     "packages/core/src/templates/registry.ts :: Error": 4,
-    "packages/core/src/tools/agent-registry.ts :: Error": 3,
-    "packages/core/src/tools/browser-driver.ts :: Error": 1,
-    "packages/core/src/tools/dispatch.ts :: ToolAbortError": 1,
-    "packages/core/src/tools/exec-code-agent-tool.ts :: E_EXEC_CODE_EGRESS_DENIED": 1,
     "packages/core/src/tools/guard.ts :: GuardDeniedError": 2,
-    "packages/core/src/tools/mcp-agent-tool.ts :: E_MCP_CALL_FAILED": 1,
-    "packages/core/src/tools/mcp-agent-tool.ts :: E_MCP_CONNECTION_DEAD": 1,
-    "packages/core/src/tools/media-agent-tools.ts :: E_IMAGE_READ_FAILED": 1,
-    "packages/core/src/tools/schedule-agent-tools.ts :: E_SCHEDULE_STORE_UNAVAILABLE": 1,
-    "packages/core/src/tools/skill-agent-tool.ts :: E_SKILL_NOT_FOUND": 1,
-    "packages/core/src/tools/skill-agent-tool.ts :: E_SKILL_NOT_INVOCABLE": 1,
-    "packages/core/src/tools/web-search-backends.ts :: Error": 3,
     "packages/core/src/validation/doctor/checks.ts :: Error": 1,
     "packages/core/src/validation/engine-ops.ts :: E_ALREADY_DONE": 1,
     "packages/core/src/validation/engine-ops.ts :: E_CRITICAL_GATE_OVERRIDE_REJECTED": 1,

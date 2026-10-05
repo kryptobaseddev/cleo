@@ -1850,44 +1850,13 @@ async function scaffoldInitTarget(
     ...(opts.forceRebind ? { forceRebind: true } : {}),
   });
 
-  // T5240: Adapter discovery, activation, and install
-  try {
-    const { AdapterManager } = await import('./adapters/index.js');
-    const mgr = AdapterManager.getInstance(projRoot);
-    const manifests = mgr.discover();
-    if (manifests.length > 0) {
-      created.push(`adapters: ${manifests.length} adapter(s) discovered`);
-      const detected = mgr.detectActive();
-      if (detected.length > 0) {
-        created.push(`adapters: active provider detected (${detected.join(', ')})`);
+  // T13128: the adapter discovery/install step was removed. Its discovery read
+  // `<project>/packages/adapters/<dir>/manifest.json`, which no project has, so
+  // it never ran; repaired, it would have written the user-global
+  // `~/.claude/settings.json`. Provider hooks are delivered per project below.
 
-        // Activate and install detected adapters. T13124: no
-        // `heavyCommandHook` here; the step below owns the hook.
-        for (const adapterId of detected) {
-          try {
-            const adapter = await mgr.activate(adapterId);
-            const installResult = await adapter.install.install({
-              projectDir: projRoot,
-            });
-            if (installResult.success) {
-              created.push(`adapter install (${adapterId}): installed`);
-            } else {
-              warnings.push(`adapter install (${adapterId}): failed`);
-            }
-          } catch (err) {
-            warnings.push(
-              `adapter activate/install (${adapterId}): ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
-      }
-    }
-  } catch (err) {
-    warnings.push(`Adapter discovery: ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  // T13124: the heavy-command hook (T12983), synced per provider on its own
-  // (the adapter step above never reaches it). Writes are listed as created;
+  // T13124: the heavy-command hook (T12983), synced per provider. Writes are
+  // listed as created;
   // a provider in use whose hook could not be put in place is a warning.
   try {
     const { deliverHeavyCommandHooks, heavyHookReportLines } = await import(

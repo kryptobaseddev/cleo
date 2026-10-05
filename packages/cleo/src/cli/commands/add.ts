@@ -15,12 +15,10 @@
 
 import { TASK_SEVERITIES } from '@cleocode/contracts/enums.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import {
-  getProjectRoot,
-  INPUT_CONTRACTS,
-  inferTaskAddParams,
-  validateOperationInput,
-} from '@cleocode/core';
+import { INPUT_CONTRACTS } from '@cleocode/core/dispatch/contracts/input-contracts';
+import { validateOperationInput } from '@cleocode/core/dispatch/validation';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { inferTaskAddParams } from '@cleocode/core/tasks/infer-add-params';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchRaw, handleRawError, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';
 import { collectMutateInput } from '../lib/collect-input.js';

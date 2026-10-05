@@ -37,46 +37,102 @@ import type {
   ValidateVerifyExplainParams,
   ValidateWorkflowComplianceParams,
 } from '@cleocode/contracts';
+import { resolveWorktreeRouting } from '@cleocode/core/core-paths';
+import { getLogger } from '@cleocode/core/logger';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import {
-  checkArchiveStats,
-  checkCoherence,
   checkComplianceRecord,
   checkComplianceSummary,
-  checkComplianceSync,
-  checkExplainVerification,
-  checkGradeSession,
-  checkReadGrades,
   checkTestCoverage,
   checkTestRun,
   checkTestStatus,
   checkValidateManifest,
   checkValidateOutput,
-  checkValidateProtocol,
-  checkValidateSchema,
-  checkValidateTask,
-  checkWorkflowCompliance,
-  getLogger,
-  getProjectRoot,
-  previewTaskGates,
-  resolveWorktreeRouting,
-  validateGateVerify,
-  validateProtocolArchitectureDecision,
-  validateProtocolArtifactPublish,
-  validateProtocolConsensus,
-  validateProtocolContribution,
-  validateProtocolDecomposition,
-  validateProtocolImplementation,
-  validateProtocolProvenance,
-  validateProtocolRelease,
-  validateProtocolResearch,
-  validateProtocolSpecification,
-  validateProtocolTesting,
-  validateProtocolValidation,
-} from '@cleocode/core/internal';
+} from '@cleocode/core/validation/ops';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult } from './_base.js';
 import { dispatchMeta } from './_meta.js';
+import { lazyOperation } from './lazy.js';
+
+// CORE operations load on first call (T13126): a command loads its own
+// modules, not every operation's in this domain.
+
+const checkArchiveStats = lazyOperation(
+  async () => (await import('@cleocode/core/validation/ops')).checkArchiveStats,
+);
+const checkCoherence = lazyOperation(
+  async () => (await import('@cleocode/core/validation/ops')).checkCoherence,
+);
+const checkComplianceSync = lazyOperation(
+  async () => (await import('@cleocode/core/validation/ops')).checkComplianceSync,
+);
+const checkExplainVerification = lazyOperation(
+  async () =>
+    (await import('@cleocode/core/lifecycle/verification/explain')).checkExplainVerification,
+);
+const checkGradeSession = lazyOperation(
+  async () => (await import('@cleocode/core/validation/ops')).checkGradeSession,
+);
+const checkReadGrades = lazyOperation(
+  async () => (await import('@cleocode/core/validation/ops')).checkReadGrades,
+);
+const checkValidateProtocol = lazyOperation(
+  async () => (await import('@cleocode/core/validation/ops')).checkValidateProtocol,
+);
+const checkValidateSchema = lazyOperation(
+  async () => (await import('@cleocode/core/validation/ops')).checkValidateSchema,
+);
+const checkValidateTask = lazyOperation(
+  async () => (await import('@cleocode/core/validation/ops')).checkValidateTask,
+);
+const checkWorkflowCompliance = lazyOperation(
+  async () => (await import('@cleocode/core/validation/ops')).checkWorkflowCompliance,
+);
+const previewTaskGates = lazyOperation(
+  async () => (await import('@cleocode/core/tasks/gate-preview')).previewTaskGates,
+);
+const validateGateVerify = lazyOperation(
+  async () => (await import('@cleocode/core/validation/engine-ops')).validateGateVerify,
+);
+const validateProtocolArchitectureDecision = lazyOperation(
+  async () =>
+    (await import('@cleocode/core/validation/engine-ops')).validateProtocolArchitectureDecision,
+);
+const validateProtocolArtifactPublish = lazyOperation(
+  async () =>
+    (await import('@cleocode/core/validation/engine-ops')).validateProtocolArtifactPublish,
+);
+const validateProtocolConsensus = lazyOperation(
+  async () => (await import('@cleocode/core/validation/engine-ops')).validateProtocolConsensus,
+);
+const validateProtocolContribution = lazyOperation(
+  async () => (await import('@cleocode/core/validation/engine-ops')).validateProtocolContribution,
+);
+const validateProtocolDecomposition = lazyOperation(
+  async () => (await import('@cleocode/core/validation/engine-ops')).validateProtocolDecomposition,
+);
+const validateProtocolImplementation = lazyOperation(
+  async () => (await import('@cleocode/core/validation/engine-ops')).validateProtocolImplementation,
+);
+const validateProtocolProvenance = lazyOperation(
+  async () => (await import('@cleocode/core/validation/engine-ops')).validateProtocolProvenance,
+);
+const validateProtocolRelease = lazyOperation(
+  async () => (await import('@cleocode/core/validation/engine-ops')).validateProtocolRelease,
+);
+const validateProtocolResearch = lazyOperation(
+  async () => (await import('@cleocode/core/validation/engine-ops')).validateProtocolResearch,
+);
+const validateProtocolSpecification = lazyOperation(
+  async () => (await import('@cleocode/core/validation/engine-ops')).validateProtocolSpecification,
+);
+const validateProtocolTesting = lazyOperation(
+  async () => (await import('@cleocode/core/validation/engine-ops')).validateProtocolTesting,
+);
+const validateProtocolValidation = lazyOperation(
+  async () => (await import('@cleocode/core/validation/engine-ops')).validateProtocolValidation,
+);
 
 // ---------------------------------------------------------------------------
 // Typed inner handler (Wave D · T1423)
@@ -683,7 +739,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     // T994: Track memory usage on gate verification (fire-and-forget; must not block).
     setImmediate(async () => {
       try {
-        const { trackMemoryUsage } = await import('@cleocode/core/internal');
+        const { trackMemoryUsage } = await import('@cleocode/core/memory/quality-feedback');
         await trackMemoryUsage(projectRoot, params.taskId!, true, params.taskId!, 'verified');
       } catch {
         // Quality tracking errors must never surface to the verify flow

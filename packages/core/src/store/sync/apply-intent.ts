@@ -25,6 +25,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import { SECRET_MARKER } from './capture.js';
+import { mergeGroupsOf } from './merge/rules.js';
 import { decodeEnc } from './sealer-values.js';
 
 /** `col` of the intent for a row insert. */
@@ -251,20 +252,29 @@ export function subtractApplyIntents<C extends IntentCapture>(
       return;
     }
     const left: Record<string, unknown> = {};
-    for (const [col, raw] of Object.entries(img)) {
-      const key = intentKey(c.tbl, uid, col);
-      const superseded = (last.get(key) ?? k) > k;
-      if (superseded || derived?.has(col)) continue;
-      const want = intent(col);
-      if (matches(want, afterValue(c, raw), c.seq, count.get(key) ?? 1)) continue;
+    const keep = (col: string, raw: unknown): void => {
       if (c.op === 'U') {
         left[col] = raw;
       } else {
         // Residual on an applied insert: an update from the value the apply
         // wrote (NULL when it wrote none) to the value the capture holds.
-        const from = want ?? 'NULL';
+        const from = intent(col) ?? 'NULL';
         left[col] = [Array.isArray(raw) ? [from, null] : from, raw];
       }
+    };
+    const live = (col: string): boolean =>
+      (last.get(intentKey(c.tbl, uid, col)) ?? k) <= k && !derived?.has(col);
+    for (const [col, raw] of Object.entries(img)) {
+      if (!live(col)) continue;
+      const key = intentKey(c.tbl, uid, col);
+      if (matches(intent(col), afterValue(c, raw), c.seq, count.get(key) ?? 1)) continue;
+      keep(col, raw);
+    }
+    // A merge group stays whole (T13222): one residual member keeps every
+    // member the capture recorded, so the sealed op never splits a group.
+    for (const g of mergeGroupsOf(c.tbl, Object.keys(img))) {
+      if (!g.some((col) => col in left)) continue;
+      for (const col of g) if (!(col in left) && live(col)) keep(col, img[col]);
     }
     if (Object.keys(left).length === 0) {
       removed.push(c);

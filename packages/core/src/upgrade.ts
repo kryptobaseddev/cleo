@@ -1202,39 +1202,11 @@ export async function runUpgrade(
       /* best-effort */
     }
 
-    // Adapter discovery, activation, and install (T5240)
-    // Ensures Claude Code settings.json hooks and other adapter configs stay current.
-    try {
-      const { AdapterManager } = await import('./adapters/index.js');
-      const mgr = AdapterManager.getInstance(projectRootForMaint);
-      const manifests = mgr.discover();
-      if (manifests.length > 0) {
-        const detected = mgr.detectActive();
-        for (const adapterId of detected) {
-          try {
-            const adapter = await mgr.activate(adapterId);
-            // T13124: no `heavyCommandHook` here; the step below owns the hook.
-            const installResult = await adapter.install.install({
-              projectDir: projectRootForMaint,
-            });
-            if (installResult.success) {
-              actions.push({
-                action: 'adapter_install',
-                status: 'applied',
-                details: `Adapter ${adapterId}: installed/updated`,
-              });
-            }
-          } catch {
-            /* best-effort — adapter may not support install */
-          }
-        }
-      }
-    } catch {
-      /* best-effort — adapters are optional */
-    }
-
-    // T13124: the heavy-command hook (T12983) is its own step, not part of the
-    // adapter install above (whose discovery finds no adapter in a project).
+    // T13128: the adapter discovery/install step was removed (it never found an
+    // adapter in any project, and repaired it would have written the
+    // user-global ~/.claude/settings.json). The hook step below is the only
+    // provider install, and it reports every outcome.
+    // T13124: the heavy-command hook (T12983) is its own step.
     // Every provider is synced on its own; each write, and each provider in use
     // whose hook could not be put in place, is reported, never swallowed.
     try {

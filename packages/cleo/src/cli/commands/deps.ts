@@ -13,11 +13,9 @@
  */
 
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import {
-  buildGenericTaskTree,
-  depsCriticalPath,
-  resolveProjectRoot,
-} from '@cleocode/core/internal';
+import { getCriticalPath as depsCriticalPath } from '@cleocode/core/phases/deps';
+import { resolveProjectRoot } from '@cleocode/core/store/file-utils';
+import { buildGenericTaskTree } from '@cleocode/core/tasks/generic-tree';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { isJsonFormat, isQuiet } from '../format-context.js';

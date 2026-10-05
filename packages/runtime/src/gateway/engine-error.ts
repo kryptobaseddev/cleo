@@ -29,12 +29,9 @@
  * - 100+: Special informational codes (not errors)
  */
 
-import {
-  engineError as coreEngineError,
-  type EngineResult,
-  getLogger,
-  type ProblemDetails,
-} from '@cleocode/core';
+import type { EngineResult, ProblemDetails } from '@cleocode/contracts';
+import { engineError as coreEngineError } from '@cleocode/contracts/engine-result.js';
+import { getLogger } from '@cleocode/core/logger';
 import { mapNumericExitCodeToString } from './exit-codes.js';
 
 // Re-export EngineResult from core (canonical location)
@@ -290,7 +287,7 @@ export function engineError<T>(
  * return engineSuccess({ tasks: filteredTasks, total: count });
  * ```
  */
-export { engineSuccess } from '@cleocode/core';
+export { engineSuccess } from '@cleocode/contracts/engine-result.js';
 
 /**
  * Minimal meta shape carrying the request ID for RFC 7807 `instance` population.
