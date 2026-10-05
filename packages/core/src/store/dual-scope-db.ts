@@ -72,7 +72,11 @@ import {
   getRecordedExodusAbort,
 } from './exodus/abort-events.js';
 import type { ExodusOnOpenPreparation } from './exodus/on-open.js';
-import { installExodusWriteGuard, peekExodusWriteGuard } from './exodus/write-guard.js';
+import {
+  installExodusWriteGuard,
+  peekExodusWriteGuard,
+  registerExodusWriteGuard,
+} from './exodus/write-guard.js';
 import { ForeignKeysNotRestoredError, migrateBracketed } from './migration-runner.js';
 import { assertStoreNotRelocated } from './relocated-store-guard.js';
 import {
@@ -361,8 +365,9 @@ async function guardStrandedStore(
   const { pendingExodusTargets } = await import('./exodus/write-guard.js');
   let sources: readonly string[];
   let tables: readonly string[];
+  let sentinels: Readonly<Record<string, readonly string[]>> = {};
   try {
-    ({ sources, tables } = await pendingExodusTargets(scope, cwd));
+    ({ sources, tables, sentinels } = await pendingExodusTargets(scope, cwd));
   } catch (err) {
     // The legacy files could not be read: assume they hold rows and protect the
     // anchor table, whose first row would stop the migration for good.
@@ -384,6 +389,7 @@ async function guardStrandedStore(
     {
       anchor: exodusAnchorTable(scope),
       tables: [...new Set([...tables, exodusAnchorTable(scope)])],
+      sentinels,
       sources,
       markerPath,
       detail,
@@ -415,20 +421,21 @@ function guardAnchorOnly(
   reason: string,
 ): void {
   if (peekExodusWriteGuard(nativeDb) !== undefined) return;
+  const anchor = exodusAnchorTable(scope);
+  const sources = ['stores'];
+  const detail = strandedDetail(scope, dbPath, kind, reason, sources);
+  const guard = { anchor, tables: [anchor], sources, markerPath: null, detail };
   try {
-    const anchor = exodusAnchorTable(scope);
-    const sources = ['stores'];
-    const detail = strandedDetail(scope, dbPath, kind, reason, sources);
-    installExodusWriteGuard(
-      nativeDb,
-      { anchor, tables: [anchor], sources, markerPath: null, detail },
-      exodusRefusalMessage(scope, detail.reason, kind),
-    );
+    installExodusWriteGuard(nativeDb, guard, exodusRefusalMessage(scope, detail.reason, kind));
   } catch (err) {
+    // Never fail open (T13171): without even the anchor trigger, register the
+    // guard for the typed write checks, which every production write path
+    // calls first, so the store is not published as if it owed nothing.
     getLogger('dual-scope-db').error(
       { err, scope },
-      'exodus-on-open: the store could not be guarded before its migration',
+      'exodus-on-open: the store could not be guarded by trigger; writes are refused by the typed checks only',
     );
+    registerExodusWriteGuard(nativeDb, guard);
   }
 }
 

@@ -64,7 +64,9 @@ vi.mock('../exodus/on-open.js', async (importOriginal) => {
  * Fault injection for the pre-publication guard (#1836 review LOW-a): when set,
  * the next guard install, or the next abort broadcast, throws once.
  */
-const { faults } = vi.hoisted(() => ({ faults: { failInstall: false, failEmit: false } }));
+const { faults } = vi.hoisted(() => ({
+  faults: { failInstall: false, failInstallCount: 0, failEmit: false },
+}));
 vi.mock('../exodus/write-guard.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../exodus/write-guard.js')>();
   return {
@@ -74,6 +76,10 @@ vi.mock('../exodus/write-guard.js', async (importOriginal) => {
     ): ReturnType<typeof actual.installExodusWriteGuard> => {
       if (faults.failInstall) {
         faults.failInstall = false;
+        throw new Error('injected: guard install failed');
+      }
+      if (faults.failInstallCount > 0) {
+        faults.failInstallCount--;
         throw new Error('injected: guard install failed');
       }
       return actual.installExodusWriteGuard(...args);
@@ -117,6 +123,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   faults.failInstall = false;
+  faults.failInstallCount = 0;
   faults.failEmit = false;
   const { drainWarnings } = await import('../../output.js');
   drainWarnings();
@@ -524,6 +531,30 @@ describe('deferred exodus-on-open (T13158)', () => {
     const migrated = await openDualScopeDb('project', projectDir);
     expect(migrated.exodusAbort).toBeUndefined();
     expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(LEGACY_TASK_IDS.length);
+  });
+
+  it('a store no trigger can guard is still refused by the typed write checks, never published as owing nothing (T13171)', async () => {
+    seedLegacyTasksStore(cleoDir);
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(memoryPressured);
+    // Both the full guard and the anchor-only fallback fail to install.
+    faults.failInstallCount = 2;
+    const { getTaskAccessor } = await import('../data-accessor.js');
+
+    const deferred = await openDualScopeDb('project', projectDir);
+    expect(faults.failInstallCount).toBe(0);
+    expect(deferred.exodusAbort?.kind).toBe('deferred');
+    const accessor = await getTaskAccessor(projectDir);
+    await expect(
+      accessor.upsertSingleTask({
+        id: 'T999',
+        title: 'written while no trigger guards the store',
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        createdAt: '2026-10-03T00:00:00Z',
+      }),
+    ).rejects.toMatchObject({ codeName: EXODUS_DEFERRED_WRITE_CODE });
+    expect(countRowsInFile(dbPath, 'tasks_tasks')).toBe(0);
   });
 
   it('never asks the governor when no migration is pending', async () => {
