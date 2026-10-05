@@ -168,7 +168,8 @@ export interface RowMetaFromFields {
  * The map may be partial when the row already has meta: an absent column
  * keeps the field HLC it had (never silently advanced to the new row HLC),
  * and a named column keeps the newer of its stored and incoming HLC (never
- * moved back, T13207).
+ * moved back, T13207). A write in which no named field wins writes nothing:
+ * the losing op's origin, actor, tombstone and content hash never land.
  * A row's first write must name every non-identity column.
  *
  * @returns The row HLC written.
@@ -186,11 +187,16 @@ export function upsertRowMetaFromFields(
   if (named.length === 0) throw new Error(`row meta for ${w.tbl}/${w.uid}: no field HLC`);
   // Keep the newer HLC per field (T13207): a field the caller names with an
   // older HLC than the stored one (a losing remote field) never moves back.
+  let won = prev === undefined;
   for (const c of named) {
     const incoming = w.fieldHlc[c] as string;
     const stored = fields[c];
+    if (stored === undefined || incoming > stored) won = true;
     fields[c] = stored !== undefined && stored > incoming ? stored : incoming;
   }
+  // A write in which no named field wins changes nothing: a losing op never
+  // stamps its origin, actor or tombstone on the row, nor bumps its version.
+  if (!won && prev) return prev.hlc;
   const missing = def.columns.filter((c) => !def.identity.includes(c) && fields[c] === undefined);
   if (missing.length > 0) {
     // @sync-invariant none:input-shape a row's first meta write must name every field; nothing is written

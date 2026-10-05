@@ -164,6 +164,33 @@ describe('the writer (T13204)', () => {
     expect(fieldHlcsOf(DEF, meta)).toEqual({ a: 'h5', b: 'h4', c: 'h2' });
   });
 
+  it('a write in which every named field loses changes nothing, not even a tombstone (review-hotfix MED)', async () => {
+    const db = await store();
+    upsertRowMetaFromFields(db, DEF, {
+      tbl: 't',
+      uid: 'u',
+      fieldHlc: { a: 'h5', b: 'h5', c: 'h5' },
+      origin: 'r1',
+      actor: 'x',
+      deleted: false,
+      chash: 'ch',
+    });
+    const before = db.prepare("SELECT * FROM _sync_row_meta WHERE tbl = 't' AND uid = 'u'").get();
+    const hlc = upsertRowMetaFromFields(db, DEF, {
+      tbl: 't',
+      uid: 'u',
+      fieldHlc: { a: 'h3' },
+      origin: 'r2',
+      actor: 'y',
+      deleted: true,
+      chash: null,
+    });
+    expect(hlc).toBe('h5');
+    expect(db.prepare("SELECT * FROM _sync_row_meta WHERE tbl = 't' AND uid = 'u'").get()).toEqual(
+      before,
+    );
+  });
+
   it("refuses a row's first write that misses a field", async () => {
     const db = await store();
     expect(() =>
