@@ -34,6 +34,12 @@ import { twinCollapseFailureOf } from '../../twin-collapse.js';
 export interface PageRow {
   readonly table: string;
   readonly uid: string;
+  /**
+   * The op could change the row's own type (an insert, or a write of
+   * `type`): only then are its children re-judged, since moving a row never
+   * changes whether its children are allowed under it.
+   */
+  readonly typeChanged?: boolean;
 }
 
 /** One broken invariant. */
@@ -113,8 +119,8 @@ export function checkTaskTreeShape(
         v(row.uid, `a ${parentType} cannot contain the ${type} ${t.id}`);
       }
     }
-    // Its children are still allowed under its type (the trigger never re-checks them).
-    if (type !== null) {
+    // Its children are still allowed under a changed type (the trigger never re-checks them).
+    if (type !== null && row.typeChanged) {
       const kids = db
         .prepare('SELECT id, uid, type FROM main.tasks_tasks WHERE parent_id = ?')
         .all(t.id) as Array<{ id: string; uid: string | null; type: string | null }>;

@@ -1114,6 +1114,20 @@ describe('Gate C post-apply checks (§3.6, PR-5)', () => {
     stage(db, segment(R2, [txn('R2:1', [update('lc', hn(1), { title: 'edited' })])]));
     expect(apply(db, now + 10)).toMatchObject({ applied: 1, void: 0 });
     expect(task(db, 'lc')?.title).toBe('edited');
+    // Moving the legacy parent does not re-judge its legacy child (#1907 LOW).
+    stage(
+      db,
+      segment(R2, [
+        txn('R2:1b', [
+          insert('ep0', hn(1), { type: 'epic' }),
+          update('lp', hn(1), { parent_id: 'ep0' }),
+        ]),
+      ]),
+    );
+    expect(apply(db, now + 10)).toMatchObject({ applied: 1, void: 0 });
+    expect(db.prepare("SELECT parent_id AS p FROM tasks_tasks WHERE uid = 'lp'").get()).toEqual({
+      p: 'EP0',
+    });
     // A transaction that introduces a violation still voids: a subtask under an epic
     // (the trigger allows it; the full matrix does not).
     stage(

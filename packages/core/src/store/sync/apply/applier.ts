@@ -421,11 +421,6 @@ function effect(
   return out.conflicts.length;
 }
 
-/** The rows a transaction writes: each op's row (a re-key's new uid). */
-function pageOf(ops: readonly LedgerOp[]): PageRow[] {
-  return ops.map((o) => ({ table: o.t, uid: o.o === 'K' && o.nu ? o.nu : o.u }));
-}
-
 /**
  * The page PAC-01 judges: only rows whose shape this transaction could have
  * changed (an insert, a re-key, or an op carrying `parent_id` or `type`).
@@ -434,12 +429,16 @@ function pageOf(ops: readonly LedgerOp[]): PageRow[] {
  * one of those columns, so nothing introduced is missed (T13244).
  */
 function treeShapePage(ops: readonly LedgerOp[]): PageRow[] {
-  return pageOf(
-    ops.filter(
+  return ops
+    .filter(
       (o) =>
         o.o === 'I' || o.o === 'K' || (o.a !== undefined && ('parent_id' in o.a || 'type' in o.a)),
-    ),
-  );
+    )
+    .map((o) => ({
+      table: o.t,
+      uid: o.o === 'K' && o.nu ? o.nu : o.u,
+      typeChanged: o.o === 'I' || (o.a !== undefined && 'type' in o.a),
+    }));
 }
 
 /** The status of an applied transaction from its ops' results. */
