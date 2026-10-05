@@ -16,7 +16,7 @@
  * | 1 | `reaped`                 | Leaked MCP/agent helpers (registration-primary)      |
  * | 2 | `scopesStopped`          | Cleo-owned systemd transient scopes that exited      |
  * | 3 | `locksReclaimed`         | Sentient/GC lock files held by dead PIDs             |
- * | 4 | `semaphoreSlotsCleared`  | Tool-semaphore slot dirs held past staleMs           |
+ * | 4 | `semaphoreSlotsCleared`  | Legacy admission slot dirs (stale locks, empty dirs) |
  * | 5 | `worktreesPruned`        | Orphan worktree directories                          |
  * | 6 | `worktreesQuarantined`   | Dirty/unpushed worktrees quarantined                 |
  * | 7 | `tmpRemoved`             | Stale CLEO temp directories                          |
@@ -80,8 +80,8 @@ export const DEFAULT_GRACE_MS = 10 * 60 * 1000;
 export const SIGTERM_GRACE_MS = 3_000;
 
 /**
- * Default stale-ms for tool-semaphore slot lock directories.
- * Matches tool-semaphore.ts default.
+ * Default stale-ms for legacy admission slot lock directories (the slot lock
+ * stale window they were written with).
  */
 export const DEFAULT_SEMAPHORE_STALE_MS = 600_000;
 
@@ -129,7 +129,7 @@ export interface JanitorResult {
   readonly scopesStopped: number;
   /** Stale PID lock files reclaimed (sentient, gc). */
   readonly locksReclaimed: number;
-  /** Stale tool-semaphore slot directories cleared. */
+  /** Stale legacy admission slot locks cleared, and empty legacy dirs removed (T13133). */
   readonly semaphoreSlotsCleared: number;
   /** Orphan worktree directories removed. */
   readonly worktreesPruned: number;
@@ -639,17 +639,34 @@ function reclaimStalePidLocks(opts: { cleoDir: string; dryRun: boolean }): numbe
 }
 
 // ---------------------------------------------------------------------------
-// Category 4: Stale tool-semaphore slot directories (Amendment 5)
+// Category 4: Legacy admission slot directories (Amendment 5, T13133)
 // ---------------------------------------------------------------------------
 
 /**
- * Clear stale proper-lockfile lock-directories under getCleoHome()/locks/tool-star.
+ * Whether a `locks/` subdirectory belongs to an admission layer the admission
+ * ledger replaced (T13133): the tool semaphore's `tool-*` dirs and the
+ * governor's `resource-test-run` / `-scoped-build` / `-full-build` dirs.
+ */
+function isLegacyAdmissionDir(name: string): boolean {
+  return (
+    name.startsWith('tool-') ||
+    name === 'resource-test-run' ||
+    name === 'resource-scoped-build' ||
+    name === 'resource-full-build'
+  );
+}
+
+/**
+ * Clear the slot directories of the admission layers the ledger replaced
+ * (T13133), under getCleoHome()/locks/.
  *
  * proper-lockfile creates slot.lock/ directories.  A slot is stale when:
  *   1. Its mtime is older than staleMs, AND
  *   2. The pid file inside (written by proper-lockfile) records a dead PID.
  *
- * Amendment 5: if the PID inside is alive, skip even if mtime is old.
+ * Amendment 5: if the PID inside is alive, skip even if mtime is old (an older
+ * CLEO still running on this machine may hold it). A legacy directory left
+ * with no lock at all is removed whole.
  */
 function clearStaleSemaphoreSlots(opts: {
   dryRun: boolean;
@@ -665,7 +682,7 @@ function clearStaleSemaphoreSlots(opts: {
 
   try {
     for (const toolDir of readdirSync(locksRoot)) {
-      if (!toolDir.startsWith('tool-')) continue;
+      if (!isLegacyAdmissionDir(toolDir)) continue;
       const toolPath = join(locksRoot, toolDir);
       try {
         if (!statSync(toolPath).isDirectory()) continue;
@@ -703,6 +720,20 @@ function clearStaleSemaphoreSlots(opts: {
           } catch {
             // stat/rm failed — skip
           }
+        }
+        // No lock left in it: nothing uses this legacy directory any more.
+        const stillLocked = readdirSync(toolPath).some((entry) => {
+          if (!entry.endsWith('.lock')) return false;
+          try {
+            return statSync(join(toolPath, entry)).isDirectory();
+          } catch {
+            return false;
+          }
+        });
+        if (!stillLocked) {
+          if (!dryRun) rmSync(toolPath, { recursive: true, force: true });
+          auditLog(cleoDir, 'remove-legacy-admission-dir', { dir: toolPath }, dryRun);
+          cleared++;
         }
       } catch {
         // readdir failed — skip
@@ -826,7 +857,7 @@ export async function runJanitor(opts: JanitorOptions = {}): Promise<JanitorResu
     }
   }
 
-  // ── Category 4: Semaphore slots ───────────────────────────────────────────
+  // ── Category 4: Legacy admission slots ────────────────────────────────────
   if (!skip.semaphores) {
     try {
       semaphoreSlotsCleared = clearStaleSemaphoreSlots({ dryRun, cleoDir });

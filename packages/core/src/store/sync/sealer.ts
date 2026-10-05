@@ -65,6 +65,7 @@ import { isSyncFlagOn, UNRELEASED_FLAGS } from './flags.js';
 import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './netting.js';
 import { remapCapture, remapPending } from './remap.js';
 import { activeReplica } from './replica.js';
+import { nextFhlc, type RowMetaRow, upsertRowMeta } from './row-meta.js';
 import { hasTable } from './schema.js';
 import { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
 import { markSuspect } from './structural.js';
@@ -581,16 +582,6 @@ function unsealable(ctx: TableContext, op: NettedOp): string | null {
 // Row meta, chash, ledger
 // ---------------------------------------------------------------------------
 
-interface MetaRow {
-  hlc: string;
-  fhlc: string | null;
-  version: number;
-  deleted: number;
-  key_json: string | null;
-  chash: string | null;
-  bfp: string | null;
-}
-
 /**
  * sha256 of a row's canonical WIRE image (§2.7, M6; T13031): the values an I
  * op of the row would carry, so every replica hashes identical bytes. Secret
@@ -635,23 +626,6 @@ function chashOf(ctx: TableContext, def: CaptureTableDef, uid: string): string |
     if (v !== null) wire[col] = v;
   }
   return createHash('sha256').update(canonicalJson(wire)).digest('hex');
-}
-
-function nextFhlc(
-  prev: MetaRow | undefined,
-  def: CaptureTableDef,
-  changed: readonly string[],
-  h: string,
-): string | null {
-  if (!prev) return null;
-  const old = prev.fhlc ? (JSON.parse(prev.fhlc) as Record<string, string>) : {};
-  const out: Record<string, string> = {};
-  for (const col of def.columns) {
-    if (def.identity.includes(col) || changed.includes(col)) continue;
-    const at = old[col] ?? prev.hlc;
-    if (at < h) out[col] = at;
-  }
-  return Object.keys(out).length > 0 ? canonicalJson(out) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -892,14 +866,6 @@ function sealInTransaction(
     get: db.prepare(
       'SELECT hlc, fhlc, version, deleted, key_json, chash, bfp FROM _sync_row_meta WHERE tbl = ? AND uid = ?',
     ),
-    upsert: db.prepare(
-      `INSERT INTO _sync_row_meta (tbl, uid, hlc, fhlc, origin, actor, version, deleted, key_json, chash, bfp)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (tbl, uid) DO UPDATE SET hlc = excluded.hlc, fhlc = excluded.fhlc,
-         origin = excluded.origin, actor = excluded.actor, version = excluded.version,
-         deleted = excluded.deleted, key_json = coalesce(excluded.key_json, key_json),
-         chash = excluded.chash, bfp = coalesce(excluded.bfp, bfp)`,
-    ),
     remove: db.prepare('DELETE FROM _sync_row_meta WHERE tbl = ? AND uid = ?'),
     // A re-key moves the row's meta and keeps hlc, fhlc, version and chash
     // (§2.5 step 5, T13031); only the key and birth_fp follow the new uid.
@@ -1119,7 +1085,7 @@ function sealInTransaction(
       const rk = at({ seq, last })?.rk ?? '';
       insOp.run(txn, i, op.t, op.u, op.o, op.h, canonicalJson(op));
       const def = ctx.def(op.t);
-      const prev = meta.get.get(op.t, op.u) as MetaRow | undefined;
+      const prev = meta.get.get(op.t, op.u) as RowMetaRow | undefined;
       const keyJson = op.k ? canonicalJson(op.k) : null;
       if (op.o === 'K' && op.nu !== undefined) {
         // A K that keeps its uid changes only birth_fp: its meta stays put.
@@ -1127,19 +1093,19 @@ function sealInTransaction(
         if (prev) {
           meta.move.run(op.nu, keyJson, op.bfp ?? null, op.t, op.u);
         } else {
-          meta.upsert.run(
-            op.t,
-            op.nu,
-            op.h,
-            null,
-            replica,
-            g.actor,
-            1,
-            0,
+          upsertRowMeta(db, {
+            tbl: op.t,
+            uid: op.nu,
+            hlc: op.h,
+            fhlc: null,
+            origin: replica,
+            actor: g.actor,
+            version: 1,
+            deleted: false,
             keyJson,
-            null,
-            op.bfp ?? null,
-          );
+            chash: null,
+            bfp: op.bfp ?? null,
+          });
         }
         touched.delete(rowKey(op.t, op.u));
         touched.set(rowKey(op.t, op.nu), { tbl: op.t, uid: op.nu, rk });
@@ -1155,19 +1121,19 @@ function sealInTransaction(
       }
       const changed = op.o === 'U' ? Object.keys(op.a ?? {}) : [];
       const fhlc = op.o === 'U' ? nextFhlc(prev, def, changed, op.h) : null;
-      meta.upsert.run(
-        op.t,
-        op.u,
-        op.h,
+      upsertRowMeta(db, {
+        tbl: op.t,
+        uid: op.u,
+        hlc: op.h,
         fhlc,
-        replica,
-        g.actor,
-        (prev?.version ?? 0) + 1,
-        op.o === 'D' ? 1 : 0,
+        origin: replica,
+        actor: g.actor,
+        version: (prev?.version ?? 0) + 1,
+        deleted: op.o === 'D',
         keyJson,
-        op.o === 'D' ? (prev?.chash ?? null) : null,
-        op.bfp ?? null,
-      );
+        chash: op.o === 'D' ? (prev?.chash ?? null) : null,
+        bfp: op.bfp ?? null,
+      });
       if (op.o === 'I') ledgerDelta.set(op.t, (ledgerDelta.get(op.t) ?? 0) + 1);
       if (op.o === 'D') ledgerDelta.set(op.t, (ledgerDelta.get(op.t) ?? 0) - 1);
       if (op.o === 'D') touched.delete(rowKey(op.t, op.u));

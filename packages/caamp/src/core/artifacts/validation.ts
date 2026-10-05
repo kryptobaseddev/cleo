@@ -26,13 +26,15 @@ export const CLEO_ARTIFACT_BUDGETS: Readonly<PackageArtifactBudgets> = Object.fr
 
 /**
  * The JavaScript files `build.mjs` declares for the published CLI: the CLI
- * bundle, and the provider hook runtime that `bin/cleo.js` imports directly for
- * `cleo hook heavy-command` (T12983), skipping the CLI bootstrap. Any other
- * `.js` under `dist/` is development output.
+ * bundle, the provider hook runtime that `bin/cleo.js` imports directly for
+ * `cleo hook heavy-command` (T12983), skipping the CLI bootstrap, and the
+ * detached dist-tags check the CLI spawns for its update notice (T13137). Any
+ * other `.js` under `dist/` is development output.
  */
 const CLEO_SHIPPED_JS_ENTRIES: ReadonlySet<string> = new Set([
   'dist/cli/index.js',
   'dist/cli/hook-entry.js',
+  'dist/cli/update-check-entry.js',
 ]);
 
 /**
@@ -51,6 +53,7 @@ export const CLEO_CLI_CHUNK_PATTERN: RegExp = /^dist\/cli\/[a-z0-9_.-]+-[A-Z0-9]
 export const CLEO_ARTIFACT_REQUIREMENTS: readonly PackageArtifactRequirement[] = Object.freeze([
   { id: 'cli-entry', path: 'dist/cli/index.js', match: 'exact' },
   { id: 'cli-hook-entry', path: 'dist/cli/hook-entry.js', match: 'exact' },
+  { id: 'cli-update-check-entry', path: 'dist/cli/update-check-entry.js', match: 'exact' },
   { id: 'studio-server-entry', path: 'studio-dist/index.js', match: 'exact' },
   { id: 'studio-handler', path: 'studio-dist/handler.js', match: 'exact' },
   { id: 'studio-server', path: 'studio-dist/server/index.js', match: 'exact' },

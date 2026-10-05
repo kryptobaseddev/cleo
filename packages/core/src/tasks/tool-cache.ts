@@ -64,6 +64,7 @@ import { join, resolve } from 'node:path';
 import type { HeavyToolResourcePlan } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
+import { ADMISSION_ENV } from '../resources/admission-ledger.js';
 import { activeToolGroups, trackToolGroup } from '../resources/tool-groups.js';
 import { isLocked, withLock } from '../store/lock.js';
 import {
@@ -399,16 +400,15 @@ export interface RunToolOptions {
    */
   tailBytes?: number;
   /**
-   * When `true`, skip the global cross-process semaphore that bounds the
-   * total number of concurrent runs of this canonical tool across the
-   * whole machine. Use only in tests where the semaphore would block
-   * arbitrary parallel sibling tests.
+   * When `true`, skip machine-wide admission (the admission ledger that
+   * bounds every heavy run's memory across the machine, T13133). Use only in
+   * tests where admission would block arbitrary parallel sibling tests.
    *
    * @defaultValue `false`
    */
   skipGlobalSemaphore?: boolean;
   /**
-   * Tuning for the global semaphore acquisition. Forwarded to
+   * Tuning for the machine-wide admission. Forwarded to
    * {@link acquireGlobalSlot}.
    *
    * @internal
@@ -558,8 +558,7 @@ export function defaultSpawnTimeoutMs(canonical: string): number {
  *
  * Precedence:
  *   1. `CLEO_TOOL_TIMEOUT_<CANONICAL>` env var (canonical name uppercased,
- *      dashes → underscores — the same convention as
- *      `CLEO_TOOL_CONCURRENCY_<CANONICAL>` in tool-semaphore.ts). Value is
+ *      dashes → underscores). Value is
  *      milliseconds, digits only, strictly positive.
  *   2. {@link DEFAULT_SPAWN_TIMEOUT_MS}.
  *
@@ -1753,6 +1752,10 @@ async function runToolCachedWithPlan(
   const treeHash = await captureTreeHash(executionRoot);
   const envFingerprint = captureEnvFingerprint(executionRoot, command.canonical);
   const resourceEnv = captureResourceEnv(command.canonical, process.env, toolEnv);
+  // T13133: the admission token goes to the spawned tool (so a cleo command it
+  // runs rides this run's grant) but never into the cache key: it differs on
+  // every run.
+  let admissionEnv: Readonly<Record<string, string>> = {};
   const head = await captureHead(executionRoot);
   const key = computeCacheKey(command, treeHash, envFingerprint, resourceEnv);
 
@@ -1876,18 +1879,18 @@ async function runToolCachedWithPlan(
   }
 
   // Slow path:
-  //   1. Acquire the global per-tool semaphore (bounds total concurrent
-  //      runs of this canonical across all worktrees / projects on the
-  //      machine — protects CPU and resident memory).
-  //   2. Inside the semaphore, acquire a per-key file lock to coalesce
+  //   1. Wait for machine-wide admission (the admission ledger, T13133: one
+  //      memory budget across all worktrees, projects and heavy-run kinds).
+  //   2. Holding the admission, try the per-key file lock to coalesce
   //      concurrent verifies that share the same cache key.
   //   3. Re-check cache inside the per-key lock; spawn only if still
   //      missing; write the entry; release in reverse order.
   //
-  // Order matters: acquiring the semaphore FIRST means workers blocked on
-  // the global limit are not also holding per-key locks, which keeps the
-  // per-key lock turnover fast. Acquiring the per-key lock SECOND means
-  // we still get cache-hit coalescing for sibling verifies.
+  // Order matters: admission FIRST means runs waiting on the budget hold no
+  // per-key lock, which keeps per-key lock turnover fast. The per-key lock is
+  // only ever tried while admitted: a holder finding it taken gives the
+  // admission back and waits outside (below), so no wait is ever held across
+  // the two.
   ensureCacheDir(projectRoot);
   const cachePath = cacheEntryPath(projectRoot, key);
   if (!existsSync(cachePath)) {
@@ -1942,7 +1945,10 @@ async function runToolCachedWithPlan(
           files: [...pointer.files],
           outcome,
         });
-        const focused = await runFocused(command, plan, executionRoot, spawnTimeoutMs, toolEnv);
+        const focused = await runFocused(command, plan, executionRoot, spawnTimeoutMs, {
+          ...toolEnv,
+          ...admissionEnv,
+        });
         switch (focused.kind) {
           case 'timedOut':
             return timedOutResult(focused.result, focused.durationMs, report('inconclusive'));
@@ -2018,13 +2024,10 @@ async function runToolCachedWithPlan(
     );
     const spawnNormal = async (): Promise<{ result: CommandResult; durationMs: number }> => {
       const startedAt = Date.now();
-      const result = await runner(
-        limited.cmd,
-        [...limited.args],
-        executionRoot,
-        spawnTimeoutMs,
-        toolEnv,
-      );
+      const result = await runner(limited.cmd, [...limited.args], executionRoot, spawnTimeoutMs, {
+        ...toolEnv,
+        ...admissionEnv,
+      });
       return { result, durationMs: Date.now() - startedAt };
     };
     // gh#1397: `limited.confined` OR the project's own pinned wrapper:
@@ -2192,6 +2195,9 @@ async function runToolCachedWithPlan(
           ...(spawnPlan.resources ? { heapMb: spawnPlan.resources.heapMb } : {}),
           ...opts.semaphoreOptions,
         });
+    admissionEnv = releaseSemaphore?.admission
+      ? { [ADMISSION_ENV]: releaseSemaphore.admission }
+      : {};
     try {
       return await withLock(cachePath, runLocked, { stale: lockStaleMs, retries: 3 });
     } catch (err: unknown) {
