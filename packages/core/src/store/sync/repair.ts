@@ -25,7 +25,9 @@
  * rows are baselined instead (meta with the §1.2 genesis HLC, no op) and the
  * ledger is set to the verified count; nothing is pushed before the genesis
  * checkpoint, which carries them. From then on a row without meta is an
- * uncaptured insert.
+ * uncaptured insert. Once the stream has started ({@link streamStarted}) a
+ * row without meta is journaled as an I in every table, baselined or not,
+ * and the table is then marked baselined (T13217): never absorbed silently.
  *
  * The suspect key is cleared only after verification: no live capture of the
  * table remains, a rescan finds nothing to repair, and the ledger equals
@@ -170,6 +172,27 @@ function captureTriggersPresent(db: DatabaseSync, table: string): boolean {
 }
 
 /**
+ * Whether this store's stream has started (T13217): a genesis cut was
+ * recorded (`genesis_cut*` in `_sync_meta`, §2.11 §10), a sealed transaction
+ * was carried by a segment (`state = 'segmented'`), or undo is on (it turns
+ * on with the genesis cut, C1). After that, a checkpoint may already have
+ * left the device, so a row without meta can no longer be assumed to be in
+ * it.
+ */
+export function streamStarted(db: DatabaseSync): boolean {
+  const meta = db
+    .prepare(
+      "SELECT 1 FROM _sync_meta WHERE key LIKE 'genesis_cut%' OR key = 'undo_enabled' LIMIT 1",
+    )
+    .get();
+  if (meta !== undefined) return true;
+  return (
+    hasTable(db, '_sync_txn') &&
+    db.prepare("SELECT 1 FROM _sync_txn WHERE state = 'segmented' LIMIT 1").get() !== undefined
+  );
+}
+
+/**
  * Diff one table against its row meta, every row. Read-only.
  *
  * @param db - The store.
@@ -203,6 +226,10 @@ export function planRepair(
   }
   if (waiting(db, table) > 0) return plan('captures still waiting to seal');
   const baselined = metaValue(db, `${BASELINE_KEY_PREFIX}${table}`) !== undefined;
+  // Once the stream has started, no row may be absorbed silently: a row
+  // without meta is journaled as an I even in a table never baselined
+  // (T13217). Only before genesis is it baselined without an op.
+  const journalMissing = baselined || streamStarted(db);
 
   const meta = new Map<string, { chash: string | null; deleted: number; held: number }>();
   for (const m of db
@@ -231,7 +258,7 @@ export function planRepair(
     live.add(uid);
     const row = { uid, rk: r.rk };
     const m = meta.get(uid);
-    if (!m) (baselined ? inserts : unbaselined).push(row);
+    if (!m) (journalMissing ? inserts : unbaselined).push(row);
     else if (m.held === 1) held += 1;
     else if (m.deleted === 1) inserts.push(row);
     else if (view.chash(def, uid) !== m.chash) updates.push(row);

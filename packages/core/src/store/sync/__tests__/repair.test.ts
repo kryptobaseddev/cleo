@@ -33,6 +33,7 @@ import {
   baselineRowMeta,
   planRepair,
   repairSuspectTables,
+  streamStarted,
 } from '../repair.js';
 import { rowChash, sealPending } from '../sealer.js';
 import { markSuspect } from '../structural.js';
@@ -441,6 +442,40 @@ describe('baselineRowMeta, the one row-meta initializer (T12987, for T12342)', (
     ).toBe(1);
     expect(baselineRowMeta(db, 'project', 'tasks_tasks', REPLICA, T0)).toBe(0);
     expect(baselineRowMeta(db, 'project', 'not_a_table', REPLICA, T0)).toBeNull();
+  });
+});
+
+describe('after the stream starts, nothing is baselined silently (T13217)', () => {
+  it('an uncaptured insert into a never-baselined table is journaled as an I', async () => {
+    const db = await store();
+    addTask(db, 'T1');
+    seal(db);
+    // A genesis cut was recorded: a checkpoint may already have left.
+    db.exec(
+      "INSERT INTO _sync_meta (key, value, updated_at) VALUES ('genesis_cut:project:x', '1', '2026-10-05T00:00:00.000Z')",
+    );
+    uncaptured(
+      db,
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp)
+       VALUES ('P1', 'after genesis', 'task', 'pending', 'medium', 'uid-P1', 'fp-P1')`,
+    );
+    markSuspect(db, 'project', ['tasks_tasks']);
+    const r = repair(db);
+    expect(r.tables[0]?.counts).toEqual(expect.objectContaining({ inserts: 1, baselinedRows: 0 }));
+    expect(r.tables[0]?.cleared).toBe(true);
+    expect(repairOps(db).map((o) => `${o.o}:${o.u}`)).toEqual(['I:uid-P1']);
+    expect(ledger(db, 'tasks_tasks')?.live).toBe(2);
+    expect(
+      n(db, `SELECT count(*) AS n FROM _sync_meta WHERE key = '${BASELINE_KEY_PREFIX}tasks_tasks'`),
+    ).toBe(1);
+  });
+
+  it('a segmented transaction also counts as a started stream', async () => {
+    const db = await store();
+    addTask(db, 'T1');
+    seal(db);
+    db.exec("UPDATE _sync_txn SET state = 'segmented'");
+    expect(streamStarted(db)).toBe(true);
   });
 });
 
