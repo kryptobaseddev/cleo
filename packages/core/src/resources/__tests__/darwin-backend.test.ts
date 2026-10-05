@@ -105,7 +105,13 @@ describe('parseDarwinSysctl', () => {
     expect(s.pressureLevel).toBe(2);
     expect(s.freePercent).toBe(41);
     expect(s.swapTotalBytes).toBe(13312 * MB);
-    expect(s.swapUsedBytes).toBeCloseTo(11625.69 * MB, 0);
+    expect(s.swapUsedBytes).toBe(Math.round(11625.69 * MB));
+    expect(
+      Number.isInteger(
+        parseDarwinSysctl('vm.swapusage: total = 2.00M  used = 1.88M  free = 0.12M\n')
+          .swapUsedBytes,
+      ),
+    ).toBe(true);
     expect(s.loadAvg).toEqual([21.53, 26.57, 41.3]);
     expect(s.ncpu).toBe(18);
   });
@@ -273,7 +279,7 @@ describe('DarwinResourceBackend.sample', () => {
       pressureLevel: 2,
       availablePercent: 41,
       compressorBytes: null,
-      swapUsedBytes: 11625.69 * MB,
+      swapUsedBytes: Math.round(11625.69 * MB),
       swapTotalBytes: 13312 * MB,
       totalBytes: 48 * GB,
     });
@@ -428,7 +434,7 @@ describe('pressureScore (memory scale)', () => {
 });
 
 describe('governor budgets react to cpu saturation', () => {
-  const opts = { cpuCount: 18, totalMemBytes: 256 * GB, testRunEstRamMb: 1024 };
+  const opts = { cpuCount: 18, totalMemBytes: 256 * GB };
   it('test-run narrows to 1 when cores are 2.5x oversubscribed', () => {
     const calm = computeClassBudget('test-run', sample(0, 0), opts);
     expect(calm).toBeGreaterThan(1);

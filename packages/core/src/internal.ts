@@ -1706,7 +1706,7 @@ export type {
 export { buildGenericTaskTree } from './tasks/generic-tree.js';
 export { getCriticalPath } from './tasks/graph-ops.js';
 export type { TaskTreeNode } from './tasks/hierarchy.js';
-// Project-agnostic tool resolution + cache + semaphore (T1534 / ADR-061)
+// Project-agnostic tool resolution + cache + admission (T1534 / ADR-061, T13133)
 export {
   type AcquireSlotOptions,
   acquireGlobalSlot,
@@ -1719,7 +1719,6 @@ export {
   captureTreeHash,
   clearToolCache,
   computeCacheKey,
-  defaultMaxConcurrent,
   isEntryUsable,
   listValidToolNames,
   type ReleaseSlotFn,
@@ -1728,11 +1727,9 @@ export {
   type ResolveToolResult,
   type RunToolOptions,
   readCacheEntry,
-  resolveMaxConcurrent,
   resolveToolCommand,
   resourceKillReason,
   runToolCached,
-  semaphoreDir,
   TOOL_CACHE_SCHEMA_VERSION,
   TOOL_RUN_IDENTITY_FIELDS,
   type ToolCacheEntry,
