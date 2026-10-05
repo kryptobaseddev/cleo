@@ -780,6 +780,13 @@ export function ensureRowIdentitySchema(db: DatabaseSync, scope: TableScope): st
         `CREATE INDEX IF NOT EXISTS main.${q(`idx_${spec.table}_${ref.column}`)} ON ${q(spec.table)} (${q(ref.column)})`,
       );
     }
+    if (spec.kind === 'minted') {
+      // T12341 C1: the open's pending probe finds a NULL birth fingerprint by
+      // index, not a scan. Partial: only rows still waiting are indexed.
+      indexes.push(
+        `CREATE INDEX IF NOT EXISTS main.${q(birthFpNullIndex(spec.table))} ON ${q(spec.table)} (${q(BIRTH_FP_COLUMN)}) WHERE ${q(BIRTH_FP_COLUMN)} IS NULL`,
+      );
+    }
     for (const stmt of indexes) {
       const name = /INDEX IF NOT EXISTS main\."([^"]+)"/.exec(stmt)?.[1];
       const exists =
@@ -1751,24 +1758,131 @@ export function missingRowIdentitySchema(db: DatabaseSync): string[] {
       const index = `idx_${spec.table}_${ref.column}`;
       if (!hasObject(db, 'index', index)) missing.push(`index ${index}`);
     }
+    if (spec.kind === 'minted' && !hasObject(db, 'index', birthFpNullIndex(spec.table))) {
+      missing.push(`index ${birthFpNullIndex(spec.table)}`);
+    }
   }
   return missing;
+}
+
+/** Name of a minted table's partial index over rows with a NULL birth fingerprint (T12341 C1). */
+function birthFpNullIndex(table: string): string {
+  // `idx_<table>_<column>`, the convention of the identity indexes, so a
+  // rollback (spec §13) or a pre-migration fixture that drops each identity
+  // column's index before the column drops this one too.
+  return `idx_${table}_${BIRTH_FP_COLUMN}`;
+}
+
+/**
+ * What the fill would do on this open, found by index probes alone (T12341
+ * C1). A store the fill has already run on answers `[]` and the open skips the
+ * fill pass (and never loads its writers). Every probe is correct regardless
+ * of rowid reuse: it looks for the rows themselves, never a rowid watermark.
+ *
+ * - `schema`: part of the identity schema is missing (the full pass heals it);
+ * - `recipe`: the recipe marker is missing or stale (the refill runs, or is
+ *   refused and reported once uids have synced);
+ * - `graveyard:<n>`: an older build deleted acceptance criteria whose uids wait
+ *   to be re-linked;
+ * - `uid:<table>`: a row without a uid (the unique uid index, or the uid
+ *   primary key, holds the NULLs);
+ * - `birth_fp:<table>`: a minted row without a birth fingerprint (the partial
+ *   index {@link birthFpNullIndex});
+ * - `ref:<table>.<column>`: a NULL stored reference fact that now resolves
+ *   (its column index holds the NULLs; a reference that still dangles is not
+ *   work).
+ *
+ * Requires {@link registerRowUidFunction} on the connection (the stored
+ * reference probe evaluates the AC text hash).
+ *
+ * @param db - Connection on a `cleo.db`.
+ * @param scope - The store's scope.
+ * @returns The pending work, `[]` when the identity is complete.
+ * @task T12341
+ */
+export function rowIdentityFillPending(db: DatabaseSync, scope: TableScope): string[] {
+  if (ROW_IDENTITY[scope].length === 0) return [];
+  // The probes name identity columns: a store missing any of its identity
+  // schema is pending the full pass, which heals it first.
+  if (scope === 'project' && missingRowIdentitySchema(db).length > 0) return ['schema'];
+  const pending: string[] = [];
+  // A stale marker is work even when the identity has synced: the pass then
+  // refuses the refill and says so (refill 'refused'), every open, until the
+  // store is repaired — that anomaly must stay loud, not become a fast path.
+  if (scope === 'project' && readMeta(db, ROW_IDENTITY_RECIPE_KEY) !== ROW_IDENTITY_RECIPE) {
+    pending.push('recipe');
+  }
+  if (
+    scope === 'project' &&
+    hasTable(db, AC_UID_GRAVEYARD) &&
+    db.prepare(`SELECT 1 FROM main.${AC_UID_GRAVEYARD} LIMIT 1`).get() !== undefined
+  ) {
+    pending.push('graveyard');
+  }
+  const any = (table: string, where: string): boolean =>
+    db.prepare(`SELECT 1 FROM main.${q(table)} WHERE ${where} LIMIT 1`).get() !== undefined;
+  for (const spec of ROW_IDENTITY[scope]) {
+    if (!hasTable(db, spec.table)) continue;
+    if (any(spec.table, `${q(UID_COLUMN)} IS NULL`)) pending.push(`uid:${spec.table}`);
+    if (spec.kind === 'minted' && any(spec.table, `${q(BIRTH_FP_COLUMN)} IS NULL`)) {
+      pending.push(`birth_fp:${spec.table}`);
+    }
+    const row = `main.${q(spec.table)}`;
+    for (const ref of spec.storedRefUids ?? []) {
+      if (
+        any(
+          spec.table,
+          `${q(ref.column)} IS NULL AND (${storedRefSql(scope, ref, row)}) IS NOT NULL`,
+        )
+      ) {
+        pending.push(`ref:${spec.table}.${ref.column}`);
+      }
+    }
+  }
+  return pending;
+}
+
+/** The report of an open whose identity was already complete (nothing written). */
+function steadyReport(): RowUidFillReport {
+  return {
+    filled: {},
+    refsFilled: {},
+    fingerprinted: {},
+    relinked: 0,
+    unfilled: {},
+    findings: { unknownBirth: {}, danglingRefs: {}, mirrorEdges: {} },
+    healed: [],
+    refill: 'none',
+  };
 }
 
 export function prepareRowIdentity(
   db: DatabaseSync,
   scope: TableScope,
-  options: { readonly triggers?: boolean; readonly writers?: RowIdentityWriters } = {},
+  options: {
+    readonly triggers?: boolean;
+    readonly writers?: RowIdentityWriters;
+    /** The caller's {@link rowIdentityFillPending} result, to avoid probing twice. */
+    readonly pending?: readonly string[];
+  } = {},
 ): RowUidFillReport | null {
   if (ROW_IDENTITY[scope].length === 0) return null;
   if (!rowUidFillEnabled()) return null;
   const log = getLogger('row-identity');
   try {
+    // T12341 C1: a store whose identity is already complete (and whose schema
+    // is whole) gets only this connection's uid triggers. No table is scanned,
+    // nothing is written, and the writers are never needed.
+    registerRowUidFunction(db, scope);
+    const pending = options.pending ?? rowIdentityFillPending(db, scope);
+    if (pending.length === 0) {
+      if (options.triggers !== false) installRowUidTriggers(db, scope);
+      return steadyReport();
+    }
     const healed = [
       ...(scope === 'project' ? ensureIdentityTables(db) : []),
       ...ensureRowIdentitySchema(db, scope),
     ];
-    registerRowUidFunction(db, scope);
     const writers = options.writers ?? requireWriters();
     const refill = resetStaleIdentity(db, scope, writers);
     if (refill === 'refused') {

@@ -108,6 +108,9 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * @property {string} name - Label used in reports.
  * @property {string[]} args - CLI arguments.
  * @property {boolean} [needsProject] - Run inside an initialised throwaway project.
+ * @property {Record<string, string>} [env] - Extra environment for this probe (e.g. a feature flag).
+ * @property {string} [noMoreModulesThan] - Name of an earlier probe whose module count this
+ *   probe may not exceed (a flag must cost the same command no extra modules).
  * @property {RegExp[]} forbid - Module URL patterns this probe must not load.
  * @property {RegExp[]} [require] - Module URL patterns this probe must load:
  *   proof that it still exercises the code path it guards.
@@ -198,6 +201,28 @@ export const PROBES = Object.freeze([
     require: [OUTPUT_CONTRACTS],
     // ExitCode.NOT_FOUND: E_FIELD_NOT_FOUND, with the contract's valid pointers as the fix.
     expectExit: 4,
+    maxModules: 910,
+    maxRssMb: 260,
+  },
+  {
+    // T12341 C1: the first open with row uids on fills the sandbox store.
+    name: 'show-fill-first',
+    args: ['show', 'T001'],
+    needsProject: true,
+    env: { CLEO_ROW_UID_FILL: '1' },
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    maxModules: 910,
+    maxRssMb: 260,
+  },
+  {
+    // T12341 C1: once filled, an open with row uids on loads no more than the
+    // same command with them off (the fill pass and its writers are skipped).
+    name: 'show-filled',
+    args: ['show', 'T001'],
+    needsProject: true,
+    env: { CLEO_ROW_UID_FILL: '1' },
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    noMoreModulesThan: 'show',
     maxModules: 910,
     maxRssMb: 260,
   },
@@ -306,7 +331,7 @@ function runProbe(probe, env) {
       cwd: probe.needsProject ? env.project : env.sandbox,
       encoding: 'utf8',
       timeout: 120_000,
-      env: sandboxEnv(home, traceOut),
+      env: { ...sandboxEnv(home, traceOut), ...(probe.env ?? {}) },
     },
   );
   if (!existsSync(traceOut)) {
@@ -545,6 +570,18 @@ function main() {
       const result = runProbe(probe, { sandbox, tracer, project });
       results.push(result);
       const reasons = judgeProbe(probe, result);
+      if (probe.noMoreModulesThan !== undefined) {
+        const peer = results.find((r) => r.name === probe.noMoreModulesThan);
+        if (peer === undefined) {
+          reasons.push(
+            `${probe.name}: noMoreModulesThan names '${probe.noMoreModulesThan}', which has not run`,
+          );
+        } else if (result.modules > peer.modules) {
+          reasons.push(
+            `${probe.name}: loads ${result.modules} modules, more than '${peer.name}' (${peer.modules})`,
+          );
+        }
+      }
       if (reasons.length > 0) {
         failures.push(...reasons, ...topPackages(result.urls).map((line) => `    ${line}`));
       }
