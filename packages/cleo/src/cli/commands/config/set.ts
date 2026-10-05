@@ -18,8 +18,9 @@
  */
 
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { getProjectRoot, parseConfigValue, setConfigValue } from '@cleocode/core';
+import { parseConfigValue, setConfigValue } from '@cleocode/core/config';
 import { type ValidateScope, validateConfig } from '@cleocode/core/config/registry';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../../renderers/index.js';
 

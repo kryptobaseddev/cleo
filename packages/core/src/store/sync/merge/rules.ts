@@ -12,6 +12,14 @@
  * This slice implements the three task rules (T12937, T12938, T12939); the
  * rest of §3.6.6 lands rule by rule on the same mechanism.
  *
+ * Explicit ops (`TASK_STATUS_LEAVE_OPS`, `TASK_STAGE_RESTORE_OPS`) are
+ * granted per TRANSACTION, not per row: every op of a restore or reopen
+ * transaction may leave a terminal status or lower a stage, on any row it
+ * writes. That is intended: a restore cascades to the task's children inside
+ * the same transaction, and the cascade must not be voided on receivers.
+ *
+ * Groups are part of the wire contract (T13222): see {@link mergeGroupsOf}.
+ *
  * @module store/sync/merge/rules
  * @task T12344
  */
@@ -89,4 +97,26 @@ export function implementedMergeRuleIds(): string[] {
  */
 export function mergeSpecFor(table: string, columns: readonly string[]): TableMergeSpec {
   return { ...(SYNC_MERGE_RULES[table] ?? {}), columns };
+}
+
+/**
+ * The merge groups of `table` that `columns` touches, each listed whole
+ * (T13222). A group travels whole on the wire: the capture trigger records
+ * every column of a group when any of them changes, apply-intent subtraction
+ * keeps a group whole when any of its columns is residual, and the engine
+ * refuses a U op that carries part of a group. So a winning group op sets
+ * every column of its group, in every order.
+ *
+ * @param table - Sync-set table name.
+ * @param columns - Columns of interest (a schema's columns, or an image's).
+ * @returns The groups with at least one member in `columns`, restricted to
+ *   the members in `columns`.
+ */
+export function mergeGroupsOf(table: string, columns: readonly string[]): string[][] {
+  const out: string[][] = [];
+  for (const g of SYNC_MERGE_RULES[table]?.groups ?? []) {
+    const present = g.filter((c) => columns.includes(c));
+    if (present.length > 0) out.push(present);
+  }
+  return out;
 }

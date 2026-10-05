@@ -43,6 +43,44 @@ vi.mock('@cleocode/runtime/gateway', async (importOriginal) => ({
   pipelineManifestAppend: vi.fn(),
   pipelineManifestArchive: vi.fn(),
 }));
+vi.mock('@cleocode/core/lifecycle/engine-ops', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  lifecycleStatus: vi.fn(),
+  lifecycleHistory: vi.fn(),
+  lifecycleCheck: vi.fn(),
+  lifecycleProgress: vi.fn(),
+  lifecycleSkip: vi.fn(),
+  lifecycleReset: vi.fn(),
+  lifecycleGatePass: vi.fn(),
+  lifecycleGateFail: vi.fn(),
+}));
+vi.mock('@cleocode/core/memory/pipeline-manifest-sqlite', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  pipelineManifestShow: vi.fn(),
+  pipelineManifestList: vi.fn(),
+  pipelineManifestFind: vi.fn(),
+  pipelineManifestStats: vi.fn(),
+  pipelineManifestAppend: vi.fn(),
+  pipelineManifestArchive: vi.fn(),
+}));
+vi.mock('@cleocode/core/pipeline/engine-ops', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  phaseList: vi.fn(),
+  phaseShow: vi.fn(),
+  phaseSet: vi.fn(),
+  phaseStart: vi.fn(),
+  phaseComplete: vi.fn(),
+  phaseAdvance: vi.fn(),
+  phaseRename: vi.fn(),
+  phaseDelete: vi.fn(),
+}));
+vi.mock('@cleocode/core/release/engine-ops', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  releaseRollback: vi.fn(),
+  releaseList: vi.fn(),
+  releaseShow: vi.fn(),
+  releaseCancel: vi.fn(),
+}));
 
 // Mock getProjectRoot
 vi.mock('../../../../../core/src/paths.js', async () => {
@@ -54,6 +92,12 @@ vi.mock('../../../../../core/src/paths.js', async () => {
     getProjectRoot: vi.fn(() => '/mock/project'),
   };
 });
+
+// The pipeline domain imports getProjectRoot from its defining module (T13126).
+vi.mock('@cleocode/core/project-scope', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@cleocode/core/project-scope')>()),
+  getProjectRoot: vi.fn(() => '/mock/project'),
+}));
 
 // Mock release channel functions
 vi.mock('../../../../../core/src/release/channel.js', () => ({
@@ -69,7 +113,7 @@ import {
   pipelineManifestList,
   pipelineManifestShow,
   pipelineManifestStats,
-} from '@cleocode/runtime/gateway';
+} from '@cleocode/core/memory/pipeline-manifest-sqlite';
 import { PipelineHandler } from '../pipeline.js';
 
 describe('PipelineHandler manifest operations', () => {

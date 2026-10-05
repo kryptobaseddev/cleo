@@ -12,17 +12,12 @@
  */
 
 import type { DocAttachmentObservationPayload } from '@cleocode/contracts';
-import { getLogger, getProjectRoot } from '@cleocode/core';
 import {
-  createAttachmentStore,
-  generateMemoryBridgeContent,
-  getBrainDb,
-  getBrainNativeDb,
   OAUTH_STATUS_PROVIDERS,
   resolveCredentials,
   resolveProviderStatus,
-  typedAll,
-} from '@cleocode/core/internal';
+} from '@cleocode/core/llm/credentials';
+import { getLogger } from '@cleocode/core/logger';
 import {
   approveBackfillRun,
   listBackfillRuns,
@@ -30,37 +25,10 @@ import {
   stagedBackfillRun,
 } from '@cleocode/core/memory/brain-backfill.js';
 import { precompactFlush } from '@cleocode/core/memory/precompact-flush.js';
-import {
-  memoryDecisionFind,
-  memoryDecisionStore,
-  memoryFetch,
-  // Brain.db cognitive memory operations
-  memoryFind,
-  // PageIndex graph operations (T5385)
-  memoryGraphAdd,
-  memoryGraphContext,
-  memoryGraphNeighbors,
-  memoryGraphRelated,
-  memoryGraphRemove,
-  memoryGraphShow,
-  memoryGraphStatsFull,
-  memoryGraphTrace,
-  // Learning operations
-  memoryLearningFind,
-  memoryLearningStore,
-  // Brain memory linking
-  memoryLink,
-  memoryObserve,
-  // Pattern operations
-  memoryPatternFind,
-  memoryPatternStore,
-  memoryQualityReport,
-  memoryReasonSimilar,
-  // Reasoning & hybrid search (T5388-T5393)
-  memoryReasonWhy,
-  memorySearchHybrid,
-  memoryTimeline,
-} from '@cleocode/runtime/gateway';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { createAttachmentStore } from '@cleocode/core/store/attachment-store';
+import { getBrainNativeDb } from '@cleocode/core/store/memory-sqlite';
+import { typedAll } from '@cleocode/core/store/typed-query';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import {
   errorResult,
@@ -73,6 +41,86 @@ import {
   unsupportedOp,
   wrapResult,
 } from './_base.js';
+import { lazyOperation } from './lazy.js';
+
+// CORE operations load on first call (T13126): a command loads its own
+// modules, not every operation's in this domain.
+
+const generateMemoryBridgeContent = lazyOperation(
+  async () => (await import('@cleocode/core/memory/memory-bridge')).generateMemoryBridgeContent,
+);
+const getBrainDb = lazyOperation(
+  async () => (await import('@cleocode/core/store/memory-sqlite')).getBrainDb,
+);
+const memoryDecisionFind = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryDecisionFind,
+);
+const memoryDecisionStore = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryDecisionStore,
+);
+const memoryFetch = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryFetch,
+);
+const memoryFind = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryFind,
+);
+const memoryGraphAdd = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryGraphAdd,
+);
+const memoryGraphContext = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryGraphContext,
+);
+const memoryGraphNeighbors = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryGraphNeighbors,
+);
+const memoryGraphRelated = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryGraphRelated,
+);
+const memoryGraphRemove = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryGraphRemove,
+);
+const memoryGraphShow = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryGraphShow,
+);
+const memoryGraphStatsFull = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryGraphStatsFull,
+);
+const memoryGraphTrace = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryGraphTrace,
+);
+const memoryLearningFind = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryLearningFind,
+);
+const memoryLearningStore = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryLearningStore,
+);
+const memoryLink = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryLink,
+);
+const memoryObserve = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryObserve,
+);
+const memoryPatternFind = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryPatternFind,
+);
+const memoryPatternStore = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryPatternStore,
+);
+const memoryQualityReport = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryQualityReport,
+);
+const memoryReasonSimilar = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryReasonSimilar,
+);
+const memoryReasonWhy = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryReasonWhy,
+);
+const memorySearchHybrid = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memorySearchHybrid,
+);
+const memoryTimeline = lazyOperation(
+  async () => (await import('@cleocode/core/memory/engine-compat')).memoryTimeline,
+);
 
 // ---------------------------------------------------------------------------
 // Memory Handler Class
@@ -378,7 +426,7 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'code.links': {
-          const { listCodeLinks } = await import('@cleocode/core/internal');
+          const { listCodeLinks } = await import('@cleocode/core/memory/graph-memory-bridge');
           const links = await listCodeLinks(projectRoot);
           return wrapResult(
             { success: true, data: links },
@@ -401,7 +449,9 @@ export class MemoryHandler implements DomainHandler {
               startTime,
             );
           }
-          const { queryMemoriesForCode } = await import('@cleocode/core/internal');
+          const { queryMemoriesForCode } = await import(
+            '@cleocode/core/memory/graph-memory-bridge'
+          );
           const result = await queryMemoriesForCode(projectRoot, symbol);
           return wrapResult(
             { success: true, data: result },
@@ -424,7 +474,7 @@ export class MemoryHandler implements DomainHandler {
               startTime,
             );
           }
-          const { queryCodeForMemory } = await import('@cleocode/core/internal');
+          const { queryCodeForMemory } = await import('@cleocode/core/memory/graph-memory-bridge');
           const result = await queryCodeForMemory(projectRoot, memoryId);
           return wrapResult(
             { success: true, data: result },
@@ -1657,7 +1707,7 @@ export class MemoryHandler implements DomainHandler {
               startTime,
             );
           }
-          const { linkMemoryToCode } = await import('@cleocode/core/internal');
+          const { linkMemoryToCode } = await import('@cleocode/core/memory/graph-memory-bridge');
           const linked = await linkMemoryToCode(projectRoot, memoryId, codeSymbol);
           return wrapResult(
             { success: true, data: { linked } },
@@ -1669,7 +1719,7 @@ export class MemoryHandler implements DomainHandler {
         }
 
         case 'code.auto-link': {
-          const { autoLinkMemories } = await import('@cleocode/core/internal');
+          const { autoLinkMemories } = await import('@cleocode/core/memory/graph-memory-bridge');
           const result = await autoLinkMemories(projectRoot);
           return wrapResult(
             { success: true, data: result },
@@ -2086,7 +2136,9 @@ export class MemoryHandler implements DomainHandler {
                 ...(type !== undefined ? { type } : {}),
               };
 
-              const { memoryObserve: brainObserve } = await import('@cleocode/core/internal');
+              const { memoryObserve: brainObserve } = await import(
+                '@cleocode/core/memory/engine-compat'
+              );
               await brainObserve(
                 {
                   text: JSON.stringify(payload),

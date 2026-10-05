@@ -158,12 +158,14 @@ async function registerCaampLibrary(): Promise<void> {
  * fires no lifecycle hook, runs its opportunistic dream only when a caller opts
  * in (the CLI never does), and loads CAAMP itself for the heavy-hook check.
  *
- * Loading `@cleocode/core/internal` also REGISTERS things as a side effect: the
- * lifecycle hook handlers (`hooks/handlers`), the LLM env credential seeders,
- * release invariants, the CAAMP-backed engine registries. Every other
- * operation therefore still loads the barrel before it is dispatched, so it
- * runs with exactly the registrations it always had. An operation joins this
- * set only once its whole path is shown not to depend on one of them.
+ * Some CORE modules REGISTER things while they load: the lifecycle hook
+ * handlers (`hooks/handlers`), the LLM credential seeders, release invariants,
+ * the LLM plugin engines. Every other operation therefore loads
+ * `@cleocode/core/registrations` before it is dispatched: exactly those
+ * modules, so it runs with the registrations the CORE barrel used to give it
+ * without loading the barrel (its own code imports what it uses). An operation
+ * joins this set only once its whole path is shown not to depend on one of
+ * them.
  */
 const BARREL_FREE_OPERATIONS: ReadonlySet<string> = new Set([
   'query:tasks.show',
@@ -175,9 +177,10 @@ const BARREL_FREE_OPERATIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Load the CORE barrel (and so its side-effect registrations) unless the
- * operation is in {@link BARREL_FREE_OPERATIONS}. Call before anything
- * operation-specific runs: hooks, middleware or the domain handler.
+ * Load CORE's module-load registrations (`@cleocode/core/registrations`) and
+ * the CAAMP skill library unless the operation is in
+ * {@link BARREL_FREE_OPERATIONS}. Call before anything operation-specific
+ * runs: hooks, middleware or the domain handler.
  *
  * @param gateway - CQRS gateway of the operation.
  * @param domain - Canonical domain.
@@ -190,7 +193,7 @@ export async function prepareCoreFor(
   operation: string,
 ): Promise<void> {
   if (BARREL_FREE_OPERATIONS.has(`${gateway}:${domain}.${operation}`)) return;
-  await import('@cleocode/core/internal');
+  await import('@cleocode/core/registrations');
   await ensureCaampLibrary();
 }
 

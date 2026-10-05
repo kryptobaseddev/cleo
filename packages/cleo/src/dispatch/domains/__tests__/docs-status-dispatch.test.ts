@@ -25,6 +25,39 @@ vi.mock('@cleocode/core/internal', () => ({
   recordPublication: vi.fn(),
   writeAuditEntry: vi.fn(),
 }));
+vi.mock('@cleocode/core/docs/docs-audit', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    readAuditLog: barrel.readAuditLog,
+    verifyAuditTrail: barrel.verifyAuditTrail,
+    writeAuditEntry: barrel.writeAuditEntry,
+  };
+});
+vi.mock('@cleocode/core/docs/docs-ops', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return {
+    ...(await importOriginal<object>()),
+    publishDocs: barrel.publishDocs,
+    recordPublication: barrel.recordPublication,
+  };
+});
+vi.mock('@cleocode/core/docs/docs-read-model', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), createDocsReadModel: barrel.createDocsReadModel };
+});
+vi.mock('@cleocode/core/docs/export-document', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), exportDocument: barrel.exportDocument };
+});
+vi.mock('@cleocode/core/docs/publish-pr', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), publishDocsAsPr: barrel.publishDocsAsPr };
+});
+vi.mock('@cleocode/core/project-scope', async (importOriginal) => {
+  const barrel = await import('@cleocode/core/internal');
+  return { ...(await importOriginal<object>()), getProjectRoot: barrel.getProjectRoot };
+});
 
 import { Dispatcher } from '../../dispatcher.js';
 import { DocsHandler } from '../docs.js';

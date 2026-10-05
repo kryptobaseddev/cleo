@@ -24,6 +24,15 @@ export interface FieldState {
    * override the column (see `absorbing` in {@link FieldRule}).
    */
   readonly leave?: string;
+  /**
+   * `rank-max` columns only: the alive candidate writes that no other alive
+   * write dominates (higher or equal rank AND newer or equal HLC), oldest
+   * first; `value`/`hlc` are the best of them by (rank, HLC). Absent when the
+   * current value is the only candidate. A restore raises `leave`, which
+   * kills every candidate older than it, so the next best is still known
+   * whatever order the writes arrive in.
+   */
+  readonly frontier?: ReadonlyArray<{ readonly value: LedgerWireValue; readonly hlc: string }>;
 }
 
 /**
@@ -62,9 +71,13 @@ export type FieldRule =
     }
   | {
       /**
-       * The column only moves up the given order (pipeline_stage by
-       * STAGE_ORDER). A lower ranked write is dropped by the rule, unless the
-       * transaction's `actor.op` is a restore op. Unranked values merge by LWW.
+       * The column is the maximum of its writes by (rank in `order`, then
+       * HLC), pipeline_stage by STAGE_ORDER: a max over a total order, so it
+       * converges in every order, and the winner keeps its OWN HLC. NULL and
+       * unranked values rank below every ranked one. A write whose
+       * transaction's `actor.op` is a restore op raises the column's floor
+       * (`FieldState.leave`) to its HLC: every write older than the floor is
+       * dead, and the best alive write wins (see `FieldState.frontier`).
        */
       readonly kind: 'rank-max';
       readonly id: string;
@@ -161,4 +174,12 @@ export interface OpOutcome {
   readonly conflicts: readonly MergeConflict[];
   /** For `refused-schema`: the columns this schema lacks. */
   readonly unknownColumns?: readonly string[];
+  /**
+   * For `refused-schema`: columns whose value their merge cannot take (a
+   * `$inc` on a column that is not a `sum` counter, an absolute value on a
+   * `sum` counter in a U, a non-number on a `max`/`min` counter), and the members a
+   * U op leaves out of a merge group it carries part of. A current sealer
+   * emits none of these.
+   */
+  readonly malformed?: readonly string[];
 }

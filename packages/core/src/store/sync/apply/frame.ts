@@ -14,8 +14,10 @@
  *   transactions and committed effects (`scheduleTaskBackground`), and only
  *   then runs the synchronous body.
  * - {@link withApplyFrame} is the frame itself:
- *   - it opens the only transaction, BEGIN IMMEDIATE, retried whole on
- *     SQLITE_BUSY, never mid-frame;
+ *   - it opens the only transaction, BEGIN IMMEDIATE, once: the handle's
+ *     `busy_timeout` does the waiting (30 s on dual-scope handles), so the
+ *     main thread blocks at most that long, and a BUSY after it is thrown,
+ *     never retried mid-frame;
  *   - it inserts the frame row and calls the body with the API;
  *   - **type guard:** the body's return type excludes `PromiseLike`;
  *   - **runtime guard:** a thenable return rolls back and throws
@@ -28,7 +30,6 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
-import { isSqliteBusy } from '../../with-retry.js';
 import { finishCaptureFrame, openCaptureFrame } from '../capture.js';
 import { receiveClock } from '../clock-store.js';
 import { type ApplyWriteApi, createApplyWriteApi } from './write-api.js';
@@ -62,12 +63,6 @@ export interface ApplyApi extends ApplyWriteApi {
   ): { held: false; clock: string } | { held: true };
 }
 
-const MAX_BUSY_RETRIES = 5;
-
-function sleepMs(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.round(ms));
-}
-
 function isThenable(value: unknown): value is PromiseLike<unknown> {
   return (
     value !== null &&
@@ -87,6 +82,7 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
  * @param fn - The synchronous body.
  * @returns What `fn` returned.
  * @throws {ApplyFrameError} On a nested call or a thenable result.
+ * @throws SQLITE_BUSY when another writer holds the store past `busy_timeout`.
  */
 export function withApplyFrame<T>(
   db: DatabaseSync,
@@ -101,49 +97,45 @@ export function withApplyFrame<T>(
       'an apply frame must open the only transaction',
     );
   }
-  for (let attempt = 1; ; attempt++) {
-    try {
-      db.exec('BEGIN IMMEDIATE');
-    } catch (err) {
-      // The frame owns BUSY: retry the whole frame, never mid-frame.
-      if (!isSqliteBusy(err) || attempt >= MAX_BUSY_RETRIES) throw err;
-      sleepMs(100 * 2 ** (attempt - 1));
-      continue;
+  // One attempt: busy_timeout already waits inside SQLite. A retry loop on
+  // top multiplied that wait while blocking the event loop (#1872 LOW-1).
+  db.exec('BEGIN IMMEDIATE');
+  let active = true;
+  const assertActive = (): void => {
+    if (!active) {
+      // @sync-invariant none:local-only programming-error guard: the frame's API outlived the frame
+      throw new ApplyFrameError('E_SYNC_APPLY_ENDED', 'the apply frame has ended');
     }
-    let active = true;
-    const assertActive = (): void => {
-      if (!active) {
-        // @sync-invariant none:local-only programming-error guard: the frame's API outlived the frame
-        throw new ApplyFrameError('E_SYNC_APPLY_ENDED', 'the apply frame has ended');
-      }
+  };
+  try {
+    const frame = openCaptureFrame(db, 'apply', actor);
+    const api: ApplyApi = {
+      frame,
+      ...createApplyWriteApi(db, scope, frame, assertActive),
+      clockReceive(replica, remoteHlc, nowMs) {
+        assertActive();
+        return receiveClock(db, replica, remoteHlc, nowMs);
+      },
     };
-    try {
-      const frame = openCaptureFrame(db, 'apply', actor);
-      const api: ApplyApi = {
-        frame,
-        ...createApplyWriteApi(db, scope, frame, assertActive),
-        clockReceive(replica, remoteHlc, nowMs) {
-          assertActive();
-          return receiveClock(db, replica, remoteHlc, nowMs);
-        },
-      };
-      const out = fn(api);
-      if (isThenable(out)) {
-        // @sync-invariant none:local-only programming-error guard: an async body would let writers interleave into the frame
-        throw new ApplyFrameError(
-          'E_SYNC_APPLY_ASYNC',
-          'an apply frame body must be synchronous (it returned a thenable)',
-        );
-      }
-      finishCaptureFrame(db, frame);
-      db.exec('COMMIT');
-      return out;
-    } catch (err) {
-      if (db.isTransaction) db.exec('ROLLBACK');
-      throw err;
-    } finally {
-      active = false;
+    const out = fn(api);
+    if (isThenable(out)) {
+      // Never leave the dropped promise unhandled: a rejection would crash
+      // the process (#1872 LOW-2).
+      Promise.resolve(out).then(undefined, () => undefined);
+      // @sync-invariant none:local-only programming-error guard: an async body would let writers interleave into the frame
+      throw new ApplyFrameError(
+        'E_SYNC_APPLY_ASYNC',
+        'an apply frame body must be synchronous (it returned a thenable)',
+      );
     }
+    finishCaptureFrame(db, frame);
+    db.exec('COMMIT');
+    return out;
+  } catch (err) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    throw err;
+  } finally {
+    active = false;
   }
 }
 

@@ -36,6 +36,27 @@ vi.mock('@cleocode/core/internal', async (importOriginal) => ({
   runUpgrade: (...a: unknown[]) => mockRunUpgrade(...a),
   checkStorageMigration: (...a: unknown[]) => mockCheckStorageMigration(...a),
 }));
+vi.mock('@cleocode/core/check/pr-gate', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  runPrGate: (...a: unknown[]) => mockRunPrGate(...a),
+  formatPrGateSummary: () => '',
+}));
+vi.mock('@cleocode/core/nexus/registry', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  nexusList: async () => [],
+}));
+vi.mock('@cleocode/core/system/project-health', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  checkAllRegisteredProjects: (...a: unknown[]) => mockCheckAllRegisteredProjects(...a),
+}));
+vi.mock('@cleocode/core/system/storage-preflight', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  checkStorageMigration: (...a: unknown[]) => mockCheckStorageMigration(...a),
+}));
+vi.mock('@cleocode/core/upgrade', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  runUpgrade: (...a: unknown[]) => mockRunUpgrade(...a),
+}));
 
 vi.mock('@cleocode/core/doctor/db-substrate.js', () => ({
   surveyDbSubstrate: (...a: unknown[]) => mockSurveyDbSubstrate(...a),

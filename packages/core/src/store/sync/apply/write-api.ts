@@ -107,9 +107,10 @@ export interface ApplyWriteApi {
   ): StoredEncs;
   /**
    * INSERT a row with `uid`; records `*I` and one intent per non-NULL stored
-   * captured column.
+   * captured column. Every identity column but `uid` must be given.
    *
    * @returns The stored `enc()` per captured column (NULLs included).
+   * @throws {ApplyWriteError} When an identity column is missing.
    */
   insertRow(
     table: string,
@@ -271,6 +272,15 @@ export function createApplyWriteApi(
       const def = defOf(table);
       const cols = Object.keys(values).sort();
       checkColumns(def, cols);
+      // The insert capture reads identity from the live row; a trigger-filled
+      // identity column would have no intent and seal as residual (N4).
+      const noIdentity = def.identity.filter(
+        (c) => c !== UID_COLUMN && (values[c] === undefined || values[c] === null),
+      );
+      if (noIdentity.length > 0) {
+        // @sync-invariant none:input-shape an applied insert carries its identity; nothing is written
+        throw new ApplyWriteError(`${table}: insert of ${uid} lacks ${noIdentity.join(', ')}`);
+      }
       const all = def.columns;
       const row = db
         .prepare(

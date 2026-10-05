@@ -283,6 +283,39 @@ describe('wireToSql', () => {
   });
 });
 
+describe('#1872 review LOWs', () => {
+  it('an insert without its identity columns is refused, nothing written', async () => {
+    const db = await store();
+    expect(() =>
+      withApplyFrame(db, 'project', null, (api) => {
+        api.insertRow('tasks_tasks', 'uid-N1', {
+          id: 'N1',
+          title: 'x',
+          type: 'task',
+          status: 'pending',
+        });
+      }),
+    ).toThrow(ApplyWriteError);
+    expect(n(db, "SELECT count(*) AS n FROM tasks_tasks WHERE id = 'N1'")).toBe(0);
+  });
+
+  it('a thenable body leaves no frame row and no unhandled rejection', async () => {
+    const db = await store();
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      expect(() =>
+        withApplyFrame(db, 'project', null, () => Promise.reject(new Error('late')) as never),
+      ).toThrow(expect.objectContaining({ code: 'E_SYNC_APPLY_ASYNC' }));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).not.toHaveBeenCalled();
+      expect(n(db, 'SELECT count(*) AS n FROM _sync_frame')).toBe(0);
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
+});
+
 describe('K11: the apply module writes only through the write API', () => {
   it('no apply module but write-api.ts holds raw write SQL, and none uses REPLACE', () => {
     const root = resolve(import.meta.dirname, '..');

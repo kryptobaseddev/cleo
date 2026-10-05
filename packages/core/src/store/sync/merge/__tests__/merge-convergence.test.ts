@@ -15,19 +15,28 @@
  * - P1 one stream, one state: replicas folding the same stream agree, and
  *   re-delivering plain LWW ops changes nothing (counters and typed rules
  *   rely on the inbox's exactly-once delivery instead).
- * - P2 plain LWW, groups and counters converge in EVERY interleaving.
+ * - P2 plain LWW, groups and counters converge in EVERY interleaving, row
+ *   state and HLCs included.
  * - P3 a delete wins in every interleaving: the row ends tombstoned, an update
- *   after it is voided, and newer edits it removes are recorded.
+ *   after it is voided, and newer edits it removes are recorded. (A re-insert
+ *   racing a delete is order-sensitive by design; the generator emits no I.)
  * - P4 typed-rule invariants hold at every step of every interleaving:
  *   terminal status left only by an explicit op, pipeline_stage never down
  *   without restore, verification never changed while done.
  * - P5 no silent drop: every concurrent divergent edit, applied or not, is a
- *   recorded conflict (counters and rank-max excepted, which merge by rule).
- * - P6 without explicit leave/restore ops, status and pipeline_stage converge
- *   in every interleaving: a terminal status dominates, pipeline_stage is a max.
+ *   recorded conflict (counters and rank-max excepted, which merge by rule;
+ *   rank-max records its rule overrides instead).
+ * - P6 without explicit leave ops, the status group and pipeline_stage
+ *   converge in every interleaving, HLCs, leaves and frontiers included: a
+ *   terminal status dominates, pipeline_stage is a max over (rank, HLC) with
+ *   NULL lowest. Ops are sealer-shaped: loose columns carry only what
+ *   changed, a status change carries its whole group (T13222, T13223).
+ * - P7 pipeline_stage converges in every interleaving even with explicit
+ *   restores (the restore floor and the alive frontier, T13223).
  *
  * Order-sensitive rules (an explicit reopen racing a completion, a
- * verification edit racing a completion) are deterministic per stream (P1)
+ * verification edit racing a completion, a re-insert racing a delete) are
+ * deterministic per stream (P1)
  * and checked for invariants (P4), not for order independence: the spec makes
  * the stream order, not the arrival order, decide them.
  *
@@ -154,6 +163,8 @@ interface GenOptions {
   readonly deleteRate: number;
   /** Only plain columns (no typed-rule columns). */
   readonly plainOnly: boolean;
+  /** Only pipeline_stage writes. */
+  readonly stageOnly?: boolean;
 }
 
 /** A replica's concurrent writes, each with that replica's own before-image. */
@@ -184,20 +195,27 @@ function generate(seed: number, g: GenOptions, ctx: MergeContext): Entry[][] {
         if (cur !== undefined) b[col] = cur;
       };
       let actorOp: string | null = null;
-      const kind = g.plainOnly
-        ? pick(r, ['title', 'counter', 'group'])
-        : pick(r, ['title', 'counter', 'status', 'stage', 'verify', 'group']);
-      if (kind === 'title')
-        touch(
-          pick(r, ['title', 'priority', 'labels']),
-          `${replica.slice(0, 2)}-${k}-${Math.floor(r() * 3)}`,
-        );
+      const kind = g.stageOnly
+        ? 'stage'
+        : g.plainOnly
+          ? pick(r, ['title', 'counter', 'group'])
+          : pick(r, ['title', 'counter', 'status', 'stage', 'verify']);
+      if (kind === 'title') {
+        // Changed columns only, as the sealer emits them.
+        const col = pick(r, ['title', 'priority', 'labels']);
+        touch(col, `${replica.slice(0, 2)}-${k}-${Math.floor(r() * 3)}`);
+        // In PLAIN, title and priority form a group: the sealer sends it whole.
+        if (g.plainOnly && col !== 'labels') {
+          const other = col === 'title' ? 'priority' : 'title';
+          touch(other, view.fields[other]?.value ?? null);
+        }
+      }
       if (kind === 'counter') {
         touch('hits', { $inc: 1 + Math.floor(r() * 5) });
         touch('peak', Math.floor(r() * 20));
       }
       if (kind === 'group') {
-        // A plain multi-column edit, merged column by column.
+        // A whole-group edit (PLAIN groups title and priority).
         touch('title', `g-${replica.slice(0, 2)}-${k}`);
         touch('priority', pick(r, ['low', 'high', 'critical']));
       }
@@ -211,7 +229,8 @@ function generate(seed: number, g: GenOptions, ctx: MergeContext): Entry[][] {
           actorOp = pick(r, TASK_STATUS_LEAVE_OPS);
       }
       if (kind === 'stage') {
-        touch('pipeline_stage', pick(r, PIPELINE_STAGES));
+        // Ranked stages, NULL (a clear) and an unranked value.
+        touch('pipeline_stage', pick(r, [...PIPELINE_STAGES, null, null, 'legacy-stage']));
         if (g.explicit && r() < 0.3) actorOp = 'tasks.restore';
       }
       if (kind === 'verify')
@@ -258,8 +277,16 @@ const PLAIN: MergeContext = {
   table: {
     columns: COLUMNS,
     counters: { hits: 'sum', peak: 'max' },
+    groups: [['title', 'priority']],
   } satisfies TableMergeSpec,
 };
+
+/** The full merged state of `cols` (values, HLCs, leaves, frontiers), or the tombstone. */
+function stateOf(row: RowState, cols?: readonly string[]): unknown {
+  if (!row.live) return { tombstone: row.tombstone };
+  const keys = (cols ?? Object.keys(row.fields)).slice().sort();
+  return Object.fromEntries(keys.map((c) => [c, row.fields[c] ?? null]));
+}
 
 function scenarios(
   n: number,
@@ -320,9 +347,9 @@ describe.each([
       { replicas, opsPerReplica, explicit: false, deleteRate: 0, plainOnly: true },
       PLAIN,
       (all, seed) => {
-        const expected = content(fold(baseRow(), all[0] as Entry[], PLAIN).row);
+        const expected = stateOf(fold(baseRow(), all[0] as Entry[], PLAIN).row);
         for (const stream of all) {
-          expect(content(fold(baseRow(), stream, PLAIN).row), `seed ${seed}`).toBe(expected);
+          expect(stateOf(fold(baseRow(), stream, PLAIN).row), `seed ${seed}`).toEqual(expected);
         }
       },
     );
@@ -440,9 +467,35 @@ describe.each([
       { replicas, opsPerReplica, explicit: false, deleteRate: 0, plainOnly: false },
       TASKS,
       (all, seed) => {
-        const expected = content(fold(baseRow(), all[0] as Entry[], TASKS).row, cols);
+        const expected = stateOf(fold(baseRow(), all[0] as Entry[], TASKS).row, cols);
         for (const stream of all) {
-          expect(content(fold(baseRow(), stream, TASKS).row, cols), `seed ${seed}`).toBe(expected);
+          expect(stateOf(fold(baseRow(), stream, TASKS).row, cols), `seed ${seed}`).toEqual(
+            expected,
+          );
+        }
+      },
+    );
+  });
+
+  it('P7: pipeline_stage converges in every interleaving, restores included', () => {
+    scenarios(
+      n,
+      {
+        replicas,
+        opsPerReplica,
+        explicit: true,
+        deleteRate: 0,
+        plainOnly: false,
+        stageOnly: true,
+      },
+      TASKS,
+      (all, seed) => {
+        const expected = stateOf(fold(baseRow(), all[0] as Entry[], TASKS).row, ['pipeline_stage']);
+        for (const stream of all) {
+          expect(
+            stateOf(fold(baseRow(), stream, TASKS).row, ['pipeline_stage']),
+            `seed ${seed}`,
+          ).toEqual(expected);
         }
       },
     );
