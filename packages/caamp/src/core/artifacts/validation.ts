@@ -45,9 +45,11 @@ const CLEO_SHIPPED_JS_ENTRIES: ReadonlySet<string> = new Set([
  * chunk instead of the whole CLI and all of CORE at startup. Its
  * `CLEO_CHUNK_NAMES` (`cli/[name]-[hash]`) writes every chunk directly beside
  * `cli/index.js`; change both together. A chunk in any other directory is not
- * build output and stays rejected.
+ * build output and stays rejected. `<name>` is the source file's basename in
+ * any case (T13159): a source file named `TaskCard.ts` must not fail the
+ * artifact check.
  */
-export const CLEO_CLI_CHUNK_PATTERN: RegExp = /^dist\/cli\/[a-z0-9_.-]+-[A-Z0-9]{8}\.js$/;
+export const CLEO_CLI_CHUNK_PATTERN: RegExp = /^dist\/cli\/[A-Za-z0-9_.-]+-[A-Z0-9]{8}\.js$/;
 
 /** Required CLI and adapter-node resources, independent of historical byte/file-count floors. */
 export const CLEO_ARTIFACT_REQUIREMENTS: readonly PackageArtifactRequirement[] = Object.freeze([

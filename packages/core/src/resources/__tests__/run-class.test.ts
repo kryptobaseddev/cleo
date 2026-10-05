@@ -15,6 +15,7 @@ import {
   isPausable,
   isWatchCommand,
   looksHeavy,
+  namedTestFileCount,
   resolveRunClass,
 } from '../run-class.js';
 
@@ -472,5 +473,38 @@ describe('round 7 (R7-2): one-shot commands are not watchers', () => {
     expect(isWatchCommand(['esbuild', 'app.ts', '--bundle', '--serve=8000'])).toBe(true);
     expect(looksHeavy(['esbuild', 'app.ts', '--serve=8000'])).toBe(false);
     expect(looksHeavy(['esbuild', 'app.ts', '--bundle'])).toBe(true);
+  });
+});
+
+describe('namedTestFileCount (T13132)', () => {
+  it('counts the test files a test run names', () => {
+    expect(namedTestFileCount('test-run', ['pnpm', 'exec', 'vitest', 'run', 'src/a.test.ts'])).toBe(
+      1,
+    );
+    expect(
+      namedTestFileCount('test-run', [
+        'npx',
+        'vitest',
+        'run',
+        'a.spec.mjs',
+        'b.test.tsx',
+        '-t',
+        'x',
+      ]),
+    ).toBe(2);
+  });
+
+  it('is null for a whole suite, a filter, or a run that is not a test run', () => {
+    expect(namedTestFileCount('test-run', ['pnpm', 'test'])).toBeNull();
+    expect(namedTestFileCount('test-run', ['npx', 'vitest', 'run', 'governor'])).toBeNull();
+    expect(namedTestFileCount('scoped-build', ['tsc', 'a.test.ts'])).toBeNull();
+  });
+
+  it('skips the value of --exclude and gives up on a glob (#1865 LOW-3)', () => {
+    expect(namedTestFileCount('test-run', ['vitest', 'run', '--exclude', 'a.test.ts'])).toBeNull();
+    expect(
+      namedTestFileCount('test-run', ['vitest', 'run', 'b.test.ts', '--exclude', 'a.test.ts']),
+    ).toBe(1);
+    expect(namedTestFileCount('test-run', ['vitest', 'run', 'src/**/*.test.ts'])).toBeNull();
   });
 });

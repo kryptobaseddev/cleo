@@ -64,7 +64,7 @@ import { join, resolve } from 'node:path';
 import type { HeavyToolResourcePlan } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
-import { ADMISSION_ENV } from '../resources/admission-ledger.js';
+import { ADMISSION_ENV, planFootprintBytes } from '../resources/admission-ledger.js';
 import { activeToolGroups, trackToolGroup } from '../resources/tool-groups.js';
 import { isLocked, withLock } from '../store/lock.js';
 import {
@@ -2176,11 +2176,17 @@ async function runToolCachedWithPlan(
     !bypassCache || Date.parse(e.capturedAt) >= callStartedAt;
 
   for (;;) {
-    // T13123: a typecheck/lint slot is sized from the heap this run gets.
+    // T13132: a memory-bound run is charged what its plan lets it start —
+    // packages × workers × (heap + overhead) — the limits it is spawned with.
     const releaseSemaphore = opts.skipGlobalSemaphore
       ? undefined
       : await acquireGlobalSlot(command.canonical, {
-          ...(spawnPlan.resources ? { heapMb: spawnPlan.resources.heapMb } : {}),
+          ...(spawnPlan.resources
+            ? {
+                heapMb: spawnPlan.resources.heapMb,
+                footprintBytes: planFootprintBytes(spawnPlan.resources),
+              }
+            : {}),
           ...opts.semaphoreOptions,
         });
     admissionEnv = releaseSemaphore?.admission

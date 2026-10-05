@@ -131,14 +131,19 @@ describe('captureResourceEnv', () => {
   });
 
   it('keys the heap and workers the run GETS: an inherited heap above the budget is clamped (T13122)', () => {
-    // 65536 MiB is above the 24 GiB budget of a 62 GiB machine, so the run is
-    // spawned with the budget, and keyed with it — not with what was asked.
+    // 65536 MiB is above the heavy-run budget of a 62 GiB machine, so the run
+    // is spawned with the budget, and keyed with it — not with what was asked.
+    // The budget is derived, not a literal: T13132 sized it to half the
+    // admission budget (12288 MiB here; it was 24576).
+    const budget = heavyRunBudgetMb(62);
     expect(keyed('test', { NODE_OPTIONS: '--max-old-space-size=65536' })).toBe(
-      keyed('test', { NODE_OPTIONS: '--max-old-space-size=24576' }),
+      keyed('test', { NODE_OPTIONS: `--max-old-space-size=${budget}` }),
     );
-    // A kept inherited heap shrinks the worker count, which the key carries.
+    // A kept inherited heap (below the budget) shrinks the worker count, which
+    // the key carries.
+    expect(8192).toBeLessThan(budget);
     expect(keyed('test', { NODE_OPTIONS: '--max-old-space-size=8192' })).toContain(
-      'VITEST_MAX_WORKERS=3',
+      `VITEST_MAX_WORKERS=${Math.floor(budget / 8192)}`,
     );
   });
 
