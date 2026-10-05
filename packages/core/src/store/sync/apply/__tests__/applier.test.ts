@@ -24,12 +24,20 @@ import {
 } from '../../../dual-scope-db.js';
 import { finishCaptureFrame, openCaptureFrame, setCaptureEnabled } from '../../capture.js';
 import { listConflicts } from '../../conflicts.js';
-import { actorOpOf, localLeaves, readFieldFrontiers, readFieldLeaves } from '../../field-leave.js';
+import {
+  actorOpOf,
+  localLeaves,
+  readFieldFrontiers,
+  readFieldLeaves,
+  recordFieldLeaves,
+} from '../../field-leave.js';
 import { setSyncFlag } from '../../flags.js';
 import { type InboxSegment, inboxCounts, stagedTxns, stageTxns } from '../../inbox.js';
 import { readRowMeta } from '../../row-meta.js';
 import { sealPending } from '../../sealer.js';
 import { applyStagedTxns } from '../applier.js';
+import { syncSetChildKeys } from '../fk.js';
+import { ON_REMOTE_PARENT_DELETE } from '../parent-delete.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../../migrations/sync-journal');
 const LOCAL = '01929a3e-7f00-7000-8000-000000000001';
@@ -622,5 +630,233 @@ describe('local leaves (field-leave)', () => {
     expect(actorOpOf('fk_orphans')).toBeNull();
     expect(actorOpOf('{not json')).toBeNull();
     expect(actorOpOf(null)).toBeNull();
+  });
+});
+
+describe('PR-4: references, guards, parent deletes and re-keys (§3.2)', () => {
+  const fkOn = (db: DatabaseSync): void => {
+    db.exec('PRAGMA foreign_keys = ON');
+  };
+  const parentOf = (db: DatabaseSync, uid: string) =>
+    (
+      db.prepare('SELECT parent_id AS p FROM tasks_tasks WHERE uid = ?').get(uid) as {
+        p: string | null;
+      }
+    ).p;
+
+  it('a reference travels as a uid and is stored as the local key, with no echo', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('p1', h(1), { type: 'epic' })])]));
+    stage(db, segment(R1, [txn('R1:2', [insert('c1', h(2), { parent_id: 'p1' })])]));
+    expect(apply(db)).toMatchObject({ applied: 2, pending: 0 });
+    expect(parentOf(db, 'c1')).toBe('P1');
+    expect(seal(db).txns, 'the applied reference was echoed').toBe(0);
+    // The merge reads the reference as a uid: a sequential re-parent is no conflict.
+    stage(db, segment(R1, [txn('R1:3', [insert('p2', h(3), { type: 'epic' })])]));
+    stage(
+      db,
+      segment(R2, [
+        txn('R2:1', [{ ...update('c1', h(5, R2), { parent_id: 'p2' }), b: { parent_id: 'p1' } }]),
+      ]),
+    );
+    apply(db);
+    expect(parentOf(db, 'c1')).toBe('P2');
+    expect(listConflicts(db)).toEqual([]);
+  });
+
+  it('a parent and child in one transaction apply together', async () => {
+    const db = await store();
+    stage(
+      db,
+      segment(R1, [
+        txn('R1:1', [
+          insert('p1', h(1), { type: 'epic' }),
+          insert('c1', h(1), { parent_id: 'p1' }),
+        ]),
+      ]),
+    );
+    expect(apply(db).applied).toBe(1);
+    expect(parentOf(db, 'c1')).toBe('P1');
+  });
+
+  it('a reference to a row never seen waits, and applies when the row arrives', async () => {
+    const db = await store();
+    stage(db, segment(R2, [txn('R2:1', [insert('c1', h(5, R2), { parent_id: 'p1' })])]));
+    expect(apply(db)).toMatchObject({ pending: 1 });
+    expect(db.prepare('SELECT reason FROM _sync_inbox WHERE seq = 1').get()).toEqual({
+      reason: 'tasks_tasks/c1: reference parent_id to p1 not seen yet',
+    });
+    stage(db, segment(R1, [txn('R1:1', [insert('p1', h(1), { type: 'epic' })])]));
+    expect(apply(db)).toMatchObject({ applied: 2, pending: 0 });
+    expect(parentOf(db, 'c1')).toBe('P1');
+  });
+
+  it('a reference to a deleted row is a dangling-ref conflict and a void, never pending', async () => {
+    const db = await store();
+    stage(
+      db,
+      segment(R1, [
+        txn('R1:1', [insert('p1', h(1), { type: 'epic' })]),
+        txn('R1:2', [del('p1', h(2))]),
+      ]),
+    );
+    apply(db);
+    stage(db, segment(R2, [txn('R2:1', [insert('c1', h(5, R2), { parent_id: 'p1' })])]));
+    expect(apply(db)).toMatchObject({ void: 1, pending: 0 });
+    expect(task(db, 'c1')).toBeUndefined();
+    expect(listConflicts(db)).toEqual([
+      expect.objectContaining({ kind: 'dangling-ref', uid: 'c1', columns: ['parent_id'] }),
+    ]);
+  });
+
+  it('a reference to a re-keyed row follows tasks_uid_aliases', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('p2', h(1), { type: 'epic' })])]));
+    apply(db);
+    db.prepare(
+      `INSERT INTO tasks_uid_aliases (uid, entity_table, old_uid, old_birth_fp, new_uid, created_at)
+       VALUES ('alias-1', 'tasks_tasks', 'p1', 'fp-p1', 'p2', '2026-10-05T00:00:00.000Z')`,
+    ).run();
+    seal(db);
+    stage(db, segment(R2, [txn('R2:1', [insert('c1', h(5, R2), { parent_id: 'p1' })])]));
+    expect(apply(db)).toMatchObject({ applied: 1, pending: 0 });
+    expect(parentOf(db, 'c1')).toBe('P2');
+  });
+
+  it('a guard refusal voids only that op, with a guard conflict', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('g1', h(1)), insert('g2', h(1))])]));
+    apply(db);
+    // done without a terminal pipeline stage: the T877 trigger aborts the write.
+    stage(
+      db,
+      segment(R2, [
+        txn('R2:1', [update('g1', h(5, R2), grp('done')), update('g2', h(5, R2), { title: 'ok' })]),
+      ]),
+    );
+    expect(apply(db)).toMatchObject({ conflict: 1 });
+    expect(task(db, 'g1')?.status).toBe('pending');
+    expect(task(db, 'g2')?.title).toBe('ok');
+    const [c] = listConflicts(db);
+    expect(c).toMatchObject({ kind: 'guard', uid: 'g1', resolution: 'op-voided', opIdx: 0 });
+    expect(c?.rule).toMatch(/T877_INVARIANT_VIOLATION/);
+    expect(seal(db).txns, 'the voided op left a residual').toBe(0);
+  });
+
+  it('a parent delete with a remaining CASCADE child is voided with a conflict', async () => {
+    const db = await store();
+    fkOn(db);
+    stage(
+      db,
+      segment(R1, [txn('R1:1', [insert('p1', h(1), { type: 'epic' }), insert('d1', h(1))])]),
+    );
+    apply(db);
+    // A concurrent dependency on p1, already here.
+    db.exec('BEGIN IMMEDIATE');
+    const frame = openCaptureFrame(db, 'write', null);
+    db.prepare(
+      "INSERT INTO tasks_task_dependencies (task_id, depends_on, uid) VALUES ('D1', 'P1', 'dep-1')",
+    ).run();
+    finishCaptureFrame(db, frame);
+    db.exec('COMMIT');
+    seal(db);
+    stage(db, segment(R2, [txn('R2:1', [del('p1', h(5, R2))])]));
+    expect(apply(db)).toMatchObject({ void: 1 });
+    expect(task(db, 'p1')).toBeDefined();
+    expect(listConflicts(db)).toEqual([
+      expect.objectContaining({
+        kind: 'delete-with-live-children',
+        uid: 'p1',
+        columns: ['tasks_task_dependencies:dep-1'],
+      }),
+    ]);
+  });
+
+  it('a parent delete clears SET NULL children through FK actions, and they are not echoed', async () => {
+    const db = await store();
+    fkOn(db);
+    // With recursive triggers on, the FK action's child UPDATE is captured
+    // (today it is not, T13226): the delete's SET NULL intent must explain it.
+    db.exec('PRAGMA recursive_triggers = ON');
+    stage(
+      db,
+      segment(R1, [
+        txn('R1:1', [
+          insert('p1', h(1), { type: 'epic' }),
+          insert('c1', h(1), { parent_id: 'p1' }),
+        ]),
+      ]),
+    );
+    apply(db);
+    stage(db, segment(R1, [txn('R1:2', [del('p1', h(5))])]));
+    expect(apply(db)).toMatchObject({ applied: 1 });
+    expect(task(db, 'p1')).toBeUndefined();
+    expect(parentOf(db, 'c1')).toBeNull();
+    // The FK action was captured, and the delete recorded the intent that explains it.
+    expect(
+      db.prepare("SELECT count(*) AS n FROM _sync_capture WHERE op = 'U' AND uid = 'c1'").get(),
+    ).toEqual({ n: 1 });
+    expect(
+      db.prepare("SELECT enc FROM _sync_apply_intent WHERE uid = 'c1' AND col = 'parent_id'").get(),
+    ).toEqual({ enc: 'NULL' });
+    expect(seal(db).txns, 'the SET NULL action was echoed').toBe(0);
+  });
+
+  it('a K op re-keys the row, moves its meta and state, and is not echoed', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('k1', h(1))])]));
+    apply(db);
+    recordFieldLeaves(db, 'tasks_tasks', 'k1', { status: h(1) });
+    stage(
+      db,
+      segment(R1, [
+        txn('R1:2', [{ t: 'tasks_tasks', u: 'k1', o: 'K', h: h(2), nu: 'k2', bfp: 'fp-k2' }]),
+      ]),
+    );
+    expect(apply(db)).toMatchObject({ applied: 1 });
+    expect(task(db, 'k1')).toBeUndefined();
+    expect(task(db, 'k2')?.id).toBe('K1');
+    expect(readRowMeta(db, 'tasks_tasks', 'k1')).toBeUndefined();
+    expect(readRowMeta(db, 'tasks_tasks', 'k2')).toMatchObject({ hlc: h(1), bfp: 'fp-k2' });
+    // The typed-rule state follows the row (review LOW-2).
+    expect(readFieldLeaves(db, 'tasks_tasks', 'k1')).toEqual({});
+    expect(readFieldLeaves(db, 'tasks_tasks', 'k2')).toEqual({ status: h(1) });
+    expect(seal(db).txns, 'the applied re-key was echoed').toBe(0);
+    stage(db, segment(R2, [txn('R2:1', [update('k2', h(5, R2), { title: 'after rekey' })])]));
+    apply(db);
+    expect(task(db, 'k2')?.title).toBe('after rekey');
+  });
+
+  it('a K op onto a uid another live row holds is a uid-collision void', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('k1', h(1)), insert('k2', h(1))])]));
+    apply(db);
+    stage(
+      db,
+      segment(R2, [txn('R2:1', [{ t: 'tasks_tasks', u: 'k1', o: 'K', h: h(3, R2), nu: 'k2' }])]),
+    );
+    expect(apply(db)).toMatchObject({ void: 1 });
+    expect(listConflicts(db)).toEqual([
+      expect.objectContaining({ kind: 'uid-collision', uid: 'k1' }),
+    ]);
+    expect(task(db, 'k1')).toBeDefined();
+  });
+
+  it('every sync-set FK parent declares its remote-delete policy', async () => {
+    const db = await store();
+    const parents = [...syncSetChildKeys(db, 'project').keys()].sort();
+    expect(parents.length).toBeGreaterThan(0);
+    for (const t of parents) {
+      expect(ON_REMOTE_PARENT_DELETE, `${t} has no onRemoteParentDelete policy`).toHaveProperty(t);
+    }
+  });
+
+  it('a K op of a row never seen waits', async () => {
+    const db = await store();
+    stage(
+      db,
+      segment(R2, [txn('R2:1', [{ t: 'tasks_tasks', u: 'k9', o: 'K', h: h(3, R2), nu: 'k10' }])]),
+    );
+    expect(apply(db)).toMatchObject({ pending: 1 });
   });
 });

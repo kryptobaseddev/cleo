@@ -279,7 +279,7 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/field-leave.ts': {
     _sync_field_leave: {
-      count: 3,
+      count: 4,
       reason:
         'typed-rule field state (local-only): leaves and rank-max frontiers, merge input that row meta has no place for, rebuilt from the stream (T12344)',
     },
@@ -317,7 +317,10 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/schema.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
   'packages/core/src/store/sync/row-meta.ts': {
-    _sync_row_meta: { count: 1, reason: SEALER },
+    _sync_row_meta: {
+      count: 2,
+      reason: `${SEALER}; plus the re-key move of a row's meta (T12344)`,
+    },
   },
   'packages/core/src/store/sync/sealer.ts': {
     _sync_apply_intent: { count: 1, reason: SEALER },

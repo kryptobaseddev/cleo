@@ -245,3 +245,20 @@ export function localFrontierUpdates(
   }
   return out;
 }
+
+/**
+ * Move the row's typed-rule state to its new uid on a re-key.
+ *
+ * @param db - The store, inside the writer's transaction.
+ * @param tbl - Sync-set table.
+ * @param oldUid - The row's uid before the re-key.
+ * @param newUid - Its uid after.
+ */
+export function moveFieldState(db: DatabaseSync, tbl: string, oldUid: string, newUid: string): void {
+  if (oldUid === newUid) return;
+  db.prepare('UPDATE _sync_field_leave SET uid = ? WHERE tbl = ? AND uid = ?').run(
+    newUid,
+    tbl,
+    oldUid,
+  );
+}
