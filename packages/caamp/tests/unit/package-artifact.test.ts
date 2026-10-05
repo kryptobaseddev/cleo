@@ -467,6 +467,8 @@ describe('published CLI build shape', () => {
     'dist/cli/chunk-6KXXNKXV.js',
     'dist/cli/renderers-XJCPXIWY.js',
     'dist/cli/hook-entry-2LC4TLKJ.js',
+    // T13159: a source basename in any case.
+    'dist/cli/TaskCard-XJCPXIWY.js',
   ])('accepts the code-split CLI chunk %s (T13126)', (path) => {
     expect(assertCleoShippedBuildShape([...fixture().files, { path, size: 1 }])).toEqual([]);
   });
