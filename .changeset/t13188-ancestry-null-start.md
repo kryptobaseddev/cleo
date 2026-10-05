@@ -12,3 +12,7 @@ recycled into a newcomer's ancestry let the newcomer ride a grant that no longer
 until the entry was reaped (up to 10 minutes). Such a holder now proves nesting by
 ancestry only together with its `CLEO_ADMISSION` token, as group membership already did.
 A known start time that differs still rules the holder out.
+The trade-off: a run nested under such a holder by a wrapper that scrubs the environment
+(dropping the token) can no longer prove nesting, so it waits for its own parent until it
+times out or the entry is reaped as unidentifiable. That needs `ps` to have failed at
+admission, which is rare.

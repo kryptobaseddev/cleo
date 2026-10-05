@@ -759,7 +759,11 @@ const systemProcessFacts: ProcessFacts = {
  * only narrows which entry is checked
  * first; a missing or foreign token falls back to checking every admitted
  * entry by ancestry, so a wrapper that scrubs the environment cannot deadlock
- * a nested run.
+ * a nested run — except under a holder recorded without a start time, which
+ * needs the token: such a nested run waits for its own parent until it times
+ * out or the entry is reaped as unidentifiable ({@link LEDGER_ORPHAN_MS}). A
+ * rare case (`ps` failed at admission), and safer than letting a recycled pid
+ * ride a dead grant.
  *
  * Group membership (`pid` runs in a tool process group the holder started,
  * which covers a tool that outlived a killed holder) is accepted only for the
