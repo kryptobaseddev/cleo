@@ -753,7 +753,10 @@ const systemProcessFacts: ProcessFacts = {
  * The admitted entry whose process tree `pid` belongs to, or `null`.
  *
  * Proof is ancestry: the holder is an ancestor of `pid`, with its recorded
- * start time matching. The token in `env` only narrows which entry is checked
+ * start time matching. A holder recorded without a start time (`ps` failed)
+ * proves nothing by ancestry alone, since its pid may have been recycled into
+ * an ancestor: it also needs the token to name it (T13188). The token in `env`
+ * only narrows which entry is checked
  * first; a missing or foreign token falls back to checking every admitted
  * entry by ancestry, so a wrapper that scrubs the environment cannot deadlock
  * a nested run.
@@ -787,7 +790,9 @@ export function enclosingGrant(
   for (const e of ordered) {
     ancestors ??= facts.ancestorsOf(pid);
     group ??= facts.groupOf(pid);
-    const byAncestry = ancestors?.includes(e.pid) === true;
+    const byAncestry =
+      ancestors?.includes(e.pid) === true &&
+      (e.startedAt === null ? hinted.includes(e) : facts.startedAt(e.pid) === e.startedAt);
     const byGroup =
       e.host === host &&
       hinted.includes(e) &&
@@ -795,7 +800,8 @@ export function enclosingGrant(
       isProbeableId(group) &&
       e.toolGroups.includes(group);
     if (!byAncestry && !byGroup) continue;
-    if (byAncestry && e.startedAt !== null && facts.startedAt(e.pid) !== e.startedAt) continue;
+    // A known start time that differs means a recycled pid: never this holder.
+    if (ancestors?.includes(e.pid) === true && e.startedAt !== null && !byAncestry) continue;
     return e;
   }
   return null;
