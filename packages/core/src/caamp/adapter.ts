@@ -28,6 +28,7 @@ import {
   getProvider,
   getProviderCount,
   getRegistryVersion,
+  HomeInstructionFileError,
   type InjectionStatus,
   // Instructions
   inject,
@@ -268,7 +269,11 @@ export async function injectionUpdateAll(
     return {
       success: false,
       error: {
-        code: 'E_CAAMP_INJECTION_UPDATE_ALL',
+        // T13257: a $HOME project is refused with nothing written.
+        code:
+          err instanceof HomeInstructionFileError
+            ? 'E_HOME_INSTRUCTION_FILE'
+            : 'E_CAAMP_INJECTION_UPDATE_ALL',
         message: err instanceof Error ? err.message : String(err),
       },
     };

@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { ensureProviderInstructionFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
+import { ensureProjectInstructionFile } from '../shared/project-instruction-file.js';
 
 /**
  * Install provider for the OpenAI SDK adapter (Vercel AI SDK).
@@ -40,15 +41,17 @@ export class OpenAiSdkInstallProvider implements AdapterInstallProvider {
     const details: Record<string, unknown> = {};
 
     // Step 1: Ensure AGENTS.md has @-references via CAAMP registry
-    const instructionResult = await ensureProviderInstructionFile('openai-sdk', projectDir, {
+    const instructionResult = await ensureProjectInstructionFile('openai-sdk', projectDir, {
       references: [`@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`, '@.cleo/memory-bridge.md'],
       scope: 'project',
     });
 
-    const instructionFileUpdated = instructionResult.action !== 'intact';
+    const instructionFileUpdated =
+      instructionResult !== null && instructionResult.action !== 'intact';
     if (instructionFileUpdated) {
       details.instructionFile = instructionResult.filePath;
     }
+    if (instructionResult === null) details.instructionFile = 'skipped'; // T13227: $HOME project
 
     // Step 2: Create .openai config directory stub
     const configCreated = this.ensureConfigDir(projectDir);

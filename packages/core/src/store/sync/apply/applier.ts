@@ -88,6 +88,7 @@ import { fieldHlcsOf } from '../row-meta.js';
 import { canonicalJson } from '../sealer-values.js';
 import { type ApplyApi, withApplyFrame } from './frame.js';
 import { parentDeletePolicy } from './parent-delete.js';
+import { checkApplyPreconditions, checkTaskTreeShape, type PageRow } from './post-apply.js';
 import { resolveRef, uidOfKey } from './refs.js';
 
 /** How {@link applyStagedTxns} runs. */
@@ -118,6 +119,8 @@ export interface ApplyReport {
   /** Conflict records written. */
   readonly conflicts: number;
   readonly passes: number;
+  /** Why nothing was applied (PAC-15 apply preconditions), when so. */
+  readonly blocked?: string;
 }
 
 /** An op's decision inside its transaction. */
@@ -418,6 +421,26 @@ function effect(
   return out.conflicts.length;
 }
 
+/**
+ * The page PAC-01 judges: only rows whose shape this transaction could have
+ * changed (an insert, a re-key, or an op carrying `parent_id` or `type`).
+ * A row that already broke the matrix before (legacy data) never voids an
+ * unrelated edit of it; two valid ops that merge into a bad tree each carry
+ * one of those columns, so nothing introduced is missed (T13244).
+ */
+function treeShapePage(ops: readonly LedgerOp[]): PageRow[] {
+  return ops
+    .filter(
+      (o) =>
+        o.o === 'I' || o.o === 'K' || (o.a !== undefined && ('parent_id' in o.a || 'type' in o.a)),
+    )
+    .map((o) => ({
+      table: o.t,
+      uid: o.o === 'K' && o.nu ? o.nu : o.u,
+      typeChanged: o.o === 'I' || (o.a !== undefined && 'type' in o.a),
+    }));
+}
+
 /** The status of an applied transaction from its ops' results. */
 function txnStatus(results: readonly OpResult[], conflicts: number): InboxStatus {
   const voided = results.filter((r) => r === 'void').length;
@@ -451,7 +474,8 @@ function isGuardRefusal(err: unknown): err is Error {
  * `I B`; with immediate foreign keys A's insert would fail. Each row has one
  * op per transaction, so moving an insert never reorders a row's own ops. A
  * reference cycle keeps the original order (its first insert then fails as a
- * guard conflict).
+ * guard conflict). An insert is never hoisted ahead of an earlier delete on
+ * its table, so a natural-key re-add keeps its order.
  */
 function applyOrder(
   ops: readonly LedgerOp[],
@@ -467,6 +491,14 @@ function applyOrder(
     if (state.has(i)) return;
     state.set(i, 'visiting');
     const op = ops[i] as LedgerOp;
+    // An insert never moves ahead of a delete on its table that preceded it:
+    // a natural-key re-add (D X, I Y with X's key) must keep its order.
+    if (op.o === 'I') {
+      for (let k = 0; k < i; k++) {
+        const prior = ops[k] as LedgerOp;
+        if (prior.o === 'D' && prior.t === op.t && state.get(k) !== 'visiting') visit(k);
+      }
+    }
     const def = defs(op.t);
     for (const [col, v] of Object.entries(op.a ?? {})) {
       const target = def?.refs.get(col);
@@ -686,6 +718,21 @@ function applyOne(
 export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): ApplyReport {
   const now = opts.now ?? Date.now;
   const maxPasses = opts.maxPasses ?? 16;
+  // PAC-15: a store that refuses writes applies nothing; the inbox waits.
+  const blocked = checkApplyPreconditions(db);
+  if (blocked !== null) {
+    return {
+      applied: 0,
+      conflict: 0,
+      void: 0,
+      pending: 0,
+      heldSkew: 0,
+      refusedSchema: 0,
+      conflicts: 0,
+      passes: 0,
+      blocked,
+    };
+  }
   opts.seal?.();
   const defCache = new Map<string, CaptureTableDef | null>();
   const defs = (table: string): CaptureTableDef | null => {
@@ -741,11 +788,42 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
         }
         const c: OpContext = { db, api, st, defs, replica: opts.replica, nowIso };
         let n = 0;
+        // Gate C (§3.6): the whole transaction is one savepoint, so a broken
+        // multi-row invariant rolls all of it back.
+        db.exec('SAVEPOINT apply_txn');
         const results = applyOrder(st.txn.ops, defs).map((i) => {
           const r = applyOne(c, i, st.txn.ops[i] as LedgerOp);
           n += r.conflicts;
           return r.result;
         });
+        // Every per-transaction post-apply check, by name (the registry's runtime gates).
+        const violations = [...checkTaskTreeShape(db, treeShapePage(st.txn.ops))];
+        if (violations.length > 0) {
+          db.exec('ROLLBACK TO apply_txn');
+          db.exec('RELEASE apply_txn');
+          recordConflicts(
+            db,
+            { ...st.key, opIdx: -1 },
+            violations.map((v) => ({
+              kind: 'post-apply' as const,
+              table: v.table,
+              uid: v.uid,
+              columns: [],
+              rule: `${v.check}: ${v.message}`.slice(0, 200),
+              resolution: 'op-voided' as const,
+              opHlc: st.txn.hlc,
+            })),
+            st.replicaId,
+            nowIso,
+          );
+          markTxns(db, st.parts, 'void', {
+            frame: api.frame,
+            reason: `post-apply: ${violations.map((v) => v.check).join(', ')}`,
+            nowIso,
+          });
+          return { status: 'void' as const, holds: [], n: violations.length };
+        }
+        db.exec('RELEASE apply_txn');
         const status = txnStatus(results, n);
         markTxns(db, st.parts, status, {
           frame: api.frame,

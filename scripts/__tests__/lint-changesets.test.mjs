@@ -19,7 +19,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -204,5 +204,37 @@ describe('scripts/lint-changesets.mjs (T9936)', () => {
     // The valid ones should NOT appear in the failure list.
     expect(stderr).not.toContain('✗ t9936-good-1.md');
     expect(stderr).not.toContain('✗ t9936-good-2.md');
+  });
+
+  it('exits 1 for an unquoted ": " in the summary, the #1879 / #1907 class (T13281)', () => {
+    const bad = [
+      '---',
+      'id: t13281-colon',
+      'tasks: [T13281]',
+      'kind: fix',
+      'summary: cleo run: refuses a whole-suite run',
+      '---',
+      '',
+    ].join('\n');
+    const dir = track(buildFixture({ 't13281-colon.md': bad }));
+    const { status, stderr } = runLint(dir);
+    expect(status).toBe(1);
+    expect(stderr).toContain('t13281-colon.md');
+  });
+});
+
+describe('the changeset lint gates required CI (T13281)', () => {
+  it('a job of ci.yml runs lint-changesets and the ci aggregate needs it', () => {
+    const ci = readFileSync(join(__dirname, '..', '..', '.github', 'workflows', 'ci.yml'), 'utf8');
+    const lines = ci.split('\n');
+    const step = lines.findIndex((l) => l.trim() === 'run: node scripts/lint-changesets.mjs');
+    expect(step).toBeGreaterThan(-1);
+    let jobId;
+    for (let i = step; i >= 0 && jobId === undefined; i--) {
+      jobId = /^ {2}([a-z0-9-]+):$/.exec(lines[i] ?? '')?.[1];
+    }
+    expect(jobId).toBe('changeset-lint');
+    const aggregate = ci.slice(ci.indexOf('\n  ci:\n'));
+    expect(aggregate).toContain(`      - ${jobId}\n`);
   });
 });

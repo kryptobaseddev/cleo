@@ -577,28 +577,18 @@ describe('uid fill through the open path', () => {
     return stale;
   }
 
-  it('re-derives ONLY the fingerprints a pre-release build derived, and never touches aliases', () => {
+  it('an unshared store re-derives every identity value from scratch (T13231)', () => {
     const fresh = one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp;
+    const fresh2 = one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T002'")?.birth_fp;
     const stale = prereleaseFill();
     expect(stale).not.toBe(fresh);
-    // A value from another source (received by sync) and a split-brain alias.
+    // A value matching no recipe: on a provably unshared store it cannot have
+    // been received (a receive marks the store shared), so it is re-derived too.
     db.exec("UPDATE tasks_tasks SET birth_fp = 'received-value' WHERE id = 'T002'");
-    recordDisplayIdAlias(db, {
-      table: 'tasks_tasks',
-      displayId: 'T777',
-      entityUid: uidOf('tasks_tasks', 'id = ?', 'T003') ?? '',
-      entityBirthFp: null,
-      reason: 'split-brain-import',
-    });
     const report = prepareRowIdentity(db, 'project');
     expect(report?.refill).toBe('cleared');
     expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp).toBe(fresh);
-    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T002'")?.birth_fp).toBe(
-      'received-value',
-    );
-    expect(
-      one("SELECT count(*) AS n FROM tasks_display_id_aliases WHERE display_id = 'T777'")?.n,
-    ).toBe(1);
+    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T002'")?.birth_fp).toBe(fresh2);
     expect(
       one(`SELECT value FROM tasks_row_identity_meta WHERE key = '${ROW_IDENTITY_RECIPE_KEY}'`)
         ?.value,
@@ -606,15 +596,30 @@ describe('uid fill through the open path', () => {
     expect(prepareRowIdentity(db, 'project')?.refill).toBe('none');
   });
 
-  it('keeps values on a receive-only device or after the meta table was lost', () => {
+  it('a store holding identity aliases is shared: stale values and the alias are kept (T13231)', () => {
+    const stale = prereleaseFill();
+    recordDisplayIdAlias(db, {
+      table: 'tasks_tasks',
+      displayId: 'T777',
+      entityUid: uidOf('tasks_tasks', 'id = ?', 'T003') ?? '',
+      entityBirthFp: null,
+      reason: 'split-brain-import',
+    });
+    expect(prepareRowIdentity(db, 'project')?.refill).toBe('refused');
+    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp).toBe(stale);
+    expect(
+      one("SELECT count(*) AS n FROM tasks_display_id_aliases WHERE display_id = 'T777'")?.n,
+    ).toBe(1);
+  });
+
+  it('after the meta table was lost, an unshared store is re-derived from scratch (T13231)', () => {
+    const fresh = one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp;
     db.exec("UPDATE tasks_tasks SET birth_fp = 'received-value' WHERE id = 'T001'");
     db.exec('DROP TABLE tasks_row_identity_meta');
     const report = prepareRowIdentity(db, 'project');
     expect(report?.healed.join('\n')).toContain('tasks_row_identity_meta');
-    expect(report?.refill).toBe('none');
-    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp).toBe(
-      'received-value',
-    );
+    expect(report?.refill).toBe('cleared');
+    expect(one("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")?.birth_fp).toBe(fresh);
   });
 
   it('re-derives a carried criterion fingerprint that hashed a stale owner fingerprint (T12801)', () => {
@@ -666,7 +671,8 @@ describe('uid fill through the open path', () => {
     // (3) the pre-release recipe on T001 (also drops the recipe marker).
     const stale = prereleaseFill();
     expect(stale).not.toBe(fresh.task);
-    // A value from no recipe (received) stays.
+    // A value from no recipe is re-derived too on an unshared store (T13231).
+    const fresh3 = fp("SELECT birth_fp FROM tasks_tasks WHERE id = 'T003'");
     db.exec("UPDATE tasks_tasks SET birth_fp = 'received-value' WHERE id = 'T003'");
     expect(prepareRowIdentity(db, 'project')?.refill).toBe('cleared');
     expect(fp("SELECT birth_fp FROM tasks_tasks WHERE id = 'T001'")).toBe(fresh.task);
@@ -676,7 +682,7 @@ describe('uid fill through the open path', () => {
     expect(fp("SELECT birth_fp FROM tasks_evidence_ac_bindings WHERE id = 'b-v1'")).toBe(
       fresh.binding,
     );
-    expect(fp("SELECT birth_fp FROM tasks_tasks WHERE id = 'T003'")).toBe('received-value');
+    expect(fp("SELECT birth_fp FROM tasks_tasks WHERE id = 'T003'")).toBe(fresh3);
   });
 
   it('refuses to re-derive pre-release values once uids have synced', () => {
