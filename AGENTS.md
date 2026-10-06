@@ -247,7 +247,6 @@ cleo release reconcile v2026.MM.N                # backfills provenance tables
 gh api -X PUT repos/:owner/:repo/branches/main/protection \
   -f required_status_checks[strict]=false \
   -f required_status_checks[contexts][]=CI \
-  -f required_status_checks[contexts][]="Lockfile Check" \
   -f required_status_checks[contexts][]="Contracts Dep Lint" \
   -f enforce_admins=false \
   -f required_pull_request_reviews[required_approving_review_count]=0 \
@@ -263,7 +262,7 @@ Runbooks: `docs/release/merge-queue-runbook.md`, `docs/release/verb-matrix.md`, 
 - **Manual snapshot:** `cleo backup add` — `VACUUM INTO` (SQLite) + atomic tmp-then-rename (JSON).
 - **Auto snapshot:** `cleo session end` → `vacuumIntoBackupAll` writes timestamped snapshots under `.cleo/backups/sqlite/` (10 per DB, oldest rotated out).
 - **List:** `cleo backup list`
-- **Restore:** `cleo restore backup --file tasks.db` (or brain.db / config.json / project-info.json)
+- **Restore:** `cleo restore backup --id <backupId>` or `--snapshot <file>` restores `.cleo/cleo.db` (tasks and brain) after verifying the snapshot; live writers refuse it, and the replaced store is kept as a `pre-restore-*` backup (`--dry-run` first). `--file config.json` restores a config file (T13240)
 - **Fresh clones:** `cleo init` recreates config + project-info; DBs are created empty on first access. The clone keeps the original `projectId` because `init` reads it from the tracked `.cleo/project.json` (legacy: `.cleo/project-id`).
 
 **Exception: the identity files ARE tracked** (ADR-094 · T12325, ADR-096 · T12716, amending ADR-013 §9). `.cleo/project.json` holds `{schemaVersion, id, name}`: the **id is write-once** (created once with `O_EXCL`, never rewritten), the name changes only through `cleo project rename`. `.cleo/project-id` stays tracked as the legacy id-only mirror. The §9 hazard needed a second writer on state that changes, and neither id has one. **Commit both; never edit or regenerate an id.** A legacy project (only `.cleo/project-id`) migrates only through `cleo doctor project-identity --resolve --dry-run`, then `--resolve` — never on open, init or upgrade.

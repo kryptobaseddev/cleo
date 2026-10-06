@@ -134,6 +134,19 @@ function implemented(entry: SyncWriteInvariant): SyncWriteInvariant {
   return { ...rest, runtimeGate: MERGE_ENGINE_GATE };
 }
 
+/** A post-apply check the apply runs (T12344 PR-5): no longer pending. */
+function implementedCheck(entry: SyncWriteInvariant, functionName: string): SyncWriteInvariant {
+  const { pending: _pending, ...rest } = entry;
+  return {
+    ...rest,
+    check: {
+      module: 'packages/core/src/store/sync/apply/post-apply.ts',
+      functionName,
+      footprint: entry.check?.footprint ?? [],
+    },
+  };
+}
+
 function trigger(
   id: string,
   tables: readonly string[],
@@ -271,13 +284,16 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
   ),
 
   // §3.6.5: post-apply check families (T12344 items).
-  pac(
-    'task.tree.shape',
-    'PAC-01',
-    'T12922',
-    ['tasks_tasks'],
-    ['rows with a changed parent_id or type', 'their direct children and ancestor chain'],
-    'saga→epic→task→subtask matrix, non-saga has a parent, depth ≤ 3, no self-parent',
+  implementedCheck(
+    pac(
+      'task.tree.shape',
+      'PAC-01',
+      'T12922',
+      ['tasks_tasks'],
+      ['rows with a changed parent_id or type', 'their direct children and ancestor chain'],
+      'saga→epic→task→subtask matrix, non-saga has a parent, depth ≤ 3, no self-parent',
+    ),
+    'checkTaskTreeShape',
   ),
   pac(
     'task.terminal-parent.live-children',
@@ -287,13 +303,12 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     ['rows whose status, stage or parent changed', 'their parent and siblings'],
     'no terminal parent with a live child; epic stage ≥ children; rollup re-evaluated',
   ),
-  pac(
+  trigger(
     'task.dependency.graph',
-    'PAC-03',
-    'T12924',
     ['tasks_task_dependencies', 'tasks_tasks'],
-    ['dependency edges inserted in the page', 'reachability from each depends_on'],
-    'dependencies are acyclic, with no self-edge',
+    ['tasks_task_dependencies_cycle_guard_insert', 'tasks_task_dependencies_cycle_guard_update'],
+    ['PAC-03'],
+    'dependencies are acyclic, with no self-edge: enforced by the T12886 cycle guards on apply (a guard conflict)',
   ),
   pac(
     'task.done.evidence',
@@ -383,13 +398,16 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     ['the owning rows'],
     'derived counters and cross-column facts agree with their rows',
   ),
-  pac(
-    'apply.preconditions',
-    'PAC-15',
-    'T12936',
-    ['tasks_tasks'],
-    ['the whole page'],
-    'no apply while the local twin collapse has failed; restore is a re-baseline',
+  implementedCheck(
+    pac(
+      'apply.preconditions',
+      'PAC-15',
+      'T12936',
+      ['tasks_tasks'],
+      ['the whole page'],
+      'no apply while the local twin collapse has failed; restore is a re-baseline',
+    ),
+    'checkApplyPreconditions',
   ),
 
   // §3.6.6: typed merge rules (T12344).

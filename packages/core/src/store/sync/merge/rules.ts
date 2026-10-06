@@ -83,6 +83,16 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
   tasks_tasks: {
     // Status and its stamps move together, taken from the winning op.
     groups: [['status', 'completed_at', 'cancelled_at', 'cancellation_reason']],
+    // A terminal status fixes the stage (T13243, matching the domain: complete
+    // sets contribution, cancel sets cancelled, T871/T877): after a cancel and
+    // a completion race, status and stage always agree, whichever status won.
+    coupled: [
+      {
+        column: 'pipeline_stage',
+        status: 'status',
+        map: { done: 'contribution', cancelled: 'cancelled' },
+      },
+    ],
     rules: {
       status: {
         kind: 'absorbing',

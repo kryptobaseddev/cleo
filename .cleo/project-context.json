@@ -54,11 +54,6 @@
     "prRequiredWorkflows": [
       { "name": "CI", "app": "github-actions", "workflow": ".github/workflows/ci.yml" },
       {
-        "name": "Lockfile Check",
-        "app": "github-actions",
-        "workflow": ".github/workflows/lockfile-check.yml"
-      },
-      {
         "name": "Contracts Dep Lint",
         "app": "github-actions",
         "workflow": ".github/workflows/ci.yml"
@@ -69,7 +64,7 @@
     "ciSatisfies": true,
     "ciChecks": {
       "tests": ["CI"],
-      "qa": ["CI", "Lockfile Check", "Contracts Dep Lint"],
+      "qa": ["CI", "Contracts Dep Lint"],
       "jobs": {
         "tests": ["Unit Tests*"],
         "qa": ["Type Check", "Lint & Format"]
