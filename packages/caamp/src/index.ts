@@ -129,6 +129,8 @@ export {
   checkGlobalInstructionStaleness,
   syncGlobalInstructions,
 } from './core/instructions/global-sync.js';
+// Instructions
+export { isHomeProject } from './core/instructions/home-project.js';
 export type {
   CaampBlock,
   DedupeResult,
@@ -141,7 +143,6 @@ export type {
   WriteAgentFileOptions,
   WriteAgentFileResult,
 } from './core/instructions/injector.js';
-// Instructions
 export {
   checkAllInjections,
   checkInjection,

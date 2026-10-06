@@ -25,6 +25,7 @@ import {
   updateJsonConfigFile,
 } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
+import { isUserHomeDir } from '../shared/heavy-command-hook-install.js';
 import {
   type InstallHookTemplatesResult,
   installProviderHookTemplates,
@@ -95,14 +96,20 @@ export class CursorInstallProvider implements AdapterInstallProvider {
     // T12385: a malformed hooks.json aborts the write and is reported; it is
     // never reset to `{}`.
     let hooksError: string | null = null;
-    try {
-      const hookResult = await this.installHookTemplates(projectDir);
-      if (hookResult) {
-        details.hookTemplates = hookResult;
+    if (isUserHomeDir(projectDir)) {
+      // T13257: at $HOME, .cursor/hooks.json and .cursor/hooks/ ARE Cursor's
+      // user-global hooks; CLEO installs them per project only.
+      details.hookTemplates = 'skipped';
+    } else {
+      try {
+        const hookResult = await this.installHookTemplates(projectDir);
+        if (hookResult) {
+          details.hookTemplates = hookResult;
+        }
+      } catch (err) {
+        hooksError = err instanceof Error ? err.message : String(err);
+        details.hooksError = hooksError;
       }
-    } catch (err) {
-      hooksError = err instanceof Error ? err.message : String(err);
-      details.hooksError = hooksError;
     }
 
     return {
