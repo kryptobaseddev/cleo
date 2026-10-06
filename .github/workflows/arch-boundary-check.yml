@@ -618,8 +618,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           # Gate 36 rule 7 compares with the merge-base of HEAD and the base
-          # (T13294), which needs the shared history.
+          # (T13294), which needs the shared history: commits and trees only
+          # (blobs on demand), so the 3-minute budget holds.
           fetch-depth: 0
+          filter: blob:none
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -632,7 +634,7 @@ jobs:
       - name: Assert no new raw write on a classified cleo.db table (gate 28 · T12332)
         run: node scripts/lint-no-raw-table-writes.mjs
       - name: Fetch the base ref for the released-migration check (gate 36)
-        run: git fetch --no-tags origin "${{ github.base_ref || 'main' }}"
+        run: git fetch --no-tags --filter=blob:none origin "${{ github.base_ref || 'main' }}"
       - name: Assert the change-journal schema rules (gate 36 · T12819)
         run: node scripts/lint-sync-schema.mjs --base "origin/${{ github.base_ref || 'main' }}"
       - name: Assert every syncing cleo.db table has row identity or an exemption (gate 37 · T12897)
