@@ -2443,6 +2443,49 @@ jobs:
   # `skipped` (path-filtered) and `success` are accepted, so docs-only PRs that
   # skip the code jobs still satisfy the gate.
   # ──────────────────────────────────────────────────────────────────────────
+  # T13263: gating workflows that used to run standalone, where nothing
+  # required their checks (branch protection requires only `CI`), so a PR
+  # with a failing arch gate could merge green (#1881 at 58989cbbf). Each now
+  # runs here as a reusable workflow (`on: workflow_call`) and is a `needs`
+  # of the `ci` aggregate below. scripts/lint-merge-bar-aggregate.mjs pins it:
+  # every pull_request workflow must be called from here, be a required
+  # context, or be listed as advisory.
+  arch-gates:
+    name: Arch Gates
+    uses: ./.github/workflows/arch-boundary-check.yml
+
+  ai-sdk-surface-gate:
+    name: AI SDK Surface
+    uses: ./.github/workflows/ai-sdk-surface.yml
+
+  boundary-registry-gate:
+    name: Boundary Registry
+    uses: ./.github/workflows/boundary-registry-lint.yml
+
+  dual-implementation-gate:
+    name: Dual Implementation
+    uses: ./.github/workflows/dual-implementation-lint.yml
+
+  dual-scope-reads-gate:
+    name: Dual-Scope Reads
+    uses: ./.github/workflows/dual-scope-unqualified-reads.yml
+
+  duplicate-test-filenames-gate:
+    name: Duplicate Test Filenames
+    uses: ./.github/workflows/duplicate-test-filenames.yml
+
+  envelope-compliance-gate:
+    name: Envelope Compliance
+    uses: ./.github/workflows/envelope-compliance-lint.yml
+
+  generated-artifact-drift-gate:
+    name: Generated Artifact Drift
+    uses: ./.github/workflows/generated-artifact-drift.yml
+
+  identity-pollution-gate:
+    name: Identity Pollution
+    uses: ./.github/workflows/identity-pollution-check.yml
+
   ci:
     name: CI
     if: always()
@@ -2502,6 +2545,15 @@ jobs:
       - install-test
       - worktree-napi-gate
       - forge-ts-check
+      - arch-gates
+      - ai-sdk-surface-gate
+      - boundary-registry-gate
+      - dual-implementation-gate
+      - dual-scope-reads-gate
+      - duplicate-test-filenames-gate
+      - envelope-compliance-gate
+      - generated-artifact-drift-gate
+      - identity-pollution-gate
     steps:
       - name: Verify every required job passed (or was skipped)
         env:

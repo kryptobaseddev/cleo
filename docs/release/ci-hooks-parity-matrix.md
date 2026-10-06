@@ -28,16 +28,16 @@ What CI/hook surfaces run on PR, main, dev, tag, cron, and manual dispatch paths
 
 ## Trigger parity summary
 
-Legend: yes = configured trigger; path = configured but path-filtered; n/a = intentionally not a trigger for that surface.
+Legend: yes = configured trigger; path = configured but path-filtered; n/a = intentionally not a trigger for that surface; via CI = a reusable workflow called from `ci.yml`, so it runs on CI's triggers and the required `CI` aggregate needs it (T13263).
 
 | Surface | File | Class | PR to main | Push to main | Dev branch | Tag | Cron | Manual dispatch | Merge queue | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | CI | `.github/workflows/ci.yml` | Cleocode dogfood-only, with shared quality signal | yes | yes | no | no | no | no | yes | Broad repo gate; check name `CI` is branch-protection candidate. |
 | Lockfile Check | `.github/workflows/lockfile-check.yml` | Shared | yes | yes | no | no | no | no | yes | Consumer-relevant invariant for reproducible installs; check name `Lockfile Check`. |
-| Arch Boundary Check | `.github/workflows/arch-boundary-check.yml` | Cleocode dogfood-only | yes | yes | no | no | no | no | yes | Repo architecture guard; not a shipped template. |
-| Boundary Registry Lint | `.github/workflows/boundary-registry-lint.yml` | Cleocode dogfood-only | yes | yes | no | no | no | no | yes | Registry hygiene gate for this monorepo. |
-| Dual Implementation Lint | `.github/workflows/dual-implementation-lint.yml` | Cleocode dogfood-only | yes | yes | no | no | no | no | yes | Prevents duplicated implementation drift in this repo. |
-| Identity Pollution Check | `.github/workflows/identity-pollution-check.yml` | Shared | yes | yes | no | no | no | no | yes | Protects shipped artifacts from cleocode identity leakage. |
+| Arch Boundary Check | `.github/workflows/arch-boundary-check.yml` | Cleocode dogfood-only | via CI | via CI | no | no | via CI | via CI | via CI | Repo architecture guard; not a shipped template. Since T13263 a reusable workflow called from `ci.yml` (job `arch-gates`), so `CI` requires it. |
+| Boundary Registry Lint | `.github/workflows/boundary-registry-lint.yml` | Cleocode dogfood-only | via CI | via CI | no | no | via CI | via CI | via CI | Registry hygiene gate for this monorepo. Called from `ci.yml` since T13263. |
+| Dual Implementation Lint | `.github/workflows/dual-implementation-lint.yml` | Cleocode dogfood-only | via CI | via CI | no | no | via CI | via CI | via CI | Prevents duplicated implementation drift in this repo. Called from `ci.yml` since T13263. |
+| Identity Pollution Check | `.github/workflows/identity-pollution-check.yml` | Shared | via CI | via CI | no | no | via CI | via CI | via CI | Protects shipped artifacts from cleocode identity leakage. Called from `ci.yml` since T13263. |
 | Skills Depth Check | `.github/workflows/skills-depth-check.yml` | Shared | path | yes | no | no | no | no | yes | Validates packaged skill-depth invariants. |
 | Worktree Cleanup | `.github/workflows/worktree-cleanup.yml` | Cleocode dogfood-only | yes | yes | no | no | no | no | yes | Cleans orphaned CLEO worktrees for this repository. |
 | Docs Re-ingest | `.github/workflows/docs-reingest.yml` | Cleocode dogfood-only | closed PR only | no | no | no | no | no | yes | Runs after PR merge to refresh repo docs/search state. |
