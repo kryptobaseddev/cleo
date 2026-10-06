@@ -47,9 +47,10 @@ import type {
 import { getLogger } from '../../logger.js';
 import { resolveCleoDir } from '../../paths.js';
 import { resolveDualScopeDbPath } from '../dual-scope-db.js';
-import { withLock } from '../lock.js';
+import { lockCompromiseTracker, withLock } from '../lock.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import { rowIdentityColumns } from '../row-identity-registry.js';
+import { EXODUS_LOCK_STALE_MS, exodusRunLockPath, whileExodusRunHeld } from './abort-events.js';
 import { legacyRowProjection } from './column-transforms.js';
 import { runExodusMigrate } from './migrate.js';
 import { buildExodusPlan } from './plan.js';
@@ -904,18 +905,27 @@ async function reconcileWithScratch(
   const reconcilePlan = { ...plan, sources: copySources, stagingDir, resumeFromStaging: false };
 
   // Serialise with exodus-on-open, which takes the same lock on this target.
+  // A lock lost to a long stage stops the run and reverts it (T12785).
+  const lock = lockCompromiseTracker();
+  const lockPath = exodusRunLockPath(liveStorePath);
   const result = await withLock(
-    `${liveStorePath}.exodus-on-open.lock`,
-    async (): Promise<SupersededStoreReconcileResult> => {
+    lockPath,
+    whileExodusRunHeld(lockPath, async (): Promise<SupersededStoreReconcileResult> => {
       // Prove "never overwrites": every live row that existed before the copy
       // must still exist, byte for byte, afterwards.
       const liveBefore = join(scratch, 'live-before.db');
       snapshotLive(liveStorePath, liveBefore);
-      const migrated = await runExodusMigrate(reconcilePlan, false, (msg) => log.debug(msg), {
+      const copied = await runExodusMigrate(reconcilePlan, false, (msg) => log.debug(msg), {
         projectOnly: true,
         resolveTarget: copyResolver,
         ensureRuntimeTables: true,
+        abortReason: lock.reason,
       });
+      const lockLost = lock.reason();
+      const migrated =
+        copied.ok && lockLost !== null
+          ? { ...copied, ok: false, error: `E_EXODUS_LOCK_LOST: ${lockLost}` }
+          : copied;
       const rowsCopied = migrated.tables.reduce((n, t) => n + t.rowsCopied, 0);
       const after = migrated.ok
         ? assessSupersededProjectStores(liveStorePath, sources, resolveTarget)
@@ -986,8 +996,8 @@ async function reconcileWithScratch(
         stagingDir,
         reason: `${cause} — reverted the ${rolledBack} row(s) this run inserted; legacy files untouched`,
       };
-    },
-    { stale: 600_000, retries: 30 },
+    }),
+    { stale: EXODUS_LOCK_STALE_MS, retries: 30, onCompromised: lock.onCompromised },
   );
 
   const receiptPath = join(stagingDir, RECEIPT_FILENAME);

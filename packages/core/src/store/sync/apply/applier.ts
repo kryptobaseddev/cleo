@@ -85,7 +85,16 @@ import {
 } from '../merge/types.js';
 import { remapPending } from '../remap.js';
 import { fieldHlcsOf } from '../row-meta.js';
+import { hasTable } from '../schema.js';
 import { canonicalJson } from '../sealer-values.js';
+import {
+  capturePosition,
+  markSequenced,
+  ownEchoFastPath,
+  recordForeignTouches,
+  type TouchedRow,
+  unsequencedLocalTxn,
+} from '../sequencing.js';
 import { type ApplyApi, withApplyFrame } from './frame.js';
 import { parentDeletePolicy } from './parent-delete.js';
 import { checkApplyPreconditions, checkTaskTreeShape, type PageRow } from './post-apply.js';
@@ -441,6 +450,18 @@ function treeShapePage(ops: readonly LedgerOp[]): PageRow[] {
     }));
 }
 
+/** The rows a transaction's ops write (a re-key's both uids). */
+function touchedRows(ops: readonly LedgerOp[]): TouchedRow[] {
+  return ops.flatMap((o) =>
+    o.o === 'K' && o.nu && o.nu !== o.u
+      ? [
+          { table: o.t, uid: o.u },
+          { table: o.t, uid: o.nu },
+        ]
+      : [{ table: o.t, uid: o.u }],
+  );
+}
+
 /** The status of an applied transaction from its ops' results. */
 function txnStatus(results: readonly OpResult[], conflicts: number): InboxStatus {
   const voided = results.filter((r) => r === 'void').length;
@@ -734,6 +755,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
     };
   }
   opts.seal?.();
+  const sequencingOn = hasTable(db, '_sync_sequenced');
   const defCache = new Map<string, CaptureTableDef | null>();
   const defs = (table: string): CaptureTableDef | null => {
     if (!defCache.has(table)) defCache.set(table, captureTableDef(db, opts.scope, table) ?? null);
@@ -787,6 +809,8 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
           return { status: 'held-skew' as const, holds: [], n: 0 };
         }
         const c: OpContext = { db, api, st, defs, replica: opts.replica, nowIso };
+        // §3.5 Rule 3 (T13193): where this txn sits in the capture order.
+        const touchPos = sequencingOn ? capturePosition(db) : 0;
         let n = 0;
         // Gate C (§3.6): the whole transaction is one savepoint, so a broken
         // multi-row invariant rolls all of it back.
@@ -825,6 +849,18 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
         }
         db.exec('RELEASE apply_txn');
         const status = txnStatus(results, n);
+        if (sequencingOn) {
+          const rows = touchedRows(st.txn.ops);
+          if (st.replicaId !== opts.replica) {
+            recordForeignTouches(db, rows, touchPos);
+          } else {
+            // Own echo: sequence it when the stream order agrees with ours.
+            const local = unsequencedLocalTxn(db, st.txn.txn);
+            if (local && !results.includes('void') && ownEchoFastPath(db, local, rows)) {
+              markSequenced(db, local, { stream: st.key.stream, seq: st.key.seq, nowIso });
+            }
+          }
+        }
         markTxns(db, st.parts, status, {
           frame: api.frame,
           reason: n > 0 ? `${n} conflict(s) recorded` : null,
