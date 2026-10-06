@@ -18,7 +18,10 @@ import type {
   CloudWhoamiResult,
   NexusDeviceListState,
 } from '@cleocode/contracts';
-import { NEXUS_DEVICE_LIST_STATES } from '@cleocode/contracts/nexus-cloud.js';
+import {
+  NEXUS_DEVICE_LIST_STATES,
+  NEXUS_PRESENCE_FRESH_SECONDS,
+} from '@cleocode/contracts/nexus-cloud.js';
 import { emitNexusResult, failNexus, nexusApiUrlArg } from './nexus-account-cli.js';
 
 /** Parsed citty args. */
@@ -61,8 +64,8 @@ interface HolderLine {
   thisDevice: boolean;
 }
 
-/** Presence within a day reads as fresh, matching `NEXUS_PRESENCE_FRESH_SECONDS`. */
-const FRESH_MS = 86_400_000;
+/** Presence within {@link NEXUS_PRESENCE_FRESH_SECONDS} reads as fresh. */
+const FRESH_MS = NEXUS_PRESENCE_FRESH_SECONDS * 1000;
 
 /**
  * One clause listing the devices holding a project (T13290), each with its
