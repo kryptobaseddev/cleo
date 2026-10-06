@@ -628,6 +628,26 @@ describe('structural safety (§2.3a, H4, N3)', () => {
     ).toHaveLength(1);
   });
 
+  it('a store carrying the sync tables without their journal rows re-applies every folder without failing', async () => {
+    // A vault bundle restored without `_sync_meta`: the tables (and the ALTERed columns) are there,
+    // the `schema:` rows are not, so ensureSyncSchema runs every folder again.
+    const db = await captureOn();
+    db.exec("DELETE FROM _sync_meta WHERE key LIKE 'schema:%'");
+    expect(() => ensureSyncSchema(db, { root: SYNC_SCHEMA })).not.toThrow();
+    expect(
+      (
+        db.prepare("SELECT count(*) AS n FROM _sync_meta WHERE key LIKE 'schema:%'").get() as {
+          n: number;
+        }
+      ).n,
+    ).toBeGreaterThan(0);
+    expect(
+      (db.prepare('PRAGMA table_info(_sync_row_undo)').all() as Array<{ name: string }>).filter(
+        (c) => c.name === 'values_json',
+      ),
+    ).toHaveLength(1);
+  });
+
   it('a capture-suspended frame writes nothing to the outbox', async () => {
     const db = await captureOn();
     db.exec('BEGIN IMMEDIATE');
