@@ -932,19 +932,58 @@ function isAtOrBelow(path: string, dir: string): boolean {
 }
 
 /**
- * The packages a pnpm selector matches. A plain or glob name, or a path
- * (`./pkg`, `{pkg}`), matches precisely; a graph or git selector (`pkg...`,
- * `...pkg`, `[ref]`) matches every package, a superset: the refusal asks
- * whether ANY matched package would run its whole suite, so a superset only
- * refuses more, never less. An exclusion (`!pkg`) matches nothing here.
+ * The packages a positive pnpm selector matches. A plain or glob name, or a
+ * path (`./pkg`, `{pkg}`), matches precisely; a graph or git selector
+ * (`pkg...`, `...pkg`, `[ref]`) matches every package, a superset: the
+ * refusal asks whether ANY matched package would run its whole suite, so a
+ * superset only refuses more, never less.
  */
 function selectorMatches(
   selector: string,
   packages: readonly string[],
   cwd: string,
 ): readonly string[] {
-  if (selector.startsWith('!')) return [];
-  if (selector.includes('...') || selector.includes('[')) return packages;
+  return preciseSelectorMatches(selector, packages, cwd) ?? packages;
+}
+
+/**
+ * The packages matched by a pnpm `--filter` set, pnpm's way (T13280): the
+ * union of the positive selectors — or EVERY package when there are only
+ * exclusions (`--filter '!foo'` selects all but foo) — minus the exclusions.
+ * An exclusion is subtracted only when it matches precisely: a graph or git
+ * exclusion would subtract a superset, i.e. refuse less, so it subtracts
+ * nothing.
+ */
+function filteredPackages(
+  selectors: readonly string[],
+  packages: readonly string[],
+  cwd: string,
+): readonly string[] {
+  const positive = selectors.filter((sel) => !sel.startsWith('!'));
+  const base =
+    positive.length === 0
+      ? packages
+      : [...new Set(positive.flatMap((sel) => selectorMatches(sel, packages, cwd)))];
+  const excluded = new Set(
+    selectors
+      .filter((sel) => sel.startsWith('!'))
+      .flatMap((sel) => preciseSelectorMatches(sel.slice(1), packages, cwd) ?? []),
+  );
+  return base.filter((pkg) => !excluded.has(pkg));
+}
+
+/**
+ * The packages a selector matches precisely (name, name glob, or path), or
+ * `null` for a graph or git selector, whose exact set is not known here.
+ * Mid-path globs (`packages/*\/sub`, `apps/web-*` as a path) are taken
+ * literally.
+ */
+function preciseSelectorMatches(
+  selector: string,
+  packages: readonly string[],
+  cwd: string,
+): readonly string[] | null {
+  if (selector.includes('...') || selector.includes('[')) return null;
   const braced = /^\{(.+)\}$/.exec(selector);
   const pathSel = braced?.[1] ?? (/^\.{1,2}(\/|$)|^\//.test(selector) ? selector : null);
   if (pathSel !== null) {
@@ -958,6 +997,19 @@ function selectorMatches(
     const name = readManifest(d)?.name;
     return name !== null && name !== undefined && pattern.test(name);
   });
+}
+
+/**
+ * The words of one package-script command, each with one layer of
+ * surrounding quotes removed (`--filter "@x/a"` → `@x/a`), as the shell
+ * would pass them (T13280).
+ */
+function scriptWords(segment: string): string[] {
+  return segment
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => (w.length >= 2 && /^(['"]).*\1$/.test(w) ? w.slice(1, -1) : w));
 }
 
 /** How deep a script that runs other package scripts (`pnpm -r test`) is followed. */
@@ -979,7 +1031,7 @@ function scriptIsWholeSuite(
   if (fixed !== null) return vitestArgsScope([...fixed, ...extra], fixed.length, false) === 'whole';
   if (depth >= MAX_SCRIPT_DEPTH) return false;
   return script.split(/&&|\|\||;/).some((segment) => {
-    const words = segment.trim().split(/\s+/).filter(Boolean);
+    const words = scriptWords(segment);
     if (words.length === 0) return false;
     const t = commandTarget(words);
     if (t.pm === null || t.script === null) return false;
@@ -1001,9 +1053,7 @@ function wholeSuiteScriptRun(argv: readonly string[], cwd: string, depth: number
     const ws = workspacePackages(dir);
     if (ws !== null) {
       const matched =
-        selectors.length === 0
-          ? ws.packages
-          : [...new Set(selectors.flatMap((sel) => selectorMatches(sel, ws.packages, dir)))];
+        selectors.length === 0 ? ws.packages : filteredPackages(selectors, ws.packages, dir);
       return matched.some((pkg) =>
         scriptIsWholeSuite(readManifest(pkg)?.scripts.get(name), t.rest, pkg, depth),
       );
@@ -1015,7 +1065,7 @@ function wholeSuiteScriptRun(argv: readonly string[], cwd: string, depth: number
 /** The arguments after `vitest` in a package script's vitest command, else null. */
 function scriptVitestArgs(script: string): string[] | null {
   for (const segment of script.split(/&&|\|\||;/)) {
-    const words = segment.trim().split(/\s+/).filter(Boolean);
+    const words = scriptWords(segment);
     if (words.length === 0) continue;
     const t = commandTarget(words);
     if (t.tool === 'vitest' && t.script === null) return [...t.rest];
