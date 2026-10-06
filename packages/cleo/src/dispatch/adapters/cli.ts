@@ -14,9 +14,8 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describeOperation } from '@cleocode/core/dispatch/describe-operation';
+import type * as DescribeOperation from '@cleocode/core/dispatch/describe-operation';
 import { hooks } from '@cleocode/core/hooks/registry';
-import { autoRecordDispatchTokenUsage } from '@cleocode/core/metrics/token-service';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { trackBackgroundOp } from '@cleocode/core/store/background-ops';
 import type { GatewayHandler } from '@cleocode/runtime/gateway/dispatch';
@@ -24,6 +23,7 @@ import { createDispatchSpinner } from '../../cli/animation-bridge.js';
 import { isDescribeMode } from '../../cli/describe-context.js';
 import { getFormatContext } from '../../cli/format-context.js';
 import { getIdempotencyKeyContext } from '../../cli/idempotency-context.js';
+import { loadEsmSync } from '../../cli/lib/load-esm-sync.js';
 import { settleThenExit } from '../../cli/lib/settle-then-exit.js';
 import { type CliOutputOptions, cliError, cliOutput } from '../../cli/renderers/index.js';
 import { Dispatcher } from '../dispatcher.js';
@@ -39,6 +39,7 @@ import { createSanitizer } from '../middleware/sanitizer.js';
 import { createSessionResolver } from '../middleware/session-resolver.js';
 import { createStoreWriteGuard } from '../middleware/store-write-guard.js';
 import { createTelemetry } from '../middleware/telemetry.js';
+import { createWriteActor } from '../middleware/write-actor.js';
 import type { DispatchRequest, DispatchResponse, Gateway } from '../types.js';
 
 // Reverse mapping from string error codes to numeric exit codes.
@@ -153,26 +154,34 @@ async function registerCaampLibrary(): Promise<void> {
 /**
  * Read operations verified to run without CORE's module-load side effects
  * (T13126): `cleo show`, `find`, `list` and `current`, the commands agents call
- * most. They dispatch on narrow CORE modules alone.
+ * most, plus `session status` and `briefing` (T13166), which every agent runs
+ * at session start. They dispatch on narrow CORE modules alone. `briefing`
+ * fires no lifecycle hook, runs its opportunistic dream only when a caller opts
+ * in (the CLI never does), and loads CAAMP itself for the heavy-hook check.
  *
- * Loading `@cleocode/core/internal` also REGISTERS things as a side effect: the
- * lifecycle hook handlers (`hooks/handlers`), the LLM env credential seeders,
- * release invariants, the CAAMP-backed engine registries. Every other
- * operation therefore still loads the barrel before it is dispatched, so it
- * runs with exactly the registrations it always had. An operation joins this
- * set only once its whole path is shown not to depend on one of them.
+ * Some CORE modules REGISTER things while they load: the lifecycle hook
+ * handlers (`hooks/handlers`), the LLM credential seeders, release invariants,
+ * the LLM plugin engines. Every other operation therefore loads
+ * `@cleocode/core/registrations` before it is dispatched: exactly those
+ * modules, so it runs with the registrations the CORE barrel used to give it
+ * without loading the barrel (its own code imports what it uses). An operation
+ * joins this set only once its whole path is shown not to depend on one of
+ * them.
  */
 const BARREL_FREE_OPERATIONS: ReadonlySet<string> = new Set([
   'query:tasks.show',
   'query:tasks.find',
   'query:tasks.list',
   'query:tasks.current',
+  'query:session.status',
+  'query:session.briefing.show',
 ]);
 
 /**
- * Load the CORE barrel (and so its side-effect registrations) unless the
- * operation is in {@link BARREL_FREE_OPERATIONS}. Call before anything
- * operation-specific runs: hooks, middleware or the domain handler.
+ * Load CORE's module-load registrations (`@cleocode/core/registrations`) and
+ * the CAAMP skill library unless the operation is in
+ * {@link BARREL_FREE_OPERATIONS}. Call before anything operation-specific
+ * runs: hooks, middleware or the domain handler.
  *
  * @param gateway - CQRS gateway of the operation.
  * @param domain - Canonical domain.
@@ -185,7 +194,7 @@ export async function prepareCoreFor(
   operation: string,
 ): Promise<void> {
   if (BARREL_FREE_OPERATIONS.has(`${gateway}:${domain}.${operation}`)) return;
-  await import('@cleocode/core/internal');
+  await import('@cleocode/core/registrations');
   await ensureCaampLibrary();
 }
 
@@ -326,6 +335,7 @@ export function createCliDispatcher(): Dispatcher {
       // (reads stay available, served from the merged TEMP shadows).
       createStoreWriteGuard(() => getProjectRoot()),
       createSessionResolver(lookupCliSession, warnUnboundMutation), // T4959: session identity first; T12500: warn when unbound
+      createWriteActor(), // T13229: local write frames record the command as actor.op
       createClaimHeartbeat(heartbeatCliSession), // T12502 · T12540: a bound session's mutation refreshes lastActivity + renews its leases
       createSanitizer(() => getProjectRoot()),
       createFieldFilter(),
@@ -389,6 +399,11 @@ export function maybeEmitDescribe(
   if (!isDescribeMode()) return false;
 
   const key = `${domain}.${operation}`;
+  // Loaded only under --describe (T13126): deriving output contracts loads the
+  // zod workgraph schemas, which a command that runs never needs.
+  const { describeOperation } = loadEsmSync<typeof DescribeOperation>(
+    '@cleocode/core/dispatch/describe-operation',
+  );
   const descriptor = describeOperation(key);
   const command = outputOpts?.command ?? operation;
 
@@ -505,17 +520,22 @@ export async function dispatchFromCli(
 
   if (response.success) {
     // Records mutations only: a read must not write a portable row (T13106).
-    await autoRecordDispatchTokenUsage({
-      requestPayload: mergedParams,
-      responsePayload: { data: response.data, page: response.page },
-      transport: 'cli',
-      gateway,
-      domain,
-      operation,
-      sessionId: response.meta.sessionId,
-      requestId: response.meta.requestId,
-      cwd: getProjectRoot(),
-    });
+    // The recorder is loaded only then: its provider detection imports all of
+    // CAAMP, which a read verb would otherwise load for nothing (T13126).
+    if (gateway === 'mutate') {
+      const { autoRecordDispatchTokenUsage } = await import('@cleocode/core/metrics/token-service');
+      await autoRecordDispatchTokenUsage({
+        requestPayload: mergedParams,
+        responsePayload: { data: response.data, page: response.page },
+        transport: 'cli',
+        gateway,
+        domain,
+        operation,
+        sessionId: response.meta.sessionId,
+        requestId: response.meta.requestId,
+        cwd: getProjectRoot(),
+      });
+    }
 
     const opts: CliOutputOptions = {
       command: outputOpts?.command ?? operation,

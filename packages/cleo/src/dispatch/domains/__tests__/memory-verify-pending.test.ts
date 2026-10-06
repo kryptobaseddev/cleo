@@ -114,6 +114,11 @@ vi.mock('@cleocode/core/internal', async () => {
     resolveAnthropicApiKey: () => mockResolveAnthropicApiKey(),
   };
 });
+vi.mock('@cleocode/core/store/memory-sqlite', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getBrainDb: (...args: unknown[]) => mockGetBrainDb(...args),
+  getBrainNativeDb: () => mockGetBrainNativeDb(),
+}));
 
 import { MemoryHandler } from '../memory.js';
 

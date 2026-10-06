@@ -99,6 +99,12 @@ async function loadModelsDevIndex(): Promise<ModelsDevIndex | null> {
 export async function resolveProviderFromModelRegistry(
   model?: string,
 ): Promise<ModelProviderLookup> {
+  // No model, nothing to look up: never fetch the catalog for it (T13126).
+  // CLI dispatch records token usage with no model, and fetching
+  // models.dev/api.json (~10 MB of JSON, up to 1.5 s) for every mutation
+  // only to answer `none` cost every `cleo add` / `update` a network round trip.
+  if (!(model ?? '').trim()) return { source: 'none' };
+
   const prefix = getModelPrefix(model);
   if (prefix) {
     return { provider: prefix, source: 'model-prefix' };

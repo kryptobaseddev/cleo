@@ -36,6 +36,10 @@ const getLoggerMock = vi.fn(() => baseLogger);
 vi.mock('@cleocode/core', () => ({
   getLogger: (subsystem: string) => getLoggerMock(subsystem),
 }));
+vi.mock('@cleocode/core/logger', async (importOriginal) => {
+  const barrel = await import('@cleocode/core');
+  return { ...(await importOriginal<object>()), getLogger: barrel.getLogger };
+});
 
 describe('createSubsystemLogger routing (T11368)', () => {
   afterEach(() => {

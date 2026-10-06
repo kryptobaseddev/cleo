@@ -18,8 +18,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { InvariantAuditResult } from '@cleocode/contracts';
 import type { HookMatrixResult } from '@cleocode/core';
-import { getProjectRoot, pushWarning } from '@cleocode/core';
 import { renderInvariantAuditLines } from '@cleocode/core/doctor/invariant-audit-render.js';
+import { pushWarning } from '@cleocode/core/output';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import {
   quarantineRogueCleoDir,
   scanRogueCleoDirs,
@@ -785,7 +786,7 @@ export const doctorCommand = defineCommand({
         const { detectAndRemoveLegacyGlobalFiles, detectAndRemoveStrayProjectNexus } = await import(
           '@cleocode/core/store/cleanup-legacy.js'
         );
-        const { getCleoHome } = await import('@cleocode/core');
+        const { getCleoHome } = await import('@cleocode/core/core-paths');
         const cleoHome = getCleoHome();
         const projectRoot = getProjectRoot();
 
@@ -1020,7 +1021,9 @@ export const doctorCommand = defineCommand({
           0,
           `${isDryRun ? '[DRY RUN] ' : ''}Migrating .cleo/worktree-include → .worktreeinclude`,
         );
-        const { migrateWorktreeIncludeFile } = await import('@cleocode/core');
+        const { migrateWorktreeIncludeFile } = await import(
+          '@cleocode/core/scaffold/migrate-worktree-include'
+        );
         const projectRoot = getProjectRoot();
         const result = await migrateWorktreeIncludeFile(projectRoot, { dryRun: isDryRun });
         progress.complete(`Migration ${result.action}`);

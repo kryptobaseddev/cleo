@@ -52,6 +52,12 @@ import { extractIdempotencyKeyArg, setIdempotencyKeyContext } from './idempotenc
 import { lazyCommand } from './lazy-command.js';
 import { releaseCliThreadpoolEnv } from './lib/cli-threadpool-env.js';
 import { didYouMean } from './lib/did-you-mean.js';
+import {
+  type ExitPath,
+  exitPath,
+  exitPathLoadFailureNotice,
+  preloadExitPath,
+} from './lib/exit-path.js';
 import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { isInteractiveInvocation } from './lib/interactive-commands.js';
 import { settleThenExit } from './lib/settle-then-exit.js';
@@ -311,6 +317,12 @@ async function startCli(): Promise<void> {
       const { setLoggerQuiet } = await import('@cleocode/core/logger');
       setLoggerQuiet(true);
     }
+    // T13137 — tell an installed CLI that a newer release (or a hotfix) exists:
+    // one stderr line from a cached dist-tags check that a detached child
+    // refreshes daily. Never stdout, never waits on the network, never throws.
+    // Loaded here, not statically, so --version/--help never load it.
+    const { showUpdateNotice } = await import('./lib/update-notice.js');
+    showUpdateNotice({ version: CLI_VERSION, argv, quiet: rawOpts['quiet'] === true });
     await runStartupMaintenance();
   }
 
@@ -520,6 +532,11 @@ async function runMainWithLafsEnvelope(
   // (already short-circuited above).
   const { WarningCollector, withWarningCollector } = await import('@cleocode/lafs');
   const collector = new WarningCollector();
+  // T13159: load what runs after the command (teardown, error renderer) NOW,
+  // while the files exist. A long command can outlive an in-place upgrade that
+  // replaces every chunk; importing them only at the end then failed after the
+  // command's work was done.
+  preloadExitPath();
 
   await withWarningCollector(collector, async () => {
     // T12354 — record this checkout in the registry path map and WAIT for it,
@@ -569,7 +586,16 @@ async function runMainWithLafsEnvelope(
       // (tracked hook dispatches, buffered telemetry) within the shutdown
       // deadline, because a bare `process.exit` killed them (T13164). Only the
       // SUCCESS path (no exit) needs the coordinated teardown in `finally`.
-      const { cliError } = await import('./renderers/index.js');
+      let cliError: ExitPath['cliError'];
+      try {
+        ({ cliError } = await exitPath());
+      } catch (loadError) {
+        // Upgraded mid-run (T13159), or a real load error: no renderer to print
+        // with; say which, and fail. `return` so the compiler sees this branch
+        // end (settleThenExit exits).
+        process.stderr.write(exitPathLoadFailureNotice(loadError, CLI_VERSION));
+        return await settleThenExit(1);
+      }
       // Citty's CLIError extends Error with a string `code` (e.g. 'EARG') and
       // sets `name === 'CLIError'`. Narrow without lying to the type system.
       const cittyCliError = asCittyCliError(err);
@@ -615,10 +641,18 @@ async function runMainWithLafsEnvelope(
       // envelope has been written, so the loop drains and the process exits.
       // The error branches above already exit through `settleThenExit` (which
       // bypasses this finally), so this runs only on the success path.
-      const { shutdownCliRuntime } = await import('@cleocode/core/shutdown');
-      const { armExitBackstop, formatShutdownOutcomes } = await import(
-        '@cleocode/core/shutdown-deadline'
-      );
+      let teardown: ExitPath;
+      try {
+        teardown = await exitPath();
+      } catch (loadError) {
+        // T13159: the command succeeded, but an upgrade removed the teardown
+        // code mid-run. Keep the command's exit code; a hard exit releases the
+        // handles the teardown would have closed. Any other load error prints
+        // as itself.
+        process.stderr.write(exitPathLoadFailureNotice(loadError, CLI_VERSION));
+        process.exit(process.exitCode ?? 0);
+      }
+      const { shutdownCliRuntime, armExitBackstop, formatShutdownOutcomes } = teardown;
       const outcomes = await shutdownCliRuntime();
       // Preserve assessed failures, cancellation, and unstarted-resource reasons.
       // Registry settlement alone does not certify individual producer success.

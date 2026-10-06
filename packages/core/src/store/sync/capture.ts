@@ -56,6 +56,7 @@ import {
 } from '../row-identity-registry.js';
 import { classifyTable, isPortableTableClass } from '../table-classification.js';
 import { readSyncFlags, setSyncFlag } from './flags.js';
+import { mergeGroupsOf } from './merge/rules.js';
 import { ensureSyncSchema, hasTable, healSyncSchema } from './schema.js';
 import { canonicalizeStoreTimestamps } from './timestamps.js';
 import {
@@ -362,12 +363,20 @@ export function captureTriggers(def: CaptureTableDef): CaptureTrigger[] {
   const updatable = def.columns.filter((c) => !def.identity.includes(c));
   if (updatable.length > 0) {
     const changed = updatable.map((c) => `OLD.${q(c)} IS NOT NEW.${q(c)}`).join(' OR ');
+    // A merge group is recorded whole when any of its columns changes
+    // (T13222), so the sealed op carries the group as one unit.
+    const groups = mergeGroupsOf(def.table, updatable);
+    const when = (c: string): string => {
+      const g = groups.find((grp) => grp.includes(c)) ?? [c];
+      const terms = g.map((x) => `OLD.${q(x)} IS NOT NEW.${q(x)}`);
+      return terms.length === 1 ? (terms[0] as string) : `(${terms.join(' OR ')})`;
+    };
     const terms = updatable
       .map((c) => {
         const v = def.secret.has(c)
           ? `json_array(${lit(SECRET_MARKER)}, ${lit(SECRET_MARKER)})`
           : `json_array(${valueExpr(def, c, 'OLD', false)}, ${valueExpr(def, c, 'NEW', false)})`;
-        return `SELECT ${lit(c)} AS k, ${v} AS v WHERE OLD.${q(c)} IS NOT NEW.${q(c)}`;
+        return `SELECT ${lit(c)} AS k, ${v} AS v WHERE ${when(c)}`;
       })
       .join(' UNION ALL ');
     const img = `(SELECT json_group_object(k, json(v)) FROM (${terms}))`;

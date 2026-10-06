@@ -1,10 +1,11 @@
 /**
- * The tool groups a heavy run starts are recorded on the slots it holds, and a
- * terminating signal is passed on to them (T12963).
+ * The tool groups a heavy run starts are recorded on its admission-ledger
+ * entry, the tool gets the admission token, and a terminating signal is
+ * passed on to the groups (T12963, T13133).
  *
  * Tools run detached, in their own process group. A SIGKILLed cleo leaves
- * that group running with PPID 1, so a slot must stay held while it lives:
- * the slot's holder record lists every group started while it is held. A
+ * that group running with PPID 1, so its admission must stay held while it
+ * lives: the ledger entry lists every group started while it is admitted. A
  * signal that ends cleo never reaches the detached group either, so while one
  * runs cleo passes SIGTERM/SIGINT/SIGHUP (and its own `exit`) on to it, then
  * re-raises the signal so the process still dies by it.
@@ -14,6 +15,7 @@
  * tool, so `signal-exit`'s own listeners are present and not stubbed away.
  *
  * @task T12963
+ * @task T13133
  */
 
 import { execFileSync } from 'node:child_process';
@@ -22,6 +24,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import lockfile from 'proper-lockfile';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { admissionDir } from '../../resources/admission-ledger.js';
 import {
   _resetToolGroupsForTest,
   activeToolGroups,
@@ -33,7 +36,10 @@ import {
   terminateToolGroupsOnSignal,
 } from '../tool-cache.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
-import { semaphoreDir } from '../tool-semaphore.js';
+import { useRealToolRunner } from './real-tool-runner.js';
+
+// These tests spawn tiny real commands on purpose (T13203 guard opt-in).
+useRealToolRunner();
 
 const saved = { home: process.env.CLEO_HOME, test: process.env.CLEO_TOOL_CONCURRENCY_TEST };
 let home: string;
@@ -49,8 +55,7 @@ beforeEach(() => {
   repo = mkdtempSync(join(tmpdir(), 'tool-groups-repo-'));
   out = mkdtempSync(join(tmpdir(), 'tool-groups-out-'));
   process.env.CLEO_HOME = home;
-  // One tool slot; an explicit override also keeps the governor out of it.
-  process.env.CLEO_TOOL_CONCURRENCY_TEST = '1';
+  delete process.env.CLEO_TOOL_CONCURRENCY_TEST;
   git(['init', '-q']);
   git(['config', 'user.name', 'Test']);
   git(['config', 'user.email', 'test@example.com']);
@@ -74,21 +79,23 @@ afterEach(() => {
 });
 
 describe.skipIf(process.platform === 'win32')(
-  'a running tool is recorded on the slot it holds (T12963)',
+  'a running tool is recorded on the admission it holds (T12963, T13133)',
   () => {
-    it("lists the tool's process group in the tool slot's holder record while it runs", async () => {
-      const slot = join(semaphoreDir('test'), 'slot-0.lock');
-      const seen = join(out, 'holder.json');
+    it("lists the tool's process group on its ledger entry and hands the tool the token", async () => {
+      const ledger = join(admissionDir(home), 'ledger.json');
+      const seen = join(out, 'ledger.json');
       const pgid = join(out, 'pgid');
-      // The tool itself copies the record of the slot it runs under, and prints
-      // its own process group.
+      const token = join(out, 'token');
+      // The tool waits for its group to be recorded, copies the ledger, and
+      // prints its own process group and the admission token it was given.
       const command: ResolvedToolCommand = {
         canonical: 'test',
         displayName: 'test',
         cmd: 'sh',
         args: [
           '-c',
-          `cat "${slot}.holder.json" > "${seen}"; ps -o pgid= -p $$ > "${pgid}"; sleep 0.3`,
+          `sleep 0.3; cat "${ledger}" > "${seen}"; ps -o pgid= -p $$ > "${pgid}"; ` +
+            `printf %s "$CLEO_ADMISSION" > "${token}"; sleep 0.2`,
         ],
         source: 'language-default',
         primaryType: 'unknown',
@@ -105,14 +112,23 @@ describe.skipIf(process.platform === 'win32')(
       const r = await running;
 
       expect(r.exitCode).toBe(0);
-      const record = JSON.parse(readFileSync(seen, 'utf-8')) as {
-        pid: number;
-        toolGroups: number[];
+      const { entries } = JSON.parse(readFileSync(seen, 'utf-8')) as {
+        entries: Array<{
+          id: string;
+          nonce: string;
+          pid: number;
+          label: string;
+          toolGroups: number[];
+        }>;
       };
-      expect(record.pid).toBe(process.pid);
-      expect(record.toolGroups).toEqual([Number(readFileSync(pgid, 'utf-8').trim())]);
-      // Once the tool exits it is no longer tracked, and the signal cleanup is gone.
+      const mine = entries.find((e) => e.pid === process.pid);
+      expect(mine?.label).toBe('tool:test');
+      expect(mine?.toolGroups).toEqual([Number(readFileSync(pgid, 'utf-8').trim())]);
+      expect(readFileSync(token, 'utf-8')).toBe(`${mine?.id}.${mine?.nonce}`);
+      // Once the tool exits it is no longer tracked, the admission is given
+      // back, and the signal cleanup is gone.
       expect(activeToolGroups()).toEqual([]);
+      expect(JSON.parse(readFileSync(ledger, 'utf-8')).entries).toEqual([]);
       expect(process.listenerCount('SIGTERM')).toBe(sigtermListeners);
       expect(process.listenerCount('exit')).toBe(exitListeners);
     });

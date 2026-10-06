@@ -224,6 +224,13 @@ describe('netTransaction: counters (§2.6)', () => {
     ]);
   });
 
+  it('a counter set from NULL seals as a delta from 0, never an absolute value', () => {
+    const r = netTransaction([d('U', { a: { hits: 4 }, b: { hits: null } })], none, {
+      counters: { [T]: ['hits'] },
+    });
+    expect(r.ops[0]?.a).toEqual({ hits: { $inc: 4 } });
+  });
+
   it('an insert keeps the absolute counter value', () => {
     const r = netTransaction([d('I', { a: { hits: 3 } })], none, { counters: { [T]: ['hits'] } });
     expect(r.ops[0]?.a).toEqual({ hits: 3 });

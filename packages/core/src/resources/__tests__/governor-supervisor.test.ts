@@ -108,10 +108,13 @@ describe('ResourceGovernor — supervisor mode (T12001)', () => {
     const { ResourceGovernor } = await import('../governor.js');
     const gov = new ResourceGovernor();
 
-    const res = await gov.tryAcquire('full-build', { sample: makeSample(), ...BUDGET_OPTS });
+    const res = await gov.tryAcquire('background-autonomous', {
+      sample: makeSample(),
+      ...BUDGET_OPTS,
+    });
     expect(res.deferred).toBe(true);
     if (res.deferred) {
-      expect(res.class).toBe('full-build');
+      expect(res.class).toBe('background-autonomous');
       expect(res.retryAfterMs).toBe(2000);
     }
     expect(sendResourceRelease).not.toHaveBeenCalled();
@@ -122,10 +125,19 @@ describe('ResourceGovernor — supervisor mode (T12001)', () => {
     const { ResourceGovernor } = await import('../governor.js');
     const gov = new ResourceGovernor();
 
-    const res = await gov.tryAcquire('test-run', { sample: makeSample(), ...BUDGET_OPTS });
+    const res = await gov.tryAcquire('agent-session', { sample: makeSample(), ...BUDGET_OPTS });
     // Local engine granted a slot (degrade path) — NOT a deferral.
     expect(res.deferred).toBe(false);
     expect(sendResourceAdmit).toHaveBeenCalledOnce();
+    if (!res.deferred) await res.release();
+  });
+
+  it("heavy classes are the admission ledger's, never the arbiter's (T13133)", async () => {
+    const { ResourceGovernor } = await import('../governor.js');
+    const gov = new ResourceGovernor();
+    const res = await gov.tryAcquire('test-run', { sample: makeSample(), ...BUDGET_OPTS });
+    expect(res.deferred).toBe(false);
+    expect(sendResourceAdmit).not.toHaveBeenCalled();
     if (!res.deferred) await res.release();
   });
 });

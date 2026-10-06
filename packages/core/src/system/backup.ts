@@ -516,6 +516,10 @@ export function restoreBackup(
 
   const restored: string[] = [];
   for (const file of meta.files ?? []) {
+    // T13240: the live store is never plain-copied over: `cleo restore
+    // backup --id` (restoreStoreSnapshot) verifies the file, refuses live
+    // writers, handles the WAL and keeps the replaced store.
+    if (file === 'cleo.db') continue;
     const backupFile = join(backupDir, `${file}.${params.backupId}`);
     if (!existsSync(backupFile)) continue;
     const destPath = join(cleoDir, file);

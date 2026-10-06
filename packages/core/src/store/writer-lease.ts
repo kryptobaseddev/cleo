@@ -78,6 +78,7 @@ import {
   openDualScopeDbAtPath,
   resolveDualScopeDbPath,
 } from './dual-scope-db.js';
+import { isPidAlive } from './pid-alive.js';
 import { getDbSyncConstructor, openNativeDatabase } from './sqlite-native.js';
 import { installSchemaWriteGuard } from './worktree-build-guard.js';
 import {
@@ -611,17 +612,6 @@ export function resolveDbIdentity(db: object): WriterLeaseIdentity {
  */
 function sleepAsync(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.round(ms))));
-}
-
-/** No-throw pid-liveness probe (`process.kill(pid, 0)`), mirrors gc/daemon.ts. */
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // ESRCH => no such process (dead). EPERM => process exists, not ours (alive).
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
 }
 
 /** This process's stable holder identity for a lane. */

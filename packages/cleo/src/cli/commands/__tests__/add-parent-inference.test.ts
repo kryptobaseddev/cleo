@@ -46,13 +46,9 @@ vi.mock('../../renderers/index.js', () => ({
 // Mock Core inference — add.ts now delegates all inference to inferTaskAddParams (T1490)
 // inferredParent drives the T1329 parent-from-session logic.
 const mockInferTaskAddParams = vi.fn();
-vi.mock('@cleocode/core', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@cleocode/core')>();
-  return {
-    ...original,
-    inferTaskAddParams: (...args: unknown[]) => mockInferTaskAddParams(...args),
-  };
-});
+vi.mock('@cleocode/core/tasks/infer-add-params', () => ({
+  inferTaskAddParams: (...args: unknown[]) => mockInferTaskAddParams(...args),
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers

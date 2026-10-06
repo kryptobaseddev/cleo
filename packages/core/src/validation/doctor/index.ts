@@ -20,6 +20,7 @@ export {
   checkNodeVersion,
   checkRootGitignore,
   checkSqliteNotTracked,
+  checkUserGlobalClaudeLeftovers,
   runAllGlobalChecks,
 } from './checks.js';
 export {

@@ -12,6 +12,7 @@ import type {
   CloudDevicesResult,
   CloudProjectShowResult,
   CloudProjectsResult,
+  CloudRetiredReplica,
   CloudStatusResult,
   CloudWarning,
   CloudWhoamiResult,
@@ -52,6 +53,11 @@ export function deviceStateArg(args: Args): NexusDeviceListState | undefined {
   });
 }
 
+/** `<retired> → <successor>` for each replica this device retired (T13109). */
+function retiredList(retired: readonly CloudRetiredReplica[]): string {
+  return retired.map((x) => `${x.replicaId} retired → ${x.successor}`).join('; ');
+}
+
 /**
  * One human line for `cleo cloud status`.
  *
@@ -60,18 +66,62 @@ export function deviceStateArg(args: Args): NexusDeviceListState | undefined {
  */
 export function cloudStatusSummary(r: CloudStatusResult): string {
   if (r.verdict === 'not-signed-in') {
-    return `Cloud status: not signed in to ${r.local.apiUrl}. Run \`cleo login nexus\`.`;
+    return `Cloud status: not signed in to ${r.local.apiUrl}. Run \`cleo login nexus\`.${syncSummary(r)}`;
   }
   const s = r.summary;
   const parts = [`device ${r.local.nexusDeviceId ?? 'unknown'} (${s.profile ?? 'no profile'})`];
   if (r.local.projectId !== null) {
     parts.push(`project ${r.local.projectId} ${s.linked ? 'linked' : 'NOT linked'}`);
     parts.push(s.replicaAttached ? 'replica attached' : 'replica NOT attached');
+    if (r.local.retiredReplicas.length > 0) {
+      parts.push(`retired here: ${retiredList(r.local.retiredReplicas)}`);
+    }
     parts.push(`${s.devices} device(s)`);
     if (s.headSeq !== null) parts.push(`head ${s.headSeq}`);
     if (s.openConflicts !== null) parts.push(`${s.openConflicts} open conflict(s)`);
   }
-  return `Cloud status: ${r.verdict}. ${parts.join('; ')}.`;
+  return `Cloud status: ${r.verdict}. ${parts.join('; ')}.${syncSummary(r)}`;
+}
+
+/**
+ * The local sync journal of each store, one clause per store (T12998), e.g.
+ * ` Sync (project): capture on; 3 unsealed; last sealed seq 41; server fields unknown until T12343/S4.`
+ */
+function syncSummary(r: CloudStatusResult): string {
+  if (r.sync === undefined) return '';
+  return r.sync.streams
+    .map((st) => {
+      const on = Object.entries(st.flags)
+        .filter(([, v]) => v)
+        .map(([k]) => k);
+      const quarantined = Object.values(st.quarantined).reduce((n, c) => n + c, 0);
+      const parts = [
+        !st.journalInstalled
+          ? 'journal not installed'
+          : on.length > 0
+            ? `${on.join(', ')} on`
+            : 'all flags off',
+        `${st.unsealedOps} unsealed`,
+        `last sealed seq ${st.lastSealedSeq ?? 'none'}`,
+        ...(quarantined > 0 ? [`${quarantined} quarantined`] : []),
+        'server fields unknown until T12343/S4',
+      ];
+      return ` Sync (${st.scope}${st.stream ? ` ${st.stream}` : ''}): ${parts.join('; ')}.`;
+    })
+    .join('');
+}
+
+/**
+ * One human line for `cleo cloud projects show`.
+ *
+ * @param r - Project detail.
+ * @returns e.g. `Project p "demo" (owner): 2 active device(s), 3 replica(s) (retired on this device: r-1 retired → r-2), head 7, 0 open conflict(s).`
+ */
+export function cloudProjectShowSummary(r: CloudProjectShowResult): string {
+  // Replicas this device retired stay listed by the server until S4 (T13109).
+  const retired =
+    r.retiredHere.length > 0 ? ` (retired on this device: ${retiredList(r.retiredHere)})` : '';
+  return `Project ${r.projectId} "${r.project.label ?? ''}" (${r.role}): ${r.devices.active} active device(s), ${r.replicas.length} replica(s)${retired}, head ${r.stream?.headSeq ?? 'none'}, ${r.openConflicts} open conflict(s).`;
 }
 
 /**
@@ -187,8 +237,7 @@ export async function runCloudProjects(args: Args): Promise<void> {
           ...(projectId !== undefined ? { projectId } : {}),
         });
       },
-      (r) =>
-        `Project ${r.projectId} "${r.project.label ?? ''}" (${r.role}): ${r.devices.active} active device(s), ${r.replicas.length} replica(s), head ${r.stream?.headSeq ?? 'none'}, ${r.openConflicts} open conflict(s).`,
+      cloudProjectShowSummary,
     );
     return;
   }

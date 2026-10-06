@@ -252,3 +252,41 @@ export class ExodusAbortWriteUnsafeError extends Error {
     this.fix = kind === 'deferred' ? EXODUS_DEFERRED_FIX : EXODUS_ABORTED_FIX;
   }
 }
+
+/** Remedy when a store that owes its migration could not be guarded (T13171). */
+export const EXODUS_GUARD_FAILED_FIX =
+  'Retry the command. If it keeps failing, check that the temp directory SQLite uses is ' +
+  'writable and not full, then run `cleo exodus migrate`. Nothing was written.';
+
+/**
+ * Thrown by an open of a store that still owes its legacy migration when no
+ * write guard could be installed at all (T13171): not even the anchor table's
+ * trigger. Publishing the handle would let any write, raw SQL included, land
+ * in the empty store and strand the legacy rows for good (the #1826 class), so
+ * the open is refused instead. Retryable: a later open tries again.
+ *
+ * @task T13171
+ */
+export class ExodusGuardFailedError extends Error {
+  /** Stable string error code for envelope `codeName` / log correlation. */
+  readonly codeName = 'E_EXODUS_GUARD_FAILED' as const;
+  /** The scope whose store could not be guarded. */
+  readonly scope: DualScope;
+  /** Remediation hint surfaced to the operator. */
+  readonly fix: string = EXODUS_GUARD_FAILED_FIX;
+
+  /**
+   * @param scope - The scope whose store could not be guarded.
+   * @param cause - The trigger installation failure.
+   */
+  constructor(scope: DualScope, cause: unknown) {
+    super(
+      `Refusing to open the ${scope} cleo.db: its migration from the legacy stores has not ` +
+        'completed and the store could not be protected against writes that would strand the ' +
+        `legacy data (${cause instanceof Error ? cause.message : String(cause)}).`,
+      { cause },
+    );
+    this.name = 'ExodusGuardFailedError';
+    this.scope = scope;
+  }
+}
