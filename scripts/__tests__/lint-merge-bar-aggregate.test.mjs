@@ -300,7 +300,30 @@ describe('lint-merge-bar-aggregate — coverage: nothing gates outside CI (T1326
     );
     const r = runLint();
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain('must trigger ONLY on workflow_call');
+    expect(r.stderr).toContain('must not also run on its own pull_request trigger');
+  });
+
+  it('allows a called workflow to keep workflow_dispatch and a tag-only push (T13279)', () => {
+    writeCi(CI_OK);
+    writeArch(
+      ARCH_OK.replace(
+        '  workflow_call:\n',
+        "  workflow_call:\n  workflow_dispatch:\n  push:\n    tags: ['v*']\n",
+      ),
+    );
+    const r = runLint();
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
+  });
+
+  it('fails when a called workflow still runs on a branch push (T13279)', () => {
+    writeCi(CI_OK);
+    writeArch(
+      ARCH_OK.replace('  workflow_call:\n', '  workflow_call:\n  push:\n    branches: [main]\n'),
+    );
+    const r = runLint();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('must not also run on its own push trigger');
   });
 
   it('fails when a called workflow declares workflow-level concurrency', () => {

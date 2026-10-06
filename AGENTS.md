@@ -247,7 +247,6 @@ cleo release reconcile v2026.MM.N                # backfills provenance tables
 gh api -X PUT repos/:owner/:repo/branches/main/protection \
   -f required_status_checks[strict]=false \
   -f required_status_checks[contexts][]=CI \
-  -f required_status_checks[contexts][]="Lockfile Check" \
   -f required_status_checks[contexts][]="Contracts Dep Lint" \
   -f enforce_admins=false \
   -f required_pull_request_reviews[required_approving_review_count]=0 \

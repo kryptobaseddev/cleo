@@ -81,6 +81,16 @@ jobs:
       scripts: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.scripts }}
       schemas: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.schemas }}
       workflows: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.workflows }}
+      # T13279: path scope of cant-napi-build.yml, called below.
+      cant_napi: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.cant_napi }}
+      # T13279: path scope of worktree-napi-prebuild.yml, called below.
+      worktree_napi: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.worktree_napi }}
+      # T13279: path scope of cleo-supervisor-smoke.yml, called below.
+      supervisor_smoke: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.supervisor_smoke }}
+      # T13279: path scope of skills-depth-check.yml, called below.
+      skills_depth: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.skills_depth }}
+      # T13279: path scope of release-pipeline-matrix.yml, called below.
+      release_matrix: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.release_matrix }}
       # `true` only for a pull request — or a `workflow_dispatch` run on a
       # `release/v*` branch — whose whole diff is `"version"` lines in
       # package.json files, CHANGELOG.md and `.changeset/**` moves: the release
@@ -240,6 +250,43 @@ jobs:
               - 'packages/*/templates/workflows/**'
               - 'scripts/lint-deployed-template-parity.mjs'
               - '.lint-deployed-template-parity-baseline.json'
+            cant_napi:
+              - 'crates/cant-core/**'
+              - 'crates/cant-runtime/**'
+              - 'crates/cant-napi/**'
+              - 'packages/caamp/providers/hook-mappings.json'
+              - 'packages/cant/**'
+              - 'Cargo.lock'
+              - 'Cargo.toml'
+              - 'rust-toolchain.toml'
+              - 'scripts/native-source-hash.mjs'
+              - 'scripts/lint-no-committed-native-binaries.mjs'
+              - '.github/workflows/cant-napi-build.yml'
+            worktree_napi:
+              - 'crates/worktree-napi/**'
+              - 'crates/worktrunk-core/**'
+              - 'packages/worktree/**'
+              - 'packages/contracts/**'
+              - 'packages/worktree-napi-*/**'
+              - 'rust-toolchain.toml'
+              - 'Cargo.lock'
+              - 'Cargo.toml'
+              - 'pnpm-lock.yaml'
+              - 'scripts/native-source-hash.mjs'
+              - '.github/workflows/worktree-napi-prebuild.yml'
+            supervisor_smoke:
+              - 'crates/cleo-supervisor/**'
+              - 'rust-toolchain.toml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/cleo-supervisor-smoke.yml'
+            skills_depth:
+              - 'packages/skills/skills/**'
+              - 'packages/skills/__tests__/**'
+              - '.github/workflows/skills-depth-check.yml'
+            release_matrix:
+              - 'packages/cleo/test/fixtures/release-test-**'
+              - 'packages/cleo/test/integration/release-pipeline/**'
 
   biome:
     name: Lint & Format
@@ -2183,92 +2230,14 @@ jobs:
         run: pnpm unlink --global @cleocode/cleo
 
   worktree-napi-gate:
+    # T13279: the worktree-napi prebuild runs HERE (a reusable workflow) when
+    # its paths change, instead of a standalone run this job used to poll and
+    # approve (T11127, T12094). Skipped (a pass) when nothing in its scope
+    # changed.
     name: Worktree NAPI Prebuild Gate (T11127)
-    # T12094: `actions: write` lets this job APPROVE a prebuild run that GitHub
-    # queued as `action_required` — which is the state of every run triggered by
-    # a GITHUB_TOKEN-created pull_request, i.e. every release bump-PR. Without it
-    # the gate can only report the manual command and fail.
-    permissions:
-      actions: write
-      contents: read
     needs: [changes]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - name: Wait for worktree-napi prebuild on all 4 targets
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          COMMIT_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
-
-          # Check if the prebuild workflow has any runs for this commit
-          RUN_JSON=$(gh run list \
-            --workflow=worktree-napi-prebuild.yml \
-            --branch="${{ github.head_ref || github.ref_name }}" \
-            --limit=5 --json status,conclusion,headSha,databaseId,event \
-            2>/dev/null || echo '[]')
-
-          MATCHING_RUN=$(echo "$RUN_JSON" | jq -r --arg sha "$COMMIT_SHA" \
-            'map(select(.headSha == $sha and .event != "workflow_dispatch")) | sort_by(.databaseId) | last // empty')
-
-          if [ -z "$MATCHING_RUN" ] || [ "$MATCHING_RUN" = "null" ]; then
-            echo "○ No prebuild workflow run triggered for $COMMIT_SHA"
-            echo "  (no matching paths — gate passes)"
-            exit 0
-          fi
-
-          RUN_STATUS=$(echo "$MATCHING_RUN" | jq -r '.status')
-          RUN_ID=$(echo "$MATCHING_RUN" | jq -r '.databaseId')
-
-          echo "Found prebuild run #$RUN_ID (status: $RUN_STATUS)"
-
-          if [ "$RUN_STATUS" = "completed" ]; then
-            CONCLUSION=$(echo "$MATCHING_RUN" | jq -r '.conclusion')
-            # T12094: `action_required` is NOT a failure — it means GitHub queued
-            # the run pending human approval, which is what happens to every run
-            # triggered by a GITHUB_TOKEN-created pull_request (the release
-            # bump-PR). Reading it as failure blocked v2026.8.5 on a prebuild that
-            # had never been allowed to start. Try to approve it and wait; if we
-            # lack the permission, say so precisely instead of reporting a build
-            # failure that did not occur.
-            if [ "$CONCLUSION" = "action_required" ]; then
-              echo "⏸ prebuild run #$RUN_ID is queued pending approval (GITHUB_TOKEN-created event)."
-              if gh api -X POST "repos/${{ github.repository }}/actions/runs/$RUN_ID/approve" >/dev/null 2>&1; then
-                echo "  approved — waiting for it to finish"
-                if gh run watch "$RUN_ID" --exit-status 2>/dev/null; then
-                  echo "✓ worktree-napi prebuild passed on all 4 platform targets"
-                  exit 0
-                fi
-                echo "✗ prebuild failed after approval — see run #$RUN_ID"
-                exit 1
-              fi
-              echo "::error::prebuild run #$RUN_ID needs approval and this token cannot grant it."
-              echo "  Approve it manually: gh api -X POST repos/${{ github.repository }}/actions/runs/$RUN_ID/approve"
-              exit 1
-            fi
-            if [ "$CONCLUSION" = "success" ]; then
-              echo "✓ worktree-napi prebuild passed on all 4 platform targets"
-              exit 0
-            else
-              echo "✗ worktree-napi prebuild completed with conclusion: $CONCLUSION"
-              echo "  View: ${{ github.server_url }}/${{ github.repository }}/actions/runs/$RUN_ID"
-              exit 1
-            fi
-          fi
-
-          # Wait for the run to complete (up to 12 minutes)
-          echo "Waiting for prebuild run #$RUN_ID to complete..."
-          if gh run watch "$RUN_ID" --exit-status 2>/dev/null; then
-            echo "✓ worktree-napi prebuild passed on all 4 platform targets"
-            exit 0
-          else
-            echo "✗ worktree-napi prebuild failed or timed out"
-            echo "  View: ${{ github.server_url }}/${{ github.repository }}/actions/runs/$RUN_ID"
-            exit 1
-          fi
+    if: needs.changes.outputs.worktree_napi == 'true'
+    uses: ./.github/workflows/worktree-napi-prebuild.yml
 
   forge-ts-check:
     name: Documentation Coverage (forge-ts)
@@ -2533,6 +2502,37 @@ jobs:
     name: Identity Pollution
     uses: ./.github/workflows/identity-pollution-check.yml
 
+  # T13279: the rest of the standalone gates. Lockfile Check always runs; the
+  # path-scoped ones run when the `changes` job sees their paths (skipped is a
+  # pass for the aggregate).
+  lockfile-gate:
+    name: Lockfile Check
+    uses: ./.github/workflows/lockfile-check.yml
+
+  cant-napi-gate:
+    name: cant-napi build
+    needs: [changes]
+    if: needs.changes.outputs.cant_napi == 'true'
+    uses: ./.github/workflows/cant-napi-build.yml
+
+  cleo-supervisor-smoke-gate:
+    name: cleo-supervisor smoke
+    needs: [changes]
+    if: needs.changes.outputs.supervisor_smoke == 'true'
+    uses: ./.github/workflows/cleo-supervisor-smoke.yml
+
+  skills-depth-gate:
+    name: Skills Depth Check
+    needs: [changes]
+    if: needs.changes.outputs.skills_depth == 'true'
+    uses: ./.github/workflows/skills-depth-check.yml
+
+  release-pipeline-matrix-gate:
+    name: Release Pipeline Matrix
+    needs: [changes]
+    if: needs.changes.outputs.release_matrix == 'true'
+    uses: ./.github/workflows/release-pipeline-matrix.yml
+
   ci:
     name: CI
     if: always()
@@ -2602,6 +2602,11 @@ jobs:
       - envelope-compliance-gate
       - generated-artifact-drift-gate
       - identity-pollution-gate
+      - lockfile-gate
+      - cant-napi-gate
+      - cleo-supervisor-smoke-gate
+      - skills-depth-gate
+      - release-pipeline-matrix-gate
     steps:
       - name: Verify every required job passed (or was skipped)
         env:
