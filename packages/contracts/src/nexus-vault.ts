@@ -179,6 +179,31 @@ export interface CloudPushResult {
   warnings: CloudWarning[];
 }
 
+/** `cleo sync enable push`: the stream's genesis cut and its genesis checkpoint (T12343 S4-1b). */
+export interface CloudSyncPushEnableResult {
+  apiUrl: string;
+  scope: CloudVaultScope;
+  streamId: string;
+  /**
+   * `enabled`: the cut was recorded and its genesis checkpoint stored; `resumed`: a cut recorded
+   * by an earlier run whose checkpoint push failed was pushed now; `already`: push was already on.
+   */
+  status: 'enabled' | 'resumed' | 'already';
+  /** The genesis cut: the highest capture seq the checkpoint carries. */
+  cut: number;
+  /** Transactions sealed before the cut, folded into the checkpoint, and rows given genesis row meta. */
+  sealed: number;
+  folded: number;
+  baselined: Record<string, number>;
+  /** The genesis checkpoint (null when `already`). */
+  snapshot: CloudVaultSnapshot | null;
+  /** The delta segment appended so the counts reconcile with the parent, if one was needed. */
+  deltaSegmentSeq: number | null;
+  /** The replicaSeq this replica's first journal segment follows (null: it starts at 0). */
+  replicaSeqFloor: number | null;
+  warnings: CloudWarning[];
+}
+
 /** `cleo cloud pull` / `cleo cloud restore`. */
 export interface CloudRestoreResult {
   apiUrl: string;

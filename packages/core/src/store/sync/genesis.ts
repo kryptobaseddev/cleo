@@ -26,6 +26,7 @@
  * @module store/sync/genesis
  */
 
+import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import { writeRestoreMarker } from '../restore-marker.js';
@@ -38,7 +39,7 @@ import {
 import { captureTriggerDrift, syncSetTables } from './capture.js';
 import { isSyncFlagOn, setSyncFlag } from './flags.js';
 import { baselineRowMeta } from './repair.js';
-import { activeReplica } from './replica.js';
+import { activeReplica, persistStoreSeq } from './replica.js';
 import { hasTable } from './schema.js';
 import { sealPending, sealPreconditions } from './sealer.js';
 import { capturePosition } from './sequencing.js';
@@ -508,5 +509,58 @@ export async function cutGenesisWithSnapshot(
     return r;
   } finally {
     release();
+  }
+}
+
+/**
+ * Finish a stream's genesis once its checkpoint is stored (S4-1b), in one
+ * `BEGIN IMMEDIATE`: raise the persisted replicaSeq high-water mark to the
+ * replica's last segment on the stream (the vault's delta segments spend this
+ * replica's seqs, so the first journal segment follows them), then clear
+ * `genesis_pending:<stream>`, which lets the push send segments.
+ *
+ * @param db - The store, outside a transaction.
+ * @param o - Stream, replica, the replica's last replicaSeq on the stream (null: none yet) and the time.
+ */
+export function completeGenesis(
+  db: DatabaseSync,
+  o: {
+    readonly stream: string;
+    readonly replica: string;
+    readonly replicaSeqFloor: number | null;
+    readonly nowIso: string;
+  },
+): void {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (o.replicaSeqFloor !== null) {
+      persistStoreSeq(db, o.replica, o.stream, o.replicaSeqFloor, new Date(o.nowIso));
+    }
+    db.prepare('DELETE FROM _sync_meta WHERE key = ?').run(
+      `${GENESIS_PENDING_KEY_PREFIX}${o.stream}`,
+    );
+    db.exec('COMMIT');
+  } catch (err) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+/**
+ * A stream's genesis cut read from a store file with a read-only open, or
+ * undefined (no cut, no store, or no journal): the vault reads it before a
+ * push without binding or migrating anything.
+ *
+ * @param dbPath - The `cleo.db` file.
+ * @param stream - The stream.
+ */
+export async function readGenesisCut(dbPath: string, stream: string): Promise<number | undefined> {
+  if (!existsSync(dbPath)) return undefined;
+  const { openNativeDatabase } = await import('../sqlite-native.js');
+  const db = openNativeDatabase(dbPath, { readonly: true, enableWal: false });
+  try {
+    return genesisCutOf(db, stream);
+  } finally {
+    db.close();
   }
 }

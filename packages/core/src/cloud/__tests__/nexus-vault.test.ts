@@ -50,10 +50,24 @@ import {
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { create as tarCreate, extract as tarExtract } from 'tar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { _resetDualScopeDbCache, openDualScopeDb } from '../../store/dual-scope-db.js';
+import {
+  _resetDualScopeDbCache,
+  getDualScopeNativeDb,
+  openDualScopeDb,
+  openDualScopeDbAtPath,
+} from '../../store/dual-scope-db.js';
 import { runBracketedMigrations } from '../../store/migration-runner.js';
 import { computeManifestHash, exportPortableBundle } from '../../store/portable-bundle.js';
 import { resolveCorePackageMigrationsFolder } from '../../store/resolve-migrations-folder.js';
+import {
+  ROW_IDENTITY_META_TABLE,
+  ROW_IDENTITY_RECIPE,
+  ROW_IDENTITY_RECIPE_KEY,
+} from '../../store/row-identity.js';
+import { setCaptureEnabled } from '../../store/sync/capture.js';
+import { isSyncFlagOn, setSyncFlag } from '../../store/sync/flags.js';
+import { cutGenesis, genesisCutOf, genesisPending } from '../../store/sync/genesis.js';
+import { ensureProjectReplica, storeHwm } from '../../store/sync/replica.js';
 import { ensureSyncSchema } from '../../store/sync/schema.js';
 import {
   emptyVaultTableHash,
@@ -104,6 +118,7 @@ import { hasUnsyncedNexusBackup, runNexusFirstRun } from '../nexus-first-run.js'
 import { linkProjectToNexus } from '../nexus-link.js';
 import { listNexusNamedProjects, resolveNexusProjectRef } from '../nexus-project-names.js';
 import {
+  enableSyncPush,
   nexusVaultStatus,
   pushNexusVault,
   releaseNexusVaultLease,
@@ -333,6 +348,8 @@ class FakeNexus {
   refuseCheckpoint: string[] = [];
   /** Runs once before the next checkpoint create by `deviceId` (simulates a concurrent author). */
   beforeCheckpoint: { deviceId: string; run: () => Promise<void> } | null = null;
+  /** Runs once after the server stored a checkpoint, before the response reaches the client. */
+  afterCheckpoint: { deviceId: string; run: () => Promise<void> } | null = null;
   /** The server's MAX_SCHEMA_VERSION. */
   maxSchemaVersion = 10_000;
   /** Whether the stream head carries `maxSchemaVersion` (a server from before it does not). */
@@ -429,7 +446,19 @@ class FakeNexus {
         this.beforeCheckpoint = null;
         await cpHook.run();
       }
-      return this.route(device, method, url, body);
+      const response = await this.route(device, method, url, body);
+      const afterHook = this.afterCheckpoint;
+      if (
+        afterHook !== null &&
+        afterHook.deviceId === device.deviceId &&
+        method === 'POST' &&
+        url.pathname.endsWith('/checkpoints') &&
+        response.ok
+      ) {
+        this.afterCheckpoint = null;
+        await afterHook.run();
+      }
+      return response;
     } catch (err) {
       if (err instanceof ApiFail) {
         return json(err.status, {
@@ -4816,5 +4845,228 @@ describe('cloud project link stores a new project key with its registration (onb
     }
     expect(fake.projectPosts).toEqual([]);
     expect(fake.calls.filter((c) => c === 'POST /v1/projects')).toEqual([]);
+  });
+});
+
+describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
+  const SYNC_JOURNAL = path.resolve(import.meta.dirname, '../../../migrations/sync-journal');
+
+  /** A machine whose project store is a real cleo.db with capture and seal on, bound and linked. */
+  async function journalMachine(): Promise<{ m: Machine; dbPath: string }> {
+    const m = await machine('a', DEVICE_A, REPLICA_A);
+    const cleo = path.join(m.root, '.cleo');
+    fs.mkdirSync(cleo, { recursive: true });
+    fs.writeFileSync(path.join(cleo, 'project-id'), `${LOCAL_PROJECT}\n`);
+    fs.writeFileSync(
+      path.join(cleo, 'project-info.json'),
+      JSON.stringify({ projectId: LOCAL_PROJECT, name: 'demo' }),
+    );
+    const dbPath = path.join(cleo, 'cleo.db');
+    const replicaId = await on(m, async () => {
+      const db = getDualScopeNativeDb(await openDualScopeDbAtPath('project', dbPath));
+      for (const id of ['T1', 'T2']) {
+        db.exec(
+          `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('${id}', 'title ${id}', 'task', 'pending', 'medium', 'uid-${id}', 'fp-${id}')`,
+        );
+      }
+      db.prepare(
+        `INSERT INTO ${ROW_IDENTITY_META_TABLE} (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+      ).run(ROW_IDENTITY_RECIPE_KEY, ROW_IDENTITY_RECIPE);
+      setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_JOURNAL });
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+      return ensureProjectReplica(db, { dbPath, mode: 'live' }).replicaId;
+    });
+    m.replicaId = replicaId;
+    fake.addProject(REMOTE_PROJECT, { [replicaId]: DEVICE_A });
+    link(m);
+    return { m, dbPath };
+  }
+
+  const storeOf = async (dbPath: string) =>
+    getDualScopeNativeDb(await openDualScopeDbAtPath('project', dbPath));
+
+  it('cuts the store and pushes a checkpoint/v3 genesis the server accepts; push turns on and the vault steps aside', async () => {
+    const { m, dbPath } = await journalMachine();
+    const r = await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    expect(r.status).toBe('enabled');
+    expect(r.baselined).toEqual({ tasks_tasks: 2 });
+    const s = fake.stream(STREAM);
+    expect(s.checkpoints).toHaveLength(1);
+    const cp = s.checkpoints[0];
+    expect(cp?.parentCheckpointId).toBeNull();
+    expect(manifestVersion(cp?.manifest ?? { schemaVersion: 1, tables: {} })).toBe(3);
+    expect(cp?.manifest).toMatchObject({ pending: [], voided: [], revived: [], pruned: {} });
+    expect(cp?.manifest.replayPin?.transitions).toEqual([]);
+    expect(cp?.manifest.tables['tasks_tasks']?.rows).toBe(2);
+    expect(r.snapshot?.checkpointId).toBe(cp?.checkpointId);
+    expect(fake.leases.size).toBe(0);
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      expect(genesisCutOf(db, STREAM)).toBe(r.cut);
+      expect(genesisPending(db, STREAM)).toBe(false);
+      expect(isSyncFlagOn(db, 'sync.push', {})).toBe(true);
+    });
+    // Nothing waits beside the store.
+    expect(fs.readdirSync(path.join(m.root, '.cleo', 'sync-genesis'))).toEqual([]);
+    // A second run changes nothing; the vault no longer pushes this store.
+    expect((await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })))).status).toBe(
+      'already',
+    );
+    const vault = await failure(on(m, () => pushNexusVault(vopts(m))));
+    expect(vault.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
+    expect(s.checkpoints).toHaveLength(1);
+    // A store that never cut this stream (its cut forgotten) meets a journal head: it joins by
+    // pulling, never with a second genesis.
+    await on(m, async () => {
+      (await storeOf(dbPath)).exec("DELETE FROM _sync_meta WHERE key LIKE 'genesis_%'");
+    });
+    const second = await failure(on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true }))));
+    expect(second.code).toBe('E_NEXUS_SYNC_STREAM_JOURNALED');
+    expect(s.checkpoints).toHaveLength(1);
+  });
+
+  it('over a vault head, genesis parents it, and the first journal segment follows the vault delta', async () => {
+    const { m, dbPath } = await journalMachine();
+    await on(m, () => pushNexusVault(vopts(m)));
+    // A captured write the vault pushes as a delta segment (this replica's replicaSeq 0).
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      db.exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('T3', 'title T3', 'task', 'pending', 'medium', 'uid-T3', 'fp-T3')",
+      );
+    });
+    const second = await on(m, () => pushNexusVault(vopts(m)));
+    expect(second.deltaSegmentSeq).toBe(1);
+    const head = fake.stream(STREAM).checkpoints.at(-1);
+    const r = await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    expect(r.status).toBe('enabled');
+    const cp = fake.stream(STREAM).checkpoints.at(-1);
+    expect(cp?.parentCheckpointId).toBe(head?.checkpointId);
+    expect(manifestVersion(cp?.manifest ?? { schemaVersion: 1, tables: {} })).toBe(3);
+    // The replica's last segment on the stream: the vault's delta (0), or the genesis push's own (1).
+    const floor = r.deltaSegmentSeq === null ? 0 : 1;
+    expect(r.replicaSeqFloor).toBe(floor);
+    await on(m, async () => {
+      expect(storeHwm(await storeOf(dbPath), m.replicaId)).toEqual({ [STREAM]: floor });
+    });
+  });
+
+  it('a checkpoint push that fails after the cut keeps the bundle and resumes without a second cut', async () => {
+    const { m, dbPath } = await journalMachine();
+    fake.beforeCheckpoint = {
+      deviceId: DEVICE_A,
+      run: async () => {
+        throw new ApiFail(403, 'E_FORBIDDEN');
+      },
+    };
+    await expect(
+      on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true }))),
+    ).rejects.toThrow();
+    expect(fake.leases.size).toBe(0);
+    const cut = await on(m, async () => {
+      const db = await storeOf(dbPath);
+      expect(genesisPending(db, STREAM)).toBe(true);
+      return genesisCutOf(db, STREAM);
+    });
+    expect(cut).toBeDefined();
+    expect(fs.readdirSync(path.join(m.root, '.cleo', 'sync-genesis')).sort()).toHaveLength(2);
+    // Cut but not yet checkpointed: the vault must not push this store's changes as a delta either.
+    const vault = await failure(on(m, () => pushNexusVault(vopts(m))));
+    expect(vault.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
+    expect(fake.stream(STREAM).checkpoints).toHaveLength(0);
+    // A write after the cut: it is not in the saved bundle, and stays for the journal.
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      db.exec("UPDATE tasks_tasks SET title = 'after the cut' WHERE id = 'T1'");
+    });
+    const r = await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    expect(r.status).toBe('resumed');
+    expect(r.cut).toBe(cut);
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      expect(genesisCutOf(db, STREAM)).toBe(cut);
+      expect(genesisPending(db, STREAM)).toBe(false);
+      expect(
+        (
+          db.prepare("SELECT count(*) AS n FROM _sync_capture WHERE state = 'live'").get() as {
+            n: number;
+          }
+        ).n,
+      ).toBeGreaterThan(0);
+    });
+  });
+
+  it('a cut that crashed before its bundle was saved is snapshotted at that cut and pushed (T13301)', async () => {
+    const { m, dbPath } = await journalMachine();
+    const crashed = await on(m, async () =>
+      cutGenesis(await storeOf(dbPath), {
+        scope: 'project',
+        stream: STREAM,
+        env: {},
+        allowUnreleased: true,
+      }),
+    );
+    expect(crashed.cut).not.toBeNull();
+    const r = await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    expect(r).toMatchObject({ status: 'resumed', cut: crashed.cut });
+    expect(fake.stream(STREAM).checkpoints).toHaveLength(1);
+    await on(m, async () => {
+      expect(genesisPending(await storeOf(dbPath), STREAM)).toBe(false);
+    });
+  });
+
+  it('a genesis the server stored before the process died is adopted on the next run, never cut twice (T13302)', async () => {
+    const { m, dbPath } = await journalMachine();
+    // The process dies after the server stored the checkpoint, before it cleared genesis_pending:
+    // the bundle and its record (with the uploaded checkpoint id) stay beside the store.
+    const dir = path.join(m.root, '.cleo', 'sync-genesis');
+    let keptFiles: Array<{ name: string; bytes: Buffer }> = [];
+    fake.afterCheckpoint = {
+      deviceId: DEVICE_A,
+      run: async () => {
+        keptFiles = fs
+          .readdirSync(dir)
+          .map((name) => ({ name, bytes: fs.readFileSync(path.join(dir, name)) }));
+      },
+    };
+    const first = await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    for (const f of keptFiles) fs.writeFileSync(path.join(dir, f.name), f.bytes);
+    expect(keptFiles).toHaveLength(2);
+    // Then a local write, and genesis_pending still set.
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      db.prepare(
+        "INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, 'x') ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+      ).run(`genesis_pending:${STREAM}`, String(first.cut));
+      db.exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('T9', 'title T9', 'task', 'pending', 'medium', 'uid-T9', 'fp-T9')",
+      );
+    });
+    const r = await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    expect(r).toMatchObject({ status: 'resumed', cut: first.cut });
+    expect(r.snapshot?.checkpointId).toBe(first.snapshot?.checkpointId);
+    expect(fake.stream(STREAM).checkpoints).toHaveLength(1);
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      expect(genesisCutOf(db, STREAM)).toBe(first.cut);
+      expect(genesisPending(db, STREAM)).toBe(false);
+    });
+  });
+
+  it('refuses without the unreleased opt-in, on a journaled stream, and when the store and link name different replicas', async () => {
+    const { m } = await journalMachine();
+    expect((await failure(on(m, () => enableSyncPush(vopts(m))))).code).toBe(
+      'E_NEXUS_SYNC_REFUSED',
+    );
+    const realReplica = m.replicaId;
+    m.replicaId = REPLICA_A;
+    fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });
+    link(m);
+    const mismatch = await failure(
+      on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true }))),
+    );
+    expect(mismatch.code).toBe('E_NEXUS_SYNC_REFUSED');
+    expect(mismatch.message).toContain(realReplica);
+    expect(fake.stream(STREAM).checkpoints).toHaveLength(0);
   });
 });

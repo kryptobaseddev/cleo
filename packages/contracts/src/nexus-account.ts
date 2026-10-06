@@ -101,6 +101,11 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_VAULT_STORE_BUSY',
   /** A project restore target already holds a different project. */
   'E_NEXUS_VAULT_TARGET_OCCUPIED',
+  // Change-journal push (`cleo sync enable push`, T12343 S4-1b).
+  /** The store is not fit to reach genesis (a precondition failed); nothing was cut. */
+  'E_NEXUS_SYNC_REFUSED',
+  /** Another device already started this stream's change journal: this store joins it by pulling. */
+  'E_NEXUS_SYNC_STREAM_JOURNALED',
   // Projects by name (`cleo cloud restore <name>`, T13102).
   /** No project of the account has that name, label or id. */
   'E_NEXUS_PROJECT_NOT_FOUND',

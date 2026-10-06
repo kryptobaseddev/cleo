@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const pushNexusVault = vi.fn();
+const enableSyncPush = vi.fn();
 const restoreNexusVault = vi.fn();
 const verifyNexusVault = vi.fn();
 const nexusVaultStatus = vi.fn();
@@ -22,6 +23,7 @@ const resolveNexusProjectRef = vi.fn();
 const assertNexusRestoreTarget = vi.fn();
 
 vi.mock('@cleocode/core/cloud/nexus-vault.js', () => ({
+  enableSyncPush,
   pushNexusVault,
   restoreNexusVault,
   verifyNexusVault,
@@ -46,6 +48,7 @@ const {
   runCloudRestore,
   runCloudVault,
   runCloudVerify,
+  runSyncEnablePush,
 } = await import('../nexus-vault-cli.js');
 
 const API = 'https://api.nexus.test';
@@ -154,6 +157,23 @@ describe('flags reach the core calls', () => {
       force: false,
       hold: false,
     });
+    expect(written()).toContain('cp-1');
+  });
+
+  it('sync enable push passes scope and the API URL, never the unreleased opt-in (T12343)', async () => {
+    enableSyncPush.mockReset().mockResolvedValue({
+      ...base,
+      status: 'enabled',
+      cut: 7,
+      sealed: 1,
+      folded: 2,
+      baselined: {},
+      snapshot,
+      deltaSegmentSeq: null,
+      replicaSeqFloor: null,
+    });
+    await runSyncEnablePush({ 'api-url': API, scope: 'global' });
+    expect(opts(enableSyncPush)).toEqual({ apiUrl: API, scope: 'global' });
     expect(written()).toContain('cp-1');
   });
 

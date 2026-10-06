@@ -11,6 +11,7 @@
  *   cleo sync links remove <providerId>    — remove all links for a provider
  *   cleo sync reconcile <file> --provider <id> [--conflict-policy <policy>]
  *                                          — reconcile external tasks from a JSON file
+ *   cleo sync enable push [--scope]        — genesis cut + genesis checkpoint (T12343)
  *
  * @task T473
  * @task T483
@@ -134,6 +135,33 @@ const reconcileCommand = defineCommand({
   },
 });
 
+/** cleo sync enable push — start the change journal's push for this store (T12343 S4-1b) */
+const enableCommand = defineCommand({
+  meta: {
+    name: 'enable',
+    description:
+      "Turn on a change-journal flag. 'push': record this store's genesis cut and push its genesis checkpoint to Cleo Nexus; from then on its changes travel as journal segments, not vault snapshots. The store is snapshotted under its write lock: while the bundle exports (seconds; longer on a large store), other cleo processes on this store pause their writes, wait, and refuse with E_STORE_GENESIS if it outlasts their wait (CLEO_RESTORE_WAIT_MS, default 15 s); run them again afterwards. A push that fails after the cut resumes on the next run. Refused while sync.push is unreleased.",
+  },
+  args: {
+    flag: { type: 'positional', description: "The flag to enable: 'push'", required: true },
+    scope: { type: 'string', description: "Which store: 'project' (default) or 'global'" },
+    'api-url': { type: 'string', description: 'Cleo Nexus API URL (default: the configured one)' },
+    json: { type: 'boolean', description: 'Output as JSON envelope' },
+  },
+  async run({ args }) {
+    if (args.flag !== 'push') {
+      cliError(
+        `unknown sync flag '${String(args.flag)}': only 'push' can be enabled here`,
+        ExitCode.INVALID_INPUT,
+        { name: 'E_VALIDATION' },
+      );
+      process.exit(ExitCode.INVALID_INPUT);
+    }
+    const { runSyncEnablePush } = await import('../lib/nexus-vault-cli.js');
+    await runSyncEnablePush(args as Record<string, unknown>);
+  },
+});
+
 /**
  * Root sync command group — registers all sync subcommands.
  *
@@ -144,6 +172,7 @@ export const syncCommand = defineCommand({
   subCommands: {
     links: linksCommand,
     reconcile: reconcileCommand,
+    enable: enableCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

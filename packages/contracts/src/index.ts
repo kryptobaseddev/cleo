@@ -3136,6 +3136,7 @@ export {
   type CloudLeaseReleaseResult,
   type CloudPushResult,
   type CloudRestoreResult,
+  type CloudSyncPushEnableResult,
   type CloudVaultLease,
   type CloudVaultScope,
   type CloudVaultSnapshot,
