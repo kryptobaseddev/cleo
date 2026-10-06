@@ -88,6 +88,36 @@ export function isSyncFlagOn(
   return readSyncFlags(db)[flag];
 }
 
+/** The remedy {@link LegacyOnlyStoreError} names. */
+export const LEGACY_ONLY_REMEDY = 'cleo doctor superseded-store --reconcile';
+
+/**
+ * A store whose rows live only in the bare legacy family (T13224): the bare
+ * `tasks` table holds rows while `tasks_tasks` is empty. No legacy file sits
+ * beside it, so exodus-on-open never carries them, and the journal, which
+ * captures only the current tables, would never see that data.
+ */
+export function isLegacyOnlyStore(db: DatabaseSync): boolean {
+  if (!hasTable(db, 'tasks') || !hasTable(db, 'tasks_tasks')) return false;
+  const rows = (t: string) =>
+    (db.prepare(`SELECT EXISTS (SELECT 1 FROM "${t}") AS n`).get() as { n: number }).n;
+  return rows('tasks') === 1 && rows('tasks_tasks') === 0;
+}
+
+/** Sync refused on a legacy-only store ({@link isLegacyOnlyStore}). */
+export class LegacyOnlyStoreError extends Error {
+  readonly code = 'E_SYNC_LEGACY_ONLY_STORE';
+
+  constructor(flag: string) {
+    super(
+      `E_SYNC_LEGACY_ONLY_STORE: ${flag} refused: this store's rows live only in the bare legacy ` +
+        `tables (tasks_tasks is empty), where the journal would never see them. ` +
+        `Run \`${LEGACY_ONLY_REMEDY}\` first.`,
+    );
+    this.name = 'LegacyOnlyStoreError';
+  }
+}
+
 /**
  * Persist a flag. Turning one on first applies the sync schema; turning one
  * off on a store without the schema writes nothing.
@@ -113,6 +143,10 @@ export function setSyncFlag(
       ),
       { code: 'E_SYNC_FLAG_UNRELEASED' },
     );
+  }
+  if (on && isLegacyOnlyStore(db)) {
+    // @sync-invariant none:local-only enabling sync on a store whose rows the journal cannot see is refused; a per-store setting
+    throw new LegacyOnlyStoreError(flag);
   }
   if (!on && !hasTable(db, '_sync_meta')) return false;
   if (readSyncFlags(db)[flag] === on) return false;

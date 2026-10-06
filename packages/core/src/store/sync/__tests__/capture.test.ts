@@ -36,8 +36,15 @@ import {
   setCaptureEnabled,
   syncSetTables,
 } from '../capture.js';
-import { readSyncFlags } from '../flags.js';
+import {
+  isLegacyOnlyStore,
+  LEGACY_ONLY_REMEDY,
+  LegacyOnlyStoreError,
+  readSyncFlags,
+  setSyncFlag,
+} from '../flags.js';
 import { ensureSyncSchema } from '../schema.js';
+import { sealPending } from '../sealer.js';
 import {
   BracketTransactionError,
   suspectTables,
@@ -794,5 +801,58 @@ describe('the generator on a plain database (L3, L4)', () => {
     // -0.0: SQLite stores an integer-valued REAL as REAL; the sign is not kept (L4).
     expect(['r0.0', 'r-0.0', '0']).toContain(image.c7);
     db.close();
+  });
+});
+
+describe('a legacy-only store refuses sync (T13224)', () => {
+  /** Rows only in the bare legacy `tasks` table; tasks_tasks stays empty. */
+  function strandRows(db: DatabaseSync): void {
+    db.exec('DROP TABLE IF EXISTS tasks');
+    db.exec('CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT)');
+    db.exec("INSERT INTO tasks (id, title) VALUES ('T1', 'legacy'), ('T2', 'legacy')");
+  }
+
+  it('enabling capture or seal refuses with the reconcile remedy and changes nothing', async () => {
+    const db = await openStore();
+    strandRows(db);
+    expect(isLegacyOnlyStore(db)).toBe(true);
+    expect(() => setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA })).toThrow(
+      LegacyOnlyStoreError,
+    );
+    expect(() =>
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_SCHEMA, allowUnreleased: true }),
+    ).toThrow(LEGACY_ONLY_REMEDY);
+    expect(readSyncFlags(db)['sync.capture']).toBe(false);
+    expect(
+      db
+        .prepare(
+          "SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger' AND name LIKE '_sync_cap_%'",
+        )
+        .get(),
+    ).toEqual({ n: 0 });
+  });
+
+  it('a store whose rows were already carried (tasks_tasks populated) is not legacy-only', async () => {
+    const db = await openStore();
+    strandRows(db);
+    db.exec(
+      `INSERT INTO tasks_tasks (id, title, type, status, priority) VALUES ('T1', 'carried', 'task', 'pending', 'medium')`,
+    );
+    expect(isLegacyOnlyStore(db)).toBe(false);
+    expect(() => setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA })).not.toThrow();
+  });
+
+  it('the sealer refuses a store that became legacy-only after its flags were set', async () => {
+    const db = await captureOn();
+    setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_SCHEMA, allowUnreleased: true });
+    strandRows(db);
+    const r = sealPending(db, {
+      scope: 'project',
+      replica: '01929a3e-7f00-7000-8000-000000000001',
+      env: {},
+      allowUnreleased: true,
+    });
+    expect(r.refused).toMatch(/legacy-only store/);
+    expect(r.refused).toContain(LEGACY_ONLY_REMEDY);
   });
 });

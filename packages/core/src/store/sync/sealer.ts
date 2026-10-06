@@ -69,7 +69,7 @@ import {
   recordFieldLeaves,
   setFieldFrontiers,
 } from './field-leave.js';
-import { isSyncFlagOn, UNRELEASED_FLAGS } from './flags.js';
+import { isLegacyOnlyStore, isSyncFlagOn, LEGACY_ONLY_REMEDY, UNRELEASED_FLAGS } from './flags.js';
 import { mergeGroupsOf } from './merge/rules.js';
 import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './netting.js';
 import { remapCapture, remapPending } from './remap.js';
@@ -77,6 +77,7 @@ import { activeReplica } from './replica.js';
 import { nextFhlc, type RowMetaRow, upsertRowMeta } from './row-meta.js';
 import { hasTable } from './schema.js';
 import { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
+import { snapshotRowUndo, undoEnabled } from './sequencing.js';
 import { markSuspect } from './structural.js';
 import { canonicalStoreTimestamp, timestampColumns } from './timestamps.js';
 
@@ -732,6 +733,11 @@ export function sealPreconditions(
   if (UNRELEASED_FLAGS.has('sync.seal') && !allowUnreleased) {
     return 'sync.seal is unreleased until S3b–S3d land (T13032)';
   }
+  // T13224: a flag persisted before the store's rows were stranded in the
+  // bare family still never seals an empty view of it.
+  if (isLegacyOnlyStore(db)) {
+    return `legacy-only store: its rows are in the bare legacy tables; run \`${LEGACY_ONLY_REMEDY}\``;
+  }
   return null;
 }
 
@@ -1141,6 +1147,9 @@ function sealInTransaction(
   const touched = new Map<string, { tbl: string; uid: string; rk: string }>();
   const ledgerDelta = new Map<string, number>();
   const leaveTable = hasTable(db, '_sync_field_leave');
+  // §3.5 Rule 2 (T13193): while undo is on, each sealed op snapshots its
+  // row's prior merge state, so a rebase rewind restores HLCs with values.
+  const rowUndo = hasTable(db, '_sync_row_undo') && undoEnabled(db);
 
   const metaFacts: MetaFacts = {
     sent: (t, u) => (meta.flags.get(t, u) as { sent: number } | undefined)?.sent === 1,
@@ -1327,6 +1336,7 @@ function sealInTransaction(
       insOp.run(txn, i, op.t, op.u, op.o, op.h, canonicalJson(op));
       const def = ctx.def(op.t);
       const prev = meta.get.get(op.t, op.u) as RowMetaRow | undefined;
+      if (rowUndo) snapshotRowUndo(db, txn, i, op.t, op.u);
       const keyJson = op.k ? canonicalJson(op.k) : null;
       if (op.o === 'K' && op.nu !== undefined) {
         // A K that keeps its uid changes only birth_fp: its meta stays put.

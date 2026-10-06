@@ -175,14 +175,22 @@ export async function exportSnapshot(cwd?: string): Promise<Snapshot> {
 /**
  * Record on the store that its row identity left it, or came from elsewhere
  * (`row_identity_synced`), so the full identity refill refuses (T13249).
+ * Never skipped: without a bound handle the store is opened through the
+ * chokepoint, and a failure throws (T13270), since a snapshot that carries
+ * uids with no marker would let a later refill re-derive them.
  */
 async function markIdentityShared(
   cwd: string | undefined,
   direction: 'send' | 'receive',
 ): Promise<void> {
   const { getNativeTasksDb } = await import('../store/sqlite.js');
-  const db = getNativeTasksDb(cwd);
-  if (!db) return;
+  let db = getNativeTasksDb(cwd);
+  if (!db) {
+    const { openDualScopeDb, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
+    db = getDualScopeNativeDb(await openDualScopeDb('project', cwd));
+    // The marker goes through the chokepoint writers.
+    await import('../store/sqlite-data-accessor.js');
+  }
   const { markRowIdentityShared } = await import('../store/row-identity.js');
   markRowIdentityShared(db, direction);
 }

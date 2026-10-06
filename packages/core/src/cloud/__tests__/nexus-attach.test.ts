@@ -308,6 +308,7 @@ describe('presence and binding hold their guarantees (review M3)', () => {
         '_sync_clock',
         '_sync_conflict',
         '_sync_field_leave',
+        '_sync_foreign_touch',
         '_sync_frame',
         '_sync_inbox',
         '_sync_ledger',
@@ -316,6 +317,8 @@ describe('presence and binding hold their guarantees (review M3)', () => {
         '_sync_quarantine',
         '_sync_replica',
         '_sync_row_meta',
+        '_sync_row_undo',
+        '_sync_sequenced',
         '_sync_txn',
         '_sync_undo',
       ]);

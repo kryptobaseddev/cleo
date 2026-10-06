@@ -69,7 +69,9 @@ import {
   type ExodusAbortDetail,
   ExodusAbortWriteUnsafeError,
   ExodusGuardFailedError,
+  ExodusRunInProgressError,
   exodusRefusalMessage,
+  exodusRunActiveElsewhere,
   getRecordedExodusAbort,
 } from './exodus/abort-events.js';
 import type { ExodusOnOpenPreparation } from './exodus/on-open.js';
@@ -316,6 +318,12 @@ export async function assertExodusWriteSafe(nativeDb: DatabaseSync): Promise<voi
   if (guard !== undefined) {
     // @sync-invariant none:local-only this store's own legacy migration is pending or aborted; never replicated
     throw new ExodusAbortWriteUnsafeError(guard.detail);
+  }
+  // T12785: another process is copying legacy rows into this store.
+  const path = nativeDb.location();
+  if (path !== null && exodusRunActiveElsewhere(path)) {
+    // @sync-invariant none:local-only another local process runs this store's legacy migration or reconcile; never replicated
+    throw new ExodusRunInProgressError(path);
   }
 }
 
