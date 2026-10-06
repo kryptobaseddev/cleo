@@ -2,7 +2,7 @@
 id: t12344-post-apply
 tasks: [T12344]
 kind: feat
-summary: Apply runs Gate C post-apply checks: a transaction that breaks a multi-row invariant is voided whole with a conflict, and a store that refuses writes applies nothing
+summary: 'Apply runs Gate C post-apply checks: a transaction that breaks a multi-row invariant is voided whole with a conflict, and a store that refuses writes applies nothing'
 ---
 
 This is the fifth slice of the apply side (T12344, PR-5 of 6), against journal spec §3.6 (post-apply checks) and §3.5 Rule 3.
