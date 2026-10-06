@@ -107,7 +107,7 @@ export function capturePosition(db: DatabaseSync): number {
  * runs on every echo and foreign apply under the write lock.
  */
 export const OLDEST_UNSEQUENCED_SQL = `SELECT min(u.seq) AS p FROM _sync_undo u JOIN _sync_txn t ON t.frame = u.txn_local
-  WHERE t.state = 'sealed' AND NOT EXISTS (SELECT 1 FROM _sync_sequenced s WHERE s.txn = t.txn)`;
+  WHERE t.state IN ('sealed', 'segmented') AND NOT EXISTS (SELECT 1 FROM _sync_sequenced s WHERE s.txn = t.txn)`;
 
 /**
  * Drop the undo of frames sealed into no transaction (netted away, or
@@ -311,7 +311,7 @@ export function unsequencedLocalTxns(db: DatabaseSync): UnsequencedTxn[] {
   const txns = db
     .prepare(
       `SELECT t.txn, t.frame, t.actor FROM _sync_txn t
-        WHERE t.state = 'sealed' AND NOT EXISTS (SELECT 1 FROM _sync_sequenced s WHERE s.txn = t.txn)
+        WHERE t.state IN ('sealed', 'segmented') AND NOT EXISTS (SELECT 1 FROM _sync_sequenced s WHERE s.txn = t.txn)
         ORDER BY t.local_seq`,
     )
     .all() as Array<{ txn: string; frame: string | null; actor: string | null }>;

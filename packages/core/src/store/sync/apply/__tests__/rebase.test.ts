@@ -36,6 +36,7 @@ import { HELD_WARN_DAYS, listHeldOps, SyncHeldError } from '../../held.js';
 import { stageTxns } from '../../inbox.js';
 import { planRepair } from '../../repair.js';
 import { sealPending } from '../../sealer.js';
+import { buildSegment } from '../../segments.js';
 import {
   FOREIGN_TOUCH_COUNT_KEY,
   FOREIGN_TOUCH_INCOMPLETE_KEY,
@@ -1035,6 +1036,33 @@ describe('undo budget (§3.5 Rule 2, D5)', () => {
     );
     expect((await runSyncRepair(join(dir, 'aaaa'))).undo.state).toBe('exceeded');
     expect((await runSyncRepair(join(dir, 'aaaa'), { repair: true })).undo.state).toBe('exceeded');
+  });
+});
+
+describe('segmented transactions (T12343 O-1)', () => {
+  it('a local txn already packed into a segment is still rewound and replayed by a rebase', async () => {
+    const [a, b, c] = await threeReplicas();
+    const la = write(a, "UPDATE tasks_tasks SET priority = 'high' WHERE uid = 'x'");
+    const seg = buildSegment(a.db, {
+      stream: STREAM,
+      replica: a.id,
+      project: null,
+      sealer: (_seq, plaintext) => Buffer.from(plaintext),
+      nowIso: new Date().toISOString(),
+    });
+    // The test stream bypassed segments for the base txn, so it is packed too.
+    expect(seg?.txns).toContain(la);
+    publish(b, write(b, "UPDATE tasks_tasks SET title = 'from B' WHERE uid = 'x'"));
+    expect(sync(a), 'the segmented txn fell out of the rebase').toMatchObject({ rebased: 1 });
+    expect(
+      n(a.db, "SELECT count(*) AS n FROM _sync_foreign_touch WHERE uid = 'x'"),
+      'a segmented txn no longer counts as unsequenced for the touch index',
+    ).toBe(1);
+    expect(row(a, 'x')).toMatchObject({ title: 'from B', priority: 'high' });
+    publish(a, la);
+    for (const r of [a, b, c]) sync(r);
+    expect(outcome(a, la)).toBe('applied');
+    converged([a, b, c]);
   });
 });
 

@@ -370,6 +370,28 @@ export const EXEMPT = {
     _sync_row_meta: { count: 4, reason: SEALER },
     _sync_txn: { count: 1, reason: SEALER },
   },
+  'packages/core/src/store/sync/segments.ts': {
+    _sync_row_meta: {
+      count: 1,
+      reason:
+        'sealer row meta (local-only): marks a row sent once a persisted segment carries it (§2.8 step 6, T12343)',
+    },
+    _sync_segment: {
+      count: 2,
+      reason:
+        'segment outbox (local-only): the exact sealed bytes persisted before push, and the server acknowledgement (§2.8, T12343)',
+    },
+    _sync_segment_txn: {
+      count: 1,
+      reason:
+        'segment outbox (local-only): the transactions a persisted segment carries (§2.8, T12343)',
+    },
+    _sync_txn: {
+      count: 1,
+      reason:
+        "sealed transactions (local-only): marks a packed transaction segmented in the segment's persist (§2.8, T12343)",
+    },
+  },
   'packages/core/src/store/sync/sequencing.ts': {
     _sync_foreign_touch: {
       count: 3,
