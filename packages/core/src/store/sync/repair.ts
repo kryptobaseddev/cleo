@@ -335,10 +335,66 @@ function writeRepairFrame(db: DatabaseSync, def: CaptureTableDef, plan: RepairPl
     `INSERT INTO _sync_capture (tbl, op, rk, uid, img, at_ms, frame, kind) ` +
       `VALUES (?, 'D', ?, ?, '{}', ${AT_MS_SQL}, ?, 'repair')`,
   );
-  for (const r of plan.updates) upd.run(def.table, r.rk, r.uid, frame, ...keyValues(r.rk));
-  for (const r of plan.inserts) ins.run(def.table, r.rk, r.uid, frame, ...keyValues(r.rk));
-  for (const uid of plan.deletes) del.run(def.table, JSON.stringify(['<orphan>', uid]), uid, frame);
+  // Undo only for a capture actually inserted: `last_insert_rowid` names it.
+  const undo = repairUndo(db, def, frame);
+  for (const r of plan.updates) {
+    if (upd.run(def.table, r.rk, r.uid, frame, ...keyValues(r.rk)).changes === 1) undo('U');
+  }
+  for (const r of plan.inserts) {
+    if (ins.run(def.table, r.rk, r.uid, frame, ...keyValues(r.rk)).changes === 1) undo('I');
+  }
+  for (const uid of plan.deletes) {
+    del.run(def.table, JSON.stringify(['<orphan>', uid]), uid, frame);
+    undo('D');
+  }
   return frame;
+}
+
+/**
+ * The `_sync_undo` writer for a repair frame's captures, a no-op while undo
+ * is off (T13212; §3.5 Rule 2, D1: a repair keeps its undo until its echo).
+ * Repair captures are inserted directly, not by the triggers, so they write
+ * their undo themselves, for the capture just inserted (`last_insert_rowid`),
+ * stamped with the frame so the transaction has a position (the own-echo
+ * fast path and the foreign-touch pruning read it).
+ *
+ * What the repair knows of each row:
+ * - I: the row now (`after_full` = its capture image);
+ * - U: only the row now. The value before the uncaptured write is lost, so
+ *   `before_full` is NULL: the flag a trigger-written U never carries;
+ * - D: no live row, only what row meta knows (`before_full` = its key).
+ * An append-only table keeps neither image, as its triggers do.
+ *
+ * A rewind restores merge state from `_sync_row_undo`, which the sealer
+ * snapshots for every sealed op while undo is on, so the images here are
+ * informational and count toward the undo budget.
+ */
+function repairUndo(
+  db: DatabaseSync,
+  def: CaptureTableDef,
+  frame: string,
+): (op: 'I' | 'U' | 'D') => void {
+  if (metaValue(db, 'undo_enabled') === undefined) return () => {};
+  const images = (op: 'I' | 'U' | 'D'): string => {
+    if (def.appendOnly) return 'NULL, NULL';
+    if (op === 'D') {
+      return '(SELECT m.key_json FROM _sync_row_meta m WHERE m.tbl = c.tbl AND m.uid = c.uid), NULL';
+    }
+    return 'NULL, c.img';
+  };
+  const stmts = new Map(
+    (['I', 'U', 'D'] as const).map((op) => [
+      op,
+      db.prepare(
+        `INSERT INTO _sync_undo (seq, txn_local, kind, tbl, rk, uid, op, before_full, after_full) ` +
+          `SELECT c.seq, ?, 'repair', c.tbl, c.rk, c.uid, c.op, ${images(op)} ` +
+          `FROM _sync_capture c WHERE c.seq = last_insert_rowid()`,
+      ),
+    ]),
+  );
+  return (op) => {
+    stmts.get(op)?.run(frame);
+  };
 }
 
 /** The column a pre-sync row's genesis HLC is read from (§1.2), or null. */
@@ -562,8 +618,8 @@ function verifyAndClear(
  *
  * Prerequisites (§4.4): the sealer's preconditions hold, a replica is bound,
  * the table's capture triggers are present, and no capture of the table is
- * left waiting after the pending seal. Undo is not written for repair
- * captures yet, so the repair refuses while `undo_enabled` is set.
+ * left waiting after the pending seal. While undo is on, repair captures
+ * write their own undo ({@link repairUndo}, T13212).
  *
  * @param db - The store; must not be inside a transaction.
  * @param opts - {@link RepairOptions}.
@@ -594,9 +650,6 @@ export function repairSuspectTables(db: DatabaseSync, opts: RepairOptions): Repa
   if (refused) return empty(refused, dryRun);
   const replica = opts.replica ?? activeReplica(db, opts.scope)?.replicaId;
   if (!replica) return empty('no bound replica', dryRun);
-  if (metaValue(db, 'undo_enabled') !== undefined) {
-    return empty('repair captures carry no undo yet: refused while undo_enabled is set', dryRun);
-  }
 
   const sealed = { txns: 0, ops: 0 };
   const sealAll = (): void => {

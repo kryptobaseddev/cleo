@@ -34,7 +34,7 @@ import {
 import { setSyncFlag } from '../../flags.js';
 import { HELD_WARN_DAYS, listHeldOps, SyncHeldError } from '../../held.js';
 import { stageTxns } from '../../inbox.js';
-import { planRepair } from '../../repair.js';
+import { planRepair, repairSuspectTables } from '../../repair.js';
 import { sealPending } from '../../sealer.js';
 import { buildSegment } from '../../segments.js';
 import {
@@ -1152,5 +1152,85 @@ describe('foreign-touch index bounds (#1912 follow-ups)', () => {
     expect(
       n(a.db, 'SELECT count(*) AS n FROM _sync_meta WHERE key = ?', FOREIGN_TOUCH_INCOMPLETE_KEY),
     ).toBe(1);
+  });
+});
+
+describe('repair under undo (T13212; §3.5 Rule 2, D1)', () => {
+  /** A write the capture triggers never saw, and the suspect mark that sends the repair diff to it. */
+  function uncaptured(r: Replica, sql: string): void {
+    r.db.exec('BEGIN IMMEDIATE');
+    r.db.exec("INSERT INTO cleo_trigger_suspend VALUES ('capture')");
+    r.db.exec(sql);
+    r.db.exec('DELETE FROM cleo_trigger_suspend');
+    r.db.exec(
+      "INSERT INTO _sync_meta (key, value, updated_at) VALUES ('suspect:tasks_tasks', 'm', 'm') ON CONFLICT (key) DO NOTHING",
+    );
+    r.db.exec('COMMIT');
+  }
+
+  const repair = (r: Replica) =>
+    repairSuspectTables(r.db, {
+      scope: 'project',
+      replica: r.id,
+      env: {},
+      allowUnreleased: true,
+      now: () => ++clock,
+    });
+
+  it('a repair runs while undo is on, keeps undo for its transaction, and is rewound and replayed by a rebase', async () => {
+    const [a, b, c] = await threeReplicas();
+    uncaptured(a, "UPDATE tasks_tasks SET priority = 'high' WHERE uid = 'x'");
+    const report = repair(a);
+    expect(report.refused, 'the repair was refused under undo').toBeNull();
+    expect(report.tables).toMatchObject([{ table: 'tasks_tasks', cleared: true }]);
+    const rtx = (
+      a.db
+        .prepare("SELECT txn FROM _sync_txn WHERE kind = 'repair' ORDER BY local_seq DESC")
+        .get() as { txn: string }
+    ).txn;
+    // Its undo: one U, flagged by a NULL before-image (the value before the uncaptured write is lost).
+    expect(undoOf(a, rtx)).toBe(1);
+    expect(
+      a.db
+        .prepare(
+          'SELECT op, kind, before_full IS NULL AS lost, after_full IS NOT NULL AS now FROM _sync_undo WHERE txn_local = (SELECT frame FROM _sync_txn WHERE txn = ?)',
+        )
+        .get(rtx),
+    ).toEqual({ op: 'U', kind: 'repair', lost: 1, now: 1 });
+
+    // A foreign edit of the same row is sequenced first: the repair is rewound and replayed.
+    const fb = write(b, "UPDATE tasks_tasks SET title = 'from B' WHERE uid = 'x'");
+    publish(b, fb);
+    publish(a, rtx);
+    expect(sync(a), 'the repair transaction fell out of the rebase').toMatchObject({ rebased: 2 });
+    expect(outcome(a, rtx)).toBe('applied');
+    expect(undoOf(a, rtx), 'the echo drops the repair undo').toBe(0);
+    sync(b);
+    sync(c);
+    converged([a, b, c]);
+    expect(row(c, 'x')).toMatchObject({ title: 'from B', priority: 'high' });
+  });
+
+  it('an orphan delete records what row meta knows', async () => {
+    const [a] = await threeReplicas();
+    uncaptured(a, "DELETE FROM tasks_tasks WHERE uid = 'y'");
+    expect(repair(a).refused).toBeNull();
+    expect(
+      a.db
+        .prepare(
+          "SELECT op, before_full, after_full FROM _sync_undo WHERE kind = 'repair' AND uid = 'y'",
+        )
+        .get(),
+    ).toEqual({
+      op: 'D',
+      before_full: (
+        a.db
+          .prepare("SELECT key_json FROM _sync_row_meta WHERE tbl = 'tasks_tasks' AND uid = 'y'")
+          .get() as {
+          key_json: string | null;
+        }
+      ).key_json,
+      after_full: null,
+    });
   });
 });

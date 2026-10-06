@@ -349,6 +349,11 @@ export const EXEMPT = {
       reason:
         "repair diff (local-only): records a table's row-meta baseline and clears its verified suspect: key in THIS store (§4.4, T12987)",
     },
+    _sync_undo: {
+      count: 1,
+      reason:
+        "repair diff (local-only): writes THIS store's undo for its own repair captures while undo is on, so a repair keeps its undo until its echo (§3.5 Rule 2, D1, T13212)",
+    },
   },
   'packages/core/src/store/sync/row-meta.ts': {
     _sync_row_meta: {
