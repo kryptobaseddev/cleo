@@ -143,6 +143,8 @@ export interface ApplyReport {
   readonly passes: number;
   /** Transactions applied inside a scoped rebase frame (§3.5 Rule 2). */
   readonly rebased: number;
+  /** Local transactions this call left held: a replay the stream refused (§3.5 Rule 5). */
+  readonly held: readonly string[];
   /** Why nothing was applied (PAC-15 apply preconditions), when so. */
   readonly blocked?: string;
 }
@@ -1098,9 +1100,11 @@ function rewindTxns(c: OpContext, plan: RebasePlan): Rewound {
  * this replay sat on (D2). Capture and side-effect triggers are suspended;
  * guards stay active, and each replayed transaction gets the post-apply
  * checks: one that fails them stays rewound whole (Rule 6, T13268).
+ * Returns the transactions it left held (Rule 5).
  */
-function replayTxns(c: OpContext, plan: RebasePlan, rw: Rewound): void {
+function replayTxns(c: OpContext, plan: RebasePlan, rw: Rewound): string[] {
   const exists = (op: LedgerOp): boolean => c.api.readRow(op.t, op.u) !== null;
+  const heldTxns: string[] = [];
   withTriggersSuspended(c.db, ['capture', 'side-effect'], 'forward', () => {
     for (const l of plan.replay) {
       let refused: string | null = null;
@@ -1141,6 +1145,7 @@ function replayTxns(c: OpContext, plan: RebasePlan, rw: Rewound): void {
       }
       c.db.exec('RELEASE replay_txn');
       // What stays rewound is held until its echo is decided (Rule 5).
+      if (holds.length > 0) heldTxns.push(l.txn);
       for (const h of holds) {
         const op = l.ops[h.idx] as LedgerOp;
         holdOp(c.db, {
@@ -1156,6 +1161,7 @@ function replayTxns(c: OpContext, plan: RebasePlan, rw: Rewound): void {
       }
     }
   });
+  return heldTxns;
 }
 
 /** A page holds at most this many ops (§3.5 Rule 3), unless one transaction is larger. */
@@ -1218,6 +1224,8 @@ interface InPageResult {
   readonly applied: boolean;
   /** The rewound local transaction its echo decided, when it was one. */
   readonly decided: string | null;
+  /** Local transactions a rebase it ran left held (Rule 5). */
+  readonly heldTxns?: readonly string[];
 }
 
 /**
@@ -1301,7 +1309,7 @@ function applyInPage(x: PageContext, st: StagedTxn): InPageResult {
     // A refused own echo stays rewound and keeps its undo (Rule 6). Rewound
     // by the page, the rollback left it so; in place, rewind it now.
     const own = local && !rewoundEcho ? planOwnRebase(db, st, defs, x.rewound) : null;
-    if (own) replayTxns(c, own, rewindTxns(c, own));
+    const heldTxns = own ? replayTxns(c, own, rewindTxns(c, own)) : [];
     if (local && (rewoundEcho || own)) {
       markSequenced(db, local, { stream: st.key.stream, seq: st.key.seq, nowIso, outcome: 'void' });
     }
@@ -1316,6 +1324,7 @@ function applyInPage(x: PageContext, st: StagedTxn): InPageResult {
       n: violations.length,
       applied: true,
       decided: rewoundEcho && local ? local.txn : null,
+      heldTxns,
     };
   }
   db.exec('RELEASE apply_txn');
@@ -1378,6 +1387,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
       conflicts: 0,
       passes: 0,
       rebased: 0,
+      held: [],
       blocked,
     };
   }
@@ -1392,6 +1402,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
   let conflicts = 0;
   let passes = 0;
   let rebased = 0;
+  const heldTxns = new Set<string>();
   for (let progress = true; progress && passes < maxPasses; ) {
     progress = false;
     passes += 1;
@@ -1455,6 +1466,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
             st,
           );
           if (result.decided) decided.add(result.decided);
+          for (const t of result.heldTxns ?? []) heldTxns.add(t);
           if (result.status !== null) last.set(id, result.status);
           conflicts += result.n;
           if (rebase && result.applied) rebased += 1;
@@ -1471,7 +1483,9 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
         // Replay what the page rewound and did not decide by its echo.
         if (rebase) {
           const replay = rebase.rewind.filter((l) => !decided.has(l.txn));
-          replayTxns(c0, { rewind: rebase.rewind, replay, own: null }, rw);
+          for (const t of replayTxns(c0, { rewind: rebase.rewind, replay, own: null }, rw)) {
+            heldTxns.add(t);
+          }
         }
         return taken;
       });
@@ -1489,5 +1503,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
     conflicts,
     passes,
     rebased,
+    // Still held when the call ends (a later page of it may have applied one).
+    held: [...heldTxns].filter((t) => txnHasHold(db, t)),
   };
 }

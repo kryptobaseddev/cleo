@@ -527,6 +527,32 @@ export interface CloudSyncLag {
 }
 
 /** One store's local sync journal, as `cleo cloud status` reports it (T12998). Read-only. */
+/** A local write a sync rebase holds unreplayed until its echo is decided (journal spec §3.5 Rule 5). */
+export interface CloudStatusHeldRow {
+  /** The table it writes. */
+  readonly table: string;
+  /** The row's uid. */
+  readonly uid: string;
+  /** The local transaction it belongs to. */
+  readonly txn: string;
+  /** When it was held (ISO-8601). */
+  readonly heldAt: string;
+  /** What refused its replay: the conflict preview. */
+  readonly reason: string;
+}
+
+/** `CloudStatusSyncStream.held`: the store's held writes (§3.5 Rule 5). */
+export interface CloudStatusHeld {
+  /** How many local ops are held. */
+  readonly count: number;
+  /** When the oldest was held (ISO-8601), or `null` when none is. */
+  readonly oldestAt: string | null;
+  /** Holds older than `warnDays`, oldest first (`cleo doctor sync-journal` lists the same). */
+  readonly long: readonly CloudStatusHeldRow[];
+  /** The age, in days, past which a hold is long. */
+  readonly warnDays: number;
+}
+
 export interface CloudStatusSyncStream {
   /** Which store. */
   readonly scope: 'project' | 'global';
@@ -548,6 +574,8 @@ export interface CloudStatusSyncStream {
   readonly quarantined: Readonly<Record<string, number>>;
   /** Tables marked suspect until a repair re-emits them. */
   readonly suspectTables: readonly string[];
+  /** Local writes a sync rebase holds, until their echo is decided (§3.5 Rule 5). */
+  readonly held: CloudStatusHeld;
   /** Sealed ops not yet handed to the outbox for sending. */
   readonly unsentOps: CloudSyncFact<number>;
   /** The last sequence this store pushed to the server. */
