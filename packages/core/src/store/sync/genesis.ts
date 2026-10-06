@@ -57,6 +57,9 @@ export const GENESIS_PENDING_KEY_PREFIX = 'genesis_pending:';
 /** `_sync_meta` key prefix: the highest `local_seq` a stream's cut folded (so a raced cut can be undone). */
 export const GENESIS_FOLDED_UPTO_KEY_PREFIX = 'genesis_folded_upto:';
 
+/** `_sync_meta` key prefix: the lowest `local_seq` a stream's cut folded (its range, never another cut's). */
+export const GENESIS_FOLDED_FROM_KEY_PREFIX = 'genesis_folded_from:';
+
 /** `_sync_meta` key the capture triggers' undo `WHEN` checks (§3.5 Rule 2). */
 export const UNDO_ENABLED_KEY = 'undo_enabled';
 
@@ -91,12 +94,18 @@ export interface GenesisCutReport {
   readonly folded: number;
   /** Rows given genesis row meta, per table (tables with none are absent). */
   readonly baselined: Readonly<Record<string, number>>;
+  /**
+   * A cut committed by an earlier run that never finished its snapshot (it
+   * crashed) was snapshotted now, at that same cut (T13301).
+   */
+  readonly resumed: boolean;
 }
 
 const report = (stream: string, fields: Partial<GenesisCutReport>): GenesisCutReport => ({
   stream,
   refused: null,
   already: false,
+  resumed: false,
   cut: null,
   sealed: 0,
   folded: 0,
@@ -335,16 +344,18 @@ function closeCut(db: DatabaseSync, opts: GenesisCutOptions, o: OpenCut): Genesi
     const n = baselineRowMeta(db, opts.scope, table, o.replica, o.at);
     if (n) baselined[table] = n;
   }
-  const upto = Number(
-    (
-      db.prepare("SELECT max(local_seq) AS m FROM _sync_txn WHERE state = 'sealed'").get() as {
-        m: number | null;
-      }
-    ).m ?? 0,
-  );
+  const range = db
+    .prepare(
+      "SELECT min(local_seq) AS lo, max(local_seq) AS hi FROM _sync_txn WHERE state = 'sealed'",
+    )
+    .get() as { lo: number | null; hi: number | null };
+  // An empty fold records an empty range (from > upto).
+  const upto = Number(range.hi ?? 0);
+  const from = Number(range.lo ?? upto + 1);
   const folded = db
     .prepare("UPDATE _sync_txn SET state = 'folded' WHERE state = 'sealed'")
     .run().changes;
+  setMeta(db, `${GENESIS_FOLDED_FROM_KEY_PREFIX}${opts.stream}`, String(from), atIso);
   setMeta(db, `${GENESIS_FOLDED_UPTO_KEY_PREFIX}${opts.stream}`, String(upto), atIso);
   setMeta(db, `${GENESIS_CUT_KEY_PREFIX}${opts.stream}`, String(o.cut), atIso);
   setMeta(db, `${GENESIS_SOURCE_SEQ_KEY_PREFIX}${opts.stream}`, String(o.cut), atIso);
@@ -395,16 +406,21 @@ export class GenesisRacedError extends Error {
 function uncutGenesis(db: DatabaseSync, opts: GenesisCutOptions): void {
   db.exec('BEGIN IMMEDIATE');
   try {
+    // Only this cut's fold: another stream's earlier cut keeps its own (LOW-1 on #1953).
     const upto = Number(metaValue(db, `${GENESIS_FOLDED_UPTO_KEY_PREFIX}${opts.stream}`) ?? 0);
+    const from = Number(
+      metaValue(db, `${GENESIS_FOLDED_FROM_KEY_PREFIX}${opts.stream}`) ?? upto + 1,
+    );
     db.prepare(
-      "UPDATE _sync_txn SET state = 'sealed' WHERE state = 'folded' AND local_seq <= ?",
-    ).run(upto);
+      "UPDATE _sync_txn SET state = 'sealed' WHERE state = 'folded' AND local_seq BETWEEN ? AND ?",
+    ).run(from, upto);
     const del = db.prepare('DELETE FROM _sync_meta WHERE key = ?');
     for (const prefix of [
       GENESIS_CUT_KEY_PREFIX,
       GENESIS_SOURCE_SEQ_KEY_PREFIX,
       GENESIS_PENDING_KEY_PREFIX,
       GENESIS_FOLDED_UPTO_KEY_PREFIX,
+      GENESIS_FOLDED_FROM_KEY_PREFIX,
     ]) {
       del.run(`${prefix}${opts.stream}`);
     }
@@ -441,6 +457,12 @@ function uncutGenesis(db: DatabaseSync, opts: GenesisCutOptions): void {
  * is ever pushed. A failing snapshot undoes the cut too. The marker is always
  * released.
  *
+ * A cut that an earlier run committed but never snapshotted (a crash, kill
+ * or sleep mid-export; `genesis_pending` still set) is resumed (T13301): with
+ * no capture since, the snapshot runs at that cut (`resumed`); otherwise the
+ * stale cut is undone and the store is cut again. A stored cut
+ * (`genesis_pending` cleared) is `already`, and no snapshot runs.
+ *
  * @param db - The store.
  * @param opts - {@link GenesisCutOptions}, plus the store file the marker guards.
  * @param snapshot - Export the store as the checkpoint bundle; receives the cut. Must not write.
@@ -454,9 +476,22 @@ export async function cutGenesisWithSnapshot(
 ): Promise<GenesisCutReport> {
   const release = writeRestoreMarker(opts.dbPath, 'genesis');
   try {
-    const report = cutGenesis(db, opts);
-    if (report.refused !== null || report.already || report.cut === null) return report;
-    const cut = report.cut;
+    let r: GenesisCutReport;
+    const crashed = genesisPending(db, opts.stream) ? genesisCutOf(db, opts.stream) : undefined;
+    if (crashed !== undefined && capturePosition(db) === crashed) {
+      // T13301: an earlier run committed this cut and died before its
+      // snapshot finished; nothing was captured since, so the store is still
+      // exactly the cut. Snapshot it now.
+      r = report(opts.stream, { cut: crashed, resumed: true });
+    } else {
+      // Written to since that crash: the cut no longer describes the store.
+      // Undo it and cut again.
+      if (crashed !== undefined) uncutGenesis(db, opts);
+      r = cutGenesis(db, opts);
+      if (r.refused !== null || r.already || r.cut === null) return r;
+    }
+    const cut = r.cut;
+    if (cut === null) return r;
     try {
       await snapshot(cut);
     } catch (err) {
@@ -470,7 +505,7 @@ export async function cutGenesisWithSnapshot(
         'E_SYNC_GENESIS_RACED: a write reached the store during the genesis snapshot; the cut was undone, run it again',
       );
     }
-    return report;
+    return r;
   } finally {
     release();
   }

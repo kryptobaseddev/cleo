@@ -446,3 +446,86 @@ describe('genesis cut with its checkpoint snapshot (S4-1b; T13296, T13297)', () 
     expect(existsSync(dbPath + RESTORE_MARKER_SUFFIX)).toBe(false);
   });
 });
+
+describe('a cut that crashed before its snapshot (T13301), and per-cut folds (LOW-1 on #1953)', () => {
+  const opts = (stream = STREAM) => ({
+    scope: 'project' as const,
+    stream,
+    dbPath,
+    now: () => ++clock,
+    env: {},
+    allowUnreleased: true,
+  });
+  const STREAM_B = 'home:0192eeee-7f00-7000-8000-00000000000e';
+
+  it('a committed cut with no snapshot (a crash) is snapshotted at that cut on the next run', async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    const crashed = cutGenesis(db, opts()); // the run died after COMMIT, before its snapshot
+    expect(genesisPending(db, STREAM)).toBe(true);
+    let at: number | null = null;
+    const r = await cutGenesisWithSnapshot(db, opts(), async (cut) => {
+      at = cut;
+    });
+    expect(r).toMatchObject({ refused: null, already: false, resumed: true, cut: crashed.cut });
+    expect(at).toBe(crashed.cut);
+    expect(existsSync(dbPath + RESTORE_MARKER_SUFFIX)).toBe(false);
+  });
+
+  it('written to since the crash: the stale cut is undone and the store cut again', async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    const crashed = cutGenesis(db, opts());
+    write(db, addTask('T2')); // a journal write after the crashed cut
+    let at: number | null = null;
+    const r = await cutGenesisWithSnapshot(db, opts(), async (cut) => {
+      at = cut;
+    });
+    expect(r.resumed).toBe(false);
+    expect(r.cut).toBeGreaterThan(crashed.cut ?? 0);
+    expect(at).toBe(r.cut);
+    expect(genesisCutOf(db, STREAM)).toBe(r.cut);
+    // The post-crash write was drained into the new cut: nothing live, nothing sealed.
+    expect(n(db, "SELECT count(*) AS n FROM _sync_capture WHERE state = 'live'")).toBe(0);
+    expect(n(db, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'sealed'")).toBe(0);
+  });
+
+  it('a stored cut (pending cleared) is already: no snapshot runs', async () => {
+    const { db } = await store();
+    const first = cutGenesis(db, opts());
+    db.prepare('DELETE FROM _sync_meta WHERE key = ?').run(
+      `${GENESIS_PENDING_KEY_PREFIX}${STREAM}`,
+    );
+    let ran = false;
+    const r = await cutGenesisWithSnapshot(db, opts(), async () => {
+      ran = true;
+    });
+    expect(r).toMatchObject({ already: true, cut: first.cut });
+    expect(ran).toBe(false);
+  });
+
+  it("undoing one stream's failed cut never un-folds another stream's", async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    seal(db);
+    await cutGenesisWithSnapshot(db, opts(), async () => {}); // stream A, stored below
+    db.prepare('DELETE FROM _sync_meta WHERE key = ?').run(
+      `${GENESIS_PENDING_KEY_PREFIX}${STREAM}`,
+    );
+    const aFolded = n(db, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'folded'");
+    expect(aFolded).toBe(1);
+    write(db, addTask('T2'));
+    seal(db);
+    await expect(
+      cutGenesisWithSnapshot(db, opts(STREAM_B), async () => {
+        throw new Error('export failed');
+      }),
+    ).rejects.toThrow('export failed');
+    // A's fold stands; only B's (T2's txn) is sealed again, and A keeps undo on.
+    expect(n(db, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'folded'")).toBe(aFolded);
+    expect(n(db, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'sealed'")).toBe(1);
+    expect(genesisCutOf(db, STREAM_B)).toBeUndefined();
+    expect(meta(db, UNDO_ENABLED_KEY)).toBe('1');
+    expect(isSyncFlagOn(db, 'sync.push', {})).toBe(true);
+  });
+});
