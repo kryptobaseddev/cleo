@@ -17,6 +17,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { LedgerOp, type LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { showTask } from '../../../../tasks/show.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
@@ -29,7 +30,9 @@ import {
   setCaptureEnabled,
 } from '../../capture.js';
 import { setSyncFlag } from '../../flags.js';
+import { listHeldOps, SyncHeldError } from '../../held.js';
 import { stageTxns } from '../../inbox.js';
+import { planRepair } from '../../repair.js';
 import { sealPending } from '../../sealer.js';
 import {
   FOREIGN_TOUCH_COUNT_KEY,
@@ -145,9 +148,9 @@ function publish(r: Replica, ...ids: string[]): void {
   published.push({ replicaId: r.id, txns });
 }
 
-/** Stage every segment this replica has not seen, then apply. */
-function sync(r: Replica): ApplyReport {
-  for (; r.cursor < published.length; r.cursor++) {
+/** Stage every segment this replica has not seen (up to `upTo`), then apply. */
+function sync(r: Replica, upTo = published.length): ApplyReport {
+  for (; r.cursor < upTo; r.cursor++) {
     const s = published[r.cursor] as { replicaId: string; txns: LedgerTxn[] };
     stageTxns(
       r.db,
@@ -518,6 +521,126 @@ describe('a parent delete racing a child insert, three replicas (R5-1)', () => {
       }
     });
   }
+});
+
+describe('held rows (§3.5 Rule 5)', () => {
+  const ledgerBalanced = (r: Replica) => {
+    // The sealer accounts an apply's own writes when it next seals.
+    seal(r);
+    const l = r.db
+      .prepare("SELECT live, held FROM _sync_ledger WHERE tbl = 'tasks_tasks'")
+      .get() as { live: number; held: number };
+    expect({ live: Number(l.live) }, 'ledger live differs from count(*) + held').toEqual({
+      live: n(r.db, 'SELECT count(*) AS n FROM tasks_tasks') + Number(l.held),
+    });
+    return Number(l.held);
+  };
+  const heldMeta = (r: Replica, uid: string) =>
+    (
+      r.db
+        .prepare("SELECT held FROM _sync_row_meta WHERE tbl = 'tasks_tasks' AND uid = ?")
+        .get(uid) as { held: number } | undefined
+    )?.held;
+
+  it('an insert under a parent the stream deleted is held: visible, accounted, never repaired', async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(a, write(a, "UPDATE tasks_tasks SET type = 'epic' WHERE uid = 'x'"));
+    for (const r of [a, b, c]) sync(r);
+    const lk = write(a, addTask('T900', 'k', 'X'));
+    publish(b, write(b, "DELETE FROM tasks_tasks WHERE uid = 'x'"));
+    expect(sync(a)).toMatchObject({ rebased: 1 });
+    expect(row(a, 'k'), 'the held insert stays rewound').toBeUndefined();
+    expect(heldMeta(a, 'k')).toBe(1);
+    expect(ledgerBalanced(a)).toBe(1);
+    const plan = planRepair(a.db, 'project', 'tasks_tasks');
+    expect(plan.deletes, 'a repair D for the held insert').toEqual([]);
+    expect(plan.held).toBe(1);
+    expect(listHeldOps(a.db)).toEqual([
+      expect.objectContaining({ txn: lk, tbl: 'tasks_tasks', uid: 'k', effect: 1 }),
+    ]);
+    const err = await showTask('T900', join(dir, 'aaaa')).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(SyncHeldError);
+    expect((err as SyncHeldError).toLAFSError().code).toBe('E_SYNC_HELD');
+    expect((err as SyncHeldError).held).toMatchObject({
+      uid: 'k',
+      values: expect.objectContaining({ id: 'T900', parent_id: 'x' }),
+    });
+    expect((err as SyncHeldError).held.reason).toMatch(
+      /dangling-ref on tasks_tasks\/k \[parent_id\]/,
+    );
+    publish(a, lk);
+    for (const r of [a, b, c]) sync(r);
+    expect(outcome(a, lk)).toBe('void');
+    expect(heldMeta(a, 'k'), 'the hold outlived its decided echo').toBeUndefined();
+    expect(ledgerBalanced(a)).toBe(0);
+    expect(listHeldOps(a.db)).toEqual([]);
+    await expect(showTask('T900', join(dir, 'aaaa'))).rejects.not.toBeInstanceOf(SyncHeldError);
+    converged([a, b, c]);
+  });
+
+  it('a held insert applied later gets back what its rewind kept, across frames (T13269)', async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(a, write(a, "UPDATE tasks_tasks SET type = 'epic' WHERE uid = 'x'"));
+    for (const r of [a, b, c]) sync(r);
+    const lk = write(
+      a,
+      `${addTask('T901', 'k', 'X')}; INSERT INTO tasks_external_task_links (id, task_id, provider_id, external_id, link_type) VALUES ('L1', 'T901', 'gh', '42', 'manual')`,
+    );
+    const links = () =>
+      n(a.db, "SELECT count(*) AS n FROM tasks_external_task_links WHERE task_id = 'T901'");
+    expect(links()).toBe(1);
+    // B makes X a task (K cannot sit under it); C, later, makes it an epic again.
+    publish(b, write(b, "UPDATE tasks_tasks SET type = 'task' WHERE uid = 'x'"));
+    sync(c);
+    publish(c, write(c, "UPDATE tasks_tasks SET type = 'epic' WHERE uid = 'x'"));
+    sync(a, published.length - 1);
+    expect(row(a, 'k'), 'the refused insert stays rewound').toBeUndefined();
+    expect(listHeldOps(a.db)).toEqual([expect.objectContaining({ uid: 'k', effect: 1 })]);
+    expect(links(), 'the rewind removed the link with its task').toBe(0);
+    // A later frame: the in-memory snapshot is gone; the held row's own comes back.
+    sync(a);
+    expect(row(a, 'k')).toBeDefined();
+    expect(listHeldOps(a.db)).toEqual([]);
+    expect(links(), 'the applied insert lost what its rewind kept').toBe(1);
+    expect(ledgerBalanced(a)).toBe(0);
+    publish(a, lk);
+    for (const r of [a, b, c]) sync(r);
+    expect(outcome(a, lk)).toBe('applied');
+    expect(links()).toBe(1);
+    converged([a, b, c]);
+  });
+
+  it("a held txn's echo is decided in a rebase even when the touch index lost its foreign touch", async () => {
+    const [a, b] = await threeReplicas();
+    publish(a, write(a, "UPDATE tasks_tasks SET type = 'epic' WHERE uid = 'x'"));
+    sync(a);
+    sync(b);
+    const lk = write(a, addTask('T902', 'k', 'X'));
+    publish(b, write(b, "UPDATE tasks_tasks SET type = 'task' WHERE uid = 'x'"));
+    sync(a);
+    expect(listHeldOps(a.db)).toEqual([expect.objectContaining({ uid: 'k' })]);
+    a.db.exec('DELETE FROM _sync_foreign_touch');
+    publish(a, lk);
+    expect(sync(a)).toMatchObject({ rebased: 1, void: 1 });
+    expect(outcome(a, lk)).toBe('void');
+    expect(listHeldOps(a.db)).toEqual([]);
+    expect(ledgerBalanced(a)).toBe(0);
+  });
+
+  it('a rebased own insert leaves the ledger balanced (the rewind and the echo net to one row)', async () => {
+    const [a, b] = await threeReplicas();
+    const la = write(
+      a,
+      `${addTask('Z', 'z')}; UPDATE tasks_tasks SET priority = 'high' WHERE uid = 'y'`,
+    );
+    expect(ledgerBalanced(a), 'before any sync').toBe(0);
+    publish(b, write(b, "UPDATE tasks_tasks SET title = 'from B' WHERE uid = 'y'"));
+    sync(a);
+    expect(ledgerBalanced(a)).toBe(0);
+    publish(a, la);
+    expect(sync(a)).toMatchObject({ rebased: 1 });
+    expect(ledgerBalanced(a)).toBe(0);
+  });
 });
 
 describe('foreign-touch index bounds (#1912 follow-ups)', () => {

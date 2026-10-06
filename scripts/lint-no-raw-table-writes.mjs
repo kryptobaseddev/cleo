@@ -284,6 +284,18 @@ export const EXEMPT = {
         'typed-rule field state (local-only): leaves and rank-max frontiers, merge input that row meta has no place for, rebuilt from the stream (T12344); a rebase rewind restores a row snapshot (T13193)',
     },
   },
+  'packages/core/src/store/sync/held.ts': {
+    _sync_ledger: {
+      count: 1,
+      reason:
+        "sync ledger (local-only): a rebase's uncaptured row-count changes and a held op's effect, so live = count(*) + held holds (§3.5 Rule 5, T13193)",
+    },
+    _sync_row_undo: {
+      count: 2,
+      reason:
+        'row undo (local-only): the hold on an op a rebase replay refused, set and lifted with its row undo (§3.5 Rule 5, T13193)',
+    },
+  },
   'packages/core/src/store/sync/inbox.ts': {
     _sync_inbox: {
       count: 2,
