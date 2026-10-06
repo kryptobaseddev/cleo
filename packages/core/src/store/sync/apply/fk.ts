@@ -70,3 +70,53 @@ export function syncSetChildKeys(
   }
   return out;
 }
+
+/** Foreign-key actions a parent DELETE fires on its children. */
+const DELETE_ACTIONS: ReadonlySet<string> = new Set(['CASCADE', 'SET NULL', 'SET DEFAULT']);
+
+/**
+ * Every child foreign key OUTSIDE the sync set whose `ON DELETE` action a
+ * parent DELETE fires (`CASCADE`, `SET NULL`, `SET DEFAULT`), by parent
+ * table (any table). Capture never records these children, so the stream
+ * cannot bring back what such an action removes; a rebase rewind snapshots
+ * them before it deletes a row it will replay (§3.5 R7-2, T13267).
+ * Journal tables (`_sync_*`) and the trigger-suspend flag table are not
+ * children. Composite keys are listed once per column pair.
+ *
+ * @param db - The store.
+ * @param scope - The store's scope.
+ * @returns Parent table → its local children's foreign keys.
+ */
+export function localChildKeys(
+  db: DatabaseSync,
+  scope: TableScope,
+): ReadonlyMap<string, readonly ChildKey[]> {
+  const sync = new Set(syncSetTables(scope));
+  const tables = (
+    db
+      .prepare(
+        "SELECT name FROM main.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' AND name NOT LIKE '\\_sync\\_%' ESCAPE '\\' AND name <> 'cleo_trigger_suspend'",
+      )
+      .all() as Array<{ name: string }>
+  )
+    .map((r) => r.name)
+    .filter((t) => !sync.has(t));
+  const out = new Map<string, ChildKey[]>();
+  for (const child of tables) {
+    const fks = db
+      .prepare('SELECT "table", "from", "to", on_delete FROM pragma_foreign_key_list(?)')
+      .all(child) as FkRow[];
+    for (const fk of fks) {
+      const onDelete = fk.on_delete.toUpperCase();
+      if (!DELETE_ACTIONS.has(onDelete)) continue;
+      const key: ChildKey = {
+        child,
+        from: fk.from,
+        to: fk.to ?? primaryKey(db, fk.table),
+        onDelete,
+      };
+      out.set(fk.table, [...(out.get(fk.table) ?? []), key]);
+    }
+  }
+  return out;
+}

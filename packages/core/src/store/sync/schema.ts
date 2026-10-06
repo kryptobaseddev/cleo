@@ -146,7 +146,10 @@ export function ensureSyncSchema(
   try {
     const todo = pending(folders, appliedSyncSchemaHashes(db));
     for (const f of todo) {
-      db.exec(f.sql);
+      // A store that carries a folder's tables without its journal row (a
+      // vault bundle restored without `_sync_meta`) re-runs it: its ADD COLUMNs
+      // must not fail on the columns it already has.
+      db.exec(rerunnableSql(db, f.sql));
       db.prepare(
         'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
           'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
@@ -160,12 +163,30 @@ export function ensureSyncSchema(
   }
 }
 
+/** `ALTER TABLE <t> ADD [COLUMN] <c> …;`: the one non-idempotent statement a folder may hold. */
+const ADD_COLUMN_RE =
+  /ALTER\s+TABLE\s+["`]?(\w+)["`]?\s+ADD\s+(?:COLUMN\s+)?["`]?(\w+)["`]?[^;]*;/gi;
+
 /**
- * Re-run every APPLIED sync schema folder's SQL (all `CREATE … IF NOT
- * EXISTS`) when one of the sync tables is missing: a store whose
- * `_sync_capture` was dropped with capture triggers still present fails every
- * captured write, and the journal already says the folder ran (§2.3a
- * rule 9). A store with every table present is left untouched.
+ * A folder's SQL made safe to re-run: every `ADD COLUMN` whose column the
+ * table already has is dropped (SQLite has no `ADD COLUMN IF NOT EXISTS`).
+ * A column of a table the re-run recreates is added again, in folder order.
+ */
+function rerunnableSql(db: DatabaseSync, sql: string): string {
+  return sql.replace(ADD_COLUMN_RE, (stmt, table: string, column: string) => {
+    if (!hasTable(db, table)) return stmt;
+    const cols = db.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>;
+    return cols.some((c) => c.name === column) ? '' : stmt;
+  });
+}
+
+/**
+ * Re-run every APPLIED sync schema folder's SQL (`CREATE … IF NOT EXISTS`,
+ * and `ADD COLUMN` only where the column is missing) when one of the sync
+ * tables is missing: a store whose `_sync_capture` was dropped with capture
+ * triggers still present fails every captured write, and the journal
+ * already says the folder ran (§2.3a rule 9). A store with every table
+ * present is left untouched.
  *
  * @returns Whether anything was re-run.
  */
@@ -177,7 +198,8 @@ export function healSyncSchema(
   if (expected.every((t) => hasTable(db, t))) return false;
   const applied = appliedSyncSchemaHashes(db);
   for (const f of syncSchemaFolders(options.root)) {
-    if (applied.has(f.name)) db.exec(f.sql);
+    // Folder by folder: a later folder's ADD COLUMN sees what an earlier one recreated.
+    if (applied.has(f.name)) db.exec(rerunnableSql(db, f.sql));
   }
   return true;
 }

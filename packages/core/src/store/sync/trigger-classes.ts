@@ -306,6 +306,22 @@ export function hasTriggerSuspendTable(db: DatabaseSync): boolean {
 }
 
 /**
+ * Whether triggers of `cls` are suspended right now (a flag row of `cls` or
+ * `all`, §3.5 Rule 4). False when the flag table is absent. Read-only.
+ *
+ * @param db - A project store handle.
+ * @param cls - The trigger class.
+ */
+export function isTriggerClassSuspended(db: DatabaseSync, cls: SuspendableClass): boolean {
+  return (
+    hasTriggerSuspendTable(db) &&
+    db
+      .prepare(`SELECT 1 FROM main.${TRIGGER_SUSPEND_TABLE} WHERE scope IN (?, 'all') LIMIT 1`)
+      .get(cls) !== undefined
+  );
+}
+
+/**
  * Compare every owned trigger's live `sqlite_master.sql` with its owned DDL,
  * and optionally repair (drop, then re-run the owned DDL) each one that is
  * missing or differs.

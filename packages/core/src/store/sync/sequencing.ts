@@ -31,8 +31,14 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { readFieldFrontiers, readFieldLeaves } from './field-leave.js';
-import { readRowMeta } from './row-meta.js';
+import { LedgerActor, LedgerOp, type LedgerWireValue } from '@cleocode/contracts/ledger';
+import {
+  actorOpOf,
+  type FieldStateSnapshot,
+  readFieldFrontiers,
+  readFieldLeaves,
+} from './field-leave.js';
+import { type RowMetaFull, readRowMetaFull } from './row-meta.js';
 import { canonicalJson } from './sealer-values.js';
 
 /** The foreign-touch index's bound (spec R7-6). */
@@ -70,7 +76,7 @@ export function snapshotRowUndo(
   tbl: string,
   uid: string,
 ): void {
-  const meta = readRowMeta(db, tbl, uid);
+  const meta = readRowMetaFull(db, tbl, uid);
   const leaves = readFieldLeaves(db, tbl, uid);
   const frontiers = readFieldFrontiers(db, tbl, uid);
   const state =
@@ -131,17 +137,46 @@ export function recordForeignTouches(
   pos: number,
 ): void {
   if (rows.length === 0 || oldestUnsequencedPosition(db) === null) return;
+  if (counterRestarted(db)) markIncomplete(db);
   const ins = db.prepare(
     'INSERT INTO _sync_foreign_touch (tbl, uid, pos) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
   );
-  for (const r of rows) ins.run(r.table, r.uid, pos);
-  const n = (db.prepare('SELECT count(*) AS n FROM _sync_foreign_touch').get() as { n: number }).n;
-  if (Number(n) > FOREIGN_TOUCH_MAX) {
-    db.prepare(
-      `INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, '1', datetime('now'))
-       ON CONFLICT (key) DO NOTHING`,
-    ).run(FOREIGN_TOUCH_INCOMPLETE_KEY);
-  }
+  let added = 0;
+  for (const r of rows) added += Number(ins.run(r.table, r.uid, pos).changes);
+  // A running count, not a scan per transaction near the bound (#1912 LOW-2).
+  if (added > 0 && adjustTouchCount(db, added) > FOREIGN_TOUCH_MAX) markIncomplete(db);
+}
+
+/** `_sync_meta` key holding the foreign-touch index's row count. */
+export const FOREIGN_TOUCH_COUNT_KEY = 'sync.foreign_touch_count';
+
+function adjustTouchCount(db: DatabaseSync, delta: number): number {
+  const row = db
+    .prepare(
+      `INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT (key) DO UPDATE SET value = CAST(value AS INTEGER) + excluded.value, updated_at = excluded.updated_at
+       RETURNING CAST(value AS INTEGER) AS n`,
+    )
+    .get(FOREIGN_TOUCH_COUNT_KEY, delta) as { n: number };
+  return Number(row.n);
+}
+
+function markIncomplete(db: DatabaseSync): void {
+  db.prepare(
+    `INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, '1', datetime('now'))
+     ON CONFLICT (key) DO NOTHING`,
+  ).run(FOREIGN_TOUCH_INCOMPLETE_KEY);
+}
+
+/**
+ * Whether `_sync_capture`'s counter restarted under unsequenced undo (the
+ * table was re-created, #1912 LOW-1): an undo seq above the counter's last
+ * value means new positions would sort below old ones, so the fast path can
+ * no longer order foreign touches against local commits.
+ */
+function counterRestarted(db: DatabaseSync): boolean {
+  const row = db.prepare('SELECT max(seq) AS m FROM _sync_undo').get() as { m: number | null };
+  return row.m !== null && Number(row.m) > capturePosition(db);
 }
 
 /** A sealed local transaction as the fast path sees it. */
@@ -193,6 +228,7 @@ export function ownEchoFastPath(
   rows: readonly TouchedRow[],
 ): boolean {
   if (local.position === null) return true; // nothing to rewind
+  if (counterRestarted(db)) markIncomplete(db);
   if (
     db.prepare('SELECT 1 FROM _sync_meta WHERE key = ?').get(FOREIGN_TOUCH_INCOMPLETE_KEY) !==
     undefined
@@ -219,15 +255,24 @@ export function ownEchoFastPath(
 export function markSequenced(
   db: DatabaseSync,
   local: LocalTxn,
-  at: { readonly stream: string; readonly seq: number; readonly nowIso: string },
+  at: {
+    readonly stream: string;
+    readonly seq: number;
+    readonly nowIso: string;
+    /** `void` when the stream refused it: it stays rewound and keeps its undo (Rule 6). */
+    readonly outcome?: 'applied' | 'void';
+  },
 ): void {
+  const outcome = at.outcome ?? 'applied';
   db.prepare(
-    'INSERT INTO _sync_sequenced (txn, stream, seq, at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING',
-  ).run(local.txn, at.stream, at.seq, at.nowIso);
-  if (local.frame !== null) {
-    db.prepare('DELETE FROM _sync_undo WHERE txn_local = ?').run(local.frame);
+    'INSERT INTO _sync_sequenced (txn, stream, seq, at, outcome) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING',
+  ).run(local.txn, at.stream, at.seq, at.nowIso, outcome);
+  if (outcome === 'applied') {
+    if (local.frame !== null) {
+      db.prepare('DELETE FROM _sync_undo WHERE txn_local = ?').run(local.frame);
+    }
+    db.prepare('DELETE FROM _sync_row_undo WHERE txn = ?').run(local.txn);
   }
-  db.prepare('DELETE FROM _sync_row_undo WHERE txn = ?').run(local.txn);
   // A frame whose ops all netted away was sealed into no transaction: its
   // undo can never be sequenced or rewound, so it goes too (its captures are
   // consumed; a frame still waiting to seal keeps live captures).
@@ -235,8 +280,129 @@ export function markSequenced(
   const oldest = oldestUnsequencedPosition(db);
   if (oldest === null) {
     db.prepare('DELETE FROM _sync_foreign_touch').run();
-    db.prepare('DELETE FROM _sync_meta WHERE key = ?').run(FOREIGN_TOUCH_INCOMPLETE_KEY);
+    db.prepare('DELETE FROM _sync_meta WHERE key IN (?, ?)').run(
+      FOREIGN_TOUCH_INCOMPLETE_KEY,
+      FOREIGN_TOUCH_COUNT_KEY,
+    );
   } else {
-    db.prepare('DELETE FROM _sync_foreign_touch WHERE pos < ?').run(oldest);
+    const gone = Number(
+      db.prepare('DELETE FROM _sync_foreign_touch WHERE pos < ?').run(oldest).changes,
+    );
+    if (gone > 0) adjustTouchCount(db, -gone);
   }
+}
+
+/** One sealed, unsequenced local transaction, with its ops (a rebase's unit). */
+export interface UnsequencedTxn extends LocalTxn {
+  /** The frame's actor (`LedgerActor`), when it was JSON. */
+  readonly actor: LedgerActor | null;
+  readonly actorOp: string | null;
+  readonly ops: readonly LedgerOp[];
+}
+
+/**
+ * Every sealed local transaction not yet sequenced, in local commit order.
+ *
+ * @param db - The store.
+ * @returns The transactions with their sealed ops.
+ */
+export function unsequencedLocalTxns(db: DatabaseSync): UnsequencedTxn[] {
+  const txns = db
+    .prepare(
+      `SELECT t.txn, t.frame, t.actor FROM _sync_txn t
+        WHERE t.state = 'sealed' AND NOT EXISTS (SELECT 1 FROM _sync_sequenced s WHERE s.txn = t.txn)
+        ORDER BY t.local_seq`,
+    )
+    .all() as Array<{ txn: string; frame: string | null; actor: string | null }>;
+  const ops = db.prepare('SELECT body FROM _sync_op WHERE txn = ? ORDER BY idx');
+  return txns.map((t) => {
+    const local = unsequencedLocalTxn(db, t.txn) as LocalTxn;
+    let actor: LedgerActor | null = null;
+    if (t.actor?.startsWith('{')) {
+      try {
+        const parsed = LedgerActor.safeParse(JSON.parse(t.actor));
+        if (parsed.success) actor = parsed.data;
+      } catch {
+        actor = null;
+      }
+    }
+    return {
+      ...local,
+      actor,
+      actorOp: actorOpOf(t.actor),
+      ops: (ops.all(t.txn) as Array<{ body: string }>).map((o) =>
+        LedgerOp.parse(JSON.parse(o.body)),
+      ),
+    };
+  });
+}
+
+/** A local op's row undo: the merge state (and, once replayed, the values) before it. */
+export interface RowUndo {
+  readonly meta: RowMetaFull | null;
+  readonly state: FieldStateSnapshot | null;
+  /** Wire values before the op's last replay; null before its first. */
+  readonly values: Readonly<Record<string, LedgerWireValue>> | null;
+}
+
+/**
+ * The row undo of a sealed local op, or undefined when none was kept.
+ *
+ * @param db - The store.
+ * @param txn - The local transaction.
+ * @param idx - The op's index.
+ * @returns The snapshot, or undefined.
+ */
+export function readRowUndo(db: DatabaseSync, txn: string, idx: number): RowUndo | undefined {
+  const row = db
+    .prepare(
+      'SELECT meta_json, leave_json, values_json FROM _sync_row_undo WHERE txn = ? AND idx = ?',
+    )
+    .get(txn, idx) as
+    | { meta_json: string | null; leave_json: string | null; values_json: string | null }
+    | undefined;
+  if (!row) return undefined;
+  return {
+    meta: row.meta_json === null ? null : (JSON.parse(row.meta_json) as RowMetaFull),
+    state: row.leave_json === null ? null : (JSON.parse(row.leave_json) as FieldStateSnapshot),
+    values:
+      row.values_json === null
+        ? null
+        : (JSON.parse(row.values_json) as Record<string, LedgerWireValue>),
+  };
+}
+
+/**
+ * Re-snapshot a local op's row undo right before a rebase replays it: the
+ * merge state and the values it is about to write over, so the next rewind
+ * restores exactly what this replay sat on (D2).
+ *
+ * @param db - The store, inside the rebase frame.
+ * @param txn - The local transaction.
+ * @param idx - The op's index.
+ * @param tbl - The row's table.
+ * @param uid - The row's uid.
+ * @param values - The wire values the op is about to overwrite.
+ */
+export function resnapshotRowUndo(
+  db: DatabaseSync,
+  txn: string,
+  idx: number,
+  tbl: string,
+  uid: string,
+  values: Readonly<Record<string, LedgerWireValue>>,
+): void {
+  const meta = readRowMetaFull(db, tbl, uid);
+  const leaves = readFieldLeaves(db, tbl, uid);
+  const frontiers = readFieldFrontiers(db, tbl, uid);
+  const state =
+    Object.keys(leaves).length + Object.keys(frontiers).length > 0
+      ? canonicalJson({ leaves, frontiers })
+      : null;
+  db.prepare(
+    `INSERT INTO _sync_row_undo (txn, idx, tbl, uid, meta_json, leave_json, values_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (txn, idx) DO UPDATE SET meta_json = excluded.meta_json,
+       leave_json = excluded.leave_json, values_json = excluded.values_json`,
+  ).run(txn, idx, tbl, uid, meta ? canonicalJson(meta) : null, state, canonicalJson(values));
 }

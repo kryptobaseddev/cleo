@@ -192,13 +192,13 @@ describe('own-echo fast path (§3.5 Rule 3)', () => {
     expect(undoOf(db, l1)).toBeGreaterThan(0);
     expect(n(db, 'SELECT count(*) AS n FROM _sync_row_undo WHERE txn = ?', l1)).toBe(1);
     stage(db, LOCAL, own(db, [l1]));
-    expect(apply(db)).toMatchObject({ applied: 1, conflict: 0 });
+    expect(apply(db)).toMatchObject({ applied: 1, conflict: 0, rebased: 0 });
     expect(sequenced(db, l1)).toBe(true);
     expect(undoOf(db, l1)).toBe(0);
     expect(n(db, 'SELECT count(*) AS n FROM _sync_row_undo WHERE txn = ?', l1)).toBe(0);
   });
 
-  it('a foreign touch of its row after its commit keeps it unsequenced, undo intact', async () => {
+  it('a foreign touch of its row after its commit sends its echo through a rebase', async () => {
     const db = await store();
     write(db, addTask('A', 'a'));
     seal(db);
@@ -212,9 +212,12 @@ describe('own-echo fast path (§3.5 Rule 3)', () => {
     apply(db);
     expect(n(db, "SELECT count(*) AS n FROM _sync_foreign_touch WHERE uid = 'a'")).toBe(1);
     stage(db, LOCAL, own(db, [l2]));
-    apply(db);
-    expect(sequenced(db, l2), 'stream order disagrees: a rebase must decide').toBe(false);
-    expect(undoOf(db, l2)).toBeGreaterThan(0);
+    expect(apply(db), 'stream order disagrees: a rebase decides').toMatchObject({ rebased: 1 });
+    expect(sequenced(db, l2)).toBe(true);
+    expect(undoOf(db, l2)).toBe(0);
+    expect(
+      db.prepare("SELECT title, priority FROM tasks_tasks WHERE uid = 'a'").get(),
+    ).toMatchObject({ title: 'from R2', priority: 'high' });
   });
 
   it('a foreign touch of another row, or one applied before the commit, does not block it', async () => {
@@ -236,7 +239,7 @@ describe('own-echo fast path (§3.5 Rule 3)', () => {
     stage(db, R2, [foreignTitle('b', 'later')]);
     apply(db);
     stage(db, LOCAL, own(db, [l3]));
-    apply(db);
+    expect(apply(db), 'the fast path sequenced it').toMatchObject({ rebased: 0 });
     expect(sequenced(db, l3)).toBe(true);
     expect(sequenced(db, pending)).toBe(false);
   });
@@ -250,8 +253,8 @@ describe('own-echo fast path (§3.5 Rule 3)', () => {
     ).run(FOREIGN_TOUCH_INCOMPLETE_KEY);
     const l1 = lastTxn(db);
     stage(db, LOCAL, own(db, [l1]));
-    apply(db);
-    expect(sequenced(db, l1)).toBe(false);
+    expect(apply(db), 'the fast path declined; a rebase decided').toMatchObject({ rebased: 1 });
+    expect(sequenced(db, l1)).toBe(true);
   });
 
   it('sequencing the last unsequenced txn empties the touch index and clears its incomplete mark', async () => {
