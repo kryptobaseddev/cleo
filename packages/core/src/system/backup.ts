@@ -176,6 +176,8 @@ export interface BackupResult {
   type: string;
   /** Files that were successfully captured into this backup. */
   files: string[];
+  /** Why the copy was discarded instead of published (T13293), when it was. */
+  skipped?: string;
 }
 
 /** Result shape returned by {@link restoreBackup}. */
@@ -534,7 +536,11 @@ export const AUTO_GLOBAL_BACKUP_INTERVAL_MS = 60 * 60 * 1000;
  */
 export async function autoGlobalBackup(
   now: Date = new Date(),
-  opts: { admit?: () => Promise<{ release: () => Promise<void> } | null> } = {},
+  opts: {
+    admit?: () => Promise<{ release: () => Promise<void> } | null>;
+    /** The single-flight lock (tests): takes the compromise callback, returns the release. */
+    lock?: (onCompromised: (err: Error) => void) => Promise<() => Promise<void>>;
+  } = {},
 ): Promise<string | null> {
   const due = (): boolean => {
     const newest = listGlobalBackups().find((b) => b.type === 'auto');
@@ -549,20 +555,29 @@ export async function autoGlobalBackup(
     // taken without waiting) and the age is re-checked under it.
     const dir = globalBackupDir();
     mkdirSync(dir, { recursive: true });
-    const { acquireLock } = await import('../store/lock.js');
+    // A lost lock (its refresh failed past the threshold) is recorded, never
+    // thrown; the copy made under it is then discarded, not published (T13293).
+    let compromised: string | null = null;
+    const onCompromised = (err: Error): void => {
+      compromised = err.message;
+      getLogger('backup').warn(
+        { dir, err: err.message },
+        'global backup lock compromised; the copy in flight will be discarded',
+      );
+    };
+    const takeLock =
+      opts.lock ??
+      (async (cb: (err: Error) => void) => {
+        const { acquireLock } = await import('../store/lock.js');
+        return acquireLock(dir, {
+          retries: 0,
+          stale: GLOBAL_BACKUP_LOCK_STALE_MS,
+          onCompromised: cb,
+        });
+      });
     let unlock: (() => Promise<void>) | null = null;
     try {
-      unlock = await acquireLock(dir, {
-        retries: 0,
-        stale: GLOBAL_BACKUP_LOCK_STALE_MS,
-        // A lost lock (refresh failed past the threshold) is recorded, never
-        // thrown: the copy finishes, at worst duplicated.
-        onCompromised: (err) =>
-          getLogger('backup').warn(
-            { dir, err: err.message },
-            'global backup lock compromised; another session end may copy concurrently',
-          ),
-      });
+      unlock = await takeLock(onCompromised);
     } catch {
       return null;
     }
@@ -573,7 +588,18 @@ export async function autoGlobalBackup(
       const admission = await (opts.admit ?? admitDbHeavy)();
       if (admission === null) return null;
       try {
-        const r = await createGlobalBackup({ type: 'auto' });
+        // The copy blocks the event loop, so a compromise may only surface
+        // after it: a copy that outlasted the stale window is treated as one.
+        const started = Date.now();
+        const r = await createGlobalBackup({
+          type: 'auto',
+          discardIf: () =>
+            compromised !== null
+              ? `lock compromised: ${compromised}`
+              : Date.now() - started >= GLOBAL_BACKUP_LOCK_STALE_MS
+                ? 'the copy outlasted the lock stale window'
+                : null,
+        });
         return r.files.length > 0 ? r.backupId : null;
       } finally {
         await admission.release();
@@ -612,6 +638,12 @@ export async function createGlobalBackup(opts?: {
   type?: string;
   note?: string;
   maxSnapshots?: number;
+  /**
+   * Checked after the copy and before it is published: a reason to discard
+   * it (the caller's lock was lost during the copy, T13293), or `null`. A
+   * discarded copy is deleted; nothing is renamed, listed or rotated.
+   */
+  discardIf?: () => string | null;
 }): Promise<BackupResult> {
   const btype = opts?.type || 'snapshot';
   const now = new Date();
@@ -623,7 +655,20 @@ export async function createGlobalBackup(opts?: {
   try {
     const { openDualScopeDb, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
     const db = getDualScopeNativeDb(await openDualScopeDb('global'));
-    if (safeSqliteSnapshot(db, join(backupDir, `cleo.db.${backupId}`))) backedUp.push('cleo.db');
+    // The copy lands under a temporary name and is published by a rename
+    // only if nothing invalidated it meanwhile.
+    const final = join(backupDir, `cleo.db.${backupId}`);
+    const staged = `${final}.tmp`;
+    if (safeSqliteSnapshot(db, staged)) {
+      const why = opts?.discardIf?.() ?? null;
+      if (why !== null) {
+        rmSync(staged, { force: true });
+        getLogger('backup').warn({ backupId, why }, 'global backup discarded, not published');
+        return { backupId, path: backupDir, timestamp, type: btype, files: [], skipped: why };
+      }
+      renameSync(staged, final);
+      backedUp.push('cleo.db');
+    }
   } catch {
     // the global store could not be opened: nothing to back up
   }

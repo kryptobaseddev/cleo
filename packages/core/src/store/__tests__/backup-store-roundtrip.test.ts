@@ -433,6 +433,25 @@ describe('the global store backs up and restores (T13245)', () => {
     expect(readdirSync(gdir).filter((f) => f.startsWith('cleo.db.auto-'))).toEqual([]);
   });
 
+  it('a lock lost during the copy discards it: nothing published, listed or rotated (T13293)', async () => {
+    const { path: gpath } = await globalDb();
+    const gdir = join(dirname(gpath), 'backups', 'sqlite');
+    mkdirSync(gdir, { recursive: true });
+    const before = readdirSync(gdir).sort();
+    const id = await autoGlobalBackup(new Date(), {
+      admit: async () => ({ release: async () => {} }),
+      // The lock is reported compromised while held (as proper-lockfile does
+      // when its refresh finds the lock taken).
+      lock: async (onCompromised) => {
+        onCompromised(new Error('lock taken as stale by another process'));
+        return async () => {};
+      },
+    });
+    expect(id).toBeNull();
+    expect(readdirSync(gdir).sort()).toEqual(before);
+    expect(listGlobalBackups().filter((b) => b.type === 'auto')).toEqual([]);
+  });
+
   it('a deferred db-heavy admission takes no global backup', async () => {
     const { path: gpath } = await globalDb();
     expect(await autoGlobalBackup(new Date(), { admit: async () => null })).toBeNull();
