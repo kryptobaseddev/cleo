@@ -2471,6 +2471,7 @@ export {
 } from './status-registry.js';
 // === Store restore (T13240 — restore cleo.db from a named snapshot or backup id) ===
 export type {
+  StoreRecoverResult,
   StoreRestoreKept,
   StoreRestoreResult,
   StoreRestoreSource,
@@ -3066,6 +3067,7 @@ export type {
   CloudProjectsResult,
   CloudRetiredReplica,
   CloudStatusGlobalStore,
+  CloudStatusHolder,
   CloudStatusLocal,
   CloudStatusOfflineDetails,
   CloudStatusResult,
@@ -3144,6 +3146,9 @@ export {
 export {
   type CloudActivityItem,
   type CloudActivityResult,
+  type CloudConflict,
+  type CloudConflictResolveResult,
+  type CloudConflictsResult,
   type CloudLeaseReleaseResult,
   type CloudPushResult,
   type CloudRestoreResult,

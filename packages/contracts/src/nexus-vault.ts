@@ -296,3 +296,48 @@ export interface CloudActivityResult {
   nextBefore: string | null;
   warnings: CloudWarning[];
 }
+
+/** One conflict an apply recorded (`cleo cloud conflicts`, T12344 PR-6). */
+export interface CloudConflict {
+  id: number;
+  stream: string;
+  seq: number;
+  txnIdx: number;
+  /** Op index in the transaction; -1 for a whole-transaction (post-apply) conflict. */
+  opIdx: number;
+  /** `field`, `typed-rule`, `edit-vs-delete`, `delete-vs-edit`, `dangling-ref`, `guard`, `delete-with-live-children`, `uid-collision`, `post-apply` … */
+  kind: string;
+  table: string;
+  uid: string;
+  columns: string[];
+  /** The typed rule, guard message or invariant, when there is one. */
+  rule: string | null;
+  /** What happened to the incoming op: `incoming-applied`, `incoming-dropped`, `row-deleted`, `op-voided`. */
+  resolution: string;
+  opHlc: string;
+  localHlc: string | null;
+  /** The replica that wrote the op. */
+  origin: string;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+/** `cleo cloud conflicts`: the store's recorded sync conflicts. */
+export interface CloudConflictsResult {
+  scope: CloudVaultScope;
+  /** Unresolved conflicts in the store. */
+  open: number;
+  /** All conflicts in the store. */
+  total: number;
+  conflicts: CloudConflict[];
+  warnings: CloudWarning[];
+}
+
+/** `cleo cloud conflicts resolve <id>`. */
+export interface CloudConflictResolveResult {
+  scope: CloudVaultScope;
+  id: number;
+  /** False when no open conflict has that id. */
+  resolved: boolean;
+  warnings: CloudWarning[];
+}

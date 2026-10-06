@@ -166,6 +166,24 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §3.6 (T12344)',
     note: 'the HLC of the latest explicit leave of an absorbing state per (tbl, uid, col), which the merge reads; rebuilt from the stream. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12344)',
   },
+  _sync_row_undo: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.5 Rule 2 (T13193)',
+    note: "per sealed local op, the row's merge state (row meta, leaves, frontiers) just before it, so a rebase rewind restores values and merge state together; dropped with the transaction's undo once its echo is sequenced. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13193)",
+  },
+  _sync_foreign_touch: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.5 Rule 3 (T13193)',
+    note: 'rows each applied foreign transaction touched, at its capture position, for the own-echo fast path; pruned past the oldest unsequenced local transaction. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13193)',
+  },
+  _sync_sequenced: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.5 (T13193)',
+    note: 'own transactions whose echo the stream sequenced; a sealed local transaction without a row here is unsequenced. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13193)',
+  },
   _sync_row_meta: {
     class: 'local-only',
     status: 'optional-transient',
@@ -1369,6 +1387,24 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §3.6 (T12344)',
     note: 'the HLC of the latest explicit leave of an absorbing state per (tbl, uid, col), which the merge reads; rebuilt from the stream. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12344)',
+  },
+  _sync_row_undo: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.5 Rule 2 (T13193)',
+    note: "per sealed local op, the row's merge state (row meta, leaves, frontiers) just before it, so a rebase rewind restores values and merge state together; dropped with the transaction's undo once its echo is sequenced. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13193)",
+  },
+  _sync_foreign_touch: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.5 Rule 3 (T13193)',
+    note: 'rows each applied foreign transaction touched, at its capture position, for the own-echo fast path; pruned past the oldest unsequenced local transaction. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13193)',
+  },
+  _sync_sequenced: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.5 (T13193)',
+    note: 'own transactions whose echo the stream sequenced; a sealed local transaction without a row here is unsequenced. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13193)',
   },
   _sync_row_meta: {
     class: 'local-only',
