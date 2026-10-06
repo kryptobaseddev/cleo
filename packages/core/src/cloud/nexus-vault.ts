@@ -1390,6 +1390,17 @@ async function pushNexusVaultImpl(
   }
 }
 
+/**
+ * Replace `dest` atomically (tmp file, then rename): a crash leaves the old
+ * file or the new one, never a truncated one.
+ */
+function replaceFile(dest: string, from: { text: string } | { copyFrom: string }): void {
+  const tmp = `${dest}.${process.pid}.tmp`;
+  if ('text' in from) fs.writeFileSync(tmp, from.text);
+  else fs.copyFileSync(from.copyFrom, tmp);
+  fs.renameSync(tmp, dest);
+}
+
 /** Where a cut's genesis bundle waits until its checkpoint is stored: beside the store, per stream. */
 function genesisBundlePaths(t: VaultTarget): { dir: string; bundle: string; meta: string } {
   const dir = path.join(path.dirname(t.dbPath), 'sync-genesis');
@@ -1514,13 +1525,13 @@ async function enableSyncPushImpl(
     if (stored) {
       journal.verifyCheckpoint(stored, key.signers);
       const replicaSeqFloor = stored.replicas[replicaId]?.lastReplicaSeq ?? null;
+      saveSynced(conn, t, stored, { gitTracked: kept?.gitTracked ?? [], files: kept?.files ?? {} });
       completeGenesis(db, {
         stream: t.streamId,
         replica: replicaId,
         replicaSeqFloor,
         nowIso: new Date().toISOString(),
       });
-      saveSynced(conn, t, stored, { gitTracked: kept?.gitTracked ?? [], files: kept?.files ?? {} });
       fs.rmSync(saved.bundle, { force: true });
       fs.rmSync(saved.meta, { force: true });
       warnings.push(...conn.state.drainWarnings());
@@ -1568,6 +1579,10 @@ async function enableSyncPushImpl(
     if (!resuming) {
       fs.mkdirSync(saved.dir, { recursive: true });
       const work = tempDir('cleo-sync-genesis-');
+      // Filled by the snapshot callback (a holder, so the assignment survives the closure).
+      const snap: { taken: { bundlePath: string; record: z.infer<typeof GenesisSaved> } | null } = {
+        taken: null,
+      };
       try {
         const report = await cutGenesisWithSnapshot(
           db,
@@ -1586,16 +1601,17 @@ async function enableSyncPushImpl(
               `sync-genesis-${t.scope}`,
               trackedForPush(t, git, synced),
             );
-            fs.copyFileSync(exported.bundlePath, saved.bundle);
-            const record: z.infer<typeof GenesisSaved> = {
-              cut: at,
-              vault: exported.vault,
-              replayPin: replayPinOf(db),
-              gitTracked: exported.gitTracked,
-              files: syncFiles(exported.files),
-              checkpointIds: [],
+            snap.taken = {
+              bundlePath: exported.bundlePath,
+              record: {
+                cut: at,
+                vault: exported.vault,
+                replayPin: replayPinOf(db),
+                gitTracked: exported.gitTracked,
+                files: syncFiles(exported.files),
+                checkpointIds: [],
+              },
             };
-            fs.writeFileSync(saved.meta, `${JSON.stringify(record)}\n`);
           },
         );
         if (report.refused !== null) {
@@ -1606,6 +1622,16 @@ async function enableSyncPushImpl(
             `the genesis cut was refused: ${report.refused}`,
           );
         }
+        // Saved only once the cut's race check passed: a bundle and record on
+        // disk always describe a cut that stands. A crash before this is a
+        // pending cut with nothing saved, which the next run resumes (T13301).
+        const snapshotted = snap.taken;
+        if (snapshotted === null) {
+          // @sync-invariant none:local-only programming error: a committed cut always ran its snapshot
+          throw new Error('the genesis cut returned without a snapshot');
+        }
+        replaceFile(saved.bundle, { copyFrom: snapshotted.bundlePath });
+        replaceFile(saved.meta, { text: `${JSON.stringify(snapshotted.record)}\n` });
         cut = report.cut ?? 0;
         resumedCut = report.resumed;
         sealed = report.sealed;
@@ -1659,10 +1685,9 @@ async function enableSyncPushImpl(
       mintCheckpointId: () => {
         const id = uuidv7();
         const now = GenesisSaved.parse(JSON.parse(fs.readFileSync(saved.meta, 'utf8')));
-        fs.writeFileSync(
-          saved.meta,
-          `${JSON.stringify({ ...now, checkpointIds: [...now.checkpointIds, id] })}\n`,
-        );
+        replaceFile(saved.meta, {
+          text: `${JSON.stringify({ ...now, checkpointIds: [...now.checkpointIds, id] })}\n`,
+        });
         return id;
       },
       onReplay: (replay) => {
@@ -1678,13 +1703,15 @@ async function enableSyncPushImpl(
       },
     });
     const replicaSeqFloor = cursor.replicas[replicaId]?.replicaSeq ?? null;
+    // Synced first: a crash before completeGenesis leaves the cut pending,
+    // and the next run adopts this checkpoint by its recorded id (T13302).
+    saveSynced(conn, t, cp, { gitTracked: record.gitTracked, files: record.files });
     completeGenesis(db, {
       stream: t.streamId,
       replica: replicaId,
       replicaSeqFloor,
       nowIso: new Date().toISOString(),
     });
-    saveSynced(conn, t, cp, { gitTracked: record.gitTracked, files: record.files });
     fs.rmSync(saved.bundle, { force: true });
     fs.rmSync(saved.meta, { force: true });
     await releaseLeaseQuietly(conn, t);
