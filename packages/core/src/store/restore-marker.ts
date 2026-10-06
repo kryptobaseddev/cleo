@@ -64,11 +64,19 @@ function readMarker(dbPath: string): RestoreMarker | 'unreadable' | null {
   }
 }
 
-/** Whether a marker blocks this process: held by another live process (or unreadable). */
-function blocks(marker: RestoreMarker | 'unreadable' | null): boolean {
+/**
+ * Whether a marker blocks this process: held by another live process (or
+ * unreadable). A writer is blocked by its OWN process's `genesis` marker too
+ * (T13297): the genesis cut writes nothing while its snapshot runs, so any
+ * write then, from another handle or code path in the same process, would
+ * land after the cut and before the snapshot.
+ */
+function blocks(marker: RestoreMarker | 'unreadable' | null, forWrite = false): boolean {
   if (marker === null) return false;
   if (marker === 'unreadable') return true;
-  if (marker.host === hostname() && marker.pid === process.pid) return false;
+  if (marker.host === hostname() && marker.pid === process.pid) {
+    return forWrite && marker.kind === 'genesis';
+  }
   // Stale: the restorer is gone. A marker from another host is honoured.
   return !(marker.host === hostname() && !isPidAlive(marker.pid));
 }
@@ -129,11 +137,16 @@ function markerRefusal(dbPath: string, marker: RestoreMarker | 'unreadable' | nu
 
 /**
  * The write-chokepoint form of {@link assertStoreNotRestoring}: a handle
- * opened before another process took the marker must not write while the
- * store is replaced or snapshotted (a genesis cut holds the write lock for
- * its whole export, longer than a writer's busy timeout). Waits without
- * blocking the event loop, up to `waitMs`, then refuses. Costs one
- * `existsSync` when no marker is present.
+ * must not write while its store is replaced or snapshotted, including a
+ * handle opened before the marker was taken, and, for a genesis snapshot, any
+ * writer in the marker's own process (T13297). Waits without blocking the
+ * event loop, up to `waitMs`, then refuses. Costs one `existsSync` when no
+ * marker is present.
+ *
+ * Called from `assertExodusWriteSafe`, which the task accessor's write
+ * transactions, session creation, `insertIdempotent` and `upsertIdempotent`
+ * call first. A writer that bypasses those meets no wait; the genesis cut
+ * detects such a write after its snapshot and undoes itself.
  *
  * @param dbPath - The store file about to be written (null for an in-memory database: never blocks).
  * @param waitMs - How long to wait (default {@link RESTORE_MARKER_WAIT_MS}, or `CLEO_RESTORE_WAIT_MS`).
@@ -146,13 +159,13 @@ export async function awaitStoreWritable(
 ): Promise<void> {
   if (dbPath === null) return;
   let marker = readMarker(dbPath);
-  if (!blocks(marker)) return;
+  if (!blocks(marker, true)) return;
   const deadline = Date.now() + waitMs;
-  while (blocks(marker) && Date.now() < deadline) {
+  while (blocks(marker, true) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 100));
     marker = readMarker(dbPath);
   }
-  if (!blocks(marker)) return;
+  if (!blocks(marker, true)) return;
   // @sync-invariant none:local-only refused while another process replaces or snapshots the local store; nothing is written
   throw markerRefusal(dbPath, marker);
 }

@@ -14,6 +14,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _resetDualScopeDbCache,
+  assertExodusWriteSafe,
   getDualScopeNativeDb,
   openDualScopeDbAtPath,
 } from '../../dual-scope-db.js';
@@ -31,6 +32,7 @@ import {
   GENESIS_CUT_KEY_PREFIX,
   GENESIS_PENDING_KEY_PREFIX,
   GENESIS_SOURCE_SEQ_KEY_PREFIX,
+  GenesisRacedError,
   genesisCutOf,
   genesisPending,
   UNDO_ENABLED_KEY,
@@ -303,7 +305,7 @@ describe('genesis preconditions (T13032 AC2 step 0): a refusal cuts nothing', ()
   });
 });
 
-describe('genesis cut with its checkpoint snapshot (S4-1b)', () => {
+describe('genesis cut with its checkpoint snapshot (S4-1b; T13296, T13297)', () => {
   const opts = () => ({
     scope: 'project' as const,
     stream: STREAM,
@@ -312,49 +314,112 @@ describe('genesis cut with its checkpoint snapshot (S4-1b)', () => {
     env: {},
     allowUnreleased: true,
   });
+  const sealedPacker = (db: DatabaseSync, replica: string) =>
+    buildSegment(db, {
+      stream: STREAM,
+      replica,
+      scope: 'project',
+      project: null,
+      sealer: (_seq, plaintext) => Buffer.from(plaintext),
+      signTxn: (_stream, txn) => txn,
+      nowIso: new Date(++clock).toISOString(),
+    });
 
-  it('the snapshot runs at the cut, under the write lock and the genesis marker, before the cut commits', async () => {
-    const { db } = await store();
+  it('the snapshot is taken after the cut commits: a device restored from it has full row meta and never pushes a folded transaction (T13296)', async () => {
+    const { db, replica } = await store();
     write(db, addTask('T1'));
-    let seen: { cut: number; marker: string; cutKeys: number; tasks: number; busy: string } | null =
-      null;
-    const r = await cutGenesisWithSnapshot(db, opts(), async (cut) => {
-      // Another connection, as the bundle export uses: the store exactly at the cut.
-      const other = new DatabaseSync(dbPath);
+    seal(db);
+    const copy = join(dir, 'bundle.db');
+    let marker = '';
+    const r = await cutGenesisWithSnapshot(db, opts(), async () => {
+      marker = JSON.parse(readFileSync(dbPath + RESTORE_MARKER_SUFFIX, 'utf8')).kind;
+      // As the bundle export does: a read-only connection, VACUUM INTO.
+      const src = new DatabaseSync(dbPath, { readOnly: true });
       try {
-        other.exec('PRAGMA busy_timeout = 0');
-        let busy = 'none';
-        try {
-          other.exec("INSERT INTO _sync_meta (key, value, updated_at) VALUES ('x', 'x', 'x')");
-        } catch (err) {
-          busy = (err as Error).message;
-        }
-        seen = {
-          cut,
-          marker: JSON.parse(readFileSync(dbPath + RESTORE_MARKER_SUFFIX, 'utf8')).kind,
-          cutKeys: n(other, "SELECT count(*) AS n FROM _sync_meta WHERE key LIKE 'genesis_cut:%'"),
-          tasks: n(other, 'SELECT count(*) AS n FROM tasks_tasks'),
-          busy,
-        };
+        src.exec(`VACUUM INTO '${copy}'`);
       } finally {
-        other.close();
+        src.close();
       }
     });
-    expect(r.refused).toBeNull();
-    expect(seen).toEqual({
-      cut: r.cut,
-      marker: 'genesis',
-      cutKeys: 0, // the cut is not committed while the snapshot runs
-      tasks: 2, // T0 and T1: every pre-cut effect
-      busy: expect.stringMatching(/locked|busy/i), // nothing else can commit
+    expect(r).toMatchObject({ refused: null, folded: 1 });
+    expect(marker).toBe('genesis');
+    expect(existsSync(dbPath + RESTORE_MARKER_SUFFIX)).toBe(false);
+    const restored = new DatabaseSync(copy);
+    try {
+      // Every row has its meta (T0 was written before capture: baselined by the cut).
+      expect(n(restored, 'SELECT count(*) AS n FROM tasks_tasks')).toBe(2);
+      expect(
+        n(restored, "SELECT count(*) AS n FROM _sync_row_meta WHERE tbl = 'tasks_tasks'"),
+      ).toBe(2);
+      // The cut itself travels: keys, undo, push, and the folded transactions.
+      expect(genesisCutOf(restored, STREAM)).toBe(r.cut);
+      expect(meta(restored, UNDO_ENABLED_KEY)).toBe('1');
+      expect(isSyncFlagOn(restored, 'sync.push', {})).toBe(true);
+      expect(n(restored, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'sealed'")).toBe(0);
+      expect(sealedPacker(restored, replica), 'a folded transaction was packed again').toBeNull();
+    } finally {
+      restored.close();
+    }
+  });
+
+  it('a write in this same process during the snapshot waits it out and lands after, never inside the bundle (T13297)', async () => {
+    const { db } = await store();
+    const copy = join(dir, 'bundle.db');
+    let writer: Promise<void> | null = null;
+    let refused = '';
+    await cutGenesisWithSnapshot(db, opts(), async () => {
+      // Same process, same handle: a short wait is refused cleanly ...
+      vi.stubEnv('CLEO_RESTORE_WAIT_MS', '50');
+      await assertExodusWriteSafe(db).catch((e: Error) => {
+        refused = e.message;
+      });
+      // ... and a patient writer is deferred until the snapshot is done.
+      vi.stubEnv('CLEO_RESTORE_WAIT_MS', '5000');
+      writer = assertExodusWriteSafe(db).then(() => write(db, addTask('LATE')));
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const src = new DatabaseSync(dbPath, { readOnly: true });
+      try {
+        src.exec(`VACUUM INTO '${copy}'`);
+      } finally {
+        src.close();
+      }
     });
-    expect(genesisCutOf(db, STREAM)).toBe(r.cut);
+    expect(refused).toMatch(/E_STORE_GENESIS/);
+    await writer;
+    expect(n(db, "SELECT count(*) AS n FROM tasks_tasks WHERE id = 'LATE'")).toBe(1);
+    const bundle = new DatabaseSync(copy, { readOnly: true });
+    try {
+      expect(n(bundle, "SELECT count(*) AS n FROM tasks_tasks WHERE id = 'LATE'")).toBe(0);
+    } finally {
+      bundle.close();
+    }
+    // The late write is a journal write: captured after the cut, left live for the push.
+    expect(n(db, "SELECT count(*) AS n FROM _sync_capture WHERE state = 'live'")).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it('a write that bypasses the chokepoint during the snapshot undoes the cut: no raced bundle is used', async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    seal(db);
+    await expect(
+      cutGenesisWithSnapshot(db, opts(), async () => {
+        write(db, addTask('RACED')); // a raw framed write: no chokepoint
+      }),
+    ).rejects.toBeInstanceOf(GenesisRacedError);
+    expectUncut(db);
+    // The pre-cut transaction is back to sealed, and the raced write is still there to journal.
+    expect(n(db, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'sealed'")).toBe(1);
+    expect(n(db, 'SELECT count(*) AS n FROM _sync_undo')).toBe(0);
+    expect(n(db, "SELECT count(*) AS n FROM tasks_tasks WHERE id = 'RACED'")).toBe(1);
     expect(existsSync(dbPath + RESTORE_MARKER_SUFFIX)).toBe(false);
   });
 
-  it('a failing snapshot rolls the cut back and releases the marker', async () => {
+  it('a failing snapshot undoes the committed cut and releases the marker', async () => {
     const { db } = await store();
     write(db, addTask('T1'));
+    seal(db);
     await expect(
       cutGenesisWithSnapshot(db, opts(), async () => {
         throw new Error('upload failed');
@@ -362,7 +427,11 @@ describe('genesis cut with its checkpoint snapshot (S4-1b)', () => {
     ).rejects.toThrow('upload failed');
     expect(db.isTransaction).toBe(false);
     expectUncut(db);
+    expect(n(db, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'sealed'")).toBe(1);
     expect(existsSync(dbPath + RESTORE_MARKER_SUFFIX)).toBe(false);
+    // A second attempt cuts cleanly.
+    const again = await cutGenesisWithSnapshot(db, opts(), async () => {});
+    expect(again).toMatchObject({ refused: null, folded: 1 });
   });
 
   it('a refused cut never runs the snapshot and releases the marker', async () => {

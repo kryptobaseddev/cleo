@@ -41,6 +41,7 @@ import { baselineRowMeta } from './repair.js';
 import { activeReplica } from './replica.js';
 import { hasTable } from './schema.js';
 import { sealPending, sealPreconditions } from './sealer.js';
+import { capturePosition } from './sequencing.js';
 import { hasTriggerSuspendTable, verifyOwnedTriggers } from './trigger-classes.js';
 import { raiseMinWriterVersion } from './writer-version.js';
 
@@ -52,6 +53,9 @@ export const GENESIS_SOURCE_SEQ_KEY_PREFIX = 'genesis_source_seq:';
 
 /** `_sync_meta` key prefix set at the cut and cleared once the genesis checkpoint is stored. */
 export const GENESIS_PENDING_KEY_PREFIX = 'genesis_pending:';
+
+/** `_sync_meta` key prefix: the highest `local_seq` a stream's cut folded (so a raced cut can be undone). */
+export const GENESIS_FOLDED_UPTO_KEY_PREFIX = 'genesis_folded_upto:';
 
 /** `_sync_meta` key the capture triggers' undo `WHEN` checks (§3.5 Rule 2). */
 export const UNDO_ENABLED_KEY = 'undo_enabled';
@@ -331,9 +335,17 @@ function closeCut(db: DatabaseSync, opts: GenesisCutOptions, o: OpenCut): Genesi
     const n = baselineRowMeta(db, opts.scope, table, o.replica, o.at);
     if (n) baselined[table] = n;
   }
+  const upto = Number(
+    (
+      db.prepare("SELECT max(local_seq) AS m FROM _sync_txn WHERE state = 'sealed'").get() as {
+        m: number | null;
+      }
+    ).m ?? 0,
+  );
   const folded = db
     .prepare("UPDATE _sync_txn SET state = 'folded' WHERE state = 'sealed'")
     .run().changes;
+  setMeta(db, `${GENESIS_FOLDED_UPTO_KEY_PREFIX}${opts.stream}`, String(upto), atIso);
   setMeta(db, `${GENESIS_CUT_KEY_PREFIX}${opts.stream}`, String(o.cut), atIso);
   setMeta(db, `${GENESIS_SOURCE_SEQ_KEY_PREFIX}${opts.stream}`, String(o.cut), atIso);
   setMeta(db, `${GENESIS_PENDING_KEY_PREFIX}${opts.stream}`, String(o.cut), atIso);
@@ -367,24 +379,73 @@ export function cutGenesis(db: DatabaseSync, opts: GenesisCutOptions): GenesisCu
   }
 }
 
+/** A write reached the store between the cut and the end of its snapshot; the cut was undone. */
+export class GenesisRacedError extends Error {
+  readonly code = 'E_SYNC_GENESIS_RACED';
+}
+
 /**
- * {@link cutGenesis} with the genesis checkpoint's bundle snapshotted at the
- * cut (§2.11 §10: "snapshotted inside one read transaction that records
- * genesis_cut"). `snapshot` runs while the cut's `BEGIN IMMEDIATE` is held,
- * so a snapshot taken on another connection sees exactly the store at the
- * cut: nothing else can commit, and the cut itself is not committed yet.
+ * Undo a committed cut whose genesis checkpoint was never pushed (its
+ * snapshot failed, or a write raced it), in one `BEGIN IMMEDIATE`: drop the
+ * stream's genesis keys, turn push off, return the transactions it folded to
+ * `sealed`, and, when no other stream is cut, turn undo off and drop the undo
+ * written since. Row meta it baselined stays: before the stream starts that
+ * is what the repair diff would write anyway (T13217).
+ */
+function uncutGenesis(db: DatabaseSync, opts: GenesisCutOptions): void {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const upto = Number(metaValue(db, `${GENESIS_FOLDED_UPTO_KEY_PREFIX}${opts.stream}`) ?? 0);
+    db.prepare(
+      "UPDATE _sync_txn SET state = 'sealed' WHERE state = 'folded' AND local_seq <= ?",
+    ).run(upto);
+    const del = db.prepare('DELETE FROM _sync_meta WHERE key = ?');
+    for (const prefix of [
+      GENESIS_CUT_KEY_PREFIX,
+      GENESIS_SOURCE_SEQ_KEY_PREFIX,
+      GENESIS_PENDING_KEY_PREFIX,
+      GENESIS_FOLDED_UPTO_KEY_PREFIX,
+    ]) {
+      del.run(`${prefix}${opts.stream}`);
+    }
+    if (!db.prepare(`SELECT 1 FROM _sync_meta WHERE key LIKE '${GENESIS_CUT_KEY_PREFIX}%'`).get()) {
+      del.run(UNDO_ENABLED_KEY);
+      db.exec('DELETE FROM _sync_undo');
+      if (hasTable(db, '_sync_row_undo')) db.exec('DELETE FROM _sync_row_undo');
+      setSyncFlag(db, 'sync.push', false);
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+/**
+ * {@link cutGenesis}, then the genesis checkpoint's bundle snapshotted at
+ * the committed cut (§2.11 §10; T13296). The cut commits FIRST, so the
+ * bundle carries everything it wrote: genesis row meta, the genesis keys,
+ * `undo_enabled`, `sync.push` and the folded transactions. A device restored
+ * from it therefore has full row meta and never pushes a folded transaction.
  *
- * The export can outlast another writer's busy timeout, so for its whole
- * duration the store carries a `genesis` marker ({@link writeRestoreMarker}):
- * other cleo processes wait at their store open and write chokepoint, then
- * refuse with `E_STORE_GENESIS`, instead of failing with SQLITE_BUSY
- * mid-write. A failing snapshot rolls the cut back; the marker is always
+ * Nothing may write between the cut and the end of the snapshot. For the
+ * whole run the store carries a `genesis` marker ({@link writeRestoreMarker}):
+ * other processes wait at their store open, and every writer, in this
+ * process too, waits at the write chokepoint (`assertExodusWriteSafe`: the
+ * task accessor's write transactions, session creation, `insertIdempotent`,
+ * `upsertIdempotent`) and refuses with `E_STORE_GENESIS` if the snapshot
+ * outlasts its wait (T13297). The snapshot itself writes nothing. A writer
+ * that bypasses the chokepoint is caught after the snapshot (the capture
+ * position moved past the cut): the cut is undone and
+ * {@link GenesisRacedError} is thrown, so no bundle holding a post-cut write
+ * is ever pushed. A failing snapshot undoes the cut too. The marker is always
  * released.
  *
  * @param db - The store.
  * @param opts - {@link GenesisCutOptions}, plus the store file the marker guards.
- * @param snapshot - Export the store as the checkpoint bundle; receives the cut.
+ * @param snapshot - Export the store as the checkpoint bundle; receives the cut. Must not write.
  * @returns What was cut, or why not.
+ * @throws {GenesisRacedError} When a write reached the store during the snapshot.
  */
 export async function cutGenesisWithSnapshot(
   db: DatabaseSync,
@@ -393,15 +454,23 @@ export async function cutGenesisWithSnapshot(
 ): Promise<GenesisCutReport> {
   const release = writeRestoreMarker(opts.dbPath, 'genesis');
   try {
-    const open = openCut(db, opts);
-    if (!('replica' in open)) return open;
+    const report = cutGenesis(db, opts);
+    if (report.refused !== null || report.already || report.cut === null) return report;
+    const cut = report.cut;
     try {
-      await snapshot(open.cut);
-      return closeCut(db, opts, open);
+      await snapshot(cut);
     } catch (err) {
-      if (db.isTransaction) db.exec('ROLLBACK');
+      uncutGenesis(db, opts);
       throw err;
     }
+    if (capturePosition(db) > cut) {
+      uncutGenesis(db, opts);
+      // @sync-invariant none:local-only a local write raced the genesis snapshot; the cut is undone and nothing is pushed
+      throw new GenesisRacedError(
+        'E_SYNC_GENESIS_RACED: a write reached the store during the genesis snapshot; the cut was undone, run it again',
+      );
+    }
+    return report;
   } finally {
     release();
   }

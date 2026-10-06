@@ -376,11 +376,24 @@ export const EXEMPT = {
     _sync_txn: { count: 1, reason: SEALER },
   },
   'packages/core/src/store/sync/genesis.ts': {
-    _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING },
+    _sync_meta: {
+      count: 2,
+      reason: `${SYNC_BOOKKEEPING}; plus dropping a stream's genesis keys when a failed or raced cut is undone (T13296)`,
+    },
     _sync_txn: {
+      count: 2,
+      reason:
+        'sealed transactions (local-only): folds every pre-cut transaction into the genesis checkpoint, and returns them to sealed when a failed or raced cut is undone (§2.11 §10, T12343, T13296)',
+    },
+    _sync_row_undo: {
       count: 1,
       reason:
-        'sealed transactions (local-only): folds every pre-cut transaction into the genesis checkpoint (§2.11 §10, T12343)',
+        'row undo (local-only): dropped when a failed or raced genesis cut is undone and no stream is cut, so undo is off again (T13296)',
+    },
+    _sync_undo: {
+      count: 1,
+      reason:
+        'capture undo (local-only): dropped when a failed or raced genesis cut is undone and no stream is cut, so undo is off again (T13296)',
     },
   },
   'packages/core/src/store/sync/segments.ts': {
