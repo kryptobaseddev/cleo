@@ -504,16 +504,50 @@ describe('a cut that crashed before its snapshot (T13301), and per-cut folds (LO
     expect(ran).toBe(false);
   });
 
-  it("undoing one stream's failed cut never un-folds another stream's", async () => {
-    const { db } = await store();
+  it('a second stream is refused while one is cut, and the first keeps and pushes its own txns (T13303)', async () => {
+    const { db, replica } = await store();
     write(db, addTask('T1'));
     seal(db);
-    await cutGenesisWithSnapshot(db, opts(), async () => {}); // stream A, stored below
+    await cutGenesisWithSnapshot(db, opts(), async () => {}); // stream A
     db.prepare('DELETE FROM _sync_meta WHERE key = ?').run(
       `${GENESIS_PENDING_KEY_PREFIX}${STREAM}`,
     );
-    const aFolded = n(db, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'folded'");
-    expect(aFolded).toBe(1);
+    write(db, addTask('T2'));
+    seal(db); // a txn A owes the stream
+    let ran = false;
+    const r = await cutGenesisWithSnapshot(db, opts(STREAM_B), async () => {
+      ran = true;
+    });
+    expect(r.refused).toMatch(new RegExp(`already pushes ${STREAM}.*T13254`));
+    expect(ran).toBe(false);
+    expect(genesisCutOf(db, STREAM_B)).toBeUndefined();
+    // T2's txn was not folded into B: it stays sealed and is segmented for A.
+    const t2 = (
+      db.prepare("SELECT txn FROM _sync_txn WHERE state = 'sealed'").all() as Array<{ txn: string }>
+    ).map((t) => t.txn);
+    expect(t2).toHaveLength(1);
+    const seg = buildSegment(db, {
+      stream: STREAM,
+      replica,
+      scope: 'project',
+      project: null,
+      sealer: (_seq, plaintext) => Buffer.from(plaintext),
+      signTxn: (_stream, txn) => txn,
+      nowIso: new Date(++clock).toISOString(),
+    });
+    expect(seg?.txns).toEqual(t2);
+  });
+
+  it('defence in depth: undoing a cut un-folds only its own range, never an earlier fold (LOW-1 on #1953)', async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    seal(db);
+    await cutGenesisWithSnapshot(db, opts(), async () => {}); // an earlier fold (T1's txn)
+    // Forget that cut's key (as a store from before one-stream-per-store could hold an old fold),
+    // so a new cut is allowed; its fold range bookkeeping is gone with the key too.
+    db.prepare("DELETE FROM _sync_meta WHERE key LIKE 'genesis_%'").run();
+    const earlier = n(db, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'folded'");
+    expect(earlier).toBe(1);
     write(db, addTask('T2'));
     seal(db);
     await expect(
@@ -521,11 +555,9 @@ describe('a cut that crashed before its snapshot (T13301), and per-cut folds (LO
         throw new Error('export failed');
       }),
     ).rejects.toThrow('export failed');
-    // A's fold stands; only B's (T2's txn) is sealed again, and A keeps undo on.
-    expect(n(db, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'folded'")).toBe(aFolded);
+    // The earlier fold stands; only this cut's txn (T2's) is sealed again.
+    expect(n(db, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'folded'")).toBe(earlier);
     expect(n(db, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'sealed'")).toBe(1);
     expect(genesisCutOf(db, STREAM_B)).toBeUndefined();
-    expect(meta(db, UNDO_ENABLED_KEY)).toBe('1');
-    expect(isSyncFlagOn(db, 'sync.push', {})).toBe(true);
   });
 });

@@ -293,6 +293,23 @@ function openCut(db: DatabaseSync, opts: GenesisCutOptions): OpenCut | GenesisCu
   }
   const already = genesisCutOf(db, opts.stream);
   if (already !== undefined) return report(opts.stream, { already: true, cut: already });
+  // T13303: one cut stream per store. Nothing routes a sealed transaction to
+  // a stream yet (T13254), so a second stream's cut would fold the first
+  // stream's sealed, unsent transactions into its own checkpoint, and the
+  // first stream would never push them. The per-cut fold range and the
+  // "no other stream is cut" undo are kept for when routing lands.
+  const other = (
+    db
+      .prepare(
+        `SELECT substr(key, ${GENESIS_CUT_KEY_PREFIX.length + 1}) AS stream FROM _sync_meta WHERE key LIKE '${GENESIS_CUT_KEY_PREFIX}%' LIMIT 1`,
+      )
+      .get() as { stream: string } | undefined
+  )?.stream;
+  if (other !== undefined) {
+    return report(opts.stream, {
+      refused: `this store already pushes ${other}; a second stream needs per-stream routing (T13254)`,
+    });
+  }
   const refused = genesisPreconditions(db, opts);
   if (refused) return report(opts.stream, { refused });
   const replica = activeReplica(db, opts.scope)?.replicaId;
