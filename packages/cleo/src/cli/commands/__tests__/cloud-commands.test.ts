@@ -241,6 +241,66 @@ describe('cleo cloud', () => {
   });
 });
 
+describe('cleo cloud conflicts (T12344 PR-6)', () => {
+  it('on a store that never applied a stream: no conflicts, a warning, no request', async () => {
+    const r = await run('conflicts', {});
+    expect(r.exit).toBeNull();
+    expect(r.envelope.success).toBe(true);
+    expect(r.envelope.meta.operation).toBe('cloud.conflicts');
+    expect(r.envelope.data).toMatchObject({ open: 0, total: 0, conflicts: [] });
+    expect(r.envelope.data.warnings).toEqual([
+      expect.objectContaining({ code: 'W_SYNC_NOT_ENABLED' }),
+    ]);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('lists open conflicts, resolves one by id, and lists every one with --all', async () => {
+    const { getDualScopeNativeDb, openDualScopeDb } = await import(
+      '@cleocode/core/store/dual-scope-db.js'
+    );
+    const { ensureSyncSchema } = await import('@cleocode/core/store/sync/schema.js');
+    const db = getDualScopeNativeDb(await openDualScopeDb('project', process.env['CLEO_ROOT']));
+    ensureSyncSchema(db);
+    db.prepare(
+      `INSERT INTO _sync_conflict (stream, seq, txn_idx, op_idx, kind, tbl, uid, columns_json,
+         rule, resolution, op_hlc, origin, created_at)
+       VALUES ('s', 1, 0, 0, 'typed-rule', 'tasks_tasks', 'u1', '["status"]',
+         'task.status.absorbing', 'incoming-dropped', 'h', 'r', '2026-10-05T00:00:00.000Z')`,
+    ).run();
+    const list = await run('conflicts', {});
+    expect(list.envelope.data).toMatchObject({ open: 1, total: 1 });
+    expect(list.envelope.data.conflicts[0]).toMatchObject({
+      id: 1,
+      kind: 'typed-rule',
+      columns: ['status'],
+      rule: 'task.status.absorbing',
+      resolvedAt: null,
+    });
+    const resolved = await run('conflicts', { action: 'resolve', id: '1' });
+    expect(resolved.envelope.data).toMatchObject({ id: 1, resolved: true });
+    expect((await run('conflicts', { action: 'resolve', id: '1' })).envelope.data.resolved).toBe(
+      false,
+    );
+    expect((await run('conflicts', {})).envelope.data).toMatchObject({
+      open: 0,
+      total: 1,
+      conflicts: [],
+    });
+    // Counts follow --stream.
+    expect((await run('conflicts', { all: true, stream: 'other' })).envelope.data).toMatchObject({
+      open: 0,
+      total: 0,
+    });
+    const all = await run('conflicts', { all: true });
+    expect(all.envelope.data.conflicts[0].resolvedAt).toEqual(expect.any(String));
+  });
+
+  it('resolve without an id is E_VALIDATION', async () => {
+    const r = await run('conflicts', { action: 'resolve' });
+    expect(r.exit).toMatch(/__EXIT_6__/);
+  });
+});
+
 describe('retired replica labels (T13109)', () => {
   const retired = [
     {
