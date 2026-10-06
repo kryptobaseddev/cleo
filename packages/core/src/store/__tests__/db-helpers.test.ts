@@ -70,35 +70,28 @@ describe('upsertTask — orphan parent handling', () => {
     expect(rows[0]!.parentId).toBeNull();
   });
 
-  it('preserves parentId (with warning) when allowOrphanParent=false and parent does not exist', async () => {
+  it('refuses the write when allowOrphanParent=false and the parent does not exist', async () => {
     // In normal single-task write mode (default), upsertTask logs a warning but does NOT
-    // silently null out the parentId. This prevents data corruption for normal task creation
-    // while still surfacing the integrity issue. The FK constraint (disabled in tests) would
-    // reject the write in production if the parent truly does not exist.
+    // silently null out the parentId, so the FK constraint rejects the write, in tests as
+    // in production (T13228: foreign keys are ON under vitest).
     const { getDb } = await import('../sqlite.js');
     const { upsertTask } = await import('../db-helpers.js');
     const schema = await import('../tasks-schema.js');
     const db = await getDb();
 
-    // Insert a child task with a non-existent parent using default allowOrphanParent=false
-    // In VITEST, FK enforcement is OFF, so this will succeed without null-out.
-    await upsertTask(db, {
-      id: 'T100',
-      title: 'Child task',
-      description: 'Has orphan parent ref',
-      status: 'pending',
-      priority: 'medium',
-      parentId: 'T999', // does NOT exist in DB
-      createdAt: new Date().toISOString(),
-    });
-
-    // With allowOrphanParent=false, the parentId is NOT nulled out — warning is logged.
-    // In test env FK is off, so T100 gets stored with parentId='T999' (not null).
+    await expect(
+      upsertTask(db, {
+        id: 'T100',
+        title: 'Child task',
+        description: 'Has orphan parent ref',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'T999', // does NOT exist in DB
+        createdAt: new Date().toISOString(),
+      }),
+    ).rejects.toThrow();
     const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 'T100')).all();
-
-    expect(rows).toHaveLength(1);
-    // parentId is preserved (not silently nulled), indicating the warning-only behavior
-    expect(rows[0]!.parentId).toBe('T999');
+    expect(rows).toHaveLength(0);
   });
 
   it('preserves parentId when parent task exists', async () => {

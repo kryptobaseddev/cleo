@@ -557,6 +557,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-repair.js')).doctorRepairCommand as CommandDef,
   },
   {
+    exportName: 'doctorRowIdentityCommand',
+    name: 'row-identity',
+    description:
+      'Plan the from-scratch row-identity refill of a store whose identity predates the current ',
+    load: async () =>
+      (await import('../commands/doctor-row-identity.js')).doctorRowIdentityCommand as CommandDef,
+  },
+  {
     exportName: 'doctorSkillFixturesCommand',
     name: 'skill-fixtures',
     description:

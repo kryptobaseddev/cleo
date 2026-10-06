@@ -80,7 +80,14 @@ import {
   resolveConsolidatedJournalSiblings,
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
-import { healRowIdentitySchema, missingRowIdentitySchema, ROW_IDENTITY } from './row-identity.js';
+import { assertStoreNotRestoring } from './restore-marker.js';
+import {
+  healRowIdentitySchema,
+  missingRowIdentitySchema,
+  ROW_IDENTITY,
+  registerRowUidFunction,
+  rowIdentityFillPending,
+} from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { syncCaptureOpenPass } from './sync/capture.js';
@@ -839,12 +846,26 @@ async function migrateScopeSchema(
 }
 
 /**
- * Whether this open has row-identity work: the fill (flag on), or identity
- * schema to heal (T12878). A scope with nothing declared has none.
+ * Whether the schema pass has row-identity work: identity schema to heal
+ * (T12878). A scope with nothing declared has none. The fill is decided after
+ * the schema pass by {@link rowIdentityFillPending} (T12341 C1).
  */
 function identityWorkOnOpen(nativeDb: DatabaseSync, scope: DualScope): boolean {
   if (ROW_IDENTITY[scope].length === 0) return false;
-  return rowUidFillEnabled() || missingRowIdentitySchema(nativeDb).length > 0;
+  return missingRowIdentitySchema(nativeDb).length > 0;
+}
+
+/**
+ * The fill's pending work for this open, with the identity SQL functions
+ * registered. The chokepoint writers load only when there is work: a store the
+ * fill already completed opens without loading `sqlite-data-accessor` (T12341
+ * C1; it cost ~170 ms and ~15 MB on every open).
+ */
+async function prepareFillWriters(nativeDb: DatabaseSync, scope: DualScope): Promise<string[]> {
+  registerRowUidFunction(nativeDb, scope);
+  const pending = rowIdentityFillPending(nativeDb, scope);
+  if (pending.length > 0) await import('./sqlite-data-accessor.js');
+  return pending;
 }
 
 /**
@@ -882,6 +903,8 @@ async function openDedicatedDualScopeDb(
   }
 
   execution?.assertActive();
+  // T13258: never open a store file a restore is replacing.
+  assertStoreNotRestoring(dbPath);
   const DatabaseSyncCtor = getDatabaseSyncCtor();
   const nativeDb = new DatabaseSyncCtor(dbPath, { allowExtension: true });
 
@@ -919,9 +942,9 @@ async function openDedicatedDualScopeDb(
         // writers were loaded there when the fill is on.
         execution?.assertActive();
         if (rowUidFillEnabled() && ROW_IDENTITY[scope].length > 0) {
-          await import('./sqlite-data-accessor.js');
+          const pending = await prepareFillWriters(nativeDb, scope);
           // Uncaptured under sync capture, with its tables marked suspect.
-          prepareRowIdentityUnderCapture(nativeDb, scope, { triggers: false });
+          prepareRowIdentityUnderCapture(nativeDb, scope, { triggers: false, pending });
         }
 
         execution?.assertActive();
@@ -1169,6 +1192,8 @@ export async function openDualScopeDbAtPath(
       // domain — no extension is loaded automatically, and the cache stays
       // single-keyed regardless of which domain opens the handle first.
       execution?.assertActive();
+      // T13258: never open a store file a restore is replacing.
+      assertStoreNotRestoring(normalizedPath);
       const DatabaseSyncCtor = getDatabaseSyncCtor();
       const nativeDb = new DatabaseSyncCtor(normalizedPath, { allowExtension: true });
       openingNative = nativeDb;
@@ -1228,9 +1253,9 @@ export async function openDualScopeDbAtPath(
           // once, and arm this connection's uid triggers. Never throws.
           execution?.assertActive();
           if (rowUidFillEnabled() && ROW_IDENTITY[scope].length > 0) {
-            await import('./sqlite-data-accessor.js');
+            const pending = await prepareFillWriters(nativeDb, scope);
             // A derived rewrite: uncaptured, its tables marked suspect (S2).
-            prepareRowIdentityUnderCapture(nativeDb, scope);
+            prepareRowIdentityUnderCapture(nativeDb, scope, { pending });
           }
 
           execution?.assertActive();
