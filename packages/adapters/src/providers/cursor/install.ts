@@ -30,6 +30,7 @@ import {
   installProviderHookTemplates,
 } from '../shared/hook-template-installer.js';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
+import { ensureProjectInstructionFile } from '../shared/project-instruction-file.js';
 
 /** MDC frontmatter for the CLEO-owned `.cursor/rules/cleo.mdc` rule file. */
 const CLEO_MDC_FRONTMATTER = [
@@ -76,11 +77,17 @@ export class CursorInstallProvider implements AdapterInstallProvider {
     // Step 1: Ensure instruction files have @-references via CAAMP canonical API (T1919).
     // ensureProviderInstructionFile handles the primary AGENTS.md (registry instructFile);
     // updateInstructionFiles also manages cursor-specific MDC + legacy .cursorrules formats.
-    const instructionResult = await ensureProviderInstructionFile('cursor', projectDir, {});
-    const cursorFilesUpdated = await this.updateInstructionFiles(projectDir);
-    instructionFileUpdated = instructionResult.action !== 'intact' || cursorFilesUpdated;
-    if (instructionFileUpdated) {
-      details.instructionFiles = this.getUpdatedFileList(projectDir);
+    const instructionResult = await ensureProjectInstructionFile('cursor', projectDir, {});
+    if (instructionResult === null) {
+      // T13227: a $HOME project gets no instruction files (loaded by every
+      // session under it); the Cursor rule files are skipped with it.
+      details.instructionFiles = 'skipped';
+    } else {
+      const cursorFilesUpdated = await this.updateInstructionFiles(projectDir);
+      instructionFileUpdated = instructionResult.action !== 'intact' || cursorFilesUpdated;
+      if (instructionFileUpdated) {
+        details.instructionFiles = this.getUpdatedFileList(projectDir);
+      }
     }
 
     // Step 2 (T1013): Install PreCompact hook templates + wire the handler

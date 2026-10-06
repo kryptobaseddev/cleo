@@ -6,10 +6,10 @@
  * (cleo-subagent.md, seed agent profiles) per provider's native folder.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { CaampInjectionAction } from '@cleocode/contracts/caamp-markers';
 import { writeFileAtomic } from '@cleocode/core/tools/fs.js';
 import type { InjectionCheckResult, InjectionStatus, Provider } from '../../types.js';
@@ -722,6 +722,49 @@ export interface EnsureProviderInstructionFileResult {
 }
 
 /**
+ * A provider instruction file was asked for at a project rooted at the home
+ * directory (T13227). Claude Code, Codex and the other providers load
+ * instruction files from the working directory up through every ancestor, so
+ * `~/CLAUDE.md` or `~/AGENTS.md` is loaded into every session anywhere under
+ * `$HOME`: user-global in effect. Nothing is written. The deliberate global
+ * files (`scope: 'global'`, the `~/.agents` hub) are not affected.
+ *
+ * @public
+ */
+export class HomeInstructionFileError extends Error {
+  /** The instruction file that was refused. */
+  readonly filePath: string;
+
+  /**
+   * @param filePath - the refused file.
+   */
+  constructor(filePath: string) {
+    super(
+      `refusing to write ${filePath}: the project is the home directory, and providers load ` +
+        'instruction files from every ancestor directory, so it would apply to every project under it',
+    );
+    this.name = 'HomeInstructionFileError';
+    this.filePath = filePath;
+  }
+}
+
+/** `path` through the native realpath (on-disk case), else resolved. */
+function canonicalDir(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/** Whether `projectDir` is the home directory (case-folded where volumes are case-insensitive by default). */
+function isHomeProject(projectDir: string): boolean {
+  const fold = (p: string): string =>
+    process.platform === 'darwin' || process.platform === 'win32' ? p.toLowerCase() : p;
+  return fold(canonicalDir(projectDir)) === fold(canonicalDir(homedir()));
+}
+
+/**
  * Ensure a provider's instruction file exists with the correct CAAMP block.
  *
  * This is the canonical API for adapters and external packages to manage
@@ -741,6 +784,8 @@ export interface EnsureProviderInstructionFileResult {
  * @param options - References, content, and scope configuration
  * @returns Result with file path, action taken, and provider metadata
  * @throws Error if the provider ID is not found in the registry
+ * @throws {@link HomeInstructionFileError} for a project-scope file when the
+ *   project is the home directory (T13227); nothing is written
  *
  * @example
  * ```typescript
@@ -766,6 +811,8 @@ export async function ensureProviderInstructionFile(
   if (filePath === null) {
     throw new Error(`Provider "${providerId}" has no global instruction file (T12379).`);
   }
+  if (scope === 'project' && isHomeProject(projectDir))
+    throw new HomeInstructionFileError(filePath);
 
   // Fall back to the registry default when the caller omits references.
   let references = options.references ?? getProviderInstructionReferences(providerId);
@@ -994,6 +1041,8 @@ export async function ensureAllProviderInstructionFiles(
     const scope = options.scope ?? 'project';
     const filePath = scopedInstructionPath(provider, projectDir, scope);
     if (filePath === null) continue;
+    if (scope === 'project' && isHomeProject(projectDir))
+      throw new HomeInstructionFileError(filePath);
 
     // Skip duplicates (multiple providers may share the same instruction file)
     if (processed.has(filePath)) continue;

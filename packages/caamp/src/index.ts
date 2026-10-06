@@ -151,6 +151,7 @@ export {
   ensureProviderInstructionFile,
   ensureProviderRuleFile,
   getProviderAgentFolder,
+  HomeInstructionFileError,
   inject,
   injectAll,
   instructionFileCascade,
