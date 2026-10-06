@@ -281,6 +281,16 @@ describe('genesis preconditions (T13032 AC2 step 0): a refusal cuts nothing', ()
     expectUncut(db);
   });
 
+  it('a legacy-only store (T13224): rows only in the bare legacy tables', async () => {
+    const { db } = await store();
+    db.exec('DELETE FROM tasks_tasks');
+    db.exec('DROP TABLE IF EXISTS tasks');
+    db.exec('CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT)');
+    db.exec("INSERT INTO tasks (id, title) VALUES ('L1', 'legacy')");
+    expect(cut(db).refused).toMatch(/legacy-only store.*cleo doctor superseded-store --reconcile/);
+    expectUncut(db);
+  });
+
   it('a suspect table', async () => {
     const { db } = await store();
     db.prepare(
