@@ -43,6 +43,7 @@ import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ClaudeCodeInstallProvider } from '../../claude-code/install.js';
 import { CodexInstallProvider } from '../../codex/install.js';
+import { CursorInstallProvider } from '../../cursor/install.js';
 import { OpenCodeInstallProvider } from '../../opencode/install.js';
 import {
   clearOlderCleoMarkers,
@@ -600,6 +601,16 @@ describe('installer wiring', () => {
     ]);
     expect(existsSync(join(home, 'CLAUDE.md'))).toBe(false);
     expect(existsSync(join(home, 'AGENTS.md'))).toBe(false);
+  });
+
+  it("T13257: Cursor at $HOME skips its hooks (~/.cursor/hooks.json is Cursor's user-global hooks) and rule files", async () => {
+    const home = process.env.HOME as string;
+    const r = await new CursorInstallProvider().install({ projectDir: home });
+    expect(r.details?.hookTemplates).toBe('skipped');
+    expect(r.details?.instructionFiles).toBe('skipped');
+    expect(existsSync(join(home, '.cursor', 'hooks.json'))).toBe(false);
+    expect(existsSync(join(home, '.cursor', 'hooks'))).toBe(false);
+    expect(existsSync(join(home, '.cursorrules'))).toBe(false);
   });
 
   it('Codex and opencode install only when a mode is passed', async () => {

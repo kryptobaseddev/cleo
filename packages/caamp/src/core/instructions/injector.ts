@@ -6,16 +6,17 @@
  * (cleo-subagent.md, seed agent profiles) per provider's native folder.
  */
 
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import type { CaampInjectionAction } from '@cleocode/contracts/caamp-markers';
 import { writeFileAtomic } from '@cleocode/core/tools/fs.js';
 import type { InjectionCheckResult, InjectionStatus, Provider } from '../../types.js';
 import { assertNotTornRead, withFileLock } from '../fs/atomic.js';
 import { getAgentsHome } from '../paths/standard.js';
 import { getProvider, getProviderInstructionReferences } from '../registry/providers.js';
+import { isHomeProject } from './home-project.js';
 import {
   assertBalancedMarkers,
   blockPattern,
@@ -640,6 +641,8 @@ export async function checkAllInjections(
  * @param scope - Whether to target project or global instruction files
  * @param content - Content to inject between CAAMP markers
  * @returns Map of file path to action taken (`"created"`, `"added"`, `"consolidated"`, `"updated"`, or `"intact"`)
+ * @throws {@link HomeInstructionFileError} for `scope: 'project'` when the
+ *   project is the home directory (T13257); nothing is written
  *
  * @remarks
  * Providers sharing the same instruction file are only written once to avoid
@@ -663,10 +666,13 @@ export async function injectAll(
 ): Promise<Map<string, CaampInjectionAction>> {
   const results = new Map<string, CaampInjectionAction>();
   const injected = new Set<string>();
+  const home = scope === 'project' && isHomeProject(projectDir);
 
   for (const provider of providers) {
     const filePath = scopedInstructionPath(provider, projectDir, scope);
     if (filePath === null) continue;
+    // T13257: nothing is written for a $HOME project (see HomeInstructionFileError).
+    if (home) throw new HomeInstructionFileError(filePath);
 
     // Skip duplicates
     if (injected.has(filePath)) continue;
@@ -746,22 +752,6 @@ export class HomeInstructionFileError extends Error {
     this.name = 'HomeInstructionFileError';
     this.filePath = filePath;
   }
-}
-
-/** `path` through the native realpath (on-disk case), else resolved. */
-function canonicalDir(path: string): string {
-  try {
-    return realpathSync.native(path);
-  } catch {
-    return resolve(path);
-  }
-}
-
-/** Whether `projectDir` is the home directory (case-folded where volumes are case-insensitive by default). */
-function isHomeProject(projectDir: string): boolean {
-  const fold = (p: string): string =>
-    process.platform === 'darwin' || process.platform === 'win32' ? p.toLowerCase() : p;
-  return fold(canonicalDir(projectDir)) === fold(canonicalDir(homedir()));
 }
 
 /**
