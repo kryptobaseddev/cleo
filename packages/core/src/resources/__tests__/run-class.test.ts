@@ -6,7 +6,7 @@
  * @task T12979
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -556,6 +556,9 @@ describe('isWholeSuiteTestRun (T13236)', () => {
     [['pnpm', 'test', '']],
     [['pnpm', 'run', 'test:cleo']],
     [['pnpm', 'test:pkg']],
+    // T13277: a script that delegates to `pnpm --filter <git selector> run test`
+    // is followed; the git selector matches a superset, whose `test` runs vitest.
+    [['pnpm', 'run', 'test:changed']],
   ])('%j is the whole suite', (argv) => {
     expect(isWholeSuiteTestRun(argv, pkgDir)).toBe(true);
   });
@@ -577,7 +580,6 @@ describe('isWholeSuiteTestRun (T13236)', () => {
     [['pnpm', 'test', '--', '-t', 'parses']],
     [['pnpm', 'test:pkg', '@cleocode/core']],
     [['pnpm', 'run', 'test:node']],
-    [['pnpm', 'run', 'test:changed']],
     [['pnpm', 'run', 'no-such-script']],
     [['tsc', '-b']],
     [['jest']],
@@ -592,5 +594,81 @@ describe('isWholeSuiteTestRun (T13236)', () => {
     } finally {
       rmSync(bare, { recursive: true, force: true });
     }
+  });
+});
+
+describe('isWholeSuiteTestRun across a workspace (T13277)', () => {
+  let ws: string;
+  const write = (rel: string, body: string): void => {
+    mkdirSync(join(ws, rel, '..'), { recursive: true });
+    writeFileSync(join(ws, rel), body);
+  };
+  const pkg = (rel: string, name: string, test: string): void =>
+    write(join(rel, 'package.json'), JSON.stringify({ name, scripts: { test } }));
+
+  beforeEach(() => {
+    ws = mkdtempSync(join(tmpdir(), 'cleo-whole-suite-ws-'));
+    // A root whose `test` delegates, a vitest package and a non-vitest one.
+    write('package.json', JSON.stringify({ name: 'root', scripts: { test: 'pnpm -r test' } }));
+    write('pnpm-workspace.yaml', 'packages:\n  - "packages/*"\n  # comment\n  - tools/cli\n');
+    pkg('packages/a', '@x/a', 'vitest run');
+    pkg('packages/b', '@x/b', 'node --test');
+    pkg('tools/cli', '@x/cli', 'cd ../.. && vitest run tools/cli/src');
+  });
+  afterEach(() => rmSync(ws, { recursive: true, force: true }));
+
+  it.each([
+    [['pnpm', '-r', 'test']],
+    [['pnpm', 'test']], // the root delegates to `pnpm -r test`
+    [['pnpm', '--filter', '@x/a', 'test']],
+    [['pnpm', '--filter=@x/a', 'run', 'test']],
+    [['pnpm', '-F', '@x/cli', 'test']],
+    [['pnpm', '--filter', '@x/*', 'test']],
+    [['pnpm', '--filter', './packages/a', 'test']],
+    [['pnpm', '--filter', '{packages/a}', 'test']],
+    [['pnpm', '--filter', '@x/b...', 'test']], // a graph selector: a superset
+    [['pnpm', '--filter', '...[HEAD~1]', 'test']], // a git selector: a superset
+    [['pnpm', '--filter', '@x/b', '--filter', '@x/a', 'test']],
+    [['pnpm', '-C', 'packages/a', 'test']],
+  ])('%j is the whole suite', (argv) => {
+    expect(isWholeSuiteTestRun(argv, ws)).toBe(true);
+  });
+
+  it.each([
+    [['pnpm', '--filter', '@x/b', 'test']],
+    [['pnpm', '--filter', './packages/b', 'test']],
+    [['pnpm', '--filter', '!@x/a', 'test']],
+    [['pnpm', '--filter', '@x/nope', 'test']],
+    [['pnpm', '--filter', '@x/a', 'test', 'src/a.test.ts']],
+    [['pnpm', '-r', 'test', '--', '-t', 'parses']],
+    [['pnpm', '-C', 'packages/b', 'test']],
+  ])('%j is narrowed or runs no vitest suite', (argv) => {
+    expect(isWholeSuiteTestRun(argv, ws)).toBe(false);
+  });
+
+  it('a workspace whose packages run no vitest is not refused, even recursively', () => {
+    pkg('packages/a', '@x/a', 'node --test');
+    pkg('tools/cli', '@x/cli', 'node --test');
+    expect(isWholeSuiteTestRun(['pnpm', '-r', 'test'], ws)).toBe(false);
+    expect(isWholeSuiteTestRun(['pnpm', 'test'], ws)).toBe(false);
+  });
+
+  it('npm/yarn `workspaces` globs are read when there is no pnpm-workspace.yaml', () => {
+    rmSync(join(ws, 'pnpm-workspace.yaml'));
+    write(
+      'package.json',
+      JSON.stringify({
+        name: 'root',
+        workspaces: ['packages/*'],
+        scripts: { test: 'node --test' },
+      }),
+    );
+    expect(isWholeSuiteTestRun(['pnpm', '-r', 'test'], ws)).toBe(true);
+    expect(isWholeSuiteTestRun(['pnpm', '--filter', '@x/b', 'test'], ws)).toBe(false);
+  });
+
+  it('a malformed package.json is skipped, not trusted', () => {
+    write('packages/a/package.json', '{ not json');
+    expect(isWholeSuiteTestRun(['pnpm', '--filter', '@x/a', 'test'], ws)).toBe(false);
   });
 });
