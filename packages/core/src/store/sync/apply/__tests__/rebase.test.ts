@@ -17,6 +17,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import { LedgerActor, LedgerOp, type LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readStoreSyncStream } from '../../../../cloud/nexus-cloud-status.js';
+import { runSyncRepair } from '../../../../doctor/sync-repair.js';
 import { showTask } from '../../../../tasks/show.js';
 import {
   _resetDualScopeDbCache,
@@ -30,7 +32,7 @@ import {
   setCaptureEnabled,
 } from '../../capture.js';
 import { setSyncFlag } from '../../flags.js';
-import { listHeldOps, SyncHeldError } from '../../held.js';
+import { HELD_WARN_DAYS, listHeldOps, SyncHeldError } from '../../held.js';
 import { stageTxns } from '../../inbox.js';
 import { planRepair } from '../../repair.js';
 import { sealPending } from '../../sealer.js';
@@ -38,6 +40,7 @@ import {
   FOREIGN_TOUCH_COUNT_KEY,
   FOREIGN_TOUCH_INCOMPLETE_KEY,
   FOREIGN_TOUCH_MAX,
+  undoBudget,
 } from '../../sequencing.js';
 import { type ApplyReport, type ApplyStagedOptions, applyStagedTxns } from '../applier.js';
 
@@ -155,7 +158,7 @@ function publish(r: Replica, ...ids: string[]): void {
 function sync(
   r: Replica,
   upTo = published.length,
-  extra: Partial<Pick<ApplyStagedOptions, 'pageOps' | 'pageMs' | 'now'>> = {},
+  extra: Partial<Pick<ApplyStagedOptions, 'pageOps' | 'pageMs' | 'now' | 'undoBudgetBytes'>> = {},
 ): ApplyReport {
   for (; r.cursor < upTo; r.cursor++) {
     const s = published[r.cursor] as { replicaId: string; txns: LedgerTxn[] };
@@ -556,7 +559,10 @@ describe('held rows (§3.5 Rule 5)', () => {
     for (const r of [a, b, c]) sync(r);
     const lk = write(a, addTask('T900', 'k', 'X'));
     publish(b, write(b, "DELETE FROM tasks_tasks WHERE uid = 'x'"));
-    expect(sync(a)).toMatchObject({ rebased: 1 });
+    expect(sync(a), 'the pull lists the transaction it held').toMatchObject({
+      rebased: 1,
+      held: [lk],
+    });
     expect(row(a, 'k'), 'the held insert stays rewound').toBeUndefined();
     expect(heldMeta(a, 'k')).toBe(1);
     expect(ledgerBalanced(a)).toBe(1);
@@ -576,10 +582,24 @@ describe('held rows (§3.5 Rule 5)', () => {
     expect((err as SyncHeldError).held.reason).toMatch(
       /dangling-ref on tasks_tasks\/k \[parent_id\]/,
     );
+    // cloud status counts it; the doctor lists it once it is older than the warn age.
+    const status = await readStoreSyncStream(a.db, 'project', null, 'cleo.db');
+    expect(status.held).toMatchObject({ count: 1, long: [], warnDays: HELD_WARN_DAYS });
+    const fresh = await runSyncRepair(join(dir, 'aaaa'));
+    expect(fresh.holds).toMatchObject({ total: 1, long: [] });
+    const later = await runSyncRepair(join(dir, 'aaaa'), {
+      nowMs: Date.now() + (HELD_WARN_DAYS + 1) * 86_400_000,
+    });
+    expect(later.holds.long).toEqual([
+      expect.objectContaining({ txn: lk, table: 'tasks_tasks', uid: 'k' }),
+    ]);
+    expect(later.holds.long[0]?.reason).toMatch(/dangling-ref/);
     publish(a, lk);
+    expect(sync(a), 'a decided echo is no longer held').toMatchObject({ held: [] });
     for (const r of [a, b, c]) sync(r);
     expect(outcome(a, lk)).toBe('void');
     expect(heldMeta(a, 'k'), 'the hold outlived its decided echo').toBeUndefined();
+    expect((await readStoreSyncStream(a.db, 'project', null, 'cleo.db')).held.count).toBe(0);
     expect(ledgerBalanced(a)).toBe(0);
     expect(listHeldOps(a.db)).toEqual([]);
     await expect(showTask('T900', join(dir, 'aaaa'))).rejects.not.toBeInstanceOf(SyncHeldError);
@@ -651,6 +671,19 @@ describe('held rows (§3.5 Rule 5)', () => {
     expect(measures(), 'held: its children went with the rewind').toEqual([]);
     sync(a);
     expect(measures(), 'the kept snapshot lost precision').toEqual(all);
+  });
+
+  it('one pull that holds a txn on one page and applies it on a later page does not report it held', async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(a, write(a, "UPDATE tasks_tasks SET type = 'epic' WHERE uid = 'x'"));
+    for (const r of [a, b, c]) sync(r);
+    write(a, addTask('T904', 'k', 'X'));
+    publish(b, write(b, "UPDATE tasks_tasks SET type = 'task' WHERE uid = 'x'"));
+    sync(c);
+    publish(c, write(c, "UPDATE tasks_tasks SET type = 'epic' WHERE uid = 'x'"));
+    // One transaction per page: B's page holds the insert, C's page applies it.
+    expect(sync(a, published.length, { pageOps: 1 })).toMatchObject({ held: [] });
+    expect(row(a, 'k')).toBeDefined();
   });
 
   it("a held txn's echo is decided in a rebase even when the touch index lost its foreign touch", async () => {
@@ -955,6 +988,42 @@ describe('pages (§3.5 Rule 3)', () => {
     expect(sync(a, published.length, { pageOps: 1 })).toMatchObject({ applied: 1 });
     expect(row(a, 'x')).toMatchObject({ priority: 'low' });
     expect(row(a, 'y')).toMatchObject({ priority: 'low' });
+  });
+});
+
+describe('undo budget (§3.5 Rule 2, D5)', () => {
+  it('warns from 80%, then persists the exceeded warning and keeps writing undo', async () => {
+    const [a] = await threeReplicas();
+    write(a, "UPDATE tasks_tasks SET priority = 'high' WHERE uid = 'x'");
+    const held = undoBudget(a.db).bytes;
+    const imagesOnly = n(
+      a.db,
+      'SELECT sum(length(tbl) + length(rk) + coalesce(length(uid), 0) + coalesce(length(before_full), 0) + coalesce(length(after_full), 0)) AS n FROM _sync_undo',
+    );
+    expect(held, 'the row undo snapshots count too').toBeGreaterThan(imagesOnly);
+    // Under the budget, past 80%: a warning, nothing persisted.
+    expect(
+      sync(a, published.length, { undoBudgetBytes: Math.ceil(held / 0.85) }).undoBudget,
+    ).toMatchObject({ state: 'warn', exceededAt: null });
+    // Past the budget: the persistent warning every later pull carries.
+    const over = sync(a, published.length, { undoBudgetBytes: held });
+    expect(over.undoBudget).toMatchObject({ state: 'exceeded' });
+    expect(over.undoBudget?.exceededAt).not.toBeNull();
+    expect(sync(a).undoBudget, 'the warning is persistent until a rebind').toMatchObject({
+      state: 'exceeded',
+      exceededAt: over.undoBudget?.exceededAt,
+    });
+    // Undo is never stopped.
+    write(a, "UPDATE tasks_tasks SET priority = 'low' WHERE uid = 'y'");
+    expect(undoBudget(a.db).bytes).toBeGreaterThan(held);
+    // Status and the doctor report the same.
+    expect((await readStoreSyncStream(a.db, 'project', null, 'cleo.db')).undo.state).toBe(
+      'exceeded',
+    );
+    expect((await runSyncRepair(join(dir, 'aaaa'))).undo.state).toBe('exceeded');
+    expect((await runSyncRepair(join(dir, 'aaaa'), { repair: true })).undo.state).toBe(
+      'exceeded',
+    );
   });
 });
 

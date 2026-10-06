@@ -280,12 +280,22 @@ export async function readStoreSyncStream(
   stream: string | null,
   dbPath: string,
 ): Promise<CloudStatusSyncStream> {
-  const [{ readSyncFlags }, { hasTable }, { sealBacklog }, { suspectTables }] = await Promise.all([
+  const [
+    { readSyncFlags },
+    { hasTable },
+    { sealBacklog },
+    { suspectTables },
+    { holdsReport },
+    { undoBudget },
+  ] = await Promise.all([
     import('../store/sync/flags.js'),
     import('../store/sync/schema.js'),
     import('../store/sync/seal-backlog.js'),
     import('../store/sync/structural.js'),
+    import('../store/sync/held.js'),
+    import('../store/sync/sequencing.js'),
   ]);
+  const holds = holdsReport(db, Date.now());
   const flags = readSyncFlags(db);
   const backlog = sealBacklog(db);
   let lastSealedSeq: number | null = null;
@@ -321,6 +331,19 @@ export async function readStoreSyncStream(
     lastSealedSeq,
     quarantined,
     suspectTables: hasTable(db, '_sync_meta') ? suspectTables(db) : [],
+    held: {
+      count: holds.total,
+      oldestAt: holds.oldestAt,
+      long: holds.long.map((h) => ({
+        table: h.table,
+        uid: h.uid,
+        txn: h.txn,
+        heldAt: h.heldAt,
+        reason: h.reason,
+      })),
+      warnDays: holds.warnDays,
+    },
+    undo: undoBudget(db),
     unsentOps: UNSENT_UNKNOWN,
     lastPushedSeq: needsPush('the last pushed sequence'),
     lastPulledSeq: needsPush('the last pulled sequence'),

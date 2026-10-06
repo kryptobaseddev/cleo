@@ -13,6 +13,7 @@ import type {
   CloudProjectShowResult,
   CloudProjectsResult,
   CloudStatusResult,
+  CloudStatusSyncStream,
   CloudWarning,
   CloudWhoamiResult,
   NexusDeviceListState,
@@ -80,26 +81,46 @@ export function cloudStatusSummary(r: CloudStatusResult): string {
  */
 function syncSummary(r: CloudStatusResult): string {
   if (r.sync === undefined) return '';
-  return r.sync.streams
-    .map((st) => {
-      const on = Object.entries(st.flags)
-        .filter(([, v]) => v)
-        .map(([k]) => k);
-      const quarantined = Object.values(st.quarantined).reduce((n, c) => n + c, 0);
-      const parts = [
-        !st.journalInstalled
-          ? 'journal not installed'
-          : on.length > 0
-            ? `${on.join(', ')} on`
-            : 'all flags off',
-        `${st.unsealedOps} unsealed`,
-        `last sealed seq ${st.lastSealedSeq ?? 'none'}`,
-        ...(quarantined > 0 ? [`${quarantined} quarantined`] : []),
-        'server fields unknown until T12343/S4',
-      ];
-      return ` Sync (${st.scope}${st.stream ? ` ${st.stream}` : ''}): ${parts.join('; ')}.`;
-    })
-    .join('');
+  return r.sync.streams.map(syncStreamClause).join('');
+}
+
+/**
+ * One store's clause of the `cleo cloud status` line: its flags, unsealed
+ * and sealed counts, quarantined captures and held writes (§3.5 Rule 5).
+ *
+ * @param st - The store's sync block.
+ * @returns The clause, with a leading space.
+ */
+export function syncStreamClause(st: CloudStatusSyncStream): string {
+  const on = Object.entries(st.flags)
+    .filter(([, v]) => v)
+    .map(([k]) => k);
+  const quarantined = Object.values(st.quarantined).reduce((n, c) => n + c, 0);
+  const long = st.held.long.length;
+  const parts = [
+    !st.journalInstalled
+      ? 'journal not installed'
+      : on.length > 0
+        ? `${on.join(', ')} on`
+        : 'all flags off',
+    `${st.unsealedOps} unsealed`,
+    `last sealed seq ${st.lastSealedSeq ?? 'none'}`,
+    ...(quarantined > 0 ? [`${quarantined} quarantined`] : []),
+    ...(st.undo.state === 'ok'
+      ? []
+      : [
+          st.undo.state === 'warn'
+            ? `undo at ${Math.round((st.undo.bytes / st.undo.budget) * 100)}% of its budget: pull to drain it`
+            : `undo budget exceeded${st.undo.exceededAt ? ` since ${st.undo.exceededAt}` : ''}: a rebind runs at the next pull`,
+        ]),
+    ...(st.held.count > 0
+      ? [
+          `${st.held.count} held by a rebase${long > 0 ? ` (${long} older than ${st.held.warnDays} days)` : ''}`,
+        ]
+      : []),
+    'server fields unknown until T12343/S4',
+  ];
+  return ` Sync (${st.scope}${st.stream ? ` ${st.stream}` : ''}): ${parts.join('; ')}.`;
 }
 
 /**

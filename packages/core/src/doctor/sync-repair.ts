@@ -21,7 +21,9 @@ import {
   resolveDualScopeDbPath,
 } from '../store/dual-scope-db.js';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
+import { HELD_WARN_DAYS, type HoldsReport, holdsReport } from '../store/sync/held.js';
 import { type RepairReport, repairSuspectTables } from '../store/sync/repair.js';
+import { UNDO_BUDGET_BYTES, type UndoBudget, undoBudget } from '../store/sync/sequencing.js';
 
 /** What `cleo doctor sync-journal` reports. */
 export interface SyncRepairResult {
@@ -30,6 +32,10 @@ export interface SyncRepairResult {
   readonly report: RepairReport;
   /** Tables that stay suspect (a plan in a dry run; unverified after a repair). */
   readonly suspect: readonly string[];
+  /** Local writes a sync rebase holds, with the long holds and their reason (§3.5 Rule 5). */
+  readonly holds: HoldsReport;
+  /** Undo against its budget: warns from 80%, `exceeded` from 100% until a rebind (§3.5 Rule 2, D5). */
+  readonly undo: UndoBudget;
 }
 
 /**
@@ -41,28 +47,61 @@ export interface SyncRepairResult {
  */
 export async function runSyncRepair(
   projectRoot: string,
-  options: { readonly repair?: boolean } = {},
+  options: {
+    readonly repair?: boolean;
+    readonly nowMs?: number;
+    /** The undo budget in bytes; defaults to `UNDO_BUDGET_BYTES`. */
+    readonly undoBudgetBytes?: number;
+  } = {},
 ): Promise<SyncRepairResult> {
+  const nowMs = options.nowMs ?? Date.now();
   const dbPath = resolveDualScopeDbPath('project', projectRoot);
   const dryRun = options.repair !== true;
   const none: RepairReport = { refused: null, dryRun, tables: [], sealed: { txns: 0, ops: 0 } };
-  if (!existsSync(dbPath)) return { dbPath, storeExists: false, report: none, suspect: [] };
+  if (!existsSync(dbPath)) {
+    return {
+      dbPath,
+      storeExists: false,
+      report: none,
+      suspect: [],
+      holds: holdsReportOfNone(),
+      undo: {
+        bytes: 0,
+        budget: options.undoBudgetBytes ?? UNDO_BUDGET_BYTES,
+        state: 'ok',
+        exceededAt: null,
+      },
+    };
+  }
   let report: RepairReport;
+  let holds: HoldsReport;
+  let undo: UndoBudget;
   if (dryRun) {
     const snap = openCleoDbSnapshot(dbPath, { readOnly: true });
     try {
       report = repairSuspectTables(snap.db, { scope: 'project', dryRun: true });
+      holds = holdsReport(snap.db, nowMs);
+      undo = undoBudget(snap.db, options.undoBudgetBytes);
     } finally {
       snap.close();
     }
   } else {
-    const handle = await openDualScopeDb('project', projectRoot);
-    report = repairSuspectTables(getDualScopeNativeDb(handle), { scope: 'project' });
+    const db = getDualScopeNativeDb(await openDualScopeDb('project', projectRoot));
+    report = repairSuspectTables(db, { scope: 'project' });
+    holds = holdsReport(db, nowMs);
+    undo = undoBudget(db, options.undoBudgetBytes);
   }
   return {
     dbPath,
     storeExists: true,
     report,
     suspect: report.tables.filter((t) => !t.cleared).map((t) => t.table),
+    holds,
+    undo,
   };
+}
+
+/** No store, no holds. */
+function holdsReportOfNone(): HoldsReport {
+  return { total: 0, oldestAt: null, long: [], warnDays: HELD_WARN_DAYS };
 }

@@ -39,6 +39,7 @@ import {
   readFieldLeaves,
 } from './field-leave.js';
 import { type RowMetaFull, readRowMetaFull } from './row-meta.js';
+import { hasTable } from './schema.js';
 import { canonicalJson } from './sealer-values.js';
 
 /** The foreign-touch index's bound (spec R7-6). */
@@ -405,4 +406,92 @@ export function resnapshotRowUndo(
      ON CONFLICT (txn, idx) DO UPDATE SET meta_json = excluded.meta_json,
        leave_json = excluded.leave_json, values_json = excluded.values_json`,
   ).run(txn, idx, tbl, uid, meta ? canonicalJson(meta) : null, state, canonicalJson(values));
+}
+
+/** Undo a store may hold before it warns and schedules a rebind (§3.5 Rule 2, C1). */
+export const UNDO_BUDGET_BYTES = 256 * 1024 * 1024;
+
+/** The share of {@link UNDO_BUDGET_BYTES} at which `cleo doctor` and status warn. */
+export const UNDO_BUDGET_WARN_RATIO = 0.8;
+
+/**
+ * `_sync_meta` key set (to when) the first time undo reached its budget: the
+ * persistent `undo_budget_exceeded` warning, and the rebind it schedules for
+ * the next pull to head (D5). Only that rebind clears it.
+ */
+export const UNDO_BUDGET_EXCEEDED_KEY = 'sync.undo_budget_exceeded';
+
+/** How much undo a store holds against its budget (§3.5 Rule 2, D5). */
+export interface UndoBudget {
+  /** Undo payload bytes (`_sync_undo` images plus `_sync_row_undo` snapshots). */
+  readonly bytes: number;
+  readonly budget: number;
+  /** `warn` from 80%; `exceeded` at 100% or once it has been (persistent). */
+  readonly state: 'ok' | 'warn' | 'exceeded';
+  /** When undo first reached the budget, or null. A rebind is scheduled from then. */
+  readonly exceededAt: string | null;
+}
+
+/**
+ * The store's undo against its budget. Read-only (a snapshot is fine).
+ * Undo is never stopped: at 100% the replica keeps writing it, warns, and
+ * rebinds at the next pull to head (D5).
+ *
+ * @param db - The store.
+ * @param budget - The budget in bytes. @defaultValue UNDO_BUDGET_BYTES
+ * @returns The bytes held, the budget and the warning state.
+ */
+export function undoBudget(db: DatabaseSync, budget: number = UNDO_BUDGET_BYTES): UndoBudget {
+  const sum = (sql: string): number =>
+    Number((db.prepare(sql).get() as { n: number | bigint | null }).n ?? 0);
+  const bytes =
+    (hasTable(db, '_sync_undo')
+      ? sum(
+          `SELECT sum(length(tbl) + length(rk) + coalesce(length(uid), 0)
+             + coalesce(length(before_full), 0) + coalesce(length(after_full), 0)) AS n FROM _sync_undo`,
+        )
+      : 0) +
+    (hasTable(db, '_sync_row_undo')
+      ? sum(
+          `SELECT sum(length(tbl) + length(uid) + coalesce(length(meta_json), 0)
+             + coalesce(length(leave_json), 0) + coalesce(length(values_json), 0)
+             + coalesce(length(kept_json), 0)) AS n FROM _sync_row_undo`,
+        )
+      : 0);
+  const flagged = hasTable(db, '_sync_meta')
+    ? ((
+        db.prepare('SELECT value FROM _sync_meta WHERE key = ?').get(UNDO_BUDGET_EXCEEDED_KEY) as
+          | { value: string }
+          | undefined
+      )?.value ?? null)
+    : null;
+  const state =
+    flagged !== null || bytes >= budget
+      ? 'exceeded'
+      : bytes >= budget * UNDO_BUDGET_WARN_RATIO
+        ? 'warn'
+        : 'ok';
+  return { bytes, budget, state, exceededAt: flagged };
+}
+
+/**
+ * {@link undoBudget}, persisting the `undo_budget_exceeded` warning the first
+ * time undo reaches the budget (a pull's check; D5).
+ *
+ * @param db - The store, outside a transaction.
+ * @param nowIso - Now (ISO-8601).
+ * @param budget - The budget in bytes. @defaultValue UNDO_BUDGET_BYTES
+ * @returns The budget state after recording.
+ */
+export function recordUndoBudget(
+  db: DatabaseSync,
+  nowIso: string,
+  budget: number = UNDO_BUDGET_BYTES,
+): UndoBudget {
+  const now = undoBudget(db, budget);
+  if (now.exceededAt !== null || now.bytes < budget) return now;
+  db.prepare(
+    `INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING`,
+  ).run(UNDO_BUDGET_EXCEEDED_KEY, nowIso, nowIso);
+  return { ...now, exceededAt: nowIso };
 }

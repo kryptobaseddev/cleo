@@ -11,7 +11,17 @@ import { syncStreamClause } from '../nexus-cloud-cli.js';
 
 const unknown: CloudSyncUnknown = { known: false, needs: 'S4', reason: 'not yet' };
 
-const stream = (held: CloudStatusSyncStream['held']): CloudStatusSyncStream => ({
+const noUndo: CloudStatusSyncStream['undo'] = {
+  bytes: 0,
+  budget: 100,
+  state: 'ok',
+  exceededAt: null,
+};
+
+const stream = (
+  held: CloudStatusSyncStream['held'],
+  undo: CloudStatusSyncStream['undo'] = noUndo,
+): CloudStatusSyncStream => ({
   scope: 'project',
   stream: null,
   dbPath: 'cleo.db',
@@ -23,6 +33,7 @@ const stream = (held: CloudStatusSyncStream['held']): CloudStatusSyncStream => (
   quarantined: {},
   suspectTables: [],
   held,
+  undo,
   unsentOps: { known: false, needs: 'T12343', reason: 'not yet' },
   lastPushedSeq: unknown,
   lastPulledSeq: unknown,
@@ -53,5 +64,25 @@ describe('cloud status sync clause (T13271)', () => {
     expect(
       syncStreamClause(stream({ count: 0, oldestAt: null, long: [], warnDays: 7 })),
     ).not.toContain('held');
+  });
+
+  it('warns from 80% of the undo budget and names the scheduled rebind past it (T13253)', () => {
+    const none = { count: 0, oldestAt: null, long: [], warnDays: 7 };
+    expect(
+      syncStreamClause(stream(none, { bytes: 85, budget: 100, state: 'warn', exceededAt: null })),
+    ).toContain('undo at 85% of its budget: pull to drain it');
+    expect(
+      syncStreamClause(
+        stream(none, {
+          bytes: 120,
+          budget: 100,
+          state: 'exceeded',
+          exceededAt: '2026-10-05T00:00:00.000Z',
+        }),
+      ),
+    ).toContain(
+      'undo budget exceeded since 2026-10-05T00:00:00.000Z: a rebind runs at the next pull',
+    );
+    expect(syncStreamClause(stream(none))).not.toContain('undo');
   });
 });
