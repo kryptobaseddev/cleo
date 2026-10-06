@@ -264,7 +264,7 @@ export async function createBackup(
     // T13245: ONE copy of the project store. `.cleo/cleo.db` holds the tasks,
     // brain and conduit tables; the old `tasks.db`/`brain.db` labels were two
     // identical copies of it (still read by every reader).
-    { file: 'cleo.db', getDb: () => getNativeDb(projectRoot) },
+    { file: PROJECT_STORE_BACKUP_FILE, getDb: () => getNativeDb(projectRoot) },
   ];
   const jsonTargets: string[] = ['config.json', 'project-info.json'];
   const backedUp: string[] = [];
@@ -375,6 +375,13 @@ export interface BackupEntry {
  * restoring one by its label wrote a file nothing reads (T13245).
  */
 const STORE_FILE_LABELS: ReadonlySet<string> = new Set(['cleo.db', 'tasks.db', 'brain.db']);
+
+/**
+ * The file name {@link createBackup} gives its copy of the project store
+ * (`cleo.db.<backupId>`; before T13245 two identical copies labelled
+ * `tasks.db` and `brain.db`).
+ */
+export const PROJECT_STORE_BACKUP_FILE = 'cleo.db';
 
 /** What a project store backup holds: the consolidated `cleo.db` (T13245). */
 const PROJECT_STORE_CONTENTS = ['tasks', 'brain', 'conduit'] as const;
