@@ -978,11 +978,13 @@ function completeLegacyCaptureGroups(ctx: TableContext, batch: CaptureRow[]): Ca
  * group's newest HLC, so merges agree; only a per-field HLC comparison (the
  * repair diff) can see the difference.
  *
- * @returns How many ops were completed.
+ * @returns The transactions still carrying a partial group (a secret member
+ *   this pass cannot fill), empty once every op is whole.
  */
-function completeLegacySealedGroups(ctx: TableContext, atIso: string): number {
+function completeLegacySealedGroups(ctx: TableContext, atIso: string): ReadonlySet<string> {
   const db = ctx.db;
-  if (db.prepare('SELECT 1 FROM _sync_meta WHERE key = ?').get(LEGACY_GROUPS_KEY)) return 0;
+  const partial = new Set<string>();
+  if (db.prepare('SELECT 1 FROM _sync_meta WHERE key = ?').get(LEGACY_GROUPS_KEY)) return partial;
   const rows = db
     .prepare(
       "SELECT o.txn, o.idx, o.body FROM _sync_op o JOIN _sync_txn t ON t.txn = o.txn WHERE t.state = 'sealed' ORDER BY t.local_seq, o.idx",
@@ -990,7 +992,6 @@ function completeLegacySealedGroups(ctx: TableContext, atIso: string): number {
     .all() as Array<{ txn: string; idx: number; body: string }>;
   const ops = rows.map((r) => ({ ...r, op: JSON.parse(r.body) as SealedOp }));
   let fixed = 0;
-  let incomplete = 0;
   ops.forEach((r, i) => {
     if (r.op.o !== 'U' || !r.op.a) return;
     if (mergeGroupsOf(r.op.t, Object.keys(r.op.a)).length === 0) return;
@@ -1021,7 +1022,7 @@ function completeLegacySealedGroups(ctx: TableContext, atIso: string): number {
         v = typeof row?.v === 'string' ? columnValue(ctx, def, m, row.v) : null;
       }
       if (v === undefined) {
-        incomplete += 1; // a secret member: never sealed whole by this pass
+        partial.add(r.txn); // a secret member: never sealed whole by this pass
         continue;
       }
       a[m] = v;
@@ -1034,8 +1035,33 @@ function completeLegacySealedGroups(ctx: TableContext, atIso: string): number {
   });
   // Marked done only when every op is whole: an op left partial is retried
   // on the next seal, never pushed as if the pass had covered it.
-  if (incomplete === 0) setSealMeta(db, LEGACY_GROUPS_KEY, String(fixed), atIso);
-  return fixed;
+  if (partial.size === 0) setSealMeta(db, LEGACY_GROUPS_KEY, String(fixed), atIso);
+  return partial;
+}
+
+/**
+ * Make sealed-but-unsent ops group-whole before they are packed (T13287):
+ * the one-time T13233 pass otherwise runs only at the next seal, so a
+ * segment built first would carry a pre-T13222 partial op off the device.
+ * A no-op once {@link LEGACY_GROUPS_KEY} is set. Runs in the caller's
+ * transaction (the segment's `BEGIN IMMEDIATE`).
+ *
+ * @param db - The store, inside a transaction.
+ * @param scope - The store's scope.
+ * @param atIso - When the pass ran (the marker's `updated_at`).
+ * @returns The sealed transactions still carrying a partial group, which
+ *   must not be packed; empty once every op is whole.
+ */
+export function completeLegacyGroupsBeforePack(
+  db: DatabaseSync,
+  scope: TableScope,
+  atIso: string,
+): ReadonlySet<string> {
+  if (!db.isTransaction) {
+    // @sync-invariant none:local-only programming-error guard: the pass must share the pack's transaction
+    throw new Error('completeLegacyGroupsBeforePack must run inside a transaction');
+  }
+  return completeLegacySealedGroups(new TableContext(db, scope), atIso);
 }
 
 function sealInTransaction(
