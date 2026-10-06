@@ -998,7 +998,7 @@ describe('undo budget (§3.5 Rule 2, D5)', () => {
     const held = undoBudget(a.db).bytes;
     const imagesOnly = n(
       a.db,
-      'SELECT sum(length(tbl) + length(rk) + coalesce(length(uid), 0) + coalesce(length(before_full), 0) + coalesce(length(after_full), 0)) AS n FROM _sync_undo',
+      'SELECT sum(octet_length(tbl) + octet_length(rk) + coalesce(octet_length(uid), 0) + coalesce(octet_length(before_full), 0) + coalesce(octet_length(after_full), 0)) AS n FROM _sync_undo',
     );
     expect(held, 'the row undo snapshots count too').toBeGreaterThan(imagesOnly);
     // Under the budget, past 80%: a warning, nothing persisted.
@@ -1013,9 +1013,22 @@ describe('undo budget (§3.5 Rule 2, D5)', () => {
       state: 'exceeded',
       exceededAt: over.undoBudget?.exceededAt,
     });
-    // Undo is never stopped.
-    write(a, "UPDATE tasks_tasks SET priority = 'low' WHERE uid = 'y'");
-    expect(undoBudget(a.db).bytes).toBeGreaterThan(held);
+    // Undo is never stopped, and it is counted in UTF-8 bytes, not characters.
+    write(a, "UPDATE tasks_tasks SET title = 'ééééé' WHERE uid = 'y'");
+    const utf8 = (v: unknown) => (typeof v === 'string' ? Buffer.byteLength(v, 'utf8') : 0);
+    let expected = 0;
+    for (const r of a.db
+      .prepare('SELECT tbl, rk, uid, before_full, after_full FROM _sync_undo')
+      .all() as Array<Record<string, unknown>>) {
+      for (const v of Object.values(r)) expected += utf8(v);
+    }
+    for (const r of a.db
+      .prepare('SELECT tbl, uid, meta_json, leave_json, values_json, kept_json FROM _sync_row_undo')
+      .all() as Array<Record<string, unknown>>) {
+      for (const v of Object.values(r)) expected += utf8(v);
+    }
+    expect(undoBudget(a.db).bytes).toBe(expected);
+    expect(expected).toBeGreaterThan(held);
     // Status and the doctor report the same.
     expect((await readStoreSyncStream(a.db, 'project', null, 'cleo.db')).undo.state).toBe(
       'exceeded',

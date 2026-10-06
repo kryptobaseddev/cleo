@@ -423,7 +423,10 @@ export const UNDO_BUDGET_EXCEEDED_KEY = 'sync.undo_budget_exceeded';
 
 /** How much undo a store holds against its budget (§3.5 Rule 2, D5). */
 export interface UndoBudget {
-  /** Undo payload bytes (`_sync_undo` images plus `_sync_row_undo` snapshots). */
+  /**
+   * Undo payload bytes (`_sync_undo` images plus `_sync_row_undo` snapshots),
+   * by `octet_length()`: the stored size, read without decoding the text.
+   */
   readonly bytes: number;
   readonly budget: number;
   /** `warn` from 80%; `exceeded` at 100% or once it has been (persistent). */
@@ -447,15 +450,15 @@ export function undoBudget(db: DatabaseSync, budget: number = UNDO_BUDGET_BYTES)
   const bytes =
     (hasTable(db, '_sync_undo')
       ? sum(
-          `SELECT sum(length(tbl) + length(rk) + coalesce(length(uid), 0)
-             + coalesce(length(before_full), 0) + coalesce(length(after_full), 0)) AS n FROM _sync_undo`,
+          `SELECT sum(octet_length(tbl) + octet_length(rk) + coalesce(octet_length(uid), 0)
+             + coalesce(octet_length(before_full), 0) + coalesce(octet_length(after_full), 0)) AS n FROM _sync_undo`,
         )
       : 0) +
     (hasTable(db, '_sync_row_undo')
       ? sum(
-          `SELECT sum(length(tbl) + length(uid) + coalesce(length(meta_json), 0)
-             + coalesce(length(leave_json), 0) + coalesce(length(values_json), 0)
-             + coalesce(length(kept_json), 0)) AS n FROM _sync_row_undo`,
+          `SELECT sum(octet_length(tbl) + octet_length(uid) + coalesce(octet_length(meta_json), 0)
+             + coalesce(octet_length(leave_json), 0) + coalesce(octet_length(values_json), 0)
+             + coalesce(octet_length(kept_json), 0)) AS n FROM _sync_row_undo`,
         )
       : 0);
   const flagged = hasTable(db, '_sync_meta')
