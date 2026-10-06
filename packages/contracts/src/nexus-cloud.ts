@@ -404,6 +404,23 @@ export interface CloudProjectsResult {
   warnings: CloudWarning[];
 }
 
+/**
+ * A replica this device retired: the store file it named was replaced (a
+ * vault restore or pull) or rolled back, so a new replica took its place
+ * (journal spec §1.5). The server lists it as history until S4's signed
+ * `retire` transaction announces it (T13109).
+ */
+export interface CloudRetiredReplica {
+  /** The retired replica id. */
+  replicaId: string;
+  /** The replica that replaced it. */
+  successor: string;
+  /** When it was retired on this device. */
+  retiredAt: string;
+  /** The rebind reason(s), e.g. `vault-restore`; `null` when not recorded. */
+  reason: string | null;
+}
+
 /** `cleo cloud projects show [<id>]` (operation `cloud.projects.show`). */
 export interface CloudProjectShowResult extends NexusCloudProjectDetail {
   /** API origin asked. */
@@ -417,6 +434,8 @@ export interface CloudProjectShowResult extends NexusCloudProjectDetail {
    * fetched from E15 and `replicas` holds them all (up to the page budget).
    */
   replicaPaging: CloudPaging;
+  /** Listed replicas this device retired (from its local registry), newest first. */
+  retiredHere: CloudRetiredReplica[];
   /** Non-fatal problems. */
   warnings: CloudWarning[];
 }
@@ -459,6 +478,11 @@ export interface CloudStatusLocal {
   projectId: string | null;
   /** The active replica id of the current project's store (read-only; never bound here). */
   replicaId: string | null;
+  /**
+   * Earlier replicas of the current project's store that this device retired
+   * (from its local registry), newest first: the server still lists them.
+   */
+  retiredReplicas: CloudRetiredReplica[];
   /** `.cleo/nexus-link.json` when it holds an entry for the origin, else `null`. */
   linkPath: string | null;
   /** The device credential store (`nexus-device.json`). */
@@ -466,6 +490,25 @@ export interface CloudStatusLocal {
 }
 
 /** `CloudStatusResult` (§4.4): the data of the `cloud.status` envelope. */
+/**
+ * One device holding the project, as `cleo cloud status` lists it (T13290):
+ * a replica row reduced to who holds it and whether its presence is fresh.
+ */
+export interface CloudStatusHolder {
+  /** Nexus device id. */
+  deviceId: string;
+  /** The device's display name. */
+  deviceName: string;
+  /** The replica this device holds. */
+  replicaId: string;
+  /** Last presence report, or `null` when it never reported. */
+  presenceAt: string | null;
+  /** Presence within {@link NEXUS_PRESENCE_FRESH_SECONDS}. */
+  fresh: boolean;
+  /** This machine's own device. */
+  thisDevice: boolean;
+}
+
 export interface CloudStatusResult {
   /** The remote verdict, downgraded by local facts the server cannot see. */
   verdict: CloudStatusVerdict;
@@ -483,6 +526,12 @@ export interface CloudStatusResult {
    * online or offline); absent when no store could be read.
    */
   sync?: CloudStatusSync;
+  /**
+   * The devices holding the project (T13290), from the replica list; absent
+   * when there is no registered project to ask about or the list failed (a
+   * warning says so). Additive: older readers ignore it.
+   */
+  holders?: CloudStatusHolder[];
   /** Non-fatal problems. */
   warnings: CloudWarning[];
 }

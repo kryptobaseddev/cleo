@@ -14,20 +14,13 @@ name: Skills Depth Check (T9684)
 # review time, before merge.
 
 on:
-  pull_request:
-    paths:
-      - 'packages/skills/skills/**'
-      - 'packages/skills/__tests__/**'
-      - '.github/workflows/skills-depth-check.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'packages/skills/skills/**'
-  merge_group:
+  # T13279: called by ci.yml (job `skills-depth-gate`), which the required `CI` aggregate
+  # needs; ci.yml runs it only when its paths change (the `changes` job). It
+  # no longer runs on its own pull_request / merge_group / push-to-main triggers.
+  workflow_call:
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+# T13279: no workflow-level concurrency: a called workflow's group would
+# resolve in ci.yml's context and cancel it; ci.yml's own group governs.
 
 jobs:
   depth-check:

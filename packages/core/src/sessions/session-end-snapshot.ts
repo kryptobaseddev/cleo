@@ -151,6 +151,10 @@ export async function snapshotAfterSessionEnd(
     });
     const miss = describeSnapshotMiss(result);
     if (miss) log.warn({ projectRoot, cause: miss }, 'Session-end snapshot not taken');
+    // T13245: the global store (global brain, nexus, agent registry) had no
+    // backup at all; it gets an hourly-debounced one here.
+    const { autoGlobalBackup } = await import('../system/backup.js');
+    await autoGlobalBackup();
     return result;
   } catch (err) {
     log.warn({ err, projectRoot }, 'Session-end snapshot failed');

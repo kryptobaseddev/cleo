@@ -10,23 +10,11 @@ name: cleo-supervisor smoke
 # schedule.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'crates/cleo-supervisor/**'
-      - 'rust-toolchain.toml'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/cleo-supervisor-smoke.yml'
-  pull_request:
-    paths:
-      - 'crates/cleo-supervisor/**'
-      - 'rust-toolchain.toml'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/cleo-supervisor-smoke.yml'
+  # T13279: called by ci.yml (job `cleo-supervisor-smoke-gate`), which the required `CI` aggregate
+  # needs; ci.yml runs it only when its paths change (the `changes` job). It
+  # no longer runs on its own pull_request / merge_group / push-to-main triggers.
+  workflow_call:
   workflow_dispatch:
-  merge_group:
 
 jobs:
   smoke:

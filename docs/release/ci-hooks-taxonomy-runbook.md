@@ -56,9 +56,9 @@ Before opening or merging release PRs:
      "allow_force_pushes": false,
      "enforce_admins": false,
      "required_reviews": 0,
-     "required_status_checks": ["CI", "Lockfile Check", "Contracts Dep Lint"],
+     "required_status_checks": ["CI", "Contracts Dep Lint"],
      "restrictions": null,
-     "strict": true
+     "strict": false
    }
    ```
 
@@ -85,15 +85,16 @@ Minimum consumer-facing release templates:
 
 ## Branch-protection desired state
 
-`main` should require strict status checks and the contexts below:
+> **Current state (2026-10-05, T13263 / T13279):** live branch protection requires only `CI` (`strict=false`). The arch gates, Lockfile Check and the other gating workflows run INSIDE `CI` (reusable workflows its aggregate needs). Do NOT require a `Lockfile Check` or `Arch Boundary Check` context: neither reports under that name, so requiring it blocks every merge. The canonical command is in `AGENTS.md` and `docs/release/branch-protection-setup.md` (`CI` + `Contracts Dep Lint`).
+
+`main` should require the status-check contexts below:
 
 - `CI`
-- `Lockfile Check`
 - `Contracts Dep Lint`
 
 Additional expected settings:
 
-- `required_status_checks.strict=true`
+- `required_status_checks.strict=false` (owner decision 2026-09-29: a PR merges once its own `CI` is green)
 - `required_pull_request_reviews.required_approving_review_count=0`
 - `enforce_admins=false`
 - `restrictions=null`

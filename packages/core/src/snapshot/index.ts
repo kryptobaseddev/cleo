@@ -143,6 +143,10 @@ export async function exportSnapshot(cwd?: string): Promise<Snapshot> {
       ...(identity.birthFp ? { birthFp: identity.birthFp } : {}),
     };
   });
+  // T13249: a snapshot that carries uids shares this store's identity (it is
+  // committed and imported elsewhere), so the store records the send: a later
+  // recipe bump must never re-derive uids those copies name.
+  if (snapshotTasks.some((t) => t.uid)) await markIdentityShared(cwd, 'send');
   const checksum = computeChecksum(snapshotTasks);
 
   return {
@@ -166,6 +170,29 @@ export async function exportSnapshot(cwd?: string): Promise<Snapshot> {
     },
     tasks: snapshotTasks,
   };
+}
+
+/**
+ * Record on the store that its row identity left it, or came from elsewhere
+ * (`row_identity_synced`), so the full identity refill refuses (T13249).
+ * Never skipped: without a bound handle the store is opened through the
+ * chokepoint, and a failure throws (T13270), since a snapshot that carries
+ * uids with no marker would let a later refill re-derive them.
+ */
+async function markIdentityShared(
+  cwd: string | undefined,
+  direction: 'send' | 'receive',
+): Promise<void> {
+  const { getNativeTasksDb } = await import('../store/sqlite.js');
+  let db = getNativeTasksDb(cwd);
+  if (!db) {
+    const { openDualScopeDb, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
+    db = getDualScopeNativeDb(await openDualScopeDb('project', cwd));
+    // The marker goes through the chokepoint writers.
+    await import('../store/sqlite-data-accessor.js');
+  }
+  const { markRowIdentityShared } = await import('../store/row-identity.js');
+  markRowIdentityShared(db, direction);
 }
 
 /**
@@ -238,6 +265,9 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
     ).map((r) => [r.id, r.uid]),
   );
 
+  // Tasks inserted with the snapshot's uid: this store now holds identity
+  // minted elsewhere (T13249).
+  let receivedUids = 0;
   // One transaction: a collision on any task leaves nothing half-imported (T12724).
   await accessor.transaction(async (tx) => {
     for (const snapshotTask of snapshot.tasks) {
@@ -281,6 +311,7 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
           continue;
         }
         result.added++;
+        if (snapshotTask.uid) receivedUids++;
         continue;
       }
 
@@ -327,6 +358,7 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
       }
     }
   });
+  if (receivedUids > 0) await markIdentityShared(cwd, 'receive');
 
   return result;
 }
