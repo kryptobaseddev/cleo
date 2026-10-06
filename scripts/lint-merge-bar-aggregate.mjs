@@ -107,7 +107,8 @@ const REQUIRED_CONTEXT_WORKFLOWS = ['.github/workflows/ci.yml'];
 const ADVISORY_WORKFLOWS = {
   '.github/workflows/cleo-supervisor-prebuild.yml':
     'needs contents: write (it attaches release assets on a tag push); a workflow called from ci.yml cannot hold more than ci.yml grants, and the default token is read-only. Its build is covered on PRs by cleo-supervisor smoke (called from ci.yml)',
-  '.github/workflows/release-readiness.yml': 'release-PR preflight, not a code gate',
+  '.github/workflows/release-readiness.yml':
+    'the full `cleo doctor release-readiness` preflight (needs a build); its gating part, changeset parsing, runs in required CI as the Changeset Lint job (T13281)',
   '.github/workflows/docs-reingest.yml': 'runs after a PR merges (docs re-ingest), not a gate',
   '.github/workflows/worktree-cleanup.yml': 'runs after a PR merges (worktree cleanup), not a gate',
 };
