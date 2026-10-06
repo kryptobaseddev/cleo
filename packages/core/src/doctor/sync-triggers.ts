@@ -34,14 +34,13 @@ import {
   resolveDualScopeDbPath,
 } from '../store/dual-scope-db.js';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
-import { generateCaptureTriggers, syncCaptureOpenPass } from '../store/sync/capture.js';
+import { captureTriggerDrift, syncCaptureOpenPass } from '../store/sync/capture.js';
 import { readSyncFlags } from '../store/sync/flags.js';
 import {
   CAPTURE_TRIGGER_PREFIX,
   classifyStoreTriggers,
   ensureTriggerSuspendTable,
   hasTriggerSuspendTable,
-  normalizeSql,
   type OwnedTriggerFinding,
   TRIGGER_CLAUSE_MIGRATION,
   verifyOwnedTriggers,
@@ -136,7 +135,7 @@ export function inspectSyncTriggers(projectRoot: string): SyncTriggersReport {
       owned: journaled ? verifyOwnedTriggers(db) : [],
       orphanedCaptureTriggers: hasCapture ? [] : captureTriggers,
       captureDrift: readSyncFlags(db)['sync.capture']
-        ? captureDrift(db)
+        ? captureTriggerDrift(db, 'project')
         : { missing: [], differing: [], extra: [] },
       dangling: danglingTriggers(db),
     };
@@ -400,33 +399,6 @@ export function danglingTriggers(db: DatabaseSync): DanglingTrigger[] {
     if (missing.length > 0) out.push({ name, missing: [...new Set(missing)] });
   }
   return out;
-}
-
-/** Live capture triggers against the text generated for the current schema. */
-function captureDrift(db: DatabaseSync): {
-  missing: string[];
-  differing: string[];
-  extra: string[];
-} {
-  const want = new Map(generateCaptureTriggers(db, 'project').map((t) => [t.name, t.sql]));
-  const live = new Map(
-    (
-      db
-        .prepare(
-          "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND substr(name, 1, length(?)) = ?",
-        )
-        .all(CAPTURE_TRIGGER_PREFIX, CAPTURE_TRIGGER_PREFIX) as Array<{ name: string; sql: string }>
-    ).map((r) => [r.name, r.sql]),
-  );
-  return {
-    missing: [...want.keys()].filter((n) => !live.has(n)),
-    differing: [...want]
-      .filter(
-        ([n, sql]) => live.has(n) && normalizeSql(live.get(n) as string) !== normalizeSql(sql),
-      )
-      .map(([n]) => n),
-    extra: [...live.keys()].filter((n) => !want.has(n)),
-  };
 }
 
 /** The `sync_triggers` row of the default `cleo doctor` report. */

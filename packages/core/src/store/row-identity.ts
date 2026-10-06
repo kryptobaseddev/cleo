@@ -1341,6 +1341,20 @@ function readMeta(db: DatabaseSync, key: string): string | undefined {
   return row?.value;
 }
 
+/**
+ * Whether the store's identity values follow the current
+ * {@link ROW_IDENTITY_RECIPE} (the marker the fill writes). The recipe
+ * applies to project stores only; a global store is always current.
+ *
+ * @param db - Connection on a `cleo.db`.
+ * @param scope - The store's scope.
+ * @returns True when no recipe refill is owed.
+ */
+export function rowIdentityRecipeCurrent(db: DatabaseSync, scope: TableScope): boolean {
+  if (scope !== 'project') return true;
+  return readMeta(db, ROW_IDENTITY_RECIPE_KEY) === ROW_IDENTITY_RECIPE;
+}
+
 /** The pre-release (v4/v5 build) parse of a birth: a zoneless SQLite value as UTC, else `Date.parse`. */
 function preReleaseParses(value: UidInput): boolean {
   if (typeof value !== 'string' || value.length === 0) return false;

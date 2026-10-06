@@ -522,6 +522,32 @@ function liveCaptureTriggers(db: DatabaseSync): Map<string, string> {
   );
 }
 
+/** How the live capture triggers differ from the text generated for the current schema. */
+export interface CaptureTriggerDrift {
+  readonly missing: string[];
+  readonly differing: string[];
+  readonly extra: string[];
+}
+
+/**
+ * Live capture triggers against the text generated for the current schema
+ * (`cleo doctor`'s sync-trigger check, and the genesis preconditions).
+ * Read-only.
+ */
+export function captureTriggerDrift(db: DatabaseSync, scope: TableScope): CaptureTriggerDrift {
+  const want = new Map(generateCaptureTriggers(db, scope).map((t) => [t.name, t.sql]));
+  const live = liveCaptureTriggers(db);
+  return {
+    missing: [...want.keys()].filter((n) => !live.has(n)),
+    differing: [...want]
+      .filter(
+        ([n, sql]) => live.has(n) && normalizeSql(live.get(n) as string) !== normalizeSql(sql),
+      )
+      .map(([n]) => n),
+    extra: [...live.keys()].filter((n) => !want.has(n)),
+  };
+}
+
 /** What {@link installCaptureTriggers} changed. */
 export interface CaptureInstallReport {
   readonly installed: string[];
