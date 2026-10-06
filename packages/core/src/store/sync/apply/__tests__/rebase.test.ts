@@ -1021,9 +1021,7 @@ describe('undo budget (§3.5 Rule 2, D5)', () => {
       'exceeded',
     );
     expect((await runSyncRepair(join(dir, 'aaaa'))).undo.state).toBe('exceeded');
-    expect((await runSyncRepair(join(dir, 'aaaa'), { repair: true })).undo.state).toBe(
-      'exceeded',
-    );
+    expect((await runSyncRepair(join(dir, 'aaaa'), { repair: true })).undo.state).toBe('exceeded');
   });
 });
 
