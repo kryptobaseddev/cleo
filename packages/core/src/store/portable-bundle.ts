@@ -161,6 +161,14 @@ export class PortableBundleError extends Error {
 
 /** Input for {@link exportPortableBundle}. */
 export interface ExportPortableBundleInput {
+  /**
+   * The bundle carries the project store's row identity to wherever it is
+   * imported, so the store is marked shared first (`row_identity_synced`,
+   * T13250) and the bundle carries the marker too. Default `true`; `false`
+   * only for a local safety bundle that never leaves this machine (the vault's
+   * pre-restore export).
+   */
+  sharesIdentity?: boolean;
   /** Export scope. */
   scope: PortableBundleScope;
   /** Project root (required for `project` / `all`). */
@@ -718,6 +726,10 @@ export async function exportPortableBundle(
   const withGlobal = scope !== 'project';
   if (withProject && !input.projectRoot) {
     throw new PortableBundleError('E_NO_PROJECT', `scope "${scope}" requires a project root`);
+  }
+  if (withProject && input.projectRoot && input.sharesIdentity !== false) {
+    const { markProjectIdentityShared } = await import('./identity-share.js');
+    await markProjectIdentityShared(input.projectRoot, 'send', { onlyIfIdentity: true });
   }
   const cleoHome = path.resolve(input.cleoHome ?? getCleoHome());
   const configHome = path.resolve(input.configHome ?? getCleoConfigDir());

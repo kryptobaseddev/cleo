@@ -1705,6 +1705,8 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
         ...(t.scope === 'project' ? { projectRoot: t.storeRoot } : {}),
         outputPath: safetyBackup,
         label: 'cloud-vault-pre-restore',
+        // A local safety copy: it shares nothing (T13250).
+        sharesIdentity: false,
       });
       safety = await safetyInventory(safetyBackup, t);
       rotateSafetyBundles(dir);
