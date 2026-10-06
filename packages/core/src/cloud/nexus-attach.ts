@@ -229,6 +229,25 @@ export interface SendProjectPresenceOptions
 }
 
 /**
+ * The API client of an attach or presence call: the device credential, a
+ * per-request timeout, and `maxAttempts` tries (one network call site).
+ */
+function attachHttp(
+  opts: Pick<AttachProjectReplicaOptions, 'apiUrl' | 'bearer' | 'deviceId' | 'fetch' | 'timeoutMs'>,
+  maxAttempts: number,
+): Http {
+  const timeoutMs = opts.timeoutMs ?? NEXUS_ATTACH_TIMEOUT_MS;
+  const base = opts.fetch ?? ((input: string, init?: RequestInit) => globalThis.fetch(input, init));
+  return new Http({
+    baseUrl: opts.apiUrl,
+    token: opts.bearer,
+    deviceId: opts.deviceId,
+    fetch: (input, init) => base(input, { ...init, signal: AbortSignal.timeout(timeoutMs) }),
+    maxAttempts,
+  });
+}
+
+/**
  * Re-send an attached replica's presence only (contract §3.6 step 5), without
  * re-attaching: the periodic refresh (T13289). Same path-free body as the
  * attach ({@link toReplicaPresence} over a local git probe).
@@ -240,15 +259,7 @@ export interface SendProjectPresenceOptions
 export async function sendProjectPresence(
   opts: SendProjectPresenceOptions,
 ): Promise<{ presenceAt: string }> {
-  const timeoutMs = opts.timeoutMs ?? NEXUS_ATTACH_TIMEOUT_MS;
-  const base = opts.fetch ?? ((input: string, init?: RequestInit) => globalThis.fetch(input, init));
-  const http = new Http({
-    baseUrl: opts.apiUrl,
-    token: opts.bearer,
-    deviceId: opts.deviceId,
-    fetch: (input, init) => base(input, { ...init, signal: AbortSignal.timeout(timeoutMs) }),
-    maxAttempts: 1,
-  });
+  const http = attachHttp(opts, 1);
   const body = ReplicaPresence.parse(await presenceBody(opts, opts.replicaId));
   return http.request(
     'PUT',
@@ -326,15 +337,7 @@ async function attachReplicaAt(
   presenceOf: (replicaId: string) => unknown,
 ): Promise<{ replica: NexusReplicaAttachment; warnings: string[] }> {
   const binder = opts.binder;
-  const timeoutMs = opts.timeoutMs ?? NEXUS_ATTACH_TIMEOUT_MS;
-  const base = opts.fetch ?? ((input: string, init?: RequestInit) => globalThis.fetch(input, init));
-  const http = new Http({
-    baseUrl: opts.apiUrl,
-    token: opts.bearer,
-    deviceId: opts.deviceId,
-    fetch: (input, init) => base(input, { ...init, signal: AbortSignal.timeout(timeoutMs) }),
-    maxAttempts: 2,
-  });
+  const http = attachHttp(opts, 2);
   const attach = (replicaId: string) =>
     http.request('POST', path, attachAnswer, { deviceId: opts.deviceId, replicaId });
 

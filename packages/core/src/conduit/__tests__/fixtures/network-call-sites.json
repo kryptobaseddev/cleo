@@ -18,6 +18,7 @@
   "core/src/cloud/nexus-attach.ts :: const answer = await http.request(",
   "core/src/cloud/nexus-attach.ts :: const base = opts.fetch ?? ((input: string, init?: RequestInit) => globalThis.fetch(input, init));",
   "core/src/cloud/nexus-attach.ts :: http.request('POST', path, attachAnswer, { deviceId: opts.deviceId, replicaId });",
+  "core/src/cloud/nexus-attach.ts :: return http.request(",
   "core/src/cloud/nexus-auth.ts :: const base = opts.fetch ?? ((input: string, init?: RequestInit) => fetch(input, init));",
   "core/src/cloud/nexus-auth.ts :: const base = opts.fetch ?? ((input: string, init?: RequestInit) => fetch(input, init));",
   "core/src/cloud/nexus-auth.ts :: const doFetch = fetchImpl ?? ((input: string, init?: RequestInit) => fetch(input, init));",
