@@ -1048,6 +1048,7 @@ describe('segmented transactions (T12343 O-1)', () => {
       replica: a.id,
       project: null,
       sealer: (_seq, plaintext) => Buffer.from(plaintext),
+      signTxn: (_stream, txn) => txn,
       nowIso: new Date().toISOString(),
     });
     // The test stream bypassed segments for the base txn, so it is packed too.

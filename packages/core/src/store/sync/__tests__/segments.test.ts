@@ -18,6 +18,7 @@ import { AppendSegmentRequest } from '@cleocode/contracts/cloud';
 import { LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { generateEd25519 } from '../../../cloud/crypto.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
@@ -34,11 +35,13 @@ import {
   unpushedSegments,
 } from '../segments.js';
 import { unsequencedLocalTxns } from '../sequencing.js';
+import { firstBadTxnSignature, signTxn, verifyTxnSignature } from '../txn-signing.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
 const REPLICA = '0192aaaa-7f00-7000-8000-00000000000a';
 const STREAM = 'project:0192ffff-7f00-7000-8000-00000000000f';
 const NOW = '2026-10-06T00:00:00.000Z';
+const DEVICE = generateEd25519();
 let clock = Date.now();
 let dir: string;
 
@@ -106,6 +109,7 @@ const build = (db: DatabaseSync, sealer: SegmentSealer, maxPlaintextBytes?: numb
     replica: REPLICA,
     project: '0192ffff-7f00-7000-8000-00000000000f',
     sealer,
+    signTxn: (stream, txn) => signTxn(DEVICE, stream, txn),
     nowIso: NOW,
     ...(maxPlaintextBytes !== undefined ? { maxPlaintextBytes } : {}),
   });
@@ -134,7 +138,10 @@ describe('segment outbox: persist before push (§2.8)', () => {
     expect(row.state).toBe('sealed');
     // The plaintext is deflate-raw canonical JSON of the wire transactions.
     const wire = JSON.parse(inflateRawSync(seen[0]?.plain ?? Buffer.alloc(0)).toString('utf8'));
-    expect(wire.map((t: unknown) => LedgerTxn.parse(t).txn)).toEqual(txns);
+    const parsed = wire.map((t: unknown) => LedgerTxn.parse(t));
+    expect(parsed.map((t: LedgerTxn) => t.txn)).toEqual(txns);
+    // Every packed transaction is signed by the device for this stream (§2.8).
+    expect(firstBadTxnSignature(DEVICE.publicKey, STREAM, parsed)).toBeNull();
     // Every packed txn is segmented, mapped in order, and its rows are marked sent.
     expect(n(db, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'segmented'")).toBe(3);
     expect(
@@ -264,5 +271,27 @@ describe('segment outbox: persist before push (§2.8)', () => {
     expect(unsequencedLocalTxns(db).map((t) => t.txn)).toEqual([
       (db.prepare('SELECT txn FROM _sync_txn').get() as { txn: string }).txn,
     ]);
+  });
+});
+
+describe('transaction signatures (§2.8)', () => {
+  it('a signature binds the transaction, its stream and the author device', async () => {
+    const db = await store();
+    write(db, addTask('A', 'a'));
+    const { sealer, seen } = recordingSealer();
+    build(db, sealer);
+    const [txn] = JSON.parse(
+      inflateRawSync(seen[0]?.plain ?? Buffer.alloc(0)).toString('utf8'),
+    ).map((t: unknown) => LedgerTxn.parse(t)) as LedgerTxn[];
+    if (!txn) throw new Error('no txn');
+    expect(verifyTxnSignature(DEVICE.publicKey, STREAM, txn)).toBe(true);
+    // Another stream, another device, a changed op or an unsigned txn: refused.
+    expect(verifyTxnSignature(DEVICE.publicKey, 'home:someone', txn)).toBe(false);
+    expect(verifyTxnSignature(generateEd25519().publicKey, STREAM, txn)).toBe(false);
+    const tampered = { ...txn, ops: txn.ops.map((o) => ({ ...o, h: o.h.replace(/^\d/, '9') })) };
+    expect(verifyTxnSignature(DEVICE.publicKey, STREAM, tampered)).toBe(false);
+    expect(verifyTxnSignature(DEVICE.publicKey, STREAM, { ...txn, sig: '' })).toBe(false);
+    // A segment with one bad transaction is refused at its index.
+    expect(firstBadTxnSignature(DEVICE.publicKey, STREAM, [txn, tampered])).toBe(1);
   });
 });
