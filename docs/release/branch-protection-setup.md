@@ -21,7 +21,6 @@ gh repo view --json defaultBranchRef
 gh api -X PUT repos/:owner/:repo/branches/main/protection \
   -f required_status_checks[strict]=false \
   -f required_status_checks[contexts][]=CI \
-  -f "required_status_checks[contexts][]=Lockfile Check" \
   -f "required_status_checks[contexts][]=Contracts Dep Lint" \
   -f enforce_admins=false \
   -f required_pull_request_reviews[required_approving_review_count]=0 \
@@ -34,7 +33,6 @@ gh api -X PUT repos/:owner/:repo/branches/main/protection \
 |------|---------|--------|
 | `required_status_checks[strict]` | `false` | A PR merges once its own `CI` is green (owner decision 2026-09-29; main-push CI catches combination breaks) |
 | `CI` check required | required context | All tests + build + every arch gate must pass (the `ci` aggregate gate in `ci.yml`; since T13263 it also needs the arch gates and the other lint workflows, called from ci.yml) |
-| `Lockfile Check` required | required context | `pnpm install --frozen-lockfile` must pass (ADR-ORC-011) |
 | `Contracts Dep Lint` required | required context | Package boundary lint must pass |
 | `enforce_admins` | `false` | Admins can merge emergency patches; audited via `.cleo/audit/force-bypass.jsonl` |
 | `required_approving_review_count` | `0` | Bots can merge (cleo release ship uses `gh pr merge`) |
@@ -53,7 +51,6 @@ workflow**:
 | Required context | Workflow | Aggregate job (`if: always()`, `needs:` all siblings) |
 |------------------|----------|-------------------------------------------------------|
 | `CI` | `.github/workflows/ci.yml` | `ci` — needs every ci.yml job, including the calls to `arch-boundary-check.yml` (`arch-gates`) and the other gating lint workflows (T13263) |
-| `Lockfile Check` | `.github/workflows/lockfile-check.yml` | `lockfile-consistency` (single job — is its own check) |
 | `Contracts Dep Lint` | required context reported by the live branch-protection API | `ci.yml` also carries a `contracts-dep-lint` job for parity |
 
 **The gap this closes:** before T11955, `arch-boundary-check.yml`'s 12 lint
@@ -83,8 +80,16 @@ Since T13263 it also fails on any `pull_request` workflow that is neither a
 required context, nor called from `ci.yml` (triggering only on
 `workflow_call`, with no workflow-level `concurrency`), nor listed in its
 `ADVISORY_WORKFLOWS` with a reason — so a new standalone gate cannot reopen
-the gap. The path-scoped native builds and `Lockfile Check` stay standalone
-for now (advisory list; folding them is T13279).
+the gap. T13279 folded the rest: `Lockfile Check` (`lockfile-gate`), and
+the path-scoped `cant-napi build`, `Worktree NAPI Prebuild Gate` (replacing
+the job that polled the standalone prebuild run), `cleo-supervisor smoke`,
+`Skills Depth Check` and `Release Pipeline Matrix`, which ci.yml runs only
+when the `changes` job sees their paths (a skip is a pass). Only
+`cleo-supervisor prebuild` stays standalone: it needs `contents: write` to
+attach release assets on tag pushes, more than a ci.yml call can hold.
+Do NOT require a `Lockfile Check` context either: no check ever reported
+under that name (its job is `Verify pnpm-lock.yaml consistency`), so it
+would block every merge; `CI` covers it.
 
 ## Verify Current Rules
 
@@ -117,7 +122,7 @@ Common required check names for this repo:
 
 - `CI` — `.github/workflows/ci.yml` (tests + build; `ci` aggregate job)
 - `Arch Gates / Arch Boundary Check` — `.github/workflows/arch-boundary-check.yml`, called from `ci.yml` (job `arch-gates`); covered by `CI`, not a separate required context (T13263)
-- `Lockfile Check` — `.github/workflows/lockfile-check.yml`
+- `Lockfile Check / Verify pnpm-lock.yaml consistency` — `.github/workflows/lockfile-check.yml`, called from `ci.yml` (job `lockfile-gate`); covered by `CI` (T13279)
 - `Contracts Dep Lint` — installed required context currently reported by the live branch-protection API (`app_id=15368`); `ci.yml` also carries a repo-local `contracts-dep-lint` job for parity coverage.
 
 If check names differ, update the `required_status_checks[contexts][]` values above

@@ -41,9 +41,10 @@
  *   - a required context ({@link REQUIRED_CONTEXT_WORKFLOWS}: ci.yml);
  *   - called from ci.yml (`jobs.<id>.uses: ./.github/workflows/<file>`), whose
  *     calling job the `ci` aggregate then needs (the sibling rule above). A
- *     called workflow triggers ONLY on `workflow_call` (no second standalone
- *     run) and declares no workflow-level `concurrency` (it would resolve in
- *     ci.yml's context and cancel the caller);
+ *     called workflow does not also run on its own pull_request /
+ *     merge_group / branch-push trigger (a second standalone run; manual
+ *     dispatch and tag-only pushes are fine) and declares no workflow-level
+ *     `concurrency` (it would resolve in ci.yml's context and cancel it);
  *   - listed in {@link ADVISORY_WORKFLOWS} with the reason it does not gate.
  * A new standalone gating workflow fails here until that decision is made.
  *
@@ -101,18 +102,11 @@ const REQUIRED_CONTEXT_WORKFLOWS = ['.github/workflows/ci.yml'];
 
 /**
  * `pull_request` workflows that deliberately do not gate the merge, each with
- * the reason. Folding the gating ones into ci.yml is tracked in T13279.
+ * the reason (T13263, T13279).
  */
 const ADVISORY_WORKFLOWS = {
-  '.github/workflows/lockfile-check.yml':
-    'standalone until T13279: release evidence (prRequiredWorkflows, ciChecks.qa) keys on its "Lockfile Check" check name',
-  '.github/workflows/cant-napi-build.yml':
-    'path-scoped native build: a required path-filtered check would block unrelated PRs (fold via ci changes outputs, T13279)',
-  '.github/workflows/cleo-supervisor-prebuild.yml': 'path-scoped native build (T13279)',
-  '.github/workflows/cleo-supervisor-smoke.yml': 'path-scoped native smoke (T13279)',
-  '.github/workflows/worktree-napi-prebuild.yml': 'path-scoped native build (T13279)',
-  '.github/workflows/skills-depth-check.yml': 'path-scoped skills check (T13279)',
-  '.github/workflows/release-pipeline-matrix.yml': 'path-scoped release-pipeline matrix (T13279)',
+  '.github/workflows/cleo-supervisor-prebuild.yml':
+    'needs contents: write (it attaches release assets on a tag push); a workflow called from ci.yml cannot hold more than ci.yml grants, and the default token is read-only. Its build is covered on PRs by cleo-supervisor smoke (called from ci.yml)',
   '.github/workflows/release-readiness.yml': 'release-PR preflight, not a code gate',
   '.github/workflows/docs-reingest.yml': 'runs after a PR merges (docs re-ingest), not a gate',
   '.github/workflows/worktree-cleanup.yml': 'runs after a PR merges (worktree cleanup), not a gate',
@@ -261,6 +255,31 @@ function triggersOf(doc) {
 }
 
 /**
+ * Triggers that would run a ci.yml-called workflow a second time for the same
+ * change: ci.yml already runs on all of these. `push` counts unless it is
+ * limited to tags.
+ */
+const DUPLICATE_TRIGGERS = new Set(['pull_request', 'pull_request_target', 'merge_group', 'push']);
+
+/**
+ * Whether a workflow's `on.push` only fires for tags (no branches filter).
+ *
+ * @param {Record<string, unknown>} doc
+ * @returns {boolean}
+ */
+function pushIsTagOnly(doc) {
+  const on = doc.on ?? doc.true;
+  const push = on && typeof on === 'object' && !Array.isArray(on) ? on.push : undefined;
+  return (
+    push !== null &&
+    typeof push === 'object' &&
+    push.tags !== undefined &&
+    push.branches === undefined &&
+    push['branches-ignore'] === undefined
+  );
+}
+
+/**
  * Coverage (T13263): every pull_request workflow is required, called from
  * ci.yml, or advisory; called workflows run only via workflow_call and carry
  * no workflow-level concurrency; advisory entries are not stale.
@@ -287,13 +306,15 @@ function validateCoverage() {
   for (const [file, doc] of docs) {
     const triggers = triggersOf(doc);
     if (called.has(file)) {
-      const extra = triggers.filter((t) => t !== 'workflow_call');
+      const extra = triggers.filter(
+        (t) => DUPLICATE_TRIGGERS.has(t) && !(t === 'push' && pushIsTagOnly(doc)),
+      );
       if (!triggers.includes('workflow_call')) {
         violations.push(`${file}: called from ci.yml but has no 'workflow_call' trigger`);
       }
       if (extra.length > 0) {
         violations.push(
-          `${file}: called from ci.yml, so it must trigger ONLY on workflow_call (also has: ${extra.join(', ')}) — a second standalone run is redundant and is not a merge gate`,
+          `${file}: called from ci.yml, so it must not also run on its own ${extra.join(', ')} trigger — a second standalone run is redundant and is not a merge gate (workflow_dispatch and tag-only pushes are fine)`,
         );
       }
       if (doc.concurrency !== undefined) {
