@@ -4079,6 +4079,161 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
   });
 });
 
+describe('cleo cloud verify --deep (T13291)', () => {
+  /** A's own replica, as the change journal drives it. */
+  function journalOfA(a: Machine): Journal {
+    const wrapped = fake.projectKeys.get(REMOTE_PROJECT)?.[0];
+    return new Journal({
+      http: new Http({ baseUrl: API, token: a.token, deviceId: a.deviceId, fetch: fake.fetch }),
+      streamId: STREAM,
+      replicaId: REPLICA_A,
+      deviceId: DEVICE_A,
+      signing: a.keys.signing,
+      key: unwrapProjectKey(
+        fake.escrow?.mk ?? Buffer.alloc(0),
+        wrapped?.wrappedProjectKey ?? '',
+        REMOTE_PROJECT,
+        1,
+      ),
+      fetch: fake.fetch,
+    });
+  }
+
+  /** One segment after the head snapshot, from A's replica. */
+  async function tailSegment(a: Machine): Promise<void> {
+    const hlc = `${String(Date.now()).padStart(13, '0')}-000000-${REPLICA_A}`;
+    const last = fake
+      .stream(STREAM)
+      .segments.filter((x) => x.replicaId === REPLICA_A)
+      .at(-1);
+    await journalOfA(a).push(last ? last.replicaSeq + 1 : 0, Buffer.from('{"tail":true}'), {
+      opCount: 1,
+      hlcMin: hlc,
+      hlcMax: hlc,
+      deltas: { tasks_tasks: { created: 1, deleted: 0 } },
+      schemaVersion: SYNC_SCHEMA_VERSION,
+    });
+  }
+
+  /** Flip one byte of the stored bundle of `cp`. */
+  function tamperBundle(cp: Checkpoint | undefined): void {
+    const blob = fake.blobs.get(cp?.blobSha256 ?? '');
+    if (!blob?.bytes) throw new Error('fixture: no bundle bytes');
+    const bytes = Buffer.from(blob.bytes);
+    bytes[bytes.length >> 1] = (bytes[bytes.length >> 1] ?? 0) ^ 0xff;
+    blob.bytes = bytes;
+  }
+
+  it('downloads the head bundle again and re-hashes the segments after it; a plain verify has no deep part', async () => {
+    const { a } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    // A second push writes a delta segment its snapshot covers: only the tail after it is re-hashed.
+    exec(a, "INSERT INTO tasks_tasks (id, title) VALUES ('A1', 'from a')");
+    expect((await on(a, () => pushNexusVault(vopts(a)))).deltaSegmentSeq).toBe(1);
+    await tailSegment(a);
+    const head = fake.stream(STREAM).checkpoints.at(-1);
+    expect(head?.coversSeq).toBe(1);
+    expect(fake.stream(STREAM).segments).toHaveLength(2);
+
+    const plain = await on(a, () => verifyNexusVault(vopts(a)));
+    expect(plain.verdict).toBe('match');
+    expect(plain.deep).toBeUndefined();
+
+    const deep = await on(a, () => verifyNexusVault(vopts(a, { deep: true })));
+    expect(deep.verdict).toBe('match');
+    expect(deep.remedy).toBeNull();
+    expect(deep.deep?.snapshots).toEqual([
+      {
+        checkpointId: head?.checkpointId,
+        deviceId: DEVICE_A,
+        sizeBytes: head?.sizeBytes,
+        ok: true,
+        problem: null,
+      },
+    ]);
+    expect(deep.deep?.segments).toEqual({
+      from: head?.coversSeq,
+      checked: 1,
+      ok: true,
+      problem: null,
+    });
+  });
+
+  it('a head bundle whose bytes changed is untrusted; a plain verify cannot see it', async () => {
+    const { a } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    const head = fake.stream(STREAM).checkpoints.at(-1);
+    tamperBundle(head);
+
+    expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+    const deep = await on(a, () => verifyNexusVault(vopts(a, { deep: true })));
+    expect(deep.verdict).toBe('untrusted');
+    expect(deep.deep?.snapshots[0]).toMatchObject({
+      checkpointId: head?.checkpointId,
+      ok: false,
+      problem: 'checkpoint bundle does not match its hash',
+    });
+    expect(deep.remedy).toContain(
+      'failed the deep check (checkpoint bundle does not match its hash)',
+    );
+    expect(deep.remedy).toContain('do not pull it');
+  });
+
+  it('a segment after the head whose bytes changed is untrusted', async () => {
+    const { a } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await tailSegment(a);
+    const seg = fake.stream(STREAM).segments.at(-1);
+    if (!seg?.ciphertext) throw new Error('fixture: inline segment expected');
+    const bytes = Buffer.from(seg.ciphertext, 'base64');
+    bytes[0] = (bytes[0] ?? 0) ^ 0xff;
+    seg.ciphertext = bytes.toString('base64');
+
+    const deep = await on(a, () => verifyNexusVault(vopts(a, { deep: true })));
+    expect(deep.verdict).toBe('untrusted');
+    expect(deep.deep?.snapshots.every((x) => x.ok)).toBe(true);
+    expect(deep.deep?.segments).toMatchObject({
+      checked: 0,
+      ok: false,
+      problem: `segment ${seg.seq} ciphertext does not match its hash`,
+    });
+    expect(deep.remedy).toContain('failed the deep check');
+  });
+
+  it("another device's older snapshot failing is a warning; the verdict stands", async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    const older = fake.stream(STREAM).checkpoints.at(-1);
+    await restoreOntoB(b);
+    exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B1', 'from b')");
+    expect((await on(b, () => pushNexusVault(vopts(b)))).status).toBe('pushed');
+    const head = fake.stream(STREAM).checkpoints.at(-1);
+    expect(head?.blobSha256).not.toBe(older?.blobSha256);
+    tamperBundle(older);
+
+    const deep = await on(b, () => verifyNexusVault(vopts(b, { deep: true })));
+    expect(deep.verdict).toBe('match');
+    expect(deep.deep?.snapshots.map((x) => [x.checkpointId, x.ok])).toEqual([
+      [head?.checkpointId, true],
+      [older?.checkpointId, false],
+    ]);
+    const warning = deep.warnings.find((w) => w.code === 'W_NEXUS_VAULT_BLOB_INTEGRITY');
+    expect(warning?.message).toContain(`snapshot ${older?.checkpointId} by a-laptop failed`);
+    expect(deep.remedy).toBeNull();
+  });
+
+  it('a download that fails over the network is an error, not a verdict', async () => {
+    const { a } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    const blob = fake.blobs.get(fake.stream(STREAM).checkpoints.at(-1)?.blobSha256 ?? '');
+    if (!blob) throw new Error('fixture');
+    blob.bytes = null;
+
+    const err = await failure(on(a, () => verifyNexusVault(vopts(a, { deep: true }))));
+    expect(err.message).toContain('HTTP 404');
+  });
+});
+
 describe('guided first run against the fake server (T13102)', () => {
   /** The first run's link step for machine `m`: the binding `cleo project link` would write. */
   function linkStep(m: Machine) {

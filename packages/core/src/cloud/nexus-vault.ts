@@ -65,6 +65,7 @@ import type {
   CloudVaultSnapshot,
   CloudVaultStatusResult,
   CloudVaultTableDiff,
+  CloudVerifyDeepCheck,
   CloudVerifyResult,
   CloudWarning,
   PortableBundleManifest,
@@ -2008,9 +2009,74 @@ function unsyncedForks(
   return out;
 }
 
+/**
+ * What the client refused in bytes the server sent (T13291): every client-side
+ * refusal carries `details.reason`. A network or HTTP failure is no finding
+ * about the cloud copy, so it returns `null` and the caller rethrows it.
+ */
+function refusalOf(err: unknown): string | null {
+  return err instanceof NexusError && typeof err.details?.['reason'] === 'string'
+    ? err.serverMessage
+    : null;
+}
+
+/**
+ * `cleo cloud verify --deep` (T13291): download the head snapshot and each
+ * device's newest snapshot again, checking size, sha256 and decryption, then
+ * re-hash, signature-check and decrypt every journal segment after the head.
+ * The segments a snapshot covers are what its bundle captured, so the tail
+ * after the head is what a pull would still replay.
+ */
+async function deepVerify(
+  journal: Journal,
+  signers: TrustedSigners,
+  headCp: Checkpoint | null,
+  snapshots: readonly Checkpoint[],
+): Promise<CloudVerifyDeepCheck> {
+  const picked = new Map<string, Checkpoint>();
+  if (headCp) picked.set(headCp.checkpointId, headCp);
+  for (const cp of snapshots) if (!picked.has(cp.checkpointId)) picked.set(cp.checkpointId, cp);
+  const checked: CloudVerifyDeepCheck['snapshots'] = [];
+  for (const cp of picked.values()) {
+    let problem: string | null = null;
+    try {
+      await journal.restoreCheckpoint(cp.checkpointId, signers);
+    } catch (err) {
+      problem = refusalOf(err);
+      if (problem === null) throw err;
+    }
+    checked.push({
+      checkpointId: cp.checkpointId,
+      deviceId: cp.deviceId,
+      sizeBytes: cp.sizeBytes,
+      ok: problem === null,
+      problem,
+    });
+  }
+  let cursor: PullCursor = headCp ? cursorFromCheckpoint(headCp) : initialPullCursor();
+  const from = cursor.after;
+  let count = 0;
+  let problem: string | null = null;
+  try {
+    for (;;) {
+      const page = await journal.pull(cursor, signers);
+      count += page.segments.length;
+      cursor = page.cursor;
+      if (page.segments.length === 0 || cursor.after >= page.head) break;
+    }
+  } catch (err) {
+    problem = refusalOf(err);
+    if (problem === null) throw err;
+  }
+  return {
+    snapshots: checked,
+    segments: { from, checked: count, ok: problem === null, problem },
+  };
+}
+
 /** `cleo cloud verify`: local integrity, local vs head per table, and every device's newest snapshot vs the head. */
 async function verifyNexusVaultImpl(
-  opts: NexusVaultCommandOptions = {},
+  opts: NexusVaultCommandOptions & { deep?: boolean } = {},
 ): Promise<CloudVerifyResult> {
   const conn = await connectNexusVault(opts);
   const key = await unlockNexusAccountKey(conn, { readOnly: true });
@@ -2054,6 +2120,24 @@ async function verifyNexusVaultImpl(
   }
   const newest = new Map<string, Checkpoint>();
   for (const cp of trusted) if (!newest.has(cp.deviceId)) newest.set(cp.deviceId, cp);
+  const deep = opts.deep
+    ? await deepVerify(journal, key.signers, headCp, [...newest.values()])
+    : undefined;
+  // The head's bundle or the tail after it failing the byte check decides the
+  // verdict; another device's older snapshot failing it is reported (T13291).
+  const deepFailure = deep
+    ? (deep.snapshots.find((x) => x.checkpointId === headCp?.checkpointId && !x.ok)?.problem ??
+      deep.segments.problem)
+    : null;
+  if (deepFailure !== null) verdict = 'untrusted';
+  for (const x of deep?.snapshots ?? []) {
+    if (!x.ok && x.checkpointId !== headCp?.checkpointId) {
+      warnings.push({
+        code: 'W_NEXUS_VAULT_BLOB_INTEGRITY',
+        message: `snapshot ${x.checkpointId} by ${names.get(x.deviceId) ?? x.deviceId} failed the deep check: ${x.problem}`,
+      });
+    }
+  }
   // Only a fork this machine has not synced past is news to it (T12976). The
   // label is on the checkpoint, so it outlives the lease (T13007); a forced
   // lease whose push has not landed yet is reported from the lease.
@@ -2090,25 +2174,27 @@ async function verifyNexusVaultImpl(
   if (headFormat) warnings.push(headFormat);
   const journalHead = isJournalSnapshot(headCp);
   const remedy =
-    verdict === 'untrusted'
-      ? `the newest snapshot ${head.headCheckpointId} is not signed by a device this account trusts: do not pull it; see which device pushed it with \`cleo cloud vault\` and \`cleo cloud activity\`, and revoke that device if you do not recognise it`
-      : headCp && vaultManifestFormat(headCp.manifest, hashKeyOf(t.dataKey)) === 'unknown'
-        ? `the newest snapshot records a vault manifest format this CLEO does not recognise (this CLEO hashes format ${VAULT_MANIFEST_FORMAT_VERSION}): if a newer CLEO pushed it, upgrade CLEO on this machine, then verify again`
-        : verdict === 'behind'
-          ? 'run `cleo cloud pull` to bring this machine to the newest snapshot'
-          : verdict === 'ahead'
-            ? journalHead
-              ? `this machine changed since the newest snapshot, which is checkpoint/v3 (the change journal writes this stream): ${JOURNAL_STREAM_REMEDY}`
-              : 'run `cleo cloud push` to back up the local changes'
-            : verdict === 'diverged'
+    deepFailure !== null
+      ? `the cloud copy failed the deep check (${deepFailure}): do not pull it; see which device pushed the newest snapshot with \`cleo cloud vault\` and \`cleo cloud activity\`, then push a fresh snapshot from a machine whose store passes \`cleo cloud verify\``
+      : verdict === 'untrusted'
+        ? `the newest snapshot ${head.headCheckpointId} is not signed by a device this account trusts: do not pull it; see which device pushed it with \`cleo cloud vault\` and \`cleo cloud activity\`, and revoke that device if you do not recognise it`
+        : headCp && vaultManifestFormat(headCp.manifest, hashKeyOf(t.dataKey)) === 'unknown'
+          ? `the newest snapshot records a vault manifest format this CLEO does not recognise (this CLEO hashes format ${VAULT_MANIFEST_FORMAT_VERSION}): if a newer CLEO pushed it, upgrade CLEO on this machine, then verify again`
+          : verdict === 'behind'
+            ? 'run `cleo cloud pull` to bring this machine to the newest snapshot'
+            : verdict === 'ahead'
               ? journalHead
-                ? `both sides changed, and the newest snapshot is checkpoint/v3 (the change journal writes this stream): ${JOURNAL_STREAM_REMEDY}; or \`cleo cloud pull --force\` to take the cloud (a safety backup is taken first)`
-                : 'both sides changed: run `cleo cloud push --force` to keep this machine (a labelled fork), or `cleo cloud pull --force` to take the cloud (a safety backup is taken first)'
-              : verdict === 'empty'
-                ? 'run `cleo cloud push` to make the first snapshot'
-                : !localIntegrity
-                  ? 'the local store failed its integrity check: run `cleo doctor` and `cleo cloud restore`'
-                  : null;
+                ? `this machine changed since the newest snapshot, which is checkpoint/v3 (the change journal writes this stream): ${JOURNAL_STREAM_REMEDY}`
+                : 'run `cleo cloud push` to back up the local changes'
+              : verdict === 'diverged'
+                ? journalHead
+                  ? `both sides changed, and the newest snapshot is checkpoint/v3 (the change journal writes this stream): ${JOURNAL_STREAM_REMEDY}; or \`cleo cloud pull --force\` to take the cloud (a safety backup is taken first)`
+                  : 'both sides changed: run `cleo cloud push --force` to keep this machine (a labelled fork), or `cleo cloud pull --force` to take the cloud (a safety backup is taken first)'
+                : verdict === 'empty'
+                  ? 'run `cleo cloud push` to make the first snapshot'
+                  : !localIntegrity
+                    ? 'the local store failed its integrity check: run `cleo doctor` and `cleo cloud restore`'
+                    : null;
   return {
     apiUrl: conn.apiUrl,
     scope: t.scope,
@@ -2126,6 +2212,7 @@ async function verifyNexusVaultImpl(
       createdAt: (cp as Checkpoint & { createdAt?: string }).createdAt ?? null,
       matchesHead: headCp ? sameVaultManifest(cp.manifest, headCp.manifest) : false,
     })),
+    ...(deep ? { deep } : {}),
     warnings: [...warnings, ...conn.state.drainWarnings()],
   };
 }
@@ -2215,11 +2302,15 @@ export function nexusVaultStatus(
 
 /**
  * `cleo cloud verify`: compare this store with the cloud and every device's newest snapshot.
+ * Local backups are checked by `cleo backup verify`.
  *
- * @param opts - Scope and overrides.
- * @returns The verdict and per-table comparison.
+ * @param opts - Scope and overrides; `deep` downloads the snapshots again and
+ *   re-checks their bytes and the journal segments after the head (T13291).
+ * @returns The verdict and per-table comparison, with the deep check when asked.
  */
-export function verifyNexusVault(opts: NexusVaultCommandOptions = {}): Promise<CloudVerifyResult> {
+export function verifyNexusVault(
+  opts: NexusVaultCommandOptions & { deep?: boolean } = {},
+): Promise<CloudVerifyResult> {
   return mapped(() => verifyNexusVaultImpl(opts));
 }
 
