@@ -396,6 +396,12 @@ export const EXEMPT = {
         'capture undo (local-only): dropped when a failed or raced genesis cut is undone and no stream is cut, so undo is off again (T13296)',
     },
   },
+  'packages/core/src/store/sync/push.ts': {
+    _sync_meta: {
+      count: 2,
+      reason: `${SYNC_BOOKKEEPING}; sets and clears sync.clock_ahead while push pauses for a clock ahead of the server's (§1.3, T12343)`,
+    },
+  },
   'packages/core/src/store/sync/segments.ts': {
     _sync_row_meta: {
       count: 1,

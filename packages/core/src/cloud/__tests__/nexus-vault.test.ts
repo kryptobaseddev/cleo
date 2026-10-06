@@ -121,6 +121,7 @@ import {
   enableSyncPush,
   nexusVaultStatus,
   pushNexusVault,
+  pushSyncStream,
   releaseNexusVaultLease,
   restoreNexusVault,
   verifyNexusVault,
@@ -276,10 +277,17 @@ class ApiFail extends Error {
   }
 }
 
+/** A `Date` header the fake sends on every response, when a test sets it (the server's clock, §1.3). */
+let fakeDateHeader: string | null = null;
+
 function json(status: number, body: object): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json', 'x-request-id': 'req-test' },
+    headers: {
+      'content-type': 'application/json',
+      'x-request-id': 'req-test',
+      ...(fakeDateHeader !== null ? { date: fakeDateHeader } : {}),
+    },
   });
 }
 
@@ -5051,6 +5059,56 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       expect(genesisCutOf(db, STREAM)).toBe(first.cut);
       expect(genesisPending(db, STREAM)).toBe(false);
     });
+  });
+
+  it("S4-2: after genesis, a local write is sealed, packed and pushed as this replica's next segment; a rerun sends nothing", async () => {
+    const { m, dbPath } = await journalMachine();
+    const enabled = await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    await on(m, async () => {
+      (await storeOf(dbPath)).exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('T5', 'title T5', 'task', 'pending', 'medium', 'uid-T5', 'fp-T5')",
+      );
+    });
+    const before = fake.stream(STREAM).segments.length;
+    const r = await on(m, () => pushSyncStream(vopts(m, { allowUnreleased: true })));
+    expect(r).toMatchObject({
+      refused: null,
+      clockAhead: false,
+      built: 1,
+      pushed: 1,
+      duplicates: 0,
+    });
+    const s = fake.stream(STREAM);
+    expect(s.segments).toHaveLength(before + 1);
+    const seg = s.segments.at(-1);
+    expect(seg?.replicaId).toBe(m.replicaId);
+    expect(seg?.replicaSeq).toBe((enabled.replicaSeqFloor ?? -1) + 1);
+    expect(seg?.txnDeltas).toEqual([
+      { txn: 0, deltas: { tasks_tasks: { created: 1, deleted: 0 } } },
+    ]);
+    expect(r.lastServerSeq).toBe(seg?.seq);
+    const again = await on(m, () => pushSyncStream(vopts(m, { allowUnreleased: true })));
+    expect(again).toMatchObject({ built: 0, pushed: 0 });
+    expect(s.segments).toHaveLength(before + 1);
+  });
+
+  it('S4-2: a device clock ahead of the server pauses push', async () => {
+    const { m, dbPath } = await journalMachine();
+    await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    await on(m, async () => {
+      (await storeOf(dbPath)).exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('T6', 'title T6', 'task', 'pending', 'medium', 'uid-T6', 'fp-T6')",
+      );
+    });
+    const before = fake.stream(STREAM).segments.length;
+    fakeDateHeader = new Date(Date.now() - 10 * 60 * 1000).toUTCString();
+    try {
+      const r = await on(m, () => pushSyncStream(vopts(m, { allowUnreleased: true })));
+      expect(r).toMatchObject({ clockAhead: true, pushed: 0 });
+      expect(fake.stream(STREAM).segments).toHaveLength(before);
+    } finally {
+      fakeDateHeader = null;
+    }
   });
 
   it('refuses without the unreleased opt-in, on a journaled stream, and when the store and link name different replicas', async () => {

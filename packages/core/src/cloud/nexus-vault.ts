@@ -78,7 +78,10 @@ import {
   type Manifest,
   ReplayPin,
 } from '@cleocode/contracts/cloud';
-import { nexusCloudDevicePageSchema } from '@cleocode/contracts/nexus-cloud.js';
+import {
+  nexusCloudDevicePageSchema,
+  nexusCloudStatusSchema,
+} from '@cleocode/contracts/nexus-cloud.js';
 import {
   NEXUS_VAULT_LEASE_ROLE,
   nexusLeaseAcquireSchema,
@@ -109,8 +112,11 @@ import {
   genesisPending,
   readGenesisCut,
 } from '../store/sync/genesis.js';
+import { type PushStreamReport, pushStream } from '../store/sync/push.js';
 import { replayPinOf } from '../store/sync/replay-pin.js';
 import { activeReplica, readActiveReplicaId } from '../store/sync/replica.js';
+import { ReplicaRegistry } from '../store/sync/replica-registry.js';
+import { signTxn } from '../store/sync/txn-signing.js';
 import {
   buildVaultManifest,
   type CarriedMachineState,
@@ -143,6 +149,7 @@ import type { TrustedSigners } from './keys.js';
 import { manifestVersion } from './manifest-check.js';
 import { canonicalGlobalReplicaBinder } from './nexus-attach.js';
 import { NexusAccountError } from './nexus-auth.js';
+import { nexusQueryPath } from './nexus-cloud.js';
 import { nexusApiErrorToAccountError } from './nexus-enrol.js';
 import { readNexusProjectLink } from './nexus-link.js';
 import {
@@ -1734,6 +1741,69 @@ async function enableSyncPushImpl(
   }
 }
 
+async function pushSyncStreamImpl(
+  opts: NexusVaultCommandOptions & {
+    /** Push although `sync.push` is unreleased (tests and staging only). Never set from user input. */
+    allowUnreleased?: boolean;
+  } = {},
+): Promise<PushStreamReport> {
+  const conn = await connectNexusVault(opts);
+  const key = await unlockNexusAccountKey(conn);
+  const t = await resolveTarget(conn, key.masterKey, opts, 'push');
+  const replicaId = t.replicaId;
+  if (!replicaId) {
+    throw vaultError(
+      'E_NEXUS_VAULT_NOT_LINKED',
+      'this copy of the project is not attached from this device',
+      'run `cleo project link`',
+    );
+  }
+  const journal = journalFor(conn, t);
+  // A first request also gives the server's clock (Date header, §1.3).
+  await streamHead(conn, t.streamId);
+  // The server-authoritative rollback check (§1.5): E3 knows this replica's
+  // last stored segment on a project stream.
+  const status =
+    t.projectId !== null
+      ? await conn.find(
+          nexusQueryPath('/v1/status', { projectId: t.projectId, replicaId }),
+          nexusCloudStatusSchema,
+        )
+      : null;
+  const { openDualScopeDbAtPath, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
+  const db = getDualScopeNativeDb(
+    t.scope === 'global'
+      ? await openDualScopeDbAtPath('global', t.dbPath)
+      : await openDualScopeDbAtPath('project', t.dbPath),
+  );
+  try {
+    return await pushStream(db, {
+      scope: tableScopeOf(t),
+      stream: t.streamId,
+      replica: replicaId,
+      project: t.projectId,
+      sealer: (replicaSeq, plaintext, meta) => journal.sealSegment(replicaSeq, plaintext, meta),
+      signTxn: (stream, txn) => signTxn(conn.keys.signing, stream, txn),
+      upload: async (seg) => journal.push(seg.replicaSeq, new Uint8Array(0), seg.meta, seg.sealed),
+      serverDate: conn.http.lastServerDate,
+      serverLastReplicaSeq: status?.replica?.lastReplicaSeq ?? null,
+      registry: ReplicaRegistry.forDevice(conn.deviceId),
+      ...(opts.allowUnreleased ? { allowUnreleased: true } : {}),
+    });
+  } catch (err) {
+    // The server holds a different segment at this replicaSeq, or a later one
+    // than this store has: the store is behind (§1.5, §2.9).
+    if (err instanceof NexusError && err.code === 'E_CONFLICT') {
+      throw vaultError(
+        'E_NEXUS_SYNC_REFUSED',
+        `the server refused a segment of replica ${replicaId} on ${t.streamId}: ${err.message}`,
+        'this store is behind the stream (restored or copied); it must rebind to a new replica (T12753)',
+      );
+    }
+    throw err;
+  }
+}
+
 /** The keyed hash of an empty table (a table the parent lists that this store no longer has). */
 function buildEmptyHash(t: VaultTarget, table: string): string {
   return emptyVaultTableHash(hashKeyOf(t.dataKey), table);
@@ -2567,6 +2637,24 @@ export function enableSyncPush(
   opts: NexusVaultCommandOptions & { allowUnreleased?: boolean } = {},
 ): Promise<CloudSyncPushEnableResult> {
   return mapped(() => enableSyncPushImpl(opts));
+}
+
+/**
+ * Push this store's change journal on its stream (journal spec §2.8, §2.9;
+ * T12343 S4-2): seal, persist segments, upload the lowest unpushed first.
+ * Pauses while this device's clock runs ahead of the server's, and refuses a
+ * store behind the server (it must rebind). `cleo cloud sync` (T12996) runs
+ * it with pull and apply.
+ *
+ * @param opts - Scope and overrides; `allowUnreleased` for tests and staging only.
+ * @returns What was sealed, persisted and stored, or why nothing was sent.
+ * @throws {NexusAccountError} `E_NEXUS_SYNC_REFUSED` (a segment conflict: the store is behind),
+ *   `E_NEXUS_VAULT_NOT_LINKED`, or a mapped API error.
+ */
+export function pushSyncStream(
+  opts: NexusVaultCommandOptions & { allowUnreleased?: boolean } = {},
+): Promise<PushStreamReport> {
+  return mapped(() => pushSyncStreamImpl(opts));
 }
 
 /**
