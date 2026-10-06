@@ -73,6 +73,18 @@ describe('portable bundle exports mark identity shared (T13250)', () => {
     expect(prepareRowIdentity(db, 'project')?.refill).toBe('refused');
   });
 
+  it('a machine export marks every project store it bundles (not only a named one)', async () => {
+    expect(synced()).toBeUndefined();
+    const result = await exportPortableBundle({
+      scope: 'machine',
+      outputPath: join(env.tempDir, 'out', 'm.cleobundle.tar.gz'),
+      label: 'm',
+      isTempPath: () => false,
+    });
+    expect(result.sections.some((s) => s.kind === 'project')).toBe(true);
+    expect(JSON.parse(String(synced()?.value)).first).toBe('send');
+  });
+
   it('a local safety bundle (sharesIdentity: false) marks nothing', async () => {
     await exportBundle(false);
     expect(synced()).toBeUndefined();

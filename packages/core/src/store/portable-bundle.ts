@@ -162,9 +162,10 @@ export class PortableBundleError extends Error {
 /** Input for {@link exportPortableBundle}. */
 export interface ExportPortableBundleInput {
   /**
-   * The bundle carries the project store's row identity to wherever it is
-   * imported, so the store is marked shared first (`row_identity_synced`,
-   * T13250) and the bundle carries the marker too. Default `true`; `false`
+   * The bundle carries each project store's row identity to wherever it is
+   * imported, so every project store it bundles (one, or each registered
+   * project of a `machine` export) is marked shared first
+   * (`row_identity_synced`, T13250) and the bundle carries the marker too. Default `true`; `false`
    * only for a local safety bundle that never leaves this machine (the vault's
    * pre-restore export).
    */
@@ -354,6 +355,8 @@ interface StagingState {
   stripColumns: Readonly<Record<string, readonly string[]>> | null;
   /** Tables emptied in every primary store snapshot ({@link ExportPortableBundleInput.clearTables}). */
   clearTables: readonly string[] | null;
+  /** Mark every staged project store's identity shared first ({@link ExportPortableBundleInput.sharesIdentity}). */
+  sharesIdentity: boolean;
 }
 
 /** Credential tables whose rows {@link listCredentialsForReentry} enumerates, by store. */
@@ -645,6 +648,14 @@ async function stageProject(
   if (!fs.existsSync(cleoDir)) {
     throw new PortableBundleError('E_NO_PROJECT', `No .cleo directory at ${projectRoot}`);
   }
+  // T13250: every project store the bundle carries (one, or each registered
+  // project of a machine export) is marked shared before it is copied, so
+  // the bundle carries the marker too. A store with no identity is decided
+  // read-only and never touched.
+  if (state.sharesIdentity) {
+    const { markProjectIdentityShared } = await import('./identity-share.js');
+    await markProjectIdentityShared(projectRoot, 'send', { onlyIfIdentity: true });
+  }
   const info = await readProjectIdentity(projectRoot);
   const name = info.name;
   const safe = name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 60) || 'project';
@@ -727,10 +738,6 @@ export async function exportPortableBundle(
   if (withProject && !input.projectRoot) {
     throw new PortableBundleError('E_NO_PROJECT', `scope "${scope}" requires a project root`);
   }
-  if (withProject && input.projectRoot && input.sharesIdentity !== false) {
-    const { markProjectIdentityShared } = await import('./identity-share.js');
-    await markProjectIdentityShared(input.projectRoot, 'send', { onlyIfIdentity: true });
-  }
   const cleoHome = path.resolve(input.cleoHome ?? getCleoHome());
   const configHome = path.resolve(input.configHome ?? getCleoConfigDir());
   const outputPath = path.resolve(input.outputPath);
@@ -748,6 +755,7 @@ export async function exportPortableBundle(
     cleoHome,
     stripColumns: input.stripColumns ?? null,
     clearTables: input.clearTables ?? null,
+    sharesIdentity: input.sharesIdentity !== false,
   };
 
   try {
