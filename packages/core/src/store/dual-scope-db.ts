@@ -80,7 +80,7 @@ import {
   resolveConsolidatedJournalSiblings,
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
-import { assertStoreNotRestoring } from './restore-marker.js';
+import { assertStoreNotRestoring, awaitStoreWritable } from './restore-marker.js';
 import { healRowIdentitySchema, missingRowIdentitySchema, ROW_IDENTITY } from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
@@ -294,6 +294,8 @@ async function assertNoExodusRefusal(db: NodeSQLiteDatabase<any>): Promise<void>
  * never refuses another. Once the scope's anchor table has rows (the migration
  * or a reconcile ran, in this process or another) the guard lifts and writes
  * proceed. The temp triggers remain the backstop for every other write path.
+ * It first waits out another process's genesis or restore marker
+ * ({@link awaitStoreWritable}, T12343).
  *
  * @param nativeDb - The connection about to be written.
  * @throws {ExodusAbortWriteUnsafeError} When that store still owes its migration.
@@ -305,6 +307,10 @@ async function assertNoExodusRefusal(db: NodeSQLiteDatabase<any>): Promise<void>
  * @task T13167
  */
 export async function assertExodusWriteSafe(nativeDb: DatabaseSync): Promise<void> {
+  // T12343: a sync genesis cut (or a restore) in another process holds the
+  // store; wait for it, or refuse with its remedy, instead of failing with
+  // SQLITE_BUSY mid-write.
+  await awaitStoreWritable(nativeDb.location());
   const { activeExodusWriteGuard } = await import('./exodus/write-guard.js');
   const guard = activeExodusWriteGuard(nativeDb);
   if (guard !== undefined) {

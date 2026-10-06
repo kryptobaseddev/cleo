@@ -7,16 +7,17 @@
  * @task T12343
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
   openDualScopeDbAtPath,
 } from '../../dual-scope-db.js';
+import { RESTORE_MARKER_SUFFIX } from '../../restore-marker.js';
 import {
   ROW_IDENTITY_META_TABLE,
   ROW_IDENTITY_RECIPE,
@@ -26,6 +27,7 @@ import { finishCaptureFrame, openCaptureFrame, setCaptureEnabled } from '../capt
 import { isSyncFlagOn, setSyncFlag } from '../flags.js';
 import {
   cutGenesis,
+  cutGenesisWithSnapshot,
   GENESIS_CUT_KEY_PREFIX,
   GENESIS_PENDING_KEY_PREFIX,
   GENESIS_SOURCE_SEQ_KEY_PREFIX,
@@ -298,5 +300,80 @@ describe('genesis preconditions (T13032 AC2 step 0): a refusal cuts nothing', ()
     ).run();
     expect(cut(db).refused).toMatch(/suspect tables \(tasks_tasks\).*sync-journal --repair/);
     expectUncut(db);
+  });
+});
+
+describe('genesis cut with its checkpoint snapshot (S4-1b)', () => {
+  const opts = () => ({
+    scope: 'project' as const,
+    stream: STREAM,
+    dbPath,
+    now: () => ++clock,
+    env: {},
+    allowUnreleased: true,
+  });
+
+  it('the snapshot runs at the cut, under the write lock and the genesis marker, before the cut commits', async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    let seen: { cut: number; marker: string; cutKeys: number; tasks: number; busy: string } | null =
+      null;
+    const r = await cutGenesisWithSnapshot(db, opts(), async (cut) => {
+      // Another connection, as the bundle export uses: the store exactly at the cut.
+      const other = new DatabaseSync(dbPath);
+      try {
+        other.exec('PRAGMA busy_timeout = 0');
+        let busy = 'none';
+        try {
+          other.exec("INSERT INTO _sync_meta (key, value, updated_at) VALUES ('x', 'x', 'x')");
+        } catch (err) {
+          busy = (err as Error).message;
+        }
+        seen = {
+          cut,
+          marker: JSON.parse(readFileSync(dbPath + RESTORE_MARKER_SUFFIX, 'utf8')).kind,
+          cutKeys: n(other, "SELECT count(*) AS n FROM _sync_meta WHERE key LIKE 'genesis_cut:%'"),
+          tasks: n(other, 'SELECT count(*) AS n FROM tasks_tasks'),
+          busy,
+        };
+      } finally {
+        other.close();
+      }
+    });
+    expect(r.refused).toBeNull();
+    expect(seen).toEqual({
+      cut: r.cut,
+      marker: 'genesis',
+      cutKeys: 0, // the cut is not committed while the snapshot runs
+      tasks: 2, // T0 and T1: every pre-cut effect
+      busy: expect.stringMatching(/locked|busy/i), // nothing else can commit
+    });
+    expect(genesisCutOf(db, STREAM)).toBe(r.cut);
+    expect(existsSync(dbPath + RESTORE_MARKER_SUFFIX)).toBe(false);
+  });
+
+  it('a failing snapshot rolls the cut back and releases the marker', async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    await expect(
+      cutGenesisWithSnapshot(db, opts(), async () => {
+        throw new Error('upload failed');
+      }),
+    ).rejects.toThrow('upload failed');
+    expect(db.isTransaction).toBe(false);
+    expectUncut(db);
+    expect(existsSync(dbPath + RESTORE_MARKER_SUFFIX)).toBe(false);
+  });
+
+  it('a refused cut never runs the snapshot and releases the marker', async () => {
+    const { db } = await store();
+    setCaptureEnabled(db, 'project', false, { schemaRoot: SYNC_SCHEMA });
+    let ran = false;
+    const r = await cutGenesisWithSnapshot(db, opts(), async () => {
+      ran = true;
+    });
+    expect(r.refused).toBe('sync.capture is off');
+    expect(ran).toBe(false);
+    expect(existsSync(dbPath + RESTORE_MARKER_SUFFIX)).toBe(false);
   });
 });

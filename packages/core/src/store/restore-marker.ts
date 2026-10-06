@@ -45,8 +45,12 @@ export interface RestoreMarker {
   readonly pid: number;
   readonly host: string;
   readonly startedAt: string;
-  /** `restore` (`cleo restore backup` / `backup recover`) or `vault` (a vault restore). */
-  readonly kind: 'restore' | 'vault';
+  /**
+   * `restore` (`cleo restore backup` / `backup recover`), `vault` (a vault
+   * restore), or `genesis` (a sync genesis cut snapshotting the store under
+   * its write lock, T12343).
+   */
+  readonly kind: 'restore' | 'vault' | 'genesis';
 }
 
 /** The marker on `dbPath`, if any (unreadable counts as present, held by nobody known). */
@@ -93,18 +97,64 @@ export function assertStoreNotRestoring(dbPath: string, waitMs = waitBudget()): 
     marker = readMarker(dbPath);
   }
   if (!blocks(marker)) return;
+  // @sync-invariant none:local-only refused while another process replaces or snapshots the local store; nothing is written
+  throw markerRefusal(dbPath, marker);
+}
+
+/** The refusal for a store another live process holds the marker on. */
+function markerRefusal(dbPath: string, marker: RestoreMarker | 'unreadable' | null): CleoError {
   const who =
     marker === 'unreadable' || marker === null
       ? 'an unreadable marker'
       : `pid ${marker.pid} on ${marker.host} since ${marker.startedAt}`;
+  if (marker !== 'unreadable' && marker?.kind === 'genesis') {
+    // @sync-invariant none:local-only a write or open refused while the local store is snapshotted for its genesis checkpoint; nothing is written
+    return new CleoError(
+      ExitCode.LOCK_TIMEOUT,
+      `E_STORE_GENESIS: ${dbPath} is being snapshotted for a sync genesis checkpoint (${who}); its writes are paused until the snapshot finishes`,
+      {
+        fix: `run the command again once the genesis cut finishes. If none is running, remove ${dbPath}${RESTORE_MARKER_SUFFIX}`,
+      },
+    );
+  }
   // @sync-invariant none:local-only an open refused while the local store file is being replaced; nothing is written
-  throw new CleoError(
+  return new CleoError(
     ExitCode.LOCK_TIMEOUT,
     `E_STORE_RESTORING: ${dbPath} is being replaced by a restore (${who}); opening it now could corrupt the restored store`,
     {
       fix: `wait for the restore to finish and run the command again. If no restore is running, remove ${dbPath}${RESTORE_MARKER_SUFFIX}`,
     },
   );
+}
+
+/**
+ * The write-chokepoint form of {@link assertStoreNotRestoring}: a handle
+ * opened before another process took the marker must not write while the
+ * store is replaced or snapshotted (a genesis cut holds the write lock for
+ * its whole export, longer than a writer's busy timeout). Waits without
+ * blocking the event loop, up to `waitMs`, then refuses. Costs one
+ * `existsSync` when no marker is present.
+ *
+ * @param dbPath - The store file about to be written (null for an in-memory database: never blocks).
+ * @param waitMs - How long to wait (default {@link RESTORE_MARKER_WAIT_MS}, or `CLEO_RESTORE_WAIT_MS`).
+ * @throws {CleoError} `E_STORE_GENESIS` or `E_STORE_RESTORING` while another process still holds the marker.
+ * @task T12343
+ */
+export async function awaitStoreWritable(
+  dbPath: string | null,
+  waitMs = waitBudget(),
+): Promise<void> {
+  if (dbPath === null) return;
+  let marker = readMarker(dbPath);
+  if (!blocks(marker)) return;
+  const deadline = Date.now() + waitMs;
+  while (blocks(marker) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    marker = readMarker(dbPath);
+  }
+  if (!blocks(marker)) return;
+  // @sync-invariant none:local-only refused while another process replaces or snapshots the local store; nothing is written
+  throw markerRefusal(dbPath, marker);
 }
 
 /**
