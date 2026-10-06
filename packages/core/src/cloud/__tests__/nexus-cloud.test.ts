@@ -32,6 +32,7 @@ import {
   W_NEXUS_NOT_LINKED_LOCALLY,
   W_NEXUS_REPLICA_UNREADABLE,
   W_NEXUS_STATUS_COMPOSED,
+  W_NEXUS_STATUS_HOLDERS,
 } from '../nexus-cloud-status.js';
 import { FileNexusTokenStore } from '../nexus-credentials.js';
 import {
@@ -472,6 +473,56 @@ describe('cloud status (E3, §4.4)', () => {
     expect(result.summary.signedIn).toBe(false);
     expect(result.local.credentialsPath).toBe(devices.location);
     expect(server.calls).toHaveLength(0);
+  });
+
+  it('lists the devices holding the project, with fresh or stale presence (T13290)', async () => {
+    await signIn();
+    linkProject();
+    bindReplica();
+    const stale = new Date(Date.parse(NOW) - 3 * 86_400_000).toISOString();
+    const server = mockServer({
+      '/v1/status': () => ok(remote),
+      [`/v1/projects/${PROJECT_ID}/replicas`]: () =>
+        ok({
+          replicas: [
+            replicaRow(REPLICA),
+            { ...replicaRow('r-other', OTHER_DEVICE), deviceName: 'desk', presenceAt: stale },
+          ],
+          nextCursor: null,
+          truncated: false,
+        }),
+    });
+    const result = await getNexusCloudStatus({ ...opts(server.fetch), now: () => new Date(NOW) });
+    expect(result.holders).toEqual([
+      {
+        deviceId: DEVICE,
+        deviceName: 'laptop',
+        replicaId: REPLICA,
+        presenceAt: NOW,
+        fresh: true,
+        thisDevice: true,
+      },
+      {
+        deviceId: OTHER_DEVICE,
+        deviceName: 'desk',
+        replicaId: 'r-other',
+        presenceAt: stale,
+        fresh: false,
+        thisDevice: false,
+      },
+    ]);
+    expect(result.warnings.map((w) => w.code)).not.toContain(W_NEXUS_STATUS_HOLDERS);
+  });
+
+  it('a replica list that cannot be read is a warning, never a failure (T13290)', async () => {
+    await signIn();
+    linkProject();
+    bindReplica();
+    const server = mockServer({ '/v1/status': () => ok(remote) });
+    const result = await getNexusCloudStatus(opts(server.fetch));
+    expect(result.verdict).toBe('ok');
+    expect(result.holders).toBeUndefined();
+    expect(result.warnings.map((w) => w.code)).toContain(W_NEXUS_STATUS_HOLDERS);
   });
 
   it('reports ok for a linked project with a bound replica, sending projectId and replicaId', async () => {

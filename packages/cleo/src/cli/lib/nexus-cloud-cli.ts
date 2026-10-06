@@ -53,6 +53,46 @@ export function deviceStateArg(args: Args): NexusDeviceListState | undefined {
   });
 }
 
+/** A device holding a project, as the human summaries list it (T13290). */
+interface HolderLine {
+  deviceId: string;
+  deviceName: string;
+  presenceAt: string | null;
+  thisDevice: boolean;
+}
+
+/** Presence within a day reads as fresh, matching `NEXUS_PRESENCE_FRESH_SECONDS`. */
+const FRESH_MS = 86_400_000;
+
+/**
+ * One clause listing the devices holding a project (T13290), each with its
+ * name, short id, this-machine marker and presence: ` Devices: laptop (0198abcd, this machine, presence fresh); desk (0199ef01, presence stale since 2026-10-01).`
+ *
+ * @param holders - One row per device (duplicates by device id are merged).
+ * @param nowMs - The clock, for freshness.
+ * @returns The clause, or `''` when there is none.
+ */
+export function devicesClause(holders: readonly HolderLine[], nowMs: number = Date.now()): string {
+  const byDevice = new Map<string, HolderLine>();
+  for (const h of holders) {
+    const seen = byDevice.get(h.deviceId);
+    // Keep the most recent presence when a device holds more than one replica.
+    if (!seen || (h.presenceAt ?? '') > (seen.presenceAt ?? '')) byDevice.set(h.deviceId, h);
+  }
+  if (byDevice.size === 0) return '';
+  const lines = [...byDevice.values()].map((h) => {
+    const presence =
+      h.presenceAt === null
+        ? 'no presence yet'
+        : nowMs - Date.parse(h.presenceAt) <= FRESH_MS
+          ? 'presence fresh'
+          : `presence stale since ${h.presenceAt.slice(0, 10)}`;
+    const marks = [h.deviceId.slice(0, 8), ...(h.thisDevice ? ['this machine'] : []), presence];
+    return `${h.deviceName} (${marks.join(', ')})`;
+  });
+  return ` Devices: ${lines.join('; ')}.`;
+}
+
 /** `<retired> → <successor>` for each replica this device retired (T13109). */
 function retiredList(retired: readonly CloudRetiredReplica[]): string {
   return retired.map((x) => `${x.replicaId} retired → ${x.successor}`).join('; ');
@@ -80,7 +120,7 @@ export function cloudStatusSummary(r: CloudStatusResult): string {
     if (s.headSeq !== null) parts.push(`head ${s.headSeq}`);
     if (s.openConflicts !== null) parts.push(`${s.openConflicts} open conflict(s)`);
   }
-  return `Cloud status: ${r.verdict}. ${parts.join('; ')}.${syncSummary(r)}`;
+  return `Cloud status: ${r.verdict}. ${parts.join('; ')}.${devicesClause(r.holders ?? [])}${syncSummary(r)}`;
 }
 
 /**
@@ -117,11 +157,23 @@ function syncSummary(r: CloudStatusResult): string {
  * @param r - Project detail.
  * @returns e.g. `Project p "demo" (owner): 2 active device(s), 3 replica(s) (retired on this device: r-1 retired → r-2), head 7, 0 open conflict(s).`
  */
-export function cloudProjectShowSummary(r: CloudProjectShowResult): string {
+export function cloudProjectShowSummary(
+  r: CloudProjectShowResult,
+  thisDeviceId: string | null = null,
+): string {
   // Replicas this device retired stay listed by the server until S4 (T13109).
   const retired =
     r.retiredHere.length > 0 ? ` (retired on this device: ${retiredList(r.retiredHere)})` : '';
-  return `Project ${r.projectId} "${r.project.label ?? ''}" (${r.role}): ${r.devices.active} active device(s), ${r.replicas.length} replica(s)${retired}, head ${r.stream?.headSeq ?? 'none'}, ${r.openConflicts} open conflict(s).`;
+  const retiredIds = new Set(r.retiredHere.map((x) => x.replicaId));
+  const holders = r.replicas
+    .filter((rep) => !retiredIds.has(rep.replicaId))
+    .map((rep) => ({
+      deviceId: rep.deviceId,
+      deviceName: rep.deviceName,
+      presenceAt: rep.presenceAt,
+      thisDevice: thisDeviceId !== null && rep.deviceId === thisDeviceId,
+    }));
+  return `Project ${r.projectId} "${r.project.label ?? ''}" (${r.role}): ${r.devices.active} active device(s), ${r.replicas.length} replica(s)${retired}, head ${r.stream?.headSeq ?? 'none'}, ${r.openConflicts} open conflict(s).${devicesClause(holders)}`;
 }
 
 /**

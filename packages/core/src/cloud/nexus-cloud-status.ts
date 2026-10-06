@@ -41,6 +41,7 @@ import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
   CloudStatusGlobalStore,
+  CloudStatusHolder,
   CloudStatusLocal,
   CloudStatusOfflineDetails,
   CloudStatusResult,
@@ -78,6 +79,46 @@ import { FileNexusTokenStore, type NexusTokenStore, nexusOriginKey } from './nex
 import { NexusDeviceStore, UnreadableNexusDevice } from './nexus-device.js';
 import { nexusHomeReplicaListSchema } from './nexus-home.js';
 import { projectStream } from './streams.js';
+
+/** Warning: the replica list (who holds the project) could not be read for `cleo cloud status` (T13290). */
+export const W_NEXUS_STATUS_HOLDERS = 'W_NEXUS_STATUS_HOLDERS';
+
+/**
+ * The devices holding a project, from its replica list (E15), each with
+ * whether its presence is fresh (T13290). Best-effort: a failure is a warning
+ * and yields `undefined`.
+ */
+async function holdersOf(
+  conn: NexusCloudConnection,
+  projectId: string,
+  retired: ReadonlySet<string>,
+  now: () => Date,
+  warnings: CloudWarning[],
+): Promise<CloudStatusHolder[] | undefined> {
+  try {
+    const { replicas } = await listNexusCloudReplicas(conn, projectId);
+    const nowMs = now().getTime();
+    // Replicas this device retired stay listed by the server until S4 (T13109).
+    return replicas
+      .filter((r) => !retired.has(r.replicaId))
+      .map((r) => ({
+        deviceId: r.deviceId,
+        deviceName: r.deviceName,
+        replicaId: r.replicaId,
+        presenceAt: r.presenceAt,
+        fresh:
+          r.presenceAt !== null &&
+          nowMs - Date.parse(r.presenceAt) <= NEXUS_PRESENCE_FRESH_SECONDS * 1000,
+        thisDevice: r.deviceId === conn.device.deviceId,
+      }));
+  } catch (err) {
+    warnings.push({
+      code: W_NEXUS_STATUS_HOLDERS,
+      message: `could not list the devices holding project ${projectId}: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return undefined;
+  }
+}
 
 /** Warning: the server has no E3, so the status was composed from E2, E14 and E15. */
 export const W_NEXUS_STATUS_COMPOSED = 'W_NEXUS_STATUS_COMPOSED';
@@ -750,6 +791,16 @@ export async function getNexusCloudStatus(
     local.profile = conn.device.unseal().current?.profile ?? null;
     const remote = await remoteStatus(conn, projectId, replicaId, opts.now, warnings);
     const verdict = localVerdict(remote, project, isLocal, replica, warnings);
+    const holders =
+      projectId !== null && remote.project?.registered === true
+        ? await holdersOf(
+            conn,
+            projectId,
+            new Set(retiredReplicas.map((x) => x.replicaId)),
+            opts.now ?? (() => new Date()),
+            warnings,
+          )
+        : undefined;
     return {
       verdict,
       summary: summaryOf(remote, local, project, isLocal),
@@ -757,6 +808,7 @@ export async function getNexusCloudStatus(
       remote,
       global: await globalStoreOf(conn, warnings),
       ...withSync,
+      ...(holders !== undefined ? { holders } : {}),
       warnings,
     };
   } catch (err) {

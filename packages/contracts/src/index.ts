@@ -3066,6 +3066,7 @@ export type {
   CloudProjectsResult,
   CloudRetiredReplica,
   CloudStatusGlobalStore,
+  CloudStatusHolder,
   CloudStatusLocal,
   CloudStatusOfflineDetails,
   CloudStatusResult,
