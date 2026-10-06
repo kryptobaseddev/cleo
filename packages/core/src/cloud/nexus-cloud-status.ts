@@ -72,6 +72,7 @@ import {
   type NexusCloudOptions,
   type NexusCloudProject,
   nexusQueryPath,
+  retiredReplicasOfProject,
 } from './nexus-cloud.js';
 import { FileNexusTokenStore, type NexusTokenStore, nexusOriginKey } from './nexus-credentials.js';
 import { NexusDeviceStore, UnreadableNexusDevice } from './nexus-device.js';
@@ -178,11 +179,13 @@ function unreadableStore(reason: string): NexusLocalReplicaRead {
  * writes a row.
  *
  * SQLite side effect: a read-only open of a WAL-mode store needs the `-wal`
- * and `-shm` sidecars, and SQLite creates them (empty) when they are missing
- * and the directory is writable. Run as another user (for example under
- * `sudo`), those sidecars would be left owned by that user, so when the store
- * has no `-wal` and the directory is not writable by the caller the open is
- * skipped and the store reported unreadable instead.
+ * and `-shm` sidecars, and SQLite creates them (empty, owned by the caller)
+ * when they are missing and the directory is writable — the normal case for
+ * a cleanly closed store. The store file itself is never modified. Run as
+ * another user (for example under `sudo`), such sidecars would be left owned
+ * by that user, so when the store has no `-wal` and the directory is not
+ * writable by the caller the open is skipped and the store reported
+ * unreadable instead.
  *
  * @param projectRoot - Project root.
  * @returns The replica id, whether the store was unreadable, and a warning.
@@ -208,14 +211,16 @@ type StoreSnapshotRead<T> =
 
 /**
  * Run `read` on a read-only snapshot of a store: no migrations, no pragmas,
- * closed before returning. Never writes a row.
+ * closed before returning. Never writes a row, and never modifies the store
+ * file — but it MAY create empty sidecars, see below.
  *
  * SQLite side effect: a read-only open of a WAL-mode store needs the `-wal`
- * and `-shm` sidecars, and SQLite creates them (empty) when they are missing
- * and the directory is writable. Run as another user (for example under
- * `sudo`), those sidecars would be left owned by that user, so when the store
- * has no `-wal` and the directory is not writable by the caller the open is
- * skipped and the store reported unreadable instead.
+ * and `-shm` sidecars, and SQLite creates them (empty, owned by the caller)
+ * when they are missing and the directory is writable — the normal case for
+ * a cleanly closed store. Run as another user (for example under `sudo`),
+ * such sidecars would be left owned by that user, so when the store has no
+ * `-wal` and the directory is not writable by the caller the open is skipped
+ * and the store reported unreadable instead.
  */
 async function readStoreSnapshot<T>(
   path: string,
@@ -280,20 +285,31 @@ export async function readStoreSyncStream(
   stream: string | null,
   dbPath: string,
 ): Promise<CloudStatusSyncStream> {
-  const [{ readSyncFlags }, { hasTable }, { sealBacklog }, { suspectTables }] = await Promise.all([
-    import('../store/sync/flags.js'),
-    import('../store/sync/schema.js'),
-    import('../store/sync/seal-backlog.js'),
-    import('../store/sync/structural.js'),
-  ]);
+  const [{ readSyncFlags }, { hasTable }, { sealBacklog }, { suspectTables }, { activeReplica }] =
+    await Promise.all([
+      import('../store/sync/flags.js'),
+      import('../store/sync/schema.js'),
+      import('../store/sync/seal-backlog.js'),
+      import('../store/sync/structural.js'),
+      import('../store/sync/replica.js'),
+    ]);
   const flags = readSyncFlags(db);
   const backlog = sealBacklog(db);
   let lastSealedSeq: number | null = null;
   if (hasTable(db, '_sync_txn')) {
-    // Inherited and folded txns belong to another replica's history.
-    const row = db
-      .prepare("SELECT max(local_seq) AS seq FROM _sync_txn WHERE state IN ('sealed', 'segmented')")
-      .get() as { seq: number | null } | undefined;
+    // This replica's own txns in any state but `inherited` (a copied store's
+    // rows from its original replica, §1.5). `folded` txns sit at or below a
+    // genesis cut (§2.11) and are still this replica's sealed history.
+    const replica = activeReplica(db, scope)?.replicaId ?? null;
+    const row = (
+      replica === null
+        ? db.prepare("SELECT max(local_seq) AS seq FROM _sync_txn WHERE state <> 'inherited'").get()
+        : db
+            .prepare(
+              "SELECT max(local_seq) AS seq FROM _sync_txn WHERE state <> 'inherited' AND replica = ?",
+            )
+            .get(replica)
+    ) as { seq: number | null } | undefined;
     lastSealedSeq = row?.seq ?? null;
   }
   const quarantined: Record<string, number> = {};
@@ -683,9 +699,11 @@ export async function getNexusCloudStatus(
   // about by its linked remote id, like the bare command.
   const projectId = isLocal ? projectHere : (opts.projectId ?? null);
   let replica: NexusLocalReplicaRead = { replicaId: null, unreadable: false, warning: null };
+  let retiredReplicas: CloudStatusLocal['retiredReplicas'] = [];
   if (isLocal && project !== null) {
     replica = await readNexusLocalReplicaId(project.root);
     if (replica.warning) warnings.push(replica.warning);
+    retiredReplicas = await retiredReplicasOfProject(project.root);
   }
   const replicaId = replica.replicaId;
   // T12998: the local sync journal, read on every path (signed in or not,
@@ -706,6 +724,7 @@ export async function getNexusCloudStatus(
     profile: null,
     projectId,
     replicaId,
+    retiredReplicas,
     linkPath: isLocal && project?.link ? project.linkPath : null,
     credentialsPath: devices.location,
   };

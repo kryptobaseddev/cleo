@@ -101,9 +101,14 @@ export const HEAVY_TOOL_WORDS: readonly string[] = Object.freeze([
  */
 export type HeavyHookSyncResult = 'installed' | 'updated' | 'removed' | 'unchanged' | 'skipped';
 
+/**
+ * `path` through the native realpath, which returns the case stored on disk,
+ * so a differently cased spelling of the home directory on a case-insensitive
+ * volume still matches it (T13227 review).
+ */
 function canonical(path: string): string {
   try {
-    return realpathSync(path);
+    return realpathSync.native(path);
   } catch {
     return resolve(path);
   }
