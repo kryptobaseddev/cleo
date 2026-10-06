@@ -1232,3 +1232,42 @@ describe('review #1903 LOWs', () => {
     expect(statuses(db)).toEqual(['1.0:refused-schema', '2.0:refused-schema']);
   });
 });
+
+describe('T13226 shapes (#1909): journaled SET NULL and parent-keyed child deletes', () => {
+  for (const order of ['U-then-D', 'D-then-U'] as const) {
+    for (const recursive of [false, true]) {
+      it(`a SET NULL U plus the parent D (${order}, recursive triggers ${recursive ? 'on' : 'off'}) apply with no conflict`, async () => {
+        const db = await store();
+        db.exec('PRAGMA foreign_keys = ON');
+        if (recursive) db.exec('PRAGMA recursive_triggers = ON');
+        stage(
+          db,
+          segment(R1, [
+            txn('R1:1', [
+              insert('p1', h(1), { type: 'epic' }),
+              insert('c1', h(1), { parent_id: 'p1' }),
+            ]),
+          ]),
+        );
+        apply(db);
+        const u: LedgerOp = {
+          ...update('c1', h(5, R2), { parent_id: null }),
+          b: { parent_id: 'p1' },
+        };
+        const d: LedgerOp = { ...del('p1', h(5, R2)), k: { parent_id: 'p1' } };
+        stage(db, segment(R2, [txn('R2:1', order === 'U-then-D' ? [u, d] : [d, u])]));
+        expect(apply(db)).toMatchObject({ applied: 1, conflict: 0, void: 0, pending: 0 });
+        expect(listConflicts(db)).toEqual([]);
+        expect(task(db, 'p1')).toBeUndefined();
+        expect(
+          (
+            db.prepare("SELECT parent_id AS p FROM tasks_tasks WHERE uid = 'c1'").get() as {
+              p: string | null;
+            }
+          ).p,
+        ).toBeNull();
+        expect(seal(db).txns, 'echoed').toBe(0);
+      });
+    }
+  }
+});
