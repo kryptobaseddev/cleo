@@ -3158,6 +3158,7 @@ export {
   type CloudVaultStatusResult,
   type CloudVaultTable,
   type CloudVaultTableDiff,
+  type CloudVerifyDeepCheck,
   type CloudVerifyResult,
   NEXUS_VAULT_LEASE_ROLE,
   type NexusActivityEvent,
