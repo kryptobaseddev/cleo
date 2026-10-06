@@ -510,22 +510,67 @@ export const AUTO_GLOBAL_BACKUP_INTERVAL_MS = 60 * 60 * 1000;
  * The session-end backup of the global store (T13245): an `auto` backup via
  * {@link createGlobalBackup}, at most once per
  * {@link AUTO_GLOBAL_BACKUP_INTERVAL_MS} (the global store is shared by every
- * project, so every session end would otherwise copy it). Never throws.
+ * project, so every session end would otherwise copy it). Single-flight across
+ * processes under a lock with the age re-checked inside it, and admitted by the
+ * governor as `db-heavy` (T13286). Never throws.
  *
  * @param now - Clock (tests).
+ * @param opts - The admission (tests); defaults to a non-blocking `db-heavy` governor admission.
  * @returns The backup id written, or `null` when skipped or failed.
  * @task T13245
  */
-export async function autoGlobalBackup(now: Date = new Date()): Promise<string | null> {
-  try {
+export async function autoGlobalBackup(
+  now: Date = new Date(),
+  opts: { admit?: () => Promise<{ release: () => Promise<void> } | null> } = {},
+): Promise<string | null> {
+  const due = (): boolean => {
     const newest = listGlobalBackups().find((b) => b.type === 'auto');
-    if (newest && now.getTime() - Date.parse(newest.timestamp) < AUTO_GLOBAL_BACKUP_INTERVAL_MS) {
+    return (
+      !newest || now.getTime() - Date.parse(newest.timestamp) >= AUTO_GLOBAL_BACKUP_INTERVAL_MS
+    );
+  };
+  try {
+    if (!due()) return null;
+    // T13286: single-flight. Every project's session end lands here; one
+    // process copies the shared global store, the rest skip (the lock is
+    // taken without waiting) and the age is re-checked under it.
+    const dir = globalBackupDir();
+    mkdirSync(dir, { recursive: true });
+    const { acquireLock } = await import('../store/lock.js');
+    let unlock: (() => Promise<void>) | null = null;
+    try {
+      unlock = await acquireLock(dir, { retries: 0, stale: 60_000 });
+    } catch {
       return null;
     }
-    const r = await createGlobalBackup({ type: 'auto' });
-    return r.files.length > 0 ? r.backupId : null;
+    try {
+      if (!due()) return null;
+      // A full VACUUM INTO of the largest shared store is db-heavy work:
+      // admitted by the governor, skipped (not queued) under pressure.
+      const admission = await (opts.admit ?? admitDbHeavy)();
+      if (admission === null) return null;
+      try {
+        const r = await createGlobalBackup({ type: 'auto' });
+        return r.files.length > 0 ? r.backupId : null;
+      } finally {
+        await admission.release();
+      }
+    } finally {
+      await unlock();
+    }
   } catch {
     return null;
+  }
+}
+
+/** A non-blocking `db-heavy` admission; `null` when deferred. A governor failure admits (fail open, as the store opens do). */
+async function admitDbHeavy(): Promise<{ release: () => Promise<void> } | null> {
+  try {
+    const { governor } = await import('../resources/governor.js');
+    const admit = await governor.acquire('db-heavy', { blocking: false });
+    return admit.deferred ? null : { release: admit.release };
+  } catch {
+    return { release: async () => {} };
   }
 }
 

@@ -21,8 +21,8 @@
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { resolveStableDeviceIdPath } from '@cleocode/paths';
 import { CleoError } from '../errors.js';
-import { getStableDeviceId } from '../llm/stable-device-id.js';
 import { isPidAlive } from './pid-alive.js';
 
 /** Suffix of the marker beside the store file. */
@@ -70,9 +70,23 @@ function readMarker(dbPath: string): RestoreMarker | 'unreadable' | null {
  */
 export const RESTORE_MARKER_MAX_AGE_MS = 60 * 60 * 1000;
 
-/** Whether the marker was written on this machine (stable device id, else hostname). */
+/**
+ * This machine's stable device id, read-only (an open that meets a marker
+ * never writes: a missing id file is not minted here), or `null`.
+ */
+function readDeviceId(): string | null {
+  try {
+    const id = readFileSync(resolveStableDeviceIdPath(), 'utf8').trim();
+    return id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether the marker was written on this machine (stable device id when both sides have one, else hostname). */
 function onThisMachine(marker: RestoreMarker): boolean {
-  if (marker.deviceId !== undefined) return marker.deviceId === getStableDeviceId();
+  const mine = marker.deviceId !== undefined ? readDeviceId() : null;
+  if (marker.deviceId !== undefined && mine !== null) return marker.deviceId === mine;
   return marker.host === hostname();
 }
 
@@ -170,10 +184,11 @@ export function assertStoreNotRestoring(dbPath: string, waitMs = waitBudget()): 
  */
 export function writeRestoreMarker(dbPath: string, kind: RestoreMarker['kind']): () => void {
   const file = dbPath + RESTORE_MARKER_SUFFIX;
+  const deviceId = readDeviceId();
   const marker: RestoreMarker = {
     pid: process.pid,
     host: hostname(),
-    deviceId: getStableDeviceId(),
+    ...(deviceId !== null ? { deviceId } : {}),
     startedAt: new Date().toISOString(),
     kind,
   };

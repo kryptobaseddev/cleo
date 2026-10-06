@@ -7,11 +7,10 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getStableDeviceId } from '../../llm/stable-device-id.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import {
   assertStoreNotRestoring,
@@ -115,8 +114,21 @@ describe('restore-in-progress marker (T13258)', () => {
   });
 
   it('a dead holder on this machine is stale even when the hostname changed (device id; LOW-2)', () => {
-    markerOf(deadPid(), { host: 'renamed-by-dhcp.local', deviceId: getStableDeviceId() });
+    mkdirSync(join(dir, 'home'), { recursive: true });
+    writeFileSync(join(dir, 'home', 'device-id'), 'this-device\n');
+    markerOf(deadPid(), { host: 'renamed-by-dhcp.local', deviceId: 'this-device' });
     expect(() => assertStoreNotRestoring(db)).not.toThrow();
+  });
+
+  it('an open that meets a marker never writes: no device id is minted (read-only lookup)', () => {
+    markerOf(process.ppid, { deviceId: 'some-device' });
+    // No device-id file here: the hostname decides, and nothing is created.
+    expect(() => assertStoreNotRestoring(db)).toThrow(/E_STORE_RESTORING/);
+    expect(existsSync(join(dir, 'home', 'device-id'))).toBe(false);
+    rmSync(db + RESTORE_MARKER_SUFFIX, { force: true });
+    const release = writeRestoreMarker(db, 'restore');
+    release();
+    expect(existsSync(join(dir, 'home', 'device-id'))).toBe(false);
   });
 
   it('another machine: a fresh marker blocks; one older than the max age is stale', () => {

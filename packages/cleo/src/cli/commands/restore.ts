@@ -183,7 +183,7 @@ const backupSubCommand = defineCommand({
     scope: {
       type: 'string',
       description:
-        'With --snapshot/--id: project (.cleo/cleo.db, the default) or global (<CLEO_HOME>/cleo.db: the global brain, nexus, agent registry)',
+        'With --snapshot/--id: project (.cleo/cleo.db, the default) or global (<CLEO_HOME>/cleo.db: the global brain, nexus, agent registry). A global restore needs every cleo process stopped (agent sessions, daemons, Studio): nearly all of them hold the global store open',
       default: 'project',
     },
     'confirm-owner-store': {

@@ -1,6 +1,6 @@
 ---
 id: t13245-backups-target-cleo-db
-tasks: [T13245, T13258]
+tasks: [T13245, T13258, T13286]
 kind: fix
 summary: backup recover and restore-by-id now restore the live cleo.db; the global store gets backups and a restore path; backup add writes one cleo.db copy
 ---
@@ -28,9 +28,13 @@ missed it:
 - **The global store** (`<CLEO_HOME>/cleo.db`: the global brain, nexus and agent registry) had no
   backup and no restore. Now:
   - `cleo backup add --global` writes one `VACUUM INTO` copy to `<CLEO_HOME>/backups/sqlite/`;
-  - the session end takes an `auto` global backup at most once an hour;
+  - the session end takes an `auto` global backup at most once an hour. Concurrent session ends
+    across projects take ONE: the backup runs single-flight under a cross-process lock, re-checks
+    its age under it, and is admitted by the governor as `db-heavy` (skipped under pressure);
   - `cleo backup list --scope global|project|all` honours its scope;
-  - `cleo restore backup --scope global --id|--snapshot` restores it the same safe way.
+  - `cleo restore backup --scope global --id|--snapshot` restores it the same safe way. Nearly
+    every cleo process holds the global store open, so a global restore usually needs all of them
+    stopped (agent sessions, daemons, Studio); the help text and the busy refusal say so.
 
   A project snapshot is never placed as the global store, nor the reverse.
 - **Dedup.** `backup add` writes one `cleo.db.<backupId>` instead of two identical `tasks.db.` /
@@ -40,7 +44,8 @@ missed it:
   empty file that reads as a backup.
 
 **Restore marker hardening (T13258 review LOWs on #1902).**
-- **Stale detection survives a hostname change.** A marker records its holder's stable device id,
+- **Stale detection survives a hostname change.** A marker records its holder's stable device id
+  (read-only lookup: an open that meets a marker never writes, and falls back to the hostname),
   so a crashed restore on this machine is recognised as stale even after the hostname changes
   (macOS changes it with the network). Any marker older than an hour is also stale.
 - **Opens re-check after opening.** An open checks the marker again after it opens: one written

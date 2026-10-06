@@ -10,8 +10,16 @@
  * @task T13245
  */
 
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -330,6 +338,90 @@ describe('the global store backs up and restores (T13245)', () => {
     await expect(
       restoreStoreSnapshot({ projectRoot: env.tempDir, snapshot: globalCopy, cwd: env.tempDir }),
     ).rejects.toThrow(/E_RESTORE_SNAPSHOT_SHAPE/);
+  });
+
+  it('concurrent session ends take exactly ONE global backup (single-flight, T13286)', async () => {
+    const { path: gpath } = await globalDb();
+    const admit = async () => ({ release: async () => {} });
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => autoGlobalBackup(new Date(), { admit })),
+    );
+    expect(results.filter((r) => r !== null)).toHaveLength(1);
+    const gdir = join(dirname(gpath), 'backups', 'sqlite');
+    expect(readdirSync(gdir).filter((f) => f.startsWith('cleo.db.auto-'))).toHaveLength(1);
+  });
+
+  it('concurrent session ends in separate PROCESSES take exactly one global backup (T13286)', async () => {
+    const { path: gpath } = await globalDb();
+    resetDbState();
+    const dist = join(import.meta.dirname, '../../../dist/system/backup.js');
+    const script = `const { autoGlobalBackup } = await import(${JSON.stringify(`file://${dist}`)});
+      const id = await autoGlobalBackup(new Date(), { admit: async () => ({ release: async () => {} }) });
+      process.stdout.write(String(id));`;
+    const runs = await Promise.all(
+      Array.from(
+        { length: 3 },
+        () =>
+          new Promise<string>((ok) => {
+            const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
+              env: { ...process.env },
+              stdio: ['ignore', 'pipe', 'inherit'],
+            });
+            let out = '';
+            child.stdout?.on('data', (d: Buffer) => {
+              out += d.toString();
+            });
+            child.on('close', () => ok(out));
+          }),
+      ),
+    );
+    expect(runs.filter((r) => r !== 'null' && r !== '')).toHaveLength(1);
+    const gdir = join(dirname(gpath), 'backups', 'sqlite');
+    expect(readdirSync(gdir).filter((f) => f.startsWith('cleo.db.auto-'))).toHaveLength(1);
+  });
+
+  it('a global restore refused as busy tells the operator to stop every cleo process', async () => {
+    const { path: gpath } = await globalDb();
+    const backup = await createGlobalBackup({ type: 'snapshot' });
+    resetDbState();
+    const holder = spawn(
+      process.execPath,
+      [
+        '-e',
+        `const { DatabaseSync } = require('node:sqlite');
+         const db = new DatabaseSync(process.argv[1]);
+         db.prepare('SELECT 1').get();
+         process.stdout.write('ready\\n');
+         setInterval(() => db.prepare('SELECT 1').get(), 50);`,
+        gpath,
+      ],
+      { stdio: ['ignore', 'pipe', 'inherit'] },
+    );
+    try {
+      await new Promise<void>((ok) => holder.stdout?.once('data', () => ok()));
+      await expect(
+        restoreBackupById(env.tempDir, {
+          backupId: backup.backupId,
+          scope: 'global',
+          cwd: env.tempDir,
+        }),
+      ).rejects.toMatchObject({
+        message: expect.stringMatching(/E_RESTORE_STORE_BUSY/),
+        fix: expect.stringMatching(/stop ALL of them/),
+      });
+    } finally {
+      holder.kill();
+    }
+  });
+
+  it('a deferred db-heavy admission takes no global backup', async () => {
+    const { path: gpath } = await globalDb();
+    expect(await autoGlobalBackup(new Date(), { admit: async () => null })).toBeNull();
+    const gdir = join(dirname(gpath), 'backups', 'sqlite');
+    const autos = existsSync(gdir)
+      ? readdirSync(gdir).filter((f) => f.startsWith('cleo.db.auto-'))
+      : [];
+    expect(autos).toEqual([]);
   });
 
   it('the session-end global backup is debounced to one per interval', async () => {

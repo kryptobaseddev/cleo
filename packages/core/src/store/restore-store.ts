@@ -285,7 +285,17 @@ function verifySnapshot(
  * Refuse while another process uses the live store. This process's own
  * handles are closed first.
  */
-async function assertQuiescent(target: string, assumeStoppedIfUnverifiable = false): Promise<void> {
+async function assertQuiescent(
+  target: string,
+  assumeStoppedIfUnverifiable = false,
+  scope: 'project' | 'global' = 'project',
+): Promise<void> {
+  // Nearly every cleo process opens the global store, so a global restore
+  // usually waits for all of them (T13245).
+  const globalHint =
+    scope === 'global'
+      ? ' The global store is open in nearly every cleo process: stop ALL of them (agent sessions, daemons, Studio), then retry.'
+      : '';
   const { closeAllDatabases } = await import('./sqlite.js');
   await closeAllDatabases();
   const { _resetDualScopeDbCache } = await import('./dual-scope-db.js');
@@ -314,7 +324,7 @@ async function assertQuiescent(target: string, assumeStoppedIfUnverifiable = fal
       ExitCode.LOCK_TIMEOUT,
       'E_RESTORE_STORE_BUSY',
       `another cleo process is writing to ${target} (${held.map((h) => `${h.lane} lane, pid ${h.holderPid}`).join('; ')}); restoring now would lose its writes`,
-      'wait for it to finish (or stop it), then run it again',
+      `wait for it to finish (or stop it), then run it again.${globalHint}`,
     );
   }
   if (open) {
@@ -323,7 +333,7 @@ async function assertQuiescent(target: string, assumeStoppedIfUnverifiable = fal
       ExitCode.LOCK_TIMEOUT,
       'E_RESTORE_STORE_BUSY',
       `another process has ${target} open (a cleo session, daemon or tool); it would keep writing to the replaced store`,
-      'close it (end the session, `cleo daemon stop`), then run it again',
+      `close it (end the session, \`cleo daemon stop\`), then run it again.${globalHint}`,
     );
   }
 }
@@ -451,7 +461,7 @@ export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<S
   copyDurable(source.path, staged);
   try {
     const verification = verifySnapshot(staged, scope);
-    await assertQuiescent(target, opts.assumeStoppedIfUnverifiable === true);
+    await assertQuiescent(target, opts.assumeStoppedIfUnverifiable === true, scope);
     const now = opts.now ?? new Date();
     const sqliteDir = join(cleoDir, 'backups', 'sqlite');
     const { FIRST_OPEN_LOCK_SUFFIX } = await import('./sqlite.js');
@@ -462,7 +472,7 @@ export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<S
         // never take this lock) waits on, then refuses, this marker.
         const release = writeRestoreMarker(target, 'restore');
         try {
-          await assertQuiescent(target, opts.assumeStoppedIfUnverifiable === true);
+          await assertQuiescent(target, opts.assumeStoppedIfUnverifiable === true, scope);
           const kept = existsSync(target) ? keepLiveStore(target, sqliteDir, now) : null;
           const removed: string[] = [];
           for (const s of SIDECARS) {
