@@ -7,9 +7,13 @@
  *   `(created_at, name, hash)` per applied migration, in drizzle's order
  *   `(created_at, name)`. A single head is not enough: stamped and drifted
  *   stores differ below it.
- * - `triggerSetHash`: sha256 over the normalized DDL of every non-capture
- *   trigger (guards, claim release, the AC graveyard, side effects), sorted
- *   by name. Normalization is literal-safe ({@link normalizeTriggerDdl}).
+ * - `triggerSetHash`: sha256 over the normalized DDL of the store's OWNED
+ *   triggers ({@link OWNED_TRIGGERS}: the guard and side-effect triggers a
+ *   replay runs under), sorted by name. Device-local maintenance triggers
+ *   (the twin-collapse docs freeze, whose message names the build that froze
+ *   that store, and the legacy track triggers) never touch a replayed table,
+ *   so they stay out: two devices with the same replay semantics agree
+ *   (T13298). Normalization is literal-safe ({@link normalizeTriggerDdl}).
  * - `transitions`: the schema rise points inside the checkpoint's window;
  *   the caller computes them from the segments it replayed (empty for a
  *   genesis checkpoint, which has no window to replay).
@@ -26,7 +30,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { ReplayPin } from '@cleocode/contracts/cloud';
 import { hasTable } from './schema.js';
 import { canonicalJson } from './sealer-values.js';
-import { CAPTURE_TRIGGER_PREFIX } from './trigger-classes.js';
+import { OWNED_TRIGGERS } from './trigger-classes.js';
 
 const sha256Hex = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
 
@@ -133,9 +137,10 @@ export function migrationJournalHash(db: DatabaseSync): string {
 }
 
 /**
- * sha256 over every non-capture trigger's normalized DDL, sorted by name
- * (§2.11 §7). Capture triggers are excluded: they are generated per build
- * from the sync set and never run in a replay.
+ * sha256 over the normalized DDL of every owned trigger present in the store
+ * ({@link OWNED_TRIGGERS}), sorted by name (§2.11 §7; T13298). Capture
+ * triggers (generated per build) and device-local maintenance triggers are
+ * excluded: they never run in a replay.
  *
  * @param db - The store.
  * @returns The hex digest.
@@ -145,7 +150,7 @@ export function triggerSetHash(db: DatabaseSync): string {
     db
       .prepare("SELECT name, sql FROM main.sqlite_master WHERE type = 'trigger' ORDER BY name")
       .all() as Array<{ name: string; sql: string | null }>
-  ).filter((r) => !r.name.startsWith(CAPTURE_TRIGGER_PREFIX) && r.sql !== null);
+  ).filter((r) => Object.hasOwn(OWNED_TRIGGERS, r.name) && r.sql !== null);
   return sha256Hex(canonicalJson(rows.map((r) => [r.name, normalizeTriggerDdl(r.sql as string)])));
 }
 

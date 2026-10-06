@@ -57,20 +57,36 @@ describe('normalizeTriggerDdl (literal-safe)', () => {
 });
 
 describe('triggerSetHash', () => {
-  it('covers every non-capture trigger, in name order, and ignores capture triggers', () => {
+  /** An owned guard trigger (its name is in OWNED_TRIGGERS), with GUARD's body. */
+  const OWNED = GUARD.replace(
+    'CREATE TRIGGER g ',
+    'CREATE TRIGGER tasks_tasks_parent_cycle_guard_insert ',
+  );
+  const freeze = (version: string) =>
+    `CREATE TRIGGER t12535_freeze_docs_insert BEFORE INSERT ON t BEGIN SELECT RAISE(ABORT, 'docs frozen by ${version}'); END`;
+
+  it('hashes the owned triggers only: device-local freeze and track triggers never split two devices (T13298)', () => {
     const a = store();
     const b = store();
-    a.exec(GUARD);
-    a.exec("CREATE TRIGGER h AFTER INSERT ON t BEGIN SELECT 'h'; END");
-    b.exec("CREATE TRIGGER h AFTER INSERT ON t BEGIN SELECT 'h'; END"); // other creation order
-    b.exec(GUARD);
-    expect(triggerSetHash(a)).toBe(triggerSetHash(b));
-    const before = triggerSetHash(a);
+    a.exec(OWNED);
+    b.exec(OWNED.replaceAll('\n', ' ').replace('BEFORE UPDATE', 'before   update')); // same trigger, other layout
+    // Device-local maintenance: frozen by different builds, track triggers on one store only.
+    a.exec(freeze('2026.10.3'));
+    b.exec(freeze('2026.10.5'));
+    a.exec("CREATE TRIGGER t12535_track_docs_insert AFTER INSERT ON t BEGIN SELECT 'track'; END");
     a.exec("CREATE TRIGGER _sync_cap_t_i AFTER INSERT ON t BEGIN SELECT 'cap'; END");
-    expect(triggerSetHash(a), 'a capture trigger changed the pin').toBe(before);
-    a.exec('DROP TRIGGER g');
-    a.exec(GUARD.replaceAll("'Done'", "'done'"));
-    expect(triggerSetHash(a), 'a guard literal change kept the pin').not.toBe(before);
+    expect(triggerSetHash(a)).toBe(triggerSetHash(b));
+  });
+
+  it('changes when an owned trigger changes', () => {
+    const a = store();
+    a.exec(OWNED);
+    const before = triggerSetHash(a);
+    a.exec('DROP TRIGGER tasks_tasks_parent_cycle_guard_insert');
+    a.exec(OWNED.replaceAll("'Done'", "'done'"));
+    expect(triggerSetHash(a), 'an owned guard literal change kept the pin').not.toBe(before);
+    a.exec('DROP TRIGGER tasks_tasks_parent_cycle_guard_insert');
+    expect(triggerSetHash(a), 'a dropped owned guard kept the pin').not.toBe(before);
   });
 });
 
