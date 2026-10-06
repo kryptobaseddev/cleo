@@ -490,6 +490,25 @@ export interface CloudStatusLocal {
 }
 
 /** `CloudStatusResult` (§4.4): the data of the `cloud.status` envelope. */
+/**
+ * One device holding the project, as `cleo cloud status` lists it (T13290):
+ * a replica row reduced to who holds it and whether its presence is fresh.
+ */
+export interface CloudStatusHolder {
+  /** Nexus device id. */
+  deviceId: string;
+  /** The device's display name. */
+  deviceName: string;
+  /** The replica this device holds. */
+  replicaId: string;
+  /** Last presence report, or `null` when it never reported. */
+  presenceAt: string | null;
+  /** Presence within {@link NEXUS_PRESENCE_FRESH_SECONDS}. */
+  fresh: boolean;
+  /** This machine's own device. */
+  thisDevice: boolean;
+}
+
 export interface CloudStatusResult {
   /** The remote verdict, downgraded by local facts the server cannot see. */
   verdict: CloudStatusVerdict;
@@ -507,6 +526,12 @@ export interface CloudStatusResult {
    * online or offline); absent when no store could be read.
    */
   sync?: CloudStatusSync;
+  /**
+   * The devices holding the project (T13290), from the replica list; absent
+   * when there is no registered project to ask about or the list failed (a
+   * warning says so). Additive: older readers ignore it.
+   */
+  holders?: CloudStatusHolder[];
   /** Non-fatal problems. */
   warnings: CloudWarning[];
 }
