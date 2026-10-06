@@ -43,3 +43,5 @@ This is the second slice of the scoped rebase (T13193 R-2), against journal spec
 - **The sync-schema heal re-runs `ADD COLUMN` safely.** `healSyncSchema` re-runs every applied folder when a sync table is missing.
   It now skips an `ALTER TABLE … ADD COLUMN` whose column already exists (SQLite has no `IF NOT EXISTS` for it). It still re-adds the
   column to a table the heal recreated. Without this, `t13193-rebase-state` made every heal fail with `duplicate column name`.
+  `ensureSyncSchema` re-applies a folder the same way when a store carries its tables without its `schema:` journal row (a vault
+  bundle restored without `_sync_meta`), which otherwise failed the vault's home-stream restore the same way.

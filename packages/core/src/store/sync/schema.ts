@@ -146,7 +146,10 @@ export function ensureSyncSchema(
   try {
     const todo = pending(folders, appliedSyncSchemaHashes(db));
     for (const f of todo) {
-      db.exec(f.sql);
+      // A store that carries a folder's tables without its journal row (a
+      // vault bundle restored without `_sync_meta`) re-runs it: its ADD COLUMNs
+      // must not fail on the columns it already has.
+      db.exec(rerunnableSql(db, f.sql));
       db.prepare(
         'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
           'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
