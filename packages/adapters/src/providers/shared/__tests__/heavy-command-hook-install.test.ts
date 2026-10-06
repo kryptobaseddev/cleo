@@ -591,6 +591,15 @@ describe('installer wiring', () => {
       false,
     );
     expect(isUserHomeDir(join(home, 'project'))).toBe(false);
+    // T13227: no instruction file at $HOME either; providers load ~/CLAUDE.md
+    // and ~/AGENTS.md into every session under it.
+    expect(results.map((r) => r.details?.instructionFile)).toEqual([
+      'skipped',
+      'skipped',
+      'skipped',
+    ]);
+    expect(existsSync(join(home, 'CLAUDE.md'))).toBe(false);
+    expect(existsSync(join(home, 'AGENTS.md'))).toBe(false);
   });
 
   it('Codex and opencode install only when a mode is passed', async () => {

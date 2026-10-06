@@ -142,6 +142,23 @@ describe('cloud status sync block (T12998)', () => {
     }
   });
 
+  it('folded txns (own history below a genesis cut) count toward lastSealedSeq; inherited ones do not', async () => {
+    const db = await store(true);
+    addTask(db, 'T1');
+    seal(db);
+    addTask(db, 'T2');
+    seal(db);
+    const own = (db.prepare('SELECT max(local_seq) AS seq FROM _sync_txn').get() as { seq: number })
+      .seq;
+    db.prepare("UPDATE _sync_txn SET state = 'folded'").run();
+    db.prepare(
+      `INSERT INTO _sync_txn (txn, local_seq, replica, hlc, scope, via, kind, op_count, state, sealed_at_ms)
+       VALUES ('other:999', 999, 'other', 'h', 'project', 'test', 'write', 0, 'inherited', 1)`,
+    ).run();
+    const { project } = await projectBlock();
+    expect(project?.lastSealedSeq).toBe(own);
+  });
+
   it('conflicted: captures the sealer holds aside are reported per table', async () => {
     const db = await store(true);
     db.prepare(
