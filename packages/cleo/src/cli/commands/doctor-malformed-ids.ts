@@ -13,8 +13,8 @@
  * @task T12128
  */
 
-import { getProjectRoot } from '@cleocode/core';
 import { scanMalformedTaskIds } from '@cleocode/core/doctor/malformed-task-ids.js';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
 

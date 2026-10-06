@@ -19,7 +19,7 @@ import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runGoverned } from '../run-governed.js';
+import { runGoverned, spawnGovernedChild } from '../run-governed.js';
 
 let dir: string;
 let readOnlyHome: string;
@@ -50,6 +50,8 @@ describe('cleo run fails open when its state is unwritable (#1777, HIGH-2 of the
       wait: true,
       timeoutMs: 10_000,
       notice: (line) => notices.push(line),
+      // T13236: the explicit opt-in to start a real process inside vitest.
+      deps: { spawn: spawnGovernedChild },
     });
     expect(result.kind).toBe('exited');
     expect(result.kind === 'exited' && result.exitCode).toBe(3);

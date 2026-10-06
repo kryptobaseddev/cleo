@@ -18,8 +18,8 @@
  * @epic T12978
  */
 
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import type { ResourceClass } from '@cleocode/contracts';
 import type { CanonicalTool } from '../tasks/tool-resolver.js';
 
@@ -625,6 +625,228 @@ export function resolveRunClass(
   return 'scoped-build';
 }
 
+/** A test file path: `foo.test.ts`, `bar.spec.mjs`, `baz.test.tsx`. */
+const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
+
+/**
+ * How many test files a test run names (`vitest run a.test.ts b.test.ts` → 2),
+ * or `null` when it names none (a whole suite, a filter or a script). Such a
+ * run needs at most one worker per file, so `cleo run` plans and charges it
+ * that many and spawns it with that worker cap: a single-file run takes one
+ * worker's share of the machine budget, not a whole suite's (T13132). The
+ * value of `--exclude`/`--ignore` is not counted, and a glob makes the count
+ * unknown (`null`). A `--maxWorkers=N` of the command's own still outranks
+ * the cap and the charge.
+ *
+ * @param cls - the run's class; only `test-run` names test files.
+ * @param argv - the command.
+ *
+ * @example
+ * ```ts
+ * namedTestFileCount('test-run', ['pnpm', 'exec', 'vitest', 'run', 'src/a.test.ts']); // 1
+ * namedTestFileCount('test-run', ['pnpm', 'test']);                                     // null
+ * ```
+ */
+export function namedTestFileCount(cls: ResourceClass, argv: readonly string[]): number | null {
+  if (cls !== 'test-run') return null;
+  let n = 0;
+  for (let i = 0; i < argv.length; i++) {
+    const w = argv[i] as string;
+    // `--exclude a.test.ts` names a file NOT to run; skip the flag's value.
+    if (EXCLUDE_FLAGS.has(w)) {
+      i++;
+      continue;
+    }
+    // A glob (`src/**/*.test.ts`) may match any number of files.
+    if (w.includes('*')) return null;
+    if (TEST_FILE.test(w)) n++;
+  }
+  return n > 0 ? n : null;
+}
+
+/** vitest flags that narrow a run to part of the suite (a project, a name filter, changed files). */
+const VITEST_NARROWING_FLAGS: ReadonlySet<string> = new Set([
+  '--project',
+  '-t',
+  '--testNamePattern',
+  '--changed',
+  '--related',
+]);
+
+/** vitest flags whose separate value is not a test filter (so it is not read as one). */
+const VITEST_VALUE_FLAGS: ReadonlySet<string> = new Set([
+  '-c',
+  '--config',
+  '-r',
+  '--root',
+  '--dir',
+  '--reporter',
+  '--outputFile',
+  '--maxWorkers',
+  '--minWorkers',
+  '--pool',
+  '--environment',
+  '--exclude',
+  '--mode',
+  '--shard',
+  '--testTimeout',
+  '--hookTimeout',
+  '--retry',
+  '--bail',
+]);
+
+/** vitest subcommands that run the suite; any other (`related`, `list`, `bench`) is not refused. */
+const VITEST_SUITE_SUBCOMMANDS: ReadonlySet<string> = new Set(['run']);
+
+/**
+ * A positional that narrows nothing: an empty or blank word (`vitest run
+ * "$files"` with `$files` empty passes `''`, and vitest's substring filter
+ * `''` matches every file) or the current directory (`.`, `./`).
+ */
+function isEmptyFilter(word: string): boolean {
+  const w = word.trim();
+  return w === '' || w === '.' || w === './';
+}
+
+/**
+ * Whether vitest arguments narrow the run. `fixed` leading words come from a
+ * package script: their flags count (a dangling `--project` takes the
+ * caller's next word as its value), their positionals do not — a script's
+ * own path (`vitest run packages/cleo/src`) is that package's whole suite,
+ * not a narrowing the caller chose.
+ *
+ * @returns `'narrowed'`, `'whole'`, or `'other'` for a non-suite subcommand.
+ */
+function vitestArgsScope(
+  args: readonly string[],
+  fixed: number,
+  sawRun: boolean,
+): 'narrowed' | 'whole' | 'other' {
+  let sawSubcommand = sawRun;
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i] as string;
+    if (w === '--') continue;
+    if (w.startsWith('-')) {
+      const flag = w.includes('=') ? w.slice(0, w.indexOf('=')) : w;
+      if (VITEST_NARROWING_FLAGS.has(flag)) {
+        if (w.includes('=')) {
+          if (!isEmptyFilter(w.slice(w.indexOf('=') + 1))) return 'narrowed';
+          continue;
+        }
+        const value = args[i + 1];
+        // A bare `--changed` narrows on its own; a valued flag needs a real value.
+        if (flag === '--changed' || flag === '--related') return 'narrowed';
+        if (value !== undefined && !value.startsWith('-') && !isEmptyFilter(value)) {
+          return 'narrowed';
+        }
+        i++;
+        continue;
+      }
+      if (!w.includes('=') && VITEST_VALUE_FLAGS.has(flag)) i++;
+      continue;
+    }
+    if (!sawSubcommand) {
+      sawSubcommand = true;
+      if (VITEST_SUITE_SUBCOMMANDS.has(w)) continue;
+      if (isEmptyFilter(w)) continue;
+      // `vitest related …`, `vitest list`, or `vitest <filter>` (no subcommand).
+      return i < fixed ? 'other' : 'narrowed';
+    }
+    if (i < fixed || isEmptyFilter(w)) continue;
+    return 'narrowed'; // a file, directory or name filter
+  }
+  return 'whole';
+}
+
+/** The `scripts[name]` of the package.json nearest `cwd` (walking up), else null. */
+function packageScript(cwd: string, name: string): string | null {
+  let dir = resolve(cwd);
+  for (;;) {
+    const pkg = join(dir, 'package.json');
+    if (existsSync(pkg)) {
+      try {
+        const parsed: unknown = JSON.parse(readFileSync(pkg, 'utf-8'));
+        if (typeof parsed !== 'object' || parsed === null) return null;
+        const scripts = (parsed as { scripts?: unknown }).scripts;
+        if (typeof scripts !== 'object' || scripts === null) return null;
+        const script = (scripts as Record<string, unknown>)[name];
+        return typeof script === 'string' ? script : null;
+      } catch {
+        return null;
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/** The arguments after `vitest` in a package script's vitest command, else null. */
+function scriptVitestArgs(script: string): string[] | null {
+  for (const segment of script.split(/&&|\|\||;/)) {
+    const words = segment.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+    const t = commandTarget(words);
+    if (t.tool === 'vitest' && t.script === null) return [...t.rest];
+  }
+  return null;
+}
+
+/**
+ * Whether a command runs a WHOLE vitest suite without saying so (T13236):
+ *
+ * - `vitest run` (`pnpm exec`, `npx`, `pnpm vitest`) naming no test file,
+ *   directory or name filter and no `--project`, `-t`, `--changed` or
+ *   `--related`. An empty or blank word, `.` and `./` narrow nothing: an
+ *   empty generated list (`vitest run $files`, or quoted `"$files"`, which
+ *   passes `''` — a substring filter matching every file) is the usual
+ *   cause, and twice ran a whole package suite by accident.
+ * - a package-manager script whose text runs vitest (`pnpm test`,
+ *   `pnpm run test`, `pnpm -r test`, `pnpm --filter x test`; every `test`
+ *   script in this repo is `vitest run …`), unless the caller's own
+ *   arguments narrow it (`pnpm test src/a.test.ts`, `pnpm test:pkg core`).
+ *   The script is read from the package.json nearest `cwd`; one that does
+ *   not run vitest (or is missing) is not refused.
+ *
+ * `cleo run` refuses these unless `--whole-suite` says it is deliberate.
+ * Only vitest's arguments narrow: a package-manager `--filter` still runs
+ * that package's whole suite. An unknown flag's separate value counts as a
+ * filter, so a doubtful command is let through, never refused.
+ *
+ * @param argv - the command.
+ * @param cwd - where it runs (for a package script). @defaultValue process.cwd()
+ * @returns `true` for an unnarrowed whole-suite run.
+ *
+ * @example
+ * ```ts
+ * isWholeSuiteTestRun(['pnpm', 'exec', 'vitest', 'run']);                    // true
+ * isWholeSuiteTestRun(['pnpm', 'exec', 'vitest', 'run', '']);                // true (quoted empty list)
+ * isWholeSuiteTestRun(['pnpm', 'exec', 'vitest', 'run', 'src/a.test.ts']);  // false
+ * isWholeSuiteTestRun(['pnpm', 'test'], '/repo');                            // true when its script is `vitest run`
+ * ```
+ */
+export function isWholeSuiteTestRun(
+  argv: readonly string[],
+  cwd: string = process.cwd(), // CWD-OK: default for a caller's own command line
+): boolean {
+  const t = commandTarget(argv);
+  if (t.tool === 'vitest' && t.script === null)
+    return vitestArgsScope(t.rest, 0, false) === 'whole';
+  if (t.pm === null || t.script === null) return false;
+  const script = packageScript(cwd, t.script);
+  if (script === null) return false;
+  const fixed = scriptVitestArgs(script);
+  if (fixed === null) return false;
+  return vitestArgsScope([...fixed, ...t.rest], fixed.length, false) === 'whole';
+}
+
+/** Flags whose value names test files to leave out. */
+const EXCLUDE_FLAGS: ReadonlySet<string> = new Set([
+  '--exclude',
+  '--ignore',
+  '--testPathIgnorePatterns',
+]);
+
 /** The `heavyToolEnv` canonical tool a run class sizes its env from. */
 export function canonicalForClass(cls: ResourceClass): CanonicalTool {
   return cls === 'test-run' ? 'test' : 'build';
@@ -663,10 +885,10 @@ function isCleoCommand(t: CommandTarget): boolean {
  * is meant to keep the machine moving.
  *
  * CLEO's own commands are never paused either (#1777 R7-1): `cleo verify
- * --evidence tool:test` holds the tool-semaphore and tool-cache locks and
- * spawns its heavy tool DETACHED, out of the paused group. A pause would
- * freeze only the lock holder while the test keeps running; its locks stop
- * refreshing, go stale and are taken, and it crashes on resume.
+ * --evidence tool:test` holds the tool-cache lock and spawns its heavy tool
+ * DETACHED, out of the paused group. A pause would freeze only the lock
+ * holder while the test keeps running; its lock stops refreshing, goes stale
+ * and is taken, and it crashes on resume.
  */
 export function isPausable(cls: ResourceClass, argv: readonly string[]): boolean {
   if (cls === 'db-heavy') return false;

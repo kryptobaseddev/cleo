@@ -91,6 +91,12 @@ export interface DarwinMemorySignals {
   readonly swapUsedBytes: number | null;
   /** `vm.swapusage` total (swapfiles allocated so far), in bytes. */
   readonly swapTotalBytes: number | null;
+  /**
+   * Free + speculative + file-backed + purgeable pages, in bytes: memory the
+   * kernel can hand out without compressing or swapping (T13132). Optional so
+   * samples built before it stay valid.
+   */
+  readonly reclaimableBytes?: number | null;
   /** Physical RAM in bytes. */
   readonly totalBytes: number;
 }

@@ -218,3 +218,27 @@ export function upsertRowMetaFromFields(
   });
   return hlc;
 }
+
+/**
+ * Move a row's meta to its new uid on a re-key (journal spec §2.5 step 5):
+ * `hlc`, `fhlc`, `version` and `chash` stay; `bfp` takes the new birth
+ * fingerprint when one is given. The caller has checked that no meta row
+ * exists at the new uid.
+ *
+ * @param db - The store, inside the writer's transaction.
+ * @param tbl - Sync-set table.
+ * @param oldUid - The row's uid before the re-key.
+ * @param newUid - Its uid after.
+ * @param bfp - The new birth fingerprint, or null to keep it.
+ */
+export function moveRowMeta(
+  db: DatabaseSync,
+  tbl: string,
+  oldUid: string,
+  newUid: string,
+  bfp: string | null,
+): void {
+  db.prepare(
+    'UPDATE _sync_row_meta SET uid = ?, bfp = coalesce(?, bfp) WHERE tbl = ? AND uid = ?',
+  ).run(newUid, bfp, tbl, oldUid);
+}

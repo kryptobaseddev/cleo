@@ -270,6 +270,27 @@ export const EXEMPT = {
         "apply intents (local-only): what an apply frame wrote, recorded in the apply's own transaction for the sealer to subtract (T12757)",
     },
   },
+  'packages/core/src/store/sync/conflicts.ts': {
+    _sync_conflict: {
+      count: 1,
+      reason:
+        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction (T12344)",
+    },
+  },
+  'packages/core/src/store/sync/field-leave.ts': {
+    _sync_field_leave: {
+      count: 4,
+      reason:
+        'typed-rule field state (local-only): leaves and rank-max frontiers, merge input that row meta has no place for, rebuilt from the stream (T12344)',
+    },
+  },
+  'packages/core/src/store/sync/inbox.ts': {
+    _sync_inbox: {
+      count: 2,
+      reason:
+        'receive inbox (local-only): received transactions staged in stream order with their apply status (T12344)',
+    },
+  },
   'packages/core/src/store/sync/capture.ts': {
     _sync_capture: { count: 4, reason: CAPTURE_MACHINERY },
     _sync_frame: { count: 2, reason: CAPTURE_MACHINERY },
@@ -318,15 +339,21 @@ export const EXEMPT = {
     },
   },
   'packages/core/src/store/sync/row-meta.ts': {
-    _sync_row_meta: { count: 1, reason: SEALER },
+    _sync_row_meta: {
+      count: 2,
+      reason: `${SEALER}; plus the re-key move of a row's meta (T12344)`,
+    },
   },
   'packages/core/src/store/sync/sealer.ts': {
     _sync_apply_intent: { count: 1, reason: SEALER },
     _sync_capture: { count: 2, reason: SEALER },
     _sync_frame: { count: 1, reason: SEALER },
     _sync_ledger: { count: 1, reason: SEALER },
-    _sync_meta: { count: 2, reason: SEALER },
-    _sync_op: { count: 1, reason: SEALER },
+    _sync_meta: { count: 1, reason: SEALER },
+    _sync_op: {
+      count: 2,
+      reason: `${SEALER}; plus the one-time T13233 completion of pre-T13222 partial-group ops not yet sent`,
+    },
     _sync_quarantine: { count: 1, reason: SEALER },
     _sync_row_meta: { count: 4, reason: SEALER },
     _sync_txn: { count: 1, reason: SEALER },

@@ -27,12 +27,10 @@ import { stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  createAttachmentStore,
-  getProjectRoot,
-  type LocalFileAttachment,
-  searchAllProjectDocs,
-} from '@cleocode/core/internal';
+import { searchAllProjectDocs } from '@cleocode/core/docs/docs-ops';
+import type { LocalFileAttachment } from '@cleocode/core/internal';
+import { getProjectRoot } from '@cleocode/core/project-scope';
+import { createAttachmentStore } from '@cleocode/core/store/attachment-store';
 import { type BoundServer, tryListen } from './port-allocator.js';
 
 // Re-export for callers that consumed these from the server module directly.

@@ -2282,6 +2282,7 @@ export type {
   HeavyHeapSource,
   HeavyLeverChange,
   HeavyToolResourcePlan,
+  MemoryPressureReading,
   ResourceClass,
   ResourceDeferral,
   ResourceGrant,
@@ -2462,6 +2463,13 @@ export {
   // Terminal state sets
   TERMINAL_TASK_STATUSES,
 } from './status-registry.js';
+// === Store restore (T13240 — restore cleo.db from a named snapshot or backup id) ===
+export type {
+  StoreRestoreKept,
+  StoreRestoreResult,
+  StoreRestoreSource,
+  StoreRestoreVerification,
+} from './store-restore.js';
 // === Sub-Accessor Contracts (T9188) ===
 export type {
   AgentRegistrySubAccessor,
@@ -3050,12 +3058,20 @@ export type {
   CloudPaging,
   CloudProjectShowResult,
   CloudProjectsResult,
+  CloudRetiredReplica,
   CloudStatusGlobalStore,
   CloudStatusLocal,
   CloudStatusOfflineDetails,
   CloudStatusResult,
   CloudStatusSummary,
+  CloudStatusSync,
+  CloudStatusSyncStream,
   CloudStatusVerdict,
+  CloudSyncFact,
+  CloudSyncFlags,
+  CloudSyncKnown,
+  CloudSyncLag,
+  CloudSyncUnknown,
   CloudWarning,
   CloudWhoamiResult,
   NexusCloudCredential,

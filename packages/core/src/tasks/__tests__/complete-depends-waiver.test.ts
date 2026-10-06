@@ -21,10 +21,18 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import {
+  createTestDb,
+  optOutOfForeignKeys,
+  seedTasks,
+  type TestDbEnv,
+} from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { completeTask } from '../complete.js';
+
+// T13228: fixtures depend on a deliberately missing task (T999); they run with foreign keys OFF.
+optOutOfForeignKeys();
 
 const permissiveConfig = JSON.stringify({
   enforcement: {

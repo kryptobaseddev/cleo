@@ -113,6 +113,49 @@ describe('enqueueBrainWrite — concurrent writes', () => {
     expect(row?.integrity_check).toBe('ok');
   }, 30_000);
 
+  it('T10301: concurrent setImmediate writers on the inline default leave brain.db intact', async () => {
+    // The T10301 corruption came from writers firing from setImmediate callbacks in
+    // one process. Since T13126 a one-shot process writes inline (no worker), so the
+    // lease + in-process mutex alone must keep the schema page intact.
+    const { enqueueBrainWrite, brainWriterThreadEnabled } = await import(
+      '../brain-writer-thread.js'
+    );
+    expect(brainWriterThreadEnabled()).toBe(false);
+    const writes = await new Promise<Promise<unknown>[]>((resolve) => {
+      const started: Promise<unknown>[] = [];
+      for (let i = 0; i < 20; i++) {
+        setImmediate(() => {
+          started.push(
+            enqueueBrainWrite({
+              kind: 'observe',
+              projectRoot: tempDir,
+              params: {
+                text: `immediate-observe-${i} ${'y'.repeat(64)}`,
+                title: `imm-${i}`,
+                sourceType: 'manual',
+              },
+            }),
+          );
+          if (started.length === 20) resolve(started);
+        });
+      }
+    });
+    await Promise.all(writes);
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    await getBrainDb(tempDir);
+    const nativeDb = getBrainNativeDb(tempDir);
+    expect(nativeDb).not.toBeNull();
+    if (!nativeDb) return;
+    const row = nativeDb.prepare('PRAGMA integrity_check').get() as
+      | { integrity_check?: string }
+      | undefined;
+    expect(row?.integrity_check).toBe('ok');
+    const count = nativeDb
+      .prepare("SELECT COUNT(*) AS n FROM brain_observations WHERE title LIKE 'imm-%'")
+      .get() as { n: number };
+    expect(count.n).toBe(20);
+  }, 30_000);
+
   it('honors CLEO_BRAIN_BYPASS_WRITER_THREAD env var (inline path still serializes)', async () => {
     process.env['CLEO_BRAIN_BYPASS_WRITER_THREAD'] = '1';
     const { enqueueBrainWrite } = await import('../brain-writer-thread.js');
@@ -314,6 +357,8 @@ describe('scoped source worker execution (T12265)', () => {
         manager = await import(
           /* @vite-ignore */ pathToFileURL(join(artifact, 'dist/brain-writer-thread.js')).href
         );
+        // The manager path is the worker path only in an opted-in host (T13126).
+        manager!.useBrainWriterThread();
         const result = await manager!.enqueueBrainWrite(envelope.op, execution);
         response = { seq: 1, ok: true, result };
       }

@@ -15,6 +15,10 @@
  *     "Compressed" figure of Activity Monitor and vm_stat, read here without a
  *     `vm_stat` spawn)
  *   - `vm.swapusage` — swap in use
+ *   - `vm.page_{free,speculative,pageable_external,purgeable}_count` ×
+ *     `hw.pagesize` — memory the kernel can hand out without compressing or
+ *     swapping (free pages, file cache, purgeable caches): darwin's
+ *     `MemAvailable` (T13132)
  *   - `vm.loadavg` + `hw.perflevel{0,1}.logicalcpu` (or `hw.ncpu`) —
  *     run-queue length per effective core (CPU saturation)
  *
@@ -40,11 +44,17 @@
  *   counted while the kernel says normal: swapped pages linger for hours after
  *   pressure has gone (idle apps keep them), so at a normal kernel level it is
  *   history, not pressure.
- * - **Headroom, at any level**: memory neither wired nor compressed, in
- *   bytes, against one heavy worker's footprint
- *   ({@link darwinHeadroomFloorBytes}: 6 GiB, or a quarter of RAM on a small
- *   machine). Below that floor the score rises to 30 as headroom runs out. A
- *   box with large wired local-model weights but plenty left is not short.
+ * - **Headroom, at any level**: reclaimable memory in bytes (free +
+ *   speculative + file-backed + purgeable pages; memory neither wired nor
+ *   compressed when the page counts are unreadable), against
+ *   {@link darwinHeadroomFloorBytes} (a quarter of RAM, at least 6 GiB, at most
+ *   half of RAM). Below that floor the score rises to 30 as headroom runs out,
+ *   but while the kernel says normal it stops at
+ *   {@link DARWIN_NORMAL_HEADROOM_CAP} (15, the memory gate's resume
+ *   threshold): it can hold, never back off or keep a latched gate shut.
+ *   Anonymous memory apps hold is not headroom, which the neither-wired-nor-
+ *   compressed share counted as if it were (T13132). A box with large wired
+ *   local-model weights but plenty left is not short.
  *
  * With the monitor's thresholds (hold 10, backoff 20): a kernel warning alone
  * holds; critical, or a warning with a hot squeeze and swap, backs off.
@@ -86,6 +96,7 @@ import type {
   WalSizeObservation,
 } from './backend.js';
 import type { StatFileFn } from './linux-backend.js';
+import { MEMORY_GATE_RESUME_AT_OR_BELOW } from './pressure-gate.js';
 
 /** The sysctl names one sample reads, in one exec. */
 export const DARWIN_SYSCTL_NAMES = [
@@ -93,6 +104,11 @@ export const DARWIN_SYSCTL_NAMES = [
   'kern.memorystatus_level',
   'vm.compressor_bytes_used',
   'vm.swapusage',
+  'vm.page_free_count',
+  'vm.page_speculative_count',
+  'vm.page_pageable_external_count',
+  'vm.page_purgeable_count',
+  'hw.pagesize',
   'vm.loadavg',
   'hw.ncpu',
   'hw.perflevel0.logicalcpu',
@@ -123,6 +139,12 @@ export interface DarwinSignals {
   readonly compressorBytes: number | null;
   readonly swapTotalBytes: number | null;
   readonly swapUsedBytes: number | null;
+  /**
+   * Memory the kernel can hand out without compressing or swapping, in bytes:
+   * (free + speculative + file-backed + purgeable pages) × `hw.pagesize`.
+   * `null` when the page size or the free count is unreadable.
+   */
+  readonly reclaimableBytes: number | null;
   /** 1, 5 and 15 minute load averages. */
   readonly loadAvg: readonly [number, number, number] | null;
   readonly ncpu: number | null;
@@ -139,7 +161,8 @@ function parseSize(value: string): number | null {
   if (!m?.[1]) return null;
   const n = Number.parseFloat(m[1]);
   const unit = { K: 1024, M: MIB, G: 1024 * MIB, T: 1024 * 1024 * MIB }[m[2] ?? ''] ?? 1;
-  return Number.isFinite(n) ? n * unit : null;
+  // Whole bytes: "1.88M" is not a whole number of bytes, and reports print bytes.
+  return Number.isFinite(n) ? Math.round(n * unit) : null;
 }
 
 /**
@@ -185,8 +208,20 @@ export function parseDarwinSysctl(output: string): DarwinSignals {
     }
   }
 
+  const pageSize = int('hw.pagesize');
+  const freePages = int('vm.page_free_count');
+  const reclaimableBytes =
+    pageSize === null || pageSize <= 0 || freePages === null
+      ? null
+      : pageSize *
+        (freePages +
+          (int('vm.page_speculative_count') ?? 0) +
+          (int('vm.page_pageable_external_count') ?? 0) +
+          (int('vm.page_purgeable_count') ?? 0));
+
   return {
     pressureLevel: int('kern.memorystatus_vm_pressure_level'),
+    reclaimableBytes,
     freePercent: int('kern.memorystatus_level'),
     compressorBytes: int('vm.compressor_bytes_used'),
     swapTotalBytes,
@@ -223,23 +258,51 @@ const SWAP_WEIGHT = 50;
 /** The headroom score reached when no memory is left neither wired nor compressed. */
 const HEADROOM_SCORE_MAX = 30;
 
+/**
+ * The most headroom alone can score while the kernel says normal: the memory
+ * gate's resume threshold ({@link MEMORY_GATE_RESUME_AT_OR_BELOW}, 15), below
+ * backoff and the gate's refuse threshold (25). Low reclaimable memory can
+ * narrow admission (hold, half the budget) but never refuse heavy work or
+ * defer db-heavy (the sentient tick, exodus-on-open) on its own, and a gate
+ * latched by a passing kernel warning releases once the kernel is back to
+ * normal. Only a kernel warning or critical level goes past it (T13132, #1865
+ * review).
+ */
+export const DARWIN_NORMAL_HEADROOM_CAP = MEMORY_GATE_RESUME_AT_OR_BELOW;
+
 const GIB = 1024 ** 3;
 
 /**
- * The headroom below which memory scores at any kernel level: one heavy
- * worker's footprint ({@link GIB_PER_WORKER} GiB), or a quarter of RAM on a
- * machine too small to spare that.
+ * The headroom below which memory scores at any kernel level: a quarter of
+ * RAM, at least one heavy worker's footprint ({@link GIB_PER_WORKER} GiB), and
+ * never more than half of RAM (T13132, after the #1806 review: a fixed 6 GiB
+ * was a sliver of a large machine).
  *
  * @param totalBytes - physical RAM in bytes.
  *
  * @example
  * ```ts
- * darwinHeadroomFloorBytes(48 * 1024 ** 3); // 6 GiB
- * darwinHeadroomFloorBytes(8 * 1024 ** 3);  // 2 GiB
+ * darwinHeadroomFloorBytes(48 * 1024 ** 3); // 12 GiB
+ * darwinHeadroomFloorBytes(16 * 1024 ** 3); // 6 GiB
+ * darwinHeadroomFloorBytes(8 * 1024 ** 3);  // 4 GiB
  * ```
  */
 export function darwinHeadroomFloorBytes(totalBytes: number): number {
-  return Math.min(GIB_PER_WORKER * GIB, totalBytes / 4);
+  return Math.min(totalBytes / 2, Math.max(totalBytes / 4, GIB_PER_WORKER * GIB));
+}
+
+/**
+ * Memory available without compressing or swapping, in bytes: the
+ * reclaimable page counts when readable, else the share of RAM neither wired
+ * nor compressed. `null` when neither is known.
+ *
+ * @param s - parsed signals.
+ * @param totalBytes - physical RAM in bytes.
+ */
+export function darwinHeadroomBytes(s: DarwinSignals, totalBytes: number): number | null {
+  if (s.reclaimableBytes !== null) return Math.max(0, Math.min(totalBytes, s.reclaimableBytes));
+  const squeeze = darwinSqueeze(s, totalBytes);
+  return squeeze === null ? null : (1 - squeeze) * totalBytes;
 }
 
 /**
@@ -277,14 +340,16 @@ export function darwinSqueeze(s: DarwinSignals, totalBytes: number): number | nu
  */
 export function darwinMemorySome(s: DarwinSignals, totalBytes: number): number | null {
   const squeeze = darwinSqueeze(s, totalBytes);
-  if (s.pressureLevel === null && squeeze === null) return null;
+  const headroomBytes = darwinHeadroomBytes(s, totalBytes);
+  if (s.pressureLevel === null && squeeze === null && headroomBytes === null) return null;
   let headroomScore = 0;
-  if (squeeze !== null && totalBytes > 0) {
-    const headroomBytes = (1 - squeeze) * totalBytes;
+  if (headroomBytes !== null && totalBytes > 0) {
     const floor = darwinHeadroomFloorBytes(totalBytes);
     headroomScore = HEADROOM_SCORE_MAX * Math.max(0, 1 - headroomBytes / floor);
   }
-  if (s.pressureLevel !== 2 && s.pressureLevel !== 4) return clamp(headroomScore);
+  if (s.pressureLevel !== 2 && s.pressureLevel !== 4) {
+    return clamp(Math.min(headroomScore, DARWIN_NORMAL_HEADROOM_CAP));
+  }
   const base = s.pressureLevel === 4 ? DARWIN_LEVEL_SCORES.critical : DARWIN_LEVEL_SCORES.warning;
   let severity = 0;
   if (squeeze !== null) {
@@ -364,6 +429,7 @@ function darwinMemorySignals(s: DarwinSignals, totalBytes: number): DarwinMemory
     compressorBytes: s.compressorBytes,
     swapUsedBytes: s.swapUsedBytes,
     swapTotalBytes: s.swapTotalBytes,
+    reclaimableBytes: s.reclaimableBytes,
     totalBytes,
   };
 }
@@ -461,10 +527,9 @@ export class DarwinResourceBackend implements ResourceBackend {
     const { memory, cpu } = signals
       ? darwinPressure(signals, this.totalMemBytes)
       : { memory: null, cpu: null };
-    const memAvailableBytes =
-      signals?.freePercent != null
-        ? Math.round((signals.freePercent / 100) * this.totalMemBytes)
-        : null;
+    // darwin's MemAvailable: the reclaimable pages when readable (T13132).
+    const headroom = signals ? darwinHeadroomBytes(signals, this.totalMemBytes) : null;
+    const memAvailableBytes = headroom === null ? null : Math.round(headroom);
     const walObservations: WalSizeObservation[] = [];
     for (const walPath of this.walPaths) {
       const info = await this.statFileFn(walPath);

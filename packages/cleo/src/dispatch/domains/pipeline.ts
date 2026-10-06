@@ -21,50 +21,19 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import type { ListPhasesResult, ReleaseListOptions, Stage } from '@cleocode/core/internal';
+import { buildStageGuidance, formatStageGuidance } from '@cleocode/core/lifecycle/stage-guidance';
+import { isValidStage } from '@cleocode/core/lifecycle/stages';
+import { getLogger } from '@cleocode/core/logger';
+// Static: an exported parameter type is derived from it.
+import { pipelineManifestList } from '@cleocode/core/memory/pipeline-manifest-sqlite';
+import { paginate } from '@cleocode/core/pagination';
+import { getProjectRoot } from '@cleocode/core/project-scope';
 import {
-  buildStageGuidance,
   channelToDistTag,
   describeChannel,
-  formatStageGuidance,
-  getLogger,
-  getProjectRoot,
-  isValidStage,
-  type ListPhasesResult,
-  paginate,
-  type ReleaseListOptions,
   resolveChannelFromBranch,
-  type Stage,
-} from '@cleocode/core/internal';
-import {
-  lifecycleCheck,
-  lifecycleGateFail,
-  lifecycleGatePass,
-  lifecycleHistory,
-  lifecycleProgress,
-  lifecycleReset,
-  lifecycleSkip,
-  lifecycleStatus,
-  phaseAdvance,
-  phaseComplete,
-  phaseDelete,
-  phaseList,
-  phaseRename,
-  phaseSet,
-  phaseShow,
-  phaseStart,
-  pipelineManifestAppend,
-  pipelineManifestArchive,
-  pipelineManifestFind,
-  pipelineManifestList,
-  pipelineManifestShow,
-  pipelineManifestStats,
-  releaseCancel,
-  releaseList,
-  releasePrStatus,
-  releaseRollback,
-  releaseRollbackFull,
-  releaseShow,
-} from '@cleocode/runtime/gateway';
+} from '@cleocode/core/release/channel';
 import {
   defineTypedHandler,
   lafsError,
@@ -82,6 +51,95 @@ import {
   wrapResult,
 } from './_base.js';
 import { dispatchMeta } from './_meta.js';
+import { lazyOperation } from './lazy.js';
+
+// CORE operations load on first call (T13126): a command loads its own
+// modules, not every operation's in this domain.
+
+const lifecycleCheck = lazyOperation(
+  async () => (await import('@cleocode/core/lifecycle/engine-ops')).lifecycleCheck,
+);
+const lifecycleGateFail = lazyOperation(
+  async () => (await import('@cleocode/core/lifecycle/engine-ops')).lifecycleGateFail,
+);
+const lifecycleGatePass = lazyOperation(
+  async () => (await import('@cleocode/core/lifecycle/engine-ops')).lifecycleGatePass,
+);
+const lifecycleHistory = lazyOperation(
+  async () => (await import('@cleocode/core/lifecycle/engine-ops')).lifecycleHistory,
+);
+const lifecycleProgress = lazyOperation(
+  async () => (await import('@cleocode/core/lifecycle/engine-ops')).lifecycleProgress,
+);
+const lifecycleReset = lazyOperation(
+  async () => (await import('@cleocode/core/lifecycle/engine-ops')).lifecycleReset,
+);
+const lifecycleSkip = lazyOperation(
+  async () => (await import('@cleocode/core/lifecycle/engine-ops')).lifecycleSkip,
+);
+const lifecycleStatus = lazyOperation(
+  async () => (await import('@cleocode/core/lifecycle/engine-ops')).lifecycleStatus,
+);
+const phaseAdvance = lazyOperation(
+  async () => (await import('@cleocode/core/pipeline/engine-ops')).phaseAdvance,
+);
+const phaseComplete = lazyOperation(
+  async () => (await import('@cleocode/core/pipeline/engine-ops')).phaseComplete,
+);
+const phaseDelete = lazyOperation(
+  async () => (await import('@cleocode/core/pipeline/engine-ops')).phaseDelete,
+);
+const phaseList = lazyOperation(
+  async () => (await import('@cleocode/core/pipeline/engine-ops')).phaseList,
+);
+const phaseRename = lazyOperation(
+  async () => (await import('@cleocode/core/pipeline/engine-ops')).phaseRename,
+);
+const phaseSet = lazyOperation(
+  async () => (await import('@cleocode/core/pipeline/engine-ops')).phaseSet,
+);
+const phaseShow = lazyOperation(
+  async () => (await import('@cleocode/core/pipeline/engine-ops')).phaseShow,
+);
+const phaseStart = lazyOperation(
+  async () => (await import('@cleocode/core/pipeline/engine-ops')).phaseStart,
+);
+const pipelineManifestAppend = lazyOperation(
+  async () =>
+    (await import('@cleocode/core/memory/pipeline-manifest-sqlite')).pipelineManifestAppend,
+);
+const pipelineManifestArchive = lazyOperation(
+  async () =>
+    (await import('@cleocode/core/memory/pipeline-manifest-sqlite')).pipelineManifestArchive,
+);
+const pipelineManifestFind = lazyOperation(
+  async () => (await import('@cleocode/core/memory/pipeline-manifest-sqlite')).pipelineManifestFind,
+);
+const pipelineManifestShow = lazyOperation(
+  async () => (await import('@cleocode/core/memory/pipeline-manifest-sqlite')).pipelineManifestShow,
+);
+const pipelineManifestStats = lazyOperation(
+  async () =>
+    (await import('@cleocode/core/memory/pipeline-manifest-sqlite')).pipelineManifestStats,
+);
+const releaseCancel = lazyOperation(
+  async () => (await import('@cleocode/core/release/engine-ops')).releaseCancel,
+);
+const releaseList = lazyOperation(
+  async () => (await import('@cleocode/core/release/engine-ops')).releaseList,
+);
+const releasePrStatus = lazyOperation(
+  async () => (await import('@cleocode/core/release/engine-ops')).releasePrStatus,
+);
+const releaseRollback = lazyOperation(
+  async () => (await import('@cleocode/core/release/engine-ops')).releaseRollback,
+);
+const releaseRollbackFull = lazyOperation(
+  async () => (await import('@cleocode/core/release/engine-ops')).releaseRollbackFull,
+);
+const releaseShow = lazyOperation(
+  async () => (await import('@cleocode/core/release/engine-ops')).releaseShow,
+);
 
 // ---------------------------------------------------------------------------
 // Core operation registry — single-param wrappers that bind projectRoot.
