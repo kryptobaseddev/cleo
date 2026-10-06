@@ -33,6 +33,13 @@ export interface FieldState {
    * whatever order the writes arrive in.
    */
   readonly frontier?: ReadonlyArray<{ readonly value: LedgerWireValue; readonly hlc: string }>;
+  /**
+   * The value is imposed by a terminal status (`TableMergeSpec.coupled`,
+   * T13243), not a write: it is never a rank-max candidate, and the column's
+   * real candidates stay in `frontier`, so the value it returns to when the
+   * status leaves is the same in every order.
+   */
+  readonly derived?: true;
 }
 
 /**
@@ -115,6 +122,19 @@ export interface TableMergeSpec {
   readonly groups?: readonly (readonly string[])[];
   /** Typed rules by column. */
   readonly rules?: Readonly<Record<string, FieldRule>>;
+  /**
+   * Columns a terminal status fixes (T13243): whenever the merged `status`
+   * column holds a key of `map`, `column` shows the mapped value, so the two
+   * never disagree after a race (a task done with stage `cancelled`). The
+   * column's own rank-max candidates are kept underneath (`FieldState.derived`),
+   * so its value is a function of the merged status and candidates alone,
+   * and converges.
+   */
+  readonly coupled?: ReadonlyArray<{
+    readonly column: string;
+    readonly status: string;
+    readonly map: Readonly<Record<string, string>>;
+  }>;
 }
 
 /** The transaction-level context an op is applied in. */
@@ -133,7 +153,15 @@ export type MergeConflictKind =
   /** An update of a row the stream has deleted: the op is voided and stays revivable. */
   | 'edit-vs-delete'
   /** A delete of a row whose fields carry newer writes than the delete. */
-  | 'delete-vs-edit';
+  | 'delete-vs-edit'
+  /** (applier) A reference to a deleted row: the op is voided and stays revivable. */
+  | 'dangling-ref'
+  /** (applier) A guard trigger or constraint aborted the op's write: voided, revivable. */
+  | 'guard'
+  /** (applier) A parent delete whose sync-set children remain: the delete is voided. */
+  | 'delete-with-live-children'
+  /** (applier) A re-key onto a uid another live row holds: voided. */
+  | 'uid-collision';
 
 /** One recorded conflict. Never silently dropped: the applier persists it. */
 export interface MergeConflict {

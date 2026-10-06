@@ -235,7 +235,8 @@ describe('tombstones (§1.7)', () => {
 
 describe('typed rules (§3.6.6)', () => {
   it('done is absorbing: an ordinary status change is refused with a typed-rule conflict', () => {
-    const row = live({ status: 'done' }, h(10));
+    // A done task's stage is contribution (T871); the refused op changes nothing.
+    const row = live({ status: 'done', pipeline_stage: 'contribution' }, h(10));
     const out = applyOp(row, op('U', h(20, R2), grp('active')), TASKS);
     expect(out.status).toBe('void');
     expect(val(out.next, 'status')).toBe('done');
@@ -521,5 +522,28 @@ describe('review #1889: a stale stored frontier never drops the current value (T
     ].reduce((row, o) => applyOp(row, o, TASKS).next, live({ pipeline_stage: 'research' }, h(1)));
     expect(atOrigin.fields.pipeline_stage).toMatchObject({ value: 'testing', hlc: h(20) });
     expect(atOrigin.fields.pipeline_stage).toEqual(receiver.fields.pipeline_stage);
+  });
+});
+
+describe('T13243: a terminal status fixes the stage', () => {
+  const done = (at: string) =>
+    op('U', at, { ...grp('done', { completed_at: 'X' }), pipeline_stage: 'contribution' });
+  const cancel = (at: string) =>
+    op('U', at, {
+      ...grp('cancelled', { cancelled_at: 'C', cancellation_reason: 'dup' }),
+      pipeline_stage: 'cancelled',
+    });
+  const base = live({ ...grp('active'), pipeline_stage: 'testing' }, h(1));
+  const fold2 = (a: LedgerOp, b: LedgerOp) => applyOp(applyOp(base, a, TASKS).next, b, TASKS).next;
+
+  it.each([
+    ['the completion is newer', done(h(5, R2)), cancel(h(3)), 'done', 'contribution'],
+    ['the cancel is newer', done(h(3, R2)), cancel(h(5)), 'cancelled', 'cancelled'],
+  ] as const)('%s: both orders agree, and status and stage match', (_n, a, b, status, stage) => {
+    const ab = fold2(a, b);
+    const ba = fold2(b, a);
+    expect(ab).toEqual(ba);
+    expect(val(ab, 'status')).toBe(status);
+    expect(val(ab, 'pipeline_stage')).toBe(stage);
   });
 });

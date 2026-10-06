@@ -50,7 +50,7 @@ import { PIPELINE_STAGES } from '../../../../lifecycle/stages.js';
 import { encodeHlc } from '../../hlc.js';
 import { canonicalJson } from '../../sealer-values.js';
 import { applyOp } from '../engine.js';
-import { mergeSpecFor, TASK_STATUS_LEAVE_OPS } from '../rules.js';
+import { mergeSpecFor, TASK_STAGE_MERGE_ORDER, TASK_STATUS_LEAVE_OPS } from '../rules.js';
 import type { MergeContext, OpOutcome, RowState, TableMergeSpec } from '../types.js';
 
 const REPLICAS = [
@@ -165,6 +165,8 @@ interface GenOptions {
   readonly plainOnly: boolean;
   /** Only pipeline_stage writes. */
   readonly stageOnly?: boolean;
+  /** Status ops carry the stage the domain sets with them (done → contribution, cancel → cancelled). */
+  readonly domainStages?: boolean;
 }
 
 /** A replica's concurrent writes, each with that replica's own before-image. */
@@ -225,6 +227,8 @@ function generate(seed: number, g: GenOptions, ctx: MergeContext): Entry[][] {
         touch('completed_at', s === 'done' ? `done@${phys}` : null);
         touch('cancelled_at', s === 'cancelled' ? `cancel@${phys}` : null);
         touch('cancellation_reason', s === 'cancelled' ? 'dup' : null);
+        if (g.domainStages && s === 'done') touch('pipeline_stage', 'contribution');
+        if (g.domainStages && s === 'cancelled') touch('pipeline_stage', 'cancelled');
         if (g.explicit && !TERMINAL.includes(s) && r() < 0.5)
           actorOp = pick(r, TASK_STATUS_LEAVE_OPS);
       }
@@ -401,8 +405,15 @@ describe.each([
               ).toContain(actor);
             }
             const rank = (v: unknown): number =>
-              PIPELINE_STAGES.indexOf(v as (typeof PIPELINE_STAGES)[number]);
-            if (rank(after.pipeline_stage?.value) < rank(before.pipeline_stage?.value)) {
+              TASK_STAGE_MERGE_ORDER.indexOf(typeof v === 'string' ? v : '');
+            // A terminal status imposes its stage (T13243): that value is not a
+            // write, so neither imposing it nor returning from it is a move.
+            const imposed =
+              after.pipeline_stage?.derived === true || before.pipeline_stage?.derived === true;
+            if (
+              !imposed &&
+              rank(after.pipeline_stage?.value) < rank(before.pipeline_stage?.value)
+            ) {
               expect(actor, `seed ${seed}: pipeline_stage moved down`).toMatch(
                 /^tasks\.(restore|reopen)$/,
               );
@@ -472,6 +483,33 @@ describe.each([
           expect(stateOf(fold(baseRow(), stream, TASKS).row, cols), `seed ${seed}`).toEqual(
             expected,
           );
+        }
+      },
+    );
+  });
+
+  it('P8: status and stage resolve together after cancel/complete races (T13243)', () => {
+    const cols = ['status', 'pipeline_stage'];
+    scenarios(
+      n,
+      {
+        replicas,
+        opsPerReplica,
+        explicit: false,
+        deleteRate: 0,
+        plainOnly: false,
+        domainStages: true,
+      },
+      TASKS,
+      (all, seed) => {
+        const expected = stateOf(fold(baseRow(), all[0] as Entry[], TASKS).row, cols);
+        for (const stream of all) {
+          const row = fold(baseRow(), stream, TASKS).row;
+          expect(stateOf(row, cols), `seed ${seed}`).toEqual(expected);
+          const status = row.fields.status?.value;
+          const stage = row.fields.pipeline_stage?.value;
+          if (status === 'done') expect(stage, `seed ${seed}: done`).toBe('contribution');
+          if (status === 'cancelled') expect(stage, `seed ${seed}: cancelled`).toBe('cancelled');
         }
       },
     );
