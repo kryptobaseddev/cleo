@@ -630,6 +630,11 @@ describe('isWholeSuiteTestRun across a workspace (T13277)', () => {
     [['pnpm', '--filter', '...[HEAD~1]', 'test']], // a git selector: a superset
     [['pnpm', '--filter', '@x/b', '--filter', '@x/a', 'test']],
     [['pnpm', '-C', 'packages/a', 'test']],
+    // T13280: an exclusion-only filter selects every OTHER package.
+    [['pnpm', '--filter', '!@x/a', 'test']],
+    [['pnpm', '--filter', '!@x/b', 'test']],
+    // A graph exclusion's exact set is unknown: it subtracts nothing.
+    [['pnpm', '--filter', '!@x/a...', '--filter', '!@x/cli', 'test']],
   ])('%j is the whole suite', (argv) => {
     expect(isWholeSuiteTestRun(argv, ws)).toBe(true);
   });
@@ -637,11 +642,14 @@ describe('isWholeSuiteTestRun across a workspace (T13277)', () => {
   it.each([
     [['pnpm', '--filter', '@x/b', 'test']],
     [['pnpm', '--filter', './packages/b', 'test']],
-    [['pnpm', '--filter', '!@x/a', 'test']],
     [['pnpm', '--filter', '@x/nope', 'test']],
     [['pnpm', '--filter', '@x/a', 'test', 'src/a.test.ts']],
     [['pnpm', '-r', 'test', '--', '-t', 'parses']],
     [['pnpm', '-C', 'packages/b', 'test']],
+    // T13280: exclusions subtract precisely.
+    [['pnpm', '--filter', '!@x/a', '--filter', '!@x/cli', 'test']],
+    [['pnpm', '--filter', '@x/b', '--filter', '!@x/a', 'test']],
+    [['pnpm', '--filter', '@x/*', '--filter', '!@x/a', '--filter', '!@x/cli', 'test']],
   ])('%j is narrowed or runs no vitest suite', (argv) => {
     expect(isWholeSuiteTestRun(argv, ws)).toBe(false);
   });
@@ -665,6 +673,19 @@ describe('isWholeSuiteTestRun across a workspace (T13277)', () => {
     );
     expect(isWholeSuiteTestRun(['pnpm', '-r', 'test'], ws)).toBe(true);
     expect(isWholeSuiteTestRun(['pnpm', '--filter', '@x/b', 'test'], ws)).toBe(false);
+  });
+
+  it('a quoted selector inside a delegating script is matched (T13280)', () => {
+    write(
+      'package.json',
+      JSON.stringify({ name: 'root', scripts: { test: 'pnpm --filter "@x/a" run test' } }),
+    );
+    expect(isWholeSuiteTestRun(['pnpm', 'test'], ws)).toBe(true);
+    write(
+      'package.json',
+      JSON.stringify({ name: 'root', scripts: { test: "pnpm --filter '@x/b' run test" } }),
+    );
+    expect(isWholeSuiteTestRun(['pnpm', 'test'], ws)).toBe(false);
   });
 
   it('a malformed package.json is skipped, not trusted', () => {
