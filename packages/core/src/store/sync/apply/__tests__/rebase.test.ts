@@ -1046,6 +1046,7 @@ describe('segmented transactions (T12343 O-1)', () => {
     const seg = buildSegment(a.db, {
       stream: STREAM,
       replica: a.id,
+      scope: 'project',
       project: null,
       sealer: (_seq, plaintext) => Buffer.from(plaintext),
       signTxn: (_stream, txn) => txn,
