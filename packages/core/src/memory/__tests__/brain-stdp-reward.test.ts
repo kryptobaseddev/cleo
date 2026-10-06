@@ -23,6 +23,10 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { optOutOfForeignKeys } from '../../store/__tests__/test-db-helper.js';
+
+// T13228: fixture tasks reference rows that are never seeded; they run with foreign keys OFF.
+optOutOfForeignKeys();
 
 // 30-second timeout: real SQLite migrations can be slow on first run
 vi.setConfig({ testTimeout: 30_000 });

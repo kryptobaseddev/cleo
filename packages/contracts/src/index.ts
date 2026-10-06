@@ -2469,6 +2469,13 @@ export {
   // Terminal state sets
   TERMINAL_TASK_STATUSES,
 } from './status-registry.js';
+// === Store restore (T13240 — restore cleo.db from a named snapshot or backup id) ===
+export type {
+  StoreRestoreKept,
+  StoreRestoreResult,
+  StoreRestoreSource,
+  StoreRestoreVerification,
+} from './store-restore.js';
 // === Sub-Accessor Contracts (T9188) ===
 export type {
   AgentRegistrySubAccessor,
@@ -3057,6 +3064,7 @@ export type {
   CloudPaging,
   CloudProjectShowResult,
   CloudProjectsResult,
+  CloudRetiredReplica,
   CloudStatusGlobalStore,
   CloudStatusLocal,
   CloudStatusOfflineDetails,
