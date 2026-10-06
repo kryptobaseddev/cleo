@@ -2322,7 +2322,13 @@ export type {
 // === Row Identity Types (T12341 — uid merge keys) ===
 export type {
   RowIdentityKind,
+  RowIdentityNexusAnswer,
   RowIdentityRef,
+  RowIdentityRefillCounts,
+  RowIdentityRefillReport,
+  RowIdentityShareSignal,
+  RowIdentityShareSignalCode,
+  RowIdentityShareState,
   RowIdentitySpec,
   StoredRefUid,
   SymmetricEdge,
