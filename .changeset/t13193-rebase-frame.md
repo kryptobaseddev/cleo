@@ -40,3 +40,6 @@ This is the second slice of the scoped rebase (T13193 R-2), against journal spec
 - **`ApplyReport.rebased`** counts the transactions applied inside a rebase frame.
 - **New sync-journal migration** `t13193-rebase-state`, local-only: `_sync_row_undo.values_json` and `_sync_sequenced.outcome`. Undo
   still turns on only with S4's genesis cut, so all of this stays inert on real stores until then.
+- **The sync-schema heal re-runs `ADD COLUMN` safely.** `healSyncSchema` re-runs every applied folder when a sync table is missing.
+  It now skips an `ALTER TABLE … ADD COLUMN` whose column already exists (SQLite has no `IF NOT EXISTS` for it). It still re-adds the
+  column to a table the heal recreated. Without this, `t13193-rebase-state` made every heal fail with `duplicate column name`.
