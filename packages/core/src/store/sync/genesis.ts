@@ -232,6 +232,25 @@ export function genesisPreconditions(
   return null;
 }
 
+/** A stream other than `stream` this store has cut, if any (T13303: one cut stream per store). */
+function otherCutStream(db: DatabaseSync, stream: string): string | undefined {
+  const row = db
+    .prepare(
+      'SELECT substr(key, ?) AS stream FROM _sync_meta WHERE substr(key, 1, ?) = ? AND key <> ? LIMIT 1',
+    )
+    .get(
+      GENESIS_CUT_KEY_PREFIX.length + 1,
+      GENESIS_CUT_KEY_PREFIX.length,
+      GENESIS_CUT_KEY_PREFIX,
+      `${GENESIS_CUT_KEY_PREFIX}${stream}`,
+    ) as { stream: string } | undefined;
+  return row?.stream;
+}
+
+/** Why a second stream's cut is refused (T13303). */
+const secondStreamRefusal = (other: string): string =>
+  `this store already pushes ${other}; a second stream needs per-stream routing (T13254)`;
+
 /** Seal until no capture is live; the reason it stopped early, or null. */
 function drain(
   db: DatabaseSync,
@@ -298,18 +317,8 @@ function openCut(db: DatabaseSync, opts: GenesisCutOptions): OpenCut | GenesisCu
   // stream's sealed, unsent transactions into its own checkpoint, and the
   // first stream would never push them. The per-cut fold range and the
   // "no other stream is cut" undo are kept for when routing lands.
-  const other = (
-    db
-      .prepare(
-        `SELECT substr(key, ${GENESIS_CUT_KEY_PREFIX.length + 1}) AS stream FROM _sync_meta WHERE key LIKE '${GENESIS_CUT_KEY_PREFIX}%' LIMIT 1`,
-      )
-      .get() as { stream: string } | undefined
-  )?.stream;
-  if (other !== undefined) {
-    return report(opts.stream, {
-      refused: `this store already pushes ${other}; a second stream needs per-stream routing (T13254)`,
-    });
-  }
+  const other = otherCutStream(db, opts.stream);
+  if (other !== undefined) return report(opts.stream, { refused: secondStreamRefusal(other) });
   const refused = genesisPreconditions(db, opts);
   if (refused) return report(opts.stream, { refused });
   const replica = activeReplica(db, opts.scope)?.replicaId;
@@ -331,6 +340,12 @@ function openCut(db: DatabaseSync, opts: GenesisCutOptions): OpenCut | GenesisCu
       if (raced !== undefined) {
         db.exec('ROLLBACK');
         return report(opts.stream, { already: true, cut: raced, sealed });
+      }
+      // Under the lock: another process may have cut a different stream meanwhile.
+      const racedOther = otherCutStream(db, opts.stream);
+      if (racedOther !== undefined) {
+        db.exec('ROLLBACK');
+        return report(opts.stream, { refused: secondStreamRefusal(racedOther), sealed });
       }
       const cut = Number(
         (
