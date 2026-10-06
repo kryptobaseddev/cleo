@@ -1417,6 +1417,53 @@ jobs:
         id: schema-check
         run: pnpm db:check
 
+  changeset-lint:
+    # T13281: every changeset must parse. Release Readiness (a standalone
+    # workflow nothing requires) was the only PR check that ran this, so a
+    # broken changeset (#1879, #1907) merged green and broke the release.
+    # Runs on every PR: it uses the shared build output when the build ran,
+    # and builds itself when the build was skipped (a changeset-only or
+    # docs-only PR).
+    name: Changeset Lint (T13281)
+    needs: [changes, build]
+    if: always() && needs.changes.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      - uses: actions/download-artifact@v4
+        if: needs.build.result == 'success'
+        with:
+          name: build-output-ubuntu-latest
+          path: ${{ runner.temp }}/build-output
+      - name: Restore shared build output
+        if: needs.build.result == 'success'
+        run: tar -xzf "$RUNNER_TEMP/build-output/build-output.tgz"
+      - run: pnpm install --frozen-lockfile
+      - name: Build (the shared build was skipped)
+        # The full build, as Release Readiness does: a filtered core build
+        # trips over the core <-> brain build order.
+        if: needs.build.result != 'success'
+        run: pnpm run build
+      - name: Every changeset parses (lint-changesets)
+        run: node scripts/lint-changesets.mjs
+
   typecheck:
     name: Type Check
     needs: [biome, changes]
@@ -2491,6 +2538,7 @@ jobs:
       - exodus-parity-gate
       - row-identity-gate-b
       - drizzle-kit-check
+      - changeset-lint
       - typecheck
       - build
       - unit-tests
