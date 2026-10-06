@@ -47,6 +47,9 @@ import {
 /** `MAX_DRIFT` (§1.3, Q6): how far this device's clock may run ahead of the server's. */
 export const MAX_DRIFT_MS = 5 * 60 * 1000;
 
+/** Sealing passes per push before it sends what is persisted (the rest waits for the next run). */
+const SEAL_PASSES = 8;
+
 /** `_sync_meta` key set while push is paused for a clock ahead of the server's (`cleo doctor`). */
 export const CLOCK_AHEAD_KEY = 'sync.clock_ahead';
 
@@ -67,8 +70,11 @@ export interface PushStreamOptions {
   /** Signs each packed transaction for the stream ({@link BuildSegmentOptions.signTxn}). */
   readonly signTxn: BuildSegmentOptions['signTxn'];
   readonly upload: SegmentUploader;
-  /** The server's date from its latest response, or null when unknown. */
-  readonly serverDate: Date | null;
+  /**
+   * The server's clock minus this device's, measured when its latest response
+   * arrived (negative: this device runs ahead), or null when unknown.
+   */
+  readonly serverOffsetMs: number | null;
   /** The server's last stored `replicaSeq` for this replica on the stream, or null when unknown or none. */
   readonly serverLastReplicaSeq: number | null;
   /** The device registry, whose high-water mark advances after each persist. */
@@ -153,13 +159,9 @@ export async function pushStream(
   }
   const atIso = new Date(now()).toISOString();
   // §1.3: a clock running ahead of the server's pauses push, never writes.
-  const drift = o.serverDate === null ? 0 : now() - o.serverDate.getTime();
+  const drift = o.serverOffsetMs === null ? 0 : -o.serverOffsetMs;
   if (drift > (o.maxDriftMs ?? MAX_DRIFT_MS)) {
-    markClockAhead(
-      db,
-      JSON.stringify({ driftMs: drift, serverDate: o.serverDate?.toISOString() ?? null }),
-      atIso,
-    );
+    markClockAhead(db, JSON.stringify({ driftMs: drift }), atIso);
     return empty(o.stream, { clockAhead: true });
   }
   markClockAhead(db, null, atIso);
@@ -173,7 +175,9 @@ export async function pushStream(
   }
 
   let sealed = 0;
-  for (;;) {
+  // Bounded: steady concurrent writers never keep the push from sending; the
+  // next run seals the rest.
+  for (let pass = 0; pass < SEAL_PASSES; pass++) {
     const r = sealPending(db, {
       scope: o.scope,
       replica: o.replica,

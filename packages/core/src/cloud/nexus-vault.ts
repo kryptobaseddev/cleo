@@ -1776,6 +1776,16 @@ async function pushSyncStreamImpl(
       ? await openDualScopeDbAtPath('global', t.dbPath)
       : await openDualScopeDbAtPath('project', t.dbPath),
   );
+  // T13304: push seals and packs as the replica the stream knows; the store
+  // must be bound to that same one, or its own txns would never be selected.
+  const bound = activeReplica(db, tableScopeOf(t))?.replicaId ?? null;
+  if (bound !== replicaId) {
+    throw vaultError(
+      'E_NEXUS_SYNC_REFUSED',
+      `this store is bound to replica ${bound ?? '(none)'}, but ${t.streamId} knows it as ${replicaId}`,
+      'nothing was sealed or sent; relink the project (`cleo project link`) so both name one replica',
+    );
+  }
   try {
     return await pushStream(db, {
       scope: tableScopeOf(t),
@@ -1785,7 +1795,7 @@ async function pushSyncStreamImpl(
       sealer: (replicaSeq, plaintext, meta) => journal.sealSegment(replicaSeq, plaintext, meta),
       signTxn: (stream, txn) => signTxn(conn.keys.signing, stream, txn),
       upload: async (seg) => journal.push(seg.replicaSeq, new Uint8Array(0), seg.meta, seg.sealed),
-      serverDate: conn.http.lastServerDate,
+      serverOffsetMs: conn.http.lastServerOffsetMs,
       serverLastReplicaSeq: status?.replica?.lastReplicaSeq ?? null,
       registry: ReplicaRegistry.forDevice(conn.deviceId),
       ...(opts.allowUnreleased ? { allowUnreleased: true } : {}),

@@ -140,7 +140,7 @@ const opts = (replica: string, server: ReturnType<typeof fakeServer>, extra = {}
   signTxn: (_stream: string, txn: Parameters<Parameters<typeof pushStream>[1]['signTxn']>[1]) =>
     txn,
   upload: server.upload,
-  serverDate: new Date(clock),
+  serverOffsetMs: 0,
   serverLastReplicaSeq: null,
   now: () => ++clock,
   env: {},
@@ -199,10 +199,7 @@ describe('pushStream (S4-2)', () => {
     const { db, replica } = await pushing();
     write(db, addTask('T1'));
     const server = fakeServer();
-    const paused = await pushStream(
-      db,
-      opts(replica, server, { serverDate: new Date(clock - 10 * 60 * 1000) }),
-    );
+    const paused = await pushStream(db, opts(replica, server, { serverOffsetMs: -10 * 60 * 1000 }));
     expect(paused).toMatchObject({ clockAhead: true, sealed: 0, built: 0, pushed: 0 });
     expect(n(db, 'SELECT count(*) AS n FROM _sync_meta WHERE key = ?', CLOCK_AHEAD_KEY)).toBe(1);
     expect(n(db, "SELECT count(*) AS n FROM _sync_capture WHERE state = 'live'")).toBeGreaterThan(

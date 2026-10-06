@@ -5092,6 +5092,41 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     expect(s.segments).toHaveLength(before + 1);
   });
 
+  it('S4-2: a store bound to another replica than the link names is refused, nothing sealed or sent (T13304)', async () => {
+    const { m, dbPath } = await journalMachine();
+    await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    await on(m, async () => {
+      (await storeOf(dbPath)).exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('T7', 'title T7', 'task', 'pending', 'medium', 'uid-T7', 'fp-T7')",
+      );
+    });
+    const segments = fake.stream(STREAM).segments.length;
+    const bound = m.replicaId;
+    m.replicaId = REPLICA_A; // relinked: the stream now knows this store as another replica
+    link(m);
+    const refused = await failure(on(m, () => pushSyncStream(vopts(m, { allowUnreleased: true }))));
+    expect(refused.code).toBe('E_NEXUS_SYNC_REFUSED');
+    expect(refused.message).toContain(bound);
+    expect(fake.stream(STREAM).segments).toHaveLength(segments);
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      expect(
+        (
+          db.prepare("SELECT count(*) AS n FROM _sync_capture WHERE state = 'live'").get() as {
+            n: number;
+          }
+        ).n,
+      ).toBeGreaterThan(0);
+      expect(
+        (
+          db.prepare("SELECT count(*) AS n FROM _sync_txn WHERE state = 'sealed'").get() as {
+            n: number;
+          }
+        ).n,
+      ).toBe(0);
+    });
+  });
+
   it('S4-2: a device clock ahead of the server pauses push', async () => {
     const { m, dbPath } = await journalMachine();
     await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
