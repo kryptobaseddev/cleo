@@ -161,7 +161,9 @@ export type MergeConflictKind =
   /** (applier) A parent delete whose sync-set children remain: the delete is voided. */
   | 'delete-with-live-children'
   /** (applier) A re-key onto a uid another live row holds: voided. */
-  | 'uid-collision';
+  | 'uid-collision'
+  /** (applier) A Gate C post-apply invariant broke: the whole transaction is voided. */
+  | 'post-apply';
 
 /** One recorded conflict. Never silently dropped: the applier persists it. */
 export interface MergeConflict {

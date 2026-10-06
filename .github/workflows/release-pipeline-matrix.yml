@@ -27,17 +27,10 @@ name: Release Pipeline Matrix
 #   - packages/cleo/test/fixtures/release-test-* (T9542)
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'packages/cleo/test/fixtures/release-test-**'
-      - 'packages/cleo/test/integration/release-pipeline/**'
-  push:
-    branches: [main]
-    paths:
-      - 'packages/cleo/test/fixtures/release-test-**'
-      - 'packages/cleo/test/integration/release-pipeline/**'
-  merge_group:
+  # T13279: called by ci.yml (job `release-pipeline-matrix-gate`), which the required `CI` aggregate
+  # needs; ci.yml runs it only when its paths change (the `changes` job). It
+  # no longer runs on its own pull_request / merge_group / push-to-main triggers.
+  workflow_call:
 
 permissions:
   contents: read
@@ -46,9 +39,8 @@ defaults:
   run:
     shell: bash
 
-concurrency:
-  group: release-pipeline-matrix-${{ github.ref }}
-  cancel-in-progress: true
+# T13279: no workflow-level concurrency: a called workflow's group would
+# resolve in ci.yml's context and cancel it; ci.yml's own group governs.
 
 jobs:
   matrix-gate:

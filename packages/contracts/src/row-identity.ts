@@ -130,3 +130,101 @@ export interface RowIdentitySpec {
   /** Task that declared the table. */
   readonly task: string;
 }
+
+/**
+ * One signal behind a store's row-identity share state (T13231).
+ *
+ * - `synced-marker`: `row_identity_synced` is set (a receive or a send happened);
+ * - `sync-flag`: `sync.seal`, `sync.push` or `sync.pull` is on;
+ * - `journal-rows`: a change-journal table holds rows (every `_sync_*` table
+ *   except `_sync_meta`, `_sync_replica` and `_sync_clock`; they key rows by uid);
+ * - `journal-meta`: `_sync_meta` holds `suspect:` or `baseline:` keys;
+ * - `identity-aliases`: an alias table holds rows (uids were re-keyed);
+ * - `rebound`: the store was copied, moved or restored (`_sync_replica`);
+ * - `vault-pushed`: a vault push or restore of this root is recorded locally;
+ * - `nexus-linked-no-vault`: linked to Cleo Nexus with no local vault record;
+ * - `nexus-checkpoint`: Cleo Nexus holds a checkpoint or journal segment of the project;
+ * - `nexus-unreachable`: Cleo Nexus could not be asked;
+ * - `unreadable`: a record needed for the verdict could not be read.
+ */
+export type RowIdentityShareSignalCode =
+  | 'synced-marker'
+  | 'sync-flag'
+  | 'journal-rows'
+  | 'journal-meta'
+  | 'identity-aliases'
+  | 'rebound'
+  | 'vault-pushed'
+  | 'nexus-linked-no-vault'
+  | 'nexus-checkpoint'
+  | 'nexus-unreachable'
+  | 'unreadable';
+
+/** One signal behind a share verdict (T13231). */
+export interface RowIdentityShareSignal {
+  readonly code: RowIdentityShareSignalCode;
+  /** `shared`: the uids may have left the store; `unknown`: that cannot be ruled out. */
+  readonly kind: 'shared' | 'unknown';
+  readonly detail: string;
+}
+
+/**
+ * Whether a store's row identity may have left it (T13231).
+ *
+ * - `shared`: its uids have, or may have, reached another store;
+ * - `unknown`: that cannot be ruled out;
+ * - `unshared`: provably local, so a from-scratch refill changes nothing any
+ *   other store holds.
+ */
+export interface RowIdentityShareState {
+  readonly state: 'shared' | 'unknown' | 'unshared';
+  /** Every signal that decided it (empty when unshared). */
+  readonly signals: readonly RowIdentityShareSignal[];
+  /** The signals' details, one line each (empty when unshared). */
+  readonly reasons: readonly string[];
+}
+
+/** What Cleo Nexus answered for one linked origin (`cleo doctor row-identity`, T13231). */
+export interface RowIdentityNexusAnswer {
+  readonly apiUrl: string;
+  readonly remoteProjectId: string;
+  readonly streamId: string;
+  /** `none`: no checkpoint and no journal segment; `present`: some; `error`: not answered. */
+  readonly answer: 'none' | 'present' | 'error';
+  readonly checkpoints: number;
+  readonly headSeq: number;
+  /** Why it was not answered (`error` only). */
+  readonly error?: string;
+}
+
+/** Rows whose identity a full refill re-derives, per table. */
+export type RowIdentityRefillCounts = Readonly<Record<string, number>>;
+
+/**
+ * `cleo doctor row-identity --refill`: the verdict, its evidence and the plan
+ * (T13231). `applied` is false on a dry run and on a refusal.
+ */
+export interface RowIdentityRefillReport {
+  readonly projectRoot: string;
+  /** Whether the store's recipe marker is current (no refill is due). */
+  readonly recipeCurrent: boolean;
+  /** Whether `CLEO_ROW_UID_FILL` is on in this process (`--apply` needs it). */
+  readonly fillEnabled: boolean;
+  /** The local verdict (link, vault state, journal state). */
+  readonly local: RowIdentityShareState;
+  /** Cleo Nexus, one answer per linked origin (empty when unlinked). */
+  readonly nexus: readonly RowIdentityNexusAnswer[];
+  /** The verdict with the Nexus answers folded in. */
+  readonly verdict: RowIdentityShareState;
+  /** Rows per declared table that carry an identity value the refill clears. */
+  readonly planned: RowIdentityRefillCounts;
+  /** `refill`: due and allowed; `none`: nothing to do; `refuse`: shared or unknown. */
+  readonly action: 'refill' | 'none' | 'refuse';
+  /** What to do next, one line each. */
+  readonly remedy: readonly string[];
+  readonly applied: boolean;
+  /** `--apply`: the pre-refill snapshot. */
+  readonly snapshot: string | null;
+  /** `--apply`: how to undo the refill. */
+  readonly undo: string | null;
+}

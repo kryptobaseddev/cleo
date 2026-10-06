@@ -272,9 +272,9 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/conflicts.ts': {
     _sync_conflict: {
-      count: 1,
+      count: 2,
       reason:
-        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction (T12344)",
+        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction, and marked resolved by `cleo cloud conflicts resolve` (T12344)",
     },
   },
   'packages/core/src/store/sync/field-leave.ts': {
@@ -357,6 +357,28 @@ export const EXEMPT = {
     _sync_quarantine: { count: 1, reason: SEALER },
     _sync_row_meta: { count: 4, reason: SEALER },
     _sync_txn: { count: 1, reason: SEALER },
+  },
+  'packages/core/src/store/sync/sequencing.ts': {
+    _sync_foreign_touch: {
+      count: 3,
+      reason:
+        'foreign-touch index (local-only): rows applied foreign txns touched, for the own-echo fast path; pruned past the oldest unsequenced local txn (T13193)',
+    },
+    _sync_meta: { count: 2, reason: SYNC_BOOKKEEPING },
+    _sync_row_undo: {
+      count: 2,
+      reason:
+        "row undo (local-only): a sealed local op's prior merge state, dropped when its echo is sequenced (T13193)",
+    },
+    _sync_sequenced: {
+      count: 1,
+      reason: 'sequenced own txns (local-only): echoes the stream sequenced (T13193)',
+    },
+    _sync_undo: {
+      count: 2,
+      reason:
+        "undo log (local-only): a sequenced own txn's undo, and a netted-away frame's, are dropped (§3.5 drop rule, T13193)",
+    },
   },
   'packages/core/src/store/sync/structural.ts': {
     _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING },

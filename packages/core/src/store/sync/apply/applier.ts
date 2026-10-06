@@ -85,9 +85,19 @@ import {
 } from '../merge/types.js';
 import { remapPending } from '../remap.js';
 import { fieldHlcsOf } from '../row-meta.js';
+import { hasTable } from '../schema.js';
 import { canonicalJson } from '../sealer-values.js';
+import {
+  capturePosition,
+  markSequenced,
+  ownEchoFastPath,
+  recordForeignTouches,
+  type TouchedRow,
+  unsequencedLocalTxn,
+} from '../sequencing.js';
 import { type ApplyApi, withApplyFrame } from './frame.js';
 import { parentDeletePolicy } from './parent-delete.js';
+import { checkApplyPreconditions, checkTaskTreeShape, type PageRow } from './post-apply.js';
 import { resolveRef, uidOfKey } from './refs.js';
 
 /** How {@link applyStagedTxns} runs. */
@@ -118,6 +128,8 @@ export interface ApplyReport {
   /** Conflict records written. */
   readonly conflicts: number;
   readonly passes: number;
+  /** Why nothing was applied (PAC-15 apply preconditions), when so. */
+  readonly blocked?: string;
 }
 
 /** An op's decision inside its transaction. */
@@ -418,6 +430,38 @@ function effect(
   return out.conflicts.length;
 }
 
+/**
+ * The page PAC-01 judges: only rows whose shape this transaction could have
+ * changed (an insert, a re-key, or an op carrying `parent_id` or `type`).
+ * A row that already broke the matrix before (legacy data) never voids an
+ * unrelated edit of it; two valid ops that merge into a bad tree each carry
+ * one of those columns, so nothing introduced is missed (T13244).
+ */
+function treeShapePage(ops: readonly LedgerOp[]): PageRow[] {
+  return ops
+    .filter(
+      (o) =>
+        o.o === 'I' || o.o === 'K' || (o.a !== undefined && ('parent_id' in o.a || 'type' in o.a)),
+    )
+    .map((o) => ({
+      table: o.t,
+      uid: o.o === 'K' && o.nu ? o.nu : o.u,
+      typeChanged: o.o === 'I' || (o.a !== undefined && 'type' in o.a),
+    }));
+}
+
+/** The rows a transaction's ops write (a re-key's both uids). */
+function touchedRows(ops: readonly LedgerOp[]): TouchedRow[] {
+  return ops.flatMap((o) =>
+    o.o === 'K' && o.nu && o.nu !== o.u
+      ? [
+          { table: o.t, uid: o.u },
+          { table: o.t, uid: o.nu },
+        ]
+      : [{ table: o.t, uid: o.u }],
+  );
+}
+
 /** The status of an applied transaction from its ops' results. */
 function txnStatus(results: readonly OpResult[], conflicts: number): InboxStatus {
   const voided = results.filter((r) => r === 'void').length;
@@ -695,7 +739,23 @@ function applyOne(
 export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): ApplyReport {
   const now = opts.now ?? Date.now;
   const maxPasses = opts.maxPasses ?? 16;
+  // PAC-15: a store that refuses writes applies nothing; the inbox waits.
+  const blocked = checkApplyPreconditions(db);
+  if (blocked !== null) {
+    return {
+      applied: 0,
+      conflict: 0,
+      void: 0,
+      pending: 0,
+      heldSkew: 0,
+      refusedSchema: 0,
+      conflicts: 0,
+      passes: 0,
+      blocked,
+    };
+  }
   opts.seal?.();
+  const sequencingOn = hasTable(db, '_sync_sequenced');
   const defCache = new Map<string, CaptureTableDef | null>();
   const defs = (table: string): CaptureTableDef | null => {
     if (!defCache.has(table)) defCache.set(table, captureTableDef(db, opts.scope, table) ?? null);
@@ -749,13 +809,58 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
           return { status: 'held-skew' as const, holds: [], n: 0 };
         }
         const c: OpContext = { db, api, st, defs, replica: opts.replica, nowIso };
+        // §3.5 Rule 3 (T13193): where this txn sits in the capture order.
+        const touchPos = sequencingOn ? capturePosition(db) : 0;
         let n = 0;
+        // Gate C (§3.6): the whole transaction is one savepoint, so a broken
+        // multi-row invariant rolls all of it back.
+        db.exec('SAVEPOINT apply_txn');
         const results = applyOrder(st.txn.ops, defs).map((i) => {
           const r = applyOne(c, i, st.txn.ops[i] as LedgerOp);
           n += r.conflicts;
           return r.result;
         });
+        // Every per-transaction post-apply check, by name (the registry's runtime gates).
+        const violations = [...checkTaskTreeShape(db, treeShapePage(st.txn.ops))];
+        if (violations.length > 0) {
+          db.exec('ROLLBACK TO apply_txn');
+          db.exec('RELEASE apply_txn');
+          recordConflicts(
+            db,
+            { ...st.key, opIdx: -1 },
+            violations.map((v) => ({
+              kind: 'post-apply' as const,
+              table: v.table,
+              uid: v.uid,
+              columns: [],
+              rule: `${v.check}: ${v.message}`.slice(0, 200),
+              resolution: 'op-voided' as const,
+              opHlc: st.txn.hlc,
+            })),
+            st.replicaId,
+            nowIso,
+          );
+          markTxns(db, st.parts, 'void', {
+            frame: api.frame,
+            reason: `post-apply: ${violations.map((v) => v.check).join(', ')}`,
+            nowIso,
+          });
+          return { status: 'void' as const, holds: [], n: violations.length };
+        }
+        db.exec('RELEASE apply_txn');
         const status = txnStatus(results, n);
+        if (sequencingOn) {
+          const rows = touchedRows(st.txn.ops);
+          if (st.replicaId !== opts.replica) {
+            recordForeignTouches(db, rows, touchPos);
+          } else {
+            // Own echo: sequence it when the stream order agrees with ours.
+            const local = unsequencedLocalTxn(db, st.txn.txn);
+            if (local && !results.includes('void') && ownEchoFastPath(db, local, rows)) {
+              markSequenced(db, local, { stream: st.key.stream, seq: st.key.seq, nowIso });
+            }
+          }
+        }
         markTxns(db, st.parts, status, {
           frame: api.frame,
           reason: n > 0 ? `${n} conflict(s) recorded` : null,

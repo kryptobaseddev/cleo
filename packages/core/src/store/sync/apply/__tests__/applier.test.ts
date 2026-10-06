@@ -1052,6 +1052,128 @@ describe('review #1896: intra-transaction references and guard scope (T13238, T1
   });
 });
 
+describe('Gate C post-apply checks (§3.6, PR-5)', () => {
+  const dep = (uid: string, at: string, from: string, to: string): LedgerOp => ({
+    t: 'tasks_task_dependencies',
+    u: uid,
+    o: 'I',
+    h: at,
+    a: { task_id: from, depends_on: to },
+  });
+
+  it("PAC-01: a parent's type change that strands its children voids the whole transaction", async () => {
+    const db = await store();
+    stage(
+      db,
+      segment(R1, [
+        txn('R1:1', [
+          insert('e1', h(1), { type: 'epic' }),
+          insert('t1', h(1), { parent_id: 'e1' }),
+        ]),
+      ]),
+    );
+    apply(db);
+    // The epic becomes a task: the trigger checks e1's own parent, never its children.
+    stage(
+      db,
+      segment(R2, [
+        txn('R2:1', [
+          update('e1', h(5, R2), { type: 'task' }),
+          update('t1', h(5, R2), { title: 'x' }),
+        ]),
+      ]),
+    );
+    expect(apply(db)).toMatchObject({ void: 1, applied: 0 });
+    expect(db.prepare("SELECT type FROM tasks_tasks WHERE uid = 'e1'").get()).toEqual({
+      type: 'epic',
+    });
+    expect(task(db, 't1')?.title).toBe('title t1');
+    const kinds = listConflicts(db).map((c) => `${c.kind}:${c.uid}:${c.rule?.split(':')[0]}`);
+    // t1 only had a title edit: it is not judged; e1's type change strands it.
+    expect(kinds).toEqual(['post-apply:e1:task.tree.shape']);
+    expect(seal(db).txns, 'a voided transaction left a residual').toBe(0);
+  });
+
+  it('PAC-01 judges only what the txn could change: a legacy bad tree never voids a title edit (T13244)', async () => {
+    const db = await store();
+    // A legacy task-under-task pair, written with the guard triggers suspended.
+    db.exec("INSERT INTO cleo_trigger_suspend (scope) VALUES ('guard')");
+    db.exec('BEGIN IMMEDIATE');
+    const frame = openCaptureFrame(db, 'write', null);
+    db.exec(
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('LP', 'lp', 'task', 'pending', 'medium', 'lp', 'fp-lp');
+       INSERT INTO tasks_tasks (id, title, type, status, priority, parent_id, uid, birth_fp) VALUES ('LC', 'lc', 'task', 'pending', 'medium', 'LP', 'lc', 'fp-lc');`,
+    );
+    finishCaptureFrame(db, frame);
+    db.exec('COMMIT');
+    db.exec("DELETE FROM cleo_trigger_suspend WHERE scope = 'guard'");
+    seal(db);
+    // The local seal stamped real-clock HLCs: the remote edit must be newer.
+    const now = Date.now();
+    const hn = (ms: number) => `${now + ms}-000000-${R2}`;
+    stage(db, segment(R2, [txn('R2:1', [update('lc', hn(1), { title: 'edited' })])]));
+    expect(apply(db, now + 10)).toMatchObject({ applied: 1, void: 0 });
+    expect(task(db, 'lc')?.title).toBe('edited');
+    // Moving the legacy parent does not re-judge its legacy child (#1907 LOW).
+    stage(
+      db,
+      segment(R2, [
+        txn('R2:1b', [
+          insert('ep0', hn(1), { type: 'epic' }),
+          update('lp', hn(1), { parent_id: 'ep0' }),
+        ]),
+      ]),
+    );
+    expect(apply(db, now + 10)).toMatchObject({ applied: 1, void: 0 });
+    expect(db.prepare("SELECT parent_id AS p FROM tasks_tasks WHERE uid = 'lp'").get()).toEqual({
+      p: 'EP0',
+    });
+    // A transaction that introduces a violation still voids: a subtask under an epic
+    // (the trigger allows it; the full matrix does not).
+    stage(
+      db,
+      segment(R2, [
+        txn('R2:2', [
+          insert('ep', hn(2), { type: 'epic' }),
+          insert('st', hn(2), { type: 'subtask', parent_id: 'ep' }),
+        ]),
+      ]),
+    );
+    expect(apply(db, now + 10)).toMatchObject({ void: 1 });
+    expect(task(db, 'st')).toBeUndefined();
+  });
+
+  it('PAC-03 is trigger-covered: a cycle-closing edge is a guard void', async () => {
+    const db = await store();
+    stage(
+      db,
+      segment(R1, [
+        txn('R1:1', [insert('a1', h(1)), insert('b1', h(1)), dep('d1', h(1), 'a1', 'b1')]),
+      ]),
+    );
+    expect(apply(db)).toMatchObject({ applied: 1 });
+    stage(db, segment(R2, [txn('R2:1', [dep('d2', h(5, R2), 'b1', 'a1')])]));
+    expect(apply(db)).toMatchObject({ void: 1 });
+    expect(
+      db.prepare("SELECT count(*) AS n FROM tasks_task_dependencies WHERE uid = 'd2'").get(),
+    ).toEqual({ n: 0 });
+    expect(listConflicts(db)).toEqual([
+      expect.objectContaining({
+        kind: 'guard',
+        rule: expect.stringMatching(/^E_TASK_DEPENDENCY_CYCLE/),
+      }),
+    ]);
+  });
+
+  it('PAC-03 is trigger-covered: a self-dependency is a guard void of that op', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('a1', h(1)), dep('d1', h(1), 'a1', 'a1')])]));
+    expect(apply(db)).toMatchObject({ conflict: 1 });
+    expect(task(db, 'a1')).toBeDefined();
+    expect(listConflicts(db)).toEqual([expect.objectContaining({ kind: 'guard', uid: 'd1' })]);
+  });
+});
+
 describe('review #1903 LOWs', () => {
   it('a referenced insert is not hoisted ahead of a natural-key delete it follows', async () => {
     const db = await store();
@@ -1109,4 +1231,43 @@ describe('review #1903 LOWs', () => {
     apply(db);
     expect(statuses(db)).toEqual(['1.0:refused-schema', '2.0:refused-schema']);
   });
+});
+
+describe('T13226 shapes (#1909): journaled SET NULL and parent-keyed child deletes', () => {
+  for (const order of ['U-then-D', 'D-then-U'] as const) {
+    for (const recursive of [false, true]) {
+      it(`a SET NULL U plus the parent D (${order}, recursive triggers ${recursive ? 'on' : 'off'}) apply with no conflict`, async () => {
+        const db = await store();
+        db.exec('PRAGMA foreign_keys = ON');
+        if (recursive) db.exec('PRAGMA recursive_triggers = ON');
+        stage(
+          db,
+          segment(R1, [
+            txn('R1:1', [
+              insert('p1', h(1), { type: 'epic' }),
+              insert('c1', h(1), { parent_id: 'p1' }),
+            ]),
+          ]),
+        );
+        apply(db);
+        const u: LedgerOp = {
+          ...update('c1', h(5, R2), { parent_id: null }),
+          b: { parent_id: 'p1' },
+        };
+        const d: LedgerOp = { ...del('p1', h(5, R2)), k: { parent_id: 'p1' } };
+        stage(db, segment(R2, [txn('R2:1', order === 'U-then-D' ? [u, d] : [d, u])]));
+        expect(apply(db)).toMatchObject({ applied: 1, conflict: 0, void: 0, pending: 0 });
+        expect(listConflicts(db)).toEqual([]);
+        expect(task(db, 'p1')).toBeUndefined();
+        expect(
+          (
+            db.prepare("SELECT parent_id AS p FROM tasks_tasks WHERE uid = 'c1'").get() as {
+              p: string | null;
+            }
+          ).p,
+        ).toBeNull();
+        expect(seal(db).txns, 'echoed').toBe(0);
+      });
+    }
+  }
 });

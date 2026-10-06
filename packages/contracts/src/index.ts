@@ -2322,7 +2322,13 @@ export type {
 // === Row Identity Types (T12341 — uid merge keys) ===
 export type {
   RowIdentityKind,
+  RowIdentityNexusAnswer,
   RowIdentityRef,
+  RowIdentityRefillCounts,
+  RowIdentityRefillReport,
+  RowIdentityShareSignal,
+  RowIdentityShareSignalCode,
+  RowIdentityShareState,
   RowIdentitySpec,
   StoredRefUid,
   SymmetricEdge,
@@ -3060,6 +3066,7 @@ export type {
   CloudProjectsResult,
   CloudRetiredReplica,
   CloudStatusGlobalStore,
+  CloudStatusHolder,
   CloudStatusLocal,
   CloudStatusOfflineDetails,
   CloudStatusResult,
@@ -3138,6 +3145,9 @@ export {
 export {
   type CloudActivityItem,
   type CloudActivityResult,
+  type CloudConflict,
+  type CloudConflictResolveResult,
+  type CloudConflictsResult,
   type CloudLeaseReleaseResult,
   type CloudPushResult,
   type CloudRestoreResult,

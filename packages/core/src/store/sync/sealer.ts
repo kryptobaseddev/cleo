@@ -77,6 +77,7 @@ import { activeReplica } from './replica.js';
 import { nextFhlc, type RowMetaRow, upsertRowMeta } from './row-meta.js';
 import { hasTable } from './schema.js';
 import { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
+import { snapshotRowUndo, undoEnabled } from './sequencing.js';
 import { markSuspect } from './structural.js';
 import { canonicalStoreTimestamp, timestampColumns } from './timestamps.js';
 
@@ -1141,6 +1142,9 @@ function sealInTransaction(
   const touched = new Map<string, { tbl: string; uid: string; rk: string }>();
   const ledgerDelta = new Map<string, number>();
   const leaveTable = hasTable(db, '_sync_field_leave');
+  // §3.5 Rule 2 (T13193): while undo is on, each sealed op snapshots its
+  // row's prior merge state, so a rebase rewind restores HLCs with values.
+  const rowUndo = hasTable(db, '_sync_row_undo') && undoEnabled(db);
 
   const metaFacts: MetaFacts = {
     sent: (t, u) => (meta.flags.get(t, u) as { sent: number } | undefined)?.sent === 1,
@@ -1327,6 +1331,7 @@ function sealInTransaction(
       insOp.run(txn, i, op.t, op.u, op.o, op.h, canonicalJson(op));
       const def = ctx.def(op.t);
       const prev = meta.get.get(op.t, op.u) as RowMetaRow | undefined;
+      if (rowUndo) snapshotRowUndo(db, txn, i, op.t, op.u);
       const keyJson = op.k ? canonicalJson(op.k) : null;
       if (op.o === 'K' && op.nu !== undefined) {
         // A K that keeps its uid changes only birth_fp: its meta stays put.
