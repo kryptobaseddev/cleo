@@ -26,7 +26,8 @@ import {
 import { ROW_IDENTITY_META_TABLE, ROW_IDENTITY_SYNCED_KEY } from '../../row-identity.js';
 import { finishCaptureFrame, openCaptureFrame, setCaptureEnabled } from '../capture.js';
 import { setSyncFlag } from '../flags.js';
-import { sealPending } from '../sealer.js';
+import { storeHwm } from '../replica.js';
+import { LEGACY_GROUPS_KEY, sealPending } from '../sealer.js';
 import {
   buildSegment,
   markSegmentPushed,
@@ -104,6 +105,7 @@ const build = (db: DatabaseSync, sealer: SegmentSealer, maxPlaintextBytes?: numb
   buildSegment(db, {
     stream: STREAM,
     replica: REPLICA,
+    scope: 'project',
     project: '0192ffff-7f00-7000-8000-00000000000f',
     sealer,
     nowIso: NOW,
@@ -264,5 +266,76 @@ describe('segment outbox: persist before push (§2.8)', () => {
     expect(unsequencedLocalTxns(db).map((t) => t.txn)).toEqual([
       (db.prepare('SELECT txn FROM _sync_txn').get() as { txn: string }).txn,
     ]);
+  });
+});
+
+describe('segment outbox: T13287 review fixes', () => {
+  it('a pre-T13222 partial-group op is completed before packing, never segmented partial', async () => {
+    const db = await store();
+    write(db, addTask('A', 'a'));
+    write(db, "UPDATE tasks_tasks SET status = 'blocked' WHERE uid = 'a'");
+    // Sealed by a pre-fix build: status only, and the T13233 pass not yet run.
+    const row = db.prepare("SELECT txn, idx, body FROM _sync_op WHERE o = 'U'").get() as {
+      txn: string;
+      idx: number;
+      body: string;
+    };
+    const op = JSON.parse(row.body) as { a: Record<string, unknown>; b: Record<string, unknown> };
+    db.prepare('UPDATE _sync_op SET body = ? WHERE txn = ? AND idx = ?').run(
+      JSON.stringify({ ...op, a: { status: op.a.status }, b: { status: op.b.status } }),
+      row.txn,
+      row.idx,
+    );
+    db.prepare('DELETE FROM _sync_meta WHERE key = ?').run(LEGACY_GROUPS_KEY);
+    // No seal runs in between: the segment build itself must complete it.
+    const { sealer, seen } = recordingSealer();
+    const seg = build(db, sealer);
+    expect(seg?.txns).toContain(row.txn);
+    const wire = (
+      JSON.parse(inflateRawSync(seen[0]?.plain ?? Buffer.alloc(0)).toString('utf8')) as unknown[]
+    ).map((t) => LedgerTxn.parse(t));
+    const packed = wire.flatMap((t) => t.ops).find((o) => o.o === 'U');
+    expect(Object.keys(packed?.o === 'U' ? (packed.a ?? {}) : {}).sort()).toEqual([
+      'cancellation_reason',
+      'cancelled_at',
+      'completed_at',
+      'status',
+    ]);
+    expect(db.prepare('SELECT value FROM _sync_meta WHERE key = ?').get(LEGACY_GROUPS_KEY)).toEqual(
+      { value: '1' },
+    );
+  });
+
+  it('replicaSeq continues past a persisted high-water mark once outbox rows are gone', async () => {
+    const db = await store();
+    write(db, addTask('A', 'a'));
+    const { sealer } = recordingSealer();
+    expect(build(db, sealer)?.replicaSeq).toBe(0);
+    expect(storeHwm(db, REPLICA)).toEqual({ [STREAM]: 0 });
+    // The outbox row is pruned (pushed and acknowledged): max(rows) alone would reuse 0.
+    db.exec('DELETE FROM _sync_segment_txn');
+    db.exec('DELETE FROM _sync_segment');
+    write(db, addTask('B', 'b'));
+    expect(build(db, sealer)?.replicaSeq).toBe(1);
+    expect(storeHwm(db, REPLICA)).toEqual({ [STREAM]: 1 });
+  });
+
+  it("packs only this replica's own sealed transactions", async () => {
+    const db = await store();
+    write(db, addTask('A', 'a'));
+    write(db, addTask('B', 'b'));
+    const [first, second] = (
+      db.prepare('SELECT txn FROM _sync_txn ORDER BY local_seq').all() as Array<{ txn: string }>
+    ).map((t) => t.txn);
+    db.prepare('UPDATE _sync_txn SET replica = ? WHERE txn = ?').run(
+      '0192bbbb-7f00-7000-8000-00000000000b',
+      first ?? '',
+    );
+    const seg = build(db, recordingSealer().sealer);
+    expect(seg?.txns).toEqual([second]);
+    expect(
+      db.prepare('SELECT state FROM _sync_txn WHERE txn = ?').get(first ?? ''),
+      "another replica's txn was segmented under this replica",
+    ).toEqual({ state: 'sealed' });
   });
 });

@@ -8,8 +8,11 @@
  * deltas, schema version). The caller's sealer encrypts it (the journal
  * client's `sealSegment`, under the stream key), and ONE local transaction
  * then:
+ * - first makes any pre-T13222 partial-group op whole (T13233, T13287), so
+ *   no segment ever carries one;
  * - inserts the `_sync_segment` row with the exact sealed bytes and their
- *   hash, at the next `replicaSeq` of (stream, replica), state `sealed`;
+ *   hash, at the next `replicaSeq` of (stream, replica), state `sealed`, and
+ *   raises the store's persisted replicaSeq high-water mark;
  * - maps every packed transaction to it (`_sync_segment_txn`) and marks it
  *   `segmented` (it stays unsequenced until its echo, §3.5);
  * - sets `_sync_row_meta.sent` for every row it carries;
@@ -27,12 +30,15 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { deflateRawSync } from 'node:zlib';
+import type { TableScope } from '@cleocode/contracts';
 import type { TableDeltas, TxnDelta } from '@cleocode/contracts/cloud';
 import { LedgerActor, LedgerOp, type LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import type { SegmentMetaFields } from '../../cloud/signing.js';
 import { ROW_IDENTITY_META_TABLE, ROW_IDENTITY_SYNCED_KEY } from '../row-identity.js';
+import { persistStoreSeq, storeHwm } from './replica.js';
 import { hasTable } from './schema.js';
+import { completeLegacyGroupsBeforePack } from './sealer.js';
 import { canonicalJson } from './sealer-values.js';
 
 /** Encrypts a segment for one stream (the journal client's `sealSegment`). */
@@ -46,8 +52,10 @@ export type SegmentSealer = (
 export interface BuildSegmentOptions {
   /** The stream (`project:<id>` or `home:<userId>`). */
   readonly stream: string;
-  /** This store's bound replica (the segment's author). */
+  /** This store's bound replica (the segment's author); only its own transactions are packed. */
   readonly replica: string;
+  /** The store's scope (the legacy group pass reads its capture tables). */
+  readonly scope: TableScope;
   /** The merge key's project, or null on a home stream. */
   readonly project: string | null;
   readonly sealer: SegmentSealer;
@@ -167,18 +175,28 @@ export function segmentPlaintext(txns: readonly LedgerTxn[]): Buffer {
   return deflateRawSync(Buffer.from(canonicalJson(txns), 'utf8'));
 }
 
-/** The next `replicaSeq` of (stream, replica): one past the last persisted, or 0. */
+/**
+ * The next `replicaSeq` of (stream, replica): one past the persisted
+ * high-water mark ({@link storeHwm}), or past the newest outbox row if that
+ * is higher; 0 for the first. The mark outlives the outbox rows, so a seq is
+ * never handed out twice once its segment row is pruned (T13287).
+ */
 function nextReplicaSeq(db: DatabaseSync, stream: string, replica: string): number {
+  const hwm = storeHwm(db, replica)[stream];
   const row = db
     .prepare('SELECT max(replica_seq) AS s FROM _sync_segment WHERE stream = ? AND replica_id = ?')
     .get(stream, replica) as { s: number | null };
-  return row.s === null ? 0 : Number(row.s) + 1;
+  const last = Math.max(hwm ?? -1, row.s === null ? -1 : Number(row.s));
+  return last + 1;
 }
 
 /**
  * Pack the next sealed transactions into one segment of `stream`, seal it,
  * and persist it before any push (§2.8). Opens its own `BEGIN IMMEDIATE`, so
- * it must run outside a transaction and outside any frame.
+ * it must run outside a transaction and outside any frame. Only `replica`'s
+ * own transactions are packed, and packing stops before a transaction that
+ * still carries a partial merge group. The caller advances the device
+ * registry's high-water mark after this commits.
  *
  * @param db - The store.
  * @param o - Stream, replica, project, sealer and clock.
@@ -188,12 +206,14 @@ export function buildSegment(db: DatabaseSync, o: BuildSegmentOptions): Persiste
   const budget = o.maxPlaintextBytes ?? SEGMENT_PLAINTEXT_BUDGET;
   db.exec('BEGIN IMMEDIATE');
   try {
+    // T13287: complete pre-T13222 partial groups before anything is packed.
+    const partial = completeLegacyGroupsBeforePack(db, o.scope, o.nowIso);
     const rows = db
       .prepare(
         `SELECT txn, hlc, scope, via, kind, actor FROM _sync_txn
-          WHERE state = 'sealed' ORDER BY local_seq LIMIT ?`,
+          WHERE state = 'sealed' AND replica = ? ORDER BY local_seq LIMIT ?`,
       )
-      .all(MAX_TXNS_PER_SEGMENT) as Array<{
+      .all(o.replica, MAX_TXNS_PER_SEGMENT) as Array<{
       txn: string;
       hlc: string;
       scope: string;
@@ -204,6 +224,8 @@ export function buildSegment(db: DatabaseSync, o: BuildSegmentOptions): Persiste
     const txns: LedgerTxn[] = [];
     let bytes = 0;
     for (const r of rows) {
+      // Commit order is kept: nothing after a still-partial txn goes either.
+      if (partial.has(r.txn)) break;
       const t = ledgerTxnOf(db, r, o.project);
       const size = Buffer.byteLength(canonicalJson(t), 'utf8');
       if (txns.length > 0 && bytes + size > budget) break;
@@ -212,6 +234,13 @@ export function buildSegment(db: DatabaseSync, o: BuildSegmentOptions): Persiste
     }
     if (txns.length === 0) {
       db.exec('COMMIT');
+      const blocked = rows[0]?.txn;
+      if (blocked !== undefined && partial.has(blocked)) {
+        // @sync-invariant none:local-only a sealed op this build cannot make group-whole is never pushed partial
+        throw new Error(
+          `sealed transaction ${blocked} carries a partial merge group that cannot be completed; it is not packed (T13287)`,
+        );
+      }
       return null;
     }
     const replicaSeq = nextReplicaSeq(db, o.stream, o.replica);
@@ -236,6 +265,7 @@ export function buildSegment(db: DatabaseSync, o: BuildSegmentOptions): Persiste
       }
     });
     markRowIdentitySynced(db, o.replica, o.stream, o.nowIso);
+    persistStoreSeq(db, o.replica, o.stream, replicaSeq, new Date(o.nowIso));
     db.exec('COMMIT');
     return {
       stream: o.stream,
