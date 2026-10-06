@@ -610,6 +610,24 @@ describe('structural safety (§2.3a, H4, N3)', () => {
     expect(captures(again, 'tasks_tasks').map((c) => c.op)).toEqual(['I']);
   });
 
+  it('the heal re-adds a column a later folder ALTERed onto a table it recreates, and skips the rest', async () => {
+    const db = await captureOn();
+    // _sync_row_undo gets values_json from a later folder's ADD COLUMN (T13193 R-2).
+    db.exec('DROP TABLE _sync_capture');
+    db.exec('DROP TABLE _sync_row_undo');
+    const again = await reopen();
+    const cols = (
+      again.prepare('PRAGMA table_info(_sync_row_undo)').all() as Array<{ name: string }>
+    ).map((c) => c.name);
+    expect(cols).toContain('values_json');
+    // _sync_sequenced kept its ALTERed column: re-adding it was skipped, not failed.
+    expect(
+      (again.prepare('PRAGMA table_info(_sync_sequenced)').all() as Array<{ name: string }>).filter(
+        (c) => c.name === 'outcome',
+      ),
+    ).toHaveLength(1);
+  });
+
   it('a capture-suspended frame writes nothing to the outbox', async () => {
     const db = await captureOn();
     db.exec('BEGIN IMMEDIATE');
