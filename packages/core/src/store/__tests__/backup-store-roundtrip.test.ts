@@ -18,6 +18,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -28,6 +29,7 @@ import {
   autoGlobalBackup,
   createBackup,
   createGlobalBackup,
+  GLOBAL_BACKUP_LOCK_STALE_MS,
   listGlobalBackups,
   listSystemBackups,
   restoreBackupById,
@@ -412,6 +414,23 @@ describe('the global store backs up and restores (T13245)', () => {
     } finally {
       holder.kill();
     }
+  });
+
+  it('a lock whose holder is blocked in a long copy (no refresh for 90 s) is not stolen (T13293)', async () => {
+    const { path: gpath } = await globalDb();
+    const gdir = join(dirname(gpath), 'backups', 'sqlite');
+    mkdirSync(gdir, { recursive: true });
+    // A holder blocked in a synchronous VACUUM INTO cannot refresh the
+    // lock's mtime: the lock looks 90 s old.
+    mkdirSync(`${gdir}.lock`);
+    const old = new Date(Date.now() - 90_000);
+    utimesSync(`${gdir}.lock`, old, old);
+    expect(GLOBAL_BACKUP_LOCK_STALE_MS).toBeGreaterThanOrEqual(600_000);
+    const id = await autoGlobalBackup(new Date(), {
+      admit: async () => ({ release: async () => {} }),
+    });
+    expect(id).toBeNull();
+    expect(readdirSync(gdir).filter((f) => f.startsWith('cleo.db.auto-'))).toEqual([]);
   });
 
   it('a deferred db-heavy admission takes no global backup', async () => {

@@ -61,6 +61,7 @@ import { dirname, join } from 'node:path';
 import type { StoreRestoreResult } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
+import { getLogger } from '../logger.js';
 import { formatBackupTimestamp, rotateBackupDir } from '../store/backup-sidecar.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import { getNativeDb } from '../store/sqlite.js';
@@ -503,6 +504,18 @@ export function listGlobalBackups(): BackupEntry[] {
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 }
 
+/**
+ * Stale threshold of the automatic global backup lock (T13293). `VACUUM INTO`
+ * is synchronous: while it runs, the event loop is blocked and
+ * proper-lockfile cannot refresh the lock's mtime, so a copy longer than the
+ * threshold would let another process take the lock as stale and start a
+ * second copy. Measured on an SSD (2026-10-06): 70 MB in 0.29 s, 1 GB in
+ * 2.4 s; a slow or FUSE-mounted disk can be 20-50x slower, so 1 GB may take
+ * ~2 min. The threshold is 3x that worst case with a 10-minute floor, like
+ * `EXODUS_LOCK_STALE_MS`.
+ */
+export const GLOBAL_BACKUP_LOCK_STALE_MS = 600_000;
+
 /** Minimum age of the newest automatic global backup before another is taken. */
 export const AUTO_GLOBAL_BACKUP_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -539,7 +552,17 @@ export async function autoGlobalBackup(
     const { acquireLock } = await import('../store/lock.js');
     let unlock: (() => Promise<void>) | null = null;
     try {
-      unlock = await acquireLock(dir, { retries: 0, stale: 60_000 });
+      unlock = await acquireLock(dir, {
+        retries: 0,
+        stale: GLOBAL_BACKUP_LOCK_STALE_MS,
+        // A lost lock (refresh failed past the threshold) is recorded, never
+        // thrown: the copy finishes, at worst duplicated.
+        onCompromised: (err) =>
+          getLogger('backup').warn(
+            { dir, err: err.message },
+            'global backup lock compromised; another session end may copy concurrently',
+          ),
+      });
     } catch {
       return null;
     }
