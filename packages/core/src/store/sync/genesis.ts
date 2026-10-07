@@ -37,7 +37,7 @@ import {
   UID_COLUMN,
 } from '../row-identity.js';
 import { captureTriggerDrift, setCaptureEnabled, syncSetTables } from './capture.js';
-import { isSyncFlagOn, setSyncFlag } from './flags.js';
+import { isSyncFlagOn, readSyncFlags, setSyncFlag } from './flags.js';
 import { type StreamCursor, writeStreamCursor } from './pull.js';
 import { baselineRowMeta, planRepair } from './repair.js';
 import { activeReplica, persistStoreSeq } from './replica.js';
@@ -594,8 +594,10 @@ const JOIN_BENIGN_SKIPS: ReadonlySet<string> = new Set([
  *
  * Every sync-set row must carry meta that matches it (the restore carried
  * the checkpoint's merge state, and nothing changed since); a row without
- * meta, or one whose content left its meta behind, refuses the join. Then,
- * capture and seal turned on, in ONE `BEGIN IMMEDIATE`: the restore's
+ * meta, or one whose content left its meta behind, refuses the join, and so
+ * does a write captured after the check (seen inside the cut's transaction).
+ * A refusal leaves capture as it found it. Then, in ONE `BEGIN IMMEDIATE`
+ * that also turns sealing on: the restore's
  * suspect marks are cleared (the check just proved the rows clean), the
  * ledgers set, `genesis_cut:<stream>` records the join point (the stream has
  * started here: T13217's meta-less-row rule applies from now), `undo_enabled`,
@@ -625,32 +627,47 @@ export function joinStream(
   const replica = activeReplica(db, o.scope)?.replicaId;
   if (!replica) return { stream: o.stream, refused: 'no bound replica', cut: null };
   const now = o.now ?? Date.now;
-  // Capture installs the triggers the row check needs; sealing waits for the
-  // check, so a refused join seals nothing.
+  // Capture installs the triggers the row check needs, and from then on
+  // every write is a live capture, which the cut below checks for. A refusal
+  // puts capture back as it was, so a store that had it off does not pile up
+  // captures that would refuse every retry.
+  const captureWasOn = readSyncFlags(db)['sync.capture'];
   setCaptureEnabled(db, o.scope, true);
+  const refuse = (why: string): JoinStreamReport => {
+    if (!captureWasOn) setCaptureEnabled(db, o.scope, false);
+    return { stream: o.stream, refused: why, cut: null };
+  };
   // Every row must still match the meta the checkpoint carried.
   const view = sealerRowView(db, o.scope);
   for (const table of syncSetTables(o.scope)) {
     const plan = planRepair(db, o.scope, table, view);
     if (plan.skipped !== null && !JOIN_BENIGN_SKIPS.has(plan.skipped)) {
-      return { stream: o.stream, refused: `${table}: ${plan.skipped}`, cut: null };
+      return refuse(`${table}: ${plan.skipped}`);
     }
     if (plan.skipped !== null) continue;
     const off =
       plan.inserts.length + plan.updates.length + plan.deletes.length + plan.unbaselined.length;
     if (off > 0) {
-      return {
-        stream: o.stream,
-        refused: `${table}: ${off} row(s) without matching row meta; the store is not the journal checkpoint it restored (restore it again)`,
-        cut: null,
-      };
+      return refuse(
+        `${table}: ${off} row(s) without matching row meta; the store is not the journal checkpoint it restored (restore it again)`,
+      );
     }
   }
-  setSyncFlag(db, 'sync.seal', true, o.allowUnreleased ? { allowUnreleased: true } : {});
   const at = now();
   const atIso = new Date(at).toISOString();
   db.exec('BEGIN IMMEDIATE');
   try {
+    // The check ran outside this transaction: a write since then (another
+    // process, or this one) is a live capture, and the cut would baseline its
+    // row as the checkpoint's. The store changed since its restore: refuse.
+    if (db.prepare("SELECT 1 FROM _sync_capture WHERE state = 'live' LIMIT 1").get()) {
+      db.exec('ROLLBACK');
+      return refuse(
+        'a write landed while the join checked the store; it is no longer the journal checkpoint it restored (restore it again)',
+      );
+    }
+    // Sealing starts with the join, never before the check.
+    setSyncFlag(db, 'sync.seal', true, o.allowUnreleased ? { allowUnreleased: true } : {});
     db.prepare("DELETE FROM _sync_meta WHERE key LIKE 'suspect:%'").run();
     // Ledgers (count + held) and baseline keys; every row already has meta.
     for (const table of syncSetTables(o.scope)) baselineRowMeta(db, o.scope, table, replica, at);

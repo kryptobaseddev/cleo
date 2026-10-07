@@ -21,8 +21,10 @@ there was no way in.
 - **A changed store is refused, never folded.** The join is refused with `E_NEXUS_SYNC_REFUSED` when:
   - any table's rows differ from the checkpoint's manifest;
   - any row no longer matches its restored row meta;
-  - a capture is still waiting to seal.
-  The remedy is to restore the checkpoint again (`cleo cloud restore --force`), then join. A refused join changes nothing.
+  - a capture is still waiting to seal;
+  - a write landed after the check, which is caught inside the cut's own transaction, so it is never baselined as
+    checkpoint state.
+  The remedy is to restore the checkpoint again (`cleo cloud restore --force`), then join. A refused join changes nothing: capture is left as it was found, and sealing stays off.
 - **A store that never restored the journal checkpoint** gets `E_NEXUS_SYNC_STREAM_JOURNALED`, naming the restore-then-join
   path. The pull refusal for a store behind the journal genesis (T13306) names the same path.
 - `sync.push` and `sync.pull` stay unreleased.
