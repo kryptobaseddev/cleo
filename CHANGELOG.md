@@ -8,7 +8,7 @@
 
 - **Releases go through a canary before `latest` (#1847).** Each stable version is first published as a release candidate under npm's `canary` tag, installed from npm into a throwaway sandbox and health-checked. Only then is it published to `latest`, all through OIDC with no npm token. A failed soak leaves users on the previous release. Try a candidate with `npm i -g @cleocode/cleo@canary`.
 - **`cleo login` is the one setup step (#1939).** After you sign in, `cleo login` links the project you are in and takes its first encrypted backup, or lists your cloud projects on a new machine. `cleo cloud verify --deep` downloads the snapshots again and re-hashes them (#1947), and output that shows server-supplied names strips terminal control characters (#1958).
-- **CLEO tells you when an update is out.** An installed CLEO prints a notice on stderr when a newer release exists, and a hotfix gets a stronger notice (#1840).
+- **CLEO tells you when an update is out.** An installed CLEO prints a notice on stderr when a newer release exists, and a hotfix gets a stronger notice (#1840, #1849).
 - **Less work at startup and in tests.** More CLI commands start without loading the whole core library (#1855, #1859, #1868, T13126), and test runs started through CLEO refuse to grow into a whole-suite run (T13203, T13236).
 
 ### Also in this release
@@ -18,7 +18,7 @@
 - **Cloud**: presence refreshes during normal CLI use, hourly and best-effort with no daemon (#1942, T13289); `cloud status` and `cloud projects show` list the devices holding a project (#1943, T13290); `cleo project link` registers a new project with its v1 key once the matching cleo-nexus release is live (#1795, T13101).
 - **Init and upgrade**: the adapter install step that never ran is removed (#1883, T13128).
 - **CI and release tooling**: arch gates, lint workflows, Lockfile Check and the changeset lint now run inside required CI, so a failing gate blocks the merge (#1929, #1930, #1932, #1937; T13263, T13279, T13281); PR unit shards run the changed packages and their dependents (#1821, T13142); darwin PRs run 2 macOS shards and macOS Build & Verify gets a 20-minute timeout (#1822, #1866, #1869; T13143, T13198, T13205); flaky tests are re-run once, then filed and quarantined (#1819, T13145); `ci:<pr>` evidence accepts the jobs that cover a PR's changed paths (#1844, T13175); gate 36 compares migrations with the merge-base (#1951, T13294); checkouts are blobless with 5-minute lint timeouts (#1971, T13310).
-- **Sync journal work** (Stage C: change journal, apply/rebase, genesis cut, push/pull and related fixes) is merged but ships flag-gated and off by default: `sync.push` and `sync.pull` stay in UNRELEASED_FLAGS.
+- **Sync journal work** (Stage C: change journal, apply/rebase, genesis cut, push/pull and related fixes) is merged but ships flag-gated and off by default: `sync.seal`, `sync.push`, `sync.pull` and `sync.strict` stay in UNRELEASED_FLAGS.
 
 ### Added
 
