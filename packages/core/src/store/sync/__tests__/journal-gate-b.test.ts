@@ -403,7 +403,9 @@ function replayAndCompare(name: string, run: Run): GateBSummary {
     sdb.close();
   }
   const strict = compare(sourceFp, fingerprint(strictFile, `${name}-strict`, 'replica'));
-  const strictFindings = [...strict.out.matchAll(/GATE B FAIL ([a-z_]+):/g)].map((m) => m[1]);
+  // Every finding counts, whole-store ones (`*`: key, project or mode) and
+  // Gate A ones included, so none can hide behind STRICT_GAP (T13225).
+  const strictFindings = [...strict.out.matchAll(/GATE [A-Z] FAIL (\S+):/g)].map((m) => m[1]);
   expect(strictFindings, strict.out).toEqual(STRICT_GAP);
 
   // The two sides must agree on the timestamp mode.
