@@ -1145,6 +1145,11 @@ export interface SupersededStoreConflict {
     | 'parent-absent';
   /** The legacy ids left uncopied, when the run can name them. */
   ids?: string[];
+  /**
+   * Bare-strands mode (T13309): every skipped row's primary key (every column
+   * for a keyless table), as a JSON array, so an operator can see each one.
+   */
+  keys?: string[];
 }
 
 /**

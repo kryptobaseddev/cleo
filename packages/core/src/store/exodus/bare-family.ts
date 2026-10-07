@@ -180,6 +180,15 @@ async function buildFreshProjectStore(path: string): Promise<string> {
   return path;
 }
 
+/**
+ * Audit actions that record a task's deletion, the whole vocabulary as of
+ * T13309: `cleo delete` writes `task_deleted` (archiving keeps the row, so
+ * `tasks_archived` is no deletion). Sessions have none — session GC and
+ * cleanup remove rows without an audit record — so a bare session row is
+ * copied unless its key is present.
+ */
+const TASK_DELETION_ACTIONS: readonly string[] = ['task_deleted'];
+
 /** Result of {@link bareStrandSource}. */
 export interface BareStrandSource {
   /** The materialised stranded rows, or `null` when none is left to copy. */
@@ -268,9 +277,9 @@ export async function bareStrandSource(
       deleted = (
         live.db
           .prepare(
-            "SELECT DISTINCT task_id AS id FROM main.tasks_audit_log WHERE action = 'task_deleted'",
+            `SELECT DISTINCT task_id AS id FROM main.tasks_audit_log WHERE action IN (${TASK_DELETION_ACTIONS.map(() => '?').join(', ')})`,
           )
-          .all() as Array<{ id: string }>
+          .all(...TASK_DELETION_ACTIONS) as Array<{ id: string }>
       ).map((r) => r.id);
     }
   } finally {
@@ -332,6 +341,21 @@ export async function bareStrandSource(
           .all() as Array<{ id: string }>
       ).map((r) => String(r.id));
       if (ids.length === 0) return;
+      // Every skipped row by its key, so the plan names each one (T13309).
+      const info = db.prepare(`PRAGMA main.table_info(${ident(table)})`).all() as Array<{
+        name: string;
+        pk: number;
+      }>;
+      const pk = info
+        .filter((c) => c.pk > 0)
+        .sort((a, b) => a.pk - b.pk)
+        .map((c) => c.name);
+      const keyCols = (pk.length > 0 ? pk : info.map((c) => c.name)).map(ident).join(', ');
+      const keys = (
+        db
+          .prepare(`SELECT ${keyCols} FROM main.${ident(table)} WHERE ${where} ORDER BY 1`)
+          .all() as Array<Record<string, string | number | null>>
+      ).map((row) => JSON.stringify(Object.values(row)));
       const rows = db.prepare(`DELETE FROM main.${ident(table)} WHERE ${where}`).run().changes;
       skipped.push({
         sourceDb: BARE_STRANDS_SOURCE_NAME,
@@ -340,6 +364,7 @@ export async function bareStrandSource(
         rows: Number(rows),
         reason,
         ids,
+        keys,
       });
     };
     if (hasTable(db, 'main', 'tasks')) {

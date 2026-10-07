@@ -1130,11 +1130,13 @@ describe('bare-strands reconcile: a populated store with stranded bare rows (T13
           sourceTable: 'task_dependencies',
           reason: 'deleted-live',
           ids: ['T7'],
+          keys: ['["T5","T7"]'],
         }),
         expect.objectContaining({
           sourceTable: 'task_labels',
           reason: 'parent-absent',
           ids: ['T99'],
+          keys: ['["T99","orphan"]'],
         }),
       ]),
     );
