@@ -1426,10 +1426,13 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
         const rw: Rewound = rebase ? rewindTxns(c0, rebase) : { kept: new Map(), after: new Map() };
         const rewound = new Set(rebase?.rewind.map((l) => l.txn) ?? []);
         const decided = new Set<string>(); // rewound locals whose echo this page applied
+        // The time bound covers applying, not the rewind: a large scope must
+        // not shrink every page to one transaction that rewinds it again.
+        const applyStart = now();
         let taken = 0;
         for (const { st } of page) {
           // The time bound cuts a page between transactions (never inside one).
-          if (taken > 0 && now() - pageStart > (opts.pageMs ?? REBASE_PAGE_MS)) break;
+          if (taken > 0 && now() - applyStart > (opts.pageMs ?? REBASE_PAGE_MS)) break;
           taken += 1;
           const nowMs = now();
           const nowIso = new Date(nowMs).toISOString();
