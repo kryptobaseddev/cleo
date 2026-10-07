@@ -163,6 +163,16 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
 // Suite 1 — End-to-end pipeline for all 5 worker roles
 // ---------------------------------------------------------------------------
 
+// Row uids are on by default since T13305 (C2). With the fill on, this
+// vi.resetModules + vi.doMock harness hits a TDZ on dual-scope-db's cache
+// (T13313); the built CLI is unaffected. Pinned off until T13313 lands.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROW_UID_FILL', '0');
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('Pipeline E2E — all 5 worker role templates', () => {
   let env: TmpEnv;
 

@@ -945,7 +945,7 @@ async function openDedicatedDualScopeDb(
         execution?.assertActive();
         await migrateScopeSchema(scope, nativeDb, db, migrationsFolder, log, execution);
 
-        // T12341: fill row uids (opt-in). No per-connection uid triggers:
+        // T12341: fill row uids (on unless CLEO_ROW_UID_FILL=0). No per-connection uid triggers:
         // dedicated handles run the exodus copy, whose effect inspection
         // refuses a trigger that calls an opaque function; the next open fills
         // its rows. The identity schema was healed in the schema pass; the
@@ -1260,7 +1260,7 @@ export async function openDualScopeDbAtPath(
           // open, flag or not, before capture is installed.
           await migrateScopeSchema(scope, nativeDb, db, migrationsFolder, log, execution);
 
-          // T12341 (opt-in, CLEO_ROW_UID_FILL=1): fill every NULL row uid
+          // T12341 (on unless CLEO_ROW_UID_FILL=0, T13305): fill every NULL row uid
           // deterministically, inside this lease so two processes never fill at
           // once, and arm this connection's uid triggers. Never throws.
           execution?.assertActive();

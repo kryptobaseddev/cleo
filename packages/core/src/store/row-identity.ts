@@ -50,8 +50,9 @@
  *
  * A row an older build inserts keeps NULL values until the next open by this
  * build: there is no persistent trigger that computes them (see the
- * migration's header). Row uids are OPT-IN: nothing here runs unless
- * `CLEO_ROW_UID_FILL=1` ({@link rowUidFillEnabled}).
+ * migration's header). Row uids are on by default (T13305); nothing here
+ * runs when the kill switch `CLEO_ROW_UID_FILL=0` is set
+ * ({@link rowUidFillEnabled}).
  *
  * A failure never fails the open: it is logged, and the rows keep NULL values
  * until a later open succeeds. A uid's timestamp is ordering sugar only: HLC
@@ -1997,7 +1998,7 @@ export function markRowIdentityShared(
  * their indexes. No row value is read or written. A store whose uid migration
  * was journaled without running its statements (journal Scenario 3 Case A:
  * live cleocode under 9.25, spec §12.2) gets the full schema here; the fill,
- * refill and TEMP triggers stay opt-in ({@link prepareRowIdentity}).
+ * refill and TEMP triggers follow the fill flag ({@link prepareRowIdentity}).
  *
  * Never throws: a failure is logged and the open continues.
  *

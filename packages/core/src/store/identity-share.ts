@@ -89,7 +89,7 @@ export async function markStoreFileIdentityShared(
   const { fullRefillPlan, markRowIdentityShared, ROW_IDENTITY_META_TABLE } = await import(
     './row-identity.js'
   );
-  const db = openNativeDatabase(dbPath);
+  const db = openNativeDatabase(dbPath); // schema-guard-exempt: a store copy import just placed; writing the shared marker row is DML only
   try {
     const hasMeta =
       db

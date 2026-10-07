@@ -279,17 +279,21 @@ describe('the open pass', () => {
     ).sql.replace(/CREATE TABLE [`"]?tasks_tasks[`"]?/, 'CREATE TABLE `__new_tasks_tasks`');
     // A rebuild must first drop every trigger whose text references the
     // table (ALTER … RENAME re-validates them all, §2.3a rule 5); dropping
-    // the table drops its own triggers.
+    // the table drops its own triggers. That includes this connection's TEMP
+    // row-uid triggers (T13305: on by default), which the next open re-arms.
     const referencing = (
       db
         .prepare(
-          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%tasks_tasks%'",
+          `SELECT 'main' AS schema, name FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%tasks_tasks%'
+           UNION ALL
+           SELECT 'temp', name FROM sqlite_temp_master WHERE type = 'trigger' AND sql LIKE '%tasks_tasks%'`,
         )
-        .all() as Array<{ name: string }>
-    ).map((r) => r.name);
+        .all() as Array<{ schema: string; name: string }>
+    ).map((r) => `${r.schema}."${r.name}"`);
+    expect(referencing.some((t) => t.startsWith('temp.'))).toBe(true);
     db.exec('PRAGMA foreign_keys = OFF');
     db.exec(`BEGIN;
-             ${referencing.map((t) => `DROP TRIGGER "${t}";`).join('\n')}
+             ${referencing.map((t) => `DROP TRIGGER ${t};`).join('\n')}
              ${create};
              INSERT INTO __new_tasks_tasks SELECT * FROM tasks_tasks;
              DROP TABLE tasks_tasks;
@@ -322,6 +326,9 @@ describe('ownership', () => {
   });
 
   it('the T12341 §13 rollback, after capture off and dropSyncMachinery (rule 10), leaves cleo_trigger_suspend and writes working', async () => {
+    // A rollback runs with the fill off (the kill switch), so no connection
+    // holds TEMP uid triggers that read the dropped columns (T13305).
+    vi.stubEnv('CLEO_ROW_UID_FILL', '0');
     const db = await openStore();
     setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA });
     // Rule 10, step 0: capture off; then remove the journal.
