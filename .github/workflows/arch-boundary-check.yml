@@ -543,13 +543,14 @@ jobs:
     # workflow is the gh#1354 defect. Pure node, no install needed.
     name: Skills Metadata SSoT (T12648 · T12649 · T12124 · gates 29-33)
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           # Gate 32's PR mode diffs against the base branch and reads commit
           # trailers, so it needs history.
           fetch-depth: 0
+          filter: blob:none
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -613,13 +614,16 @@ jobs:
     # where it has one), exactly as `cleo check arch` does.
     name: Agent Surface + Write Chokepoint Gates (T12658 · gates 23, 26-28)
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           # Gate 36 rule 7 compares with the merge-base of HEAD and the base
-          # (T13294), which needs the shared history.
+          # (T13294), which needs the shared history: commits and trees, with
+          # blobs fetched on demand (T13310). No step in this job may fetch
+          # with --depth: that would make the clone shallow again.
           fetch-depth: 0
+          filter: blob:none
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -643,14 +647,14 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git fetch --no-tags origin "$BASE_SHA"
           node scripts/lint-row-identity-coverage.mjs --check --base "$BASE_SHA"
       - name: Assert row-identity exemptions only shrink against the PR base (gate 37 PR mode · T12897)
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
-          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          git fetch --no-tags origin "$BASE_REF"
           node scripts/lint-row-identity-coverage.mjs --check --base "origin/$BASE_REF"
 
   model-call-sites:
