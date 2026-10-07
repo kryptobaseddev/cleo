@@ -5156,6 +5156,41 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     expect(again).toMatchObject({ segments: 0, staged: 0 });
   });
 
+  it('S5-1: a store that synced a vault snapshot from before the journal genesis refuses to pull across it (T13306)', async () => {
+    const { m: a, dbPath } = await journalMachine();
+    await on(a, () => pushNexusVault(vopts(a))); // a vault snapshot, before any journal
+    // B restores that vault snapshot and is attached under its own bound replica.
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.replicas.get(REMOTE_PROJECT)?.set(REPLICA_B, DEVICE_B);
+    await restoreOntoB(b);
+    const bDb = path.join(b.root, '.cleo', 'cleo.db');
+    const bound = await on(b, async () => {
+      const db = await storeOf(bDb);
+      setSyncFlag(db, 'sync.pull', true, { allowUnreleased: true });
+      return ensureProjectReplica(db, { dbPath: bDb, mode: 'live' }).replicaId;
+    });
+    b.replicaId = bound;
+    fake.replicas.get(REMOTE_PROJECT)?.set(bound, DEVICE_B);
+    link(b);
+    // A changes the store, then starts the journal: that change is folded into the genesis, never a segment.
+    await on(a, async () => {
+      (await storeOf(dbPath)).exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('G1', 'title G1', 'task', 'pending', 'medium', 'uid-G1', 'fp-G1')",
+      );
+    });
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    const refused = await failure(on(b, () => pullSyncStream(vopts(b))));
+    expect(refused.code).toBe('E_NEXUS_SYNC_REFUSED');
+    expect(refused.message).toMatch(/started its change journal .* would silently diverge/);
+    expect(refused.fix).toMatch(/restore the journal checkpoint first .*cleo sync enable push/);
+    await on(b, async () => {
+      const db = await storeOf(bDb);
+      expect((db.prepare('SELECT count(*) AS n FROM _sync_inbox').get() as { n: number }).n).toBe(
+        0,
+      );
+    });
+  });
+
   it('S4-2: a device clock ahead of the server pauses push', async () => {
     const { m, dbPath } = await journalMachine();
     await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));

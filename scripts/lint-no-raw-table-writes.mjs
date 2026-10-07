@@ -403,9 +403,9 @@ export const EXEMPT = {
         'pull cursor (local-only): advanced in the transaction that stages the segments it covers (§3.1 step 3, T12343)',
     },
     _sync_seen_txn: {
-      count: 1,
+      count: 2,
       reason:
-        'staged transaction ids (local-only): a re-delivered transaction is never staged twice (§3.1, T12343 S5-1)',
+        'staged transaction ids (local-only): a re-delivered transaction is never staged twice, and rows past the latest verified checkpoint are pruned (§3.1, T12343 S5-1)',
     },
   },
   'packages/core/src/store/sync/push.ts': {

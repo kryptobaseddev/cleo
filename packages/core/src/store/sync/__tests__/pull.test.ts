@@ -26,7 +26,6 @@ import {
   type PulledStreamSegment,
   pullStream,
   readStreamCursor,
-  SegmentRefusedError,
   type StreamCursor,
 } from '../pull.js';
 import { sealPending } from '../sealer.js';
@@ -212,23 +211,53 @@ describe('pullStream (S5-1)', () => {
     expect(n(b, "SELECT count(*) AS n FROM tasks_tasks WHERE id = 'T1'")).toBe(1);
   });
 
-  it('a transaction its device did not sign refuses the segment: nothing of its page is staged', async () => {
+  it('a refused segment stops the pull there: what precedes it is applied, the cursor stops before it, a retry re-stages nothing (T13307)', async () => {
     const a = await store('a');
     const b = await store('b');
     const stream = fakeStream();
     write(a, addTask('T1'));
-    stream.append(authorSegment(a), 0, RA, 'dev-mallory'); // served under another device's pin
-    await expect(pullStream(b, pullOpts(b, stream))).rejects.toBeInstanceOf(SegmentRefusedError);
-    expect(n(b, 'SELECT count(*) AS n FROM _sync_inbox')).toBe(0);
-    expect(readStreamCursor(b, STREAM)).toBeNull();
+    stream.append(authorSegment(a), 0);
+    write(a, addTask('T2'));
+    stream.append(authorSegment(a), 1);
+    write(a, addTask('T3'));
+    stream.append(authorSegment(a), 2, RA, 'dev-mallory'); // page 2: served under another device's pin
+    const r = await pullStream(b, pullOpts(b, stream));
+    expect(r.refused).toMatch(/segment 3 of replica .*not signed by device dev-mallory/);
+    expect(r).toMatchObject({ segments: 2, staged: 2, after: 2 });
+    expect(r.apply?.applied).toBe(2);
+    expect(n(b, "SELECT count(*) AS n FROM tasks_tasks WHERE id IN ('T1', 'T2')")).toBe(2);
+    expect(n(b, "SELECT count(*) AS n FROM tasks_tasks WHERE id = 'T3'")).toBe(0);
+    expect(readStreamCursor(b, STREAM)).toMatchObject({ after: 2 });
+    const retry = await pullStream(b, pullOpts(b, stream));
+    expect(retry).toMatchObject({ segments: 0, staged: 0, after: 2 });
+    expect(retry.refused).toMatch(/segment 3/);
   });
 
-  it('a body that is neither a ledger segment nor a vault delta is refused', async () => {
+  it('a refused segment mid-page: the segments before it in that page are staged and applied', async () => {
+    const a = await store('a');
     const b = await store('b');
     const stream = fakeStream();
-    stream.append(Buffer.from('not a segment'), 0);
-    await expect(pullStream(b, pullOpts(b, stream))).rejects.toThrow(/not a ledger segment/);
-    expect(readStreamCursor(b, STREAM)).toBeNull();
+    write(a, addTask('T1'));
+    stream.append(authorSegment(a), 0);
+    stream.append(Buffer.from('not a segment'), 1); // same page as seq 1
+    const r = await pullStream(b, pullOpts(b, stream));
+    expect(r.refused).toMatch(/segment 2 of replica .*not a ledger segment/);
+    expect(r).toMatchObject({ segments: 1, staged: 1, after: 1 });
+    expect(n(b, "SELECT count(*) AS n FROM tasks_tasks WHERE id = 'T1'")).toBe(1);
+  });
+
+  it('seen-txn rows at or below the prune floor are dropped, later ones kept', async () => {
+    const a = await store('a');
+    const b = await store('b');
+    const stream = fakeStream();
+    write(a, addTask('T1'));
+    stream.append(authorSegment(a), 0);
+    write(a, addTask('T2'));
+    stream.append(authorSegment(a), 1);
+    await pullStream(b, pullOpts(b, stream));
+    expect(n(b, 'SELECT count(*) AS n FROM _sync_seen_txn')).toBe(2);
+    await pullStream(b, { ...pullOpts(b, stream), pruneSeenUpTo: 1 });
+    expect(b.prepare('SELECT seq FROM _sync_seen_txn').all()).toEqual([{ seq: 2 }]);
   });
 
   it('refuses with sync.pull off: nothing pulled, nothing staged', async () => {
