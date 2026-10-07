@@ -19,8 +19,12 @@ import {
   checkAndIncrementOverrideCap,
   readSessionOverrideCount,
 } from '../../security/override-cap.js';
+import { optOutOfForeignKeys } from '../../store/__tests__/test-db-helper.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { sessionEnd, sessionStart, sessionStatus } from '../engine-ops.js';
+
+// T13228: fixture sessions point at a current task that is never seeded; they run with foreign keys OFF.
+optOutOfForeignKeys();
 
 // ---------------------------------------------------------------------------
 // Test fixtures

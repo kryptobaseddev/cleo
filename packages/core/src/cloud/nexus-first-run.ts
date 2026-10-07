@@ -86,9 +86,13 @@ export const W_NEXUS_FIRST_RUN_LINK_NOTE = 'W_NEXUS_FIRST_RUN_LINK_NOTE';
 
 /**
  * Whether the first run may act: `yes` does it, `prompt` asks through
- * `confirm`, `never` only reports the next command.
+ * `confirm`, `never` only reports the next command. `unattended` (a
+ * non-interactive run outside CI, e.g. an agent: T13288) takes the safe
+ * default of each question without asking — so it links and backs up an
+ * unlinked project, but never restores over this copy (that question
+ * defaults to no) and reports the restore command instead.
  */
-export type NexusFirstRunConsent = 'yes' | 'prompt' | 'never';
+export type NexusFirstRunConsent = 'yes' | 'prompt' | 'unattended' | 'never';
 
 /** A step the first run is about to take (for progress lines). */
 export type NexusFirstRunStep = 'link' | 'backup' | 'restore' | 'projects';
@@ -211,13 +215,18 @@ function attachedHere(link: NexusProjectLink | null, deviceId: string | null): b
   return deviceId === null || link.nexusDeviceId === deviceId;
 }
 
-/** Ask, when asking is allowed; a failed or closed prompt answers no. */
+/**
+ * Ask, when asking is allowed; a failed or closed prompt answers no. An
+ * unattended run takes the question's default (yes for link and back up, no
+ * for a restore that would replace this copy).
+ */
 async function consented(
   opts: NexusFirstRunOptions,
   question: string,
   defaultYes: boolean,
 ): Promise<boolean> {
   if (opts.consent === 'yes') return true;
+  if (opts.consent === 'unattended') return defaultYes;
   if (opts.consent !== 'prompt' || !opts.confirm) return false;
   try {
     return await opts.confirm(question, defaultYes);
