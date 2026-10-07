@@ -312,12 +312,14 @@ export function createApplyWriteApi(
     return cols;
   };
   /** Rows of `table` where `col = v`, with `rowid` when the table has one. */
-  const rowsWhere = (table: string, col: string, v: SQLInputValue) =>
-    db
-      .prepare(
-        `SELECT ${rowKeyColumns(table)[0] === 'rowid' ? 'rowid AS "rowid", ' : ''}* FROM main.${ident(table)} WHERE ${ident(col)} = ?`,
-      )
-      .all(v) as Array<Record<string, SQLInputValue>>;
+  // Integers are read as BigInt so a snapshot keeps every 64-bit value (T13272).
+  const rowsWhere = (table: string, col: string, v: SQLInputValue) => {
+    const st = db.prepare(
+      `SELECT ${rowKeyColumns(table)[0] === 'rowid' ? 'rowid AS "rowid", ' : ''}* FROM main.${ident(table)} WHERE ${ident(col)} = ?`,
+    );
+    st.setReadBigInts(true);
+    return st.all(v) as Array<Record<string, SQLInputValue>>;
+  };
   const collectDescendants = (
     table: string,
     row: Readonly<Record<string, SQLInputValue>>,

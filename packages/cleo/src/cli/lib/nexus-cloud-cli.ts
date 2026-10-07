@@ -23,6 +23,7 @@ import {
   NEXUS_PRESENCE_FRESH_SECONDS,
 } from '@cleocode/contracts/nexus-cloud.js';
 import { emitNexusResult, failNexus, nexusApiUrlArg } from './nexus-account-cli.js';
+import { terminalSafe } from './terminal-safe.js';
 
 /** Parsed citty args. */
 type Args = Readonly<Record<string, unknown>>;
@@ -35,7 +36,8 @@ export function stringArg(args: Args, name: string): string | undefined {
 
 /** Print each warning to stderr (they also travel in `data.warnings`). */
 function writeWarnings(warnings: readonly CloudWarning[]): void {
-  for (const w of warnings) process.stderr.write(`warning: ${w.message} (${w.code})\n`);
+  for (const w of warnings)
+    process.stderr.write(`warning: ${terminalSafe(w.message)} (${w.code})\n`);
 }
 
 /**
@@ -91,7 +93,7 @@ export function devicesClause(holders: readonly HolderLine[], nowMs: number = Da
           ? 'presence fresh'
           : `presence stale since ${h.presenceAt.slice(0, 10)}`;
     const marks = [h.deviceId.slice(0, 8), ...(h.thisDevice ? ['this machine'] : []), presence];
-    return `${h.deviceName} (${marks.join(', ')})`;
+    return `${terminalSafe(h.deviceName)} (${marks.join(', ')})`;
   });
   return ` Devices: ${lines.join('; ')}.`;
 }
@@ -176,7 +178,7 @@ export function cloudProjectShowSummary(
       presenceAt: rep.presenceAt,
       thisDevice: thisDeviceId !== null && rep.deviceId === thisDeviceId,
     }));
-  return `Project ${r.projectId} "${r.project.label ?? ''}" (${r.role}): ${r.devices.active} active device(s), ${r.replicas.length} replica(s)${retired}, head ${r.stream?.headSeq ?? 'none'}, ${r.openConflicts} open conflict(s).${devicesClause(holders)}`;
+  return `Project ${r.projectId} "${terminalSafe(r.project.label ?? '')}" (${r.role}): ${r.devices.active} active device(s), ${r.replicas.length} replica(s)${retired}, head ${r.stream?.headSeq ?? 'none'}, ${r.openConflicts} open conflict(s).${devicesClause(holders)}`;
 }
 
 /**
@@ -268,7 +270,7 @@ export async function runCloudDevices(args: Args): Promise<void> {
       });
     },
     (r) =>
-      `${r.count} device(s) on ${r.apiUrl}${r.state ? ` (state ${r.state})` : ''}: ${r.devices.map((d) => `${d.name} ${d.deviceId} ${d.state}${d.current ? ' (this machine)' : ''}`).join('; ')}`,
+      `${r.count} device(s) on ${r.apiUrl}${r.state ? ` (state ${r.state})` : ''}: ${r.devices.map((d) => `${terminalSafe(d.name)} ${d.deviceId} ${d.state}${d.current ? ' (this machine)' : ''}`).join('; ')}`,
   );
 }
 
@@ -318,6 +320,6 @@ export async function runCloudProjects(args: Args): Promise<void> {
       });
     },
     (r) =>
-      `${r.count} project(s) on ${r.apiUrl}: ${r.projects.map((p) => `${p.label ?? p.projectId} (${p.role})`).join('; ')}`,
+      `${r.count} project(s) on ${r.apiUrl}: ${r.projects.map((p) => `${terminalSafe(p.label ?? p.projectId)} (${p.role})`).join('; ')}`,
   );
 }

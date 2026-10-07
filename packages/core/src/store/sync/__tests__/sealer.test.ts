@@ -821,6 +821,49 @@ describe('#1779 round 3 (T13041)', () => {
     });
   });
 
+  it('FK actions of a parent delete name the parent by uid (T13226)', async () => {
+    // P is a child of epic E; E's criterion targets P (ON DELETE SET NULL) and
+    // X depends on P (ON DELETE CASCADE). The actions fire with P already
+    // gone, so only P's own D capture still knows uid-P.
+    const db = await store();
+    framed(db, () => {
+      addTask(db, 'E');
+      addTask(db, 'P');
+      addTask(db, 'X');
+      db.exec("UPDATE tasks_tasks SET type = 'epic' WHERE id = 'E'");
+      db.exec("UPDATE tasks_tasks SET parent_id = 'E' WHERE id = 'P'");
+      db.exec(
+        `INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, kind, target_task_id, text, uid, birth_fp)
+         VALUES ('ac-e', 'E', 1, 'child_task', 'P', 'targets P', 'uid-ac-e', 'fp-ac-e')`,
+      );
+      db.exec("INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('X', 'P')");
+    });
+    seal(db);
+    const before = ops(db).length;
+    expect((db.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys).toBe(
+      1,
+    );
+    framed(db, () => db.exec("DELETE FROM tasks_tasks WHERE id = 'P'"));
+    const r = seal(db);
+    expect(r.pending).toEqual([]);
+    const after = ops(db).slice(before);
+    // The SET NULL is journaled: before names uid-P, after is null.
+    const setNull = after.find((o) => o.t === 'tasks_task_acceptance_criteria');
+    expect(setNull).toEqual(
+      expect.objectContaining({
+        o: 'U',
+        u: 'uid-ac-e',
+        a: { target_task_id: null },
+        b: { target_task_id: 'uid-P' },
+      }),
+    );
+    // The cascaded dependency D carries the parent's uid in its key.
+    const dep = after.find((o) => o.t === 'tasks_task_dependencies');
+    expect(dep).toEqual(
+      expect.objectContaining({ o: 'D', k: { task_id: 'uid-X', depends_on: 'uid-P' } }),
+    );
+  });
+
   it('a quarantined capture marks its table suspect and flags the partial transaction (LOW)', async () => {
     const db = await store();
     db.exec('BEGIN IMMEDIATE');

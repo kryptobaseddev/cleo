@@ -23,6 +23,7 @@ import type {
 } from '@cleocode/contracts';
 import { failNexus, nexusApiUrlArg } from './nexus-account-cli.js';
 import { runCloudRead, stringArg } from './nexus-cloud-cli.js';
+import { terminalSafe } from './terminal-safe.js';
 
 /** Parsed citty args. */
 type Args = Readonly<Record<string, unknown>>;
@@ -46,7 +47,8 @@ function common(args: Args, operation: string) {
   return { apiUrl: nexusApiUrlArg(args), scope: scopeArg(args, operation) };
 }
 
-const who = (name: string | null, id: string) => name ?? id;
+/** A device as a human line names it: its server-supplied name, else its id, made terminal-safe (T13295). */
+const who = (name: string | null, id: string) => terminalSafe(name ?? id);
 
 /**
  * `--limit` of `cleo cloud activity`, validated (T13007): a whole number from
@@ -141,7 +143,9 @@ async function restoreProjectId(args: Args): Promise<string | undefined> {
   if (stringArg(args, 'into') === undefined) assertNexusRestoreTarget();
   const resolved = await resolveNexusProjectRef(ref, { apiUrl: nexusApiUrlArg(args) });
   if (resolved.matchedBy === 'name') {
-    process.stderr.write(`Restoring "${resolved.name}" (project ${resolved.projectId})...\n`);
+    process.stderr.write(
+      `Restoring "${terminalSafe(resolved.name ?? '')}" (project ${resolved.projectId})...\n`,
+    );
   }
   return resolved.projectId;
 }
@@ -329,7 +333,7 @@ export async function runCloudActivity(args: Args): Promise<void> {
         .slice(0, 10)
         .map(
           (i) =>
-            `${i.at} ${who(i.deviceName, i.deviceId ?? 'account')}${i.thisDevice ? ' (this machine)' : ''} ${i.action}${i.target ? ` ${i.target}` : ''}`,
+            `${i.at} ${who(i.deviceName, i.deviceId ?? 'account')}${i.thisDevice ? ' (this machine)' : ''} ${terminalSafe(i.action)}${i.target ? ` ${terminalSafe(i.target)}` : ''}`,
         )
         .join('; ')}${r.items.length > 10 ? '; …' : ''}`,
   );
