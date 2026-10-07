@@ -204,6 +204,43 @@ export interface CloudSyncPushEnableResult {
   warnings: CloudWarning[];
 }
 
+/** One stream of `cleo cloud sync` (T12996). */
+export interface CloudSyncStreamResult {
+  scope: CloudVaultScope;
+  streamId: string | null;
+  /**
+   * `synced`: pushed and pulled what was enabled; `disabled`: neither `sync.push` nor `sync.pull` is on;
+   * `paused`: push paused for a device clock ahead of the server's; `not-attached`: this machine has no
+   * store on that stream; `refused`: a precondition or the server refused (see `refused`).
+   */
+  status: 'synced' | 'disabled' | 'paused' | 'not-attached' | 'refused';
+  /** Why this stream did not sync fully, or null. */
+  refused: string | null;
+  /** Transactions sealed, segments persisted, segments the server stored (`duplicates` of them retries). */
+  sealed: number;
+  built: number;
+  sent: number;
+  duplicates: number;
+  /** Segments received, transactions staged, re-deliveries skipped. */
+  received: number;
+  staged: number;
+  redelivered: number;
+  /** Transactions applied; still held (pending, clock skew, or a newer schema); in conflict. */
+  applied: number;
+  held: number;
+  conflicts: number;
+  /** The stream position this store has staged up to, and the server's head (null when not pulled). */
+  after: number | null;
+  head: number | null;
+}
+
+/** `cleo cloud sync` (T12996): seal, push, pull and apply each attached stream. */
+export interface CloudSyncResult {
+  apiUrl: string;
+  streams: CloudSyncStreamResult[];
+  warnings: CloudWarning[];
+}
+
 /** `cleo cloud pull` / `cleo cloud restore`. */
 export interface CloudRestoreResult {
   apiUrl: string;

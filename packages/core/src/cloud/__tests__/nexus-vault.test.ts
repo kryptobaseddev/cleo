@@ -118,6 +118,7 @@ import { hasUnsyncedNexusBackup, runNexusFirstRun } from '../nexus-first-run.js'
 import { linkProjectToNexus } from '../nexus-link.js';
 import { listNexusNamedProjects, resolveNexusProjectRef } from '../nexus-project-names.js';
 import {
+  cloudSync,
   enableSyncPush,
   nexusVaultStatus,
   pullSyncStream,
@@ -5154,6 +5155,86 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     });
     const again = await on(m, () => pullSyncStream(vopts(m)));
     expect(again).toMatchObject({ segments: 0, staged: 0 });
+  });
+
+  it('C-1: cloud sync seals, pushes, pulls and applies the stream in one call; a rerun does nothing', async () => {
+    const { m, dbPath } = await journalMachine();
+    await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      setSyncFlag(db, 'sync.pull', true, { allowUnreleased: true });
+      db.exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('C1', 'title C1', 'task', 'pending', 'medium', 'uid-C1', 'fp-C1')",
+      );
+    });
+    const r = await on(m, () => cloudSync(vopts(m, { scope: 'project', allowUnreleased: true })));
+    expect(r.streams).toHaveLength(1);
+    expect(r.streams[0]).toMatchObject({
+      scope: 'project',
+      streamId: STREAM,
+      status: 'synced',
+      refused: null,
+      sealed: 1,
+      sent: 1,
+      received: 1,
+      staged: 1,
+      applied: 1,
+      held: 0,
+      conflicts: 0,
+    });
+    expect(r.streams[0]?.after).toBe(r.streams[0]?.head);
+    const again = await on(m, () =>
+      cloudSync(vopts(m, { scope: 'project', allowUnreleased: true })),
+    );
+    expect(again.streams[0]).toMatchObject({ status: 'synced', sealed: 0, sent: 0, received: 0 });
+  });
+
+  it('C-1: an interrupted sync resumes on the next run with nothing sent or applied twice', async () => {
+    const { m, dbPath } = await journalMachine();
+    await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      setSyncFlag(db, 'sync.pull', true, { allowUnreleased: true });
+      db.exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('C2', 'title C2', 'task', 'pending', 'medium', 'uid-C2', 'fp-C2')",
+      );
+    });
+    fake.beforeSegment = {
+      deviceId: DEVICE_A,
+      run: async () => {
+        throw new ApiFail(403, 'E_FORBIDDEN');
+      },
+    };
+    await expect(
+      on(m, () => cloudSync(vopts(m, { scope: 'project', allowUnreleased: true }))),
+    ).rejects.toThrow();
+    const before = fake.stream(STREAM).segments.length;
+    const r = await on(m, () => cloudSync(vopts(m, { scope: 'project', allowUnreleased: true })));
+    expect(r.streams[0]).toMatchObject({
+      status: 'synced',
+      built: 0,
+      sent: 1,
+      received: 1,
+      applied: 1,
+    });
+    expect(fake.stream(STREAM).segments).toHaveLength(before + 1);
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      expect((db.prepare('SELECT count(*) AS n FROM _sync_inbox').get() as { n: number }).n).toBe(
+        1,
+      );
+      expect(
+        (db.prepare("SELECT count(*) AS n FROM tasks_tasks WHERE id = 'C2'").get() as { n: number })
+          .n,
+      ).toBe(1);
+    });
+  });
+
+  it('C-1: with the journal flags off, cloud sync refuses with E_SYNC_DISABLED naming the remedy', async () => {
+    const { m } = await journalMachine();
+    const refused = await failure(on(m, () => cloudSync(vopts(m, { scope: 'project' }))));
+    expect(refused.code).toBe('E_SYNC_DISABLED');
+    expect(refused.fix).toContain('cleo sync enable push');
   });
 
   it('S4-2: a device clock ahead of the server pauses push', async () => {

@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const pushNexusVault = vi.fn();
 const enableSyncPush = vi.fn();
+const cloudSync = vi.fn();
 const restoreNexusVault = vi.fn();
 const verifyNexusVault = vi.fn();
 const nexusVaultStatus = vi.fn();
@@ -23,6 +24,7 @@ const resolveNexusProjectRef = vi.fn();
 const assertNexusRestoreTarget = vi.fn();
 
 vi.mock('@cleocode/core/cloud/nexus-vault.js', () => ({
+  cloudSync,
   enableSyncPush,
   pushNexusVault,
   restoreNexusVault,
@@ -46,6 +48,7 @@ const {
   runCloudPull,
   runCloudPush,
   runCloudRestore,
+  runCloudSync,
   runCloudVault,
   runCloudVerify,
   runSyncEnablePush,
@@ -175,6 +178,38 @@ describe('flags reach the core calls', () => {
     await runSyncEnablePush({ 'api-url': API, scope: 'global' });
     expect(opts(enableSyncPush)).toEqual({ apiUrl: API, scope: 'global' });
     expect(written()).toContain('cp-1');
+  });
+
+  it('cloud sync passes the API URL, and a scope only when one is given (T12996)', async () => {
+    cloudSync.mockReset().mockResolvedValue({
+      apiUrl: API,
+      streams: [
+        {
+          scope: 'project',
+          streamId: 'project:p',
+          status: 'synced',
+          refused: null,
+          sealed: 1,
+          built: 1,
+          sent: 1,
+          duplicates: 0,
+          received: 2,
+          staged: 2,
+          redelivered: 0,
+          applied: 2,
+          held: 0,
+          conflicts: 0,
+          after: 7,
+          head: 7,
+        },
+      ],
+      warnings: [],
+    });
+    await runCloudSync({ 'api-url': API });
+    expect(opts(cloudSync)).toEqual({ apiUrl: API });
+    await runCloudSync({ scope: 'global' });
+    expect(cloudSync.mock.calls[1]?.[0]).toEqual({ apiUrl: undefined, scope: 'global' });
+    expect(written()).toContain('project:p');
   });
 
   it('restore passes checkpoint, project, into and force', async () => {

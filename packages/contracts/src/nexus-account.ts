@@ -106,6 +106,8 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_SYNC_REFUSED',
   /** Another device already started this stream's change journal: this store joins it by pulling. */
   'E_NEXUS_SYNC_STREAM_JOURNALED',
+  /** `cleo cloud sync` found no stream with `sync.push` or `sync.pull` on (`cleo sync enable`). */
+  'E_SYNC_DISABLED',
   // Projects by name (`cleo cloud restore <name>`, T13102).
   /** No project of the account has that name, label or id. */
   'E_NEXUS_PROJECT_NOT_FOUND',

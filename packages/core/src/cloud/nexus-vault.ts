@@ -62,6 +62,8 @@ import type {
   CloudPushResult,
   CloudRestoreResult,
   CloudSyncPushEnableResult,
+  CloudSyncResult,
+  CloudSyncStreamResult,
   CloudVaultLease,
   CloudVaultScope,
   CloudVaultSnapshot,
@@ -103,7 +105,7 @@ import {
   sha256File,
 } from '../store/portable-bundle-scan.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
-import { UNRELEASED_FLAGS } from '../store/sync/flags.js';
+import { isSyncFlagOn, UNRELEASED_FLAGS } from '../store/sync/flags.js';
 import {
   completeGenesis,
   cutGenesisWithSnapshot,
@@ -1852,7 +1854,8 @@ async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<
   // (the genesis it cut, or the snapshot it restored), seeded from its signed
   // replica map.
   let initialCursor = readStreamCursor(db, t.streamId);
-  if (initialCursor === null) {
+  // With sync.pull off, pullStream refuses before it needs a position.
+  if (initialCursor === null && isSyncFlagOn(db, 'sync.pull')) {
     const head = await streamHead(conn, t.streamId);
     const checkpoints = head.headCheckpointId ? await listCheckpoints(conn, t.streamId) : [];
     const { state: synced } = syncedState(conn, t, checkpoints, head.headCheckpointId);
@@ -1871,7 +1874,7 @@ async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<
     scope: tableScopeOf(t),
     stream: t.streamId,
     replica: replicaId,
-    initialCursor,
+    initialCursor: initialCursor ?? initialPullCursor(),
     pull: async (cursor) => {
       const page = await journal.pull(
         {
@@ -1907,6 +1910,120 @@ async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<
       sealPending(db, { scope: tableScopeOf(t), replica: replicaId });
     },
   });
+}
+
+/** A `cleo cloud sync` stream result with nothing done yet. */
+const syncStreamResult = (
+  scope: CloudVaultScope,
+  fields: Partial<CloudSyncStreamResult>,
+): CloudSyncStreamResult => ({
+  scope,
+  streamId: null,
+  status: 'synced',
+  refused: null,
+  sealed: 0,
+  built: 0,
+  sent: 0,
+  duplicates: 0,
+  received: 0,
+  staged: 0,
+  redelivered: 0,
+  applied: 0,
+  held: 0,
+  conflicts: 0,
+  after: null,
+  head: null,
+  ...fields,
+});
+
+/** Codes meaning this machine has no store on the stream of a scope. */
+const NOT_ATTACHED_CODES: ReadonlySet<string> = new Set([
+  'E_NEXUS_VAULT_NOT_LINKED',
+  'E_NEXUS_NOT_A_PROJECT',
+]);
+
+/** Seal, push, pull and apply one scope's stream (T12996). */
+async function syncOneStream(
+  opts: NexusVaultCommandOptions & { allowUnreleased?: boolean },
+  scope: CloudVaultScope,
+): Promise<CloudSyncStreamResult> {
+  const failed = (err: unknown): CloudSyncStreamResult | null => {
+    if (!(err instanceof NexusAccountError)) return null;
+    return NOT_ATTACHED_CODES.has(err.code)
+      ? syncStreamResult(scope, { status: 'not-attached', refused: err.message })
+      : syncStreamResult(scope, { status: 'refused', refused: `${err.code}: ${err.message}` });
+  };
+  let push: PushStreamReport;
+  try {
+    push = await pushSyncStreamImpl({ ...opts, scope });
+  } catch (err) {
+    const r = failed(err);
+    if (r) return r;
+    throw err;
+  }
+  let pull: PullStreamReport;
+  try {
+    pull = await pullSyncStreamImpl({ ...opts, scope });
+  } catch (err) {
+    const r = failed(err);
+    if (r)
+      return {
+        ...r,
+        streamId: push.stream,
+        sealed: push.sealed,
+        built: push.built,
+        sent: push.pushed,
+      };
+    throw err;
+  }
+  const pushOff = push.refused === 'sync.push is off';
+  const pullOff = pull.refused === 'sync.pull is off';
+  const refused = [push.refused, pull.refused].filter(
+    (r): r is string => r !== null && r !== 'sync.push is off' && r !== 'sync.pull is off',
+  );
+  const apply = pull.apply;
+  return syncStreamResult(scope, {
+    streamId: push.stream,
+    status:
+      pushOff && pullOff
+        ? 'disabled'
+        : refused.length > 0
+          ? 'refused'
+          : push.clockAhead
+            ? 'paused'
+            : 'synced',
+    refused: refused.length > 0 ? refused.join('; ') : null,
+    sealed: push.sealed,
+    built: push.built,
+    sent: push.pushed,
+    duplicates: push.duplicates,
+    received: pull.segments,
+    staged: pull.staged,
+    redelivered: pull.redelivered,
+    applied: apply?.applied ?? 0,
+    held: (apply?.pending ?? 0) + (apply?.heldSkew ?? 0) + (apply?.refusedSchema ?? 0),
+    conflicts: apply?.conflict ?? 0,
+    after: pull.refused === null ? pull.after : null,
+    head: pull.refused === null ? pull.head : null,
+  });
+}
+
+async function cloudSyncImpl(
+  opts: NexusVaultCommandOptions & { allowUnreleased?: boolean } = {},
+): Promise<CloudSyncResult> {
+  const conn = await connectNexusVault(opts);
+  const scopes: CloudVaultScope[] = opts.scope ? [opts.scope] : ['project', 'global'];
+  const streams: CloudSyncStreamResult[] = [];
+  for (const scope of scopes) streams.push(await syncOneStream(opts, scope));
+  const worked = streams.filter((r) => r.status !== 'disabled' && r.status !== 'not-attached');
+  if (worked.length === 0 && streams.some((r) => r.status === 'disabled')) {
+    throw vaultError(
+      'E_SYNC_DISABLED',
+      'no attached stream has sync.push or sync.pull on',
+      'turn the change journal on first: `cleo sync enable push`',
+    );
+  }
+  return { apiUrl: conn.apiUrl, streams, warnings: [...conn.warnings] };
 }
 
 /** The keyed hash of an empty table (a table the parent lists that this store no longer has). */
@@ -2776,6 +2893,25 @@ export function pushSyncStream(
  */
 export function pullSyncStream(opts: NexusVaultCommandOptions = {}): Promise<PullStreamReport> {
   return mapped(() => pullSyncStreamImpl(opts));
+}
+
+/**
+ * `cleo cloud sync`: seal, push, pull and apply the change journal of each
+ * attached stream (the project's `project:<id>`, the account's `home:<user>`;
+ * T12996). One result per stream: sealed, persisted, sent, received, staged,
+ * applied, held and in conflict, and how far the store has staged against
+ * the server's head. An interrupted run resumes on the next: a segment is
+ * resent with the same bytes, and a transaction is never staged twice.
+ *
+ * @param opts - `scope` (one stream; default every attached one), overrides;
+ *   `allowUnreleased` for tests and staging only.
+ * @returns Every stream's result.
+ * @throws {NexusAccountError} `E_SYNC_DISABLED` when no attached stream has a journal flag on.
+ */
+export function cloudSync(
+  opts: NexusVaultCommandOptions & { allowUnreleased?: boolean } = {},
+): Promise<CloudSyncResult> {
+  return mapped(() => cloudSyncImpl(opts));
 }
 
 /**

@@ -41,6 +41,7 @@ import {
   runCloudPull,
   runCloudPush,
   runCloudRestore,
+  runCloudSync,
   runCloudVault,
   runCloudVerify,
 } from '../lib/nexus-vault-cli.js';
@@ -125,6 +126,25 @@ const projectsSubCommand = defineCommand({
   },
   async run({ args }) {
     await runCloudProjects(args as Record<string, unknown>);
+  },
+});
+
+const syncSubCommand = defineCommand({
+  meta: {
+    name: 'sync',
+    description:
+      "Sync the change journal with Cleo Nexus: seal pending writes, push them as segments, pull the stream's new segments and apply them, for each attached stream (the project's and the account's global store; --scope picks one). One envelope with per-stream sealed, sent, received, applied, held and conflict counts and the staged position against the server's head. Refused with E_SYNC_DISABLED until `cleo sync enable push`. An interrupted run resumes on the next: nothing is sent or applied twice.",
+  },
+  args: {
+    scope: {
+      type: 'string',
+      description: "One stream: 'project' or 'global' (default: every attached stream).",
+    },
+    'api-url': NEXUS_API_URL_ARG,
+    json: JSON_ARG,
+  },
+  async run({ args }) {
+    await runCloudSync(args as Record<string, unknown>);
   },
 });
 
@@ -311,6 +331,7 @@ export const cloudCommand = defineCommand({
     projects: projectsSubCommand,
     activity: activitySubCommand,
     conflicts: conflictsSubCommand,
+    sync: syncSubCommand,
     push: pushSubCommand,
     pull: pullSubCommand,
     restore: restoreSubCommand,

@@ -18,6 +18,7 @@ import type {
   CloudPushResult,
   CloudRestoreResult,
   CloudSyncPushEnableResult,
+  CloudSyncResult,
   CloudVaultScope,
   CloudVaultStatusResult,
   CloudVerifyResult,
@@ -103,6 +104,32 @@ export async function runSyncEnablePush(args: Args): Promise<void> {
       r.status === 'already'
         ? `Push is already on for ${r.streamId} (genesis cut at capture ${r.cut}).`
         : `Push is on for ${r.streamId}: genesis cut at capture ${r.cut}, checkpoint ${r.snapshot?.checkpointId}${r.status === 'resumed' ? ' (resumed)' : ''}.`,
+  );
+}
+
+/**
+ * `cleo cloud sync [--scope]`: seal, push, pull and apply each attached
+ * stream (T12996). Without `--scope`, every attached stream.
+ *
+ * @param args - Parsed args.
+ */
+export async function runCloudSync(args: Args): Promise<void> {
+  const scope = stringArg(args, 'scope') === undefined ? undefined : scopeArg(args, 'cloud.sync');
+  await runCloudRead<CloudSyncResult>(
+    'cloud.sync',
+    async () =>
+      (await vaultModule()).cloudSync({
+        apiUrl: nexusApiUrlArg(args),
+        ...(scope !== undefined ? { scope } : {}),
+      }),
+    (r) =>
+      r.streams
+        .map((st) =>
+          st.status === 'synced'
+            ? `${st.streamId}: sent ${st.sent} segment(s), received ${st.received}, applied ${st.applied}${st.held > 0 ? `, ${st.held} held` : ''}${st.conflicts > 0 ? `, ${st.conflicts} in conflict` : ''} (at ${st.after} of ${st.head}).`
+            : `${st.streamId ?? st.scope}: ${st.status}${st.refused ? ` (${st.refused})` : ''}.`,
+        )
+        .join('\n'),
   );
 }
 

@@ -3137,6 +3137,8 @@ export {
   type CloudPushResult,
   type CloudRestoreResult,
   type CloudSyncPushEnableResult,
+  type CloudSyncResult,
+  type CloudSyncStreamResult,
   type CloudVaultLease,
   type CloudVaultScope,
   type CloudVaultSnapshot,
