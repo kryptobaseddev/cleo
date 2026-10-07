@@ -50,6 +50,7 @@ import {
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { create as tarCreate, extract as tarExtract } from 'tar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { _resetDeviceIdCacheForTests } from '../../llm/stable-device-id.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
@@ -68,6 +69,7 @@ import { setCaptureEnabled } from '../../store/sync/capture.js';
 import { isSyncFlagOn, setSyncFlag } from '../../store/sync/flags.js';
 import { cutGenesis, genesisCutOf, genesisPending } from '../../store/sync/genesis.js';
 import { ensureProjectReplica, storeHwm } from '../../store/sync/replica.js';
+import { readDeviceRegistry } from '../../store/sync/replica-registry.js';
 import { ensureSyncSchema } from '../../store/sync/schema.js';
 import {
   emptyVaultTableHash,
@@ -105,6 +107,7 @@ import {
   windowOf,
 } from '../manifest-check.js';
 import { NexusAccountError } from '../nexus-auth.js';
+import { retiredReplicasAmong, retiredReplicasOfProject } from '../nexus-cloud.js';
 import { nexusCloudActivity } from '../nexus-cloud-activity.js';
 import { FileNexusTokenStore } from '../nexus-credentials.js';
 import {
@@ -140,6 +143,19 @@ import {
   segmentSigningMessage,
   segmentSigningVersion,
 } from '../signing.js';
+
+/** Restore markers the vault wrote (T13258), recorded and passed through. */
+const markerCalls = vi.hoisted(() => [] as Array<{ dbPath: string; kind: string }>);
+vi.mock('../../store/restore-marker.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../store/restore-marker.js')>();
+  return {
+    ...mod,
+    writeRestoreMarker: (dbPath: string, kind: 'restore' | 'vault') => {
+      markerCalls.push({ dbPath, kind });
+      return mod.writeRestoreMarker(dbPath, kind);
+    },
+  };
+});
 
 /** Runs just before the vault places a verified snapshot (after its safety export). */
 const importHooks = vi.hoisted(() => ({ beforeImport: null as (() => void) | null }));
@@ -1778,6 +1794,43 @@ describe('cloud vault restore and verify across two devices', () => {
     const again = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
     expect(again.status).toBe('up-to-date');
   });
+
+  it('a pull refuses while another live process holds the restore marker, and clears its own (T13258)', async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    await on(a, () => releaseNexusVaultLease(vopts(a)));
+    exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B1', 'from b')");
+    await on(b, () => pushNexusVault(vopts(b)));
+    await on(b, () => releaseNexusVaultLease(vopts(b)));
+
+    const marker = path.join(a.root, '.cleo', 'cleo.db.restoring');
+    fs.writeFileSync(
+      marker,
+      JSON.stringify({
+        pid: process.ppid,
+        host: os.hostname(),
+        startedAt: new Date().toISOString(),
+        kind: 'restore',
+      }),
+    );
+    vi.stubEnv('CLEO_RESTORE_WAIT_MS', '50');
+    try {
+      await expect(
+        on(a, () => restoreNexusVault(vopts(a, { mode: 'pull', force: true }))),
+      ).rejects.toThrow(/E_STORE_RESTORING/);
+      expect(taskCount(a)).toBe(5);
+    } finally {
+      fs.rmSync(marker, { force: true });
+      vi.unstubAllEnvs();
+    }
+    markerCalls.length = 0;
+    const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull', force: true })));
+    expect(pulled.status).toBe('restored');
+    // The placement held the marker on A's store, and released it.
+    expect(markerCalls).toEqual([{ dbPath: path.join(a.root, '.cleo', 'cleo.db'), kind: 'vault' }]);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
 });
 
 describe('cloud vault point-in-time restore', () => {
@@ -2695,6 +2748,7 @@ describe('cloud vault global scope', () => {
       homeSql(m, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = '${t}'`).length >
       0;
 
+    _resetDeviceIdCacheForTests(); // A's host device id (each machine writes its own)
     const pushed = await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
     expect(pushed.status).toBe('pushed');
     expect(pushed.scope).toBe('global');
@@ -2726,6 +2780,7 @@ describe('cloud vault global scope', () => {
     expect(again.status).toBe('up-to-date');
 
     // Reads never write (T12974): B's status binds no replica.
+    _resetDeviceIdCacheForTests(); // B's host device id from here on
     await on(b, () => nexusVaultStatus(vopts(b, { scope: 'global' })));
     expect(tableExists(b, '_sync_replica')).toBe(false);
 
@@ -2798,6 +2853,7 @@ describe('cloud vault global scope', () => {
     const pushedB = await on(b, () => pushNexusVault(vopts(b, { scope: 'global' })));
     expect(pushedB.status).toBe('pushed');
     expect(pushedB.parentCheckpointId).toBe(cp?.checkpointId);
+    _resetDeviceIdCacheForTests(); // A's own host device id (T13109 review LOW-3)
     const pulled = await on(a, () =>
       restoreNexusVault(vopts(a, { scope: 'global', mode: 'pull' })),
     );
@@ -2810,7 +2866,37 @@ describe('cloud vault global scope', () => {
     expect(homeSql(a, 'SELECT remote_url FROM nexus_project_git_state')).toEqual([
       { remote_url: null },
     ]);
-    expect(replicaRows(a)).toEqual(replicasA);
+    // A's own replica rows are carried, never B's; the placed file is a new store
+    // instance, so A's replica is retired and a new one bound (T13109).
+    expect(pulled.replica).toEqual({
+      retired: cp?.replicaId,
+      current: expect.any(String),
+      reason: 'vault-restore',
+    });
+    // Recorded in A's own replica registry as a retire candidate for S4.
+    const candidates = await on(a, async () => readDeviceRegistry()?.retireCandidates() ?? []);
+    expect(candidates).toEqual([
+      expect.objectContaining({
+        replicaId: cp?.replicaId,
+        successor: pulled.replica?.current,
+        reason: 'vault-restore',
+        scope: 'global',
+      }),
+    ]);
+    const afterPull = homeSql<{ replica_id: string; bound_why: string; successor: string | null }>(
+      a,
+      'SELECT replica_id, bound_why, successor FROM _sync_replica ORDER BY bound_at',
+    );
+    expect(afterPull.map((r) => r.replica_id).sort()).toEqual(
+      [...replicasA.map((r) => r.replica_id), pulled.replica?.current].sort(),
+    );
+    expect(afterPull.find((r) => r.replica_id === cp?.replicaId)).toMatchObject({
+      successor: pulled.replica?.current,
+    });
+    expect(afterPull.find((r) => r.replica_id === pulled.replica?.current)).toMatchObject({
+      bound_why: 'rebind:vault-restore',
+      successor: null,
+    });
     expect(fs.readFileSync(path.join(a.home, 'device-id'), 'utf8')).toBe('device-a\n');
     // A's agent key had nowhere to go (B deleted the agent): reported with its remedy.
     const lost = pulled.warnings.find((w) => w.code === 'W_NEXUS_VAULT_CREDENTIALS_LOST');
@@ -4034,6 +4120,161 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
   });
 });
 
+describe('cleo cloud verify --deep (T13291)', () => {
+  /** A's own replica, as the change journal drives it. */
+  function journalOfA(a: Machine): Journal {
+    const wrapped = fake.projectKeys.get(REMOTE_PROJECT)?.[0];
+    return new Journal({
+      http: new Http({ baseUrl: API, token: a.token, deviceId: a.deviceId, fetch: fake.fetch }),
+      streamId: STREAM,
+      replicaId: REPLICA_A,
+      deviceId: DEVICE_A,
+      signing: a.keys.signing,
+      key: unwrapProjectKey(
+        fake.escrow?.mk ?? Buffer.alloc(0),
+        wrapped?.wrappedProjectKey ?? '',
+        REMOTE_PROJECT,
+        1,
+      ),
+      fetch: fake.fetch,
+    });
+  }
+
+  /** One segment after the head snapshot, from A's replica. */
+  async function tailSegment(a: Machine): Promise<void> {
+    const hlc = `${String(Date.now()).padStart(13, '0')}-000000-${REPLICA_A}`;
+    const last = fake
+      .stream(STREAM)
+      .segments.filter((x) => x.replicaId === REPLICA_A)
+      .at(-1);
+    await journalOfA(a).push(last ? last.replicaSeq + 1 : 0, Buffer.from('{"tail":true}'), {
+      opCount: 1,
+      hlcMin: hlc,
+      hlcMax: hlc,
+      deltas: { tasks_tasks: { created: 1, deleted: 0 } },
+      schemaVersion: SYNC_SCHEMA_VERSION,
+    });
+  }
+
+  /** Flip one byte of the stored bundle of `cp`. */
+  function tamperBundle(cp: Checkpoint | undefined): void {
+    const blob = fake.blobs.get(cp?.blobSha256 ?? '');
+    if (!blob?.bytes) throw new Error('fixture: no bundle bytes');
+    const bytes = Buffer.from(blob.bytes);
+    bytes[bytes.length >> 1] = (bytes[bytes.length >> 1] ?? 0) ^ 0xff;
+    blob.bytes = bytes;
+  }
+
+  it('downloads the head bundle again and re-hashes the segments after it; a plain verify has no deep part', async () => {
+    const { a } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    // A second push writes a delta segment its snapshot covers: only the tail after it is re-hashed.
+    exec(a, "INSERT INTO tasks_tasks (id, title) VALUES ('A1', 'from a')");
+    expect((await on(a, () => pushNexusVault(vopts(a)))).deltaSegmentSeq).toBe(1);
+    await tailSegment(a);
+    const head = fake.stream(STREAM).checkpoints.at(-1);
+    expect(head?.coversSeq).toBe(1);
+    expect(fake.stream(STREAM).segments).toHaveLength(2);
+
+    const plain = await on(a, () => verifyNexusVault(vopts(a)));
+    expect(plain.verdict).toBe('match');
+    expect(plain.deep).toBeUndefined();
+
+    const deep = await on(a, () => verifyNexusVault(vopts(a, { deep: true })));
+    expect(deep.verdict).toBe('match');
+    expect(deep.remedy).toBeNull();
+    expect(deep.deep?.snapshots).toEqual([
+      {
+        checkpointId: head?.checkpointId,
+        deviceId: DEVICE_A,
+        sizeBytes: head?.sizeBytes,
+        ok: true,
+        problem: null,
+      },
+    ]);
+    expect(deep.deep?.segments).toEqual({
+      from: head?.coversSeq,
+      checked: 1,
+      ok: true,
+      problem: null,
+    });
+  });
+
+  it('a head bundle whose bytes changed is untrusted; a plain verify cannot see it', async () => {
+    const { a } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    const head = fake.stream(STREAM).checkpoints.at(-1);
+    tamperBundle(head);
+
+    expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+    const deep = await on(a, () => verifyNexusVault(vopts(a, { deep: true })));
+    expect(deep.verdict).toBe('untrusted');
+    expect(deep.deep?.snapshots[0]).toMatchObject({
+      checkpointId: head?.checkpointId,
+      ok: false,
+      problem: 'checkpoint bundle does not match its hash',
+    });
+    expect(deep.remedy).toContain(
+      'failed the deep check (checkpoint bundle does not match its hash)',
+    );
+    expect(deep.remedy).toContain('do not pull it');
+  });
+
+  it('a segment after the head whose bytes changed is untrusted', async () => {
+    const { a } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await tailSegment(a);
+    const seg = fake.stream(STREAM).segments.at(-1);
+    if (!seg?.ciphertext) throw new Error('fixture: inline segment expected');
+    const bytes = Buffer.from(seg.ciphertext, 'base64');
+    bytes[0] = (bytes[0] ?? 0) ^ 0xff;
+    seg.ciphertext = bytes.toString('base64');
+
+    const deep = await on(a, () => verifyNexusVault(vopts(a, { deep: true })));
+    expect(deep.verdict).toBe('untrusted');
+    expect(deep.deep?.snapshots.every((x) => x.ok)).toBe(true);
+    expect(deep.deep?.segments).toMatchObject({
+      checked: 0,
+      ok: false,
+      problem: `segment ${seg.seq} ciphertext does not match its hash`,
+    });
+    expect(deep.remedy).toContain('failed the deep check');
+  });
+
+  it("another device's older snapshot failing is a warning; the verdict stands", async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    const older = fake.stream(STREAM).checkpoints.at(-1);
+    await restoreOntoB(b);
+    exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B1', 'from b')");
+    expect((await on(b, () => pushNexusVault(vopts(b)))).status).toBe('pushed');
+    const head = fake.stream(STREAM).checkpoints.at(-1);
+    expect(head?.blobSha256).not.toBe(older?.blobSha256);
+    tamperBundle(older);
+
+    const deep = await on(b, () => verifyNexusVault(vopts(b, { deep: true })));
+    expect(deep.verdict).toBe('match');
+    expect(deep.deep?.snapshots.map((x) => [x.checkpointId, x.ok])).toEqual([
+      [head?.checkpointId, true],
+      [older?.checkpointId, false],
+    ]);
+    const warning = deep.warnings.find((w) => w.code === 'W_NEXUS_VAULT_BLOB_INTEGRITY');
+    expect(warning?.message).toContain(`snapshot ${older?.checkpointId} by a-laptop failed`);
+    expect(deep.remedy).toBeNull();
+  });
+
+  it('a download that fails over the network is an error, not a verdict', async () => {
+    const { a } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    const blob = fake.blobs.get(fake.stream(STREAM).checkpoints.at(-1)?.blobSha256 ?? '');
+    if (!blob) throw new Error('fixture');
+    blob.bytes = null;
+
+    const err = await failure(on(a, () => verifyNexusVault(vopts(a, { deep: true }))));
+    expect(err.message).toContain('HTTP 404');
+  });
+});
+
 describe('guided first run against the fake server (T13102)', () => {
   /** The first run's link step for machine `m`: the binding `cleo project link` would write. */
   function linkStep(m: Machine) {
@@ -4462,6 +4703,107 @@ describe("cloud vault restore keeps the store's migration journal (T13104)", () 
     await openStore(b);
     expect(stamped()).toEqual([]);
     expect(journalOf(b)).toEqual(journal);
+  });
+});
+
+describe('cloud vault pull rebinds the store as vault-restore (T13109)', () => {
+  /** Make `m` its own host device for the replica registry (the id is cached per process). */
+  function hostDevice(m: Machine): void {
+    fs.writeFileSync(path.join(m.home, 'device-id'), `host-${m.name}\n`);
+    _resetDeviceIdCacheForTests();
+  }
+  /** Bind `m`'s project replica, as `cleo project link` does (ensureProjectReplica). */
+  async function bindReplica(m: Machine): Promise<string> {
+    hostDevice(m);
+    return on(m, async () => {
+      const dbPath = path.join(m.root, '.cleo', 'cleo.db');
+      const db = new DatabaseSync(dbPath);
+      try {
+        return ensureProjectReplica(db, { dbPath, mode: 'live' }).replicaId;
+      } finally {
+        db.close();
+      }
+    });
+  }
+  /** Two machines whose stores carry the real sync schema, as linked projects do. */
+  async function linkedMachines(): Promise<{ a: Machine; b: Machine }> {
+    const { a, b } = await twoMachines();
+    // The fixture's simplified `_sync_replica` stands in for the real table: replace it.
+    exec(a, 'DROP TABLE _sync_replica');
+    await bindReplica(a);
+    return { a, b };
+  }
+  const replicaRows = (m: Machine) =>
+    sql<{
+      replica_id: string;
+      bound_why: string;
+      retired_at: string | null;
+      successor: string | null;
+    }>(
+      m,
+      'SELECT replica_id, bound_why, retired_at, successor FROM _sync_replica ORDER BY bound_at',
+    );
+
+  it('a pull retires the replica, binds a new one, records the candidate and labels it', async () => {
+    const { a, b } = await linkedMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    const first = await restoreOntoB(b);
+    // A project new to this machine has no replica to retire.
+    expect(first.result.replica).toBeNull();
+    const r1 = await bindReplica(b);
+
+    exec(a, "INSERT INTO tasks_tasks (id, title) VALUES ('T100', 'new')");
+    hostDevice(a);
+    await on(a, () => pushNexusVault(vopts(a)));
+    hostDevice(b);
+    const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    const r2 = pulled.replica?.current;
+    expect(pulled.replica).toEqual({
+      retired: r1,
+      current: expect.any(String),
+      reason: 'vault-restore',
+    });
+    expect(r2).not.toBe(r1);
+    expect(replicaRows(b)).toEqual([
+      { replica_id: r1, bound_why: 'genesis', retired_at: expect.any(String), successor: r2 },
+      { replica_id: r2, bound_why: 'rebind:vault-restore', retired_at: null, successor: null },
+    ]);
+    // The next link finds the placed file bound already: no second, unlabelled rebind.
+    expect(await bindReplica(b)).toBe(r2);
+
+    // Recorded for S4's retire transaction, and labelled for status and projects show.
+    const candidates = await on(b, async () => readDeviceRegistry()?.retireCandidates() ?? []);
+    expect(candidates).toEqual([
+      expect.objectContaining({ replicaId: r1, successor: r2, reason: 'vault-restore' }),
+    ]);
+    const label = [
+      { replicaId: r1, successor: r2, retiredAt: expect.any(String), reason: 'vault-restore' },
+    ];
+    expect(await on(b, () => retiredReplicasOfProject(b.root))).toEqual(label);
+    expect(await on(b, () => retiredReplicasAmong([REPLICA_A, r1, r2 ?? '']))).toEqual(label);
+  });
+
+  it('every pull retires the previous replica; the labels list them newest first', async () => {
+    const { a, b } = await linkedMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    const r1 = await bindReplica(b);
+    const pulls: string[] = [];
+    for (const id of ['T101', 'T102']) {
+      exec(a, `INSERT INTO tasks_tasks (id, title) VALUES ('${id}', 'new')`);
+      hostDevice(a);
+      await on(a, () => pushNexusVault(vopts(a)));
+      hostDevice(b);
+      const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+      pulls.push(pulled.replica?.current ?? '');
+    }
+    const [r2, r3] = pulls;
+    const retired = await on(b, () => retiredReplicasOfProject(b.root));
+    expect(retired.map((r) => [r.replicaId, r.successor])).toEqual([
+      [r2, r3],
+      [r1, r2],
+    ]);
   });
 });
 
