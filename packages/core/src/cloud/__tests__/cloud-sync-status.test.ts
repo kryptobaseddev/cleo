@@ -101,6 +101,7 @@ describe('cloud status sync block (T12998)', () => {
       unsealedOps: 0,
       lastSealedSeq: null,
       quarantined: {},
+      seenTxns: { rows: 0, bytes: 0, byStream: {} },
     });
   });
 
@@ -150,6 +151,25 @@ describe('cloud status sync block (T12998)', () => {
     ).run();
     const { project } = await projectBlock();
     expect(project?.quarantined).toEqual({ tasks_tasks: 1 });
+  });
+
+  it('reports the seen-txn ledger per stream with its estimated bytes; nothing prunes it (T13317)', async () => {
+    const db = await store(true);
+    const ins = db.prepare('INSERT INTO _sync_seen_txn (stream, txn, seq) VALUES (?, ?, ?)');
+    ins.run('project:p1', 'r1:1', 1);
+    ins.run('project:p1', 'r1:2', 2);
+    ins.run('home:u1', 'r2:1', 1);
+    const { project } = await projectBlock();
+    // stream + txn text + an 8-byte seq per row.
+    const bytes =
+      2 * ('project:p1'.length + 'r1:1'.length + 8) + ('home:u1'.length + 'r2:1'.length + 8);
+    expect(project?.seenTxns).toEqual({
+      rows: 3,
+      bytes,
+      byStream: { 'home:u1': 1, 'project:p1': 2 },
+    });
+    // A read never prunes: the next read sees the same rows.
+    expect((await projectBlock()).project?.seenTxns.rows).toBe(3);
   });
 
   it('is read-only: the store file is unchanged by a read', async () => {

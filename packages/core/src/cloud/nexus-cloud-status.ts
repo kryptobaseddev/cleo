@@ -287,6 +287,7 @@ export async function readStoreSyncStream(
     { suspectTables },
     { holdsReport },
     { undoBudget },
+    { seenTxnReport },
   ] = await Promise.all([
     import('../store/sync/flags.js'),
     import('../store/sync/schema.js'),
@@ -294,6 +295,7 @@ export async function readStoreSyncStream(
     import('../store/sync/structural.js'),
     import('../store/sync/held.js'),
     import('../store/sync/sequencing.js'),
+    import('../store/sync/pull.js'),
   ]);
   const holds = holdsReport(db, Date.now());
   const flags = readSyncFlags(db);
@@ -344,6 +346,7 @@ export async function readStoreSyncStream(
       warnDays: holds.warnDays,
     },
     undo: undoBudget(db),
+    seenTxns: seenTxnReport(db),
     unsentOps: UNSENT_UNKNOWN,
     lastPushedSeq: needsPush('the last pushed sequence'),
     lastPulledSeq: needsPush('the last pulled sequence'),

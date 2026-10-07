@@ -565,6 +565,20 @@ export interface CloudStatusUndoBudget {
   readonly exceededAt: string | null;
 }
 
+/**
+ * The pull's seen-transaction ledger (`_sync_seen_txn`, T13317). Nothing
+ * prunes it yet: a seen txn can return in a new segment above any checkpoint,
+ * so pruning waits for a proven refusal floor (T13318).
+ */
+export interface CloudStatusSeenTxns {
+  /** Rows held, every stream. */
+  readonly rows: number;
+  /** Estimated bytes: the stored text and integer payload, without SQLite page overhead. */
+  readonly bytes: number;
+  /** Rows per stream. */
+  readonly byStream: Readonly<Record<string, number>>;
+}
+
 export interface CloudStatusSyncStream {
   /** Which store. */
   readonly scope: 'project' | 'global';
@@ -590,6 +604,8 @@ export interface CloudStatusSyncStream {
   readonly held: CloudStatusHeld;
   /** Undo held against its budget (§3.5 Rule 2, D5). */
   readonly undo: CloudStatusUndoBudget;
+  /** The seen-transaction ledger's size; it grows until pruning has a proven floor (T13317). */
+  readonly seenTxns: CloudStatusSeenTxns;
   /** Sealed ops not yet handed to the outbox for sending. */
   readonly unsentOps: CloudSyncFact<number>;
   /** The last sequence this store pushed to the server. */

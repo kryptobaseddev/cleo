@@ -233,6 +233,39 @@ function advance(cursor: StreamCursor, segs: readonly PulledStreamSegment[]): St
   };
 }
 
+/** Bytes counted for a seen-txn row's `seq` integer. */
+const SEEN_SEQ_BYTES = 8;
+
+/**
+ * The size of `_sync_seen_txn` (T13317), for `cleo cloud status`: rows per
+ * stream and the estimated payload bytes (stream and txn text plus the seq
+ * integer, without SQLite's page overhead). Read-only.
+ *
+ * @param db - The store.
+ * @returns Zeroes when the table is not installed.
+ */
+export function seenTxnReport(db: DatabaseSync): {
+  rows: number;
+  bytes: number;
+  byStream: Record<string, number>;
+} {
+  if (!hasTable(db, '_sync_seen_txn')) return { rows: 0, bytes: 0, byStream: {} };
+  const byStream: Record<string, number> = {};
+  let rows = 0;
+  let bytes = 0;
+  for (const r of db
+    .prepare(
+      `SELECT stream, count(*) AS n, sum(octet_length(stream) + octet_length(txn) + ${SEEN_SEQ_BYTES}) AS b
+         FROM _sync_seen_txn GROUP BY stream ORDER BY stream`,
+    )
+    .all() as Array<{ stream: string; n: number; b: number | null }>) {
+    byStream[r.stream] = r.n;
+    rows += r.n;
+    bytes += r.b ?? 0;
+  }
+  return { rows, bytes, byStream };
+}
+
 /**
  * Drop the seen-txn rows of `stream` first staged at or below `seq`, keeping
  * `_sync_seen_txn` bounded (§3.1). Only safe below a floor the applier
