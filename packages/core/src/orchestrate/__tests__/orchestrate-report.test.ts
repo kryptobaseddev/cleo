@@ -10,6 +10,10 @@ import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { optOutOfForeignKeys } from '../../store/__tests__/test-db-helper.js';
+
+// T13228: fixtures seed dependency edges before the tasks they name; they run with foreign keys OFF.
+optOutOfForeignKeys();
 
 let TEST_ROOT: string;
 

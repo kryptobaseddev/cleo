@@ -14,6 +14,7 @@ import {
   copyFileSync,
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   renameSync,
@@ -39,6 +40,7 @@ import {
   fileIdentity,
   listReplicas,
   persistStoreSeq,
+  rebindAfterVaultRestore,
   rebindReplica,
   registerRebindHook,
   type StatFn,
@@ -423,6 +425,8 @@ describe('replica binding', () => {
       dbRealpath: expect.stringContaining('cleo.db'),
     });
     expect(registry().get(original)?.retiredAt).toBeUndefined();
+    // A copy retires nothing, so it leaves no retire candidate (§1.5, T13109).
+    expect(registry().retireCandidates()).toEqual([]);
     const back = openDb(path);
     expect(bind(path, back)).toMatchObject({ status: 'bound', replicaId: original });
   });
@@ -447,11 +451,20 @@ describe('replica binding', () => {
     rmSync(path);
     copyFileSync(backup, path); // a new inode at the old path
     const restored = openDb(path);
-    expect(bind(path, restored)).toMatchObject({
+    const out = bind(path, restored);
+    expect(out).toMatchObject({
       status: 'rebound',
       previousReplicaId: original,
       reasons: ['file-identity'],
     });
+    // The old file is gone from this path: its replica is a retire candidate (T13109).
+    expect(registry().retireCandidates()).toEqual([
+      expect.objectContaining({
+        replicaId: original,
+        successor: out.replicaId,
+        reason: 'file-identity',
+      }),
+    ]);
   });
 
   it('a rename within one filesystem keeps the replica and updates the registry', () => {
@@ -651,5 +664,196 @@ describe('birthtime (N5)', () => {
       status: 'bound',
       replicaId: r.replicaId,
     });
+  });
+});
+
+describe('vault restore rebind (T13109)', () => {
+  const STREAM = 'project:0123456789ab';
+  function bound() {
+    const { path, db } = freshStore();
+    enable(db);
+    const out = syncOpenPass(db, opts(path));
+    if (out.status !== 'bound') throw new Error(out.status);
+    return { path, db, replicaId: out.replicaId };
+  }
+  /**
+   * What a vault placement does: a new file at the same path, carrying the
+   * replica rows of the file it replaces. Returns that file's identity.
+   */
+  function placeNewFile(path: string) {
+    const before = fileIdentity(path);
+    const staged = join(dir, 'staged.db');
+    copyFileSync(path, staged);
+    rmSync(path);
+    copyFileSync(staged, path);
+    return before;
+  }
+  const vaultOpts = () => ({ registry: registry(), deviceId: DEVICE, now: () => new Date(T0 + 1) });
+
+  it('rebinds a placed snapshot as vault-restore and records the old replica as a retire candidate', async () => {
+    const { path, db, replicaId: original } = bound();
+    withImmediateTransaction(db, () => persistStoreSeq(db, original, STREAM, 4));
+    registry().advanceHwm(original, STREAM, 4);
+    close(db);
+    const before = placeNewFile(path);
+
+    const out = await rebindAfterVaultRestore(path, 'project', before, vaultOpts());
+    expect(out).toEqual({
+      replicaId: expect.any(String),
+      previousReplicaId: original,
+      reason: 'vault-restore',
+    });
+    const after = openDb(path);
+    const rows = listReplicas(after);
+    expect(rows.find((r) => r.replicaId === original)).toMatchObject({ successor: out?.replicaId });
+    expect(activeReplica(after, 'project')).toMatchObject({
+      replicaId: out?.replicaId,
+      boundWhy: 'rebind:vault-restore',
+    });
+    expect(registry().retireCandidates()).toEqual([
+      {
+        replicaId: original,
+        scope: 'project',
+        dbRealpath: expect.stringContaining('cleo.db'),
+        successor: out?.replicaId,
+        retiredAt: new Date(T0 + 1).toISOString(),
+        reason: 'vault-restore',
+        lastReplicaSeq: { [STREAM]: 4 },
+        announcedAt: null,
+      },
+    ]);
+    // The next open finds the new inode already bound: no second rebind.
+    expect(syncOpenPass(after, opts(path))).toMatchObject({
+      status: 'bound',
+      replicaId: out?.replicaId,
+    });
+  });
+
+  it('leaves a store with no replica alone (a first restore onto this machine)', async () => {
+    const { path, db } = freshStore();
+    close(db);
+    expect(
+      await rebindAfterVaultRestore(path, 'project', fileIdentity(path), vaultOpts()),
+    ).toBeNull();
+    const after = openDb(path);
+    expect(syncTables(after)).toEqual([]);
+    expect(registry().read().replicas).toEqual({});
+  });
+
+  it('records the retired replica even when the registry had lost it', async () => {
+    const { path, db, replicaId: original } = bound();
+    close(db);
+    rmSync(registry().path);
+    const before = placeNewFile(path);
+    const out = await rebindAfterVaultRestore(path, 'project', before, vaultOpts());
+    const nonce = listReplicas(openDb(path)).find((r) => r.replicaId === original)?.nonce;
+    expect(registry().get(original)).toMatchObject({
+      nonce,
+      retiredAt: new Date(T0 + 1).toISOString(),
+      successor: out?.replicaId,
+      retireReason: 'vault-restore',
+    });
+  });
+
+  it('an announced retirement is no longer a candidate, and retired() filters by store', async () => {
+    const { path, db, replicaId: original } = bound();
+    close(db);
+    await rebindAfterVaultRestore(path, 'project', placeNewFile(path), vaultOpts());
+    const reg = registry();
+    const entry = reg.get(original);
+    if (!entry) throw new Error('fixture');
+    reg.upsert(original, { ...entry, retireAnnouncedAt: new Date(T0 + 2).toISOString() });
+    expect(reg.retireCandidates()).toEqual([]);
+    expect(reg.retired({ dbRealpath: entry.dbRealpath }).map((r) => r.replicaId)).toEqual([
+      original,
+    ]);
+    expect(reg.retired({ dbRealpath: '/elsewhere/cleo.db' })).toEqual([]);
+  });
+
+  it('review P1: a copy at another path, then a placement there, retires nothing of the original', async () => {
+    const { path, db, replicaId: original } = bound();
+    close(db);
+    // A duplicated project directory (cp -R, Finder): never opened live, so it
+    // still carries the original's replica rows.
+    const copyDir = join(dir, 'copy');
+    mkdirSync(copyDir);
+    const copyPath = join(copyDir, 'cleo.db');
+    copyFileSync(path, copyPath);
+    const before = placeNewFile(copyPath);
+
+    const out = await rebindAfterVaultRestore(copyPath, 'project', before, vaultOpts());
+    expect(out).toMatchObject({ previousReplicaId: original, reason: 'file-identity' });
+    // The original's registration is untouched: still live, never a candidate.
+    expect(registry().get(original)?.retiredAt).toBeUndefined();
+    expect(registry().retireCandidates()).toEqual([]);
+    expect(syncOpenPass(openDb(path), opts(path))).toMatchObject({
+      status: 'bound',
+      replicaId: original,
+    });
+  });
+
+  it("review P2: a store bound on another device, then a placement, never enters this device's candidates", async () => {
+    const { path, db } = freshStore();
+    enable(db);
+    const theirs = syncOpenPass(
+      db,
+      opts(path, { registry: registry(OTHER_DEVICE, 'theirs.json') }),
+    );
+    if (theirs.status !== 'bound') throw new Error(theirs.status);
+    close(db);
+    const before = placeNewFile(path);
+
+    const out = await rebindAfterVaultRestore(path, 'project', before, vaultOpts());
+    expect(out).toMatchObject({ previousReplicaId: theirs.replicaId, reason: 'foreign-device' });
+    expect(registry().get(theirs.replicaId)).toBeUndefined();
+    expect(registry().retireCandidates()).toEqual([]);
+  });
+
+  it('review LOW-A: a renamed project directory pulled in place still records its candidate', async () => {
+    const projDir = join(dir, 'proj-a');
+    mkdirSync(projDir);
+    const oldPath = join(projDir, 'cleo.db');
+    const db = openDb(oldPath);
+    db.exec(
+      "CREATE TABLE tasks_tasks (id TEXT PRIMARY KEY); INSERT INTO tasks_tasks VALUES ('T1');",
+    );
+    enable(db);
+    const bound = syncOpenPass(db, opts(oldPath));
+    if (bound.status !== 'bound') throw new Error(bound.status);
+    close(db);
+    const renamedDir = join(dir, 'proj-a2');
+    renameSync(projDir, renamedDir); // same inode, no link since
+    const newPath = join(renamedDir, 'cleo.db');
+    const before = placeNewFile(newPath);
+
+    const out = await rebindAfterVaultRestore(newPath, 'project', before, vaultOpts());
+    expect(out).toMatchObject({ previousReplicaId: bound.replicaId, reason: 'vault-restore' });
+    expect(registry().retireCandidates()).toEqual([
+      expect.objectContaining({
+        replicaId: bound.replicaId,
+        dbRealpath: expect.stringContaining('proj-a2'),
+        reason: 'vault-restore',
+      }),
+    ]);
+  });
+
+  it('a placement over no prior file (before = null) retires nothing', async () => {
+    const { path, db, replicaId: original } = bound();
+    close(db);
+    placeNewFile(path);
+    const out = await rebindAfterVaultRestore(path, 'project', null, vaultOpts());
+    expect(out).toMatchObject({ previousReplicaId: original, reason: 'file-identity' });
+    expect(registry().retireCandidates()).toEqual([]);
+  });
+
+  it('rebindReplica never records a copy at another path or a foreign replica as a candidate', () => {
+    const { path, db, replicaId: original } = bound();
+    close(db);
+    const copyPath = join(dir, 'elsewhere.db');
+    copyFileSync(path, copyPath);
+    const copy = openDb(copyPath);
+    rebindReplica(copy, opts(copyPath, { mode: 'live', deviceId: DEVICE }), 'server-seq-conflict');
+    expect(registry().get(original)?.retiredAt).toBeUndefined();
+    expect(registry().retireCandidates()).toEqual([]);
   });
 });

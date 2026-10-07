@@ -25,11 +25,13 @@ import {
   updateJsonConfigFile,
 } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
+import { isUserHomeDir } from '../shared/heavy-command-hook-install.js';
 import {
   type InstallHookTemplatesResult,
   installProviderHookTemplates,
 } from '../shared/hook-template-installer.js';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
+import { ensureProjectInstructionFile } from '../shared/project-instruction-file.js';
 
 /** MDC frontmatter for the CLEO-owned `.cursor/rules/cleo.mdc` rule file. */
 const CLEO_MDC_FRONTMATTER = [
@@ -76,11 +78,17 @@ export class CursorInstallProvider implements AdapterInstallProvider {
     // Step 1: Ensure instruction files have @-references via CAAMP canonical API (T1919).
     // ensureProviderInstructionFile handles the primary AGENTS.md (registry instructFile);
     // updateInstructionFiles also manages cursor-specific MDC + legacy .cursorrules formats.
-    const instructionResult = await ensureProviderInstructionFile('cursor', projectDir, {});
-    const cursorFilesUpdated = await this.updateInstructionFiles(projectDir);
-    instructionFileUpdated = instructionResult.action !== 'intact' || cursorFilesUpdated;
-    if (instructionFileUpdated) {
-      details.instructionFiles = this.getUpdatedFileList(projectDir);
+    const instructionResult = await ensureProjectInstructionFile('cursor', projectDir, {});
+    if (instructionResult === null) {
+      // T13227: a $HOME project gets no instruction files (loaded by every
+      // session under it); the Cursor rule files are skipped with it.
+      details.instructionFiles = 'skipped';
+    } else {
+      const cursorFilesUpdated = await this.updateInstructionFiles(projectDir);
+      instructionFileUpdated = instructionResult.action !== 'intact' || cursorFilesUpdated;
+      if (instructionFileUpdated) {
+        details.instructionFiles = this.getUpdatedFileList(projectDir);
+      }
     }
 
     // Step 2 (T1013): Install PreCompact hook templates + wire the handler
@@ -88,14 +96,20 @@ export class CursorInstallProvider implements AdapterInstallProvider {
     // T12385: a malformed hooks.json aborts the write and is reported; it is
     // never reset to `{}`.
     let hooksError: string | null = null;
-    try {
-      const hookResult = await this.installHookTemplates(projectDir);
-      if (hookResult) {
-        details.hookTemplates = hookResult;
+    if (isUserHomeDir(projectDir)) {
+      // T13257: at $HOME, .cursor/hooks.json and .cursor/hooks/ ARE Cursor's
+      // user-global hooks; CLEO installs them per project only.
+      details.hookTemplates = 'skipped';
+    } else {
+      try {
+        const hookResult = await this.installHookTemplates(projectDir);
+        if (hookResult) {
+          details.hookTemplates = hookResult;
+        }
+      } catch (err) {
+        hooksError = err instanceof Error ? err.message : String(err);
+        details.hooksError = hooksError;
       }
-    } catch (err) {
-      hooksError = err instanceof Error ? err.message : String(err);
-      details.hooksError = hooksError;
     }
 
     return {
