@@ -7,7 +7,7 @@
  * @task T12343
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -18,7 +18,7 @@ import {
   getDualScopeNativeDb,
   openDualScopeDbAtPath,
 } from '../../dual-scope-db.js';
-import { RESTORE_MARKER_SUFFIX } from '../../restore-marker.js';
+import { RESTORE_MARKER_MAX_AGE_MS, RESTORE_MARKER_SUFFIX } from '../../restore-marker.js';
 import {
   ROW_IDENTITY_META_TABLE,
   ROW_IDENTITY_RECIPE,
@@ -433,6 +433,39 @@ describe('genesis cut with its checkpoint snapshot (S4-1b; T13296, T13297)', () 
     // A second attempt cuts cleanly.
     const again = await cutGenesisWithSnapshot(db, opts(), async () => {});
     expect(again).toMatchObject({ refused: null, folded: 1 });
+  });
+
+  it('a marker another process took over during the snapshot undoes the cut, and its marker is left in place', async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    seal(db);
+    const theirs = `${JSON.stringify({ pid: 999_999, host: 'elsewhere', startedAt: new Date().toISOString(), kind: 'restore' })}\n`;
+    const run = cutGenesisWithSnapshot(db, opts(), async () => {
+      // Our marker went stale and a restore elsewhere replaced it.
+      writeFileSync(dbPath + RESTORE_MARKER_SUFFIX, theirs);
+    });
+    await expect(run).rejects.toThrow(/E_SYNC_GENESIS_MARKER_LOST/);
+    expectUncut(db);
+    // Our release never removes the new holder's marker.
+    expect(readFileSync(dbPath + RESTORE_MARKER_SUFFIX, 'utf8')).toBe(theirs);
+  });
+
+  it('a snapshot that outlives the marker window undoes the cut: a stale marker held nobody off', async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    seal(db);
+    const realNow = Date.now;
+    const run = cutGenesisWithSnapshot(db, opts(), async () => {
+      const late = realNow() + RESTORE_MARKER_MAX_AGE_MS + 1_000;
+      vi.spyOn(Date, 'now').mockImplementation(() => late);
+    });
+    try {
+      await expect(run).rejects.toThrow(/E_SYNC_GENESIS_MARKER_LOST/);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expectUncut(db);
+    expect(existsSync(dbPath + RESTORE_MARKER_SUFFIX)).toBe(false);
   });
 
   it('a refused cut never runs the snapshot and releases the marker', async () => {

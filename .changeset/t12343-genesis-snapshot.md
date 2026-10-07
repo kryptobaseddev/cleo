@@ -22,6 +22,15 @@ write made after the cut would travel both in the bundle and in a segment, and r
 
   The write chokepoint is `assertExodusWriteSafe`, which now calls `awaitStoreWritable`. Its callers are the task accessor's write
   transactions, session creation, `insertIdempotent` and `upsertIdempotent`. A writer that bypasses those is not paused; the race
-  check above catches its write instead. The marker is always released.
+  check above catches its write instead.
+- **A marker that lapses undoes the cut.** The genesis cut checks its marker after the snapshot. The cut is undone and
+  `GenesisRacedError` (`E_SYNC_GENESIS_MARKER_LOST`) is thrown in either case:
+  - the marker is older than the stale window, so other processes may already have been writing;
+  - another process replaced the marker.
+
+  Nothing is recorded or uploaded.
+- **Marker window and release.** The stale window stays at the 1 h floor. The worst measured hold is about 63 s, on a scratch copy of
+  the 1.3 GB cleocode store: cut 2.4 s, export 48.7 s, extract and manifest 11.8 s. A marker is released only while it is still the
+  holder's own (`holdRestoreMarker`), so a lapsed holder never removes the marker of the process that took over.
 - **The restore-in-progress marker** (`store/restore-marker.ts`, `store/pid-alive.ts` and the open-path checks) comes from #1902
   (T13258), cherry-picked unchanged.
