@@ -103,6 +103,7 @@ import {
   unsequencedLocalTxns,
 } from '../sequencing.js';
 import { withTriggersSuspended } from '../trigger-classes.js';
+import { widenFootprint } from './footprints.js';
 import { type ApplyApi, withApplyFrame } from './frame.js';
 import { parentDeletePolicy } from './parent-delete.js';
 import { checkApplyPreconditions, checkTaskTreeShape, type PageRow } from './post-apply.js';
@@ -461,18 +462,6 @@ function treeShapePage(ops: readonly LedgerOp[]): PageRow[] {
     }));
 }
 
-/** The rows a transaction's ops write (a re-key's both uids). */
-function touchedRows(ops: readonly LedgerOp[]): TouchedRow[] {
-  return ops.flatMap((o) =>
-    o.o === 'K' && o.nu && o.nu !== o.u
-      ? [
-          { table: o.t, uid: o.u },
-          { table: o.t, uid: o.nu },
-        ]
-      : [{ table: o.t, uid: o.u }],
-  );
-}
-
 /** The status of an applied transaction from its ops' results. */
 function txnStatus(results: readonly OpResult[], conflicts: number): InboxStatus {
   const voided = results.filter((r) => r === 'void').length;
@@ -768,8 +757,29 @@ interface RebasePlan {
   readonly own: UnsequencedTxn | null;
 }
 
-/** The rows ops write or reference (their footprint, Rule 3), by row key. */
+/** The rows a transaction's ops write (a re-key's both uids). */
+function touchedRows(ops: readonly LedgerOp[]): TouchedRow[] {
+  return ops.flatMap((o) =>
+    o.o === 'K' && o.nu && o.nu !== o.u
+      ? [
+          { table: o.t, uid: o.u },
+          { table: o.t, uid: o.nu },
+        ]
+      : [{ table: o.t, uid: o.u }],
+  );
+}
+
+/** Whether `op` writes an append-only table (insert-only rows, never rewound). */
+function isAppendOnly(defs: (table: string) => CaptureTableDef | null, op: LedgerOp): boolean {
+  return defs(op.t)?.appendOnly === true;
+}
+
+/**
+ * The rows ops write or reference, widened by what their guards and checks
+ * read (their footprint, Rule 3; R7-6), by row key.
+ */
 function footprintOf(
+  db: DatabaseSync,
   ops: readonly LedgerOp[],
   defs: (table: string) => CaptureTableDef | null,
 ): Map<string, TouchedRow> {
@@ -777,6 +787,7 @@ function footprintOf(
   const add = (table: string, uid: string): void => {
     out.set(rowKey(table, uid), { table, uid });
   };
+  widenFootprint(db, ops, defs, add);
   for (const o of ops) {
     add(o.t, o.u);
     if (o.o === 'K' && o.nu) add(o.t, o.nu);
@@ -803,11 +814,11 @@ function echoInPlace(
 ): boolean {
   // A held op sits rewound: only a rebase can apply it and restore what it kept.
   if (txnHasHold(db, local.txn)) return false;
-  const fp = footprintOf(st.txn.ops, defs);
+  const fp = footprintOf(db, st.txn.ops, defs);
   if (!ownEchoFastPath(db, local, [...fp.values()])) return false;
   const locals = unsequencedLocalTxns(db);
   const later = locals.slice(locals.findIndex((l) => l.txn === local.txn) + 1);
-  return later.every((l) => ![...footprintOf(l.ops, defs).keys()].some((k) => fp.has(k)));
+  return later.every((l) => ![...footprintOf(db, l.ops, defs).keys()].some((k) => fp.has(k)));
 }
 
 /**
@@ -829,13 +840,13 @@ function planRebase(
   const own =
     st.replicaId === localReplica ? (locals.find((l) => l.txn === st.txn.txn) ?? null) : null;
   const scope = new Set<string>(own ? [own.txn] : []);
-  const reach = new Set(footprintOf(st.txn.ops, defs).keys());
-  if (own) for (const k of footprintOf(own.ops, defs).keys()) reach.add(k);
+  const reach = new Set(footprintOf(db, st.txn.ops, defs).keys());
+  if (own) for (const k of footprintOf(db, own.ops, defs).keys()) reach.add(k);
   for (let grown = true; grown; ) {
     grown = false;
     for (const l of locals) {
       if (scope.has(l.txn)) continue;
-      const fp = [...footprintOf(l.ops, defs).keys()];
+      const fp = [...footprintOf(db, l.ops, defs).keys()];
       if (fp.some((k) => reach.has(k))) {
         scope.add(l.txn);
         for (const k of fp) reach.add(k);
@@ -936,7 +947,7 @@ function rewindTxns(c: OpContext, plan: RebasePlan): Rewound {
         const op = l.ops[i] as LedgerOp;
         const def = c.defs(op.t);
         const undo = readRowUndo(c.db, l.txn, i);
-        if (!def || !undo) continue;
+        if (!def || !undo || def.appendOnly) continue;
         const exists = (uid: string): boolean => c.api.readRow(op.t, uid) !== null;
         // A held op is decided again: lift its hold, keep what it kept.
         const held = heldOp(c.db, l.txn, i);
@@ -1008,6 +1019,7 @@ function replayTxns(c: OpContext, plan: RebasePlan, rw: Rewound): void {
       let holds: Array<{ readonly idx: number; readonly reason: string }> = [];
       c.db.exec('SAVEPOINT replay_txn');
       l.ops.forEach((op, i) => {
+        if (isAppendOnly(c.defs, op)) return; // never rewound, so never replayed
         resnapshotOp(c, l, i, op);
         const had = exists(op);
         refused = null;
@@ -1228,9 +1240,10 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
         db.exec('RELEASE apply_txn');
         const status = txnStatus(results, n);
         if (sequencingOn) {
-          const rows = touchedRows(st.txn.ops);
           if (st.replicaId !== opts.replica) {
-            recordForeignTouches(db, rows, touchPos);
+            // The rows it wrote: an echo widens its own footprint by what its
+            // guards read, so a write to any of those rows meets it (R7-6).
+            recordForeignTouches(db, touchedRows(st.txn.ops), touchPos);
           } else if (rebase?.own) {
             // Rebased at its stream position: the stream decided it. A voided
             // echo stays rewound and keeps its undo (Rule 6).
