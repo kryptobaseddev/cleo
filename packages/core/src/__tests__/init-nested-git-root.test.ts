@@ -255,7 +255,8 @@ describe('cleo init under an initialized ancestor (T12562)', () => {
     expect(configCopy).toBeDefined();
     expect(readFileSync(join(backupDir, configCopy as string), 'utf-8')).toContain('keep-me');
     const backupId = (configCopy as string).slice('config.json.'.length);
-    expect(files).toContain(`tasks.db.${backupId}`);
+    // T13245: the store copy is one `cleo.db.<id>` (was `tasks.db.<id>`).
+    expect(files).toContain(`cleo.db.${backupId}`);
     expect(files).toContain(`project-info.json.${backupId}`);
     expect(files).toContain(`${backupId}.meta.json`);
     expect(result.created.some((c) => c.includes(backupId))).toBe(true);

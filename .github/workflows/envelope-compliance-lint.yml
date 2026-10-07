@@ -1,15 +1,14 @@
 name: Envelope Compliance Lint
 # @task T11027 — Verifies project move/rename/re-register output uses RenderableEnvelope per T10346.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  merge_group:
+  # T13263: called by ci.yml (job `envelope-compliance-gate`), which the required `CI` aggregate
+  # needs, so a failure here blocks the merge. It no longer runs on its own
+  # push / pull_request / merge_group triggers (that ran it twice, and nothing
+  # required its standalone check). It runs with ci.yml's triggers and event.
+  workflow_call:
 
-concurrency:
-  group: "${{ github.workflow }}-${{ github.ref }}"
-  cancel-in-progress: true
+# T13263: no workflow-level concurrency: a called workflow's group would
+# resolve in ci.yml's context and cancel it; ci.yml's own group governs.
 
 jobs:
   lint:

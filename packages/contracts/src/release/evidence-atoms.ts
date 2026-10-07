@@ -136,26 +136,30 @@ export const ghPrViewSchema = z
 export type GhPrViewPayload = z.infer<typeof ghPrViewSchema>;
 
 /**
- * Default required-workflow names enforced by `pr:<number>` validation.
+ * cleocode's OWN required-check names: the `CI` aggregate of its ci.yml and the
+ * `Contracts Dep Lint` job, both real check names there (T13285; a test pins
+ * every name to a job or workflow in cleocode's `.github/workflows/`).
  *
- * Mirrors the canonical branch-protection list documented in
- * `docs/release/branch-protection-setup.md`. Override via
- * {@link PR_REQUIRED_WORKFLOWS_ENV_VAR} when projects deviate (e.g. an
- * out-of-tree consumer with different gating workflows).
+ * This is cleocode's configuration, not a library default for other
+ * repositories. Since gh#1323 the evidence path (`resolveRequiredWorkflowsDetailed`)
+ * never applies it to another repository: with no env override, no
+ * `release.prRequiredWorkflows` in `.cleo/project-context.json` and no readable
+ * branch protection it returns tier `unknown` and refuses loudly. Only the
+ * synchronous `resolveRequiredWorkflows` still returns it as its last tier.
+ * cleocode itself resolves through its project-context entry. (`Lockfile Check`
+ * was dropped: no check ever reported under that name — its job is
+ * "Verify pnpm-lock.yaml consistency" — and CI now covers it, T13279.)
  *
  * @task T9764
+ * @task T13285
  */
-export const PR_REQUIRED_WORKFLOWS: readonly string[] = Object.freeze([
-  'CI',
-  'Lockfile Check',
-  'Contracts Dep Lint',
-]);
+export const PR_REQUIRED_WORKFLOWS: readonly string[] = Object.freeze(['CI', 'Contracts Dep Lint']);
 
 /**
  * Name of the env var that overrides {@link PR_REQUIRED_WORKFLOWS}.
  *
  * Format: comma-separated workflow names (e.g.
- * `"CI,Lockfile Check,MyExtraGate"`). Whitespace around commas is
+ * `"CI,Contracts Dep Lint,MyExtraGate"`). Whitespace around commas is
  * trimmed.
  *
  * @task T9764
