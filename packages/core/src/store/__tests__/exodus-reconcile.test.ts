@@ -19,7 +19,15 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -314,6 +322,58 @@ describe.each(
     expect(scalar(liveDb, 'SELECT COUNT(*) FROM task_labels')).toBe(1);
     const again = await reconcileSupersededStores(join(root, 'project'));
     expect(again.outcome).toBe('nothing-to-reconcile');
+  });
+
+  it('a reconciled store whose twin rows are deleted later is not refused by sync (T13319)', async () => {
+    // A full strand in the live store's own bare family.
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      DROP TABLE IF EXISTS task_labels;
+      CREATE TABLE task_labels (task_id TEXT NOT NULL, label TEXT NOT NULL, PRIMARY KEY (task_id, label));
+      INSERT INTO task_labels VALUES ('T1', 'bare-label');
+      DROP TABLE IF EXISTS task_dependencies;
+      CREATE TABLE task_dependencies (task_id TEXT NOT NULL, depends_on TEXT NOT NULL,
+        PRIMARY KEY (task_id, depends_on));
+      INSERT INTO task_dependencies VALUES ('T4', 'T1');
+    `);
+    live.close();
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'));
+    expect(result.outcome, result.reason).toBe('reconciled');
+    expect(result.accounted?.map((a) => a.table)).toEqual(
+      expect.arrayContaining(['task_labels', 'task_dependencies']),
+    );
+
+    // Normal use then removes a carried dependency and the carried label.
+    const after = new DatabaseSync(liveDb);
+    after.exec(
+      "DELETE FROM tasks_task_dependencies; DELETE FROM tasks_task_labels WHERE label = 'bare-label'",
+    );
+    after.close();
+
+    const { legacyStrands, setSyncFlag } = await import('../sync/flags.js');
+    const { sealPending } = await import('../sync/sealer.js');
+    const db = new DatabaseSync(liveDb);
+    try {
+      expect(legacyStrands(db)).toEqual([]);
+      expect(() => setSyncFlag(db, 'sync.seal', true, { allowUnreleased: true })).not.toThrow();
+      const sealed = sealPending(db, {
+        scope: 'project',
+        replica: '01929a3e-7f00-7000-8000-000000000001',
+        env: {},
+        allowUnreleased: true,
+      });
+      expect(sealed.refused ?? '').not.toMatch(/legacy-only/);
+      // A receipt written before T13319 (no `accounted`) names the bare tables it carried.
+      const receiptPath = result.receiptPath ?? '';
+      const { accounted: _dropped, ...older } = JSON.parse(
+        readFileSync(receiptPath, 'utf8'),
+      ) as Record<string, unknown>;
+      writeFileSync(receiptPath, JSON.stringify(older));
+      expect(legacyStrands(db)).toEqual([]);
+    } finally {
+      db.close();
+    }
   });
 
   it('copies into a table whose FTS5 content-sync trigger the runtime installed', async () => {

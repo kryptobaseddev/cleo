@@ -41,6 +41,7 @@ import {
   LEGACY_ONLY_REMEDY,
   LegacyOnlyStoreError,
   legacyStrands,
+  legacyStrandsCached,
   PARTIAL_STRAND_FOLLOW_UP,
   readSyncFlags,
   setSyncFlag,
@@ -963,6 +964,22 @@ describe('a legacy-only store refuses sync (T13224)', () => {
        ('T050', 'legacy epic', 'epic', 'pending', 'medium', '2026-01-01T00:00:00.000Z')`,
     );
     expect(legacyStrands(db)).toEqual([]);
+  });
+
+  it('the seal-time check is decided once per data_version, not on every batch (T13319)', async () => {
+    const db = await openStore();
+    strandRows(db);
+    const first = legacyStrandsCached(db);
+    expect(first).toHaveLength(1);
+    // Same data_version: the decision is reused, not recomputed.
+    expect(legacyStrandsCached(db)).toBe(first);
+    // Another connection commits (here, the rows get carried): decided again.
+    const other = new DatabaseSync(dbPath);
+    other.exec(
+      `INSERT INTO tasks_tasks (id, title, type, status, priority) VALUES ('T1', 'c', 'task', 'pending', 'medium'), ('T2', 'c', 'task', 'pending', 'medium')`,
+    );
+    other.close();
+    expect(legacyStrandsCached(db)).toEqual([]);
   });
 
   it('the sealer refuses a store that became legacy-only after its flags were set', async () => {
