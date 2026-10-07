@@ -1893,17 +1893,18 @@ async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<
     journal.verifyCheckpoint(from, key.signers);
     initialCursor = cursorFromCheckpoint(from);
   }
-  // Seen-txn rows past the latest verified checkpoint can no longer be re-delivered.
-  const headCheckpoint = checkpoints.find((c) => c.checkpointId === head.headCheckpointId) ?? null;
-  if (headCheckpoint) journal.verifyCheckpoint(headCheckpoint, key.signers);
-  const pruneSeenUpTo =
-    headCheckpoint === null ? null : Math.min(headCheckpoint.coversSeq, initialCursor.after);
+  // Seen-txn rows are never pruned here yet: a txn already seen can come
+  // back in a NEW segment above any checkpoint (a retired replica's late
+  // segment, a rebind re-pushing an upload that was stored but never
+  // recorded), and with its first-delivery row gone it would apply twice.
+  // Pruning waits for a floor the applier refuses below anyway, such as the
+  // receive watermark (T13256), and then prunes by that floor, not by
+  // stream seq.
   return pullStream(db, {
     scope: tableScopeOf(t),
     stream: t.streamId,
     replica: replicaId,
     initialCursor,
-    pruneSeenUpTo,
     pull: async (cursor) => {
       const page = await journal.pull(
         {

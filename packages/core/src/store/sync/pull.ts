@@ -95,8 +95,9 @@ export interface PullStreamOptions {
   /** Environment for the `sync.pull` kill switch. @defaultValue process.env */
   readonly env?: NodeJS.ProcessEnv;
   /**
-   * Drop seen-txn rows first staged at or below this stream seq (the latest
-   * verified checkpoint's coversSeq), or null to keep every row.
+   * Drop seen-txn rows first staged at or below this stream seq, or null to
+   * keep every row. Only a floor the applier refuses below is safe
+   * ({@link pruneSeenTxns}); the cloud pull passes none yet (T13256).
    */
   readonly pruneSeenUpTo?: number | null;
 }
@@ -205,9 +206,12 @@ function advance(cursor: StreamCursor, segs: readonly PulledStreamSegment[]): St
 }
 
 /**
- * Drop the seen-txn rows of `stream` first staged at or below `seq`: past a
- * verified checkpoint's coversSeq no segment re-delivers them (§3.1). Keeps
- * `_sync_seen_txn` bounded.
+ * Drop the seen-txn rows of `stream` first staged at or below `seq`, keeping
+ * `_sync_seen_txn` bounded (§3.1). Only safe below a floor the applier
+ * refuses any txn under: a seen txn can return in a NEW segment above a
+ * checkpoint (a retired replica's late segment, a rebind's re-push), so a
+ * checkpoint's coversSeq alone is not such a floor. No caller prunes until
+ * that floor exists (T13256).
  *
  * @param db - The store.
  * @param stream - The stream.
