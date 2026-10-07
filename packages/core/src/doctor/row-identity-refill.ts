@@ -36,9 +36,11 @@ import {
 } from '../store/dual-scope-db.js';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
 import {
+  clearRowIdentityRefusal,
   fullRefillPlan,
   ROW_IDENTITY_META_TABLE,
   ROW_IDENTITY_REFILL_SNAPSHOT_KEY,
+  readRowIdentityRefusal,
   rowIdentityRecipeCurrent,
   rowIdentityShareState,
   shareStateOf,
@@ -135,6 +137,7 @@ function readLocal(dbPath: string): {
   recipeCurrent: boolean;
   planned: Record<string, number>;
   priorSnapshot: string | null;
+  refused: boolean;
 } {
   const snap = openCleoDbSnapshot(dbPath, { readOnly: true });
   try {
@@ -143,6 +146,7 @@ function readLocal(dbPath: string): {
       recipeCurrent: rowIdentityRecipeCurrent(snap.db),
       planned: fullRefillPlan(snap.db),
       priorSnapshot: lastRefillSnapshot(snap.db),
+      refused: readRowIdentityRefusal(snap.db)?.state === 'refused',
     };
   } finally {
     snap.close();
@@ -179,9 +183,18 @@ export async function rowIdentityRefill(
       applied: false,
       snapshot: null,
       undo: null,
+      refusalCleared: false,
     };
   }
-  const { local, recipeCurrent, planned, priorSnapshot } = readLocal(dbPath);
+  const { local, recipeCurrent, planned, priorSnapshot, refused } = readLocal(dbPath);
+  // T13305: an explicit --refill re-evaluates: a recorded refusal is cleared,
+  // so the next open (or the --apply below) decides afresh.
+  let refusalCleared = false;
+  if (refused) {
+    const handle = getDualScopeNativeDb(await openDualScopeDb('project', projectRoot));
+    await import('../store/sqlite-data-accessor.js');
+    refusalCleared = clearRowIdentityRefusal(handle);
+  }
   const probe =
     options.probe ??
     (async (root: string) =>
@@ -203,6 +216,7 @@ export async function rowIdentityRefill(
     applied: false,
     snapshot: null,
     undo: null,
+    refusalCleared,
   };
   if (options.apply !== true || action !== 'refill' || !fillEnabled) return base;
   const nexusCheckedNone = nexus.length > 0 && nexus.every((a) => a.answer === 'none');
