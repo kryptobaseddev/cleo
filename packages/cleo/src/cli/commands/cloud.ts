@@ -228,9 +228,18 @@ const verifyVaultSubCommand = defineCommand({
   meta: {
     name: 'verify',
     description:
-      "Integrity check across machines: SQLite integrity of this store, its per-table counts and keyed hashes against the cloud's newest snapshot, and every device's newest snapshot against it. Verdict: match, ahead, behind, diverged, empty, or untrusted (the newest snapshot's signature does not verify).",
+      "Integrity check across machines: SQLite integrity of this store, its per-table counts and keyed hashes against the cloud's newest snapshot, and every device's newest snapshot against it. Verdict: match, ahead, behind, diverged, empty, or untrusted (the newest snapshot's signature does not verify, or with --deep its bytes do not). --deep downloads the snapshots again to check their sha256 and re-hashes the journal segments after the newest one. Local backups: `cleo backup verify`.",
   },
-  args: { scope: SCOPE_ARG, 'api-url': NEXUS_API_URL_ARG, json: JSON_ARG },
+  args: {
+    scope: SCOPE_ARG,
+    deep: {
+      type: 'boolean',
+      description:
+        'Download the newest snapshot of each device again and check its size, sha256 and decryption, then re-hash and decrypt the journal segments after the newest snapshot (downloads every bundle: slower, more traffic).',
+    },
+    'api-url': NEXUS_API_URL_ARG,
+    json: JSON_ARG,
+  },
   async run({ args }) {
     await runCloudVerify(args as Record<string, unknown>);
   },

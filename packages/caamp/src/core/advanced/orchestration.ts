@@ -12,7 +12,7 @@ import { basename, dirname, join } from 'node:path';
 import type { CaampInjectionAction } from '@cleocode/contracts/caamp-markers';
 import { resolveSkillsRoot } from '@cleocode/core/skills/skill-root.js';
 import type { ConfigFormat, Provider, ProviderPriority } from '../../types.js';
-import { injectAll } from '../instructions/injector.js';
+import { HomeInstructionFileError, injectAll } from '../instructions/injector.js';
 import { groupByInstructFile } from '../instructions/templates.js';
 import { getInstalledProviders } from '../registry/detection.js';
 import { runSkillInstallGate } from '../skills/install-pipeline.js';
@@ -394,6 +394,13 @@ export interface InstructionUpdateSummary {
   scope: Scope;
   /** The total number of instruction files that were modified. */
   updatedFiles: number;
+  /**
+   * Why nothing was written, when the update was skipped: a project-scope
+   * update at the home directory (T13257) — providers load instruction files
+   * from every ancestor directory, so a file there would reach every session
+   * under `$HOME`. Absent when the update ran.
+   */
+  skipped?: string;
   /** Detailed action log per instruction file. */
   actions: Array<{
     file: string;
@@ -416,7 +423,8 @@ export interface InstructionUpdateSummary {
  * @param content - The instruction content to inject
  * @param scope - The scope for instruction updates, defaults to `"project"`
  * @param projectDir - The project root directory, defaults to `process.cwd()`
- * @returns A summary of updated files and actions taken per file
+ * @returns A summary of updated files and actions taken per file; at the
+ *   home directory (project scope) nothing is written and `skipped` says why
  *
  * @example
  * ```typescript
@@ -436,7 +444,16 @@ export async function updateInstructionsSingleOperation(
   scope: Scope = 'project',
   projectDir = process.cwd(),
 ): Promise<InstructionUpdateSummary> {
-  const actions = await injectAll(providers, projectDir, scope, content);
+  let actions: Map<string, CaampInjectionAction>;
+  try {
+    actions = await injectAll(providers, projectDir, scope, content);
+  } catch (err) {
+    // T13257: reported as a skip, like `cleo init` / `upgrade` do; nothing was written.
+    if (err instanceof HomeInstructionFileError) {
+      return { scope, updatedFiles: 0, actions: [], skipped: err.message };
+    }
+    throw err;
+  }
   const groupedByFile = groupByInstructFile(providers);
 
   const summary: InstructionUpdateSummary = {
