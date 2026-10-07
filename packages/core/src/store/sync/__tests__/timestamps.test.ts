@@ -12,7 +12,7 @@
  * @task T12986
  */
 
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -246,5 +246,14 @@ describe('canonicalizeStoreTimestamps (timestamp_canon_v1)', () => {
     } finally {
       other.close();
     }
+  });
+});
+
+describe('timestamp-canon.ts stays import-free (T12987)', () => {
+  it('has no runtime import, so scripts/fingerprint-store.mjs can load it directly', () => {
+    const src = readFileSync(resolve(import.meta.dirname, '../timestamp-canon.ts'), 'utf8');
+    const imports = src.split('\n').filter((l) => /^\s*import\s/.test(l));
+    expect(imports.length).toBeGreaterThan(0);
+    for (const line of imports) expect(line).toMatch(/^\s*import type\s/);
   });
 });

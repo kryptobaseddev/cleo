@@ -13,7 +13,7 @@
  * hoisted. See build.mjs for the banner configuration.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // ---------------------------------------------------------------------------
@@ -575,6 +575,28 @@ async function runMainWithLafsEnvelope(
       if (process.env['CLEO_DEBUG'])
         process.stderr.write(
           `[cleo][debug] Device heartbeat not recorded: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+    }
+    // T13289 — refresh this machine's cloud presence for a linked project:
+    // at most once an hour, best-effort, started alongside the command and
+    // never awaited by it (no daemon or timer). The refresh module loads only
+    // when the project has a Nexus link file, so unlinked projects pay nothing.
+    try {
+      const [{ getProjectRoot }, { getCleoDirAbsolute }] = await Promise.all([
+        import('@cleocode/core/project-scope'),
+        import('@cleocode/core/paths.js'),
+      ]);
+      const projectRoot = getProjectRoot();
+      if (existsSync(join(getCleoDirAbsolute(projectRoot), 'nexus-link.json'))) {
+        const { startProjectPresenceRefresh } = await import(
+          '@cleocode/core/cloud/nexus-presence-refresh.js'
+        );
+        startProjectPresenceRefresh({ projectRoot, cliVersion: CLI_VERSION });
+      }
+    } catch (error) {
+      if (process.env['CLEO_DEBUG'])
+        process.stderr.write(
+          `[cleo][debug] Presence refresh not started: ${error instanceof Error ? error.message : String(error)}\n`,
         );
     }
     try {

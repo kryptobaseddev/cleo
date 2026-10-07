@@ -3,16 +3,20 @@
  *
  * @task T12819
  */
-import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   clauseFor,
   fkParents,
   migrationViolations,
   ownedTriggers,
+  releaseCheck,
+  releaseCommit,
+  releasedFileEdits,
   sourceViolations,
 } from '../lint-sync-schema.mjs';
 
@@ -132,6 +136,104 @@ describe('forward migration rules', () => {
     );
     // Without a rebuild, foreign keys stay on and the DELETE cascades: allowed.
     expect(migrationViolations('f', "DELETE FROM p WHERE id = 'x';", OWNED, PARENTS)).toEqual([]);
+  });
+});
+
+describe('rule 7: released means present at the merge-base (T13294)', () => {
+  let root = '';
+  afterEach(() => {
+    if (root) rmSync(root, { recursive: true, force: true });
+    root = '';
+  });
+  const git = (...args) =>
+    execFileSync('git', args, {
+      cwd: root,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@t',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@t',
+      },
+    }).trim();
+  const rel = (name) => `packages/core/migrations/${name}/migration.sql`;
+  const write = (name, sql) => {
+    mkdirSync(join(root, 'packages/core/migrations', name), { recursive: true });
+    writeFileSync(join(root, rel(name)), sql);
+  };
+  const commit = (msg) => {
+    git('add', '-A');
+    git('commit', '-q', '-m', msg);
+  };
+  /** The migration files in the working tree, as the gate lists them. */
+  const files = (...names) => names.map((name) => ({ abs: join(root, rel(name)), rel: rel(name) }));
+  /** main has m1; the branch is cut; main then gains m2. HEAD is the branch. */
+  function branchCutBeforeM2() {
+    root = mkdtempSync(join(tmpdir(), 'lint-sync-schema-'));
+    git('init', '-q', '-b', 'main');
+    write('20260101000000_m1', 'CREATE TABLE a (id TEXT);\n');
+    commit('m1');
+    git('checkout', '-q', '-b', 'feature');
+    git('checkout', '-q', 'main');
+    write('20260102000000_m2', 'CREATE TABLE b (id TEXT);\n');
+    commit('m2');
+    git('checkout', '-q', 'feature');
+  }
+
+  it('a branch cut before a new base migration passes; against the base tip it would not', () => {
+    branchCutBeforeM2();
+    const at = releaseCommit('main', root);
+    expect(at).toBe(git('rev-parse', 'feature'));
+    expect(releasedFileEdits(at, files('20260101000000_m1'), root)).toEqual([]);
+    // The defect: the base tip calls the newer migration deleted.
+    expect(releasedFileEdits('main', files('20260101000000_m1'), root)).toEqual([
+      expect.objectContaining({ file: rel('20260102000000_m2'), rule: 7 }),
+    ]);
+    // As the gate runs it.
+    const check = releaseCheck('main', files('20260101000000_m1'), root);
+    expect(check.violations).toEqual([]);
+    expect(check.note).toContain(`merge-base ${at?.slice(0, 12)} of HEAD and main`);
+  });
+
+  it('deleting or editing a migration released at the merge-base still fails', () => {
+    branchCutBeforeM2();
+    write('20260103000000_m3', 'CREATE TABLE c (id TEXT);\n');
+    const at = releaseCommit('main', root);
+    expect(releasedFileEdits(at, files('20260103000000_m3'), root)).toEqual([
+      expect.objectContaining({ file: rel('20260101000000_m1'), rule: 7 }),
+    ]);
+    expect(releaseCheck('main', files('20260103000000_m3'), root).violations).toHaveLength(1);
+    write('20260101000000_m1', 'CREATE TABLE a (id TEXT, x TEXT);\n');
+    const edited = releasedFileEdits(at, files('20260101000000_m1'), root);
+    expect(edited).toHaveLength(1);
+    expect(edited[0]?.message).toContain('released migration edited');
+  });
+
+  it('a merge of the base brings its migrations in: the merge-base moves to the base tip', () => {
+    branchCutBeforeM2();
+    git('merge', '-q', '--no-edit', 'main');
+    expect(releaseCommit('main', root)).toBe(git('rev-parse', 'main'));
+    expect(
+      releasedFileEdits(
+        releaseCommit('main', root),
+        files('20260101000000_m1', '20260102000000_m2'),
+        root,
+      ),
+    ).toEqual([]);
+  });
+
+  it('no shared history (a shallow clone) gives no merge-base, and the gate fails loudly (T13310)', () => {
+    branchCutBeforeM2();
+    git('checkout', '-q', '--orphan', 'lonely');
+    git('commit', '-q', '-m', 'orphan');
+    expect(releaseCommit('main', root)).toBeNull();
+    // No fallback to another comparison: one violation that names the fix,
+    // even when every file would match the base tip.
+    const check = releaseCheck('main', files('20260101000000_m1', '20260102000000_m2'), root);
+    expect(check.violations).toEqual([expect.objectContaining({ file: '(history)', rule: 7 })]);
+    expect(check.violations[0]?.message).toContain('no merge-base of HEAD and main');
+    expect(check.violations[0]?.message).toContain('git fetch --unshallow');
   });
 });
 

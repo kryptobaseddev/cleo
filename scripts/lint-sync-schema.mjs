@@ -39,7 +39,13 @@
  *      working tree (#1719: an edited released file changes its hash, and
  *      `E_MIGRATION_HASH_DRIFT` refuses every store that applied it). The base
  *      is `--base <ref>`, else `origin/$GITHUB_BASE_REF`, else `origin/main`;
- *      when no base ref resolves the rule is skipped and says so.
+ *      when no base ref resolves the rule is skipped and says so. "Released"
+ *      means present at the merge-base of HEAD and the base (T13294): a
+ *      migration that landed on the base after the branch was cut is not on
+ *      the branch yet, which is no deletion. Without the history to find a
+ *      merge-base (a shallow clone, or a later `fetch --depth` that made it
+ *      shallow again) the gate fails and says how to fetch it (T13310): it
+ *      never falls back to a different comparison silently.
  *
  * Usage: node scripts/lint-sync-schema.mjs [--check|--strict] [--base <ref>]
  *
@@ -266,11 +272,29 @@ function resolveBase(args) {
   return null;
 }
 
-/** Rule 7: released migration files unchanged against `base`. */
-export function releasedFileEdits(base, files) {
+/**
+ * The commit rule 7 compares with (T13294): the merge-base of HEAD and `base`,
+ * so a migration the base gained after the branch was cut is not counted as
+ * deleted. `null` when git cannot find one (a shallow clone without the shared
+ * history); the caller then falls back to the base tip.
+ */
+export function releaseCommit(base, root = REPO_ROOT) {
+  try {
+    return execFileSync('git', ['merge-base', 'HEAD', base], {
+      cwd: root,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/** Rule 7: released migration files unchanged against `base` (a commit-ish). */
+export function releasedFileEdits(base, files, root = REPO_ROOT) {
   const tracked = new Set(
     execFileSync('git', ['ls-tree', '-r', '--name-only', base, '--', 'packages/core/migrations'], {
-      cwd: REPO_ROOT,
+      cwd: root,
       encoding: 'utf-8',
     })
       .split('\n')
@@ -280,7 +304,7 @@ export function releasedFileEdits(base, files) {
   for (const f of files) {
     if (!tracked.has(f.rel)) continue;
     const was = execFileSync('git', ['show', `${base}:${f.rel}`], {
-      cwd: REPO_ROOT,
+      cwd: root,
       encoding: 'buffer',
       maxBuffer: 64 << 20,
     });
@@ -299,6 +323,32 @@ export function releasedFileEdits(base, files) {
       out.push({ file: f, rule: 7, message: `released migration deleted (vs ${base})` });
   }
   return out;
+}
+
+/**
+ * Rule 7 as the gate runs it: against the merge-base of HEAD and `base`.
+ * Without one (no shared history: a shallow clone) it is a violation naming
+ * the fix, never a silent fallback (T13310). Returns the violations and the
+ * OK note.
+ */
+export function releaseCheck(base, files, root = REPO_ROOT) {
+  const at = releaseCommit(base, root);
+  if (at === null) {
+    return {
+      violations: [
+        {
+          file: '(history)',
+          rule: 7,
+          message: `no merge-base of HEAD and ${base}: the clone is shallow or the histories are unrelated. Fetch the history (\`git fetch --unshallow origin\`, or check out with fetch-depth: 0) and run again`,
+        },
+      ],
+      note: '',
+    };
+  }
+  return {
+    violations: releasedFileEdits(at, files, root),
+    note: `released files unchanged vs the merge-base ${at.slice(0, 12)} of HEAD and ${base}`,
+  };
 }
 
 function main() {
@@ -323,8 +373,9 @@ function main() {
   const base = resolveBase(args);
   let releaseNote;
   if (base) {
-    violations.push(...releasedFileEdits(base, files));
-    releaseNote = `released files unchanged vs ${base}`;
+    const release = releaseCheck(base, files);
+    violations.push(...release.violations);
+    releaseNote = release.note;
   } else {
     releaseNote = 'rule 7 SKIPPED: no base ref (pass --base <ref> or fetch origin/main)';
   }

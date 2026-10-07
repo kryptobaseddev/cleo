@@ -14,11 +14,11 @@
 name: AI SDK Surface
 
 on:
-  pull_request:
-    branches: [main]
-  merge_group:
-  push:
-    branches: [main]
+  # T13263: called by ci.yml (job `ai-sdk-surface-gate`), which the required `CI` aggregate
+  # needs, so a failure here blocks the merge. It no longer runs on its own
+  # push / pull_request / merge_group triggers (that ran it twice, and nothing
+  # required its standalone check). It runs with ci.yml's triggers and event.
+  workflow_call:
 
 jobs:
   ai-sdk-surface:

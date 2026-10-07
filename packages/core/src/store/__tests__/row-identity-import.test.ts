@@ -28,7 +28,10 @@ import {
   fillRowUids,
   mintedRowUid,
   naturalRowUid,
+  prepareRowIdentity,
+  ROW_IDENTITY_RECIPE_KEY,
   ROW_IDENTITY_SYNCED_KEY,
+  rowIdentityShareState,
 } from '../row-identity.js';
 import { getNativeTasksDb } from '../sqlite.js';
 import { createTestDb, seedTasks, type TestDbEnv } from './test-db-helper.js';
@@ -83,6 +86,59 @@ describe('import and restore keep row identity (T12806)', () => {
     expect(identity(db, 'T001')).toBeUndefined();
     await importSnapshot(snapshot, env.tempDir);
   }
+
+  it('a snapshot export that carries uids marks the store shared: a stale recipe then refuses the full refill (T13249)', async () => {
+    fillRowUids(db, 'project');
+    expect(
+      db
+        .prepare('SELECT 1 FROM tasks_row_identity_meta WHERE key = ?')
+        .get(ROW_IDENTITY_SYNCED_KEY),
+    ).toBeUndefined();
+    const snapshot = await exportSnapshot(env.tempDir);
+    expect(snapshot.tasks.some((t) => t.uid)).toBe(true);
+    expect(
+      db
+        .prepare('SELECT 1 FROM tasks_row_identity_meta WHERE key = ?')
+        .get(ROW_IDENTITY_SYNCED_KEY),
+    ).toBeDefined();
+    const before = identity(db, 'T001');
+    db.exec(`DELETE FROM tasks_row_identity_meta WHERE key = '${ROW_IDENTITY_RECIPE_KEY}'`);
+    db.exec(
+      `INSERT INTO tasks_row_identity_meta (key, value) VALUES ('${ROW_IDENTITY_RECIPE_KEY}', 'cleo/row-identity/v1')`,
+    );
+    expect(rowIdentityShareState(db).state).toBe('shared');
+    expect(prepareRowIdentity(db, 'project')?.refill).toBe('refused');
+    expect(identity(db, 'T001')).toEqual(before);
+  });
+
+  it('an import that inserts a task with a carried uid marks the store shared (T13249)', async () => {
+    const snapshot = await exportSnapshot(env.tempDir);
+    await env.accessor.transaction(async (tx) => {
+      await tx.removeSingleTask('T001');
+    });
+    // As if the snapshot came from another store: this one never sent.
+    db.prepare('DELETE FROM tasks_row_identity_meta WHERE key = ?').run(ROW_IDENTITY_SYNCED_KEY);
+    await importSnapshot(snapshot, env.tempDir);
+    const marker = db
+      .prepare('SELECT value FROM tasks_row_identity_meta WHERE key = ?')
+      .get(ROW_IDENTITY_SYNCED_KEY) as { value: string } | undefined;
+    expect(JSON.parse(String(marker?.value)).first).toBe('receive');
+  });
+
+  it('a snapshot export without uids (row uids off) marks nothing (T13249)', async () => {
+    process.env.CLEO_ROW_UID_FILL = '0';
+    try {
+      const snapshot = await exportSnapshot(env.tempDir);
+      expect(snapshot.tasks.some((t) => t.uid)).toBe(false);
+    } finally {
+      process.env.CLEO_ROW_UID_FILL = '1';
+    }
+    expect(
+      db
+        .prepare('SELECT 1 FROM tasks_row_identity_meta WHERE key = ?')
+        .get(ROW_IDENTITY_SYNCED_KEY),
+    ).toBeUndefined();
+  });
 
   it('a restore brings back the pre-delete uid and fingerprint (snapshot carries them)', async () => {
     const before = { t1: identity(db, 'T001'), t2: identity(db, 'T002') };
