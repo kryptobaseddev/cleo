@@ -69,6 +69,31 @@ export type Device = z.infer<typeof Device>;
 export const ListDevicesResult = z.object({ devices: z.array(Device) });
 export type ListDevicesResult = z.infer<typeof ListDevicesResult>;
 
+// ---------- device credential scopes and E3 status (§4.1) ----------
+
+/** What a device credential may do (§2.3). A signed-in session holds every scope. */
+export const DeviceScope = z.enum([
+  'account:read',
+  'devices:read',
+  'projects:read',
+  'projects:write',
+  'sync:read',
+  'sync:write',
+  'keys:read',
+  'keys:write',
+]);
+/** One device credential scope. */
+export type DeviceScope = z.infer<typeof DeviceScope>;
+
+/** E3 `GET /v1/status` query (§4.1): `replicaId` (a UUIDv7) requires `projectId`. */
+export const StatusQuery = z
+  .object({ projectId: ProjectId.optional(), replicaId: ReplicaId.optional() })
+  .refine((q) => q.replicaId === undefined || q.projectId !== undefined, {
+    message: 'replicaId requires projectId',
+  });
+/** The E3 status query. */
+export type StatusQuery = z.infer<typeof StatusQuery>;
+
 // ---------- projects ----------
 
 /**
@@ -523,6 +548,15 @@ export type CreateCheckpointResult = z.infer<typeof CreateCheckpointResult>;
 /** Newest first, at most 100. */
 export const ListCheckpointsResult = z.object({ checkpoints: z.array(Checkpoint) });
 export type ListCheckpointsResult = z.infer<typeof ListCheckpointsResult>;
+
+/**
+ * E29 `GET …/checkpoints/head` and E30 `GET …/checkpoints/:checkpointId` (cleo-nexus T122, contract
+ * v2.27): one checkpoint, shaped as a list item. Both answer 404 when there is no head, or the id is
+ * unknown, malformed or on another stream.
+ */
+export const GetCheckpointResult = z.object({ checkpoint: Checkpoint });
+/** One checkpoint read by id or as the head. */
+export type GetCheckpointResult = z.infer<typeof GetCheckpointResult>;
 
 // ---------- blobs ----------
 
