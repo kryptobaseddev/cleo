@@ -53,6 +53,7 @@ import { runDoctorProjects } from './doctor-projects.js';
 import { doctorRegistryCommand } from './doctor-projects-registry.js';
 import { doctorReleaseReadinessCommand } from './doctor-release-readiness.js';
 import { doctorRepairCommand } from './doctor-repair.js';
+import { doctorRowIdentityCommand } from './doctor-row-identity.js';
 import { doctorSkillFixturesCommand } from './doctor-skill-fixtures.js';
 import { doctorSplitBrainCommand } from './doctor-split-brain.js';
 import { doctorSupersededStoreCommand } from './doctor-superseded-store.js';
@@ -282,6 +283,8 @@ export const doctorCommand = defineCommand({
     'project-identity': doctorProjectIdentityCommand,
     // T12596 · T12598 — ~/.cleo, the global hub and every harness skill install must resolve
     'global-delivery': doctorGlobalDeliveryCommand,
+    // T13231 — the explicit from-scratch row-identity refill (dry run; --refill --apply)
+    'row-identity': doctorRowIdentityCommand,
     // T12987 — repair diff of suspect sync tables (read-only plan; + --repair)
     'sync-journal': doctorSyncJournalCommand,
     // T12754 — project store triggers incl. ones referencing missing objects (+ --repair)

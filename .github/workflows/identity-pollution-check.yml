@@ -8,17 +8,17 @@ name: Identity Pollution Check
 # through historically or was crafted manually.
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
-  merge_group:
+  # T13263: called by ci.yml (job `identity-pollution-gate`), which the required `CI` aggregate
+  # needs, so a failure here blocks the merge. It no longer runs on its own
+  # push / pull_request / merge_group triggers (that ran it twice, and nothing
+  # required its standalone check). It runs with ci.yml's triggers and event.
+  workflow_call:
 
 jobs:
   reject-polluted-identity:
     name: Reject Test <test@example.com>
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,6 +27,7 @@ jobs:
           # push / PR. depth=0 = full history; cheaper than redoing checks
           # if the PR grows.
           fetch-depth: 0
+          filter: blob:none
 
       - name: Determine commit range
         id: range

@@ -25,6 +25,9 @@ afterEach(() => {
   rmSync(join(claudeHome, '..'), { recursive: true, force: true });
 });
 
+/** The literal shell word `${HOME}` (built so it is not a template placeholder). */
+const BRACED_HOME = ['$', '{HOME}'].join('');
+
 /** What a pre-T13128 CLEO's Claude Code install could write, beside user content. */
 const OLD_SETTINGS = {
   model: 'opus',
@@ -170,5 +173,47 @@ describe('checkUserGlobalClaudeLeftovers (T13221)', () => {
     const found = (checkUserGlobalClaudeLeftovers(claudeHome).details as { found: string[] }).found;
 
     expect(found).toEqual([`PreCompact hook "${exact}"`]);
+  });
+
+  it('an unmarked safestop in the hand-written template forms (~/, $HOME/, single quotes) is found', () => {
+    const savedHome = process.env.HOME;
+    process.env.HOME = join(claudeHome, '..');
+    try {
+      writeFileSync(
+        settingsPath,
+        JSON.stringify({
+          hooks: {
+            PreCompact: [
+              {
+                hooks: [
+                  { type: 'command', command: '~/.claude/hooks/precompact-safestop.sh' },
+                  { type: 'command', command: '"$HOME/.claude/hooks/precompact-safestop.sh"' },
+                  {
+                    type: 'command',
+                    command: `'${BRACED_HOME}/.claude/hooks/precompact-safestop.sh'`,
+                  },
+                  { type: 'command', command: '~/.claude/hooks/mine.sh' },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+
+      const r = checkUserGlobalClaudeLeftovers(claudeHome);
+
+      const found = (r.details as { found: string[] }).found;
+      expect(found).toEqual([
+        'PreCompact hook ~/.claude/hooks/precompact-safestop.sh',
+        'PreCompact hook "$HOME/.claude/hooks/precompact-safestop.sh"',
+        `PreCompact hook '${BRACED_HOME}/.claude/hooks/precompact-safestop.sh'`,
+      ]);
+      // The entry has no matcher key; the step says so instead of `matcher ""`.
+      expect(r.fix).toContain('under "hooks.PreCompact" (no matcher)');
+      expect(r.fix).not.toContain('matcher ""');
+    } finally {
+      if (savedHome === undefined) delete process.env.HOME;
+      else process.env.HOME = savedHome;
+    }
   });
 });
