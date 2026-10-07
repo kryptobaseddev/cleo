@@ -1174,11 +1174,11 @@ export interface SupersededStoreIdRemap {
 }
 
 /**
- * How a reconcile receipt accounts for one bare legacy table of the live
- * store: its row count and key digest when the run carried it (T13319). The
- * sync refusal for stranded bare rows stands down for a table that still
- * matches, so a row the runtime later deletes from the prefixed twin is never
- * mistaken for one that was never carried.
+ * One bare legacy table of the live store a reconcile carried: its row count
+ * and key digest when the run verified (T13319). The run records it in the
+ * store (T13320) and in its receipt; the sync refusal for stranded bare rows
+ * stands down for a table that still matches, so a row the runtime later
+ * deletes from the prefixed twin is never mistaken for one never carried.
  *
  * @task T13319
  */
@@ -1258,8 +1258,10 @@ export interface SupersededStoreReconcileResult {
   /** Human-readable explanation, suitable for printing verbatim. */
   reason: string;
   /**
-   * The live store's bare tables this run carried, recorded only on a
-   * `reconciled` receipt that copied the bare family (T13319).
+   * The live store's bare tables this run carried, on a `reconciled` receipt
+   * that copied the bare family (T13319). Audit only: the sync check reads the
+   * record the run wrote into the store itself, which travels with backups
+   * (T13320).
    */
   accounted?: SupersededStoreBareAccount[];
 }

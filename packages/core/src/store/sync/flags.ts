@@ -14,8 +14,6 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { SupersededStoreBareAccount, TableScope } from '@cleocode/contracts';
 import { legacyRowProjection } from '../exodus/column-transforms.js';
@@ -156,8 +154,10 @@ export interface LegacyStrand {
  * Dead bare tables are written by nothing since consolidation, so a missing row
  * was never carried — unless a reconcile carried it and the runtime deleted it
  * from the twin since, the normal life of every reconciled store. A bare table
- * a `reconciled` receipt beside the store accounts for (its key digest still
- * matches, {@link bareTableDigest}) is therefore not a strand (T13319).
+ * the store records as carried ({@link BARE_ACCOUNTS_TABLE}) whose key digest
+ * still matches ({@link bareTableDigest}) is therefore not a strand (T13319,
+ * T13320). The record lives in the store, never in files beside it, so a
+ * restored pre-reconcile snapshot is refused again.
  *
  * @returns One entry per stranded pair; empty when the journal sees every row.
  */
@@ -181,7 +181,7 @@ export function legacyStrands(db: DatabaseSync): LegacyStrand[] {
     const shadowed = bare === 'tasks' && table === 'tasks_tasks' ? shadowedTasks(db) : 0;
     if ((missing ?? 0) === 0 && shadowed === 0) continue;
     // A reconcile carried this table, and it has not changed since (T13319).
-    accounted ??= reconciledBareTables(db);
+    accounted ??= recordedBareAccounts(db);
     if (isAccounted(db, bare, accounted)) continue;
     strands.push({ bareTable: bare, table, missing: missing ?? 0, shadowed });
   }
@@ -261,28 +261,25 @@ export function legacyStrandsCached(db: DatabaseSync): LegacyStrand[] {
   return strands;
 }
 
-/** Prefix of a reconcile's run directory under `.cleo/` (T12319). */
-const RECONCILE_RUN_PREFIX = 'exodus-reconcile-';
-
-/** The receipt file in a reconcile run directory. */
-const RECONCILE_RECEIPT_FILE = 'reconcile-receipt.json';
-
-/** Logical source names a full reconcile gives the live store's bare family. */
-const BARE_FAMILY_SOURCE_PREFIX = 'tasks (cleo.db bare';
-
 /**
- * A bare table a reconcile carried. `digest` is `null` for a receipt written
- * before T13319, which names the table but records no digest.
+ * The store's own record of the bare tables a reconcile carried (T13320): one
+ * row per bare table with its key digest ({@link bareTableDigest}) when the
+ * run verified. It lives IN the store (local-only, `_exodus_recovery_*`), so
+ * it travels with backups and restores; a snapshot taken before the reconcile
+ * carries none, and its stranded rows are refused again.
  */
+export const BARE_ACCOUNTS_TABLE = '_exodus_recovery_bare_accounts';
+
+/** A bare table a reconcile carried, as the store records it. */
 interface BareTableRecord {
   readonly table: string;
-  readonly rows: number | null;
-  readonly digest: string | null;
+  readonly rows: number;
+  readonly digest: string;
 }
 
 /**
- * The row count and key digest of a bare legacy table, by which a reconcile
- * receipt accounts for it (T13319). Its primary-key values are hashed in order
+ * The row count and key digest of a bare legacy table, by which the store
+ * records a reconcile carrying it (T13319). Its primary-key values are hashed in order
  * — the rows a strand is judged by — so a row added since changes it, while a
  * column the runtime adds to the dead table on open (its legacy upgrade does)
  * does not. A keyless table hashes every column.
@@ -316,70 +313,59 @@ export function bareTableDigest(
   return { table, rows, digest: hash.digest('hex') };
 }
 
+/** The bare tables this store records as carried by a reconcile (T13320). */
+function recordedBareAccounts(db: DatabaseSync): BareTableRecord[] {
+  if (!hasTable(db, BARE_ACCOUNTS_TABLE)) return [];
+  return (
+    db
+      .prepare(`SELECT bare_table AS "table", rows, digest FROM main."${BARE_ACCOUNTS_TABLE}"`)
+      .all() as Array<{ table: string; rows: number; digest: string }>
+  ).map((r) => ({ table: r.table, rows: Number(r.rows), digest: r.digest }));
+}
+
 /**
- * Bare tables carried by `reconciled` receipts beside the store
- * (`<dir of cleo.db>/exodus-reconcile-*`). A receipt with `accounted` names
- * each table with its digest; an older one (before T13319) names the bare
- * tables it copied in `before`, without a digest — dead tables do not change,
- * so the name is enough. Unreadable or malformed receipts are skipped.
+ * Record, in the store, that a verified reconcile run carried `accounts`
+ * (T13320). Upserts per bare table, so a later run's digest replaces an
+ * earlier one; `run` names the receipt directory that did it.
+ *
+ * @param db - The live project store, writable.
+ * @param accounts - Key digests of the bare tables the run carried.
+ * @param run - The reconcile's run directory name.
+ * @param now - When the run verified.
  */
-function reconciledBareTables(db: DatabaseSync): BareTableRecord[] {
-  const file = (
-    db.prepare('PRAGMA database_list').all() as Array<{ name: string; file: string }>
-  ).find((d) => d.name === 'main')?.file;
-  if (!file) return [];
-  const dir = dirname(file);
-  if (!existsSync(dir)) return [];
-  const out: BareTableRecord[] = [];
-  for (const run of readdirSync(dir)
-    .filter((n) => n.startsWith(RECONCILE_RUN_PREFIX))
-    .sort()) {
-    let receipt: unknown;
-    try {
-      receipt = JSON.parse(readFileSync(join(dir, run, RECONCILE_RECEIPT_FILE), 'utf8'));
-    } catch {
-      continue;
-    }
-    if (!isRecord(receipt) || receipt.outcome !== 'reconciled') continue;
-    if (Array.isArray(receipt.accounted)) {
-      for (const a of receipt.accounted) {
-        if (
-          isRecord(a) &&
-          typeof a.table === 'string' &&
-          typeof a.rows === 'number' &&
-          typeof a.digest === 'string'
-        ) {
-          out.push({ table: a.table, rows: a.rows, digest: a.digest });
-        }
-      }
-      continue;
-    }
-    for (const c of Array.isArray(receipt.before) ? receipt.before : []) {
-      if (
-        isRecord(c) &&
-        typeof c.sourceDb === 'string' &&
-        c.sourceDb.startsWith(BARE_FAMILY_SOURCE_PREFIX) &&
-        typeof c.sourceTable === 'string'
-      ) {
-        out.push({ table: c.sourceTable, rows: null, digest: null });
-      }
-    }
+export function recordBareAccounts(
+  db: DatabaseSync,
+  accounts: readonly SupersededStoreBareAccount[],
+  run: string,
+  now: Date = new Date(),
+): void {
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS main."${BARE_ACCOUNTS_TABLE}" (` +
+      'bare_table TEXT PRIMARY KEY, rows INTEGER NOT NULL, digest TEXT NOT NULL, ' +
+      'run TEXT NOT NULL, recorded_at TEXT NOT NULL)',
+  );
+  const upsert = db.prepare(
+    `INSERT INTO main."${BARE_ACCOUNTS_TABLE}" (bare_table, rows, digest, run, recorded_at) ` +
+      'VALUES (?, ?, ?, ?, ?) ON CONFLICT(bare_table) DO UPDATE SET rows = excluded.rows, ' +
+      'digest = excluded.digest, run = excluded.run, recorded_at = excluded.recorded_at',
+  );
+  const at = now.toISOString();
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const a of accounts) upsert.run(a.table, a.rows, a.digest, run, at);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
   }
-  return out;
 }
 
-/** Whether `bare` is unchanged since a receipt in `records` carried it. */
+/** Whether `bare` is unchanged since the store recorded a reconcile carrying it. */
 function isAccounted(db: DatabaseSync, bare: string, records: readonly BareTableRecord[]): boolean {
-  const mine = records.filter((r) => r.table === bare);
-  if (mine.length === 0) return false;
-  if (mine.some((r) => r.digest === null)) return true;
+  const mine = records.find((r) => r.table === bare);
+  if (mine === undefined) return false;
   const now = bareTableDigest(db, 'main', bare);
-  return mine.some((r) => r.rows === now.rows && r.digest === now.digest);
-}
-
-/** Whether `value` is a plain object. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return mine.rows === now.rows && mine.digest === now.digest;
 }
 
 /** Whether `table` holds at least one row. */

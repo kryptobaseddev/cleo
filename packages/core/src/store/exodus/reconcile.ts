@@ -51,7 +51,7 @@ import { resolveDualScopeDbPath } from '../dual-scope-db.js';
 import { lockCompromiseTracker, withLock } from '../lock.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import { rowIdentityColumns } from '../row-identity-registry.js';
-import { bareTableDigest } from '../sync/flags.js';
+import { bareTableDigest, recordBareAccounts } from '../sync/flags.js';
 import { EXODUS_LOCK_STALE_MS, exodusRunLockPath, whileExodusRunHeld } from './abort-events.js';
 import { legacyRowProjection } from './column-transforms.js';
 import { runExodusMigrate } from './migrate.js';
@@ -490,6 +490,27 @@ function describeGaps(counts: readonly SupersededStoreTableCount[]): string {
     .join(', ');
 }
 
+/**
+ * Record in the live store that this run carried `accounts` (T13320), through
+ * a dedicated connection: the sync check reads the record from the store, so
+ * it travels with backups and a pre-reconcile snapshot carries none.
+ */
+async function recordCarriedBareTables(
+  liveStorePath: string,
+  accounts: readonly SupersededStoreBareAccount[],
+  run: string,
+): Promise<void> {
+  const { getDualScopeNativeDb, openDualScopeDbAtPath } = await import('../dual-scope-db.js');
+  const handle = await openDualScopeDbAtPath('project', liveStorePath, undefined, {
+    dedicated: true,
+  });
+  try {
+    recordBareAccounts(getDualScopeNativeDb(handle), accounts, run);
+  } finally {
+    handle.close();
+  }
+}
+
 /** Revert every row this reconcile inserted, proven by its receipts. */
 async function revertReconcile(liveStorePath: string, stagingDir: string): Promise<number> {
   const { getDualScopeNativeDb, openDualScopeDbAtPath } = await import('../dual-scope-db.js');
@@ -787,10 +808,11 @@ async function reconcileWithScratch(
     !additive && existsSync(liveStorePath)
       ? await bareTaskCoreSource(liveStorePath, resolveTarget, scratch)
       : null;
-  // The bare tables this run carries, by key digest, for the receipt: the
-  // sync refusal for stranded bare rows stands down for them afterwards, so
-  // a row the runtime later deletes from the twin is not mistaken for one
-  // never carried (T13319).
+  // The bare tables this run carries, by key digest. A verified run records
+  // them in the store (T13320) — the sync refusal for stranded bare rows
+  // stands down for them, so a row the runtime later deletes from the twin
+  // is not mistaken for one never carried (T13319) — and in the receipt, for
+  // the audit trail.
   const accounted = bare ? bareAccounts(liveStorePath, bare.path) : [];
   // Additive (and a full run with an undecided collision): the live task
   // graph is never written — only history tables.
@@ -987,13 +1009,23 @@ async function reconcileWithScratch(
       // would call it present (review LOW-1).
       const unlanded =
         migrated.ok && !graphWithheld ? unlandedRemaps(liveStorePath, remap.remaps) : [];
-      if (
+      const verified =
         migrated.ok &&
         settled &&
         lost.length === 0 &&
         altered.length === 0 &&
-        unlanded.length === 0
-      ) {
+        unlanded.length === 0;
+      // The store's own record of the bare tables this run carried (T13320),
+      // written only once the copy verified, so a revert never leaves one.
+      let unrecorded: string | null = null;
+      if (verified && bare && !graphWithheld) {
+        try {
+          await recordCarriedBareTables(liveStorePath, accounted, basename(stagingDir));
+        } catch (error) {
+          unrecorded = error instanceof Error ? error.message : String(error);
+        }
+      }
+      if (verified && unrecorded === null) {
         return {
           ...base,
           conflicts,
@@ -1019,7 +1051,9 @@ async function reconcileWithScratch(
             ? `pre-existing live rows changed in: ${altered.join(', ')}`
             : unlanded.length > 0
               ? `a concurrent write took the id of a recovered task (${unlanded.join(', ')}); run the reconcile again`
-              : `rows still missing after copy: ${describeGaps(after)}`;
+              : unrecorded !== null
+                ? `could not record the carried bare tables in the store: ${unrecorded}`
+                : `rows still missing after copy: ${describeGaps(after)}`;
       return {
         ...base,
         outcome: 'refused',
