@@ -27,6 +27,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -398,6 +399,68 @@ describe.each(
     const db = new DatabaseSync(liveDb);
     try {
       expect(legacyStrands(db).length).toBeGreaterThan(0);
+      expect(() => setSyncFlag(db, 'sync.seal', true, { allowUnreleased: true })).toThrow(
+        LegacyOnlyStoreError,
+      );
+      // Even a receipt that looks pre-T13319 is not adopted: the restored table is not clean.
+      const receiptPath = result.receiptPath ?? '';
+      const { accounted: _dropped, ...older } = JSON.parse(
+        readFileSync(receiptPath, 'utf8'),
+      ) as Record<string, unknown>;
+      writeFileSync(receiptPath, JSON.stringify(older));
+      expect(() => setSyncFlag(db, 'sync.seal', true, { allowUnreleased: true })).toThrow(
+        LegacyOnlyStoreError,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  /** Reconcile a bare-label strand, then make the store look pre-T13319: no record, old receipt. */
+  async function reconcileAsPreRecord(): Promise<void> {
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      DROP TABLE IF EXISTS task_labels;
+      CREATE TABLE task_labels (task_id TEXT NOT NULL, label TEXT NOT NULL, PRIMARY KEY (task_id, label));
+      INSERT INTO task_labels VALUES ('T1', 'kept'), ('T1', 'removed-later');
+    `);
+    live.close();
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'));
+    expect(result.outcome, result.reason).toBe('reconciled');
+    const receiptPath = result.receiptPath ?? '';
+    const { accounted: _dropped, ...older } = JSON.parse(
+      readFileSync(receiptPath, 'utf8'),
+    ) as Record<string, unknown>;
+    writeFileSync(receiptPath, JSON.stringify(older));
+    const db = new DatabaseSync(liveDb);
+    db.exec('DROP TABLE _exodus_recovery_bare_accounts');
+    db.close();
+  }
+
+  it('a pre-T13319 receipt is adopted when its bare table compares clean now (T13320)', async () => {
+    await reconcileAsPreRecord();
+    const { legacyStrands, setSyncFlag } = await import('../sync/flags.js');
+    const db = new DatabaseSync(liveDb);
+    try {
+      expect(() => setSyncFlag(db, 'sync.seal', true, { allowUnreleased: true })).not.toThrow();
+      expect(db.prepare('SELECT bare_table FROM _exodus_recovery_bare_accounts').all()).toEqual([
+        { bare_table: 'task_labels' },
+      ]);
+      // Adopted, so a later routine delete is not a strand.
+      db.exec("DELETE FROM tasks_task_labels WHERE label = 'removed-later'");
+      expect(legacyStrands(db)).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('a pre-T13319 receipt is not adopted when its bare table no longer compares clean (T13320)', async () => {
+    await reconcileAsPreRecord();
+    const { setSyncFlag, LegacyOnlyStoreError } = await import('../sync/flags.js');
+    const db = new DatabaseSync(liveDb);
+    try {
+      db.exec("DELETE FROM tasks_task_labels WHERE label = 'removed-later'");
       expect(() => setSyncFlag(db, 'sync.seal', true, { allowUnreleased: true })).toThrow(
         LegacyOnlyStoreError,
       );
