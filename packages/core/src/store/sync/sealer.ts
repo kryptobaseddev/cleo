@@ -69,10 +69,10 @@ import {
   recordFieldLeaves,
   setFieldFrontiers,
 } from './field-leave.js';
-import { isSyncFlagOn, UNRELEASED_FLAGS } from './flags.js';
+import { isLegacyOnlyStore, isSyncFlagOn, LEGACY_ONLY_REMEDY, UNRELEASED_FLAGS } from './flags.js';
 import { mergeGroupsOf } from './merge/rules.js';
 import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './netting.js';
-import { remapCapture, remapPending } from './remap.js';
+import { encText, remapCapture, remapPending } from './remap.js';
 import { activeReplica } from './replica.js';
 import { nextFhlc, type RowMetaRow, upsertRowMeta } from './row-meta.js';
 import { hasTable } from './schema.js';
@@ -316,7 +316,28 @@ class TableContext {
     const row = this.stmt(
       `SELECT ${q(UID_COLUMN)} AS u FROM ${q(table)} WHERE ${q(keyColumn)} = ?`,
     ).get(key) as { u: string | null } | undefined;
-    return row?.u ?? null;
+    if (row !== undefined) return row.u ?? null;
+    return this.deletedUid(table, keyColumn, key);
+  }
+
+  /**
+   * The uid of a row deleted but not yet sealed, from its live D capture
+   * (T13226). An FK action fires while its parent is already gone: a child's
+   * SET NULL or cascaded D refers to the parent by local key, and only the
+   * parent's own D capture (same transaction, so same frame and batch) still
+   * knows its uid. Single-column local keys only; the latest such D wins.
+   */
+  private deletedUid(table: string, keyColumn: string, key: string | number): string | null {
+    if (this.keyColumns(table).length !== 1 || this.keyColumns(table)[0] !== keyColumn) return null;
+    const rk = JSON.stringify([typeof key === 'string' ? encText(key) : String(key)]);
+    const d = this.stmt(
+      `SELECT uid, json_extract(img, '$.${UID_COLUMN}') AS iu FROM _sync_capture
+       WHERE state = 'live' AND tbl = ? AND op = 'D' AND rk = ? ORDER BY seq DESC LIMIT 1`,
+    ).get(table, rk) as { uid: string | null; iu: string | null } | undefined;
+    if (!d) return null;
+    if (d.uid !== null) return d.uid;
+    const v = d.iu === null ? null : decodeEnc(d.iu);
+    return typeof v === 'string' ? v : null;
   }
 
   /**
@@ -732,6 +753,11 @@ export function sealPreconditions(
   if (!isSyncFlagOn(db, 'sync.seal', env)) return 'sync.seal is off';
   if (UNRELEASED_FLAGS.has('sync.seal') && !allowUnreleased) {
     return 'sync.seal is unreleased until S3b–S3d land (T13032)';
+  }
+  // T13224: a flag persisted before the store's rows were stranded in the
+  // bare family still never seals an empty view of it.
+  if (isLegacyOnlyStore(db)) {
+    return `legacy-only store: its rows are in the bare legacy tables; run \`${LEGACY_ONLY_REMEDY}\``;
   }
   return null;
 }

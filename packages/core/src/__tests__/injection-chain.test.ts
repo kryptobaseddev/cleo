@@ -41,6 +41,8 @@ vi.mock('@cleocode/caamp', () => {
   ];
 
   return {
+    // T13257: ensureInjection checks for a $HOME project first.
+    isHomeProject: vi.fn(() => false),
     resolveInstructionDelivery: vi.fn(async (content: string) => ({
       content: content.replace(/^@.*$/gm, '# CLEO Protocol — resolved fixture'),
       sources: [],
