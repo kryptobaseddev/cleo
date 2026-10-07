@@ -116,7 +116,7 @@ import {
   readGenesisCut,
 } from '../store/sync/genesis.js';
 import { type PullStreamReport, pullStream, readStreamCursor } from '../store/sync/pull.js';
-import { type PushStreamReport, pushStream } from '../store/sync/push.js';
+import { type PushRefusal, type PushStreamReport, pushStream } from '../store/sync/push.js';
 import { replayPinOf } from '../store/sync/replay-pin.js';
 import { activeReplica, readActiveReplicaId } from '../store/sync/replica.js';
 import { ReplicaRegistry } from '../store/sync/replica-registry.js';
@@ -2054,13 +2054,52 @@ const NOT_ATTACHED_CODES: ReadonlySet<string> = new Set([
   'E_NEXUS_NOT_A_PROJECT',
 ]);
 
-/** Push or pull refusals that mean "nothing to do here", not a failure (LOW-3 on #1962). */
-const SKIP_REASONS: readonly RegExp[] = [
-  /^sync\.push is off$/,
-  /^sync\.pull is off$/,
-  /has no genesis cut on this store/,
-  /genesis checkpoint is not stored yet/,
-];
+/** Push refusals that mean "nothing to do here", not a failure (LOW-3 on #1962). */
+const PUSH_SKIPS: ReadonlySet<PushRefusal> = new Set(['push-off', 'no-genesis', 'genesis-pending']);
+
+/** How one stream's push and pull legs ended, classified by refusal kind (T13315). */
+export interface SyncLegOutcome {
+  /** Refusals that mean "nothing to do here": a flag off, or push before this store's genesis. */
+  readonly skipped: string[];
+  /** Every other refusal. */
+  readonly refused: string[];
+  /** Both flags off: the stream is disabled. */
+  readonly disabled: boolean;
+  /** The pull leg was skipped, so its position says nothing. */
+  readonly pullSkipped: boolean;
+}
+
+/**
+ * Classify a stream's push and pull results (T13315). Classification uses
+ * each report's typed `refusedKind`, never its message, so rewording a
+ * refusal never turns a skip into a refusal.
+ *
+ * @param push - The push leg's `refused` and `refusedKind`.
+ * @param pull - The pull leg's `refused` and `refusedKind`.
+ * @returns Skipped and refused messages, and whether the stream is disabled.
+ */
+export function classifySyncLegs(
+  push: Pick<PushStreamReport, 'refused' | 'refusedKind'>,
+  pull: Pick<PullStreamReport, 'refused' | 'refusedKind'>,
+): SyncLegOutcome {
+  const pushSkipped = push.refusedKind !== null && PUSH_SKIPS.has(push.refusedKind);
+  const pullSkipped = pull.refusedKind === 'pull-off';
+  const skipped: string[] = [];
+  const refused: string[] = [];
+  for (const [msg, skip] of [
+    [push.refused, pushSkipped],
+    [pull.refused, pullSkipped],
+  ] as const) {
+    if (msg === null) continue;
+    (skip ? skipped : refused).push(msg);
+  }
+  return {
+    skipped,
+    refused,
+    disabled: push.refusedKind === 'push-off' && pullSkipped,
+    pullSkipped,
+  };
+}
 
 /** The code and message of a failure, for a stream result. */
 function failureText(err: unknown): string {
@@ -2119,22 +2158,18 @@ async function syncOneStream(
       duplicates: push.duplicates,
     });
   }
-  const isSkip = (r: string | null): boolean => r !== null && SKIP_REASONS.some((x) => x.test(r));
-  const skipped = [push.refused, pull.refused].filter((r): r is string => isSkip(r));
-  const refused = [push.refused, pull.refused].filter((r): r is string => r !== null && !isSkip(r));
-  const pushOff = push.refused === 'sync.push is off';
-  const pullOff = pull.refused === 'sync.pull is off';
+  const legs = classifySyncLegs(push, pull);
+  const { skipped, refused } = legs;
   const apply = pull.apply;
   return syncStreamResult(scope, {
     streamId,
-    status:
-      pushOff && pullOff
-        ? 'disabled'
-        : refused.length > 0
-          ? 'refused'
-          : push.clockAhead
-            ? 'paused'
-            : 'synced',
+    status: legs.disabled
+      ? 'disabled'
+      : refused.length > 0
+        ? 'refused'
+        : push.clockAhead
+          ? 'paused'
+          : 'synced',
     refused: refused.length > 0 ? refused.join('; ') : null,
     skipped,
     sealed: push.sealed,
@@ -2147,8 +2182,8 @@ async function syncOneStream(
     applied: apply?.applied ?? 0,
     held: (apply?.pending ?? 0) + (apply?.heldSkew ?? 0) + (apply?.refusedSchema ?? 0),
     conflicts: apply?.conflict ?? 0,
-    after: pull.refused === null || !isSkip(pull.refused) ? pull.after : null,
-    head: pull.refused === null || !isSkip(pull.refused) ? pull.head : null,
+    after: legs.pullSkipped ? null : pull.after,
+    head: legs.pullSkipped ? null : pull.head,
   });
 }
 

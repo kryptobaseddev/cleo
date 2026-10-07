@@ -119,6 +119,7 @@ import { hasUnsyncedNexusBackup, runNexusFirstRun } from '../nexus-first-run.js'
 import { linkProjectToNexus } from '../nexus-link.js';
 import { listNexusNamedProjects, resolveNexusProjectRef } from '../nexus-project-names.js';
 import {
+  classifySyncLegs,
   cloudSync,
   enableSyncPush,
   nexusVaultStatus,
@@ -5561,5 +5562,42 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     expect(mismatch.code).toBe('E_NEXUS_SYNC_REFUSED');
     expect(mismatch.message).toContain(realReplica);
     expect(fake.stream(STREAM).checkpoints).toHaveLength(0);
+  });
+});
+
+describe('cloud sync leg classification (T13315)', () => {
+  const none = { refused: null, refusedKind: null } as const;
+
+  it('classifies by refusal kind, so a reworded skip message is still a skip', () => {
+    const r = classifySyncLegs(
+      { refused: 'push is switched off for this store', refusedKind: 'push-off' },
+      { refused: 'pulling is disabled', refusedKind: 'pull-off' },
+    );
+    expect(r).toEqual({
+      skipped: ['push is switched off for this store', 'pulling is disabled'],
+      refused: [],
+      disabled: true,
+      pullSkipped: true,
+    });
+  });
+
+  it('push before genesis is skipped; a store behind the server and a refused segment are refusals', () => {
+    expect(
+      classifySyncLegs({ refused: 'no cut yet', refusedKind: 'no-genesis' }, none),
+    ).toMatchObject({ skipped: ['no cut yet'], refused: [], disabled: false, pullSkipped: false });
+    expect(
+      classifySyncLegs({ refused: 'not stored', refusedKind: 'genesis-pending' }, none).skipped,
+    ).toEqual(['not stored']);
+    expect(
+      classifySyncLegs(
+        { refused: 'behind', refusedKind: 'store-behind' },
+        { refused: 'bad segment', refusedKind: 'segment' },
+      ),
+    ).toMatchObject({ skipped: [], refused: ['behind', 'bad segment'], disabled: false });
+    // A message that reads like a skip but carries no skip kind is a refusal.
+    expect(
+      classifySyncLegs({ refused: 'sync.push is off', refusedKind: 'schema-missing' }, none)
+        .refused,
+    ).toEqual(['sync.push is off']);
   });
 });

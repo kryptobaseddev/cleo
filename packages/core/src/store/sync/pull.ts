@@ -112,6 +112,12 @@ export interface PullStreamReport {
    * segment was staged and applied, and the cursor stops just before it.
    */
   readonly refused: string | null;
+  /**
+   * The kind of `refused` (callers branch on this; the message may be
+   * reworded): `pull-off`, or `segment` for a refused segment. Null when
+   * nothing was refused.
+   */
+  readonly refusedKind: 'pull-off' | 'segment' | null;
   /** Segments received, vault deltas passed over, transactions staged, re-deliveries skipped. */
   readonly segments: number;
   readonly vaultDeltas: number;
@@ -267,6 +273,7 @@ export async function pullStream(
     return {
       stream: o.stream,
       refused: 'sync.pull is off',
+      refusedKind: 'pull-off',
       segments: 0,
       vaultDeltas: 0,
       staged: 0,
@@ -355,6 +362,7 @@ export async function pullStream(
   return {
     stream: o.stream,
     refused: refusedSegment,
+    refusedKind: refusedSegment === null ? null : 'segment',
     segments,
     vaultDeltas,
     staged,

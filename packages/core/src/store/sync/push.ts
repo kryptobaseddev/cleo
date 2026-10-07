@@ -88,11 +88,29 @@ export interface PushStreamOptions {
   readonly maxDriftMs?: number;
 }
 
+/**
+ * Why {@link pushStream} sent nothing, as a kind callers branch on (the
+ * message in `refused` is for people and may be reworded):
+ * - `schema-missing`: the sync schema is not installed;
+ * - `push-off`: `sync.push` is off;
+ * - `no-genesis`: this store has no genesis cut on the stream;
+ * - `genesis-pending`: the genesis checkpoint is not stored yet;
+ * - `store-behind`: the server holds a later segment of this replica.
+ */
+export type PushRefusal =
+  | 'schema-missing'
+  | 'push-off'
+  | 'no-genesis'
+  | 'genesis-pending'
+  | 'store-behind';
+
 /** What {@link pushStream} did. */
 export interface PushStreamReport {
   readonly stream: string;
   /** Why nothing was sent, or null. */
   readonly refused: string | null;
+  /** The kind of `refused`, or null when nothing was refused. */
+  readonly refusedKind: PushRefusal | null;
   /** Push paused because this device's clock is ahead of the server's. */
   readonly clockAhead: boolean;
   /** Transactions sealed, segments packed and persisted, segments the server stored (`duplicates` of them retries). */
@@ -107,6 +125,7 @@ export interface PushStreamReport {
 const empty = (stream: string, fields: Partial<PushStreamReport>): PushStreamReport => ({
   stream,
   refused: null,
+  refusedKind: null,
   clockAhead: false,
   sealed: 0,
   built: 0,
@@ -145,16 +164,22 @@ export async function pushStream(
   const env = o.env ?? process.env;
   const now = o.now ?? Date.now;
   if (!hasTable(db, '_sync_segment'))
-    return empty(o.stream, { refused: 'sync schema not installed' });
-  if (!isSyncFlagOn(db, 'sync.push', env)) return empty(o.stream, { refused: 'sync.push is off' });
+    return empty(o.stream, {
+      refused: 'sync schema not installed',
+      refusedKind: 'schema-missing',
+    });
+  if (!isSyncFlagOn(db, 'sync.push', env))
+    return empty(o.stream, { refused: 'sync.push is off', refusedKind: 'push-off' });
   if (genesisCutOf(db, o.stream) === undefined) {
     return empty(o.stream, {
       refused: `${o.stream} has no genesis cut on this store: run \`cleo sync enable push\``,
+      refusedKind: 'no-genesis',
     });
   }
   if (genesisPending(db, o.stream)) {
     return empty(o.stream, {
       refused: `${o.stream}'s genesis checkpoint is not stored yet: run \`cleo sync enable push\` again`,
+      refusedKind: 'genesis-pending',
     });
   }
   const atIso = new Date(now()).toISOString();
@@ -171,6 +196,7 @@ export async function pushStream(
   if (o.serverLastReplicaSeq !== null && (local === null || o.serverLastReplicaSeq > local)) {
     return empty(o.stream, {
       refused: `the server holds replicaSeq ${o.serverLastReplicaSeq} of replica ${o.replica} on ${o.stream}, but this store persisted only ${local ?? 'none'}: the store is behind (restored or copied) and must rebind to a new replica (T12753)`,
+      refusedKind: 'store-behind',
     });
   }
 
