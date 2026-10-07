@@ -162,10 +162,8 @@ export interface PerfPragmaOptions {
    */
   enableWal?: boolean;
   /**
-   * Whether to set `PRAGMA foreign_keys = ON`. Set `false` for vitest
-   * environments where fixtures intentionally insert orphan refs.
-   * Default: `true` outside vitest, `false` inside (auto-detected via
-   * `process.env.VITEST`).
+   * Whether to set `PRAGMA foreign_keys = ON`. Default `true`, under vitest
+   * too, unless the test opted out ({@link testForeignKeysOff}, T13228).
    */
   enableForeignKeys?: boolean;
   /**
@@ -186,6 +184,19 @@ export interface PerfPragmaOptions {
 }
 
 /**
+ * The opt-out a test sets (`vi.stubEnv(TEST_FOREIGN_KEYS_OFF_ENV, '1')`) when
+ * its fixtures deliberately seed rows out of FK order (T13228). Without it,
+ * every handle runs with foreign keys ON under vitest too, as production does,
+ * so cascade and SET NULL behaviour is exercised.
+ */
+export const TEST_FOREIGN_KEYS_OFF_ENV = 'CLEO_TEST_FOREIGN_KEYS_OFF';
+
+/** Whether a vitest run opted out of foreign keys ({@link TEST_FOREIGN_KEYS_OFF_ENV}). */
+export function testForeignKeysOff(): boolean {
+  return Boolean(process.env.VITEST) && process.env[TEST_FOREIGN_KEYS_OFF_ENV] === '1';
+}
+
+/**
  * Apply the canonical CLEO performance pragma set to a freshly-opened
  * SQLite connection.
  *
@@ -196,7 +207,7 @@ export interface PerfPragmaOptions {
  * The order and the value for each pragma come from
  * `specs/sqlite-pragmas.json` (T9053 SSoT). `applyPerfPragmas` only
  * deviates from the spec for the small set of toggles documented on
- * `PerfPragmaOptions` (read-only handles disable WAL, vitest disables
+ * `PerfPragmaOptions` (read-only handles disable WAL, a test may opt out of
  * foreign_keys, callers may override numeric values).
  *
  * Safe to call multiple times on the same handle: every pragma here is
@@ -209,7 +220,7 @@ export interface PerfPragmaOptions {
 export function applyPerfPragmas(db: DatabaseSync, options: PerfPragmaOptions = {}): void {
   const {
     enableWal = true,
-    enableForeignKeys = !process.env.VITEST,
+    enableForeignKeys = !testForeignKeysOff(),
     cacheSizeKb,
     mmapSizeBytes,
     busyTimeoutMs,

@@ -612,9 +612,11 @@ function verifyAndClear(
 }
 
 /**
- * Run the repair diff over every suspect table (§4.4; S3d, T12987): seal what
- * is pending, emit each table's repair ops in a `repair` frame, seal them,
- * then verify and clear the suspect key. A dry run only plans.
+ * Seal what is pending, then run the repair diff over every suspect table
+ * (§4.4; S3d, T12987): emit each table's repair ops in a `repair` frame, seal
+ * them, then verify and clear the suspect key. The pending seal runs even
+ * when no table is suspect (the NEW-8 step before a migration pass). A dry
+ * run only plans.
  *
  * Prerequisites (§4.4): the sealer's preconditions hold, a replica is bound,
  * the table's capture triggers are present, and no capture of the table is
@@ -633,7 +635,6 @@ export function repairSuspectTables(db: DatabaseSync, opts: RepairOptions): Repa
   }
   const wanted = opts.tables ? new Set(opts.tables) : null;
   const suspect = suspectTables(db).filter((t) => wanted === null || wanted.has(t));
-  if (suspect.length === 0) return empty(null, dryRun);
   if (dryRun) {
     const view = sealerRowView(db, opts.scope);
     return {
@@ -666,8 +667,10 @@ export function repairSuspectTables(db: DatabaseSync, opts: RepairOptions): Repa
       if (r.refused !== null || r.captures === 0 || r.pending.length > 0) return;
     }
   };
-  // §4.4 prerequisite: sealing idle. Captured writes seal first (NEW-8).
+  // §4.4 prerequisite: sealing idle. Captured writes seal first (NEW-8),
+  // whether or not any table is suspect.
   sealAll();
+  if (suspect.length === 0) return { refused: null, dryRun, tables: [], sealed };
 
   const results: RepairTableResult[] = [];
   const written: Array<{ plan: RepairPlan; frame: string | null; mark: string }> = [];

@@ -28,6 +28,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspect } from 'node:util';
+import { DeviceScope } from '@cleocode/contracts/cloud';
 import { getCleoHome } from '@cleocode/paths';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { generateEd25519, generateX25519 } from '../crypto.js';
@@ -45,6 +46,7 @@ import {
   isNexusDeviceEnabled,
   NEXUS_DEVICE_ENV,
   NEXUS_DEVICE_MAX_SLOT_CREDENTIALS,
+  NEXUS_DEVICE_SCOPES,
   type NexusDeviceCurrentCredential,
   NexusDeviceEnrolment,
   type NexusDeviceEntry,
@@ -929,5 +931,11 @@ describe('review round 3 (N1–N5, L1)', () => {
       tx.set(API, USER_B, enrolled());
     });
     expect((await store.list()).map((d) => d.userId)).toEqual([USER_A, USER_B]);
+  });
+});
+
+describe('device scopes (T13282)', () => {
+  it('NEXUS_DEVICE_SCOPES is the shared contract DeviceScope, value for value', () => {
+    expect([...NEXUS_DEVICE_SCOPES]).toEqual(DeviceScope.options);
   });
 });

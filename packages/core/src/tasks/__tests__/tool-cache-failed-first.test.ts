@@ -172,6 +172,7 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
   let state: string;
   let fullLog: string;
   let focusedLog: string;
+  let admissionLog: string;
   let cmd: ResolvedToolCommand;
   let root: string;
 
@@ -197,6 +198,7 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
     state = join(side, 'state');
     fullLog = join(side, 'full.log');
     focusedLog = join(side, 'focused.log');
+    admissionLog = join(side, 'admission.log');
 
     git(repo, 'init', '-q', '-b', 'main');
     git(repo, 'config', 'user.email', 't@t.t');
@@ -217,6 +219,7 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
       [
         '#!/bin/sh',
         `echo "$(pwd -P) $*" >> "${focusedLog}"`,
+        `echo "adm=$CLEO_ADMISSION" >> "${admissionLog}"`,
         `s=$(cat "${state}")`,
         'if [ "$s" = red ] || [ "$s" = isolated ]; then echo " FAIL  src/a.test.ts > suite > case"; exit 1; fi',
         'if [ "$s" = crash ]; then echo "Error: failed to load config"; exit 1; fi',
@@ -340,6 +343,24 @@ describe('runToolCached — failed-first reruns and flake retries', () => {
     expect(again.entry.scope).toBeUndefined();
     const third = await run();
     expect(third.cacheHit).toBe(true);
+  });
+
+  it("the focused rerun carries the run's admission token, so a nested cleo rides the grant (#1875 review)", async () => {
+    setState('red');
+    await run();
+    edit('attempted fix');
+    // Through the real ledger (sandboxed CLEO_HOME, no pressure sampling).
+    const prev = process.env.CLEO_ADMISSION_PRESSURE;
+    process.env.CLEO_ADMISSION_PRESSURE = 'off';
+    try {
+      const r = await runToolCached(cmd, repo, { spawnTimeoutMs: 30_000 });
+      expect(r.failedFirst?.outcome).toBe('failed');
+    } finally {
+      if (prev === undefined) delete process.env.CLEO_ADMISSION_PRESSURE;
+      else process.env.CLEO_ADMISSION_PRESSURE = prev;
+    }
+    expect(lines(admissionLog)).toHaveLength(1);
+    expect(lines(admissionLog)[0]).toMatch(/^adm=\d+-\d+-[0-9a-f]+\.[0-9a-f]+$/);
   });
 
   it('LIVENESS: a file that fails only in isolation cannot pin the tree red', async () => {
