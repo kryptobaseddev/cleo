@@ -28,8 +28,10 @@ import { paginate } from '@cleocode/core/pagination';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { getDefaultSnapshotPath } from '@cleocode/core/snapshot/index';
 import {
+  createGlobalBackup,
+  listGlobalBackups,
   listSystemBackups,
-  restoreBackup,
+  restoreBackupById,
   createBackup as systemCreateBackup,
 } from '@cleocode/core/system/backup';
 import { getSystemPaths } from '@cleocode/core/system/platform-paths';
@@ -834,10 +836,15 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
     return lafsSuccess(result, 'token');
   },
 
-  backup: async (_params) => {
+  backup: async (params) => {
     const projectRoot = getProjectRoot();
     try {
-      const backups = listSystemBackups(projectRoot);
+      // T13245: `--scope` was accepted and ignored; global backups had none to list.
+      const scope = params.scope ?? 'all';
+      const backups = [
+        ...(scope === 'global' ? [] : listSystemBackups(projectRoot)),
+        ...(scope === 'project' ? [] : listGlobalBackups()),
+      ].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
       return lafsSuccess({ backups, count: backups.length }, 'backup');
     } catch (err) {
       return lafsError('E_GENERAL', err instanceof Error ? err.message : String(err), 'backup');
@@ -1057,8 +1064,10 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
         return lafsError('E_INVALID_INPUT', 'backupId is required', 'backup.mutate');
       }
       try {
-        const data = restoreBackup(projectRoot, {
+        // T13245: the store file goes onto the live cleo.db through the safe restore.
+        const data = await restoreBackupById(projectRoot, {
           backupId,
+          ...(params.scope ? { scope: params.scope } : {}),
           force: params.force,
           confirmOwnerStore: params.confirmOwnerStore,
           // T12680: the invocation directory; core never falls back to it.
@@ -1099,7 +1108,11 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
     // Default: create backup
     try {
       const data = await systemCreateBackup(projectRoot, { type: params.type, note: params.note });
-      return lafsSuccess(data, 'backup.mutate');
+      // T13245: `--global` was accepted and ignored.
+      const global = params.includeGlobal
+        ? await createGlobalBackup({ type: params.type, note: params.note })
+        : null;
+      return lafsSuccess({ ...data, ...(global ? { global } : {}) }, 'backup.mutate');
     } catch (err) {
       return lafsError(
         'E_GENERAL',

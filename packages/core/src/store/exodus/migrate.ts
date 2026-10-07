@@ -1050,6 +1050,13 @@ export async function runExodusMigrate(
     readonly projectOnly?: boolean;
     readonly resolveTarget?: TargetResolver;
     readonly ensureRuntimeTables?: boolean;
+    /**
+     * Checked before every stage (T12785): returns why the run must stop (the
+     * single-flight lock was compromised), or null. Each stage is one
+     * synchronous transaction, so this is the only point a run can stop
+     * cleanly; the caller then rolls back what the run committed.
+     */
+    readonly abortReason?: () => string | null;
   },
 ): Promise<ExodusMigrateResult> {
   const projectOnly = options?.projectOnly === true;
@@ -1208,6 +1215,7 @@ export async function runExodusMigrate(
       onProgress,
       undefined,
       options?.resolveTarget,
+      options?.abortReason,
     );
     // Cross-scope routing (ADR-090 · T11539): the four nexus graph tables come
     // from the GLOBAL `nexus.db` source but land in the PROJECT consolidated
@@ -1224,6 +1232,8 @@ export async function runExodusMigrate(
         allTableResults,
         onProgress,
         projectDbPath,
+        undefined,
+        options?.abortReason,
       );
 
     // Final journal update
@@ -1329,6 +1339,7 @@ async function migrateScope(
   onProgress?: (msg: string) => void,
   crossScopeTargetPath?: string,
   resolveTarget: TargetResolver = resolveConsolidatedTableName,
+  abortReason?: () => string | null,
 ): Promise<void> {
   if (sources.length === 0) return;
 
@@ -1348,6 +1359,12 @@ async function migrateScope(
   try {
     for (let i = 0; i < sources.length; i++) {
       const src = sources[i];
+      // T12785: stop between stages when the run lost its exclusivity.
+      const stop = abortReason?.() ?? null;
+      if (stop !== null) {
+        // @sync-invariant none:local-only the run's own single-flight lock was lost; the caller rolls back what it committed
+        throw new Error(`E_EXODUS_LOCK_LOST: ${stop}`);
+      }
       const attachAlias = makeAttachAlias(src.name, i);
       const escapedPath = src.path.replace(/'/g, "''");
 

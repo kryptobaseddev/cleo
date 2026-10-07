@@ -12,14 +12,19 @@ import type {
   CloudDevicesResult,
   CloudProjectShowResult,
   CloudProjectsResult,
+  CloudRetiredReplica,
   CloudStatusResult,
   CloudStatusSyncStream,
   CloudWarning,
   CloudWhoamiResult,
   NexusDeviceListState,
 } from '@cleocode/contracts';
-import { NEXUS_DEVICE_LIST_STATES } from '@cleocode/contracts/nexus-cloud.js';
+import {
+  NEXUS_DEVICE_LIST_STATES,
+  NEXUS_PRESENCE_FRESH_SECONDS,
+} from '@cleocode/contracts/nexus-cloud.js';
 import { emitNexusResult, failNexus, nexusApiUrlArg } from './nexus-account-cli.js';
+import { terminalSafe } from './terminal-safe.js';
 
 /** Parsed citty args. */
 type Args = Readonly<Record<string, unknown>>;
@@ -32,7 +37,8 @@ export function stringArg(args: Args, name: string): string | undefined {
 
 /** Print each warning to stderr (they also travel in `data.warnings`). */
 function writeWarnings(warnings: readonly CloudWarning[]): void {
-  for (const w of warnings) process.stderr.write(`warning: ${w.message} (${w.code})\n`);
+  for (const w of warnings)
+    process.stderr.write(`warning: ${terminalSafe(w.message)} (${w.code})\n`);
 }
 
 /**
@@ -53,6 +59,51 @@ export function deviceStateArg(args: Args): NexusDeviceListState | undefined {
   });
 }
 
+/** A device holding a project, as the human summaries list it (T13290). */
+interface HolderLine {
+  deviceId: string;
+  deviceName: string;
+  presenceAt: string | null;
+  thisDevice: boolean;
+}
+
+/** Presence within {@link NEXUS_PRESENCE_FRESH_SECONDS} reads as fresh. */
+const FRESH_MS = NEXUS_PRESENCE_FRESH_SECONDS * 1000;
+
+/**
+ * One clause listing the devices holding a project (T13290), each with its
+ * name, short id, this-machine marker and presence: ` Devices: laptop (0198abcd, this machine, presence fresh); desk (0199ef01, presence stale since 2026-10-01).`
+ *
+ * @param holders - One row per device (duplicates by device id are merged).
+ * @param nowMs - The clock, for freshness.
+ * @returns The clause, or `''` when there is none.
+ */
+export function devicesClause(holders: readonly HolderLine[], nowMs: number = Date.now()): string {
+  const byDevice = new Map<string, HolderLine>();
+  for (const h of holders) {
+    const seen = byDevice.get(h.deviceId);
+    // Keep the most recent presence when a device holds more than one replica.
+    if (!seen || (h.presenceAt ?? '') > (seen.presenceAt ?? '')) byDevice.set(h.deviceId, h);
+  }
+  if (byDevice.size === 0) return '';
+  const lines = [...byDevice.values()].map((h) => {
+    const presence =
+      h.presenceAt === null
+        ? 'no presence yet'
+        : nowMs - Date.parse(h.presenceAt) <= FRESH_MS
+          ? 'presence fresh'
+          : `presence stale since ${h.presenceAt.slice(0, 10)}`;
+    const marks = [h.deviceId.slice(0, 8), ...(h.thisDevice ? ['this machine'] : []), presence];
+    return `${terminalSafe(h.deviceName)} (${marks.join(', ')})`;
+  });
+  return ` Devices: ${lines.join('; ')}.`;
+}
+
+/** `<retired> → <successor>` for each replica this device retired (T13109). */
+function retiredList(retired: readonly CloudRetiredReplica[]): string {
+  return retired.map((x) => `${x.replicaId} retired → ${x.successor}`).join('; ');
+}
+
 /**
  * One human line for `cleo cloud status`.
  *
@@ -68,11 +119,14 @@ export function cloudStatusSummary(r: CloudStatusResult): string {
   if (r.local.projectId !== null) {
     parts.push(`project ${r.local.projectId} ${s.linked ? 'linked' : 'NOT linked'}`);
     parts.push(s.replicaAttached ? 'replica attached' : 'replica NOT attached');
+    if (r.local.retiredReplicas.length > 0) {
+      parts.push(`retired here: ${retiredList(r.local.retiredReplicas)}`);
+    }
     parts.push(`${s.devices} device(s)`);
     if (s.headSeq !== null) parts.push(`head ${s.headSeq}`);
     if (s.openConflicts !== null) parts.push(`${s.openConflicts} open conflict(s)`);
   }
-  return `Cloud status: ${r.verdict}. ${parts.join('; ')}.${syncSummary(r)}`;
+  return `Cloud status: ${r.verdict}. ${parts.join('; ')}.${devicesClause(r.holders ?? [])}${syncSummary(r)}`;
 }
 
 /**
@@ -114,6 +168,31 @@ export function syncStreamClause(st: CloudStatusSyncStream): string {
     'server fields unknown until T12343/S4',
   ];
   return ` Sync (${st.scope}${st.stream ? ` ${st.stream}` : ''}): ${parts.join('; ')}.`;
+}
+
+/**
+ * One human line for `cleo cloud projects show`.
+ *
+ * @param r - Project detail.
+ * @returns e.g. `Project p "demo" (owner): 2 active device(s), 3 replica(s) (retired on this device: r-1 retired → r-2), head 7, 0 open conflict(s).`
+ */
+export function cloudProjectShowSummary(
+  r: CloudProjectShowResult,
+  thisDeviceId: string | null = null,
+): string {
+  // Replicas this device retired stay listed by the server until S4 (T13109).
+  const retired =
+    r.retiredHere.length > 0 ? ` (retired on this device: ${retiredList(r.retiredHere)})` : '';
+  const retiredIds = new Set(r.retiredHere.map((x) => x.replicaId));
+  const holders = r.replicas
+    .filter((rep) => !retiredIds.has(rep.replicaId))
+    .map((rep) => ({
+      deviceId: rep.deviceId,
+      deviceName: rep.deviceName,
+      presenceAt: rep.presenceAt,
+      thisDevice: thisDeviceId !== null && rep.deviceId === thisDeviceId,
+    }));
+  return `Project ${r.projectId} "${terminalSafe(r.project.label ?? '')}" (${r.role}): ${r.devices.active} active device(s), ${r.replicas.length} replica(s)${retired}, head ${r.stream?.headSeq ?? 'none'}, ${r.openConflicts} open conflict(s).${devicesClause(holders)}`;
 }
 
 /**
@@ -205,7 +284,7 @@ export async function runCloudDevices(args: Args): Promise<void> {
       });
     },
     (r) =>
-      `${r.count} device(s) on ${r.apiUrl}${r.state ? ` (state ${r.state})` : ''}: ${r.devices.map((d) => `${d.name} ${d.deviceId} ${d.state}${d.current ? ' (this machine)' : ''}`).join('; ')}`,
+      `${r.count} device(s) on ${r.apiUrl}${r.state ? ` (state ${r.state})` : ''}: ${r.devices.map((d) => `${terminalSafe(d.name)} ${d.deviceId} ${d.state}${d.current ? ' (this machine)' : ''}`).join('; ')}`,
   );
 }
 
@@ -229,8 +308,7 @@ export async function runCloudProjects(args: Args): Promise<void> {
           ...(projectId !== undefined ? { projectId } : {}),
         });
       },
-      (r) =>
-        `Project ${r.projectId} "${r.project.label ?? ''}" (${r.role}): ${r.devices.active} active device(s), ${r.replicas.length} replica(s), head ${r.stream?.headSeq ?? 'none'}, ${r.openConflicts} open conflict(s).`,
+      cloudProjectShowSummary,
     );
     return;
   }
@@ -256,6 +334,6 @@ export async function runCloudProjects(args: Args): Promise<void> {
       });
     },
     (r) =>
-      `${r.count} project(s) on ${r.apiUrl}: ${r.projects.map((p) => `${p.label ?? p.projectId} (${p.role})`).join('; ')}`,
+      `${r.count} project(s) on ${r.apiUrl}: ${r.projects.map((p) => `${terminalSafe(p.label ?? p.projectId)} (${p.role})`).join('; ')}`,
   );
 }
