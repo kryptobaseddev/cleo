@@ -337,7 +337,7 @@ describe('ownership', () => {
     const uniq = (
       db
         .prepare(
-          "SELECT name FROM sqlite_master WHERE type = 'index' AND (name LIKE 'uq_%_uid' OR name LIKE 'idx_%ac_uid' OR name LIKE 'idx_%ac_text_hash')",
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND (name LIKE 'uq_%_uid' OR name LIKE 'idx_%ac_uid' OR name LIKE 'idx_%ac_text_hash' OR name LIKE 'idx_%_birth_fp')",
         )
         .all() as Array<{ name: string }>
     ).map((r) => r.name);

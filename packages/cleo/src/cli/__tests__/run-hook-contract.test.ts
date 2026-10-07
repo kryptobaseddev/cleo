@@ -58,6 +58,10 @@ function env(): NodeJS.ProcessEnv {
     HOME: join(dir, 'home'),
     CLEO_HOME: cleoHome,
     TMPDIR: dir,
+    // A developer host's per-run share (T13237): with half the budget per run
+    // two full builds fit by bytes, so only the exclusive slot defers one.
+    // Pinned so a CI runner (whole budget per run) tests the same thing.
+    CLEO_PER_RUN_SHARE: '0.5',
   };
 }
 
