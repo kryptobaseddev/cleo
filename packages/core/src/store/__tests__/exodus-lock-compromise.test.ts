@@ -73,15 +73,16 @@ describe('the exodus lock window outlasts a long stage (T12785)', () => {
   });
 
   it('a stage longer than the refresh interval but inside the window keeps exclusivity', async () => {
-    // Injected short window: the holder refreshes every stale/2 = 2 s, and one
-    // synchronous "stage" of 3 s blocks that refresh, as a real stage does.
-    const stale = 4_000;
+    // Injected short window: the holder refreshes every stale/2, and one
+    // synchronous "stage" of 3/4 of the window blocks that refresh, as a real
+    // stage does — with a quarter of the window as margin for a loaded runner.
+    const stale = 8_000;
     const path = join(dir, 'cleo.db.exodus-on-open.lock');
     writeFileSync(path, '');
     const lock = lockCompromiseTracker();
     const release = await acquireLock(path, { stale, onCompromised: lock.onCompromised });
     try {
-      blockEventLoop(3_000);
+      blockEventLoop((stale * 3) / 4);
       const contender = spawnSync(process.execPath, ['-e', contenderScript(path, stale, 0)], {
         encoding: 'utf8',
         timeout: 30_000,

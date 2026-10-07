@@ -154,13 +154,10 @@ export interface LegacyStrand {
  * different live task with the same id ({@link taskIdCollisionsSql}) count too.
  *
  * Dead bare tables are written by nothing since consolidation, so a missing row
- * was never carried; the one exception, a row a reconcile copied that the
- * runtime later deleted, is the follow-up's to tell apart (T13309).
- *
- * A bare table a `bare-strands` reconcile settled (its receipt accounts for
- * the table's rows by {@link bareTableDigest}, and the table has not changed
- * since) is not a strand: the run copied, re-pointed or deliberately skipped
- * every row, and listed the skipped ones (T13309).
+ * was never carried — unless a reconcile carried it and the runtime deleted it
+ * from the twin since, the normal life of every reconciled store. A bare table
+ * a `reconciled` receipt beside the store accounts for (its key digest still
+ * matches, {@link bareTableDigest}) is therefore not a strand (T13319).
  *
  * @returns One entry per stranded pair; empty when the journal sees every row.
  */
@@ -173,7 +170,7 @@ export function legacyStrands(db: DatabaseSync): LegacyStrand[] {
   ).map((t) => t.name);
   const present = new Set(tables);
   const strands: LegacyStrand[] = [];
-  let accounted: readonly SupersededStoreBareAccount[] | null = null;
+  let accounted: readonly BareTableRecord[] | null = null;
   for (const bare of tables) {
     if (syncSet.has(bare)) continue;
     const target = resolveConsolidatedTableName('tasks', bare);
@@ -183,8 +180,8 @@ export function legacyStrands(db: DatabaseSync): LegacyStrand[] {
     const missing = hasRows(db, table) ? missingByKey(db, bare, table) : countRows(db, bare);
     const shadowed = bare === 'tasks' && table === 'tasks_tasks' ? shadowedTasks(db) : 0;
     if ((missing ?? 0) === 0 && shadowed === 0) continue;
-    // A bare-strands reconcile that settled this table, unchanged since.
-    accounted ??= reconciledBareAccounts(db);
+    // A reconcile carried this table, and it has not changed since (T13319).
+    accounted ??= reconciledBareTables(db);
     if (isAccounted(db, bare, accounted)) continue;
     strands.push({ bareTable: bare, table, missing: missing ?? 0, shadowed });
   }
@@ -235,18 +232,59 @@ export class LegacyOnlyStoreError extends Error {
   }
 }
 
+/**
+ * {@link legacyStrands} decided once per `PRAGMA data_version` of a connection
+ * (T13319): the sealer asks on every batch, while a strand can only appear or
+ * clear through another connection's commit (bare tables are dead; a
+ * reconcile writes through its own connection). This connection's own writes
+ * never move `data_version`, and never strand a row.
+ */
+const strandsByConnection = new WeakMap<
+  DatabaseSync,
+  { readonly version: number; readonly strands: LegacyStrand[] }
+>();
+
+/**
+ * {@link legacyStrands}, reused while no other connection has committed.
+ *
+ * @param db - The store connection the sealer uses.
+ */
+export function legacyStrandsCached(db: DatabaseSync): LegacyStrand[] {
+  const version = Number(
+    (db.prepare('PRAGMA data_version').get() as { data_version: number }).data_version,
+  );
+  const hit = strandsByConnection.get(db);
+  if (hit && hit.version === version) return hit.strands;
+  const strands = legacyStrands(db);
+  strandsByConnection.set(db, { version, strands });
+  return strands;
+}
+
 /** Prefix of a reconcile's run directory under `.cleo/` (T12319). */
 const RECONCILE_RUN_PREFIX = 'exodus-reconcile-';
 
 /** The receipt file in a reconcile run directory. */
 const RECONCILE_RECEIPT_FILE = 'reconcile-receipt.json';
 
+/** Logical source names a full reconcile gives the live store's bare family. */
+const BARE_FAMILY_SOURCE_PREFIX = 'tasks (cleo.db bare';
+
 /**
- * The row count and key digest of a bare legacy table, by which a
- * `bare-strands` reconcile receipt accounts for it (T13309). Its primary-key
- * values are hashed in order — the rows a strand is judged by — so a row added
- * since changes it, while a column the runtime adds to the dead table on open
- * (its legacy upgrade does) does not. A keyless table hashes every column.
+ * A bare table a reconcile carried. `digest` is `null` for a receipt written
+ * before T13319, which names the table but records no digest.
+ */
+interface BareTableRecord {
+  readonly table: string;
+  readonly rows: number | null;
+  readonly digest: string | null;
+}
+
+/**
+ * The row count and key digest of a bare legacy table, by which a reconcile
+ * receipt accounts for it (T13319). Its primary-key values are hashed in order
+ * — the rows a strand is judged by — so a row added since changes it, while a
+ * column the runtime adds to the dead table on open (its legacy upgrade does)
+ * does not. A keyless table hashes every column.
  *
  * @param db - Connection holding the table.
  * @param schema - Schema the table lives in, e.g. `main`.
@@ -278,18 +316,20 @@ export function bareTableDigest(
 }
 
 /**
- * Bare tables settled by `reconciled` bare-strands receipts beside the store
- * (`<dir of cleo.db>/exodus-reconcile-*`), newest last. Unreadable or malformed
- * receipts are skipped.
+ * Bare tables carried by `reconciled` receipts beside the store
+ * (`<dir of cleo.db>/exodus-reconcile-*`). A receipt with `accounted` names
+ * each table with its digest; an older one (before T13319) names the bare
+ * tables it copied in `before`, without a digest — dead tables do not change,
+ * so the name is enough. Unreadable or malformed receipts are skipped.
  */
-function reconciledBareAccounts(db: DatabaseSync): SupersededStoreBareAccount[] {
+function reconciledBareTables(db: DatabaseSync): BareTableRecord[] {
   const file = (
     db.prepare('PRAGMA database_list').all() as Array<{ name: string; file: string }>
   ).find((d) => d.name === 'main')?.file;
   if (!file) return [];
   const dir = dirname(file);
   if (!existsSync(dir)) return [];
-  const out: SupersededStoreBareAccount[] = [];
+  const out: BareTableRecord[] = [];
   for (const run of readdirSync(dir)
     .filter((n) => n.startsWith(RECONCILE_RUN_PREFIX))
     .sort()) {
@@ -299,32 +339,41 @@ function reconciledBareAccounts(db: DatabaseSync): SupersededStoreBareAccount[] 
     } catch {
       continue;
     }
-    if (!isRecord(receipt) || receipt.outcome !== 'reconciled' || receipt.mode !== 'bare-strands')
+    if (!isRecord(receipt) || receipt.outcome !== 'reconciled') continue;
+    if (Array.isArray(receipt.accounted)) {
+      for (const a of receipt.accounted) {
+        if (
+          isRecord(a) &&
+          typeof a.table === 'string' &&
+          typeof a.rows === 'number' &&
+          typeof a.digest === 'string'
+        ) {
+          out.push({ table: a.table, rows: a.rows, digest: a.digest });
+        }
+      }
       continue;
-    for (const a of Array.isArray(receipt.accounted) ? receipt.accounted : []) {
+    }
+    for (const c of Array.isArray(receipt.before) ? receipt.before : []) {
       if (
-        isRecord(a) &&
-        typeof a.table === 'string' &&
-        typeof a.rows === 'number' &&
-        typeof a.digest === 'string'
+        isRecord(c) &&
+        typeof c.sourceDb === 'string' &&
+        c.sourceDb.startsWith(BARE_FAMILY_SOURCE_PREFIX) &&
+        typeof c.sourceTable === 'string'
       ) {
-        out.push({ table: a.table, rows: a.rows, digest: a.digest });
+        out.push({ table: c.sourceTable, rows: null, digest: null });
       }
     }
   }
   return out;
 }
 
-/** Whether `bare` is unchanged since a receipt in `accounts` settled it. */
-function isAccounted(
-  db: DatabaseSync,
-  bare: string,
-  accounts: readonly SupersededStoreBareAccount[],
-): boolean {
-  const mine = accounts.filter((a) => a.table === bare);
+/** Whether `bare` is unchanged since a receipt in `records` carried it. */
+function isAccounted(db: DatabaseSync, bare: string, records: readonly BareTableRecord[]): boolean {
+  const mine = records.filter((r) => r.table === bare);
   if (mine.length === 0) return false;
+  if (mine.some((r) => r.digest === null)) return true;
   const now = bareTableDigest(db, 'main', bare);
-  return mine.some((a) => a.rows === now.rows && a.digest === now.digest);
+  return mine.some((r) => r.rows === now.rows && r.digest === now.digest);
 }
 
 /** Whether `value` is a plain object. */

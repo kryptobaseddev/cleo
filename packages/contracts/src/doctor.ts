@@ -1185,19 +1185,21 @@ export interface SupersededStoreIdRemap {
 }
 
 /**
- * How a `bare-strands` reconcile receipt accounts for one bare legacy table
- * of the live store: its row count and content digest when the run settled
- * it (T13309). The sync refusal for stranded bare rows stands down for a
- * table that still matches.
+ * How a reconcile receipt (full or bare-strands mode) accounts for one bare legacy table of the live
+ * store: its row count and key digest when the run carried it (T13319). The
+ * sync refusal for stranded bare rows stands down for a table that still
+ * matches, so a row the runtime later deletes from the prefixed twin is never
+ * mistaken for one that was never carried.
  *
+ * @task T13319
  * @task T13309
  */
 export interface SupersededStoreBareAccount {
   /** The bare table, e.g. `task_labels`. */
   table: string;
-  /** Its rows when the run settled it. */
+  /** Its rows when the run carried it. */
   rows: number;
-  /** sha256 of its primary-key values in order (every column if keyless), when the run settled it. */
+  /** sha256 of its primary-key values in order (every column if keyless). */
   digest: string;
 }
 
@@ -1273,8 +1275,9 @@ export interface SupersededStoreReconcileResult {
   /** Human-readable explanation, suitable for printing verbatim. */
   reason: string;
   /**
-   * Bare-strands mode: the bare tables this run settled, recorded only on a
-   * `reconciled` receipt (T13309).
+   * The live store's bare tables this run carried (full mode) or settled
+   * (bare-strands mode), recorded only on a `reconciled` receipt (T13319,
+   * T13309).
    */
   accounted?: SupersededStoreBareAccount[];
   /**

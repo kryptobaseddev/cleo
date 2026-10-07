@@ -49,6 +49,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+  SupersededStoreBareAccount,
   SupersededStoreConflict,
   SupersededStoreReconcileResult,
   SupersededStoreTableCount,
@@ -59,6 +60,7 @@ import { resolveDualScopeDbPath } from '../dual-scope-db.js';
 import { lockCompromiseTracker, withLock } from '../lock.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import { rowIdentityColumns } from '../row-identity-registry.js';
+import { bareTableDigest } from '../sync/flags.js';
 import { EXODUS_LOCK_STALE_MS, exodusRunLockPath, whileExodusRunHeld } from './abort-events.js';
 // Loaded on demand: the exodus barrel is on the CLI open path (gate 39).
 import type { BareStrandSource } from './bare-family.js';
@@ -217,6 +219,32 @@ export function legacySourcesHoldRows(sources: readonly LegacyDbDescriptor[]): b
     }
   }
   return false;
+}
+
+/**
+ * Key digests ({@link bareTableDigest}) of the live store's bare tables that
+ * the materialised bare source at `barePath` carries (T13319).
+ */
+function bareAccounts(liveStorePath: string, barePath: string): SupersededStoreBareAccount[] {
+  const src = openCleoDbSnapshot(barePath, { readOnly: true });
+  let tables: string[];
+  try {
+    tables = (
+      src.db.prepare("SELECT name FROM main.sqlite_master WHERE type='table'").all() as Array<{
+        name: string;
+      }>
+    ).map((t) => t.name);
+  } finally {
+    src.close();
+  }
+  const live = openCleoDbSnapshot(liveStorePath, { readOnly: true });
+  try {
+    return tables
+      .filter((t) => hasTable(live.db, 'main', t))
+      .map((t) => bareTableDigest(live.db, 'main', t));
+  } finally {
+    live.close();
+  }
 }
 
 /**
@@ -830,6 +858,11 @@ async function reconcileWithScratch(
           scratch,
         )
       : null;
+  // The bare tables this run carries, by key digest, for the receipt: the
+  // sync refusal for stranded bare rows stands down for them afterwards, so
+  // a row the runtime later deletes from the twin is not mistaken for one
+  // never carried (T13319).
+  const accounted = bare ? bareAccounts(liveStorePath, bare.path) : [];
   // Additive (and a full run with an undecided collision): the live task
   // graph is never written — only history tables.
   const copyResolver: TargetResolver =
@@ -1046,9 +1079,12 @@ async function reconcileWithScratch(
           after,
           rowsCopied,
           stagingDir,
-          // A settled bare-strands run accounts for each bare table, so the
-          // sync refusal for stranded rows stands down (T13309).
-          ...(strands && !graphWithheld ? { accounted: strands.accounted } : {}),
+          // A settled run accounts for each bare table it carried (full mode)
+          // or settled (bare-strands mode), so the sync refusal for stranded
+          // rows stands down for it (T13319, T13309).
+          ...(!graphWithheld && (strands || bare)
+            ? { accounted: strands ? strands.accounted : accounted }
+            : {}),
           ...(strandsMode ? { snapshotPath: liveBefore } : {}),
           reason: additive
             ? `copied ${rowsCopied} row(s) with keys absent from live; live rows unchanged; ${describeConflicts(conflicts)}`
