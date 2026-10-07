@@ -5400,6 +5400,50 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     });
   });
 
+  it('two idle replicas syncing in a loop exchange no segments after the first round (T13256, §3.5 R7-7)', async () => {
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    await on(a, async () => {
+      setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+    });
+    const { b, bDb } = await restoredJoiner();
+    expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'joined',
+    );
+    const sync = async (m: Machine) => {
+      const r = await on(m, () => cloudSync(vopts(m, { scope: 'project', allowUnreleased: true })));
+      expect(r.streams[0]?.status, `${m.name}: ${r.streams[0]?.refused}`).toBe('synced');
+      return r.streams[0];
+    };
+    // One real write each, then a first round carries them both ways.
+    await on(a, async () => {
+      (await storeOf(aDb)).exec("UPDATE tasks_tasks SET title = 'from A' WHERE id = 'T1'");
+    });
+    await on(b, async () => {
+      (await storeOf(bDb)).exec("UPDATE tasks_tasks SET title = 'from B' WHERE id = 'T2'");
+    });
+    await sync(a);
+    await sync(b);
+    await sync(a);
+    const settled = fake.stream(STREAM).segments.length;
+    expect(settled).toBe(2);
+    // Idle from here on: applying the other's segment never makes either side send one back.
+    for (let round = 0; round < 4; round++) {
+      const ra = await sync(a);
+      const rb = await sync(b);
+      expect(ra?.sent, `round ${round}: A sent`).toBe(0);
+      expect(rb?.sent, `round ${round}: B sent`).toBe(0);
+    }
+    expect(fake.stream(STREAM).segments).toHaveLength(settled);
+    const titles = "SELECT id, title FROM tasks_tasks WHERE id IN ('T1', 'T2') ORDER BY id";
+    const onA = await on(a, async () => (await storeOf(aDb)).prepare(titles).all());
+    expect(await on(b, async () => (await storeOf(bDb)).prepare(titles).all())).toEqual(onA);
+    expect(onA).toEqual([
+      { id: 'T1', title: 'from A' },
+      { id: 'T2', title: 'from B' },
+    ]);
+  });
+
   it('a joined store with push off syncs pull-only: synced, the push leg skipped (T13312)', async () => {
     const { m: a, dbPath: aDb } = await journalMachine();
     await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
