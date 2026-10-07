@@ -24,8 +24,13 @@ All of these now go to the project instead, with the same purpose:
 
 A single guard refuses any target that is the user-global settings file, lies inside
 the user-global Claude directory, or belongs to a project that is the home directory.
-That covers the `.claude/commands` copy too. A refused step is reported as `skipped`,
+That covers the `.claude/commands` copy too, and the `CLAUDE.md` the install
+updates: a project whose root is the Claude directory itself no longer writes Claude
+Code's user-global memory file `~/.claude/CLAUDE.md`. A refused step is reported as `skipped`,
 and nothing is written. `dispose` now removes only the adapter's own hook objects, so
 the heavy-command hook and your own hooks in the same file stay. Entries an older CLEO
-already left in the user-global settings are untouched; `cleo doctor` reports them
-(T13221).
+already left in the user-global settings are untouched: CLEO no longer removes them
+(removing is writing). Clean them up by hand, following the steps
+`cleo doctor`'s `user_global_claude_leftovers` check prints (T13221). The guard
+compares paths with the case stored on disk, so a differently cased spelling such as
+`~/.Claude` on a case-insensitive volume is refused too.
