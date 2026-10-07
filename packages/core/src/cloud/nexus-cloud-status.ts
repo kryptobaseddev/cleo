@@ -41,6 +41,7 @@ import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
   CloudStatusGlobalStore,
+  CloudStatusHolder,
   CloudStatusLocal,
   CloudStatusOfflineDetails,
   CloudStatusResult,
@@ -72,11 +73,52 @@ import {
   type NexusCloudOptions,
   type NexusCloudProject,
   nexusQueryPath,
+  retiredReplicasOfProject,
 } from './nexus-cloud.js';
 import { FileNexusTokenStore, type NexusTokenStore, nexusOriginKey } from './nexus-credentials.js';
 import { NexusDeviceStore, UnreadableNexusDevice } from './nexus-device.js';
 import { nexusHomeReplicaListSchema } from './nexus-home.js';
 import { projectStream } from './streams.js';
+
+/** Warning: the replica list (who holds the project) could not be read for `cleo cloud status` (T13290). */
+export const W_NEXUS_STATUS_HOLDERS = 'W_NEXUS_STATUS_HOLDERS';
+
+/**
+ * The devices holding a project, from its replica list (E15), each with
+ * whether its presence is fresh (T13290). Best-effort: a failure is a warning
+ * and yields `undefined`.
+ */
+async function holdersOf(
+  conn: NexusCloudConnection,
+  projectId: string,
+  retired: ReadonlySet<string>,
+  now: () => Date,
+  warnings: CloudWarning[],
+): Promise<CloudStatusHolder[] | undefined> {
+  try {
+    const { replicas } = await listNexusCloudReplicas(conn, projectId);
+    const nowMs = now().getTime();
+    // Replicas this device retired stay listed by the server until S4 (T13109).
+    return replicas
+      .filter((r) => !retired.has(r.replicaId))
+      .map((r) => ({
+        deviceId: r.deviceId,
+        deviceName: r.deviceName,
+        replicaId: r.replicaId,
+        presenceAt: r.presenceAt,
+        fresh:
+          r.presenceAt !== null &&
+          nowMs - Date.parse(r.presenceAt) <= NEXUS_PRESENCE_FRESH_SECONDS * 1000,
+        thisDevice: r.deviceId === conn.device.deviceId,
+      }));
+  } catch (err) {
+    warnings.push({
+      code: W_NEXUS_STATUS_HOLDERS,
+      message: `could not list the devices holding project ${projectId}: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return undefined;
+  }
+}
 
 /** Warning: the server has no E3, so the status was composed from E2, E14 and E15. */
 export const W_NEXUS_STATUS_COMPOSED = 'W_NEXUS_STATUS_COMPOSED';
@@ -178,11 +220,13 @@ function unreadableStore(reason: string): NexusLocalReplicaRead {
  * writes a row.
  *
  * SQLite side effect: a read-only open of a WAL-mode store needs the `-wal`
- * and `-shm` sidecars, and SQLite creates them (empty) when they are missing
- * and the directory is writable. Run as another user (for example under
- * `sudo`), those sidecars would be left owned by that user, so when the store
- * has no `-wal` and the directory is not writable by the caller the open is
- * skipped and the store reported unreadable instead.
+ * and `-shm` sidecars, and SQLite creates them (empty, owned by the caller)
+ * when they are missing and the directory is writable — the normal case for
+ * a cleanly closed store. The store file itself is never modified. Run as
+ * another user (for example under `sudo`), such sidecars would be left owned
+ * by that user, so when the store has no `-wal` and the directory is not
+ * writable by the caller the open is skipped and the store reported
+ * unreadable instead.
  *
  * @param projectRoot - Project root.
  * @returns The replica id, whether the store was unreadable, and a warning.
@@ -208,14 +252,16 @@ type StoreSnapshotRead<T> =
 
 /**
  * Run `read` on a read-only snapshot of a store: no migrations, no pragmas,
- * closed before returning. Never writes a row.
+ * closed before returning. Never writes a row, and never modifies the store
+ * file — but it MAY create empty sidecars, see below.
  *
  * SQLite side effect: a read-only open of a WAL-mode store needs the `-wal`
- * and `-shm` sidecars, and SQLite creates them (empty) when they are missing
- * and the directory is writable. Run as another user (for example under
- * `sudo`), those sidecars would be left owned by that user, so when the store
- * has no `-wal` and the directory is not writable by the caller the open is
- * skipped and the store reported unreadable instead.
+ * and `-shm` sidecars, and SQLite creates them (empty, owned by the caller)
+ * when they are missing and the directory is writable — the normal case for
+ * a cleanly closed store. Run as another user (for example under `sudo`),
+ * such sidecars would be left owned by that user, so when the store has no
+ * `-wal` and the directory is not writable by the caller the open is skipped
+ * and the store reported unreadable instead.
  */
 async function readStoreSnapshot<T>(
   path: string,
@@ -280,20 +326,31 @@ export async function readStoreSyncStream(
   stream: string | null,
   dbPath: string,
 ): Promise<CloudStatusSyncStream> {
-  const [{ readSyncFlags }, { hasTable }, { sealBacklog }, { suspectTables }] = await Promise.all([
-    import('../store/sync/flags.js'),
-    import('../store/sync/schema.js'),
-    import('../store/sync/seal-backlog.js'),
-    import('../store/sync/structural.js'),
-  ]);
+  const [{ readSyncFlags }, { hasTable }, { sealBacklog }, { suspectTables }, { activeReplica }] =
+    await Promise.all([
+      import('../store/sync/flags.js'),
+      import('../store/sync/schema.js'),
+      import('../store/sync/seal-backlog.js'),
+      import('../store/sync/structural.js'),
+      import('../store/sync/replica.js'),
+    ]);
   const flags = readSyncFlags(db);
   const backlog = sealBacklog(db);
   let lastSealedSeq: number | null = null;
   if (hasTable(db, '_sync_txn')) {
-    // Inherited and folded txns belong to another replica's history.
-    const row = db
-      .prepare("SELECT max(local_seq) AS seq FROM _sync_txn WHERE state IN ('sealed', 'segmented')")
-      .get() as { seq: number | null } | undefined;
+    // This replica's own txns in any state but `inherited` (a copied store's
+    // rows from its original replica, §1.5). `folded` txns sit at or below a
+    // genesis cut (§2.11) and are still this replica's sealed history.
+    const replica = activeReplica(db, scope)?.replicaId ?? null;
+    const row = (
+      replica === null
+        ? db.prepare("SELECT max(local_seq) AS seq FROM _sync_txn WHERE state <> 'inherited'").get()
+        : db
+            .prepare(
+              "SELECT max(local_seq) AS seq FROM _sync_txn WHERE state <> 'inherited' AND replica = ?",
+            )
+            .get(replica)
+    ) as { seq: number | null } | undefined;
     lastSealedSeq = row?.seq ?? null;
   }
   const quarantined: Record<string, number> = {};
@@ -683,9 +740,11 @@ export async function getNexusCloudStatus(
   // about by its linked remote id, like the bare command.
   const projectId = isLocal ? projectHere : (opts.projectId ?? null);
   let replica: NexusLocalReplicaRead = { replicaId: null, unreadable: false, warning: null };
+  let retiredReplicas: CloudStatusLocal['retiredReplicas'] = [];
   if (isLocal && project !== null) {
     replica = await readNexusLocalReplicaId(project.root);
     if (replica.warning) warnings.push(replica.warning);
+    retiredReplicas = await retiredReplicasOfProject(project.root);
   }
   const replicaId = replica.replicaId;
   // T12998: the local sync journal, read on every path (signed in or not,
@@ -706,6 +765,7 @@ export async function getNexusCloudStatus(
     profile: null,
     projectId,
     replicaId,
+    retiredReplicas,
     linkPath: isLocal && project?.link ? project.linkPath : null,
     credentialsPath: devices.location,
   };
@@ -731,6 +791,16 @@ export async function getNexusCloudStatus(
     local.profile = conn.device.unseal().current?.profile ?? null;
     const remote = await remoteStatus(conn, projectId, replicaId, opts.now, warnings);
     const verdict = localVerdict(remote, project, isLocal, replica, warnings);
+    const holders =
+      projectId !== null && remote.project?.registered === true
+        ? await holdersOf(
+            conn,
+            projectId,
+            new Set(retiredReplicas.map((x) => x.replicaId)),
+            opts.now ?? (() => new Date()),
+            warnings,
+          )
+        : undefined;
     return {
       verdict,
       summary: summaryOf(remote, local, project, isLocal),
@@ -738,6 +808,7 @@ export async function getNexusCloudStatus(
       remote,
       global: await globalStoreOf(conn, warnings),
       ...withSync,
+      ...(holders !== undefined ? { holders } : {}),
       warnings,
     };
   } catch (err) {

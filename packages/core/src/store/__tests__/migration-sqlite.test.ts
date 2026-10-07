@@ -41,6 +41,193 @@ describe('JSON to SQLite migration', () => {
 
   // === Basic migration ===
 
+  describe('forward and dangling references under foreign keys ON (T13259)', () => {
+    it('imports every task whatever the JSON order, and names each dropped reference', async () => {
+      const task = (id: string, extra: Record<string, unknown> = {}) => ({
+        id,
+        title: `Task ${id}`,
+        description: `Task ${id}`,
+        status: 'pending',
+        priority: 'medium',
+        type: 'task',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        ...extra,
+      });
+      const todo = [
+        // Forward references: a provenance session, a later dependency, an
+        // archived epic parent, and a dependency cycle.
+        task('T001', { provenance: { sessionId: 'sess-A' } }),
+        task('T003', { depends: ['T004'] }),
+        task('T004'),
+        task('T011', { parentId: 'T010' }),
+        task('T006', { depends: ['T007'] }),
+        task('T007', { depends: ['T006'] }),
+        // Dangling references: nothing in the import holds their targets.
+        task('T008', { depends: ['T999'] }),
+        task('T009', { parentId: 'T998' }),
+      ];
+      const archived = [task('T010', { type: 'epic', status: 'done' })];
+      const sessions = [
+        {
+          id: 'sess-A',
+          name: 'A',
+          status: 'ended',
+          scope: { type: 'global' },
+          taskWork: { taskId: 'T004', setAt: '2026-01-01T00:00:00.000Z' },
+          startedAt: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: 'sess-B',
+          name: 'B',
+          status: 'ended',
+          scope: { type: 'global' },
+          taskWork: { taskId: 'T997', setAt: '2026-01-01T00:00:00.000Z' },
+          startedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ];
+      await writeFile(join(cleoDir, 'todo.json'), JSON.stringify({ tasks: todo }));
+      await writeFile(
+        join(cleoDir, 'todo-archive.json'),
+        JSON.stringify({ archivedTasks: archived }),
+      );
+      await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify({ sessions }));
+
+      const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
+      const result = await migrateJsonToSqlite();
+      expect(result.errors).toEqual([]);
+      expect(result.success).toBe(true);
+      expect(result.tasksImported).toBe(todo.length);
+      expect(result.archivedImported).toBe(archived.length);
+      expect(result.sessionsImported).toBe(sessions.length);
+
+      // Row counts match the source, with foreign keys ON.
+      const { getDb, getNativeTasksDb } = await import('../sqlite.js');
+      await getDb();
+      const native = getNativeTasksDb();
+      if (!native) throw new Error('fixture: no tasks store handle');
+      const n = (sql: string) => (native.prepare(sql).get() as { n: number }).n;
+      expect(
+        (native.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys,
+      ).toBe(1);
+      expect(n("SELECT count(*) AS n FROM tasks_tasks WHERE status != 'archived'")).toBe(
+        todo.length,
+      );
+      expect(n("SELECT count(*) AS n FROM tasks_tasks WHERE status = 'archived'")).toBe(1);
+      expect(n('SELECT count(*) AS n FROM tasks_sessions')).toBe(sessions.length);
+      expect(native.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+
+      // Forward references are kept.
+      const one = (sql: string, ...args: string[]) =>
+        native.prepare(sql).get(...args) as Record<string, string | null> | undefined;
+      expect(one('SELECT session_id FROM tasks_tasks WHERE id = ?', 'T001')?.session_id).toBe(
+        'sess-A',
+      );
+      expect(one('SELECT parent_id FROM tasks_tasks WHERE id = ?', 'T011')?.parent_id).toBe('T010');
+      expect(
+        one('SELECT current_task FROM tasks_sessions WHERE id = ?', 'sess-A')?.current_task,
+      ).toBe('T004');
+      expect(
+        one(
+          'SELECT 1 AS ok FROM tasks_task_dependencies WHERE task_id = ? AND depends_on = ?',
+          'T003',
+          'T004',
+        ),
+      ).toBeDefined();
+
+      // Every dangling reference is dropped and named, never silently.
+      for (const ref of [
+        'Task T008: dependency T999 dropped',
+        'Task T009: parent T998 dropped',
+        'Session sess-B: current task T997 dropped',
+      ]) {
+        expect(result.warnings.some((w) => w.startsWith(ref))).toBe(true);
+      }
+      expect(one('SELECT parent_id FROM tasks_tasks WHERE id = ?', 'T009')?.parent_id).toBeNull();
+      // The cycle loses exactly one edge, with a warning naming it.
+      expect(
+        n("SELECT count(*) AS n FROM tasks_task_dependencies WHERE task_id IN ('T006', 'T007')"),
+      ).toBe(1);
+    });
+  });
+
+  describe('one topo order across the active and archive files (T13259)', () => {
+    it('a parent in the archive precedes its active child, so the type guard checks the pair', async () => {
+      // A task cannot parent a task: with the archived parent inserted first,
+      // the parent-type guard sees it and refuses the child, by name.
+      const base = { status: 'pending', priority: 'medium', createdAt: '2026-01-01T00:00:00.000Z' };
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify({
+          tasks: [
+            {
+              ...base,
+              id: 'T021',
+              title: 'child',
+              description: 'child',
+              type: 'task',
+              parentId: 'T020',
+            },
+          ],
+        }),
+      );
+      await writeFile(
+        join(cleoDir, 'todo-archive.json'),
+        JSON.stringify({
+          archivedTasks: [
+            {
+              ...base,
+              id: 'T020',
+              title: 'parent',
+              description: 'parent',
+              type: 'task',
+              status: 'done',
+            },
+          ],
+        }),
+      );
+      const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
+      const result = await migrateJsonToSqlite();
+      expect(result.archivedImported).toBe(1);
+      expect(result.errors.some((e) => e.startsWith('Failed to import task T021'))).toBe(true);
+    });
+  });
+
+  describe('a pre-existing orphan in an existing store (T13259)', () => {
+    it('never blocks a --force re-import: COMMIT, not a whole-store check, is the gate', async () => {
+      const { getDb, getNativeTasksDb } = await import('../sqlite.js');
+      await getDb();
+      const native = getNativeTasksDb();
+      if (!native) throw new Error('fixture: no tasks store handle');
+      // An old build wrote this orphan with foreign keys off.
+      native.exec('PRAGMA foreign_keys = OFF');
+      native.exec(
+        "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('T-OLD-1', 'T-OLD-2')",
+      );
+      native.exec('PRAGMA foreign_keys = ON');
+      expect(native.prepare('PRAGMA foreign_key_check').all().length).toBeGreaterThan(0);
+      await writeFile(
+        join(cleoDir, 'todo.json'),
+        JSON.stringify({
+          tasks: [
+            {
+              id: 'T001',
+              title: 'new',
+              description: 'new',
+              status: 'pending',
+              priority: 'medium',
+              type: 'task',
+              createdAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      );
+      const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
+      const result = await migrateJsonToSqlite(undefined, { force: true });
+      expect(result.errors).toEqual([]);
+      expect(result.tasksImported).toBe(1);
+    });
+  });
+
   describe('migrateJsonToSqlite', () => {
     it('migrates tasks from todo.json', async () => {
       const todoData = {
@@ -365,6 +552,23 @@ describe('JSON to SQLite migration', () => {
       };
 
       await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(todoData));
+      // The provenance session must be in the import to be kept (T13259).
+      await writeFile(
+        join(cleoDir, 'sessions.json'),
+        JSON.stringify({
+          version: '1.0.0',
+          sessions: [
+            {
+              id: 'sess-001',
+              name: 'Dev session',
+              status: 'ended',
+              scope: { type: 'global' },
+              startedAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+          _meta: { schemaVersion: '1.0.0', lastUpdated: '2026-01-01T12:00:00.000Z' },
+        }),
+      );
 
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
       await migrateJsonToSqlite();
