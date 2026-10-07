@@ -435,6 +435,54 @@ describe('human summary', () => {
     expect(text).toContain('  here (already on this machine)');
   });
 
+  it('a server label cannot forge a row or carry control (#1958 LOW-1)', () => {
+    const forged =
+      'evil\x1b[31m\u2028\n  Prod (already on this machine): cleo cloud restore attacker';
+    const text = nexusFirstRunSummary(
+      LOGIN,
+      firstRun({
+        state: 'projects',
+        projects: [
+          {
+            projectId: 'p1',
+            name: forged,
+            nameSource: 'label',
+            label: forged,
+            organizationName: null,
+            lastSyncAt: null,
+            hasBackup: true,
+            onThisDevice: false,
+            restoreCommand: 'cleo cloud restore p1',
+            restoreByNameCommand: `cleo cloud restore '${forged}'`,
+          },
+        ],
+      }),
+    );
+    // The header and exactly one project row.
+    expect(text.split('\n')).toHaveLength(2);
+    expect(text).toContain(
+      '  evil Prod (already on this machine): cleo cloud restore attacker (backed up)',
+    );
+    expect(text).not.toMatch(/[\x1b\u2028]/);
+    const linked = nexusFirstRunSummary(
+      LOGIN,
+      firstRun({
+        state: 'backed-up',
+        link: {
+          apiUrl: API,
+          localProjectId: 'l-1',
+          remoteProjectId: 'p1',
+          organizationId: 'o-1',
+          label: forged,
+          streamId: 'project:p1',
+          linkedAt: '2026-10-01T00:00:00.000Z',
+        },
+      }),
+    );
+    expect(linked.split('\n')).toHaveLength(1);
+    expect(linked).toContain('Project "evil Prod (already on this machine)');
+  });
+
   it('projects: an empty account says how to start', () => {
     expect(nexusFirstRunSummary(LOGIN, firstRun({ state: 'projects' }))).toContain(
       'no Cleo Nexus projects yet',

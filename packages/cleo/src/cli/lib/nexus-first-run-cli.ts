@@ -110,7 +110,11 @@ export async function runNexusFirstRunCli(
   }
 }
 
-/** One line per project: name, sync state and its restore command. */
+/**
+ * One line per project: name, sync state and its restore command. The name
+ * and the command (which embeds the label) are server-supplied, so they are
+ * folded to one line each: a label cannot forge another row (#1958 LOW-1).
+ */
 function projectLine(p: NexusNamedProject): string {
   const where = p.onThisDevice
     ? 'already on this machine'
@@ -120,7 +124,7 @@ function projectLine(p: NexusNamedProject): string {
         ? `last sync ${p.lastSyncAt}`
         : 'backed up';
   const command = p.restoreByNameCommand ?? p.restoreCommand;
-  return `  ${p.name} (${where})${command ? `: ${command}` : ''}`;
+  return `  ${terminalSafe(p.name)} (${where})${command ? `: ${terminalSafe(command)}` : ''}`;
 }
 
 /** The project list block of the human summary. */
@@ -145,7 +149,7 @@ function projectsBlock(r: NexusFirstRunResult): string {
  */
 export function nexusFirstRunSummary(login: NexusLoginResult, r: NexusFirstRunResult): string {
   const signedIn = nexusLoginSummary(login);
-  const name = r.link?.label ? `"${r.link.label}"` : 'this project';
+  const name = r.link?.label ? `"${terminalSafe(r.link.label)}"` : 'this project';
   switch (r.state) {
     case 'backed-up': {
       const snap = r.backup?.snapshot;
@@ -209,8 +213,9 @@ export async function runNexusLoginCommand(
   for (const w of firstRun.warnings)
     process.stderr.write(`warning: ${terminalSafe(w.message)} (${w.code})\n`);
   if (!isHumanOutput()) {
-    if (firstRun.nextCommand) process.stderr.write(`next: ${firstRun.nextCommand}\n`);
-    for (const c of firstRun.choices) process.stderr.write(`choice: ${c.command}  (${c.effect})\n`);
+    if (firstRun.nextCommand) process.stderr.write(`next: ${terminalSafe(firstRun.nextCommand)}\n`);
+    for (const c of firstRun.choices)
+      process.stderr.write(`choice: ${terminalSafe(c.command)}  (${terminalSafe(c.effect)})\n`);
   }
   emitNexusResult(
     { ...login, firstRun },

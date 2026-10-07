@@ -4227,15 +4227,53 @@ describe('cleo cloud verify --deep (T13291)', () => {
     expect(deep.remedy).toBeNull();
   });
 
-  it('a download that fails over the network is an error, not a verdict', async () => {
+  it('a listed snapshot whose bundle answers 404 is blob missing: untrusted for the head (#1947 LOW-1)', async () => {
     const { a } = await twoMachines();
     await on(a, () => pushNexusVault(vopts(a)));
-    const blob = fake.blobs.get(fake.stream(STREAM).checkpoints.at(-1)?.blobSha256 ?? '');
+    const head = fake.stream(STREAM).checkpoints.at(-1);
+    const blob = fake.blobs.get(head?.blobSha256 ?? '');
     if (!blob) throw new Error('fixture');
     blob.bytes = null;
 
-    const err = await failure(on(a, () => verifyNexusVault(vopts(a, { deep: true }))));
-    expect(err.message).toContain('HTTP 404');
+    const deep = await on(a, () => verifyNexusVault(vopts(a, { deep: true })));
+    expect(deep.verdict).toBe('untrusted');
+    expect(deep.deep?.snapshots[0]).toMatchObject({
+      checkpointId: head?.checkpointId,
+      ok: false,
+      problem: 'blob missing',
+    });
+    expect(deep.remedy).toContain('failed the deep check (blob missing)');
+  });
+
+  it("another device's older snapshot with a missing bundle is a warning; the verdict stands", async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    const older = fake.stream(STREAM).checkpoints.at(-1);
+    await restoreOntoB(b);
+    exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B1', 'from b')");
+    expect((await on(b, () => pushNexusVault(vopts(b)))).status).toBe('pushed');
+    const blob = fake.blobs.get(older?.blobSha256 ?? '');
+    if (!blob) throw new Error('fixture');
+    blob.bytes = null;
+
+    const deep = await on(b, () => verifyNexusVault(vopts(b, { deep: true })));
+    expect(deep.verdict).toBe('match');
+    const warning = deep.warnings.find((w) => w.code === 'W_NEXUS_VAULT_BLOB_INTEGRITY');
+    expect(warning?.message).toContain(
+      `snapshot ${older?.checkpointId} by a-laptop failed the deep check: blob missing`,
+    );
+  });
+
+  it('a 5xx from the blob store is an error, not a verdict', async () => {
+    const { a } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    const fetch: FetchLike = async (input, init) =>
+      String(input).startsWith(BLOB_HOST)
+        ? new Response('unavailable', { status: 503 })
+        : fake.fetch(input, init);
+
+    const err = await failure(on(a, () => verifyNexusVault(vopts(a, { deep: true, fetch }))));
+    expect(err.message).toContain('HTTP 503');
   });
 });
 
