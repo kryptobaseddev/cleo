@@ -25,6 +25,7 @@ import {
   runNexusLogin,
 } from './nexus-account-cli.js';
 import { ReadlineWizardIO } from './readline-wizard-io.js';
+import { terminalSafe } from './terminal-safe.js';
 
 /** Parsed citty args. */
 type Args = Readonly<Record<string, unknown>>;
@@ -190,7 +191,8 @@ export async function runNexusLoginCommand(
     failNexus(err, operation);
   }
   const firstRun = await runNexusFirstRunCli(args, login);
-  for (const w of firstRun.warnings) process.stderr.write(`warning: ${w.message} (${w.code})\n`);
+  for (const w of firstRun.warnings)
+    process.stderr.write(`warning: ${terminalSafe(w.message)} (${w.code})\n`);
   if (!isHumanOutput()) {
     if (firstRun.nextCommand) process.stderr.write(`next: ${firstRun.nextCommand}\n`);
     for (const c of firstRun.choices) process.stderr.write(`choice: ${c.command}  (${c.effect})\n`);
