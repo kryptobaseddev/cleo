@@ -1134,7 +1134,9 @@ export interface SupersededStoreConflict {
    * `deleted-live` (bare-strands mode, T13309): the row is, or refers to, a
    * task the live store recorded as deleted, so copying it would resurrect
    * it. `parent-absent` (bare-strands mode): the row refers to a task that
-   * neither the live store nor the copy holds.
+   * neither the live store nor the copy holds. `carried-then-deleted`
+   * (bare-strands mode): an earlier reconcile copied the row into the twin
+   * (its copy receipt is in the store) and the runtime deleted it since.
    */
   reason:
     | 'live-authoritative'
@@ -1142,7 +1144,8 @@ export interface SupersededStoreConflict {
     | 'id-collision-undecided'
     | 'withheld-undecided'
     | 'deleted-live'
-    | 'parent-absent';
+    | 'parent-absent'
+    | 'carried-then-deleted';
   /** The legacy ids left uncopied, when the run can name them. */
   ids?: string[];
   /**
@@ -1185,11 +1188,12 @@ export interface SupersededStoreIdRemap {
 }
 
 /**
- * How a reconcile receipt (full or bare-strands mode) accounts for one bare legacy table of the live
- * store: its row count and key digest when the run carried it (T13319). The
- * sync refusal for stranded bare rows stands down for a table that still
- * matches, so a row the runtime later deletes from the prefixed twin is never
- * mistaken for one that was never carried.
+ * One bare legacy table of the live store a reconcile (full or bare-strands
+ * mode) carried: its row count
+ * and key digest when the run verified (T13319). The run records it in the
+ * store (T13320) and in its receipt; the sync refusal for stranded bare rows
+ * stands down for a table that still matches, so a row the runtime later
+ * deletes from the prefixed twin is never mistaken for one never carried.
  *
  * @task T13319
  * @task T13309
@@ -1276,8 +1280,9 @@ export interface SupersededStoreReconcileResult {
   reason: string;
   /**
    * The live store's bare tables this run carried (full mode) or settled
-   * (bare-strands mode), recorded only on a `reconciled` receipt (T13319,
-   * T13309).
+   * (bare-strands mode), on a `reconciled` receipt (T13319, T13309). Audit
+   * only: the sync check reads the record the run wrote into the store itself,
+   * which travels with backups (T13320).
    */
   accounted?: SupersededStoreBareAccount[];
   /**

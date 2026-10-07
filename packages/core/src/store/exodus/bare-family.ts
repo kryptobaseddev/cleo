@@ -26,6 +26,7 @@ import { bareTableDigest } from '../sync/flags.js';
 import { taskReferenceColumns } from '../task-reference-columns.js';
 import { legacyRowProjection } from './column-transforms.js';
 import { loadPriorRecoveries, priorRecoveries } from './prior-recoveries.js';
+import { EXODUS_RECEIPTS_TABLE, identityImageSql } from './recovery.js';
 import type { TargetResolver } from './runtime-targets.js';
 import { resolveConsolidatedTableName } from './table-name-map.js';
 import { countRows, hasTable, ident } from './table-order.js';
@@ -201,14 +202,18 @@ export interface BareStrandSource {
   readonly populated: boolean;
 }
 
-/** One SQL key expression per column of the twin's primary key, or `null`. */
-function keyMatch(
+/**
+ * How a bare row (alias `s`) produces the twin's primary key: `match` joins it
+ * to a twin row (alias `t`), `exprs` are the key values in key order. `null`
+ * when the bare table cannot produce every key column.
+ */
+function twinKey(
   db: DatabaseSync,
   bareSchema: string,
   bare: string,
   twinSchema: string,
   twin: string,
-): string | null {
+): { readonly match: string; readonly exprs: string[] } | null {
   const pk = (
     db.prepare(`PRAGMA ${ident(twinSchema)}.table_info(${ident(twin)})`).all() as Array<{
       name: string;
@@ -232,8 +237,12 @@ function keyMatch(
     if (project) return project((name) => `s.${ident(name)}`);
     return bareCols.has(c) ? `s.${ident(c)}` : null;
   };
-  if (pk.length === 0 || !pk.every((c) => keyOf(c) !== null)) return null;
-  return pk.map((c) => `t.${ident(c)} = ${keyOf(c)}`).join(' AND ');
+  const exprs = pk.map(keyOf);
+  if (pk.length === 0 || !exprs.every((e): e is string => e !== null)) return null;
+  return {
+    match: pk.map((c, i) => `t.${ident(c)} = ${exprs[i]}`).join(' AND '),
+    exprs,
+  };
 }
 
 /**
@@ -311,20 +320,6 @@ export async function bareStrandSource(
       return r.kind === 'skip' ? bare : r.targetName;
     };
 
-    // 1. Rows the twin already holds by key are not stranded (a shadowed task
-    //    is kept for the caller's renumbering).
-    for (const bare of present()) {
-      const twin = twinOf(bare);
-      if (!hasTable(db, 'live', twin)) continue;
-      const match = keyMatch(db, 'main', bare, 'live', twin);
-      if (match === null) continue;
-      const keep = bare === 'tasks' ? ' AND s.id NOT IN (SELECT id FROM temp.strand_shadowed)' : '';
-      db.exec(
-        `DELETE FROM main.${ident(bare)} AS s WHERE EXISTS (SELECT 1 FROM live.${ident(twin)} t WHERE ${match})${keep}`,
-      );
-    }
-
-    // 2. A deleted task, or a row referring to one, would be resurrected.
     const localName = localNameOf(db);
     const refs = taskReferenceColumns(db, localName).filter((r) => !r.jsonArray);
     const drop = (
@@ -336,7 +331,7 @@ export async function bareStrandSource(
       const ids = (
         db
           .prepare(
-            `SELECT DISTINCT ${ident(column)} AS id FROM main.${ident(table)} WHERE ${where} ORDER BY 1`,
+            `SELECT DISTINCT ${ident(column)} AS id FROM main.${ident(table)} AS s WHERE ${where} ORDER BY 1`,
           )
           .all() as Array<{ id: string }>
       ).map((r) => String(r.id));
@@ -353,10 +348,10 @@ export async function bareStrandSource(
       const keyCols = (pk.length > 0 ? pk : info.map((c) => c.name)).map(ident).join(', ');
       const keys = (
         db
-          .prepare(`SELECT ${keyCols} FROM main.${ident(table)} WHERE ${where} ORDER BY 1`)
+          .prepare(`SELECT ${keyCols} FROM main.${ident(table)} AS s WHERE ${where} ORDER BY 1`)
           .all() as Array<Record<string, string | number | null>>
       ).map((row) => JSON.stringify(Object.values(row)));
-      const rows = db.prepare(`DELETE FROM main.${ident(table)} WHERE ${where}`).run().changes;
+      const rows = db.prepare(`DELETE FROM main.${ident(table)} AS s WHERE ${where}`).run().changes;
       skipped.push({
         sourceDb: BARE_STRANDS_SOURCE_NAME,
         sourceTable: table,
@@ -367,6 +362,34 @@ export async function bareStrandSource(
         keys,
       });
     };
+    // 1. Rows the twin already holds by key are not stranded (a shadowed task
+    //    is kept for the caller's renumbering). A row an earlier reconcile
+    //    copied into the twin (its committed copy receipt, in the store) that
+    //    the twin no longer holds was deleted since: copying it again would
+    //    resurrect it.
+    const receipts = hasTable(db, 'live', EXODUS_RECEIPTS_TABLE);
+    for (const bare of present()) {
+      const twin = twinOf(bare);
+      if (!hasTable(db, 'live', twin)) continue;
+      const key = twinKey(db, 'main', bare, 'live', twin);
+      if (key === null) continue;
+      const keep = bare === 'tasks' ? ' AND s.id NOT IN (SELECT id FROM temp.strand_shadowed)' : '';
+      db.exec(
+        `DELETE FROM main.${ident(bare)} AS s WHERE EXISTS (SELECT 1 FROM live.${ident(twin)} t WHERE ${key.match})${keep}`,
+      );
+      if (receipts && hasTable(db, 'main', bare)) {
+        drop(
+          bare,
+          firstKeyColumn(db, bare),
+          `${identityImageSql(key.exprs)} IN (SELECT identity_json FROM live.${ident(EXODUS_RECEIPTS_TABLE)} ` +
+            `WHERE target_table = '${twin.replace(/'/g, "''")}' AND source_table = '${bare.replace(/'/g, "''")}' ` +
+            `AND state = 'committed')${keep}`,
+          'carried-then-deleted',
+        );
+      }
+    }
+
+    // 2. A deleted task, or a row referring to one, would be resurrected.
     if (hasTable(db, 'main', 'tasks')) {
       drop('tasks', 'id', 'id IN (SELECT id FROM temp.strand_deleted)', 'deleted-live');
     }
@@ -409,6 +432,15 @@ export async function bareStrandSource(
     accounted,
     populated: true,
   };
+}
+
+/** The first primary-key column of a bare-family table (its first column if keyless). */
+function firstKeyColumn(db: DatabaseSync, table: string): string {
+  const info = db.prepare(`PRAGMA main.table_info(${ident(table)})`).all() as Array<{
+    name: string;
+    pk: number;
+  }>;
+  return (info.find((c) => c.pk === 1) ?? info[0])?.name ?? 'rowid';
 }
 
 /**

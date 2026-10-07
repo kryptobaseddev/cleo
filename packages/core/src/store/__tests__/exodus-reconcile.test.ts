@@ -20,13 +20,13 @@
 
 import { createHash } from 'node:crypto';
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
-  writeFileSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -364,16 +364,94 @@ describe.each(
         allowUnreleased: true,
       });
       expect(sealed.refused ?? '').not.toMatch(/legacy-only/);
-      // A receipt written before T13319 (no `accounted`) names the bare tables it carried.
-      const receiptPath = result.receiptPath ?? '';
-      const { accounted: _dropped, ...older } = JSON.parse(
-        readFileSync(receiptPath, 'utf8'),
-      ) as Record<string, unknown>;
-      writeFileSync(receiptPath, JSON.stringify(older));
+      // The record lives in the store, not in the receipt beside it.
+      rmSync(result.stagingDir ?? '', { recursive: true, force: true });
       expect(legacyStrands(db)).toEqual([]);
     } finally {
       db.close();
     }
+  });
+
+  it('a restored pre-reconcile snapshot is refused again: the record travels with the store (T13320)', async () => {
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      DROP TABLE IF EXISTS task_labels;
+      CREATE TABLE task_labels (task_id TEXT NOT NULL, label TEXT NOT NULL, PRIMARY KEY (task_id, label));
+      INSERT INTO task_labels VALUES ('T1', 'bare-label');
+    `);
+    const snapshot = join(root, 'pre-reconcile.db');
+    live.exec(`VACUUM INTO '${snapshot}'`);
+    live.close();
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'));
+    expect(result.outcome, result.reason).toBe('reconciled');
+
+    // Restore the snapshot taken before the reconcile; its receipt stays in .cleo.
+    const { closeDb } = await import('../sqlite.js');
+    closeDb();
+    const { _resetDualScopeDbCache } = await import('../dual-scope-db.js');
+    _resetDualScopeDbCache();
+    for (const side of ['-wal', '-shm']) rmSync(`${liveDb}${side}`, { force: true });
+    copyFileSync(snapshot, liveDb);
+
+    const { legacyStrands, setSyncFlag, LegacyOnlyStoreError } = await import('../sync/flags.js');
+    const db = new DatabaseSync(liveDb);
+    try {
+      expect(legacyStrands(db).length).toBeGreaterThan(0);
+      expect(() => setSyncFlag(db, 'sync.seal', true, { allowUnreleased: true })).toThrow(
+        LegacyOnlyStoreError,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it('a store reconciled before T13319 is settled by bare-strands without resurrecting deleted rows (T13309)', async () => {
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      DROP TABLE IF EXISTS task_labels;
+      CREATE TABLE task_labels (task_id TEXT NOT NULL, label TEXT NOT NULL, PRIMARY KEY (task_id, label));
+      INSERT INTO task_labels VALUES ('T1', 'kept'), ('T1', 'removed-later');
+    `);
+    live.close();
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    expect((await reconcileSupersededStores(join(root, 'project'))).outcome).toBe('reconciled');
+    // The runtime removes a carried label; the store predates the record (T13319).
+    const after = new DatabaseSync(liveDb);
+    after.exec(`DELETE FROM tasks_task_labels WHERE label = 'removed-later';
+      DROP TABLE _exodus_recovery_bare_accounts;`);
+    after.close();
+    const { legacyStrands } = await import('../sync/flags.js');
+    const strandsNow = (): unknown[] => {
+      const db = new DatabaseSync(liveDb, { readOnly: true });
+      try {
+        return legacyStrands(db);
+      } finally {
+        db.close();
+      }
+    };
+    expect(strandsNow()).toEqual([
+      expect.objectContaining({ bareTable: 'task_labels', missing: 1 }),
+    ]);
+
+    const plan = await reconcileSupersededStores(join(root, 'project'), {
+      bareStrands: true,
+      dryRun: true,
+    });
+    expect(plan.conflicts).toEqual([
+      expect.objectContaining({
+        sourceTable: 'task_labels',
+        reason: 'carried-then-deleted',
+        keys: ['["T1","removed-later"]'],
+      }),
+    ]);
+    const applied = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(applied.outcome, applied.reason).toBe('reconciled');
+    expect(applied.rowsCopied).toBe(0);
+    expect(
+      scalar(liveDb, "SELECT COUNT(*) FROM tasks_task_labels WHERE label = 'removed-later'"),
+    ).toBe(0);
+    expect(strandsNow()).toEqual([]);
   });
 
   it('copies into a table whose FTS5 content-sync trigger the runtime installed', async () => {

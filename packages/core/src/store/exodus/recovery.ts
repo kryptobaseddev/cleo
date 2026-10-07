@@ -32,13 +32,28 @@ function identifier(value: string): string {
 
 /** SQLite encodes every value without lossy JS numbers or NUL string truncation. */
 function image(columns: readonly string[]): string {
-  return `json_array(${columns
-    .map((name) => {
-      const col = identifier(name);
-      return `json_array(typeof(${col}), CASE WHEN typeof(${col}) IN ('text','blob') THEN hex(${col}) ELSE quote(${col}) END)`;
-    })
+  return identityImageSql(columns.map(identifier));
+}
+
+/**
+ * The SQL image of a row identity as copy receipts record it (`identity_json`),
+ * over arbitrary SQL value expressions: a caller comparing other rows with
+ * recorded identities builds them the same way (T13309).
+ *
+ * @param expressions - One SQL expression per key column, in key order.
+ * @returns A SQL expression evaluating to the identity image.
+ */
+export function identityImageSql(expressions: readonly string[]): string {
+  return `json_array(${expressions
+    .map(
+      (col) =>
+        `json_array(typeof(${col}), CASE WHEN typeof(${col}) IN ('text','blob') THEN hex(${col}) ELSE quote(${col}) END)`,
+    )
     .join(',')})`;
 }
+
+/** The table holding copy receipts in an Exodus target. */
+export const EXODUS_RECEIPTS_TABLE = RECEIPTS;
 
 function tableShape(db: DatabaseSync, schema: string, table: string) {
   const sql = db
