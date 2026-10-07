@@ -12,16 +12,17 @@ import { prepareRowIdentity } from '../row-identity.js';
 import { getNativeTasksDb } from '../sqlite.js';
 import { createTestDb, seedTasks, type TestDbEnv } from './test-db-helper.js';
 
-describe('row uids are off by default', () => {
+describe('row uids off with the kill switch (CLEO_ROW_UID_FILL=0; on by default since T13305)', () => {
   let env: TestDbEnv;
 
   beforeEach(async () => {
-    delete process.env.CLEO_ROW_UID_FILL;
+    process.env.CLEO_ROW_UID_FILL = '0';
     env = await createTestDb();
     await seedTasks(env.accessor, [{ id: 'T001', title: 'Root', type: 'task', labels: ['a'] }]);
   });
 
   afterEach(async () => {
+    delete process.env.CLEO_ROW_UID_FILL;
     await env.cleanup();
   });
 

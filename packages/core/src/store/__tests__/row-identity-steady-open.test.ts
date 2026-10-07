@@ -132,7 +132,7 @@ describe('row identity on a completed store (T12341 C1)', () => {
           .all() as Array<{ name: string }>
       ).map((r) => r.name);
     expect(indexes(native())).toContain('idx_tasks_tasks_birth_fp');
-    delete process.env.CLEO_ROW_UID_FILL;
+    process.env.CLEO_ROW_UID_FILL = '0';
     const off = await createTestDb();
     try {
       await seedTasks(off.accessor, [{ id: 'T001', title: 'Off', type: 'task' }]);

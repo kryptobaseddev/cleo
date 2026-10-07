@@ -60,6 +60,9 @@ beforeEach(() => {
   vi.stubEnv('CLEO_HOME', join(dir, 'cleo'));
   vi.stubEnv('CLEO_ROOT', undefined);
   vi.stubEnv('CLEO_DIR', undefined);
+  // Written against row uids off; on by default since T13305 (C2). The
+  // capture + fill-on interplay is tracked separately (see the C2 PR).
+  vi.stubEnv('CLEO_ROW_UID_FILL', '0');
   dbPath = join(dir, 'project', '.cleo', 'cleo.db');
 });
 

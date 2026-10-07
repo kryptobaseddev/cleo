@@ -156,7 +156,7 @@ describe('cleo doctor row-identity --refill (T13231)', () => {
   });
 
   it('--apply is refused while row uids are off in the process', async () => {
-    delete process.env.CLEO_ROW_UID_FILL;
+    process.env.CLEO_ROW_UID_FILL = '0';
     const report = await rowIdentityRefill(env.tempDir, {
       apply: true,
       probe: async () => [answer({})],
