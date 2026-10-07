@@ -499,7 +499,8 @@ export function createApplyWriteApi(
       assertActive();
       const def = defOf(table);
       if (rowExists(table, uid) || def.key.some((k) => !(k in localKey))) return false;
-      // The uid is an identity column: capture never fires on it.
+      // The uid is an identity column: capture never fires on it. The local key
+      // is UNIQUE, so 0 or 1 row matches.
       return (
         Number(
           db

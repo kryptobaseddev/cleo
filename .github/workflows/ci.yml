@@ -308,11 +308,12 @@ jobs:
     # input flows here.
     name: ADR Index JSONL Frozen (T10165)
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: blob:none
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'
@@ -328,11 +329,12 @@ jobs:
     # Pure static analysis of live git state — no user input flows here.
     name: Worktree Location Lint (T9809)
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: blob:none
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'
@@ -353,13 +355,14 @@ jobs:
     # through. Pure static analysis of `git diff` output — no untrusted input.
     name: Orphan .cleo/ Dir Check (T10155)
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           # Full history required so `git diff origin/<base>...HEAD` resolves
           # both ends — shallow clones drop the base ref's commit.
           fetch-depth: 0
+          filter: blob:none
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'
@@ -378,11 +381,12 @@ jobs:
     # No untrusted input used — pure static analysis of checked-in source files.
     name: Agent-Outputs Registration Lint (T1617)
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: blob:none
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'
@@ -917,11 +921,12 @@ jobs:
     # Pure static analysis of checked-in source — no untrusted input.
     name: SSoT-EXEMPT Lint (T10075 / T9837)
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: blob:none
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'
@@ -1056,13 +1061,14 @@ jobs:
     # T10361 (write-time slug-similarity inside `cleo docs add`).
     name: Docs Similarity Lint (T10170)
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           # Full history required so `git diff origin/main...HEAD` resolves
           # both ends — shallow clones drop the base ref's commit.
           fetch-depth: 0
+          filter: blob:none
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'
@@ -1099,6 +1105,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # full history required for git log --diff-filter=A
+          filter: blob:none
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'
@@ -1181,6 +1188,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: blob:none
       - uses: actions/setup-node@v4
         with:
           node-version: '24.16.0'

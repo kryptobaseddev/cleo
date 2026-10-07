@@ -223,17 +223,17 @@ describe('rule 7: released means present at the merge-base (T13294)', () => {
     ).toEqual([]);
   });
 
-  it('no shared history (a shallow clone) gives no merge-base', () => {
+  it('no shared history (a shallow clone) gives no merge-base, and the gate fails loudly (T13310)', () => {
     branchCutBeforeM2();
     git('checkout', '-q', '--orphan', 'lonely');
     git('commit', '-q', '-m', 'orphan');
     expect(releaseCommit('main', root)).toBeNull();
-    // The gate falls back to the base tip (strict: m2 counts as deleted) and says so.
-    const check = releaseCheck('main', files('20260101000000_m1'), root);
-    expect(check.violations).toEqual([
-      expect.objectContaining({ file: rel('20260102000000_m2'), rule: 7 }),
-    ]);
-    expect(check.note).toContain('no merge-base');
+    // No fallback to another comparison: one violation that names the fix,
+    // even when every file would match the base tip.
+    const check = releaseCheck('main', files('20260101000000_m1', '20260102000000_m2'), root);
+    expect(check.violations).toEqual([expect.objectContaining({ file: '(history)', rule: 7 })]);
+    expect(check.violations[0]?.message).toContain('no merge-base of HEAD and main');
+    expect(check.violations[0]?.message).toContain('git fetch --unshallow');
   });
 });
 
