@@ -1590,7 +1590,12 @@ export type {
   FileRestoreResult,
   RestoreResult,
 } from './system/backup.js';
-export { fileRestore, listSystemBackups, restoreBackup } from './system/backup.js';
+export {
+  fileRestore,
+  listSystemBackups,
+  restoreBackup,
+  restoreBackupById,
+} from './system/backup.js';
 export type { CleanupResult } from './system/cleanup.js';
 export { cleanupSystem } from './system/cleanup.js';
 // System — dependency registry
