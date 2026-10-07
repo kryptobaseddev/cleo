@@ -19,6 +19,7 @@ import {
 } from '@cleocode/core/cloud/nexus-device.js';
 import type { CommandDef } from 'citty';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setFormatContext } from '../../format-context.js';
 import {
   cloudProjectShowSummary,
   cloudStatusSummary,
@@ -49,8 +50,36 @@ const mockFetch = vi.fn(async (url: string): Promise<Response> => {
       { status: 200, headers: { 'content-type': 'application/json' } },
     );
   }
+  if (path === '/v1/devices') {
+    return new Response(
+      JSON.stringify({
+        success: true,
+        data: {
+          devices: [{ deviceId: plantedId, name: plantedName, state: 'active', current: true }],
+          nextCursor: null,
+        },
+        meta: { requestId: 'r' },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }
+  if (path === '/v1/projects') {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: { code: 'E_FORBIDDEN', message: plantedName },
+        meta: { requestId: 'r' },
+      }),
+      { status: 403, headers: { 'content-type': 'application/json' } },
+    );
+  }
   throw new Error('getaddrinfo ENOTFOUND');
 });
+
+/** What the fake server returns as a device name or error message (T13295). */
+let plantedName = 'laptop';
+/** The device id the fake server lists (T13295: a field no summary sanitizes itself). */
+let plantedId = DEVICE;
 
 let base: string;
 let token: string;
@@ -302,6 +331,85 @@ describe('cleo cloud conflicts (T12344 PR-6)', () => {
   it('resolve without an id is E_VALIDATION', async () => {
     const r = await run('conflicts', { action: 'resolve' });
     expect(r.exit).toMatch(/__EXIT_6__/);
+  });
+});
+
+describe('server strings cannot drive the terminal (T13295)', () => {
+  /** ESC CSI, an OSC 8 link, C1 CSI and OSC, a bidi override and a forged line. */
+  const PLANTED =
+    'evil\x1b[2J\x1b]8;;https://attacker.test\x07click\x1b]8;;\x07\x9b31m\x9d0;t\x07\u202exc\nwarning: forged';
+  const CONTROL = /[\x00-\x09\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/;
+  afterEach(() => {
+    plantedName = 'laptop';
+    plantedId = DEVICE;
+  });
+
+  it('the human line itself is made safe: a planted value no summary sanitizes is stripped too', async () => {
+    plantedId = 'id\x1b]0;title\x07\x9b2Jx';
+    await signIn();
+    setFormatContext({ format: 'human', source: 'flag', quiet: false });
+    let out = '';
+    try {
+      out = (await run('devices', {})).out;
+    } finally {
+      setFormatContext({ format: 'json', source: 'default', quiet: false });
+    }
+    expect(out).toContain('laptop idx active');
+    expect(out).not.toMatch(CONTROL);
+  });
+
+  it('cloud devices on a terminal prints a planted device name without its control', async () => {
+    plantedName = PLANTED;
+    await signIn();
+    setFormatContext({ format: 'human', source: 'flag', quiet: false });
+    let out = '';
+    try {
+      out = (await run('devices', {})).out;
+    } finally {
+      setFormatContext({ format: 'json', source: 'default', quiet: false });
+    }
+    expect(out).toContain('evilclickxc warning: forged');
+    expect(out).not.toMatch(CONTROL);
+    expect(out.trimEnd().split('\n')).toHaveLength(1);
+  });
+
+  it('JSON keeps the raw name; an error message from the server loses its control', async () => {
+    plantedName = PLANTED;
+    await signIn();
+    const devices = await run('devices', {});
+    expect(devices.envelope.data.devices[0].name).toBe(PLANTED);
+    const failed = await run('projects', {});
+    expect(failed.envelope.success).toBe(false);
+    expect(failed.envelope.error.message).toContain('evilclickxc');
+    expect(failed.envelope.error.message).not.toMatch(CONTROL);
+  });
+
+  it('status, projects show and the devices clause strip a planted name', () => {
+    const holder = {
+      deviceId: 'aaaaaaaa-1',
+      deviceName: PLANTED,
+      presenceAt: null,
+      thisDevice: false,
+    };
+    const clause = devicesClause([holder]);
+    expect(clause).toBe(' Devices: evilclickxc warning: forged (aaaaaaaa, no presence yet).');
+    const show = cloudProjectShowSummary({
+      project: { projectId: 'p-1', label: PLANTED, organizationId: 'o-1' },
+      role: 'owner',
+      openConflicts: 0,
+      replicas: [],
+      devices: { active: 0, total: 0 },
+      truncated: false,
+      stream: null,
+      apiUrl: API,
+      projectId: 'p-1',
+      currentProject: true,
+      replicaPaging: { pages: 1, truncated: false, pageLimitReached: false },
+      retiredHere: [],
+      warnings: [],
+    });
+    expect(show).toContain('"evilclickxc warning: forged"');
+    expect(show).not.toMatch(CONTROL);
   });
 });
 
