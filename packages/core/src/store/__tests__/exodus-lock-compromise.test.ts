@@ -67,28 +67,31 @@ function contenderScript(path: string, stale: number, delayMs: number): string {
 }
 
 describe('the exodus lock window outlasts a long stage (T12785)', () => {
-  it('a stage longer than the old 10 s window keeps exclusivity', async () => {
+  it('the shipped window outlasts the longest measured stage with margin', () => {
+    // A 1.3 GB snapshot copied as one stage took 38.0 s (T12785 measurement).
+    expect(EXODUS_LOCK_STALE_MS).toBeGreaterThanOrEqual(3 * 38_000);
+  });
+
+  it('a stage longer than the refresh interval but inside the window keeps exclusivity', async () => {
+    // Injected short window: the holder refreshes every stale/2 = 2 s, and one
+    // synchronous "stage" of 3 s blocks that refresh, as a real stage does.
+    const stale = 4_000;
     const path = join(dir, 'cleo.db.exodus-on-open.lock');
     writeFileSync(path, '');
     const lock = lockCompromiseTracker();
-    const release = await acquireLock(path, {
-      stale: EXODUS_LOCK_STALE_MS,
-      onCompromised: lock.onCompromised,
-    });
+    const release = await acquireLock(path, { stale, onCompromised: lock.onCompromised });
     try {
-      // One synchronous "stage" past the old 10 s stale window.
-      blockEventLoop(10_500);
-      const contender = spawnSync(
-        process.execPath,
-        ['-e', contenderScript(path, EXODUS_LOCK_STALE_MS, 0)],
-        { encoding: 'utf8', timeout: 30_000 },
-      );
+      blockEventLoop(3_000);
+      const contender = spawnSync(process.execPath, ['-e', contenderScript(path, stale, 0)], {
+        encoding: 'utf8',
+        timeout: 30_000,
+      });
       expect(contender.status, contender.stderr).toBe(3);
       expect(lock.reason()).toBeNull();
     } finally {
       await release();
     }
-  }, 40_000);
+  }, 30_000);
 
   it('a holder that loses the lock records it instead of crashing from the timer', async () => {
     // proper-lockfile's smallest stale window is 2 s; the holder's loop is
@@ -186,11 +189,20 @@ describe('ordinary writes are refused while another process runs exodus or a rec
     const envelope = exodusRefusalToEngineResult(refused);
     expect(envelope?.success).toBe(false);
     expect(JSON.stringify(envelope)).toContain('E_EXODUS_RUN_WRITE_UNSAFE');
+    // The remedy covers a crashed holder: how long it blocks, and what to remove.
+    const fix = (refused as ExodusRunInProgressError).fix;
+    expect(fix).toContain(`up to ${EXODUS_LOCK_STALE_MS / 60_000} minutes`);
+    expect(fix).toContain(`"${lockPath}.lock"`);
 
-    // The holder's own writes are never refused.
+    // The holder's own writes are never refused, and overlapping holds of one
+    // lock count: releasing the inner hold keeps the outer one (T13225).
+    markExodusRunHeld(lockPath, true);
     markExodusRunHeld(lockPath, true);
     await expect(assertExodusWriteSafe(native)).resolves.toBeUndefined();
     markExodusRunHeld(lockPath, false);
+    await expect(assertExodusWriteSafe(native)).resolves.toBeUndefined();
+    markExodusRunHeld(lockPath, false);
+    await expect(assertExodusWriteSafe(native)).rejects.toBeInstanceOf(ExodusRunInProgressError);
 
     writeFileSync(done, '');
     expect(await exited).toBe(0);

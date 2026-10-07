@@ -55,16 +55,16 @@ export function parseSnapshots(values) {
     if (!isAbsolute(file)) throw new Error(`snapshot path must be absolute: ${file}`);
     if (!existsSync(file) || !statSync(file).isFile())
       throw new Error(`no snapshot file at ${file}`);
-    // Resolve symlinks, and compare case-insensitively (APFS is).
+    // Resolve symlinks, and compare case-insensitively (APFS is). Every live
+    // store, project (`.cleo/cleo.db`) or global (`<CLEO_HOME>/cleo.db`, at
+    // the platform default or anywhere CLEO_HOME points), is named cleo.db,
+    // and a `cleo backup add` snapshot never is: refusing the name covers the
+    // global store without resolving the platform home here (T13225).
     const real = realpathSync(file);
-    const lower = real.toLowerCase();
-    const live =
-      (basename(lower) === 'cleo.db' && basename(dirname(lower)) === '.cleo') ||
-      (process.env.CLEO_HOME !== undefined &&
-        lower === resolve(process.env.CLEO_HOME, 'cleo.db').toLowerCase());
-    if (live) {
+    if (basename(real).toLowerCase() === 'cleo.db') {
       throw new Error(
-        `${file} is a live store: take a snapshot with \`cleo backup add\` and pass that file`,
+        `${file} looks like a live store (named cleo.db): take a snapshot with \`cleo backup add\` ` +
+          'and pass that file, or rename a stopped copy',
       );
     }
     const wal = `${real}-wal`;

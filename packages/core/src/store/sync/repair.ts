@@ -46,7 +46,7 @@ import { withImmediateTransaction } from './clock-store.js';
 import { encodeHlc, MAX_PHYS } from './hlc.js';
 import { activeReplica } from './replica.js';
 import { upsertRowMeta } from './row-meta.js';
-import { hasTable } from './schema.js';
+import { GENESIS_CUT_KEY_PREFIX, hasTable } from './schema.js';
 import { type SealerRowView, sealerRowView, sealPending, sealPreconditions } from './sealer.js';
 import { decodeEnc, type WireValue } from './sealer-values.js';
 import { suspectTables } from './structural.js';
@@ -173,22 +173,27 @@ function captureTriggersPresent(db: DatabaseSync, table: string): boolean {
 
 /**
  * Whether this store's stream has started (T13217): a genesis cut was
- * recorded (`genesis_cut*` in `_sync_meta`, §2.11 §10), a sealed transaction
- * was carried by a segment (`state = 'segmented'`), or undo is on (it turns
- * on with the genesis cut, C1). After that, a checkpoint may already have
- * left the device, so a row without meta can no longer be assumed to be in
- * it.
+ * recorded (a `_sync_meta` key starting with {@link GENESIS_CUT_KEY_PREFIX},
+ * §2.11 §10), a sealed transaction was carried by a segment or folded into a
+ * checkpoint (`state` `segmented` or `folded`; `inherited` is another
+ * replica's and does not count), or undo is on (it turns on with the genesis
+ * cut, C1). After that, a checkpoint may already have left the device, so a
+ * row without meta can no longer be assumed to be in it.
+ *
+ * The `undo_enabled` clause never decides the repair diff, which refuses to
+ * run while undo is on; it is there for other callers of this function.
  */
 export function streamStarted(db: DatabaseSync): boolean {
   const meta = db
     .prepare(
-      "SELECT 1 FROM _sync_meta WHERE key LIKE 'genesis_cut%' OR key = 'undo_enabled' LIMIT 1",
+      "SELECT 1 FROM _sync_meta WHERE substr(key, 1, length(?)) = ? OR key = 'undo_enabled' LIMIT 1",
     )
-    .get();
+    .get(GENESIS_CUT_KEY_PREFIX, GENESIS_CUT_KEY_PREFIX);
   if (meta !== undefined) return true;
   return (
     hasTable(db, '_sync_txn') &&
-    db.prepare("SELECT 1 FROM _sync_txn WHERE state = 'segmented' LIMIT 1").get() !== undefined
+    db.prepare("SELECT 1 FROM _sync_txn WHERE state IN ('segmented', 'folded') LIMIT 1").get() !==
+      undefined
   );
 }
 
