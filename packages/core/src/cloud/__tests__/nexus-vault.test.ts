@@ -5431,8 +5431,15 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     for (let round = 0; round < 4; round++) {
       const ra = await sync(a);
       const rb = await sync(b);
-      expect(ra?.sent, `round ${round}: A sent`).toBe(0);
-      expect(rb?.sent, `round ${round}: B sent`).toBe(0);
+      // Nothing sealed (no echo re-sealed and netted away), sent or received.
+      for (const [who, r] of [
+        ['A', ra],
+        ['B', rb],
+      ] as const) {
+        expect(r?.sealed, `round ${round}: ${who} sealed`).toBe(0);
+        expect(r?.sent, `round ${round}: ${who} sent`).toBe(0);
+        expect(r?.received, `round ${round}: ${who} received`).toBe(0);
+      }
     }
     expect(fake.stream(STREAM).segments).toHaveLength(settled);
     const titles = "SELECT id, title FROM tasks_tasks WHERE id IN ('T1', 'T2') ORDER BY id";
