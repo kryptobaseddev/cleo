@@ -38,6 +38,7 @@ import {
 } from '../shared/hook-template-installer.js';
 import {
   appendHookEntry,
+  assertProjectInstructionScope,
   claudeSettingsPath,
   hasCleoHook,
   hookMap,
@@ -101,11 +102,18 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
     let instructionFileUpdated = false;
     const details: Record<string, unknown> = {};
 
-    // Step 1: Ensure CLAUDE.md has @-references via CAAMP canonical API (T1919)
-    const instructionResult = await ensureProviderInstructionFile('claude-code', projectDir, {});
-    instructionFileUpdated = instructionResult.action !== 'intact';
-    if (instructionFileUpdated) {
-      details.instructionFile = instructionResult.filePath;
+    // Step 1: Ensure CLAUDE.md has @-references via CAAMP canonical API (T1919).
+    // Never the user-global ~/.claude/CLAUDE.md (T13227).
+    try {
+      assertProjectInstructionScope(projectDir);
+      const instructionResult = await ensureProviderInstructionFile('claude-code', projectDir, {});
+      instructionFileUpdated = instructionResult.action !== 'intact';
+      if (instructionFileUpdated) {
+        details.instructionFile = instructionResult.filePath;
+      }
+    } catch (err) {
+      if (!(err instanceof UserGlobalClaudeConfigError)) throw err;
+      details.instructionFile = 'skipped';
     }
 
     // Step 2: Install adapter-provided commands to .claude/commands/ — never
@@ -224,8 +232,11 @@ export class ClaudeCodeInstallProvider implements AdapterInstallProvider {
    * and default references from the provider registry (T1919).
    *
    * @param projectDir - Project root directory
+   * @throws {@link UserGlobalClaudeConfigError} when the project root is inside
+   *   the user-global Claude config dir (T13227); nothing is written.
    */
   async ensureInstructionReferences(projectDir: string): Promise<void> {
+    assertProjectInstructionScope(projectDir);
     await ensureProviderInstructionFile('claude-code', projectDir, {});
   }
 

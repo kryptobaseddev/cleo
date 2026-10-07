@@ -1619,7 +1619,9 @@ export function getAgentsHome(): string {
  * @returns Absolute path to the Claude agents directory
  *
  * @remarks
- * Respects `CLAUDE_HOME` env var for the parent directory.
+ * Respects `CLAUDE_HOME` env var for the parent directory. Read-only use:
+ * never write to it — it is user-global Claude config (T13241); a project's
+ * agents go to its own `.claude/agents` (`projectAgentInstallDir`).
  *
  * @example
  * ```typescript
