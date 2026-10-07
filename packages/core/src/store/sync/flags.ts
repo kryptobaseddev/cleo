@@ -14,6 +14,8 @@
  */
 
 import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { SupersededStoreBareAccount, TableScope } from '@cleocode/contracts';
 import { legacyRowProjection } from '../exodus/column-transforms.js';
@@ -162,6 +164,24 @@ export interface LegacyStrand {
  * @returns One entry per stranded pair; empty when the journal sees every row.
  */
 export function legacyStrands(db: DatabaseSync): LegacyStrand[] {
+  const strands: LegacyStrand[] = [];
+  let accounted: readonly BareTableRecord[] | null = null;
+  for (const { bare, table } of bareTwinPairs(db)) {
+    const { missing, shadowed } = strandCounts(db, bare, table);
+    if (missing === 0 && shadowed === 0) continue;
+    // A reconcile carried this table, and it has not changed since (T13319).
+    accounted ??= recordedBareAccounts(db);
+    if (isAccounted(db, bare, accounted)) continue;
+    strands.push({ bareTable: bare, table, missing, shadowed });
+  }
+  return strands;
+}
+
+/**
+ * The bare tables outside the sync set whose consolidated target is a
+ * sync-set table, with rows, paired with that twin ({@link legacyStrands}).
+ */
+function bareTwinPairs(db: DatabaseSync): Array<{ bare: string; table: string }> {
   const syncSet = new Set(syncSetTables('project'));
   const tables = (
     db.prepare("SELECT name FROM main.sqlite_master WHERE type = 'table'").all() as Array<{
@@ -169,23 +189,104 @@ export function legacyStrands(db: DatabaseSync): LegacyStrand[] {
     }>
   ).map((t) => t.name);
   const present = new Set(tables);
-  const strands: LegacyStrand[] = [];
-  let accounted: readonly BareTableRecord[] | null = null;
+  const pairs: Array<{ bare: string; table: string }> = [];
   for (const bare of tables) {
     if (syncSet.has(bare)) continue;
     const target = resolveConsolidatedTableName('tasks', bare);
     if (target.kind !== 'mapped' || target.targetName === bare) continue;
     const table = target.targetName;
     if (!syncSet.has(table) || !present.has(table) || !hasRows(db, bare)) continue;
-    const missing = hasRows(db, table) ? missingByKey(db, bare, table) : countRows(db, bare);
-    const shadowed = bare === 'tasks' && table === 'tasks_tasks' ? shadowedTasks(db) : 0;
-    if ((missing ?? 0) === 0 && shadowed === 0) continue;
-    // A reconcile carried this table, and it has not changed since (T13319).
-    accounted ??= recordedBareAccounts(db);
-    if (isAccounted(db, bare, accounted)) continue;
-    strands.push({ bareTable: bare, table, missing: missing ?? 0, shadowed });
+    pairs.push({ bare, table });
   }
-  return strands;
+  return pairs;
+}
+
+/** Rows of `bare` the twin `table` lacks by key, and bare tasks shadowed by a reused id. */
+function strandCounts(
+  db: DatabaseSync,
+  bare: string,
+  table: string,
+): { readonly missing: number; readonly shadowed: number } {
+  const missing = hasRows(db, table) ? missingByKey(db, bare, table) : countRows(db, bare);
+  const shadowed = bare === 'tasks' && table === 'tasks_tasks' ? shadowedTasks(db) : 0;
+  return { missing: missing ?? 0, shadowed };
+}
+
+/** Prefix of a reconcile's run directory under `.cleo/` (T12319). */
+const RECONCILE_RUN_PREFIX = 'exodus-reconcile-';
+
+/** The receipt file in a reconcile run directory. */
+const RECONCILE_RECEIPT_FILE = 'reconcile-receipt.json';
+
+/** Logical source names a full reconcile gives the live store's bare family. */
+const BARE_FAMILY_SOURCE_PREFIX = 'tasks (cleo.db bare';
+
+/**
+ * Adopt reconcile receipts written before T13319 into the store's record of
+ * carried bare tables (T13320): a receipt file beside the store is audit
+ * only, never authority, so a bare table one names is recorded only when it
+ * compares clean RIGHT NOW (every bare key present in the twin, no shadowed
+ * task). A table that does not — a restored pre-reconcile snapshot, or rows
+ * deleted since the reconcile — stays a strand, for the bare-strands
+ * reconcile (T13309) to settle. Runs when a flag is turned on.
+ *
+ * @param db - The live project store, writable.
+ * @returns The bare tables adopted.
+ */
+export function adoptReconciledReceipts(db: DatabaseSync): string[] {
+  const named = preRecordReceiptTables(db);
+  if (named.size === 0) return [];
+  const recorded = new Set(recordedBareAccounts(db).map((r) => r.table));
+  const adopted: string[] = [];
+  for (const { bare, table } of bareTwinPairs(db)) {
+    const run = named.get(bare);
+    if (run === undefined || recorded.has(bare)) continue;
+    const { missing, shadowed } = strandCounts(db, bare, table);
+    if (missing !== 0 || shadowed !== 0) continue;
+    recordBareAccounts(db, [bareTableDigest(db, 'main', bare)], run);
+    adopted.push(bare);
+  }
+  return adopted;
+}
+
+/**
+ * Bare tables named by `reconciled` receipts beside the store written before
+ * T13319 (no `accounted`): each table with the run directory that names it.
+ */
+function preRecordReceiptTables(db: DatabaseSync): Map<string, string> {
+  const named = new Map<string, string>();
+  const file = (
+    db.prepare('PRAGMA database_list').all() as Array<{ name: string; file: string }>
+  ).find((d) => d.name === 'main')?.file;
+  if (!file || !existsSync(dirname(file))) return named;
+  const dir = dirname(file);
+  for (const run of readdirSync(dir)
+    .filter((n) => n.startsWith(RECONCILE_RUN_PREFIX))
+    .sort()) {
+    let receipt: unknown;
+    try {
+      receipt = JSON.parse(readFileSync(join(dir, run, RECONCILE_RECEIPT_FILE), 'utf8'));
+    } catch {
+      continue;
+    }
+    if (!isRecord(receipt) || receipt.outcome !== 'reconciled' || 'accounted' in receipt) continue;
+    for (const c of Array.isArray(receipt.before) ? receipt.before : []) {
+      if (
+        isRecord(c) &&
+        typeof c.sourceDb === 'string' &&
+        c.sourceDb.startsWith(BARE_FAMILY_SOURCE_PREFIX) &&
+        typeof c.sourceTable === 'string'
+      ) {
+        named.set(c.sourceTable, run);
+      }
+    }
+  }
+  return named;
+}
+
+/** Whether `value` is a plain object. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** Whether any bare legacy row is stranded from the journal ({@link legacyStrands}). */
@@ -350,12 +451,14 @@ export function recordBareAccounts(
       'digest = excluded.digest, run = excluded.run, recorded_at = excluded.recorded_at',
   );
   const at = now.toISOString();
-  db.exec('BEGIN IMMEDIATE');
+  // A savepoint, so a caller already inside a transaction can record too.
+  db.exec('SAVEPOINT bare_accounts');
   try {
     for (const a of accounts) upsert.run(a.table, a.rows, a.digest, run, at);
-    db.exec('COMMIT');
+    db.exec('RELEASE bare_accounts');
   } catch (error) {
-    db.exec('ROLLBACK');
+    db.exec('ROLLBACK TO bare_accounts');
+    db.exec('RELEASE bare_accounts');
     throw error;
   }
 }
@@ -458,6 +561,8 @@ export function setSyncFlag(
       { code: 'E_SYNC_FLAG_UNRELEASED' },
     );
   }
+  // A pre-T13319 receipt counts only for a bare table clean right now (T13320).
+  if (on) adoptReconciledReceipts(db);
   const strands = on ? legacyStrands(db) : [];
   if (strands.length > 0) {
     // @sync-invariant none:local-only enabling sync on a store whose rows the journal cannot see is refused; a per-store setting
