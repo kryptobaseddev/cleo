@@ -256,6 +256,10 @@ export async function acquireGlobalSlot(
     {
       label: `tool:${canonical}`,
       footprintBytes: opts.footprintBytes ?? footprintForTool(canonical, totalBytes, opts.heapMb),
+      // T13237: an evidence build is the project's whole build (`pnpm run
+      // build`): it takes the machine-wide full-build slot, like
+      // `cleo run --class full-build`.
+      ...(canonical === 'build' ? { exclusive: true } : {}),
       ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
       ...(opts.task !== undefined ? { task: opts.task } : {}),
     },

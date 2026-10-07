@@ -17,6 +17,7 @@ import { ensureProviderInstructionFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
 import { isUserHomeDir, syncCodexHeavyCommandHook } from '../shared/heavy-command-hook-install.js';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
+import { ensureProjectInstructionFile } from '../shared/project-instruction-file.js';
 
 /**
  * Install provider for Codex CLI.
@@ -50,15 +51,16 @@ export class CodexInstallProvider implements AdapterInstallProvider {
     const details: Record<string, unknown> = {};
 
     // Ensure AGENTS.md has CLEO @-references via CAAMP canonical API.
-    const result = await ensureProviderInstructionFile('codex', projectDir, {
+    const result = await ensureProjectInstructionFile('codex', projectDir, {
       scope: 'project',
       references: [`@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`, '@.cleo/memory-bridge.md'],
     });
 
-    const instructionFileUpdated = result.action !== 'intact';
+    const instructionFileUpdated = result !== null && result.action !== 'intact';
     if (instructionFileUpdated) {
       details.instructionFile = join(projectDir, result.instructFile);
     }
+    if (result === null) details.instructionFile = 'skipped'; // T13227: $HOME project
 
     // T12983: route heavy shell commands through `cleo run`.
     let success = true;
