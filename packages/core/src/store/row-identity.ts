@@ -659,6 +659,27 @@ function birthFpCallSql(scope: TableScope, spec: RowIdentitySpec, row: string): 
   return `${ROW_BIRTH_FP_SQL_FUNCTION}(${[`'${spec.table}'`, birth, ...facts].join(', ')})`;
 }
 
+/**
+ * SQL that is true exactly when {@link storedRefSql} would be NOT NULL for
+ * `row`, without calling a JS function: the AC text hash is non-NULL iff the
+ * referenced row's text is a string, which SQLite says as `typeof = 'text'`.
+ * The pending probe uses it, so a store with many legitimately dangling refs
+ * opens without one JS hash per dangling row (T13261).
+ */
+function storedRefPresentSql(
+  scope: TableScope,
+  ref: NonNullable<RowIdentitySpec['storedRefUids']>[number],
+  row: string,
+): string {
+  if (ref.source === 'text_hash') {
+    return (
+      `(SELECT typeof(_r.${q('text')}) FROM main.${q(ref.table)} AS _r ` +
+      `WHERE _r.${q(targetKey(scope, ref.table))} = ${row}.${q(ref.from)}) = 'text'`
+    );
+  }
+  return `${refUidSql(scope, { column: ref.from, table: ref.table }, row)} IS NOT NULL`;
+}
+
 /** SQL for a stored reference fact (`ac_uid`, `ac_text_hash`) read from `row`. */
 function storedRefSql(
   scope: TableScope,
@@ -2171,12 +2192,7 @@ export function rowIdentityFillPending(db: DatabaseSync, scope: TableScope): str
     }
     const row = `main.${q(spec.table)}`;
     for (const ref of spec.storedRefUids ?? []) {
-      if (
-        any(
-          spec.table,
-          `${q(ref.column)} IS NULL AND (${storedRefSql(scope, ref, row)}) IS NOT NULL`,
-        )
-      ) {
+      if (any(spec.table, `${q(ref.column)} IS NULL AND ${storedRefPresentSql(scope, ref, row)}`)) {
         pending.push(`ref:${spec.table}.${ref.column}`);
       }
     }

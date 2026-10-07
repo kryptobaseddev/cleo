@@ -19,8 +19,10 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  AC_TEXT_HASH_SQL_FUNCTION,
   missingRowIdentitySchema,
   prepareRowIdentity,
+  registerRowUidFunction,
   rowIdentityFillPending,
 } from '../row-identity.js';
 import { getNativeTasksDb } from '../sqlite.js';
@@ -60,6 +62,37 @@ describe('row identity on a completed store (T12341 C1)', () => {
     if (!db) throw new Error('no native handle');
     return db;
   }
+
+  it('dangling AC refs cost no JS hash in the pending probe; a ref that becomes resolvable is found (T13261)', () => {
+    const db = native();
+    prepareRowIdentity(db, 'project');
+    expect(rowIdentityFillPending(db, 'project')).toEqual([]);
+    // Bindings whose criterion is gone: their stored refs stay NULL for good.
+    db.exec('PRAGMA foreign_keys = OFF');
+    const bind = db.prepare(
+      "INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type) VALUES (?, ?, 'AC-gone', 'direct')",
+    );
+    for (let i = 0; i < 40; i++) bind.run(`bind-${i}`, `atom-${i}`);
+    db.exec('PRAGMA foreign_keys = ON');
+    let hashes = 0;
+    db.function(AC_TEXT_HASH_SQL_FUNCTION, { deterministic: true }, (text) => {
+      hashes++;
+      return typeof text === 'string' ? 'h' : null;
+    });
+    expect(rowIdentityFillPending(db, 'project')).toEqual([]);
+    expect(hashes).toBe(0);
+    registerRowUidFunction(db, 'project');
+    // The criterion appears: both stored refs of those bindings now resolve.
+    db.prepare(
+      "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, kind, source_key) VALUES ('AC-gone', 'T001', 9, 'tests pass', 'text', 'text:9:x')",
+    ).run();
+    expect(rowIdentityFillPending(db, 'project')).toEqual([
+      'ref:tasks_evidence_ac_bindings.ac_uid',
+      'ref:tasks_evidence_ac_bindings.ac_text_hash',
+    ]);
+    prepareRowIdentity(db, 'project');
+    expect(rowIdentityFillPending(db, 'project')).toEqual([]);
+  });
 
   it('a completed store reports nothing pending and the pass writes nothing', () => {
     const db = native();
