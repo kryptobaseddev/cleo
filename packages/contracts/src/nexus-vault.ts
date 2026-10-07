@@ -211,11 +211,17 @@ export interface CloudSyncStreamResult {
   /**
    * `synced`: pushed and pulled what was enabled; `disabled`: neither `sync.push` nor `sync.pull` is on;
    * `paused`: push paused for a device clock ahead of the server's; `not-attached`: this machine has no
-   * store on that stream; `refused`: a precondition or the server refused (see `refused`).
+   * store on that stream; `refused`: a precondition or the server refused (see `refused`); `failed`: an
+   * error stopped this stream (see `refused`); the other streams still synced.
    */
-  status: 'synced' | 'disabled' | 'paused' | 'not-attached' | 'refused';
+  status: 'synced' | 'disabled' | 'paused' | 'not-attached' | 'refused' | 'failed';
   /** Why this stream did not sync fully, or null. */
   refused: string | null;
+  /**
+   * Legs with nothing to do, not failures: a flag off, or push before this store has its own genesis
+   * (a store that only pulls).
+   */
+  skipped: string[];
   /** Transactions sealed, segments persisted, segments the server stored (`duplicates` of them retries). */
   sealed: number;
   built: number;

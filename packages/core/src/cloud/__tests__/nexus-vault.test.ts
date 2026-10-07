@@ -5205,9 +5205,11 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
         throw new ApiFail(403, 'E_FORBIDDEN');
       },
     };
-    await expect(
-      on(m, () => cloudSync(vopts(m, { scope: 'project', allowUnreleased: true }))),
-    ).rejects.toThrow();
+    // The failure is this stream's, reported, never thrown: every other stream still syncs.
+    const failed = await on(m, () => cloudSync(vopts(m, { allowUnreleased: true })));
+    expect(failed.streams.map((x) => x.scope)).toEqual(['project', 'global']);
+    expect(failed.streams[0]).toMatchObject({ status: 'failed', sent: 0 });
+    expect(failed.streams[0]?.refused).toMatch(/E_FORBIDDEN/);
     const before = fake.stream(STREAM).segments.length;
     const r = await on(m, () => cloudSync(vopts(m, { scope: 'project', allowUnreleased: true })));
     expect(r.streams[0]).toMatchObject({

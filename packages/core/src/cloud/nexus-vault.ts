@@ -158,6 +158,7 @@ import { nexusApiErrorToAccountError } from './nexus-enrol.js';
 import { readNexusProjectLink } from './nexus-link.js';
 import {
   connectNexusVault,
+  type NexusAccountKey,
   type NexusVaultConnection,
   type NexusVaultOptions,
   nexusHomeDataKey,
@@ -1749,15 +1750,35 @@ async function enableSyncPushImpl(
   }
 }
 
+/** One connection, the account key and one scope's store, shared by a stream's push and pull (T12996). */
+interface StreamSession {
+  readonly conn: NexusVaultConnection;
+  readonly key: NexusAccountKey;
+  readonly t: VaultTarget;
+}
+
+/** Connect, unlock the account key and resolve the scope's store, once. */
+async function openStreamSession(opts: NexusVaultCommandOptions): Promise<StreamSession> {
+  const conn = await connectNexusVault(opts);
+  const key = await unlockNexusAccountKey(conn);
+  const t = await resolveTarget(conn, key.masterKey, opts, 'push');
+  return { conn, key, t };
+}
+
 async function pushSyncStreamImpl(
   opts: NexusVaultCommandOptions & {
     /** Push although `sync.push` is unreleased (tests and staging only). Never set from user input. */
     allowUnreleased?: boolean;
   } = {},
 ): Promise<PushStreamReport> {
-  const conn = await connectNexusVault(opts);
-  const key = await unlockNexusAccountKey(conn);
-  const t = await resolveTarget(conn, key.masterKey, opts, 'push');
+  return pushWithSession(await openStreamSession(opts), opts);
+}
+
+async function pushWithSession(
+  session: StreamSession,
+  opts: { readonly allowUnreleased?: boolean },
+): Promise<PushStreamReport> {
+  const { conn, t } = session;
   const replicaId = t.replicaId;
   if (!replicaId) {
     throw vaultError(
@@ -1823,9 +1844,11 @@ async function pushSyncStreamImpl(
 }
 
 async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<PullStreamReport> {
-  const conn = await connectNexusVault(opts);
-  const key = await unlockNexusAccountKey(conn);
-  const t = await resolveTarget(conn, key.masterKey, opts, 'push');
+  return pullWithSession(await openStreamSession(opts));
+}
+
+async function pullWithSession(session: StreamSession): Promise<PullStreamReport> {
+  const { conn, key, t } = session;
   const replicaId = t.replicaId;
   if (!replicaId) {
     throw vaultError(
@@ -1952,6 +1975,7 @@ const syncStreamResult = (
   streamId: null,
   status: 'synced',
   refused: null,
+  skipped: [],
   sealed: 0,
   built: 0,
   sent: 0,
@@ -1973,48 +1997,79 @@ const NOT_ATTACHED_CODES: ReadonlySet<string> = new Set([
   'E_NEXUS_NOT_A_PROJECT',
 ]);
 
-/** Seal, push, pull and apply one scope's stream (T12996). */
+/** Push or pull refusals that mean "nothing to do here", not a failure (LOW-3 on #1962). */
+const SKIP_REASONS: readonly RegExp[] = [
+  /^sync\.push is off$/,
+  /^sync\.pull is off$/,
+  /has no genesis cut on this store/,
+  /genesis checkpoint is not stored yet/,
+];
+
+/** The code and message of a failure, for a stream result. */
+function failureText(err: unknown): string {
+  if (err instanceof NexusAccountError || err instanceof NexusError)
+    return `${err.code}: ${err.message}`;
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Seal, push, pull and apply one scope's stream (T12996). The run's one
+ * connection and account key serve both legs. A failure is reported on this stream
+ * (`failed`), never thrown, so the next stream still syncs.
+ */
 async function syncOneStream(
+  shared: { readonly conn: NexusVaultConnection; readonly key: NexusAccountKey },
   opts: NexusVaultCommandOptions & { allowUnreleased?: boolean },
   scope: CloudVaultScope,
 ): Promise<CloudSyncStreamResult> {
-  const failed = (err: unknown): CloudSyncStreamResult | null => {
-    if (!(err instanceof NexusAccountError)) return null;
-    return NOT_ATTACHED_CODES.has(err.code)
-      ? syncStreamResult(scope, { status: 'not-attached', refused: err.message })
-      : syncStreamResult(scope, { status: 'refused', refused: `${err.code}: ${err.message}` });
-  };
+  let session: StreamSession;
+  try {
+    session = {
+      ...shared,
+      t: await resolveTarget(shared.conn, shared.key.masterKey, { ...opts, scope }, 'push'),
+    };
+  } catch (err) {
+    if (err instanceof NexusAccountError && NOT_ATTACHED_CODES.has(err.code)) {
+      return syncStreamResult(scope, { status: 'not-attached', refused: err.message });
+    }
+    return syncStreamResult(scope, { status: 'failed', refused: failureText(err) });
+  }
+  const streamId = session.t.streamId;
+  if (!session.t.replicaId) {
+    return syncStreamResult(scope, {
+      streamId,
+      status: 'not-attached',
+      refused: 'this copy of the project is not attached from this device',
+    });
+  }
   let push: PushStreamReport;
   try {
-    push = await pushSyncStreamImpl({ ...opts, scope });
+    push = await pushWithSession(session, opts);
   } catch (err) {
-    const r = failed(err);
-    if (r) return r;
-    throw err;
+    return syncStreamResult(scope, { streamId, status: 'failed', refused: failureText(err) });
   }
   let pull: PullStreamReport;
   try {
-    pull = await pullSyncStreamImpl({ ...opts, scope });
+    pull = await pullWithSession(session);
   } catch (err) {
-    const r = failed(err);
-    if (r)
-      return {
-        ...r,
-        streamId: push.stream,
-        sealed: push.sealed,
-        built: push.built,
-        sent: push.pushed,
-      };
-    throw err;
+    return syncStreamResult(scope, {
+      streamId,
+      status: 'failed',
+      refused: failureText(err),
+      sealed: push.sealed,
+      built: push.built,
+      sent: push.pushed,
+      duplicates: push.duplicates,
+    });
   }
+  const isSkip = (r: string | null): boolean => r !== null && SKIP_REASONS.some((x) => x.test(r));
+  const skipped = [push.refused, pull.refused].filter((r): r is string => isSkip(r));
+  const refused = [push.refused, pull.refused].filter((r): r is string => r !== null && !isSkip(r));
   const pushOff = push.refused === 'sync.push is off';
   const pullOff = pull.refused === 'sync.pull is off';
-  const refused = [push.refused, pull.refused].filter(
-    (r): r is string => r !== null && r !== 'sync.push is off' && r !== 'sync.pull is off',
-  );
   const apply = pull.apply;
   return syncStreamResult(scope, {
-    streamId: push.stream,
+    streamId,
     status:
       pushOff && pullOff
         ? 'disabled'
@@ -2024,6 +2079,7 @@ async function syncOneStream(
             ? 'paused'
             : 'synced',
     refused: refused.length > 0 ? refused.join('; ') : null,
+    skipped,
     sealed: push.sealed,
     built: push.built,
     sent: push.pushed,
@@ -2034,18 +2090,20 @@ async function syncOneStream(
     applied: apply?.applied ?? 0,
     held: (apply?.pending ?? 0) + (apply?.heldSkew ?? 0) + (apply?.refusedSchema ?? 0),
     conflicts: apply?.conflict ?? 0,
-    after: pull.refused === null ? pull.after : null,
-    head: pull.refused === null ? pull.head : null,
+    after: pull.refused === null || !isSkip(pull.refused) ? pull.after : null,
+    head: pull.refused === null || !isSkip(pull.refused) ? pull.head : null,
   });
 }
 
 async function cloudSyncImpl(
   opts: NexusVaultCommandOptions & { allowUnreleased?: boolean } = {},
 ): Promise<CloudSyncResult> {
+  // One connection and one account-key unlock for every stream (LOW-2 on #1962).
   const conn = await connectNexusVault(opts);
+  const key = await unlockNexusAccountKey(conn);
   const scopes: CloudVaultScope[] = opts.scope ? [opts.scope] : ['project', 'global'];
   const streams: CloudSyncStreamResult[] = [];
-  for (const scope of scopes) streams.push(await syncOneStream(opts, scope));
+  for (const scope of scopes) streams.push(await syncOneStream({ conn, key }, opts, scope));
   const worked = streams.filter((r) => r.status !== 'disabled' && r.status !== 'not-attached');
   if (worked.length === 0 && streams.some((r) => r.status === 'disabled')) {
     throw vaultError(
