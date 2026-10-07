@@ -143,6 +143,23 @@ describe("updateInstructionsSingleOperation", () => {
     expect(result.updatedFiles).toBe(1);
     expect(result.actions[0]?.providers.sort()).toEqual(["p1", "p2"]);
     expect(result.actions[0]?.configFormats.sort()).toEqual(["json", "yaml"]);
+    expect(result.skipped).toBeUndefined();
+  });
+
+  it("T13257: a project-scope update at $HOME is reported as skipped, writing nothing", async () => {
+    const savedHome = process.env.HOME;
+    process.env.HOME = testDir;
+    try {
+      const p1 = makeProvider("p1", { configFormat: "json", instructFile: "AGENTS.md" });
+      const result = await updateInstructionsSingleOperation([p1], "block", "project", testDir);
+      expect(result.updatedFiles).toBe(0);
+      expect(result.actions).toEqual([]);
+      expect(result.skipped).toMatch(/the project is the home directory/);
+      expect(existsSync(join(testDir, "AGENTS.md"))).toBe(false);
+    } finally {
+      if (savedHome === undefined) delete process.env.HOME;
+      else process.env.HOME = savedHome;
+    }
   });
 });
 

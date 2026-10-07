@@ -6,11 +6,9 @@ name: Lockfile Check
 # (workflow inventory) classifies this as a defensible singleton.
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
-  merge_group:
+  # T13279: called by ci.yml (job `lockfile-gate`), which the required `CI` aggregate
+  # needs. It no longer runs on its own triggers (nothing required its check).
+  workflow_call:
 
 jobs:
   lockfile-consistency:

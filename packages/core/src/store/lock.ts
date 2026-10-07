@@ -79,7 +79,7 @@ export async function isLocked(filePath: string, options?: { stale?: number }): 
 export async function withLock<T>(
   filePath: string,
   fn: () => Promise<T>,
-  options?: { stale?: number; retries?: number },
+  options?: { stale?: number; retries?: number; onCompromised?: (err: Error) => void },
 ): Promise<T> {
   const release = await acquireLock(filePath, options);
   try {
@@ -87,4 +87,30 @@ export async function withLock<T>(
   } finally {
     await release();
   }
+}
+
+/** The compromise state of one long-held lock ({@link lockCompromiseTracker}). */
+export interface LockCompromiseTracker {
+  /** Pass as `onCompromised`: records the loss instead of throwing from a timer. */
+  readonly onCompromised: (err: Error) => void;
+  /** Why the holder lost the lock (another process took it as stale), or null. */
+  readonly reason: () => string | null;
+}
+
+/**
+ * Track whether a long-held lock was compromised (T12785). proper-lockfile
+ * refreshes a held lock every `stale / 2` from a timer; a holder whose event
+ * loop is blocked longer than `stale` (one long synchronous transaction) can
+ * have the lock taken by another process, and the default `onCompromised`
+ * then throws from that timer, an uncaught exception. The tracker records the
+ * loss instead, so the holder can stop at its next safe point and roll back.
+ */
+export function lockCompromiseTracker(): LockCompromiseTracker {
+  let lost: string | null = null;
+  return {
+    onCompromised: (err) => {
+      lost ??= err.message || 'lock compromised';
+    },
+    reason: () => lost,
+  };
 }
