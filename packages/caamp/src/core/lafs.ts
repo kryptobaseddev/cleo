@@ -408,6 +408,8 @@ export const ErrorCodes = {
   REMOVE_FAILED: 'E_REMOVE_FAILED',
   UPDATE_FAILED: 'E_UPDATE_FAILED',
   VALIDATION_FAILED: 'E_VALIDATION_FAILED',
+  /** A project-scope instruction file was refused at the home directory (T13257). */
+  HOME_INSTRUCTION_FILE: 'E_HOME_INSTRUCTION_FILE',
   AUDIT_FAILED: 'E_AUDIT_FAILED',
 
   // System errors
