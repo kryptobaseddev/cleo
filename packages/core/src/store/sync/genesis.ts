@@ -28,7 +28,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
-import { writeRestoreMarker } from '../restore-marker.js';
+import { holdRestoreMarker } from '../restore-marker.js';
 import {
   BIRTH_FP_COLUMN,
   ROW_IDENTITY,
@@ -454,8 +454,10 @@ function uncutGenesis(db: DatabaseSync, opts: GenesisCutOptions): void {
  * that bypasses the chokepoint is caught after the snapshot (the capture
  * position moved past the cut): the cut is undone and
  * {@link GenesisRacedError} is thrown, so no bundle holding a post-cut write
- * is ever pushed. A failing snapshot undoes the cut too. The marker is always
- * released.
+ * is ever pushed. A failing snapshot undoes the cut too, and so does a
+ * marker that went stale or another process took over during the snapshot
+ * ({@link GenesisRacedError}, `E_SYNC_GENESIS_MARKER_LOST`). The marker is
+ * always released, unless another process now holds it.
  *
  * A cut that an earlier run committed but never snapshotted (a crash, kill
  * or sleep mid-export; `genesis_pending` still set) is resumed (T13301): with
@@ -474,7 +476,7 @@ export async function cutGenesisWithSnapshot(
   opts: GenesisCutOptions & { readonly dbPath: string },
   snapshot: (cut: number) => Promise<void>,
 ): Promise<GenesisCutReport> {
-  const release = writeRestoreMarker(opts.dbPath, 'genesis');
+  const marker = holdRestoreMarker(opts.dbPath, 'genesis');
   try {
     let r: GenesisCutReport;
     const crashed = genesisPending(db, opts.stream) ? genesisCutOf(db, opts.stream) : undefined;
@@ -505,8 +507,19 @@ export async function cutGenesisWithSnapshot(
         'E_SYNC_GENESIS_RACED: a write reached the store during the genesis snapshot; the cut was undone, run it again',
       );
     }
+    // A marker that went stale or was taken over held nobody off for part of
+    // the snapshot: discard the cut, never finish it (an uncaptured write may
+    // be in the bundle). The bundle is complete here, so a lapse after this
+    // check no longer matters.
+    if (!marker.intact()) {
+      uncutGenesis(db, opts);
+      // @sync-invariant none:local-only the genesis marker lapsed during the snapshot; the cut is undone and nothing is pushed
+      throw new GenesisRacedError(
+        'E_SYNC_GENESIS_MARKER_LOST: the genesis marker went stale or was taken over during the snapshot; the cut was undone, run it again',
+      );
+    }
     return r;
   } finally {
-    release();
+    marker.release();
   }
 }
