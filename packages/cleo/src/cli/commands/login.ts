@@ -65,6 +65,7 @@ import type {
 import { defineCommand } from '../lib/define-cli-command.js';
 import { NEXUS_API_URL_ARG } from '../lib/nexus-account-cli.js';
 import { runNexusLoginCommand } from '../lib/nexus-first-run-cli.js';
+import { promptAllowed } from '../lib/prompt-allowed.js';
 import { ReadlineWizardIO } from '../lib/readline-wizard-io.js';
 import { cliError, cliOutput, humanLine, isHumanOutput } from '../renderers/index.js';
 import { _tryOpenBrowser, runLlmLogin } from './llm-login.js';
@@ -388,8 +389,9 @@ export function nonInteractiveLoginTarget(
 }
 
 /**
- * Resolve the login target: the positional/`--provider` value, else (on a
- * terminal) the picker. Non-interactive with no target, `cleo login` signs in
+ * Resolve the login target: the positional/`--provider` value, else (when
+ * {@link promptAllowed}: stdin and stderr on a terminal, not CI) the picker.
+ * Non-interactive with no target, `cleo login` signs in
  * to Cleo Nexus ({@link nonInteractiveLoginTarget}, T13288); `cleo llm login`
  * returns `undefined` so the LLM front door reports its usual error.
  *
@@ -401,7 +403,9 @@ async function resolveLoginTarget(
 ): Promise<string | undefined> {
   const given = typeof args['provider'] === 'string' ? args['provider'] : '';
   if (given) return given;
-  if (!process.stdin.isTTY) return nonInteractiveLoginTarget(args, operation);
+  // The picker follows the consent prompt's rule (#1939 review LOW): with
+  // stderr redirected or under CI it would draw where nobody sees it.
+  if (!promptAllowed()) return nonInteractiveLoginTarget(args, operation);
   const names = (await (await providerRegistry()).listProviders()).map((p) => p.name);
   const io = new ReadlineWizardIO(process.stdin, process.stderr);
   try {
@@ -546,7 +550,7 @@ export const LOGIN_ARGS = {
   yes: {
     type: 'boolean',
     description:
-      'nexus: inside a CLEO project this machine has not linked, link it and take the first encrypted backup without asking (or, when Cleo Nexus already backs it up from another device and this copy never synced, restore that backup here). Without it a terminal is asked; a non-interactive run outside CI (an agent) links and backs up unattended but never restores unasked; CI only prints the next command.',
+      'nexus: inside a CLEO project this machine has not linked, link it and take the first encrypted backup without asking (or, when Cleo Nexus already backs it up from another device and this copy never synced, restore that backup here). Without it a terminal (stdin and stderr) is asked; a non-interactive run outside CI (an agent, or stderr redirected as in cleo login 2>log) links and backs up unattended without prompting, but never restores unasked; CI only prints the next command.',
   },
   auth: {
     type: 'string',
@@ -592,7 +596,7 @@ export const loginCommand = defineCommand({
     // captures only the first plain string literal (concatenations + backticks
     // truncate the `cleo --help` text mid-sentence).
     description:
-      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. Without a terminal and no target, cleo login signs in to Cleo Nexus (an agent needs no extra word). After a Cleo Nexus sign-in inside an unlinked CLEO project it links the project and backs it up: a terminal is asked, --yes or a non-interactive run (an agent) does it, a restore over this copy is never done unasked, and CI only prints the next command; outside a project it lists your projects with the cleo cloud restore command for each. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
+      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. Without a terminal and no target, cleo login signs in to Cleo Nexus (an agent needs no extra word); the picker and every prompt need stdin and stderr on a terminal, so a run with stderr redirected (cleo login 2>log) also links unattended, without prompting. After a Cleo Nexus sign-in inside an unlinked CLEO project it links the project and backs it up: a terminal is asked, --yes or a non-interactive run (an agent) does it, a restore over this copy is never done unasked, and CI only prints the next command; outside a project it lists your projects with the cleo cloud restore command for each. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
   },
   args: LOGIN_ARGS,
   async run({ args }) {

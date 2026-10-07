@@ -86,6 +86,42 @@ function okFetch() {
   );
 }
 
+const OTHER_API = 'https://other.example.test';
+
+/** The project linked to two Nexus origins from this device; returns the second origin's device. */
+function linkTwoOrigins(): { otherApi: string; otherDevice: SealedNexusDevice } {
+  mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
+  const entry = (apiUrl: string) => ({
+    apiUrl,
+    localProjectId: 'local-1',
+    remoteProjectId: REMOTE,
+    organizationId: 'org-1',
+    label: 'p',
+    streamId: 'project:p',
+    linkedAt: '2026-10-01T00:00:00.000Z',
+    replicaId: REPLICA,
+    nexusDeviceId: DEVICE,
+  });
+  writeFileSync(
+    join(projectRoot, '.cleo', 'nexus-link.json'),
+    JSON.stringify({
+      version: 1,
+      links: { [new URL(OTHER_API).origin]: entry(OTHER_API), [new URL(API).origin]: entry(API) },
+    }),
+  );
+  const at = new Date('2026-10-01T00:00:00.000Z').toISOString();
+  const otherDevice = new SealedNexusDevice(new URL(OTHER_API).origin, USER, {
+    deviceId: DEVICE,
+    createdAt: at,
+    keys: null,
+    current: { credentialId: CREDENTIAL, token, profile: 'device', scopes: [], createdAt: at },
+    pending: null,
+    pendingSignOut: null,
+    pendingRevoke: null,
+  });
+  return { otherApi: OTHER_API, otherDevice };
+}
+
 const T0 = new Date('2026-10-05T12:00:00.000Z');
 const run = (extra: Partial<Parameters<typeof refreshProjectPresence>[0]> = {}) =>
   refreshProjectPresence({
@@ -169,45 +205,46 @@ describe('refreshProjectPresence (T13289)', () => {
   });
 
   it('one origin failing does not stop the other from being refreshed', async () => {
-    const OTHER_API = 'https://other.example.test';
-    mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
-    const entry = (apiUrl: string) => ({
-      apiUrl,
-      localProjectId: 'local-1',
-      remoteProjectId: REMOTE,
-      organizationId: 'org-1',
-      label: 'p',
-      streamId: 'project:p',
-      linkedAt: '2026-10-01T00:00:00.000Z',
-      replicaId: REPLICA,
-      nexusDeviceId: DEVICE,
-    });
-    writeFileSync(
-      join(projectRoot, '.cleo', 'nexus-link.json'),
-      JSON.stringify({
-        version: 1,
-        links: { [new URL(OTHER_API).origin]: entry(OTHER_API), [new URL(API).origin]: entry(API) },
-      }),
-    );
-    const at = new Date('2026-10-01T00:00:00.000Z').toISOString();
-    const otherDevice = new SealedNexusDevice(new URL(OTHER_API).origin, USER, {
-      deviceId: DEVICE,
-      createdAt: at,
-      keys: null,
-      current: { credentialId: CREDENTIAL, token, profile: 'device', scopes: [], createdAt: at },
-      pending: null,
-      pendingSignOut: null,
-      pendingRevoke: null,
-    });
+    const { otherApi, otherDevice } = linkTwoOrigins();
     const ok = okFetch();
     const fetch = vi.fn(async (input: string, init?: RequestInit) => {
-      if (input.startsWith(OTHER_API)) throw new Error('other origin down');
+      if (input.startsWith(otherApi)) throw new Error('other origin down');
       return ok(input, init);
     });
     expect(await run({ fetch, deviceStore: { list: async () => [otherDevice, device()] } })).toBe(
       'sent',
     );
     expect(ok).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends to every origin at once, so teardown waits one timeout at most (T13308)', async () => {
+    const { otherDevice } = linkTwoOrigins();
+    let inFlight = 0;
+    let most = 0;
+    const ok = okFetch();
+    const fetch = vi.fn(async (input: string, init?: RequestInit) => {
+      inFlight++;
+      most = Math.max(most, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      inFlight--;
+      return ok(input, init);
+    });
+    expect(await run({ fetch, deviceStore: { list: async () => [otherDevice, device()] } })).toBe(
+      'sent',
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(most).toBe(2);
+  });
+
+  it('every origin failing is failed, after trying each once', async () => {
+    const { otherDevice } = linkTwoOrigins();
+    const down = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    expect(
+      await run({ fetch: down, deviceStore: { list: async () => [otherDevice, device()] } }),
+    ).toBe('failed');
+    expect(down).toHaveBeenCalledTimes(2);
   });
 
   it('a failing network is an outcome, never a throw, and is retried an hour later', async () => {

@@ -27,6 +27,7 @@ import {
   nexusLoginSummary,
   runNexusLogin,
 } from './nexus-account-cli.js';
+import { isCiEnv, promptAllowed } from './prompt-allowed.js';
 import { ReadlineWizardIO } from './readline-wizard-io.js';
 import { terminalSafe } from './terminal-safe.js';
 
@@ -59,9 +60,8 @@ export function consentOf(
   tty: boolean = process.stdin.isTTY === true && process.stderr.isTTY === true,
 ): 'yes' | 'prompt' | 'unattended' | 'never' {
   if (args['yes'] === true) return 'yes';
-  const ci = (env['CI'] ?? '') !== '' && env['CI'] !== 'false';
-  if (ci) return 'never';
-  return tty ? 'prompt' : 'unattended';
+  if (isCiEnv(env)) return 'never';
+  return promptAllowed(env, tty) ? 'prompt' : 'unattended';
 }
 
 /**

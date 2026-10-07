@@ -113,9 +113,15 @@ export async function refreshProjectPresence(
     writeFileSync(stamp, now.toISOString());
     utimesSync(stamp, now, now);
 
+    // The device file is unsealed with the machine key and global salt under
+    // the CLEO home: plain 0600 files, no OS keychain and no child process, so
+    // this background read can never raise a prompt (T13308).
     const devices = await (opts.deviceStore ?? new NexusDeviceStore()).list();
-    let outcome: NexusPresenceRefreshOutcome = 'no-credential';
-    for (const link of links) {
+    // Every origin at once, so a project linked to several Nexus origins still
+    // costs at most one timeout at teardown (T13308). `currentBearer()` only, as
+    // every other request: a pending rotation token may not be known to the
+    // server yet, and falling back would cost a second request.
+    const sends = links.flatMap((link) => {
       const origin = new URL(link.apiUrl).origin;
       const device = devices.find(
         (d): d is SealedNexusDevice =>
@@ -124,9 +130,9 @@ export async function refreshProjectPresence(
           d.deviceId === link.nexusDeviceId,
       );
       const bearer = device?.currentBearer() ?? null;
-      if (device === undefined || bearer === null) continue;
-      try {
-        await sendProjectPresence({
+      if (device === undefined || bearer === null) return [];
+      return [
+        sendProjectPresence({
           apiUrl: link.apiUrl,
           bearer,
           deviceId: device.deviceId,
@@ -137,12 +143,14 @@ export async function refreshProjectPresence(
           timeoutMs: NEXUS_PRESENCE_REFRESH_TIMEOUT_MS,
           ...(opts.now ? { now: opts.now } : {}),
           ...(opts.fetch ? { fetch: opts.fetch } : {}),
-        });
-        outcome = 'sent';
-      } catch {
-        if (outcome !== 'sent') outcome = 'failed';
-      }
-    }
+        }),
+      ];
+    });
+    if (sends.length === 0) return 'no-credential';
+    const settled = await Promise.allSettled(sends);
+    const outcome: NexusPresenceRefreshOutcome = settled.some((r) => r.status === 'fulfilled')
+      ? 'sent'
+      : 'failed';
     return outcome;
   } catch {
     return 'failed';
