@@ -88,31 +88,46 @@ async function captureStoreWithTask(): Promise<DatabaseSync> {
 }
 
 describe('the open-time identity fill with capture on', () => {
-  it('a refill of pre-release fingerprints writes no capture and marks its tables suspect (T12801)', async () => {
-    const db = await captureStoreWithTask();
+  /** Plant the pre-release state outside capture (as the old build did); returns the fresh fp. */
+  function plantPreRelease(db: DatabaseSync): { fresh: string | null; stale: string } {
     const row = db.prepare("SELECT * FROM tasks_tasks WHERE id = 'T1'").get() as Record<
       string,
       string | null
     >;
-    const fresh = row.birth_fp;
-    expect(fresh).toBeTruthy();
+    const fresh = row.birth_fp ?? null;
     const stale = preReleaseBirthFp(db, 'tasks_tasks', row) ?? '';
     expect(stale).not.toBe(fresh);
-    // The pre-release state, written outside capture (as the old build did).
     db.exec("INSERT INTO cleo_trigger_suspend (scope) VALUES ('capture')");
     db.prepare("UPDATE tasks_tasks SET birth_fp = ? WHERE id = 'T1'").run(stale);
     db.exec(`DELETE FROM ${ROW_IDENTITY_META_TABLE} WHERE key = '${ROW_IDENTITY_RECIPE_KEY}'`);
     db.exec('DELETE FROM cleo_trigger_suspend');
+    return { fresh, stale };
+  }
+  const birthFp = (db: DatabaseSync) =>
+    (db.prepare("SELECT birth_fp FROM tasks_tasks WHERE id = 'T1'").get() as { birth_fp: string })
+      .birth_fp;
+
+  it('a stale recipe on a store whose captures reference the uids is refused: kept, nothing captured (T13231)', async () => {
+    const db = await captureStoreWithTask();
+    const { stale } = plantPreRelease(db);
+    const before = maxSeq(db);
+    expect(before).toBeGreaterThan(0);
+
+    const again = await open();
+    expect(birthFp(again)).toBe(stale);
+    expect(maxSeq(again)).toBe(before);
+  });
+
+  it('a full refill with capture on writes no capture and marks its tables suspect (T12801, T13231)', async () => {
+    const db = await captureStoreWithTask();
+    const { fresh } = plantPreRelease(db);
+    expect(fresh).toBeTruthy();
+    // Capture on, nothing captured yet (the captures were sealed and drained).
+    db.exec('DELETE FROM _sync_capture; DELETE FROM _sync_frame');
     const before = maxSeq(db);
 
     const again = await open();
-    expect(
-      (
-        again.prepare("SELECT birth_fp FROM tasks_tasks WHERE id = 'T1'").get() as {
-          birth_fp: string;
-        }
-      ).birth_fp,
-    ).toBe(fresh);
+    expect(birthFp(again)).toBe(fresh);
     expect(maxSeq(again)).toBe(before);
     expect(suspectTables(again)).toContain('tasks_tasks');
     // The capture triggers are back after the bracket.

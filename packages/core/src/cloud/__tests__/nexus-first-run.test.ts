@@ -285,6 +285,16 @@ describe('guided first run inside an unlinked project', () => {
     expect(s.push).not.toHaveBeenCalled();
   });
 
+  it('an unattended run (an agent, T13288) links and backs up without asking', async () => {
+    const s = stubs();
+    const r = await run(s, { consent: 'unattended' });
+    expect(r.state).toBe('backed-up');
+    expect(s.confirm).not.toHaveBeenCalled();
+    expect(s.link).toHaveBeenCalledWith(expect.objectContaining({ apiUrl: API, projectRoot }));
+    expect(s.push).toHaveBeenCalledWith(expect.objectContaining({ projectRoot, scope: 'project' }));
+    expect(r.nextCommand).toBeNull();
+  });
+
   it('prompt without a way to ask acts as never', async () => {
     const s = stubs();
     const r = await runNexusFirstRun({
@@ -469,6 +479,18 @@ describe('guided first run inside a project the cloud backs up and this copy nev
     expect(s.confirm).not.toHaveBeenCalled();
     expect(s.restore).not.toHaveBeenCalled();
     expect(s.link).not.toHaveBeenCalled();
+  });
+
+  it('an unattended run (T13288) never restores over this copy: it names the restore command', async () => {
+    const s = stubs();
+    s.cloudBackup.mockResolvedValueOnce(true);
+    const r = await run(s, { consent: 'unattended' });
+    expect(r.state).toBe('offered');
+    expect(r.offer).toBe('restore');
+    expect(r.nextCommand).toBe(restoreCmd());
+    expect(s.confirm).not.toHaveBeenCalled();
+    expect(s.restore).not.toHaveBeenCalled();
+    expect(s.push).not.toHaveBeenCalled();
   });
 
   it('a restore refused for local rows it never synced leaves the choice to the user, not a loop', async () => {

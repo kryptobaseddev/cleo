@@ -33,6 +33,10 @@ import {
 } from '../snapshot-gate.js';
 import { getDb, getNativeDb, getSchemaVersion, resetDbState } from '../sqlite.js';
 import { createSqliteDataAccessor, setMetaValue } from '../sqlite-data-accessor.js';
+import { optOutOfForeignKeys } from './test-db-helper.js';
+
+// T13228: the assertions inspect bare rows a cascade would remove; the writers under test never touch them; they run with foreign keys OFF.
+optOutOfForeignKeys();
 
 let root: string;
 let projectDir: string;

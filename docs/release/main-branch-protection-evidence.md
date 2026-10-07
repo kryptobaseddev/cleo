@@ -17,6 +17,10 @@ gh api repos/:owner/:repo/branches/main/protection \
 
 ## Current state observed
 
+> **Current state (2026-10-05, T13263 / T13279):** live branch protection requires only `CI` (`strict=false`). The arch gates, Lockfile Check and the other gating workflows run INSIDE `CI` (reusable workflows its aggregate needs). Do NOT require a `Lockfile Check` or `Arch Boundary Check` context: neither reports under that name, so requiring it blocks every merge. The canonical command is in `AGENTS.md` and `docs/release/branch-protection-setup.md` (`CI` + `Contracts Dep Lint`).
+
+The JSON below is the **historical** observation of 2026-05-25 (T10491), kept as evidence of that date.
+
 ```json
 {
   "nameWithOwner": "kryptobaseddev/cleo",
@@ -45,10 +49,10 @@ gh api repos/:owner/:repo/branches/main/protection \
 
 ## Desired state
 
-The live branch protection now matches the desired state documented in `docs/release/branch-protection-setup.md`:
+The desired state is documented in `docs/release/branch-protection-setup.md`:
 
-- strict required status checks enabled
-- required contexts: `CI`, `Lockfile Check`, `Contracts Dep Lint`
+- required status checks NOT strict (owner decision 2026-09-29)
+- required contexts: `CI`, `Contracts Dep Lint` (live today: `CI` only)
 - zero required approving reviews
 - admin enforcement disabled
 - no push restrictions
@@ -61,9 +65,8 @@ Run only as the repository owner/admin, and only when the intended change does n
 
 ```bash
 gh api -X PUT repos/:owner/:repo/branches/main/protection \
-  -f required_status_checks[strict]=true \
+  -f required_status_checks[strict]=false \
   -f required_status_checks[contexts][]=CI \
-  -f "required_status_checks[contexts][]=Lockfile Check" \
   -f "required_status_checks[contexts][]=Contracts Dep Lint" \
   -f enforce_admins=false \
   -f required_pull_request_reviews[required_approving_review_count]=0 \

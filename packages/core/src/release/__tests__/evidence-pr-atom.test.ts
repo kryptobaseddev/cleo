@@ -25,7 +25,7 @@
  * @epic T9762
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -45,6 +45,7 @@ import {
   prCacheEntryPath,
   resolvePrEvidenceAtom,
   resolveRequiredWorkflows,
+  resolveRequiredWorkflowsDetailed,
 } from '../pr-evidence.js';
 
 // ---------------------------------------------------------------------------
@@ -637,11 +638,27 @@ describe('resolvePrEvidenceAtom — cache', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolveRequiredWorkflows', () => {
-  it('defaults to canonical list when env var unset', () => {
+  it("defaults to cleocode's own required checks when env var unset (T13285)", () => {
     const r = resolveRequiredWorkflows({});
-    expect(r).toContain('CI');
-    expect(r).toContain('Lockfile Check');
-    expect(r).toContain('Contracts Dep Lint');
+    expect(r).toEqual(['CI', 'Contracts Dep Lint']);
+    expect(r).not.toContain('Lockfile Check');
+  });
+
+  it("every default name is a job or workflow name in cleocode's .github/workflows (T13285)", () => {
+    const dir = join(import.meta.dirname, '..', '..', '..', '..', '..', '.github', 'workflows');
+    const names = new Set<string>();
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.yml'))) {
+      for (const line of readFileSync(join(dir, file), 'utf-8').split('\n')) {
+        // A workflow `name:` (column 0) or a job `name:` (4-space indent).
+        const m = /^(?:| {4})name:\s*['"]?(.+?)['"]?\s*$/.exec(line);
+        if (m?.[1]) names.add(m[1]);
+      }
+    }
+    for (const required of PR_REQUIRED_WORKFLOWS) {
+      expect(names, `default required check '${required}' is not a job or workflow name`).toContain(
+        required,
+      );
+    }
   });
 
   it('honours CLEO_PR_REQUIRED_WORKFLOWS env override', () => {
@@ -682,8 +699,27 @@ describe('resolveRequiredWorkflows', () => {
 
   it('falls back to the default when release.prRequiredWorkflows is malformed (not an array)', () => {
     const r = resolveRequiredWorkflows({}, { release: { prRequiredWorkflows: 'CI' } });
-    expect(r).toContain('CI');
-    expect(r).toContain('Lockfile Check');
+    expect(r).toEqual([...PR_REQUIRED_WORKFLOWS]);
+  });
+
+  it('the async resolver returns tier unknown, never the default, when no source answers (gh#1323, T13285)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleo-required-unknown-'));
+    try {
+      const failing: FetchGhBranchProtection = async () => ({ ok: false, reason: 'no gh' });
+      const r = await resolveRequiredWorkflowsDetailed(
+        { storeRoot: root, executionRoot: root },
+        {
+          env: {},
+          projectContext: null,
+          fetchGhBranchProtection: failing,
+          bypassProtectionCache: true,
+        },
+      );
+      expect(r.source.tier).toBe('unknown');
+      expect(r.workflows).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -814,7 +850,7 @@ describe('resolvePrEvidenceAtom — downstream repo with no CI (gh#1104)', () =>
     // And no per-required FOUND/NOT FOUND listing at all: there is no required
     // list to enumerate, which is the whole point.
     expect(r.reason).not.toMatch(/NOT FOUND on this PR/);
-    expect(PR_REQUIRED_WORKFLOWS).toContain('Lockfile Check');
+    expect(PR_REQUIRED_WORKFLOWS).toContain('Contracts Dep Lint');
   });
 });
 
