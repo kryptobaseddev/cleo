@@ -63,6 +63,7 @@ async function store(name: string): Promise<DatabaseSync> {
   );
   setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA });
   setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_SCHEMA, allowUnreleased: true });
+  setSyncFlag(db, 'sync.pull', true, { schemaRoot: SYNC_SCHEMA, allowUnreleased: true });
   return db;
 }
 
@@ -148,6 +149,7 @@ const pullOpts = (b: DatabaseSync, stream: ReturnType<typeof fakeStream>) => ({
     deviceId === DEV_A ? firstBadTxnSignature(KEY_A.publicKey, STREAM, txns) : 0,
   initialCursor: START,
   now: () => ++clock,
+  env: {},
   seal: seal(b, RB),
 });
 
@@ -167,7 +169,7 @@ describe('pullStream (S5-1)', () => {
     stream.append(authorSegment(a), 2);
     const r = await pullStream(b, pullOpts(b, stream));
     expect(r).toMatchObject({ segments: 3, staged: 3, redelivered: 0, after: 3, head: 3 });
-    expect(r.apply.applied).toBe(3);
+    expect(r.apply?.applied).toBe(3);
     expect(b.prepare("SELECT priority FROM tasks_tasks WHERE id = 'T1'").get()).toEqual({
       priority: 'high',
     });
@@ -227,5 +229,18 @@ describe('pullStream (S5-1)', () => {
     stream.append(Buffer.from('not a segment'), 0);
     await expect(pullStream(b, pullOpts(b, stream))).rejects.toThrow(/not a ledger segment/);
     expect(readStreamCursor(b, STREAM)).toBeNull();
+  });
+
+  it('refuses with sync.pull off: nothing pulled, nothing staged', async () => {
+    const a = await store('a');
+    const b = await store('b');
+    const stream = fakeStream();
+    write(a, addTask('T1'));
+    stream.append(authorSegment(a), 0);
+    setSyncFlag(b, 'sync.pull', false, { schemaRoot: SYNC_SCHEMA });
+    const r = await pullStream(b, pullOpts(b, stream));
+    expect(r).toMatchObject({ refused: 'sync.pull is off', segments: 0, apply: null });
+    expect(stream.pages).toBe(0);
+    expect(n(b, 'SELECT count(*) AS n FROM _sync_inbox')).toBe(0);
   });
 });

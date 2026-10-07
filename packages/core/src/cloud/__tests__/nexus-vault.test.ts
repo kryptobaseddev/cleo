@@ -5138,10 +5138,13 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     });
     const pushed = await on(m, () => pushSyncStream(vopts(m, { allowUnreleased: true })));
     expect(pushed.pushed).toBe(1);
+    await on(m, async () => {
+      setSyncFlag(await storeOf(dbPath), 'sync.pull', true, { allowUnreleased: true });
+    });
     const pulled = await on(m, () => pullSyncStream(vopts(m)));
     expect(pulled).toMatchObject({ segments: 1, staged: 1, redelivered: 0, vaultDeltas: 0 });
     expect(pulled.after).toBe(pushed.lastServerSeq);
-    expect(pulled.apply.applied).toBe(1);
+    expect(pulled.apply?.applied).toBe(1);
     await on(m, async () => {
       const db = await storeOf(dbPath);
       // The own echo was sequenced (§3.5): its transaction is no longer unsequenced.

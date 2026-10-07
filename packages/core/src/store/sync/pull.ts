@@ -36,6 +36,7 @@ import type { TableScope } from '@cleocode/contracts';
 import { LedgerTxn } from '@cleocode/contracts/ledger';
 import { type ApplyReport, type ApplyStagedOptions, applyStagedTxns } from './apply/applier.js';
 import { withImmediateTransaction } from './clock-store.js';
+import { isSyncFlagOn } from './flags.js';
 import { stageTxns } from './inbox.js';
 import { hasTable } from './schema.js';
 
@@ -90,11 +91,15 @@ export interface PullStreamOptions {
   readonly seal: ApplyStagedOptions['seal'];
   /** Applier options passed through (pages, budget). */
   readonly apply?: Partial<Pick<ApplyStagedOptions, 'pageOps' | 'pageMs' | 'undoBudgetBytes'>>;
+  /** Environment for the `sync.pull` kill switch. @defaultValue process.env */
+  readonly env?: NodeJS.ProcessEnv;
 }
 
 /** What {@link pullStream} did. */
 export interface PullStreamReport {
   readonly stream: string;
+  /** Why nothing was pulled (`sync.pull` off), or null. */
+  readonly refused: string | null;
   /** Segments received, vault deltas passed over, transactions staged, re-deliveries skipped. */
   readonly segments: number;
   readonly vaultDeltas: number;
@@ -103,7 +108,8 @@ export interface PullStreamReport {
   /** The stream position the store has staged up to, and the server's head. */
   readonly after: number;
   readonly head: number;
-  readonly apply: ApplyReport;
+  /** What the applier did, or null when the pull was refused. */
+  readonly apply: ApplyReport | null;
 }
 
 /** A segment the store refuses to stage (a malformed body or a bad transaction signature). */
@@ -169,6 +175,19 @@ export async function pullStream(
   o: PullStreamOptions,
 ): Promise<PullStreamReport> {
   const now = o.now ?? Date.now;
+  if (!isSyncFlagOn(db, 'sync.pull', o.env ?? process.env)) {
+    return {
+      stream: o.stream,
+      refused: 'sync.pull is off',
+      segments: 0,
+      vaultDeltas: 0,
+      staged: 0,
+      redelivered: 0,
+      after: readStreamCursor(db, o.stream)?.after ?? o.initialCursor.after,
+      head: 0,
+      apply: null,
+    };
+  }
   let cursor = readStreamCursor(db, o.stream) ?? o.initialCursor;
   let segments = 0;
   let vaultDeltas = 0;
@@ -239,6 +258,7 @@ export async function pullStream(
   });
   return {
     stream: o.stream,
+    refused: null,
     segments,
     vaultDeltas,
     staged,
