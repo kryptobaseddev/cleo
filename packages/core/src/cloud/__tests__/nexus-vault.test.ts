@@ -5653,6 +5653,13 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     // The remedy works: B restores the journal checkpoint, joins, and holds A's folded change.
     const restored = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull', force: true })));
     expect(restored.status).toBe('restored');
+    // The placed store is a new instance bound to a new replica (T13109); `cleo cloud pull`
+    // relinks it (the CLI's relink), which this machine helper does by hand.
+    const rebound = restored.replica?.current;
+    expect(rebound).toBeDefined();
+    b.replicaId = rebound ?? '';
+    fake.replicas.get(REMOTE_PROJECT)?.set(b.replicaId, DEVICE_B);
+    link(b);
     expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
       'joined',
     );
