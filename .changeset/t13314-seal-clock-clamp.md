@@ -12,4 +12,6 @@ wins every last-writer-wins race on every device.
 - Each push now records the server's clock offset and when it was observed (`sync.server_clock` in `_sync_meta`).
 - The sealer stamps each op no later than the server's estimated date plus `MAX_DRIFT` (5 minutes) when that observation is
   under 24 hours old. Without a recent observation, sealing is unclamped, as before.
+- If this device's clock is now earlier than when the offset was observed, the clock was set back since. That is the
+  correction of a clock that ran ahead, so the old offset is dropped rather than stamping seals in the past.
 - HLCs stay monotonic. The clamp only bounds the physical candidate, and the counter still orders ops.

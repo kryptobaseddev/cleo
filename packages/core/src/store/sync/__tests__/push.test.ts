@@ -236,7 +236,7 @@ describe('pushStream (S4-2)', () => {
     }
   });
 
-  it('a server date older than 24 h, or none, leaves sealing unclamped (T13314)', async () => {
+  it('a server date older than 24 h, one from before a clock set back, or none, leaves sealing unclamped (T13314)', async () => {
     const { db, replica } = await pushing();
     const stampedAhead = (id: string) => {
       write(db, addTask(id));
@@ -278,6 +278,18 @@ describe('pushStream (S4-2)', () => {
     const second = stampedAhead('T2');
     seal();
     expect(maxPhys()).toBe(second);
+    // One observed after now: this clock was set back since (a correction), so the
+    // stale negative offset must not stamp seals in the past.
+    db.prepare(
+      'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    ).run(
+      SERVER_CLOCK_KEY,
+      JSON.stringify({ offsetMs: -3_600_000, atMs: clock + 3_600_000 }),
+      new Date(clock).toISOString(),
+    );
+    const third = stampedAhead('T3');
+    seal();
+    expect(maxPhys()).toBe(third);
   });
 
   it('a server ahead of the store (restored or copied) is refused before anything is sealed or sent', async () => {

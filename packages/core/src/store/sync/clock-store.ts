@@ -51,8 +51,10 @@ const ServerClockJson = z.object({ offsetMs: z.number(), atMs: z.number() }).str
 /**
  * The highest physical candidate a seal may use now (journal spec §1.3, local
  * clock ahead): the server's date, estimated from the last observed offset,
- * plus `MAX_DRIFT`. Null when no server date from the last 24 h is known (or
- * the record is unreadable): sealing is then unclamped. Read-only.
+ * plus `MAX_DRIFT`. Null when no server date from the last 24 h is known, the
+ * record is unreadable, or this clock was set back since the observation (a
+ * corrected clock: the offset no longer holds): sealing is then unclamped.
+ * Read-only.
  *
  * @param db - The store.
  * @param nowMs - This device's clock.
@@ -76,7 +78,11 @@ export function sealWallCeiling(
   } catch {
     return null;
   }
-  if (Math.abs(nowMs - parsed.atMs) > SERVER_CLOCK_TTL_MS) return null;
+  // A clock now earlier than when the offset was observed was set back since
+  // (the correction of a clock that ran ahead): the offset is stale, and
+  // using it would stamp seals in the past. Wait for the next server date.
+  if (nowMs < parsed.atMs) return null;
+  if (nowMs - parsed.atMs > SERVER_CLOCK_TTL_MS) return null;
   return nowMs + parsed.offsetMs + maxDriftMs;
 }
 
