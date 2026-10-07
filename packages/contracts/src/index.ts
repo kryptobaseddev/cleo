@@ -514,6 +514,7 @@ export type {
   SagaAuditResult,
   SagaAuditViolation,
   SagaAuditViolationKind,
+  SupersededStoreBareAccount,
   SupersededStoreConflict,
   SupersededStoreIdRemap,
   SupersededStoreReconcileOutcome,

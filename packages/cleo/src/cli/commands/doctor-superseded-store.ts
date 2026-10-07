@@ -34,7 +34,10 @@
 
 import { scanSupersededStores } from '@cleocode/core/doctor/superseded-store.js';
 import { getProjectRoot } from '@cleocode/core/project-scope';
-import { reconcileSupersededStores } from '@cleocode/core/store/exodus/index.js';
+import {
+  reconcileSupersededStores,
+  rollbackSupersededReconcile,
+} from '@cleocode/core/store/exodus/index.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
@@ -75,15 +78,61 @@ export const doctorSupersededStoreCommand = defineCommand({
       description:
         'With --reconcile: report per-table counts and what would be copied; write nothing',
     },
+    'bare-strands': {
+      type: 'boolean',
+      description:
+        'With --reconcile, for a project already running on cleo.db: copy the bare legacy rows ' +
+        'of cleo.db itself that its prefixed tables lack (a task whose id a newer task took is ' +
+        'recovered under a new id). Never overwrites a live row; skips and lists rows that are, ' +
+        'or point at, a deleted task or one that exists nowhere. Plans only unless --apply.',
+    },
+    apply: {
+      type: 'boolean',
+      description:
+        'With --reconcile --bare-strands: write. Snapshots cleo.db first and records a receipt ' +
+        'that --rollback can undo.',
+    },
+    rollback: {
+      type: 'string',
+      description:
+        'Undo a reconciled run from its receipt: the run directory (exodus-reconcile-<iso> under ' +
+        '.cleo). Refused if any row the run inserted has changed since.',
+    },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },
     quiet: { type: 'boolean', description: 'Suppress non-essential output' },
   },
   async run({ args }) {
+    if (typeof args.rollback === 'string' && args.rollback !== '') {
+      try {
+        const undone = await rollbackSupersededReconcile(getProjectRoot(), args.rollback);
+        cliOutput(
+          { kind: 'generic', ...undone },
+          {
+            command: 'doctor',
+            operation: 'doctor.superseded-store.rollback',
+            message: `reverted ${undone.rowsReverted} row(s) inserted by ${undone.runDir}`,
+          },
+        );
+      } catch (error) {
+        cliError(
+          error instanceof Error ? error.message : String(error),
+          'E_RECONCILE_ROLLBACK_REFUSED',
+          {
+            fix: 'Nothing was reverted. Name a reconciled run directory; a row changed since the run cannot be reverted automatically.',
+          },
+        );
+        process.exitCode = 1;
+      }
+      return;
+    }
     if (args.reconcile === true) {
+      const bareStrands = args['bare-strands'] === true;
       const receipt = await reconcileSupersededStores(getProjectRoot(), {
-        dryRun: args['dry-run'] === true,
+        // Bare strands plan by default (T13309); --apply writes.
+        dryRun: args['dry-run'] === true || (bareStrands && args.apply !== true),
         additive: args.additive === true,
+        bareStrands,
       });
       if (receipt.outcome === 'refused') {
         cliError(receipt.reason, 'E_RECONCILE_REFUSED', {

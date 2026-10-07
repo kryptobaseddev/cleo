@@ -221,3 +221,9 @@ export interface ExodusRecoveryResult {
     error?: string;
   }>;
 }
+
+/** Logical source name for the live store's bare task-core family (full mode). */
+export const BARE_SOURCE_NAME = 'tasks (cleo.db bare task-core)';
+
+/** Logical source name for the live store's stranded bare rows (bare-strands mode). */
+export const BARE_STRANDS_SOURCE_NAME = 'tasks (cleo.db bare strands)';

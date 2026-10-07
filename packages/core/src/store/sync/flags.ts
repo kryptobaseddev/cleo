@@ -13,8 +13,11 @@
  * @module store/sync/flags
  */
 
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type { TableScope } from '@cleocode/contracts';
+import type { SupersededStoreBareAccount, TableScope } from '@cleocode/contracts';
 import { legacyRowProjection } from '../exodus/column-transforms.js';
 import { resolveConsolidatedTableName } from '../exodus/table-name-map.js';
 import {
@@ -118,8 +121,8 @@ export function syncSetTables(scope: TableScope): string[] {
 /** The remedy {@link LegacyOnlyStoreError} names while the store is a full strand. */
 export const LEGACY_ONLY_REMEDY = 'cleo doctor superseded-store --reconcile';
 
-/** The task extending the reconcile to partial strands (T13225). */
-export const PARTIAL_STRAND_FOLLOW_UP = 'T13309';
+/** The remedy for a partial strand: plan, then add `--apply` (T13309). */
+export const BARE_STRANDS_REMEDY = 'cleo doctor superseded-store --reconcile --bare-strands';
 
 /**
  * One bare legacy table holding rows its sync-set twin lacks (T13224, T13225).
@@ -154,6 +157,11 @@ export interface LegacyStrand {
  * was never carried; the one exception, a row a reconcile copied that the
  * runtime later deleted, is the follow-up's to tell apart (T13309).
  *
+ * A bare table a `bare-strands` reconcile settled (its receipt accounts for
+ * the table's rows by {@link bareTableDigest}, and the table has not changed
+ * since) is not a strand: the run copied, re-pointed or deliberately skipped
+ * every row, and listed the skipped ones (T13309).
+ *
  * @returns One entry per stranded pair; empty when the journal sees every row.
  */
 export function legacyStrands(db: DatabaseSync): LegacyStrand[] {
@@ -165,6 +173,7 @@ export function legacyStrands(db: DatabaseSync): LegacyStrand[] {
   ).map((t) => t.name);
   const present = new Set(tables);
   const strands: LegacyStrand[] = [];
+  let accounted: readonly SupersededStoreBareAccount[] | null = null;
   for (const bare of tables) {
     if (syncSet.has(bare)) continue;
     const target = resolveConsolidatedTableName('tasks', bare);
@@ -173,9 +182,11 @@ export function legacyStrands(db: DatabaseSync): LegacyStrand[] {
     if (!syncSet.has(table) || !present.has(table) || !hasRows(db, bare)) continue;
     const missing = hasRows(db, table) ? missingByKey(db, bare, table) : countRows(db, bare);
     const shadowed = bare === 'tasks' && table === 'tasks_tasks' ? shadowedTasks(db) : 0;
-    if ((missing ?? 0) > 0 || shadowed > 0) {
-      strands.push({ bareTable: bare, table, missing: missing ?? 0, shadowed });
-    }
+    if ((missing ?? 0) === 0 && shadowed === 0) continue;
+    // A bare-strands reconcile that settled this table, unchanged since.
+    accounted ??= reconciledBareAccounts(db);
+    if (isAccounted(db, bare, accounted)) continue;
+    strands.push({ bareTable: bare, table, missing: missing ?? 0, shadowed });
   }
   return strands;
 }
@@ -186,9 +197,9 @@ export function isLegacyOnlyStore(db: DatabaseSync): boolean {
 }
 
 /**
- * The remedy for `strands`: the reconcile while `tasks_tasks` is empty (it
- * copies the bare family only then), otherwise none yet ({@link
- * PARTIAL_STRAND_FOLLOW_UP}).
+ * The remedy for `strands`: the full reconcile while `tasks_tasks` is empty
+ * (it copies the bare family whole then), otherwise the bare-strands
+ * reconcile ({@link BARE_STRANDS_REMEDY}).
  */
 export function legacyStrandRemedy(db: DatabaseSync, strands: readonly LegacyStrand[]): string {
   const counts = strands
@@ -202,9 +213,8 @@ export function legacyStrandRemedy(db: DatabaseSync, strands: readonly LegacyStr
     return `Stranded bare rows (${counts}). Run \`${LEGACY_ONLY_REMEDY}\` first.`;
   }
   return (
-    `Stranded bare rows (${counts}). \`${LEGACY_ONLY_REMEDY}\` cannot yet copy bare rows ` +
-    `into a populated store; ${PARTIAL_STRAND_FOLLOW_UP} adds that. Keep the bare tables ` +
-    `until then.`
+    `Stranded bare rows (${counts}). Run \`${BARE_STRANDS_REMEDY}\` to see what it would ` +
+    'copy and skip, then add `--apply`.'
   );
 }
 
@@ -223,6 +233,103 @@ export class LegacyOnlyStoreError extends Error {
     );
     this.name = 'LegacyOnlyStoreError';
   }
+}
+
+/** Prefix of a reconcile's run directory under `.cleo/` (T12319). */
+const RECONCILE_RUN_PREFIX = 'exodus-reconcile-';
+
+/** The receipt file in a reconcile run directory. */
+const RECONCILE_RECEIPT_FILE = 'reconcile-receipt.json';
+
+/**
+ * The row count and key digest of a bare legacy table, by which a
+ * `bare-strands` reconcile receipt accounts for it (T13309). Its primary-key
+ * values are hashed in order — the rows a strand is judged by — so a row added
+ * since changes it, while a column the runtime adds to the dead table on open
+ * (its legacy upgrade does) does not. A keyless table hashes every column.
+ *
+ * @param db - Connection holding the table.
+ * @param schema - Schema the table lives in, e.g. `main`.
+ * @param table - The bare table.
+ */
+export function bareTableDigest(
+  db: DatabaseSync,
+  schema: string,
+  table: string,
+): SupersededStoreBareAccount {
+  const info = db.prepare(`PRAGMA "${schema}".table_info("${table}")`).all() as Array<{
+    name: string;
+    pk: number;
+  }>;
+  const pk = info
+    .filter((c) => c.pk > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((c) => c.name);
+  const cols = (pk.length > 0 ? pk : info.map((c) => c.name)).map((c) => `quote("${c}")`);
+  const hash = createHash('sha256');
+  let rows = 0;
+  for (const row of db
+    .prepare(`SELECT ${cols.join(" || ',' || ")} AS r FROM "${schema}"."${table}" ORDER BY 1`)
+    .iterate() as Iterable<{ r: string }>) {
+    hash.update(`${row.r}\n`);
+    rows++;
+  }
+  return { table, rows, digest: hash.digest('hex') };
+}
+
+/**
+ * Bare tables settled by `reconciled` bare-strands receipts beside the store
+ * (`<dir of cleo.db>/exodus-reconcile-*`), newest last. Unreadable or malformed
+ * receipts are skipped.
+ */
+function reconciledBareAccounts(db: DatabaseSync): SupersededStoreBareAccount[] {
+  const file = (
+    db.prepare('PRAGMA database_list').all() as Array<{ name: string; file: string }>
+  ).find((d) => d.name === 'main')?.file;
+  if (!file) return [];
+  const dir = dirname(file);
+  if (!existsSync(dir)) return [];
+  const out: SupersededStoreBareAccount[] = [];
+  for (const run of readdirSync(dir)
+    .filter((n) => n.startsWith(RECONCILE_RUN_PREFIX))
+    .sort()) {
+    let receipt: unknown;
+    try {
+      receipt = JSON.parse(readFileSync(join(dir, run, RECONCILE_RECEIPT_FILE), 'utf8'));
+    } catch {
+      continue;
+    }
+    if (!isRecord(receipt) || receipt.outcome !== 'reconciled' || receipt.mode !== 'bare-strands')
+      continue;
+    for (const a of Array.isArray(receipt.accounted) ? receipt.accounted : []) {
+      if (
+        isRecord(a) &&
+        typeof a.table === 'string' &&
+        typeof a.rows === 'number' &&
+        typeof a.digest === 'string'
+      ) {
+        out.push({ table: a.table, rows: a.rows, digest: a.digest });
+      }
+    }
+  }
+  return out;
+}
+
+/** Whether `bare` is unchanged since a receipt in `accounts` settled it. */
+function isAccounted(
+  db: DatabaseSync,
+  bare: string,
+  accounts: readonly SupersededStoreBareAccount[],
+): boolean {
+  const mine = accounts.filter((a) => a.table === bare);
+  if (mine.length === 0) return false;
+  const now = bareTableDigest(db, 'main', bare);
+  return mine.some((a) => a.rows === now.rows && a.digest === now.digest);
+}
+
+/** Whether `value` is a plain object. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** Whether `table` holds at least one row. */

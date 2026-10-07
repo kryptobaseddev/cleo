@@ -37,11 +37,11 @@ import {
   syncSetTables,
 } from '../capture.js';
 import {
+  BARE_STRANDS_REMEDY,
   isLegacyOnlyStore,
   LEGACY_ONLY_REMEDY,
   LegacyOnlyStoreError,
   legacyStrands,
-  PARTIAL_STRAND_FOLLOW_UP,
   readSyncFlags,
   setSyncFlag,
 } from '../flags.js';
@@ -890,7 +890,7 @@ describe('a legacy-only store refuses sync (T13224)', () => {
     expect(() => setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA })).not.toThrow();
   });
 
-  it('a partial strand (a bare row never carried) refuses, naming the follow-up, not the reconcile', async () => {
+  it('a partial strand (a bare row never carried) refuses, naming the bare-strands reconcile, not the full one', async () => {
     const db = await openStore();
     strandRows(db);
     carry(db, 'T1');
@@ -907,8 +907,7 @@ describe('a legacy-only store refuses sync (T13224)', () => {
     })();
     expect(err).toBeInstanceOf(LegacyOnlyStoreError);
     expect(String(err)).toContain('tasks → tasks_tasks: 1 missing');
-    expect(String(err)).toContain(PARTIAL_STRAND_FOLLOW_UP);
-    expect(String(err)).toContain('cannot yet copy');
+    expect(String(err)).toContain(BARE_STRANDS_REMEDY);
     expect(readSyncFlags(db)['sync.capture']).toBe(false);
   });
 

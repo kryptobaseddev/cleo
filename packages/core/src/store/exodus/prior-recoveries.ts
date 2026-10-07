@@ -51,8 +51,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Every recovery recorded by a `reconciled` full-mode receipt under `cleoDir`,
- * oldest receipt first (receipt directories sort by their ISO timestamp).
+ * Every recovery recorded by a `reconciled` full-mode or bare-strands receipt
+ * under `cleoDir`, oldest receipt first (receipt directories sort by their ISO
+ * timestamp).
  * Unreadable or malformed receipts are skipped.
  *
  * @param cleoDir - The project's `.cleo` directory.
@@ -76,7 +77,12 @@ export function priorRecoveries(cleoDir: string): PriorRecovery[] {
     } catch {
       continue;
     }
-    if (!isRecord(receipt) || receipt.outcome !== 'reconciled' || receipt.mode !== 'full') {
+    // Bare-strands runs renumber the live store's own bare tasks the same way (T13309).
+    if (
+      !isRecord(receipt) ||
+      receipt.outcome !== 'reconciled' ||
+      (receipt.mode !== 'full' && receipt.mode !== 'bare-strands')
+    ) {
       continue;
     }
     const remaps = Array.isArray(receipt.remaps) ? receipt.remaps : [];
