@@ -610,6 +610,41 @@ describe('held rows (§3.5 Rule 5)', () => {
     converged([a, b, c]);
   });
 
+  it('what a held insert kept round-trips exactly: ±Infinity and 64-bit integers (T13272)', async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(a, write(a, "UPDATE tasks_tasks SET type = 'epic' WHERE uid = 'x'"));
+    for (const r of [a, b, c]) sync(r);
+    // A local table outside the sync set, cascading from tasks.
+    a.db.exec(
+      'CREATE TABLE local_measure (id INTEGER PRIMARY KEY, task_id TEXT REFERENCES tasks_tasks(id) ON DELETE CASCADE, r REAL, big INTEGER)',
+    );
+    write(a, addTask('T903', 'k', 'X'));
+    a.db.exec(
+      "INSERT INTO local_measure (id, task_id, r, big) VALUES (1, 'T903', 9e999, 9007199254740993), (2, 'T903', -9e999, -1)",
+    );
+    const measures = () => {
+      const st = a.db.prepare('SELECT id, r, big FROM local_measure ORDER BY id');
+      st.setReadBigInts(true);
+      return (st.all() as Array<{ id: bigint; r: number; big: bigint }>).map((m) => ({
+        id: Number(m.id),
+        r: String(m.r),
+        big: String(m.big),
+      }));
+    };
+    const all = [
+      { id: 1, r: 'Infinity', big: '9007199254740993' },
+      { id: 2, r: '-Infinity', big: '-1' },
+    ];
+    expect(measures()).toEqual(all);
+    publish(b, write(b, "UPDATE tasks_tasks SET type = 'task' WHERE uid = 'x'"));
+    sync(c);
+    publish(c, write(c, "UPDATE tasks_tasks SET type = 'epic' WHERE uid = 'x'"));
+    sync(a, published.length - 1);
+    expect(measures(), 'held: its children went with the rewind').toEqual([]);
+    sync(a);
+    expect(measures(), 'the kept snapshot lost precision').toEqual(all);
+  });
+
   it("a held txn's echo is decided in a rebase even when the touch index lost its foreign touch", async () => {
     const [a, b] = await threeReplicas();
     publish(a, write(a, "UPDATE tasks_tasks SET type = 'epic' WHERE uid = 'x'"));
@@ -640,6 +675,150 @@ describe('held rows (§3.5 Rule 5)', () => {
     publish(a, la);
     expect(sync(a)).toMatchObject({ rebased: 1 });
     expect(ledgerBalanced(a)).toBe(0);
+  });
+});
+
+describe('footprints widened by what guards read (R7-6)', () => {
+  const untyped = (id: string, uid: string) =>
+    `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('${id}', 'title ${id}', NULL, 'pending', 'medium', '${uid}', 'fp-${uid}')`;
+
+  it('a parent cycle closed through rows neither txn names converges (parent chain)', async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(
+      a,
+      write(
+        a,
+        `${untyped('TA', 'ta')}; ${untyped('TB', 'tb')}; ${untyped('TC', 'tc')}; ${untyped('TD', 'td')};
+         UPDATE tasks_tasks SET parent_id = 'TC' WHERE id = 'TB';
+         UPDATE tasks_tasks SET parent_id = 'TA' WHERE id = 'TD'`,
+      ),
+    );
+    for (const r of [a, b, c]) sync(r);
+    // A: TA under TB. B: TC under TD. Together: TA > TB > TC > TD > TA.
+    const la = write(a, "UPDATE tasks_tasks SET parent_id = 'TB' WHERE id = 'TA'");
+    publish(b, write(b, "UPDATE tasks_tasks SET parent_id = 'TD' WHERE id = 'TC'"));
+    expect(sync(a), 'the foreign edge met the local one only through the chain').toMatchObject({
+      rebased: 1,
+    });
+    publish(a, la);
+    for (const r of [a, b, c]) sync(r);
+    expect(outcome(a, la)).toBe('void');
+    converged([a, b, c]);
+  });
+
+  it('two inserts colliding on a UNIQUE key (idempotency_key) converge', async () => {
+    const [a, b, c] = await threeReplicas();
+    const keyed = (id: string, uid: string) =>
+      `${addTask(id, uid)}; UPDATE tasks_tasks SET idempotency_key = 'same-request' WHERE id = '${id}'`;
+    const la = write(a, keyed('TZ', 'tz'));
+    publish(b, write(b, keyed('TW', 'tw')));
+    expect(sync(a)).toMatchObject({ rebased: 1 });
+    publish(a, la);
+    for (const r of [a, b, c]) sync(r);
+    expect(outcome(a, la)).toBe('void');
+    expect(row(a, 'tz')).toBeUndefined();
+    converged([a, b, c]);
+  });
+
+  it('an append-only row in a rewound txn is never rewound or replayed', async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(
+      a,
+      write(
+        a,
+        "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, uid, birth_fp) VALUES ('AC1', 'X', 1, 'criterion', 'ac1', 'fp-ac1')",
+      ),
+    );
+    for (const r of [a, b, c]) sync(r);
+    const la = write(
+      a,
+      `INSERT INTO tasks_task_acceptance_criteria_history (ac_id, previous_text, reason, uid, birth_fp, ac_uid) VALUES ('AC1', 'old', 'edit', 'h1', 'fp-h1', 'ac1');
+       UPDATE tasks_tasks SET priority = 'high' WHERE uid = 'y'`,
+    );
+    const rowid = () =>
+      a.db
+        .prepare("SELECT rowid AS r FROM tasks_task_acceptance_criteria_history WHERE uid = 'h1'")
+        .get();
+    const before = rowid();
+    publish(b, write(b, "UPDATE tasks_tasks SET title = 'from B' WHERE uid = 'y'"));
+    expect(sync(a)).toMatchObject({ rebased: 1 });
+    expect(rowid(), 'the append-only row was deleted and re-inserted').toEqual(before);
+    const replayed = a.db
+      .prepare(
+        'SELECT tbl, values_json IS NOT NULL AS replayed FROM _sync_row_undo WHERE txn = ? ORDER BY idx',
+      )
+      .all(la) as Array<{ tbl: string; replayed: number }>;
+    expect(replayed).toEqual([
+      { tbl: 'tasks_task_acceptance_criteria_history', replayed: 0 },
+      { tbl: 'tasks_tasks', replayed: 1 },
+    ]);
+    publish(a, la);
+    for (const r of [a, b, c]) sync(r);
+    converged([a, b, c]);
+  });
+});
+
+describe('natural-key rows (T13273)', () => {
+  it("a dependency insert's own echo applies on its origin and is sequenced", async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(a, write(a, `${addTask('TA', 'ta')}; ${addTask('TB', 'tb')}`));
+    for (const r of [a, b, c]) sync(r);
+    const la = write(
+      a,
+      "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('TA', 'TB')",
+    );
+    publish(a, la);
+    expect(sync(a), 'the echo of an unfilled natural row voided on its origin').toMatchObject({
+      applied: 1,
+      void: 0,
+      conflicts: 0,
+    });
+    expect(outcome(a, la)).toBe('applied');
+    const sealed = n(a.db, 'SELECT count(*) AS n FROM _sync_txn');
+    seal(a);
+    expect(n(a.db, 'SELECT count(*) AS n FROM _sync_txn'), 'filling the uid was journaled').toBe(
+      sealed,
+    );
+    sync(b);
+    sync(c);
+    const deps = (r: Replica) =>
+      r.db
+        .prepare('SELECT task_id, depends_on, uid FROM tasks_task_dependencies ORDER BY 1, 2')
+        .all();
+    expect(deps(b)).toEqual(deps(a));
+    expect(deps(c)).toEqual(deps(a));
+  });
+
+  it('a dependency cycle closed through edges neither txn names converges (closure)', async () => {
+    const [a, b, c] = await threeReplicas();
+    publish(
+      a,
+      write(
+        a,
+        `${addTask('TA', 'ta')}; ${addTask('TB', 'tb')}; ${addTask('TC', 'tc')}; ${addTask('TD', 'td')};
+         INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('TB', 'TC'), ('TD', 'TA')`,
+      ),
+    );
+    for (const r of [a, b, c]) sync(r);
+    const la = write(
+      a,
+      "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('TA', 'TB')",
+    );
+    publish(
+      b,
+      write(b, "INSERT INTO tasks_task_dependencies (task_id, depends_on) VALUES ('TC', 'TD')"),
+    );
+    expect(sync(a), 'the foreign edge met the local one only through the closure').toMatchObject({
+      rebased: 1,
+    });
+    publish(a, la);
+    for (const r of [a, b, c]) sync(r);
+    expect(outcome(a, la)).toBe('void');
+    const deps = (r: Replica) =>
+      r.db.prepare('SELECT task_id, depends_on FROM tasks_task_dependencies ORDER BY 1, 2').all();
+    expect(deps(b)).toEqual(deps(a));
+    expect(deps(c)).toEqual(deps(a));
+    converged([a, b, c]);
   });
 });
 

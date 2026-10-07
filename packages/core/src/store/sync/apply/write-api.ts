@@ -153,6 +153,21 @@ export interface ApplyWriteApi {
    */
   deleteRow(table: string, uid: string): boolean;
   /**
+   * Give a natural-key row whose uid was never filled its uid (T13273). A
+   * natural row's uid is a function of its key, so the sealer journals it
+   * before the open-time identity fill writes it to the row; until then a
+   * lookup by uid misses the row. Finds the row with no uid whose local key
+   * equals `localKey` and writes `uid` into it, uncaptured (a derived value,
+   * as the fill writes it).
+   *
+   * @returns Whether a row was given the uid.
+   */
+  adoptNaturalRow(
+    table: string,
+    uid: string,
+    localKey: Readonly<Record<string, LedgerWireValue>>,
+  ): boolean;
+  /**
    * Re-key a row (a K op): its uid, and its birth fingerprint when `newBfp`
    * is given. Records `*K` (enc = the new uid) and moves the row's meta and
    * typed-rule state to the new uid.
@@ -312,12 +327,14 @@ export function createApplyWriteApi(
     return cols;
   };
   /** Rows of `table` where `col = v`, with `rowid` when the table has one. */
-  const rowsWhere = (table: string, col: string, v: SQLInputValue) =>
-    db
-      .prepare(
-        `SELECT ${rowKeyColumns(table)[0] === 'rowid' ? 'rowid AS "rowid", ' : ''}* FROM main.${ident(table)} WHERE ${ident(col)} = ?`,
-      )
-      .all(v) as Array<Record<string, SQLInputValue>>;
+  // Integers are read as BigInt so a snapshot keeps every 64-bit value (T13272).
+  const rowsWhere = (table: string, col: string, v: SQLInputValue) => {
+    const st = db.prepare(
+      `SELECT ${rowKeyColumns(table)[0] === 'rowid' ? 'rowid AS "rowid", ' : ''}* FROM main.${ident(table)} WHERE ${ident(col)} = ?`,
+    );
+    st.setReadBigInts(true);
+    return st.all(v) as Array<Record<string, SQLInputValue>>;
+  };
   const collectDescendants = (
     table: string,
     row: Readonly<Record<string, SQLInputValue>>,
@@ -476,6 +493,22 @@ export function createApplyWriteApi(
         ...nulled.map((c) => ({ tbl: c.key.child, uid: c.uid, col: c.key.from, enc: 'NULL' })),
       ]);
       return true;
+    },
+
+    adoptNaturalRow(table, uid, localKey) {
+      assertActive();
+      const def = defOf(table);
+      if (rowExists(table, uid) || def.key.some((k) => !(k in localKey))) return false;
+      // The uid is an identity column: capture never fires on it.
+      return (
+        Number(
+          db
+            .prepare(
+              `UPDATE main.${ident(table)} SET ${ident(UID_COLUMN)} = ? WHERE ${ident(UID_COLUMN)} IS NULL AND ${def.key.map((k) => `${ident(k)} IS ?`).join(' AND ')}`,
+            )
+            .run(uid, ...def.key.map((k) => wireToSql(localKey[k] as LedgerWireValue))).changes,
+        ) === 1
+      );
     },
 
     rekeyRow(table, uid, newUid, newBfp) {
