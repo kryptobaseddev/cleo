@@ -1570,7 +1570,7 @@ async function enableSyncPushImpl(
     throw vaultError(
       'E_NEXUS_SYNC_STREAM_JOURNALED',
       `${t.streamId} already carries the change journal: its head snapshot ${parent?.checkpointId} is a journal checkpoint`,
-      'nothing was cut; this store joins the journal by pulling it (`cleo cloud sync`, once pull ships)',
+      'nothing was cut; restore the journal checkpoint (`cleo cloud restore`), then join the stream with `cleo sync enable push` (T12999)',
     );
   }
   const { state: synced } = syncedState(conn, t, parent ? [parent] : [], head.headCheckpointId);
@@ -1850,14 +1850,25 @@ async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<
       'nothing was pulled; relink the project (`cleo project link`) so both name one replica',
     );
   }
+  // With sync.pull off, pullStream refuses at once: no network round trip.
+  if (!isSyncFlagOn(db, 'sync.pull')) {
+    return pullStream(db, {
+      scope: tableScopeOf(t),
+      stream: t.streamId,
+      replica: replicaId,
+      initialCursor: initialPullCursor(),
+      pull: async () => ({ segments: [], cursor: initialPullCursor(), head: 0 }),
+      verify: () => 0,
+      seal: () => {},
+    });
+  }
+  const head = await streamHead(conn, t.streamId);
+  const checkpoints = head.headCheckpointId ? await listCheckpoints(conn, t.streamId) : [];
   // A store with no pull position starts after the checkpoint it last synced
   // (the genesis it cut, or the snapshot it restored), seeded from its signed
   // replica map.
   let initialCursor = readStreamCursor(db, t.streamId);
-  // With sync.pull off, pullStream refuses before it needs a position.
-  if (initialCursor === null && isSyncFlagOn(db, 'sync.pull')) {
-    const head = await streamHead(conn, t.streamId);
-    const checkpoints = head.headCheckpointId ? await listCheckpoints(conn, t.streamId) : [];
+  if (initialCursor === null) {
     const { state: synced } = syncedState(conn, t, checkpoints, head.headCheckpointId);
     const from = checkpoints.find((c) => c.checkpointId === synced?.lastCheckpointId) ?? null;
     if (from === null) {
@@ -1867,14 +1878,34 @@ async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<
         'restore the stream (`cleo cloud restore`), or enable push (`cleo sync enable push`), first',
       );
     }
+    // T13306: a vault snapshot from before the stream's journal genesis. What
+    // the genesis device changed between that snapshot and its cut was folded
+    // into the genesis checkpoint, never sent as segments: pulling across it
+    // would silently diverge.
+    const genesis = isJournalSnapshot(from)
+      ? undefined
+      : checkpoints.find((c) => isJournalSnapshot(c) && c.coversSeq >= from.coversSeq);
+    if (genesis) {
+      throw vaultError(
+        'E_NEXUS_SYNC_REFUSED',
+        `${t.streamId} started its change journal at checkpoint ${genesis.checkpointId}, after the vault snapshot ${from.checkpointId} this store last synced: the changes folded into that journal checkpoint never travel as segments, so pulling from here would silently diverge`,
+        'nothing was pulled; restore the journal checkpoint first (`cleo cloud restore`), then join the stream with `cleo sync enable push` (T12999)',
+      );
+    }
     journal.verifyCheckpoint(from, key.signers);
     initialCursor = cursorFromCheckpoint(from);
   }
+  // Seen-txn rows past the latest verified checkpoint can no longer be re-delivered.
+  const headCheckpoint = checkpoints.find((c) => c.checkpointId === head.headCheckpointId) ?? null;
+  if (headCheckpoint) journal.verifyCheckpoint(headCheckpoint, key.signers);
+  const pruneSeenUpTo =
+    headCheckpoint === null ? null : Math.min(headCheckpoint.coversSeq, initialCursor.after);
   return pullStream(db, {
     scope: tableScopeOf(t),
     stream: t.streamId,
     replica: replicaId,
-    initialCursor: initialCursor ?? initialPullCursor(),
+    initialCursor,
+    pruneSeenUpTo,
     pull: async (cursor) => {
       const page = await journal.pull(
         {

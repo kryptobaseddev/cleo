@@ -11,8 +11,9 @@
  *   correction a vault push appended before the stream's genesis) carries no
  *   ops and is passed over;
  * - checks every transaction's signature against the segment's device key
- *   (§2.8); one bad signature refuses the segment, and the pull stops before
- *   staging anything of it;
+ *   (§2.8); one bad signature refuses the segment, and the pull stops there:
+ *   the segments before it are staged and applied, the segment and what
+ *   follows are not;
  * - skips every transaction id already staged from this stream
  *   (`_sync_seen_txn`): a re-delivered transaction is never staged twice, so
  *   a counter delta is never applied twice;
@@ -93,12 +94,22 @@ export interface PullStreamOptions {
   readonly apply?: Partial<Pick<ApplyStagedOptions, 'pageOps' | 'pageMs' | 'undoBudgetBytes'>>;
   /** Environment for the `sync.pull` kill switch. @defaultValue process.env */
   readonly env?: NodeJS.ProcessEnv;
+  /**
+   * Drop seen-txn rows first staged at or below this stream seq (the latest
+   * verified checkpoint's coversSeq), or null to keep every row.
+   */
+  readonly pruneSeenUpTo?: number | null;
 }
 
 /** What {@link pullStream} did. */
 export interface PullStreamReport {
   readonly stream: string;
-  /** Why nothing was pulled (`sync.pull` off), or null. */
+  /**
+   * Why the pull stopped short, or null: `sync.pull` off (nothing pulled), or
+   * a refused segment (a malformed body or a transaction its device did not
+   * sign), naming its seq, replica and device. Everything before a refused
+   * segment was staged and applied, and the cursor stops just before it.
+   */
   readonly refused: string | null;
   /** Segments received, vault deltas passed over, transactions staged, re-deliveries skipped. */
   readonly segments: number;
@@ -161,10 +172,61 @@ function decode(seg: PulledStreamSegment): LedgerTxn[] | null {
   return parsed.data;
 }
 
+/** A segment's transactions (null for a vault delta), or why it is refused. */
+function refusalOf(
+  seg: PulledStreamSegment,
+  verify: TxnVerifier,
+): { readonly txns: LedgerTxn[] | null } | string {
+  let txns: LedgerTxn[] | null;
+  try {
+    txns = decode(seg);
+  } catch (err) {
+    if (err instanceof SegmentRefusedError) return err.message;
+    throw err;
+  }
+  if (txns !== null) {
+    const bad = verify(seg.deviceId, txns);
+    if (bad !== null) {
+      return `segment ${seg.seq} of replica ${seg.replicaId}: transaction ${bad} is not signed by device ${seg.deviceId}`;
+    }
+  }
+  return { txns };
+}
+
+/** `cursor` advanced over `segs` (a page cut short by a refused segment). */
+function advance(cursor: StreamCursor, segs: readonly PulledStreamSegment[]): StreamCursor {
+  const replicas = { ...cursor.replicas };
+  for (const s of segs) replicas[s.replicaId] = { deviceId: s.deviceId, replicaSeq: s.replicaSeq };
+  return {
+    after: segs.at(-1)?.seq ?? cursor.after,
+    knowsAllReplicas: cursor.knowsAllReplicas,
+    replicas,
+  };
+}
+
+/**
+ * Drop the seen-txn rows of `stream` first staged at or below `seq`: past a
+ * verified checkpoint's coversSeq no segment re-delivers them (§3.1). Keeps
+ * `_sync_seen_txn` bounded.
+ *
+ * @param db - The store.
+ * @param stream - The stream.
+ * @param seq - The floor, inclusive.
+ * @returns How many rows were dropped.
+ */
+export function pruneSeenTxns(db: DatabaseSync, stream: string, seq: number): number {
+  if (!hasTable(db, '_sync_seen_txn')) return 0;
+  return Number(
+    db.prepare('DELETE FROM _sync_seen_txn WHERE stream = ? AND seq <= ?').run(stream, seq).changes,
+  );
+}
+
 /**
  * Pull and stage a stream's new segments, then apply (module docs). Must run
- * outside a transaction. A refused segment stops the pull with
- * {@link SegmentRefusedError} after the pages before it were staged.
+ * outside a transaction. A refused segment stops the pull: everything
+ * before it is staged and applied, the cursor stops just before it, and the
+ * report's `refused` names it (T13307), so the next pull reaches it again
+ * without re-staging anything.
  *
  * @param db - The store.
  * @param o - {@link PullStreamOptions}.
@@ -194,24 +256,34 @@ export async function pullStream(
   let staged = 0;
   let redelivered = 0;
   let head = cursor.after;
+  let refusedSegment: string | null = null;
+  // Seen-txn rows at or below the floor can no longer be re-delivered.
+  if (o.pruneSeenUpTo !== undefined && o.pruneSeenUpTo !== null) {
+    pruneSeenTxns(db, o.stream, o.pruneSeenUpTo);
+  }
   for (;;) {
     const page = await o.pull(cursor);
     head = page.head;
     const nowIso = new Date(now()).toISOString();
-    // Decode and verify the whole page before writing anything of it.
-    const decoded = page.segments.map((seg) => {
-      const txns = decode(seg);
-      if (txns !== null) {
-        const bad = o.verify(seg.deviceId, txns);
-        if (bad !== null) {
-          // @sync-invariant none:input-shape a transaction its device did not sign is never staged (§2.8)
-          throw new SegmentRefusedError(
-            `segment ${seg.seq} of replica ${seg.replicaId}: transaction ${bad} is not signed by device ${seg.deviceId}`,
-          );
-        }
+    // Decode and verify the page before writing anything of it, up to the
+    // first segment refused (T13307): what precedes it is staged and applied,
+    // the cursor stops just before it, and the refusal is reported.
+    const decoded: Array<{ seg: PulledStreamSegment; txns: LedgerTxn[] | null }> = [];
+    for (const seg of page.segments) {
+      const why = refusalOf(seg, o.verify);
+      if (typeof why === 'string') {
+        refusedSegment = why;
+        break;
       }
-      return { seg, txns };
-    });
+      decoded.push({ seg, txns: why.txns });
+    }
+    const pageCursor =
+      refusedSegment === null
+        ? page.cursor
+        : advance(
+            cursor,
+            decoded.map((d) => d.seg),
+          );
     withImmediateTransaction(db, () => {
       const seen = db.prepare(
         'INSERT INTO _sync_seen_txn (stream, txn, seq) VALUES (?, ?, ?) ON CONFLICT (stream, txn) DO NOTHING',
@@ -243,9 +315,10 @@ export async function pullStream(
       db.prepare(
         'INSERT INTO _sync_cursor (stream, cursor_json, updated_at) VALUES (?, ?, ?) ' +
           'ON CONFLICT (stream) DO UPDATE SET cursor_json = excluded.cursor_json, updated_at = excluded.updated_at',
-      ).run(o.stream, JSON.stringify(page.cursor), nowIso);
+      ).run(o.stream, JSON.stringify(pageCursor), nowIso);
     });
-    cursor = page.cursor;
+    cursor = pageCursor;
+    if (refusedSegment !== null) break;
     if (page.segments.length === 0 || cursor.after >= page.head) break;
   }
   const apply = applyStagedTxns(db, {
@@ -258,7 +331,7 @@ export async function pullStream(
   });
   return {
     stream: o.stream,
-    refused: null,
+    refused: refusedSegment,
     segments,
     vaultDeltas,
     staged,
