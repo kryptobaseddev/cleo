@@ -11,6 +11,7 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
+import { z } from 'zod';
 import {
   encodeHlc,
   genesisHlc,
@@ -34,6 +35,50 @@ export const CLOCK_HEAL_SOURCES: ReadonlyArray<{ table: string; column: string }
   { table: '_sync_op', column: 'hlc' },
   { table: '_sync_row_meta', column: 'hlc' },
 ];
+
+/**
+ * `_sync_meta` key: the server's clock as push last observed it (§1.3), JSON
+ * `{offsetMs, atMs}` — `offsetMs` is the server's date minus this device's
+ * clock, `atMs` this device's clock when it was observed.
+ */
+export const SERVER_CLOCK_KEY = 'sync.server_clock';
+
+/** How long an observed server date bounds sealing (§1.3: "a server date from the last 24 h"). */
+export const SERVER_CLOCK_TTL_MS = 24 * 60 * 60 * 1000;
+
+const ServerClockJson = z.object({ offsetMs: z.number(), atMs: z.number() }).strict();
+
+/**
+ * The highest physical candidate a seal may use now (journal spec §1.3, local
+ * clock ahead): the server's date, estimated from the last observed offset,
+ * plus `MAX_DRIFT`. Null when no server date from the last 24 h is known (or
+ * the record is unreadable): sealing is then unclamped. Read-only.
+ *
+ * @param db - The store.
+ * @param nowMs - This device's clock.
+ * @param maxDriftMs - The bound; defaults to {@link MAX_DRIFT_MS}.
+ */
+export function sealWallCeiling(
+  db: DatabaseSync,
+  nowMs: number,
+  maxDriftMs: number = MAX_DRIFT_MS,
+): number | null {
+  if (!hasTable(db, '_sync_meta')) return null;
+  const row = db.prepare('SELECT value FROM _sync_meta WHERE key = ?').get(SERVER_CLOCK_KEY) as
+    | { value: string }
+    | undefined;
+  if (row === undefined) return null;
+  let parsed: z.infer<typeof ServerClockJson>;
+  try {
+    const r = ServerClockJson.safeParse(JSON.parse(row.value));
+    if (!r.success) return null;
+    parsed = r.data;
+  } catch {
+    return null;
+  }
+  if (Math.abs(nowMs - parsed.atMs) > SERVER_CLOCK_TTL_MS) return null;
+  return nowMs + parsed.offsetMs + maxDriftMs;
+}
 
 /** Offset of the replica id inside an encoded HLC (13 + 1 + 6 + 1). */
 const REPLICA_OFFSET = 21;

@@ -6,10 +6,11 @@
  * 1. the preconditions: `sync.push` on, the stream cut and its genesis
  *    checkpoint stored (`genesis_pending` clear), so no segment ever
  *    precedes the checkpoint it extends;
- * 2. the local-clock check: when this device's clock runs more than
- *    `MAX_DRIFT` ahead of the server's date, push pauses (persisted as
- *    `sync.clock_ahead` for `cleo doctor`), so future-stamped HLCs do not
- *    spread; local writes are never refused;
+ * 2. the local-clock check: the server's date is recorded for the sealer's
+ *    clamp (`sync.server_clock`, read by `sealWallCeiling`); when this
+ *    device's clock runs more than `MAX_DRIFT` ahead of it, push pauses
+ *    (persisted as `sync.clock_ahead` for `cleo doctor`), so future-stamped
+ *    HLCs do not spread; local writes are never refused;
  * 3. the rollback check: when the server already holds a later segment from
  *    this replica than the store has persisted, the store is behind (a
  *    restore or a copy) and must rebind (§1.5, §2.9); nothing is sent;
@@ -29,6 +30,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
+import { SERVER_CLOCK_KEY } from './clock-store.js';
 import { isSyncFlagOn } from './flags.js';
 import { genesisCutOf, genesisPending } from './genesis.js';
 import { storeHwm } from './replica.js';
@@ -117,15 +119,16 @@ const empty = (stream: string, fields: Partial<PushStreamReport>): PushStreamRep
 });
 
 /** Set or clear {@link CLOCK_AHEAD_KEY}. */
-function markClockAhead(db: DatabaseSync, value: string | null, atIso: string): void {
+/** Set (or, with null, clear) one of push's `_sync_meta` keys. */
+function setPushMeta(db: DatabaseSync, key: string, value: string | null, atIso: string): void {
   if (value === null) {
-    db.prepare('DELETE FROM _sync_meta WHERE key = ?').run(CLOCK_AHEAD_KEY);
+    db.prepare('DELETE FROM _sync_meta WHERE key = ?').run(key);
     return;
   }
   db.prepare(
     'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
       'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-  ).run(CLOCK_AHEAD_KEY, value, atIso);
+  ).run(key, value, atIso);
 }
 
 /**
@@ -157,14 +160,24 @@ export async function pushStream(
       refused: `${o.stream}'s genesis checkpoint is not stored yet: run \`cleo sync enable push\` again`,
     });
   }
-  const atIso = new Date(now()).toISOString();
-  // §1.3: a clock running ahead of the server's pauses push, never writes.
+  const nowMs = now();
+  const atIso = new Date(nowMs).toISOString();
+  // §1.3: the observed server date bounds what the sealer stamps
+  // (sealWallCeiling), and a clock running ahead of it pauses push, never writes.
+  if (o.serverOffsetMs !== null) {
+    setPushMeta(
+      db,
+      SERVER_CLOCK_KEY,
+      JSON.stringify({ offsetMs: o.serverOffsetMs, atMs: nowMs }),
+      atIso,
+    );
+  }
   const drift = o.serverOffsetMs === null ? 0 : -o.serverOffsetMs;
   if (drift > (o.maxDriftMs ?? MAX_DRIFT_MS)) {
-    markClockAhead(db, JSON.stringify({ driftMs: drift }), atIso);
+    setPushMeta(db, CLOCK_AHEAD_KEY, JSON.stringify({ driftMs: drift }), atIso);
     return empty(o.stream, { clockAhead: true });
   }
-  markClockAhead(db, null, atIso);
+  setPushMeta(db, CLOCK_AHEAD_KEY, null, atIso);
   // §1.5 / §2.9: the server is authoritative. A later segment there than this
   // store ever persisted means the store was restored or copied behind it.
   const local = storeHwm(db, o.replica)[o.stream] ?? null;

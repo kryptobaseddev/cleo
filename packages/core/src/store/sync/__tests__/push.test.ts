@@ -23,11 +23,14 @@ import {
   ROW_IDENTITY_RECIPE_KEY,
 } from '../../row-identity.js';
 import { finishCaptureFrame, openCaptureFrame, setCaptureEnabled } from '../capture.js';
+import { SERVER_CLOCK_KEY, SERVER_CLOCK_TTL_MS } from '../clock-store.js';
 import { setSyncFlag } from '../flags.js';
 import { completeGenesis, cutGenesis } from '../genesis.js';
+import { MAX_DRIFT_MS, parseHlc } from '../hlc.js';
 import { CLOCK_AHEAD_KEY, pushStream, type SegmentUploader } from '../push.js';
 import { ensureProjectReplica, storeHwm } from '../replica.js';
 import { ReplicaRegistry } from '../replica-registry.js';
+import { sealPending } from '../sealer.js';
 import type { PersistedSegment } from '../segments.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
@@ -208,6 +211,73 @@ describe('pushStream (S4-2)', () => {
     const ok = await pushStream(db, opts(replica, server));
     expect(ok).toMatchObject({ clockAhead: false, pushed: 1 });
     expect(n(db, 'SELECT count(*) AS n FROM _sync_meta WHERE key = ?', CLOCK_AHEAD_KEY)).toBe(0);
+  });
+
+  it("captures stamped while the clock ran ahead seal no later than the server's date plus MAX_DRIFT (T13314, §1.3)", async () => {
+    const { db, replica } = await pushing();
+    write(db, addTask('T1'));
+    // Stamped an hour ahead; the clock has since been put right.
+    db.exec('UPDATE _sync_capture SET at_ms = at_ms + 3600000');
+    const server = fakeServer();
+    const r = await pushStream(db, opts(replica, server, { serverOffsetMs: 0 }));
+    expect(r).toMatchObject({ clockAhead: false, pushed: 1 });
+    const observed = JSON.parse(
+      (
+        db.prepare('SELECT value FROM _sync_meta WHERE key = ?').get(SERVER_CLOCK_KEY) as {
+          value: string;
+        }
+      ).value,
+    ) as { offsetMs: number; atMs: number };
+    expect(observed.offsetMs).toBe(0);
+    const hlcs = db.prepare('SELECT hlc FROM _sync_op').all() as Array<{ hlc: string }>;
+    expect(hlcs.length).toBeGreaterThan(0);
+    for (const { hlc } of hlcs) {
+      expect(parseHlc(hlc).phys).toBeLessThanOrEqual(clock + MAX_DRIFT_MS);
+    }
+  });
+
+  it('a server date older than 24 h, or none, leaves sealing unclamped (T13314)', async () => {
+    const { db, replica } = await pushing();
+    const stampedAhead = (id: string) => {
+      write(db, addTask(id));
+      db.exec("UPDATE _sync_capture SET at_ms = at_ms + 3600000 WHERE state = 'live'");
+      return Number(
+        (
+          db.prepare("SELECT max(at_ms) AS n FROM _sync_capture WHERE state = 'live'").get() as {
+            n: number;
+          }
+        ).n,
+      );
+    };
+    const maxPhys = () =>
+      Math.max(
+        ...(db.prepare('SELECT hlc FROM _sync_op').all() as Array<{ hlc: string }>).map(
+          (o) => parseHlc(o.hlc).phys,
+        ),
+      );
+    const seal = () =>
+      sealPending(db, {
+        scope: 'project',
+        replica,
+        now: () => ++clock,
+        env: {},
+        allowUnreleased: true,
+      });
+    // No server date known.
+    const first = stampedAhead('T1');
+    seal();
+    expect(maxPhys()).toBe(first);
+    // A stale one.
+    db.prepare(
+      'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    ).run(
+      SERVER_CLOCK_KEY,
+      JSON.stringify({ offsetMs: 0, atMs: clock - SERVER_CLOCK_TTL_MS - 60_000 }),
+      new Date(clock).toISOString(),
+    );
+    const second = stampedAhead('T2');
+    seal();
+    expect(maxPhys()).toBe(second);
   });
 
   it('a server ahead of the store (restored or copied) is refused before anything is sealed or sent', async () => {

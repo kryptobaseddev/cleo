@@ -60,7 +60,7 @@ import {
   SECRET_MARKER,
   syncSetTables,
 } from './capture.js';
-import { tickClock, withImmediateTransaction } from './clock-store.js';
+import { sealWallCeiling, tickClock, withImmediateTransaction } from './clock-store.js';
 import {
   actorOpOf,
   clearFieldLeaves,
@@ -1079,6 +1079,10 @@ function sealInTransaction(
   const started = performance.now();
   const maxMs = opts.maxMs ?? 200;
   const replica = opts.replica;
+  // §1.3: a capture stamped while this clock ran ahead seals no later than
+  // the server's date plus MAX_DRIFT, once a recent server date is known.
+  const ceiling = sealWallCeiling(db, now());
+  const wall = (ms: number): number => (ceiling === null ? ms : Math.min(ms, ceiling));
 
   // 1. Read a batch. A frame cut by the budget is completed only when it is
   //    the batch's first group (it must seal whole); otherwise it is left for
@@ -1336,7 +1340,7 @@ function sealInTransaction(
           ...(rest as Omit<SealedOp, 'h'>),
           seq,
           last,
-          h: tickClock(db, replica, at(op)?.at_ms ?? now()),
+          h: tickClock(db, replica, wall(at(op)?.at_ms ?? now())),
         };
       },
     );
