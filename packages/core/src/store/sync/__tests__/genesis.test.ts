@@ -25,7 +25,7 @@ import {
   ROW_IDENTITY_RECIPE_KEY,
 } from '../../row-identity.js';
 import { finishCaptureFrame, openCaptureFrame, setCaptureEnabled } from '../capture.js';
-import { isSyncFlagOn, setSyncFlag } from '../flags.js';
+import { isSyncFlagOn, readSyncFlags, setSyncFlag } from '../flags.js';
 import {
   cutGenesis,
   cutGenesisWithSnapshot,
@@ -35,6 +35,7 @@ import {
   GenesisRacedError,
   genesisCutOf,
   genesisPending,
+  joinStream,
   UNDO_ENABLED_KEY,
 } from '../genesis.js';
 import { streamStarted } from '../repair.js';
@@ -527,5 +528,68 @@ describe('a cut that crashed before its snapshot (T13301), and per-cut folds (LO
     expect(genesisCutOf(db, STREAM_B)).toBeUndefined();
     expect(meta(db, UNDO_ENABLED_KEY)).toBe('1');
     expect(isSyncFlagOn(db, 'sync.push', {})).toBe(true);
+  });
+});
+
+describe('joining a journaled stream (T13312)', () => {
+  /** A store whose rows all carry row meta (a cut), with the cut forgotten: what a restore leaves to join. */
+  async function restoredLike(): Promise<DatabaseSync> {
+    const { db } = await store();
+    expect(cut(db).refused).toBeNull();
+    db.exec(
+      "DELETE FROM _sync_meta WHERE key LIKE 'genesis_%' OR key IN ('undo_enabled', 'sync.push', 'sync.pull')",
+    );
+    expect(genesisCutOf(db, STREAM)).toBeUndefined();
+    return db;
+  }
+  const join = (db: DatabaseSync, now: () => number = () => ++clock) =>
+    joinStream(db, {
+      scope: 'project',
+      stream: STREAM,
+      cursor: { after: 0, knowsAllReplicas: true, replicas: {} },
+      now,
+      allowUnreleased: true,
+    });
+
+  it('joins a store whose rows match their meta: cut at the capture position, push and pull on', async () => {
+    const db = await restoredLike();
+    const r = join(db);
+    expect(r.refused).toBeNull();
+    expect(genesisCutOf(db, STREAM)).toBe(r.cut);
+    expect(isSyncFlagOn(db, 'sync.push', {})).toBe(true);
+    expect(isSyncFlagOn(db, 'sync.pull', {})).toBe(true);
+  });
+
+  it('a write between the row check and the cut refuses the join; its row is never baselined as checkpoint state', async () => {
+    const db = await restoredLike();
+    let raced = false;
+    const r = join(db, () => {
+      // The last step before the cut's transaction opens.
+      if (!raced) {
+        raced = true;
+        db.exec(addTask('T5'));
+      }
+      return ++clock;
+    });
+    expect(raced).toBe(true);
+    expect(r.refused).toMatch(/a write landed while the join checked the store/);
+    expect(genesisCutOf(db, STREAM)).toBeUndefined();
+    expect(isSyncFlagOn(db, 'sync.push', {})).toBe(false);
+    expect(n(db, "SELECT count(*) AS n FROM _sync_row_meta WHERE uid = 'uid-T5'")).toBe(0);
+  });
+
+  it('a refused join leaves capture off when it was off', async () => {
+    const db = await restoredLike();
+    setCaptureEnabled(db, 'project', false, { schemaRoot: SYNC_SCHEMA });
+    db.exec("UPDATE tasks_tasks SET title = 'changed' WHERE id = 'T0'"); // rows no longer match meta
+    const r = join(db);
+    expect(r.refused).toMatch(/without matching row meta/);
+    expect(readSyncFlags(db)['sync.capture']).toBe(false);
+    expect(
+      n(
+        db,
+        "SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger' AND name LIKE '_sync_cap%'",
+      ),
+    ).toBe(0);
   });
 });
