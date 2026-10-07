@@ -108,6 +108,10 @@ export interface AdminBackupEntry {
   note?: string;
   /** File names captured in this backup. */
   files: string[];
+  /** Which store it is of: `project` (`.cleo/cleo.db`) or `global` (`<CLEO_HOME>/cleo.db`, T13245). */
+  scope?: 'project' | 'global';
+  /** What its store file holds: `tasks`, `brain`, `conduit` (project) or `global` (T13245). */
+  contains?: string[];
 }
 
 /**
@@ -1194,7 +1198,10 @@ export type AdminAdrShowResult = AdminAdrRecord;
 // ---------------------------------------------------------------------------
 
 /** Parameters for `admin.backup` query — none required. */
-export type AdminBackupListParams = Record<string, never>;
+export interface AdminBackupListParams {
+  /** `project`, `global` or `all` (default `all`; T13245). */
+  scope?: 'project' | 'global' | 'all';
+}
 
 /** Result of `admin.backup` query. */
 export interface AdminBackupListResult {
@@ -1653,6 +1660,10 @@ export interface AdminBackupMutateParams {
    * project's live store (T12680). Without it such a restore is refused.
    */
   confirmOwnerStore?: boolean;
+  /** Create: also back up the global store (`<CLEO_HOME>/cleo.db`, T13245). */
+  includeGlobal?: boolean;
+  /** Restore by id: `global` restores a backup of the global store (T13245). */
+  scope?: 'project' | 'global';
 }
 
 /** Result of `admin.backup` mutate (create action). */
@@ -1667,6 +1678,8 @@ export interface AdminBackupCreateResult {
   type: string;
   /** Files captured in the backup. */
   files: string[];
+  /** The global store's backup, when `includeGlobal` was set (T13245). */
+  global?: AdminBackupCreateResult | null;
 }
 
 /** Result of `admin.backup` mutate (restore action — by ID). */

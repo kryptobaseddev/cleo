@@ -4,10 +4,13 @@
  * (`data` = the login result plus `data.firstRun`) or one human summary.
  *
  * Consent: `--yes` acts without asking; a terminal (stdin and stderr are both
- * TTYs, and not under CI) is asked on stderr; anything else (an agent, a
- * pipe, a redirected stderr, CI) is never asked and gets the exact next
- * command, on stderr and in `data.firstRun.nextCommand` (or the choices, when
- * the next step is the user's decision).
+ * TTYs, and not under CI) is asked on stderr; a non-interactive run outside
+ * CI (an agent, a pipe, a redirected stderr) is `unattended` (T13288): it
+ * links and backs up an unlinked project without asking, but never restores
+ * over this copy and gets the restore command instead; CI is never asked and
+ * never acts, getting the exact next command on stderr and in
+ * `data.firstRun.nextCommand` (or the choices, when the next step is the
+ * user's decision).
  * A first-run problem never fails the sign-in.
  *
  * No function here receives or prints a token.
@@ -25,6 +28,7 @@ import {
   runNexusLogin,
 } from './nexus-account-cli.js';
 import { ReadlineWizardIO } from './readline-wizard-io.js';
+import { terminalSafe } from './terminal-safe.js';
 
 /** Parsed citty args. */
 type Args = Readonly<Record<string, unknown>>;
@@ -38,14 +42,26 @@ const STEP_LINES = {
 } as const;
 
 /**
- * How the run may act: `--yes`, a terminal, or never ask. A prompt needs both
- * stdin and stderr on a terminal (a prompt written to a redirected stderr is
- * invisible and would wait on stdin), and never runs under CI (review LOW-3).
+ * How the run may act: `--yes`, a terminal prompt, unattended, or never. A
+ * prompt needs both stdin and stderr on a terminal (a prompt written to a
+ * redirected stderr is invisible and would wait on stdin), and never runs
+ * under CI (review LOW-3). Without a terminal and outside CI the run is
+ * unattended (T13288): `cleo login nexus` alone then completes the link.
+ *
+ * @param args - Parsed citty args (`--yes`).
+ * @param env - The environment. @defaultValue process.env
+ * @param tty - Whether stdin and stderr are terminals. @defaultValue both `isTTY`
+ * @returns The consent mode.
  */
-function consentOf(args: Args): 'yes' | 'prompt' | 'never' {
+export function consentOf(
+  args: Args,
+  env: NodeJS.ProcessEnv = process.env,
+  tty: boolean = process.stdin.isTTY === true && process.stderr.isTTY === true,
+): 'yes' | 'prompt' | 'unattended' | 'never' {
   if (args['yes'] === true) return 'yes';
-  const ci = (process.env['CI'] ?? '') !== '' && process.env['CI'] !== 'false';
-  return process.stdin.isTTY && process.stderr.isTTY && !ci ? 'prompt' : 'never';
+  const ci = (env['CI'] ?? '') !== '' && env['CI'] !== 'false';
+  if (ci) return 'never';
+  return tty ? 'prompt' : 'unattended';
 }
 
 /**
@@ -190,7 +206,8 @@ export async function runNexusLoginCommand(
     failNexus(err, operation);
   }
   const firstRun = await runNexusFirstRunCli(args, login);
-  for (const w of firstRun.warnings) process.stderr.write(`warning: ${w.message} (${w.code})\n`);
+  for (const w of firstRun.warnings)
+    process.stderr.write(`warning: ${terminalSafe(w.message)} (${w.code})\n`);
   if (!isHumanOutput()) {
     if (firstRun.nextCommand) process.stderr.write(`next: ${firstRun.nextCommand}\n`);
     for (const c of firstRun.choices) process.stderr.write(`choice: ${c.command}  (${c.effect})\n`);

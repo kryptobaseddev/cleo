@@ -22,7 +22,12 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import { getLogger } from '../../logger.js';
-import { prepareRowIdentity, ROW_IDENTITY, type RowUidFillReport } from '../row-identity.js';
+import {
+  prepareRowIdentity,
+  ROW_IDENTITY,
+  type RowUidFillReport,
+  snapshotIfFullRefillDue,
+} from '../row-identity.js';
 import {
   captureRemints,
   clearCaptureFrame,
@@ -81,7 +86,11 @@ export function prepareRowIdentityUnderCapture(
     return { report: prepareRowIdentity(db, scope, options), suspect: [], remints: {} };
   }
   try {
-    return bracketedFill(db, scope, options);
+    // T13231: a full from-scratch refill needs its pre-refill snapshot, and a
+    // VACUUM INTO cannot run inside the bracket's transaction: take it first.
+    const refillSnapshot =
+      options.refillSnapshot ?? snapshotIfFullRefillDue(db, scope, options.share);
+    return bracketedFill(db, scope, { ...options, refillSnapshot });
   } catch (err) {
     getLogger('row-identity').warn(
       { scope, err: err instanceof Error ? err.message : String(err) },

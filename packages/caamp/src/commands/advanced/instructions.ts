@@ -108,6 +108,7 @@ export function registerAdvancedInstructions(parent: Command): void {
               ? summary
               : {
                   updatedFiles: summary.updatedFiles,
+                  ...(summary.skipped !== undefined ? { skipped: summary.skipped } : {}),
                   files: summary.actions.map((entry) => ({
                     file: entry.file,
                     action: entry.action,
