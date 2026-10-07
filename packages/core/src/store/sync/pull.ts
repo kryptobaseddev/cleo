@@ -137,6 +137,28 @@ export function readStreamCursor(db: DatabaseSync, stream: string): StreamCursor
   return row ? (JSON.parse(row.cursor_json) as StreamCursor) : null;
 }
 
+/**
+ * Persist the store's pull position for `stream`, in the caller's
+ * transaction (the pull's page, or a JOIN seeding it from the checkpoint it
+ * restored).
+ *
+ * @param db - The store.
+ * @param stream - The stream.
+ * @param cursor - The position.
+ * @param nowIso - The time.
+ */
+export function writeStreamCursor(
+  db: DatabaseSync,
+  stream: string,
+  cursor: StreamCursor,
+  nowIso: string,
+): void {
+  db.prepare(
+    'INSERT INTO _sync_cursor (stream, cursor_json, updated_at) VALUES (?, ?, ?) ' +
+      'ON CONFLICT (stream) DO UPDATE SET cursor_json = excluded.cursor_json, updated_at = excluded.updated_at',
+  ).run(stream, JSON.stringify(cursor), nowIso);
+}
+
 /** Decode a segment's transactions, or `null` for a vault delta segment. */
 function decode(seg: PulledStreamSegment): LedgerTxn[] | null {
   let text: string;
@@ -312,10 +334,7 @@ export async function pullStream(
           nowIso,
         );
       }
-      db.prepare(
-        'INSERT INTO _sync_cursor (stream, cursor_json, updated_at) VALUES (?, ?, ?) ' +
-          'ON CONFLICT (stream) DO UPDATE SET cursor_json = excluded.cursor_json, updated_at = excluded.updated_at',
-      ).run(o.stream, JSON.stringify(pageCursor), nowIso);
+      writeStreamCursor(db, o.stream, pageCursor, nowIso);
     });
     cursor = pageCursor;
     if (refusedSegment !== null) break;

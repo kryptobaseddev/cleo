@@ -377,8 +377,8 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/genesis.ts': {
     _sync_meta: {
-      count: 3,
-      reason: `${SYNC_BOOKKEEPING}; plus dropping a stream's genesis keys when a failed or raced cut is undone (T13296), and clearing genesis_pending once the genesis checkpoint is stored (T13300)`,
+      count: 4,
+      reason: `${SYNC_BOOKKEEPING}; plus dropping a stream's genesis keys when a failed or raced cut is undone (T13296), clearing genesis_pending once the genesis checkpoint is stored (T13300), and clearing the restored suspect marks when a store joins a journal it restored (T13312)`,
     },
     _sync_txn: {
       count: 2,

@@ -186,9 +186,11 @@ export interface CloudSyncPushEnableResult {
   streamId: string;
   /**
    * `enabled`: the cut was recorded and its genesis checkpoint stored; `resumed`: a cut recorded
-   * by an earlier run whose checkpoint push failed was pushed now; `already`: push was already on.
+   * by an earlier run whose checkpoint push failed was pushed now; `already`: push was already on;
+   * `joined`: this store holds the stream's journal checkpoint another device cut, and now pushes its
+   * own writes and pulls the stream's after it, with no genesis of its own (T13312).
    */
-  status: 'enabled' | 'resumed' | 'already';
+  status: 'enabled' | 'resumed' | 'already' | 'joined';
   /** The genesis cut: the highest capture seq the checkpoint carries. */
   cut: number;
   /** Transactions sealed before the cut, folded into the checkpoint, and rows given genesis row meta. */

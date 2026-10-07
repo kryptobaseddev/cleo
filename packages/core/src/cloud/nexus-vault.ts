@@ -112,6 +112,7 @@ import {
   GenesisRacedError,
   genesisCutOf,
   genesisPending,
+  joinStream,
   readGenesisCut,
 } from '../store/sync/genesis.js';
 import { type PullStreamReport, pullStream, readStreamCursor } from '../store/sync/pull.js';
@@ -797,6 +798,17 @@ function compareWithSynced(
  * hold values the snapshot strips, and a restore takes these tables from the
  * live store anyway.
  */
+/**
+ * The merge state a journal checkpoint carries for the rows it holds (journal
+ * spec §2.10: row meta travels inside checkpoint bundles): a restore keeps
+ * the snapshot's, never this machine's, so the restored rows keep their HLCs
+ * and a JOIN can push and pull them (T13312).
+ */
+const JOURNAL_SNAPSHOT_CARRIED: ReadonlySet<string> = new Set([
+  '_sync_row_meta',
+  '_sync_field_leave',
+]);
+
 const VAULT_CLEARED_JOURNAL_TABLES = [
   '_sync_capture',
   '_sync_undo',
@@ -1565,16 +1577,60 @@ async function enableSyncPushImpl(
       };
     }
   }
-  // Another device already started this stream's journal: this store joins it
-  // by pulling (S5), never with a second genesis.
-  if (isJournalSnapshot(parent)) {
-    throw vaultError(
-      'E_NEXUS_SYNC_STREAM_JOURNALED',
-      `${t.streamId} already carries the change journal: its head snapshot ${parent?.checkpointId} is a journal checkpoint`,
-      'nothing was cut; restore the journal checkpoint (`cleo cloud restore`), then join the stream with `cleo sync enable push` (T12999)',
-    );
-  }
   const { state: synced } = syncedState(conn, t, parent ? [parent] : [], head.headCheckpointId);
+  // Another device already started this stream's journal: never a second
+  // genesis. A store that holds exactly that journal checkpoint JOINS it
+  // (T13312); any other store restores it first.
+  if (parent !== null && isJournalSnapshot(parent)) {
+    if (synced?.lastCheckpointId !== parent.checkpointId) {
+      throw vaultError(
+        'E_NEXUS_SYNC_STREAM_JOURNALED',
+        `${t.streamId} already carries the change journal: its head snapshot ${parent.checkpointId} is a journal checkpoint this store has not restored`,
+        'nothing was cut; restore the journal checkpoint (`cleo cloud restore`), then join the stream with `cleo sync enable push`',
+      );
+    }
+    // Unchanged since the restore: the rows match the checkpoint's manifest
+    // (row data) here, and joinStream checks every row against its meta.
+    const git = gitTracking(t);
+    const local = await localManifest(t, git, untrackedComparison(t, git, synced));
+    const changed =
+      local === null
+        ? ['(no store)']
+        : compareVaultManifests(local.manifest, comparable(parent.manifest, git))
+            .filter(
+              (r) => r.table !== VAULT_FILES_KEY && !isVaultAnnotationKey(r.table) && !r.match,
+            )
+            .map((r) => r.table);
+    if (changed.length > 0) {
+      throw vaultError(
+        'E_NEXUS_SYNC_REFUSED',
+        `this store changed since it restored ${parent.checkpointId} (${changed.slice(0, 8).join(', ')}); joining would lose those changes`,
+        'nothing was joined; restore the journal checkpoint again (`cleo cloud restore --force`, a safety backup is taken first), then `cleo sync enable push`',
+      );
+    }
+    const joined = joinStream(db, {
+      scope: tableScopeOf(t),
+      stream: t.streamId,
+      cursor: cursorFromCheckpoint(parent),
+      ...(opts.allowUnreleased ? { allowUnreleased: true } : {}),
+    });
+    if (joined.refused !== null) {
+      throw vaultError('E_NEXUS_SYNC_REFUSED', `the join was refused: ${joined.refused}`);
+    }
+    warnings.push(...conn.state.drainWarnings());
+    return {
+      ...base,
+      status: 'joined',
+      cut: joined.cut ?? 0,
+      sealed: 0,
+      folded: 0,
+      baselined: {},
+      snapshot: snapshotOf(parent, await deviceNames(conn)),
+      deltaSegmentSeq: null,
+      replicaSeqFloor: null,
+      warnings,
+    };
+  }
   if (head.headCheckpointId !== null && head.headCheckpointId !== synced?.lastCheckpointId) {
     throw vaultError(
       'E_NEXUS_VAULT_BEHIND',
@@ -2594,6 +2650,10 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
               carryMachineState(staged.dbPath, hasLocal ? t.dbPath : null, tableScopeOf(t), {
                 snapshotRoot:
                   t.scope === 'global' ? null : (manifest.projects[0]?.originalPath ?? null),
+                // A journal checkpoint carries its rows' merge state (T13312).
+                ...(isJournalSnapshot(targetCp)
+                  ? { snapshotCarried: JOURNAL_SNAPSHOT_CARRIED }
+                  : {}),
               }),
             ),
           );
