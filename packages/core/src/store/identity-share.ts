@@ -66,3 +66,40 @@ export async function markProjectIdentityShared(
   markRowIdentityShared(db, direction);
   return true;
 }
+
+/**
+ * Mark a store FILE's identity shared without opening it through the
+ * chokepoint (no migration, no open-time pass): for a store a bundle import
+ * or vault restore just placed, which import must preserve as it is. Only a
+ * store that holds identity values and the identity meta table is touched.
+ * A bundle made before T13250, or by an older peer, carries uids with no
+ * marker; the placed copy records that it received them (#1952 review LOW-1).
+ *
+ * @param dbPath - The placed project `cleo.db`.
+ * @param direction - `receive` for a placed copy.
+ * @returns Whether the marker was written (or was already there).
+ * @task T13305
+ */
+export async function markStoreFileIdentityShared(
+  dbPath: string,
+  direction: 'send' | 'receive',
+): Promise<boolean> {
+  if (!existsSync(dbPath)) return false;
+  const { openNativeDatabase } = await import('./sqlite-native.js');
+  const { fullRefillPlan, markRowIdentityShared, ROW_IDENTITY_META_TABLE } = await import(
+    './row-identity.js'
+  );
+  const db = openNativeDatabase(dbPath);
+  try {
+    const hasMeta =
+      db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get(ROW_IDENTITY_META_TABLE) !== undefined;
+    if (!hasMeta || Object.keys(fullRefillPlan(db)).length === 0) return false;
+    await import('./sqlite-data-accessor.js');
+    markRowIdentityShared(db, direction);
+    return true;
+  } finally {
+    db.close();
+  }
+}

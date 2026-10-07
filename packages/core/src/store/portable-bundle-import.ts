@@ -697,6 +697,13 @@ export async function importPortableBundle(
       for (const d of plan.section.databases) {
         if (path.basename(d.relPath) === 'cleo.db') {
           ensureTriggerSuspendTableAtPath(path.join(plan.destDir, d.relPath));
+          // T13305: a placed project store carrying row uids records that it
+          // received them (bundles made before T13250 carry no marker), so a
+          // later refill never re-derives uids the bundle shares.
+          if (plan.kind === 'project') {
+            const { markStoreFileIdentityShared } = await import('./identity-share.js');
+            await markStoreFileIdentityShared(path.join(plan.destDir, d.relPath), 'receive');
+          }
         }
       }
       const result: PortableImportSectionResult = {

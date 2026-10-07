@@ -109,7 +109,8 @@ export type PortableBundleErrorCode =
   | 'E_DATA_EXISTS'
   | 'E_TARGET_AMBIGUOUS'
   | 'E_RESTORE_MISMATCH'
-  | 'E_REDACTION_FAILED';
+  | 'E_REDACTION_FAILED'
+  | 'E_PROJECT_STORE_UNAVAILABLE';
 
 /**
  * Numeric exit codes for {@link PortableBundleErrorCode}. Decrypt / format /
@@ -118,6 +119,7 @@ export type PortableBundleErrorCode =
  */
 export const PORTABLE_BUNDLE_EXIT_CODES: Readonly<Record<PortableBundleErrorCode, number>> = {
   E_PRIMARY_STORE_MISSING: ExitCode.NOT_FOUND,
+  E_PROJECT_STORE_UNAVAILABLE: ExitCode.LOCK_TIMEOUT,
   E_PRIMARY_STORE_UNREADABLE: ExitCode.FILE_ERROR,
   E_NO_PROJECT: ExitCode.NOT_FOUND,
   E_REGISTRY_UNREADABLE: ExitCode.FILE_ERROR,
@@ -654,7 +656,16 @@ async function stageProject(
   // read-only and never touched.
   if (state.sharesIdentity) {
     const { markProjectIdentityShared } = await import('./identity-share.js');
-    await markProjectIdentityShared(projectRoot, 'send', { onlyIfIdentity: true });
+    try {
+      await markProjectIdentityShared(projectRoot, 'send', { onlyIfIdentity: true });
+    } catch (err) {
+      // One busy or restoring project fails the whole export (T13270); the
+      // error names it, so the operator knows which one (#1952 review LOW-2).
+      throw new PortableBundleError(
+        'E_PROJECT_STORE_UNAVAILABLE',
+        `cannot mark the identity of ${projectRoot} before bundling it: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
   const info = await readProjectIdentity(projectRoot);
   const name = info.name;
