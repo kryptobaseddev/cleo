@@ -31,6 +31,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { statSync } from 'node:fs';
 import type { DualScope } from '../dual-scope-db.js';
 
 /**
@@ -289,4 +290,88 @@ export class ExodusGuardFailedError extends Error {
     this.name = 'ExodusGuardFailedError';
     this.scope = scope;
   }
+}
+
+/**
+ * The stale window of the exodus single-flight lock (`<cleo.db>.exodus-on-open
+ * .lock`), shared by exodus-on-open and the reconcile (T12785). A holder
+ * refreshes the lock every half window from a timer that cannot fire during a
+ * stage (one synchronous transaction), so the window must exceed the longest
+ * stage. Callers checking the lock must pass the same window.
+ */
+export const EXODUS_LOCK_STALE_MS = 600_000;
+
+/** The exodus single-flight lock file of a consolidated store (T12785). */
+export function exodusRunLockPath(dbPath: string): string {
+  return `${dbPath}.exodus-on-open.lock`;
+}
+
+/** Lock files this process holds, so its own writes are never refused. */
+const heldHere = new Set<string>();
+
+/**
+ * Record that this process holds (or released) an exodus run lock (T12785).
+ * The holder's own writes, its revert included, must not be refused.
+ */
+export function markExodusRunHeld(lockPath: string, held: boolean): void {
+  if (held) heldHere.add(lockPath);
+  else heldHere.delete(lockPath);
+}
+
+/**
+ * Whether ANOTHER process is running exodus or a reconcile on `dbPath`
+ * (T12785): the single-flight lock's directory (proper-lockfile's
+ * `<file>.lock`) exists and was refreshed within {@link EXODUS_LOCK_STALE_MS}.
+ * One stat, synchronous, so the write chokepoints can call it on every write.
+ */
+export function exodusRunActiveElsewhere(dbPath: string): boolean {
+  const lockPath = exodusRunLockPath(dbPath);
+  if (heldHere.has(lockPath)) return false;
+  try {
+    return Date.now() - statSync(`${lockPath}.lock`).mtimeMs < EXODUS_LOCK_STALE_MS;
+  } catch {
+    return false;
+  }
+}
+
+/** Remedy while another process runs exodus or a reconcile on the store. */
+export const EXODUS_RUN_FIX =
+  'A legacy migration or `cleo doctor superseded-store --reconcile` is running on this store ' +
+  'in another process. Retry when it finishes; nothing was written.';
+
+/**
+ * Thrown by a write chokepoint while another process holds the store's exodus
+ * single-flight lock (T12785): exodus-on-open or the reconcile is copying
+ * legacy rows, and verifies afterwards that live rows did not change. A write
+ * landing mid-run would be refused by that check, and a write to a row the run
+ * inserted would be lost when it reverts.
+ *
+ * @task T12785
+ */
+export class ExodusRunInProgressError extends Error {
+  /** Stable string error code for envelope `codeName` / log correlation. */
+  readonly codeName = 'E_EXODUS_RUN_WRITE_UNSAFE' as const;
+  /** Remediation hint surfaced to the operator. */
+  readonly fix: string = EXODUS_RUN_FIX;
+
+  /** @param dbPath - The store being migrated or reconciled. */
+  constructor(dbPath: string) {
+    super(`Refusing to write ${dbPath}: a legacy migration or reconcile is running on it.`);
+    this.name = 'ExodusRunInProgressError';
+  }
+}
+
+/**
+ * Wrap a locked exodus run so this process is marked as the holder while it
+ * runs ({@link markExodusRunHeld}), released on any exit (T12785).
+ */
+export function whileExodusRunHeld<T>(lockPath: string, fn: () => Promise<T>): () => Promise<T> {
+  return async () => {
+    markExodusRunHeld(lockPath, true);
+    try {
+      return await fn();
+    } finally {
+      markExodusRunHeld(lockPath, false);
+    }
+  };
 }

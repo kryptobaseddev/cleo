@@ -1,8 +1,10 @@
 /**
  * `cleo login nexus` guided first run glue (T13102): `--yes` passes consent
  * `yes` and never prompts; a terminal is asked on stderr through the wizard
- * prompt (default yes); a non-interactive run is never asked and prints the
- * exact next command on stderr and in `data.firstRun`; a first-run failure
+ * prompt (default yes); a non-interactive run outside CI is unattended
+ * (T13288: core takes each question's safe default, never prompting) and CI
+ * is never asked and prints the exact next command on stderr and in
+ * `data.firstRun`; a first-run failure
  * never fails the sign-in; and the human summary says "Signed in, linked,
  * backed up" or lists the restore commands.
  *
@@ -171,10 +173,10 @@ describe('consent', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('a terminal stdin with stderr redirected never prompts (the prompt would be invisible)', async () => {
+  it('a terminal stdin with stderr redirected never prompts (the prompt would be invisible): unattended (T13288)', async () => {
     setTTY(true, false);
     await runNexusLoginCommand({ provider: 'nexus' }, 'login.run', vi.fn());
-    expect(firstRunOpts()).toMatchObject({ consent: 'never' });
+    expect(firstRunOpts()).toMatchObject({ consent: 'unattended' });
     expect(ioCreated).not.toHaveBeenCalled();
   });
 
@@ -206,9 +208,9 @@ describe('consent', () => {
     expect(envelope().data.firstRun.choices).toHaveLength(2);
   });
 
-  it('non-interactive: consent never, no prompt, and the next command on stderr and in the envelope', async () => {
+  it('non-interactive (an agent): consent unattended, no prompt, and the core report on stderr and in the envelope (T13288)', async () => {
     await runNexusLoginCommand({ provider: 'nexus' }, 'login.run', vi.fn());
-    expect(firstRunOpts()).toMatchObject({ consent: 'never' });
+    expect(firstRunOpts()).toMatchObject({ consent: 'unattended' });
     expect(firstRunOpts()).not.toHaveProperty('confirm');
     expect(ioCreated).not.toHaveBeenCalled();
     expect(err()).toContain('next: cleo project link && cleo cloud push\n');
@@ -219,6 +221,13 @@ describe('consent', () => {
       state: 'offered',
       nextCommand: 'cleo project link && cleo cloud push',
     });
+  });
+
+  it('non-interactive under CI: consent never (CI never acts)', async () => {
+    process.env['CI'] = 'true';
+    await runNexusLoginCommand({ provider: 'nexus' }, 'login.run', vi.fn());
+    expect(firstRunOpts()).toMatchObject({ consent: 'never' });
+    expect(ioCreated).not.toHaveBeenCalled();
   });
 
   it('passes --read-only through and the enrolled device id', async () => {

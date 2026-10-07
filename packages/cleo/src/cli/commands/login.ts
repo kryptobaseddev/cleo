@@ -36,12 +36,15 @@
  * After a Cleo Nexus sign-in, login runs the guided first run
  * (`../lib/nexus-first-run-cli.js`): inside an unlinked CLEO project it
  * offers to link the project and take its first encrypted backup (`--yes`
- * does it without asking; a non-interactive run never asks and prints the
+ * does it without asking; a non-interactive run outside CI — an agent — does
+ * it unattended but never restores over this copy, T13288; CI only prints the
  * next command); outside a project it lists the account's projects with the
- * exact `cleo cloud restore <name>` command for each.
+ * exact `cleo cloud restore <name>` command for each. With no terminal and no
+ * target, `cleo login` signs in to Cleo Nexus (T13288).
  *
  * @module cli/commands/login
  * @task T11725
+ * @task T13288
  * @task T12712
  * @task T13102
  * @epic T11671 (E6-ONBOARDING-FRONT-DOOR)
@@ -359,16 +362,46 @@ export function loginPickerOptions(providerNames: readonly string[]): string[] {
   return [NEXUS_PICKER_LABEL, ...[...providerNames].sort()];
 }
 
+/** Flags that only mean something to an LLM-provider login. */
+const LLM_ONLY_FLAGS = ['api-key', 'api-key-stdin', 'model', 'role', 'auth', 'label'] as const;
+
 /**
- * Resolve the login target: the positional/`--provider` value, else (on a
- * terminal) the picker. Returns `undefined` when non-interactive with no
- * target, so the LLM front door reports its usual error.
+ * The target of a non-interactive `cleo login` with no provider (T13288):
+ * the Cleo Nexus account — the one login the cloud checklist needs — unless
+ * the command is `cleo llm login` (or an LLM-only flag such as `--api-key`
+ * says an LLM provider was meant), which keeps the LLM front door and its
+ * usual "pass a provider" error.
+ *
+ * @param args - The parsed arg bag.
+ * @param operation - The LAFS operation id (`login.run`, `llm.login`, ...).
+ * @returns `nexus`, or `undefined` for the LLM front door.
  *
  * @internal
  */
-async function resolveLoginTarget(args: Record<string, unknown>): Promise<string | undefined> {
+export function nonInteractiveLoginTarget(
+  args: Record<string, unknown>,
+  operation: string,
+): string | undefined {
+  if (operation !== 'login.run') return undefined;
+  const llmIntent = LLM_ONLY_FLAGS.some((f) => args[f] !== undefined && args[f] !== false);
+  return llmIntent ? undefined : NEXUS_LOGIN_TARGET;
+}
+
+/**
+ * Resolve the login target: the positional/`--provider` value, else (on a
+ * terminal) the picker. Non-interactive with no target, `cleo login` signs in
+ * to Cleo Nexus ({@link nonInteractiveLoginTarget}, T13288); `cleo llm login`
+ * returns `undefined` so the LLM front door reports its usual error.
+ *
+ * @internal
+ */
+async function resolveLoginTarget(
+  args: Record<string, unknown>,
+  operation: string,
+): Promise<string | undefined> {
   const given = typeof args['provider'] === 'string' ? args['provider'] : '';
-  if (given || !process.stdin.isTTY) return given || undefined;
+  if (given) return given;
+  if (!process.stdin.isTTY) return nonInteractiveLoginTarget(args, operation);
   const names = (await (await providerRegistry()).listProviders()).map((p) => p.name);
   const io = new ReadlineWizardIO(process.stdin, process.stderr);
   try {
@@ -394,7 +427,7 @@ export async function runLoginCommand(
 ): Promise<void> {
   let target: string | undefined;
   try {
-    target = await resolveLoginTarget(args);
+    target = await resolveLoginTarget(args, operation);
   } catch (err) {
     failLogin(err, operation);
   }
@@ -513,7 +546,7 @@ export const LOGIN_ARGS = {
   yes: {
     type: 'boolean',
     description:
-      'nexus: inside a CLEO project this machine has not linked, link it and take the first encrypted backup without asking (or, when Cleo Nexus already backs it up from another device and this copy never synced, restore that backup here). Without it a terminal is asked, and a non-interactive run only prints the next command.',
+      'nexus: inside a CLEO project this machine has not linked, link it and take the first encrypted backup without asking (or, when Cleo Nexus already backs it up from another device and this copy never synced, restore that backup here). Without it a terminal is asked; a non-interactive run outside CI (an agent) links and backs up unattended but never restores unasked; CI only prints the next command.',
   },
   auth: {
     type: 'string',
@@ -559,7 +592,7 @@ export const loginCommand = defineCommand({
     // captures only the first plain string literal (concatenations + backticks
     // truncate the `cleo --help` text mid-sentence).
     description:
-      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. After a Cleo Nexus sign-in inside an unlinked CLEO project it offers to link the project and back it up (--yes does it; a non-interactive run prints the next command); outside a project it lists your projects with the cleo cloud restore command for each. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
+      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. Without a terminal and no target, cleo login signs in to Cleo Nexus (an agent needs no extra word). After a Cleo Nexus sign-in inside an unlinked CLEO project it links the project and backs it up: a terminal is asked, --yes or a non-interactive run (an agent) does it, a restore over this copy is never done unasked, and CI only prints the next command; outside a project it lists your projects with the cleo cloud restore command for each. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
   },
   args: LOGIN_ARGS,
   async run({ args }) {
