@@ -40,6 +40,8 @@ import {
   isLegacyOnlyStore,
   LEGACY_ONLY_REMEDY,
   LegacyOnlyStoreError,
+  legacyStrands,
+  PARTIAL_STRAND_FOLLOW_UP,
   readSyncFlags,
   setSyncFlag,
 } from '../flags.js';
@@ -870,14 +872,97 @@ describe('a legacy-only store refuses sync (T13224)', () => {
     ).toEqual({ n: 0 });
   });
 
-  it('a store whose rows were already carried (tasks_tasks populated) is not legacy-only', async () => {
+  /** Insert live tasks into tasks_tasks. */
+  function carry(db: DatabaseSync, ...ids: string[]): void {
+    for (const id of ids) {
+      db.prepare(
+        `INSERT INTO tasks_tasks (id, title, type, status, priority) VALUES (?, 'carried', 'task', 'pending', 'medium')`,
+      ).run(id);
+    }
+  }
+
+  it('a store whose bare rows were all carried is not stranded', async () => {
     const db = await openStore();
     strandRows(db);
-    db.exec(
-      `INSERT INTO tasks_tasks (id, title, type, status, priority) VALUES ('T1', 'carried', 'task', 'pending', 'medium')`,
-    );
+    carry(db, 'T1', 'T2');
+    expect(legacyStrands(db)).toEqual([]);
     expect(isLegacyOnlyStore(db)).toBe(false);
     expect(() => setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA })).not.toThrow();
+  });
+
+  it('a partial strand (a bare row never carried) refuses, naming the follow-up, not the reconcile', async () => {
+    const db = await openStore();
+    strandRows(db);
+    carry(db, 'T1');
+    expect(legacyStrands(db)).toEqual([
+      { bareTable: 'tasks', table: 'tasks_tasks', missing: 1, shadowed: 0 },
+    ]);
+    const err = (() => {
+      try {
+        setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA });
+      } catch (e) {
+        return e;
+      }
+      return null;
+    })();
+    expect(err).toBeInstanceOf(LegacyOnlyStoreError);
+    expect(String(err)).toContain('tasks → tasks_tasks: 1 missing');
+    expect(String(err)).toContain(PARTIAL_STRAND_FOLLOW_UP);
+    expect(String(err)).toContain('cannot yet copy');
+    expect(readSyncFlags(db)['sync.capture']).toBe(false);
+  });
+
+  it('other bare/prefixed pairs count: bare sessions rows absent from tasks_sessions', async () => {
+    const db = await openStore();
+    carry(db, 'T1');
+    db.exec('DROP TABLE IF EXISTS sessions');
+    db.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, name TEXT)');
+    db.exec("INSERT INTO sessions VALUES ('S1', 'legacy'), ('S2', 'legacy')");
+    expect(legacyStrands(db)).toEqual([
+      { bareTable: 'sessions', table: 'tasks_sessions', missing: 2, shadowed: 0 },
+    ]);
+    expect(() =>
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_SCHEMA, allowUnreleased: true }),
+    ).toThrow(LegacyOnlyStoreError);
+  });
+
+  it('a bare table outside the journal pairs (audit_log, not in the sync set) never counts', async () => {
+    const db = await openStore();
+    carry(db, 'T1');
+    db.exec('DROP TABLE IF EXISTS audit_log');
+    db.exec('CREATE TABLE audit_log (id TEXT PRIMARY KEY, action TEXT)');
+    db.exec("INSERT INTO audit_log VALUES ('A1', 'live')");
+    expect(legacyStrands(db)).toEqual([]);
+  });
+
+  it('a bare task shadowed by a different live task with its id (T001 reuse) counts', async () => {
+    const db = await openStore();
+    db.exec('DROP TABLE IF EXISTS tasks');
+    db.exec('CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT, type TEXT, created_at TEXT)');
+    db.exec("INSERT INTO tasks VALUES ('T001', 'legacy epic', 'epic', '2026-01-01T00:00:00.000Z')");
+    db.exec(
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, created_at)
+       VALUES ('T001', 'new saga', 'saga', 'pending', 'medium', '2026-10-01T00:00:00.000Z')`,
+    );
+    expect(legacyStrands(db)).toEqual([
+      { bareTable: 'tasks', table: 'tasks_tasks', missing: 0, shadowed: 1 },
+    ]);
+    expect(() => setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA })).toThrow(
+      /1 shadowed by a reused id/,
+    );
+  });
+
+  it('a shadowed bare task already recovered under a new id does not count', async () => {
+    const db = await openStore();
+    db.exec('DROP TABLE IF EXISTS tasks');
+    db.exec('CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT, type TEXT, created_at TEXT)');
+    db.exec("INSERT INTO tasks VALUES ('T001', 'legacy epic', 'epic', '2026-01-01T00:00:00.000Z')");
+    db.exec(
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, created_at) VALUES
+       ('T001', 'new saga', 'saga', 'pending', 'medium', '2026-10-01T00:00:00.000Z'),
+       ('T050', 'legacy epic', 'epic', 'pending', 'medium', '2026-01-01T00:00:00.000Z')`,
+    );
+    expect(legacyStrands(db)).toEqual([]);
   });
 
   it('the sealer refuses a store that became legacy-only after its flags were set', async () => {

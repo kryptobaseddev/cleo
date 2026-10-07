@@ -36,7 +36,17 @@
  *
  * A different title alone is the same task edited since the cutover.
  */
-export const TASK_ID_COLLISIONS_SQL = `WITH
+export const TASK_ID_COLLISIONS_SQL = taskIdCollisionsSql('legacy.tasks');
+
+/**
+ * {@link TASK_ID_COLLISIONS_SQL} against any legacy task table: the live
+ * store's own bare `tasks` (`main.tasks`, a partial strand, T13225) as well as
+ * an attached legacy file's.
+ *
+ * @param legacyTasks - Schema-qualified legacy task table, e.g. `legacy.tasks`.
+ */
+export function taskIdCollisionsSql(legacyTasks: string): string {
+  return `WITH
   collided AS (
     SELECT s.id AS legacyId, s.title AS legacyTitle, s.created_at AS legacyCreatedAt,
            s.type AS legacyType, t.title AS liveTitle,
@@ -48,7 +58,7 @@ export const TASK_ID_COLLISIONS_SQL = `WITH
              ORDER BY p.seq DESC LIMIT 1) AS aliasId,
            CASE WHEN julianday(s.created_at) IS NULL OR julianday(t.created_at) IS NULL
                 THEN 'undecided' ELSE 'collision' END AS decision
-      FROM legacy.tasks s
+      FROM ${legacyTasks} s
       JOIN main.tasks_tasks t ON t.id = s.id
      WHERE CASE WHEN julianday(s.created_at) IS NULL OR julianday(t.created_at) IS NULL
                 THEN t.created_at IS NOT s.created_at
@@ -68,7 +78,7 @@ export const TASK_ID_COLLISIONS_SQL = `WITH
       FROM grp g
       JOIN main.tasks_tasks m
         ON m.title IS g.legacyTitle AND julianday(m.created_at) = g.instant
-     WHERE m.id NOT IN (SELECT id FROM legacy.tasks)
+     WHERE m.id NOT IN (SELECT id FROM ${legacyTasks})
        AND m.id NOT IN (SELECT aliasId FROM collided WHERE aliasId IS NOT NULL)
   )
 SELECT c.legacyId, c.legacyTitle, c.legacyCreatedAt, c.legacyType, c.liveTitle, c.decision,
@@ -78,6 +88,7 @@ SELECT c.legacyId, c.legacyTitle, c.legacyCreatedAt, c.legacyType, c.liveTitle, 
   LEFT JOIN candidates k
     ON k.legacyTitle IS n.legacyTitle AND k.instant = n.instant AND k.rn = n.rn
  ORDER BY c.legacyId`;
+}
 
 /**
  * The TEMP table {@link TASK_ID_COLLISIONS_SQL} reads earlier recoveries from.

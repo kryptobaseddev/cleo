@@ -306,15 +306,22 @@ export function exodusRunLockPath(dbPath: string): string {
   return `${dbPath}.exodus-on-open.lock`;
 }
 
-/** Lock files this process holds, so its own writes are never refused. */
-const heldHere = new Set<string>();
+/**
+ * Lock files this process holds, counted per path so its own writes are never
+ * refused. A count, not a set: two overlapping holds of one path (a reconcile
+ * started inside exodus-on-open's run) must not let the first release clear
+ * the second (T13225).
+ */
+const heldHere = new Map<string, number>();
 
 /**
  * Record that this process holds (or released) an exodus run lock (T12785).
- * The holder's own writes, its revert included, must not be refused.
+ * The holder's own writes, its revert included, must not be refused. Calls
+ * pair: each `held: true` is undone by one `held: false`.
  */
 export function markExodusRunHeld(lockPath: string, held: boolean): void {
-  if (held) heldHere.add(lockPath);
+  const count = (heldHere.get(lockPath) ?? 0) + (held ? 1 : -1);
+  if (count > 0) heldHere.set(lockPath, count);
   else heldHere.delete(lockPath);
 }
 
@@ -334,10 +341,24 @@ export function exodusRunActiveElsewhere(dbPath: string): boolean {
   }
 }
 
-/** Remedy while another process runs exodus or a reconcile on the store. */
-export const EXODUS_RUN_FIX =
-  'A legacy migration or `cleo doctor superseded-store --reconcile` is running on this store ' +
-  'in another process. Retry when it finishes; nothing was written.';
+/**
+ * Remedy while another process runs exodus or a reconcile on the store. A
+ * crashed run leaves its lock behind, and writes stay refused until the lock
+ * goes stale ({@link EXODUS_LOCK_STALE_MS}), so the remedy says how to confirm
+ * that and clear it (T13225).
+ *
+ * @param dbPath - The store whose exodus lock refused the write.
+ */
+export function exodusRunFix(dbPath: string): string {
+  const minutes = Math.round(EXODUS_LOCK_STALE_MS / 60_000);
+  return (
+    'A legacy migration or `cleo doctor superseded-store --reconcile` is running on this store ' +
+    'in another process. Retry when it finishes; nothing was written. If that process crashed, ' +
+    `its lock blocks writes for up to ${minutes} minutes. Once you have confirmed no cleo ` +
+    `process is still running, remove the lock directory ` +
+    `"${exodusRunLockPath(dbPath)}.lock" to clear it now.`
+  );
+}
 
 /**
  * Thrown by a write chokepoint while another process holds the store's exodus
@@ -352,12 +373,13 @@ export class ExodusRunInProgressError extends Error {
   /** Stable string error code for envelope `codeName` / log correlation. */
   readonly codeName = 'E_EXODUS_RUN_WRITE_UNSAFE' as const;
   /** Remediation hint surfaced to the operator. */
-  readonly fix: string = EXODUS_RUN_FIX;
+  readonly fix: string;
 
   /** @param dbPath - The store being migrated or reconciled. */
   constructor(dbPath: string) {
     super(`Refusing to write ${dbPath}: a legacy migration or reconcile is running on it.`);
     this.name = 'ExodusRunInProgressError';
+    this.fix = exodusRunFix(dbPath);
   }
 }
 
