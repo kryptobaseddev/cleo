@@ -16,6 +16,7 @@ import type { InjectionCheckResult, InjectionStatus, Provider } from '../../type
 import { assertNotTornRead, withFileLock } from '../fs/atomic.js';
 import { getAgentsHome } from '../paths/standard.js';
 import { getProvider, getProviderInstructionReferences } from '../registry/providers.js';
+import { isHomeProject } from './home-project.js';
 import {
   assertBalancedMarkers,
   blockPattern,
@@ -640,6 +641,8 @@ export async function checkAllInjections(
  * @param scope - Whether to target project or global instruction files
  * @param content - Content to inject between CAAMP markers
  * @returns Map of file path to action taken (`"created"`, `"added"`, `"consolidated"`, `"updated"`, or `"intact"`)
+ * @throws {@link HomeInstructionFileError} for `scope: 'project'` when the
+ *   project is the home directory (T13257); nothing is written
  *
  * @remarks
  * Providers sharing the same instruction file are only written once to avoid
@@ -663,10 +666,13 @@ export async function injectAll(
 ): Promise<Map<string, CaampInjectionAction>> {
   const results = new Map<string, CaampInjectionAction>();
   const injected = new Set<string>();
+  const home = scope === 'project' && isHomeProject(projectDir);
 
   for (const provider of providers) {
     const filePath = scopedInstructionPath(provider, projectDir, scope);
     if (filePath === null) continue;
+    // T13257: nothing is written for a $HOME project (see HomeInstructionFileError).
+    if (home) throw new HomeInstructionFileError(filePath);
 
     // Skip duplicates
     if (injected.has(filePath)) continue;
@@ -722,6 +728,33 @@ export interface EnsureProviderInstructionFileResult {
 }
 
 /**
+ * A provider instruction file was asked for at a project rooted at the home
+ * directory (T13227). Claude Code, Codex and the other providers load
+ * instruction files from the working directory up through every ancestor, so
+ * `~/CLAUDE.md` or `~/AGENTS.md` is loaded into every session anywhere under
+ * `$HOME`: user-global in effect. Nothing is written. The deliberate global
+ * files (`scope: 'global'`, the `~/.agents` hub) are not affected.
+ *
+ * @public
+ */
+export class HomeInstructionFileError extends Error {
+  /** The instruction file that was refused. */
+  readonly filePath: string;
+
+  /**
+   * @param filePath - the refused file.
+   */
+  constructor(filePath: string) {
+    super(
+      `refusing to write ${filePath}: the project is the home directory, and providers load ` +
+        'instruction files from every ancestor directory, so it would apply to every project under it',
+    );
+    this.name = 'HomeInstructionFileError';
+    this.filePath = filePath;
+  }
+}
+
+/**
  * Ensure a provider's instruction file exists with the correct CAAMP block.
  *
  * This is the canonical API for adapters and external packages to manage
@@ -741,6 +774,8 @@ export interface EnsureProviderInstructionFileResult {
  * @param options - References, content, and scope configuration
  * @returns Result with file path, action taken, and provider metadata
  * @throws Error if the provider ID is not found in the registry
+ * @throws {@link HomeInstructionFileError} for a project-scope file when the
+ *   project is the home directory (T13227); nothing is written
  *
  * @example
  * ```typescript
@@ -766,6 +801,8 @@ export async function ensureProviderInstructionFile(
   if (filePath === null) {
     throw new Error(`Provider "${providerId}" has no global instruction file (T12379).`);
   }
+  if (scope === 'project' && isHomeProject(projectDir))
+    throw new HomeInstructionFileError(filePath);
 
   // Fall back to the registry default when the caller omits references.
   let references = options.references ?? getProviderInstructionReferences(providerId);
@@ -994,6 +1031,8 @@ export async function ensureAllProviderInstructionFiles(
     const scope = options.scope ?? 'project';
     const filePath = scopedInstructionPath(provider, projectDir, scope);
     if (filePath === null) continue;
+    if (scope === 'project' && isHomeProject(projectDir))
+      throw new HomeInstructionFileError(filePath);
 
     // Skip duplicates (multiple providers may share the same instruction file)
     if (processed.has(filePath)) continue;

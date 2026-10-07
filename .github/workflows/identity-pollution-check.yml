@@ -8,11 +8,11 @@ name: Identity Pollution Check
 # through historically or was crafted manually.
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
-  merge_group:
+  # T13263: called by ci.yml (job `identity-pollution-gate`), which the required `CI` aggregate
+  # needs, so a failure here blocks the merge. It no longer runs on its own
+  # push / pull_request / merge_group triggers (that ran it twice, and nothing
+  # required its standalone check). It runs with ci.yml's triggers and event.
+  workflow_call:
 
 jobs:
   reject-polluted-identity:

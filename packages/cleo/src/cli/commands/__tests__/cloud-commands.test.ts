@@ -19,6 +19,11 @@ import {
 } from '@cleocode/core/cloud/nexus-device.js';
 import type { CommandDef } from 'citty';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  cloudProjectShowSummary,
+  cloudStatusSummary,
+  devicesClause,
+} from '../../lib/nexus-cloud-cli.js';
 import { cloudCommand } from '../cloud.js';
 
 const API = 'https://api.nexus.test';
@@ -297,5 +302,157 @@ describe('cleo cloud conflicts (T12344 PR-6)', () => {
   it('resolve without an id is E_VALIDATION', async () => {
     const r = await run('conflicts', { action: 'resolve' });
     expect(r.exit).toMatch(/__EXIT_6__/);
+  });
+});
+
+describe('retired replica labels (T13109)', () => {
+  const retired = [
+    {
+      replicaId: 'r-2',
+      successor: 'r-3',
+      retiredAt: '2026-10-03T02:15:00.000Z',
+      reason: 'vault-restore',
+    },
+    {
+      replicaId: 'r-1',
+      successor: 'r-2',
+      retiredAt: '2026-10-03T00:34:00.000Z',
+      reason: 'vault-restore',
+    },
+  ];
+
+  it("status names this store's retired replicas and their successors", () => {
+    const line = cloudStatusSummary({
+      verdict: 'ok',
+      summary: {
+        signedIn: true,
+        registered: true,
+        profile: 'device',
+        linked: true,
+        replicaAttached: true,
+        devices: 2,
+        lastPresenceAt: null,
+        lastSyncAt: null,
+        headSeq: 3,
+        openConflicts: 0,
+      },
+      local: {
+        apiUrl: API,
+        signedIn: true,
+        nexusDeviceId: 'd-1',
+        profile: 'device',
+        projectId: 'p-1',
+        replicaId: 'r-3',
+        retiredReplicas: retired,
+        linkPath: null,
+        credentialsPath: '/tmp/nexus-device.json',
+      },
+      remote: null,
+      warnings: [],
+    });
+    expect(line).toContain('retired here: r-2 retired → r-3; r-1 retired → r-2');
+  });
+
+  it('status lists the devices holding the project with this machine and presence (T13290)', () => {
+    const fresh = new Date(Date.now() - 3_600_000).toISOString();
+    const line = cloudStatusSummary({
+      verdict: 'ok',
+      summary: {
+        signedIn: true,
+        registered: true,
+        profile: 'device',
+        linked: true,
+        replicaAttached: true,
+        devices: 2,
+        lastPresenceAt: null,
+        lastSyncAt: null,
+        headSeq: 3,
+        openConflicts: 0,
+      },
+      local: {
+        apiUrl: API,
+        signedIn: true,
+        nexusDeviceId: 'd-1',
+        profile: 'device',
+        projectId: 'p-1',
+        replicaId: 'r-3',
+        retiredReplicas: [],
+        linkPath: null,
+        credentialsPath: '/tmp/nexus-device.json',
+      },
+      remote: null,
+      holders: [
+        {
+          deviceId: '0198abcd-0000-7000-8000-000000000001',
+          deviceName: 'laptop',
+          replicaId: 'r-3',
+          presenceAt: fresh,
+          fresh: true,
+          thisDevice: true,
+        },
+        {
+          deviceId: '0199ef01-0000-7000-8000-000000000002',
+          deviceName: 'desk',
+          replicaId: 'r-9',
+          presenceAt: '2026-01-02T00:00:00.000Z',
+          fresh: false,
+          thisDevice: false,
+        },
+      ],
+      warnings: [],
+    });
+    expect(line).toContain(
+      'Devices: laptop (0198abcd, this machine, presence fresh); desk (0199ef01, presence stale since 2026-01-02).',
+    );
+  });
+
+  it('devicesClause merges a device holding several replicas and says when it never reported (T13290)', () => {
+    const recent = new Date(Date.now() - 60_000).toISOString();
+    expect(
+      devicesClause([
+        { deviceId: 'aaaaaaaa-1', deviceName: 'laptop', presenceAt: null, thisDevice: false },
+        { deviceId: 'aaaaaaaa-1', deviceName: 'laptop', presenceAt: recent, thisDevice: false },
+        { deviceId: 'bbbbbbbb-2', deviceName: 'new', presenceAt: null, thisDevice: false },
+      ]),
+    ).toBe(' Devices: laptop (aaaaaaaa, presence fresh); new (bbbbbbbb, no presence yet).');
+    expect(devicesClause([])).toBe('');
+  });
+
+  it('projects show labels the listed replicas this device retired', () => {
+    const replica = (replicaId: string) => ({
+      projectId: 'p-1',
+      replicaId,
+      deviceId: 'd-1',
+      deviceName: 'laptop',
+      lastSyncAt: null,
+      presence: null,
+      presenceAt: null,
+    });
+    const line = cloudProjectShowSummary({
+      project: { projectId: 'p-1', label: 'demo', organizationId: 'o-1' },
+      role: 'owner',
+      openConflicts: 0,
+      // r-2 is retired here but still carries a recent presence: it must not
+      // make this device look fresh (T13290).
+      replicas: [
+        replica('r-1'),
+        { ...replica('r-2'), presenceAt: new Date().toISOString() },
+        replica('r-3'),
+      ],
+      devices: { active: 1, total: 1 },
+      truncated: false,
+      stream: { streamId: 'project:p-1', headSeq: 3, headCheckpointId: null },
+      apiUrl: API,
+      projectId: 'p-1',
+      currentProject: true,
+      replicaPaging: { pages: 1, truncated: false, pageLimitReached: false },
+      retiredHere: retired,
+      warnings: [],
+    });
+    expect(line).toContain(
+      '3 replica(s) (retired on this device: r-2 retired → r-3; r-1 retired → r-2)',
+    );
+    // T13290: the devices holding it are listed; retired replicas are not holders.
+    expect(line).toContain('Devices: laptop (d-1, no presence yet).');
   });
 });

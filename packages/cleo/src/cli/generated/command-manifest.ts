@@ -219,7 +219,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'cloudCommand',
     name: 'cloud',
     description:
-      'Cleo Nexus with the device credential: status (one-call verification), whoami, devices, projects [show], activity; the encrypted vault: push, pull, restore, verify, vault, lease release.',
+      'Cleo Nexus with the device credential: status (one-call verification), whoami, devices, projects [show], activity; the encrypted vault: push, pull, restore, verify, vault, lease release; the local sync conflict log: conflicts [resolve <id>].',
     load: async () => (await import('../commands/cloud.js')).cloudCommand as CommandDef,
   },
   {
@@ -555,6 +555,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     description: 'Detect malformed CLEO databases (PRAGMA quick_check) and restore each from its ',
     load: async () =>
       (await import('../commands/doctor-repair.js')).doctorRepairCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorRowIdentityCommand',
+    name: 'row-identity',
+    description:
+      'Plan the from-scratch row-identity refill of a store whose identity predates the current ',
+    load: async () =>
+      (await import('../commands/doctor-row-identity.js')).doctorRowIdentityCommand as CommandDef,
   },
   {
     exportName: 'doctorSkillFixturesCommand',
