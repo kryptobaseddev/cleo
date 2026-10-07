@@ -216,12 +216,38 @@ export interface CloudRestoreResult {
   warnings: CloudWarning[];
 }
 
+/**
+ * `cleo cloud verify --deep` (T13291): the cloud copy downloaded again and
+ * checked byte for byte. Local backups are checked by `cleo backup verify`.
+ */
+export interface CloudVerifyDeepCheck {
+  /**
+   * The head snapshot and each device's newest snapshot: its bundle downloaded,
+   * checked against the size and sha256 its signed checkpoint records, and
+   * decrypted. `problem` says why a check failed; `null` when it passed.
+   */
+  snapshots: Array<{
+    checkpointId: string;
+    deviceId: string;
+    sizeBytes: number;
+    ok: boolean;
+    problem: string | null;
+  }>;
+  /**
+   * The journal segments after the head snapshot (from the start of the stream
+   * when there is none), each re-hashed, signature-checked and decrypted.
+   * `from` is the stream seq they start after; `checked` counts the segments
+   * that passed; `problem` is the first failure, `null` when none.
+   */
+  segments: { from: number; checked: number; ok: boolean; problem: string | null };
+}
+
 /** `cleo cloud verify`. */
 export interface CloudVerifyResult {
   apiUrl: string;
   scope: CloudVaultScope;
   streamId: string;
-  /** `match`: local equals the head snapshot; `ahead`: local changed since this machine's last snapshot; `behind`: the cloud has a newer snapshot; `diverged`: both; `empty`: no snapshot yet; `untrusted`: the head snapshot's signature does not verify against a trusted device key (nothing is compared with it). */
+  /** `match`: local equals the head snapshot; `ahead`: local changed since this machine's last snapshot; `behind`: the cloud has a newer snapshot; `diverged`: both; `empty`: no snapshot yet; `untrusted`: the head snapshot's signature does not verify against a trusted device key (nothing is compared with it), or with `--deep`, its bundle or a segment after it failed the byte check. */
   verdict: 'match' | 'ahead' | 'behind' | 'diverged' | 'empty' | 'untrusted';
   /** What to do about a verdict other than `match` (or a failed integrity check); `null` when nothing. */
   remedy: string | null;
@@ -240,6 +266,8 @@ export interface CloudVerifyResult {
     createdAt: string | null;
     matchesHead: boolean;
   }>;
+  /** The byte-level check of `--deep`; absent without it. */
+  deep?: CloudVerifyDeepCheck;
   warnings: CloudWarning[];
 }
 
@@ -294,5 +322,50 @@ export interface CloudActivityResult {
   items: CloudActivityItem[];
   /** The server has older events (`--before` this). */
   nextBefore: string | null;
+  warnings: CloudWarning[];
+}
+
+/** One conflict an apply recorded (`cleo cloud conflicts`, T12344 PR-6). */
+export interface CloudConflict {
+  id: number;
+  stream: string;
+  seq: number;
+  txnIdx: number;
+  /** Op index in the transaction; -1 for a whole-transaction (post-apply) conflict. */
+  opIdx: number;
+  /** `field`, `typed-rule`, `edit-vs-delete`, `delete-vs-edit`, `dangling-ref`, `guard`, `delete-with-live-children`, `uid-collision`, `post-apply` … */
+  kind: string;
+  table: string;
+  uid: string;
+  columns: string[];
+  /** The typed rule, guard message or invariant, when there is one. */
+  rule: string | null;
+  /** What happened to the incoming op: `incoming-applied`, `incoming-dropped`, `row-deleted`, `op-voided`. */
+  resolution: string;
+  opHlc: string;
+  localHlc: string | null;
+  /** The replica that wrote the op. */
+  origin: string;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+/** `cleo cloud conflicts`: the store's recorded sync conflicts. */
+export interface CloudConflictsResult {
+  scope: CloudVaultScope;
+  /** Unresolved conflicts in the store. */
+  open: number;
+  /** All conflicts in the store. */
+  total: number;
+  conflicts: CloudConflict[];
+  warnings: CloudWarning[];
+}
+
+/** `cleo cloud conflicts resolve <id>`. */
+export interface CloudConflictResolveResult {
+  scope: CloudVaultScope;
+  id: number;
+  /** False when no open conflict has that id. */
+  resolved: boolean;
   warnings: CloudWarning[];
 }

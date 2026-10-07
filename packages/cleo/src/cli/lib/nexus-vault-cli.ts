@@ -12,6 +12,8 @@
 
 import type {
   CloudActivityResult,
+  CloudConflictResolveResult,
+  CloudConflictsResult,
   CloudLeaseReleaseResult,
   CloudPushResult,
   CloudRestoreResult,
@@ -209,24 +211,52 @@ export function cloudRestoreSummary(r: CloudRestoreResult): string {
 }
 
 /**
- * `cleo cloud verify [--scope]`.
+ * The `--deep` part of the `cleo cloud verify` line (T13291): how many
+ * snapshots and segments passed the byte check, and the first failure.
+ *
+ * @param deep - The deep check, absent without `--deep`.
+ * @returns The clause, empty without `--deep`.
+ */
+export function deepVerifyClause(deep: CloudVerifyResult['deep']): string {
+  if (!deep) return '';
+  const passed = deep.snapshots.filter((x) => x.ok).length;
+  const failed = deep.snapshots.find((x) => !x.ok);
+  const segments = `${deep.segments.checked} segment(s) after seq ${deep.segments.from} ${deep.segments.ok ? 'verified' : `verified, then FAILED: ${deep.segments.problem}`}`;
+  return `; deep: ${passed}/${deep.snapshots.length} snapshot bundle(s) verified${failed ? ` (${failed.checkpointId} FAILED: ${failed.problem})` : ''}, ${segments}`;
+}
+
+/**
+ * The human line of `cleo cloud verify`: verdict, differing tables, local
+ * integrity, each device against the head, the `--deep` part, and where local
+ * backups are checked.
+ *
+ * @param r - The verify result.
+ * @returns The line.
+ */
+export function cloudVerifySummary(r: CloudVerifyResult): string {
+  const bad = r.tables.filter((t) => !t.match).map((t) => t.table);
+  const devices = r.devices
+    .map(
+      (d) => `${who(d.deviceName, d.deviceId)} ${d.matchesHead ? 'matches' : 'differs from'} head`,
+    )
+    .join('; ');
+  return `Verify ${r.scope}: ${r.verdict}${bad.length ? ` (${bad.length} table(s) differ: ${bad.slice(0, 8).join(', ')}${bad.length > 8 ? ', …' : ''})` : ''}; local integrity ${r.localIntegrity ? 'ok' : 'FAILED'}${devices ? `; ${devices}` : ''}${deepVerifyClause(r.deep)}. Local backups: \`cleo backup verify\`.`;
+}
+
+/**
+ * `cleo cloud verify [--scope] [--deep]`.
  *
  * @param args - Parsed args.
  */
 export async function runCloudVerify(args: Args): Promise<void> {
   await runCloudRead<CloudVerifyResult>(
     'cloud.verify',
-    async () => (await vaultModule()).verifyNexusVault(common(args, 'cloud.verify')),
-    (r) => {
-      const bad = r.tables.filter((t) => !t.match).map((t) => t.table);
-      const devices = r.devices
-        .map(
-          (d) =>
-            `${who(d.deviceName, d.deviceId)} ${d.matchesHead ? 'matches' : 'differs from'} head`,
-        )
-        .join('; ');
-      return `Verify ${r.scope}: ${r.verdict}${bad.length ? ` (${bad.length} table(s) differ: ${bad.slice(0, 8).join(', ')}${bad.length > 8 ? ', …' : ''})` : ''}; local integrity ${r.localIntegrity ? 'ok' : 'FAILED'}${devices ? `; ${devices}` : ''}.`;
-    },
+    async () =>
+      (await vaultModule()).verifyNexusVault({
+        ...common(args, 'cloud.verify'),
+        deep: args['deep'] === true,
+      }),
+    cloudVerifySummary,
   );
 }
 
@@ -302,5 +332,69 @@ export async function runCloudActivity(args: Args): Promise<void> {
             `${i.at} ${who(i.deviceName, i.deviceId ?? 'account')}${i.thisDevice ? ' (this machine)' : ''} ${i.action}${i.target ? ` ${i.target}` : ''}`,
         )
         .join('; ')}${r.items.length > 10 ? '; …' : ''}`,
+  );
+}
+
+/**
+ * `cleo cloud conflicts [list|resolve <id>] [--all] [--stream] [--scope]`:
+ * the sync conflicts this store's apply recorded (T12344 PR-6). Local only.
+ *
+ * @param args - Parsed args.
+ */
+export async function runCloudConflicts(args: Args): Promise<void> {
+  const action = stringArg(args, 'action') ?? 'list';
+  const conflicts = () =>
+    import(/* webpackIgnore: true */ '@cleocode/core/cloud/nexus-cloud-conflicts.js');
+  if (action === 'resolve') {
+    const raw = stringArg(args, 'id');
+    const id = raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+    if (!Number.isSafeInteger(id)) {
+      failNexus(
+        Object.assign(new Error('resolve needs a conflict id'), {
+          code: 'E_VALIDATION',
+          fix: 'use `cleo cloud conflicts resolve <id>` (ids from `cleo cloud conflicts`)',
+        }),
+        'cloud.conflicts.resolve',
+      );
+    }
+    await runCloudRead<CloudConflictResolveResult>(
+      'cloud.conflicts.resolve',
+      async () =>
+        (await conflicts()).resolveNexusCloudConflict({
+          id,
+          scope: scopeArg(args, 'cloud.conflicts.resolve'),
+        }),
+      (r) => (r.resolved ? `Conflict ${r.id} resolved.` : `No open conflict ${r.id}.`),
+    );
+    return;
+  }
+  if (action !== 'list') {
+    failNexus(
+      Object.assign(new Error(`unknown action '${action}'`), {
+        code: 'E_VALIDATION',
+        fix: 'use `cleo cloud conflicts` (list) or `cleo cloud conflicts resolve <id>`',
+      }),
+      'cloud.conflicts',
+    );
+  }
+  const stream = stringArg(args, 'stream');
+  await runCloudRead<CloudConflictsResult>(
+    'cloud.conflicts',
+    async () =>
+      (await conflicts()).nexusCloudConflicts({
+        scope: scopeArg(args, 'cloud.conflicts'),
+        all: args.all === true,
+        ...(stream !== undefined ? { stream } : {}),
+      }),
+    (r) =>
+      r.conflicts.length === 0
+        ? `No ${args.all === true ? '' : 'open '}sync conflicts (${r.total} recorded).`
+        : [
+            `${r.open} open of ${r.total} sync conflict(s):`,
+            ...r.conflicts.map(
+              (c) =>
+                `  #${c.id} ${c.kind} ${c.table}/${c.uid}${c.columns.length ? ` [${c.columns.join(', ')}]` : ''}${c.rule ? ` ${c.rule}` : ''}: ${c.resolution}${c.resolvedAt ? ' (resolved)' : ''}`,
+            ),
+          ].join('\n'),
   );
 }

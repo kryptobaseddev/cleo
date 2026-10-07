@@ -23,7 +23,7 @@
  * cleocode (labels, dependencies, relations, acceptance criteria), llmtxt (no
  * `project-id` file: the copies carry a stub, as the manual runs did) and
  * claude-todo (legacy `YYYY-MM-DD HH:MM:SS` timestamps, so the canonical
- * comparison is exercised). By hand, `scripts/sync-gate-b.mjs` runs the same
+ * comparison is exercised). By hand, the sync-gate-b script (under scripts/) runs the same
  * gate on `cleo backup add` snapshots of the real stores, through
  * `CLEO_SYNC_GATE_B_SNAPSHOTS=name=/abs/snapshot.db,...`; a snapshot is copied
  * to scratch first and never opened in place.

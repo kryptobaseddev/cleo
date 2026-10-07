@@ -32,6 +32,22 @@
  * Single-job workflows (e.g. lockfile-check.yml) are exempt — the lone job is
  * already its own required status check.
  *
+ * Coverage (T13263)
+ * -----------------
+ * Branch protection requires only `CI`. A gate in a workflow of its own (even
+ * one with a complete aggregate, like Arch Boundary Check) is therefore not
+ * a merge gate at all: #1881 showed `CI` green while two arch gates failed.
+ * So every workflow that triggers on `pull_request` MUST be one of:
+ *   - a required context ({@link REQUIRED_CONTEXT_WORKFLOWS}: ci.yml);
+ *   - called from ci.yml (`jobs.<id>.uses: ./.github/workflows/<file>`), whose
+ *     calling job the `ci` aggregate then needs (the sibling rule above). A
+ *     called workflow does not also run on its own pull_request /
+ *     merge_group / branch-push trigger (a second standalone run; manual
+ *     dispatch and tag-only pushes are fine) and declares no workflow-level
+ *     `concurrency` (it would resolve in ci.yml's context and cancel it);
+ *   - listed in {@link ADVISORY_WORKFLOWS} with the reason it does not gate.
+ * A new standalone gating workflow fails here until that decision is made.
+ *
  * Modes
  * -----
  * (default / --check)  Fail (exit 1) on ANY violation. This is a structural
@@ -48,7 +64,7 @@
  * @see docs/release/branch-protection-setup.md § "Required Status Checks"
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
@@ -80,6 +96,22 @@ const GATED_WORKFLOWS = [
     aggregateJob: 'arch-boundary-check',
   },
 ];
+
+/** Workflows whose own check is a required context in branch protection. */
+const REQUIRED_CONTEXT_WORKFLOWS = ['.github/workflows/ci.yml'];
+
+/**
+ * `pull_request` workflows that deliberately do not gate the merge, each with
+ * the reason (T13263, T13279).
+ */
+const ADVISORY_WORKFLOWS = {
+  '.github/workflows/cleo-supervisor-prebuild.yml':
+    'needs contents: write (it attaches release assets on a tag push); a workflow called from ci.yml cannot hold more than ci.yml grants, and the default token is read-only. Its build is covered on PRs by cleo-supervisor smoke (called from ci.yml)',
+  '.github/workflows/release-readiness.yml':
+    'the full `cleo doctor release-readiness` preflight (needs a build); its gating part, changeset parsing, runs in required CI as the Changeset Lint job (T13281)',
+  '.github/workflows/docs-reingest.yml': 'runs after a PR merges (docs re-ingest), not a gate',
+  '.github/workflows/worktree-cleanup.yml': 'runs after a PR merges (worktree cleanup), not a gate',
+};
 
 /**
  * Parse a workflow YAML file into a plain object, or throw a descriptive
@@ -208,6 +240,111 @@ function validateWorkflow(entry) {
 }
 
 /**
+ * The trigger names of a workflow's `on:` (string, list or map form).
+ *
+ * @param {Record<string, unknown>} doc
+ * @returns {string[]}
+ */
+function triggersOf(doc) {
+  // `yaml` parses the bare key `on` as the string "on" (YAML 1.2), but guard
+  // the YAML 1.1 boolean form too.
+  const on = doc.on ?? doc.true;
+  if (typeof on === 'string') return [on];
+  if (Array.isArray(on)) return on.filter((t) => typeof t === 'string');
+  if (on && typeof on === 'object') return Object.keys(on);
+  return [];
+}
+
+/**
+ * Triggers that would run a ci.yml-called workflow a second time for the same
+ * change: ci.yml already runs on all of these. `push` counts unless it is
+ * limited to tags.
+ */
+const DUPLICATE_TRIGGERS = new Set(['pull_request', 'pull_request_target', 'merge_group', 'push']);
+
+/**
+ * Whether a workflow's `on.push` only fires for tags (no branches filter).
+ *
+ * @param {Record<string, unknown>} doc
+ * @returns {boolean}
+ */
+function pushIsTagOnly(doc) {
+  const on = doc.on ?? doc.true;
+  const push = on && typeof on === 'object' && !Array.isArray(on) ? on.push : undefined;
+  return (
+    push !== null &&
+    typeof push === 'object' &&
+    push.tags !== undefined &&
+    push.branches === undefined &&
+    push['branches-ignore'] === undefined
+  );
+}
+
+/**
+ * Coverage (T13263): every pull_request workflow is required, called from
+ * ci.yml, or advisory; called workflows run only via workflow_call and carry
+ * no workflow-level concurrency; advisory entries are not stale.
+ *
+ * @returns {string[]}
+ */
+function validateCoverage() {
+  const violations = [];
+  const dir = join(REPO_ROOT, '.github/workflows');
+  const files = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
+        .map((f) => `.github/workflows/${f}`)
+    : [];
+  const docs = new Map(files.map((f) => [f, readWorkflow(join(REPO_ROOT, f), f)]));
+  const ci = docs.get('.github/workflows/ci.yml');
+  const ciJobs = ci?.jobs && typeof ci.jobs === 'object' ? ci.jobs : {};
+  const called = new Set(
+    Object.values(ciJobs)
+      .map((job) => (job && typeof job === 'object' ? job.uses : undefined))
+      .filter((u) => typeof u === 'string' && u.startsWith('./.github/workflows/'))
+      .map((u) => u.slice(2)),
+  );
+  for (const [file, doc] of docs) {
+    const triggers = triggersOf(doc);
+    if (called.has(file)) {
+      const extra = triggers.filter(
+        (t) => DUPLICATE_TRIGGERS.has(t) && !(t === 'push' && pushIsTagOnly(doc)),
+      );
+      if (!triggers.includes('workflow_call')) {
+        violations.push(`${file}: called from ci.yml but has no 'workflow_call' trigger`);
+      }
+      if (extra.length > 0) {
+        violations.push(
+          `${file}: called from ci.yml, so it must not also run on its own ${extra.join(', ')} trigger — a second standalone run is redundant and is not a merge gate (workflow_dispatch and tag-only pushes are fine)`,
+        );
+      }
+      if (doc.concurrency !== undefined) {
+        violations.push(
+          `${file}: called from ci.yml, so it must not declare workflow-level 'concurrency' (it resolves in ci.yml's context and cancels the caller)`,
+        );
+      }
+      continue;
+    }
+    if (!triggers.includes('pull_request')) continue;
+    if (REQUIRED_CONTEXT_WORKFLOWS.includes(file)) continue;
+    if (Object.hasOwn(ADVISORY_WORKFLOWS, file)) continue;
+    violations.push(
+      `${file}: runs on pull_request but nothing requires it — branch protection requires only CI. Call it from ci.yml (on: workflow_call + a job the ci aggregate needs), or list it in ADVISORY_WORKFLOWS with the reason it does not gate`,
+    );
+  }
+  for (const file of Object.keys(ADVISORY_WORKFLOWS)) {
+    const doc = docs.get(file);
+    if (doc === undefined)
+      violations.push(`ADVISORY_WORKFLOWS: ${file} no longer exists (stale entry)`);
+    else if (called.has(file))
+      violations.push(`ADVISORY_WORKFLOWS: ${file} is now called from ci.yml (stale entry)`);
+    else if (!triggersOf(doc).includes('pull_request'))
+      violations.push(`ADVISORY_WORKFLOWS: ${file} no longer runs on pull_request (stale entry)`);
+  }
+  return violations;
+}
+
+/**
  * Entry point. Returns the process exit code.
  *
  * @returns {number}
@@ -219,6 +356,7 @@ function main() {
     for (const entry of GATED_WORKFLOWS) {
       results.push({ file: entry.file, violations: validateWorkflow(entry) });
     }
+    results.push({ file: 'merge-bar coverage (T13263)', violations: validateCoverage() });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`ERROR: ${msg}\n`);
@@ -228,7 +366,7 @@ function main() {
   const total = results.reduce((sum, r) => sum + r.violations.length, 0);
   if (total === 0) {
     process.stdout.write(
-      `PASS — every PR-gating multi-job workflow has a complete merge-bar aggregate gate (${GATED_WORKFLOWS.length} checked)\n`,
+      `PASS — every PR-gating multi-job workflow has a complete merge-bar aggregate gate (${GATED_WORKFLOWS.length} checked), and every pull_request workflow is required, called from ci.yml, or advisory\n`,
     );
     return 0;
   }

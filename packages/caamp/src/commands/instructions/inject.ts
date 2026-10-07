@@ -10,6 +10,7 @@ import {
   type HarnessScope,
   resolveDefaultTargetProviders,
 } from '../../core/harness/index.js';
+import { isHomeProject } from '../../core/instructions/home-project.js';
 import { injectAll } from '../../core/instructions/injector.js';
 import {
   generateInjectionContent,
@@ -24,6 +25,7 @@ import {
 } from '../../core/lafs.js';
 import { getAllProviders, getProvider } from '../../core/registry/providers.js';
 import type { Provider } from '../../types.js';
+import { refuseHomeProject } from './home-refusal.js';
 
 /**
  * Registers the `instructions inject` subcommand for injecting instruction blocks into provider files.
@@ -120,6 +122,10 @@ export function registerInstructionsInject(parent: Command): void {
 
         const content = opts.content ?? generateInjectionContent();
         const scope = opts.global ? ('global' as const) : ('project' as const);
+        // T13257: no project instruction files in $HOME (harness or generic).
+        if (scope === 'project' && isHomeProject(process.cwd())) {
+          refuseHomeProject(operation, mvi, format);
+        }
 
         // Show grouped preview
         const groups = groupByInstructFile(providers);

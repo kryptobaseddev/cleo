@@ -272,16 +272,28 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/conflicts.ts': {
     _sync_conflict: {
-      count: 1,
+      count: 2,
       reason:
-        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction (T12344)",
+        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction, and marked resolved by `cleo cloud conflicts resolve` (T12344)",
     },
   },
   'packages/core/src/store/sync/field-leave.ts': {
     _sync_field_leave: {
-      count: 4,
+      count: 6,
       reason:
-        'typed-rule field state (local-only): leaves and rank-max frontiers, merge input that row meta has no place for, rebuilt from the stream (T12344)',
+        'typed-rule field state (local-only): leaves and rank-max frontiers, merge input that row meta has no place for, rebuilt from the stream (T12344); a rebase rewind restores a row snapshot (T13193)',
+    },
+  },
+  'packages/core/src/store/sync/held.ts': {
+    _sync_ledger: {
+      count: 1,
+      reason:
+        "sync ledger (local-only): a rebase's uncaptured row-count changes and a held op's effect, so live = count(*) + held holds (§3.5 Rule 5, T13193)",
+    },
+    _sync_row_undo: {
+      count: 2,
+      reason:
+        'row undo (local-only): the hold on an op a rebase replay refused, set and lifted with its row undo (§3.5 Rule 5, T13193)',
     },
   },
   'packages/core/src/store/sync/inbox.ts': {
@@ -340,8 +352,8 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/row-meta.ts': {
     _sync_row_meta: {
-      count: 2,
-      reason: `${SEALER}; plus the re-key move of a row's meta (T12344)`,
+      count: 4,
+      reason: `${SEALER}; plus the re-key move of a row's meta (T12344) and a rebase rewind restoring a row's meta snapshot (T13193)`,
     },
   },
   'packages/core/src/store/sync/sealer.ts': {
@@ -357,6 +369,28 @@ export const EXEMPT = {
     _sync_quarantine: { count: 1, reason: SEALER },
     _sync_row_meta: { count: 4, reason: SEALER },
     _sync_txn: { count: 1, reason: SEALER },
+  },
+  'packages/core/src/store/sync/sequencing.ts': {
+    _sync_foreign_touch: {
+      count: 3,
+      reason:
+        'foreign-touch index (local-only): rows applied foreign txns touched, for the own-echo fast path; pruned past the oldest unsequenced local txn (T13193)',
+    },
+    _sync_meta: { count: 3, reason: SYNC_BOOKKEEPING },
+    _sync_row_undo: {
+      count: 3,
+      reason:
+        "row undo (local-only): a sealed local op's prior merge state, re-snapshotted before each rebase replay, dropped when its echo is sequenced (T13193)",
+    },
+    _sync_sequenced: {
+      count: 1,
+      reason: 'sequenced own txns (local-only): echoes the stream sequenced (T13193)',
+    },
+    _sync_undo: {
+      count: 2,
+      reason:
+        "undo log (local-only): a sequenced own txn's undo, and a netted-away frame's, are dropped (§3.5 drop rule, T13193)",
+    },
   },
   'packages/core/src/store/sync/structural.ts': {
     _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING },

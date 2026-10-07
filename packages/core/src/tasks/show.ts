@@ -26,6 +26,7 @@ import { resolveCleoDir, resolveOrCwd } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { findHeldTask, SyncHeldError } from '../store/sync/held.js';
 import { computeTaskView } from './compute-task-view.js';
 import {
   type IvtrHistoryEntry,
@@ -137,6 +138,10 @@ export async function showTask(
   }
 
   if (!task) {
+    // A local insert a sync rebase holds is not missing (§3.5 Rule 5).
+    const held = await findHeldTask(taskId, cwd);
+    // @sync-invariant none:local-only a read of this store's own held rebase state; nothing is written
+    if (held) throw new SyncHeldError(taskId, held);
     throw new CleoError(ExitCode.NOT_FOUND, `Task not found: ${taskId}`, {
       fix: `Use 'cleo find "${taskId}"' to search for similar IDs`,
       alternatives: [

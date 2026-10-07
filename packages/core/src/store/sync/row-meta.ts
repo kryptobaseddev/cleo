@@ -242,3 +242,81 @@ export function moveRowMeta(
     'UPDATE _sync_row_meta SET uid = ?, bfp = coalesce(?, bfp) WHERE tbl = ? AND uid = ?',
   ).run(newUid, bfp, tbl, oldUid);
 }
+
+/** A row's complete stored meta, every column (what a rebase snapshot keeps). */
+export interface RowMetaFull {
+  readonly hlc: string;
+  readonly fhlc: string | null;
+  readonly origin: string;
+  readonly actor: string | null;
+  readonly version: number;
+  readonly deleted: number;
+  readonly key_json: string | null;
+  readonly sent: number;
+  readonly fk_excluded: number;
+  readonly held: number;
+  readonly chash: string | null;
+  readonly shash: string | null;
+  readonly bfp: string | null;
+}
+
+const FULL_COLUMNS = [
+  'hlc',
+  'fhlc',
+  'origin',
+  'actor',
+  'version',
+  'deleted',
+  'key_json',
+  'sent',
+  'fk_excluded',
+  'held',
+  'chash',
+  'shash',
+  'bfp',
+] as const;
+
+/**
+ * The row's complete stored meta, or undefined (T13193: what a rebase
+ * snapshots before a local op, so a rewind restores it exactly).
+ *
+ * @param db - The store.
+ * @param tbl - Sync-set table.
+ * @param uid - Row uid.
+ * @returns Every meta column, or undefined.
+ */
+export function readRowMetaFull(
+  db: DatabaseSync,
+  tbl: string,
+  uid: string,
+): RowMetaFull | undefined {
+  return db
+    .prepare(`SELECT ${FULL_COLUMNS.join(', ')} FROM _sync_row_meta WHERE tbl = ? AND uid = ?`)
+    .get(tbl, uid) as RowMetaFull | undefined;
+}
+
+/**
+ * Put a row's meta back exactly as a snapshot holds it, or remove it when the
+ * snapshot is null (the row had no meta). A rebase rewind's writer.
+ *
+ * @param db - The store, inside the rebase frame.
+ * @param tbl - Sync-set table.
+ * @param uid - Row uid.
+ * @param meta - The snapshot, or null.
+ */
+export function restoreRowMeta(
+  db: DatabaseSync,
+  tbl: string,
+  uid: string,
+  meta: RowMetaFull | null,
+): void {
+  if (meta === null) {
+    db.prepare('DELETE FROM _sync_row_meta WHERE tbl = ? AND uid = ?').run(tbl, uid);
+    return;
+  }
+  db.prepare(
+    `INSERT INTO _sync_row_meta (tbl, uid, ${FULL_COLUMNS.join(', ')})
+     VALUES (?, ?, ${FULL_COLUMNS.map(() => '?').join(', ')})
+     ON CONFLICT (tbl, uid) DO UPDATE SET ${FULL_COLUMNS.map((c) => `${c} = excluded.${c}`).join(', ')}`,
+  ).run(tbl, uid, ...FULL_COLUMNS.map((c) => meta[c]));
+}

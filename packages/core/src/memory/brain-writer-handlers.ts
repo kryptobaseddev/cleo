@@ -15,10 +15,10 @@
  */
 
 import { join } from 'node:path';
-import { isMainThread } from 'node:worker_threads';
 import type { ObserveBrainResult } from '@cleocode/contracts';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { getLogger } from '../logger.js';
+import { isBrainWriterIsolate } from './brain-host.js';
 import type {
   BrainDecisionOp,
   BrainDialecticOp,
@@ -50,16 +50,18 @@ import type {
  * write-guard in `observeBrain`) resolves to the WRONG `.cleo` directory —
  * silently dropping cross-db references such as `sourceSessionId`.
  *
- * Each write op already carries its authoritative `projectRoot`, so on the
- * worker thread we re-point `CLEO_DIR` to `<projectRoot>/.cleo` before
- * dispatching — exactly mirroring the value the main thread holds. On the main
- * thread (inline-fallback executor) we leave `process.env` untouched: its
- * `CLEO_DIR` is already authoritative and must not be clobbered.
+ * Each write op already carries its authoritative `projectRoot`, so in the
+ * brain writer isolate we re-point `CLEO_DIR` to `<projectRoot>/.cleo` before
+ * dispatching — exactly mirroring the value the main thread holds. Anywhere
+ * else (the main thread, or any other worker thread running the inline
+ * fallback: embedding-queue, background-review) we leave `process.env`
+ * untouched: its `CLEO_DIR` is that context's own and must not be pinned to
+ * the last op's project (T13251).
  *
  * @param projectRoot - The op's authoritative project root.
  */
 function syncWorkerCleoDir(projectRoot: string): void {
-  if (isMainThread) return;
+  if (!isBrainWriterIsolate()) return;
   // Mirror the main thread's resolution: an absolute CLEO_DIR pins `.cleo`.
   process.env['CLEO_DIR'] = join(projectRoot, '.cleo');
 }

@@ -59,7 +59,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
-import type { LedgerOp, LedgerWireValue } from '@cleocode/contracts/ledger';
+import type { LedgerActor, LedgerOp, LedgerWireValue } from '@cleocode/contracts/ledger';
 import { BIRTH_FP_COLUMN, UID_COLUMN } from '../../row-identity-registry.js';
 import { type CaptureTableDef, captureTableDef } from '../capture.js';
 import { recordConflicts } from '../conflicts.js';
@@ -69,8 +69,10 @@ import {
   readFieldFrontiers,
   readFieldLeaves,
   recordFieldLeaves,
+  restoreFieldState,
   setFieldFrontiers,
 } from '../field-leave.js';
+import { accountRebaseRows, heldOp, holdOp, type KeptRow, txnHasHold, unholdOp } from '../held.js';
 import { encodeHlc, genesisHlc, isWithinSkew, parseHlc } from '../hlc.js';
 import { type InboxKey, type InboxStatus, markTxns, type StagedTxn, stagedTxns } from '../inbox.js';
 import { applyOp, checkSchemaVersion } from '../merge/engine.js';
@@ -84,10 +86,26 @@ import {
   UNSEEN_ROW,
 } from '../merge/types.js';
 import { remapPending } from '../remap.js';
-import { fieldHlcsOf } from '../row-meta.js';
+import { fieldHlcsOf, type RowMetaFull, readRowMetaFull, restoreRowMeta } from '../row-meta.js';
+import { hasTable } from '../schema.js';
 import { canonicalJson } from '../sealer-values.js';
+import {
+  capturePosition,
+  type LocalTxn,
+  markSequenced,
+  ownEchoFastPath,
+  readRowUndo,
+  recordForeignTouches,
+  resnapshotRowUndo,
+  type TouchedRow,
+  type UnsequencedTxn,
+  unsequencedLocalTxn,
+  unsequencedLocalTxns,
+} from '../sequencing.js';
+import { withTriggersSuspended } from '../trigger-classes.js';
 import { type ApplyApi, withApplyFrame } from './frame.js';
 import { parentDeletePolicy } from './parent-delete.js';
+import { checkApplyPreconditions, checkTaskTreeShape, type PageRow } from './post-apply.js';
 import { resolveRef, uidOfKey } from './refs.js';
 
 /** How {@link applyStagedTxns} runs. */
@@ -118,6 +136,10 @@ export interface ApplyReport {
   /** Conflict records written. */
   readonly conflicts: number;
   readonly passes: number;
+  /** Transactions applied inside a scoped rebase frame (§3.5 Rule 2). */
+  readonly rebased: number;
+  /** Why nothing was applied (PAC-15 apply preconditions), when so. */
+  readonly blocked?: string;
 }
 
 /** An op's decision inside its transaction. */
@@ -344,6 +366,7 @@ function effect(
   opIdx: number,
   d: Decided,
   nowIso: string,
+  quiet = false,
 ): number {
   const { op, def, before, out } = d;
   const actor = st.txn.actor ? JSON.stringify(st.txn.actor) : null;
@@ -414,8 +437,40 @@ function effect(
     recordFieldLeaves(db, op.t, op.u, leaves);
     setFieldFrontiers(db, op.t, op.u, frontiers);
   }
-  recordConflicts(db, { ...st.key, opIdx }, out.conflicts, st.replicaId, nowIso);
+  if (!quiet) recordConflicts(db, { ...st.key, opIdx }, out.conflicts, st.replicaId, nowIso);
   return out.conflicts.length;
+}
+
+/**
+ * The page PAC-01 judges: only rows whose shape this transaction could have
+ * changed (an insert, a re-key, or an op carrying `parent_id` or `type`).
+ * A row that already broke the matrix before (legacy data) never voids an
+ * unrelated edit of it; two valid ops that merge into a bad tree each carry
+ * one of those columns, so nothing introduced is missed (T13244).
+ */
+function treeShapePage(ops: readonly LedgerOp[]): PageRow[] {
+  return ops
+    .filter(
+      (o) =>
+        o.o === 'I' || o.o === 'K' || (o.a !== undefined && ('parent_id' in o.a || 'type' in o.a)),
+    )
+    .map((o) => ({
+      table: o.t,
+      uid: o.o === 'K' && o.nu ? o.nu : o.u,
+      typeChanged: o.o === 'I' || (o.a !== undefined && 'type' in o.a),
+    }));
+}
+
+/** The rows a transaction's ops write (a re-key's both uids). */
+function touchedRows(ops: readonly LedgerOp[]): TouchedRow[] {
+  return ops.flatMap((o) =>
+    o.o === 'K' && o.nu && o.nu !== o.u
+      ? [
+          { table: o.t, uid: o.u },
+          { table: o.t, uid: o.nu },
+        ]
+      : [{ table: o.t, uid: o.u }],
+  );
 }
 
 /** The status of an applied transaction from its ops' results. */
@@ -500,6 +555,16 @@ interface OpContext {
   readonly defs: (table: string) => CaptureTableDef | null;
   readonly replica: string;
   readonly nowIso: string;
+  /**
+   * Set while a rebase replays a local op (§3.5): the op is this replica's,
+   * with its own actor; counter deltas are applied (the rewind took them
+   * out); conflicts are not recorded here, since its echo records them.
+   */
+  readonly replay?: {
+    readonly actor: LedgerActor | null;
+    /** Told why an op the replay refuses stays rewound (its hold reason, Rule 5). */
+    readonly onVoid?: (conflicts: readonly MergeConflict[]) => void;
+  };
 }
 
 const voidWith = (
@@ -507,7 +572,11 @@ const voidWith = (
   opIdx: number,
   conflict: MergeConflict,
 ): { readonly result: OpResult; readonly conflicts: number } => {
-  recordConflicts(c.db, { ...c.st.key, opIdx }, [conflict], c.st.replicaId, c.nowIso);
+  if (!c.replay) {
+    recordConflicts(c.db, { ...c.st.key, opIdx }, [conflict], c.st.replicaId, c.nowIso);
+  } else {
+    c.replay.onVoid?.([conflict]);
+  }
   return { result: 'void', conflicts: 1 };
 };
 
@@ -626,9 +695,9 @@ function applyOne(
     });
   }
   const before = loadRowState(c.db, c.api, def, op.u, c.replica);
-  const out = applyOp(before, ownEcho(op, c.st, c.replica), {
+  const out = applyOp(before, c.replay ? op : ownEcho(op, c.st, c.replica), {
     table: mergeSpecFor(op.t, def.columns),
-    actorOp: c.st.txn.actor?.op ?? null,
+    actorOp: (c.replay ? c.replay.actor?.op : c.st.txn.actor?.op) ?? null,
   });
   const live =
     out.effect === 'delete'
@@ -652,7 +721,18 @@ function applyOne(
     // cascade-with-ops: the remaining children go first, with ops' tombstones.
     const actor = c.st.txn.actor ? JSON.stringify(c.st.txn.actor) : null;
     for (const x of live) cascadeDelete(c, x.key.child, x.uid, op.h, actor);
-    const n = effect(c.db, c.api, c.st, opIdx, { op, def, before, out, refKeys }, c.nowIso);
+    const st: StagedTxn = c.replay
+      ? { ...c.st, replicaId: c.replica, txn: { ...c.st.txn, actor: c.replay.actor } }
+      : c.st;
+    const n = effect(
+      c.db,
+      c.api,
+      st,
+      opIdx,
+      { op, def, before, out, refKeys },
+      c.nowIso,
+      c.replay !== undefined,
+    );
     c.db.exec(`RELEASE ${sp}`);
     const result: OpResult =
       out.status === 'applied' || out.status === 'partial'
@@ -660,6 +740,7 @@ function applyOne(
         : out.status === 'void'
           ? 'void'
           : 'skipped';
+    if (c.replay && result === 'void') c.replay.onVoid?.(out.conflicts);
     return { result, conflicts: n };
   } catch (err) {
     c.db.exec(`ROLLBACK TO ${sp}`);
@@ -675,6 +756,297 @@ function applyOne(
       opHlc: op.h,
     });
   }
+}
+
+/** What a scoped rebase does around one incoming transaction (§3.5 Rule 3). */
+interface RebasePlan {
+  /** Local transactions to rewind, in local commit order. */
+  readonly rewind: readonly UnsequencedTxn[];
+  /** Of those, the ones to replay after the incoming transaction applies. */
+  readonly replay: readonly UnsequencedTxn[];
+  /** The local transaction the incoming one echoes, when it is ours. */
+  readonly own: UnsequencedTxn | null;
+}
+
+/** The rows ops write or reference (their footprint, Rule 3), by row key. */
+function footprintOf(
+  ops: readonly LedgerOp[],
+  defs: (table: string) => CaptureTableDef | null,
+): Map<string, TouchedRow> {
+  const out = new Map<string, TouchedRow>();
+  const add = (table: string, uid: string): void => {
+    out.set(rowKey(table, uid), { table, uid });
+  };
+  for (const o of ops) {
+    add(o.t, o.u);
+    if (o.o === 'K' && o.nu) add(o.t, o.nu);
+    const def = defs(o.t);
+    for (const [col, v] of Object.entries(o.a ?? {})) {
+      const target = def?.refs.get(col);
+      if (target && typeof v === 'string') add(target.table, v);
+    }
+  }
+  return out;
+}
+
+/**
+ * Whether an own echo may apply in place and be sequenced (the fast path,
+ * Rule 3): no foreign touch of its footprint since its commit, and no later
+ * unsequenced local transaction on that footprint (the echo would otherwise
+ * apply over that transaction's effects). Otherwise a rebase decides.
+ */
+function echoInPlace(
+  db: DatabaseSync,
+  st: StagedTxn,
+  defs: (table: string) => CaptureTableDef | null,
+  local: LocalTxn,
+): boolean {
+  // A held op sits rewound: only a rebase can apply it and restore what it kept.
+  if (txnHasHold(db, local.txn)) return false;
+  const fp = footprintOf(st.txn.ops, defs);
+  if (!ownEchoFastPath(db, local, [...fp.values()])) return false;
+  const locals = unsequencedLocalTxns(db);
+  const later = locals.slice(locals.findIndex((l) => l.txn === local.txn) + 1);
+  return later.every((l) => ![...footprintOf(l.ops, defs).keys()].some((k) => fp.has(k)));
+}
+
+/**
+ * Plan the scoped rebase around an incoming transaction, or null when none is
+ * needed: the unsequenced local transactions whose footprint meets the
+ * incoming one's, to a fixed point (Rule 3). An own echo's transaction is
+ * rewound and not replayed: the echo applies it at its stream position. A
+ * transaction without row undo for every op cannot be rewound, so the plan
+ * declines (the transaction applies in place, as before undo existed).
+ */
+function planRebase(
+  db: DatabaseSync,
+  st: StagedTxn,
+  defs: (table: string) => CaptureTableDef | null,
+  localReplica: string,
+): RebasePlan | null {
+  const locals = unsequencedLocalTxns(db);
+  if (locals.length === 0) return null;
+  const own =
+    st.replicaId === localReplica ? (locals.find((l) => l.txn === st.txn.txn) ?? null) : null;
+  const scope = new Set<string>(own ? [own.txn] : []);
+  const reach = new Set(footprintOf(st.txn.ops, defs).keys());
+  if (own) for (const k of footprintOf(own.ops, defs).keys()) reach.add(k);
+  for (let grown = true; grown; ) {
+    grown = false;
+    for (const l of locals) {
+      if (scope.has(l.txn)) continue;
+      const fp = [...footprintOf(l.ops, defs).keys()];
+      if (fp.some((k) => reach.has(k))) {
+        scope.add(l.txn);
+        for (const k of fp) reach.add(k);
+        grown = true;
+      }
+    }
+  }
+  const rewind = locals.filter((l) => scope.has(l.txn));
+  if (rewind.length === 0) return null;
+  for (const l of rewind) {
+    for (let i = 0; i < l.ops.length; i++) if (!readRowUndo(db, l.txn, i)) return null;
+  }
+  return { rewind, replay: rewind.filter((l) => l !== own), own };
+}
+
+/** Wire values with references turned into local keys (unresolvable ones drop to NULL). */
+function toLocal(
+  db: DatabaseSync,
+  def: CaptureTableDef,
+  values: Readonly<Record<string, LedgerWireValue>>,
+): Record<string, LedgerWireValue> {
+  const out: Record<string, LedgerWireValue> = {};
+  for (const [col, v] of Object.entries(values)) {
+    if (col === UID_COLUMN) continue;
+    const target = def.refs.get(col);
+    if (target && typeof v === 'string') {
+      const ref = resolveRef(db, target, v);
+      out[col] = ref.kind === 'row' ? ref.key : null;
+    } else {
+      out[col] = v;
+    }
+  }
+  return out;
+}
+
+/** Put back what a rewound insert kept, once its insert applied again. */
+function restoreKept(
+  c: OpContext,
+  op: LedgerOp,
+  result: OpResult,
+  kept: ReadonlyMap<string, KeptRow>,
+): void {
+  if (op.o !== 'I' || result !== 'applied') return;
+  const k = kept.get(rowKey(op.t, op.u));
+  if (!k) return;
+  if (k.local) c.api.writeLocalOnly(op.t, op.u, k.local);
+  c.api.writeLocalDescendants(k.descendants);
+}
+
+/** Re-snapshot op `i`'s row undo with the row as it stands now (D2). */
+function resnapshotOp(c: OpContext, l: UnsequencedTxn, i: number, op: LedgerOp): void {
+  const def = c.defs(op.t);
+  if (!def) return;
+  const state = loadRowState(c.db, c.api, def, op.u, c.replica);
+  const now: Record<string, LedgerWireValue> = {};
+  const cols = op.o === 'U' ? Object.keys(op.a ?? {}) : Object.keys(state.fields);
+  for (const col of cols) {
+    const f = state.fields[col];
+    if (f) now[col] = f.value;
+  }
+  resnapshotRowUndo(c.db, l.txn, i, op.t, op.u, now);
+}
+
+/**
+ * Rewind the plan's local transactions, newest op first (Rules 2, 4): each
+ * row's values go back to what they were before the op (its last replay's
+ * snapshot, else the sealed op's own before-image), and its row meta, leaves
+ * and frontiers back to the op's row undo. Capture, guard and side-effect
+ * triggers are suspended; local-only columns of rewound inserts are kept for
+ * the replay (R7-2).
+ */
+/** What a rewind leaves its replay: kept inserts and each op's after-meta. */
+interface Rewound {
+  /** What rewound inserts kept, by row key. */
+  readonly kept: Map<string, KeptRow>;
+  /** Each rewound op's row meta as the op left it, by {@link opKey}. */
+  readonly after: Map<string, RowMetaFull | null>;
+}
+
+const opKey = (txn: string, idx: number): string => `${txn}\u0000${idx}`;
+
+/** A one-line conflict preview of why a replay refused an op (Rule 5). */
+function describeConflicts(cs: readonly MergeConflict[]): string {
+  return cs
+    .map(
+      (x) =>
+        `${x.kind}${x.rule ? ` (${x.rule})` : ''} on ${x.table}/${x.uid}${x.columns.length > 0 ? ` [${x.columns.join(', ')}]` : ''}`,
+    )
+    .join('; ');
+}
+
+function rewindTxns(c: OpContext, plan: RebasePlan): Rewound {
+  const kept = new Map<string, KeptRow>();
+  const after = new Map<string, RowMetaFull | null>();
+  withTriggersSuspended(c.db, ['capture', 'guard', 'side-effect'], 'rewind', () => {
+    for (const l of [...plan.rewind].reverse()) {
+      for (let i = l.ops.length - 1; i >= 0; i--) {
+        const op = l.ops[i] as LedgerOp;
+        const def = c.defs(op.t);
+        const undo = readRowUndo(c.db, l.txn, i);
+        if (!def || !undo) continue;
+        const exists = (uid: string): boolean => c.api.readRow(op.t, uid) !== null;
+        // A held op is decided again: lift its hold, keep what it kept.
+        const held = heldOp(c.db, l.txn, i);
+        if (held) {
+          unholdOp(c.db, l.txn, i);
+          if (held.kept) kept.set(rowKey(op.t, op.u), held.kept);
+        }
+        const had = exists(op.u);
+        const before = undo.values ?? op.b ?? {};
+        // A replay that found its row already gone snapshotted it as absent.
+        const absent = undo.values !== null && Object.keys(undo.values).length === 0;
+        if (op.o === 'I' && exists(op.u)) {
+          kept.set(rowKey(op.t, op.u), {
+            local: c.api.readLocalOnly(op.t, op.u),
+            descendants: c.api.readLocalDescendants(op.t, op.u),
+          });
+          c.api.deleteRow(op.t, op.u);
+        } else if (op.o === 'U' && exists(op.u)) {
+          const cols = Object.keys(op.a ?? {});
+          const vals: Record<string, LedgerWireValue> = {};
+          for (const col of cols) if (col in before) vals[col] = before[col] as LedgerWireValue;
+          const local = toLocal(c.db, def, vals);
+          if (Object.keys(local).length > 0) c.api.writeFields(op.t, op.u, local);
+        } else if (op.o === 'D' && !absent && !exists(op.u)) {
+          const vals = toLocal(c.db, def, before);
+          if (def.identity.includes(BIRTH_FP_COLUMN) && vals[BIRTH_FP_COLUMN] == null && op.bfp) {
+            vals[BIRTH_FP_COLUMN] = op.bfp;
+          }
+          c.api.insertRow(op.t, op.u, vals);
+        } else if (op.o === 'K' && op.nu && exists(op.nu)) {
+          c.api.rekeyRow(op.t, op.nu, op.u, op.obfp ?? null);
+        }
+        if (op.o === 'I' || op.o === 'D') {
+          accountRebaseRows(c.db, op.t, Number(exists(op.u)) - Number(had));
+        }
+        after.set(opKey(l.txn, i), readRowMetaFull(c.db, op.t, op.u) ?? null);
+        restoreRowMeta(c.db, op.t, op.u, undo.meta);
+        restoreFieldState(c.db, op.t, op.u, undo.state);
+      }
+    }
+  });
+  return { kept, after };
+}
+
+/**
+ * Replay the plan's local transactions in commit order, after the incoming
+ * one applied (Rule 4): each op goes through the merge engine against the
+ * state now, so a field the stream wrote with a newer HLC is not overwritten
+ * (R6-7), and an op the stream now refuses stays rewound (Rule 6). Before each
+ * op its row undo is re-snapshotted, so the next rewind restores exactly what
+ * this replay sat on (D2). Capture and side-effect triggers are suspended;
+ * guards stay active, and each replayed transaction gets the post-apply
+ * checks: one that fails them stays rewound whole (Rule 6, T13268).
+ */
+function replayTxns(c: OpContext, plan: RebasePlan, rw: Rewound): void {
+  const exists = (op: LedgerOp): boolean => c.api.readRow(op.t, op.u) !== null;
+  withTriggersSuspended(c.db, ['capture', 'side-effect'], 'forward', () => {
+    for (const l of plan.replay) {
+      let refused: string | null = null;
+      const rc: OpContext = {
+        ...c,
+        replay: {
+          actor: l.actor,
+          onVoid: (cs) => {
+            refused = describeConflicts(cs);
+          },
+        },
+      };
+      let holds: Array<{ readonly idx: number; readonly reason: string }> = [];
+      c.db.exec('SAVEPOINT replay_txn');
+      l.ops.forEach((op, i) => {
+        resnapshotOp(c, l, i, op);
+        const had = exists(op);
+        refused = null;
+        const r = applyOne(rc, i, op);
+        if (op.o === 'I' || op.o === 'D') {
+          accountRebaseRows(c.db, op.t, Number(exists(op)) - Number(had));
+        }
+        restoreKept(c, op, r.result, rw.kept);
+        if (r.result === 'void') holds.push({ idx: i, reason: refused ?? 'refused on replay' });
+      });
+      // Gate C over the replay too (T13268): a replayed transaction that
+      // breaks a post-apply check stays rewound whole, as its echo will be
+      // voided on every receiver. Every op of it now sits on the rewound row.
+      const broken = checkTaskTreeShape(c.db, treeShapePage(l.ops));
+      if (broken.length > 0) {
+        c.db.exec('ROLLBACK TO replay_txn');
+        l.ops.forEach((op, i) => {
+          resnapshotOp(c, l, i, op);
+        });
+        const reason = broken.map((v) => `${v.check}: ${v.message}`).join('; ');
+        holds = l.ops.map((_, i) => ({ idx: i, reason }));
+      }
+      c.db.exec('RELEASE replay_txn');
+      // What stays rewound is held until its echo is decided (Rule 5).
+      for (const h of holds) {
+        const op = l.ops[h.idx] as LedgerOp;
+        holdOp(c.db, {
+          txn: l.txn,
+          idx: h.idx,
+          op,
+          exists: exists(op),
+          reason: h.reason,
+          afterMeta: rw.after.get(opKey(l.txn, h.idx)) ?? null,
+          kept: rw.kept.get(rowKey(op.t, op.u)) ?? null,
+          nowIso: c.nowIso,
+        });
+      }
+    }
+  });
 }
 
 /**
@@ -695,7 +1067,24 @@ function applyOne(
 export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): ApplyReport {
   const now = opts.now ?? Date.now;
   const maxPasses = opts.maxPasses ?? 16;
+  // PAC-15: a store that refuses writes applies nothing; the inbox waits.
+  const blocked = checkApplyPreconditions(db);
+  if (blocked !== null) {
+    return {
+      applied: 0,
+      conflict: 0,
+      void: 0,
+      pending: 0,
+      heldSkew: 0,
+      refusedSchema: 0,
+      conflicts: 0,
+      passes: 0,
+      rebased: 0,
+      blocked,
+    };
+  }
   opts.seal?.();
+  const sequencingOn = hasTable(db, '_sync_sequenced');
   const defCache = new Map<string, CaptureTableDef | null>();
   const defs = (table: string): CaptureTableDef | null => {
     if (!defCache.has(table)) defCache.set(table, captureTableDef(db, opts.scope, table) ?? null);
@@ -704,6 +1093,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
   const last = new Map<string, InboxStatus>();
   let conflicts = 0;
   let passes = 0;
+  let rebased = 0;
   for (let progress = true; progress && passes < maxPasses; ) {
     progress = false;
     passes += 1;
@@ -742,27 +1132,130 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
         const plan = planTxn(db, api, st, defs, opts.replica);
         if (plan.kind !== 'apply') {
           markTxns(db, st.parts, plan.kind, { reason: plan.reason, nowIso });
-          return { status: plan.kind, holds: plan.kind === 'pending' ? plan.holds : [], n: 0 };
+          return {
+            status: plan.kind,
+            holds: plan.kind === 'pending' ? plan.holds : [],
+            n: 0,
+            rebased: false,
+          };
         }
         if (api.clockReceive(opts.replica, st.txn.hlc, nowMs).held) {
           markTxns(db, st.parts, 'held-skew', { reason: 'clock refused the HLC', nowIso });
-          return { status: 'held-skew' as const, holds: [], n: 0 };
+          return { status: 'held-skew' as const, holds: [], n: 0, rebased: false };
+        }
+        // §3.5 Rule 3 (T13193): where this txn sits in the capture order.
+        const touchPos = sequencingOn ? capturePosition(db) : 0;
+        // A scoped rebase when unsequenced local txns meet this one: around a
+        // foreign txn always, around an own echo only when the fast path fails.
+        let rebase: RebasePlan | null = null;
+        if (sequencingOn) {
+          if (st.replicaId !== opts.replica) {
+            rebase = planRebase(db, st, defs, opts.replica);
+          } else {
+            const local = unsequencedLocalTxn(db, st.txn.txn);
+            if (local && !echoInPlace(db, st, defs, local)) {
+              rebase = planRebase(db, st, defs, opts.replica);
+            }
+          }
         }
         const c: OpContext = { db, api, st, defs, replica: opts.replica, nowIso };
         let n = 0;
+        // Gate C (§3.6): the whole transaction is one savepoint, so a broken
+        // multi-row invariant rolls all of it back.
+        db.exec('SAVEPOINT apply_txn');
+        // Inside the savepoint: a post-apply void rolls the rewind back too.
+        const rw: Rewound = rebase ? rewindTxns(c, rebase) : { kept: new Map(), after: new Map() };
         const results = applyOrder(st.txn.ops, defs).map((i) => {
-          const r = applyOne(c, i, st.txn.ops[i] as LedgerOp);
+          const op = st.txn.ops[i] as LedgerOp;
+          const r = applyOne(c, i, op);
           n += r.conflicts;
+          // A rewound own insert applies again here: put back what it kept.
+          if (rebase?.own && r.result === 'applied' && op.o === 'I') {
+            withTriggersSuspended(db, ['capture', 'side-effect'], 'forward', () => {
+              restoreKept(c, op, r.result, rw.kept);
+            });
+          }
           return r.result;
         });
+        // Every per-transaction post-apply check, by name (the registry's runtime gates).
+        const violations = [...checkTaskTreeShape(db, treeShapePage(st.txn.ops))];
+        if (violations.length > 0) {
+          db.exec('ROLLBACK TO apply_txn');
+          db.exec('RELEASE apply_txn');
+          recordConflicts(
+            db,
+            { ...st.key, opIdx: -1 },
+            violations.map((v) => ({
+              kind: 'post-apply' as const,
+              table: v.table,
+              uid: v.uid,
+              columns: [],
+              rule: `${v.check}: ${v.message}`.slice(0, 200),
+              resolution: 'op-voided' as const,
+              opHlc: st.txn.hlc,
+            })),
+            st.replicaId,
+            nowIso,
+          );
+          // A refused own echo stays rewound and keeps its undo (Rule 6): the
+          // rollback put back whatever of it the store held, so rewind it.
+          const own =
+            sequencingOn && st.replicaId === opts.replica
+              ? planRebase(db, st, defs, opts.replica)
+              : null;
+          if (own?.own) {
+            replayTxns(c, own, rewindTxns(c, own));
+            markSequenced(db, own.own, {
+              stream: st.key.stream,
+              seq: st.key.seq,
+              nowIso,
+              outcome: 'void',
+            });
+          }
+          markTxns(db, st.parts, 'void', {
+            frame: api.frame,
+            reason: `post-apply: ${violations.map((v) => v.check).join(', ')}`,
+            nowIso,
+          });
+          return {
+            status: 'void' as const,
+            holds: [],
+            n: violations.length,
+            rebased: own?.own != null,
+          };
+        }
+        if (rebase) replayTxns(c, rebase, rw);
+        db.exec('RELEASE apply_txn');
         const status = txnStatus(results, n);
+        if (sequencingOn) {
+          const rows = touchedRows(st.txn.ops);
+          if (st.replicaId !== opts.replica) {
+            recordForeignTouches(db, rows, touchPos);
+          } else if (rebase?.own) {
+            // Rebased at its stream position: the stream decided it. A voided
+            // echo stays rewound and keeps its undo (Rule 6).
+            markSequenced(db, rebase.own, {
+              stream: st.key.stream,
+              seq: st.key.seq,
+              nowIso,
+              outcome: results.includes('void') ? 'void' : 'applied',
+            });
+          } else {
+            // Own echo: sequence it when the stream order agrees with ours.
+            const local = unsequencedLocalTxn(db, st.txn.txn);
+            if (local && !results.includes('void') && echoInPlace(db, st, defs, local)) {
+              markSequenced(db, local, { stream: st.key.stream, seq: st.key.seq, nowIso });
+            }
+          }
+        }
         markTxns(db, st.parts, status, {
           frame: api.frame,
           reason: n > 0 ? `${n} conflict(s) recorded` : null,
           nowIso,
         });
-        return { status, holds: [], n };
+        return { status, holds: [], n, rebased: rebase !== null };
       });
+      if (result.rebased) rebased += 1;
       last.set(id, result.status);
       conflicts += result.n;
       if (result.status === 'held-skew') heldReplicas.add(st.replicaId);
@@ -782,5 +1275,6 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
     refusedSchema: count('refused-schema'),
     conflicts,
     passes,
+    rebased,
   };
 }

@@ -143,3 +143,35 @@ export function listConflicts(
     resolvedAt: r.resolved_at,
   }));
 }
+
+/**
+ * Mark an open conflict resolved (its resolution, an ordinary write, has been
+ * made or the conflict was reviewed and accepted).
+ *
+ * @param db - The store.
+ * @param id - The conflict id.
+ * @param nowIso - The time.
+ * @returns Whether an open conflict had that id.
+ */
+export function resolveConflict(db: DatabaseSync, id: number, nowIso: string): boolean {
+  const r = db
+    .prepare('UPDATE _sync_conflict SET resolved_at = ? WHERE id = ? AND resolved_at IS NULL')
+    .run(nowIso, id);
+  return Number(r.changes) > 0;
+}
+
+/**
+ * How many conflicts the store holds, or one stream of it.
+ *
+ * @param db - The store.
+ * @param stream - Only this stream's conflicts, when given.
+ * @returns Open (unresolved) and total counts.
+ */
+export function conflictCounts(db: DatabaseSync, stream?: string): { open: number; total: number } {
+  const sql =
+    'SELECT count(*) AS total, coalesce(sum(resolved_at IS NULL), 0) AS open FROM _sync_conflict';
+  const row = (
+    stream === undefined ? db.prepare(sql).get() : db.prepare(`${sql} WHERE stream = ?`).get(stream)
+  ) as { total: number; open: number };
+  return { open: Number(row.open), total: Number(row.total) };
+}
