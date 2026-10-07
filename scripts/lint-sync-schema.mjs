@@ -43,7 +43,9 @@
  *      means present at the merge-base of HEAD and the base (T13294): a
  *      migration that landed on the base after the branch was cut is not on
  *      the branch yet, which is no deletion. Without the history to find a
- *      merge-base (a shallow clone) the base tip is used, and the gate says so.
+ *      merge-base (a shallow clone, or a later `fetch --depth` that made it
+ *      shallow again) the gate fails and says how to fetch it (T13310): it
+ *      never falls back to a different comparison silently.
  *
  * Usage: node scripts/lint-sync-schema.mjs [--check|--strict] [--base <ref>]
  *
@@ -324,16 +326,28 @@ export function releasedFileEdits(base, files, root = REPO_ROOT) {
 }
 
 /**
- * Rule 7 as the gate runs it: against the merge-base of HEAD and `base`, else
- * (no shared history) the base tip. Returns the violations and the OK note.
+ * Rule 7 as the gate runs it: against the merge-base of HEAD and `base`.
+ * Without one (no shared history: a shallow clone) it is a violation naming
+ * the fix, never a silent fallback (T13310). Returns the violations and the
+ * OK note.
  */
 export function releaseCheck(base, files, root = REPO_ROOT) {
   const at = releaseCommit(base, root);
+  if (at === null) {
+    return {
+      violations: [
+        {
+          file: '(history)',
+          rule: 7,
+          message: `no merge-base of HEAD and ${base}: the clone is shallow or the histories are unrelated. Fetch the history (\`git fetch --unshallow origin\`, or check out with fetch-depth: 0) and run again`,
+        },
+      ],
+      note: '',
+    };
+  }
   return {
-    violations: releasedFileEdits(at ?? base, files, root),
-    note: at
-      ? `released files unchanged vs the merge-base ${at.slice(0, 12)} of HEAD and ${base}`
-      : `released files unchanged vs ${base} (no merge-base: shallow clone? compared with the base tip)`,
+    violations: releasedFileEdits(at, files, root),
+    note: `released files unchanged vs the merge-base ${at.slice(0, 12)} of HEAD and ${base}`,
   };
 }
 
