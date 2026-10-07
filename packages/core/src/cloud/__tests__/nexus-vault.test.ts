@@ -120,6 +120,7 @@ import { listNexusNamedProjects, resolveNexusProjectRef } from '../nexus-project
 import {
   enableSyncPush,
   nexusVaultStatus,
+  pullSyncStream,
   pushNexusVault,
   pushSyncStream,
   releaseNexusVaultLease,
@@ -5125,6 +5126,31 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
         ).n,
       ).toBe(0);
     });
+  });
+
+  it('S5-1: pull starts after the genesis checkpoint, verifies and stages the own echo, and sequences it', async () => {
+    const { m, dbPath } = await journalMachine();
+    await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    await on(m, async () => {
+      (await storeOf(dbPath)).exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('T8', 'title T8', 'task', 'pending', 'medium', 'uid-T8', 'fp-T8')",
+      );
+    });
+    const pushed = await on(m, () => pushSyncStream(vopts(m, { allowUnreleased: true })));
+    expect(pushed.pushed).toBe(1);
+    const pulled = await on(m, () => pullSyncStream(vopts(m)));
+    expect(pulled).toMatchObject({ segments: 1, staged: 1, redelivered: 0, vaultDeltas: 0 });
+    expect(pulled.after).toBe(pushed.lastServerSeq);
+    expect(pulled.apply.applied).toBe(1);
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      // The own echo was sequenced (§3.5): its transaction is no longer unsequenced.
+      expect(
+        (db.prepare('SELECT count(*) AS n FROM _sync_sequenced').get() as { n: number }).n,
+      ).toBe(1);
+    });
+    const again = await on(m, () => pullSyncStream(vopts(m)));
+    expect(again).toMatchObject({ segments: 0, staged: 0 });
   });
 
   it('S4-2: a device clock ahead of the server pauses push', async () => {

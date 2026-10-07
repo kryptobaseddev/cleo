@@ -396,6 +396,18 @@ export const EXEMPT = {
         'capture undo (local-only): dropped when a failed or raced genesis cut is undone and no stream is cut, so undo is off again (T13296)',
     },
   },
+  'packages/core/src/store/sync/pull.ts': {
+    _sync_cursor: {
+      count: 1,
+      reason:
+        'pull cursor (local-only): advanced in the transaction that stages the segments it covers (§3.1 step 3, T12343)',
+    },
+    _sync_seen_txn: {
+      count: 1,
+      reason:
+        'staged transaction ids (local-only): a re-delivered transaction is never staged twice (§3.1, T12343 S5-1)',
+    },
+  },
   'packages/core/src/store/sync/push.ts': {
     _sync_meta: {
       count: 2,

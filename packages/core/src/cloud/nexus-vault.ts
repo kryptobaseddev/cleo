@@ -112,11 +112,13 @@ import {
   genesisPending,
   readGenesisCut,
 } from '../store/sync/genesis.js';
+import { type PullStreamReport, pullStream, readStreamCursor } from '../store/sync/pull.js';
 import { type PushStreamReport, pushStream } from '../store/sync/push.js';
 import { replayPinOf } from '../store/sync/replay-pin.js';
 import { activeReplica, readActiveReplicaId } from '../store/sync/replica.js';
 import { ReplicaRegistry } from '../store/sync/replica-registry.js';
-import { signTxn } from '../store/sync/txn-signing.js';
+import { sealPending } from '../store/sync/sealer.js';
+import { firstBadTxnSignature, signTxn } from '../store/sync/txn-signing.js';
 import {
   buildVaultManifest,
   type CarriedMachineState,
@@ -145,7 +147,7 @@ import { foreignWriterLeases, storeOpenElsewhere } from '../store/writer-lease.j
 import { deriveKey, uuidv7 } from './crypto.js';
 import { NexusError } from './http.js';
 import { cursorFromCheckpoint, initialPullCursor, Journal, type PullCursor } from './journal.js';
-import type { TrustedSigners } from './keys.js';
+import { signerKeys, type TrustedSigners } from './keys.js';
 import { manifestVersion } from './manifest-check.js';
 import { canonicalGlobalReplicaBinder } from './nexus-attach.js';
 import { NexusAccountError } from './nexus-auth.js';
@@ -798,6 +800,10 @@ const VAULT_CLEARED_JOURNAL_TABLES = [
   '_sync_frame',
   '_sync_quarantine',
   '_sync_apply_intent',
+  // Where this device's pull stands (T12343 S5-1): a restored store resumes
+  // from the checkpoint it restored, never from another device's position.
+  '_sync_cursor',
+  '_sync_seen_txn',
 ] as const;
 
 /**
@@ -1814,6 +1820,95 @@ async function pushSyncStreamImpl(
   }
 }
 
+async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<PullStreamReport> {
+  const conn = await connectNexusVault(opts);
+  const key = await unlockNexusAccountKey(conn);
+  const t = await resolveTarget(conn, key.masterKey, opts, 'push');
+  const replicaId = t.replicaId;
+  if (!replicaId) {
+    throw vaultError(
+      'E_NEXUS_VAULT_NOT_LINKED',
+      'this copy of the project is not attached from this device',
+      'run `cleo project link`',
+    );
+  }
+  const journal = journalFor(conn, t);
+  const { openDualScopeDbAtPath, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
+  const db = getDualScopeNativeDb(
+    t.scope === 'global'
+      ? await openDualScopeDbAtPath('global', t.dbPath)
+      : await openDualScopeDbAtPath('project', t.dbPath),
+  );
+  // Own echoes are recognised by the bound replica: it must be the stream's (T13304).
+  const bound = activeReplica(db, tableScopeOf(t))?.replicaId ?? null;
+  if (bound !== replicaId) {
+    throw vaultError(
+      'E_NEXUS_SYNC_REFUSED',
+      `this store is bound to replica ${bound ?? '(none)'}, but ${t.streamId} knows it as ${replicaId}`,
+      'nothing was pulled; relink the project (`cleo project link`) so both name one replica',
+    );
+  }
+  // A store with no pull position starts after the checkpoint it last synced
+  // (the genesis it cut, or the snapshot it restored), seeded from its signed
+  // replica map.
+  let initialCursor = readStreamCursor(db, t.streamId);
+  if (initialCursor === null) {
+    const head = await streamHead(conn, t.streamId);
+    const checkpoints = head.headCheckpointId ? await listCheckpoints(conn, t.streamId) : [];
+    const { state: synced } = syncedState(conn, t, checkpoints, head.headCheckpointId);
+    const from = checkpoints.find((c) => c.checkpointId === synced?.lastCheckpointId) ?? null;
+    if (from === null) {
+      throw vaultError(
+        'E_NEXUS_SYNC_REFUSED',
+        `this store has synced no checkpoint of ${t.streamId}, so it has no position to pull from`,
+        'restore the stream (`cleo cloud restore`), or enable push (`cleo sync enable push`), first',
+      );
+    }
+    journal.verifyCheckpoint(from, key.signers);
+    initialCursor = cursorFromCheckpoint(from);
+  }
+  return pullStream(db, {
+    scope: tableScopeOf(t),
+    stream: t.streamId,
+    replica: replicaId,
+    initialCursor,
+    pull: async (cursor) => {
+      const page = await journal.pull(
+        {
+          after: cursor.after,
+          knowsAllReplicas: cursor.knowsAllReplicas,
+          replicas: { ...cursor.replicas },
+        },
+        key.signers,
+      );
+      return {
+        segments: page.segments.map((s) => ({
+          seq: s.seq,
+          replicaId: s.replicaId,
+          replicaSeq: s.replicaSeq,
+          deviceId: s.deviceId,
+          plaintext: s.plaintext,
+          schemaVersion: s.meta.schemaVersion,
+        })),
+        cursor: page.cursor,
+        head: page.head,
+      };
+    },
+    verify: (deviceId, txns) => {
+      const keys = signerKeys(key.signers, deviceId);
+      const first = keys[0];
+      if (first === undefined) return 0;
+      for (const k of keys) {
+        if (firstBadTxnSignature(k.publicKey, t.streamId, txns) === null) return null;
+      }
+      return firstBadTxnSignature(first.publicKey, t.streamId, txns);
+    },
+    seal: () => {
+      sealPending(db, { scope: tableScopeOf(t), replica: replicaId });
+    },
+  });
+}
+
 /** The keyed hash of an empty table (a table the parent lists that this store no longer has). */
 function buildEmptyHash(t: VaultTarget, table: string): string {
   return emptyVaultTableHash(hashKeyOf(t.dataKey), table);
@@ -2665,6 +2760,22 @@ export function pushSyncStream(
   opts: NexusVaultCommandOptions & { allowUnreleased?: boolean } = {},
 ): Promise<PushStreamReport> {
   return mapped(() => pushSyncStreamImpl(opts));
+}
+
+/**
+ * Pull this store's stream journal (journal spec §3.1; T12343 S5-1): verified
+ * segments after the store's cursor are decoded, signature-checked, staged
+ * (a re-delivered transaction never twice, a vault delta passed over) and
+ * applied. A store with no pull position starts after the checkpoint it last
+ * synced. `cleo cloud sync` (T12996) runs it with push.
+ *
+ * @param opts - Scope and overrides.
+ * @returns What was received, staged and applied.
+ * @throws {NexusAccountError} `E_NEXUS_SYNC_REFUSED` (replica mismatch, no position),
+ *   `E_NEXUS_VAULT_NOT_LINKED`, or a mapped API error.
+ */
+export function pullSyncStream(opts: NexusVaultCommandOptions = {}): Promise<PullStreamReport> {
+  return mapped(() => pullSyncStreamImpl(opts));
 }
 
 /**
