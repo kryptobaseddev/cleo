@@ -852,8 +852,54 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
     expect(blocker?.next.command).toBe(
       `cleo verify ${id} --gate testsPassed --evidence 'test-run:<vitest-json-report>'`,
     );
-    // The other gates still plan their tools.
-    expect(plan.toolRuns.map((r) => r.gate)).toContain('qaPassed');
+    // qaPassed is separate: it still binds lint and typecheck tool receipts.
+    expect(
+      plan.toolRuns
+        .filter((r) => r.gate === 'qaPassed')
+        .map((r) => r.tool)
+        .sort(),
+    ).toEqual(['lint', 'typecheck']);
+    expect(plan.gates.find((g) => g.gate === 'qaPassed')?.evidence).toMatch(
+      /^tool:(lint|typecheck);tool:(lint|typecheck);satisfies:/,
+    );
+  });
+
+  it('qaPassed binds tool receipts only; a test-run report never satisfies it', () => {
+    const run: EvidenceAtom = {
+      kind: 'test-run',
+      path: 'reports/vitest.json',
+      sha256: 'c'.repeat(64),
+    };
+    expect(checkGateEvidenceMinimum('qaPassed', [run])).not.toBeNull();
+    expect(checkGateEvidenceMinimum('testsPassed', [run])).toBeNull();
+  });
+
+  it('a research task in a standalone project plans no test run of any kind', async () => {
+    standalone();
+    const id = await seedTask(['Report the findings'], 'research');
+    const content = '# findings\n';
+    const sha = createHash('sha256').update(content).digest('hex');
+    mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+    // Even with a test file changed on the checkout.
+    writeFileSync(join(root, 'src', 'a.test.ts'), 'export const t = 2;\n');
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+      deps: {
+        ...deps,
+        listTaskDocs: async () => [{ id: 'att', slug: 'findings', sha256: sha }],
+        listTaskDecisions: async () => ['D900'],
+      },
+    });
+    expect(plan.changeSet.source).toBe('docs');
+    expect(plan.toolRuns).toEqual([]);
+    expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
+      `note:decision-only implementation, no code changed;satisfies:${id}#AC1`,
+    );
   });
 
   it('with no changed test file, testsPassed keeps its tool run', async () => {

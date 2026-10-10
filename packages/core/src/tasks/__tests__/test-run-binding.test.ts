@@ -530,6 +530,22 @@ describe('relevance in a standalone single-package project (T13403)', () => {
     expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/does not run the changed test file/);
   });
 
+  it('red: a report older than the change is still refused as stale', async () => {
+    const path = report([file('src/a.test.ts')], Date.now() - 60_000);
+    touch(file('src/a.test.ts'), Date.now());
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_STALE');
+  });
+
+  it('red: once a workspace is declared, root paths are workspace-wide again (no fallback)', async () => {
+    writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'T1: declare a workspace']);
+    const path = report([file('src/a.test.ts')], Date.now() + 5_000);
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/workspace-wide.*Record tool:test/);
+  });
+
   it('a source-only change needs a test file of the package, as a workspace package does', async () => {
     git(root, ['switch', '-q', '-c', 'task/T2', 'main']);
     writeFileSync(file('src/a.ts'), 'export const a = 3;\n');
