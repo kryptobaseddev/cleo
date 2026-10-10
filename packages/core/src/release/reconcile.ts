@@ -48,7 +48,7 @@ import { getProjectRoot } from '../paths.js';
 import { getProjectHashKey } from '../project-info.js';
 import { getDb, getNativeDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
-import { resolveCommitPresenceInTag } from './commit-presence.js';
+import { filesAtomPathProblem, resolveCommitPresenceInTag } from './commit-presence.js';
 import { normalizeVersion } from './version.js';
 
 // ─── Tag-reconcile plan synthesis (T11977 · DHQ-080) ─────────────────────────
@@ -762,7 +762,9 @@ function assertReleaseMatchesTag(version: string, projectRoot: string): EngineRe
  *   - `files:<paths>`    — sha256 of file contents MUST match the value
  *     recorded at plan time. The plan does NOT store the hash inline (today's
  *     contract), so we treat presence-of-file as the strongest available
- *     signal: a file deleted post-plan is considered stale.
+ *     signal. Presence is judged against the tag: a file a later commit in the
+ *     release history deleted is accounted for, and only a path with no history
+ *     up to the tag is stale (T13364).
  *   - `test-run:<path>`  — sha256 of the JSON file MUST match plan-time
  *     value. Same caveat: when plan-time hash is absent we treat
  *     file-existence as the staleness signal.
@@ -810,14 +812,13 @@ function revalidateEvidenceStaleness(
           .filter(Boolean);
         for (const relPath of paths) {
           const abs = resolve(projectRoot, relPath);
-          if (!existsSync(abs)) {
-            staleTasks.push({
-              taskId: task.id,
-              atom,
-              reason: `file ${relPath} missing post-publish`,
-            });
+          const inTree = existsSync(abs);
+          const problem = filesAtomPathProblem(projectRoot, relPath, tag, inTree);
+          if (problem) {
+            staleTasks.push({ taskId: task.id, atom, reason: problem });
             continue;
           }
+          if (!inTree) continue; // deleted later in the release history (T13364)
           // Hash to surface as the validation signal — not compared yet, but
           // the call itself catches binary-corruption / unreadable files.
           try {
