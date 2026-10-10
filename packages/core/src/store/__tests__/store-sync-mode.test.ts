@@ -57,6 +57,9 @@ beforeEach(() => {
   mkdirSync(join(dir, 'project', '.cleo'), { recursive: true });
   mkdirSync(home, { recursive: true });
   vi.stubEnv('CLEO_HOME', home);
+  // The live bind writes the device replica registry under the state dir:
+  // CLEO_HOME on macOS and Windows, XDG_STATE_HOME on Linux.
+  vi.stubEnv('XDG_STATE_HOME', join(dir, 'state'));
   vi.stubEnv('CLEO_ROOT', undefined);
   vi.stubEnv('CLEO_DIR', undefined);
   _resetDeviceIdCacheForTests();
