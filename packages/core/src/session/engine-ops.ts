@@ -890,6 +890,13 @@ export async function sessionEnd(
       // Best-effort — resolution ignores bindings to non-active sessions anyway.
     }
 
+    // T13425: free the worktree locks this session holds, so a successor's
+    // `--resume` is not refused while the harness pid that spawned it lives on.
+    if (sessionId !== 'default') {
+      const { releaseSessionWorktreeLocks } = await import('../spawn/worktree-lock-holder.js');
+      releaseSessionWorktreeLocks(projectRoot, sessionId);
+    }
+
     // T140: Build summarization prompt and ingest structured summary if provided
     let memoryPrompt: string | undefined;
     try {
