@@ -819,6 +819,80 @@ describe('a worktree-bound test-run is judged in one root (T12965 review M2)', (
   });
 });
 
+describe('a standalone single-package project plans a targeted test-run (T13403)', () => {
+  /** Make the fixture one package: a root package.json, no workspace declared. */
+  function standalone(): void {
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ name: 'solo', scripts: { test: 'vitest run' } }),
+    );
+    writeFileSync(join(root, 'src', 'a.test.ts'), 'export {};\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'solo']);
+    git(root, ['push', '-q', 'origin', 'main']);
+  }
+
+  it('with a changed test file, plans test-run for testsPassed, never a whole-suite tool:test', async () => {
+    standalone();
+    const id = await seedTask(['Change src/a.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+    writeFileSync(join(root, 'src', 'a.test.ts'), 'export const t = 1;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a and its test`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.filter((r) => r.gate === 'testsPassed')).toEqual([]);
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBeNull();
+    const blocker = plan.blockers.find((b) => b.code === 'test-run-needed');
+    expect(blocker?.message).toMatch(/src\/a\.test\.ts.*test-run:/);
+    expect(blocker?.next.command).toBe(
+      `cleo verify ${id} --gate testsPassed --evidence 'test-run:<vitest-json-report>'`,
+    );
+    // The other gates still plan their tools.
+    expect(plan.toolRuns.map((r) => r.gate)).toContain('qaPassed');
+  });
+
+  it('with no changed test file, testsPassed keeps its tool run', async () => {
+    standalone();
+    const id = await seedTask(['Change src/a.ts']);
+    commitOnTaskBranch(id);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+  });
+
+  it('a workspace with a changed test file keeps its tool run (monorepo unchanged)', async () => {
+    writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "pkgs/*"\n');
+    mkdirSync(join(root, 'pkgs', 'a'), { recursive: true });
+    writeFileSync(join(root, 'pkgs', 'a', 'package.json'), JSON.stringify({ name: '@w/a' }));
+    writeFileSync(join(root, 'pkgs', 'a', 'a.test.ts'), 'export {};\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'workspace']);
+    git(root, ['push', '-q', 'origin', 'main']);
+    const id = await seedTask(['Change pkgs/a/a.test.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'a', 'a.test.ts'), 'export const t = 1;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a test`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+  });
+});
+
 describe('affected-scope test runs (T12635, D11150)', () => {
   function workspaceWithPackages(withVitest = true): void {
     writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "pkgs/*"\n');

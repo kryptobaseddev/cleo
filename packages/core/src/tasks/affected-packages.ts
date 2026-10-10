@@ -25,7 +25,7 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, matchesGlob, relative } from 'node:path';
+import { isAbsolute, join, matchesGlob, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { isCiDocumentPath, readCiSatisfies } from '../release/ci-evidence.js';
 import { LIGHT_FOOTPRINT_BYTES } from '../resources/admission-ledger.js';
@@ -61,8 +61,12 @@ export type AffectedScope =
   | { scope: 'affected'; direct: string[]; packages: string[] }
   | { scope: 'full'; reason: string };
 
-/** Workspace package patterns from `pnpm-workspace.yaml`, else `package.json#workspaces`. */
-function workspacePatterns(root: string): string[] {
+/**
+ * Workspace package patterns from `pnpm-workspace.yaml`, else
+ * `package.json#workspaces`; null when neither declares a workspace (a
+ * standalone single-package project, T13403).
+ */
+function workspacePatterns(root: string): string[] | null {
   const yaml = join(root, 'pnpm-workspace.yaml');
   if (existsSync(yaml)) {
     const patterns: string[] = [];
@@ -82,6 +86,7 @@ function workspacePatterns(root: string): string[] {
     const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8')) as {
       workspaces?: unknown;
     };
+    if (pkg.workspaces === undefined) return null;
     const ws = Array.isArray(pkg.workspaces)
       ? pkg.workspaces
       : (pkg.workspaces as { packages?: unknown } | undefined)?.packages;
@@ -109,38 +114,80 @@ function expandPattern(root: string, pattern: string): string[] {
 }
 
 /**
+ * Whether `path` lies in the package directory `dir`. The root package of a
+ * standalone project (`dir === ''`, T13403) holds every path inside the root.
+ *
+ * @param path - Root-relative path, `/` separators.
+ * @param dir - Package directory relative to the root (`''` for the root itself).
+ * @returns True when the package directory holds the path.
+ * @task T13403
+ */
+export function inPackageDir(path: string, dir: string): boolean {
+  if (dir === '') {
+    return path !== '' && path !== '..' && !path.startsWith('../') && !isAbsolute(path);
+  }
+  return path === dir || path.startsWith(`${dir}/`);
+}
+
+/** A package's manifest fields, before workspace-internal deps are resolved. */
+interface ManifestEntry {
+  name: string;
+  dir: string;
+  all: string[];
+  hasTestScript: boolean;
+}
+
+/** The `package.json` in `dir` (relative to `root`), or null when it is not a package. */
+function readManifest(root: string, dir: string): ManifestEntry | null {
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, dir, 'package.json'), 'utf-8')) as Record<
+      string,
+      unknown
+    >;
+    if (typeof pkg.name !== 'string') return null;
+    const all = [
+      'dependencies',
+      'devDependencies',
+      'peerDependencies',
+      'optionalDependencies',
+    ].flatMap((field) => Object.keys((pkg[field] as Record<string, unknown>) ?? {}));
+    const scripts = (pkg.scripts ?? {}) as Record<string, unknown>;
+    return {
+      name: pkg.name,
+      dir: slashSeparated(relative(root, join(root, dir))),
+      all,
+      hasTestScript: typeof scripts['test'] === 'string' && scripts['test'].trim() !== '',
+    };
+  } catch {
+    return null; // not a package
+  }
+}
+
+/**
  * The workspace's packages and their workspace-internal dependencies.
+ *
+ * A project that declares no workspace (no `pnpm-workspace.yaml`, no
+ * `package.json#workspaces`) is one package: its root `package.json`, with
+ * `dir` `''` (T13403). Only when `root` is its git checkout's top level, since
+ * changed paths are spelled relative to that top level; a root in a
+ * subdirectory keeps no packages, so every change there stays `full`.
  *
  * @param root - Workspace root (the git checkout).
  * @returns Every package with a readable `package.json` name.
  * @task T12635
+ * @task T13403
  */
 export function listWorkspacePackages(root: string): WorkspacePackage[] {
-  const found: Array<{ name: string; dir: string; all: string[]; hasTestScript: boolean }> = [];
-  for (const dir of workspacePatterns(root).flatMap((p) => expandPattern(root, p))) {
-    try {
-      const pkg = JSON.parse(readFileSync(join(root, dir, 'package.json'), 'utf-8')) as Record<
-        string,
-        unknown
-      >;
-      if (typeof pkg.name !== 'string') continue;
-      const all = [
-        'dependencies',
-        'devDependencies',
-        'peerDependencies',
-        'optionalDependencies',
-      ].flatMap((field) => Object.keys((pkg[field] as Record<string, unknown>) ?? {}));
-      const scripts = (pkg.scripts ?? {}) as Record<string, unknown>;
-      found.push({
-        name: pkg.name,
-        dir: slashSeparated(relative(root, join(root, dir))),
-        all,
-        hasTestScript: typeof scripts['test'] === 'string' && scripts['test'].trim() !== '',
-      });
-    } catch {
-      // not a package
-    }
+  const patterns = workspacePatterns(root);
+  if (patterns === null) {
+    const standalone = git(root, ['rev-parse', '--show-prefix']) ? null : readManifest(root, '');
+    return standalone === null
+      ? []
+      : [{ name: standalone.name, dir: '', deps: [], hasTestScript: standalone.hasTestScript }];
   }
+  const found = patterns
+    .flatMap((p) => expandPattern(root, p))
+    .flatMap((dir) => readManifest(root, dir) ?? []);
   const names = new Set(found.map((p) => p.name));
   return found.map(({ name, dir, all, hasTestScript }) => ({
     name,
@@ -148,6 +195,19 @@ export function listWorkspacePackages(root: string): WorkspacePackage[] {
     deps: [...new Set(all.filter((d) => names.has(d) && d !== name))],
     hasTestScript,
   }));
+}
+
+/**
+ * The root package of a standalone (non-workspace) project, or null in a
+ * workspace or when the root has no named `package.json` (T13403).
+ *
+ * @param root - Project root (the git checkout).
+ * @returns The single root package, or null.
+ * @task T13403
+ */
+export function standalonePackage(root: string): WorkspacePackage | null {
+  const packages = listWorkspacePackages(root);
+  return packages.length === 1 && packages[0]?.dir === '' ? packages[0] : null;
 }
 
 /**
@@ -167,7 +227,11 @@ export function deriveAffectedPackages(
   const direct = new Set<string>();
   const workspaceWide: string[] = [];
   for (const path of changedPaths.map(slashSeparated)) {
-    const owner = packages.find((p) => path === p.dir || path.startsWith(`${p.dir}/`));
+    // A standalone root package holds every path, but docs stay ignored there
+    // as they are outside the packages of a workspace (T13403).
+    const owner = packages.find(
+      (p) => inPackageDir(path, p.dir) && (p.dir !== '' || !isCiDocumentPath(path)),
+    );
     if (owner) direct.add(owner.name);
     else if (!isCiDocumentPath(path)) workspaceWide.push(path);
   }
@@ -619,7 +683,11 @@ export function scopedChangedPaths(root: string): ScopedChangedPaths | null {
     return null;
   }
   const declared = declaredScopeExcludes(root, mergeBase);
-  const packageDirs = listWorkspacePackages(root).map((p) => p.dir);
+  // A standalone root package (`dir` '') holds every path; declared excludes
+  // still apply there, as they did before it was a package (T13403).
+  const packageDirs = listWorkspacePackages(root)
+    .map((p) => p.dir)
+    .filter((dir) => dir !== '');
   const out = (path: string, anchor: string): boolean => {
     const slashed = slashSeparated(path);
     if (!slashed.startsWith(anchor)) return false; // outside the CLEO root
