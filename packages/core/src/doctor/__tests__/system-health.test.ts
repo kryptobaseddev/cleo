@@ -92,6 +92,10 @@ function incidentPs(): string {
       psRow(s + 6, s, 60_000, 0, '1-02:00:00', `${NODE} /w/tools/axiom-qa-mcp/dist/server.js`),
     );
   }
+  // An MCP server left behind by a closed session.
+  rows.push(
+    psRow(950, 1, 100_000, 0, '3-00:00:00', `${NODE} ${BIN}/mcpvault /Users/u/Documents/Vault`),
+  );
   // Harness helpers are not sessions.
   rows.push(
     psRow(
@@ -363,6 +367,14 @@ describe('assessSystemHealth on macOS (the 2026-10-10 incident)', () => {
     });
   });
 
+  it('counts orphaned MCP servers (parent gone) separately from session ones', async () => {
+    const f = assessSystemHealth(await darwinSnapshot()).findings.find(
+      (x) => x.id === 'mcp-fanout:mcpvault',
+    );
+    expect(f?.evidence).toMatchObject({ processes: 9, sessionsWithServer: 8, orphans: 1 });
+    expect(f?.title).toContain('1 orphaned');
+  });
+
   it('flags swap, memory pressure and load', async () => {
     const ids = assessSystemHealth(await darwinSnapshot()).findings.map((f) => f.id);
     expect(ids).toEqual(expect.arrayContaining(['swap', 'memory-pressure', 'cpu-load']));
@@ -379,6 +391,17 @@ describe('assessSystemHealth on macOS (the 2026-10-10 incident)', () => {
     expect(byId.get('mcp-fanout:agentmbx')?.evidence.processes).toBe(8);
     expect(byId.get('mcp-fanout:agentmbx')?.evidence.rssMib).toBe(Math.round((8 * 120_000) / 1024));
     expect(byId.get('mcp-fanout:axiom-qa-mcp')?.evidence.processes).toBe(8);
+    expect(byId.get('mcp-fanout:playwright-mcp')?.evidence).toMatchObject({
+      sessionsWithServer: 8,
+      sessionsTotal: 8,
+      inEverySession: true,
+      orphans: 0,
+    });
+    // agentmbx carries its owner's remedy: never a kill, never a removal
+    const mbx = byId.get('mcp-fanout:agentmbx');
+    expect(mbx?.remedy?.command).toBe('agentmbx doctor');
+    expect(mbx?.remedy?.description).toContain('never kill');
+    expect(mbx?.needsOwnerChoice).toBe(false);
     const pw = byId.get('mcp-fanout:playwright-mcp');
     expect(pw?.needsOwnerChoice).toBe(true);
     expect(pw?.remedy?.command).toBe('claude mcp remove playwright-mcp --scope user');
