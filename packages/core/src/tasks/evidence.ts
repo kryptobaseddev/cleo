@@ -2304,8 +2304,9 @@ async function validateTool(
     return {
       ok: false,
       reason:
-        `Tool "${tool}" exited with code ${result.exitCode}` +
-        `${result.cacheHit ? ' (cached)' : ''}. Tail: ${tail}`,
+        `Tool "${tool}" → ${[resolution.command.cmd, ...resolution.command.args].join(' ')} ` +
+        `(${resolution.command.source}) exited with code ${result.exitCode}` +
+        `${result.cacheHit ? ' (cached)' : ''} in ${result.executionRoot}. Tail: ${tail}`,
       codeName: 'E_EVIDENCE_TOOL_FAILED',
     };
   }

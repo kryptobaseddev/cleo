@@ -77,7 +77,8 @@ export const verifyCommand = defineCommand({
     },
     all: {
       type: 'boolean',
-      description: 'Mark all required gates as passed',
+      description:
+        'Set every required gate at once. REQUIRES --evidence (ADR-051): bare --all is rejected with E_EVIDENCE_MISSING.',
     },
     reset: {
       type: 'boolean',
