@@ -274,10 +274,65 @@ export function writeExodusCompleteMarker(
     ...(verifyIssues.length > 0 ? { verifyIssues: [...verifyIssues] } : {}),
   };
 
+  publishMarker(markerPath, marker);
+  log.info({ scope, markerPath, archivedSources }, 'exodus: wrote completion marker');
+  return markerPath;
+}
+
+/** Write a marker object atomically (write-then-rename). */
+function publishMarker(markerPath: string, marker: object): void {
   const tmpPath = `${markerPath}.tmp`;
   writeFileSync(tmpPath, JSON.stringify(marker, null, 2) + '\n', 'utf8');
   renameSync(tmpPath, markerPath);
-  log.info({ scope, markerPath, archivedSources }, 'exodus: wrote completion marker');
+}
+
+/**
+ * Certify a scope as sealed (`cleo exodus seal`), MERGING into an existing
+ * completion marker rather than rebuilding it (T13375).
+ *
+ * Seal runs only count parity, never a cutover, so it has nothing to say about
+ * the fields a cutover recorded: `databaseIdentity` (which
+ * {@link hasExodusCompleteMarker} certifies a database handle against),
+ * `targetDbPath`, `verifyIssues`, `completedAt`, `cleoVersion`, or any field a
+ * later format adds. Every one is kept; `archivedSources` gains the sources
+ * this seal archived. Without a marker, or with one that is not a version-1
+ * marker of this scope, a fresh marker is written as before.
+ *
+ * @param scope           - Scope being certified as migrated.
+ * @param archivedSources - Logical names of the sources this seal archived.
+ * @param cwd             - Working directory used to resolve the project dir.
+ * @returns The marker's absolute path.
+ *
+ * @task T13375
+ */
+export function sealExodusCompleteMarker(
+  scope: ExodusScope,
+  archivedSources: readonly string[],
+  cwd?: string,
+): string {
+  const markerPath = exodusMarkerPath(scope, cwd);
+  let prior: Record<string, unknown> | null = null;
+  if (existsSync(markerPath)) {
+    try {
+      const raw: unknown = JSON.parse(readFileSync(markerPath, 'utf8'));
+      const known = markerIdentity.safeParse(raw);
+      if (known.success && known.data.scope === scope && typeof raw === 'object' && raw !== null)
+        prior = { ...raw };
+    } catch {
+      prior = null;
+    }
+    if (prior === null)
+      log.warn({ scope, markerPath }, 'exodus seal: unreadable completion marker rewritten');
+  }
+  if (prior === null) return writeExodusCompleteMarker(scope, archivedSources, cwd);
+  const before = Array.isArray(prior.archivedSources)
+    ? prior.archivedSources.filter((n): n is string => typeof n === 'string')
+    : [];
+  publishMarker(markerPath, {
+    ...prior,
+    archivedSources: [...new Set([...before, ...archivedSources])],
+  });
+  log.info({ scope, markerPath, archivedSources }, 'exodus: merged into completion marker');
   return markerPath;
 }
 
