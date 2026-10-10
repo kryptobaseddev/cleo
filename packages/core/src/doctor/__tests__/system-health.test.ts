@@ -442,7 +442,7 @@ describe('assessSystemHealth on macOS (the 2026-10-10 incident)', () => {
     const mbx = byId.get('mcp-fanout:agentmbx');
     expect(mbx?.remedy?.command).toBe('agentmbx doctor');
     expect(mbx?.remedy?.description).toContain('never kill');
-    expect(mbx?.needsOwnerChoice).toBe(false);
+    expect(mbx?.needsOwnerChoice).toBe(true);
     // launcher-started servers group by package, the wrapper and its child once
     expect(byId.get('mcp-fanout:@playwright/mcp')?.evidence).toMatchObject({
       processes: 8,
@@ -555,6 +555,18 @@ describe('assessSystemHealth on macOS (the 2026-10-10 incident)', () => {
 });
 
 describe('assessSystemHealth on Linux', () => {
+  it('counts an MCP re-parented to the user systemd as orphaned', async () => {
+    const extra = [
+      psRow(960, 1, 30_000, 0, '3-00:00:00', '/usr/lib/systemd/systemd --user'),
+      psRow(961, 960, 90_000, 0, '3-00:00:00', `node ${BIN}/mcpvault /home/u/Documents/Vault`),
+    ].join('\n');
+    const snap = await linuxSnapshot();
+    const r = assessSystemHealth({ ...snap, ps: `${snap.ps}${extra}\n` });
+    const f = r.findings.find((x) => x.id === 'mcp-fanout:mcpvault');
+    // one under pid 1 from the shared fixture, one under systemd --user
+    expect(f?.evidence.orphans).toBe(2);
+  });
+
   it('reads PSI pressure, /proc/meminfo swap and the memory guard', async () => {
     const r = assessSystemHealth(await linuxSnapshot());
     const byId = new Map(r.findings.map((f) => [f.id, f]));

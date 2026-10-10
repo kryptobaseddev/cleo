@@ -493,9 +493,20 @@ const KNOWN_MCP_REMEDIES: Readonly<
         'Upgrade agentmbx to the release that ships T487/T488 (pending), which removes duplicate and orphaned processes. ' +
         '`agentmbx doctor` reports stale MCP rows. Restart idle harness sessions you no longer need.',
     },
-    needsOwnerChoice: false,
+    // upgrading and restarting sessions are the owner's actions
+    needsOwnerChoice: true,
   },
 };
+
+/**
+ * Whether an MCP outside every session was left behind: re-parented to init
+ * (pid 1, launchd) or to a Linux user manager (`systemd --user`) once its
+ * session exited.
+ */
+function isOrphanParent(parent: ProcessRow | undefined, ppid: number): boolean {
+  if (ppid <= 1 || parent === undefined) return true;
+  return /^(systemd|launchd|init)$/.test(commandWords(parent.argv)[0] ?? '');
+}
 
 function mcpFindings(tree: Tree, rows: readonly ProcessRow[]): Finding[] {
   const sessions = harnessSessions(rows);
@@ -517,7 +528,7 @@ function mcpFindings(tree: Tree, rows: readonly ProcessRow[]): Finding[] {
     if (g.pids.length < 10) g.pids.push(r.pid);
     const sess = sessionOf.get(r.pid);
     if (sess !== undefined) g.sessions.add(sess);
-    else if (r.ppid === 1) g.orphans++;
+    else if (isOrphanParent(tree.byPid.get(r.ppid), r.ppid)) g.orphans++;
     groups.set(name, g);
   }
   const out: Finding[] = [];
