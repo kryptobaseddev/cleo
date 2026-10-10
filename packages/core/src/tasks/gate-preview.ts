@@ -99,7 +99,26 @@ export async function previewTaskGates(
   const task: Task | null = await accessor.loadSingleTask(taskId);
   if (!task) throw new Error(`Task not found: ${taskId}`);
 
-  const typed = extractTypedGates(task.acceptance ?? []);
+  const allTyped = extractTypedGates(task.acceptance ?? []);
+  // T13486: `--req A,B` runs and caches only those gates. Each cache entry is
+  // keyed on its own gate's definition (gate-result-cache.ts), so the gates
+  // left out keep whatever cached passes they have.
+  const wanted = (params.req ?? '')
+    .split(',')
+    .map((r) => r.trim())
+    .filter(Boolean);
+  if (wanted.length > 0) {
+    const known = allTyped.flatMap(({ gate }) => (gate.req ? [gate.req] : []));
+    const unknown = wanted.filter((r) => !known.includes(r));
+    if (unknown.length > 0)
+      throw new Error(
+        `REQ-ID(s) ${unknown.join(', ')} not found on ${taskId}; its typed gates are ${known.join(', ') || 'unnamed (no REQ-IDs)'}`,
+      );
+  }
+  const typed =
+    wanted.length > 0
+      ? allTyped.filter(({ gate }) => gate.req !== undefined && wanted.includes(gate.req))
+      : allTyped;
   if (typed.length === 0) {
     return {
       taskId,
