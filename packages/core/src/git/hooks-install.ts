@@ -221,13 +221,16 @@ function hash(body: string): string {
 }
 
 function readReceipt(filePath: string): GitHookInstallReceipt | undefined {
-  if (!fs.existsSync(filePath)) return undefined;
+  const entry = fs.lstatSync(filePath, { throwIfNoEntry: false });
+  if (!entry) return undefined;
+  if (!entry.isFile()) throw new Error('Git hook receipt is not a regular file');
   const parsed = GitHookInstallReceiptSchema.safeParse(
     JSON.parse(fs.readFileSync(filePath, 'utf8')),
   );
-  return parsed.success && parsed.data.hooksDir === path.dirname(filePath)
-    ? parsed.data
-    : undefined;
+  if (!parsed.success || parsed.data.hooksDir !== path.dirname(filePath)) {
+    throw new Error('Git hook receipt is invalid or belongs to another directory');
+  }
+  return parsed.data;
 }
 
 function legacyHashes(name: CleoHookName): string[] {
