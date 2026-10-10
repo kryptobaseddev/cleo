@@ -354,6 +354,43 @@ describe('releasePlan — error envelopes', () => {
     expect(result.error.code).toBe(E_EPIC_NOT_FOUND);
   });
 
+  it('--tasks on a store holding none of the ids names the plan-blob path (T13479, #1475)', async () => {
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      taskIds: ['T10001', 'T10002'],
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.code).toBe('E_NOT_FOUND');
+    expect(result.error.message).toContain('local-only');
+    expect(result.error.fix).toContain('plan-blob-sha256');
+    expect(result.error.details).toMatchObject({ missing: ['T10001', 'T10002'] });
+  });
+
+  it('--tasks with only some ids missing keeps the cleo exists remedy (T13479)', async () => {
+    const accessor = await createSqliteDataAccessor(testDir);
+    try {
+      await accessor.setMetaValue('schema_version', '2.10.0');
+      await accessor.upsertSingleTask(makeTask({ id: 'T10001' }));
+    } finally {
+      await accessor.close();
+    }
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      taskIds: ['T10001', 'T10002'],
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.code).toBe('E_NOT_FOUND');
+    expect(result.error.fix).toBe('cleo exists T10002');
+  });
+
   it('returns E_EPIC_EMPTY_LEAF_NO_EVIDENCE when the epic has zero children + no evidence (T9838)', async () => {
     // T9838 Fix 2: leaf-Epic-as-Task (ADR-073) is now a valid input shape.
     // The plan verb falls back to the Epic's own evidence atoms when the
