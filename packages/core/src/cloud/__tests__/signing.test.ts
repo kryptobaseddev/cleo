@@ -14,6 +14,7 @@ import {
   deviceGrantMessage,
   deviceRevocationMessage,
   manifestCanonical,
+  replicaRetireMessage,
   replicasCanonical,
   revocationPinsCanonical,
   type SegmentMetaFields,
@@ -240,5 +241,51 @@ describe('golden vectors: segment/v3 and checkpoint/v3', () => {
         }),
       ),
     ).toBe(V3.checkpointSigningMessage);
+  });
+});
+
+/**
+ * cleo-nexus T123 (#41, 39d1895): a replica retirement, with a successor and a journal txn id; without either (`-`);
+ * and with a null lastReplicaSeq (`-`: the replica wrote nothing). The vectors are the server's own (signing.test.ts).
+ */
+describe('golden vectors: replica retirement (T13284)', () => {
+  const RETIRE = {
+    text: `cleo-nexus/replica-retire/v1\n${S}\n${R1}\n${R2}\n4\n${D2}\n${R1}:17`,
+    full: '2d424963531d7768bb3602c36d311ee9a9aa10db7009818fac397f344f921ecc',
+    bare: '190da7614fedc061b33c7ca2a0202b2ae36db1da70bf0493824bbc46be61bca7',
+    nothingText: `cleo-nexus/replica-retire/v1\n${S}\n${R1}\n${R2}\n-\n${D2}\n-`,
+    nothing: '621a8cc5da1be49517b008bf01c230911b27c18b60a9977f10cbafefba1e2e0a',
+  };
+
+  it('signs the stream, replica, successor or -, lastReplicaSeq or -, signer and txn id or -', () => {
+    const full = replicaRetireMessage({
+      streamId: S,
+      replicaId: R1,
+      successor: R2,
+      lastReplicaSeq: 4,
+      signerDeviceId: D2,
+      txnId: `${R1}:17`,
+    });
+    expect(new TextDecoder().decode(full)).toBe(RETIRE.text);
+    expect(sha(full)).toBe(RETIRE.full);
+    const bare = replicaRetireMessage({
+      streamId: S,
+      replicaId: R1,
+      successor: null,
+      lastReplicaSeq: 0,
+      signerDeviceId: D2,
+      txnId: null,
+    });
+    expect(sha(bare)).toBe(RETIRE.bare);
+    const nothing = replicaRetireMessage({
+      streamId: S,
+      replicaId: R1,
+      successor: R2,
+      lastReplicaSeq: null,
+      signerDeviceId: D2,
+      txnId: null,
+    });
+    expect(new TextDecoder().decode(nothing)).toBe(RETIRE.nothingText);
+    expect(sha(nothing)).toBe(RETIRE.nothing);
   });
 });
