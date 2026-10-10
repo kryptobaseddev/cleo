@@ -57,6 +57,7 @@ export const EVIDENCE_ATOM_KINDS = [
   'commit',
   'files',
   'test-run',
+  'qa-run',
   'tool',
   'url',
   'note',
@@ -124,6 +125,22 @@ export const filesAtomSchema = z.object({
 export const testRunAtomSchema = z.object({
   kind: z.literal('test-run'),
   path: z.string().min(1, 'test-run atom requires a non-empty path'),
+});
+
+/**
+ * `qa-run:<path>` atom — path to a JSON receipt of a native typecheck or lint
+ * run (T13427): `{kind, command, exitCode, diagnostics: {errors}, roots,
+ * startTime?, tool?: {name, version}}`.
+ *
+ * Format: `qa-run:<absolute or project-relative path>`. The runtime validator
+ * requires exit 0 and zero errors, binds the receipt to the change (fresh,
+ * covering every changed code path) and pins the tree hash.
+ *
+ * @task T13427
+ */
+export const qaRunAtomSchema = z.object({
+  kind: z.literal('qa-run'),
+  path: z.string().min(1, 'qa-run atom requires a non-empty path'),
 });
 
 /**
@@ -391,6 +408,7 @@ export const satisfiesAtomSchema = z.object({
  *   - `commit`             — git commit SHA (T832)
  *   - `files`              — touched file paths (T832)
  *   - `test-run`           — structured test runner JSON (T832)
+ *   - `qa-run`             — native typecheck/lint receipt JSON (T13427)
  *   - `tool`               — project-resolved tool exit code (T832 / T1534)
  *   - `url`                — soft external pointer (T832)
  *   - `note`               — free-form note (T832)
@@ -408,6 +426,7 @@ export const EvidenceAtomSchema = z.discriminatedUnion('kind', [
   commitAtomSchema,
   filesAtomSchema,
   testRunAtomSchema,
+  qaRunAtomSchema,
   toolAtomSchema,
   urlAtomSchema,
   noteAtomSchema,
@@ -506,7 +525,7 @@ export const GATE_EVIDENCE_REQUIREMENTS: Readonly<
     ],
   },
   testsPassed: { oneOf: [['test-run'], ['tool'], ['ci']] },
-  qaPassed: { oneOf: [['tool'], ['ci']] },
+  qaPassed: { oneOf: [['tool'], ['ci'], ['qa-run']] },
   documented: { oneOf: [['files'], ['url']] },
   securityPassed: { oneOf: [['tool'], ['note']] },
   cleanupDone: { oneOf: [['note']] },
@@ -565,6 +584,7 @@ const ATOM_EXAMPLES: Readonly<Record<EvidenceAtomKind, string>> = Object.freeze(
   commit: 'commit:<sha>',
   files: 'files:path/a.ts,path/b.ts',
   'test-run': 'test-run:/tmp/vitest-out.json',
+  'qa-run': 'qa-run:/tmp/typecheck-receipt.json',
   tool: 'tool:test',
   url: 'url:https://example.com/docs',
   note: 'note:<short description>',
@@ -846,6 +866,9 @@ export function parseEvidenceString(raw: string): EvidenceAtom[] {
         break;
       case 'test-run':
         atoms.push({ kind: 'test-run', path: payload });
+        break;
+      case 'qa-run':
+        atoms.push({ kind: 'qa-run', path: payload });
         break;
       case 'tool':
         atoms.push({ kind: 'tool', tool: payload });

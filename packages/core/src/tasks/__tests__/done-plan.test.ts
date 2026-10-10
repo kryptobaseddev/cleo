@@ -735,7 +735,7 @@ describe('cleo done and cleo complete judge the merge alike (T12656 AC2, T12959 
         throw new Error('must not record ci:42 for a fix #42 never ran');
       },
     });
-    expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null });
+    expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
   });
 });
 
@@ -811,7 +811,7 @@ describe('a worktree-bound test-run is judged in one root (T12965 review M2)', (
         ciSatisfies: () => false,
         merge: { changeSet: deps },
       });
-      expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null });
+      expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
     } finally {
       git(root, ['worktree', 'remove', '--force', wt]);
       rmSync(wt, { recursive: true, force: true });
@@ -852,15 +852,36 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
     expect(blocker?.next.command).toBe(
       `cleo verify ${id} --gate testsPassed --evidence 'test-run:<vitest-json-report>'`,
     );
-    // qaPassed is separate: it still binds lint and typecheck tool receipts.
-    expect(
-      plan.toolRuns
-        .filter((r) => r.gate === 'qaPassed')
-        .map((r) => r.tool)
-        .sort(),
-    ).toEqual(['lint', 'typecheck']);
-    expect(plan.gates.find((g) => g.gate === 'qaPassed')?.evidence).toMatch(
-      /^tool:(lint|typecheck);tool:(lint|typecheck);satisfies:/,
+    // T13427: qaPassed is separate. With no recorded lint/typecheck result for
+    // this tree, a single-package project gets a qa-run-needed blocker naming
+    // the changed roots, never a fresh whole-project run.
+    expect(plan.toolRuns.filter((r) => r.gate === 'qaPassed')).toEqual([]);
+    expect(plan.gates.find((g) => g.gate === 'qaPassed')?.evidence).toBeNull();
+    const qa = plan.blockers.find((b) => b.code === 'qa-run-needed');
+    expect(qa?.message).toMatch(/lint or typecheck.*changed roots \(src\)/);
+    expect(qa?.next.command).toBe(
+      `cleo verify ${id} --gate qaPassed --evidence 'qa-run:<lint-receipt.json>;qa-run:<typecheck-receipt.json>'`,
+    );
+  });
+
+  it('T13427: a cached lint result still binds as tool:lint; only typecheck needs a qa-run', async () => {
+    standalone();
+    const id = await seedTask(['Change src/a.ts']);
+    commitOnTaskBranch(id);
+    const lint = resolveToolCommand('lint', root);
+    if (!lint.ok) throw new Error(lint.reason);
+    await runToolCached(lint.command, root, { executionRoot: root, skipGlobalSemaphore: true });
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.filter((r) => r.gate === 'qaPassed')).toMatchObject([
+      { tool: 'lint', cache: 'fresh-pass' },
+    ]);
+    expect(plan.blockers.find((b) => b.code === 'qa-run-needed')?.next.command).toBe(
+      `cleo verify ${id} --gate qaPassed --evidence 'qa-run:<typecheck-receipt.json>'`,
     );
   });
 
@@ -936,6 +957,14 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
     });
     expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
     expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+    // T13427: a workspace keeps planning its lint/typecheck tool runs.
+    expect(plan.blockers.map((b) => b.code)).not.toContain('qa-run-needed');
+    expect(
+      plan.toolRuns
+        .filter((r) => r.gate === 'qaPassed')
+        .map((r) => r.tool)
+        .sort(),
+    ).toEqual(['lint', 'typecheck']);
   });
 });
 
