@@ -5915,6 +5915,35 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     });
   });
 
+  it('restore and join keep the checkpoint row meta; a later pull keeps the writer origin and field HLCs (T13462)', async () => {
+    const META =
+      "SELECT tbl, uid, hlc, fhlc, origin, actor, version, deleted, key_json, chash FROM _sync_row_meta WHERE tbl = 'tasks_tasks' ORDER BY uid";
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    const atGenesis = await on(a, async () => (await storeOf(aDb)).prepare(META).all());
+    expect(atGenesis).toHaveLength(2);
+    const { b, bDb } = await restoredJoiner();
+    // The restore keeps the snapshot's merge state, never an empty or local one.
+    expect(await on(b, async () => (await storeOf(bDb)).prepare(META).all())).toEqual(atGenesis);
+    expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'joined',
+    );
+    expect(await on(b, async () => (await storeOf(bDb)).prepare(META).all())).toEqual(atGenesis);
+    // A's later edit reaches B attributed to A, with A's HLCs.
+    await on(a, async () => {
+      (await storeOf(aDb)).exec("UPDATE tasks_tasks SET title = 'from A' WHERE id = 'T1'");
+    });
+    await on(a, () => pushSyncStream(vopts(a, { allowUnreleased: true })));
+    expect((await on(b, () => pullSyncStream(vopts(b)))).refused).toBeNull();
+    // The apply leaves chash for B's sealer to recompute from the applied row.
+    await on(b, () => pushSyncStream(vopts(b, { allowUnreleased: true })));
+    const T1 =
+      "SELECT hlc, fhlc, origin, version, deleted, chash FROM _sync_row_meta WHERE tbl = 'tasks_tasks' AND uid = 'uid-T1'";
+    const onA = await on(a, async () => (await storeOf(aDb)).prepare(T1).get());
+    expect(onA).toMatchObject({ origin: a.replicaId });
+    expect(await on(b, async () => (await storeOf(bDb)).prepare(T1).get())).toEqual(onA);
+  });
+
   it('S4-2: a device clock ahead of the server pauses push', async () => {
     const { m, dbPath } = await journalMachine();
     await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
