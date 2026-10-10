@@ -279,6 +279,9 @@ importers:
 
   packages/cleo:
     dependencies:
+      '@cleocode/adapters':
+        specifier: workspace:*
+        version: link:../adapters
       '@cleocode/animations':
         specifier: workspace:*
         version: link:../animations

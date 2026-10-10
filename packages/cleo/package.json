@@ -23,6 +23,7 @@
     "postinstall": "node bin/postinstall.js && node scripts/postinstall-check-core.mjs"
   },
   "dependencies": {
+    "@cleocode/adapters": "workspace:*",
     "@cleocode/animations": "workspace:*",
     "@cleocode/caamp": "workspace:*",
     "@cleocode/cant": "workspace:*",
