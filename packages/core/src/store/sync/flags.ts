@@ -13,7 +13,19 @@
  * @module store/sync/flags
  */
 
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import type { SupersededStoreBareAccount, TableScope } from '@cleocode/contracts';
+import { legacyRowProjection } from '../exodus/column-transforms.js';
+import { resolveConsolidatedTableName } from '../exodus/table-name-map.js';
+import {
+  PRIOR_RECOVERIES_TABLE_SQL,
+  taskIdCollisionsSql,
+} from '../exodus/task-id-collision-sql.js';
+import { ROW_IDENTITY } from '../row-identity-registry.js';
+import { classifyTable, isPortableTableClass } from '../table-classification.js';
 import { ensureSyncSchema, hasTable } from './schema.js';
 
 /** The journal's flags, in slice order. */
@@ -88,34 +100,439 @@ export function isSyncFlagOn(
   return readSyncFlags(db)[flag];
 }
 
-/** The remedy {@link LegacyOnlyStoreError} names. */
-export const LEGACY_ONLY_REMEDY = 'cleo doctor superseded-store --reconcile';
-
 /**
- * A store whose rows live only in the bare legacy family (T13224): the bare
- * `tasks` table holds rows while `tasks_tasks` is empty. No legacy file sits
- * beside it, so exodus-on-open never carries them, and the journal, which
- * captures only the current tables, would never see that data.
+ * The journal's sync set (§2.1): tables declared in ROW_IDENTITY that are
+ * portable and not frozen-legacy. Defined here, below the capture machinery
+ * (which imports this module), so the strand check can name it (T13225).
+ *
+ * @param scope - The store scope.
  */
-export function isLegacyOnlyStore(db: DatabaseSync): boolean {
-  if (!hasTable(db, 'tasks') || !hasTable(db, 'tasks_tasks')) return false;
-  const rows = (t: string) =>
-    (db.prepare(`SELECT EXISTS (SELECT 1 FROM "${t}") AS n`).get() as { n: number }).n;
-  return rows('tasks') === 1 && rows('tasks_tasks') === 0;
+export function syncSetTables(scope: TableScope): string[] {
+  return ROW_IDENTITY[scope]
+    .map((spec) => spec.table)
+    .filter((t) => {
+      const c = classifyTable(scope, t);
+      return (
+        c.kind === 'entry' && isPortableTableClass(c.class) && c.entry.status !== 'frozen-legacy'
+      );
+    });
 }
 
-/** Sync refused on a legacy-only store ({@link isLegacyOnlyStore}). */
+/** The remedy {@link LegacyOnlyStoreError} names while the store is a full strand. */
+export const LEGACY_ONLY_REMEDY = 'cleo doctor superseded-store --reconcile';
+
+/** The task extending the reconcile to partial strands (T13225). */
+export const PARTIAL_STRAND_FOLLOW_UP = 'T13309';
+
+/**
+ * One bare legacy table holding rows its sync-set twin lacks (T13224, T13225).
+ * The journal captures only the sync set, so it would never see them.
+ */
+export interface LegacyStrand {
+  /** The bare legacy table, e.g. `sessions`. */
+  readonly bareTable: string;
+  /** Its sync-set twin, e.g. `tasks_sessions`. */
+  readonly table: string;
+  /** Bare rows whose key the twin lacks. */
+  readonly missing: number;
+  /**
+   * Bare `tasks` rows whose id a DIFFERENT live task holds (the T001 reuse
+   * case): present by key, absent in substance. Always 0 for other tables.
+   */
+  readonly shadowed: number;
+}
+
+/**
+ * The store's bare legacy rows the journal would never see (T13224, T13225).
+ *
+ * A pair is a bare table outside the sync set whose consolidated target is a
+ * sync-set table, so a bare table the runtime still reads (it is in the sync
+ * set itself) is never a source. Rows are compared by the twin's primary key,
+ * projected as the reconcile projects it ({@link legacyRowProjection}), the
+ * same proof as the superseded-store survey. A pair whose keys cannot be
+ * compared counts only while its twin is empty. Bare `tasks` rows shadowed by a
+ * different live task with the same id ({@link taskIdCollisionsSql}) count too.
+ *
+ * Dead bare tables are written by nothing since consolidation, so a missing row
+ * was never carried — unless a reconcile carried it and the runtime deleted it
+ * from the twin since, the normal life of every reconciled store. A bare table
+ * the store records as carried ({@link BARE_ACCOUNTS_TABLE}) whose key digest
+ * still matches ({@link bareTableDigest}) is therefore not a strand (T13319,
+ * T13320). The record lives in the store, never in files beside it, so a
+ * restored pre-reconcile snapshot is refused again.
+ *
+ * @returns One entry per stranded pair; empty when the journal sees every row.
+ */
+export function legacyStrands(db: DatabaseSync): LegacyStrand[] {
+  const strands: LegacyStrand[] = [];
+  let accounted: readonly BareTableRecord[] | null = null;
+  for (const { bare, table } of bareTwinPairs(db)) {
+    const { missing, shadowed } = strandCounts(db, bare, table);
+    if (missing === 0 && shadowed === 0) continue;
+    // A reconcile carried this table, and it has not changed since (T13319).
+    accounted ??= recordedBareAccounts(db);
+    if (isAccounted(db, bare, accounted)) continue;
+    strands.push({ bareTable: bare, table, missing, shadowed });
+  }
+  return strands;
+}
+
+/**
+ * The bare tables outside the sync set whose consolidated target is a
+ * sync-set table, with rows, paired with that twin ({@link legacyStrands}).
+ */
+function bareTwinPairs(db: DatabaseSync): Array<{ bare: string; table: string }> {
+  const syncSet = new Set(syncSetTables('project'));
+  const tables = (
+    db.prepare("SELECT name FROM main.sqlite_master WHERE type = 'table'").all() as Array<{
+      name: string;
+    }>
+  ).map((t) => t.name);
+  const present = new Set(tables);
+  const pairs: Array<{ bare: string; table: string }> = [];
+  for (const bare of tables) {
+    if (syncSet.has(bare)) continue;
+    const target = resolveConsolidatedTableName('tasks', bare);
+    if (target.kind !== 'mapped' || target.targetName === bare) continue;
+    const table = target.targetName;
+    if (!syncSet.has(table) || !present.has(table) || !hasRows(db, bare)) continue;
+    pairs.push({ bare, table });
+  }
+  return pairs;
+}
+
+/** Rows of `bare` the twin `table` lacks by key, and bare tasks shadowed by a reused id. */
+function strandCounts(
+  db: DatabaseSync,
+  bare: string,
+  table: string,
+): { readonly missing: number; readonly shadowed: number } {
+  const missing = hasRows(db, table) ? missingByKey(db, bare, table) : countRows(db, bare);
+  const shadowed = bare === 'tasks' && table === 'tasks_tasks' ? shadowedTasks(db) : 0;
+  return { missing: missing ?? 0, shadowed };
+}
+
+/** Prefix of a reconcile's run directory under `.cleo/` (T12319). */
+const RECONCILE_RUN_PREFIX = 'exodus-reconcile-';
+
+/** The receipt file in a reconcile run directory. */
+const RECONCILE_RECEIPT_FILE = 'reconcile-receipt.json';
+
+/** Logical source names a full reconcile gives the live store's bare family. */
+const BARE_FAMILY_SOURCE_PREFIX = 'tasks (cleo.db bare';
+
+/**
+ * Adopt reconcile receipts written before T13319 into the store's record of
+ * carried bare tables (T13320): a receipt file beside the store is audit
+ * only, never authority, so a bare table one names is recorded only when it
+ * compares clean RIGHT NOW (every bare key present in the twin, no shadowed
+ * task). A table that does not — a restored pre-reconcile snapshot, or rows
+ * deleted since the reconcile — stays a strand, for the bare-strands
+ * reconcile (T13309) to settle. Runs when a flag is turned on.
+ *
+ * @param db - The live project store, writable.
+ * @returns The bare tables adopted.
+ */
+export function adoptReconciledReceipts(db: DatabaseSync): string[] {
+  const named = preRecordReceiptTables(db);
+  if (named.size === 0) return [];
+  const recorded = new Set(recordedBareAccounts(db).map((r) => r.table));
+  const adopted: string[] = [];
+  for (const { bare, table } of bareTwinPairs(db)) {
+    const run = named.get(bare);
+    if (run === undefined || recorded.has(bare)) continue;
+    const { missing, shadowed } = strandCounts(db, bare, table);
+    if (missing !== 0 || shadowed !== 0) continue;
+    recordBareAccounts(db, [bareTableDigest(db, 'main', bare)], run);
+    adopted.push(bare);
+  }
+  return adopted;
+}
+
+/**
+ * Bare tables named by `reconciled` receipts beside the store written before
+ * T13319 (no `accounted`): each table with the run directory that names it.
+ */
+function preRecordReceiptTables(db: DatabaseSync): Map<string, string> {
+  const named = new Map<string, string>();
+  const file = (
+    db.prepare('PRAGMA database_list').all() as Array<{ name: string; file: string }>
+  ).find((d) => d.name === 'main')?.file;
+  if (!file || !existsSync(dirname(file))) return named;
+  const dir = dirname(file);
+  for (const run of readdirSync(dir)
+    .filter((n) => n.startsWith(RECONCILE_RUN_PREFIX))
+    .sort()) {
+    let receipt: unknown;
+    try {
+      receipt = JSON.parse(readFileSync(join(dir, run, RECONCILE_RECEIPT_FILE), 'utf8'));
+    } catch {
+      continue;
+    }
+    if (!isRecord(receipt) || receipt.outcome !== 'reconciled' || 'accounted' in receipt) continue;
+    for (const c of Array.isArray(receipt.before) ? receipt.before : []) {
+      if (
+        isRecord(c) &&
+        typeof c.sourceDb === 'string' &&
+        c.sourceDb.startsWith(BARE_FAMILY_SOURCE_PREFIX) &&
+        typeof c.sourceTable === 'string'
+      ) {
+        named.set(c.sourceTable, run);
+      }
+    }
+  }
+  return named;
+}
+
+/** Whether `value` is a plain object. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Whether any bare legacy row is stranded from the journal ({@link legacyStrands}). */
+export function isLegacyOnlyStore(db: DatabaseSync): boolean {
+  return legacyStrands(db).length > 0;
+}
+
+/**
+ * The remedy for `strands`: the reconcile while `tasks_tasks` is empty (it
+ * copies the bare family only then), otherwise none yet ({@link
+ * PARTIAL_STRAND_FOLLOW_UP}).
+ */
+export function legacyStrandRemedy(db: DatabaseSync, strands: readonly LegacyStrand[]): string {
+  const counts = strands
+    .map(
+      (s) =>
+        `${s.bareTable} → ${s.table}: ${s.missing} missing` +
+        (s.shadowed > 0 ? `, ${s.shadowed} shadowed by a reused id` : ''),
+    )
+    .join('; ');
+  if (!hasTable(db, 'tasks_tasks') || !hasRows(db, 'tasks_tasks')) {
+    return `Stranded bare rows (${counts}). Run \`${LEGACY_ONLY_REMEDY}\` first.`;
+  }
+  return (
+    `Stranded bare rows (${counts}). \`${LEGACY_ONLY_REMEDY}\` cannot yet copy bare rows ` +
+    `into a populated store; ${PARTIAL_STRAND_FOLLOW_UP} adds that. Keep the bare tables ` +
+    `until then.`
+  );
+}
+
+/** Sync refused on a store with stranded bare rows ({@link legacyStrands}). */
 export class LegacyOnlyStoreError extends Error {
   readonly code = 'E_SYNC_LEGACY_ONLY_STORE';
 
-  constructor(flag: string) {
+  /**
+   * @param flag - The flag being enabled.
+   * @param remedy - {@link legacyStrandRemedy} for the store.
+   */
+  constructor(flag: string, remedy: string) {
     super(
-      `E_SYNC_LEGACY_ONLY_STORE: ${flag} refused: this store's rows live only in the bare legacy ` +
-        `tables (tasks_tasks is empty), where the journal would never see them. ` +
-        `Run \`${LEGACY_ONLY_REMEDY}\` first.`,
+      `E_SYNC_LEGACY_ONLY_STORE: ${flag} refused: this store holds rows only in the bare ` +
+        `legacy tables, where the journal would never see them. ${remedy}`,
     );
     this.name = 'LegacyOnlyStoreError';
   }
+}
+
+/**
+ * {@link legacyStrands} decided once per `PRAGMA data_version` of a connection
+ * (T13319): the sealer asks on every batch, while a strand can only appear or
+ * clear through another connection's commit (bare tables are dead; a
+ * reconcile writes through its own connection). This connection's own writes
+ * never move `data_version`, and never strand a row.
+ */
+const strandsByConnection = new WeakMap<
+  DatabaseSync,
+  { readonly version: number; readonly strands: LegacyStrand[] }
+>();
+
+/**
+ * {@link legacyStrands}, reused while no other connection has committed.
+ *
+ * @param db - The store connection the sealer uses.
+ */
+export function legacyStrandsCached(db: DatabaseSync): LegacyStrand[] {
+  const version = Number(
+    (db.prepare('PRAGMA data_version').get() as { data_version: number }).data_version,
+  );
+  const hit = strandsByConnection.get(db);
+  if (hit && hit.version === version) return hit.strands;
+  const strands = legacyStrands(db);
+  strandsByConnection.set(db, { version, strands });
+  return strands;
+}
+
+/**
+ * The store's own record of the bare tables a reconcile carried (T13320): one
+ * row per bare table with its key digest ({@link bareTableDigest}) when the
+ * run verified. It lives IN the store (local-only, `_exodus_recovery_*`), so
+ * it travels with backups and restores; a snapshot taken before the reconcile
+ * carries none, and its stranded rows are refused again.
+ */
+export const BARE_ACCOUNTS_TABLE = '_exodus_recovery_bare_accounts';
+
+/** A bare table a reconcile carried, as the store records it. */
+interface BareTableRecord {
+  readonly table: string;
+  readonly rows: number;
+  readonly digest: string;
+}
+
+/**
+ * The row count and key digest of a bare legacy table, by which the store
+ * records a reconcile carrying it (T13319). Its primary-key values are hashed in order
+ * — the rows a strand is judged by — so a row added since changes it, while a
+ * column the runtime adds to the dead table on open (its legacy upgrade does)
+ * does not. A keyless table hashes every column.
+ *
+ * @param db - Connection holding the table.
+ * @param schema - Schema the table lives in, e.g. `main`.
+ * @param table - The bare table.
+ */
+export function bareTableDigest(
+  db: DatabaseSync,
+  schema: string,
+  table: string,
+): SupersededStoreBareAccount {
+  const info = db.prepare(`PRAGMA "${schema}".table_info("${table}")`).all() as Array<{
+    name: string;
+    pk: number;
+  }>;
+  const pk = info
+    .filter((c) => c.pk > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((c) => c.name);
+  const cols = (pk.length > 0 ? pk : info.map((c) => c.name)).map((c) => `quote("${c}")`);
+  const hash = createHash('sha256');
+  let rows = 0;
+  for (const row of db
+    .prepare(`SELECT ${cols.join(" || ',' || ")} AS r FROM "${schema}"."${table}" ORDER BY 1`)
+    .iterate() as Iterable<{ r: string }>) {
+    hash.update(`${row.r}\n`);
+    rows++;
+  }
+  return { table, rows, digest: hash.digest('hex') };
+}
+
+/** The bare tables this store records as carried by a reconcile (T13320). */
+function recordedBareAccounts(db: DatabaseSync): BareTableRecord[] {
+  if (!hasTable(db, BARE_ACCOUNTS_TABLE)) return [];
+  return (
+    db
+      .prepare(`SELECT bare_table AS "table", rows, digest FROM main."${BARE_ACCOUNTS_TABLE}"`)
+      .all() as Array<{ table: string; rows: number; digest: string }>
+  ).map((r) => ({ table: r.table, rows: Number(r.rows), digest: r.digest }));
+}
+
+/**
+ * Record, in the store, that a verified reconcile run carried `accounts`
+ * (T13320). Upserts per bare table, so a later run's digest replaces an
+ * earlier one; `run` names the receipt directory that did it.
+ *
+ * @param db - The live project store, writable.
+ * @param accounts - Key digests of the bare tables the run carried.
+ * @param run - The reconcile's run directory name.
+ * @param now - When the run verified.
+ */
+export function recordBareAccounts(
+  db: DatabaseSync,
+  accounts: readonly SupersededStoreBareAccount[],
+  run: string,
+  now: Date = new Date(),
+): void {
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS main."${BARE_ACCOUNTS_TABLE}" (` +
+      'bare_table TEXT PRIMARY KEY, rows INTEGER NOT NULL, digest TEXT NOT NULL, ' +
+      'run TEXT NOT NULL, recorded_at TEXT NOT NULL)',
+  );
+  const upsert = db.prepare(
+    `INSERT INTO main."${BARE_ACCOUNTS_TABLE}" (bare_table, rows, digest, run, recorded_at) ` +
+      'VALUES (?, ?, ?, ?, ?) ON CONFLICT(bare_table) DO UPDATE SET rows = excluded.rows, ' +
+      'digest = excluded.digest, run = excluded.run, recorded_at = excluded.recorded_at',
+  );
+  const at = now.toISOString();
+  // A savepoint, so a caller already inside a transaction can record too.
+  db.exec('SAVEPOINT bare_accounts');
+  try {
+    for (const a of accounts) upsert.run(a.table, a.rows, a.digest, run, at);
+    db.exec('RELEASE bare_accounts');
+  } catch (error) {
+    db.exec('ROLLBACK TO bare_accounts');
+    db.exec('RELEASE bare_accounts');
+    throw error;
+  }
+}
+
+/** Whether `bare` is unchanged since the store recorded a reconcile carrying it. */
+function isAccounted(db: DatabaseSync, bare: string, records: readonly BareTableRecord[]): boolean {
+  const mine = records.find((r) => r.table === bare);
+  if (mine === undefined) return false;
+  const now = bareTableDigest(db, 'main', bare);
+  return mine.rows === now.rows && mine.digest === now.digest;
+}
+
+/** Whether `table` holds at least one row. */
+function hasRows(db: DatabaseSync, table: string): boolean {
+  const row = db.prepare(`SELECT EXISTS (SELECT 1 FROM main."${table}") AS n`).get() as {
+    n: number;
+  };
+  return row.n === 1;
+}
+
+function countRows(db: DatabaseSync, table: string): number {
+  return (db.prepare(`SELECT COUNT(*) AS n FROM main."${table}"`).get() as { n: number }).n;
+}
+
+function columns(db: DatabaseSync, table: string): Array<{ name: string; pk: number }> {
+  return db.prepare(`PRAGMA main.table_info("${table}")`).all() as Array<{
+    name: string;
+    pk: number;
+  }>;
+}
+
+/**
+ * Bare rows whose twin primary key is absent from the twin, or `null` when the
+ * bare table cannot produce every key column.
+ */
+function missingByKey(db: DatabaseSync, bare: string, table: string): number | null {
+  const pk = columns(db, table)
+    .filter((c) => c.pk > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((c) => c.name);
+  const bareCols = new Set(columns(db, bare).map((c) => c.name));
+  const projection = legacyRowProjection(table, bare);
+  const keyOf = (c: string): string | null => {
+    const project = projection.get(c);
+    if (project) return project((name) => `s."${name}"`);
+    return bareCols.has(c) ? `s."${c}"` : null;
+  };
+  if (pk.length === 0 || !pk.every((c) => keyOf(c) !== null)) return null;
+  const match = pk.map((c) => `t."${c}" = ${keyOf(c)}`).join(' AND ');
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM main."${bare}" s ` +
+          `WHERE NOT EXISTS (SELECT 1 FROM main."${table}" t WHERE ${match})`,
+      )
+      .get() as { n: number }
+  ).n;
+}
+
+/** Bare `tasks` rows shadowed by a different live task with their id. */
+function shadowedTasks(db: DatabaseSync): number {
+  const distinguishing = (t: string): boolean => {
+    const names = new Set(columns(db, t).map((c) => c.name));
+    return names.has('title') && names.has('created_at') && names.has('type');
+  };
+  if (!distinguishing('tasks') || !distinguishing('tasks_tasks')) return 0;
+  db.exec(PRIOR_RECOVERIES_TABLE_SQL);
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM (${taskIdCollisionsSql('main.tasks')}) WHERE recoveredAs IS NULL`,
+      )
+      .get() as { n: number }
+  ).n;
 }
 
 /**
@@ -144,9 +561,12 @@ export function setSyncFlag(
       { code: 'E_SYNC_FLAG_UNRELEASED' },
     );
   }
-  if (on && isLegacyOnlyStore(db)) {
+  // A pre-T13319 receipt counts only for a bare table clean right now (T13320).
+  if (on) adoptReconciledReceipts(db);
+  const strands = on ? legacyStrands(db) : [];
+  if (strands.length > 0) {
     // @sync-invariant none:local-only enabling sync on a store whose rows the journal cannot see is refused; a per-store setting
-    throw new LegacyOnlyStoreError(flag);
+    throw new LegacyOnlyStoreError(flag, legacyStrandRemedy(db, strands));
   }
   if (!on && !hasTable(db, '_sync_meta')) return false;
   if (readSyncFlags(db)[flag] === on) return false;

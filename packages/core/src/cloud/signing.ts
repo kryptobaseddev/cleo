@@ -251,6 +251,31 @@ export function deviceRevocationMessage(parts: {
 }
 
 /**
+ * The bytes a device signs (Ed25519) to retire a replica of a stream (cleo-nexus T123, contract v2.28): the replica
+ * writes no segment past `lastReplicaSeq`, or none at all when it is null (it wrote nothing). `successor`,
+ * `lastReplicaSeq` and `txnId` (the journal `retire` transaction, absent for an owner's retirement) are `-` when null.
+ * It names the signer, so a retirement cannot be re-attributed.
+ */
+export function replicaRetireMessage(parts: {
+  streamId: string;
+  replicaId: string;
+  successor: string | null;
+  lastReplicaSeq: number | null;
+  signerDeviceId: string;
+  txnId: string | null;
+}): Uint8Array {
+  return lines(
+    'cleo-nexus/replica-retire/v1',
+    parts.streamId,
+    parts.replicaId,
+    parts.successor ?? '-',
+    parts.lastReplicaSeq === null ? '-' : String(parts.lastReplicaSeq),
+    parts.signerDeviceId,
+    parts.txnId ?? '-',
+  );
+}
+
+/**
  * The bytes a device certificate MACs: HMAC-SHA256 keyed by HKDF(masterKey, "device-cert"). It binds a
  * device's public keys to the user and a master key version. Only a master key holder can make one.
  */

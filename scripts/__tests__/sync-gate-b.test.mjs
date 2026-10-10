@@ -37,7 +37,11 @@ describe('sync-gate-b snapshot arguments (T12987)', () => {
     expect(() => parseSnapshots([`cleocode=${upper}`])).toThrow(/live store/);
   });
 
-  it('refuses the global store and a snapshot with a non-empty -wal', () => {
+  it('refuses any file named cleo.db (the global store at any home) and a non-empty -wal', () => {
+    const elsewhere = join(root, 'Library', 'Application Support', 'cleo');
+    mkdirSync(elsewhere, { recursive: true });
+    writeFileSync(join(elsewhere, 'cleo.db'), '');
+    expect(() => parseSnapshots([`global=${join(elsewhere, 'cleo.db')}`])).toThrow(/live store/);
     const home = join(root, 'cleo-home');
     mkdirSync(home, { recursive: true });
     writeFileSync(join(home, 'cleo.db'), '');
