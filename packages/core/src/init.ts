@@ -2205,8 +2205,10 @@ export async function deployStarterBundle(
   // Copy team.cant
   const teamSrc = join(starterBundleSrc, 'team.cant');
   const teamDst = join(cantDir, 'team.cant');
+  let copied = 0;
   if (existsSync(teamSrc) && !existsSync(teamDst)) {
     await copyFile(teamSrc, teamDst);
+    copied++;
   }
 
   // Copy agent .cant files
@@ -2217,6 +2219,7 @@ export async function deployStarterBundle(
       const dst = join(cantAgentsDir, agentFile);
       if (!existsSync(dst)) {
         await copyFile(join(agentsSrc, agentFile), dst);
+        copied++;
       }
     }
   }
@@ -2237,7 +2240,10 @@ export async function deployStarterBundle(
     warnings.push(`identity deploy failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  created.push(
-    'starter-bundle: team + agent .cant files deployed to .cleo/ (identity at global XDG)',
-  );
+  // T13409: report only a deploy that copied something, so a re-run is quiet.
+  if (copied > 0) {
+    created.push(
+      'starter-bundle: team + agent .cant files deployed to .cleo/ (identity at global XDG)',
+    );
+  }
 }

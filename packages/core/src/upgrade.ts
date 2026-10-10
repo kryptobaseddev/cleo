@@ -21,12 +21,11 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { CleoError } from './errors.js';
 import { ensureGitHooks } from './hooks.js';
 import {
   initAgentDefinition,
-  initCoreSkills,
   initNexusRegistration,
   installGitHubTemplates,
   installHandoffRedirectStubs,
@@ -34,6 +33,10 @@ import {
 import { ensureInjection } from './injection.js';
 import { detectLegacyAgentOutputs, migrateAgentOutputs } from './migration/agent-outputs.js';
 import { getCleoHome, getProjectRoot, resolveCleoDir } from './paths.js';
+import {
+  createUpgradeFileJournal,
+  type UpgradeFileChange,
+} from './scaffold/upgrade-file-journal.js';
 import {
   ensureCleoGitRepo,
   ensureCleoStructure,
@@ -70,6 +73,11 @@ export interface UpgradeResult {
   errors: string[];
   /** Summary of what was checked (added for --diagnose and bare upgrade). */
   summary?: UpgradeSummary;
+  /**
+   * Every project file this run changed, each with the backup of its previous
+   * bytes (`null` when the file was created). Empty for a dry run (T13409).
+   */
+  fileChanges: UpgradeFileChange[];
   /** Storage migration sub-result (if migration was triggered). */
   storageMigration?: {
     migrated: boolean;
@@ -155,11 +163,14 @@ export async function runUpgrade(
       actions,
       applied: 0,
       errors: [String(err)],
+      fileChanges: [],
     };
   }
 
   // Determine what actions are actually needed
   const cleoDir = resolveCleoDir(options.cwd);
+  // T13409: every project file upgrade edits is backed up first and listed.
+  const journal = createUpgradeFileJournal(journalRoot(options.cwd, cleoDir), cleoDir);
   const dbPath = join(cleoDir, 'tasks.db');
   const dbExists = existsSync(dbPath);
 
@@ -204,7 +215,15 @@ export async function runUpgrade(
             fix: 'Wait for the other migration to complete, then retry.',
           });
           errors.push('Cannot acquire migration lock: Another migration is currently in progress');
-          return { success: false, upToDate: false, dryRun: isDryRun, actions, applied: 0, errors };
+          return {
+            success: false,
+            upToDate: false,
+            dryRun: isDryRun,
+            actions,
+            applied: 0,
+            errors,
+            fileChanges: journal.changes,
+          };
         }
 
         // T12708: the storage migration renames a new database over the store
@@ -232,7 +251,15 @@ export async function runUpgrade(
             fix: rewriteRefusal.fix ?? undefined,
           });
           errors.push(rewriteRefusal.message);
-          return { success: false, upToDate: false, dryRun: isDryRun, actions, applied: 0, errors };
+          return {
+            success: false,
+            upToDate: false,
+            dryRun: isDryRun,
+            actions,
+            applied: 0,
+            errors,
+            fileChanges: journal.changes,
+          };
         }
 
         // CRITICAL: Force checkpoint before ANY destructive operations
@@ -640,7 +667,7 @@ export async function runUpgrade(
         });
       }
     } else {
-      const gitignoreResult = await ensureGitignore(projectRoot);
+      const gitignoreResult = await ensureGitignore(projectRoot, { journal });
       actions.push({
         action: 'gitignore_integrity',
         status: gitignoreResult.action === 'skipped' ? 'skipped' : 'applied',
@@ -722,6 +749,7 @@ export async function runUpgrade(
     } else {
       const contextResult = await ensureProjectContext(projectRootForContext, {
         staleDays: options.forceDetect ? 0 : 30,
+        journal,
       });
       actions.push({
         action: 'project_context_detection',
@@ -738,7 +766,10 @@ export async function runUpgrade(
   if (!isDryRun) {
     try {
       const projectRootForInjection = getProjectRoot(options.cwd);
-      const injectionResult = await ensureInjection(projectRootForInjection);
+      const injectionResult = await ensureInjection(projectRootForInjection, {
+        mode: 'upgrade',
+        journal,
+      });
       actions.push({
         action: 'injection_refresh',
         status: injectionResult.action === 'skipped' ? 'skipped' : 'applied',
@@ -777,7 +808,7 @@ export async function runUpgrade(
     // Legacy `.cleo/worktree-include` is preserved if present — `cleo doctor
     // --migrate-worktree-include` is the explicit migration verb.
     try {
-      const worktreeResult = await ensureWorktreeInclude(projectRootForMaint);
+      const worktreeResult = await ensureWorktreeInclude(projectRootForMaint, { journal });
       if (worktreeResult.action !== 'skipped') {
         actions.push({
           action: 'worktreeinclude',
@@ -789,9 +820,10 @@ export async function runUpgrade(
       /* best-effort */
     }
 
-    // Ensure .cleo/config.json is current with shipped template semantics.
+    // Create .cleo/config.json when missing. T13409: never force-regenerate it;
+    // that replaced the user's settings with defaults on every upgrade.
     try {
-      const configResult = await ensureConfig(projectRootForMaint, { force: true });
+      const configResult = await ensureConfig(projectRootForMaint);
       if (configResult.action !== 'skipped') {
         actions.push({
           action: 'config_file',
@@ -836,7 +868,7 @@ export async function runUpgrade(
       const schemasResult = ensureGlobalSchemas();
       actions.push({
         action: 'global_schemas',
-        status: 'applied',
+        status: schemasResult.installed + schemasResult.updated > 0 ? 'applied' : 'skipped',
         details: `Installed ${schemasResult.installed} schemas (${schemasResult.updated} updated)`,
       });
     } catch {
@@ -908,7 +940,7 @@ export async function runUpgrade(
       const sdResult = await ensureGlobalAgentRegistryDb();
       actions.push({
         action: 'ensure_signaldock_db',
-        status: 'applied',
+        status: sdResult.action === 'created' ? 'applied' : 'skipped',
         details:
           sdResult.action === 'created'
             ? 'signaldock.db created with full schema'
@@ -1079,21 +1111,9 @@ export async function runUpgrade(
       /* best-effort — identity is already-kept-or-skipped on failure */
     }
 
-    // Install core skills
-    try {
-      const skillsCreated: string[] = [];
-      const skillsWarnings: string[] = [];
-      await initCoreSkills(skillsCreated, skillsWarnings);
-      if (skillsCreated.length > 0) {
-        actions.push({
-          action: 'core_skills',
-          status: 'applied',
-          details: skillsCreated.join(', '),
-        });
-      }
-    } catch {
-      /* best-effort */
-    }
+    // T13409: core skills are not installed here. Installing links them into
+    // every provider's skill dir under HOME (~/.claude/skills, ...), and
+    // upgrade never writes user-global files. `cleo install-global` does it.
 
     // Register with NEXUS
     try {
@@ -1349,6 +1369,7 @@ export async function runUpgrade(
     actions,
     applied: appliedActions.length,
     errors,
+    fileChanges: journal.changes,
     summary: {
       checked: actions.length,
       applied: appliedActions.length,
@@ -1358,6 +1379,19 @@ export async function runUpgrade(
     },
     storageMigration: storageMigrationResult,
   };
+}
+
+/**
+ * Root that upgrade backups keep paths relative to: the project root, or the
+ * parent of the `.cleo` directory when no project root resolves (a refused
+ * worktree store still reports its refusal, not a journal error).
+ */
+function journalRoot(cwd: string | undefined, cleoDir: string): string {
+  try {
+    return getProjectRoot(cwd);
+  } catch {
+    return dirname(cleoDir);
+  }
 }
 
 /**
