@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.7
+version: 3.1.8
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,12 +14,16 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.7
+  version: 3.1.8
   tier: core
   install: harness
   covers:
     - .github/workflows/release-prepare.yml
-  lastReviewed: 2026-10-04
+    - packages/core/src/hooks.ts
+    - packages/core/src/git/hooks-install.ts
+    - packages/core/templates/git-hooks/**
+    - packages/contracts/src/git-hooks.ts
+  lastReviewed: 2026-10-10
   stability: stable
 ---
 
@@ -65,6 +69,24 @@ Every commit MUST be traceable to a CLEO task. This ensures:
 | WF-003 | Atomic commits | ONE logical change per commit |
 | WF-004 | Conventional format | `<type>(<scope>): <description>` |
 | WF-005 | Tests before push | Relevant tests MUST pass |
+
+---
+
+## Git Hook Delivery (T13349)
+
+Init, upgrade and explicit Git hook installation share the ownership-aware installer.
+Resolve the effective hook directory through Git, including `core.hooksPath` and
+linked worktrees. Preserve foreign hooks and customized managed hooks; a CLEO
+marker alone never authorizes replacement. Refresh only exact shipped legacy
+bodies or receipt-owned content, using locked atomic writes and hash-guarded
+rollback. Report conflicts with the suggested integration snippet.
+
+The pre-push wrapper captures and replays Git ref-update stdin. Probe the project
+runner for `CLEO_PROJECT_HOOK_V1` before interpreting exit 1 as a project block.
+Missing or incompatible runners and infrastructure failures warn and allow;
+project rules remain project-owned. Verify nested checkout paths, linked
+worktrees, custom hook paths, receipt corruption, and stdin replay with focused
+Git fixtures before changing this delivery path.
 
 ---
 
