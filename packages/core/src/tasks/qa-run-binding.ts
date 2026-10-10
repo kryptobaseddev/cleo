@@ -17,6 +17,10 @@
  *     validator; `cleo complete` refuses the atom once the tree moves, unless
  *     merged CI carries the gate.
  *
+ * With no origin default branch to diff against (no merge base), nothing is
+ * judged beyond the result: the receipt binds with no coverage check, as a
+ * `test-run:` report does there.
+ *
  * It does NOT prove the run happened (a receipt is a file the caller
  * supplies), and a scoped typecheck does not see unchanged files outside its
  * roots that import a changed export. Merged CI (`ci:<pr>`) or a whole-project
