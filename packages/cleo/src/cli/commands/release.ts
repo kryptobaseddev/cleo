@@ -369,8 +369,10 @@ const planCommand = defineCommand({
         '@cleocode/core/hygiene/validate-spawn-readiness.js'
       );
       // T13322: the report goes to stderr; stdout carries only the envelope (ADR-086).
-      const readiness = await runSpawnReadinessHygieneCli(undefined, undefined, (line) =>
-        process.stderr.write(`${line}\n`),
+      const readiness = await runSpawnReadinessHygieneCli(
+        undefined,
+        undefined,
+        (line) => console.error(line), // json-stream-hygiene-allowed: human readiness report; stdout is the envelope (ADR-086)
       );
       if (readiness.hasBlockingFailure) {
         const failed = readiness.gates.filter((g) => !g.passed && g.severity === 'error');

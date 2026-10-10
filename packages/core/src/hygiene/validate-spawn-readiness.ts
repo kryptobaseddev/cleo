@@ -354,13 +354,13 @@ export async function runSpawnReadinessHygiene(
  *
  * @param projectRoot - Absolute path to project root.
  * @param worktreePath - Expected worktree path (optional).
- * @param report - Writes one report line. @defaultValue a stdout writer
+ * @param report - Writes one report line. @defaultValue `console.log`
  * @returns The structured readiness result.
  */
 export async function runSpawnReadinessHygieneCli(
   projectRoot: string = process.cwd(), // CWD-OK: CLI entry point default — `cleo hygiene` invoked from project cwd
   worktreePath?: string,
-  report: (line: string) => void = (line) => process.stdout.write(`${line}\n`),
+  report: (line: string) => void = (line) => console.log(line),
 ): Promise<SpawnReadinessResult> {
   const result = await runSpawnReadinessHygiene(projectRoot, worktreePath);
 
@@ -374,7 +374,7 @@ export async function runSpawnReadinessHygieneCli(
   report('='.repeat(50));
 
   if (result.hasBlockingFailure) {
-    process.stderr.write(`FAILED gates: ${result.blockingGates.join(', ')}\n`);
+    console.error(`FAILED gates: ${result.blockingGates.join(', ')}`);
     process.exitCode = 1;
   } else {
     report('All gates passed — spawn readiness confirmed.');
