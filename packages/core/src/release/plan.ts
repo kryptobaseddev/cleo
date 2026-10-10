@@ -51,7 +51,7 @@ import {
   E_RELEASE_PLAN_INVALID,
   ExitCode,
 } from '@cleocode/contracts/exit-codes.js';
-import { parseReleasePlan } from '@cleocode/contracts/release/plan.js';
+import { parseReleasePlan, RELEASE_PERSISTED_CHANNEL } from '@cleocode/contracts/release/plan.js';
 import { desc, eq } from 'drizzle-orm';
 
 import { parseChangesetDir } from '../changesets/index.js';
@@ -137,6 +137,8 @@ export interface ReleasePlanOptions {
   channel?: ReleasePlanChannel;
   /** When true, the release is marked `release_kind='hotfix'`. */
   hotfix?: boolean;
+  /** Require retained pilot evidence for this hooks-v1 stable promotion. */
+  hooksV1Promotion?: boolean;
   /** Dry-run flag — equivalent to `CLEO_DRY_RUN=1`. Reads only; no writes. */
   dryRun?: boolean;
   /**
@@ -338,15 +340,7 @@ function mapPlanChannelToDbChannel(
   releaseKind: ReleaseKind,
 ): 'latest' | 'beta' | 'dev' | 'hotfix' {
   if (releaseKind === 'hotfix') return 'hotfix';
-  switch (channel) {
-    case 'latest':
-      return 'latest';
-    case 'beta':
-    case 'rc':
-      return 'beta';
-    case 'alpha':
-      return 'dev';
-  }
+  return RELEASE_PERSISTED_CHANNEL[channel];
 }
 
 /**
@@ -359,6 +353,15 @@ function validateChannelScheme(
   scheme: ReleaseScheme,
   version: string,
 ): { ok: true } | { ok: false; reason: string } {
+  if (channel === 'canary' && !/-canary\.\d+$/.test(version)) {
+    return { ok: false, reason: "channel='canary' requires a numbered -canary.N version." };
+  }
+  if (channel !== 'canary' && /-canary(?:\.|$)/.test(version)) {
+    return {
+      ok: false,
+      reason: 'A canary version requires --channel canary; it cannot target another dist-tag.',
+    };
+  }
   // `latest` requires NO pre-release suffix.
   if (channel === 'latest' && version.includes('-')) {
     return {
@@ -1831,6 +1834,7 @@ export async function releasePlan(
     channel,
     epicId: resolvedEpicId,
     releaseKind,
+    hooksV1Promotion: opts.hooksV1Promotion === true,
     createdAt,
     createdBy: opts.createdBy ?? process.env['USER'] ?? 'cleo-agent',
     previousVersion: prior.previousVersion,

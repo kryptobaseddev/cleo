@@ -9310,13 +9310,19 @@ export const OPERATIONS: OperationDef[] = [
         name: 'channel',
         type: 'string',
         required: false,
-        description: 'Release channel: latest | beta | alpha | rc',
+        description: 'Release channel: latest | beta | alpha | rc | canary',
       },
       {
         name: 'hotfix',
         type: 'boolean',
         required: false,
         description: 'Mark plan as release_kind=hotfix',
+      },
+      {
+        name: 'hooksV1Promotion',
+        type: 'boolean',
+        required: false,
+        description: 'Require the unified-hooks pilot for this stable promotion',
       },
       {
         name: 'dryRun',

@@ -160,6 +160,52 @@ afterEach(async () => {
 // =============================================================================
 
 describe('releasePlan — happy path', () => {
+  it('retains an explicit hooks promotion flag in the committed plan', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    const result = await releasePlan({
+      version: 'v2026.10.6',
+      epicId: 'T9999',
+      projectRoot: testDir,
+      hooksV1Promotion: true,
+      scheme: 'calver',
+    });
+    expect(result.success).toBe(true);
+    const plan = parseReleasePlan(
+      JSON.parse(readFileSync(join(testDir, '.cleo/release/v2026.10.6.plan.json'), 'utf8')),
+    );
+    expect(plan.hooksV1Promotion).toBe(true);
+  });
+
+  it('preserves the canary channel in its plan while using the compatible persisted enum', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    const result = await releasePlan({
+      version: 'v2026.10.6-canary.1',
+      epicId: 'T9999',
+      channel: 'canary',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('Canary planning failed');
+    expect(result.data.channel).toBe('canary');
+    const plan = parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf8')));
+    expect(plan.channel).toBe('canary');
+    const rows = await (await getDb(testDir)).select().from(schema.releases).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.channel).toBe('beta');
+  });
+
+  it.each([
+    { version: 'v2026.10.6', channel: 'canary' },
+    { version: 'v2026.10.6-canary.1', channel: 'beta' },
+  ] as const)('rejects incompatible canary planning inputs: $version/$channel', async (input) => {
+    await seedEpicWithChildren('T9999', 1);
+    const result = await releasePlan({ ...input, epicId: 'T9999', projectRoot: testDir });
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('Incompatible canary accepted');
+    expect(result.error.code).toBe(E_CHANNEL_MISMATCH);
+  });
+
   it('writes a plan file + UPSERTs releases row + returns a LAFS-compliant envelope', async () => {
     await seedEpicWithChildren('T9999', 3);
 
