@@ -323,6 +323,7 @@ describe('parsers', () => {
     expect(name('bunx --bun mcp-remote https://x')).toBe('mcp-remote');
     // a launcher running something that is not an MCP server
     expect(name('npx -y tsx scripts/mcp-check.ts')).toBeNull();
+    expect(name('npx -y agentmbx@0.5.23 mcp')).toBe('agentmbx');
     expect(name('pnpm vitest run')).toBeNull();
   });
 
