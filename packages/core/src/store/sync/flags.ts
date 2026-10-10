@@ -121,8 +121,8 @@ export function syncSetTables(scope: TableScope): string[] {
 /** The remedy {@link LegacyOnlyStoreError} names while the store is a full strand. */
 export const LEGACY_ONLY_REMEDY = 'cleo doctor superseded-store --reconcile';
 
-/** The task extending the reconcile to partial strands (T13225). */
-export const PARTIAL_STRAND_FOLLOW_UP = 'T13309';
+/** The remedy for a partial strand: plan, then add `--apply` (T13309). */
+export const BARE_STRANDS_REMEDY = 'cleo doctor superseded-store --reconcile --bare-strands';
 
 /**
  * One bare legacy table holding rows its sync-set twin lacks (T13224, T13225).
@@ -295,9 +295,9 @@ export function isLegacyOnlyStore(db: DatabaseSync): boolean {
 }
 
 /**
- * The remedy for `strands`: the reconcile while `tasks_tasks` is empty (it
- * copies the bare family only then), otherwise none yet ({@link
- * PARTIAL_STRAND_FOLLOW_UP}).
+ * The remedy for `strands`: the full reconcile while `tasks_tasks` is empty
+ * (it copies the bare family whole then), otherwise the bare-strands
+ * reconcile ({@link BARE_STRANDS_REMEDY}).
  */
 export function legacyStrandRemedy(db: DatabaseSync, strands: readonly LegacyStrand[]): string {
   const counts = strands
@@ -311,9 +311,8 @@ export function legacyStrandRemedy(db: DatabaseSync, strands: readonly LegacyStr
     return `Stranded bare rows (${counts}). Run \`${LEGACY_ONLY_REMEDY}\` first.`;
   }
   return (
-    `Stranded bare rows (${counts}). \`${LEGACY_ONLY_REMEDY}\` cannot yet copy bare rows ` +
-    `into a populated store; ${PARTIAL_STRAND_FOLLOW_UP} adds that. Keep the bare tables ` +
-    `until then.`
+    `Stranded bare rows (${counts}). Run \`${BARE_STRANDS_REMEDY}\` to see what it would ` +
+    'copy and skip, then add `--apply`.'
   );
 }
 
@@ -461,6 +460,21 @@ export function recordBareAccounts(
     db.exec('RELEASE bare_accounts');
     throw error;
   }
+}
+
+/**
+ * Remove the store's record of the bare tables a reconcile run carried, when
+ * that run is rolled back (T13309).
+ *
+ * @param db - The live project store, writable.
+ * @param run - The reconcile's run directory name.
+ * @returns Records removed.
+ */
+export function forgetBareAccounts(db: DatabaseSync, run: string): number {
+  if (!hasTable(db, BARE_ACCOUNTS_TABLE)) return 0;
+  return Number(
+    db.prepare(`DELETE FROM main."${BARE_ACCOUNTS_TABLE}" WHERE run = ?`).run(run).changes,
+  );
 }
 
 /** Whether `bare` is unchanged since the store recorded a reconcile carrying it. */

@@ -68,7 +68,8 @@ export function formatBackupTimestamp(d: Date): string {
  *                vacuum-snapshot files that share `.cleo/backups/sqlite/`.
  * @task T12727 — marker-referenced snapshots are never rotated.
  * @task T12770 — an unreadable marker keeps only `migration` backups, and says so.
- * @returns The files deleted, and why rotation kept backups past the cap.
+ * @task T12729 — a rotated backup's `<backupId>.meta.json` sidecar goes with it.
+ * @returns The files and sidecars deleted, and why rotation kept backups past the cap.
  */
 export function rotateBackupDir(
   backupDir: string,
@@ -111,6 +112,7 @@ export function rotateBackupDir(
         if (skipped)
           return {
             deleted,
+            sidecars: sweepOrphanSidecars(backupDir, backupType),
             keptAll: markers.error !== null ? 'store-unreadable' : 'marker-unreadable',
             unreadable: markers.unreadable,
             error: markers.error,
@@ -126,9 +128,6 @@ export function rotateBackupDir(
       try {
         unlinkSync(oldest.path);
         deleted.push(oldest.name);
-        // Also delete the corresponding .meta.json sidecar if it exists.
-        const metaPath = `${oldest.path}.meta.json`;
-        if (existsSync(metaPath)) unlinkSync(metaPath);
       } catch {
         /* non-fatal */
       }
@@ -136,13 +135,63 @@ export function rotateBackupDir(
   } catch {
     // non-fatal — rotation failures must never block the backup operation
   }
-  return { deleted, keptAll: null, unreadable: [], error: null };
+  // A rotated backup's sidecar (`<backupId>.meta.json`) goes once none of its
+  // files is left, and so does any earlier orphan (T12729).
+  return {
+    deleted,
+    sidecars: sweepOrphanSidecars(backupDir, backupType),
+    keptAll: null,
+    unreadable: [],
+    error: null,
+  };
+}
+
+/**
+ * Remove the `<backupId>.meta.json` sidecars of `backupType` whose backup has
+ * no file left (`<file>.<backupId>` for each file the sidecar lists), so
+ * `cleo backup list` stops listing them (T12729). Builds before T12729
+ * deleted `<file>.<backupId>.meta.json` on rotation, a name no sidecar has,
+ * so every rotated backup left one behind. A pinned sidecar, one that does
+ * not parse (it cannot be shown unpinned) and one listing no files are never
+ * removed.
+ * Non-fatal.
+ *
+ * @param backupDir - The backup directory.
+ * @param backupType - The backup type whose sidecars are swept.
+ * @returns The sidecar files removed.
+ */
+export function sweepOrphanSidecars(backupDir: string, backupType: string): string[] {
+  const removed: string[] = [];
+  try {
+    const names = readdirSync(backupDir);
+    const present = new Set(names);
+    for (const name of names) {
+      if (!name.startsWith(`${backupType}-`) || !name.endsWith('.meta.json')) continue;
+      const id = name.slice(0, -'.meta.json'.length);
+      const sidecar = readSidecar(backupDir, id);
+      if (sidecar === null || sidecar.pinned === true || sidecar.backupId !== id) continue;
+      // A backup that captured nothing has no file to lose.
+      if (sidecar.files.length === 0) continue;
+      if (sidecar.files.some((f) => present.has(`${f}.${id}`))) continue;
+      try {
+        unlinkSync(join(backupDir, name));
+        removed.push(name);
+      } catch {
+        /* non-fatal */
+      }
+    }
+  } catch {
+    // non-fatal — a sweep failure must never block the backup operation
+  }
+  return removed;
 }
 
 /** What {@link rotateBackupDir} did. */
 export interface BackupRotation {
   /** Backup files deleted. */
   readonly deleted: readonly string[];
+  /** Sidecars removed because their backup has no file left (T12729). */
+  readonly sidecars: readonly string[];
   /**
    * Why every backup of the type was kept past the cap: a marker that does
    * not parse, or a store that could not be read (busy, corrupt). `null` when
