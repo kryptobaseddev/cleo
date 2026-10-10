@@ -52,7 +52,7 @@
 
 import { existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
@@ -93,6 +93,7 @@ import {
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { syncCaptureOpenPass } from './sync/capture.js';
+import { anySyncFlagOn } from './sync/flags.js';
 import { prepareRowIdentityUnderCapture } from './sync/identity-fill.js';
 import { syncMigrationHooks } from './sync/migration-hooks.js';
 import { ensureTriggerSuspendTable, verifyOwnedTriggers } from './sync/trigger-classes.js';
@@ -209,6 +210,46 @@ export interface OpenDualScopeAtPathOptions {
    * @default false
    */
   readonly dedicated?: boolean;
+  /**
+   * How the physical open treats sync (journal spec §1.5, T13336). `live`
+   * runs the capture open pass (triggers match `sync.capture`) and the
+   * replica bind (`syncOpenPass`). `off` runs neither: no capture
+   * trigger is installed, verified or dropped, and the store is never bound
+   * or rebound, so nothing it writes is sealed as a new replica's.
+   *
+   * Defaults to `off` for a dedicated handle and for any path that is not a
+   * canonical store (`<root>/.cleo/cleo.db`, or `<cleoHome>/cleo.db` for the
+   * global scope), and to `live` otherwise. A cached handle keeps the mode of
+   * the open that created it.
+   */
+  readonly syncMode?: StoreSyncMode;
+}
+
+/** How a chokepoint open treats sync: see {@link OpenDualScopeAtPathOptions.syncMode}. */
+export type StoreSyncMode = 'live' | 'off';
+
+/**
+ * Whether `normalizedPath` is a canonical store file: the global store at
+ * `<cleoHome>/cleo.db`, or a project store at `<root>/.cleo/cleo.db`.
+ * Backups, snapshots, scratch copies and staged bundles live elsewhere.
+ */
+function isCanonicalStorePath(scope: DualScope, normalizedPath: string): boolean {
+  if (scope === 'global') return normalizedPath === resolve(resolveDualScopeDbPath('global'));
+  return basename(normalizedPath) === 'cleo.db' && basename(dirname(normalizedPath)) === '.cleo';
+}
+
+/**
+ * The sync mode of a physical open (T13336): the caller's, else `off` for a
+ * dedicated handle or a non-canonical path, else `live`.
+ */
+export function resolveStoreSyncMode(
+  scope: DualScope,
+  dbPath: string,
+  options?: Pick<OpenDualScopeAtPathOptions, 'dedicated' | 'syncMode'>,
+): StoreSyncMode {
+  if (options?.syncMode) return options.syncMode;
+  if (options?.dedicated === true) return 'off';
+  return isCanonicalStorePath(scope, resolve(dbPath)) ? 'live' : 'off';
 }
 
 // The refusal error lives with the abort records (exodus/abort-events.ts), a
@@ -794,6 +835,7 @@ async function migrateScopeSchema(
   db: NodeSQLiteDatabase<any>,
   migrationsFolder: string,
   log: ReturnType<typeof getLogger>,
+  sync: { readonly mode: StoreSyncMode; readonly dbPath: string },
   execution?: OperationExecutionContext,
 ): Promise<void> {
   execution?.assertActive();
@@ -843,6 +885,9 @@ async function migrateScopeSchema(
       log.warn({ scope, findings }, 'owned triggers repaired from their owned DDL (T12819)');
     }
   }
+  // §1.5 (T13336): a non-canonical open (dedicated, backup, scratch copy)
+  // never installs, verifies or drops capture triggers, and never binds.
+  if (sync.mode === 'off') return;
   // T12343 (S2): capture triggers match the persisted sync.capture flag;
   // with the flag off and no trigger present this only reads.
   const capture = syncCaptureOpenPass(nativeDb, scope);
@@ -856,6 +901,23 @@ async function migrateScopeSchema(
       { scope, dropped: capture.dropped },
       'capture triggers dropped: sync.capture is off (T12343)',
     );
+  }
+  // §1.5 (T13336): the replica bind of a canonical open. With every sync.*
+  // flag off it reads only the flags, so the module loads only when one is on.
+  if (anySyncFlagOn(nativeDb)) {
+    const { syncOpenPass } = await import('./sync/replica.js');
+    const bound = syncOpenPass(nativeDb, { dbPath: sync.dbPath, scope, mode: 'live' });
+    if (bound.status === 'rebound') {
+      log.warn(
+        {
+          scope,
+          replicaId: bound.replicaId,
+          previous: bound.previousReplicaId,
+          reasons: bound.reasons,
+        },
+        'store rebound to a new replica at open (T13336)',
+      );
+    }
   }
 }
 
@@ -897,6 +959,7 @@ async function prepareFillWriters(nativeDb: DatabaseSync, scope: DualScope): Pro
  * @param scope  - The consolidated schema scope.
  * @param dbPath - Absolute path to the consolidated `cleo.db` file.
  * @param log    - The module logger.
+ * @param syncMode - Always `off` unless the caller asked for `live` (T13336).
  * @returns A typed {@link DualScopeDbHandle} backed by a dedicated connection.
  *
  * @task T11782 (FIX D — rollback connection isolation)
@@ -905,6 +968,7 @@ async function openDedicatedDualScopeDb(
   scope: DualScope,
   dbPath: string,
   log: ReturnType<typeof getLogger>,
+  syncMode: StoreSyncMode,
   execution?: OperationExecutionContext,
 ): Promise<DualScopeDbHandle> {
   execution?.assertActive();
@@ -949,7 +1013,15 @@ async function openDedicatedDualScopeDb(
       nativeDb,
       async (): Promise<DualScopeDbHandle> => {
         execution?.assertActive();
-        await migrateScopeSchema(scope, nativeDb, db, migrationsFolder, log, execution);
+        await migrateScopeSchema(
+          scope,
+          nativeDb,
+          db,
+          migrationsFolder,
+          log,
+          { mode: syncMode, dbPath },
+          execution,
+        );
 
         // T12341: fill row uids (opt-in). No per-connection uid triggers:
         // dedicated handles run the exodus copy, whose effect inspection
@@ -1138,9 +1210,11 @@ export async function openDualScopeDbAtPath(
   }
 
   const log = getLogger('dual-scope-db');
+  // §1.5 (T13336): only a canonical, non-dedicated open runs the sync open pass.
+  const syncMode = resolveStoreSyncMode(scope, normalizedPath, options);
 
   if (dedicated) {
-    return openDedicatedDualScopeDb(scope, normalizedPath, log, execution);
+    return openDedicatedDualScopeDb(scope, normalizedPath, log, syncMode, execution);
   }
 
   // Create a placeholder entry so concurrent callers wait for the same init.
@@ -1264,7 +1338,15 @@ export async function openDualScopeDbAtPath(
           execution?.assertActive();
           // The schema pass also heals the identity schema (T12878), on every
           // open, flag or not, before capture is installed.
-          await migrateScopeSchema(scope, nativeDb, db, migrationsFolder, log, execution);
+          await migrateScopeSchema(
+            scope,
+            nativeDb,
+            db,
+            migrationsFolder,
+            log,
+            { mode: syncMode, dbPath: normalizedPath },
+            execution,
+          );
 
           // T12341 (opt-in, CLEO_ROW_UID_FILL=1): fill every NULL row uid
           // deterministically, inside this lease so two processes never fill at

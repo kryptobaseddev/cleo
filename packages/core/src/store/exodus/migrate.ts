@@ -1168,12 +1168,14 @@ export async function runExodusMigrate(
     onProgress?.('Opening DEDICATED project-scope cleo.db connection (running migrations)…');
     projectHandle = await openDualScopeDbAtPath('project', projectDbPath, undefined, {
       dedicated: true,
+      syncMode: 'off',
     });
 
     if (!projectOnly) {
       onProgress?.('Opening DEDICATED global-scope cleo.db connection (running migrations)…');
       globalHandle = await openDualScopeDbAtPath('global', globalDbPath, undefined, {
         dedicated: true,
+        syncMode: 'off',
       });
     }
 

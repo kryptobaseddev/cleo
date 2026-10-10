@@ -436,7 +436,7 @@ function register(
  * or a foreign store, and heals the clock. Then it brings the device registry
  * up to date (re-registering a store the registry lost, recording a rename).
  *
- * Not yet called by `openDualScopeDb`: the capture slice (S2) wires it in.
+ * Called by every canonical `live` chokepoint open (`openDualScopeDbAtPath`, T13336).
  */
 export function syncOpenPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenResult {
   if (opts.mode === 'off') return { status: 'off' };
