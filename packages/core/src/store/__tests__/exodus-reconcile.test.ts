@@ -35,6 +35,9 @@ import { join } from 'node:path';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ResourceSample } from '../../resources/backend.js';
+import { _resetGovernorStateForTest } from '../../resources/governor.js';
+import { ResourceMonitor } from '../../resources/monitor.js';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync } = _require('node:sqlite') as {
@@ -158,6 +161,20 @@ const KILL_SWITCH_MODES = [
   ['set', '1'],
 ] as const;
 
+/** A host with memory to spare: the governor admits a `db-heavy` migration (T13368). */
+const CALM_HOST: ResourceSample = {
+  sampledAtMs: Date.now(),
+  pressureAvailable: true,
+  memAvailableBytes: 32 * 1024 * 1024 * 1024,
+  globalPressure: {
+    some: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+    full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+  },
+  slicePressure: null,
+  cpuPressure: null,
+  walObservations: [],
+};
+
 describe.each(
   KILL_SWITCH_MODES,
 )('reconcileSupersededStores (T12319) — CLEO_DISABLE_EXODUS_ON_OPEN %s', (_mode, killSwitch) => {
@@ -186,6 +203,8 @@ describe.each(
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
+    _resetGovernorStateForTest();
     takeRemappedId.on = false;
     if (savedKillSwitch === undefined) delete process.env.CLEO_DISABLE_EXODUS_ON_OPEN;
     else process.env.CLEO_DISABLE_EXODUS_ON_OPEN = savedKillSwitch;
@@ -657,6 +676,12 @@ describe.each(
   it.skipIf(killSwitch !== undefined)(
     'converges with exodus-on-open whichever runs first (on-open first → reconcile has nothing to do)',
     async () => {
+      // The open admits its migration through the governor's machine-wide
+      // `db-heavy` class, which defers at once under memory pressure: on a
+      // loaded host the open skipped the migration and this test failed (T13368).
+      // The host is pinned calm; admission is exodus-write-guard's subject.
+      _resetGovernorStateForTest();
+      vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(CALM_HOST);
       const { openDualScopeDb, _resetDualScopeDbCache } = await import('../dual-scope-db.js');
       // An ARMED open with the kill switch unset migrates and archives the legacy files.
       await openDualScopeDb('project', join(root, 'project'));
