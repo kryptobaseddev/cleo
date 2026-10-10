@@ -12,7 +12,7 @@
  * @saga T11242
  */
 
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -125,5 +125,76 @@ describe('computeCountParity + sealExodus refusal (T11837)', () => {
     expect(result.scopes).toHaveLength(0);
     // Safety invariant: a refused seal must leave the legacy source UNTOUCHED.
     expect(existsSync(sourcePath), 'refused seal must not archive the source').toBe(true);
+  });
+
+  it("re-sealing keeps the cutover's recorded verify issues, so exodus-health still reports them (T13341)", async () => {
+    const saved = { dir: process.env.CLEO_DIR, home: process.env.CLEO_HOME };
+    process.env.CLEO_DIR = join(tmpDir, '.cleo');
+    process.env.CLEO_HOME = join(tmpDir, 'cleo-home');
+    try {
+      seedTarget(50);
+      const { readExodusVerifyIssues, writeExodusCompleteMarker } = await import(
+        '../exodus/archive.js'
+      );
+      const { buildExodusHealth } = await import('../exodus/health.js');
+      // The migrate's tolerated FAILED verify, recorded in the marker.
+      const issues = ['[project] tasks_tasks: content digest differs from tasks'];
+      writeExodusCompleteMarker('project', ['tasks'], tmpDir, undefined, undefined, issues);
+
+      const result = sealExodus(makePlan(), 'project', tmpDir);
+
+      expect(result.ok).toBe(true);
+      expect(result.scopes[0]?.alreadySealed).toBe(true);
+      expect(readExodusVerifyIssues('project', tmpDir)).toEqual(issues);
+      expect(buildExodusHealth(tmpDir).project.verifyIssues).toEqual(issues);
+    } finally {
+      if (saved.dir === undefined) delete process.env.CLEO_DIR;
+      else process.env.CLEO_DIR = saved.dir;
+      if (saved.home === undefined) delete process.env.CLEO_HOME;
+      else process.env.CLEO_HOME = saved.home;
+    }
+  });
+
+  it('re-sealing a sealed scope leaves the marker a superset of the prior one (T13375)', async () => {
+    const saved = { dir: process.env.CLEO_DIR, home: process.env.CLEO_HOME };
+    process.env.CLEO_DIR = join(tmpDir, '.cleo');
+    process.env.CLEO_HOME = join(tmpDir, 'cleo-home');
+    try {
+      seedTarget(50);
+      const { exodusMarkerPath, writeExodusCompleteMarker } = await import('../exodus/archive.js');
+      // A cutover's marker: identity token, target, verify issues, plus a field
+      // a later marker format might add.
+      const target = join(tmpDir, '.cleo', 'cleo.db');
+      const markerPath = writeExodusCompleteMarker(
+        'project',
+        ['brain'],
+        tmpDir,
+        target,
+        'cutover-token-1',
+        ['[project] tasks_tasks: content digest differs from tasks'],
+      );
+      expect(markerPath).toBe(exodusMarkerPath('project', tmpDir));
+      const prior = {
+        ...(JSON.parse(readFileSync(markerPath, 'utf8')) as Record<string, unknown>),
+        futureField: { kept: true },
+      };
+      writeFileSync(markerPath, JSON.stringify(prior));
+
+      const result = sealExodus(makePlan(), 'project', tmpDir);
+
+      expect(result.ok).toBe(true);
+      expect(result.scopes[0]?.alreadySealed).toBe(true);
+      const after = JSON.parse(readFileSync(markerPath, 'utf8')) as Record<string, unknown>;
+      const { archivedSources, ...rest } = prior;
+      for (const [key, value] of Object.entries(rest)) expect(after[key], key).toEqual(value);
+      expect(after.archivedSources).toEqual([...(archivedSources as string[]), 'tasks']);
+      expect(after.databaseIdentity).toBe('cutover-token-1');
+      expect(after.targetDbPath).toBe(target);
+    } finally {
+      if (saved.dir === undefined) delete process.env.CLEO_DIR;
+      else process.env.CLEO_DIR = saved.dir;
+      if (saved.home === undefined) delete process.env.CLEO_HOME;
+      else process.env.CLEO_HOME = saved.home;
+    }
   });
 });

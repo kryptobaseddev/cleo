@@ -34,6 +34,7 @@ import {
   nexusApiUrlArg,
   writeNexusWarnings,
 } from '../lib/nexus-account-cli.js';
+import { terminalSafe } from '../lib/terminal-safe.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 function formatSuccessSection(
@@ -358,7 +359,8 @@ const linkSubCommand = defineCommand({
       result.initialKeyVersion !== null
         ? ` Its encryption key (version ${result.initialKeyVersion}) was stored with the registration.`
         : '';
-    const summary = `${verb}: project ${link.localProjectId} as "${link.label ?? ''}" on ${link.apiUrl}.${attached}${keyed}`;
+    // The label may come from the server: one line, no control (#1958 LOW-1).
+    const summary = `${verb}: project ${link.localProjectId} as "${terminalSafe(link.label ?? '')}" on ${link.apiUrl}.${attached}${keyed}`;
     writeNexusWarnings(result.warnings);
     emitNexusResult(result, summary, 'project', 'project.link');
   },
