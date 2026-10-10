@@ -306,6 +306,107 @@ function needsPush(what: string): CloudSyncUnknown {
   };
 }
 
+/** A stream's local journal position, as `cleo cloud status` reports it (T13370). */
+interface StreamJournalFacts {
+  readonly stream: string | null;
+  readonly genesisCut: number | null;
+  readonly genesisPending: boolean;
+  readonly unsentOps: CloudStatusSyncStream['unsentOps'];
+  readonly lastPushedSeq: CloudStatusSyncStream['lastPushedSeq'];
+  readonly lastPulledSeq: CloudStatusSyncStream['lastPulledSeq'];
+}
+
+/**
+ * The stream a store's journal belongs to, when its link does not name it:
+ * the stream of its genesis cut (a store cuts or joins exactly one, T13303),
+ * else of its pull position. The global store learns `home:<user>` this way,
+ * since only the server knows the account's user id. Read-only.
+ */
+function storeStream(
+  db: DatabaseSync,
+  hasTable: (db: DatabaseSync, t: string) => boolean,
+  cutPrefix: string,
+): string | null {
+  if (hasTable(db, '_sync_meta')) {
+    const cut = db
+      .prepare(
+        'SELECT substr(key, ?) AS stream FROM _sync_meta WHERE substr(key, 1, ?) = ? ORDER BY key LIMIT 1',
+      )
+      .get(cutPrefix.length + 1, cutPrefix.length, cutPrefix) as
+      | { stream: string }
+      | undefined;
+    if (cut) return cut.stream;
+  }
+  if (hasTable(db, '_sync_cursor')) {
+    const row = db.prepare('SELECT stream FROM _sync_cursor ORDER BY stream LIMIT 1').get() as
+      | { stream: string }
+      | undefined;
+    if (row) return row.stream;
+  }
+  return null;
+}
+
+/**
+ * The cut, the outbox and the pull position of a store's stream (T13370):
+ * ops sealed by this replica that no pushed segment carries yet (txns not
+ * yet packed, plus txns in segments still waiting to upload), the server
+ * sequence of the last segment the server stored, and the server sequence
+ * the pull has staged up to. Unknown only while the journal tables are
+ * absent or no stream is known. Read-only.
+ */
+async function streamJournalFacts(
+  db: DatabaseSync,
+  linked: string | null,
+  replica: string | null,
+): Promise<StreamJournalFacts> {
+  const [{ hasTable, GENESIS_CUT_KEY_PREFIX }, { genesisCutOf, genesisPending }, { readStreamCursor }] =
+    await Promise.all([
+      import('../store/sync/schema.js'),
+      import('../store/sync/genesis.js'),
+      import('../store/sync/pull.js'),
+    ]);
+  const stream = linked ?? storeStream(db, hasTable, GENESIS_CUT_KEY_PREFIX);
+  const outbox = hasTable(db, '_sync_txn') && hasTable(db, '_sync_segment');
+  if (stream === null || !outbox) {
+    return {
+      stream,
+      genesisCut: null,
+      genesisPending: false,
+      unsentOps: UNSENT_UNKNOWN,
+      lastPushedSeq: needsPush('the last pushed sequence'),
+      lastPulledSeq: needsPush('the last pulled sequence'),
+    };
+  }
+  // A store not yet bound counts every sealed txn (inherited ones never are).
+  const unsent = (
+    db
+      .prepare(
+        `SELECT coalesce(sum(t.op_count), 0) AS n FROM _sync_txn t
+          WHERE (?1 IS NULL OR t.replica = ?1)
+            AND (t.state = 'sealed'
+                 OR EXISTS (SELECT 1 FROM _sync_segment_txn st JOIN _sync_segment s
+                              ON s.stream = st.stream AND s.replica_id = st.replica_id AND s.replica_seq = st.replica_seq
+                             WHERE st.stream = ?2 AND st.txn = t.txn AND s.state = 'sealed'))`,
+      )
+      .get(replica, stream) as { n: number }
+  ).n;
+  const pushed = db
+    .prepare("SELECT max(server_seq) AS seq FROM _sync_segment WHERE stream = ? AND state = 'pushed'")
+    .get(stream) as { seq: number | null };
+  const cursor = readStreamCursor(db, stream);
+  const cut = genesisCutOf(db, stream);
+  return {
+    stream,
+    genesisCut: cut ?? null,
+    genesisPending: genesisPending(db, stream),
+    unsentOps: { known: true, value: unsent },
+    lastPushedSeq:
+      pushed.seq === null ? needsPush('the last pushed sequence') : { known: true, value: pushed.seq },
+    lastPulledSeq:
+      cursor === null ? needsPush('the last pulled sequence') : { known: true, value: cursor.after },
+  };
+}
+
 /**
  * One store's local sync journal for `cleo cloud status` (T12998). Read-only:
  * never seals, pushes or binds. Every reader returns empty values when its
@@ -365,6 +466,11 @@ export async function readStoreSyncStream(
     ) as { seq: number | null } | undefined;
     lastSealedSeq = row?.seq ?? null;
   }
+  const journal = await streamJournalFacts(
+    db,
+    stream,
+    activeReplica(db, scope)?.replicaId ?? null,
+  );
   const quarantined: Record<string, number> = {};
   if (hasTable(db, '_sync_quarantine')) {
     for (const r of db
@@ -375,7 +481,7 @@ export async function readStoreSyncStream(
   }
   return {
     scope,
-    stream,
+    stream: journal.stream,
     dbPath,
     journalInstalled: hasTable(db, '_sync_capture') && hasTable(db, '_sync_txn'),
     flags: {
@@ -388,6 +494,8 @@ export async function readStoreSyncStream(
     unsealedOps: backlog.live,
     oldestUnsealedAtMs: backlog.oldestAtMs,
     lastSealedSeq,
+    genesisCut: journal.genesisCut,
+    genesisPending: journal.genesisPending,
     quarantined,
     suspectTables: hasTable(db, '_sync_meta') ? suspectTables(db) : [],
     held: {
@@ -404,9 +512,9 @@ export async function readStoreSyncStream(
     },
     undo: undoBudget(db),
     seenTxns: seenTxnReport(db),
-    unsentOps: UNSENT_UNKNOWN,
-    lastPushedSeq: needsPush('the last pushed sequence'),
-    lastPulledSeq: needsPush('the last pulled sequence'),
+    unsentOps: journal.unsentOps,
+    lastPushedSeq: journal.lastPushedSeq,
+    lastPulledSeq: journal.lastPulledSeq,
     serverHeadSeq: needsPush("the server's head for this stream"),
     devices: needsPush('per-device last sync'),
     openConflicts: needsPush('the conflicts held open on this stream'),
@@ -441,7 +549,8 @@ export async function readCloudSyncStatus(
       stream: projectStream,
     });
   }
-  // The home stream needs the account's user id, which only the server knows.
+  // The home stream needs the account's user id, which only the server knows;
+  // a store that cut or joined it names it in its own journal (T13370).
   stores.push({ scope: 'global', path: join(globalHome, 'cleo.db'), stream: null });
   const streams: CloudStatusSyncStream[] = [];
   for (const store of stores) {

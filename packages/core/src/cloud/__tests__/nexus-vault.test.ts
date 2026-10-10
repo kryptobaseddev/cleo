@@ -5988,3 +5988,90 @@ describe('cloud sync leg classification (T13315)', () => {
     ).toEqual(['sync.push is off']);
   });
 });
+
+describe('the main brain stream through cloud sync (T13370)', () => {
+  const SYNC_JOURNAL = path.resolve(import.meta.dirname, '../../../migrations/sync-journal');
+  const homeDb = (m: Machine) => path.join(m.home, 'cleo.db');
+  const globalStore = async (m: Machine) =>
+    getDualScopeNativeDb(await openDualScopeDbAtPath('global', homeDb(m)));
+  const observationSql = "SELECT uid, title FROM brain_observations WHERE id = 'O-home0001'";
+  /** {@link on}, re-reading the machine's own host device id (`<cleoHome>/device-id`). */
+  const onM = <T>(m: Machine, fn: () => Promise<T>): Promise<T> => {
+    _resetDeviceIdCacheForTests();
+    return on(m, fn);
+  };
+
+  it("A cuts home:<user>, B restores and joins, and cloud sync carries each device's brain writes and converges a concurrent edit", async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    await onM(a, async () => {
+      const db = await globalStore(a);
+      // Written before the journal starts: folded into the genesis checkpoint.
+      db.exec(
+        "INSERT INTO brain_observations (id, type, title, created_at, valid_at) VALUES ('O-home0001', 'discovery', 'before the cut', '2026-10-10T09:00:00.000Z', '2026-10-10 09:00:00')",
+      );
+      setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_JOURNAL });
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+    });
+    const enabled = await onM(a, () =>
+      enableSyncPush(vopts(a, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(enabled.status).toBe('enabled');
+    expect(enabled.streamId).toBe(HOME_STREAM);
+    await onM(a, async () => {
+      setSyncFlag(await globalStore(a), 'sync.pull', true, { allowUnreleased: true });
+    });
+
+    const restored = await onM(b, () =>
+      restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull', force: true })),
+    );
+    expect(restored.status).toBe('restored');
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    const read = async (m: Machine, sql: string) =>
+      onM(m, async () => (await globalStore(m)).prepare(sql).get());
+    const atA0 = await read(a, observationSql);
+    expect(await read(b, observationSql)).toEqual(atA0);
+
+    const sync = async (m: Machine) => {
+      const r = await onM(m, () => cloudSync(vopts(m, { scope: 'global', allowUnreleased: true })));
+      expect(r.streams[0]?.refused ?? null, `${m.name}: ${r.streams[0]?.refused}`).toBeNull();
+      expect(r.streams[0]?.streamId).toBe(HOME_STREAM);
+      return r.streams[0];
+    };
+
+    // A new decision on A reaches B with the same uid.
+    await onM(a, async () => {
+      (await globalStore(a)).exec(
+        "INSERT INTO brain_decisions (id, type, decision, rationale, confidence, created_at, valid_at) VALUES ('D9001', 'architecture', 'Sync the main brain', 'two devices', 'high', '2026-10-10 09:01:00', '2026-10-10 09:01:00')",
+      );
+    });
+    await sync(a);
+    await sync(b);
+    const decisionSql = "SELECT uid, decision FROM brain_decisions WHERE id = 'D9001'";
+    const decisionA = await read(a, decisionSql);
+    expect(decisionA).toMatchObject({ decision: 'Sync the main brain' });
+    expect(await read(b, decisionSql)).toEqual(decisionA);
+
+    // A concurrent retitle of one observation: the later write wins on both.
+    await onM(a, async () => {
+      (await globalStore(a)).exec(
+        "UPDATE brain_observations SET title = 'from A' WHERE id = 'O-home0001'",
+      );
+    });
+    await onM(b, async () => {
+      (await globalStore(b)).exec(
+        "UPDATE brain_observations SET title = 'from B' WHERE id = 'O-home0001'",
+      );
+    });
+    await sync(a);
+    await sync(b);
+    await sync(a);
+    await sync(b);
+    const onA = await read(a, observationSql);
+    expect(await read(b, observationSql)).toEqual(onA);
+    expect(onA).toMatchObject({ title: 'from B' });
+  });
+});

@@ -33,6 +33,8 @@ const stream = (
   unsealedOps: 0,
   oldestUnsealedAtMs: null,
   lastSealedSeq: 4,
+  genesisCut: null,
+  genesisPending: false,
   quarantined: {},
   suspectTables: [],
   held,
@@ -101,5 +103,34 @@ describe('cloud status sync clause: the seen-txn ledger (T13317)', () => {
       syncStreamClause(stream(none, noUndo, { rows: 3, bytes: 90, byStream: { s: 3 } })),
     ).toContain('3 seen txn(s), about 0.1 KiB');
     expect(syncStreamClause(stream(none))).not.toContain('seen txn');
+  });
+});
+
+describe('cloud status sync clause: the stream position (T13370)', () => {
+  const none = { count: 0, oldestAt: null, long: [], warnDays: 7 };
+  it('names the home stream, its cut, unsent ops and pull position once the journal knows them', () => {
+    const line = syncStreamClause({
+      ...stream(none),
+      scope: 'global',
+      stream: 'home:u1',
+      genesisCut: 12,
+      genesisPending: false,
+      unsentOps: { known: true, value: 3 },
+      lastPulledSeq: { known: true, value: 40 },
+    });
+    expect(line).toContain('Sync (global home:u1)');
+    expect(line).toContain('cut at 12');
+    expect(line).toContain('3 unsent');
+    expect(line).toContain('pulled to 40');
+    expect(line).not.toContain('server fields unknown');
+  });
+
+  it('flags a cut whose checkpoint is not yet stored, and says nothing before a cut', () => {
+    expect(
+      syncStreamClause({ ...stream(none), genesisCut: 5, genesisPending: true }),
+    ).toContain('cut at 5 (checkpoint not yet stored)');
+    const before = syncStreamClause(stream(none));
+    expect(before).not.toContain('cut at');
+    expect(before).toContain('server fields unknown until T12343/S4');
   });
 });

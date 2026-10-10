@@ -18,6 +18,7 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { PortableExclusion, PortableSymlinkEntry } from '@cleocode/contracts';
 import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
 import { resolveDualScopeDbPath } from './dual-scope-db.js';
+import { RESTORE_MARKER_SUFFIX } from './restore-marker.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { TRIGGER_SUSPEND_TABLE, withTriggersSuspended } from './sync/trigger-classes.js';
 
@@ -89,6 +90,10 @@ const EXCLUDED_FILE_SUFFIXES: ReadonlyArray<readonly [string, string]> = [
   ['.lock', 'lock file (machine-local runtime state)'],
   ['.sock', 'socket (machine-local runtime state)'],
   ['.tmp', 'temporary file'],
+  [
+    RESTORE_MARKER_SUFFIX,
+    'restore or genesis marker of a live store (machine-local runtime state; T13370)',
+  ],
 ];
 
 const IDENTITY_REMEDY =
