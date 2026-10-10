@@ -128,6 +128,7 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     brain_consolidation_events: ['started_at'],
     brain_usage_log: ['created_at'],
     tasks_brain_release_links: ['created_at'],
+    brain_task_observations: ['created_at'],
   },
   global: {
     brain_decisions: ['created_at', 'updated_at', 'valid_at', 'invalid_at', 'tier_promoted_at'],

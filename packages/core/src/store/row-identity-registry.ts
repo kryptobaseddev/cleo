@@ -166,6 +166,20 @@ function brainNaturalKeyed(scope: TableScope): RowIdentitySpec[] {
       ...(scope === 'project' ? { keyRefs: [{ column: 'task_id', table: TASKS }] } : {}),
       task: 'T12895',
     },
+    // Project only: the join exists in the project store alone. Its INTEGER id
+    // is a local key (captureTableDef keeps it off the wire); observation ids
+    // are random, so the observation side stays raw (T12896).
+    ...(scope === 'project'
+      ? [
+          {
+            table: 'brain_task_observations',
+            kind: 'natural' as const,
+            key: ['observation_id', 'task_id'],
+            keyRefs: [{ column: 'task_id', table: TASKS }],
+            task: 'T12896',
+          },
+        ]
+      : []),
   ];
 }
 
@@ -187,9 +201,10 @@ const PLASTICITY_EVENTS: RowIdentityRef['table'] = 'brain_plasticity_events';
  * - `brain_retrieval_log` is minted but NOT append-only: the session reward
  *   pass labels `reward_signal` after the insert (`brain-stdp.ts`), and an
  *   append-only row keeps no undo image for an update.
- * - `brain_memory_trees` stays exempt: the surprisal pass deletes and rebuilds
- *   the whole tree every cycle, so its class (synced or derived) is decided
- *   apart from its identity.
+ * - `brain_memory_trees` is not here: it is derived (team-lead decision
+ *   2026-10-10). The surprisal pass deletes and rebuilds the whole tree every
+ *   cycle, so each device recomputes it from the synced observations, as
+ *   `brain_observations.tree_id` already is (ops strip it).
  *
  * `content` and `birthFacts` are FROZEN for recipe v2 like every other entry.
  */
@@ -464,20 +479,6 @@ export interface RowIdentityExemption {
   readonly task: string;
 }
 
-const BRAIN_TASK_OBSERVATIONS: RowIdentityExemption = {
-  category: 'planned',
-  reason:
-    'not in the consolidated schema: the drizzle-brain reconcile creates it after the open-time identity heal (a runtime cache exodus never copies), so a store without it would break every declared-table walk; it joins the consolidated project schema, then is declared natural on (observation_id, task uid) with its INTEGER id local',
-  task: 'T12896',
-};
-
-const BRAIN_MEMORY_TREES: RowIdentityExemption = {
-  category: 'planned',
-  reason:
-    'the surprisal pass deletes and rebuilds every tree row each cycle (surprisal-tree.ts), so whether the table syncs at all or is derived (recomputed per device, like brain_observations.tree_id, which ops already strip) is decided before it gets a uid',
-  task: 'T12896',
-};
-
 /** Kept from the T12341 pending reasons: the sticky tables go together. */
 const STICKY_REASON =
   'the degraded-mode TEMP shadow tables in store/twin-collapse.ts declare its columns and must carry uid first; that file is being edited by twin-collapse slice 2 (T12535)';
@@ -522,7 +523,6 @@ function exempt(
 
 /** Brain tables of both scopes, by the task that gives them a uid. */
 const BRAIN_EXEMPT: Readonly<Record<string, RowIdentityExemption>> = {
-  brain_memory_trees: BRAIN_MEMORY_TREES,
   brain_embeddings: {
     category: 'not-row-replicated',
     reason:
@@ -547,7 +547,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
 > = {
   project: {
     ...BRAIN_EXEMPT,
-    brain_task_observations: BRAIN_TASK_OBSERVATIONS,
     // Both twins of each pair. brain_session_narrative (twin of
     // session_narrative) and brain_observations_staging already have a uid
     // plan (T12894), so only their bare sides wait on the collapse.
@@ -716,8 +715,8 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 76,
-  global: 25,
+  project: 74,
+  global: 24,
 };
 
 /**
@@ -729,8 +728,8 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: '356d44564d00f5406b0b6abcee631ce20e7363e6420d7bb97d09b8cc8c875d52',
-  global: '14d1f14e5770bb1c0d3ed9c4dc92677bbbe36ae4443a8d4ffc83e1b6c3b606e8',
+  project: '55f330a07c43d1b1af86579902b8d2efad2d5a5bbc713d2fd785705d36c8126b',
+  global: '4ee7720276c8b8f83e64918291d6ebb8330513d4876cd05ae531febaff2313b0',
 };
 
 /**
