@@ -13,6 +13,14 @@
     "./heavy-command-hook": {
       "types": "./dist/heavy-command-hook.d.ts",
       "import": "./dist/heavy-command-hook.js"
+    },
+    "./project-hook-delivery": {
+      "types": "./dist/project-hook-delivery.d.ts",
+      "import": "./dist/project-hook-delivery.js"
+    },
+    "./project-hook-native": {
+      "types": "./dist/project-hook-native.d.ts",
+      "import": "./dist/project-hook-native.js"
     }
   },
   "scripts": {

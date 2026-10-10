@@ -17,6 +17,7 @@
 // ---------------------------------------------------------------------------
 // Hooks framework
 // ---------------------------------------------------------------------------
+import type { HookExecutor, HookOutcome } from '../project-hooks.js';
 
 /**
  * A declarative lifecycle hook definition for worktree events.
@@ -28,6 +29,8 @@
  * @task T1161
  */
 export interface WorktreeHook {
+  /** Shared hook identity when legacy wiring duplicates a tracked project definition. */
+  projectHookId?: string;
   /** Shell command to run in the worktree dir (`/bin/sh -c` on POSIX, cmd.exe on Windows). */
   command: string;
   /**
@@ -222,6 +225,8 @@ export interface CreateWorktreeOptions {
   reason?: 'subagent' | 'experiment' | 'parallel-wave';
   /** Declarative hooks to run after creation. */
   hooks?: WorktreeHook[];
+  /** Optional shared project executor injected by CLEO; never imports core into worktree. */
+  projectHookExecutor?: HookExecutor;
   /**
    * When true, read `.cleo/worktree-include` from the project root and apply
    * any declared include patterns to the new worktree.
@@ -341,6 +346,8 @@ export interface CreateWorktreeResult {
   preamble: string;
   /** Results of any post-create hooks that were executed. */
   hookResults: WorktreeHookResult[];
+  /** Results from activated project definitions for post-create. */
+  projectHookResults?: HookOutcome[];
   /** Include patterns that were applied (empty if none). */
   appliedPatterns: WorktreeIncludePattern[];
   /**
@@ -354,6 +361,8 @@ export interface CreateWorktreeResult {
     failedPaths: string[];
     /** Results of post-start hooks. */
     hookResults: WorktreeHookResult[];
+    /** Results from activated project definitions for post-start. */
+    projectHookResults?: HookOutcome[];
   };
 }
 

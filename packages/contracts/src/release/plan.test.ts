@@ -133,8 +133,8 @@ describe('Release plan constant tuples', () => {
     expect(RELEASE_STATUS).toHaveLength(8);
   });
 
-  it('exports the 4-channel set (latest|beta|alpha|rc)', () => {
-    expect(new Set(RELEASE_CHANNEL)).toEqual(new Set(['latest', 'beta', 'alpha', 'rc']));
+  it('exports the independent canary channel alongside existing channels', () => {
+    expect(new Set(RELEASE_CHANNEL)).toEqual(new Set(['latest', 'beta', 'alpha', 'rc', 'canary']));
   });
 
   it('exports the 3-scheme set including calver-suffix', () => {

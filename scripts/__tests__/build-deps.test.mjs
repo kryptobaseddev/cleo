@@ -35,6 +35,17 @@ describe('build-deps.mjs (T9939)', () => {
       expect(caampDeps).toContain('packages/cant/dist/');
     });
 
+    it('declares source leaf declarations before CAAMP without a full-core cycle', () => {
+      const caampDeps = depsFor('packages/caamp/dist/');
+      expect(caampDeps).toContain('packages/core/dist/tools/fs.d.ts');
+      expect(caampDeps).toContain('packages/core/dist/skills/skill-root.d.ts');
+      expect(depsFor('packages/core/dist/tools/fs.d.ts')).toEqual(['packages/contracts/dist/']);
+      expect(depsFor('packages/core/dist/skills/skill-root.d.ts')).toEqual([
+        'packages/paths/dist/',
+      ]);
+      expect(caampDeps).not.toContain('packages/core/dist/');
+    });
+
     it('declares contracts + paths as prereqs of cant (the cant→caamp chain root)', () => {
       // cant itself depends on contracts + lafs. If those are dropped, the
       // wave-3 build of cant fails and the implicit cant→caamp chain breaks

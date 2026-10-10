@@ -27,7 +27,15 @@
 import { existsSync } from 'node:fs';
 import { mkdir, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { writeFileAtomic } from '@cleocode/core/tools/fs.js';
+import type {
+  HookConfigEdit,
+  HookConfigObject,
+} from '@cleocode/contracts/project-hook-delivery.js';
+import { writeFileAtomic } from '@cleocode/core/tools/fs';
+import * as jsonc from 'jsonc-parser';
+
+/** Re-export the canonical tool primitive; CAAMP does not redefine atomic writes. */
+export { writeFileAtomic };
 
 /**
  * A guard file older than this is assumed to belong to a crashed process.
@@ -344,4 +352,50 @@ export async function updateJsonConfigFile(
     await writeFileAtomic({ path: filePath, content: `${JSON.stringify(config, null, 2)}\n` });
     return true;
   });
+}
+
+/** Apply surgical JSONC edits inside the existing cross-process atomic writer. */
+export async function editJsonConfigFile(
+  filePath: string,
+  edit: (config: HookConfigObject) => HookConfigEdit[],
+): Promise<boolean> {
+  return withFileLock(filePath, async () => {
+    const raw = existsSync(filePath) ? await readFile(filePath, 'utf8') : '{}';
+    if (raw.length === 0 && existsSync(filePath))
+      assertNotTornRead(filePath, raw, (await stat(filePath)).size);
+    const errors: jsonc.ParseError[] = [];
+    const config = jsonc.parse(raw || '{}', errors) as HookConfigObject;
+    if (errors.length || !config || typeof config !== 'object' || Array.isArray(config)) {
+      throw new JsonConfigParseError(filePath, 'invalid JSONC object');
+    }
+    const edits = edit(config);
+    if (edits.length === 0) return false;
+    let body = raw || '{}';
+    for (const change of edits) {
+      body = jsonc.applyEdits(
+        body,
+        jsonc.modify(body, change.path, change.value, {
+          isArrayInsertion: change.insert,
+        }),
+      );
+    }
+    // Providers may write without our lock. Refuse to overwrite an observed intervening edit.
+    const current = existsSync(filePath) ? await readFile(filePath, 'utf8') : '{}';
+    if (current !== raw) throw new Error('HOOK_CONFIG_CONCURRENT_EDIT');
+    await writeFileAtomic({ path: filePath, content: body.endsWith('\n') ? body : body + '\n' });
+    return true;
+  });
+}
+
+/** Read a bounded JSONC object without mutation, including in dry-run inspections. */
+export async function readManagedJsonConfigFile(filePath: string): Promise<HookConfigObject> {
+  if (!existsSync(filePath)) return {};
+  if ((await stat(filePath)).size > 262144) throw new Error('HOOK_CONFIG_TOO_LARGE');
+  const raw = await readFile(filePath, 'utf8');
+  const errors: jsonc.ParseError[] = [];
+  const parsed = jsonc.parse(raw, errors) as HookConfigObject;
+  if (errors.length || !parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new JsonConfigParseError(filePath, 'invalid JSONC object');
+  }
+  return parsed;
 }

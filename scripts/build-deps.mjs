@@ -78,11 +78,16 @@ export const PACKAGE_DEPS = Object.freeze({
   // Wave 4: caamp imports from @cleocode/cant in its tsup DTS step (T9939).
   // This is the regression-locked edge — DO NOT remove cant from this list
   // without also moving caamp to a wave that runs after wave 3.
+  // Standalone source declarations break CAAMP's dependency on the later full core wave.
+  'packages/core/dist/skills/skill-root.d.ts': Object.freeze(['packages/paths/dist/']),
+  'packages/core/dist/tools/fs.d.ts': Object.freeze(['packages/contracts/dist/']),
   'packages/caamp/dist/': Object.freeze([
     'packages/cant/dist/',
     'packages/contracts/dist/',
     'packages/lafs/dist/',
     'packages/paths/dist/',
+    'packages/core/dist/skills/skill-root.d.ts',
+    'packages/core/dist/tools/fs.d.ts',
   ]),
 
   // Wave 5: core depends on caamp, nexus, worktree, paths, contracts.

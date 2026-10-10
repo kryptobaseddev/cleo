@@ -67,7 +67,11 @@ export async function spawnWorktree(
   options: CreateWorktreeOptions,
 ): Promise<CreateWorktreeResult> {
   const { createWorktree } = await backend();
-  return createWorktree(projectRoot, options);
+  const { createProjectHookExecutor } = await import('../hooks/project-runner.js');
+  return createWorktree(projectRoot, {
+    ...options,
+    projectHookExecutor: options.projectHookExecutor ?? createProjectHookExecutor(projectRoot),
+  });
 }
 
 /**

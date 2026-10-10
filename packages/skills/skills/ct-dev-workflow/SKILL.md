@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.7
+version: 3.1.9
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,12 +14,17 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.7
+  version: 3.1.9
   tier: core
   install: harness
   covers:
     - .github/workflows/release-prepare.yml
-  lastReviewed: 2026-10-04
+    - packages/cleo/src/cli/commands/hook.ts
+    - packages/core/src/git/hooks-install.ts
+    - packages/core/src/hooks.ts
+    - packages/core/templates/git-hooks/*
+    - packages/contracts/src/git-hooks.ts
+  lastReviewed: 2026-10-10
   stability: stable
 ---
 
@@ -67,6 +72,17 @@ Every commit MUST be traceable to a CLEO task. This ensures:
 | WF-005 | Tests before push | Relevant tests MUST pass |
 
 ---
+
+## Git hook compatibility (T13349)
+
+Init, upgrade and doctor share the ownership-aware installer. Resolve the hook
+location through Git, including core.hooksPath and linked worktrees. Preserve
+foreign and customized hooks: markers alone never prove ownership. Exact shipped
+legacy hashes or guarded receipts authorize locked atomic replacement and rollback.
+The pre-push wrapper spools Git stdin once and replays every actual ref update.
+Probe for CLEO_PROJECT_HOOK_V1 before interpreting exit 1 as a project block;
+missing/incompatible runners warn and allow. Validate corruption, nested paths,
+custom hook paths, worktrees and stdin replay with focused fixtures.
 
 ## Task Tracking Integration
 
@@ -456,3 +472,21 @@ cleo complete T1550
 6. **Use tags for releases** - GitHub Actions handles the rest
 7. **One logical change** per commit (atomic)
 8. **Conventional commit format** with task reference
+
+## Shared project hooks and managed Git delivery
+
+Project business rules live in tracked `.cleo/hooks.json`; generated provider entries
+are delivery outputs. Preview with `cleo hook sync --dry-run`; explicit local activation
+uses `cleo hook sync --activate` and binds definitions, handlers and dependencies to
+current hashes. Source drift requires reactivation. Agent project checks are advisory;
+Git applies project verdicts. Native harness trust remains separately unverified.
+Inspect with `cleo doctor hooks`; `--fix` never activates definitions or grants trust.
+`cleo hook sync --disable` disables execution and removes only verified managed entries.
+CI uses `cleo hook check <id> --ci --candidate <sha>` or an explicit JSON `--input` file;
+CLEO infrastructure failure is an unavailable check, never successful CI evidence.
+
+Init, upgrade and inspection share the commit-msg, pre-commit and pre-push installer.
+Git determines effective hooksPath and the common directory, including linked worktrees.
+Exact known template hashes or local receipts authorize refresh; a marker alone does
+not. Customized and foreign hooks are preserved even on forced refresh and report an
+integration snippet. Rollback is guarded by the installed-content hash.

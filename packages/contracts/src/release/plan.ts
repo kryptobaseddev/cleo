@@ -52,7 +52,15 @@ export const RELEASE_PLAN_SCHEMA_URL = 'https://cleocode.io/schemas/release-plan
  * Includes `rc` in addition to the legacy `latest|beta|alpha` triple to allow
  * release candidates without conflating with `beta` per SPEC §6.1.
  */
-export const RELEASE_CHANNEL = ['latest', 'beta', 'alpha', 'rc'] as const;
+export const RELEASE_CHANNEL = ['latest', 'beta', 'alpha', 'rc', 'canary'] as const;
+/** Persisted prerelease classification, shared by planning and reconciliation. */
+export const RELEASE_PERSISTED_CHANNEL = {
+  latest: 'latest',
+  beta: 'beta',
+  alpha: 'dev',
+  rc: 'beta',
+  canary: 'beta',
+} as const;
 
 /**
  * Version-scheme variants. `calver-suffix` is the hotfix grammar

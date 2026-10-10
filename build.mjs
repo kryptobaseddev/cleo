@@ -209,6 +209,10 @@ function collectCoreEntryPoints() {
     }
   }
 
+  // T13344: public wildcard leaves used by the project hook hot path and cold delivery.
+  for (const leaf of ['tools/fs', 'hooks/project-state', 'hooks/project-runner', 'git/hooks-install']) {
+    entries.push({ in: `packages/core/src/${leaf}.ts`, out: leaf });
+  }
   return entries;
 }
 
@@ -437,6 +441,7 @@ const cleoBuildOptions = {
     // T12983: `bin/cleo.js` imports this directly for `cleo hook …` (a hook
     // runs before every agent shell command, so it skips the CLI bootstrap).
     { in: 'packages/cleo/src/cli/hook-entry.ts', out: 'cli/hook-entry' },
+    { in: 'packages/cleo/src/cli/project-hook-entry.ts', out: 'cli/project-hook-entry' },
     // T13137: the detached dist-tags check behind the passive update notice,
     // spawned by `lib/update-notice.ts` from the file beside `cli/index.js`.
     { in: 'packages/cleo/src/cli/update-check-entry.ts', out: 'cli/update-check-entry' },
@@ -528,7 +533,7 @@ const cleoBuildOptions = {
 // ---------------------------------------------------------------------------
 /** @type {esbuild.BuildOptions} */
 const adaptersBuildOptions = {
-  entryPoints: ['packages/adapters/src/index.ts'],
+  entryPoints: ['packages/adapters/src/index.ts', 'packages/adapters/src/project-hook-delivery.ts', 'packages/adapters/src/project-hook-native.ts'],
   bundle: true,
   platform: 'node',
   target: 'node24',
@@ -653,7 +658,7 @@ function assertDepsReady(label) {
   if (missing.length > 0) {
     const err = new Error(
       `E_BUILD_DEP_MISSING: ${label} depends on [${missing.join(', ')}] ` +
-        `but their dist/ directories are absent. ` +
+        `but required build artifacts are absent. ` +
         `This indicates a wave-ordering regression in build.mjs — the wave ` +
         `that builds ${label} must run AFTER every wave that builds its deps. ` +
         `See scripts/build-deps.mjs for the canonical dependency declarations.`,
@@ -855,37 +860,29 @@ async function build() {
   ]);
 
   // ---------------------------------------------------------------------------
-  // Wave 4: caamp (deps cant from wave 3 + pre-emitted core/skills/skill-root.d.ts)
+  // Wave 4: caamp (deps cant from wave 3 + source-emitted core leaf declarations)
   //
   // T9740 Wave C flipped the dep direction so caamp now depends on
-  // `@cleocode/core/skills/skill-root.js` (a node-builtin-only file with zero
-  // @cleocode/* imports). To break the build cycle without re-shuffling waves,
-  // we pre-emit just that single file's .d.ts before caamp's tsup DTS step
-  // runs — full core/dist still emits in wave 5.
+  // `@cleocode/core/skills/skill-root.js` (Node builtins + the earlier paths wave).
+  // To break the build cycle without re-shuffling waves,
+  // we emit that file and the contracts-only tools/fs leaf declarations before
+  // caamp's tsup DTS step runs — full core/dist still emits in wave 5.
   // ---------------------------------------------------------------------------
   console.log('\n[build] Wave 4: caamp');
-  console.log('  Pre-emitting core/dist/skills/skill-root.d.ts (T9740 Wave C cycle break)...');
-  // skill-root.ts has zero @cleocode/* deps — we hand-write the matching
-  // .d.ts so caamp's tsup DTS step (which runs BEFORE core's full tsc emit
-  // in wave 5) can resolve `@cleocode/core/skills/skill-root.js`. The wave-5
-  // core tsc pass overwrites this stub with the real declaration emit.
-  const skillRootDts = `export type SkillSourceType = 'canonical' | 'user' | 'community' | 'agent-created';
-export interface IsCanonicalOptions {
-  dbSourceType?: SkillSourceType | string;
-  manifestNames?: string[];
-}
-export declare const AGENTS_SKILLS_BRIDGE_PATH: string;
-export declare const CLAUDE_SKILLS_AGENTS_SHARED_PATH: string;
-export declare function resolveSkillsRoot(): string;
-export declare function is_canonical(skillPath: string, options?: IsCanonicalOptions): boolean;
-`;
-  await mkdir(resolve(__dirname, 'packages/core/dist/skills'), { recursive: true });
-  await writeFile(
-    resolve(__dirname, 'packages/core/dist/skills/skill-root.d.ts'),
-    skillRootDts,
-    'utf8',
-  );
-  console.log('  -> packages/core/dist/skills/skill-root.d.ts (stub)');
+  console.log('  Emitting source declarations for core leaf dependencies before CAAMP...');
+  // These leaves import Node builtins and already-built paths/contracts only. Actual declaration
+  // emission breaks the build-order cycle without copying signatures or loading core's SDK.
+  await new Promise((res, rej) => {
+    const proc = spawnPnpm([
+      'exec', 'tsc', '--ignoreConfig', '--declaration', '--emitDeclarationOnly',
+      '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--target', 'ES2022',
+      '--strict', '--skipLibCheck', '--types', 'node',
+      '--rootDir', 'packages/core/src', '--outDir', 'packages/core/dist',
+      'packages/core/src/skills/skill-root.ts', 'packages/core/src/tools/fs.ts',
+    ], { stdio: 'inherit' });
+    proc.on('error', rej);
+    proc.on('close', (code) => code === 0 ? res() : rej(new Error(`Core leaf declaration emit failed (exit ${code})`)));
+  });
   await buildPkg('@cleocode/caamp', 'packages/caamp/dist/');
   await chmod('packages/caamp/dist/cli.js', 0o755).catch(() => {});
 

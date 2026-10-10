@@ -459,6 +459,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorHeavyCommandHookCommand as CommandDef,
   },
   {
+    exportName: 'doctorHooksCommand',
+    name: 'hooks',
+    description:
+      'Inspect hook attribution, activation, drift and provider trust; --fix repairs eligible managed entries',
+    load: async () =>
+      (await import('../commands/doctor-hooks.js')).doctorHooksCommand as CommandDef,
+  },
+  {
     exportName: 'doctorLegacyBackupsCommand',
     name: 'legacy-backups',
     description:

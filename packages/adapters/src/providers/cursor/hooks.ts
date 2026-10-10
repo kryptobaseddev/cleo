@@ -20,6 +20,7 @@
  * @epic T134
  */
 
+import { PROVIDER_NATIVE_EVENT_MAPS } from '@cleocode/caamp/hooks';
 import type { AdapterHookProvider } from '@cleocode/contracts';
 
 /** CAAMP provider identifier for Cursor. */
@@ -34,28 +35,7 @@ const PROVIDER_ID = 'cursor' as const;
  *
  * Cursor uses camelCase names while CAAMP canonical names are PascalCase.
  */
-const CURSOR_EVENT_MAP: Record<string, string> = {
-  // CAAMP: toNative('SessionStart',       'cursor') = 'sessionStart'
-  sessionStart: 'SessionStart',
-  // CAAMP: toNative('SessionEnd',         'cursor') = 'sessionEnd'
-  sessionEnd: 'SessionEnd',
-  // CAAMP: toNative('PromptSubmit',       'cursor') = 'beforeSubmitPrompt'
-  beforeSubmitPrompt: 'PromptSubmit',
-  // CAAMP: toNative('ResponseComplete',   'cursor') = 'stop'
-  stop: 'ResponseComplete',
-  // CAAMP: toNative('PreToolUse',         'cursor') = 'preToolUse'
-  preToolUse: 'PreToolUse',
-  // CAAMP: toNative('PostToolUse',        'cursor') = 'postToolUse'
-  postToolUse: 'PostToolUse',
-  // CAAMP: toNative('PostToolUseFailure', 'cursor') = 'postToolUseFailure'
-  postToolUseFailure: 'PostToolUseFailure',
-  // CAAMP: toNative('SubagentStart',      'cursor') = 'subagentStart'
-  subagentStart: 'SubagentStart',
-  // CAAMP: toNative('SubagentStop',       'cursor') = 'subagentStop'
-  subagentStop: 'SubagentStop',
-  // CAAMP: toNative('PreCompact',         'cursor') = 'preCompact'
-  preCompact: 'PreCompact',
-};
+const CURSOR_EVENT_MAP = PROVIDER_NATIVE_EVENT_MAPS['cursor'] ?? {};
 
 /**
  * Hook provider for Cursor.
