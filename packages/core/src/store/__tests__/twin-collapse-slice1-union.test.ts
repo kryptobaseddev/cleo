@@ -540,3 +540,75 @@ describe('pinning: the pre-collapse snapshot is never rotated', () => {
     expect(inspectTwinCollapse(db())[0]).toMatchObject({ snapshotPinned: true });
   });
 });
+
+describe('a 9.21-9.23 build after a 9.24 collapse (T12730)', () => {
+  /** What a 9.23 incremental merge leaves: the marker without kept/archived. */
+  const rewriteAs923 = (kvTable: string, table: string): void => {
+    const key = `${TWIN_COLLAPSE_MARKER_PREFIX}${table}`;
+    const marker = JSON.parse(meta(kvTable, key) as string) as Record<string, unknown>;
+    delete marker.kept;
+    delete marker.archived;
+    setMeta(kvTable, key, JSON.stringify(marker));
+  };
+
+  it('schema_meta: the archived list is read back from the archive keys, survives the next merge, and a rotated snapshot is reported', () => {
+    preMigrationMeta();
+    const [receipt] = collapseTwinTables(db(), dbPath());
+    const archived = [...(receipt?.archived ?? [])].sort();
+    expect(archived).toContain('focus_state');
+    // The older build rewrites the marker and rotates the pinned snapshot away.
+    rewriteAs923('tasks_schema_meta', 'schema_meta');
+    rmSync(receipt?.snapshotPath as string);
+
+    expect(inspectTwinCollapse(db())[0]).toMatchObject({
+      table: 'schema_meta',
+      archived,
+      snapshotMissing: true,
+    });
+    expect(twinCollapseDoctorCheck(projectDir)).toMatchObject({
+      status: 'warning',
+      message: expect.stringMatching(/pre-collapse snapshot of schema_meta .* is missing/),
+    });
+
+    // The next 9.24 merge writes the list back into the marker.
+    setMeta('schema_meta', 'schemaVersion', '"newer"');
+    const [again] = collapseTwinTables(db(), dbPath());
+    expect(again).toMatchObject({ table: 'schema_meta', status: 'incremental' });
+    const marker = JSON.parse(
+      meta('tasks_schema_meta', `${TWIN_COLLAPSE_MARKER_PREFIX}schema_meta`) as string,
+    ) as { archived: string[] };
+    expect(marker.archived).toEqual(archived);
+  });
+
+  it('sticky_tags: the archived rows are read back from the archive key', async () => {
+    const note = await addSticky({ content: 'n', tags: [] }, projectDir);
+    db()
+      .prepare('DELETE FROM main.brain_schema_meta WHERE key = ?')
+      .run(`${TWIN_COLLAPSE_MARKER_PREFIX}sticky_tags`);
+    db()
+      .prepare('UPDATE main.brain_sticky_notes SET tags_json = ? WHERE id = ?')
+      .run('["alpha"]', note.id);
+    db()
+      .prepare('INSERT INTO main.sticky_tags (sticky_id, tag) VALUES (?, ?)')
+      .run(note.id, 'alpha');
+    db()
+      .prepare('INSERT INTO main.brain_sticky_tags (sticky_id, tag) VALUES (?, ?)')
+      .run(note.id, 'stale');
+    collapseTwinTables(db(), dbPath());
+    rewriteAs923('brain_schema_meta', 'sticky_tags');
+    expect(inspectTwinCollapse(db()).find((p) => p.table === 'sticky_tags')).toMatchObject({
+      archived: [`${note.id}\tstale`],
+    });
+  });
+
+  it('a marker that records its list is trusted over the archive keys', () => {
+    preMigrationMeta();
+    const [receipt] = collapseTwinTables(db(), dbPath());
+    setMeta('tasks_schema_meta', 'twin_collapse_archive:stray', '"x"');
+    expect(inspectTwinCollapse(db())[0]).toMatchObject({
+      table: 'schema_meta',
+      archived: receipt?.archived,
+    });
+    expect(inspectTwinCollapse(db())[0]?.archived).not.toContain('stray');
+  });
+});
