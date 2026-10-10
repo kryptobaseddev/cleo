@@ -142,4 +142,51 @@ describe('declared footprints (R7-6)', () => {
       keys({ t: 'tasks_tasks', u: 'a', o: 'I', h, a: { id: 'T1', idempotency_key: null } }),
     ).toEqual([]);
   });
+
+  it('a U setting part of a composite UNIQUE key takes the rest from the row (T13274)', async () => {
+    const db = await store();
+    db.exec(
+      "INSERT INTO tasks_evidence_ac_bindings (id, evidence_atom_id, ac_id, binding_type, uid) VALUES ('B1', 'E1', 'AC9', 'direct', 'b1')",
+    );
+    const defs = (t: string) => captureTableDef(db, 'project', t) ?? null;
+    const h = '1791000000000-000000-0192aaaa-7f00-7000-8000-00000000000a';
+    const keys = (op: LedgerOp) => {
+      const out: string[] = [];
+      widenFootprint(db, [op], defs, (t, u) => {
+        if (u.startsWith('#')) out.push(`${t}:${u}`);
+      });
+      return out;
+    };
+    expect(
+      keys({
+        t: 'tasks_evidence_ac_bindings',
+        u: 'b1',
+        o: 'U',
+        h,
+        a: { binding_type: 'satisfies' },
+      }),
+    ).toEqual([
+      'tasks_evidence_ac_bindings:#evidence_atom_id,ac_id,binding_type=["E1","AC9","satisfies"]',
+    ]);
+    // A reference part of the key travels as its target's uid, as an op carries it.
+    db.exec(
+      "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('TX', 'x', 'task', 'pending', 'medium', 'tx', 'fp-tx')",
+    );
+    db.exec(
+      "INSERT INTO tasks_task_acceptance_criteria (id, task_id, ordinal, text, uid, birth_fp) VALUES ('AC1', 'TX', 1, 'c', 'acu', 'fp-acu')",
+    );
+    expect(
+      keys({ t: 'tasks_task_acceptance_criteria', u: 'acu', o: 'U', h, a: { ordinal: 2 } }),
+    ).toContain('tasks_task_acceptance_criteria:#task_id,ordinal=["tx",2]');
+    // An update that does not move the key adds no pseudo-row.
+    expect(
+      keys({
+        t: 'tasks_evidence_ac_bindings',
+        u: 'b1',
+        o: 'U',
+        h,
+        a: { created_at: '2026-10-05' },
+      }),
+    ).toEqual([]);
+  });
 });

@@ -261,7 +261,11 @@ describe('own-echo fast path (§3.5 Rule 3)', () => {
     const db = await store();
     write(db, addTask('A', 'a'));
     seal(db);
-    const l1 = lastTxn(db);
+    stage(db, LOCAL, own(db, [lastTxn(db)]));
+    apply(db);
+    // L1 edits A; a foreign txn then edits A too (a stream that knows A).
+    write(db, "UPDATE tasks_tasks SET priority = 'high' WHERE uid = 'a'");
+    seal(db);
     stage(db, R2, [foreignTitle('a', 'x')]);
     apply(db);
     expect(n(db, 'SELECT count(*) AS n FROM _sync_foreign_touch')).toBe(1);
