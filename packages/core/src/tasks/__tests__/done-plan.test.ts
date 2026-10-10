@@ -756,6 +756,8 @@ describe('a worktree-bound test-run is judged in one root (T12965 review M2)', (
     git(root, ['worktree', 'add', '-q', wt, `task/${id}`]);
     try {
       writeFileSync(join(wt, 'pkgs', 'a', 'i.ts'), 'export const x = 2;\n');
+      // T13423: a test-run binds a change that edits the package's test too.
+      writeFileSync(join(wt, 'pkgs', 'a', 'a.test.ts'), 'export const t = 1;\n');
       git(wt, ['commit', '-q', '-am', `${id}: a`]);
       mkdirSync(join(wt, 'reports'), { recursive: true });
       const reportPath = join(wt, 'reports', 'vitest.json');

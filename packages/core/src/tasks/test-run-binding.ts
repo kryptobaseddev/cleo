@@ -42,9 +42,13 @@
  *     all is refused before any of this.
  *     A standalone project (no workspace declared, T13403) is one package,
  *     its root: a change inside the root is that package's, never
- *     workspace-wide. Since that package is the whole project, a report
- *     binds only a change that adds or edits test files, and only when it
- *     passed every one of them; a source-only change needs `tool:test`.
+ *     workspace-wide.
+ *     Changed tests (T13423, every package): the report must have passed
+ *     every test file the change adds or edits, and each directly changed
+ *     package that has tests must have one of them. A source-only change to
+ *     a tested package binds no test-run; `tool:test-affected` or
+ *     `tool:test` speaks for it. "One file is enough" above now holds for
+ *     dependents only.
  *     Docs-only changes, and checkouts with no origin to diff against, are
  *     not judged.
  *  3. **Identity.** HEAD and the tool cache's tree hash (T12958) at verify time are
@@ -501,28 +505,35 @@ export function bindTestRunReport(
   const covered = new Set(testFiles.flatMap((f) => ownerOf(f, workspace)?.name ?? []));
   const missing = required.filter((name) => !covered.has(name));
   if (missing.length === 0) {
-    // T13403: in a standalone project the one package is the whole project,
-    // so one test file of it says nothing about the change. A report binds
-    // only a change that adds or edits test files, and only when it ran every
-    // one of them; a source-only change needs tool:test (T13423).
-    const standalone = workspace.length === 1 && workspace[0]?.dir === '';
-    if (!standalone) return { ok: true, untestedPackages };
+    // T13423 (policy, workspace packages and standalone projects alike): one
+    // test file of a package says nothing about a change to that package's
+    // source. A report binds only when it passed every test file the change
+    // adds or edits, and every directly changed package that has tests has
+    // one of those changed test files; a source-only change to a tested
+    // package needs tool:test-affected or tool:test.
     const changedTests = changedTestFiles(root, changed);
-    if (changedTests.length === 0) {
-      return refuse(
-        'The change adds or edits no test file, and in a single-package project the package is ' +
-          'the whole project, so a test-run report of some of its tests cannot speak for the ' +
-          'change. Record tool:test, or ci:<pr> once the PR merges.',
-      );
-    }
     const ran = new Set(testFiles);
     const unrun = changedTests.filter((f) => !ran.has(f));
-    if (unrun.length === 0) return { ok: true, untestedPackages };
+    if (unrun.length > 0) {
+      return refuse(
+        `test-run report does not run the changed test file(s) ${unrun.slice(0, 5).join(', ')}` +
+          `${unrun.length > 5 ? `, … (${unrun.length} files)` : ''}. A targeted report must run ` +
+          'every test file the change adds or edits (passing). Run them and record the report, ' +
+          'or record tool:test-affected (or tool:test).',
+      );
+    }
+    const withChangedTests = new Set(
+      changedTests.flatMap((f) => ownerOf(f, workspace)?.name ?? []),
+    );
+    const sourceOnly = scope.direct.filter(
+      (name) => withTests.has(name) && !withChangedTests.has(name),
+    );
+    if (sourceOnly.length === 0) return { ok: true, untestedPackages };
     return refuse(
-      `test-run report does not run the changed test file(s) ${unrun.slice(0, 5).join(', ')}` +
-        `${unrun.length > 5 ? `, … (${unrun.length} files)` : ''}. In a single-package project ` +
-        'the package is the whole project, so a targeted report must run every test file the ' +
-        'change adds or edits (passing). Run them and record the report, or record tool:test.',
+      `The change edits source but no test file in ${someNames(sourceOnly)}, so a test-run report ` +
+        "of that package's existing tests cannot speak for it. Record tool:test-affected (or " +
+        'tool:test), or ci:<pr> once the PR merges; or add or edit the test that covers the change ' +
+        'and record a report that runs it.',
     );
   }
   const labelled = missing.map((name) =>

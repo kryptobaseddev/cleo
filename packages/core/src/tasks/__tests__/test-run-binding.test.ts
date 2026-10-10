@@ -325,7 +325,9 @@ describe('a report must be fresher than the change and cover it (T12965 review)'
       git(root, ['push', '-q', '-u', 'origin', 'main']);
       git(root, ['remote', 'set-head', 'origin', 'main']);
       git(root, ['switch', '-q', '-c', 'task/T1']);
+      // T13423: a change to a tested package edits one of its tests too.
       writeFileSync(join(root, 'packages', 'a', 'src', 'index.ts'), 'export const x = 1;\n');
+      writeFileSync(pkgTest('a'), 'export const t = 1;\n');
       git(root, ['commit', '-q', '-am', 'T1: change a']);
     });
     afterEach(() => rmSync(`${root}-origin.git`, { recursive: true, force: true }));
@@ -368,6 +370,7 @@ describe('a report must be fresher than the change and cover it (T12965 review)'
 
     it('red: a report covering one changed package of two does not stand for both', async () => {
       writeFileSync(join(root, 'packages', 'b', 'src', 'index.ts'), 'export const y = 1;\n');
+      writeFileSync(pkgTest('b'), 'export const t = 1;\n');
       git(root, ['commit', '-q', '-am', 'T1: change b too']);
       const path = report([pkgTest('a'), pkgTest('c')], Date.now() + 5_000);
       const r = await validateAtom({ kind: 'test-run', path }, root);
@@ -378,6 +381,7 @@ describe('a report must be fresher than the change and cover it (T12965 review)'
 
     it('green: a report covering both changed packages and the dependent stands', async () => {
       writeFileSync(join(root, 'packages', 'b', 'src', 'index.ts'), 'export const y = 1;\n');
+      writeFileSync(pkgTest('b'), 'export const t = 1;\n');
       git(root, ['commit', '-q', '-am', 'T1: change b too']);
       const path = report([pkgTest('a'), pkgTest('b'), pkgTest('c')], Date.now() + 5_000);
       const r = await validateAtom({ kind: 'test-run', path }, root);
@@ -403,6 +407,7 @@ describe('a report must be fresher than the change and cover it (T12965 review)'
 
     it('red (N1): a file whose every test a -t filter skipped covers nothing', async () => {
       writeFileSync(join(root, 'packages', 'b', 'src', 'index.ts'), 'export const y = 1;\n');
+      writeFileSync(pkgTest('b'), 'export const t = 1;\n');
       git(root, ['commit', '-q', '-am', 'T1: change b too']);
       // `vitest run -t alpha` over a, b and c: b's only test is filtered out.
       const path = reportOf(
@@ -417,6 +422,7 @@ describe('a report must be fresher than the change and cover it (T12965 review)'
 
     it('green (N1): one passed test in the file is enough', async () => {
       writeFileSync(join(root, 'packages', 'b', 'src', 'index.ts'), 'export const y = 1;\n');
+      writeFileSync(pkgTest('b'), 'export const t = 1;\n');
       git(root, ['commit', '-q', '-am', 'T1: change b too']);
       const path = reportOf(
         {
@@ -442,6 +448,30 @@ describe('a report must be fresher than the change and cover it (T12965 review)'
       const path = report([pkgTest('a'), pkgTest('c')], Date.now() + 5_000);
       const r = await validateAtom({ kind: 'test-run', path }, root);
       expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ untestedPackages: ['@x/d'] });
+    });
+
+    describe('changed tests (T13423 policy, as for a standalone project)', () => {
+      it('red: a source-only change to a tested package binds no test-run', async () => {
+        writeFileSync(join(root, 'packages', 'b', 'src', 'index.ts'), 'export const y = 1;\n');
+        git(root, ['commit', '-q', '-am', 'T1: change b source only']);
+        const path = report([pkgTest('a'), pkgTest('b'), pkgTest('c')], Date.now() + 5_000);
+        const r = await validateAtom({ kind: 'test-run', path }, root);
+        expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+          /edits source but no test file in @x\/b.*Record tool:test-affected/,
+        );
+      });
+
+      it('red: every changed test file must run, even one in a dependent', async () => {
+        writeFileSync(pkgTest('c'), 'export const t = 2;\n');
+        writeFileSync(join(root, 'packages', 'c', 'src', 'c2.test.ts'), 'export {};\n');
+        git(root, ['add', '.']);
+        git(root, ['commit', '-q', '-m', 'T1: c tests']);
+        const path = report([pkgTest('a'), pkgTest('c')], Date.now() + 5_000);
+        const r = await validateAtom({ kind: 'test-run', path }, root);
+        expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+          /does not run the changed test file\(s\) packages\/c\/src\/c2\.test\.ts/,
+        );
+      });
     });
 
     describe('a workspace-wide change needs tool:test (T12965 review)', () => {
@@ -505,9 +535,7 @@ describe('relevance in a standalone single-package project (T13403)', () => {
     const path = report([file('src/b.test.ts')], Date.now() + 5_000);
     const r = await validateAtom({ kind: 'test-run', path }, root);
     expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_INSUFFICIENT');
-    expect(!r.ok && r.reason).toMatch(
-      /does not run the changed test file\(s\) src\/a\.test\.ts.*single-package project/,
-    );
+    expect(!r.ok && r.reason).toMatch(/does not run the changed test file\(s\) src\/a\.test\.ts/);
   });
 
   it('red: a partial report missing one of two changed test files is refused', async () => {
@@ -556,7 +584,7 @@ describe('relevance in a standalone single-package project (T13403)', () => {
         root,
       );
       expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_INSUFFICIENT');
-      expect(!r.ok && r.reason).toMatch(/adds or edits no test file.*Record tool:test/);
+      expect(!r.ok && r.reason).toMatch(/edits source but no test file in solo.*Record tool:test/);
     }
   });
 });
