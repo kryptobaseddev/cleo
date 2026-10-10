@@ -59,6 +59,8 @@ export interface BuildSegmentOptions {
   /** The merge key's project, or null on a home stream. */
   readonly project: string | null;
   readonly sealer: SegmentSealer;
+  /** Signs each packed transaction for the stream (§2.8: `signTxn` of txn-signing.ts, with the device key). */
+  readonly signTxn: (stream: string, txn: LedgerTxn) => LedgerTxn;
   readonly nowIso: string;
   /** Stop packing once the canonical JSON passes this many bytes (one txn always goes in). */
   readonly maxPlaintextBytes?: number;
@@ -84,7 +86,7 @@ export const SEGMENT_PLAINTEXT_BUDGET = 512 * 1024;
 /** The server's cap on transactions per segment (`MAX_TXNS_PER_SEGMENT`). */
 const MAX_TXNS_PER_SEGMENT = 10_000;
 
-/** A sealed local transaction as the wire carries it (unsigned until O-2 signs it). */
+/** A sealed local transaction as the wire carries it, before {@link BuildSegmentOptions.signTxn} signs it. */
 function ledgerTxnOf(
   db: DatabaseSync,
   row: { txn: string; hlc: string; scope: string; via: string; kind: string; actor: string | null },
@@ -226,7 +228,7 @@ export function buildSegment(db: DatabaseSync, o: BuildSegmentOptions): Persiste
     for (const r of rows) {
       // Commit order is kept: nothing after a still-partial txn goes either.
       if (partial.has(r.txn)) break;
-      const t = ledgerTxnOf(db, r, o.project);
+      const t = o.signTxn(o.stream, ledgerTxnOf(db, r, o.project));
       const size = Buffer.byteLength(canonicalJson(t), 'utf8');
       if (txns.length > 0 && bytes + size > budget) break;
       txns.push(t);

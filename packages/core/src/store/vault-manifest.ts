@@ -638,6 +638,13 @@ export interface CarryMachineStateOptions {
    * the relocation rewrites them. `null` (a global store): no path is relocated.
    */
   snapshotRoot: string | null;
+  /**
+   * Local-only tables whose rows come from the SNAPSHOT, not this machine: a
+   * journal checkpoint carries the merge state of the rows it holds (row
+   * meta, field frontiers; journal spec §2.10), which describes those rows
+   * and nothing on this machine (T13312).
+   */
+  snapshotCarried?: ReadonlySet<string>;
 }
 
 type Cell = string | number | bigint | null | Uint8Array;
@@ -832,6 +839,10 @@ export function carryMachineState(
             out.preserved.push(t);
           };
 
+          if (c.class === 'local-only' && opts.snapshotCarried?.has(t)) {
+            out.skipped.push(t); // left as the snapshot had it
+            continue;
+          }
           if (c.class === 'local-only') {
             // Machine state never comes from another machine: a table this store
             // does not have yet is emptied, not filled with the pusher's rows.
