@@ -546,21 +546,17 @@ describe('relevance in a standalone single-package project (T13403)', () => {
     expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/workspace-wide.*Record tool:test/);
   });
 
-  it('a source-only change needs a test file of the package, as a workspace package does', async () => {
+  it("red (T13423): a source-only change never binds a test-run, even of the package's tests", async () => {
     git(root, ['switch', '-q', '-c', 'task/T2', 'main']);
     writeFileSync(file('src/a.ts'), 'export const a = 3;\n');
     git(root, ['commit', '-q', '-am', 'T2: change a only']);
-    const ok = await validateAtom(
-      { kind: 'test-run', path: report([file('src/b.test.ts')], Date.now() + 5_000) },
-      root,
-    );
-    expect(ok.ok, JSON.stringify(ok)).toBe(true);
-    const none = await validateAtom(
-      { kind: 'test-run', path: report(['/elsewhere/x.test.ts'], Date.now() + 5_000) },
-      root,
-    );
-    expect(!none.ok && none.reason, JSON.stringify(none)).toMatch(
-      /covers no test file of solo \(changed\)/,
-    );
+    for (const files of [[file('src/b.test.ts')], [file('src/a.test.ts'), file('src/b.test.ts')]]) {
+      const r = await validateAtom(
+        { kind: 'test-run', path: report(files, Date.now() + 5_000) },
+        root,
+      );
+      expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_INSUFFICIENT');
+      expect(!r.ok && r.reason).toMatch(/adds or edits no test file.*Record tool:test/);
+    }
   });
 });
