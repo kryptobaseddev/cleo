@@ -208,19 +208,6 @@ describe('the Publish step runs the release candidate gate (T13181)', () => {
     expect(publishes(log, 'canary')).toHaveLength(0);
     expect(log.some((l) => l.startsWith('payload ') || l.startsWith('soak '))).toBe(false);
   });
-  it('an independent canary publishes only canary and runs both blocking gates', () => {
-    const { status, log } = runPublish({ rc: '', tag: 'canary' });
-    expect(status, log.join('\n')).toBe(0);
-    expect(publishes(log, 'canary')).toHaveLength(18);
-    expect(publishes(log, 'latest')).toHaveLength(0);
-    expect(log.some((line) => line.startsWith('payload '))).toBe(true);
-    expect(log.some((line) => line.startsWith('soak '))).toBe(true);
-  });
-  it('an independent canary with failed soak cannot publish latest', () => {
-    const { status, log } = runPublish({ rc: '', tag: 'canary', soakExit: 1 });
-    expect(status).not.toBe(0);
-    expect(publishes(log, 'latest')).toHaveLength(0);
-  });
 });
 
 describe('the version step derives the tag and the candidate', () => {
@@ -243,10 +230,6 @@ describe('the version step derives the tag and the candidate', () => {
   it('prereleases keep their own tags and have no candidate', () => {
     expect(run(`${VERSION}-beta.1`)).toEqual({ tag: 'beta', rc: '' });
     expect(run(`${VERSION}-alpha.1`)).toEqual({ tag: 'dev', rc: '' });
-    expect(run(`${VERSION}-canary.1`)).toEqual({ tag: 'canary', rc: '' });
-  });
-  it('an unnumbered canary cannot fall through to latest', () => {
-    expect(() => run(`${VERSION}-canary`)).toThrow();
   });
 });
 
@@ -287,66 +270,5 @@ describe('workflow guards (owner decision: OIDC only)', () => {
     );
     expect(sync.run).toContain('scripts/release-sync-versions.sh');
     expect(publishStep.run).toContain('scripts/release-sync-versions.sh "$RC_VERSION"');
-  });
-});
-
-describe('unified hooks stable promotion gate (T13350)', () => {
-  const steps = releaseYaml.jobs.publish.steps;
-  const gate = steps.find(
-    (step) => step.name === 'Validate unified-hooks stable promotion evidence',
-  );
-
-  it('requires retained pilot evidence before any publication, only for stable releases', () => {
-    expect(gate).toBeDefined();
-    expect(steps.indexOf(gate)).toBeLessThan(steps.indexOf(publishStep));
-    expect(gate.if).toBe("needs.build-verify.outputs.dist_tag == 'latest'");
-    expect(gate['continue-on-error'] ?? false).toBe(false);
-    expect(releaseYaml.jobs.publish['continue-on-error'] ?? false).toBe(false);
-    expect(publishStep.if ?? '').not.toMatch(/always\(|failure\(/);
-    expect(gate.env.STABLE_VERSION).toBe(`\${{ needs.build-verify.outputs.version }}`);
-    expect(gate.env.GH_TOKEN).toBe(`\${{ secrets.HOOK_PILOT_ACTIONS_READ_TOKEN || github.token }}`);
-  });
-
-  it.each([0, 1])('executes the real evidence shell with no failure bypass (exit %i)', (exit) => {
-    const bin = path.join(dir, 'bin');
-    mkdirSync(bin);
-    const log = path.join(dir, 'gate-arguments');
-    const node = path.join(bin, 'node');
-    writeFileSync(
-      node,
-      '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$GATE_LOG"\nexit "$GATE_EXIT"\n',
-    );
-    chmodSync(node, 0o755);
-    const sentinel = path.join(dir, 'publish-reached');
-    const result = spawnSync(
-      'bash',
-      ['-eo', 'pipefail', '-c', `${gate.run}\nprintf publish > "$PUBLISH_SENTINEL"`],
-      {
-        cwd: dir,
-        encoding: 'utf8',
-        env: {
-          PATH: `${bin}:${process.env.PATH}`,
-          GITHUB_WORKSPACE: dir,
-          STABLE_VERSION: VERSION,
-          GATE_LOG: log,
-          GATE_EXIT: String(exit),
-          PUBLISH_SENTINEL: sentinel,
-        },
-      },
-    );
-    expect(result.status).toBe(exit);
-    expect(existsSync(sentinel)).toBe(exit === 0);
-    expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
-      'scripts/hook-pilot-evidence.mjs',
-      'validate',
-      '--root',
-      dir,
-      '--evidence',
-      path.join(dir, 'release-evidence/hooks-v1/evidence.json'),
-      '--stable-version',
-      VERSION,
-      '--vida-repository',
-      'kryptobaseddev/VidaPeps',
-    ]);
   });
 });

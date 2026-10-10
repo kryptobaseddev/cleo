@@ -40,10 +40,7 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { ReleasePlan } from '@cleocode/contracts';
-import {
-  RELEASE_PERSISTED_CHANNEL,
-  safeParseReleasePlan,
-} from '@cleocode/contracts/release/plan.js';
+import { safeParseReleasePlan } from '@cleocode/contracts/release/plan.js';
 import { eq, inArray } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
@@ -2249,21 +2246,30 @@ function eqVersion(version: string) {
 
 /**
  * Map the {@link ReleasePlan.channel} value (which uses the contracts
- * `latest|beta|alpha|rc|canary` set) onto {@link schema.RELEASE_CHANNELS} (which
+ * `latest|beta|alpha|rc` set) onto {@link schema.RELEASE_CHANNELS} (which
  * uses `latest|beta|dev|hotfix`).
  *
  * The two enums diverge intentionally per ADR-T9345 (plan contract permits
- * 'rc' and 'canary' for release candidates; schema currently uses 'dev' for alpha
+ * 'rc' for release candidates; schema currently uses 'dev' for pre-release
  * channels and 'hotfix' for emergency patches). Mapping rules:
  *
  *   - latest    → latest
  *   - beta      → beta
  *   - alpha     → dev
- *   - rc        → beta
- *   - canary    → beta
+ *   - rc        → dev
  */
 function mapChannel(channel: ReleasePlan['channel']): schema.ReleaseChannel {
-  return RELEASE_PERSISTED_CHANNEL[channel];
+  switch (channel) {
+    case 'latest':
+      return 'latest';
+    case 'beta':
+      return 'beta';
+    case 'alpha':
+    case 'rc':
+      return 'dev';
+    default:
+      return 'latest';
+  }
 }
 
 /**

@@ -31,11 +31,12 @@ import type {
   HookConfigEdit,
   HookConfigObject,
 } from '@cleocode/contracts/project-hook-delivery.js';
-import { writeFileAtomic } from '@cleocode/core/tools/fs';
+import type { WriteFileAtomic } from '@cleocode/contracts/tools/atomic';
+import { writeFileAtomic as canonicalWriteFileAtomic } from '@cleocode/core/tools/fs';
 import * as jsonc from 'jsonc-parser';
 
-/** Re-export the canonical tool primitive; CAAMP does not redefine atomic writes. */
-export { writeFileAtomic };
+/** Alias the canonical primitive through its shared contract, preserving runtime identity. */
+export const writeFileAtomic: WriteFileAtomic = canonicalWriteFileAtomic;
 
 /**
  * A guard file older than this is assumed to belong to a crashed process.

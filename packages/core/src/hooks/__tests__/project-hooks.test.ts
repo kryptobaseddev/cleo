@@ -18,7 +18,7 @@ import type {
   ProjectHookDefinition,
   ProjectHooksManifest,
 } from '@cleocode/contracts/project-hooks.js';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createProjectHookExecutor,
   executeProjectHooks,
@@ -53,6 +53,7 @@ describe('activated project checks through actual child processes', () => {
     };
   });
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await rm(root, { recursive: true, force: true });
   });
 
@@ -72,6 +73,26 @@ describe('activated project checks through actual child processes', () => {
     const source: ProjectHooksManifest = { schemaVersion: 1, hooks: [hook] };
     await writeFile(join(root, '.cleo/hooks.json'), JSON.stringify(source));
   }
+
+  it('resolves the active checkout independently of ambient Git repository variables', () => {
+    vi.stubEnv('GIT_DIR', '/nonexistent/foreign-repository');
+    vi.stubEnv('GIT_WORK_TREE', '/nonexistent/foreign-checkout');
+    expect(resolveProjectHookContext(root).projectRoot).toBe(root);
+  });
+
+  it('runs checker Git operations in the active checkout despite ambient repository variables', async () => {
+    await writeFile(
+      join(root, 'handler.mjs'),
+      `import{execFileSync}from'node:child_process';const root=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim();process.stdout.write(JSON.stringify({status:root===${JSON.stringify(root)}?'pass':'block'}));`,
+    );
+    await activateProjectHooks(root);
+    vi.stubEnv('GIT_DIR', '/nonexistent/foreign-repository');
+    vi.stubEnv('GIT_WORK_TREE', '/nonexistent/foreign-checkout');
+    expect((await executeProjectHooks(invocation))[0]).toMatchObject({
+      status: 'pass',
+      blocks: false,
+    });
+  });
 
   it('is disabled by default, including when tracked configuration requests execution', async () => {
     await writeFile(join(root, '.cleo/config.json'), '{"hooks":{"project":{"enabled":true}}}');

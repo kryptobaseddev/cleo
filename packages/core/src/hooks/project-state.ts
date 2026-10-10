@@ -15,10 +15,12 @@ import {
   type ProjectHooksManifest,
   ProjectHooksManifestSchema,
 } from '@cleocode/contracts/project-hooks.js';
+import { discoveryEnv } from '../git/work-tree.js';
 import { atomicWrite } from '../store/atomic.js';
 import { canonicalizePath } from '../tools/fs.js';
 
 const MAX_DEFINITION_BYTES = 262144;
+const MAX_ACTIVATION_BYTES = 1048576;
 const LOCKFILES = ['pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'bun.lockb'];
 
 /** Read a hook definition or private record with a hard allocation bound, including racing growth. */
@@ -26,6 +28,7 @@ export async function readProjectHookRecord(path: string, maxBytes: number): Pro
   const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
   try {
     const metadata = await file.stat();
+    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
     if (!metadata.isFile() || metadata.size > maxBytes) throw new Error('HOOK_RECORD_INVALID');
     const buffer = Buffer.alloc(maxBytes + 1);
     let length = 0;
@@ -34,6 +37,7 @@ export async function readProjectHookRecord(path: string, maxBytes: number): Pro
       if (!bytesRead) break;
       length += bytesRead;
     }
+    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
     if (length > maxBytes) throw new Error('HOOK_RECORD_TOO_LARGE');
     return buffer.subarray(0, length).toString('utf8');
   } finally {
@@ -46,6 +50,7 @@ export function resolveProjectHookContext(cwd: string): ProjectHookContext {
   const gitPath = (...args: string[]): string =>
     execFileSync('git', ['-C', cwd, ...args], {
       encoding: 'utf8',
+      env: discoveryEnv(),
       timeout: 5000,
       maxBuffer: 16384,
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -68,6 +73,7 @@ export async function resolveProjectHookFile(root: string, file: string): Promis
   const target = await canonicalizePath(resolve(root, file));
   const rel = relative(canonicalRoot, target);
   if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`))
+    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
     throw new Error('HOOK_PATH_ESCAPE');
   return target;
 }
@@ -94,6 +100,7 @@ export async function resolveProjectHookExecutable(
   executable: string,
 ): Promise<string> {
   if (isAbsolute(executable) || executable.includes('\0'))
+    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
     throw new Error('HOOK_EXECUTABLE_INVALID');
   if (executable.includes('/') || executable.includes('\\')) {
     const file = await resolveProjectHookFile(root, executable);
@@ -110,6 +117,7 @@ export async function resolveProjectHookExecutable(
       /* Continue searching trusted absolute PATH entries. */
     }
   }
+  // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
   throw new Error('HOOK_EXECUTABLE_MISSING');
 }
 
@@ -119,6 +127,7 @@ function digest(content: string | Buffer): string {
 
 async function digestFile(path: string, deadline: number, signal?: AbortSignal): Promise<string> {
   const remaining = Math.floor(deadline - performance.now());
+  // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
   if (remaining <= 0) throw new Error('HOOK_HASH_TIMEOUT');
   const hash = createHash('sha256');
   let bytes = 0;
@@ -130,6 +139,7 @@ async function digestFile(path: string, deadline: number, signal?: AbortSignal):
     bytes += chunk.length;
     if (bytes > 268435456) {
       stream.destroy();
+      // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
       throw new Error('HOOK_DEPENDENCY_TOO_LARGE');
     }
     hash.update(chunk);
@@ -177,6 +187,7 @@ export async function computeHookActivation(
   }
   for (const file of [...inputs].sort()) {
     const path = await resolveProjectHookFile(context.projectRoot, file);
+    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
     if (!(await stat(path)).isFile()) throw new Error('HOOK_DEPENDENCY_NOT_FILE');
     files[file] = await digestFile(path, deadline, signal);
   }
@@ -211,13 +222,16 @@ export async function resolveProjectHookStateFile(
   context: ProjectHookContext,
   name: string,
 ): Promise<string> {
+  // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
   if (!/^[a-z-]+\.json$/.test(name)) throw new Error('HOOK_STATE_PATH_INVALID');
   const parent = await realpath(resolve(context.stateDir, '..'));
   const stateDir = await canonicalizePath(context.stateDir);
   if (relative(parent, stateDir) !== 'cleo-project-hooks')
+    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
     throw new Error('HOOK_STATE_PATH_ESCAPE');
   const path = join(stateDir, name);
   try {
+    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
     if ((await lstat(path)).isSymbolicLink()) throw new Error('HOOK_STATE_SYMLINK');
   } catch (error) {
     if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
@@ -232,7 +246,7 @@ export async function readProjectHooksLocalState(
   const path = await resolveProjectHookStateFile(context, 'activation.json');
   try {
     return ProjectHooksLocalStateSchema.parse(
-      JSON.parse(await readProjectHookRecord(path, MAX_DEFINITION_BYTES)),
+      JSON.parse(await readProjectHookRecord(path, MAX_ACTIVATION_BYTES)),
     );
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
@@ -323,6 +337,10 @@ export async function activateProjectHooks(cwd: string): Promise<ProjectHooksLoc
   const manifest = await readProjectHooksManifest(context);
   const activation = await computeHookActivation(context, manifest);
   const state: ProjectHooksLocalState = { hooks: { project: { enabled: true } }, activation };
+  const serialized = `${JSON.stringify(state)}\n`;
+  if (Buffer.byteLength(serialized) > MAX_ACTIVATION_BYTES)
+    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
+    throw new Error('HOOK_ACTIVATION_TOO_LARGE');
   await resolveProjectHookStateFile(context, 'activation.json');
   const { withFileLock } = await import('../store/file-utils.js');
   await withFileLock(join(context.stateDir, 'activation.lock-target'), async () => {
@@ -331,14 +349,11 @@ export async function activateProjectHooks(cwd: string): Promise<ProjectHooksLoc
     const { activatedAt: _old, ...oldInputs } = activation;
     const { activatedAt: _new, ...newInputs } = fresh;
     if (JSON.stringify(oldInputs) !== JSON.stringify(newInputs))
+      // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
       throw new Error('HOOK_ACTIVATION_RACED');
-    await atomicWrite(
-      await resolveProjectHookStateFile(context, 'activation.json'),
-      `${JSON.stringify(state)}\n`,
-      {
-        mode: 0o600,
-      },
-    );
+    await atomicWrite(await resolveProjectHookStateFile(context, 'activation.json'), serialized, {
+      mode: 0o600,
+    });
   });
   return state;
 }

@@ -218,7 +218,7 @@ async function packedPreflight(repoRoot) {
       name: 'cleo-hook-preflight',
       version: '0.0.0',
       private: true,
-      dependencies: { '@cleocode/cleo': overrides['@cleocode/cleo'] },
+      dependencies: overrides,
       overrides,
     }),
   );
@@ -229,7 +229,9 @@ async function packedPreflight(repoRoot) {
   for (const entry of inventory) {
     const file = join(installDir, 'node_modules', entry.name, 'package.json');
     if (!existsSync(file) || JSON.parse(readFileSync(file, 'utf8')).version !== version)
-      throw new Error('Installed package differs from packed cohort version');
+      throw new Error(
+        `Installed package ${entry.name} differs from packed cohort version; retained ${root}`,
+      );
   }
   const detail = setup(
     process.execPath,

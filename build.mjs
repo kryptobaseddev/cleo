@@ -538,7 +538,7 @@ const adaptersBuildOptions = {
   platform: 'node',
   target: 'node24',
   format: 'esm',
-  outfile: 'packages/adapters/dist/index.js',
+  outdir: 'packages/adapters/dist',
   sourcemap: 'linked',
   sourcesContent: false,
   sourceRoot: '', // T9184

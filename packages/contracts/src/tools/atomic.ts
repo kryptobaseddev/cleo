@@ -115,6 +115,9 @@ export interface WriteFileResult {
   readonly bytesWritten: number;
 }
 
+/** Callable port for the canonical atomic file writer, shared without a runtime dependency. */
+export type WriteFileAtomic = (input: WriteFileInput) => Promise<WriteFileResult>;
+
 /** Input for an existence check. */
 export interface PathExistsInput {
   /** Absolute path to test. */

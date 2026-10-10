@@ -92,11 +92,6 @@ function fakeRunner(opts = {}) {
       return ok('');
     }
     if (file === 'git') return ok('');
-    if (file === process.execPath && args[0]?.endsWith('release-hooks-soak.mjs')) {
-      return ok(
-        'installed activation, native ordinary command, actual allow/block pushes, worktree port and executable drift verified\n',
-      );
-    }
     const verb = args[0];
     if (override[verb]) return { signal: null, stdout: '', stderr: '', ...override[verb] };
     switch (verb) {

@@ -10,6 +10,7 @@ import {
   type ProjectHookDefinition,
   ProjectHookVerdictSchema,
 } from '@cleocode/contracts/project-hooks.js';
+import { discoveryEnv } from '../git/work-tree.js';
 import { atomicWrite } from '../store/atomic.js';
 import {
   computeHookActivation,
@@ -87,6 +88,7 @@ async function executeOne(
     await new Promise<void>((complete) => {
       const child = spawn(executable, [handler, ...hook.args], {
         cwd: invocation.projectRoot,
+        env: discoveryEnv(),
         shell: false,
         detached: process.platform !== 'win32',
         stdio: ['pipe', 'pipe', 'pipe'],

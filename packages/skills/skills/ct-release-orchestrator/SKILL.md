@@ -23,14 +23,6 @@ metadata:
 
 ## Overview
 
-Independent opt-in canaries use `--channel canary` with a numbered
-`vYYYY.MM.N-canary.N` version. The OIDC workflow publishes this version only
-to `canary`, verifies registry convergence and soaks the installed package.
-It never continues to `latest`. Stable promotion is a separate normal release;
-the unified-hooks pilot must first supply hosted VidaPeps CI, read-only database
-verification and live harness evidence bound to the exact canary source digest.
-Source changes require fresh pilot evidence. Do not move npm tags manually.
-
 Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalised when T9540 deleted the legacy `start` / `verify` / `publish` verbs (and the 12-step `releaseShip` monolith) plus T10103 deleted the deprecated `ship` shim. The current verb surface is documented in `docs/release/verb-matrix.md` — that file is the SSoT for verb-to-state mapping. This skill is the agent-facing entry point and references the matrix instead of redefining it.
 
 ## Core Principle

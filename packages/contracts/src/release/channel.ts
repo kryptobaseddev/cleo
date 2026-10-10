@@ -10,7 +10,7 @@
  */
 
 /** npm dist-tag channel for a release. */
-export type ReleaseChannel = 'latest' | 'beta' | 'alpha' | 'canary';
+export type ReleaseChannel = 'latest' | 'beta' | 'alpha';
 
 /** Result of validating a version string against a channel's expectations. */
 export interface ChannelValidationResult {

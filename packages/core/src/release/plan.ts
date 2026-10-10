@@ -51,7 +51,7 @@ import {
   E_RELEASE_PLAN_INVALID,
   ExitCode,
 } from '@cleocode/contracts/exit-codes.js';
-import { parseReleasePlan, RELEASE_PERSISTED_CHANNEL } from '@cleocode/contracts/release/plan.js';
+import { parseReleasePlan } from '@cleocode/contracts/release/plan.js';
 import { desc, eq } from 'drizzle-orm';
 
 import { parseChangesetDir } from '../changesets/index.js';
@@ -338,7 +338,15 @@ function mapPlanChannelToDbChannel(
   releaseKind: ReleaseKind,
 ): 'latest' | 'beta' | 'dev' | 'hotfix' {
   if (releaseKind === 'hotfix') return 'hotfix';
-  return RELEASE_PERSISTED_CHANNEL[channel];
+  switch (channel) {
+    case 'latest':
+      return 'latest';
+    case 'beta':
+    case 'rc':
+      return 'beta';
+    case 'alpha':
+      return 'dev';
+  }
 }
 
 /**
@@ -351,15 +359,6 @@ function validateChannelScheme(
   scheme: ReleaseScheme,
   version: string,
 ): { ok: true } | { ok: false; reason: string } {
-  if (channel === 'canary' && !/-canary\.\d+$/.test(version)) {
-    return { ok: false, reason: "channel='canary' requires a numbered -canary.N version." };
-  }
-  if (channel !== 'canary' && /-canary(?:\.|$)/.test(version)) {
-    return {
-      ok: false,
-      reason: 'A canary version requires --channel canary; it cannot target another dist-tag.',
-    };
-  }
   // `latest` requires NO pre-release suffix.
   if (channel === 'latest' && version.includes('-')) {
     return {

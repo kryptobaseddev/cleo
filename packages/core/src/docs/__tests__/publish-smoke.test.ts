@@ -14,11 +14,21 @@
  * @epic T10521 (T10516-E: Docs dogfood regression harness)
  */
 
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { computeProjectHash, resolveTaskWorktreePath } from '@cleocode/paths';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Module mocks (hoisted) ──────────────────────────────────────────────────
 
@@ -27,13 +37,16 @@ vi.mock('../../store/blob-ops.js', () => ({
   blobRead: vi.fn(),
 }));
 
-vi.mock('../../paths.js', () => ({
+vi.mock('../../paths.js', async () => ({
+  ...(await vi.importActual<typeof import('../../paths.js')>('../../paths.js')),
   getProjectRoot: vi.fn(() => '/tmp/test-project'),
 }));
 
 // ─── Imports (after mocks) ───────────────────────────────────────────────────
 
+import { createAttachmentStore } from '../../store/attachment-store.js';
 import * as blobOps from '../../store/blob-ops.js';
+import { closeAllDatabases } from '../../store/sqlite.js';
 
 import {
   listPublications,
@@ -41,6 +54,7 @@ import {
   readPublicationsLedger,
   recordPublication,
 } from '../docs-ops.js';
+import { reserveSlug } from '../slug-allocator.js';
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
@@ -150,6 +164,152 @@ describe('AC1: publishDocs — publish, explicit attachment (rollback), and dry-
 });
 
 // ─── AC2: all doc types through consolidated publish path ─────────────────────
+
+describe('T13376: registered canonical worktree publication boundaries', () => {
+  let fixture: string;
+  let root: string;
+  let worktree: string;
+
+  const git = (cwd: string, args: string[]): void => {
+    execFileSync('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+  };
+  beforeEach(() => {
+    fixture = realpathSync(mkdtempSync(join(tmpdir(), 'publish-worktree-')));
+    root = join(fixture, 'main');
+    mkdirSync(root);
+    vi.stubEnv('CLEO_HOME', join(fixture, 'cleo-home'));
+    git(root, ['init', '-q']);
+    git(root, [
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@cleo.dev',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-qm',
+      'fixture',
+    ]);
+    worktree = resolveTaskWorktreePath(computeProjectHash(root), 'T13376');
+    git(root, ['worktree', 'add', '--detach', '-q', worktree]);
+    vi.mocked(blobOps.blobList).mockResolvedValue([blob('spec.md', 'fixture-sha')]);
+    vi.mocked(blobOps.blobRead).mockResolvedValue(Buffer.from('canonical attachment'));
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(fixture, { recursive: true, force: true });
+  });
+
+  it('publishes the store attachment into the registered task worktree without an override', async () => {
+    for (const path of ['docs/spec/design.md', '.changeset/reviewed.md']) {
+      const target = join(worktree, path);
+      const result = await publishDocs({ ownerId: 'T13376', projectRoot: root, toPath: target });
+      expect(result.publishedPath).toBe(target);
+      expect(readFileSync(target, 'utf8')).toBe('canonical attachment');
+      expect(blobOps.blobList).toHaveBeenCalledWith('T13376', root);
+    }
+  });
+
+  it('rejects registered worktrees outside the canonical paths layout', async () => {
+    const other = join(fixture, 'arbitrary-linked');
+    git(root, ['worktree', 'add', '--detach', '-q', other]);
+    await expect(
+      publishDocs({ ownerId: 'T13376', projectRoot: root, toPath: join(other, 'docs/a.md') }),
+    ).rejects.toThrow('refusing to write outside projectRoot');
+  });
+
+  it('rejects an unregistered directory despite a canonical task path', async () => {
+    const absent = resolveTaskWorktreePath(computeProjectHash(root), 'T99999');
+    mkdirSync(absent, { recursive: true });
+    await expect(
+      publishDocs({ ownerId: 'T13376', projectRoot: root, toPath: join(absent, 'docs/a.md') }),
+    ).rejects.toThrow('refusing to write outside projectRoot');
+  });
+
+  it.each([
+    'main',
+    'worktree',
+  ])('rejects symlink parent escapes from %s, including a new leaf', async (source) => {
+    const outside = join(fixture, 'outside');
+    mkdirSync(outside);
+    const checkout = source === 'main' ? root : worktree;
+    symlinkSync(outside, join(checkout, 'docs'), 'dir');
+    await expect(
+      publishDocs({
+        ownerId: 'T13376',
+        projectRoot: root,
+        toPath: join(checkout, 'docs/new/design.md'),
+      }),
+    ).rejects.toThrow('refusing to write outside projectRoot');
+  });
+
+  it('rejects another repository occupying the project canonical task path', async () => {
+    const foreign = resolveTaskWorktreePath(computeProjectHash(root), 'T99999');
+    mkdirSync(foreign, { recursive: true });
+    git(foreign, ['init', '-q']);
+    await expect(
+      publishDocs({ ownerId: 'T13376', projectRoot: root, toPath: join(foreign, 'docs/a.md') }),
+    ).rejects.toThrow('refusing to write outside projectRoot');
+  });
+
+  it('ignores ambient repository variables when validating Git registration', async () => {
+    const foreign = join(fixture, 'foreign');
+    mkdirSync(foreign);
+    git(foreign, ['init', '-q']);
+    vi.stubEnv('GIT_DIR', join(foreign, '.git'));
+    vi.stubEnv('GIT_WORK_TREE', foreign);
+    const result = await publishDocs({
+      ownerId: 'T13376',
+      projectRoot: root,
+      toPath: join(worktree, 'docs/a.md'),
+    });
+    expect(readFileSync(result.publishedPath, 'utf8')).toBe('canonical attachment');
+  });
+
+  it('T13388 publishes the actual owner-bound canonical changeset by UUID, SHA, slug and default', async () => {
+    mkdirSync(join(root, '.cleo'));
+    vi.mocked(blobOps.blobList).mockResolvedValue([]);
+    const slug = 'owner-bound-changeset';
+    const reservation = await reserveSlug('changeset', slug, { cwd: root });
+    expect(reservation.ok).toBe(true);
+    const store = createAttachmentStore();
+    const text = '---\n"@cleocode/core": patch\n---\n\nReviewable changeset.\n';
+    const metadata = await store.put(
+      text,
+      { kind: 'blob', mime: 'text/markdown', size: Buffer.byteLength(text), description: slug },
+      'task',
+      'T13388',
+      'test',
+      root,
+      { slug, type: 'changeset' },
+    );
+    try {
+      for (const attachmentId of [metadata.id, metadata.sha256, slug, undefined]) {
+        const result = await publishDocs({
+          ownerId: 'T13388',
+          attachmentId,
+          projectRoot: root,
+          toPath: join(worktree, '.changeset', `${attachmentId ?? 'default'}.md`),
+        });
+        expect(result.blobSha256).toBe(metadata.sha256);
+        expect(result.blobName).toBe(`${slug}.md`);
+        expect(readFileSync(result.publishedPath, 'utf8')).toContain('Reviewable changeset.');
+      }
+      await expect(
+        publishDocs({
+          ownerId: 'T99999',
+          attachmentId: metadata.id,
+          projectRoot: root,
+          toPath: join(worktree, '.changeset/wrong-owner.md'),
+        }),
+      ).rejects.toThrow('not found for owner');
+      expect(blobOps.blobRead).not.toHaveBeenCalledWith('T13388', `${slug}.md`, root);
+    } finally {
+      await closeAllDatabases();
+    }
+  });
+});
 
 describe('AC2: all doc types through consolidated publish path', () => {
   const docTypes = [

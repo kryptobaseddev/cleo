@@ -15,16 +15,28 @@
  * @see packages/cleo/src/cli/commands/docs.ts (CLI surface)
  */
 
+import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path';
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve as resolvePath,
+  sep,
+} from 'node:path';
 import type { LocalFileAttachment } from '@cleocode/contracts';
+import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
 import type { KnowledgeGraph, MessageInput } from 'llmtxt/graph';
 import type { ReconstructionResult, VersionDiffSummary, VersionEntry } from 'llmtxt/sdk';
 import type { SimilarityRankResult } from 'llmtxt/similarity';
+import { discoveryEnv } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { blobList, blobRead } from '../store/blob-ops.js';
+import { canonicalizePath } from '../tools/fs.js';
 
 // ─── Error helpers ────────────────────────────────────────────────────────────
 
@@ -970,6 +982,61 @@ export interface DocsPublishResult {
   readonly ownerId: string;
 }
 
+/** Return the validated real target; Git registration alone never authorizes arbitrary paths. */
+async function validatedPublicationPath(root: string, destination: string): Promise<string | null> {
+  const canonicalRoot = await canonicalizePath(root);
+  const inside = (parent: string, child: string): boolean => {
+    const rel = relative(parent, child);
+    return !isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`);
+  };
+  const canonicalDestination = await canonicalizePath(destination);
+  if (
+    (inside(resolvePath(root), destination) || inside(canonicalRoot, destination)) &&
+    inside(canonicalRoot, canonicalDestination)
+  )
+    return canonicalDestination;
+  const worktreeBase = resolveWorktreeRootForHash(computeProjectHash(canonicalRoot));
+  const canonicalBase = await canonicalizePath(worktreeBase);
+  const probe = (cwd: string, args: string[]): string =>
+    execFileSync('git', args, {
+      cwd,
+      env: discoveryEnv(),
+      encoding: 'utf8',
+      timeout: 10000,
+      maxBuffer: 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  try {
+    // Cold path only: ordinary project publication never loads the worktree barrel.
+    const { parseWorktreePorcelain } = await import('@cleocode/worktree');
+    const common = await canonicalizePath(
+      probe(canonicalRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
+    );
+    const registered = parseWorktreePorcelain(
+      probe(canonicalRoot, ['worktree', 'list', '--porcelain']),
+    );
+    for (const entry of registered) {
+      const taskId = basename(entry.path);
+      if (!/^T\d+$/.test(taskId)) continue;
+      const expected = join(canonicalBase, taskId);
+      const checkout = await canonicalizePath(entry.path);
+      if (
+        checkout !== expected ||
+        !(inside(checkout, destination) || inside(join(worktreeBase, taskId), destination)) ||
+        !inside(checkout, canonicalDestination)
+      )
+        continue;
+      const checkoutCommon = await canonicalizePath(
+        probe(checkout, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
+      );
+      if (checkoutCommon === common) return canonicalDestination;
+    }
+  } catch {
+    // Missing/unreadable Git registration supplies no additional authority.
+  }
+  return null;
+}
+
 /**
  * Atomically publish an attachment from the docs SSoT to a git-tracked path.
  *
@@ -978,8 +1045,10 @@ export interface DocsPublishResult {
  * is omitted the most recently uploaded blob (latest by `uploadedAt`) is used.
  *
  * Path-escape guard: when `toPath` is relative it is joined under
- * `projectRoot`; absolute paths must still resolve within `projectRoot`
- * unless the caller passes `allowOutsideRoot: true`. This prevents an
+ * `projectRoot`; absolute paths must resolve within `projectRoot` or a
+ * Git-registered canonical task worktree of the same repository. Symlink
+ * escapes remain blocked, including for new destination files. Otherwise,
+ * writes require an explicit override: the caller passes `allowOutsideRoot: true`. This prevents an
  * attacker-controlled blob name from being published to an arbitrary path
  * via traversal sequences.
  *
@@ -1016,31 +1085,60 @@ export async function publishDocs(opts: {
   const root = opts.projectRoot ?? getProjectRoot();
   const blobs = await blobList(opts.ownerId, root).catch(() => []);
 
-  if (blobs.length === 0) {
-    throw new Error(`publishDocs: no attachments found for owner "${opts.ownerId}"`);
-  }
-
   // Select target blob. When attachmentId is provided, match by sha256, blob name,
   // or legacy attachment row ID. Otherwise, pick the most recently uploaded blob.
   let target = opts.attachmentId
     ? blobs.find((b) => b.sha256 === opts.attachmentId || b.name === opts.attachmentId)
-    : blobs.reduce((latest, b) => ((b.uploadedAt ?? 0) > (latest.uploadedAt ?? 0) ? b : latest));
+    : blobs.length
+      ? blobs.reduce((latest, b) => ((b.uploadedAt ?? 0) > (latest.uploadedAt ?? 0) ? b : latest))
+      : undefined;
 
-  if (!target && opts.attachmentId) {
+  let canonicalBytes: Buffer | undefined;
+  if (!target) {
     const store = createAttachmentStore();
-    const metadata = await store.getMetadata(opts.attachmentId, root).catch(() => null);
+    const metadata = opts.attachmentId
+      ? ((await store.getMetadata(opts.attachmentId, root).catch(() => null)) ??
+        (await store.findBySlug(opts.attachmentId, root).catch(() => null))?.metadata)
+      : (await store.listByOwner('task', opts.ownerId, root).catch(() => [])).sort((a, b) =>
+          b.createdAt.localeCompare(a.createdAt),
+        )[0];
     if (metadata) {
-      target = blobs.find((b) => b.sha256 === metadata.sha256);
+      // Preserve UUID-to-legacy-blob lookup, still scoped to this owner's manifest.
+      target = blobs.find((entry) => entry.sha256 === metadata.sha256);
+      if (!target) {
+        const owners = await store.listRefs(metadata.id, root);
+        const owner = owners.find((ref) => ref.ownerId === opts.ownerId);
+        const owned = owner ? await store.listByOwner(owner.ownerType, opts.ownerId, root) : [];
+        // @sync-invariant none:local-only publication reads are restricted to the requested attachment owner; no synced rows mutate.
+        if (owned.some((attachment) => attachment.id === metadata.id)) {
+          const content = await store.get(metadata.sha256, root);
+          // @sync-invariant none:local-only blob content identity protects this local file publication, not synced rows.
+          if (!content || content.metadata.id !== metadata.id)
+            throw new Error(`publishDocs: could not read attachment "${metadata.id}"`);
+          canonicalBytes = content.bytes;
+          const extras = await store.getExtras(metadata.id, root);
+          target = {
+            name: extras?.slug ? `${extras.slug}.md` : metadata.id,
+            sha256: metadata.sha256,
+            sizeBytes: content.bytes.byteLength,
+            mimeType: metadata.attachment.kind === 'blob' ? metadata.attachment.mime : undefined,
+            uploadedAt: Date.parse(metadata.createdAt),
+          };
+        }
+      }
     }
   }
 
   if (!target) {
+    // @sync-invariant none:local-only absent readable owner content prevents local publication; no synced state is changed.
+    if (!opts.attachmentId && !blobs.length)
+      throw new Error(`publishDocs: no attachments found for owner "${opts.ownerId}"`);
     throw new Error(
       `publishDocs: attachment "${opts.attachmentId}" not found for owner "${opts.ownerId}"`,
     );
   }
 
-  const bytes = await blobRead(opts.ownerId, target.name, root);
+  const bytes = canonicalBytes ?? (await blobRead(opts.ownerId, target.name, root));
   if (!bytes) {
     throw new Error(
       `publishDocs: could not read blob "${target.name}" for owner "${opts.ownerId}"`,
@@ -1048,17 +1146,27 @@ export async function publishDocs(opts: {
   }
 
   // Resolve to absolute, then enforce project-root containment unless opted out.
-  const publishedPath = isAbsolute(opts.toPath)
+  let publishedPath = isAbsolute(opts.toPath)
     ? resolvePath(opts.toPath)
     : resolvePath(root, opts.toPath);
+  let publicationOrigin = root;
 
   if (!opts.allowOutsideRoot) {
-    const rel = relative(root, publishedPath);
-    if (rel.startsWith('..') || isAbsolute(rel)) {
+    // T13376: validate in the SDK so every caller shares the same boundary.
+    // Both lexical and real filesystem containment are required; registered
+    // canonical task worktrees extend the root without an outside-root bypass.
+    const canonicalRoot = await canonicalizePath(root);
+    const lexicalPath = isAbsolute(opts.toPath)
+      ? resolvePath(opts.toPath)
+      : resolvePath(canonicalRoot, opts.toPath);
+    const validatedPath = await validatedPublicationPath(root, lexicalPath);
+    if (!validatedPath) {
       throw new Error(
         `publishDocs: refusing to write outside projectRoot "${root}" (resolved to "${publishedPath}"). Pass allowOutsideRoot:true to override.`,
       );
     }
+    publishedPath = validatedPath;
+    publicationOrigin = canonicalRoot;
   }
 
   // Tmp name carries pid + random suffix so concurrent publishes never collide.
@@ -1090,7 +1198,7 @@ export async function publishDocs(opts: {
   }
 
   const sha256 = createHash('sha256').update(bytes).digest('hex');
-  const relativePath = relative(root, publishedPath);
+  const relativePath = relative(publicationOrigin, publishedPath);
 
   return {
     publishedPath,

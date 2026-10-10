@@ -224,7 +224,6 @@ const KNOWN_CLEO_LABELS: CleoLabelPalette = {
   latest: { color: '1D76DB', description: 'Targets the latest stable channel' },
   beta: { color: 'FBCA04', description: 'Targets the beta channel' },
   alpha: { color: 'D93F0B', description: 'Targets the alpha channel' },
-  canary: { color: '5319E7', description: 'Targets the opt-in canary channel only' },
 };
 
 /**

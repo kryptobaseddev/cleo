@@ -95,7 +95,6 @@ export function channelToDistTag(channel: ReleaseChannel): string {
     latest: 'latest',
     beta: 'beta',
     alpha: 'alpha',
-    canary: 'canary',
   };
   return tags[channel];
 }
@@ -114,14 +113,6 @@ export function validateVersionChannel(
   channel: ReleaseChannel,
 ): ChannelValidationResult {
   switch (channel) {
-    case 'canary': {
-      const valid = /-canary\.\d+$/.test(version);
-      return {
-        valid,
-        message: valid ? 'ok' : 'Canary requires a numbered -canary.N version.',
-        ...(valid ? {} : { expected: '-canary.N', actual: version }),
-      };
-    }
     case 'latest': {
       if (version.includes('-')) {
         return {
@@ -173,7 +164,6 @@ export function describeChannel(channel: ReleaseChannel): string {
     latest: 'stable release published to npm @latest',
     beta: 'pre-release published to npm @beta (develop branch)',
     alpha: 'early pre-release published to npm @alpha (feature/hotfix branches)',
-    canary: 'opt-in canary published only to npm @canary; stable is a separate release',
   };
   return descriptions[channel];
 }
