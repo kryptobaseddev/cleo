@@ -70,8 +70,18 @@
         "qa": ["Type Check", "Lint & Format"]
       },
       "covering": {
-        "tests": [{ "paths": ["scripts/**"], "jobs": ["Scripts Tests"] }],
-        "qa": [{ "paths": ["scripts/**"], "jobs": ["Lint & Format"] }]
+        "tests": [
+          { "paths": ["scripts/**"], "jobs": ["Scripts Tests"] },
+          { "paths": [".changeset/**"], "jobs": ["Changeset Lint (T13281)"] },
+          { "paths": ["docs/**"], "jobs": ["Canon Drift Check"] },
+          { "paths": ["AGENTS.md"], "jobs": ["Arch Gates / Arch-Gate Parity (T12122 · gate 20)"] }
+        ],
+        "qa": [
+          { "paths": ["scripts/**"], "jobs": ["Lint & Format"] },
+          { "paths": [".changeset/**"], "jobs": ["Changeset Lint (T13281)"] },
+          { "paths": ["docs/**"], "jobs": ["Canon Drift Check"] },
+          { "paths": ["AGENTS.md"], "jobs": ["Arch Gates / Arch-Gate Parity (T12122 · gate 20)"] }
+        ]
       }
     }
   }

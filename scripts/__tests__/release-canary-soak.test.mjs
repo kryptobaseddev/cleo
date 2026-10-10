@@ -15,7 +15,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  INSTALL_CONVERGE_MS,
   installedCleocodePackages,
+  isPropagationPending,
   parseArgs,
   resolveTag,
   runCommand,
@@ -134,9 +136,9 @@ describe('installedCleocodePackages', () => {
 });
 
 describe('soak', () => {
-  it('passes every check against a coherent install', () => {
+  it('passes every check against a coherent install', async () => {
     const { run, calls } = fakeRunner();
-    const report = soak({ version: VERSION, root, run });
+    const report = await soak({ version: VERSION, root, run });
     expect(report.ok, JSON.stringify(report.checks, null, 2)).toBe(true);
     expect(report.checks.map((c) => c.name)).toEqual(SOAK_CHECKS.map((c) => c.name));
     expect(report.checks.find((c) => c.name === 'doctor')?.detail).toContain('tasks_wipe_guard');
@@ -149,6 +151,7 @@ describe('soak', () => {
       join(root, 'prefix'),
       '--no-audit',
       '--no-fund',
+      '--prefer-online',
       '--loglevel',
       'error',
       `@cleocode/cleo@${VERSION}`,
@@ -157,11 +160,11 @@ describe('soak', () => {
     expect(calls.find((c) => c[1] === 'add')).toContain('T001');
   });
 
-  it('fails on a mixed @cleocode tree and skips everything after it', () => {
+  it('fails on a mixed @cleocode tree and skips everything after it', async () => {
     const { run, calls } = fakeRunner({
       versions: { cleo: VERSION, core: '2026.10.4', lafs: VERSION },
     });
-    const report = soak({ version: VERSION, root, run });
+    const report = await soak({ version: VERSION, root, run });
     expect(report.ok).toBe(false);
     const coherence = report.checks.find((c) => c.name === 'coherent-versions');
     expect(coherence?.ok).toBe(false);
@@ -170,59 +173,157 @@ describe('soak', () => {
     expect(calls).toHaveLength(1);
   });
 
-  it('fails when only cleo itself is installed', () => {
+  it('fails when only cleo itself is installed', async () => {
     const { run } = fakeRunner({ versions: { cleo: VERSION } });
-    const report = soak({ version: VERSION, root, run });
+    const report = await soak({ version: VERSION, root, run });
     expect(report.checks.find((c) => c.name === 'coherent-versions')?.ok).toBe(false);
   });
 
-  it('fails when the installed binary reports another version', () => {
+  it('fails when the installed binary reports another version', async () => {
     const { run } = fakeRunner({ reportedVersion: '2026.10.4' });
-    const report = soak({ version: VERSION, root, run });
+    const report = await soak({ version: VERSION, root, run });
     const check = report.checks.find((c) => c.name === 'version');
     expect(check?.ok).toBe(false);
     expect(check?.detail).toContain('2026.10.4');
   });
 
-  it('fails on a nonzero exit and names the status', () => {
+  it('fails on a nonzero exit and names the status', async () => {
     const { run } = fakeRunner({
       override: { init: { status: 1, stdout: '{"success":false}' } },
     });
-    const report = soak({ version: VERSION, root, run });
+    const report = await soak({ version: VERSION, root, run });
     const check = report.checks.find((c) => c.name === 'init');
     expect(check?.ok).toBe(false);
     expect(check?.detail).toContain('exited 1');
   });
 
-  it('fails when the write cannot be read back', () => {
+  it('fails when the write cannot be read back', async () => {
     const { run } = fakeRunner({ override: { show: { status: 0, stdout: 'other title\n' } } });
-    const report = soak({ version: VERSION, root, run });
+    const report = await soak({ version: VERSION, root, run });
     expect(report.checks.find((c) => c.name === 'show')?.ok).toBe(false);
   });
 
-  it('fails when find does not return the epic', () => {
+  it('fails when find does not return the epic', async () => {
     const { run } = fakeRunner({ override: { find: { status: 0, stdout: 'T001\n' } } });
-    const report = soak({ version: VERSION, root, run });
+    const report = await soak({ version: VERSION, root, run });
     expect(report.checks.find((c) => c.name === 'find')?.ok).toBe(false);
   });
 
-  it('fails when a doctor check fails, not when one warns', () => {
+  it('fails when a doctor check fails, not when one warns', async () => {
     const { run } = fakeRunner({
       doctorChecks: [
         { name: 'tasks_db', status: 'fail' },
         { name: 'tasks_wipe_guard', status: 'warn' },
       ],
     });
-    const check = soak({ version: VERSION, root, run }).checks.find((c) => c.name === 'doctor');
+    const check = (await soak({ version: VERSION, root, run })).checks.find(
+      (c) => c.name === 'doctor',
+    );
     expect(check?.ok).toBe(false);
     expect(check?.detail).toContain('tasks_db');
+  });
+});
+
+describe('install retries registry propagation (T13328)', () => {
+  const etarget = {
+    status: 1,
+    signal: null,
+    stdout: '',
+    stderr: `npm error code ETARGET\nnpm error notarget No matching version found for @cleocode/core@${VERSION}.\n`,
+  };
+  const e404 = {
+    ...etarget,
+    stderr:
+      'npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/@cleocode%2fcore - Not found\n',
+  };
+  const eacces = { ...etarget, stderr: 'npm error code EACCES\nnpm error syscall mkdir\n' };
+
+  /** Fail the first `failures.length` installs with those results, then install normally. */
+  function flakyInstall(failures) {
+    const inner = fakeRunner();
+    let installs = 0;
+    const run = (file, args, options) => {
+      if (file === 'npm' && installs++ < failures.length) {
+        inner.calls.push([file, ...args]);
+        return failures[installs - 1];
+      }
+      return inner.run(file, args, options);
+    };
+    return { run, installs: () => installs, calls: inner.calls };
+  }
+
+  /** A clock that each sleep advances, so the window is measured without waiting. */
+  function fakeClock() {
+    let t = 0;
+    const waits = [];
+    return {
+      now: () => t,
+      sleepImpl: async (ms) => {
+        waits.push(ms);
+        t += ms;
+      },
+      waits,
+    };
+  }
+
+  it('classifies ETARGET and E404 as propagation, anything else as a failure', () => {
+    expect(isPropagationPending(etarget)).toBe(true);
+    expect(isPropagationPending(e404)).toBe(true);
+    expect(isPropagationPending(eacces)).toBe(false);
+    expect(isPropagationPending({ ...etarget, status: 0 })).toBe(false);
+  });
+
+  it('an ETARGET then E404 install is retried with backoff and the soak passes once npm resolves it', async () => {
+    const { run, installs } = flakyInstall([etarget, e404]);
+    const clock = fakeClock();
+    const report = await soak({ version: VERSION, root, run, retry: clock });
+    expect(report.ok).toBe(true);
+    expect(installs()).toBe(3);
+    const install = report.checks.find((c) => c.name === 'install');
+    expect(install?.attempts).toBe(3);
+    expect(install?.detail).toContain('after 3 attempts');
+    expect(clock.waits).toEqual([15_000, 30_000]);
+  });
+
+  it('every install asks npm to re-read the registry (--prefer-online)', async () => {
+    const { run, calls } = flakyInstall([etarget]);
+    await soak({ version: VERSION, root, run, retry: fakeClock() });
+    const npmCalls = calls.filter((c) => c[0] === 'npm');
+    expect(npmCalls).toHaveLength(2);
+    for (const c of npmCalls) expect(c).toContain('--prefer-online');
+  });
+
+  it('a version still missing when the window closes fails the soak, naming the retries', async () => {
+    const { run, installs } = flakyInstall(Array.from({ length: 100 }, () => etarget));
+    const clock = fakeClock();
+    const report = await soak({ version: VERSION, root, run, retry: clock });
+    expect(report.ok).toBe(false);
+    const install = report.checks.find((c) => c.name === 'install');
+    expect(install?.ok).toBe(false);
+    expect(install?.detail).toContain('ETARGET');
+    expect(install?.detail).toContain('still unresolved after');
+    expect(install?.detail).toContain('publish defect');
+    expect(clock.waits.reduce((a, b) => a + b, 0)).toBe(INSTALL_CONVERGE_MS);
+    expect(installs()).toBeGreaterThan(2);
+    expect(installs()).toBeLessThan(100);
+    expect(report.checks.filter((c) => c.skipped)).toHaveLength(report.checks.length - 1);
+  });
+
+  it('a non-propagation install failure fails at once, without retry', async () => {
+    const { run, installs } = flakyInstall([eacces]);
+    const clock = fakeClock();
+    const report = await soak({ version: VERSION, root, run, retry: clock });
+    expect(report.ok).toBe(false);
+    expect(installs()).toBe(1);
+    expect(clock.waits).toEqual([]);
+    expect(report.checks[0].detail).toContain('EACCES');
   });
 });
 
 describe('soak environment isolation (T13181 review)', () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it('the install and every CLI run get a sandbox-only env: no OIDC request, Actions or npm token variables', () => {
+  it('the install and every CLI run get a sandbox-only env: no OIDC request, Actions or npm token variables', async () => {
     // release.yml grants id-token: write; a transitive install script must not
     // be able to mint an OIDC token, so none of these may reach the children.
     for (const [k, v] of Object.entries({
@@ -237,7 +338,7 @@ describe('soak environment isolation (T13181 review)', () => {
       vi.stubEnv(k, v);
     const { run } = fakeRunner();
     const envs = [];
-    const report = soak({
+    const report = await soak({
       version: VERSION,
       root,
       run: (file, args, opts) => {
