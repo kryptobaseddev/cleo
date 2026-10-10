@@ -427,6 +427,78 @@ export interface CloudActivityResult {
   warnings: CloudWarning[];
 }
 
+/** Per-table op counts of one journal transaction, by op kind. */
+export interface CloudJournalTableOps {
+  I: number;
+  U: number;
+  D: number;
+  K: number;
+}
+
+/**
+ * One transaction another device (or this one, echoed back) wrote, as this
+ * store's journal received it (`cleo cloud activity --journal`, T13369).
+ */
+export interface CloudJournalActivityItem {
+  /** The transaction id, `${replicaId}:${localSeq}`. */
+  txn: string;
+  stream: string;
+  /** The segment's stream sequence number and the transaction's index in it. */
+  seq: number;
+  txnIdx: number;
+  /** The replica (store) that wrote it. */
+  replicaId: string;
+  /** The Nexus device that signed its segment. */
+  deviceId: string;
+  /** The device's name from the account's device list; `null` offline or when unknown. */
+  deviceName: string | null;
+  /** Written by a replica this machine bound. */
+  thisDevice: boolean;
+  /** The transaction's HLC. */
+  hlc: string;
+  /** When it was written: the HLC's physical time, ISO-8601. */
+  at: string;
+  /** When this store staged it, and applied it (`null` until applied). */
+  stagedAt: string;
+  appliedAt: string | null;
+  /** Inbox status: `applied`, `void`, `conflict`, `staged`, `pending`, `held-skew`, `refused-schema`. */
+  status: string;
+  /** Why it is void, held or refused, when it is. */
+  reason: string | null;
+  /** `write`, `repair`, `retire`, … and how the writes reached the store. */
+  kind: string;
+  via: string;
+  /** The command, agent and session that wrote it, when recorded. */
+  actor: { agent?: string; session?: string; op?: string } | null;
+  /** The project the transaction is for (`null` for a global-scope txn). */
+  project: string | null;
+  /** Total ops, and op counts per table. */
+  ops: number;
+  tables: Record<string, CloudJournalTableOps>;
+}
+
+/** One device's share of the journal activity matching the filters. */
+export interface CloudJournalActivityDevice {
+  deviceId: string;
+  deviceName: string | null;
+  thisDevice: boolean;
+  /** Matching transactions, and the newest one's write time (ISO-8601). */
+  txns: number;
+  lastAt: string;
+}
+
+/** `cleo cloud activity --journal`: what each device changed and when, from the local journal. */
+export interface CloudJournalActivityResult {
+  scope: CloudVaultScope;
+  /** Newest first. */
+  items: CloudJournalActivityItem[];
+  /** Per device, over every matching transaction (not just this page). */
+  devices: CloudJournalActivityDevice[];
+  /** Pass as `--before` for the next older page; `null` at the end. */
+  nextBefore: string | null;
+  warnings: CloudWarning[];
+}
+
 /** One conflict an apply recorded (`cleo cloud conflicts`, T12344 PR-6). */
 export interface CloudConflict {
   id: number;

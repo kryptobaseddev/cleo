@@ -14,6 +14,7 @@ import type {
   CloudActivityResult,
   CloudConflictResolveResult,
   CloudConflictsResult,
+  CloudJournalActivityResult,
   CloudLeaseReleaseResult,
   CloudPushResult,
   CloudRestoreResult,
@@ -356,6 +357,10 @@ export async function runCloudLease(args: Args): Promise<void> {
  * @param args - Parsed args.
  */
 export async function runCloudActivity(args: Args): Promise<void> {
+  if (args.journal === true) {
+    await runCloudJournalActivity(args);
+    return;
+  }
   await runCloudRead<CloudActivityResult>(
     'cloud.activity',
     async () => {
@@ -382,6 +387,56 @@ export async function runCloudActivity(args: Args): Promise<void> {
             `${i.at} ${who(i.deviceName, i.deviceId ?? 'account')}${i.thisDevice ? ' (this machine)' : ''} ${terminalSafe(i.action)}${i.target ? ` ${terminalSafe(i.target)}` : ''}`,
         )
         .join('; ')}${r.items.length > 10 ? '; …' : ''}`,
+  );
+}
+
+/**
+ * `cleo cloud activity --journal [--device] [--since] [--project] [--limit]
+ * [--before] [--offline] [--scope]`: what each device changed and when, from
+ * this store's sync journal (T13369).
+ *
+ * @param args - Parsed args.
+ */
+async function runCloudJournalActivity(args: Args): Promise<void> {
+  await runCloudRead<CloudJournalActivityResult>(
+    'cloud.activity.journal',
+    async () => {
+      const { nexusJournalActivity } = await import(
+        /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-cloud-journal-activity.js'
+      );
+      const limit = activityLimitArg(args);
+      const before = stringArg(args, 'before');
+      const deviceId = stringArg(args, 'device');
+      const since = stringArg(args, 'since');
+      const projectId = stringArg(args, 'project');
+      return nexusJournalActivity({
+        apiUrl: nexusApiUrlArg(args),
+        scope: scopeArg(args, 'cloud.activity.journal'),
+        offline: args.offline === true,
+        ...(limit !== undefined ? { limit } : {}),
+        ...(before !== undefined ? { before } : {}),
+        ...(deviceId !== undefined ? { deviceId } : {}),
+        ...(since !== undefined ? { since } : {}),
+        ...(projectId !== undefined ? { projectId } : {}),
+      });
+    },
+    (r) =>
+      [
+        `${r.items.length} journal transaction(s) from ${r.devices.length} device(s):`,
+        ...r.devices.map(
+          (d) =>
+            `  ${who(d.deviceName, d.deviceId)}${d.thisDevice ? ' (this machine)' : ''}: ${d.txns} txn(s), last ${d.lastAt}`,
+        ),
+        ...r.items.slice(0, 10).map(
+          (i) =>
+            `  ${i.at} ${who(i.deviceName, i.deviceId)} ${terminalSafe(i.actor?.op ?? i.kind)} ${i.status}: ${Object.entries(
+              i.tables,
+            )
+              .map(([t, n]) => `${terminalSafe(t)} ${n.I}I/${n.U}U/${n.D}D${n.K ? `/${n.K}K` : ''}`)
+              .join(', ')}`,
+        ),
+        ...(r.items.length > 10 ? ['  …'] : []),
+      ].join('\n'),
   );
 }
 
