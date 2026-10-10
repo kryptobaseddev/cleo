@@ -42,7 +42,12 @@ import type { DrizzleTableRef } from '../pipeline/knowledge-graph.js';
 import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { detectLanguageFromPath, isIndexableFile } from '../pipeline/language-detection.js';
 import { computeExtractorFingerprint } from '../pipeline/parse-cache.js';
-import { extractOriginalSource, runParseLoop } from '../pipeline/parse-loop.js';
+import {
+  createParentHeapGuard,
+  extractOriginalSource,
+  NEXUS_HEAP_EXHAUSTED,
+  runParseLoop,
+} from '../pipeline/parse-loop.js';
 import { processStructure } from '../pipeline/structure-processor.js';
 import { createSymbolTable } from '../pipeline/symbol-table.js';
 
@@ -111,31 +116,31 @@ describe('bounded parser workers (T12262)', () => {
         let pool = createWorkerPool(fixture(\`
           let count = 0;
           parentPort.on('message', message => {
-            if (message.type === 'sub-batch') {
-              if (message.files.length !== 1) throw new Error('unbounded batch');
-              count++; parentPort.postMessage({ type: 'sub-batch-done' });
-            } else parentPort.postMessage({ type: 'result', data: { count, heap: getHeapStatistics().heap_size_limit } });
+            if (message.files.length !== 1) throw new Error('unbounded batch');
+            count++; parentPort.postMessage({ type: 'sub-batch-done', data: { count, heap: getHeapStatistics().heap_size_limit } });
           });
         \`), 1, { workerHeapMb: 32 });
         try {
-          const [result] = await pool.dispatch([1,2,3]);
-          assert.equal(result.count, 3);
+          const results = [];
+          await pool.dispatch([1,2,3], { onResult: (data) => results.push(data) });
+          assert.deepEqual(results.map((data) => data.count), [1, 2, 3], 'one result per sub-batch, as it arrives');
+          const result = results[2];
           assert.ok(result.heap < 64 * 1024 * 1024, 'actual V8 ceiling, not merely reported configuration');
         } finally { await pool.terminate(); }
         pool = createWorkerPool(fixture("parentPort.on('message', () => { while(true) {} });"), 1, { timeoutMs: 100 });
-        await assert.rejects(pool.dispatch([1]), /E_PARSE_WORKER_TIMEOUT/);
-        await assert.rejects(pool.dispatch([2]), /terminated/);
+        await assert.rejects(pool.dispatch([1], { onResult() {} }), /E_PARSE_WORKER_TIMEOUT/);
+        await assert.rejects(pool.dispatch([2], { onResult() {} }), /terminated/);
         await pool.terminate();
         const controller = new AbortController();
         pool = createWorkerPool(fixture("parentPort.on('message', () => { while(true) {} });"), 1, { signal: controller.signal });
-        const pending = pool.dispatch([1]);
-        await assert.rejects(pool.dispatch([2]), /active dispatch/);
+        const pending = pool.dispatch([1], { onResult() {} });
+        await assert.rejects(pool.dispatch([2], { onResult() {} }), /active dispatch/);
         setTimeout(() => controller.abort(), 100);
         await assert.rejects(pending, /E_PARSE_CANCELLED/);
         await pool.terminate();
         pool = createWorkerPool(fixture("parentPort.on('message', () => { const retained = []; while(true) retained.push(new Array(100000).fill('retained')); });"), 1, { workerHeapMb: 16 });
-        await assert.rejects(pool.dispatch([1]), /memory|heap|OOM/i);
-        await assert.rejects(pool.dispatch([2]), /terminated/);
+        await assert.rejects(pool.dispatch([1], { onResult() {} }), /memory|heap|OOM/i);
+        await assert.rejects(pool.dispatch([2], { onResult() {} }), /terminated/);
         await pool.terminate();
         process.env.NODE_OPTIONS = '--max-old-space-size=1024';
         assert.throws(() => createWorkerPool(new URL('./fixture.mjs', import.meta.url)), /E_PARSE_WORKER_HEAP_OVERRIDE/);
@@ -227,7 +232,8 @@ describe('isolated shared extraction (T12262)', () => {
         const execution = { spawn(path, limits) { childCount++; return actual.spawn(path, limits); } };
         const pool = createWorkerPool(new URL('./worker.mjs', import.meta.url), 2, { workerHeapMb: 64 }, execution);
         try {
-          const results = await pool.dispatch(inputs);
+          const results = [];
+          await pool.dispatch(inputs, { onResult: (result) => results.push(result) });
           assert.equal(childCount, 2, 'extractor must not recursively enter worker dispatch');
           const extractions = results.flatMap(result => result.files.map(file => file.extraction));
           const symbols = extractions.flatMap(extraction => extraction.definitions);
@@ -257,7 +263,21 @@ describe('isolated shared extraction (T12262)', () => {
           assert.notEqual(direct.calls[0].generation, lexicalInput.publicationGeneration);
           assert.equal(results.reduce((sum, result) => sum + result.fileCount, 0), 6);
           assert.equal(results.reduce((sum, result) => sum + result.skippedCount, 0), 2);
+          // T13325: one result per file, never a worker's accumulated chunk.
+          assert.equal(results.length, inputs.length);
+          assert.ok(results.every((result) => result.reports.length === 1), 'results must not accumulate');
         } finally { await pool.terminate(); }
+        // T13325: each file's result reaches the parent before the next file is
+        // even read, so the parent never holds more than the in-flight file.
+        const events = [];
+        const orderPool = createWorkerPool(new URL('./worker.mjs', import.meta.url), 1, { workerHeapMb: 64 }, actual);
+        try {
+          await orderPool.dispatch(inputs.slice(0, 4), {
+            prepare: (input) => { events.push('send:' + input.path); return input; },
+            onResult: (result) => { events.push('recv:' + result.reports.map((report) => report.path).join(',')); },
+          });
+        } finally { await orderPool.terminate(); }
+        assert.deepEqual(events, inputs.slice(0, 4).flatMap((input) => ['send:' + input.path, 'recv:' + input.path]));
         mkdirSync(new URL('./workers/', import.meta.url));
         copyFileSync(new URL('./worker.mjs', import.meta.url), new URL('./workers/parse-worker.js', import.meta.url));
         writeFileSync(new URL('./package.json', import.meta.url), '{"type":"module"}');
@@ -303,17 +323,17 @@ describe('isolated shared extraction (T12262)', () => {
         writeFileSync(busy, "process.send({type:'ready',heapBytes:require('node:v8').getHeapStatistics().heap_size_limit}); process.on('message',()=>{process.send({type:'progress',filesProcessed:1}); while(true){};});");
         let entered = false;
         const deadlinePool = createWorkerPool(busy, 1, { timeoutMs: 300, workerHeapMb: 32 }, actual);
-        await assert.rejects(deadlinePool.dispatch([1], () => {entered = true;}), /E_PARSE_WORKER_TIMEOUT/);
+        await assert.rejects(deadlinePool.dispatch([1], { onResult() {}, onProgress: () => {entered = true;} }), /E_PARSE_WORKER_TIMEOUT/);
         assert.equal(entered, true, 'deadline must interrupt a running process, not just its startup');
         await deadlinePool.terminate();
         const cancel = new AbortController();
         const cancelPool = createWorkerPool(busy, 1, { timeoutMs: 5000, workerHeapMb: 32, signal: cancel.signal }, actual);
-        await assert.rejects(cancelPool.dispatch([1], () => {setTimeout(() => cancel.abort(), 50);}), /E_PARSE_CANCELLED/);
+        await assert.rejects(cancelPool.dispatch([1], { onResult() {}, onProgress: () => {setTimeout(() => cancel.abort(), 50);} }), /E_PARSE_CANCELLED/);
         await cancelPool.terminate();
         const allocate = new URL('./allocate.cjs', import.meta.url);
         writeFileSync(allocate, "process.send({type:'ready',heapBytes:require('node:v8').getHeapStatistics().heap_size_limit}); process.on('message',()=>{const retained=[];while(true) retained.push(new Array(100000).fill('retained'));});");
         const heapPool = createWorkerPool(allocate, 1, { workerHeapMb: 16 }, actual);
-        await assert.rejects(heapPool.dispatch([1]), /OOM|heap|memory/i);
+        await assert.rejects(heapPool.dispatch([1], { onResult() {} }), /OOM|heap|memory/i);
         await heapPool.terminate();
 
       `,
@@ -333,6 +353,185 @@ describe('isolated shared extraction (T12262)', () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe('streamed parse results (T13325)', () => {
+  it('bounds the parent by one sub-batch, not by the chunk, over real JSON IPC', () => {
+    // 48 files x 4 MiB results = 192 MiB in all, received by a parent capped
+    // at 64 MiB. Accumulating a chunk in the worker, or buffering results in
+    // the pool, makes the parent hold (and JSON.parse) far more than its heap
+    // and V8 aborts it — the axiom-app crash, scaled down.
+    const directory = makeTempDir();
+    try {
+      const poolPath = join(directory, 'pool.mjs');
+      buildSync({
+        entryPoints: [
+          fileURLToPath(new URL('../pipeline/workers/worker-pool.ts', import.meta.url)),
+        ],
+        outfile: poolPath,
+        bundle: true,
+        platform: 'node',
+        format: 'esm',
+      });
+      writeFileSync(
+        join(directory, 'worker.cjs'),
+        `process.send({ type: 'ready', heapBytes: require('node:v8').getHeapStatistics().heap_size_limit });
+        process.on('message', (message) => {
+          process.send({ type: 'sub-batch-done', data: { path: message.files[0], blob: 'x'.repeat(4 * 1024 * 1024) } });
+        });`,
+      );
+      const probePath = join(directory, 'probe.mjs');
+      writeFileSync(
+        probePath,
+        `
+        import assert from 'node:assert/strict';
+        import { fork } from 'node:child_process';
+        import { once } from 'node:events';
+        import { createWorkerPool } from './pool.mjs';
+        const execution = {
+          spawn(path, limits) {
+            const child = fork(path, [], { execArgv: ['--max-old-space-size=' + limits.workerHeapMb, '--max-semi-space-size=8'], stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+            const closed = once(child, 'close');
+            return { child, heapMb: limits.workerHeapMb, nativeMemory: 'unverified', stderrTail: () => '', async stop() { child.kill('SIGKILL'); await closed; } };
+          },
+        };
+        const pool = createWorkerPool(new URL('./worker.cjs', import.meta.url), 2, { workerHeapMb: 512 }, execution);
+        const seen = [];
+        let bytes = 0;
+        try {
+          await pool.dispatch(Array.from({ length: 48 }, (_, index) => 'file-' + index), {
+            onResult: (result) => { seen.push(result.path); bytes += result.blob.length; },
+          });
+        } finally { await pool.terminate(); }
+        assert.equal(seen.length, 48);
+        assert.equal(new Set(seen).size, 48, 'each file delivered exactly once');
+        assert.equal(bytes, 48 * 4 * 1024 * 1024);
+      `,
+      );
+      execFileSync(process.execPath, ['--max-old-space-size=64', probePath], {
+        timeout: 60000,
+        env: { PATH: process.env['PATH'], HOME: directory, TMPDIR: directory },
+        stdio: 'pipe',
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('resumes a dead worker after the items it delivered: every item exactly once, in order', () => {
+    // T13332: a worker killed after k of n sub-batches is replaced, and the
+    // replacement starts at the first undelivered item. Resuming from 0 would
+    // deliver items twice; skipping the in-flight item would lose it.
+    const directory = makeTempDir();
+    try {
+      buildSync({
+        entryPoints: [
+          fileURLToPath(new URL('../pipeline/workers/worker-pool.ts', import.meta.url)),
+        ],
+        outfile: join(directory, 'pool.mjs'),
+        bundle: true,
+        platform: 'node',
+        format: 'esm',
+      });
+      // First life only: on `killAt`, either die while handling it ('before',
+      // so it is in flight and undelivered) or reply and die at once ('after').
+      writeFileSync(
+        join(directory, 'worker.cjs'),
+        `const fs = require('node:fs');
+        const [mode, killAt, marker] = process.argv.slice(2);
+        let processed = 0;
+        process.send({ type: 'ready', heapBytes: require('node:v8').getHeapStatistics().heap_size_limit });
+        process.on('message', (message) => {
+          const item = message.files[0];
+          if (item === killAt && !fs.existsSync(marker)) {
+            fs.writeFileSync(marker, '');
+            if (mode === 'before') process.exit(3);
+            process.send({ type: 'sub-batch-done', data: item }, () => process.exit(3));
+            return;
+          }
+          process.send({ type: 'progress', filesProcessed: ++processed });
+          process.send({ type: 'sub-batch-done', data: item });
+        });`,
+      );
+      writeFileSync(
+        join(directory, 'probe.mjs'),
+        `
+        import assert from 'node:assert/strict';
+        import { fork } from 'node:child_process';
+        import { once } from 'node:events';
+        import { fileURLToPath } from 'node:url';
+        import { createWorkerPool } from './pool.mjs';
+        const items = Array.from({ length: 6 }, (_, index) => 'item-' + index);
+        const scenarios = [['before', 'item-2'], ['before', 'item-5'], ['after', 'item-2'], ['after', 'item-5']];
+        for (const [mode, killAt] of scenarios) {
+          const marker = fileURLToPath(new URL('./marker-' + mode + '-' + killAt, import.meta.url));
+          let spawns = 0;
+          const execution = {
+            spawn(path, limits) {
+              spawns++;
+              const child = fork(path, [mode, killAt, marker], { execArgv: ['--max-old-space-size=' + limits.workerHeapMb, '--max-semi-space-size=8'], stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+              const closed = once(child, 'close');
+              return { child, heapMb: limits.workerHeapMb, nativeMemory: 'unverified', stderrTail: () => '', async stop() { child.kill('SIGKILL'); await closed; } };
+            },
+          };
+          const pool = createWorkerPool(new URL('./worker.cjs', import.meta.url), 1, { workerHeapMb: 64 }, execution);
+          const seen = [];
+          try {
+            await pool.dispatch(items, { onResult: (item) => seen.push(item) });
+          } finally { await pool.terminate(); }
+          assert.deepEqual(seen, items, mode + ' ' + killAt + ': every item exactly once, in scan order');
+          if (mode === 'before') assert.equal(spawns, 2, mode + ' ' + killAt + ': the dead worker was replaced');
+        }
+      `,
+      );
+      execFileSync(process.execPath, [join(directory, 'probe.mjs')], {
+        timeout: 60000,
+        env: { PATH: process.env['PATH'], HOME: directory, TMPDIR: directory },
+        stdio: 'pipe',
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses only when a heap breach survives a full collection, naming the remedy', () => {
+    const mib = 1024 * 1024;
+    let used = 1000 * mib;
+    let majorGcs = 0;
+    const guard = createParentHeapGuard({
+      heap: () => ({ used_heap_size: used, heap_size_limit: 1728 * mib }),
+      majorGcCount: () => majorGcs,
+    });
+    guard.check(10, 5357);
+    // Above the share, but no collection has run since: it may be garbage.
+    used = 1600 * mib;
+    guard.check(11, 5357);
+    guard.check(12, 5357);
+    // A collection reclaimed it: the breach is cleared, not remembered.
+    majorGcs = 1;
+    used = 1000 * mib;
+    guard.check(13, 5357);
+    used = 1600 * mib;
+    guard.check(14, 5357);
+    // The same breach after a completed collection is live data: refuse.
+    majorGcs = 2;
+    let caught: Error | undefined;
+    try {
+      guard.check(4000, 5357);
+    } catch (error) {
+      caught = error instanceof Error ? error : undefined;
+    }
+    guard.dispose();
+    expect(caught?.message).toMatch(new RegExp(`^${NEXUS_HEAP_EXHAUSTED}:`));
+    expect(caught?.message).toContain('1600 MiB of its 1728 MiB');
+    expect(caught?.message).toContain('4000 of 5357 files');
+    expect(caught?.message).toContain('a full collection did not free it');
+    expect(caught?.message).toContain('CLEO_MAX_OLD_SPACE_MB=<MiB> (for example 3456)');
+    expect(caught?.message).toContain('previous graph is retained');
+    const live = createParentHeapGuard();
+    expect(() => live.check(1, 1)).not.toThrow();
+    live.dispose();
   });
 });
 
