@@ -1798,9 +1798,11 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
     opts.seal?.();
     runPasses();
   }
+  // Forget the moves only once their frames committed: a busy or failed frame
+  // keeps them for the next apply on this handle (re-pointing is idempotent).
   const moves = decisionMoves.get(db) ?? [];
-  decisionMoves.delete(db);
   if (repointOwnDecisionText(db, opts, moves) > 0) opts.seal?.();
+  decisionMoves.delete(db);
   // Every other replica that had placed a re-keyed loser announces the
   // re-key, so its earlier references follow the loser too (T13399).
   if (announcePlacedRekeys(db, opts, new Date(now()).toISOString()) > 0) opts.seal?.();

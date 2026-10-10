@@ -1086,15 +1086,17 @@ export function renameBrainDisplayKeyNative(
  * verification payloads. An atom only matches as a whole token, so `D5`
  * never rewrites `D50`.
  *
- * With `onlyOrigin`, only rows whose sync row meta names that replica as their
- * origin are touched, and the page node is left alone (T13433): a replica
- * that placed another origin's re-minted decision re-points only its own text
- * references; the origin's arrive with its re-mint.
+ * With `onlyOrigin`, only the edges and atoms that replica wrote are touched
+ * (T13433, T13456): every replica, the re-minting origin included, re-points
+ * only its own text, since an atom another replica wrote names whatever that
+ * writer had placed under the old key. The writer is the referencing column's
+ * field HLC replica in the sync row meta; a row with no meta is local text.
  *
  * @param nativeDb - The store handle (project or global).
  * @param fromId - The decision's old key.
  * @param toId - Its new key.
- * @param onlyOrigin - Limit to rows this replica originated.
+ * @param onlyOrigin - Limit edges and atoms to those this replica wrote.
+ * @param renameNode - Rename the decision's page node (default: when unlimited).
  * @returns Rows changed per `table.column`.
  * @sync-side-effect identity.local-minting the re-mint of a colliding counter key renames its local references (T13405)
  * @task T13405
@@ -1104,6 +1106,7 @@ export function repointDecisionReferencesNative(
   fromId: string,
   toId: string,
   onlyOrigin?: string,
+  renameNode: boolean = onlyOrigin === undefined,
 ): Record<string, number> {
   const out: Record<string, number> = {};
   const add = (key: string, n: number): void => {
@@ -1111,15 +1114,19 @@ export function repointDecisionReferencesNative(
   };
   const oldNode = `decision:${fromId}`;
   const newNode = `decision:${toId}`;
-  // Rows of `tbl` this replica originated (row meta), when limited.
-  const own = (tbl: string): { sql: string; args: string[] } =>
+  // Rows of `tbl` whose `col` this replica wrote, when limited (T13456): the
+  // replica of the column's field HLC (`fhlc` entry, else the row HLC), never
+  // the row's newest origin, which a later edit of another column moves. A row
+  // with no sync meta was never replicated, so it is local text. The HLC wire
+  // form is `PPPPPPPPPPPPP-CCCCCC-<replica>`: the replica starts at 22.
+  const own = (tbl: string, col: string): { sql: string; args: string[] } =>
     onlyOrigin === undefined
       ? { sql: '', args: [] }
       : {
-          sql: ` AND EXISTS (SELECT 1 FROM main._sync_row_meta m WHERE m.tbl = '${tbl}' AND m.uid = main.${tbl}.uid AND m.origin = ?)`,
-          args: [onlyOrigin],
+          sql: ` AND coalesce((SELECT substr(coalesce(json_extract(m.fhlc, '$.${col}'), m.hlc), 22) FROM main._sync_row_meta m WHERE m.tbl = '${tbl}' AND m.uid = main.${tbl}.uid), ?) = ?`,
+          args: [onlyOrigin, onlyOrigin],
         };
-  if (onlyOrigin === undefined && hasMainColumn(nativeDb, 'brain_page_nodes', 'id')) {
+  if (renameNode && hasMainColumn(nativeDb, 'brain_page_nodes', 'id')) {
     add(
       'brain_page_nodes.id',
       Number(
@@ -1138,7 +1145,9 @@ export function repointDecisionReferencesNative(
       .map((c) => c.name)
       .filter((c) => c !== 'uid');
     const list = cols.map(quoteIdent).join(', ');
-    const mine = own('brain_page_edges');
+    // The key columns are identity (no field HLC); created_at is written once,
+    // at the edge's birth, so its field HLC names the edge's writer.
+    const mine = own('brain_page_edges', 'created_at');
     for (const col of ['from_id', 'to_id']) {
       const values = cols.map((c) => (c === col ? '?' : quoteIdent(c))).join(', ');
       // The natural uid is a function of the raw key: a new key is a new row.
@@ -1160,7 +1169,7 @@ export function repointDecisionReferencesNative(
       `decision:${fromId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`,
       'g',
     );
-    const mine = own('tasks_tasks');
+    const mine = own('tasks_tasks', 'verification_json');
     const rows = nativeDb
       .prepare(
         `SELECT rowid AS rid, verification_json AS v FROM main.tasks_tasks WHERE instr(verification_json, ?) > 0${mine.sql}`,

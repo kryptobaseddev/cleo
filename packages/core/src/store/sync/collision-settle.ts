@@ -535,7 +535,9 @@ export function remintDisplayKey(
       toKey,
     );
     if (table === 'brain_decisions') {
-      for (const [k, n] of Object.entries(repointDecisionReferencesNative(db, fromKey, toKey))) {
+      for (const [k, n] of Object.entries(
+        repointDecisionReferencesNative(db, fromKey, toKey, opts.origin, true),
+      )) {
         rewritten[k] = (rewritten[k] ?? 0) + n;
       }
     }

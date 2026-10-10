@@ -745,6 +745,98 @@ describe('the loser of a uid collision is re-keyed by its origin, and everyone f
     ).toBe(loserText);
   });
 
+  it("a third replica never re-points the winner's evidence on a row it edited last (T13456)", async () => {
+    const decision = (text: string) =>
+      `INSERT INTO brain_decisions (id, type, decision, rationale, confidence, created_at)
+         VALUES ('D001', 'technical', '${text}', 'why', 'high', '2026-09-01 09:00:00')`;
+    const a = await replica(RA);
+    const b = await replica(RB);
+    const c = await replica(RC);
+    write(a, decision('use a'));
+    write(b, decision('use b'));
+    const [win, lose] = fpOf(a, 'brain_decisions') < fpOf(b, 'brain_decisions') ? [a, b] : [b, a];
+    // The winner cites its own D001.
+    write(
+      win,
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, verification_json, created_at)
+         VALUES ('T9', 'w-ev', 'task', 'pending', 'medium',
+                 '{"evidence":["decision:D001"]}', '2026-09-01T09:00:04.000Z')`,
+    );
+    push(lose);
+    pull(c);
+    push(win);
+    pull(c);
+    // C edits another column of the winner's task: the row's newest origin is now C.
+    write(c, `UPDATE tasks_tasks SET status = 'active' WHERE title = 'w-ev'`);
+    push(c);
+    pull(lose);
+    push(lose);
+    expect(pull(c)).toMatchObject({ pending: 0, void: 0 });
+    const evidenceOf = (r: Replica) =>
+      (
+        r.db
+          .prepare(`SELECT verification_json AS v FROM tasks_tasks WHERE title = 'w-ev'`)
+          .get() as { v: string }
+      ).v;
+    expect(evidenceOf(c)).toBe('{"evidence":["decision:D001"]}');
+    push(c);
+    expect(pull(win)).toMatchObject({ pending: 0, void: 0 });
+    expect(evidenceOf(win)).toBe('{"evidence":["decision:D001"]}');
+    expect(
+      (
+        win.db.prepare(`SELECT decision FROM brain_decisions WHERE id = 'D001'`).get() as {
+          decision: string;
+        }
+      ).decision,
+    ).not.toBe(
+      (
+        lose.db.prepare(`SELECT decision FROM brain_decisions WHERE id = 'D002'`).get() as {
+          decision: string;
+        }
+      ).decision,
+    );
+  });
+
+  it('a third replica re-points its own evidence on a row another replica edited last (T13456)', async () => {
+    const decision = (text: string) =>
+      `INSERT INTO brain_decisions (id, type, decision, rationale, confidence, created_at)
+         VALUES ('D001', 'technical', '${text}', 'why', 'high', '2026-09-01 09:00:00')`;
+    const a = await replica(RA);
+    const b = await replica(RB);
+    const c = await replica(RC);
+    write(a, decision('use a'));
+    write(b, decision('use b'));
+    const [win, lose] = fpOf(a, 'brain_decisions') < fpOf(b, 'brain_decisions') ? [a, b] : [b, a];
+    push(lose);
+    pull(c);
+    // C cites the decision it placed (the loser).
+    write(
+      c,
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, verification_json, created_at)
+         VALUES ('T7', 'c-ev', 'task', 'pending', 'medium',
+                 '{"evidence":["decision:D001"]}', '2026-09-01T09:00:04.000Z')`,
+    );
+    push(c);
+    pull(win);
+    // The winner edits another column of C's task: the row's newest origin is the winner.
+    write(win, `UPDATE tasks_tasks SET status = 'active' WHERE title = 'c-ev'`);
+    push(win);
+    pull(c);
+    pull(lose);
+    push(lose);
+    expect(pull(c)).toMatchObject({ pending: 0, void: 0 });
+    const evidenceOf = (r: Replica) =>
+      (
+        r.db
+          .prepare(`SELECT verification_json AS v FROM tasks_tasks WHERE title = 'c-ev'`)
+          .get() as { v: string }
+      ).v;
+    expect(evidenceOf(c)).toBe('{"evidence":["decision:D002"]}');
+    push(c);
+    expect(pull(win)).toMatchObject({ pending: 0, void: 0 });
+    expect(evidenceOf(win)).toBe('{"evidence":["decision:D002"]}');
+  });
+
   it('brain_sticky_notes (global): the re-minted SN id keeps its tags', async () => {
     const note = (content: string) =>
       `INSERT INTO brain_sticky_notes (id, content, created_at)
