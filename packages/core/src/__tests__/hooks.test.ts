@@ -42,7 +42,7 @@ describe('canonical Git hook wrappers', () => {
   });
   it('follows the same configured hooksPath in installation and inspection', async () => {
     execFileSync('git', ['-C', root, 'config', 'core.hooksPath', 'team hooks']);
-    await ensureGitHooks(root);
+    await ensureGitHooks(root, { allowTrackedHooksPath: true });
     const checks = await checkGitHooks(root);
     expect(checks.every((result) => result.current)).toBe(true);
     expect(checks[0]?.installedPath).toBe(join(realpathSync(root), 'team hooks', 'commit-msg'));

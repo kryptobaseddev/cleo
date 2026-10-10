@@ -54,6 +54,7 @@ import { platform } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { Provider } from '@cleocode/caamp';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import type { GitHookInstallOptions } from '@cleocode/contracts/git-hooks.js';
 import { isAbsolutePath } from '@cleocode/paths';
 import { classifyProject, type ProjectClassification } from './discovery.js';
 import { CleoError } from './errors.js';
@@ -97,7 +98,7 @@ import { readJson } from './store/json.js';
 // ── Types ────────────────────────────────────────────────────────────
 
 /** Options for the init operation. */
-export interface InitOptions {
+export interface InitOptions extends Pick<GitHookInstallOptions, 'allowTrackedHooksPath'> {
   /** Project name override. */
   name?: string;
   /** Overwrite existing files. */
@@ -1716,22 +1717,13 @@ async function scaffoldInitTarget(
 
   // Git hooks (commit-msg, pre-commit, pre-push)
   try {
-    const hooksResult = await ensureGitHooks(projRoot, { force });
+    const hooksResult = await ensureGitHooks(projRoot, {
+      force,
+      allowTrackedHooksPath: opts.allowTrackedHooksPath,
+    });
     if (hooksResult.action === 'created') {
       created.push(hooksResult.details ?? 'git hooks installed');
-    } else if (hooksResult.action === 'skipped' && hooksResult.details?.includes('No .git/')) {
-      warnings.push(hooksResult.details);
-    } else if (
-      hooksResult.action === 'skipped' &&
-      hooksResult.details?.includes('not found in package root')
-    ) {
-      warnings.push(hooksResult.details);
-    } else if (hooksResult.action === 'repaired' && hooksResult.details?.includes('error')) {
-      // Hook errors reported via details in 'repaired' action
-      const match = hooksResult.details.match(/Installed (\d+)/);
-      if (match && parseInt(match[1], 10) > 0) {
-        created.push(`git hooks (${match[1]} installed)`);
-      }
+    } else if (hooksResult.details) {
       warnings.push(hooksResult.details);
     }
   } catch (err) {

@@ -1,6 +1,7 @@
 /** Shared Git hook management wrappers for init, upgrade and health. */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { GitHookInstallOptions } from '@cleocode/contracts/git-hooks.js';
 import type { HookCheckResult, ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 import {
   CLEO_HOOK_NAMES,
@@ -12,9 +13,7 @@ import {
 
 export type { HookCheckResult, ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 /** Compatibility options; force never permits replacing foreign/customized hooks. */
-export interface EnsureGitHooksOptions {
-  force?: boolean;
-}
+export type EnsureGitHooksOptions = GitHookInstallOptions;
 /** Canonical shipped hook set shared with the installer. */
 export const MANAGED_HOOKS = CLEO_HOOK_NAMES;
 /** One shipped Git hook name. */
