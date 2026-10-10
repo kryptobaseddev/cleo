@@ -370,6 +370,14 @@ export const EXEMPT = {
     _sync_row_meta: { count: 4, reason: SEALER },
     _sync_txn: { count: 1, reason: SEALER },
   },
+  'packages/core/src/store/sync/genesis.ts': {
+    _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING },
+    _sync_txn: {
+      count: 1,
+      reason:
+        'sealed transactions (local-only): folds every pre-cut transaction into the genesis checkpoint (§2.11 §10, T12343)',
+    },
+  },
   'packages/core/src/store/sync/segments.ts': {
     _sync_row_meta: {
       count: 1,

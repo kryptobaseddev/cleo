@@ -1390,6 +1390,22 @@ function readMeta(db: DatabaseSync, key: string): string | undefined {
   return row?.value;
 }
 
+/**
+ * Whether the store's identity values follow the current
+ * {@link ROW_IDENTITY_RECIPE} (its marker, which the fill writes): no refill
+ * is due. The recipe applies to project stores only; a global store is
+ * always current. Read-only (a read-only handle is fine).
+ *
+ * @param db - Connection on a `cleo.db`.
+ * @param scope - The store's scope. @defaultValue 'project'
+ * @returns True when no recipe refill is owed.
+ * @task T13231
+ */
+export function rowIdentityRecipeCurrent(db: DatabaseSync, scope: TableScope = 'project'): boolean {
+  if (scope !== 'project') return true;
+  return readMeta(db, ROW_IDENTITY_RECIPE_KEY) === ROW_IDENTITY_RECIPE;
+}
+
 /** The pre-release (v4/v5 build) parse of a birth: a zoneless SQLite value as UTC, else `Date.parse`. */
 function preReleaseParses(value: UidInput): boolean {
   if (typeof value !== 'string' || value.length === 0) return false;
@@ -1702,21 +1718,6 @@ export function snapshotIfFullRefillDue(
   if (!anyIdentityValue(db, scope) && !graveyard) return null;
   if (rowIdentityShareState(db, share).state !== 'unshared') return null;
   return snapshotBeforeRefill(db);
-}
-
-/**
- * Whether the store's identity follows the current recipe (its marker is
- * {@link ROW_IDENTITY_RECIPE}): no refill is due. Read-only.
- *
- * @param db - Connection on a project `cleo.db` (read-only is fine).
- * @returns `true` when the marker is current.
- * @task T13231
- */
-export function rowIdentityRecipeCurrent(db: DatabaseSync): boolean {
-  return (
-    hasTable(db, ROW_IDENTITY_META_TABLE) &&
-    readMeta(db, ROW_IDENTITY_RECIPE_KEY) === ROW_IDENTITY_RECIPE
-  );
 }
 
 /**
