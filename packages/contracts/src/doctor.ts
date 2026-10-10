@@ -1174,6 +1174,24 @@ export interface SupersededStoreIdRemap {
 }
 
 /**
+ * One bare legacy table of the live store a reconcile carried: its row count
+ * and key digest when the run verified (T13319). The run records it in the
+ * store (T13320) and in its receipt; the sync refusal for stranded bare rows
+ * stands down for a table that still matches, so a row the runtime later
+ * deletes from the prefixed twin is never mistaken for one never carried.
+ *
+ * @task T13319
+ */
+export interface SupersededStoreBareAccount {
+  /** The bare table, e.g. `task_labels`. */
+  table: string;
+  /** Its rows when the run carried it. */
+  rows: number;
+  /** sha256 of its primary-key values in order (every column if keyless). */
+  digest: string;
+}
+
+/**
  * Outcome of `cleo doctor superseded-store --reconcile`.
  *
  * - `nothing-to-reconcile` — every legacy row is already present; no write.
@@ -1239,4 +1257,11 @@ export interface SupersededStoreReconcileResult {
   receiptPath: string | null;
   /** Human-readable explanation, suitable for printing verbatim. */
   reason: string;
+  /**
+   * The live store's bare tables this run carried, on a `reconciled` receipt
+   * that copied the bare family (T13319). Audit only: the sync check reads the
+   * record the run wrote into the store itself, which travels with backups
+   * (T13320).
+   */
+  accounted?: SupersededStoreBareAccount[];
 }
