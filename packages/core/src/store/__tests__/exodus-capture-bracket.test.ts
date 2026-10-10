@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
@@ -43,6 +43,9 @@ const captureTriggers = (db: DatabaseSync): number =>
   );
 
 beforeEach(() => {
+  // Written against row uids off; on by default since T13305 (C2). The
+  // capture + fill-on interplay (K captures alongside I/U/D) is T13311.
+  vi.stubEnv('CLEO_ROW_UID_FILL', '0');
   dir = mkdtempSync(join(tmpdir(), 'cleo-exodus-capture-'));
   projectDbPath = join(dir, 'cleo.db');
   const legacy = new DatabaseSync(join(dir, 'tasks.db'));
@@ -54,6 +57,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   _resetDualScopeDbCache();
   rmSync(dir, { recursive: true, force: true });
 });

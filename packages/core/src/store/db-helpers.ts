@@ -118,7 +118,7 @@ async function tableExists(db: DrizzleDb, table: string): Promise<boolean> {
 
 /**
  * The identity columns of an IMPORTED task (T12341 spec §5.1, T12806), only
- * while row uids are on (`CLEO_ROW_UID_FILL=1`; off, nothing changes):
+ * while row uids are on (the default; with `CLEO_ROW_UID_FILL=0`, nothing changes):
  *
  * - the source's `uid` + `birth_fp`, followed through `tasks_uid_aliases`
  *   when it was re-keyed here, when no row holds it;
