@@ -157,6 +157,7 @@ async function executeOne(
         }
       });
       child.on('error', () => {
+        outcome.status = 'infrastructure-error';
         outcome.code = 'HOOK_EXECUTION_FAILED';
         finish();
       });
@@ -168,6 +169,7 @@ async function executeOne(
         killGroup();
       });
       child.on('close', (exitCode, signal) => {
+        if (finished) return;
         outcome.exitCode = exitCode;
         outcome.signal = signal;
         if (!interrupted) {
@@ -191,6 +193,7 @@ async function executeOne(
       child.stdin.end(payload);
     });
   } catch {
+    outcome.status = 'infrastructure-error';
     outcome.code = 'HOOK_EXECUTION_UNAVAILABLE';
   }
   outcome.durationMs = Math.round(performance.now() - started);

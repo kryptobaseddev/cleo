@@ -8,8 +8,11 @@ import {
   type ProjectHookDeliveryOptions,
   ProjectHookDeliveryReceiptSchema,
 } from '@cleocode/contracts/project-hook-delivery.js';
-import { afterEach, describe, expect, it } from 'vitest';
-import { syncProjectHookProviders } from '../project-hook-delivery.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  hasUnsupportedProjectHookDelivery,
+  syncProjectHookProviders,
+} from '../project-hook-delivery.js';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -101,6 +104,53 @@ describe('project hook delivery', () => {
       }),
     ).toBe('');
   });
+  it('refreshes a historical same-command entry without dropping its binding', async () => {
+    const opts = await options();
+    await syncProjectHookProviders(opts);
+    const file = join(opts.projectRoot, '.codex/hooks.json');
+    const receiptPath = join(opts.stateDir, 'provider-codex.json');
+    const receipt = ProjectHookDeliveryReceiptSchema.parse(
+      JSON.parse(await readFile(receiptPath, 'utf8')),
+    );
+    const command = receipt.entries[0]?.command;
+    if (!command) throw new Error('missing generated command');
+    const legacy = { matcher: '', hooks: [{ type: 'command', command }] };
+    const foreign = { hooks: [{ type: 'command', command: 'team migration gate' }] };
+    await writeFile(file, JSON.stringify({ hooks: { PreToolUse: [foreign, legacy] } }));
+    receipt.entries[0] = {
+      event: 'PreToolUse',
+      command,
+      hash: createHash('sha256').update(JSON.stringify(legacy)).digest('hex'),
+    };
+    await writeFile(receiptPath, JSON.stringify(receipt));
+    const refreshed = (await syncProjectHookProviders(opts))[0];
+    expect(refreshed?.state, JSON.stringify(refreshed)).toBe('installed');
+    expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({
+      hooks: {
+        PreToolUse: [foreign, { matcher: '', hooks: [{ type: 'command', command, timeout: 130 }] }],
+      },
+    });
+    expect((await syncProjectHookProviders(opts))[0]?.state).toBe('current');
+  });
+  it('preserves tracked provider configuration despite an inherited alternate empty index', async () => {
+    const opts = await options();
+    const file = join(opts.projectRoot, '.codex/hooks.json');
+    const body = '{"hooks":{"PreToolUse":[]}}\n';
+    await writeFile(file, body);
+    execFileSync('git', ['-C', opts.projectRoot, 'add', '--', '.codex/hooks.json']);
+    const index = join(opts.projectRoot, '.git/alternate-index');
+    execFileSync('git', ['-C', opts.projectRoot, 'read-tree', '--empty'], {
+      env: { ...process.env, GIT_INDEX_FILE: index },
+    });
+    vi.stubEnv('GIT_INDEX_FILE', index);
+    try {
+      const result = (await syncProjectHookProviders(opts))[0];
+      expect(result?.diagnostics).toContain('HOOK_CONFIG_TRACKED_REVIEW_REQUIRED');
+      expect(await readFile(file, 'utf8')).toBe(body);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('refuses a customized managed entry even with its original marker', async () => {
     const opts = await options();
     await syncProjectHookProviders(opts);
@@ -148,6 +198,54 @@ describe('project hook delivery', () => {
       nativeTrust: 'unverified',
       provenance: 'unknown',
     });
+  });
+  it('reports unsupported plugin bindings without creating a no-op plugin or claiming mixed delivery complete', async () => {
+    const opts = await options();
+    const sole = await syncProjectHookProviders({
+      ...opts,
+      providers: ['opencode'],
+      events: ['SessionStart'],
+    });
+    expect(sole[0]?.state).toBe('unsupported');
+    await expect(
+      readFile(join(opts.projectRoot, '.opencode/plugins/cleo-project-hooks.js')),
+    ).rejects.toThrow();
+    await expect(readFile(join(opts.stateDir, 'provider-opencode.json'))).rejects.toThrow();
+    const mixed = await syncProjectHookProviders({
+      ...opts,
+      providers: ['opencode'],
+      events: ['PreToolUse', 'SessionStart'],
+    });
+    expect(mixed[0]?.state).toBe('installed');
+    expect(hasUnsupportedProjectHookDelivery(mixed)).toBe(true);
+    expect(
+      await readFile(join(opts.projectRoot, '.opencode/plugins/cleo-project-hooks.js'), 'utf8'),
+    ).toContain('"tool.execute.before"');
+  });
+  it('preserves a plugin changed by another writer during owned rollback', async () => {
+    const opts = await options();
+    const openCode = { ...opts, providers: ['opencode'] };
+    await syncProjectHookProviders(openCode);
+    const file = join(opts.projectRoot, '.opencode/plugins/cleo-project-hooks.js');
+    const foreign = '// developer changed this plugin during inspection\n';
+    const tools = await import('@cleocode/core/tools/fs');
+    const originalRead = tools.readFileText;
+    let changed = false;
+    const read = vi.spyOn(tools, 'readFileText').mockImplementation(async (input) => {
+      const result = await originalRead(input);
+      if (input.path === file && !changed) {
+        changed = true;
+        await writeFile(file, foreign);
+      }
+      return result;
+    });
+    try {
+      const result = (await syncProjectHookProviders({ ...openCode, rollback: true }))[0];
+      expect(result?.diagnostics).toContain('HOOK_CONFIG_CONCURRENT_EDIT');
+      expect(await readFile(file, 'utf8')).toBe(foreign);
+    } finally {
+      read.mockRestore();
+    }
   });
   it('refuses a corrupt receipt rather than resetting management authority', async () => {
     const opts = await options();

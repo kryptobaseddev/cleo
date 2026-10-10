@@ -1,5 +1,4 @@
 /** Lightweight project adapter hot path; types and Node only until invocation (T13344). */
-import { readFile, stat } from 'node:fs/promises';
 import type { HookJsonValue } from '@cleocode/contracts/heavy-command-hook.js';
 import type { HookInvocation } from '@cleocode/contracts/project-hooks.js';
 import type { HookIo } from './hook-entry.js';
@@ -112,9 +111,8 @@ export async function checkProjectHookCli(
     const context = resolveProjectHookContext(cwd);
     let toolInput: HookJsonValue = candidate ? { candidate } : {};
     if (inputFile) {
-      if ((await stat(inputFile)).size > MAX_INPUT) throw new Error('HOOK_INPUT_TOO_LARGE');
-      const content = await readFile(inputFile, 'utf8');
-      if (Buffer.byteLength(content) > MAX_INPUT) throw new Error('HOOK_INPUT_TOO_LARGE');
+      const { readFileText } = await import('@cleocode/core/tools/fs');
+      const { content } = await readFileText({ path: inputFile, maxBytes: MAX_INPUT });
       toolInput = JSON.parse(content) as HookJsonValue;
     }
     const { executeProjectHooks } = await import('@cleocode/core/hooks/project-runner');

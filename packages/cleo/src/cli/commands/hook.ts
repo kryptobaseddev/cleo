@@ -65,7 +65,9 @@ const syncSubcommand = defineCommand({
     if (args.activate === true) await state.activateProjectHooks(process.cwd());
     if (args.disable === true) await state.disableProjectHooks(process.cwd());
     const inspection = await state.inspectProjectHooks(process.cwd());
-    const { syncProjectHookProviders } = await import('@cleocode/adapters/project-hook-delivery');
+    const { syncProjectHookProviders, hasUnsupportedProjectHookDelivery } = await import(
+      '@cleocode/adapters/project-hook-delivery'
+    );
     const providers = await syncProjectHookProviders({
       ...inspection.context,
       events: inspection.manifest.hooks.flatMap((hook) =>
@@ -93,7 +95,7 @@ const syncSubcommand = defineCommand({
         git,
         deliveryStatus: conflict
           ? 'conflict'
-          : providers.some((provider) => provider.state === 'unsupported')
+          : hasUnsupportedProjectHookDelivery(providers)
             ? 'unsupported'
             : 'complete',
       },

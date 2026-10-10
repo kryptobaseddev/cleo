@@ -6,7 +6,16 @@
  * @saga T11387
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -48,6 +57,34 @@ describe('writeFileAtomic + readFileText round-trip', () => {
     const tmp = await pathExists({ path: join(dir, `.${process.pid}-4.tmp`) });
     expect(tmp.exists).toBe(false);
   });
+});
+
+describe('bounded regular-file reads', () => {
+  it('accepts the exact byte boundary and preserves encoding', async () => {
+    const path = join(dir, 'bounded.txt');
+    writeFileSync(path, 'é');
+    expect((await readFileText({ path, maxBytes: 2 })).content).toBe('é');
+    await expect(readFileText({ path, maxBytes: 1 })).rejects.toThrow('FILE_READ_INVALID');
+  });
+
+  it('rejects directories and invalid allocation limits', async () => {
+    await expect(readFileText({ path: dir, maxBytes: 64 })).rejects.toThrow('FILE_READ_INVALID');
+    await expect(readFileText({ path: dir, maxBytes: -1 })).rejects.toThrow(
+      'FILE_READ_LIMIT_INVALID',
+    );
+    await expect(readFileText({ path: dir, maxBytes: Number.MAX_SAFE_INTEGER })).rejects.toThrow(
+      'FILE_READ_LIMIT_INVALID',
+    );
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'rejects a FIFO without waiting for a writer',
+    async () => {
+      const path = join(dir, 'input.fifo');
+      execFileSync('mkfifo', [path]);
+      await expect(readFileText({ path, maxBytes: 64 })).rejects.toThrow('FILE_READ_INVALID');
+    },
+  );
 });
 
 describe('readJson', () => {

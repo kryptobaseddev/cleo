@@ -102,6 +102,14 @@ const request=JSON.parse(text);if(request.source==='worktree')appendFileSync('ho
   ]);
   if (!direct.outcomes?.some((outcome) => outcome.status === 'pass'))
     throw new Error('Installed CI invocation did not execute');
+  if (process.platform !== 'win32') {
+    const input = join(project, 'required-input.fifo');
+    call('mkfifo', [input]);
+    const rejected = JSON.parse(
+      call(bin, ['hook', 'check', 'canary-check', '--ci', '--input', input], undefined, 1),
+    );
+    if (rejected.success !== false) throw new Error('Installed CI accepted a special input file');
+  }
   const agentResponse = call(
     bin,
     ['hook', 'run', '--source', 'agent', '--event', 'PreToolUse', '--provider', 'codex'],

@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.10
+version: 3.1.11
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.10
+  version: 3.1.11
   tier: core
   install: harness
   covers:
@@ -499,6 +499,9 @@ Inspect with `cleo doctor hooks`; `--fix` never activates definitions or grants 
 `cleo hook sync --disable` disables execution and removes only verified managed entries.
 CI uses `cleo hook check <id> --ci --candidate <sha>` or an explicit JSON `--input` file;
 CLEO infrastructure failure is an unavailable check, never successful CI evidence.
+Launcher faults allow locally regardless of checker error policy. File inputs and
+provider records use bounded regular-file reads; FIFOs are rejected. Unsupported
+provider bindings remain unsupported in delivery summaries, including mixed bindings.
 
 Init, upgrade and inspection share the commit-msg, pre-commit and pre-push installer.
 Git determines effective hooksPath and the common directory, including linked worktrees.

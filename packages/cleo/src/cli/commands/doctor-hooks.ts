@@ -17,7 +17,9 @@ export const doctorHooksCommand = defineCommand({
     const { inspectProjectHooks } = await import('@cleocode/core/hooks/project-state');
     const { readLastProjectHookExecution } = await import('@cleocode/core/hooks/project-runner');
     const inspection = await inspectProjectHooks(process.cwd());
-    const { syncProjectHookProviders } = await import('@cleocode/adapters/project-hook-delivery');
+    const { syncProjectHookProviders, hasUnsupportedProjectHookDelivery } = await import(
+      '@cleocode/adapters/project-hook-delivery'
+    );
     const providers = await syncProjectHookProviders({
       ...inspection.context,
       enabled: inspection.activation === 'active',
@@ -44,7 +46,7 @@ export const doctorHooksCommand = defineCommand({
         git,
         deliveryStatus: conflict
           ? 'conflict'
-          : providers.some((provider) => provider.state === 'unsupported')
+          : hasUnsupportedProjectHookDelivery(providers)
             ? 'unsupported'
             : 'complete',
         fixApplied: args.fix === true && inspection.activation === 'active',

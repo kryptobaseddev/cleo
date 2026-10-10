@@ -87,6 +87,8 @@ export interface ReadFileInput {
   readonly path: string;
   /** Text encoding. Defaults to `utf8` in the implementation. */
   readonly encoding?: 'utf8' | 'utf-8' | 'ascii' | 'latin1';
+  /** Hard byte limit; when supplied, reject nonregular files and bounded-read overflow. */
+  readonly maxBytes?: number;
 }
 
 /** Result of a text read. */

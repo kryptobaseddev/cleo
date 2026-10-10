@@ -259,6 +259,35 @@ describe('activated project checks through actual child processes', () => {
       blocks: true,
     });
   });
+  it.skipIf(process.platform === 'win32')(
+    'allows launcher faults locally even with blocking checker policy, but fails CI',
+    async () => {
+      const executable = join(root, 'unavailable-launcher');
+      await writeFile(executable, '#!/nonexistent/cleo-hook-interpreter\n');
+      await chmod(executable, 0o755);
+      await manifest({
+        executable: './unavailable-launcher',
+        checkerErrorPolicy: 'block',
+        bindings: [
+          { source: 'git', event: 'pre-push' },
+          { source: 'ci', event: 'check' },
+        ],
+      });
+      await activateProjectHooks(root);
+      expect((await executeProjectHooks(invocation))[0]).toMatchObject({
+        status: 'infrastructure-error',
+        blocks: false,
+        code: 'HOOK_EXECUTION_FAILED',
+      });
+      expect(
+        (await executeProjectHooks({ ...invocation, source: 'ci', event: 'check' }))[0],
+      ).toMatchObject({
+        status: 'infrastructure-error',
+        blocks: true,
+        code: 'HOOK_EXECUTION_FAILED',
+      });
+    },
+  );
   it('rejects symlink escapes, duplicate IDs and reserved identities', async () => {
     await symlink(process.execPath, join(root, 'outside.mjs'));
     await manifest({ handler: 'outside.mjs' });

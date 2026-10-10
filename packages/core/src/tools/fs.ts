@@ -19,7 +19,8 @@
  * @saga T11387
  */
 
-import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { mkdir, open, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import type {
   PathExistsInput,
@@ -86,7 +87,9 @@ export async function canonicalizePath(path: string): Promise<string> {
 /**
  * Read a file as text.
  *
- * @param input - {@link ReadFileInput} (absolute path + optional encoding).
+ * With `maxBytes`, opens without blocking on special files, requires a regular
+ * descriptor, and rejects overflow using a bounded allocation even if the file grows.
+ * @param input - {@link ReadFileInput} (absolute path, optional encoding and byte limit).
  * @returns the path and its text content.
  *
  * @example
@@ -95,6 +98,33 @@ export async function canonicalizePath(path: string): Promise<string> {
  * ```
  */
 export async function readFileText(input: ReadFileInput): Promise<ReadFileResult> {
+  if (input.maxBytes !== undefined) {
+    if (!Number.isSafeInteger(input.maxBytes) || input.maxBytes < 0 || input.maxBytes > 268435456)
+      // @sync-invariant none:input-shape A bounded file read requires a safe allocation limit.
+      throw new Error('FILE_READ_LIMIT_INVALID');
+    const file = await open(input.path, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      const metadata = await file.stat();
+      if (!metadata.isFile() || metadata.size > input.maxBytes)
+        // @sync-invariant none:local-only Reject special or oversized files before machine-local reads.
+        throw new Error('FILE_READ_INVALID');
+      const buffer = Buffer.alloc(input.maxBytes + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
+        if (!bytesRead) break;
+        length += bytesRead;
+      }
+      // @sync-invariant none:local-only Reject racing growth beyond the machine-local read limit.
+      if (length > input.maxBytes) throw new Error('FILE_READ_TOO_LARGE');
+      return {
+        path: input.path,
+        content: buffer.subarray(0, length).toString(input.encoding ?? 'utf8'),
+      };
+    } finally {
+      await file.close();
+    }
+  }
   const content = await readFile(input.path, { encoding: input.encoding ?? 'utf8' });
   return { path: input.path, content };
 }

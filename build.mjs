@@ -210,7 +210,7 @@ function collectCoreEntryPoints() {
   }
 
   // T13344: public wildcard leaves used by the project hook hot path and cold delivery.
-  for (const leaf of ['tools/fs', 'hooks/project-state', 'hooks/project-runner', 'git/hooks-install']) {
+  for (const leaf of ['tools/fs', 'hooks/project-state', 'hooks/project-runner', 'git/hooks-install', 'git/work-tree']) {
     entries.push({ in: `packages/core/src/${leaf}.ts`, out: leaf });
   }
   return entries;

@@ -1,8 +1,8 @@
 /** Cold-path, project-local provider delivery of activated shared checks (T13344). */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { lstat, readFile, realpath, unlink } from 'node:fs/promises';
+import { lstat, realpath, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
@@ -22,6 +22,8 @@ import {
   type ProjectHookDeliveryResult,
   type ProjectHookEntryInspection,
 } from '@cleocode/contracts/project-hook-delivery.js';
+import { discoveryEnv } from '@cleocode/core/git/work-tree';
+import { readFileText } from '@cleocode/core/tools/fs';
 import { excludeHookFileFromGit } from './providers/shared/heavy-command-hook-install.js';
 
 const MARKER = '# cleo-project-hook:v1';
@@ -110,7 +112,9 @@ async function receiptAt(path: string): Promise<ProjectHookDeliveryReceipt | und
     const info = await lstat(path);
     if (!info.isFile() || info.isSymbolicLink() || info.size > 262144)
       throw new Error('HOOK_RECEIPT_UNSAFE');
-    return ProjectHookDeliveryReceiptSchema.parse(JSON.parse(await readFile(path, 'utf8')));
+    return ProjectHookDeliveryReceiptSchema.parse(
+      JSON.parse((await readFileText({ path, maxBytes: 262144 })).content),
+    );
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
     throw new Error('HOOK_RECEIPT_INVALID');
@@ -157,6 +161,7 @@ function configEdits(
   const hooks = object(config.hooks) ? config.hooks : {};
   const edits: HookConfigEdit[] = [];
   const found = new Set<string>();
+  const retained = new Set<string>();
   for (const [event, entries] of Object.entries(hooks)) {
     if (!Array.isArray(entries)) throw new Error('HOOK_CONFIG_EVENT_SHAPE');
     for (let index = entries.length - 1; index >= 0; index--) {
@@ -170,15 +175,16 @@ function configEdits(
       if (hash(JSON.stringify(value)) !== owns.hash || found.has(event + ':' + cmd))
         throw new Error('HOOK_CONFIG_MANAGED_DRIFT');
       found.add(event + ':' + cmd);
-      if (!desired.some((next) => next.event === event && next.hash === owns.hash))
-        edits.push({ path: ['hooks', event, index] });
+      if (desired.some((next) => next.event === event && next.hash === owns.hash))
+        retained.add(event + ':' + cmd);
+      else edits.push({ path: ['hooks', event, index] });
     }
   }
   for (const next of desired) {
     const entries = hooks[next.event];
     if (entries !== undefined && !Array.isArray(entries))
       throw new Error('HOOK_CONFIG_EVENT_SHAPE');
-    if (found.has(next.event + ':' + next.command)) continue;
+    if (retained.has(next.event + ':' + next.command)) continue;
     const removals = edits.filter((change) => change.path[1] === next.event).length;
     edits.push(
       Array.isArray(entries)
@@ -304,12 +310,12 @@ async function deliverProvider(
     return result;
   }
   const desired = options.rollback ? [] : desiredEntries(provider, options.events);
-  try {
-    execFileSync(
-      'git',
-      ['-C', options.projectRoot, 'ls-files', '--error-unmatch', '--', capability.configPath],
-      { timeout: 2000, stdio: 'ignore' },
-    );
+  const tracking = spawnSync(
+    'git',
+    ['-C', options.projectRoot, 'ls-files', '--error-unmatch', '--', capability.configPath],
+    { timeout: 2000, stdio: 'ignore', env: discoveryEnv() },
+  );
+  if (tracking.status === 0) {
     result.state = 'conflict';
     result.diagnostics.push('HOOK_CONFIG_TRACKED_REVIEW_REQUIRED');
     result.integrationSnippet = JSON.stringify(
@@ -318,9 +324,9 @@ async function deliverProvider(
       2,
     );
     return result;
-  } catch {
-    /* Missing Git/tracked entry does not grant ownership; receipts are checked below. */
   }
+  if (tracking.error || tracking.signal || tracking.status !== 1)
+    throw new Error('HOOK_GIT_TRACKING_UNVERIFIED');
   for (const event of options.events) {
     if (!desired.some((item) => item.command === command(provider, event)))
       result.diagnostics.push('HOOK_EVENT_UNSUPPORTED:' + event);
@@ -328,15 +334,29 @@ async function deliverProvider(
   if (profile.hookSystem === 'plugin') {
     for (const event of options.events.filter((event) => event !== 'PreToolUse'))
       result.diagnostics.push('HOOK_PLUGIN_EVENT_UNSUPPORTED:' + event);
+    if (!options.rollback && !options.events.includes('PreToolUse')) {
+      result.state = 'unsupported';
+      return result;
+    }
     const body = pluginSource(options.events);
-    const existing = existsSync(target) ? await readFile(target, 'utf8') : undefined;
+    const existing = existsSync(target)
+      ? (await readFileText({ path: target, maxBytes: 262144 })).content
+      : undefined;
     if (existing !== undefined && (!prior || prior.entries[0]?.hash !== hash(existing))) {
       result.state = 'conflict';
       result.diagnostics.push('HOOK_CONFIG_MANAGED_DRIFT');
       return result;
     }
     if (options.rollback) {
-      if (existing !== undefined && !options.dryRun) await unlink(target);
+      if (existing !== undefined && !options.dryRun)
+        await withFileLock(target, async () => {
+          await localTarget(options.projectRoot, capability.configPath);
+          const current = existsSync(target)
+            ? (await readFileText({ path: target, maxBytes: 262144 })).content
+            : undefined;
+          if (current !== existing) throw new Error('HOOK_CONFIG_CONCURRENT_EDIT');
+          await unlink(target);
+        });
       result.state = 'disabled';
       return result;
     }
@@ -344,7 +364,14 @@ async function deliverProvider(
     if (!options.dryRun && existing !== body) {
       if (existing === undefined)
         excludeHookFileFromGit(options.projectRoot, capability.configPath);
-      await writeFileAtomic({ path: target, content: body });
+      await withFileLock(target, async () => {
+        await localTarget(options.projectRoot, capability.configPath);
+        const current = existsSync(target)
+          ? (await readFileText({ path: target, maxBytes: 262144 })).content
+          : undefined;
+        if (current !== existing) throw new Error('HOOK_CONFIG_CONCURRENT_EDIT');
+        await writeFileAtomic({ path: target, content: body });
+      });
       await writeFileAtomic({
         path: receiptPath,
         content:
@@ -389,6 +416,21 @@ async function deliverProvider(
   return result;
 }
 
+/** Report unsupported bindings even when the same provider delivered other eligible events. */
+export function hasUnsupportedProjectHookDelivery(
+  results: readonly ProjectHookDeliveryResult[],
+): boolean {
+  return results.some(
+    (result) =>
+      result.state === 'unsupported' ||
+      result.diagnostics.some(
+        (code) =>
+          code.startsWith('HOOK_EVENT_UNSUPPORTED:') ||
+          code.startsWith('HOOK_PLUGIN_EVENT_UNSUPPORTED:'),
+      ),
+  );
+}
+
 async function validateStateDirectory(options: ProjectHookDeliveryOptions): Promise<void> {
   const gitState = resolve(
     options.projectRoot,
@@ -402,7 +444,13 @@ async function validateStateDirectory(options: ProjectHookDeliveryOptions): Prom
         '--git-path',
         'cleo-project-hooks',
       ],
-      { encoding: 'utf8', timeout: 2000, maxBuffer: 16384, stdio: ['ignore', 'pipe', 'ignore'] },
+      {
+        encoding: 'utf8',
+        timeout: 2000,
+        maxBuffer: 16384,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        env: discoveryEnv(),
+      },
     ).trim(),
   );
   const parent = await realpath(dirname(gitState));

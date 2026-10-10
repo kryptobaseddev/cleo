@@ -1,5 +1,6 @@
 /** JSONC surgery, writer concurrency and registry parity for project hooks. */
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { lstat, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -15,6 +16,28 @@ async function configFile(): Promise<string> {
   return join(dir, 'hooks.json');
 }
 describe('managed project hook writer', () => {
+  it.skipIf(process.platform === 'win32')('rejects a FIFO lock without reclaiming it or touching config', async () => {
+    const file = await configFile();
+    await writeFile(file, '{}');
+    execFileSync('mkfifo', [file + '.lock']);
+    await expect(editJsonConfigFile(file, () => [{ path: ['hooks'], value: {} }])).rejects.toThrow('HOOK_LOCK_INVALID');
+    expect((await lstat(file + '.lock')).isFIFO()).toBe(true);
+    expect(await readFile(file, 'utf8')).toBe('{}');
+  });
+  it.skipIf(process.platform === 'win32')('refuses FIFO config reads and edits without waiting for a writer', async () => {
+    const file = await configFile();
+    execFileSync('mkfifo', [file]);
+    await expect(readManagedJsonConfigFile(file)).rejects.toThrow('FILE_READ_INVALID');
+    await expect(editJsonConfigFile(file, () => [{ path: ['hooks'], value: {} }])).rejects.toThrow('FILE_READ_INVALID');
+  });
+  it('refuses oversized config without modifying it', async () => {
+    const file = await configFile();
+    const body = ' '.repeat(262145);
+    await writeFile(file, body);
+    await expect(readManagedJsonConfigFile(file)).rejects.toThrow('FILE_READ_INVALID');
+    await expect(editJsonConfigFile(file, () => [{ path: ['hooks'], value: {} }])).rejects.toThrow('FILE_READ_INVALID');
+    expect(await readFile(file, 'utf8')).toBe(body);
+  });
   it('keeps comments, permissions and the exact old heavy-command entry when appending', async () => {
     const file = await configFile();
     const heavy = '{ "hooks": [{ "type": "command", "command": "heavy # cleo-hook" }] }';
@@ -35,6 +58,29 @@ describe('managed project hook writer', () => {
       return [{ path: ['items', config.items.length], value: name, insert: true }];
     })));
     expect((await readManagedJsonConfigFile(file)).items).toEqual(expect.arrayContaining(['one', 'two']));
+  });
+  it('removes the final compact array entry without corrupting JSONC or reformatting foreign bytes', async () => {
+    const file = await configFile();
+    const foreign = '{ "command" : "foreign gate" }';
+    await writeFile(file, '// team comment\n{"items":[' + foreign + ',{"command":"managed gate"}]}\n');
+    await editJsonConfigFile(file, () => [{ path: ['items', 1] }]);
+    expect((await readManagedJsonConfigFile(file)).items).toEqual([{ command: 'foreign gate' }]);
+    const body = await readFile(file, 'utf8');
+    expect(body).toContain(foreign);
+    expect(body).toContain('// team comment');
+    expect(body).not.toContain('managed gate');
+  });
+  it('preserves team comments between owners when removing the final array entry', async () => {
+    const file = await configFile();
+    const foreign = '{ "command" : "foreign gate" }';
+    await writeFile(file, '{"items":[' + foreign + ' /* foreign explanation */, // team review note\n{"command":"managed gate"}]}\n');
+    await editJsonConfigFile(file, () => [{ path: ['items', 1] }]);
+    expect((await readManagedJsonConfigFile(file)).items).toEqual([{ command: 'foreign gate' }]);
+    const body = await readFile(file, 'utf8');
+    expect(body).toContain(foreign);
+    expect(body).toContain('/* foreign explanation */');
+    expect(body).toContain('// team review note');
+    expect(body).not.toContain('managed gate');
   });
   it('refuses malformed input without replacing its bytes', async () => {
     const file = await configFile();

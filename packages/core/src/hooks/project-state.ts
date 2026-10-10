@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { constants, createReadStream } from 'node:fs';
-import { access, lstat, open, realpath, stat } from 'node:fs/promises';
+import { access, lstat, realpath, stat } from 'node:fs/promises';
 import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   type HookActivation,
@@ -17,7 +17,7 @@ import {
 } from '@cleocode/contracts/project-hooks.js';
 import { discoveryEnv } from '../git/work-tree.js';
 import { atomicWrite } from '../store/atomic.js';
-import { canonicalizePath } from '../tools/fs.js';
+import { canonicalizePath, readFileText } from '../tools/fs.js';
 
 const MAX_DEFINITION_BYTES = 262144;
 const MAX_ACTIVATION_BYTES = 1048576;
@@ -25,24 +25,7 @@ const LOCKFILES = ['pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock
 
 /** Read a hook definition or private record with a hard allocation bound, including racing growth. */
 export async function readProjectHookRecord(path: string, maxBytes: number): Promise<string> {
-  const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
-  try {
-    const metadata = await file.stat();
-    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
-    if (!metadata.isFile() || metadata.size > maxBytes) throw new Error('HOOK_RECORD_INVALID');
-    const buffer = Buffer.alloc(maxBytes + 1);
-    let length = 0;
-    while (length < buffer.length) {
-      const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
-      if (!bytesRead) break;
-      length += bytesRead;
-    }
-    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
-    if (length > maxBytes) throw new Error('HOOK_RECORD_TOO_LARGE');
-    return buffer.subarray(0, length).toString('utf8');
-  } finally {
-    await file.close();
-  }
+  return (await readFileText({ path, maxBytes })).content;
 }
 
 /** Resolve checkout and hook paths through Git without reading CLEO stores. */
