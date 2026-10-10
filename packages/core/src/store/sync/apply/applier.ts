@@ -64,10 +64,13 @@ import { BIRTH_FP_COLUMN, UID_COLUMN } from '../../row-identity-registry.js';
 import { type CaptureTableDef, captureTableDef } from '../capture.js';
 import {
   announcePlacedRekeys,
+  type DecisionKeyMove,
   displayKeyColumn,
   displayKeyReferrers,
   foldDisplayRemints,
   followLocalTaskRefs,
+  remintLostKeyCollisions,
+  repointOwnDecisionText,
   settleLostUidCollisions,
 } from '../collision-settle.js';
 import { recordConflictOnce, recordConflicts, resolveHeldConflicts } from '../conflicts.js';
@@ -914,7 +917,7 @@ function applyOne(
       c.nowIso,
       c.replay !== undefined,
     );
-    if (keyMove) followDisplayKey(c, op.t, keyMove);
+    if (keyMove) followDisplayKey(c, op.t, op.u, keyMove);
     c.db.exec(`RELEASE ${sp}`);
     const result: OpResult =
       out.status === 'applied' || out.status === 'partial'
@@ -940,6 +943,9 @@ function applyOne(
   }
 }
 
+/** Decision key moves applied in the current apply call, by store (T13433). */
+const decisionMoves = new WeakMap<DatabaseSync, DecisionKeyMove[]>();
+
 /** A counter display key an applied update moves (T13405), or null. */
 function displayKeyMove(
   def: CaptureTableDef,
@@ -964,8 +970,15 @@ function displayKeyMove(
 function followDisplayKey(
   c: OpContext,
   table: string,
+  uid: string,
   move: { readonly column: string; readonly from: string; readonly to: string },
 ): void {
+  // Its own text references re-point after the passes, in a local frame (T13433).
+  if (table === 'brain_decisions' && !c.replay) {
+    const moves = decisionMoves.get(c.db) ?? [];
+    moves.push({ uid, from: move.from, to: move.to });
+    decisionMoves.set(c.db, moves);
+  }
   for (const ref of displayKeyReferrers(c.db, c.defs, table, move.column)) {
     const rows = c.db
       .prepare(
@@ -1778,6 +1791,16 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
     opts.seal?.();
     runPasses();
   }
+  // The origin of a row that lost a key collision re-mints its key, then the
+  // held insert places (T13405). Driven by the open conflicts, so a failed
+  // re-mint is retried by the next apply (T13431).
+  if (remintLostKeyCollisions(db, opts).length > 0) {
+    opts.seal?.();
+    runPasses();
+  }
+  const moves = decisionMoves.get(db) ?? [];
+  decisionMoves.delete(db);
+  if (repointOwnDecisionText(db, opts, moves) > 0) opts.seal?.();
   // Every other replica that had placed a re-keyed loser announces the
   // re-key, so its earlier references follow the loser too (T13399).
   if (announcePlacedRekeys(db, opts, new Date(now()).toISOString()) > 0) opts.seal?.();

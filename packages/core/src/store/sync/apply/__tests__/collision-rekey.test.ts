@@ -545,9 +545,9 @@ describe('the loser of a uid collision is re-keyed by its origin, and everyone f
     // The origin's child follows its parent's new id.
     expect(onLoser.find((t) => t.title === 'child')?.parent_id).toBe(moved?.id);
     expect(listConflicts(loser.db, { open: true })).toEqual([]);
-    // K first, then the rename in its own rekey transaction.
+    // K first, then the rename in its own remint transaction.
     const out = push(loser);
-    expect(out.map((t) => t.kind)).toEqual(['rekey', 'rekey']);
+    expect(out.map((t) => t.kind)).toEqual(['rekey', 'remint']);
     expect(out[1]?.ops).toContainEqual(
       expect.objectContaining({ o: 'U', t: 'tasks_tasks', u: moved?.uid }),
     );
@@ -556,6 +556,27 @@ describe('the loser of a uid collision is re-keyed by its origin, and everyone f
     const wr = pull(winner);
     expect(wr).toMatchObject({ pending: 0, void: 0 });
     expect(tasksOf(winner)).toEqual(onLoser);
+    expect(listConflicts(winner.db, { open: true })).toEqual([]);
+  });
+
+  it('a re-mint that fails after the K is retried by the next apply, and both replicas converge (T13431)', async () => {
+    const { winner, loser } = await collide('project', 'tasks_tasks', task('alpha'), task('beta'));
+    // The re-mint's id rename fails once, after the K has committed.
+    loser.db.exec(`CREATE TEMP TRIGGER t13431_probe BEFORE UPDATE OF id ON main.tasks_tasks
+      BEGIN SELECT RAISE(ABORT, 't13431 probe'); END`);
+    push(winner);
+    push(loser);
+    expect(() => pull(loser)).toThrow('t13431 probe');
+    expect(rows(loser.db, `SELECT id FROM tasks_tasks`)).toEqual([{ id: 'T1' }]);
+    loser.db.exec('DROP TRIGGER temp.t13431_probe');
+    expect(pull(loser)).toMatchObject({ pending: 0, void: 0 });
+    const tasksOf = (r: Replica) =>
+      rows(r.db, 'SELECT uid, id, title FROM tasks_tasks ORDER BY id');
+    expect(tasksOf(loser)).toHaveLength(2);
+    expect(listConflicts(loser.db, { open: true })).toEqual([]);
+    push(loser);
+    expect(pull(winner)).toMatchObject({ pending: 0, void: 0 });
+    expect(tasksOf(winner)).toEqual(tasksOf(loser));
     expect(listConflicts(winner.db, { open: true })).toEqual([]);
   });
 
@@ -619,6 +640,12 @@ describe('the loser of a uid collision is re-keyed by its origin, and everyone f
          VALUES ('T5', 'ev', 'task', 'pending', 'medium',
                  '{"evidence":["decision:D001","decision:D0010"]}', '2026-09-01T09:00:03.000Z')`,
     );
+    // The winner's own page node for its decision (T13432).
+    write(
+      winner,
+      `INSERT INTO brain_page_nodes (id, node_type, label, created_at, last_activity_at)
+         VALUES ('decision:D001', 'decision', 'win', '2026-09-01 09:00:02', '2026-09-01 09:00:02')`,
+    );
     const textOf = (r: Replica) =>
       (
         r.db.prepare(`SELECT decision FROM brain_decisions WHERE id = 'D001'`).get() as {
@@ -645,14 +672,77 @@ describe('the loser of a uid collision is re-keyed by its origin, and everyone f
       ).v,
     });
     expect(refsOf(loser)).toEqual({
-      nodes: ['decision:D002'],
+      nodes: ['decision:D001', 'decision:D002'],
       evidence: '{"evidence":["decision:D002","decision:D0010"]}',
     });
+    const labelsOf = (r: Replica) =>
+      rows(r.db, 'SELECT id, label FROM brain_page_nodes ORDER BY id');
+    expect(labelsOf(loser)).toEqual([
+      { id: 'decision:D001', label: 'win' },
+      { id: 'decision:D002', label: 'dec' },
+    ]);
     push(loser);
     expect(pull(winner)).toMatchObject({ pending: 0, void: 0 });
     expect(decisionsOf(winner)).toEqual(onLoser);
     expect(refsOf(winner)).toEqual(refsOf(loser));
+    expect(labelsOf(winner)).toEqual(labelsOf(loser));
+    expect(statuses(winner.db)).not.toContain('pending');
     expect(listConflicts(winner.db, { open: true })).toEqual([]);
+  });
+
+  it('a third replica re-points its own decision evidence at the re-minted D id (T13433)', async () => {
+    const decision = (text: string) =>
+      `INSERT INTO brain_decisions (id, type, decision, rationale, confidence, created_at)
+         VALUES ('D001', 'technical', '${text}', 'why', 'high', '2026-09-01 09:00:00')`;
+    const a = await replica(RA);
+    const b = await replica(RB);
+    const c = await replica(RC);
+    write(a, decision('use a'));
+    write(b, decision('use b'));
+    const [win, lose] = fpOf(a, 'brain_decisions') < fpOf(b, 'brain_decisions') ? [a, b] : [b, a];
+    const loserText = (
+      lose.db.prepare('SELECT decision FROM brain_decisions').get() as { decision: string }
+    ).decision;
+    push(lose);
+    pull(c);
+    // C cites the decision it placed as D001: that is the loser.
+    write(
+      c,
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, verification_json, created_at)
+         VALUES ('T7', 'c-ev', 'task', 'pending', 'medium',
+                 '{"evidence":["decision:D001"]}', '2026-09-01T09:00:04.000Z')`,
+    );
+    push(win);
+    pull(c);
+    pull(lose);
+    push(lose);
+    push(c);
+    expect(pull(c)).toMatchObject({ pending: 0, void: 0 });
+    const loserId = (
+      c.db.prepare('SELECT id FROM brain_decisions WHERE decision = ?').get(loserText) as {
+        id: string;
+      }
+    ).id;
+    expect(loserId).toBe('D002');
+    const evidenceOf = (r: Replica) =>
+      (
+        r.db
+          .prepare(`SELECT verification_json AS v FROM tasks_tasks WHERE title = 'c-ev'`)
+          .get() as {
+          v: string;
+        }
+      ).v;
+    expect(evidenceOf(c)).toBe('{"evidence":["decision:D002"]}');
+    push(c);
+    expect(pull(win)).toMatchObject({ pending: 0, void: 0 });
+    expect(evidenceOf(win)).toBe('{"evidence":["decision:D002"]}');
+    expect(
+      (
+        win.db.prepare(`SELECT decision FROM brain_decisions WHERE id = 'D002'`).get() as {
+          decision: string;
+        }
+      ).decision,
+    ).toBe(loserText);
   });
 
   it('brain_sticky_notes (global): the re-minted SN id keeps its tags', async () => {

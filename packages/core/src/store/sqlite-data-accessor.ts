@@ -1086,9 +1086,15 @@ export function renameBrainDisplayKeyNative(
  * verification payloads. An atom only matches as a whole token, so `D5`
  * never rewrites `D50`.
  *
+ * With `onlyOrigin`, only rows whose sync row meta names that replica as their
+ * origin are touched, and the page node is left alone (T13433): a replica
+ * that placed another origin's re-minted decision re-points only its own text
+ * references; the origin's arrive with its re-mint.
+ *
  * @param nativeDb - The store handle (project or global).
  * @param fromId - The decision's old key.
  * @param toId - Its new key.
+ * @param onlyOrigin - Limit to rows this replica originated.
  * @returns Rows changed per `table.column`.
  * @sync-side-effect identity.local-minting the re-mint of a colliding counter key renames its local references (T13405)
  * @task T13405
@@ -1097,6 +1103,7 @@ export function repointDecisionReferencesNative(
   nativeDb: DatabaseSync,
   fromId: string,
   toId: string,
+  onlyOrigin?: string,
 ): Record<string, number> {
   const out: Record<string, number> = {};
   const add = (key: string, n: number): void => {
@@ -1104,7 +1111,15 @@ export function repointDecisionReferencesNative(
   };
   const oldNode = `decision:${fromId}`;
   const newNode = `decision:${toId}`;
-  if (hasMainColumn(nativeDb, 'brain_page_nodes', 'id')) {
+  // Rows of `tbl` this replica originated (row meta), when limited.
+  const own = (tbl: string): { sql: string; args: string[] } =>
+    onlyOrigin === undefined
+      ? { sql: '', args: [] }
+      : {
+          sql: ` AND EXISTS (SELECT 1 FROM main._sync_row_meta m WHERE m.tbl = '${tbl}' AND m.uid = main.${tbl}.uid AND m.origin = ?)`,
+          args: [onlyOrigin],
+        };
+  if (onlyOrigin === undefined && hasMainColumn(nativeDb, 'brain_page_nodes', 'id')) {
     add(
       'brain_page_nodes.id',
       Number(
@@ -1123,19 +1138,20 @@ export function repointDecisionReferencesNative(
       .map((c) => c.name)
       .filter((c) => c !== 'uid');
     const list = cols.map(quoteIdent).join(', ');
+    const mine = own('brain_page_edges');
     for (const col of ['from_id', 'to_id']) {
       const values = cols.map((c) => (c === col ? '?' : quoteIdent(c))).join(', ');
       // The natural uid is a function of the raw key: a new key is a new row.
       const moved = Number(
         nativeDb
           .prepare(
-            `INSERT OR IGNORE INTO main.brain_page_edges (${list}) SELECT ${values} FROM main.brain_page_edges WHERE ${quoteIdent(col)} = ?`,
+            `INSERT OR IGNORE INTO main.brain_page_edges (${list}) SELECT ${values} FROM main.brain_page_edges WHERE ${quoteIdent(col)} = ?${mine.sql}`,
           )
-          .run(newNode, oldNode).changes,
+          .run(newNode, oldNode, ...mine.args).changes,
       );
       nativeDb
-        .prepare(`DELETE FROM main.brain_page_edges WHERE ${quoteIdent(col)} = ?`)
-        .run(oldNode);
+        .prepare(`DELETE FROM main.brain_page_edges WHERE ${quoteIdent(col)} = ?${mine.sql}`)
+        .run(oldNode, ...mine.args);
       add(`brain_page_edges.${col}`, moved);
     }
   }
@@ -1144,11 +1160,12 @@ export function repointDecisionReferencesNative(
       `decision:${fromId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`,
       'g',
     );
+    const mine = own('tasks_tasks');
     const rows = nativeDb
       .prepare(
-        'SELECT rowid AS rid, verification_json AS v FROM main.tasks_tasks WHERE instr(verification_json, ?) > 0',
+        `SELECT rowid AS rid, verification_json AS v FROM main.tasks_tasks WHERE instr(verification_json, ?) > 0${mine.sql}`,
       )
-      .all(oldNode) as Array<{ rid: number; v: string }>;
+      .all(oldNode, ...mine.args) as Array<{ rid: number; v: string }>;
     const write = nativeDb.prepare(
       'UPDATE main.tasks_tasks SET verification_json = ? WHERE rowid = ?',
     );

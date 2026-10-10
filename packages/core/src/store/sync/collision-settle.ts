@@ -59,8 +59,6 @@ export interface SettledCollision {
   readonly newUid: string;
   /** The loser's birth fingerprint (it keeps it). */
   readonly birthFp: string;
-  /** The loser's counter key re-mint, when the winner held the same key (T13405). */
-  readonly remint?: DisplayRemint;
 }
 
 const q = (id: string): string => `"${id.replaceAll('"', '""')}"`;
@@ -69,35 +67,21 @@ const q = (id: string): string => `"${id.replaceAll('"', '""')}"`;
 function lostCollisions(
   db: DatabaseSync,
   stream: string,
-): Map<
-  string,
-  { table: string; uid: string; incomingFp: string; incomingKey: string | undefined }
-> {
+): Map<string, { table: string; uid: string; incomingFp: string }> {
   const open = db
     .prepare(
       `SELECT seq, txn_idx AS txnIdx, op_idx AS opIdx, tbl, uid FROM _sync_conflict
         WHERE stream = ? AND kind = 'uid-collision' AND rule = 'loser:local' AND resolved_at IS NULL`,
     )
     .all(stream) as Array<{ seq: number; txnIdx: number; opIdx: number; tbl: string; uid: string }>;
-  const out = new Map<
-    string,
-    { table: string; uid: string; incomingFp: string; incomingKey: string | undefined }
-  >();
+  const out = new Map<string, { table: string; uid: string; incomingFp: string }>();
   if (open.length === 0) return out;
   const staged = stagedTxns(db, stream);
   for (const c of open) {
     const st = staged.find((s) => s.key.seq === c.seq && s.key.txnIdx === c.txnIdx);
     const op = st?.txn.ops[c.opIdx];
-    const col = displayKeyColumn(c.tbl);
-    const key = col ? op?.a?.[col] : undefined;
-    if (op?.bfp) {
-      out.set(`${c.tbl}\u0000${c.uid}`, {
-        table: c.tbl,
-        uid: c.uid,
-        incomingFp: op.bfp,
-        incomingKey: typeof key === 'string' ? key : undefined,
-      });
-    }
+    if (op?.bfp)
+      out.set(`${c.tbl}\u0000${c.uid}`, { table: c.tbl, uid: c.uid, incomingFp: op.bfp });
   }
   return out;
 }
@@ -131,6 +115,32 @@ function authoredHere(
             AND json_extract(o.body, '$.bfp') = ? LIMIT 1`,
       )
       .get(table, uid, replica, fp) !== undefined
+  );
+}
+
+/**
+ * Whether this replica sealed the insert of a `table` row born with `fp`,
+ * under any uid (T13431): a re-keyed loser keeps its birth fingerprint, not
+ * its uid.
+ */
+function authoredFpHere(db: DatabaseSync, table: string, fp: string, replica: string): boolean {
+  if (
+    hasTable(db, '_sync_authored') &&
+    db
+      .prepare('SELECT 1 FROM _sync_authored WHERE tbl = ? AND bfp = ? AND replica = ?')
+      .get(table, fp, replica) !== undefined
+  ) {
+    return true;
+  }
+  return (
+    hasTable(db, '_sync_op') &&
+    db
+      .prepare(
+        `SELECT 1 FROM _sync_op o JOIN _sync_txn t ON t.txn = o.txn
+          WHERE o.tbl = ? AND o.o = 'I' AND t.replica = ?
+            AND json_extract(o.body, '$.bfp') = ? LIMIT 1`,
+      )
+      .get(table, replica, fp) !== undefined
   );
 }
 
@@ -177,14 +187,7 @@ export function settleLostUidCollisions(db: DatabaseSync, opts: SettleOptions): 
       }
       finishCaptureFrame(db, frame);
       db.exec('COMMIT');
-      const remint = remintSharedKey(db, opts, c, newUid, fp);
-      settled.push({
-        table: c.table,
-        oldUid: c.uid,
-        newUid,
-        birthFp: fp,
-        ...(remint ? { remint } : {}),
-      });
+      settled.push({ table: c.table, oldUid: c.uid, newUid, birthFp: fp });
     } catch (err) {
       if (db.isTransaction) db.exec('ROLLBACK');
       throw err;
@@ -194,39 +197,118 @@ export function settleLostUidCollisions(db: DatabaseSync, opts: SettleOptions): 
 }
 
 /**
- * Re-mint the re-keyed loser's counter key when the winner it collided with
- * carries the same key (T13405). Its own local transaction in a second
- * `rekey` frame, AFTER the K's: a receiver applies the K (recording the alias)
- * before it meets the rename, and folds the rename into the held insert
- * (the re-mint section below).
+ * Re-mint the counter key of every local row that lost a key collision and
+ * that this replica authored (T13405, T13431). Apply holds an incoming insert
+ * whose counter key (`T####`, `D###`, `SN-###`) a live row of another uid holds
+ * here (`key-collision`); the greater birth fingerprint loses, as for uids.
+ * Its origin gives it the next free key in a local `remint` frame, so the
+ * held insert places on the next pass and every receiver folds the rename
+ * into the insert it holds ({@link foldDisplayRemints}).
+ *
+ * Driven by the open conflicts, not by the uid re-key: a re-mint that fails
+ * (a kill, `SQLITE_BUSY`) leaves the conflict open, and the next apply re-mints
+ * it. A uid collision's K commits first, so receivers record its alias before
+ * they meet the rename.
+ *
+ * @param db - The store; must not be inside a transaction.
+ * @param opts - Scope, stream and this replica.
+ * @returns The re-mints made.
  */
-function remintSharedKey(
+export function remintLostKeyCollisions(db: DatabaseSync, opts: SettleOptions): DisplayRemint[] {
+  if (!hasTable(db, '_sync_conflict')) return [];
+  const open = db
+    .prepare(
+      `SELECT seq, txn_idx AS txnIdx, op_idx AS opIdx, tbl FROM _sync_conflict
+        WHERE stream = ? AND kind = 'key-collision' AND resolved_at IS NULL`,
+    )
+    .all(opts.stream) as Array<{ seq: number; txnIdx: number; opIdx: number; tbl: string }>;
+  const out: DisplayRemint[] = [];
+  const staged = open.length > 0 ? stagedTxns(db, opts.stream) : [];
+  for (const c of open) {
+    const col = displayKeyColumn(c.tbl);
+    if (!col) continue;
+    const op = staged.find((s) => s.key.seq === c.seq && s.key.txnIdx === c.txnIdx)?.txn.ops[
+      c.opIdx
+    ];
+    const key = op?.a?.[col];
+    if (!op?.bfp || typeof key !== 'string') continue;
+    const holder = db
+      .prepare(
+        `SELECT ${q(UID_COLUMN)} AS uid, ${q(BIRTH_FP_COLUMN)} AS fp FROM main.${q(c.tbl)} WHERE ${q(col)} = ?`,
+      )
+      .get(key) as { uid: string | null; fp: string | null } | undefined;
+    // Only the loser (the greater fingerprint) moves, and only by its origin.
+    if (!holder?.uid || !holder.fp || holder.uid === op.u || !(op.bfp < holder.fp)) continue;
+    if (!authoredFpHere(db, c.tbl, holder.fp, opts.replica)) continue;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const frame = openCaptureFrame(db, 'remint', null);
+      const remint = remintDisplayKey(db, opts.scope, c.tbl, holder.uid, holder.fp, {
+        stream: opts.stream,
+        origin: opts.replica,
+      });
+      finishCaptureFrame(db, frame);
+      db.exec('COMMIT');
+      if (remint) out.push(remint);
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+  return out;
+}
+
+/** A decision re-mint this replica applied to a row it had placed (T13433). */
+export interface DecisionKeyMove {
+  readonly uid: string;
+  readonly from: string;
+  readonly to: string;
+}
+
+/**
+ * Re-point this replica's own text references to decisions another origin
+ * re-minted after this replica had placed them (T13433): evidence atoms and
+ * page edges it wrote with `decision:<old>` meant the loser, while the old key
+ * now names the winner everywhere. A local `remint` frame, so the rewrite
+ * propagates; a move the apply rolled back (the row no longer has the new key)
+ * is skipped. The caller seals.
+ *
+ * shortcut: the moves are collected in memory during one apply call, so a crash
+ * between that apply's commit and this frame drops them; persist them if that
+ * window matters.
+ *
+ * @param db - The store; must not be inside a transaction.
+ * @param opts - Scope, stream and this replica.
+ * @param moves - Decision key moves applied in this call.
+ * @returns Rows rewritten.
+ */
+export function repointOwnDecisionText(
   db: DatabaseSync,
   opts: SettleOptions,
-  c: { table: string; incomingKey: string | undefined },
-  uid: string,
-  fp: string,
-): DisplayRemint | undefined {
-  const col = displayKeyColumn(c.table);
-  if (!col || typeof c.incomingKey !== 'string') return undefined;
-  const live = db
-    .prepare(`SELECT ${q(col)} AS k FROM main.${q(c.table)} WHERE ${q(UID_COLUMN)} = ?`)
-    .get(uid) as { k: string | null } | undefined;
-  if (live?.k !== c.incomingKey) return undefined;
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    const frame = openCaptureFrame(db, 'rekey', null);
-    const remint = remintDisplayKey(db, opts.scope, c.table, uid, fp, {
-      stream: opts.stream,
-      origin: opts.replica,
-    });
-    finishCaptureFrame(db, frame);
-    db.exec('COMMIT');
-    return remint ?? undefined;
-  } catch (err) {
-    if (db.isTransaction) db.exec('ROLLBACK');
-    throw err;
+  moves: readonly DecisionKeyMove[],
+): number {
+  let n = 0;
+  for (const m of moves) {
+    const live = db
+      .prepare(`SELECT id FROM main.brain_decisions WHERE ${q(UID_COLUMN)} = ?`)
+      .get(m.uid) as { id: string } | undefined;
+    if (live?.id !== m.to) continue;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const frame = openCaptureFrame(db, 'remint', null);
+      for (const k of Object.values(
+        repointDecisionReferencesNative(db, m.from, m.to, opts.replica),
+      )) {
+        n += k;
+      }
+      finishCaptureFrame(db, frame);
+      db.exec('COMMIT');
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    }
   }
+  return n;
 }
 
 /**
@@ -280,9 +362,12 @@ export function announcePlacedRekeys(
  * Counter keys (`T####`, `D####`, `SN-###`) are allocated locally, so two
  * offline stores can mint the same one. A uid collision on a minted table
  * whose uid hashes that key always shares it too: once the origin re-keys its
- * losing row (above), the held winner still collides
- * on the key (`key-collision`). The origin then re-mints the loser's key in a
- * second local `rekey` frame: the next counter value above every key it holds
+ * losing row (above), the held winner still collides on the key
+ * (`key-collision`); two rows of different uids can share a key without any
+ * uid collision as well. The origin of the losing row (the greater birth
+ * fingerprint) re-mints its key in a local `remint` frame
+ * ({@link remintLostKeyCollisions}, driven by the open conflict, so a failed
+ * re-mint is retried): the next counter value above every key it holds
  * or has staged, written through the chokepoint with its local references
  * (child rows, supersession links, `decision:<id>` page nodes, edges and
  * evidence atoms). The capture triggers journal the rename as ordinary U ops.
@@ -291,7 +376,14 @@ export function announcePlacedRekeys(
  * key collision folds the origin's later rename U into that insert
  * ({@link foldDisplayRemints}), so it places under the new key and the U then
  * changes nothing; a receiver that had placed the loser applies the U like
- * any write, and the applier points its local references at the new key.
+ * any write, and the applier points its local references at the new key. Its
+ * own text references to a re-minted decision (evidence atoms, page edges)
+ * mean the loser too, so it re-points those in a local frame that propagates
+ * ({@link repointOwnDecisionText}).
+ *
+ * `display-id-alias.ts` keeps the older authority-driven protocol
+ * (`remintAuthority`, `remintTaskDisplayId`): it has no production caller, and
+ * this origin re-mint is the one the journal runs.
  *
  * Authority: the origin, until a server path exists (T13404). The spec names
  * the server once a project syncs to the cloud.
@@ -330,6 +422,15 @@ export function displayKeyColumn(table: string): string | null {
   return DISPLAY_KEYS[table]?.column ?? null;
 }
 
+/**
+ * The local key column a held insert of `table` may take from its origin's
+ * later rename (T13432): the counter keys, plus a decision's `decision:<id>`
+ * page node, which the decision re-mint renames with it.
+ */
+function foldKeyColumn(table: string): string | null {
+  return table === 'brain_page_nodes' ? 'id' : displayKeyColumn(table);
+}
+
 /** The counter value of `key` under `spec`, or 0 when it is not one. */
 function counterOf(spec: DisplayKeyTable, key: OpValue | string | null | undefined): number {
   if (typeof key !== 'string' || !key.startsWith(spec.prefix)) return 0;
@@ -361,6 +462,22 @@ function allocateDisplayKey(db: DatabaseSync, table: string, stream: string): st
   const next =
     table === 'tasks_tasks' ? (advanceTaskIdSequence(db, floor) ?? floor + 1) : floor + 1;
   return `${spec.prefix}${String(next).padStart(spec.width, '0')}`;
+}
+
+/**
+ * Every column holding a task display id that a re-mint must rewrite: the
+ * declared references, plus `brain_task_observations.task_id`, which holds a
+ * task id without a declaration on stores where that table is not synced
+ * (T13433; #2034 declares it, and the Map key keeps one entry).
+ */
+function taskKeyColumns(db: DatabaseSync): ReturnType<typeof taskReferenceColumns> {
+  const cols = taskReferenceColumns(db);
+  const has =
+    hasTable(db, 'brain_task_observations') &&
+    !cols.some((c) => c.table === 'brain_task_observations' && c.column === 'task_id');
+  return has
+    ? [...cols, { table: 'brain_task_observations', column: 'task_id', jsonArray: false }]
+    : cols;
 }
 
 /** A re-mint the origin made. */
@@ -407,7 +524,7 @@ export function remintDisplayKey(
   if (table === 'tasks_tasks') {
     rewritten = {
       'tasks_tasks.id': 1,
-      ...renameTaskDisplayIdNative(db, uid, toKey, taskReferenceColumns(db)).rewritten,
+      ...renameTaskDisplayIdNative(db, uid, toKey, taskKeyColumns(db)).rewritten,
     };
   } else {
     rewritten = renameBrainDisplayKeyNative(
@@ -458,7 +575,7 @@ export function foldDisplayRemints(
   for (const [i, st] of staged.entries()) {
     let ops: LedgerOp[] | null = null;
     for (const [j, op] of st.txn.ops.entries()) {
-      const col = op.o === 'I' ? displayKeyColumn(op.t) : null;
+      const col = op.o === 'I' ? foldKeyColumn(op.t) : null;
       const key = col ? op.a?.[col] : undefined;
       if (!col || typeof key !== 'string' || !defs(op.t)) continue;
       const holder = db
@@ -530,6 +647,6 @@ export function followLocalTaskRefs(
   fromId: string,
   toId: string,
 ): Record<string, number> {
-  const local = taskReferenceColumns(db).filter((r) => defs(r.table) === null);
+  const local = taskKeyColumns(db).filter((r) => defs(r.table) === null);
   return local.length > 0 ? rewriteTaskIdReferencesNative(db, local, fromId, toId) : {};
 }
