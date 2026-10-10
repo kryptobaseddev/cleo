@@ -1523,6 +1523,29 @@ describe('bare-strands reconcile: a populated store with stranded bare rows (T13
     ).toBe(0);
   });
 
+  it('a copied session listing a task that is gone is copied, and the run reconciles (T13377)', async () => {
+    // T7 was deleted live and T404 exists nowhere: session history, as the
+    // runtime keeps it and the sync wire tolerates it (T12798).
+    const listed = '["T1","T7","T404"]';
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      DROP TABLE IF EXISTS sessions;
+      CREATE TABLE sessions (id TEXT PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL,
+        scope_json TEXT NOT NULL, started_at TEXT NOT NULL, tasks_completed_json TEXT,
+        tasks_created_json TEXT);
+      INSERT INTO sessions VALUES ('S-old', 'old session', 'ended', '{}',
+        '2026-01-01T00:00:00Z', '${listed}', '["T404"]');
+    `);
+    live.close();
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+    expect(
+      scalar(liveDb, "SELECT tasks_completed_json FROM tasks_sessions WHERE id = 'S-old'"),
+    ).toBe(listed);
+    expect(result.conflicts.map((c) => c.sourceTable)).not.toContain('sessions');
+  });
+
   it('a reconciled run rolls back from its receipt, and the refusal returns', async () => {
     const { reconcileSupersededStores, rollbackSupersededReconcile } = await import(
       '../exodus/index.js'
