@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.7.8
+version: 2.8.0
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.7.8
+  version: 2.8.0
   tier: core
   install: harness
   covers:
@@ -25,10 +25,11 @@ metadata:
     - packages/cleo/src/cli/commands/complete.ts
     - packages/cleo/src/cli/commands/start.ts
     - packages/cleo/src/cli/commands/claim.ts
+    - packages/core/src/doctor/container-reaper.ts
     - packages/core/src/validation/protocols/cant/implementation.cant
     - packages/core/src/validation/protocols/protocols-markdown/implementation.md
   loomStage: implementation
-  lastReviewed: 2026-10-03
+  lastReviewed: 2026-10-10
   stability: stable
 ---
 
@@ -123,6 +124,14 @@ Context injection for implementation tasks spawned via cleo-subagent. Provides d
 2. **Produce deliverables** - Create each item in `{{DELIVERABLES_LIST}}`
 3. **Document as you go** - Track progress for output file
 4. **Handle blockers** - Report if unable to proceed
+
+### Throwaway Containers
+
+A database or service started for a test run must not outlive it. A `docker run` without `--rm` leaves an anonymous volume behind on every run; on 2026-10-10 that came to 475 volumes and 52 GB.
+
+- One-shot: `docker run --rm --label cleo.task=T#### --label cleo.ttl=4h postgres:17 …`
+- Reused across runs: a named volume (`-v t####-pgdata:/var/lib/postgresql/data`) plus the same two labels, and stop the container when the task ends.
+- `cleo doctor system` reports long-running database containers and dangling volumes. `cleo doctor system --repair` lists the expired `cleo.ttl` containers and anonymous dangling volumes (dry run). `--repair --apply` removes only those, never an unlabelled container or a named volume. Removing them is the owner's call, so relay the list through your orchestrator first.
 
 ### Post-Execution
 
