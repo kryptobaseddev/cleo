@@ -16,21 +16,31 @@
  *
  * @module store/sync/collision-settle
  * @task T13397
+ * @task T13405
  */
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
-import { rekeyRowUid } from '../display-id-alias.js';
+import type { LedgerOp } from '@cleocode/contracts/ledger';
+import { recordDisplayIdAlias, rekeyRowUid, taskReferenceColumns } from '../display-id-alias.js';
 import { mintRowUid } from '../row-identity.js';
 import { BIRTH_FP_COLUMN, rowIdentitySpec, UID_COLUMN } from '../row-identity-registry.js';
-import { setRowUidNative } from '../sqlite-data-accessor.js';
 import {
+  advanceTaskIdSequence,
+  renameBrainDisplayKeyNative,
+  renameTaskDisplayIdNative,
+  repointDecisionReferencesNative,
+  rewriteTaskIdReferencesNative,
+  setRowUidNative,
+} from '../sqlite-data-accessor.js';
+import {
+  type CaptureTableDef,
   captureRekeyAnnouncement,
   captureTableDef,
   finishCaptureFrame,
   openCaptureFrame,
 } from './capture.js';
-import { stagedTxns } from './inbox.js';
+import { type StagedTxn, stagedTxns } from './inbox.js';
 import { hasTable } from './schema.js';
 import { markAliasAnnounced, owedAnnouncements } from './uid-alias.js';
 
@@ -49,6 +59,8 @@ export interface SettledCollision {
   readonly newUid: string;
   /** The loser's birth fingerprint (it keeps it). */
   readonly birthFp: string;
+  /** The loser's counter key re-mint, when the winner held the same key (T13405). */
+  readonly remint?: DisplayRemint;
 }
 
 const q = (id: string): string => `"${id.replaceAll('"', '""')}"`;
@@ -57,20 +69,35 @@ const q = (id: string): string => `"${id.replaceAll('"', '""')}"`;
 function lostCollisions(
   db: DatabaseSync,
   stream: string,
-): Map<string, { table: string; uid: string; incomingFp: string }> {
+): Map<
+  string,
+  { table: string; uid: string; incomingFp: string; incomingKey: string | undefined }
+> {
   const open = db
     .prepare(
       `SELECT seq, txn_idx AS txnIdx, op_idx AS opIdx, tbl, uid FROM _sync_conflict
         WHERE stream = ? AND kind = 'uid-collision' AND rule = 'loser:local' AND resolved_at IS NULL`,
     )
     .all(stream) as Array<{ seq: number; txnIdx: number; opIdx: number; tbl: string; uid: string }>;
-  const out = new Map<string, { table: string; uid: string; incomingFp: string }>();
+  const out = new Map<
+    string,
+    { table: string; uid: string; incomingFp: string; incomingKey: string | undefined }
+  >();
   if (open.length === 0) return out;
   const staged = stagedTxns(db, stream);
   for (const c of open) {
     const st = staged.find((s) => s.key.seq === c.seq && s.key.txnIdx === c.txnIdx);
-    const fp = st?.txn.ops[c.opIdx]?.bfp;
-    if (fp) out.set(`${c.tbl}\u0000${c.uid}`, { table: c.tbl, uid: c.uid, incomingFp: fp });
+    const op = st?.txn.ops[c.opIdx];
+    const col = displayKeyColumn(c.tbl);
+    const key = col ? op?.a?.[col] : undefined;
+    if (op?.bfp) {
+      out.set(`${c.tbl}\u0000${c.uid}`, {
+        table: c.tbl,
+        uid: c.uid,
+        incomingFp: op.bfp,
+        incomingKey: typeof key === 'string' ? key : undefined,
+      });
+    }
   }
   return out;
 }
@@ -150,13 +177,56 @@ export function settleLostUidCollisions(db: DatabaseSync, opts: SettleOptions): 
       }
       finishCaptureFrame(db, frame);
       db.exec('COMMIT');
-      settled.push({ table: c.table, oldUid: c.uid, newUid, birthFp: fp });
+      const remint = remintSharedKey(db, opts, c, newUid, fp);
+      settled.push({
+        table: c.table,
+        oldUid: c.uid,
+        newUid,
+        birthFp: fp,
+        ...(remint ? { remint } : {}),
+      });
     } catch (err) {
       if (db.isTransaction) db.exec('ROLLBACK');
       throw err;
     }
   }
   return settled;
+}
+
+/**
+ * Re-mint the re-keyed loser's counter key when the winner it collided with
+ * carries the same key (T13405). Its own local transaction in a second
+ * `rekey` frame, AFTER the K's: a receiver applies the K (recording the alias)
+ * before it meets the rename, and folds the rename into the held insert
+ * (the re-mint section below).
+ */
+function remintSharedKey(
+  db: DatabaseSync,
+  opts: SettleOptions,
+  c: { table: string; incomingKey: string | undefined },
+  uid: string,
+  fp: string,
+): DisplayRemint | undefined {
+  const col = displayKeyColumn(c.table);
+  if (!col || typeof c.incomingKey !== 'string') return undefined;
+  const live = db
+    .prepare(`SELECT ${q(col)} AS k FROM main.${q(c.table)} WHERE ${q(UID_COLUMN)} = ?`)
+    .get(uid) as { k: string | null } | undefined;
+  if (live?.k !== c.incomingKey) return undefined;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const frame = openCaptureFrame(db, 'rekey', null);
+    const remint = remintDisplayKey(db, opts.scope, c.table, uid, fp, {
+      stream: opts.stream,
+      origin: opts.replica,
+    });
+    finishCaptureFrame(db, frame);
+    db.exec('COMMIT');
+    return remint ?? undefined;
+  } catch (err) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    throw err;
+  }
 }
 
 /**
@@ -199,4 +269,267 @@ export function announcePlacedRekeys(
     throw err;
   }
   return n;
+}
+
+// ---- Counter-key re-mint (T13405) ----------------------------------------
+
+/*
+ * Display-key re-mint for a settled uid collision (T13405; T12341 §6.4 step 7,
+ * §9.2 origin rule).
+ *
+ * Counter keys (`T####`, `D####`, `SN-###`) are allocated locally, so two
+ * offline stores can mint the same one. A uid collision on a minted table
+ * whose uid hashes that key always shares it too: once the origin re-keys its
+ * losing row (above), the held winner still collides
+ * on the key (`key-collision`). The origin then re-mints the loser's key in a
+ * second local `rekey` frame: the next counter value above every key it holds
+ * or has staged, written through the chokepoint with its local references
+ * (child rows, supersession links, `decision:<id>` page nodes, edges and
+ * evidence atoms). The capture triggers journal the rename as ordinary U ops.
+ *
+ * Receivers never allocate. A receiver holding the loser's insert behind the
+ * key collision folds the origin's later rename U into that insert
+ * ({@link foldDisplayRemints}), so it places under the new key and the U then
+ * changes nothing; a receiver that had placed the loser applies the U like
+ * any write, and the applier points its local references at the new key.
+ *
+ * Authority: the origin, until a server path exists (T13404). The spec names
+ * the server once a project syncs to the cloud.
+ *
+ * @task T13405
+ */
+
+/** A value an op carries in `a`. */
+type OpValue = NonNullable<LedgerOp['a']>[string];
+
+/** A table whose local key is a counter display id. */
+interface DisplayKeyTable {
+  /** The key column. */
+  readonly column: string;
+  /** Prefix of the counter (`T`, `D`, `SN-`). */
+  readonly prefix: string;
+  /** Minimum digits (zero-padded). */
+  readonly width: number;
+}
+
+/** Tables whose key the origin re-mints (T13405). */
+const DISPLAY_KEYS: Readonly<Record<string, DisplayKeyTable>> = {
+  tasks_tasks: { column: 'id', prefix: 'T', width: 3 },
+  brain_decisions: { column: 'id', prefix: 'D', width: 3 },
+  brain_sticky_notes: { column: 'id', prefix: 'SN-', width: 3 },
+};
+
+/**
+ * The counter display-key column of `table`, or null when its key is not a
+ * counter (T13405).
+ *
+ * @param table - A sync-set table.
+ * @returns The key column, or null.
+ */
+export function displayKeyColumn(table: string): string | null {
+  return DISPLAY_KEYS[table]?.column ?? null;
+}
+
+/** The counter value of `key` under `spec`, or 0 when it is not one. */
+function counterOf(spec: DisplayKeyTable, key: OpValue | string | null | undefined): number {
+  if (typeof key !== 'string' || !key.startsWith(spec.prefix)) return 0;
+  const digits = key.slice(spec.prefix.length);
+  return /^[0-9]+$/.test(digits) ? Number(digits) : 0;
+}
+
+/**
+ * The next counter key of `table` above every key it holds and every key a
+ * staged transaction would write, so the re-mint never lands on a row that is
+ * still held in the inbox.
+ */
+function allocateDisplayKey(db: DatabaseSync, table: string, stream: string): string {
+  const spec = DISPLAY_KEYS[table];
+  // @sync-invariant none:input-shape callers pass only tables from DISPLAY_KEYS
+  if (!spec) throw new Error(`display key: ${table} has no counter key`);
+  const col = `"${spec.column}"`;
+  let floor = 0;
+  for (const r of db
+    .prepare(`SELECT ${col} AS k FROM main."${table}" WHERE substr(${col}, 1, ?) = ?`)
+    .all(spec.prefix.length, spec.prefix) as Array<{ k: string | null }>) {
+    floor = Math.max(floor, counterOf(spec, r.k));
+  }
+  for (const st of stagedTxns(db, stream)) {
+    for (const op of st.txn.ops) {
+      if (op.t === table && op.a) floor = Math.max(floor, counterOf(spec, op.a[spec.column]));
+    }
+  }
+  const next =
+    table === 'tasks_tasks' ? (advanceTaskIdSequence(db, floor) ?? floor + 1) : floor + 1;
+  return `${spec.prefix}${String(next).padStart(spec.width, '0')}`;
+}
+
+/** A re-mint the origin made. */
+export interface DisplayRemint {
+  readonly table: string;
+  readonly uid: string;
+  readonly fromKey: string;
+  readonly toKey: string;
+  /** Rows rewritten per `table.column`, the row itself included. */
+  readonly rewritten: Readonly<Record<string, number>>;
+}
+
+/**
+ * ORIGIN ONLY: give the row (`table`, `uid`) a fresh counter key and point its
+ * local references at it. Call inside the caller's transaction and capture
+ * frame; it defers foreign keys for that transaction.
+ *
+ * @param db - The store.
+ * @param scope - Its scope.
+ * @param table - A table with a counter key ({@link displayKeyColumn}).
+ * @param uid - The losing row's (new) uid.
+ * @param birthFp - Its birth fingerprint.
+ * @param opts - The stream (for staged keys) and this replica (the alias origin).
+ * @returns The re-mint, or null when the row is gone.
+ */
+export function remintDisplayKey(
+  db: DatabaseSync,
+  scope: TableScope,
+  table: string,
+  uid: string,
+  birthFp: string,
+  opts: { readonly stream: string; readonly origin: string },
+): DisplayRemint | null {
+  const spec = DISPLAY_KEYS[table];
+  if (!spec) return null;
+  const row = db
+    .prepare(`SELECT "${spec.column}" AS k FROM main."${table}" WHERE "${UID_COLUMN}" = ?`)
+    .get(uid) as { k: string | null } | undefined;
+  if (!row?.k) return null;
+  const fromKey = row.k;
+  const toKey = allocateDisplayKey(db, table, opts.stream);
+  db.exec('PRAGMA defer_foreign_keys = ON');
+  let rewritten: Record<string, number>;
+  if (table === 'tasks_tasks') {
+    rewritten = {
+      'tasks_tasks.id': 1,
+      ...renameTaskDisplayIdNative(db, uid, toKey, taskReferenceColumns(db)).rewritten,
+    };
+  } else {
+    rewritten = renameBrainDisplayKeyNative(
+      db,
+      table as 'brain_decisions' | 'brain_sticky_notes',
+      uid,
+      fromKey,
+      toKey,
+    );
+    if (table === 'brain_decisions') {
+      for (const [k, n] of Object.entries(repointDecisionReferencesNative(db, fromKey, toKey))) {
+        rewritten[k] = (rewritten[k] ?? 0) + n;
+      }
+    }
+  }
+  // The portable display alias lets `T0001` still resolve (project store only).
+  if (scope === 'project' && hasTable(db, 'tasks_display_id_aliases')) {
+    recordDisplayIdAlias(db, {
+      table,
+      displayId: fromKey,
+      entityUid: uid,
+      entityBirthFp: birthFp,
+      reason: 'collision-remint',
+      origin: opts.origin,
+    });
+  }
+  return { table, uid, fromKey, toKey, rewritten };
+}
+
+/**
+ * RECEIVER: fold an origin's re-mint into the insert it held (module doc).
+ * An insert of a counter-keyed row whose key a live row of another uid holds
+ * here takes the key of the LATEST later staged U by the same origin on the
+ * same row (uid and birth fingerprint) that sets it. Nothing else changes; the
+ * U still applies (and changes nothing). Pure over `staged`; reads the store.
+ *
+ * @param db - The store.
+ * @param staged - Staged transactions in stream order (aliases followed).
+ * @param defs - Capture definitions by table.
+ * @returns `staged`, with folded inserts replaced.
+ */
+export function foldDisplayRemints(
+  db: DatabaseSync,
+  staged: readonly StagedTxn[],
+  defs: (table: string) => CaptureTableDef | null,
+): StagedTxn[] {
+  const out = [...staged];
+  for (const [i, st] of staged.entries()) {
+    let ops: LedgerOp[] | null = null;
+    for (const [j, op] of st.txn.ops.entries()) {
+      const col = op.o === 'I' ? displayKeyColumn(op.t) : null;
+      const key = col ? op.a?.[col] : undefined;
+      if (!col || typeof key !== 'string' || !defs(op.t)) continue;
+      const holder = db
+        .prepare(`SELECT "${UID_COLUMN}" AS uid FROM main."${op.t}" WHERE "${col}" = ?`)
+        .get(key) as { uid: string | null } | undefined;
+      if (!holder || holder.uid === op.u) continue;
+      let renamed: string | null = null;
+      for (const later of staged.slice(i + 1)) {
+        if (later.replicaId !== st.replicaId) continue;
+        for (const u of later.txn.ops) {
+          const v = u.o === 'U' && u.t === op.t && u.u === op.u ? u.a?.[col] : undefined;
+          if (typeof v === 'string' && (!u.bfp || !op.bfp || u.bfp === op.bfp)) renamed = v;
+        }
+      }
+      if (renamed === null || renamed === key) continue;
+      ops ??= [...st.txn.ops];
+      ops[j] = { ...op, a: { ...op.a, [col]: renamed } };
+    }
+    if (ops) out[i] = { ...st, txn: { ...st.txn, ops } };
+  }
+  return out;
+}
+
+/**
+ * Local columns that reference `table` by `keyColumn` (T13405): every
+ * sync-set table's declared reference to it, with that table's uid.
+ *
+ * @param db - The store.
+ * @param defs - Capture definitions by table.
+ * @param table - The re-keyed table.
+ * @param keyColumn - Its key column.
+ * @returns The referencing (table, column) pairs.
+ */
+export function displayKeyReferrers(
+  db: DatabaseSync,
+  defs: (table: string) => CaptureTableDef | null,
+  table: string,
+  keyColumn: string,
+): Array<{ readonly table: string; readonly column: string }> {
+  const out: Array<{ table: string; column: string }> = [];
+  const tables = db
+    .prepare("SELECT name FROM main.sqlite_master WHERE type = 'table' ORDER BY name")
+    .all() as Array<{ name: string }>;
+  for (const { name } of tables) {
+    const def = defs(name);
+    if (!def) continue;
+    for (const [column, target] of def.refs) {
+      if (target.table === table && target.key === keyColumn) out.push({ table: name, column });
+    }
+  }
+  return out;
+}
+
+/**
+ * Point the columns of tables OUTSIDE the sync set that hold a moved task id
+ * at its new id (T13405). They carry no capture and no uid (derived or
+ * local-only tables such as the acceptance projections), so the write API
+ * cannot reach them, and their foreign keys would otherwise fail at commit.
+ *
+ * @param db - The project store.
+ * @param defs - Capture definitions by table (null outside the sync set).
+ * @param fromId - The task's old display id.
+ * @param toId - Its new display id.
+ * @returns Rows rewritten per `table.column`.
+ */
+export function followLocalTaskRefs(
+  db: DatabaseSync,
+  defs: (table: string) => CaptureTableDef | null,
+  fromId: string,
+  toId: string,
+): Record<string, number> {
+  const local = taskReferenceColumns(db).filter((r) => defs(r.table) === null);
+  return local.length > 0 ? rewriteTaskIdReferencesNative(db, local, fromId, toId) : {};
 }

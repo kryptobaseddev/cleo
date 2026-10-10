@@ -490,7 +490,16 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
   {
     id: 'identity.local-minting',
     class: 'identity-layer',
-    tables: ['tasks_tasks', 'tasks_sessions'],
+    // T13405: the counter-key re-mint after a uid collision renames these too.
+    tables: [
+      'tasks_tasks',
+      'tasks_sessions',
+      'brain_decisions',
+      'brain_sticky_notes',
+      'brain_sticky_tags',
+      'brain_page_nodes',
+      'brain_page_edges',
+    ],
     sites: [],
     inventory: ['V12', 'B07', 'B12'],
     reason:

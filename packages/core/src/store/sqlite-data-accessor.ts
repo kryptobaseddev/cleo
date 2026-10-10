@@ -1012,6 +1012,155 @@ export function setRowUidNative(
   );
 }
 
+/** Whether `table` (and, when given, its `column`) exists in `main`. */
+function hasMainColumn(nativeDb: DatabaseSync, table: string, column?: string): boolean {
+  const cols = nativeDb.prepare(`PRAGMA main.table_info(${quoteIdent(table)})`).all() as Array<{
+    name: string;
+  }>;
+  return cols.length > 0 && (column === undefined || cols.some((c) => c.name === column));
+}
+
+/**
+ * Rename the counter display key (`D####`, `SN-###`) of one brain row and
+ * point the rows that reference it by key at the new key (T13405): a
+ * decision's `supersedes` / `superseded_by`, a sticky note's tags. The
+ * caller defers foreign keys for the transaction.
+ *
+ * @param nativeDb - The store handle (project or global).
+ * @param table - `brain_decisions` or `brain_sticky_notes`.
+ * @param uid - The row's uid.
+ * @param fromId - Its current key.
+ * @param toId - The new key.
+ * @returns Rows changed per `table.column`.
+ * @sync-side-effect identity.local-minting the re-mint of a colliding counter key renames its local references (T13405)
+ * @task T13405
+ */
+export function renameBrainDisplayKeyNative(
+  nativeDb: DatabaseSync,
+  table: 'brain_decisions' | 'brain_sticky_notes',
+  uid: string,
+  fromId: string,
+  toId: string,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  const run = (tbl: string, col: string, sql: string, ...args: SQLInputValue[]): void => {
+    if (!hasMainColumn(nativeDb, tbl, col)) return;
+    const n = Number(nativeDb.prepare(sql).run(...args).changes);
+    if (n > 0) out[`${tbl}.${col}`] = (out[`${tbl}.${col}`] ?? 0) + n;
+  };
+  run(
+    table,
+    'id',
+    `UPDATE main.${quoteIdent(table)} SET id = ? WHERE uid = ? AND id = ?`,
+    toId,
+    uid,
+    fromId,
+  );
+  if (table === 'brain_decisions') {
+    for (const col of ['supersedes', 'superseded_by']) {
+      run(
+        table,
+        col,
+        `UPDATE main.brain_decisions SET ${quoteIdent(col)} = ? WHERE ${quoteIdent(col)} = ?`,
+        toId,
+        fromId,
+      );
+    }
+  } else {
+    run(
+      'brain_sticky_tags',
+      'sticky_id',
+      'UPDATE main.brain_sticky_tags SET sticky_id = ? WHERE sticky_id = ?',
+      toId,
+      fromId,
+    );
+  }
+  return out;
+}
+
+/**
+ * Point every `decision:<fromId>` reference at `decision:<toId>` (T13405):
+ * the decision's page node (minted, so its uid stays), the page edges that
+ * name it (natural on the raw ids, so each is re-inserted under its new key
+ * and the old row deleted), and the `decision:<id>` evidence atoms in task
+ * verification payloads. An atom only matches as a whole token, so `D5`
+ * never rewrites `D50`.
+ *
+ * @param nativeDb - The store handle (project or global).
+ * @param fromId - The decision's old key.
+ * @param toId - Its new key.
+ * @returns Rows changed per `table.column`.
+ * @sync-side-effect identity.local-minting the re-mint of a colliding counter key renames its local references (T13405)
+ * @task T13405
+ */
+export function repointDecisionReferencesNative(
+  nativeDb: DatabaseSync,
+  fromId: string,
+  toId: string,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  const add = (key: string, n: number): void => {
+    if (n > 0) out[key] = (out[key] ?? 0) + n;
+  };
+  const oldNode = `decision:${fromId}`;
+  const newNode = `decision:${toId}`;
+  if (hasMainColumn(nativeDb, 'brain_page_nodes', 'id')) {
+    add(
+      'brain_page_nodes.id',
+      Number(
+        nativeDb
+          .prepare('UPDATE main.brain_page_nodes SET id = ? WHERE id = ?')
+          .run(newNode, oldNode).changes,
+      ),
+    );
+  }
+  if (hasMainColumn(nativeDb, 'brain_page_edges', 'from_id')) {
+    const cols = (
+      nativeDb.prepare('PRAGMA main.table_info(brain_page_edges)').all() as Array<{
+        name: string;
+      }>
+    )
+      .map((c) => c.name)
+      .filter((c) => c !== 'uid');
+    const list = cols.map(quoteIdent).join(', ');
+    for (const col of ['from_id', 'to_id']) {
+      const values = cols.map((c) => (c === col ? '?' : quoteIdent(c))).join(', ');
+      // The natural uid is a function of the raw key: a new key is a new row.
+      const moved = Number(
+        nativeDb
+          .prepare(
+            `INSERT OR IGNORE INTO main.brain_page_edges (${list}) SELECT ${values} FROM main.brain_page_edges WHERE ${quoteIdent(col)} = ?`,
+          )
+          .run(newNode, oldNode).changes,
+      );
+      nativeDb
+        .prepare(`DELETE FROM main.brain_page_edges WHERE ${quoteIdent(col)} = ?`)
+        .run(oldNode);
+      add(`brain_page_edges.${col}`, moved);
+    }
+  }
+  if (hasMainColumn(nativeDb, 'tasks_tasks', 'verification_json')) {
+    const atom = new RegExp(
+      `decision:${fromId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`,
+      'g',
+    );
+    const rows = nativeDb
+      .prepare(
+        'SELECT rowid AS rid, verification_json AS v FROM main.tasks_tasks WHERE instr(verification_json, ?) > 0',
+      )
+      .all(oldNode) as Array<{ rid: number; v: string }>;
+    const write = nativeDb.prepare(
+      'UPDATE main.tasks_tasks SET verification_json = ? WHERE rowid = ?',
+    );
+    for (const r of rows) {
+      const next = r.v.replace(atom, newNode);
+      if (next !== r.v)
+        add('tasks_tasks.verification_json', Number(write.run(next, r.rid).changes));
+    }
+  }
+  return out;
+}
+
 /**
  * Point a stored reference uid column (`ac_uid`) of the rows that reference
  * the re-keyed row by key at its new uid. Scoped by the key column, so a row
