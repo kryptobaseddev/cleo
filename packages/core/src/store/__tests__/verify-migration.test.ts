@@ -153,13 +153,14 @@ describe('verifyMigration — enum/type-drift report (the ~805K-row class)', () 
   });
 
   it('detects a source value outside the target CHECK enum even when row counts match', () => {
-    // Source: legacy 'architecture_decisions' with a NON-canonical status value
-    // ('Accepted' instead of 'accepted') — the real drift the campaign found.
+    // Source: legacy 'architecture_decisions' with a status value no
+    // normalization maps ('rejected'), so the copy would land it outside the
+    // enum. ('Accepted' is mapped to 'accepted' and is no drift: T12711.)
     const src = new DatabaseSync(sourcePath);
     try {
       src.exec(`CREATE TABLE "architecture_decisions" (id INTEGER PRIMARY KEY, status TEXT)`);
-      src.exec(`INSERT INTO "architecture_decisions" VALUES (1, 'accepted')`);
-      src.exec(`INSERT INTO "architecture_decisions" VALUES (2, 'Accepted')`); // drift
+      src.exec(`INSERT INTO "architecture_decisions" VALUES (1, 'Accepted')`); // mapped
+      src.exec(`INSERT INTO "architecture_decisions" VALUES (2, 'rejected')`); // drift
       src.exec(`INSERT INTO "architecture_decisions" VALUES (3, 'proposed')`);
     } finally {
       src.close();
@@ -167,7 +168,7 @@ describe('verifyMigration — enum/type-drift report (the ~805K-row class)', () 
 
     // Target: consolidated 'tasks_architecture_decisions' with a REAL CHECK enum.
     // We deliberately seed all 3 rows (count matches) so ONLY the enum-drift
-    // check can catch the un-normalised 'Accepted' value.
+    // check can catch the unmapped 'rejected' value.
     const tgt = new DatabaseSync(projectPath);
     try {
       tgt.exec(
@@ -194,7 +195,7 @@ describe('verifyMigration — enum/type-drift report (the ~805K-row class)', () 
       (d) => d.targetTable === 'tasks_architecture_decisions' && d.column === 'status',
     );
     expect(drift).toBeDefined();
-    expect(drift?.offendingValues).toContain('Accepted');
+    expect(drift?.offendingValues).toEqual(['rejected']);
     expect(drift?.allowedValues).toContain('accepted');
     expect(drift?.driftCount).toBe(1);
     expect(r.error).toContain('status');
