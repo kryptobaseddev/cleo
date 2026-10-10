@@ -174,6 +174,7 @@ import {
   unlockNexusAccountKey,
 } from './nexus-vault-keys.js';
 import type { VaultStreamState } from './nexus-vault-state.js';
+import { completeServerRebind } from './replica-rebind.js';
 import { homeStream, projectStream } from './streams.js';
 
 /** Default lease length of a push: long enough for a large upload, short enough to hand off. */
@@ -1828,6 +1829,25 @@ async function openStreamSession(opts: NexusVaultCommandOptions): Promise<Stream
   return { conn, key, t };
 }
 
+/**
+ * Complete a rebind's server half the store still owes (T13278): a crash, or
+ * a refused call, after the store rebound at a pull's head. Until it is done
+ * the stream does not know the store's replica, so nothing is pushed or
+ * pulled first. Returns the session with the replica the store is bound to.
+ */
+async function withCompletedRebind(session: StreamSession): Promise<StreamSession> {
+  const { conn, t } = session;
+  if (!t.replicaId) return session;
+  const { openDualScopeDbAtPath, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
+  const db = getDualScopeNativeDb(
+    t.scope === 'global'
+      ? await openDualScopeDbAtPath('global', t.dbPath)
+      : await openDualScopeDbAtPath('project', t.dbPath),
+  );
+  const done = await completeServerRebind(conn, t, db);
+  return done === null ? session : { ...session, t: { ...t, replicaId: done.to } };
+}
+
 async function pushSyncStreamImpl(
   opts: NexusVaultCommandOptions & {
     /** Push although `sync.push` is unreleased (tests and staging only). Never set from user input. */
@@ -1838,9 +1858,10 @@ async function pushSyncStreamImpl(
 }
 
 async function pushWithSession(
-  session: StreamSession,
+  opened: StreamSession,
   opts: { readonly allowUnreleased?: boolean },
 ): Promise<PushStreamReport> {
+  const session = await withCompletedRebind(opened);
   const { conn, t } = session;
   const replicaId = t.replicaId;
   if (!replicaId) {
@@ -1910,7 +1931,8 @@ async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<
   return pullWithSession(await openStreamSession(opts));
 }
 
-async function pullWithSession(session: StreamSession): Promise<PullStreamReport> {
+async function pullWithSession(opened: StreamSession): Promise<PullStreamReport> {
+  const session = await withCompletedRebind(opened);
   const { conn, key, t } = session;
   const replicaId = t.replicaId;
   if (!replicaId) {
@@ -1988,7 +2010,7 @@ async function pullWithSession(session: StreamSession): Promise<PullStreamReport
   // Pruning waits for a floor the applier refuses below anyway, such as the
   // receive watermark (T13256), and then prunes by that floor, not by
   // stream seq.
-  return pullStream(db, {
+  const report = await pullStream(db, {
     scope: tableScopeOf(t),
     stream: t.streamId,
     replica: replicaId,
@@ -2027,7 +2049,13 @@ async function pullWithSession(session: StreamSession): Promise<PullStreamReport
     seal: () => {
       sealPending(db, { scope: tableScopeOf(t), replica: replicaId });
     },
+    // D5: a pull that reaches head runs the rebind the undo budget scheduled
+    // (T13278). The canonical store's own binding: the stable device id.
+    rebind: { dbPath: t.dbPath, mode: 'live' },
   });
+  // Its server half at once, so this run's next push announces the retire.
+  if (report.rebind !== null) await completeServerRebind(conn, t, db);
+  return report;
 }
 
 /** A `cleo cloud sync` stream result with nothing done yet. */
@@ -2154,6 +2182,21 @@ async function syncOneStream(
   let pull: PullStreamReport;
   try {
     pull = await pullWithSession(session);
+    // A pull that rebound at head (T13278): push again as the successor, so
+    // the retire and the reconcile leave in this run.
+    if (pull.rebind !== null) {
+      const again = await pushWithSession(
+        { ...session, t: { ...session.t, replicaId: pull.rebind.replicaId } },
+        opts,
+      );
+      push = {
+        ...again,
+        sealed: push.sealed + again.sealed,
+        built: push.built + again.built,
+        pushed: push.pushed + again.pushed,
+        duplicates: push.duplicates + again.duplicates,
+      };
+    }
   } catch (err) {
     return syncStreamResult(scope, {
       streamId,

@@ -18,11 +18,14 @@
  *   (`_sync_seen_txn`): a re-delivered transaction is never staged twice, so
  *   a counter delta is never applied twice;
  * - stages the rest (`stageTxns`), schema-ahead ones included (the applier
- *   holds them `refused-schema` and replays them after an upgrade);
+ *   holds them `refused-schema` and replays them after an upgrade), and
+ *   records each `retire` at its stream seq (`_sync_retired`, T13278);
  * - advances the cursor.
  *
  * Then the applier applies what is staged, in stream order, own echoes
- * included (they feed the fast path and the scoped rebase, §3.5).
+ * included (they feed the fast path and the scoped rebase, §3.5). A pull
+ * that reached the head runs the rebind the undo budget scheduled (D5,
+ * `rebind.ts`), when the caller passes the store's open options.
  *
  * The page source is a port ({@link SegmentPuller}): the journal client in
  * production (`cloud/nexus-vault.ts`), a fake in tests.
@@ -39,6 +42,9 @@ import { type ApplyReport, type ApplyStagedOptions, applyStagedTxns } from './ap
 import { withImmediateTransaction } from './clock-store.js';
 import { isSyncFlagOn } from './flags.js';
 import { stageTxns } from './inbox.js';
+import { type RebindAtHeadReport, rebindAtHead } from './rebind.js';
+import type { SyncOpenOptions } from './replica.js';
+import { recordRetirement } from './retire.js';
 import { hasTable } from './schema.js';
 
 /** Where a pull stands (the journal client's `PullCursor`). */
@@ -100,6 +106,13 @@ export interface PullStreamOptions {
    * ({@link pruneSeenTxns}); the cloud pull passes none yet (T13256).
    */
   readonly pruneSeenUpTo?: number | null;
+  /**
+   * The canonical store's open options: when given and the undo budget
+   * scheduled a rebind (`sync.undo_budget_exceeded`, D5), a pull that reaches
+   * the stream's head runs it ({@link rebindAtHead}, T13278). A pull that is
+   * refused or stops short never does, so the key stays set.
+   */
+  readonly rebind?: Omit<SyncOpenOptions, 'scope'>;
 }
 
 /** What {@link pullStream} did. */
@@ -128,6 +141,8 @@ export interface PullStreamReport {
   readonly head: number;
   /** What the applier did, or null when the pull was refused. */
   readonly apply: ApplyReport | null;
+  /** The rebind this pull ran at head (T13278), or null. */
+  readonly rebind: RebindAtHeadReport | null;
 }
 
 /** A segment the store refuses to stage (a malformed body or a bad transaction signature). */
@@ -314,6 +329,7 @@ export async function pullStream(
       after: readStreamCursor(db, o.stream)?.after ?? o.initialCursor.after,
       head: 0,
       apply: null,
+      rebind: null,
     };
   }
   let cursor = readStreamCursor(db, o.stream) ?? o.initialCursor;
@@ -364,6 +380,13 @@ export async function pullStream(
         const fresh = txns.filter((t) => Number(seen.run(o.stream, t.txn, seg.seq).changes) === 1);
         redelivered += txns.length - fresh.length;
         if (fresh.length === 0) continue;
+        // A retire, emitted by its successor, is recorded at its stream seq:
+        // later transactions of the retired replica are history (T13278).
+        for (const t of fresh) {
+          if (t.kind === 'retire' && t.retire && t.retire.successor === seg.replicaId) {
+            recordRetirement(db, o.stream, { ...t.retire, txn: t.txn, hlc: t.hlc, seq: seg.seq });
+          }
+        }
         staged += stageTxns(
           db,
           o.stream,
@@ -392,6 +415,13 @@ export async function pullStream(
     seal: o.seal,
     ...(o.apply ?? {}),
   });
+  // D5: the rebind the undo budget scheduled runs only once the stream's
+  // head is reached and nothing was refused (T13278).
+  const atHead = refusedSegment === null && cursor.after >= head;
+  const rebind =
+    o.rebind !== undefined && atHead
+      ? rebindAtHead(db, { ...o.rebind, scope: o.scope, stream: o.stream, cursor })
+      : null;
   return {
     stream: o.stream,
     refused: refusedSegment,
@@ -403,5 +433,6 @@ export async function pullStream(
     after: cursor.after,
     head,
     apply,
+    rebind,
   };
 }

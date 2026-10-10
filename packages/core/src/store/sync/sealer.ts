@@ -773,6 +773,27 @@ export function sealPreconditions(
 export const SEAL_COUNTER_KEY = 'sealer.local_seq';
 
 /**
+ * Take the next transaction counter for a transaction written outside a
+ * sealing pass (a `retire` control transaction, T13278), in the caller's
+ * transaction. The counter only rises, so the sealer continues past it.
+ *
+ * @param db - The store, inside a transaction.
+ * @param atIso - Now (ISO-8601), recorded with the counter.
+ * @returns The reserved `local_seq`.
+ */
+export function reserveLocalSeq(db: DatabaseSync, atIso: string): number {
+  const stored = db.prepare('SELECT value FROM _sync_meta WHERE key = ?').get(SEAL_COUNTER_KEY) as
+    | { value: string }
+    | undefined;
+  const maxRow = (
+    db.prepare('SELECT coalesce(max(local_seq), 0) AS n FROM _sync_txn').get() as { n: number }
+  ).n;
+  const next = Math.max(Number(stored?.value ?? 0) || 0, maxRow) + 1;
+  setSealMeta(db, SEAL_COUNTER_KEY, String(next), atIso);
+  return next;
+}
+
+/**
  * Seal up to `budget` live captures (ending on a group boundary) into
  * transactions, in one synchronous `BEGIN IMMEDIATE` transaction.
  *
@@ -1269,7 +1290,7 @@ function sealInTransaction(
     let partial = false;
     for (const c of captures) {
       try {
-        drafts.push(buildDraft(ctx, c, births, g.kind === 'repair'));
+        drafts.push(buildDraft(ctx, c, births, g.kind === 'repair' || g.kind === 'rebind'));
       } catch (err) {
         if (!(err instanceof SealInputError)) throw err;
         // T13036: an unreadable capture never stalls the outbox. It moves to
@@ -1369,14 +1390,26 @@ function sealInTransaction(
       },
     );
     const txnHlc = sealedOps.reduce((m, o) => (o.h > m ? o.h : m), sealedOps[0]?.h ?? '');
-    const kind = g.frame !== null && TXN_KINDS.has(g.kind) ? g.kind : 'write';
+    // A rebind frame is the reconcile's repair, under the new replica (§1.5 N7, T13278).
+    const kind =
+      g.frame !== null && g.kind === 'rebind'
+        ? 'repair'
+        : g.frame !== null && TXN_KINDS.has(g.kind)
+          ? g.kind
+          : 'write';
     insTxn.run(
       txn,
       localSeq,
       replica,
       txnHlc,
       opts.scope,
-      g.frame === null ? 'foreign' : g.kind === 'repair' ? 'repair' : 'accessor',
+      g.frame === null
+        ? 'foreign'
+        : g.kind === 'repair'
+          ? 'repair'
+          : g.kind === 'rebind'
+            ? 'rebind'
+            : 'accessor',
       kind,
       g.actor,
       g.frame,

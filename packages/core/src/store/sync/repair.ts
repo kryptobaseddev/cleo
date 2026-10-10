@@ -288,7 +288,7 @@ export function planRepair(
 }
 
 /** `x`'s local key matches the bound key values ({@link keyValues}). */
-function keyWhere(def: CaptureTableDef): string {
+export function keyWhere(def: CaptureTableDef): string {
   return def.key.map((k) => `x.${q(k)} IS ?`).join(' AND ');
 }
 
@@ -301,7 +301,7 @@ function bindable(v: WireValue): string | number | bigint | Uint8Array | null {
 }
 
 /** The key values a row's `rk` encodes, in key-column order. */
-function keyValues(rk: string): Array<string | number | bigint | Uint8Array | null> {
+export function keyValues(rk: string): Array<string | number | bigint | Uint8Array | null> {
   return (JSON.parse(rk) as string[]).map((p) => bindable(decodeEnc(p)));
 }
 

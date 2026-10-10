@@ -83,7 +83,13 @@ export type RebindReason =
    * rules 1 and 3). The old replica is retired at the same path, so it is a
    * retire candidate for S4, unlike a copy (T13109).
    */
-  | 'vault-restore';
+  | 'vault-restore'
+  /**
+   * Undo reached its budget while the replica could not reach the stream
+   * (§3.5 Rule 2, D5): the next pull to head rebinds, reconciles and retires
+   * the old id (T13278).
+   */
+  | 'undo-budget';
 
 /** What `stat` reports about a store file, in nanoseconds. */
 export interface FileStat {
@@ -578,6 +584,16 @@ export interface RebindReplicaOptions {
 }
 
 /**
+ * Work that must commit with the rebind itself: it runs inside the rebind's
+ * `BEGIN IMMEDIATE`, after the new replica is bound and the old outbox is
+ * marked inherited, and a throw rolls the whole rebind back.
+ */
+export type RebindWithin<T> = (
+  db: DatabaseSync,
+  ctx: { readonly previous: ReplicaRow; readonly current: ReplicaRow },
+) => T;
+
+/**
  * Force a rebind of a bound store: the hook S4 uses when the server answers a
  * push with "seq exists, hash differs" (N6: the server hwm is authoritative).
  *
@@ -589,19 +605,40 @@ export function rebindReplica(
   reason: RebindReason = 'server-seq-conflict',
   rebindOpts: RebindReplicaOptions = {},
 ): { replicaId: string; previousReplicaId: string } {
+  const out = rebindReplicaWith(db, opts, reason, rebindOpts, () => undefined);
+  return { replicaId: out.replicaId, previousReplicaId: out.previousReplicaId };
+}
+
+/**
+ * {@link rebindReplica}, with `within` run inside the rebind transaction
+ * (the T13278 rebind at the next pull to head: its reconcile and retire
+ * commit with the rebind, or none of it does).
+ *
+ * @throws {Error} When the store has no active replica.
+ */
+export function rebindReplicaWith<T>(
+  db: DatabaseSync,
+  opts: SyncOpenOptions,
+  reason: RebindReason,
+  rebindOpts: RebindReplicaOptions,
+  within: RebindWithin<T>,
+): { replicaId: string; previousReplicaId: string; result: T } {
   const now = opts.now?.() ?? new Date();
   const { deviceId, registry } = resolveContext(opts);
   const identity = fileIdentity(opts.dbPath, opts.stat);
   const realpath = realpathSync(opts.dbPath);
-  const { previous, current, hwm } = withImmediateTransaction(db, () => {
+  const { previous, current, hwm, result } = withImmediateTransaction(db, () => {
     const row = activeReplica(db, opts.scope);
     // @sync-invariant none:local-only no active replica to rebind; machine-local bookkeeping
     if (!row) throw new Error(`no active ${opts.scope} replica to rebind`);
     const persisted = storeHwm(db, row.replicaId);
+    const next = rebindInTransaction(db, row, identity, deviceId, [reason], now);
+    const retired: ReplicaRow = { ...row, retiredAt: now.toISOString(), successor: next.replicaId };
     return {
       previous: row,
       hwm: persisted,
-      current: rebindInTransaction(db, row, identity, deviceId, [reason], now),
+      current: next,
+      result: within(db, { previous: retired, current: next }),
     };
   });
   // The retired replica is a retire candidate (§1.5 "Retirement"; T13109) only
@@ -627,7 +664,7 @@ export function rebindReplica(
     );
   }
   register(registry, db, current, realpath, now);
-  return { replicaId: current.replicaId, previousReplicaId: previous.replicaId };
+  return { replicaId: current.replicaId, previousReplicaId: previous.replicaId, result };
 }
 
 /** What {@link rebindAfterVaultRestore} did. */
