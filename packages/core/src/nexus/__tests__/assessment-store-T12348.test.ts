@@ -24,11 +24,13 @@ import type { GraphIndexAssessment, GraphIndexReferenceReport } from '@cleocode/
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { buildSync } from 'esbuild';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GRAPH_INDEX_REFERENCE_KINDS } from '../assessment-projection.js';
 import {
   assessmentSummary,
   decodeStoredReferences,
   encodeStoredReferences,
   parseStoredReferences,
+  streamStoredReferences,
   writeAssessment,
 } from '../assessment-store.js';
 import {
@@ -322,6 +324,59 @@ describe('assessment summary and reference list (T12348)', () => {
       } finally {
         rmSync(directory, { recursive: true, force: true });
       }
+    });
+
+    // T13372: a long line — and the legacy list is ONE line — was joined per
+    // chunk and rescanned from 0, so time grew with the square of its size.
+    it('streams the legacy single-line form in linear time', async () => {
+      const legacyBlob = (count: number): Buffer =>
+        gzipSync(
+          JSON.stringify(
+            Array.from({ length: count }, (_, index) => reference(`a.ts::fn${index}`)),
+          ),
+        );
+      const fastest = async (blob: Buffer): Promise<number> => {
+        let best = Number.POSITIVE_INFINITY;
+        for (let run = 0; run < 3; run++) {
+          const started = performance.now();
+          let count = 0;
+          for await (const _ of streamStoredReferences(blob)) count++;
+          best = Math.min(best, performance.now() - started);
+          expect(count).toBeGreaterThan(0);
+        }
+        return best;
+      };
+      const small = legacyBlob(10_000);
+      const large = legacyBlob(40_000);
+      await fastest(small); // warm the JIT before timing either size
+      const ratio = (await fastest(large)) / (await fastest(small));
+      // Linear is ~4x for 4x the bytes; the rescan was ~16x. 8x leaves CI noise room.
+      expect(ratio).toBeLessThan(8);
+    });
+
+    it('accepts exactly the contract reference kinds', async () => {
+      const references = GRAPH_INDEX_REFERENCE_KINDS.map((kind, index) => ({
+        ...reference(`a.ts::fn${index}`),
+        kind,
+      }));
+      writeAssessment(drizzle({ client: native }), { ...fullAssessment(), references });
+      const result = await readKnowledgeIndexReferencePage(undefined, { limit: 20, offset: 0 });
+      expect(result?.page.rows.map((row) => row.kind)).toEqual([...GRAPH_INDEX_REFERENCE_KINDS]);
+      expect(Object.keys(result?.byKind ?? {}).sort()).toEqual(
+        [...GRAPH_INDEX_REFERENCE_KINDS].sort(),
+      );
+      native
+        .prepare("UPDATE _nexus_meta SET value = ? WHERE key = 'graph_assessment_references'")
+        .run(
+          gzipSync(
+            `[\n${references
+              .map((row, index) => JSON.stringify(index === 0 ? { ...row, kind: 'invented' } : row))
+              .join(',\n')}\n]`,
+          ),
+        );
+      await expect(
+        readKnowledgeIndexReferencePage(undefined, { limit: 20, offset: 0 }),
+      ).rejects.toThrow();
     });
 
     it('refuses a stored list that disagrees with the recorded count', async () => {

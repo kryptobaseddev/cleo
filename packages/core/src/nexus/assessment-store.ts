@@ -166,19 +166,30 @@ export async function* streamStoredReferences(
   else if (value instanceof Uint8Array) source = Readable.from([value]).pipe(createGunzip());
   // @sync-invariant none:input-shape a malformed stored list is refused on read; nothing is written
   else throw new Error('Graph reference metadata is neither text nor a compressed list.');
-  // Bytes of a line not yet terminated, and every byte of a legacy list.
-  let pending: Buffer = Buffer.alloc(0);
+  // Unterminated bytes, kept as chunks and joined once per line (T13372): a
+  // join per CHUNK, then a rescan of the whole buffer, made a long line —
+  // the legacy single-line list is one line — cost quadratic time.
+  let parts: Buffer[] = [];
   let legacy = false;
   let sawOpening = false;
   for await (const chunk of source) {
-    pending = pending.length === 0 ? chunk : Buffer.concat([pending, chunk]);
-    if (legacy) continue;
+    if (legacy) {
+      parts.push(chunk);
+      continue;
+    }
     let start = 0;
-    for (let end = pending.indexOf(NEWLINE); end !== -1; end = pending.indexOf(NEWLINE, start)) {
-      const line = pending.toString('utf8', start, end).trim();
+    for (let end = chunk.indexOf(NEWLINE); end !== -1; end = chunk.indexOf(NEWLINE, start)) {
+      const lineBytes =
+        parts.length === 0
+          ? chunk.subarray(start, end)
+          : Buffer.concat([...parts, chunk.subarray(start, end)]);
+      parts = [];
+      const line = lineBytes.toString('utf8').trim();
       if (!sawOpening) {
         if (line !== '[') {
+          // Not the line-per-reference form: keep every byte for a whole parse.
           legacy = true;
+          parts = [lineBytes, chunk.subarray(end)];
           break;
         }
         sawOpening = true;
@@ -189,9 +200,9 @@ export async function* streamStoredReferences(
       }
       start = end + 1;
     }
-    if (!legacy) pending = pending.subarray(start);
+    if (!legacy && start < chunk.length) parts.push(chunk.subarray(start));
   }
-  const rest = pending.toString('utf8').trim();
+  const rest = Buffer.concat(parts).toString('utf8').trim();
   if (sawOpening && !legacy) {
     const text = rest.replace(/,$/, '');
     if (text !== ']' && text !== '')

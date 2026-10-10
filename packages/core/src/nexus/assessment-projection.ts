@@ -206,15 +206,29 @@ export const DEFAULT_REFERENCE_PAGE_SIZE = 20;
  */
 export const MAX_REFERENCE_PAGE_SIZE = 5_000;
 
-/** Every reference limitation kind, in contract order. */
-export const GRAPH_INDEX_REFERENCE_KINDS: readonly GraphIndexReferenceKind[] = [
-  'unmodeled-source',
-  'ambiguous',
-  'external',
-  'dynamic',
-  'shadowed',
-  'unresolved',
-];
+/**
+ * Zero count for every reference kind. Typed as the contract's
+ * `Record<kind, number>`, so the compiler rejects a missing or unknown kind:
+ * the kind list below is derived from it and cannot drift from the contract.
+ */
+const EMPTY_REFERENCE_KIND_COUNTS: Readonly<GraphIndexReferenceKindCounts> = {
+  'unmodeled-source': 0,
+  ambiguous: 0,
+  external: 0,
+  dynamic: 0,
+  shadowed: 0,
+  unresolved: 0,
+};
+
+/** Whether `value` names a contract reference kind. */
+function isReferenceKind(value: string): value is GraphIndexReferenceKind {
+  return Object.hasOwn(EMPTY_REFERENCE_KIND_COUNTS, value);
+}
+
+/** Every reference limitation kind, derived from the contract's kind counts. */
+export const GRAPH_INDEX_REFERENCE_KINDS: readonly GraphIndexReferenceKind[] = Object.keys(
+  EMPTY_REFERENCE_KIND_COUNTS,
+).filter(isReferenceKind);
 
 /** Which references a status projection returns (T13330). */
 export interface ReferencePageRequest {
@@ -346,14 +360,7 @@ export async function pageReferences(
   request: ReferencePageRequest,
   readers: ReferenceReaders,
 ): Promise<ReferencePageResult & { count: number }> {
-  const byKind: GraphIndexReferenceKindCounts = {
-    'unmodeled-source': 0,
-    ambiguous: 0,
-    external: 0,
-    dynamic: 0,
-    shadowed: 0,
-    unresolved: 0,
-  };
+  const byKind: GraphIndexReferenceKindCounts = { ...EMPTY_REFERENCE_KIND_COUNTS };
   const rows: GraphIndexReferenceReport[] = [];
   let count = 0;
   let matching = 0;
