@@ -63,6 +63,9 @@ beforeEach(() => {
   vi.stubEnv('CLEO_HOME', join(root, 'cleo-home'));
   vi.stubEnv('CLEO_DIR', cleoDir);
   vi.stubEnv('CLEO_ROOT', undefined);
+  // Written against row uids off; on by default since T13305 (C2). The
+  // capture + fill-on interplay (K captures alongside I/U/D) is T13311.
+  vi.stubEnv('CLEO_ROW_UID_FILL', '0');
   liveDb = join(cleoDir, 'cleo.db');
 });
 

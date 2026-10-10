@@ -46,6 +46,38 @@ export const nexusProjectKeysSchema = z.looseObject({
   ),
 });
 
+// ---------- wire: replica retirement refusals (cleo-nexus T123) ----------
+
+/**
+ * The `details.reason` values E31 (`POST …/replicas/:replicaId/retirements`) and the calls it guards answer with
+ * (cleo-nexus #41, contract v2.28):
+ * - `not-pinned-or-owner` (403): the caller is neither the replica's pinned device nor, on a project stream, an
+ *   owner's device (on a home stream, any device of the account may retire).
+ * - `retire-below-head` (409): `lastReplicaSeq` is under the replica's highest appended replicaSeq, or null while
+ *   the replica has a segment.
+ * - `retired` (409): the replica is already retired with another successor or `lastReplicaSeq` (the same pair
+ *   again answers 200 with the stored record).
+ * - `successor-other-user` (403): on a project stream, the successor is pinned to another user's device.
+ * - `successor-taken` (409): another user's retirement already names that successor.
+ * - `successor-retired` (409): the successor is itself retired (this also refuses a cycle).
+ * - `replica-retired` (409, `E_CONFLICT`, with `lastReplicaSeq` and `successor`): a segment append past the
+ *   retirement, or a lease request, for a retired replica.
+ * The server's strings, not a cloud wire schema: kept here, beside the vault's other wire constants, so the
+ * `@cleocode/contracts/cloud` mirror stays byte-for-byte the server's.
+ */
+export const NEXUS_REPLICA_RETIREMENT_REASONS = [
+  'not-pinned-or-owner',
+  'retire-below-head',
+  'retired',
+  'successor-other-user',
+  'successor-taken',
+  'successor-retired',
+  'replica-retired',
+] as const;
+
+/** One E31 refusal reason ({@link NEXUS_REPLICA_RETIREMENT_REASONS}). */
+export type NexusReplicaRetirementReason = (typeof NEXUS_REPLICA_RETIREMENT_REASONS)[number];
+
 // ---------- wire: leases (cleo-nexus T083) ----------
 
 /** The lease role of the vault's single writer. */
