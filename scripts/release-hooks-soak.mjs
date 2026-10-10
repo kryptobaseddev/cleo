@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readPublishedPackages } from './execute-payload.mjs';
 import { isMain } from './lib/is-main.mjs';
@@ -102,15 +102,18 @@ const request=JSON.parse(text);if(request.source==='worktree')appendFileSync('ho
   ]);
   if (!direct.outcomes?.some((outcome) => outcome.status === 'pass'))
     throw new Error('Installed CI invocation did not execute');
-  const agentResponse = JSON.parse(
-    call(
-      bin,
-      ['hook', 'run', '--source', 'agent', '--event', 'PreToolUse', '--provider', 'codex'],
-      JSON.stringify({ tool_input: { command: 'pwd' }, hook_event_name: 'PreToolUse' }),
-    ),
+  const agentResponse = call(
+    bin,
+    ['hook', 'run', '--source', 'agent', '--event', 'PreToolUse', '--provider', 'codex'],
+    JSON.stringify({ tool_input: { command: 'pwd' }, hook_event_name: 'PreToolUse' }),
   );
-  if (!agentResponse || typeof agentResponse !== 'object')
-    throw new Error('Installed native adapter produced no JSON response');
+  // A successful advisory hook is silent; nonempty output must use native JSON.
+  // The persisted execution receipt below proves the checker actually ran.
+  if (agentResponse.trim()) {
+    const response = JSON.parse(agentResponse);
+    if (!response || typeof response !== 'object' || Array.isArray(response))
+      throw new Error('Installed native adapter produced an invalid JSON response');
+  }
   const agentReceipt = envelope([
     'doctor',
     'hooks',
@@ -223,6 +226,8 @@ async function packedPreflight(repoRoot) {
     }),
   );
   setup('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], installDir, 'install');
+  // Git hooks must resolve the same installed CLI that the absolute-path probes use.
+  env.PATH = `${join(installDir, 'node_modules', '.bin')}${delimiter}${env.PATH ?? ''}`;
   const project = env.CLEO_PROJECT_ROOT;
   setup('git', ['init', '--quiet'], project, 'git-init');
   const bin = join(installDir, 'node_modules', '.bin', 'cleo');

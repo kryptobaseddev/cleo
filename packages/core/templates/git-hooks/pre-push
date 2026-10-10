@@ -102,7 +102,7 @@ fi
 
 # Existing projects remain unchanged: the shared runner skips disabled hooks.
 if command -v cleo >/dev/null 2>&1; then
-  capability=$(cleo hook run --probe 2>/dev/null) || capability=""
+  capability=$(cleo hook run --probe < /dev/null 2>/dev/null) || capability=""
   if [ "$capability" != "CLEO_PROJECT_HOOK_V1" ]; then
     printf '%s\n' 'cleo pre-push: project runner unavailable; allowing push' >&2
     exit 0
