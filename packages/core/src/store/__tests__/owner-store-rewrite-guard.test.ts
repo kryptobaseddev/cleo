@@ -211,9 +211,20 @@ describe('T12708 — one guard, one message, for every whole-store rewrite', () 
     }
     expect(report.failedCount).toBe(1); // one file, not three
     expect(readFileSync(store, 'utf8')).toBe('not a sqlite file at all, corrupt');
-    expect(() =>
-      runBackupRecover({ role: 'tasks', projectRoot: main, cwd: main, logger, dryRun: true }),
-    ).toThrow(/live project store/);
+    for (const role of ['tasks', 'brain', 'conduit'] as const) {
+      let refusal: unknown = null;
+      try {
+        runBackupRecover({ role, projectRoot: main, cwd: main, logger, dryRun: false });
+      } catch (e) {
+        refusal = e;
+      }
+      expect(refusal).toMatchObject({
+        codeName: 'E_PROJECT_STORE_RECOVER',
+        fix: `cleo backup recover ${role} --dry-run, then cleo backup recover ${role}`,
+      });
+      expect(String(refusal)).toMatch(/live project store/);
+    }
+    expect(readFileSync(store, 'utf8')).toBe('not a sqlite file at all, corrupt');
   });
 
   it('doctor db-substrate: quarantine of the owner store needs confirmation from the worktree', () => {

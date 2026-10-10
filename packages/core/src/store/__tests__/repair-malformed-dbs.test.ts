@@ -12,7 +12,7 @@
  * @saga T11242
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -167,6 +167,8 @@ describe('repairMalformedDbs (T11829)', () => {
   it('never repairs the live project store: tasks, brain and conduit are one probe, pointed at the guarded restore (T13245)', () => {
     const store = join(cleoDir, 'cleo.db');
     writeFileSync(store, Buffer.from('corrupt project store'));
+    writeFileSync(`${store}-wal`, 'placeholder wal sidecar');
+    writeFileSync(`${store}-shm`, 'placeholder shm sidecar');
     const vacuumDir = join(cleoDir, 'backups', 'sqlite');
     mkdirSync(vacuumDir, { recursive: true });
     writeHealthyTasksDb(join(vacuumDir, 'tasks-20260101-120000.db'), 5);
@@ -189,7 +191,11 @@ describe('repairMalformedDbs (T11829)', () => {
         expect(r.detail).toContain('cleo backup recover tasks');
       }
     }
-    // Untouched: no quarantine, no copy over the live store.
+    // Untouched: no quarantine, no copy over the live store, sidecars in place.
+    expect(existsSync(`${store}-wal`)).toBe(true);
+    expect(existsSync(`${store}-shm`)).toBe(true);
+    expect(existsSync(join(cleoDir, 'quarantine'))).toBe(false);
+    expect(readFileSync(store, 'utf8')).toBe('corrupt project store');
     const live = new DatabaseSync(store);
     try {
       expect(() => live.prepare('SELECT 1 FROM sqlite_master').get()).toThrow();

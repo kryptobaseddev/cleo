@@ -21,7 +21,7 @@
  * @saga T10281
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -939,6 +939,56 @@ describe('doctor db-substrate (T10307)', () => {
     expect(existsSync(storePath)).toBe(true);
     expect(existsSync(`${storePath}-wal`)).toBe(true);
     expect(tasks?.suggestedFix).toBe('cleo backup recover tasks');
+  });
+
+  it('T13245: default mode never renames, moves or deletes .cleo/cleo.db or its -wal/-shm, slow or failing', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const files = (store: string) => [store, `${store}-wal`, `${store}-shm`];
+
+    // 1. A SLOW integrity_check: a healthy WAL store held open by a writer (so
+    //    its -wal/-shm exist), with the clock jumping past the 60 s budget.
+    const slowRoot = join(fleetRoot, 'project-store-slow');
+    mkdirSync(join(slowRoot, '.cleo'), { recursive: true });
+    const slowStore = join(slowRoot, '.cleo', 'cleo.db');
+    const writer = new DatabaseSyncCtor(slowStore);
+    try {
+      writer.exec(`PRAGMA journal_mode=WAL;
+        CREATE TABLE tasks_tasks (id TEXT PRIMARY KEY);
+        INSERT INTO tasks_tasks VALUES ('T1');`);
+      for (const f of files(slowStore)) expect(existsSync(f), f).toBe(true);
+      let clock = 1_000_000;
+      const now = vi.spyOn(Date, 'now').mockImplementation(() => {
+        clock += 61_000;
+        return clock;
+      });
+      let slow: ReturnType<typeof surveyDbSubstrate>;
+      try {
+        slow = surveyDbSubstrate(slowRoot);
+      } finally {
+        now.mockRestore();
+      }
+      const tasks = slow.projects[0]?.dbs['tasks'];
+      expect(tasks?.timedOut).toBe(true);
+      expect(tasks?.integrityOK).toBe(false);
+      expect(tasks?.quarantinedTo).toBeNull();
+      for (const f of files(slowStore)) expect(existsSync(f), f).toBe(true);
+    } finally {
+      writer.close();
+    }
+
+    // 2. A FAILING integrity_check: garbage bytes plus sidecars.
+    const badRoot = createProjectWithTasksDb('project-store-corrupt-sidecars');
+    const badStore = join(badRoot, '.cleo', 'cleo.db');
+    seedCorruptDb(badStore);
+    writeFileSync(`${badStore}-wal`, 'placeholder wal sidecar');
+    writeFileSync(`${badStore}-shm`, 'placeholder shm sidecar');
+    const bad = surveyDbSubstrate(badRoot).projects[0]?.dbs['tasks'];
+    expect(bad?.integrityOK).toBe(false);
+    expect(bad?.quarantinedTo).toBeNull();
+    for (const f of files(badStore)) expect(existsSync(f), f).toBe(true);
+    expect(readdirSync(join(badRoot, '.cleo'))).not.toContain('quarantine');
   });
 
   it('T10312: --no-quarantine leaves the corrupt DB in place', async () => {
