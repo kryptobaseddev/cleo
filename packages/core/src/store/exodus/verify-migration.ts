@@ -56,6 +56,7 @@ import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import {
   buildDigestExpr,
   detectIsoGlobColumns,
+  enumNormExpr,
   legacyRowProjection,
   type TargetColumnInfo,
 } from './column-transforms.js';
@@ -446,18 +447,21 @@ function detectCheckEnums(db: DatabaseSync, tableName: string): Map<string, stri
 
 /**
  * Detect enum/type drift for one source→target table pair: source values in an
- * enum-constrained column that are NOT members of the target CHECK enum.
+ * enum-constrained column that the migration would land OUTSIDE the target
+ * CHECK enum.
  *
- * Reads the DISTINCT non-null values of each enum column from the source table
- * and compares them against the target's allowed members. Only columns present
- * in BOTH source and target are inspected. The check is purely diagnostic — it
- * reports raw source drift; the migration layer is responsible for normalising
- * known aliases before insert.
+ * Each source value is first passed through the column's enum normalization
+ * ({@link enumNormExpr}, the rule the copy applies), so a legacy value the
+ * migration maps to a member (e.g. `archive_reason = 'deleted'` → `cancelled`)
+ * is not drift (T12711). What remains is a value no rule maps: the CHECK
+ * rejects it, so its row would be lost. Only columns present in BOTH source
+ * and target are inspected; `offendingValues` names the raw source values.
  *
- * @param srcDb        - Source DB handle.
- * @param srcTable     - Physical source table name.
- * @param tgtDb        - Target DB handle.
- * @param tgtTable     - Physical consolidated target table name.
+ * @param srcDb          - Source DB handle.
+ * @param srcTable       - Physical source table name.
+ * @param tgtDb          - Target DB handle.
+ * @param tgtTable       - Physical target table name.
+ * @param transformTable - Consolidated table name the normalizations are keyed on.
  * @returns Drift findings for this table (empty when fully canonical).
  */
 function detectTableEnumDrift(
@@ -465,6 +469,7 @@ function detectTableEnumDrift(
   srcTable: string,
   tgtDb: DatabaseSync,
   tgtTable: string,
+  transformTable: string = tgtTable,
 ): MigrationEnumDrift[] {
   const enums = detectCheckEnums(tgtDb, tgtTable);
   if (enums.size === 0) return [];
@@ -484,13 +489,15 @@ function detectTableEnumDrift(
   for (const [col, allowed] of enums) {
     if (!srcCols.has(col)) continue;
     const allowedSet = new Set(allowed);
-    let rows: Array<{ v: unknown; c: number }>;
+    let rows: Array<{ v: unknown; n: unknown; c: number }>;
     try {
+      // The value as the copy lands it; a column without a rule lands as is.
+      const landed = enumNormExpr(transformTable, col, `"${col}"`) ?? `"${col}"`;
       rows = srcDb
         .prepare(
-          `SELECT "${col}" AS v, COUNT(*) AS c FROM "${srcTable}" WHERE "${col}" IS NOT NULL GROUP BY "${col}"`,
+          `SELECT "${col}" AS v, ${landed} AS n, COUNT(*) AS c FROM "${srcTable}" WHERE "${col}" IS NOT NULL GROUP BY "${col}"`,
         )
-        .all() as Array<{ v: unknown; c: number }>;
+        .all() as Array<{ v: unknown; n: unknown; c: number }>;
     } catch {
       continue;
     }
@@ -499,7 +506,7 @@ function detectTableEnumDrift(
     let driftCount = 0;
     for (const r of rows) {
       const value = String(r.v);
-      if (!allowedSet.has(value)) {
+      if (r.n === null || !allowedSet.has(String(r.n))) {
         driftCount += r.c;
         if (offending.length < MIGRATION_ENUM_DRIFT_SAMPLE_LIMIT) offending.push(value);
       }
@@ -951,6 +958,7 @@ export function verifyMigration(
               legacyTableName,
               targetSnap.db,
               targetTableName,
+              transformTableName,
             );
             if (drift.length > 0) {
               enumDrift.push(...drift);
