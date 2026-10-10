@@ -45,6 +45,7 @@ import {
   sealBacklog,
   sealPending,
 } from '../sealer.js';
+import { asOlderBuild } from './older-build.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
 const REPLICA = '01929a3e-7f00-7000-8000-000000000001';
@@ -60,9 +61,6 @@ beforeEach(() => {
   vi.stubEnv('CLEO_HOME', join(dir, 'cleo'));
   vi.stubEnv('CLEO_ROOT', undefined);
   vi.stubEnv('CLEO_DIR', undefined);
-  // Written against row uids off; on by default since T13305 (C2). The
-  // capture + fill-on interplay (K captures alongside I/U/D) is T13311.
-  vi.stubEnv('CLEO_ROW_UID_FILL', '0');
   dbPath = join(dir, 'project', '.cleo', 'cleo.db');
 });
 
@@ -102,13 +100,17 @@ function framed(db: DatabaseSync, fn: () => void): void {
   db.exec('COMMIT');
 }
 
-const addTask = (db: DatabaseSync, id: string, uid: string | null = `uid-${id}`) =>
-  db
-    .prepare(
-      `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp)
-       VALUES (?, ?, 'task', 'pending', 'medium', ?, ?)`,
-    )
-    .run(id, `title ${id}`, uid, uid === null ? null : `fp-${id}`);
+/** A `null` uid inserts as an older build would: no per-connection fill (T13311). */
+const addTask = (db: DatabaseSync, id: string, uid: string | null = `uid-${id}`) => {
+  const insert = () =>
+    db
+      .prepare(
+        `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp)
+         VALUES (?, ?, 'task', 'pending', 'medium', ?, ?)`,
+      )
+      .run(id, `title ${id}`, uid, uid === null ? null : `fp-${id}`);
+  return uid === null ? asOlderBuild(db, 'project', insert) : insert();
+};
 
 const txns = (db: DatabaseSync) =>
   db.prepare('SELECT * FROM _sync_txn ORDER BY local_seq').all() as Array<{

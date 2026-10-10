@@ -2044,7 +2044,10 @@ async function deepVerify(
     try {
       await journal.restoreCheckpoint(cp.checkpointId, signers);
     } catch (err) {
-      problem = refusalOf(err);
+      // A snapshot the server listed whose checkpoint or bundle then answers
+      // 404 is unreadable: a finding about the cloud copy, not a transport
+      // failure (#1947 review LOW-1). Timeouts, 5xx and auth still throw.
+      problem = err instanceof NexusError && err.status === 404 ? 'blob missing' : refusalOf(err);
       if (problem === null) throw err;
     }
     checked.push({

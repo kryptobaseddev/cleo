@@ -946,6 +946,17 @@ describe('PR-4: references, guards, parent deletes and re-keys (§3.2)', () => {
     }
   });
 
+  it('every global sync-set FK parent declares its remote-delete policy', async () => {
+    const db = getDualScopeNativeDb(
+      await openDualScopeDbAtPath('global', join(dir, 'cleo', 'cleo.db')),
+    );
+    const parents = [...syncSetChildKeys(db, 'global').keys()].sort();
+    expect(parents.length).toBeGreaterThan(0);
+    for (const t of parents) {
+      expect(ON_REMOTE_PARENT_DELETE, `${t} has no onRemoteParentDelete policy`).toHaveProperty(t);
+    }
+  });
+
   it('a K op of a row never seen waits', async () => {
     const db = await store();
     stage(
