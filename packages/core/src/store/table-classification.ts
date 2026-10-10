@@ -330,7 +330,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'sleep-cycle run history',
+    note: 'sleep-cycle run history. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_decisions: {
     class: 'portable-project',
@@ -385,13 +385,13 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then',
+    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then. T12896: the surprisal pass deletes and rebuilds every row each cycle, so synced-vs-derived is decided before it gets a uid (still exempt)',
   },
   brain_modulators: {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs',
+    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_observations: {
     class: 'portable-personal',
@@ -449,7 +449,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
-    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels), integer refs travel as uids",
   },
   brain_promotion_log: {
     class: 'portable-personal',
@@ -468,7 +468,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge',
+    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge. Identity (T12896): minted uid, INTEGER id local (never travels); not append-only, the reward pass labels reward_signal later',
   },
   brain_schema_meta: {
     class: 'local-only',
@@ -494,7 +494,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'named in the ruling; INTEGER autoincrement PK needs a uid before merge',
+    note: 'named in the ruling; INTEGER autoincrement PK needs a uid before merge. T12896: still exempt; not in the consolidated schema (the drizzle-brain reconcile creates it), so it joins that schema first, then is declared natural on (observation_id, task uid)',
   },
   brain_transcript_events: {
     class: 'portable-personal',
@@ -506,7 +506,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm',
+    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_v2_candidate: {
     class: 'portable-personal',
@@ -518,7 +518,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
-    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels), integer refs travel as uids",
   },
   cleo_trigger_suspend: {
     class: 'local-only',
@@ -1640,7 +1640,7 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'sleep-cycle run history',
+    note: 'sleep-cycle run history. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_decisions: {
     class: 'portable-personal',
@@ -1685,13 +1685,13 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then',
+    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then. T12896: the surprisal pass deletes and rebuilds every row each cycle, so synced-vs-derived is decided before it gets a uid (still exempt)',
   },
   brain_modulators: {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs',
+    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_observations: {
     class: 'portable-personal',
@@ -1739,7 +1739,7 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
-    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels), integer refs travel as uids",
   },
   brain_promotion_log: {
     class: 'portable-personal',
@@ -1751,7 +1751,7 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge',
+    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge. Identity (T12896): minted uid, INTEGER id local (never travels); not append-only, the reward pass labels reward_signal later',
   },
   brain_schema_meta: {
     class: 'local-only',
@@ -1783,13 +1783,13 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm',
+    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_weight_history: {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
-    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels), integer refs travel as uids",
   },
   models_catalog: {
     class: 'local-only',
