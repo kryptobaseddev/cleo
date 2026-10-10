@@ -2,7 +2,7 @@
 id: reconcile-deleted-files-atom
 tasks: [T13364]
 kind: fix
-summary: release reconcile judges a files: atom against the tag's history, so a file deleted later in the release is not stale
+summary: release reconcile judges a files atom against the tag's history, so a file deleted later in the release is not stale
 ---
 
 `cleo release reconcile v2026.10.5` failed with E_EVIDENCE_STALE. T13158's
