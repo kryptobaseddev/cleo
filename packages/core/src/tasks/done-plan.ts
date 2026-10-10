@@ -220,11 +220,21 @@ function checkoutBlocker(taskId: string, cs: TaskChangeSet): DonePlanBlocker | n
         head === null || gitRead(root, ['merge-base', '--is-ancestor', m.sha, 'HEAD']) === null,
     );
     if (!missing) return null;
+    // T13429: intended, not a bug — the tools must measure the MERGED tree
+    // (the default branch with the change). A squash- or rebase-merged task
+    // branch never contains the merge commit even when its diff is the same,
+    // and a checkout that has not fetched since the merge does not have it at
+    // all; the remedy says which, so `switch` never fails on a missing commit.
+    const local = gitRead(root, ['cat-file', '-e', `${cs.mergeCommitSha}^{commit}`]) !== null;
+    const fetch = local ? '' : `git -C ${shellQuote(root)} fetch origin && `;
     return {
       code: 'checkout-required',
-      message: `${root} has ${short(head)} checked out, which does not contain PR #${missing.pr}'s merge commit ${short(missing.sha)}.`,
+      message:
+        `${root} has ${short(head)} checked out, which does not contain PR #${missing.pr}'s merge commit ${short(missing.sha)}` +
+        `${local ? '' : ' (not fetched into this checkout yet)'}. A squash- or rebase-merged branch never contains ` +
+        'its merge commit, so the tools must run on the merged tree; with evidence.ciSatisfies, ci:<pr> needs no local run.',
       next: {
-        command: `git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && cleo done ${taskId}`,
+        command: `${fetch}git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && cleo done ${taskId}`,
         why: 'Tests, lint, typecheck and typed gates must run on a tree containing the merged change.',
       },
     };
@@ -749,7 +759,10 @@ export async function deriveTaskEvidence(
     : null;
   const toolRuns: DonePlanToolRun[] = [];
   const testRunBlockers: DonePlanBlocker[] = [];
-  if (!decisionOnly && ciPr === null) {
+  // T13428: a docs change set (a research or documentation deliverable) has
+  // no code to test or typecheck, decision recorded yet or not: never plan a
+  // whole suite or a typecheck for it.
+  if (!decisionOnly && changeSet.source !== 'docs' && ciPr === null) {
     for (const gate of pending) {
       for (const tool of GATE_TOOLS[gate] ?? []) {
         // T13403: a standalone project is one package, the whole project, so

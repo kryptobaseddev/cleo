@@ -270,6 +270,9 @@ type DocsTypedOps = {
  *
  * Heuristics:
  *   `T<digits>`  → 'task'
+ *   `D<digits>`  → 'decision' (T13358 — real brain decision IDs are
+ *                  bare `D####`; the `D-`/`dec_` prefixes below never
+ *                  matched them, so they fell through to 'task')
  *   `ses_`       → 'session'
  *   `O-`         → 'observation'
  *   (fallback)   → 'task'
@@ -278,6 +281,7 @@ type DocsTypedOps = {
  */
 function inferOwnerType(ownerId: string): AttachmentRef['ownerType'] {
   if (/^T\d+$/i.test(ownerId)) return 'task';
+  if (/^D\d+$/.test(ownerId)) return 'decision';
   if (ownerId.startsWith('ses_')) return 'session';
   if (ownerId.startsWith('O-')) return 'observation';
   // Broader prefixes for other BRAIN entity types

@@ -7,18 +7,25 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Session } from '@cleocode/contracts';
-import { readWorktreeTaskLock } from '@cleocode/worktree';
+import { computeProjectHash } from '@cleocode/paths';
+import { acquireWorktreeTaskLock, readWorktreeTaskLock } from '@cleocode/worktree';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type ProcessAncestor, resolveOwnerProcess } from '../../sessions/terminal-identity.js';
 import { optOutOfForeignKeys } from '../../store/__tests__/test-db-helper.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { allocateSpawnSession, electSpawnSession } from '../agent-identity.js';
 import { createAgentWorktree, pruneWorktree } from '../branch-lock.js';
-import { resolveSpawnLockHolder } from '../worktree-lock-holder.js';
+import {
+  auditWorktreeLockReclaim,
+  lockSessionState,
+  releaseSessionWorktreeLocks,
+  resolveLockSessionProbe,
+  resolveSpawnLockHolder,
+} from '../worktree-lock-holder.js';
 
 // T13228: fixture spawns allocate sessions for task ids that are never seeded; they run with foreign keys OFF.
 optOutOfForeignKeys();
@@ -175,5 +182,95 @@ describe('branch-lock pruneWorktree releases the per-task lock (T12506 CI regres
     // Before the fix this threw E_WORKTREE_LOCKED: the lock outlived its worktree.
     const again = createAgentWorktree('T12506-prune', root);
     expect(existsSync(again.path)).toBe(true);
+  });
+});
+
+describe('worktree lock follows the holder SESSION, not the harness pid (T13425)', () => {
+  let projectRoot: string;
+  let cleoHome: string;
+  let originalCleoHome: string | undefined;
+
+  beforeEach(async () => {
+    projectRoot = await mkdtemp(join(tmpdir(), 'cleo-t13425-proj-'));
+    cleoHome = await mkdtemp(join(tmpdir(), 'cleo-t13425-home-'));
+    originalCleoHome = process.env['CLEO_HOME'];
+    process.env['CLEO_HOME'] = cleoHome;
+  });
+
+  afterEach(async () => {
+    if (originalCleoHome === undefined) delete process.env['CLEO_HOME'];
+    else process.env['CLEO_HOME'] = originalCleoHome;
+    await rm(projectRoot, { recursive: true, force: true });
+    await rm(cleoHome, { recursive: true, force: true });
+  });
+
+  it('maps session rows to lock states: active and suspended keep; ended, orphaned and missing release', () => {
+    expect(lockSessionState({ status: 'active' })).toBe('active');
+    expect(lockSessionState({ status: 'suspended' })).toBe('active');
+    expect(lockSessionState({ status: 'ended' })).toBe('ended');
+    expect(lockSessionState({ status: 'orphaned' })).toBe('ended');
+    expect(lockSessionState(null)).toBe('ended');
+  });
+
+  it('the probe answers for the current holder session only', async () => {
+    const hash = computeProjectHash(projectRoot);
+    acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T1562', holder: { sessionId: 'ses_w' } });
+    const lookup = vi.fn(async (id: string) => (id === 'ses_w' ? { status: 'ended' } : null));
+    const probe = await resolveLockSessionProbe(projectRoot, 'T1562', lookup);
+    expect(probe('ses_w')).toBe('ended');
+    expect(probe('ses_other')).toBe('unknown');
+    expect(lookup).toHaveBeenCalledTimes(1);
+    // No lock, or a lookup failure: unknown (pid and heartbeat decide).
+    expect((await resolveLockSessionProbe(projectRoot, 'T9999', lookup))('ses_w')).toBe('unknown');
+    const failing = async (): Promise<{ status: string } | null> => {
+      throw new Error('store busy');
+    };
+    expect((await resolveLockSessionProbe(projectRoot, 'T1562', failing))('ses_w')).toBe('unknown');
+  });
+
+  it('a successor --resume after session end: reclaimed while the harness pid lives, and audited', async () => {
+    const hash = computeProjectHash(projectRoot);
+    // The worker's lock: owner = this live process (the "harness").
+    acquireWorktreeTaskLock({
+      projectHash: hash,
+      taskId: 'T1562',
+      holder: { sessionId: 'ses_worker', agentId: 'agent-w' },
+    });
+    const probe = await resolveLockSessionProbe(projectRoot, 'T1562', async () => ({
+      status: 'ended',
+    }));
+    const lock = acquireWorktreeTaskLock({
+      projectHash: hash,
+      taskId: 'T1562',
+      holder: { sessionId: 'ses_successor', agentId: 'agent-s' },
+      sessionProbe: probe,
+    });
+    expect(lock.reclaimReason).toBe('session-ended');
+    auditWorktreeLockReclaim(projectRoot, 'T1562', '/wt/T1562', lock);
+    const audit = await readFile(
+      join(projectRoot, '.cleo/audit/worktree-lifecycle.jsonl'),
+      'utf-8',
+    );
+    const entry = JSON.parse(audit.trim().split('\n').at(-1) ?? '{}');
+    expect(entry).toMatchObject({ action: 'lock-reclaim', taskId: 'T1562', success: true });
+    expect(entry.reason).toContain('session-ended from session ses_worker');
+  });
+
+  it("session end releases exactly the ending session's locks, and audits each", async () => {
+    const hash = computeProjectHash(projectRoot);
+    acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T1', holder: { sessionId: 'ses_end' } });
+    acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T2', holder: { sessionId: 'ses_keep' } });
+    expect(releaseSessionWorktreeLocks(projectRoot, 'ses_end')).toEqual(['T1']);
+    expect(readWorktreeTaskLock(hash, 'T1')).toBeNull();
+    expect(readWorktreeTaskLock(hash, 'T2')?.sessionId).toBe('ses_keep');
+    const audit = await readFile(
+      join(projectRoot, '.cleo/audit/worktree-lifecycle.jsonl'),
+      'utf-8',
+    );
+    expect(JSON.parse(audit.trim())).toMatchObject({
+      action: 'lock-release',
+      taskId: 'T1',
+      success: true,
+    });
   });
 });

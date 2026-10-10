@@ -82,7 +82,8 @@
               "Arch Gates / Injection Command Existence (T12069)",
               "Arch Gates / Merge-Bar Aggregate Gate Lint (T11955)"
             ]
-          }
+          },
+          { "paths": [".cleo/project-context.json"], "jobs": ["Lint & Format"] }
         ],
         "qa": [
           { "paths": ["scripts/**"], "jobs": ["Lint & Format"] },
@@ -96,7 +97,8 @@
               "Arch Gates / Injection Command Existence (T12069)",
               "Arch Gates / Merge-Bar Aggregate Gate Lint (T11955)"
             ]
-          }
+          },
+          { "paths": [".cleo/project-context.json"], "jobs": ["Lint & Format"] }
         ]
       }
     }
