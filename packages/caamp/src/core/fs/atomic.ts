@@ -25,9 +25,18 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, rm, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { writeFileAtomic } from '@cleocode/core/tools/fs.js';
+import type {
+  HookConfigEdit,
+  HookConfigObject,
+} from '@cleocode/contracts/project-hook-delivery.js';
+import type { WriteFileAtomic } from '@cleocode/contracts/tools/atomic';
+import { writeFileAtomic as canonicalWriteFileAtomic, readFileText } from '@cleocode/core/tools/fs';
+import * as jsonc from 'jsonc-parser';
+
+/** Alias the canonical primitive through its shared contract, preserving runtime identity. */
+export const writeFileAtomic: WriteFileAtomic = canonicalWriteFileAtomic;
 
 /**
  * A guard file older than this is assumed to belong to a crashed process.
@@ -50,6 +59,18 @@ const DEFAULT_LOCK_RETRIES = 400;
 
 /** Delay between lock acquisition attempts, in milliseconds. */
 const DEFAULT_LOCK_DELAY_MS = 25;
+
+/** Read only bounded regular lock records; an unverified guard is never reclaimed. */
+async function readGuardToken(path: string): Promise<string | null> {
+  try {
+    const metadata = await lstat(path);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error('HOOK_LOCK_INVALID');
+    return (await readFileText({ path, maxBytes: 1024 })).content;
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
 
 /** Resolve after `ms` milliseconds. */
 function sleep(ms: number): Promise<void> {
@@ -102,7 +123,7 @@ async function removeStaleGuard(
     if (Date.now() - info.mtimeMs <= staleMs) return false;
 
     // Re-read: only reclaim the *same* guard we decided was stale.
-    const current = await readFile(guardPath, 'utf-8').catch(() => null);
+    const current = await readGuardToken(guardPath);
     if (expectedToken !== null && current !== null && current !== expectedToken) return false;
 
     await rm(guardPath, { force: true });
@@ -160,12 +181,14 @@ export async function withFileLock<T>(
   let acquired = false;
   for (let attempt = 0; attempt < retries && !acquired; attempt += 1) {
     try {
-      // O_EXCL creation is what establishes exclusivity; the token is written
-      // afterwards purely so release can prove the guard is still ours. We are
-      // already the sole owner at this point, so the two-step is safe.
+      // Write through the exclusively created descriptor so a replaced path
+      // cannot redirect the token write into another file.
       const handle = await open(guardPath, 'wx');
-      await handle.close();
-      await writeFile(guardPath, token, 'utf-8');
+      try {
+        await handle.writeFile(token, 'utf-8');
+      } finally {
+        await handle.close();
+      }
       acquired = true;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
@@ -173,7 +196,7 @@ export async function withFileLock<T>(
 
       // A guard may be orphaned by a crashed process. Snapshot whose it is,
       // then only reclaim it if the very same one is still there and stale.
-      const observed = await readFile(guardPath, 'utf-8').catch(() => null);
+      const observed = await readGuardToken(guardPath);
       if (await removeStaleGuard(guardPath, staleMs, observed)) continue;
       await sleep(delayMs);
     }
@@ -192,7 +215,7 @@ export async function withFileLock<T>(
     // Only release a guard that is still ours. If it was reclaimed as stale
     // and re-acquired by another caller, removing it here would revoke THEIR
     // lock.
-    const current = await readFile(guardPath, 'utf-8').catch(() => null);
+    const current = await readGuardToken(guardPath);
     if (current === null || current === token) {
       await rm(guardPath, { force: true }).catch(() => {
         // Best-effort release — a stale guard is reclaimed by the next caller.
@@ -344,4 +367,77 @@ export async function updateJsonConfigFile(
     await writeFileAtomic({ path: filePath, content: `${JSON.stringify(config, null, 2)}\n` });
     return true;
   });
+}
+
+function applyHookConfigEdit(body: string, change: HookConfigEdit): string {
+  const index = change.path.at(-1);
+  if (change.value === undefined && typeof index === 'number') {
+    const tree = jsonc.parseTree(body);
+    const array = tree ? jsonc.findNodeAtLocation(tree, change.path.slice(0, -1)) : undefined;
+    const nodes = array?.type === 'array' ? array.children : undefined;
+    const removed = nodes?.[index];
+    const previous = nodes?.[index - 1];
+    if (nodes && index === nodes.length - 1 && removed && previous) {
+      // jsonc-parser's last-element removal leaves the final character of a compact value.
+      // Remove only the separator and owned node; retain interstitial team comments.
+      const scanner = jsonc.createScanner(body, true);
+      scanner.setPosition(previous.offset + previous.length);
+      scanner.scan();
+      if (body[scanner.getTokenOffset()] !== ',' || scanner.getTokenLength() !== 1)
+        throw new Error('HOOK_CONFIG_EDIT_INVALID');
+      return jsonc.applyEdits(body, [
+        { offset: scanner.getTokenOffset(), length: scanner.getTokenLength(), content: '' },
+        { offset: removed.offset, length: removed.length, content: '' },
+      ]);
+    }
+  }
+  return jsonc.applyEdits(
+    body,
+    jsonc.modify(body, change.path, change.value, { isArrayInsertion: change.insert }),
+  );
+}
+
+/** Apply surgical JSONC edits inside the existing cross-process atomic writer. */
+export async function editJsonConfigFile(
+  filePath: string,
+  edit: (config: HookConfigObject) => HookConfigEdit[],
+): Promise<boolean> {
+  return withFileLock(filePath, async () => {
+    const raw = existsSync(filePath)
+      ? (await readFileText({ path: filePath, maxBytes: 262144 })).content
+      : '{}';
+    if (raw.length === 0 && existsSync(filePath))
+      assertNotTornRead(filePath, raw, (await stat(filePath)).size);
+    const errors: jsonc.ParseError[] = [];
+    const config = jsonc.parse(raw || '{}', errors) as HookConfigObject;
+    if (errors.length || !config || typeof config !== 'object' || Array.isArray(config)) {
+      throw new JsonConfigParseError(filePath, 'invalid JSONC object');
+    }
+    const edits = edit(config);
+    if (edits.length === 0) return false;
+    let body = raw || '{}';
+    for (const change of edits) body = applyHookConfigEdit(body, change);
+    const outputErrors: jsonc.ParseError[] = [];
+    jsonc.parse(body, outputErrors);
+    if (outputErrors.length) throw new JsonConfigParseError(filePath, 'invalid JSONC edit result');
+    // Providers may write without our lock. Refuse to overwrite an observed intervening edit.
+    const current = existsSync(filePath)
+      ? (await readFileText({ path: filePath, maxBytes: 262144 })).content
+      : '{}';
+    if (current !== raw) throw new Error('HOOK_CONFIG_CONCURRENT_EDIT');
+    await writeFileAtomic({ path: filePath, content: body.endsWith('\n') ? body : body + '\n' });
+    return true;
+  });
+}
+
+/** Read a bounded JSONC object without mutation, including in dry-run inspections. */
+export async function readManagedJsonConfigFile(filePath: string): Promise<HookConfigObject> {
+  if (!existsSync(filePath)) return {};
+  const { content: raw } = await readFileText({ path: filePath, maxBytes: 262144 });
+  const errors: jsonc.ParseError[] = [];
+  const parsed = jsonc.parse(raw, errors) as HookConfigObject;
+  if (errors.length || !parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new JsonConfigParseError(filePath, 'invalid JSONC object');
+  }
+  return parsed;
 }

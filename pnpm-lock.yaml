@@ -119,6 +119,9 @@ importers:
       '@cleocode/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@cleocode/core':
+        specifier: workspace:*
+        version: link:../core
       '@cleocode/paths':
         specifier: workspace:*
         version: link:../paths
@@ -279,6 +282,9 @@ importers:
 
   packages/cleo:
     dependencies:
+      '@cleocode/adapters':
+        specifier: workspace:*
+        version: link:../adapters
       '@cleocode/animations':
         specifier: workspace:*
         version: link:../animations

@@ -2,12 +2,13 @@
  * Codex CLI Hook Provider
  *
  * Maps Codex CLI's native hook events to CAAMP canonical hook events.
- * Codex CLI supports 3 canonical events through its hook system.
+ * Capabilities and fallback maps are generated from the CAAMP registry.
  *
  * Codex CLI event mapping:
  * - SessionStart      -> SessionStart
  * - PromptSubmit      -> UserPromptSubmit
  * - ResponseComplete  -> Stop
+ * - PreToolUse        -> PreToolUse
  *
  * @task T162
  * @epic T134
@@ -15,23 +16,20 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { PROVIDER_NATIVE_EVENT_MAPS } from '@cleocode/caamp/hooks';
 import type { AdapterHookProvider } from '@cleocode/contracts';
 import { readLatestTranscript } from '../shared/transcript-reader.js';
 
 /**
  * Mapping from Codex CLI native event names to CAAMP canonical event names.
  */
-const CODEX_EVENT_MAP: Record<string, string> = {
-  SessionStart: 'SessionStart',
-  PromptSubmit: 'UserPromptSubmit',
-  ResponseComplete: 'Stop',
-};
+const CODEX_EVENT_MAP = PROVIDER_NATIVE_EVENT_MAPS['codex'] ?? {};
 
 /**
  * Hook provider for Codex CLI.
  *
  * Codex CLI registers hooks via its configuration system at
- * ~/.codex/. Hook handlers are shell commands or script paths that
+ * the project-local .codex/hooks.json. Hook handlers are shell commands or script paths that
  * execute when the corresponding event fires.
  *
  * Since hooks are registered through the config system (managed by
@@ -39,9 +37,9 @@ const CODEX_EVENT_MAP: Record<string, string> = {
  * track registration state without performing filesystem operations.
  *
  * @remarks
- * Codex CLI has a minimal hook surface with only 3 canonical events.
+ * Codex supports PreToolUse; version certification remains separate from installation.
  * Registration state is tracked in-memory because Codex CLI manages
- * hooks through its own configuration system at `~/.codex/`.
+ * hooks through its own configuration system. Native project and hook trust are separate.
  *
  * @task T162
  * @epic T134

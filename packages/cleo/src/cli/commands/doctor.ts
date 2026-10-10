@@ -40,6 +40,7 @@ import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorFkCheckCommand } from './doctor-fk-check.js';
 import { doctorGlobalDeliveryCommand } from './doctor-global-delivery.js';
 import { doctorHeavyCommandHookCommand } from './doctor-heavy-command-hook.js';
+import { doctorHooksCommand } from './doctor-hooks.js';
 import { doctorKnowledgeSubcommand } from './doctor-knowledge.js';
 import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
 import { doctorLegacyReaperCommand } from './doctor-legacy-reaper.js';
@@ -279,6 +280,7 @@ export const doctorCommand = defineCommand({
     'memory-guard': doctorMemoryGuardCommand,
     // T13124 — the heavy-command hook per agent harness in use (+ --fix installs it)
     'heavy-command-hook': doctorHeavyCommandHookCommand,
+    hooks: doctorHooksCommand,
     // T12353 · T12716 — tracked .cleo/project.json / project-id vs project-info.json (+ --resolve migrate / re-key)
     'project-identity': doctorProjectIdentityCommand,
     // T12596 · T12598 — ~/.cleo, the global hub and every harness skill install must resolve

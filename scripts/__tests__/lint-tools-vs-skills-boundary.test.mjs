@@ -48,6 +48,39 @@ describe('scanToolBoundaryViolations', () => {
     expect(scanToolBoundaryViolations(root)).toEqual(['packages/caamp/src/y.ts:writeFileAtomic']);
   });
 
+  it('accepts a typed immutable alias of the canonical imported primitive', () => {
+    writeFile(
+      'packages/caamp/src/y.ts',
+      `
+      import { writeFileAtomic as canonical } from '@cleocode/core/tools/fs';
+      export const writeFileAtomic: WriteFileAtomic = canonical;
+    `,
+    );
+    expect(scanToolBoundaryViolations(root)).toEqual([]);
+  });
+
+  it.each([
+    "import { writeFileAtomic as canonical } from 'other-package';",
+    "import type { writeFileAtomic as canonical } from '@cleocode/core/tools/fs';",
+    "import { runGit as canonical } from '@cleocode/core/tools/fs';",
+    "// import { writeFileAtomic as canonical } from '@cleocode/core/tools/fs';",
+    'const canonical = () => 1;',
+  ])('rejects aliases without a real canonical value import: %s', (prefix) => {
+    writeFile('packages/caamp/src/y.ts', `${prefix}\nexport const writeFileAtomic = canonical;`);
+    expect(scanToolBoundaryViolations(root)).toEqual(['packages/caamp/src/y.ts:writeFileAtomic']);
+  });
+
+  it('rejects a wrapper around the canonical primitive', () => {
+    writeFile(
+      'packages/caamp/src/y.ts',
+      `
+      import { writeFileAtomic as canonical } from '@cleocode/core/tools/fs';
+      export const writeFileAtomic = (input) => canonical(input);
+    `,
+    );
+    expect(scanToolBoundaryViolations(root)).toEqual(['packages/caamp/src/y.ts:writeFileAtomic']);
+  });
+
   it('ignores test files', () => {
     writeFile('packages/cleo-os/src/__tests__/z.test.ts', 'export function runGit(){return 1}');
     expect(scanToolBoundaryViolations(root)).toEqual([]);

@@ -58,7 +58,7 @@ export interface CanonicalEventDefinition {
  *
  * @public
  */
-export type HookSystemType = 'config' | 'plugin' | 'none';
+export type HookSystemType = 'config' | 'plugin' | 'extension' | 'none';
 
 /**
  * The mechanism a provider uses to execute hook handlers.
@@ -72,7 +72,7 @@ export type HookSystemType = 'config' | 'plugin' | 'none';
  *
  * @public
  */
-export type HookHandlerType = 'command' | 'http' | 'prompt' | 'agent' | 'plugin';
+export type HookHandlerType = 'command' | 'http' | 'prompt' | 'agent' | 'plugin' | 'extension';
 
 /**
  * Mapping of a single canonical event to a provider's native representation.
@@ -118,8 +118,14 @@ export interface ProviderHookProfile {
   handlerTypes: HookHandlerType[];
   /** Whether the provider's hook system is considered experimental or unstable. */
   experimental: boolean;
-  /** Mapping of every canonical event to this provider's native representation. */
-  mappings: Record<CanonicalHookEvent, HookMapping>;
+  /** Project-local delivery and version evidence; absence is unverified. */
+  projectDelivery?: ProviderProjectHookCapability;
+  /** Provider event mappings; domain-only canonical events have no native representation. */
+  mappings: Partial<Record<CanonicalHookEvent, HookMapping>>;
+  /** Optional registry context for extension-based providers. */
+  notes?: string;
+  /** Registry-owned native event catalog name. */
+  nativeEventCatalog?: string;
   /** Native event names that exist only in this provider with no canonical equivalent. */
   providerOnlyEvents: string[];
 }
@@ -248,4 +254,22 @@ export interface HookMappingsFile {
   canonicalEvents: Record<CanonicalHookEvent, CanonicalEventDefinition>;
   /** Hook profiles keyed by provider ID. */
   providerMappings: Record<string, ProviderHookProfile>;
+}
+
+/** Registry evidence for project-local delivery; native trust is independent. */
+export interface ProviderProjectHookCapability {
+  /** Native command timeout units, when documented for project delivery. */
+  timeoutUnit?: 'seconds' | 'milliseconds';
+  /** Safe project-relative config destination, null when unsupported. */
+  configPath: string | null;
+  /** Documentation-reviewed versions, not live certifications. */
+  documentedVersions: string[];
+  /** Versions whose actual harness invocation was verified. */
+  verifiedVersions: string[];
+  /** Official evidence source. */
+  documentation: string;
+  /** Registry review date. */
+  reviewedAt: string;
+  /** Installation never grants native hook or project trust. */
+  trust: 'native-unverified';
 }

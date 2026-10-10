@@ -131,6 +131,15 @@ if (
   } catch (err) {
     process.stderr.write(`[cleo hook] skipped: ${err instanceof Error ? err.message : err}\n`);
   }
+} else if (args[0] === 'hook' && args[1] === 'run' && !args.includes('--help') && !args.includes('-h')) {
+  // Project checks have their own adapter runtime; existing heavy-command is unchanged.
+  try {
+    const { runProjectHookCli } = await import(resolve(__dirname, '../dist/cli/project-hook-entry.js'));
+    process.exitCode = await runProjectHookCli(args.slice(2));
+  } catch {
+    process.stderr.write('[cleo hook] project runner unavailable; operation allowed. Run cleo doctor hooks.\n');
+    process.exitCode = 0;
+  }
 } else if (heapCapApplied()) {
   // Single-process path: signals reach the CLI directly, no child to orphan.
   await import(cliPath);

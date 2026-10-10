@@ -57,6 +57,7 @@ const required = [
   'dist/cli/index.js',
   'dist/cli/hook-entry.js',
   'dist/cli/update-check-entry.js',
+  'dist/cli/project-hook-entry.js',
   'studio-dist/index.js',
   'studio-dist/handler.js',
   'studio-dist/server/index.js',

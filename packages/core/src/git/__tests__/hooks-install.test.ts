@@ -3,8 +3,8 @@
  *
  * Covers:
  *  - Project-agnostic install on a fresh `git init` repo.
- *  - Idempotent re-install (CLEO sentinel detected).
- *  - Refusal to clobber non-CLEO hooks unless `force`.
+ *  - Idempotent re-install (content and receipt verified).
+ *  - Preservation of foreign and customized hooks, including with `force`.
  *  - Hook accept/reject behaviour invoked as a real subprocess
  *    (so we test the actual POSIX shell script, not a JS proxy).
  *  - Project-agnostic: works in a non-node project (no package.json).
@@ -12,17 +12,28 @@
  *  - T1608 diff-scope: skips gracefully when cleo absent or task has no files[].
  */
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-
 import {
   CLEO_HOOK_NAMES,
   CLEO_HOOK_SENTINEL,
   installCleoHooks,
   isCleoManagedHook,
 } from '../hooks-install.js';
+import releasedTemplates from './fixtures/released-hook-templates.json' with { type: 'json' };
+
+function privateReceiptPath(
+  repo: string,
+  hooksDir = path.join(repo, '.git', 'hooks'),
+  bare = false,
+): string {
+  const canonical = fs.realpathSync(hooksDir);
+  const id = createHash('sha256').update(canonical).digest('hex');
+  return path.join(repo, bare ? '' : '.git', 'cleo-git-hooks', `install-${id}.json`);
+}
 
 /**
  * Repo-source templates dir. We pass this explicitly so tests don't
@@ -93,7 +104,7 @@ function runCommitMsgHook(repo: string, subject: string): number {
 }
 
 describe('installCleoHooks (T1588)', () => {
-  it('installs both hooks cleanly on a fresh git repo', async () => {
+  it('installs all three hooks cleanly on a fresh git repo', async () => {
     const repo = gitInit(path.join(tmpRoot, 'fresh'));
 
     const res = await installCleoHooks(repo, {
@@ -123,7 +134,7 @@ describe('installCleoHooks (T1588)', () => {
     const firstStat = fs.statSync(dst);
     const firstBody = fs.readFileSync(dst, 'utf8');
 
-    // Second install — sentinel-based detection means it overwrites
+    // Second install — content/receipt validation means it refreshes
     // the same content, no skip, no change.
     const res = await installCleoHooks(repo, {
       templatesDir: REPO_TEMPLATES_DIR,
@@ -140,7 +151,7 @@ describe('installCleoHooks (T1588)', () => {
     void firstStat;
   });
 
-  it('refuses to clobber a non-CLEO hook unless force:true', async () => {
+  it('preserves foreign hooks even when the compatibility force flag is set', async () => {
     const repo = gitInit(path.join(tmpRoot, 'clobber'));
     const hooksDir = path.join(repo, '.git', 'hooks');
     fs.mkdirSync(hooksDir, { recursive: true });
@@ -159,15 +170,13 @@ describe('installCleoHooks (T1588)', () => {
     const stillUser = fs.readFileSync(userHook, 'utf8');
     expect(stillUser).toContain('user-owned hook');
 
-    // With force → overwrite.
+    // Force no longer bypasses ownership validation (T13349).
     const res2 = await installCleoHooks(repo, {
       templatesDir: REPO_TEMPLATES_DIR,
       force: true,
     });
-    expect(res2.installed).toContain('commit-msg');
-    expect(res2.skipped).not.toContain('commit-msg');
-    const overwritten = fs.readFileSync(userHook, 'utf8');
-    expect(overwritten).toContain(CLEO_HOOK_SENTINEL);
+    expect(res2.skipped).toContain('commit-msg');
+    expect(fs.readFileSync(userHook, 'utf8')).toBe(stillUser);
   });
 
   it('works in a project-agnostic (non-node) repo with no package.json', async () => {
@@ -483,5 +492,211 @@ describe('isCleoManagedHook', () => {
 
   it('returns false for non-existent files', () => {
     expect(isCleoManagedHook(path.join(tmpRoot, 'nope.sh'))).toBe(false);
+  });
+});
+
+describe('Git-native installation and recovery (T13349)', () => {
+  it('uses the shared Git directory from a linked checkout and nested directory', async () => {
+    const repo = gitInit(path.join(tmpRoot, 'main'));
+    execFileSync(
+      'git',
+      ['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'T13349 initial'],
+      { cwd: repo },
+    );
+    const linked = path.join(tmpRoot, 'linked checkout');
+    execFileSync('git', ['worktree', 'add', '-q', '-b', 'linked', linked], { cwd: repo });
+    fs.mkdirSync(path.join(linked, 'nested'));
+    const result = await installCleoHooks(path.join(linked, 'nested'), {
+      templatesDir: REPO_TEMPLATES_DIR,
+    });
+    expect(result.hooksDir).toBe(path.join(fs.realpathSync(repo), '.git', 'hooks'));
+  });
+
+  it.each(['relative hooks', 'absolute'])('respects %s core.hooksPath', async (configured) => {
+    const repo = gitInit(path.join(tmpRoot, 'custom'));
+    const hooks = configured === 'absolute' ? path.join(tmpRoot, 'absolute hooks') : configured;
+    execFileSync('git', ['config', 'core.hooksPath', hooks], { cwd: repo });
+    const result = await installCleoHooks(repo, {
+      templatesDir: REPO_TEMPLATES_DIR,
+      allowTrackedHooksPath: true,
+    });
+    expect(result.hooksDir).toBe(
+      path.isAbsolute(hooks) ? hooks : path.resolve(fs.realpathSync(repo), hooks),
+    );
+  });
+
+  it('preserves a customized file despite its CLEO marker and previous receipt', async () => {
+    const repo = gitInit(path.join(tmpRoot, 'customized'));
+    await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR });
+    const target = path.join(repo, '.git', 'hooks', 'pre-push');
+    fs.appendFileSync(target, '\n# team customization\n');
+    const customized = fs.readFileSync(target, 'utf8');
+    const result = await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR, force: true });
+    expect(result.skipped).toContain('pre-push');
+    expect(fs.readFileSync(target, 'utf8')).toBe(customized);
+  });
+
+  it('does not overwrite hooks or foreign metadata when the receipt is invalid', async () => {
+    const repo = gitInit(path.join(tmpRoot, 'invalid-receipt'));
+    const receipt = privateReceiptPath(repo);
+    fs.mkdirSync(path.dirname(receipt));
+    fs.writeFileSync(receipt, '[]');
+    await expect(installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR })).rejects.toThrow(
+      'receipt is invalid',
+    );
+    expect(fs.readFileSync(receipt, 'utf8')).toBe('[]');
+    expect(fs.existsSync(path.join(repo, '.git', 'hooks', 'commit-msg'))).toBe(false);
+  });
+
+  it('recognizes an exact legacy pre-commit template without a marker', async () => {
+    const repo = gitInit(path.join(tmpRoot, 'legacy'));
+    const target = path.join(repo, '.git', 'hooks', 'pre-commit');
+    const legacy = fs
+      .readFileSync(path.join(REPO_TEMPLATES_DIR, 'pre-commit'), 'utf8')
+      .replace(`${CLEO_HOOK_SENTINEL}\n`, '');
+    fs.writeFileSync(target, legacy);
+    const result = await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR });
+    expect(result.installed).toContain('pre-commit');
+    expect(fs.readFileSync(target, 'utf8')).toContain(CLEO_HOOK_SENTINEL);
+  });
+
+  it('preserves symbolic hooks rather than writing through or replacing them', async () => {
+    const repo = gitInit(path.join(tmpRoot, 'symlink'));
+    const file = path.join(tmpRoot, 'team-hook');
+    fs.copyFileSync(path.join(REPO_TEMPLATES_DIR, 'pre-push'), file);
+    fs.symlinkSync(file, path.join(repo, '.git', 'hooks', 'pre-push'));
+    const result = await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR });
+    expect(result.skipped).toContain('pre-push');
+    expect(fs.lstatSync(path.join(repo, '.git', 'hooks', 'pre-push')).isSymbolicLink()).toBe(true);
+  });
+
+  it('serializes concurrent installations and rolls back only matching images', async () => {
+    const repo = gitInit(path.join(tmpRoot, 'concurrent'));
+    const results = await Promise.all([
+      installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR }),
+      installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR }),
+    ]);
+    const first = results.find((result) =>
+      result.receipt?.changes.every((change) => change.before === null),
+    );
+    expect(first?.receipt).toBeDefined();
+    const customized = path.join(repo, '.git', 'hooks', 'pre-push');
+    fs.appendFileSync(customized, '# custom\n');
+    const rollback = await installCleoHooks(repo, {
+      templatesDir: REPO_TEMPLATES_DIR,
+      rollbackReceipt: first?.receipt,
+    });
+    expect(rollback.skipped).toEqual(['pre-push']);
+    expect(fs.existsSync(path.join(repo, '.git', 'hooks', 'commit-msg'))).toBe(false);
+    expect(fs.readFileSync(customized, 'utf8')).toContain('# custom');
+  });
+
+  it.each(releasedTemplates)('refreshes exact released $name template $hash', async (released) => {
+    const repo = gitInit(path.join(tmpRoot, 'released'));
+    const target = path.join(repo, '.git', 'hooks', released.name);
+    fs.writeFileSync(target, released.body);
+    const result = await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR });
+    expect(result.installed).toContain(released.name);
+    expect(fs.readFileSync(target, 'utf8')).toBe(
+      fs.readFileSync(path.join(REPO_TEMPLATES_DIR, released.name), 'utf8'),
+    );
+    fs.appendFileSync(target, '# customization\n');
+    expect((await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR })).skipped).toContain(
+      released.name,
+    );
+  });
+
+  it('isolates private receipts for different linked-worktree hooksPath destinations', async () => {
+    const repo = gitInit(path.join(tmpRoot, 'linked-receipts'));
+    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
+    execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repo });
+    execFileSync(
+      'git',
+      ['-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-m', 'T13349 initial'],
+      { cwd: repo },
+    );
+    const linked = path.join(tmpRoot, 'other checkout');
+    execFileSync('git', ['worktree', 'add', '-q', '-b', 'other', linked], { cwd: repo });
+    execFileSync('git', ['config', 'core.hooksPath', 'team-hooks'], { cwd: repo });
+    const options = { templatesDir: REPO_TEMPLATES_DIR, allowTrackedHooksPath: true };
+    expect((await installCleoHooks(repo, options)).installed).toHaveLength(3);
+    expect((await installCleoHooks(linked, options)).installed).toHaveLength(3);
+    expect((await installCleoHooks(repo, options)).installed).toHaveLength(3);
+    expect(
+      fs
+        .readdirSync(path.join(repo, '.git', 'cleo-git-hooks'))
+        .filter((file) => file.endsWith('.json')),
+    ).toHaveLength(2);
+    expect(fs.readdirSync(path.join(linked, 'team-hooks')).sort()).toEqual([
+      'commit-msg',
+      'pre-commit',
+      'pre-push',
+    ]);
+  });
+
+  it('keeps bare repository installation Git-private', async () => {
+    const repo = path.join(tmpRoot, 'bare.git');
+    execFileSync('git', ['init', '--bare', '-q', repo]);
+    const result = await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR });
+    expect(result.installed).toEqual([...CLEO_HOOK_NAMES]);
+    expect(fs.existsSync(privateReceiptPath(repo, path.join(repo, 'hooks'), true))).toBe(true);
+  });
+
+  it('preserves tracked hooksPath by default and keeps opted-in receipts Git-private', async () => {
+    const repo = gitInit(path.join(tmpRoot, 'tracked-hooks'));
+    execFileSync('git', ['config', 'core.hooksPath', '.husky'], { cwd: repo });
+    const hooks = path.join(repo, '.husky');
+    fs.mkdirSync(hooks);
+    fs.writeFileSync(path.join(hooks, 'pre-push'), 'echo team-policy\n');
+    execFileSync('git', ['add', '.husky/pre-push'], { cwd: repo });
+    const original = fs.readFileSync(path.join(hooks, 'pre-push'), 'utf8');
+    const skipped = await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR, force: true });
+    expect(skipped.installed).toEqual([]);
+    expect(skipped.skipReasons['pre-push']).toContain(
+      'cleo init --git-hooks-only --allow-tracked-hooks-path',
+    );
+    expect(fs.readdirSync(hooks)).toEqual(['pre-push']);
+    expect(fs.readFileSync(path.join(hooks, 'pre-push'), 'utf8')).toBe(original);
+    expect(fs.existsSync(path.join(repo, '.git', 'cleo-git-hooks'))).toBe(false);
+    const result = await installCleoHooks(repo, {
+      templatesDir: REPO_TEMPLATES_DIR,
+      allowTrackedHooksPath: true,
+    });
+    expect(result.installed).toEqual(['commit-msg', 'pre-commit']);
+    expect(result.skipped).toEqual(['pre-push']);
+    expect(fs.existsSync(privateReceiptPath(repo, hooks))).toBe(true);
+    expect(fs.readdirSync(hooks).sort()).toEqual(['commit-msg', 'pre-commit', 'pre-push']);
+    const rollback = await installCleoHooks(repo, {
+      templatesDir: REPO_TEMPLATES_DIR,
+      allowTrackedHooksPath: true,
+      rollbackReceipt: result.receipt,
+    });
+    expect(rollback.installed).toEqual(['commit-msg', 'pre-commit']);
+    expect(fs.readFileSync(path.join(hooks, 'pre-push'), 'utf8')).toBe(original);
+  });
+
+  it('an incompatible CLI is probed but never runs project checks or blocks a push', async () => {
+    const repo = gitInit(path.join(tmpRoot, 'standalone'));
+    await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR });
+    const bin = path.join(tmpRoot, 'bin');
+    fs.mkdirSync(bin);
+    const marker = path.join(tmpRoot, 'called');
+    fs.writeFileSync(
+      path.join(bin, 'cleo'),
+      '#!/bin/sh\nprintf "%s\\n" "$*" > "$CALLED"\nexit 1\n',
+      {
+        mode: 0o755,
+      },
+    );
+    const zero = '0'.repeat(40);
+    const result = spawnSync(posixShell(), [path.join(repo, '.git', 'hooks', 'pre-push')], {
+      cwd: repo,
+      input: `refs/heads/a ${zero} refs/heads/a ${zero}\nrefs/heads/b ${zero} refs/heads/b ${zero}\n`,
+      env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, CALLED: marker },
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(0);
+    expect(fs.readFileSync(marker, 'utf8')).toBe('hook run --probe\n');
+    expect(result.stderr).toContain('project runner unavailable');
   });
 });

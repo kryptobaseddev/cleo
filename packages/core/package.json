@@ -291,6 +291,11 @@
       "import": "./dist/docs/*.js",
       "require": "./dist/docs/*.js"
     },
+    "./tools/fs.js": {
+      "types": "./dist/tools/fs.d.ts",
+      "import": "./dist/tools/fs.js",
+      "require": "./dist/tools/fs.js"
+    },
     "./*": {
       "types": "./dist/*.d.ts",
       "import": "./dist/*.js",

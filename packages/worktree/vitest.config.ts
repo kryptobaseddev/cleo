@@ -1,4 +1,6 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+import { withWorkspaceSubpathAliases } from '../../vitest-workspace-resolver.js';
 import { MEMORY_SAFE_TEST_DEFAULTS } from '../../vitest.memory-safe.js';
 
 export default defineConfig({
@@ -8,6 +10,7 @@ export default defineConfig({
     // which `extends: true` does not cover.
     ...MEMORY_SAFE_TEST_DEFAULTS,
     extends: true,
+    alias: withWorkspaceSubpathAliases({ '@cleocode/paths': fileURLToPath(new URL('../paths/src/index.ts', import.meta.url)) }),
     name: '@cleocode/worktree',
     globals: true,
     environment: 'node',

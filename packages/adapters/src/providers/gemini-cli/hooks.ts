@@ -22,24 +22,14 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { PROVIDER_NATIVE_EVENT_MAPS } from '@cleocode/caamp/hooks';
 import type { AdapterHookProvider } from '@cleocode/contracts';
 import { readLatestTranscript } from '../shared/transcript-reader.js';
 
 /**
  * Mapping from Gemini CLI native event names to CAAMP canonical event names.
  */
-const GEMINI_CLI_EVENT_MAP: Record<string, string> = {
-  SessionStart: 'SessionStart',
-  SessionEnd: 'SessionEnd',
-  PromptSubmit: 'BeforeAgent',
-  ResponseComplete: 'AfterAgent',
-  PreToolUse: 'BeforeTool',
-  PostToolUse: 'AfterTool',
-  PreModel: 'BeforeModel',
-  PostModel: 'AfterModel',
-  PreCompact: 'PreCompress',
-  Notification: 'Notification',
-};
+const GEMINI_CLI_EVENT_MAP = PROVIDER_NATIVE_EVENT_MAPS['gemini-cli'] ?? {};
 
 /**
  * Hook provider for Gemini CLI.

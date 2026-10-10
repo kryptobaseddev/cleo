@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.7
+version: 3.1.11
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,12 +14,19 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.7
+  version: 3.1.11
   tier: core
   install: harness
   covers:
     - .github/workflows/release-prepare.yml
-  lastReviewed: 2026-10-04
+    - packages/cleo/src/cli/commands/hook.ts
+    - packages/core/src/init.ts
+    - packages/cleo/src/cli/commands/init.ts
+    - packages/core/src/git/hooks-install.ts
+    - packages/core/src/hooks.ts
+    - packages/core/templates/git-hooks/*
+    - packages/contracts/src/git-hooks.ts
+  lastReviewed: 2026-10-10
   stability: stable
 ---
 
@@ -67,6 +74,30 @@ Every commit MUST be traceable to a CLEO task. This ensures:
 | WF-005 | Tests before push | Relevant tests MUST pass |
 
 ---
+
+## Git hook compatibility (T13349)
+
+Init, upgrade and explicit Git hook installation share the ownership-aware installer.
+Resolve the effective hook directory through Git, including `core.hooksPath` and
+linked worktrees. Preserve foreign hooks and customized managed hooks; a CLEO
+marker alone never authorizes replacement. Refresh only exact shipped legacy
+bodies or receipt-owned content, using locked atomic writes and hash-guarded
+rollback. Report conflicts with the suggested integration snippet.
+
+Receipts and locks stay in Git-private common metadata, including when
+`core.hooksPath` selects tracked files. Default installation preserves hook
+paths inside the checkout. Use `cleo init --git-hooks-only --allow-tracked-hooks-path` only after
+reviewing the tracked destination; this opt-in still preserves foreign and
+customized hooks. Init warnings carry the exact opt-in command.
+
+The pre-push wrapper spools Git stdin once for task IDs and shared project checks.
+It probes CLEO_PROJECT_HOOK_V1 before invoking the implemented CLI adapter;
+missing or incompatible runners warn and allow. Verify nested checkout paths, linked
+worktrees, custom hook paths, historical release bodies and corrupt receipts
+with focused Git fixtures before changing this delivery path.
+
+---
+
 
 ## Task Tracking Integration
 
@@ -456,3 +487,24 @@ cleo complete T1550
 6. **Use tags for releases** - GitHub Actions handles the rest
 7. **One logical change** per commit (atomic)
 8. **Conventional commit format** with task reference
+
+## Shared project hooks and managed Git delivery
+
+Project business rules live in tracked `.cleo/hooks.json`; generated provider entries
+are delivery outputs. Preview with `cleo hook sync --dry-run`; explicit local activation
+uses `cleo hook sync --activate` and binds definitions, handlers and dependencies to
+current hashes. Source drift requires reactivation. Agent project checks are advisory;
+Git applies project verdicts. Native harness trust remains separately unverified.
+Inspect with `cleo doctor hooks`; `--fix` never activates definitions or grants trust.
+`cleo hook sync --disable` disables execution and removes only verified managed entries.
+CI uses `cleo hook check <id> --ci --candidate <sha>` or an explicit JSON `--input` file;
+CLEO infrastructure failure is an unavailable check, never successful CI evidence.
+Launcher faults allow locally regardless of checker error policy. File inputs and
+provider records use bounded regular-file reads; FIFOs are rejected. Unsupported
+provider bindings remain unsupported in delivery summaries, including mixed bindings.
+
+Init, upgrade and inspection share the commit-msg, pre-commit and pre-push installer.
+Git determines effective hooksPath and the common directory, including linked worktrees.
+Exact known template hashes or local receipts authorize refresh; a marker alone does
+not. Customized and foreign hooks are preserved even on forced refresh and report an
+integration snippet. Rollback is guarded by the installed-content hash.

@@ -7,6 +7,7 @@
  * @packageDocumentation
  */
 
+export { GENERATED_PROVIDER_HOOK_PROFILES, PROVIDER_NATIVE_EVENT_MAPS } from './generated.js';
 export {
   buildHookMatrix,
   getAllCanonicalEvents,
@@ -51,6 +52,7 @@ export type {
   NormalizedHookEvent,
   ProviderHookProfile,
   ProviderHookSummary,
+  ProviderProjectHookCapability,
 } from './types.js';
 export {
   CANONICAL_HOOK_EVENTS,

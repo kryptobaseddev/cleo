@@ -1,137 +1,113 @@
-/**
- * Deep branch coverage tests for lock-utils.ts.
- * Requires module-level mocking of node:fs and node:fs/promises.
- */
+/** Real lock-file fixtures with narrowly injected acquisition failures. */
+import { existsSync } from 'node:fs';
+import { mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { withFileLock } from '../../src/core/fs/atomic.js';
+import type { CaampLockFile, LockEntry } from '../../src/types.js';
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// Retain real descriptors and every filesystem operation. Only acquisition faults are injected.
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs/promises')>();
+  return { ...original, open: vi.fn(original.open) };
+});
+const fixture = vi.hoisted(() => ({ path: '' }));
 
-// lock-utils.ts mock setup
-const mockOpen = vi.hoisted(() => vi.fn());
-const mockMkdir = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const mockRm = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const mockReadFile = vi.hoisted(() => vi.fn());
-const mockWriteFile = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const mockRename = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const mockExistsSync = vi.hoisted(() => vi.fn().mockReturnValue(false));
+let directory: string;
+const emptyLock = (): CaampLockFile => ({ version: 1, skills: {}, mcpServers: {} });
+const entry = (): LockEntry => ({
+  name: 'test',
+  scopedName: 'test',
+  source: 'fixture',
+  sourceType: 'local',
+  installedAt: '2026-10-10T00:00:00.000Z',
+  agents: ['codex'],
+  canonicalPath: join(directory, 'skills/test'),
+  isGlobal: false,
+  projectDir: directory,
+});
+beforeEach(async () => {
+  vi.resetModules();
+  const original = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+  vi.mocked(open).mockReset().mockImplementation(original.open);
+  directory = await mkdtemp(join(tmpdir(), 'caamp-lock-branches-'));
+  fixture.path = join(directory, '.caamp-lock.json');
+  vi.doMock('../../src/core/paths/agents.js', () => ({ LOCK_FILE_PATH: fixture.path }));
+});
+afterEach(async () => {
+  await rm(directory, { recursive: true, force: true });
+});
 
-vi.mock("node:fs/promises", () => ({
-  open: mockOpen,
-  readFile: mockReadFile,
-  writeFile: mockWriteFile,
-  mkdir: mockMkdir,
-  rm: mockRm,
-  rename: mockRename,
-}));
-
-vi.mock("node:fs", () => ({
-  existsSync: mockExistsSync,
-}));
-
-describe("coverage: lock-utils.ts lock guard branches", () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.clearAllMocks();
-    mockMkdir.mockResolvedValue(undefined);
-    mockRm.mockResolvedValue(undefined);
-    mockRename.mockResolvedValue(undefined);
-    mockExistsSync.mockReturnValue(false);
-
-    // Echo writes back on read. withFileLock writes a fencing token into the
-    // `.lock` guard and, on release, only removes the guard if it still holds
-    // that token — so a mock that returns the same canned string for every
-    // path would make release look like someone else's guard and skip the rm.
-    const written = new Map<string, string>();
-    mockWriteFile.mockImplementation(async (path: string, data: string) => {
-      written.set(String(path), String(data));
+describe('lock acquisition and real lock-file persistence', () => {
+  it.each([
+    Object.assign(new Error('permission denied'), { code: 'EACCES' }),
+    new Error('uncategorized acquisition failure'),
+    'raw acquisition failure',
+  ])('propagates an acquisition fault unchanged without writing a lock file: %s', async (failure) => {
+    const original = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+    vi.mocked(open).mockImplementation((path, flags, mode) => {
+      if (path === fixture.path + '.lock' && flags === 'wx') return Promise.reject(failure);
+      return original.open(path, flags, mode);
     });
-    mockReadFile.mockImplementation(async (path: string) => {
-      const key = String(path);
-      return written.get(key) ?? JSON.stringify({ version: 1, skills: {}, mcpServers: {} });
-    });
+    const { writeLockFile } = await import('../../src/core/lock-utils.js');
+    await expect(writeLockFile(emptyLock())).rejects.toBe(failure);
+    expect(existsSync(fixture.path)).toBe(false);
+    expect(existsSync(fixture.path + '.lock')).toBe(false);
   });
-
-  it("rethrows non-EEXIST error (EACCES) - lines 28-29", async () => {
-    const permError = Object.assign(new Error("EACCES"), { code: "EACCES" });
-    mockOpen.mockRejectedValue(permError);
-
-    const { writeLockFile } = await import("../../src/core/lock-utils.js");
-    await expect(writeLockFile({ version: 1, skills: {}, mcpServers: {} })).rejects.toThrow("EACCES");
+  it('retries a real EEXIST guard then acquires after its holder releases it', async () => {
+    await writeFile(fixture.path + '.lock', 'other-holder');
+    let entered = false;
+    const release = setTimeout(() => {
+      void rm(fixture.path + '.lock');
+    }, 10);
+    try {
+      await withFileLock(
+        fixture.path,
+        async () => {
+          entered = true;
+          expect(await readFile(fixture.path + '.lock', 'utf8')).not.toBe('other-holder');
+        },
+        { retries: 20, delayMs: 5, staleMs: 60000 },
+      );
+    } finally {
+      clearTimeout(release);
+    }
+    expect(entered).toBe(true);
+    expect(existsSync(fixture.path + '.lock')).toBe(false);
   });
-
-  it("rethrows non-Error thrown value - line 28", async () => {
-    mockOpen.mockRejectedValue("raw string");
-
-    const { writeLockFile } = await import("../../src/core/lock-utils.js");
-    await expect(writeLockFile({ version: 1, skills: {}, mcpServers: {} })).rejects.toBe("raw string");
+  it('times out behind a live guard without entering or deleting the other holder', async () => {
+    await writeFile(fixture.path + '.lock', 'live-holder');
+    const work = vi.fn(async () => undefined);
+    await expect(
+      withFileLock(fixture.path, work, { retries: 2, delayMs: 1, staleMs: 60000 }),
+    ).rejects.toThrow('after 2 attempts');
+    expect(work).not.toHaveBeenCalled();
+    expect(await readFile(fixture.path + '.lock', 'utf8')).toBe('live-holder');
   });
-
-  it("rethrows Error without code property - line 28", async () => {
-    mockOpen.mockRejectedValue(new Error("no code"));
-
-    const { writeLockFile } = await import("../../src/core/lock-utils.js");
-    await expect(writeLockFile({ version: 1, skills: {}, mcpServers: {} })).rejects.toThrow("no code");
+  it('returns the empty default for a missing file and malformed JSON', async () => {
+    const { readLockFile } = await import('../../src/core/lock-utils.js');
+    expect(await readLockFile()).toEqual(emptyLock());
+    await writeFile(fixture.path, '{{invalid');
+    expect(await readLockFile()).toEqual(emptyLock());
+    expect(await readFile(fixture.path, 'utf8')).toBe('{{invalid');
   });
-
-  it("retries on EEXIST then succeeds - exercises sleep (line 15-17)", async () => {
-    const eexistError = Object.assign(new Error("EEXIST"), { code: "EEXIST" });
-    const mockHandle = { close: vi.fn().mockResolvedValue(undefined) };
-
-    mockOpen
-      .mockRejectedValueOnce(eexistError)
-      .mockRejectedValueOnce(eexistError)
-      .mockResolvedValueOnce(mockHandle);
-
-    const { writeLockFile } = await import("../../src/core/lock-utils.js");
-    await writeLockFile({ version: 1, skills: {}, mcpServers: {} });
-    expect(mockOpen).toHaveBeenCalledTimes(3);
-    expect(mockRm).toHaveBeenCalled();
+  it('reads a real existing concrete lock entry', async () => {
+    const expected: CaampLockFile = { ...emptyLock(), skills: { test: entry() } };
+    await writeFile(fixture.path, JSON.stringify(expected));
+    const { readLockFile } = await import('../../src/core/lock-utils.js');
+    expect(await readLockFile()).toEqual(expected);
   });
-
-  it("times out after all retries - line 35-36", async () => {
-    const eexistError = Object.assign(new Error("EEXIST"), { code: "EEXIST" });
-    mockOpen.mockRejectedValue(eexistError);
-
-    const { writeLockFile } = await import("../../src/core/lock-utils.js");
-    await expect(writeLockFile({ version: 1, skills: {}, mcpServers: {} })).rejects.toThrow(/Timed out acquiring lock for .* after \d+ attempts/);
-  }, 30000);
-
-  it("readLockFile returns default on non-existent file", async () => {
-    mockExistsSync.mockReturnValue(false);
-
-    const { readLockFile } = await import("../../src/core/lock-utils.js");
-    const result = await readLockFile();
-    expect(result).toEqual({ version: 1, skills: {}, mcpServers: {} });
-  });
-
-  it("readLockFile returns parsed content on existing file", async () => {
-    mockExistsSync.mockReturnValue(true);
-    mockReadFile.mockResolvedValue(JSON.stringify({ version: 1, skills: { x: {} }, mcpServers: {} }));
-
-    const { readLockFile } = await import("../../src/core/lock-utils.js");
-    const result = await readLockFile();
-    expect(result.skills).toHaveProperty("x");
-  });
-
-  it("readLockFile returns default on JSON parse error", async () => {
-    mockExistsSync.mockReturnValue(true);
-    mockReadFile.mockResolvedValue("{{invalid");
-
-    const { readLockFile } = await import("../../src/core/lock-utils.js");
-    const result = await readLockFile();
-    expect(result).toEqual({ version: 1, skills: {}, mcpServers: {} });
-  });
-
-  it("updateLockFile reads, modifies, writes", async () => {
-    const mockHandle = { close: vi.fn().mockResolvedValue(undefined) };
-    mockOpen.mockResolvedValue(mockHandle);
-    mockExistsSync.mockReturnValue(true);
-    mockReadFile.mockResolvedValue(JSON.stringify({ version: 1, skills: {}, mcpServers: {} }));
-
-    const { updateLockFile } = await import("../../src/core/lock-utils.js");
+  it('updates under a real guard and persists both previous and new entries', async () => {
+    const previous: CaampLockFile = { ...emptyLock(), mcpServers: { existing: entry() } };
+    await writeFile(fixture.path, JSON.stringify(previous));
+    const { readLockFile, updateLockFile } = await import('../../src/core/lock-utils.js');
     const result = await updateLockFile((lock) => {
-      lock.skills["test"] = {} as any;
+      lock.skills.test = entry();
     });
-    expect(result.skills).toHaveProperty("test");
-    expect(mockRename).toHaveBeenCalled();
+    expect(result.mcpServers).toEqual(previous.mcpServers);
+    expect(result.skills.test).toEqual(entry());
+    expect(await readLockFile()).toEqual(result);
+    expect(existsSync(fixture.path + '.lock')).toBe(false);
   });
 });
