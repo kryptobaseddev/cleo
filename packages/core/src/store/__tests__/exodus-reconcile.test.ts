@@ -9,7 +9,8 @@
  *
  *   - a `child_task` acceptance criterion whose table sorts before `tasks`
  *     (FK-order: E_CHILD_TASK_TARGET_CONTAINMENT under alphabetical copy);
- *   - a pre-T1408 `archive_reason = 'deleted'` (silently dropped by the CHECK);
+ *   - a pre-T1408 `archive_reason = 'deleted'` (silently dropped by the CHECK;
+ *     mapped to `cancelled` since T12711);
  *   - a pre-T877 `done` task with no terminal `pipeline_stage` (trigger abort);
  *   - a task→task parent edge and a relation duplicating a parent edge
  *     (T10572 guards were created without a backfill — grandfathered);
@@ -236,11 +237,18 @@ describe.each(
     // The legacy dependency cycle is copied verbatim (T12886).
     expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_task_dependencies')).toBe(2);
     expect(scalar(liveDb, 'SELECT COUNT(*) FROM brain_observations')).toBe(2);
-    // Normalizations mirror the legacy backfills (T1408, T877) and never stamp
-    // migration time onto history.
+    // Normalizations mirror the legacy backfills (T877) and never stamp
+    // migration time onto history; a deleted task is cancelled, its legacy
+    // reason kept in the value map (T12711).
     expect(scalar(liveDb, "SELECT archive_reason FROM tasks_tasks WHERE id='T5'")).toBe(
-      'completed-unverified',
+      'cancelled',
     );
+    expect(
+      scalar(
+        liveDb,
+        "SELECT legacy_value FROM _exodus_recovery_value_map WHERE target_table='tasks_tasks' AND column_name='archive_reason' AND identity_json='[\"T5\"]'",
+      ),
+    ).toBe('deleted');
     expect(scalar(liveDb, "SELECT pipeline_stage FROM tasks_tasks WHERE id='T4'")).toBe(
       'contribution',
     );
