@@ -81,6 +81,22 @@ describe('planContainerReap', () => {
     expect(plan.containers.map((c) => c.name)).not.toContain('stale-pg');
   });
 
+  it('times a stopped container from when it last stopped, falling back to creation', () => {
+    const plan = planContainerReap({
+      labelledContainers: LABELLED,
+      danglingVolumes: '',
+      startedAt: STARTED_AT,
+      finishedAt: {
+        // t1764-pg: created 8h ago but stopped 30 minutes ago at task end: kept
+        [`aaa111${'0'.repeat(58)}`]: '2026-10-10T17:30:00.000000001Z',
+        // old: never started (docker zero time): falls back to creation, expired
+        [`ddd444${'0'.repeat(58)}`]: '0001-01-01T00:00:00Z',
+      },
+      nowMs: NOW,
+    });
+    expect(plan.containers.map((c) => c.name)).toEqual(['old']);
+  });
+
   it('a running container whose start time is unknown is left alone and reported as invalid', () => {
     const plan = planContainerReap({
       labelledContainers: LABELLED,

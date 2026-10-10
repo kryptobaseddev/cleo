@@ -131,7 +131,7 @@ A database or service started for a test run must not outlive it. A `docker run`
 
 - One-shot: `docker run --rm --label cleo.task=T#### --label cleo.ttl=4h postgres:17 …`
 - Reused across runs: a named volume (`-v t####-pgdata:/var/lib/postgresql/data`) plus the same two labels, and stop the container when the task ends.
-- `cleo doctor system` reports long-running database containers and dangling volumes. `cleo doctor system --repair` lists, as a dry run, the STOPPED `cleo.ttl` containers created longer ago than their ttl, and the anonymous dangling volumes (including ones left by non-CLEO containers). `--repair --apply` removes only those. It never removes a running container: one running past its ttl since its last start is reported for you to stop. It never touches an unlabelled container or a named volume. Removing them is the owner's call, so relay the list through your orchestrator first.
+- `cleo doctor system` reports long-running database containers and dangling volumes. `cleo doctor system --repair` lists, as a dry run, the STOPPED `cleo.ttl` containers that stopped longer ago than their ttl (or were created that long ago and never started), and the anonymous dangling volumes (including ones left by non-CLEO containers). `--repair --apply` removes only those. It never removes a running container: one running past its ttl since its last start is reported for you to stop. It never touches an unlabelled container or a named volume. Removing them is the owner's call, so relay the list through your orchestrator first.
 
 ### Post-Execution
 

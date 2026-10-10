@@ -349,6 +349,8 @@ describe('parsers', () => {
     // a launcher running something that is not an MCP server
     expect(name('npx -y tsx scripts/mcp-check.ts')).toBeNull();
     expect(name('npx -y agentmbx@0.5.23 mcp')).toBe('agentmbx');
+    expect(name('npx --package @acme/tools acme-mcp')).toBe('acme-mcp');
+    expect(name('uvx --from git+https://x/y mcp-server-git --repo .')).toBe('mcp-server-git');
     expect(name('pnpm vitest run')).toBeNull();
   });
 
