@@ -8,6 +8,9 @@
  * applied it. Own transactions come back through the same inbox as echoes,
  * so the inbox shows every device on the stream, this one included.
  *
+ * A transaction its replica wrote after a server-confirmed retire is marked
+ * `history` once applied (§1.5, T13366): the merge recorded no conflict for it.
+ *
  * The inbox is the window: applied rows pruned after a verified checkpoint
  * are no longer listed. Read-only: nothing is written.
  *
@@ -23,6 +26,7 @@ import type {
 } from '@cleocode/contracts';
 import { getStableDeviceId } from '../../llm/stable-device-id.js';
 import { parseHlc } from './hlc.js';
+import { isInheritedHistory } from './retire.js';
 import { hasTable } from './schema.js';
 
 /** Largest page {@link journalActivity} returns. */
@@ -278,6 +282,8 @@ export function journalActivity(
       appliedAt: r.applied_at,
       status: r.status,
       reason: r.reason,
+      history:
+        r.status === 'applied' && isInheritedHistory(db, r.stream, r.replica_id, Number(r.seq)),
       kind: s.kind,
       via: s.via,
       actor: s.actor,

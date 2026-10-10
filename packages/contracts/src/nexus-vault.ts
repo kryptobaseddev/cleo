@@ -465,6 +465,13 @@ export interface CloudJournalActivityItem {
   status: string;
   /** Why it is void, held or refused, when it is. */
   reason: string | null;
+  /**
+   * Applied as inherited history (§1.5, T13278/T13366): its replica was
+   * retired by a server-confirmed retire at a lower stream position, so the
+   * merge recorded no conflict for it. Always `false` for an unconfirmed
+   * retire or a transaction that was not applied.
+   */
+  history: boolean;
   /** `write`, `repair`, `retire`, … and how the writes reached the store. */
   kind: string;
   via: string;

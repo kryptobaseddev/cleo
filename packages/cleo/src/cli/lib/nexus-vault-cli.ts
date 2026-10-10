@@ -429,7 +429,7 @@ async function runCloudJournalActivity(args: Args): Promise<void> {
         ),
         ...r.items.slice(0, 10).map(
           (i) =>
-            `  ${i.at} ${who(i.deviceName, i.deviceId)} ${terminalSafe(i.actor?.op ?? i.kind)} ${i.status}: ${Object.entries(
+            `  ${i.at} ${who(i.deviceName, i.deviceId)} ${terminalSafe(i.actor?.op ?? i.kind)} ${i.status}${i.history ? ' (history)' : ''}: ${Object.entries(
               i.tables,
             )
               .map(([t, n]) => `${terminalSafe(t)} ${n.I}I/${n.U}U/${n.D}D${n.K ? `/${n.K}K` : ''}`)

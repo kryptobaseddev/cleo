@@ -47,6 +47,7 @@ import {
 import { pushStream } from '../push.js';
 import { activeReplica, ensureProjectReplica } from '../replica.js';
 import { ReplicaRegistry } from '../replica-registry.js';
+import { confirmRetirements, recordRetirement } from '../retire.js';
 import { sealPending } from '../sealer.js';
 import { firstBadTxnSignature, signTxn } from '../txn-signing.js';
 
@@ -255,6 +256,48 @@ async function scenario() {
 
 const local = (r: Replica) => ({ localDeviceId: r.device });
 
+/**
+ * A late segment from a retired replica (§1.5, T13366): A has received B's
+ * retire at stream seq 1 (confirmed by the server, or not), then B, which
+ * never saw its own retirement, writes T2 and pushes it as segment 2.
+ */
+async function lateAfterRetire(confirmed: boolean) {
+  const { a, b } = await twoDevices();
+  const stream = fakeStream();
+  write(
+    a.db,
+    `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp)
+     VALUES ('T1', 'from A', 'task', 'pending', 'medium', 'uid-T1', 'fp-T1')`,
+  );
+  await push(a, stream);
+  await pull(b, stream);
+  const retired = replicaOf(b);
+  const successor = '0192ffff-7f00-7000-8000-00000000b0b2';
+  recordRetirement(a.db, STREAM, {
+    replica: retired,
+    successor,
+    lastReplicaSeq: 99,
+    txn: `${successor}:1`,
+    hlc: '0000000000001-0000-test',
+    seq: 1,
+  });
+  if (confirmed) {
+    expect(
+      confirmRetirements(a.db, STREAM, [
+        { replicaId: retired, successor, retiredAt: new Date(++clock).toISOString() },
+      ]),
+    ).toBe(1);
+  }
+  write(
+    b.db,
+    `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp)
+     VALUES ('T2', 'late from B', 'task', 'pending', 'medium', 'uid-T2', 'fp-T2')`,
+  );
+  await push(b, stream);
+  await pull(a, stream);
+  return { a };
+}
+
 describe('journal activity lists what each device changed and when (T13369)', () => {
   it("lists other devices' transactions and this machine's echo, newest first", async () => {
     const { a } = await scenario();
@@ -340,6 +383,29 @@ describe('journal activity lists what each device changed and when (T13369)', ()
     const page = journalActivity(b.db, local(b));
     // B pulled A's T1 before writing; its own echoes are not pulled yet.
     expect(page.items.map((i) => [i.deviceId, i.thisDevice])).toEqual([['dev-a', false]]);
+  });
+
+  it('marks a late transaction of a confirmed-retired replica as history once applied', async () => {
+    const { a } = await lateAfterRetire(true);
+    const page = journalActivity(a.db, local(a));
+    expect(page.items.map((i) => [i.deviceId, i.status, i.history])).toEqual([
+      ['dev-b', 'applied', true],
+      ['dev-a', 'applied', false],
+    ]);
+  });
+
+  it('marks nothing as history while the retire is unconfirmed', async () => {
+    const { a } = await lateAfterRetire(false);
+    const page = journalActivity(a.db, local(a));
+    expect(page.items.map((i) => [i.deviceId, i.status, i.history])).toEqual([
+      ['dev-b', 'applied', false],
+      ['dev-a', 'applied', false],
+    ]);
+  });
+
+  it('marks nothing as history without a retire', async () => {
+    const { a } = await scenario();
+    expect(journalActivity(a.db, local(a)).items.every((i) => i.history === false)).toBe(true);
   });
 
   it('refuses a --since that is not a date before opening anything', async () => {
