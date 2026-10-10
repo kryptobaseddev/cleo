@@ -439,9 +439,11 @@ function uncutGenesis(db: DatabaseSync, opts: GenesisCutOptions): void {
  * position moved past the cut): the cut is undone and
  * {@link GenesisRacedError} is thrown, so no bundle holding a post-cut write
  * is ever pushed. A failing snapshot undoes the cut too, and so does a
- * marker that went stale or another process took over during the snapshot
- * ({@link GenesisRacedError}, `E_SYNC_GENESIS_MARKER_LOST`). The marker is
- * always released, unless another process now holds it.
+ * marker that went stale during the snapshot with nobody taking it over
+ * ({@link GenesisRacedError}, `E_SYNC_GENESIS_MARKER_LOST`). When another
+ * process took the stale marker over, it owns the pending cut: this run
+ * aborts with the same error and never undoes the cut. The marker is always
+ * released, unless another process now holds it.
  *
  * @param db - The store.
  * @param opts - {@link GenesisCutOptions}, plus the store file the marker guards.
@@ -462,8 +464,18 @@ export async function cutGenesisWithSnapshot(
     try {
       await snapshot(cut);
     } catch (err) {
-      uncutGenesis(db, opts);
+      // A holder that took the marker over owns the pending cut now: leave it.
+      if (!marker.takenOver()) uncutGenesis(db, opts);
       throw err;
+    }
+    // Our marker went stale and another process took it over (a genesis run
+    // resuming this pending cut, or a restore): the cut is its to finish or
+    // replace. Abort without undoing it, and push nothing from this snapshot.
+    if (marker.takenOver()) {
+      // @sync-invariant none:local-only another process took the genesis marker over during the snapshot; the pending cut is left to it and nothing is pushed
+      throw new GenesisRacedError(
+        'E_SYNC_GENESIS_MARKER_LOST: another process took over the genesis marker during the snapshot; the pending cut is left to it and nothing is pushed',
+      );
     }
     if (capturePosition(db) > cut) {
       uncutGenesis(db, opts);
@@ -472,15 +484,15 @@ export async function cutGenesisWithSnapshot(
         'E_SYNC_GENESIS_RACED: a write reached the store during the genesis snapshot; the cut was undone, run it again',
       );
     }
-    // A marker that went stale or was taken over held nobody off for part of
-    // the snapshot: discard the cut, never finish it (an uncaptured write may
-    // be in the bundle). The bundle is complete here, so a lapse after this
-    // check no longer matters.
+    // A marker that went stale, with nobody taking it over, held nobody off
+    // for part of the snapshot: discard the cut, never finish it (an
+    // uncaptured write may be in the bundle). The bundle is complete here, so
+    // a lapse after this check no longer matters.
     if (!marker.intact()) {
       uncutGenesis(db, opts);
       // @sync-invariant none:local-only the genesis marker lapsed during the snapshot; the cut is undone and nothing is pushed
       throw new GenesisRacedError(
-        'E_SYNC_GENESIS_MARKER_LOST: the genesis marker went stale or was taken over during the snapshot; the cut was undone, run it again',
+        'E_SYNC_GENESIS_MARKER_LOST: the genesis marker went stale during the snapshot; the cut was undone, run it again',
       );
     }
     return report;
