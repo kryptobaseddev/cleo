@@ -797,6 +797,18 @@ export async function planAffectedTestRun(
       reason: `tool:test-affected cannot diff ${root} against origin's default branch (none found, or git failed); use tool:test.`,
     };
   }
+  // T13403: a standalone project's one package is the whole project, so an
+  // affected run would be the whole suite under another command; tool:test
+  // keeps running testing.command, as before the root became a package.
+  if (standalonePackage(root) !== null) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason:
+        'This single-package project is its one package, so an affected run is the whole suite; ' +
+        'use tool:test, or a test-run: report of the changed test files.',
+    };
+  }
   const scope = deriveAffectedPackages(root, changed);
   if (scope.scope === 'full') {
     return {

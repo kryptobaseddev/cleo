@@ -39,6 +39,7 @@ import {
   listVitestProjects,
   listWorkspacePackages,
   planAffectedTestRun,
+  planScopedTestRun,
   scopedChangedPaths,
 } from '../affected-packages.js';
 import { validateAtom } from '../evidence.js';
@@ -833,6 +834,21 @@ describe('tool:test-affected evidence', () => {
       expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TOOL_FAILED');
       expect(!r.ok && r.reason).toMatch(/tool:test \(affected:/);
     });
+  });
+
+  it('T13403: a standalone project plans no affected run; tool:test keeps testing.command', async () => {
+    rmSync(join(root, 'pnpm-workspace.yaml'));
+    rmSync(join(root, 'packages'), { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'solo' }));
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'src', 'x.ts'), 'export {};\n');
+    initRepo('pnpm exec vitest run {projects}');
+    writeFileSync(join(root, 'src', 'x.ts'), 'export const x = 1;\n');
+    git(root, ['commit', '-q', '-am', 'T1: change x']);
+    const r = await planAffectedTestRun(root, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/single-package project.*tool:test/);
+    const scoped = await planScopedTestRun(root, root);
+    expect(scoped).toMatchObject({ scope: 'full' });
   });
 
   it('refuses when testing.affectedCommand is not configured', async () => {

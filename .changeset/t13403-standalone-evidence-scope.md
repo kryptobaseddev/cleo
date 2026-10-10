@@ -22,4 +22,7 @@ whole-suite `tool:test`.
   test files when they exist, instead of planning `tool:test` or
   `tool:test-affected`, which both run the whole suite there.
 
+- `tool:test` in a single-package project keeps running `testing.command`:
+  `tool:test-affected` refuses there, since its one package is the whole suite.
+
 Workspaces (pnpm, npm/yarn `workspaces`) are unchanged.
