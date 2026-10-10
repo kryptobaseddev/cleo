@@ -10,7 +10,15 @@
  * ({@link recordRetirement}, `_sync_retired`), with the stream seq it was
  * sequenced at.
  *
- * From then on:
+ * A recorded retire counts only once the SERVER confirmed it
+ * ({@link confirmRetirements}, T13366): any device on the account can sign a
+ * `retire` naming itself successor, and only the server checks that the
+ * signer may retire that replica (the pinned device, or a project owner's;
+ * E31 `not-pinned-or-owner`). The emitter confirms from its E31 answer; a
+ * home-stream receiver from the home replica listing's `retiredAt` and
+ * `successor`. Until then the retire changes nothing.
+ *
+ * Once confirmed:
  * - a transaction of the retired replica sequenced AFTER the retire (a late
  *   segment, pushed before the rebind) is inherited history
  *   ({@link isInheritedHistory}): applied as an ordinary op, its merge
@@ -48,6 +56,17 @@ export interface RetiredReplicaRow {
   readonly hlc: string;
   /** The stream seq the retire was sequenced at; null until it is (an own retire before its echo). */
   readonly seq: number | null;
+  /** When the server confirmed the retirement (its `retiredAt`); null until it has. */
+  readonly confirmedAt: string | null;
+}
+
+/** The server's record of one retirement, as a confirmation of a recorded retire. */
+export interface ServerRetirement {
+  readonly replicaId: string;
+  /** The successor the server stored; a retire naming another one stays unconfirmed. */
+  readonly successor: string | null;
+  /** When the server retired the replica. */
+  readonly retiredAt: string;
 }
 
 /** Options for {@link queueRetireTxn}. */
@@ -110,20 +129,57 @@ export function recordRetirement(
 }
 
 /**
- * The replicas retired on `stream` (every stream when omitted), by replica
- * id. Read-only; empty before the journal schema is installed.
+ * Confirm recorded retires against the server's records (T13366): each
+ * recorded, unconfirmed retire of a listed replica whose successor matches
+ * gets the server's `retiredAt`. A server record for a retire not received
+ * yet, or naming another successor, confirms nothing.
+ *
+ * @param db - The store.
+ * @param stream - The stream the records are for.
+ * @param records - The server's retirements on it.
+ * @returns How many retires this confirmed.
+ */
+export function confirmRetirements(
+  db: DatabaseSync,
+  stream: string,
+  records: readonly ServerRetirement[],
+): number {
+  if (records.length === 0 || !hasTable(db, '_sync_retired')) return 0;
+  const confirm = db.prepare(
+    `UPDATE _sync_retired SET confirmed_at = ?
+      WHERE stream = ? AND replica_id = ? AND successor = ? AND confirmed_at IS NULL`,
+  );
+  let n = 0;
+  for (const r of records) {
+    n += Number(confirm.run(r.retiredAt, stream, r.replicaId, r.successor).changes);
+  }
+  return n;
+}
+
+/**
+ * The replicas the server confirmed retired on `stream` (every stream when
+ * omitted), by replica id: the set the fold horizon and the remint authority
+ * leave out. `includeUnconfirmed` adds the retires received but not yet
+ * confirmed (diagnostics). Read-only; empty before the journal schema is
+ * installed.
  *
  * @param db - The store.
  * @param stream - The stream, or every stream.
+ * @param opts - `includeUnconfirmed`: every recorded retire.
  * @returns The retirements.
  */
-export function retiredReplicas(db: DatabaseSync, stream?: string): Map<string, RetiredReplicaRow> {
+export function retiredReplicas(
+  db: DatabaseSync,
+  stream?: string,
+  opts: { readonly includeUnconfirmed?: boolean } = {},
+): Map<string, RetiredReplicaRow> {
   const out = new Map<string, RetiredReplicaRow>();
   if (!hasTable(db, '_sync_retired')) return out;
+  const confirmed = opts.includeUnconfirmed === true ? '' : 'confirmed_at IS NOT NULL';
+  const where = [stream === undefined ? '' : 'stream = ?', confirmed].filter((c) => c !== '');
+  const sql = `SELECT * FROM _sync_retired${where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY stream, replica_id`;
   const rows = (
-    stream === undefined
-      ? db.prepare('SELECT * FROM _sync_retired ORDER BY stream, replica_id').all()
-      : db.prepare('SELECT * FROM _sync_retired WHERE stream = ? ORDER BY replica_id').all(stream)
+    stream === undefined ? db.prepare(sql).all() : db.prepare(sql).all(stream)
   ) as Array<{
     stream: string;
     replica_id: string;
@@ -132,6 +188,7 @@ export function retiredReplicas(db: DatabaseSync, stream?: string): Map<string, 
     txn: string;
     hlc: string;
     seq: number | null;
+    confirmed_at: string | null;
   }>;
   for (const r of rows) {
     out.set(r.replica_id, {
@@ -142,6 +199,7 @@ export function retiredReplicas(db: DatabaseSync, stream?: string): Map<string, 
       txn: r.txn,
       hlc: r.hlc,
       seq: r.seq === null ? null : Number(r.seq),
+      confirmedAt: r.confirmed_at === null ? null : String(r.confirmed_at),
     });
   }
   return out;
@@ -150,7 +208,10 @@ export function retiredReplicas(db: DatabaseSync, stream?: string): Map<string, 
 /**
  * Whether a transaction of `replicaId` at stream seq `seq` is inherited
  * history: its replica was retired on this stream by a retire sequenced
- * before it (§3.5 D5). Decided by stream order, so every receiver agrees.
+ * before it (§3.5 D5) and the server confirmed that retirement (T13366).
+ * Stream order decides which transactions are late; a receiver that applies
+ * one before its confirmation arrives records its conflicts, which changes
+ * conflict records only, never the applied values.
  *
  * @param db - The store.
  * @param stream - The stream.
@@ -166,7 +227,9 @@ export function isInheritedHistory(
 ): boolean {
   if (!hasTable(db, '_sync_retired')) return false;
   const row = db
-    .prepare('SELECT seq FROM _sync_retired WHERE stream = ? AND replica_id = ?')
+    .prepare(
+      'SELECT seq FROM _sync_retired WHERE stream = ? AND replica_id = ? AND confirmed_at IS NOT NULL',
+    )
     .get(stream, replicaId) as { seq: number | null } | undefined;
   return row !== undefined && row.seq !== null && seq > Number(row.seq);
 }

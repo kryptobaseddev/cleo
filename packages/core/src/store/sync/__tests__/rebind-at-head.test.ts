@@ -49,7 +49,12 @@ import { pendingRebind, REBIND_PENDING_KEY, undoBudgetRebindDue } from '../rebin
 import { decideReconcileField } from '../reconcile.js';
 import { activeReplica, ensureProjectReplica, listReplicas } from '../replica.js';
 import { ReplicaRegistry } from '../replica-registry.js';
-import { liveReplicaHorizon, retiredReplicas, withRetirements } from '../retire.js';
+import {
+  confirmRetirements,
+  liveReplicaHorizon,
+  retiredReplicas,
+  withRetirements,
+} from '../retire.js';
 import { sealPending } from '../sealer.js';
 import { recordUndoBudget, UNDO_BUDGET_EXCEEDED_KEY, undoBudget } from '../sequencing.js';
 import { firstBadTxnSignature, signTxn } from '../txn-signing.js';
@@ -58,6 +63,7 @@ const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-jo
 const STREAM = 'project:0192ffff-7f00-7000-8000-00000000000f';
 const DEV_A = 'dev-a';
 const DEV_B = 'dev-b';
+const RETIRED_AT = '2026-10-09T12:00:00.000Z';
 const KEY_A = generateEd25519();
 let clock = Date.now();
 let dir: string;
@@ -327,18 +333,30 @@ describe('the undo-budget rebind at the next pull to head (T13278, D5)', () => {
     // A late segment of the retired replica lands after the retire.
     stream.append(late.sealed, late.rs, old, DEV_A);
 
-    const atB = await pullStream(b.db, pullOpts(b, stream, { rebind: undefined }));
+    // The server confirmed the retirement (T13366): the home listing or E31's record.
+    const atB = await pullStream(
+      b.db,
+      pullOpts(b, stream, {
+        rebind: undefined,
+        serverRetirements: [{ replicaId: old, successor, retiredAt: RETIRED_AT }],
+      }),
+    );
     expect(atB.refused).toBeNull();
     expect(retiredReplicas(b.db, STREAM).get(old)).toMatchObject({
       successor,
       lastReplicaSeq: 0,
       seq: before + 1,
+      confirmedAt: RETIRED_AT,
     });
     expect(title(b.db, 'T1')).toBe('late title');
     expect(title(b.db, 'T2')).toBe('title T2');
     // The late segment applied as history: no conflict against the reconcile.
     expect(n(b.db, 'SELECT count(*) AS n FROM _sync_conflict')).toBe(0);
 
+    // A's own retire is confirmed by the E31 answer (completeServerRebind, T13366).
+    expect(
+      confirmRetirements(a.db, STREAM, [{ replicaId: old, successor, retiredAt: RETIRED_AT }]),
+    ).toBe(1);
     // A pulls its echo: the retire's seq is filled, the repair is sequenced, its undo drained.
     const echo = await pullStream(a.db, pullOpts(a, stream));
     expect(echo.rebind).toBeNull();
@@ -381,6 +399,51 @@ describe('the undo-budget rebind at the next pull to head (T13278, D5)', () => {
         atHlc: retireHlc,
       }).authority,
     ).toBe(successor);
+  });
+
+  it('an unconfirmed retire changes nothing: the late segment records its conflicts and the old id still counts (T13366)', async () => {
+    const { a, b, stream, old, late } = await offlineOverBudget();
+    await pullStream(a.db, pullOpts(a, stream));
+    const successor = replicaOf(a);
+    await push(a, stream);
+    stream.append(late.sealed, late.rs, old, DEV_A);
+
+    // A signed retire, but no server record of it.
+    const atB = await pullStream(b.db, pullOpts(b, stream, { rebind: undefined }));
+    expect(atB.refused).toBeNull();
+    expect(retiredReplicas(b.db, STREAM).has(old)).toBe(false);
+    expect(retiredReplicas(b.db, STREAM, { includeUnconfirmed: true }).get(old)).toMatchObject({
+      successor,
+      confirmedAt: null,
+    });
+    // The values are the same either way; only the conflict records differ.
+    expect(title(b.db, 'T1')).toBe('late title');
+    expect(n(b.db, 'SELECT count(*) AS n FROM _sync_conflict')).toBeGreaterThan(0);
+    // The fold horizon still waits for the old replica.
+    const hOld = '0000000000001-0000-a';
+    expect(
+      liveReplicaHorizon({ [old]: hOld, [successor]: 'z' }, retiredReplicas(b.db, STREAM)),
+    ).toBe(hOld);
+
+    // A server record naming another successor confirms nothing; the right one does.
+    expect(
+      confirmRetirements(b.db, STREAM, [
+        {
+          replicaId: old,
+          successor: '0192ffff-0000-7000-8000-0000000000ee',
+          retiredAt: RETIRED_AT,
+        },
+        { replicaId: old, successor: null, retiredAt: RETIRED_AT },
+      ]),
+    ).toBe(0);
+    expect(retiredReplicas(b.db, STREAM).has(old)).toBe(false);
+    expect(
+      confirmRetirements(b.db, STREAM, [{ replicaId: old, successor, retiredAt: RETIRED_AT }]),
+    ).toBe(1);
+    expect(retiredReplicas(b.db, STREAM).get(old)?.confirmedAt).toBe(RETIRED_AT);
+    expect(
+      liveReplicaHorizon({ [old]: hOld, [successor]: 'z' }, retiredReplicas(b.db, STREAM)),
+    ).toBe('z');
   });
 
   it('only a pull that reaches the head rebinds: the key survives a refused pull and one that stops short', async () => {

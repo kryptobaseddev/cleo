@@ -44,7 +44,7 @@ import { isSyncFlagOn } from './flags.js';
 import { stageTxns } from './inbox.js';
 import { type RebindAtHeadReport, rebindAtHead } from './rebind.js';
 import type { SyncOpenOptions } from './replica.js';
-import { recordRetirement } from './retire.js';
+import { confirmRetirements, recordRetirement, type ServerRetirement } from './retire.js';
 import { hasTable } from './schema.js';
 
 /** Where a pull stands (the journal client's `PullCursor`). */
@@ -113,6 +113,12 @@ export interface PullStreamOptions {
    * refused or stops short never does, so the key stays set.
    */
   readonly rebind?: Omit<SyncOpenOptions, 'scope'>;
+  /**
+   * The server's retirements on this stream (T13366): after staging and
+   * before the apply, each recorded retire they match is confirmed
+   * ({@link confirmRetirements}). A retire never confirmed changes nothing.
+   */
+  readonly serverRetirements?: readonly ServerRetirement[];
 }
 
 /** What {@link pullStream} did. */
@@ -407,6 +413,7 @@ export async function pullStream(
     if (refusedSegment !== null) break;
     if (page.segments.length === 0 || cursor.after >= page.head) break;
   }
+  if (o.serverRetirements !== undefined) confirmRetirements(db, o.stream, o.serverRetirements);
   const apply = applyStagedTxns(db, {
     scope: o.scope,
     stream: o.stream,

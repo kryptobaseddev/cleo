@@ -77,6 +77,7 @@ import type {
 import {
   type Checkpoint,
   ListCheckpointsResult,
+  ListHomeReplicasResult,
   ListLeasesResult,
   type Manifest,
   ReplayPin,
@@ -127,6 +128,7 @@ import {
   rebindAfterVaultRestore,
 } from '../store/sync/replica.js';
 import { ReplicaRegistry } from '../store/sync/replica-registry.js';
+import type { ServerRetirement } from '../store/sync/retire.js';
 import { sealPending } from '../store/sync/sealer.js';
 import { firstBadTxnSignature, signTxn } from '../store/sync/txn-signing.js';
 import {
@@ -1931,6 +1933,31 @@ async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<
   return pullWithSession(await openStreamSession(opts));
 }
 
+/**
+ * The server's retirements a receiver of `scope`'s stream confirms a `retire`
+ * by (T13366). The home stream: `retiredAt` and `successor` on
+ * `GET /v1/account/home/replicas` (none from a server without the listing).
+ * A project stream: undefined, as the server has no read of them yet, so its
+ * receivers keep every retire unconfirmed and record its late conflicts.
+ *
+ * @param conn - The vault connection.
+ * @param scope - The store's scope.
+ * @returns The retirements, or undefined for a project stream.
+ */
+export async function serverRetirementsFor(
+  conn: Pick<NexusVaultConnection, 'find'>,
+  scope: CloudVaultScope,
+): Promise<ServerRetirement[] | undefined> {
+  if (scope !== 'global') return undefined;
+  const list = await conn.find('/v1/account/home/replicas', ListHomeReplicasResult);
+  if (list === null) return [];
+  return list.replicas.flatMap((r) =>
+    r.retiredAt
+      ? [{ replicaId: r.replicaId, successor: r.successor ?? null, retiredAt: r.retiredAt }]
+      : [],
+  );
+}
+
 async function pullWithSession(opened: StreamSession): Promise<PullStreamReport> {
   const session = await withCompletedRebind(opened);
   const { conn, key, t } = session;
@@ -2010,6 +2037,7 @@ async function pullWithSession(opened: StreamSession): Promise<PullStreamReport>
   // Pruning waits for a floor the applier refuses below anyway, such as the
   // receive watermark (T13256), and then prunes by that floor, not by
   // stream seq.
+  const serverRetirements = await serverRetirementsFor(conn, t.scope);
   const report = await pullStream(db, {
     scope: tableScopeOf(t),
     stream: t.streamId,
@@ -2052,6 +2080,8 @@ async function pullWithSession(opened: StreamSession): Promise<PullStreamReport>
     // D5: a pull that reaches head runs the rebind the undo budget scheduled
     // (T13278). The canonical store's own binding: the stable device id.
     rebind: { dbPath: t.dbPath, mode: 'live' },
+    // T13366: a retire counts only once the server confirms it.
+    ...(serverRetirements !== undefined ? { serverRetirements } : {}),
   });
   // Its server half at once, so this run's next push announces the retire.
   if (report.rebind !== null) await completeServerRebind(conn, t, db);

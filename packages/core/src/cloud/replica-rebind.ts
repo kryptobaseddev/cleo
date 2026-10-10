@@ -15,7 +15,8 @@
  *    `replicaRetireMessage`, naming the successor, the last replicaSeq the
  *    server holds and the journal `retire` transaction. The server then
  *    refuses any later append past that seq. A repeat with the same body
- *    answers 200 with the stored retirement;
+ *    answers 200 with the stored retirement, which confirms the store's own
+ *    record of the retire (T13366);
  * 4. clears the pending rebind.
  *
  * A failure leaves the pending rebind in place: the next sync retries it, and
@@ -29,6 +30,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { RetireReplicaResult } from '@cleocode/contracts/cloud';
 import { z } from 'zod';
 import { clearPendingRebind, type PendingRebind, pendingRebind } from '../store/sync/rebind.js';
+import { confirmRetirements } from '../store/sync/retire.js';
 import { signEd25519 } from './crypto.js';
 import { NexusError } from './http.js';
 import { NexusAccountError } from './nexus-auth.js';
@@ -110,8 +112,9 @@ export async function completeServerRebind(
       txnId: pending.retireTxn,
     }),
   ).toString('base64');
+  let stored: RetireReplicaResult;
   try {
-    await conn.raw(
+    stored = await conn.raw(
       'POST',
       `/v1/streams/${encodeURIComponent(pending.stream)}/replicas/${encodeURIComponent(pending.from)}/retirements`,
       RetireReplicaResult,
@@ -126,6 +129,7 @@ export async function completeServerRebind(
   } catch (err) {
     throw refused('the server refused to retire the old replica', err);
   }
+  confirmRetirements(db, pending.stream, [stored.retirement]);
   clearPendingRebind(db, pending.to);
   return pending;
 }
