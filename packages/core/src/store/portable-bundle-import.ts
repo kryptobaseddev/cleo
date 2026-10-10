@@ -563,6 +563,62 @@ async function compareHashes(
 }
 
 /**
+ * Decrypt (when encrypted), extract and verify a portable (manifest v2)
+ * bundle under `stagingDir/bundle`, placing nothing. `importPortableBundle`
+ * stages through it; the copy reconcile restores a checkpoint's store into a
+ * scratch directory with it (T13335).
+ *
+ * @param bundlePath - The `.cleobundle.tar.gz` (or its encrypted form).
+ * @param stagingDir - An existing, empty directory the caller owns and removes.
+ * @param passphrase - The passphrase of an encrypted bundle.
+ * @returns The extracted directory and the verified manifest.
+ * @throws {PortableBundleError} On a wrong format, a missing passphrase, a
+ *   decrypt failure or a manifest that does not verify.
+ */
+export async function extractPortableBundle(
+  bundlePath: string,
+  stagingDir: string,
+  passphrase?: string,
+): Promise<{ extractDir: string; manifest: PortableBundleManifest }> {
+  const extractDir = path.join(stagingDir, 'bundle');
+  fs.mkdirSync(extractDir);
+  const format = await detectBundleFormat(bundlePath);
+  if (format !== 'v2') {
+    throw new PortableBundleError(
+      'E_BUNDLE_FORMAT',
+      format === 'v1'
+        ? 'This is a v1 .cleobundle; it is handled by the legacy import path'
+        : 'Unrecognised bundle format',
+    );
+  }
+  let tarPath = bundlePath;
+  const header = Buffer.alloc(9);
+  const fd = fs.openSync(bundlePath, 'r');
+  fs.readSync(fd, header, 0, 9, 0);
+  fs.closeSync(fd);
+  if (encryptedBundleVersion(header) !== null) {
+    if (!passphrase) {
+      throw new PortableBundleError(
+        'E_PASSPHRASE_REQUIRED',
+        'Bundle is encrypted; set CLEO_BACKUP_PASSPHRASE or run on a TTY',
+      );
+    }
+    tarPath = path.join(stagingDir, 'bundle.tar.gz');
+    try {
+      await decryptFileStream(bundlePath, tarPath, passphrase);
+    } catch (err) {
+      throw new PortableBundleError(
+        'E_BUNDLE_DECRYPT',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  await tarExtract({ file: tarPath, cwd: extractDir });
+  if (tarPath !== bundlePath) fs.rmSync(tarPath, { force: true });
+  return { extractDir, manifest: await verifyStaged(extractDir) };
+}
+
+/**
  * Import a portable (manifest v2) bundle.
  *
  * @param input - Import options.
@@ -585,47 +641,14 @@ export async function importPortableBundle(
   const stagingParent = path.resolve(input.stagingParent ?? path.dirname(cleoHome));
   fs.mkdirSync(stagingParent, { recursive: true });
   const stagingDir = fs.mkdtempSync(path.join(stagingParent, '.cleo-import-'));
-  const extractDir = path.join(stagingDir, 'bundle');
-  fs.mkdirSync(extractDir);
 
   try {
-    // ----- 1. decrypt + extract ------------------------------------------
-    const format = await detectBundleFormat(input.bundlePath);
-    if (format !== 'v2') {
-      throw new PortableBundleError(
-        'E_BUNDLE_FORMAT',
-        format === 'v1'
-          ? 'This is a v1 .cleobundle; it is handled by the legacy import path'
-          : 'Unrecognised bundle format',
-      );
-    }
-    let tarPath = input.bundlePath;
-    const header = Buffer.alloc(9);
-    const fd = fs.openSync(input.bundlePath, 'r');
-    fs.readSync(fd, header, 0, 9, 0);
-    fs.closeSync(fd);
-    if (encryptedBundleVersion(header) !== null) {
-      if (!input.passphrase) {
-        throw new PortableBundleError(
-          'E_PASSPHRASE_REQUIRED',
-          'Bundle is encrypted; set CLEO_BACKUP_PASSPHRASE or run on a TTY',
-        );
-      }
-      tarPath = path.join(stagingDir, 'bundle.tar.gz');
-      try {
-        await decryptFileStream(input.bundlePath, tarPath, input.passphrase);
-      } catch (err) {
-        throw new PortableBundleError(
-          'E_BUNDLE_DECRYPT',
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-    }
-    await tarExtract({ file: tarPath, cwd: extractDir });
-    if (tarPath !== input.bundlePath) fs.rmSync(tarPath, { force: true });
-
-    // ----- 2. verify ------------------------------------------------------
-    const manifest = await verifyStaged(extractDir);
+    // ----- 1. decrypt + extract, 2. verify --------------------------------
+    const { extractDir, manifest } = await extractPortableBundle(
+      input.bundlePath,
+      stagingDir,
+      input.passphrase,
+    );
     if (input.onStaged) await input.onStaged(extractDir, manifest);
 
     // ----- 3. plan + pre-check -------------------------------------------

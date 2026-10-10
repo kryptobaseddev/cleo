@@ -69,7 +69,12 @@ import { setCaptureEnabled } from '../../store/sync/capture.js';
 import { isSyncFlagOn, setSyncFlag } from '../../store/sync/flags.js';
 import { cutGenesis, genesisCutOf, genesisPending } from '../../store/sync/genesis.js';
 import { readStreamCursor } from '../../store/sync/pull.js';
-import { ensureProjectReplica, storeHwm } from '../../store/sync/replica.js';
+import {
+  activeReplica,
+  ensureProjectReplica,
+  reconcileDue,
+  storeHwm,
+} from '../../store/sync/replica.js';
 import { readDeviceRegistry } from '../../store/sync/replica-registry.js';
 import { ensureSyncSchema } from '../../store/sync/schema.js';
 import {
@@ -5800,6 +5805,57 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       { id: 'T1', title: 'from A' },
       { id: 'T2', title: 'from B' },
     ]);
+  });
+
+  it('a copied store reconciles against the restored checkpoint pulled to head before it syncs (T13335, §1.5 N7)', async () => {
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    await on(a, async () => {
+      setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+    });
+    const sync = async (m: Machine) =>
+      (await on(m, () => cloudSync(vopts(m, { scope: 'project', allowUnreleased: true }))))
+        .streams[0];
+    await on(a, async () => {
+      (await storeOf(aDb)).exec("UPDATE tasks_tasks SET title = 'from A' WHERE id = 'T1'");
+    });
+    expect((await sync(a))?.status).toBe('synced');
+    // The whole project is copied to another machine.
+    const c = await machine('c', DEVICE_B, REPLICA_B);
+    fs.cpSync(path.join(a.root, '.cleo'), path.join(c.root, '.cleo'), { recursive: true });
+    const cDb = path.join(c.root, '.cleo', 'cleo.db');
+    // A goes on.
+    await on(a, async () => {
+      (await storeOf(aDb)).exec("UPDATE tasks_tasks SET title = 'later from A' WHERE id = 'T2'");
+    });
+    expect((await sync(a))?.status).toBe('synced');
+    // The copy's first canonical open rebinds it: it owes a reconcile, and has no cursor.
+    const copied = await on(c, async () => {
+      const db = await storeOf(cDb);
+      return { replica: activeReplica(db, 'project')?.replicaId, due: reconcileDue(db) };
+    });
+    expect(copied.due).toMatchObject({ to: copied.replica });
+    expect(copied.replica).not.toBe(a.replicaId);
+    c.replicaId = copied.replica ?? '';
+    fake.replicas.get(REMOTE_PROJECT)?.set(c.replicaId, DEVICE_B);
+    link(c);
+    const before = fake.stream(STREAM).segments.length;
+    const r = await sync(c);
+    expect(r?.status, r?.refused ?? '').toBe('synced');
+    // It adopted A's later write, and sent nothing: no change of its own, none re-sent.
+    expect(
+      await on(c, async () =>
+        (await storeOf(cDb))
+          .prepare("SELECT id, title FROM tasks_tasks WHERE id IN ('T1', 'T2') ORDER BY id")
+          .all(),
+      ),
+    ).toEqual([
+      { id: 'T1', title: 'from A' },
+      { id: 'T2', title: 'later from A' },
+    ]);
+    expect(r?.sent).toBe(0);
+    expect(fake.stream(STREAM).segments).toHaveLength(before);
+    expect(await on(c, async () => reconcileDue(await storeOf(cDb)))).toBeNull();
   });
 
   it('a joined store with push off syncs pull-only: synced, the push leg skipped (T13312)', async () => {
