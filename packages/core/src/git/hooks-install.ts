@@ -22,12 +22,14 @@ import { fileURLToPath } from 'node:url';
 import {
   CLEO_GIT_HOOK_NAMES,
   type GitHookChange,
+  type GitHookInstallOptions,
   type GitHookInstallReceipt,
   GitHookInstallReceiptSchema,
   GitHookLegacyHashesSchema,
 } from '@cleocode/contracts/git-hooks.js';
 import { atomicWrite } from '../store/atomic.js';
 import { withFileLock } from '../store/file-utils.js';
+import { canonicalizePath } from '../tools/fs.js';
 
 /**
  * Diagnostic marker embedded in shipped hooks. A marker alone never grants
@@ -45,25 +47,7 @@ export const CLEO_HOOK_NAMES = CLEO_GIT_HOOK_NAMES;
 export type CleoHookName = (typeof CLEO_HOOK_NAMES)[number];
 
 /** Options for {@link installCleoHooks}. */
-export interface InstallCleoHooksOptions {
-  /**
-   * Override the hook source directory. Defaults to
-   * `<repoRoot>/packages/core/templates/git-hooks` (in-monorepo) or the
-   * resolved `@cleocode/core` install location at runtime. T9858 relocated
-   * the hook templates packages/cleo → packages/core.
-   */
-  templatesDir?: string;
-  /**
-   * Deprecated compatibility flag. It never bypasses ownership validation.
-   */
-  force?: boolean;
-  /**
-   * If true, do not actually write — return what WOULD happen.
-   */
-  dryRun?: boolean;
-  /** Restore a prior installation only while its current hashes match. */
-  rollbackReceipt?: GitHookInstallReceipt;
-}
+export type InstallCleoHooksOptions = GitHookInstallOptions;
 
 /** Result of {@link installCleoHooks}. */
 export interface InstallCleoHooksResult {
@@ -108,7 +92,55 @@ export async function installCleoHooks(
   }
 
   const hooksDir = resolveHooksDir(absRoot, gitDir);
+  const commonDir = fs.realpathSync(
+    execFileSync(
+      'git',
+      ['-C', absRoot, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+      {
+        encoding: 'utf8',
+      },
+    ).trim(),
+  );
+  const bare =
+    execFileSync('git', ['-C', absRoot, 'rev-parse', '--is-bare-repository'], {
+      encoding: 'utf8',
+    }).trim() === 'true';
+  const checkoutRoot = bare
+    ? commonDir
+    : fs.realpathSync(
+        execFileSync('git', ['-C', absRoot, 'rev-parse', '--show-toplevel'], {
+          encoding: 'utf8',
+        }).trim(),
+      );
+  const effective = await canonicalizePath(hooksDir);
+  const inside = (parent: string, child: string): boolean => {
+    const rel = path.relative(parent, child);
+    return (
+      rel === '' || (!path.isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${path.sep}`))
+    );
+  };
+  if (
+    inside(checkoutRoot, effective) &&
+    !inside(commonDir, effective) &&
+    !opts.allowTrackedHooksPath
+  ) {
+    const recommendation = `in-worktree core.hooksPath preserved; opt in explicitly: cleo init --git-hooks-only --allow-tracked-hooks-path`;
+    return {
+      hooksDir,
+      installed: [],
+      skipped: [...CLEO_HOOK_NAMES],
+      skipReasons: Object.fromEntries(CLEO_HOOK_NAMES.map((name) => [name, recommendation])),
+    };
+  }
+  // Receipts and locks remain Git-private even when hooksPath points into tracked files.
+  const stateDir = path.join(commonDir, 'cleo-git-hooks');
+  const stateEntry = fs.lstatSync(stateDir, { throwIfNoEntry: false });
+  if (stateEntry && (!stateEntry.isDirectory() || stateEntry.isSymbolicLink())) {
+    // @sync-invariant none:local-only refuse redirected local filesystem installation metadata.
+    throw new Error('Git hook state directory is unsafe');
+  }
   if (!opts.dryRun) {
+    fs.mkdirSync(stateDir, { recursive: true });
     fs.mkdirSync(hooksDir, { recursive: true });
   }
 
@@ -128,8 +160,8 @@ export async function installCleoHooks(
     const skipped: CleoHookName[] = [];
     const skipReasons: Partial<Record<CleoHookName, string>> = {};
     const changes: GitHookChange[] = [];
-    const ledgerPath = path.join(hooksDir, '.cleo-install-receipt.json');
-    const ledger = readReceipt(ledgerPath);
+    const ledgerPath = path.join(stateDir, `install-${hash(effective)}.json`);
+    const ledger = readReceipt(ledgerPath, hooksDir);
     if (opts.rollbackReceipt) {
       const receipt = GitHookInstallReceiptSchema.parse(opts.rollbackReceipt);
       // @sync-invariant none:local-only rollback targets local Git hook files, not synced tables.
@@ -214,14 +246,16 @@ export async function installCleoHooks(
     }
     return { hooksDir, installed, skipped, skipReasons, ...(opts.dryRun ? {} : { receipt }) };
   };
-  return opts.dryRun ? perform() : withFileLock(path.join(hooksDir, '.cleo-install'), perform);
+  return opts.dryRun
+    ? perform()
+    : withFileLock(path.join(stateDir, `install-${hash(effective)}`), perform);
 }
 
 function hash(body: string): string {
   return createHash('sha256').update(body).digest('hex');
 }
 
-function readReceipt(filePath: string): GitHookInstallReceipt | undefined {
+function readReceipt(filePath: string, hooksDir: string): GitHookInstallReceipt | undefined {
   const entry = fs.lstatSync(filePath, { throwIfNoEntry: false });
   if (!entry) return undefined;
   // @sync-invariant none:local-only local receipt file ownership protects filesystem hook delivery.
@@ -229,7 +263,7 @@ function readReceipt(filePath: string): GitHookInstallReceipt | undefined {
   const parsed = GitHookInstallReceiptSchema.safeParse(
     JSON.parse(fs.readFileSync(filePath, 'utf8')),
   );
-  if (!parsed.success || parsed.data.hooksDir !== path.dirname(filePath)) {
+  if (!parsed.success || parsed.data.hooksDir !== hooksDir) {
     // @sync-invariant none:local-only malformed or misplaced local Git hook receipts confer no ownership.
     throw new Error('Git hook receipt is invalid or belongs to another directory');
   }

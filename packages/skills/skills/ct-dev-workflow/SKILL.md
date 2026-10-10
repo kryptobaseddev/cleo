@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.8
+version: 3.1.9
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,11 +14,13 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.8
+  version: 3.1.9
   tier: core
   install: harness
   covers:
     - .github/workflows/release-prepare.yml
+    - packages/core/src/init.ts
+    - packages/cleo/src/cli/commands/init.ts
     - packages/core/src/hooks.ts
     - packages/core/src/git/hooks-install.ts
     - packages/core/templates/git-hooks/**
@@ -81,12 +83,17 @@ marker alone never authorizes replacement. Refresh only exact shipped legacy
 bodies or receipt-owned content, using locked atomic writes and hash-guarded
 rollback. Report conflicts with the suggested integration snippet.
 
-The pre-push wrapper captures and replays Git ref-update stdin. Probe the project
-runner for `CLEO_PROJECT_HOOK_V1` before interpreting exit 1 as a project block.
-Missing or incompatible runners and infrastructure failures warn and allow;
-project rules remain project-owned. Verify nested checkout paths, linked
-worktrees, custom hook paths, receipt corruption, and stdin replay with focused
-Git fixtures before changing this delivery path.
+Receipts and locks stay in Git-private common metadata, including when
+`core.hooksPath` selects tracked files. Default installation preserves hook
+paths inside the checkout. Use `cleo init --git-hooks-only --allow-tracked-hooks-path` only after
+reviewing the tracked destination; this opt-in still preserves foreign and
+customized hooks. Init warnings carry the exact opt-in command.
+
+The standalone pre-push template enforces task IDs from Git ref-update stdin.
+Shared project-runner integration belongs to the unified hooks feature and must
+ship with its implemented CLI verb. Verify nested checkout paths, linked
+worktrees, custom hook paths, historical release bodies and corrupt receipts
+with focused Git fixtures before changing this delivery path.
 
 ---
 

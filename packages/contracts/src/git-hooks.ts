@@ -27,3 +27,17 @@ export const GitHookLegacyHashesSchema = z.record(
   z.string(),
   z.array(z.string().regex(/^[a-f0-9]{64}$/)),
 );
+
+/** Explicit installer controls shared by SDK wrappers and CLI delivery. */
+export interface GitHookInstallOptions {
+  /** Override shipped template location. */
+  templatesDir?: string;
+  /** Deprecated compatibility flag; never bypasses ownership or tracked-path safety. */
+  force?: boolean;
+  /** Preview without filesystem mutations. */
+  dryRun?: boolean;
+  /** Restore matching local installation images. */
+  rollbackReceipt?: GitHookInstallReceipt;
+  /** Explicitly permit writes into an effective hooksPath inside the working tree. */
+  allowTrackedHooksPath?: boolean;
+}
