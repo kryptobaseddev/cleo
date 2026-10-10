@@ -243,6 +243,20 @@ export function parseStoreTimestamp(value: UidInput | undefined): number | null 
   return utc - sign * offset;
 }
 
+/**
+ * A stored birth as epoch ms: a timestamp text ({@link parseStoreTimestamp}),
+ * or an INTEGER epoch-ms birth column as is (`brain_attention.created_at`,
+ * T12894). A TEXT-affinity column never hands over a number, so the birth of
+ * every table declared before T12894 reads exactly as before.
+ */
+function birthEpochMs(birth: UidInput): number | null {
+  if (typeof birth === 'number' && Number.isSafeInteger(birth)) return birth;
+  if (typeof birth === 'bigint') {
+    return birth >= 0n && birth <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(birth) : null;
+  }
+  return parseStoreTimestamp(birth);
+}
+
 /** Largest value a UUIDv7 timestamp field holds. */
 const MAX_UUID_MS = 2 ** 48 - 1;
 
@@ -286,7 +300,7 @@ export function mintedRowUid(
   ownerUids: readonly UidInput[] = [],
   content: readonly UidInput[] = [],
 ): string {
-  const birthMs = parseStoreTimestamp(birth);
+  const birthMs = birthEpochMs(birth);
   const canonicalBirth: UidInput = birthMs ?? birth;
   const h = createHash('sha256')
     .update(
@@ -379,7 +393,7 @@ export function naturalRowUid(
  */
 function birthToken(birth: UidInput): string {
   if (birth === null) return 'birth:unknown';
-  const ms = parseStoreTimestamp(birth);
+  const ms = birthEpochMs(birth);
   if (ms !== null) return `ms:${ms}`;
   return `birth:unparseable:${canonicalText(String(birth))}`;
 }
@@ -2162,11 +2176,20 @@ export function readRowIdentityHealHistory(db: DatabaseSync): RowIdentityHealRec
  * the graveyard trigger, and the alias / graveyard columns an early table
  * lacks (T12878; the open heals them).
  *
- * @param db - Connection on a project `cleo.db` (read-only is fine).
+ * The global store has no identity tables: only its declared uid columns
+ * and indexes are checked (T12894).
+ *
+ * @param db - Connection on a `cleo.db` (read-only is fine).
+ * @param scope - The store's scope (default `project`).
  * @returns What is missing (empty when complete).
  * @task T12878
+ * @task T12894
  */
-export function missingRowIdentitySchema(db: DatabaseSync): string[] {
+export function missingRowIdentitySchema(
+  db: DatabaseSync,
+  scope: TableScope = 'project',
+): string[] {
+  if (scope === 'global') return missingDeclaredSchema(db, scope);
   if (!hasTable(db, 'tasks_task_acceptance_criteria')) return [];
   const missing: string[] = [];
   for (const table of Object.keys(IDENTITY_TABLE_DDL)) {
@@ -2184,11 +2207,17 @@ export function missingRowIdentitySchema(db: DatabaseSync): string[] {
   if (!hasObject(db, 'trigger', 'trg_tasks_ac_uid_graveyard')) {
     missing.push('trigger trg_tasks_ac_uid_graveyard');
   }
-  // The uid columns and indexes ensureRowIdentitySchema heals.
-  for (const spec of ROW_IDENTITY.project) {
+  missing.push(...missingDeclaredSchema(db, scope));
+  return missing;
+}
+
+/** The uid columns and indexes {@link ensureRowIdentitySchema} heals, missing from a store. */
+function missingDeclaredSchema(db: DatabaseSync, scope: TableScope): string[] {
+  const missing: string[] = [];
+  for (const spec of ROW_IDENTITY[scope]) {
     if (!hasTable(db, spec.table)) continue;
     const cols = columnsOf(db, spec.table);
-    for (const column of rowIdentityColumns('project', spec.table)) {
+    for (const column of rowIdentityColumns(scope, spec.table)) {
       if (!cols.has(column)) missing.push(`column ${spec.table}.${column}`);
     }
     if (!uidIsPrimaryKey(db, spec.table) && !hasObject(db, 'index', `uq_${spec.table}_uid`)) {
@@ -2273,10 +2302,7 @@ export function rowIdentityFillPending(db: DatabaseSync, scope: TableScope): str
   if (ROW_IDENTITY[scope].length === 0) return [];
   // The probes name identity columns: a store missing any of its identity
   // schema is pending the full pass, which heals it first.
-  if (
-    scope === 'project' &&
-    (missingRowIdentitySchema(db).length > 0 || !fillIndexesPresent(db, scope))
-  ) {
+  if (missingRowIdentitySchema(db, scope).length > 0 || !fillIndexesPresent(db, scope)) {
     return ['schema'];
   }
   const pending: string[] = [];

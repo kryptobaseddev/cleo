@@ -860,7 +860,7 @@ async function migrateScopeSchema(
  */
 function identityWorkOnOpen(nativeDb: DatabaseSync, scope: DualScope): boolean {
   if (ROW_IDENTITY[scope].length === 0) return false;
-  return missingRowIdentitySchema(nativeDb).length > 0;
+  return missingRowIdentitySchema(nativeDb, scope).length > 0;
 }
 
 /**
