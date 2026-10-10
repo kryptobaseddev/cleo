@@ -99,6 +99,9 @@ export interface ReadFileResult {
   readonly content: string;
 }
 
+/** Callable port for the canonical text reader, shared without a runtime dependency. */
+export type ReadFileText = (input: ReadFileInput) => Promise<ReadFileResult>;
+
 /** Input for an atomic (tmp-then-rename) file write. */
 export interface WriteFileInput {
   /** Absolute path to write. */

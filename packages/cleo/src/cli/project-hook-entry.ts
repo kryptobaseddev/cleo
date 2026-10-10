@@ -20,7 +20,7 @@ function processIo(): HookIo {
       return Buffer.concat(buffers).toString('utf8');
     },
     writeStdout: (value) => {
-      process.stdout.write(value);
+      process.stdout.write(value); // stdout-discipline-allowed: native hook protocol and capability token consumed by harness/Git, not LAFS rendering // stdout-write-allowed: native hook protocol output
     },
     writeStderr: (value) => {
       process.stderr.write(value);

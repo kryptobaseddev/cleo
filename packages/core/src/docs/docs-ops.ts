@@ -1013,7 +1013,7 @@ async function validatedPublicationPath(root: string, destination: string): Prom
       probe(canonicalRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
     );
     const registered = parseWorktreePorcelain(
-      probe(canonicalRoot, ['worktree', 'list', '--porcelain']),
+      probe(canonicalRoot, ['worktree', 'list', '--porcelain']), // raw-git-worktree-ok: T13376 read-only publication admission requires sanitized Git environment and bounded probe; canonical SDK parser validates the registry.
     );
     for (const entry of registered) {
       const taskId = basename(entry.path);

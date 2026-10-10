@@ -234,6 +234,16 @@ async function packedPreflight(repoRoot) {
     }),
   );
   setup('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], installDir, 'install');
+  setup(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      'const canonical = await import("@cleocode/core/tools/fs"); const legacy = await import("@cleocode/core/tools/fs.js"); await import("@cleocode/caamp"); if (canonical.writeFileAtomic !== legacy.writeFileAtomic || canonical.readFileText !== legacy.readFileText) throw new Error("Canonical filesystem exports disagree");',
+    ],
+    installDir,
+    'canonical-fs-imports',
+  );
   // Git hooks must resolve the same installed CLI that the absolute-path probes use.
   env.PATH = `${join(installDir, 'node_modules', '.bin')}${delimiter}${env.PATH ?? ''}`;
   const project = env.CLEO_PROJECT_ROOT;

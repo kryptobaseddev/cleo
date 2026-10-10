@@ -255,7 +255,8 @@ async function deliverProvider(
     result.diagnostics.push('HOOK_PROJECT_LOCAL_UNSUPPORTED');
     return result;
   }
-  const target = await localTarget(options.projectRoot, capability.configPath);
+  const configPath = capability.configPath;
+  const target = await localTarget(options.projectRoot, configPath);
   result.configPath = target;
   const receiptPath = join(options.stateDir, 'provider-' + provider + '.json');
   const prior = await receiptAt(receiptPath);
@@ -350,7 +351,7 @@ async function deliverProvider(
     if (options.rollback) {
       if (existing !== undefined && !options.dryRun)
         await withFileLock(target, async () => {
-          await localTarget(options.projectRoot, capability.configPath);
+          await localTarget(options.projectRoot, configPath);
           const current = existsSync(target)
             ? (await readFileText({ path: target, maxBytes: 262144 })).content
             : undefined;
@@ -365,7 +366,7 @@ async function deliverProvider(
       if (existing === undefined)
         excludeHookFileFromGit(options.projectRoot, capability.configPath);
       await withFileLock(target, async () => {
-        await localTarget(options.projectRoot, capability.configPath);
+        await localTarget(options.projectRoot, configPath);
         const current = existsSync(target)
           ? (await readFileText({ path: target, maxBytes: 262144 })).content
           : undefined;
