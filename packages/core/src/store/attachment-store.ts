@@ -21,7 +21,6 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Attachment, AttachmentMetadata, AttachmentRef } from '@cleocode/contracts';
 import { and, asc, eq, or, sql } from 'drizzle-orm';
-import { deriveDocLinks, isScannableTextMime, linksJsonOrNull } from '../docs/derive-links.js';
 import { EngineResultError } from '../engine-result.js';
 import { resolveCleoDir } from '../paths.js';
 import { extFromMime, pinBlob, restoreBlob, tombstoneBlob } from './blob-keep.js';
@@ -618,6 +617,10 @@ export function createAttachmentStore(): AttachmentStore {
       // T13357: derive topics/related_tasks provenance at the write chokepoint
       // so every writer (add, llm-output --attach, import) populates the link
       // columns the wikilinks graph reads. Text blobs only.
+      // Loaded on demand: readers (`cleo show`) never pay for it (gate 39).
+      const { deriveDocLinks, isScannableTextMime, linksJsonOrNull } = await import(
+        '../docs/derive-links.js'
+      );
       const attachmentMime = 'mime' in fullAttachment ? fullAttachment.mime : undefined;
       const derivedLinks = isScannableTextMime(attachmentMime)
         ? deriveDocLinks(buf.toString('utf-8'), fullAttachment.labels)
