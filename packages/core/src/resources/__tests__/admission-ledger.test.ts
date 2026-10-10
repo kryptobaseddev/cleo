@@ -26,6 +26,7 @@ import {
   entryLiveness,
   footprintForTool,
   GIB,
+  gitHookInstalled,
   HEAVY_FOOTPRINT_BYTES,
   LEDGER_HEARTBEAT_STALE_MS,
   LEDGER_ORPHAN_MS,
@@ -34,7 +35,6 @@ import {
   lightBudgetShare,
   type ProcessFacts,
   planFootprintBytes,
-  gitHookInstalled,
   planRunFootprint,
   readForeignEntries,
   readLedger,
@@ -1281,7 +1281,13 @@ describe('a git push is charged by what actually runs (T13452)', () => {
   const RAM = 48;
 
   it('without a hook: the light footprint, with the reason', () => {
-    const plan = planRunFootprint('scoped-build', ['git', 'push', '-u', 'origin', 'x'], {}, RAM, () => false);
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['git', 'push', '-u', 'origin', 'x'],
+      {},
+      RAM,
+      () => false,
+    );
     expect(plan.footprintBytes).toBe(GIB);
     expect(plan.resources).toBeNull();
     expect(plan.footprintReason).toBe('git push runs no heavy tool');
