@@ -137,6 +137,8 @@ export interface ReleasePlanOptions {
   channel?: ReleasePlanChannel;
   /** When true, the release is marked `release_kind='hotfix'`. */
   hotfix?: boolean;
+  /** Require retained pilot evidence for this hooks-v1 stable promotion. */
+  hooksV1Promotion?: boolean;
   /** Dry-run flag — equivalent to `CLEO_DRY_RUN=1`. Reads only; no writes. */
   dryRun?: boolean;
   /**
@@ -1832,6 +1834,7 @@ export async function releasePlan(
     channel,
     epicId: resolvedEpicId,
     releaseKind,
+    hooksV1Promotion: opts.hooksV1Promotion === true,
     createdAt,
     createdBy: opts.createdBy ?? process.env['USER'] ?? 'cleo-agent',
     previousVersion: prior.previousVersion,

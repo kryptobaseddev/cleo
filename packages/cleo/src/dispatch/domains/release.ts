@@ -373,6 +373,7 @@ export class ReleaseHandler implements DomainHandler {
                 ? (params.channel as ReleasePlanOptions['channel'])
                 : undefined,
             hotfix: typeof params?.hotfix === 'boolean' ? params.hotfix : false,
+            hooksV1Promotion: params?.hooksV1Promotion === true,
             dryRun: typeof params?.dryRun === 'boolean' ? params.dryRun : false,
             writeChangelog:
               typeof params?.writeChangelog === 'boolean' ? params.writeChangelog : true,

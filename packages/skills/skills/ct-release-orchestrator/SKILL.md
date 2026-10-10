@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.2.2
+  version: 3.2.3
   tier: on-demand
   install: harness
   covers:
@@ -15,7 +15,7 @@ metadata:
     - packages/core/src/validation/protocols/protocols-markdown/release.md
     - packages/cleo/src/cli/commands/release.ts
   loomStage: release
-  lastReviewed: 2026-10-09
+  lastReviewed: 2026-10-10
   stability: stable
 ---
 
@@ -27,7 +27,9 @@ Independent opt-in canaries use `--channel canary` with a numbered
 `vYYYY.MM.N-canary.N` version. The OIDC workflow publishes this version only
 to `canary`, verifies registry convergence and soaks the installed package.
 It never continues to `latest`. Stable promotion is a separate normal release;
-the unified-hooks pilot must first supply hosted VidaPeps CI, read-only database
+use `--hooks-v1-promotion` on the stable promotion plan; ordinary releases and
+hotfixes are exempt. The promotion gate runs before GitHub Release creation.
+The unified-hooks pilot must first supply hosted VidaPeps CI, read-only database
 verification and live harness evidence bound to the exact canary source digest.
 Source changes require fresh pilot evidence. Do not move npm tags manually.
 

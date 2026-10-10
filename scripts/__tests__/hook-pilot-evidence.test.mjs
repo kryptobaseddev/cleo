@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   hookPilotEvidenceMain,
+  hooksPromotionRequired,
   implementationSourceDigest,
   validateHookPilotEvidence,
 } from '../hook-pilot-evidence.mjs';
@@ -175,6 +176,29 @@ function replaceProof(index, check, changes) {
   write('retained/index.json', index);
 }
 
+describe('hooks promotion scope', () => {
+  it('exempts ordinary releases, absent plans and hotfixes', () => {
+    expect(hooksPromotionRequired(root, '2026.10.6')).toBe(false);
+    write('.cleo/release/v2026.10.6.plan.json', { releaseKind: 'regular' });
+    expect(hooksPromotionRequired(root, '2026.10.6')).toBe(false);
+    write('.cleo/release/v2026.10.6.plan.json', { releaseKind: 'hotfix', hooksV1Promotion: true });
+    expect(hooksPromotionRequired(root, '2026.10.6')).toBe(false);
+  });
+  it('requires evidence for an explicitly scoped stable promotion only', () => {
+    write('.cleo/release/v2026.10.6.plan.json', { releaseKind: 'regular', hooksV1Promotion: true });
+    expect(hooksPromotionRequired(root, '2026.10.6')).toBe(true);
+    expect(hooksPromotionRequired(root, VERSION)).toBe(false);
+    expect(hooksPromotionRequired(root, '../outside')).toBe(false);
+  });
+  it('rejects malformed promotion metadata', () => {
+    write('.cleo/release/v2026.10.6.plan.json', {
+      releaseKind: 'regular',
+      hooksV1Promotion: 'true',
+    });
+    expect(() => hooksPromotionRequired(root, '2026.10.6')).toThrow();
+  });
+});
+
 describe('normalized implementation digest', () => {
   it('ignores version/cohort JSON changes, key order and test-only changes', () => {
     const before = implementationSourceDigest(root);
@@ -186,6 +210,21 @@ describe('normalized implementation digest', () => {
     write('packages/core/package.json', { version: '2026.10.6', name: '@cleocode/core' });
     write('packages/core/src/hooks.test.ts', 'test changes are not runtime source');
     expect(implementationSourceDigest(root)).toEqual(before);
+  });
+  it('normalizes release-owned canary and hotfix metadata without hiding other manifest changes', () => {
+    const before = implementationSourceDigest(root);
+    write('packages/core/package.json', {
+      name: '@cleocode/core',
+      version: VERSION,
+      cleo: { channel: 'canary', hotfix: true },
+    });
+    expect(implementationSourceDigest(root)).toEqual(before);
+    write('packages/core/package.json', {
+      name: '@cleocode/core',
+      version: VERSION,
+      cleo: { channel: 'canary', runtimePolicy: 'changed' },
+    });
+    expect(implementationSourceDigest(root).digest).not.toBe(before.digest);
   });
   it('invalidates on runtime, build/workflow and external dependency changes', () => {
     const before = implementationSourceDigest(root).digest;

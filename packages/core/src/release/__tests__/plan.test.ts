@@ -160,6 +160,22 @@ afterEach(async () => {
 // =============================================================================
 
 describe('releasePlan — happy path', () => {
+  it('retains an explicit hooks promotion flag in the committed plan', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    const result = await releasePlan({
+      version: 'v2026.10.6',
+      epicId: 'T9999',
+      projectRoot: testDir,
+      hooksV1Promotion: true,
+      scheme: 'calver',
+    });
+    expect(result.success).toBe(true);
+    const plan = parseReleasePlan(
+      JSON.parse(readFileSync(join(testDir, '.cleo/release/v2026.10.6.plan.json'), 'utf8')),
+    );
+    expect(plan.hooksV1Promotion).toBe(true);
+  });
+
   it('preserves the canary channel in its plan while using the compatible persisted enum', async () => {
     await seedEpicWithChildren('T9999', 1);
     const result = await releasePlan({
