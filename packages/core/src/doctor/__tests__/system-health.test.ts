@@ -12,11 +12,13 @@ import type { MemoryGuardAudit } from '../../resources/memory-guard.js';
 import {
   assessSystemHealth,
   commandWords,
+  gitRootOf,
   mcpServerName,
   parseDockerCreatedAt,
   parseDockerSize,
   parseEtime,
   parseLinuxSwap,
+  parseLsofCwd,
   parsePs,
   type SystemSnapshot,
 } from '../system-health.js';
@@ -46,8 +48,9 @@ function psRow(
   etime: string,
   args: string,
   pgid = pid,
+  tty = '??',
 ): string {
-  return `${String(pid).padStart(6)} ${String(ppid).padStart(6)} ${String(pgid).padStart(6)} ${String(rssKib).padStart(8)} ${pcpu.toFixed(1).padStart(5)} ${etime.padStart(11)} ${args}`;
+  return `${String(pid).padStart(6)} ${String(ppid).padStart(6)} ${String(pgid).padStart(6)} ${String(rssKib).padStart(8)} ${pcpu.toFixed(1).padStart(5)} ${etime.padStart(11)} ${tty.padEnd(8)} ${args}`;
 }
 
 function incidentPs(): string {
@@ -89,6 +92,20 @@ function incidentPs(): string {
       psRow(s + 6, s, 60_000, 0, '1-02:00:00', `${NODE} /w/tools/axiom-qa-mcp/dist/server.js`),
     );
   }
+  // Harness helpers are not sessions.
+  rows.push(
+    psRow(
+      900,
+      1,
+      20_000,
+      0,
+      '2-00:00:00',
+      '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex exec-server --remote https://x',
+    ),
+  );
+  rows.push(
+    psRow(901, 1, 20_000, 0, '2-00:00:00', '/Users/u/.local/bin/claude --chrome-native-host'),
+  );
   // Ungoverned typecheck in another project, with a worker child.
   rows.push(psRow(5000, 1000, 2_000, 0, '00:10:00', '/bin/zsh -c pnpm run typecheck'));
   rows.push(psRow(5001, 5000, 90_000, 30, '00:10:00', 'pnpm run typecheck', 5001));
@@ -261,8 +278,12 @@ describe('parsers', () => {
   });
 
   it('parses ps rows and keeps the whole command line', () => {
-    const [row] = parsePs(psRow(42, 1, 1024, 3.5, '10:00', '/bin/zsh -c echo hi there'));
+    const [row] = parsePs(
+      psRow(42, 1, 1024, 3.5, '10:00', '/bin/zsh -c echo hi there', 42, 'pts/3'),
+    );
+    expect(parsePs(psRow(43, 1, 1, 0, '00:01', 'x'))[0]?.tty).toBeNull();
     expect(row).toMatchObject({
+      tty: 'pts/3',
       pid: 42,
       ppid: 1,
       pgid: 42,
@@ -306,6 +327,20 @@ describe('parsers', () => {
     );
     expect(Number.isNaN(parseDockerCreatedAt('yesterday'))).toBe(true);
     expect(parseLinuxSwap(MEMINFO)).toEqual({ usedBytes: 15 * GIB, totalBytes: 16 * GIB });
+  });
+});
+
+describe('session context parsers (T13438)', () => {
+  it('parses lsof cwd output and finds the git root', () => {
+    expect(parseLsofCwd('p4112\nfcwd\nn/Users/u/p/app\np5058\nfcwd\nn/tmp\n')).toEqual(
+      new Map([
+        [4112, '/Users/u/p/app'],
+        [5058, '/tmp'],
+      ]),
+    );
+    const has = new Set(['/Users/u/p/.git']);
+    expect(gitRootOf('/Users/u/p/app/src', (x) => has.has(x))).toBe('/Users/u/p');
+    expect(gitRootOf('/tmp/x', (x) => has.has(x))).toBeNull();
   });
 });
 
@@ -376,6 +411,39 @@ describe('assessSystemHealth on macOS (the 2026-10-10 incident)', () => {
     expect(s?.evidence.idle).toBe(6);
     expect(s?.needsOwnerChoice).toBe(true);
     expect(s?.remedy?.command).toBeNull();
+  });
+
+  it('groups sessions per project and judges idle by terminal silence when known (T13438)', async () => {
+    const ctx = (project: string, ttyIdleSec: number | null) => ({
+      cwd: `${project}/packages/x`,
+      project,
+      ttyIdleSec,
+    });
+    const r = assessSystemHealth(
+      await darwinSnapshot({
+        sessionContext: {
+          // busy by CPU but its terminal has been silent 3h: idle
+          1000: ctx('/Users/u/projects/axiom', 3 * 3600),
+          // quiet CPU but typed into a minute ago: active
+          1020: ctx('/Users/u/projects/axiom', 60),
+          1030: ctx('/Users/u/projects/cleocode', 7200),
+        },
+      }),
+    );
+    const byPid = new Map(r.sessions.map((x) => [x.pid, x]));
+    expect(byPid.get(1000)).toMatchObject({ harness: 'claude', idle: true, idleSec: 10800 });
+    expect(byPid.get(1020)?.idle).toBe(false);
+    expect(byPid.get(1040)).toMatchObject({ project: null, idleSec: null, idle: true });
+    // idlest first: known idle times before unknown ones
+    expect(r.sessions[0]?.pid).toBe(1000);
+    expect(r.sessions[1]?.pid).toBe(1030);
+    const f = r.findings.find((x) => x.id === 'sessions');
+    expect(f?.evidence.byProject).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^axiom: 2 sessions \(1 idle\)/)]),
+    );
+    expect(f?.evidence.idleSessions).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^axiom claude pid 1000 up 26h, idle 3h/)]),
+    );
   });
 
   it('flags indexer CPU, Time Machine and Spotlight on node_modules', async () => {

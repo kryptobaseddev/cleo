@@ -23,9 +23,9 @@
  */
 
 import { execFile } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { cpus, loadavg, totalmem } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { readLedger } from '../resources/admission-ledger.js';
 import type { ResourceSample } from '../resources/backend.js';
@@ -94,6 +94,31 @@ export interface SystemHealthReport {
   /** Worst first. */
   readonly findings: readonly SystemFinding[];
   readonly coverage: readonly SystemCoverage[];
+  /** Every agent session, idlest first: the owner's close list (T13438). */
+  readonly sessions: readonly SessionInfo[];
+}
+
+/** One agent session (a top-level harness process and its tree). */
+export interface SessionInfo {
+  readonly pid: number;
+  /** `claude`, `codex`, `opencode`, `kimi`, … */
+  readonly harness: string;
+  /** Git root of the session's working directory, or `null` when unknown. */
+  readonly project: string | null;
+  readonly cwd: string | null;
+  readonly elapsedSec: number;
+  /** Seconds since the session's terminal last saw input or output; `null` without a tty. */
+  readonly idleSec: number | null;
+  /** RSS of the session and everything it started (MCP servers included), MiB. */
+  readonly rssMib: number;
+  readonly idle: boolean;
+}
+
+/** Per-session facts the collector reads beyond `ps` (T13438). */
+export interface SessionContext {
+  readonly cwd: string | null;
+  readonly project: string | null;
+  readonly ttyIdleSec: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,7 +156,7 @@ export interface SystemSnapshot {
   readonly sample: ResourceSample | null;
   /** Linux swap from `/proc/meminfo`; macOS carries it on `sample.darwinMemory`. */
   readonly linuxSwap: { readonly usedBytes: number; readonly totalBytes: number } | null;
-  /** `ps -A -o pid=,ppid=,pgid=,rss=,pcpu=,etime=,args=` output, `null` when ps failed. */
+  /** `ps -A -o pid=,ppid=,pgid=,rss=,pcpu=,etime=,tty=,args=` output, `null` when ps failed. */
   readonly ps: string | null;
   /** Process groups and pids `cleo run` holds (the admission ledger). */
   readonly governedPgids: readonly number[];
@@ -141,6 +166,8 @@ export interface SystemSnapshot {
   readonly indexing: IndexingSnapshot | null;
   /** Linux only. */
   readonly memoryGuard: MemoryGuardAudit | null;
+  /** Keyed by session pid; absent entries are reported with unknown project and idle time. */
+  readonly sessionContext?: Readonly<Record<number, SessionContext>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +182,8 @@ export interface ProcessRow {
   readonly rssBytes: number;
   readonly pcpu: number;
   readonly elapsedSec: number;
+  /** Controlling terminal (`ttys003`, `pts/2`), `null` when none. */
+  readonly tty: string | null;
   readonly args: string;
   /** `args` split on whitespace (ps does not quote; good enough for recognition). */
   readonly argv: readonly string[];
@@ -170,13 +199,14 @@ export function parseEtime(etime: string): number {
   return Number.isFinite(total) ? total : 0;
 }
 
-/** Parse `ps -A -o pid=,ppid=,pgid=,rss=,pcpu=,etime=,args=` output. */
+/** Parse `ps -A -o pid=,ppid=,pgid=,rss=,pcpu=,etime=,tty=,args=` output. */
 export function parsePs(output: string): ProcessRow[] {
   const rows: ProcessRow[] = [];
   for (const line of output.split('\n')) {
-    const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s+(.+)$/.exec(line);
+    const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s+(\S+)\s+(.+)$/.exec(line);
     if (!m) continue;
-    const args = (m[7] as string).trim();
+    const args = (m[8] as string).trim();
+    const tty = m[7] as string;
     rows.push({
       pid: Number(m[1]),
       ppid: Number(m[2]),
@@ -184,6 +214,7 @@ export function parsePs(output: string): ProcessRow[] {
       rssBytes: Number(m[4]) * 1024,
       pcpu: Number(m[5]),
       elapsedSec: parseEtime(m[6] as string),
+      tty: /^(\?+|-)$/.test(tty) ? null : tty,
       args,
       argv: args.split(/\s+/),
     });
@@ -275,7 +306,7 @@ const gib = (bytes: number): number => Math.round((bytes / GIB) * 10) / 10;
 
 const HARNESSES = new Set(['claude', 'codex', 'opencode', 'kimi', 'kimi-code', 'gemini', 'aider']);
 /** Harness binaries started as helpers or servers, not as agent sessions. */
-const HARNESS_HELPER_ARGS = /--chrome-native-host|\bapp-server\b|\bserve\b|\bmcp\b/;
+const HARNESS_HELPER_ARGS = /--chrome-native-host|\b(app|exec)-server\b|\bserve\b|\bmcp\b/;
 
 /** An interactive agent session (claude, codex, opencode, kimi, …). */
 export function isHarnessSession(row: ProcessRow): boolean {
@@ -591,52 +622,94 @@ function containerFindings(s: SystemSnapshot, docker: DockerSnapshot): Finding[]
   return out;
 }
 
-/** A session using less CPU than this (percent) is reported idle. */
+/** A session whose terminal has been silent this long is idle (T13438). */
+export const SESSION_IDLE_SEC = 3600;
+/** Without a terminal reading, a session using less CPU than this (percent) is idle. */
 const IDLE_PCPU = 1;
 
-function sessionFindings(tree: Tree, rows: readonly ProcessRow[]): Finding[] {
-  const sessions = rows.filter(
-    (r) => isHarnessSession(r) && !ancestors(tree, r).some(isHarnessSession),
-  );
+/** Top-level agent sessions: harness processes with no harness above them. */
+export function harnessSessions(rows: readonly ProcessRow[]): ProcessRow[] {
+  const tree = buildTree(rows);
+  return rows.filter((r) => isHarnessSession(r) && !ancestors(tree, r).some(isHarnessSession));
+}
+
+function describeSessions(
+  tree: Tree,
+  rows: readonly ProcessRow[],
+  context: Readonly<Record<number, SessionContext>>,
+): SessionInfo[] {
+  return harnessSessions(rows)
+    .map((r) => {
+      const all = subtree(tree, r);
+      const ctx = context[r.pid];
+      const idleSec = ctx?.ttyIdleSec ?? null;
+      const pcpu = all.reduce((n, x) => n + x.pcpu, 0);
+      return {
+        pid: r.pid,
+        harness: commandWords(r.argv)[0] ?? '?',
+        project: ctx?.project ?? null,
+        cwd: ctx?.cwd ?? null,
+        elapsedSec: r.elapsedSec,
+        idleSec,
+        rssMib: mib(sumRss(all)),
+        idle: idleSec !== null ? idleSec >= SESSION_IDLE_SEC : pcpu < IDLE_PCPU,
+      };
+    })
+    .sort(
+      (a, b) =>
+        Number(b.idle) - Number(a.idle) ||
+        (b.idleSec ?? -1) - (a.idleSec ?? -1) ||
+        b.rssMib - a.rssMib,
+    );
+}
+
+const hours = (sec: number): string => `${Math.round((sec / 3600) * 10) / 10}h`;
+const projectName = (s: SessionInfo): string =>
+  s.project === null ? '(unknown project)' : basename(s.project);
+
+function sessionFindings(sessions: readonly SessionInfo[]): Finding[] {
   if (sessions.length === 0) return [];
-  const measured = sessions.map((r) => {
-    const all = subtree(tree, r);
-    return {
-      row: r,
-      rss: sumRss(all),
-      pcpu: all.reduce((n, x) => n + x.pcpu, 0),
-    };
-  });
-  const idle = measured.filter((m) => m.pcpu < IDLE_PCPU);
-  const totalRss = measured.reduce((n, m) => n + m.rss, 0);
-  const idleRss = idle.reduce((n, m) => n + m.rss, 0);
+  const idle = sessions.filter((m) => m.idle);
+  const totalMib = sessions.reduce((n, m) => n + m.rssMib, 0);
+  const idleMib = idle.reduce((n, m) => n + m.rssMib, 0);
+  const byProject = new Map<string, { count: number; idle: number; mib: number }>();
+  for (const m of sessions) {
+    const g = byProject.get(projectName(m)) ?? { count: 0, idle: 0, mib: 0 };
+    g.count++;
+    g.idle += m.idle ? 1 : 0;
+    g.mib += m.rssMib;
+    byProject.set(projectName(m), g);
+  }
   const severity: SystemFindingSeverity =
-    idleRss >= 8 * GIB || idle.length >= 15 ? 'warning' : 'info';
+    idleMib >= 8 * 1024 || idle.length >= 15 ? 'warning' : 'info';
   return [
     {
       id: 'sessions',
       category: 'sessions',
       severity,
-      title: `${sessions.length} agent sessions (${gib(totalRss)} GiB with their MCP servers); ${idle.length} idle hold ${gib(idleRss)} GiB`,
+      title: `${sessions.length} agent sessions across ${byProject.size} projects (${gib(totalMib * MIB)} GiB with their MCP servers); ${idle.length} idle hold ${gib(idleMib * MIB)} GiB`,
       evidence: {
         sessions: sessions.length,
         idle: idle.length,
-        totalRssMib: mib(totalRss),
-        idleRssMib: mib(idleRss),
+        totalRssMib: totalMib,
+        idleRssMib: idleMib,
+        byProject: [...byProject]
+          .sort((a, b) => b[1].mib - a[1].mib)
+          .map(([name, g]) => `${name}: ${g.count} sessions (${g.idle} idle), ${g.mib} MiB`),
         idleSessions: idle
-          .sort((a, b) => b.rss - a.rss)
-          .slice(0, 15)
+          .slice(0, 20)
           .map(
             (m) =>
-              `${commandWords(m.row.argv)[0]} pid ${m.row.pid} up ${Math.round(m.row.elapsedSec / 3600)}h ${mib(m.rss)} MiB`,
+              `${projectName(m)} ${m.harness} pid ${m.pid} up ${hours(m.elapsedSec)}` +
+              `${m.idleSec === null ? '' : `, idle ${hours(m.idleSec)}`}, ${m.rssMib} MiB`,
           ),
       },
-      impactBytes: idleRss,
+      impactBytes: idleMib * MIB,
       remedy: {
         command: null,
         description:
-          'Close idle sessions the owner no longer needs from their own terminal or Orca pane: each one also frees its MCP servers. ' +
-          'Never kill them from another session.',
+          'Offer the owner the idle sessions in `sessions[]` as a close list (ask tool, one option per project or session). ' +
+          'They close them from their own terminal or Orca pane; each one also frees its MCP servers. Nothing is killed automatically.',
       },
       needsOwnerChoice: idle.length > 0,
     },
@@ -764,11 +837,12 @@ export function assessSystemHealth(s: SystemSnapshot): SystemHealthReport {
       : { check: 'memory', status: 'ok' },
   );
 
+  const sessions = describeSessions(tree, rows, s.sessionContext ?? {});
   if (s.ps !== null) {
     findings.push(
       ...mcpFindings(tree, rows),
       ...heavyFindings(s, tree, rows),
-      ...sessionFindings(tree, rows),
+      ...sessionFindings(sessions),
     );
   }
   coverage.push(psCoverage('mcp-fanout'), psCoverage('heavy-ungoverned'), psCoverage('sessions'));
@@ -818,6 +892,7 @@ export function assessSystemHealth(s: SystemSnapshot): SystemHealthReport {
     summary: { critical: count('critical'), warning: count('warning'), info: count('info') },
     findings,
     coverage,
+    sessions,
   };
 }
 
@@ -826,6 +901,9 @@ export function assessSystemHealth(s: SystemSnapshot): SystemHealthReport {
 // ---------------------------------------------------------------------------
 
 const execFileAsync = promisify(execFile);
+
+/** The `ps` columns {@link parsePs} reads. */
+const PS_FORMAT = 'pid=,ppid=,pgid=,rss=,pcpu=,etime=,tty=,args=';
 
 /** Run a read-only command, time-boxed. `null` on any failure (absent, timeout, non-zero). */
 async function run(cmd: string, args: readonly string[], timeoutMs = 5000): Promise<string | null> {
@@ -891,7 +969,7 @@ export async function collectSystemSnapshot(
   }
 
   const [ps, danglingVolumes, systemDf, containers] = await Promise.all([
-    run('ps', ['-A', '-o', 'pid=,ppid=,pgid=,rss=,pcpu=,etime=,args=']),
+    run('ps', ['-A', '-o', PS_FORMAT]),
     run('docker', ['volume', 'ls', '-q', '-f', 'dangling=true']),
     run('docker', ['system', 'df', '--format', '{{json .}}']),
     run('docker', [
@@ -918,6 +996,8 @@ export async function collectSystemSnapshot(
     indexing = { projectRoot: opts.projectRoot, timeMachine, spotlightCount };
   }
 
+  const sessionContext = ps === null ? {} : await collectSessionContext(platform, parsePs(ps));
+
   return {
     platform,
     sampledAtMs: Date.now(),
@@ -932,5 +1012,77 @@ export async function collectSystemSnapshot(
     docker,
     indexing,
     memoryGuard: platform === 'linux' ? auditMemoryGuard() : null,
+    sessionContext,
   };
+}
+
+/** Nearest ancestor of `dir` (itself included) holding `.git`, or `null`. */
+export function gitRootOf(dir: string, exists: (p: string) => boolean = existsSync): string | null {
+  let cur = dir;
+  for (;;) {
+    if (exists(join(cur, '.git'))) return cur;
+    const up = dirname(cur);
+    if (up === cur) return null;
+    cur = up;
+  }
+}
+
+/** pid → cwd from `lsof -a -d cwd -p <pids> -Fpn` output. */
+export function parseLsofCwd(output: string): Map<number, string> {
+  const out = new Map<number, string>();
+  let pid: number | null = null;
+  for (const line of output.split('\n')) {
+    if (line.startsWith('p')) pid = Number(line.slice(1));
+    else if (line.startsWith('n') && pid !== null) out.set(pid, line.slice(1));
+  }
+  return out;
+}
+
+/**
+ * Working directory, project and terminal idle time of each agent session:
+ * one `lsof` on macOS (`/proc/<pid>/cwd` on Linux) and one `stat` per tty.
+ * Idle is the time since the terminal last saw input or output (what `w` reports).
+ */
+async function collectSessionContext(
+  platform: NodeJS.Platform,
+  rows: readonly ProcessRow[],
+): Promise<Record<number, SessionContext>> {
+  const sessions = harnessSessions(rows);
+  if (sessions.length === 0) return {};
+  let cwds = new Map<number, string>();
+  if (platform === 'linux') {
+    for (const r of sessions) {
+      try {
+        cwds.set(r.pid, readlinkSync(`/proc/${r.pid}/cwd`));
+      } catch {
+        // gone or not ours
+      }
+    }
+  } else {
+    const out = await run('lsof', [
+      '-a',
+      '-d',
+      'cwd',
+      '-p',
+      sessions.map((r) => r.pid).join(','),
+      '-Fpn',
+    ]);
+    cwds = out === null ? cwds : parseLsofCwd(out);
+  }
+  const now = Date.now();
+  const context: Record<number, SessionContext> = {};
+  for (const r of sessions) {
+    const cwd = cwds.get(r.pid) ?? null;
+    let ttyIdleSec: number | null = null;
+    if (r.tty !== null) {
+      try {
+        const st = statSync(`/dev/${r.tty}`);
+        ttyIdleSec = Math.max(0, Math.round((now - Math.max(st.atimeMs, st.mtimeMs)) / 1000));
+      } catch {
+        ttyIdleSec = null;
+      }
+    }
+    context[r.pid] = { cwd, project: cwd === null ? null : gitRootOf(cwd), ttyIdleSec };
+  }
+  return context;
 }
