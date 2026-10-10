@@ -6020,16 +6020,44 @@ describe('the server retirements a receiver confirms a retire by (T13366)', () =
     ]);
   });
 
-  it('home on a server without the listing: none; a project stream: no source at all', async () => {
+  it('home on a server without the listing: none; a project stream with no server project: no source', async () => {
     expect(await serverRetirementsFor(listed('/v1/account/home/replicas', null), 'global')).toEqual(
       [],
     );
     const never = {
       find: async () => {
-        throw new Error('a project stream has no retirement read');
+        throw new Error('a project stream without a server project has no retirement read');
       },
     };
     expect(await serverRetirementsFor(never, 'project')).toBeUndefined();
+  });
+
+  it('project: retired replicas from E15, a server without it confirms none (T13391)', async () => {
+    const P = '0192ffff-7f00-7000-8000-00000000000f';
+    const row = { projectId: P, deviceId: D1, deviceName: 'd', ...quiet };
+    const e15 = (replicas: unknown[] | null) => ({
+      find: async <T>(
+        p: string,
+        schema: { safeParse(v: unknown): { success: boolean; data?: T } },
+      ): Promise<T | null> => {
+        expect(p.startsWith(`/v1/projects/${P}/replicas?`)).toBe(true);
+        if (replicas === null) return null;
+        const parsed = schema.safeParse({ replicas, nextCursor: null });
+        if (!parsed.success || parsed.data === undefined) throw new Error('E15 does not parse');
+        return parsed.data;
+      },
+    });
+    expect(
+      await serverRetirementsFor(
+        e15([
+          { ...row, replicaId: R1, retiredAt: '2026-10-09T00:00:01.000Z', successor: R2 },
+          { ...row, replicaId: R2 },
+        ]),
+        'project',
+        P,
+      ),
+    ).toEqual([{ replicaId: R1, successor: R2, retiredAt: '2026-10-09T00:00:01.000Z' }]);
+    expect(await serverRetirementsFor(e15(null), 'project', P)).toEqual([]);
   });
 
   it('a listing that fails confirms nothing this round and warns, never failing the pull (T13395)', async () => {
