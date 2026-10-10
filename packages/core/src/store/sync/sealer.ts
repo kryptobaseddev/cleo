@@ -80,12 +80,11 @@ import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './n
 import { encText, remapCapture, remapPending } from './remap.js';
 import { activeReplica } from './replica.js';
 import { nextFhlc, type RowMetaRow, upsertRowMeta } from './row-meta.js';
-import { hasTable } from './schema.js';
+import { hasTable, isAnnouncedOldUid, isAnnouncedRekey } from './schema.js';
 import { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
 import { snapshotRowUndo, undoEnabled } from './sequencing.js';
 import { markSuspect } from './structural.js';
 import { canonicalStoreTimestamp, timestampColumns } from './timestamps.js';
-import { isAnnouncedOldUid, isAnnouncedRekey } from './uid-alias.js';
 
 export { sealBacklog } from './seal-backlog.js';
 export { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';

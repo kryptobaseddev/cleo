@@ -35,13 +35,9 @@ import type { LedgerOp } from '@cleocode/contracts/ledger';
 import type { CaptureTableDef } from './capture.js';
 import { compareHlc, parseHlc } from './hlc.js';
 import type { StagedTxn } from './inbox.js';
-import { hasTable } from './schema.js';
+import { hasTable, UID_ALIAS_JOURNAL_TABLE, UID_REF_ALIAS_JOURNAL_TABLE } from './schema.js';
 
-/** The local-only alias table (sync-journal folder `20261010150000_t13397-uid-alias`). */
-export const UID_ALIAS_JOURNAL_TABLE = '_sync_uid_alias';
-
-/** One reference boundary per (table, old uid, origin) (sync-journal folder `20261010160000_t13399-rekey-follow`). */
-export const UID_REF_ALIAS_JOURNAL_TABLE = '_sync_uid_ref_alias';
+export { UID_ALIAS_JOURNAL_TABLE, UID_REF_ALIAS_JOURNAL_TABLE };
 
 const MAX_ALIAS_HOPS = 32;
 
@@ -139,56 +135,6 @@ export function markAliasAnnounced(db: DatabaseSync, a: OwedAnnouncement, nowIso
   db.prepare(
     `UPDATE ${UID_ALIAS_JOURNAL_TABLE} SET followed_at = ? WHERE tbl = ? AND old_uid = ? AND old_bfp = ?`,
   ).run(nowIso, a.table, a.oldUid, a.oldBfp);
-}
-
-/**
- * Whether `uid` is the old uid of a re-key this replica owes or made an
- * announcement of (T13399): the stream carried it (the origin's insert and
- * K), so the sealer never drops the announcement as a re-key of a uid no
- * replica knew.
- *
- * @param db - The store.
- * @param table - The table.
- * @param uid - The uid.
- */
-export function isAnnouncedOldUid(db: DatabaseSync, table: string, uid: string): boolean {
-  if (!hasTable(db, UID_REF_ALIAS_JOURNAL_TABLE)) return false;
-  return (
-    db
-      .prepare(
-        `SELECT 1 FROM ${UID_ALIAS_JOURNAL_TABLE} WHERE tbl = ? AND old_uid = ? AND placed = 1`,
-      )
-      .get(table, uid) !== undefined
-  );
-}
-
-/**
- * Whether a K this replica is sealing is an announcement ({@link markAliasPlaced}):
- * the re-key it names was already applied here from another replica, so it
- * moves nothing and only draws this replica's reference boundary.
- *
- * @param db - The store.
- * @param table - The K's table.
- * @param oldUid - The K's uid.
- * @param oldBfp - The K's old birth fingerprint.
- * @param newUid - The K's new uid.
- */
-export function isAnnouncedRekey(
-  db: DatabaseSync,
-  table: string,
-  oldUid: string,
-  oldBfp: string,
-  newUid: string,
-): boolean {
-  if (!hasTable(db, UID_REF_ALIAS_JOURNAL_TABLE)) return false;
-  return (
-    db
-      .prepare(
-        `SELECT 1 FROM ${UID_ALIAS_JOURNAL_TABLE}
-          WHERE tbl = ? AND old_uid = ? AND old_bfp = ? AND new_uid = ? AND placed = 1`,
-      )
-      .get(table, oldUid, oldBfp, newUid) !== undefined
-  );
 }
 
 /**
