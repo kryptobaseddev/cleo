@@ -63,6 +63,7 @@ import {
   relinkAcUidNative,
   writeRowIdentityMetaNative,
 } from '../sqlite-data-accessor.js';
+import { seedBrainRows } from './brain-identity-fixture.js';
 
 /** The writers the chokepoint registers (store/sqlite-data-accessor.ts). */
 const CHOKEPOINT_WRITERS: RowIdentityWriters = {
@@ -124,6 +125,8 @@ function seed(native: DatabaseSync, shape: Shape, fillBetween: boolean): void {
     INSERT INTO tasks_tasks (id, title, type, status, priority, created_at)
       VALUES ('T5', 'Odd birth', 'task', 'pending', 'high', '2026-02-30 25:61:00');
   `);
+  // Brain text-keyed tables (T12894): every declared minted brain table.
+  seedBrainRows(native);
   // An open between the writes fills those rows while their criterion is absent.
   if (fillBetween) prepareRowIdentity(native, 'project');
   native.exec(`

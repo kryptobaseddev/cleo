@@ -23,6 +23,151 @@ export const BIRTH_FP_COLUMN = 'birth_fp';
 const TASKS: RowIdentityRef['table'] = 'tasks_tasks';
 const SESSIONS: RowIdentityRef['table'] = 'tasks_sessions';
 const ACS: RowIdentityRef['table'] = 'tasks_task_acceptance_criteria';
+const BRAIN_DECISIONS: RowIdentityRef['table'] = 'brain_decisions';
+
+/**
+ * Brain text-keyed tables (T12894), the same in both scopes: minted from their
+ * TEXT id and birth column, with creation facts no edit changes. Brain ids are
+ * random (`O-`, `L-`, `P-` hex) or counter-allocated (`D####`, `SN-###`); a
+ * counter id another device also allocated is held as a key collision on
+ * receive, never merged (no display-id re-mint for brain ids yet).
+ * `brain_attention.created_at` is INTEGER epoch ms (read as the birth as is).
+ * `brain_session_narrative` is one row per session: natural on its session id.
+ *
+ * `birthFacts` are FROZEN for recipe v2 like every other entry.
+ */
+function brainTextKeyed(): RowIdentitySpec[] {
+  return [
+    {
+      table: BRAIN_DECISIONS,
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['type', 'decision'],
+      refs: [
+        { column: 'supersedes', table: BRAIN_DECISIONS },
+        { column: 'superseded_by', table: BRAIN_DECISIONS },
+      ],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_patterns',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'extracted_at',
+      birthFacts: ['type', 'pattern'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_learnings',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['insight', 'source'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_observations',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['type', 'title'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_page_nodes',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['node_type', 'label'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_attention',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['scope_kind', 'scope_id', 'content'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_backfill_runs',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['kind', 'source', 'target_table'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_observations_staging',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['source_table', 'source_id', 'sweep_run_id', 'action'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_promotion_log',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'decided_at',
+      birthFacts: ['observation_id', 'from_tier', 'to_tier'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_transcript_events',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['session_id', 'seq', 'role', 'block_type'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_session_narrative',
+      kind: 'natural',
+      key: ['session_id'],
+      task: 'T12894',
+    },
+  ];
+}
+
+/**
+ * Brain natural-composite-key tables (T12895): a UUIDv8 over the primary key,
+ * so every device derives the same uid for the same edge or link.
+ *
+ * - `brain_page_edges` keys on its RAW node ids, not on `brain_page_nodes`
+ *   uids: about 93% of edges point at ids with no page-node row (code symbols,
+ *   tasks), so a node reference would hash `dangling:<id>` until the node
+ *   appears, and an edge filled before the node versus after it would get two
+ *   uids for one edge. Node ids are themselves natural (`<type>:<source-id>`),
+ *   so the raw key is stable across devices. Edges are directed, and so are
+ *   the two rows of a `co_retrieved`/`contradicts` pair stored both ways: no
+ *   symmetric rule, both rows keep their own uid and a merge unions them.
+ * - `brain_memory_links.memory_id` is polymorphic (by `memory_type`), so it
+ *   stays raw; `task_id` follows the task's uid where the store has tasks
+ *   (project scope). The global store has no tasks table: raw there.
+ * - `brain_sticky_tags` (global only; the project table waits on T12535)
+ *   follows its note's uid.
+ * - `tasks_brain_release_links` (project only): both ids are soft and
+ *   polymorphic or exempt (`tasks_releases` waits on T12535), so raw.
+ */
+function brainNaturalKeyed(scope: TableScope): RowIdentitySpec[] {
+  return [
+    {
+      table: 'brain_page_edges',
+      kind: 'natural',
+      key: ['from_id', 'to_id', 'edge_type'],
+      task: 'T12895',
+    },
+    {
+      table: 'brain_memory_links',
+      kind: 'natural',
+      key: ['memory_type', 'memory_id', 'task_id', 'link_type'],
+      ...(scope === 'project' ? { keyRefs: [{ column: 'task_id', table: TASKS }] } : {}),
+      task: 'T12895',
+    },
+  ];
+}
 
 /**
  * Declared row identity, per scope. Every syncing table is either declared
@@ -153,8 +298,36 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['entity_table', 'old_uid', 'old_birth_fp'],
       task: 'T12341',
     },
+    ...brainTextKeyed(),
+    ...brainNaturalKeyed('project'),
+    {
+      table: 'tasks_brain_release_links',
+      kind: 'natural',
+      key: ['brain_entry_id', 'release_id', 'link_type'],
+      task: 'T12895',
+    },
   ],
-  global: [],
+  global: [
+    ...brainTextKeyed(),
+    ...brainNaturalKeyed('global'),
+    {
+      // The global store has no bare sticky twin (the project table waits on
+      // the T12535 collapse). `SN-###` ids are counter-allocated.
+      table: 'brain_sticky_notes',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['content'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_sticky_tags',
+      kind: 'natural',
+      key: ['sticky_id', 'tag'],
+      keyRefs: [{ column: 'sticky_id', table: 'brain_sticky_notes' }],
+      task: 'T12895',
+    },
+  ],
 };
 
 /**
@@ -202,19 +375,6 @@ export interface RowIdentityExemption {
   readonly task: string;
 }
 
-const BRAIN_TEXT_KEY: RowIdentityExemption = {
-  category: 'planned',
-  reason:
-    'text-keyed brain table: uid and birth_fp with a deterministic fill and uq index are planned',
-  task: 'T12894',
-};
-
-const BRAIN_NATURAL_KEY: RowIdentityExemption = {
-  category: 'planned',
-  reason: 'natural composite key: a uid derived from the key columns is planned',
-  task: 'T12895',
-};
-
 const BRAIN_AUTOINCREMENT: RowIdentityExemption = {
   category: 'planned',
   reason:
@@ -225,13 +385,6 @@ const BRAIN_AUTOINCREMENT: RowIdentityExemption = {
 /** Kept from the T12341 pending reasons: the sticky tables go together. */
 const STICKY_REASON =
   'the degraded-mode TEMP shadow tables in store/twin-collapse.ts declare its columns and must carry uid first; that file is being edited by twin-collapse slice 2 (T12535)';
-
-/**
- * The global sticky tables have no twin: a uid planned with the other
- * text-keyed (notes) and natural-key (tags) brain tables.
- */
-const GLOBAL_STICKY_REASON =
-  'global-scope sticky table (no bare twin): uid planned with the other brain tables, notes text-keyed and tags on the (sticky_id, tag) key';
 
 /** The project sticky tables wait on the twin collapse itself (#1764 review L5). */
 const STICKY_TWIN: RowIdentityExemption = {
@@ -275,23 +428,6 @@ function exempt(
 const BRAIN_EXEMPT: Readonly<Record<string, RowIdentityExemption>> = {
   ...exempt(
     [
-      'brain_attention',
-      'brain_backfill_runs',
-      'brain_decisions',
-      'brain_learnings',
-      'brain_observations',
-      'brain_observations_staging',
-      'brain_page_nodes',
-      'brain_patterns',
-      'brain_promotion_log',
-      'brain_session_narrative',
-      'brain_transcript_events',
-    ],
-    BRAIN_TEXT_KEY,
-  ),
-  ...exempt(['brain_memory_links', 'brain_page_edges'], BRAIN_NATURAL_KEY),
-  ...exempt(
-    [
       'brain_consolidation_events',
       'brain_memory_trees',
       'brain_modulators',
@@ -302,10 +438,6 @@ const BRAIN_EXEMPT: Readonly<Record<string, RowIdentityExemption>> = {
     ],
     BRAIN_AUTOINCREMENT,
   ),
-  // Global scope (the project scope overrides both with STICKY_TWIN): the
-  // global store has no bare sticky twin, so nothing waits on the collapse.
-  brain_sticky_notes: { category: 'planned', reason: GLOBAL_STICKY_REASON, task: 'T12894' },
-  brain_sticky_tags: { category: 'planned', reason: GLOBAL_STICKY_REASON, task: 'T12895' },
   brain_embeddings: {
     category: 'not-row-replicated',
     reason:
@@ -331,7 +463,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
   project: {
     ...BRAIN_EXEMPT,
     brain_task_observations: BRAIN_AUTOINCREMENT,
-    tasks_brain_release_links: BRAIN_NATURAL_KEY,
     // Both twins of each pair. brain_session_narrative (twin of
     // session_narrative) and brain_observations_staging already have a uid
     // plan (T12894), so only their bare sides wait on the collapse.
@@ -476,12 +607,14 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * and a new syncing table is declared rather than exempted unless the change
  * raises this on purpose.
  *
- * At T12897 ({@link rowIdentityExemptionSummary} prints the live numbers):
+ * Since T12894 declared the brain text-keyed tables (11 project, 12 global)
+ * and T12895 the brain natural-key tables (3 project, 3 global)
+ * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
  * |----------------------|--------|---------|--------|
- * | planned              | T12894 | 11      | 12     |
- * | planned              | T12895 | 3       | 3      |
+ * | planned              | T12894 | 0       | 0      |
+ * | planned              | T12895 | 0       | 0      |
  * | planned              | T12896 | 8       | 7      |
  * | planned (conduit)    | T12913 | 12      | 0      |
  * | planned (lifecycle…) | T12914 | 16      | 0      |
@@ -492,13 +625,13 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned (misc)       | T12920 | 12      | 0      |
  * | twin-collapse        | T12535 | 30      | 0      |
  * | not-row-replicated   | T12918 | 1       | 1      |
- * | total                |        | 96      | 46     |
+ * | total                |        | 82      | 31     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 96,
-  global: 46,
+  project: 82,
+  global: 31,
 };
 
 /**
@@ -510,8 +643,8 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: '2e020a2f47d461aa646565fd42989a38a02e4321fe57871a26ba57c3532c4a19',
-  global: '4c9328298796b78cdb2ed769e29726530eddf625f300e5051e9ec1345a002268',
+  project: 'fa7a0dd7e4d5a50aeadf4ef0ae7c69de8f55c44bcc7349dbb901050613f6c4e0',
+  global: 'be4a3c8c5714fe999e0fbd73889fe098c7cf24e396023ea75fd1e679792ac326',
 };
 
 /**

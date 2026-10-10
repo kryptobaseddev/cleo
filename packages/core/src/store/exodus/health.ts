@@ -17,7 +17,7 @@
  */
 
 import { existsSync, statSync } from 'node:fs';
-import { hasExodusCompleteMarker } from './archive.js';
+import { hasExodusCompleteMarker, readExodusVerifyIssues } from './archive.js';
 import { computeCountParity } from './count-parity.js';
 import { buildExodusPlan } from './plan.js';
 import type { ExodusScope } from './types.js';
@@ -50,6 +50,8 @@ export interface ExodusScopeHealth {
   readonly markerPresent: boolean;
   readonly legacySources: readonly ExodusSourceHealth[];
   readonly strandedResidue: readonly string[];
+  /** What the cutover's verify reported beyond data continuity, from the marker (T12711). */
+  readonly verifyIssues: readonly string[];
 }
 
 /** Full read-only exodus health report. */
@@ -136,6 +138,7 @@ export function buildExodusHealth(cwd: string | undefined): ExodusHealth {
       markerPresent,
       legacySources: sources,
       strandedResidue: stranded,
+      verifyIssues: markerPresent ? readExodusVerifyIssues(scope, cwd) : [],
     };
   };
 
@@ -164,6 +167,13 @@ export function buildExodusHealth(cwd: string | undefined): ExodusHealth {
     } else if (sc.strandedResidue.length > 0) {
       recommendations.push(
         `${sc.scope}: ${sc.strandedResidue.length} stranded legacy DB(s) after a sealed cutover — run \`cleo doctor exodus-residue --fix\`.`,
+      );
+    }
+  }
+  for (const sc of [project, global]) {
+    if (sc.verifyIssues.length > 0) {
+      recommendations.push(
+        `${sc.scope}: verifyMigration reported ${sc.verifyIssues.length} issue(s) at the cutover beyond data continuity — review them (verifyIssues) before deleting the archived legacy DBs.`,
       );
     }
   }

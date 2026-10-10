@@ -28,7 +28,10 @@ import { runNexusAnalysis } from '@cleocode/core/nexus/analyze-orchestrator.js';
 import {
   type AssessmentFilesRequest,
   parseAssessmentFilesRequest,
+  parseReferencePageRequest,
   projectAssessmentFiles,
+  type ReferencePageRequest,
+  withReferencePage,
 } from '@cleocode/core/nexus/assessment-projection.js';
 import { exportNexusGraph } from '@cleocode/core/nexus/export.js';
 import {
@@ -160,7 +163,7 @@ const statusCommand = defineCommand({
   meta: {
     name: 'status',
     description:
-      'Show code intelligence index freshness: file count, node/relation counts, last indexed time, stale files. Per-file rows are counted (assessment.filesByStatus) and paged (assessment.filesPage; --limit/--offset/--file-status, --files for all). Falls back to NEXUS registry status if code-intelligence index is unavailable.',
+      'Show code intelligence index freshness: file count, node/relation counts, last indexed time, stale files. Per-file rows are counted (assessment.filesByStatus) and paged (assessment.filesPage; --limit/--offset/--file-status, --files for all). Retained references are counted (assessment.referenceCount) and, with --references, counted per kind and paged (assessment.referencesPage; --references-limit/--references-offset/--reference-kind). Falls back to NEXUS registry status if code-intelligence index is unavailable.',
   },
   args: {
     path: {
@@ -172,10 +175,26 @@ const statusCommand = defineCommand({
       type: 'string',
       description: 'Override the project ID (default: auto-detected from path)',
     },
+    // T13330: the list grows with the repository (846 151 references, over
+    // 500 MB of JSON, on one project), so it is only ever returned in pages.
     references: {
       type: 'boolean',
       description:
-        'Include every retained unresolved/unmodeled reference (large; the default reports referenceCount)',
+        'Include per-kind reference counts (assessment.referencesByKind) and one page of retained unresolved/unmodeled references (assessment.referencesPage, 20 by default; the default reports referenceCount only)',
+    },
+    'references-limit': {
+      type: 'string',
+      description:
+        'References in assessment.referencesPage (default 20, max 5000); walk the list with --references-offset',
+    },
+    'references-offset': {
+      type: 'string',
+      description: 'References to skip before the page (use referencesPage.nextOffset)',
+    },
+    'reference-kind': {
+      type: 'string',
+      description:
+        'Page only references of this kind: unmodeled-source|ambiguous|external|dynamic|shadowed|unresolved',
     },
     // T12560: the per-file list is ~635 B per file (391 MB for one reporter),
     // so the default reports counts plus a 20-row page and marks `files` withheld.
@@ -306,6 +325,7 @@ const statusCommand = defineCommand({
     }
 
     let filesRequest: AssessmentFilesRequest;
+    let referencesRequest: ReferencePageRequest | undefined;
     try {
       filesRequest = parseAssessmentFilesRequest({
         files: args.files as boolean | undefined,
@@ -313,13 +333,22 @@ const statusCommand = defineCommand({
         offset: args.offset as string | undefined,
         fileStatus: args['file-status'] as string | undefined,
       });
+      referencesRequest = args.references
+        ? parseReferencePageRequest({
+            limit: args['references-limit'] as string | undefined,
+            offset: args['references-offset'] as string | undefined,
+            kind: args['reference-kind'] as string | undefined,
+          })
+        : undefined;
     } catch (err) {
       cliError(
         err instanceof Error ? err.message : String(err),
         ExitCode.INVALID_INPUT,
         {
           name: 'E_VALIDATION',
-          fix: 'cleo nexus status --limit 20 --offset 0 --file-status failed',
+          fix:
+            asCleoErrorLike(err)?.fix ??
+            'cleo nexus status --limit 20 --offset 0 --file-status failed',
         },
         { operation: 'nexus.status' },
       );
@@ -349,7 +378,7 @@ const statusCommand = defineCommand({
       const [
         { getNexusDb, nexusSchema },
         { getIndexStats },
-        { readKnowledgeIndexAssessment, readKnowledgeIndexReferences },
+        { readKnowledgeIndexAssessment, readKnowledgeIndexReferencePage },
       ] = await Promise.all([
         import('@cleocode/core/store/nexus-sqlite' as string),
         import('@cleocode/nexus/pipeline' as string),
@@ -372,12 +401,15 @@ const statusCommand = defineCommand({
       });
       // T12348: the summary by default; the reference list only on request.
       const summary = await readKnowledgeIndexAssessment(currentRoot);
-      const detailed =
-        summary && args.references
-          ? { ...summary, references: await readKnowledgeIndexReferences(currentRoot) }
-          : summary;
       // T12560: counts plus one page; the whole file list only on explicit request.
-      const assessment = detailed && projectAssessmentFiles(detailed, filesRequest);
+      const projected = summary && projectAssessmentFiles(summary, filesRequest);
+      // T13330: references, when requested, as per-kind counts plus one page.
+      const referencePage =
+        projected && referencesRequest
+          ? await readKnowledgeIndexReferencePage(currentRoot, referencesRequest)
+          : null;
+      const assessment =
+        projected && referencePage ? withReferencePage(projected, referencePage) : projected;
       const durationMs = Date.now() - startTime;
 
       cliOutput(

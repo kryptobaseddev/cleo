@@ -23,6 +23,9 @@
  *      relay line. The gate checks the line's text and that the contract builder
  *      calls it; `spawn-prompt-hitl.test.ts` checks the rendered prompts.
  *
+ * Since T13421 the same surfaces also carry the answer-first brevity rule
+ * ("Reply lean" / "Answer first") and the populated-options requirement.
+ *
  * Each surface must contain every marker in its list (case-sensitive
  * substrings). Markers are short, stable phrases, not whole sentences, so
  * wording can be tightened without tripping the gate while deleting the rule
@@ -45,22 +48,32 @@ export const SURFACES = [
   {
     path: 'packages/core/templates/CLEO-INJECTION.md',
     label: 'injection template (every session)',
-    markers: ['**Ask the owner.**', 'ask tool', 'Never ask in prose', 'hitl.request'],
+    markers: [
+      '**Ask the owner.**',
+      'ask tool',
+      'Never ask in prose',
+      'hitl.request',
+      '**Reply lean.** Answer first',
+    ],
   },
   {
     path: 'packages/skills/skills/ct-cleo/SKILL.md',
     label: 'ct-cleo skill',
-    markers: ['HITL ask tool', 'Subagents never ask the human', 'hitl.request'],
+    markers: ['HITL ask tool', 'Subagents never ask the human', 'hitl.request', 'Answer first'],
   },
   {
     path: 'packages/skills/skills/ct-orchestrator/SKILL.md',
     label: 'ct-orchestrator skill',
-    markers: ['HITL ask tool', 'Subagent relay', 'Subagents never ask the human'],
+    markers: ['HITL ask tool', 'Subagent relay', 'Subagents never ask the human', 'Answer first'],
   },
   {
     path: 'packages/core/src/orchestration/spawn-prompt.ts',
     label: 'spawn prompt return contract (tiers 0-2)',
-    markers: ['HITL: never ask the human', 'buildHitlLine(type, askProviderId)'],
+    markers: [
+      'HITL: never ask the human',
+      'buildHitlLine(type, askProviderId)',
+      'what happens and its trade-off',
+    ],
   },
 ];
 

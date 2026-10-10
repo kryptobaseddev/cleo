@@ -6,6 +6,7 @@
  * @task T13133
  */
 
+import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,6 +26,7 @@ import {
   entryLiveness,
   footprintForTool,
   GIB,
+  gitHookInstalled,
   HEAVY_FOOTPRINT_BYTES,
   LEDGER_HEARTBEAT_STALE_MS,
   LEDGER_ORPHAN_MS,
@@ -33,12 +35,15 @@ import {
   lightBudgetShare,
   type ProcessFacts,
   planFootprintBytes,
+  planRunFootprint,
   readForeignEntries,
   readLedger,
   reapLedger,
   removeLedgerEntry,
   schedulePass,
   suspectCycle,
+  TINY_LANE_SLOTS,
+  TINY_LANE_WINDOWS,
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
 import { ResourceMonitor } from '../monitor.js';
@@ -134,11 +139,70 @@ describe('schedulePass', () => {
   });
 
   it('a big run waiting past the reservation stops backfill, so it cannot starve', () => {
+    // 2 GiB: above the tiny lane (T13367), so the reservation holds it back.
     const out = schedulePass(
       [
         entry({ id: 'held', state: 'admitted', footprintBytes: 6 * GIB }),
         entry({ id: 'big', enqueuedAtMs: 0, footprintBytes: 8 * GIB }),
-        entry({ id: 'small', enqueuedAtMs: 950, footprintBytes: GIB }),
+        entry({ id: 'small', enqueuedAtMs: 950, footprintBytes: 2 * GIB }),
+      ],
+      { ...ctx, nowMs: LEDGER_RESERVATION_MS },
+    );
+    expect(admittedIds(out)).toEqual(['held']);
+  });
+
+  it('the tiny lane passes a blocked head: at most TINY_LANE_SLOTS runs of 1 GiB or less (T13367)', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'held', state: 'admitted', footprintBytes: 4 * GIB }),
+        entry({ id: 'big', enqueuedAtMs: 0, footprintBytes: 8 * GIB }),
+        ...[1, 2, 3, 4].map((n) =>
+          entry({ id: `fmt${n}`, enqueuedAtMs: 900 + n, footprintBytes: GIB }),
+        ),
+      ],
+      { ...ctx, nowMs: LEDGER_RESERVATION_MS },
+    );
+    expect(TINY_LANE_SLOTS).toBe(3);
+    expect(admittedIds(out).sort()).toEqual(['fmt1', 'fmt2', 'fmt3', 'held']);
+  });
+
+  it('a blocked head is admitted under steady 1 GiB arrivals: the tiny lane closes (T13389)', () => {
+    // One pass per 30 s: the oldest tiny run finishes and a new one arrives.
+    const step = 30_000;
+    const run = (head: number, held: number, tinies: number): number | null => {
+      let ledger: LedgerEntry[] = [
+        entry({ id: 'head', enqueuedAtMs: 0, footprintBytes: head }),
+        ...(held > 0 ? [entry({ id: 'held', state: 'admitted', footprintBytes: held })] : []),
+        ...Array.from({ length: tinies }, (_, k) =>
+          entry({ id: `t-${k}`, state: 'admitted', enqueuedAtMs: 1 + k, footprintBytes: GIB }),
+        ),
+      ];
+      for (let n = 1; n <= 50; n++) {
+        const nowMs = LEDGER_RESERVATION_MS + n * step;
+        const oldest = ledger.find((e) => e.state === 'admitted' && e.id.startsWith('t'));
+        ledger = ledger.filter((e) => e !== oldest);
+        ledger.push(entry({ id: `t${n}`, enqueuedAtMs: nowMs, footprintBytes: GIB }));
+        ledger = schedulePass(ledger, { ...ctx, nowMs });
+        if (ledger.find((e) => e.id === 'head')?.state === 'admitted') return n;
+      }
+      return null;
+    };
+    // A head charged the whole budget never opens the lane: it starts once the tiny run drains.
+    expect(run(10 * GIB, 0, 1)).toBe(1);
+    // A partial head, with two tiny runs always in flight, starts at most one
+    // pass after the lane closes (it waited TINY_LANE_WINDOWS reservations).
+    const lastOpenPass = (LEDGER_RESERVATION_MS * (TINY_LANE_WINDOWS - 1)) / step;
+    const n = run(8 * GIB, 1.5 * GIB, 2);
+    expect(n).not.toBeNull();
+    expect(n as number).toBeLessThanOrEqual(lastOpenPass + 2);
+  });
+
+  it('the tiny lane never takes more than the memory budget leaves (T13367)', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'held', state: 'admitted', footprintBytes: 9.5 * GIB }),
+        entry({ id: 'big', enqueuedAtMs: 0, footprintBytes: 8 * GIB }),
+        entry({ id: 'fmt', enqueuedAtMs: 950, footprintBytes: GIB }),
       ],
       { ...ctx, nowMs: LEDGER_RESERVATION_MS },
     );
@@ -1107,4 +1171,172 @@ describe('admit (one ledger, real critical section)', () => {
     expect(peak).toBeGreaterThan(1);
     expect(readLedger(dir)).toEqual([]);
   }, 60_000);
+});
+
+describe('cleo run is charged by its real scope (T13367)', () => {
+  const RAM = 48;
+
+  it('a two-file biome check is charged 1 GiB, not the 24 GiB heavy plan', () => {
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['pnpm', 'biome', 'check', 'a.ts', 'b.ts'],
+      {},
+      RAM,
+    );
+    expect(plan.footprintBytes).toBe(GIB);
+    expect(plan.resources).toBeNull();
+    expect(plan.footprintReason).toBe('biome check on 2 named paths');
+  });
+
+  it('a root pnpm run build keeps the full-build heavy plan', () => {
+    const plan = planRunFootprint('full-build', ['pnpm', 'run', 'build'], {}, RAM);
+    expect(plan.footprintBytes).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);
+    expect(plan.footprintReason).toBe('full-build plan');
+  });
+
+  it('an explicit full-build is never shrunk, even for a file-scoped command', () => {
+    const plan = planRunFootprint('full-build', ['biome', 'check', 'a.ts'], {}, RAM);
+    expect(plan.footprintBytes).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);
+  });
+
+  it('eslint on files and tsc -p on one package are charged one process', () => {
+    for (const argv of [
+      ['pnpm', 'exec', 'eslint', 'src/a.ts'],
+      ['pnpm', 'exec', 'tsc', '--noEmit', '-p', 'packages/core'],
+    ]) {
+      const plan = planRunFootprint('scoped-build', argv, {}, RAM);
+      expect(plan.footprintBytes, argv.join(' ')).toBeLessThanOrEqual(HEAVY_FOOTPRINT_BYTES);
+      expect(plan.resources?.workers, argv.join(' ')).toBe(1);
+    }
+  });
+
+  it('a bare tsc --noEmit under --class build: one heap, no worker slots; two fit where two heavy plans do not (T13440)', () => {
+    const single = planRunFootprint('scoped-build', ['pnpm', 'exec', 'tsc', '--noEmit'], {}, RAM);
+    const heavy = planRunFootprint('scoped-build', ['pnpm', 'run', 'lint'], {}, RAM);
+    expect(single.resources?.workers).toBe(1);
+    expect(single.resources?.workspaceConcurrency ?? 1).toBe(1);
+    expect(single.footprintBytes).toBeLessThanOrEqual(HEAVY_FOOTPRINT_BYTES);
+    expect(single.footprintReason).toBe('tsc without -b (one process)');
+    expect(heavy.footprintBytes).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);
+    const capacity = 36 * GIB;
+    const two = (bytes: number) =>
+      admittedIds(
+        schedulePass(
+          [
+            entry({ id: 'a', enqueuedAtMs: 1, footprintBytes: bytes }),
+            entry({ id: 'b', enqueuedAtMs: 2, footprintBytes: bytes }),
+            entry({ id: 'p0', enqueuedAtMs: 3, footprintBytes: bytes }),
+          ],
+          { capacityBytes: capacity, share: 'full', nowMs: 1_000 },
+        ),
+      );
+    expect(two(single.footprintBytes ?? 0)).toEqual(['a', 'b', 'p0']);
+    expect(two(heavy.footprintBytes ?? 0)).not.toContain('p0');
+  });
+
+  it('a two-file biome check is admitted while a full build holds the budget', () => {
+    const capacity = 36 * GIB;
+    const build = planRunFootprint('full-build', ['pnpm', 'run', 'build'], {}, RAM);
+    const fmt = planRunFootprint('scoped-build', ['biome', 'check', 'a.ts', 'b.ts'], {}, RAM);
+    const out = schedulePass(
+      [
+        entry({
+          id: 'build',
+          state: 'admitted',
+          footprintBytes: build.footprintBytes ?? 0,
+          exclusive: true,
+        }),
+        // A heavy run queued past its reservation, blocked by bytes (but not
+        // charged the whole budget, which never opens the tiny lane).
+        entry({
+          id: 'test',
+          enqueuedAtMs: 0,
+          footprintBytes: capacity - (build.footprintBytes ?? 0) + GIB,
+        }),
+        entry({ id: 'fmt', enqueuedAtMs: 1, footprintBytes: fmt.footprintBytes ?? 0 }),
+      ],
+      { capacityBytes: capacity, share: 'full', nowMs: LEDGER_RESERVATION_MS + 1 },
+    );
+    expect(admittedIds(out).sort()).toEqual(['build', 'fmt']);
+  });
+
+  it('the reason reaches the ledger status line', () => {
+    const line = describeHolders(
+      [
+        entry({
+          id: 'x',
+          state: 'admitted',
+          admittedAtMs: 0,
+          label: 'run:scoped-build',
+          footprintReason: 'biome check on 2 named paths',
+        }),
+      ],
+      1_000,
+    )[0];
+    expect(line).toContain('(biome check on 2 named paths)');
+  });
+});
+
+describe('a git push is charged by what actually runs (T13452)', () => {
+  const RAM = 48;
+
+  it('without a hook: the light footprint, with the reason', () => {
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['git', 'push', '-u', 'origin', 'x'],
+      {},
+      RAM,
+      () => false,
+    );
+    expect(plan.footprintBytes).toBe(GIB);
+    expect(plan.resources).toBeNull();
+    expect(plan.footprintReason).toBe('git push runs no heavy tool');
+  });
+
+  it('git -C <worktree> push probes the hook with the -C directory (T13458)', () => {
+    const calls: Array<[string, readonly string[]]> = [];
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['git', '-C', '/wt', 'push'],
+      {},
+      RAM,
+      (hook, globals) => {
+        calls.push([hook, globals]);
+        return true;
+      },
+    );
+    expect(calls).toEqual([['pre-push', ['-C', '/wt']]]);
+    expect(plan.footprintReason).toBe('scoped-build plan: runs the pre-push hook');
+  });
+
+  it('with an installed pre-push hook: the class plan, naming the hook', () => {
+    const seen: string[] = [];
+    const plan = planRunFootprint('scoped-build', ['git', 'push'], {}, RAM, (hook) => {
+      seen.push(hook);
+      return true;
+    });
+    expect(seen).toEqual(['pre-push']);
+    expect(plan.footprintBytes).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);
+    expect(plan.footprintReason).toBe('scoped-build plan: runs the pre-push hook');
+  });
+
+  it('gitHookInstalled reads core.hooksPath and requires an executable file', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cleo-t13452-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      expect(gitHookInstalled(repo, 'pre-push')).toBe(false);
+      writeFileSync(join(repo, '.git', 'hooks', 'pre-push'), '#!/bin/sh\nexit 0\n');
+      expect(gitHookInstalled(repo, 'pre-push')).toBe(false); // not executable
+      chmodSync(join(repo, '.git', 'hooks', 'pre-push'), 0o755);
+      expect(gitHookInstalled(repo, 'pre-push')).toBe(true);
+      // T13458: probed in the -C directory, from anywhere.
+      expect(gitHookInstalled(tmpdir(), 'pre-push', ['-C', repo])).toBe(true);
+      // An inline -c core.hooksPath on the command is honoured.
+      expect(gitHookInstalled(repo, 'pre-push', ['-c', 'core.hooksPath=nowhere'])).toBe(false);
+      execFileSync('git', ['config', 'core.hooksPath', 'hooks-elsewhere'], { cwd: repo });
+      expect(gitHookInstalled(repo, 'pre-push')).toBe(false);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
 });

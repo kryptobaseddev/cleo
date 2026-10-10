@@ -63,7 +63,7 @@ interface TmpEnv {
   globalCantDir: string;
   projectCantDir: string;
   openDb: () => DatabaseSync;
-  cleanup: () => void;
+  cleanup: () => Promise<void>;
 }
 
 async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
@@ -92,6 +92,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
     '../../store/agent-registry-store.js'
   );
+  const { awaitBackgroundOps } = await import('../../store/background-ops.js');
   _resetGlobalAgentRegistryDb_TESTING_ONLY();
   await ensureGlobalAgentRegistryDb();
 
@@ -136,7 +137,12 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     d.exec('PRAGMA journal_mode = WAL');
     return d;
   };
-  const cleanup = (): void => {
+  // Drain this registry's background work (the resolver's dispatch trace
+  // opens the project store) before the next test's vi.resetModules: a
+  // straggler crossing it loads a second dual-scope-db into the fresh registry
+  // mid-import and the next test sees it uninitialised (T13313).
+  const cleanup = async (): Promise<void> => {
+    await awaitBackgroundOps();
     _resetGlobalAgentRegistryDb_TESTING_ONLY();
     removeTempDirSync(base);
   };
@@ -195,16 +201,6 @@ const BASE_TASK: Task = {
 // Suite
 // ---------------------------------------------------------------------------
 
-// Row uids are on by default since T13305 (C2). With the fill on, this
-// vi.resetModules + vi.doMock harness hits a TDZ on dual-scope-db's cache
-// (T13313); the built CLI is unaffected. Pinned off until T13313 lands.
-beforeEach(() => {
-  vi.stubEnv('CLEO_ROW_UID_FILL', '0');
-});
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
-
 describe('composeSpawnPayload — full envelope', () => {
   let env: TmpEnv;
 
@@ -213,8 +209,8 @@ describe('composeSpawnPayload — full envelope', () => {
     env = await makeTmpEnv(Math.random().toString(36).slice(2));
   });
 
-  afterEach(() => {
-    env.cleanup();
+  afterEach(async () => {
+    await env.cleanup();
     vi.restoreAllMocks();
   });
 
@@ -314,8 +310,8 @@ describe('composeSpawnPayload — harness dedup accounting', () => {
     env = await makeTmpEnv(Math.random().toString(36).slice(2));
   });
 
-  afterEach(() => {
-    env.cleanup();
+  afterEach(async () => {
+    await env.cleanup();
     vi.restoreAllMocks();
   });
 
@@ -370,8 +366,8 @@ describe('composeSpawnPayload — atomicity gate', () => {
     env = await makeTmpEnv(Math.random().toString(36).slice(2));
   });
 
-  afterEach(() => {
-    env.cleanup();
+  afterEach(async () => {
+    await env.cleanup();
     vi.restoreAllMocks();
   });
 
@@ -450,8 +446,8 @@ describe('composeSpawnPayload — real-registry integration', () => {
     env = await makeTmpEnv(Math.random().toString(36).slice(2));
   });
 
-  afterEach(() => {
-    env.cleanup();
+  afterEach(async () => {
+    await env.cleanup();
     vi.restoreAllMocks();
   });
 
@@ -490,8 +486,8 @@ describe('composeSpawnPayload — thin-agent runtime enforcer (T931)', () => {
     env = await makeTmpEnv(Math.random().toString(36).slice(2));
   });
 
-  afterEach(() => {
-    env.cleanup();
+  afterEach(async () => {
+    await env.cleanup();
     vi.restoreAllMocks();
   });
 
@@ -710,8 +706,8 @@ describe('composeSpawnPayload — per-step skill/tool allowlist (T1947)', () => 
     seedAllowlistSkills(env.dbPath);
   });
 
-  afterEach(() => {
-    env.cleanup();
+  afterEach(async () => {
+    await env.cleanup();
     vi.restoreAllMocks();
   });
 

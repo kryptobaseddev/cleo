@@ -111,14 +111,18 @@ function remedyOf(verdict: RowIdentityShareState, fillEnabled: boolean): string[
   return out;
 }
 
-/** The undo instruction for a refill snapshot. */
-function undoOf(projectRoot: string, snapshot: string): string {
-  const db = resolveDualScopeDbPath('project', projectRoot);
+/**
+ * The undo instruction for a refill snapshot: the guarded store restore
+ * (T13240), which verifies the snapshot, refuses while a writer holds the
+ * store, handles the WAL sidecars and keeps the replaced store as a
+ * pre-restore backup. Never a raw file copy.
+ */
+function undoOf(snapshot: string): string {
+  const quoted = `'${snapshot.replace(/'/g, `'\\''`)}'`;
   return (
-    'STOP EVERY cleo PROCESS FIRST (agents, daemons, open terminals): a running writer would ' +
-    'overwrite or corrupt the restored file. No `cleo restore` verb restores cleo.db from a named ' +
-    'snapshot yet (T13240), so the undo is a file copy: ' +
-    `cp '${snapshot}' '${db}' && rm -f '${db}-wal' '${db}-shm'`
+    'Stop every cleo process first (agents, daemons, open terminals); the restore refuses while ' +
+    `one holds the store. Preview: cleo restore backup --snapshot ${quoted} --dry-run, then ` +
+    `undo: cleo restore backup --snapshot ${quoted}`
   );
 }
 
@@ -246,6 +250,6 @@ export async function rowIdentityRefill(
     applied: true,
     remedy: [],
     snapshot,
-    undo: snapshot ? undoOf(projectRoot, snapshot) : null,
+    undo: snapshot ? undoOf(snapshot) : null,
   };
 }

@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.24.7 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.24.8 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -239,7 +239,7 @@ Starters (`@cleocode/playbooks`): `rcasd`, `ivtr`, `release`.
 | List valid doc kinds | `cleo docs list-types` |
 | Generate llms.txt summary | `cleo docs generate --for <taskId>` |
 
-Use current repo-relative paths, never arbitrary external absolute paths (`/tmp`, other checkouts). Publish: `cleo docs publish --for <ownerId> --to <repo-relative-path>`. Runtime kinds: `cleo docs list-types` / `DocKindRegistry`, not stale lists. Document storage success is separate from optional projection verification. Read `data.projection` after `cleo docs add`: retain coverage, diagnostics, captured project identity, deadline, and any job/receipt reference. Pending work can have an unresolved committed outcome; inspect it before explicit resume, never repeat the add blindly. One two-second maintenance budget covers preparation through verification; timer expiry does not preempt synchronous SQLite. Verify exact bytes with `cleo docs fetch <slug>` JSON `data.bytesBase64` and `data.metadata.sha256`; rendered content can add a newline.
+Use current repo-relative paths, never arbitrary external absolute paths (`/tmp`, other checkouts). Publish: `cleo docs publish --for <ownerId> --to <repo-relative-path>`. Runtime kinds: `cleo docs list-types` / `DocKindRegistry`, not stale lists. Document storage success is separate from optional projection verification. Read `data.projection` after `cleo docs add`: retain coverage, diagnostics, captured project identity, deadline, and any job/receipt reference. Pending work can have an unresolved committed outcome; inspect it before explicit resume, never repeat the add blindly. One two-second maintenance budget covers preparation through verification; timer expiry does not preempt synchronous SQLite. Verify exact bytes with `cleo docs fetch <slug>` JSON `data.content` (decoded UTF-8 for text docs, T13352; binary docs carry `data.bytesBase64`) and `data.metadata.sha256`; rendered content can add a newline.
 <!-- /CLEO-INJECTION:section=documents -->
 
 <!-- CLEO-INJECTION:section=human-render -->

@@ -168,6 +168,10 @@ export interface DocsAttachmentRow {
   ownerId?: string;
   /** Owner type (only populated by `docs list --project`). */
   ownerType?: AttachmentOwnerType;
+  /** Display title (only populated by fetch/view envelopes, T13352). */
+  title?: string;
+  /** Backing blob name, e.g. `spec.md` (only populated by fetch/view envelopes, T13352). */
+  blobName?: string;
 }
 
 /**
@@ -352,9 +356,18 @@ export interface DocsFetchResult {
   path?: string;
   /** Total size in bytes. */
   sizeBytes: number;
-  /** Base64-encoded content (only for attachments <= 1 MB). */
+  /**
+   * Decoded UTF-8 content, populated by default for text MIME types
+   * (<= 1 MB) so consumers read text docs without a base64 round-trip
+   * (T13352). Binary docs carry {@link bytesBase64} instead.
+   */
+  content?: string;
+  /**
+   * Base64-encoded content — only for NON-text attachments <= 1 MB
+   * (T13352; text docs carry {@link content} instead).
+   */
   bytesBase64?: string;
-  /** True when bytesBase64 is populated. */
+  /** True when content or bytesBase64 is populated. */
   inlined: boolean;
   /** Current attachment backend in use. */
   attachmentBackend?: AttachmentBackend;

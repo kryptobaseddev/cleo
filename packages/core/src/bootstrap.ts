@@ -20,7 +20,8 @@ import {
   CAAMP_DAMAGED_START_PATTERN_SOURCE,
   CAAMP_MARKER_END,
   CAAMP_MARKER_START,
-  type GlobalInstructionSyncResult,
+  GLOBAL_INSTRUCTION_REFRESH_COMMAND,
+  type GlobalInstructionStalenessReport,
 } from '@cleocode/contracts/caamp-markers';
 import { resolveLegacyCleoDir } from '@cleocode/paths';
 import {
@@ -74,6 +75,13 @@ export interface BootstrapContext {
   created: string[];
   warnings: string[];
   isDryRun: boolean;
+  /**
+   * The user ran the bootstrap themselves (`cleo install-global`). Only then may
+   * it rewrite an existing `~/.agents/AGENTS.md` hub block or link skills into
+   * provider skill dirs under HOME (T13409). The npm postinstall (and so
+   * `cleo self-update`) never does.
+   */
+  userRequested: boolean;
 }
 
 /** Options for bootstrapGlobalCleo. */
@@ -82,6 +90,12 @@ export interface BootstrapOptions {
   dryRun?: boolean;
   /** Override package root for template/skill discovery. */
   packageRoot?: string;
+  /**
+   * Set by `cleo install-global`: the user asked for the global bootstrap, so
+   * it may refresh the hub block and link core skills into provider skill dirs.
+   * @defaultValue false (npm postinstall, self-update)
+   */
+  userRequested?: boolean;
 }
 
 // ── Step 1: Create ~/.cleo/ and install templates ────────────────────
@@ -101,6 +115,7 @@ export async function bootstrapGlobalCleo(options?: BootstrapOptions): Promise<B
     created: [],
     warnings: [],
     isDryRun: options?.dryRun ?? false,
+    userRequested: options?.userRequested ?? false,
   };
 
   // Step 0: Ensure global home structure and clean stale artifacts
@@ -381,34 +396,20 @@ function sanitizeCaampFile(content: string): string {
 }
 
 /**
- * Record a global instruction regeneration in the bootstrap context.
+ * Report stale or unembedded user-global provider instruction files without
+ * writing them (T13409).
  *
- * @param ctx - Bootstrap context receiving created/warning entries.
- * @param result - Outcome of `syncGlobalInstructions`.
+ * @param ctx - Bootstrap context receiving warning entries.
+ * @param report - Read-only staleness scan.
  */
-function reportGlobalInstructionSync(
+function reportGlobalInstructionStaleness(
   ctx: BootstrapContext,
-  result: GlobalInstructionSyncResult,
+  report: GlobalInstructionStalenessReport,
 ): void {
-  if (result.status === 'no-providers') {
-    ctx.warnings.push('No AI provider installations detected');
-    return;
-  }
-  if (result.status === 'unresolved') {
+  for (const path of report.needsSync) {
     ctx.warnings.push(
-      `Global instruction delivery unresolved: ${result.findings.map((finding) => `${finding.kind}: ${finding.path}`).join('; ')}`,
+      `${path.replace(homedir(), '~')} is stale; CLEO does not write user-global instruction files. To refresh it yourself: ${GLOBAL_INSTRUCTION_REFRESH_COMMAND}`,
     );
-    return;
-  }
-  for (const file of result.files) {
-    const displayPath = file.path.replace(homedir(), '~');
-    if (file.action === 'failed') {
-      ctx.warnings.push(`${displayPath}: ${file.error ?? 'write failed'}`);
-    } else if (file.action === 'planned') {
-      ctx.created.push(`${displayPath} (would update CAAMP block)`);
-    } else {
-      ctx.created.push(`${displayPath} (${file.action})`);
-    }
   }
 }
 
@@ -417,9 +418,15 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
   const globalAgentsMd = join(globalAgentsDir, 'AGENTS.md');
 
   try {
-    const { inject, syncGlobalInstructions, withFileLock } = await import('@cleocode/caamp');
+    const { checkGlobalInstructionStaleness, inject, withFileLock } = await import(
+      '@cleocode/caamp'
+    );
 
-    if (!ctx.isDryRun) {
+    // T13409: only a user-run bootstrap rewrites an existing hub; the npm
+    // postinstall (self-update) creates a missing one and leaves it at that.
+    if (!ctx.isDryRun && existsSync(globalAgentsMd) && !ctx.userRequested) {
+      ctx.created.push('~/.agents/AGENTS.md (exists; left unchanged — run: cleo install-global)');
+    } else if (!ctx.isDryRun) {
       await mkdir(globalAgentsDir, { recursive: true });
 
       // Strip legacy CLEO blocks (versioned markers from pre-CAAMP era) and
@@ -486,12 +493,10 @@ async function injectAgentsHub(ctx: BootstrapContext): Promise<void> {
       ctx.created.push('~/.agents/AGENTS.md (would create/update CAAMP block)');
     }
 
-    // Regenerate every detected global provider file from ~/.agents/AGENTS.md
-    // through the ONE shared regenerator — the same implementation
-    // `caamp instructions update --global` and the session-start/briefing
-    // auto-refresh use (T12377).
-    const result = await syncGlobalInstructions({ dryRun: ctx.isDryRun });
-    reportGlobalInstructionSync(ctx, result);
+    // T13409: CLEO never writes a user-global provider instruction file
+    // (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, ~/.gemini/GEMINI.md, ...). It
+    // only reports the stale ones; the owner refreshes them with caamp.
+    reportGlobalInstructionStaleness(ctx, await checkGlobalInstructionStaleness());
   } catch (err) {
     ctx.warnings.push(`CAAMP injection: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -624,6 +629,7 @@ export async function verifyBootstrapComplete(): Promise<BootstrapVerificationRe
       created: [],
       warnings: [],
       isDryRun: false,
+      userRequested: false,
     };
 
     await verifyBootstrapHealth(healthCtx);

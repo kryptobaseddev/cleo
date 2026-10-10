@@ -312,11 +312,10 @@ describe('exodus verify source-side coercion (T11809 · AC2)', () => {
   it('epoch + ENUM-DRIFT column: rowsCopied==sourceCount (AC1) AND coerced+normalized hashMatch=true (AC2)', async () => {
     // Source carries BOTH an epoch-INTEGER column (→ ISO-GLOB target) AND legacy
     // enum DRIFT aliases ('Accepted'/'ACCEPTED'/'approved') that migrate
-    // NORMALISES to 'accepted'. This is the task's exact AC1 shape. The enumDrift
-    // DIAGNOSTIC (a separate, pre-existing gate) reports the raw source aliases,
-    // so verify.ok is expected to be false — but the AC1 zero-deficit invariant
-    // and the AC2 per-table hashMatch (source digested through the SAME
-    // epoch→ISO + enum-normalize transforms) both hold.
+    // NORMALISES to 'accepted'. This is the task's exact AC1 shape: the AC1
+    // zero-deficit invariant and the AC2 per-table hashMatch (source digested
+    // through the SAME epoch→ISO + enum-normalize transforms) both hold, and
+    // the enum-drift check judges the normalised value (T12711).
     const tasksDbPath = join(tmpDir, 'tasks.db');
     const projectDbPath = join(tmpDir, 'cleo-project.db');
     const globalDbPath = join(tmpDir, 'cleo-global.db');
@@ -384,15 +383,172 @@ describe('exodus verify source-side coercion (T11809 · AC2)', () => {
     expect(entry?.countMatch).toBe(true);
     expect(entry?.hashMatch, 'hashMatch on coerced + normalized data').toBe(true);
 
-    // The enum-drift DIAGNOSTIC still flags the raw source aliases (a separate,
-    // pre-existing gate orthogonal to the AC2 hashMatch coercion). This documents
-    // that interaction — it is NOT a row deficit.
-    const drift = verify.enumDrift.find(
-      (d) => d.targetTable === 'tasks_architecture_decisions' && d.column === 'status',
-    );
-    expect(drift, 'enum-drift diagnostic still reports raw source aliases').toBeDefined();
+    // Aliases the normalization maps to a member are no drift (T12711): the
+    // check judges the value the copy lands, so this lossless migration
+    // verifies with zero issues.
+    expect(verify.enumDrift).toEqual([]);
+    expect(verify.ok, verify.error ?? '').toBe(true);
 
     projectDb.close();
     globalDb.close();
+  });
+});
+
+describe('legacy archive_reason values map to their members and verify clean (T12711)', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'cleo-t12711-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('every legacy value is mapped, kept in the value map, and verifyMigration reports zero issues', async () => {
+    const tasksDbPath = join(dir, 'tasks.db');
+    const projectDbPath = join(dir, 'cleo-project.db');
+    const globalDbPath = join(dir, 'cleo-global.db');
+    const legacy: Array<[string, string | null, string | null]> = [
+      ['T1', 'completed', 'completed-unverified'],
+      ['T2', 'deleted', 'cancelled'],
+      ['T3', 'orphan-cleanup', 'cancelled'],
+      ['T4', 'synthetic-test-artifact', 'cancelled'],
+      ['T5', 'recovered', 'reconciled'],
+      ['T6', 'something-else', 'completed-unverified'],
+      ['T7', 'verified', 'verified'],
+      ['T8', null, null],
+    ];
+    const src = new DatabaseSync(tasksDbPath);
+    src.exec('CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, archive_reason TEXT)');
+    const ins = src.prepare("INSERT INTO tasks VALUES (?, 'legacy', ?)");
+    for (const [id, reason] of legacy) ins.run(id, reason);
+    src.close();
+    const tgt = new DatabaseSync(projectDbPath);
+    tgt.exec(`CREATE TABLE tasks_tasks (
+      id TEXT PRIMARY KEY, title TEXT NOT NULL,
+      archive_reason TEXT CHECK ("archive_reason" IS NULL OR "archive_reason" IN
+        ('verified', 'reconciled', 'superseded', 'shadowed', 'cancelled', 'completed-unverified'))
+    )`);
+    tgt.close();
+    new DatabaseSync(globalDbPath).close();
+
+    const projectDb = new DatabaseSync(projectDbPath);
+    const globalDb = new DatabaseSync(globalDbPath);
+    const handle = (native: DatabaseSyncType) => ({ db: { $client: native }, close: () => {} });
+    const dualScope = await import('../dual-scope-db.js');
+    vi.mocked(dualScope.openDualScopeDbAtPath).mockImplementation((scope: string, dbPath: string) =>
+      Promise.resolve(
+        handle(dbPath === globalDbPath || scope === 'global' ? globalDb : projectDb) as never,
+      ),
+    );
+    vi.mocked(dualScope.resolveDualScopeDbPath).mockImplementation((scope: string) =>
+      scope === 'project' ? projectDbPath : globalDbPath,
+    );
+    const { runExodusMigrate } = await import('../exodus/migrate.js');
+    const sources: LegacyDbDescriptor[] = [
+      { name: 'tasks', path: tasksDbPath, targetScope: 'project' },
+    ];
+    const stagingDir = join(dir, 'staging');
+    mkdirSync(stagingDir, { recursive: true });
+    const plan: ExodusPlan = {
+      sources,
+      totalSourceBytes: 0,
+      largestSourceBytes: 0,
+      requiredBytes: 0,
+      stagingCopyThresholdBytes: 256 * 1024 * 1024,
+      availableBytes: 100_000_000,
+      diskPreflight: true,
+      stagingDir,
+      resumeFromStaging: false,
+      projectDbPath,
+      globalDbPath,
+    };
+    const migrated = await runExodusMigrate(plan, false, undefined);
+    expect(migrated.ok, migrated.error ?? '').toBe(true);
+
+    try {
+      // Mapped to the member that says the same thing; the enum is not widened.
+      expect(
+        projectDb.prepare('SELECT id, archive_reason FROM tasks_tasks ORDER BY id').all(),
+      ).toEqual(legacy.map(([id, , mapped]) => ({ id, archive_reason: mapped })));
+      // Every mapped row keeps its legacy value; unmapped rows have no record.
+      expect(
+        projectDb
+          .prepare(
+            `SELECT target_table, column_name, identity_json, legacy_value, mapped_value
+             FROM _exodus_recovery_value_map ORDER BY identity_json`,
+          )
+          .all(),
+      ).toEqual(
+        legacy
+          .filter(([, reason, mapped]) => reason !== mapped)
+          .map(([id, reason, mapped]) => ({
+            target_table: 'tasks_tasks',
+            column_name: 'archive_reason',
+            identity_json: JSON.stringify([id]),
+            legacy_value: reason,
+            mapped_value: mapped,
+          })),
+      );
+
+      const verify = verifyMigration(sources, projectDbPath, globalDbPath);
+      expect(verify.enumDrift).toEqual([]);
+      expect(verify.error).toBeUndefined();
+      expect(verify.ok).toBe(true);
+    } finally {
+      projectDb.close();
+      globalDb.close();
+    }
+  });
+
+  it('a verify the continuity gate tolerates is recorded in the marker and read back, never silent', async () => {
+    const { verifyIssuesOf } = await import('../exodus/on-open.js');
+    const { readExodusVerifyIssues, writeExodusCompleteMarker } = await import(
+      '../exodus/archive.js'
+    );
+    const passed = {
+      ok: true,
+      tables: [],
+      foreignKeyViolations: [],
+      introducedForeignKeyViolations: [],
+      preExistingForeignKeyViolations: [],
+      enumDrift: [],
+    };
+    expect(verifyIssuesOf(passed)).toEqual([]);
+    const issues = verifyIssuesOf({
+      ...passed,
+      ok: false,
+      tables: [
+        {
+          sourceTable: 'tasks',
+          targetTable: 'tasks_tasks',
+          scope: 'project',
+          sourceCount: 1,
+          targetCount: 1,
+          countMatch: true,
+          sourceHash: 'a',
+          targetHash: 'b',
+          hashMatch: false,
+        },
+      ],
+      enumDrift: [
+        {
+          targetTable: 'tasks_tasks',
+          column: 'status',
+          offendingValues: ['bogus'],
+          allowedValues: ['pending'],
+          driftCount: 2,
+        },
+      ],
+    });
+    expect(issues).toEqual([
+      '[project] tasks_tasks: content digest differs from tasks',
+      "tasks_tasks.status: 2 row(s) with value(s) outside enum — e.g. 'bogus'",
+    ]);
+
+    const target = join(dir, 'cleo.db');
+    writeExodusCompleteMarker('project', ['tasks'], undefined, target, undefined, issues);
+    expect(readExodusVerifyIssues('project', undefined, target)).toEqual(issues);
+    writeExodusCompleteMarker('project', ['tasks'], undefined, target);
+    expect(readExodusVerifyIssues('project', undefined, target)).toEqual([]);
   });
 });

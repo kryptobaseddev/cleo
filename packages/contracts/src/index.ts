@@ -85,6 +85,13 @@ export type {
   CycleTimeDistribution,
   CycleTimePercentiles,
 } from './archive.js';
+// === Ask-enforce Stop hook (T13420 / Epic T13418) ===
+export type {
+  AskEnforceInput,
+  AskEnforceMode,
+  AskEnforceSignal,
+  AskEnforceVerdict,
+} from './ask-enforce-hook.js';
 // === Attachment Types ===
 export type {
   Attachment,
@@ -754,6 +761,9 @@ export type {
   GraphIndexFileStatus,
   GraphIndexFileStatusCounts,
   GraphIndexFreshness,
+  GraphIndexReferenceKind,
+  GraphIndexReferenceKindCounts,
+  GraphIndexReferencePage,
   GraphIndexReferenceReport,
   GraphIndexRunSummary,
   GraphNode,
@@ -2028,6 +2038,8 @@ export type {
   WorktreeLockAcquisitionStatus,
   WorktreeLockHolder,
   WorktreeLockRecord,
+  WorktreeLockSessionProbe,
+  WorktreeLockSessionState,
   WorktreeSource,
   WorktreeStatusCategory,
 } from './operations/worktree.js';
@@ -3153,6 +3165,9 @@ export {
   type CloudLeaseReleaseResult,
   type CloudPushResult,
   type CloudRestoreResult,
+  type CloudSyncPushEnableResult,
+  type CloudSyncResult,
+  type CloudSyncStreamResult,
   type CloudVaultLease,
   type CloudVaultScope,
   type CloudVaultSnapshot,

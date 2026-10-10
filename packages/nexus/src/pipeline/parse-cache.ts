@@ -170,7 +170,7 @@ export function decodeParseCacheEntry(
   if (!entry.generation) throw new Error('Parse cache entry lacks its generation');
   let text = gunzipSync(entry.payload).toString('utf8');
   if (entry.generation !== generation) text = text.split(entry.generation).join(generation);
-  const parsed = JSON.parse(text) as Required<CommonExtractionResult>;
+  const parsed = JSON.parse(text) as CommonExtractionResult;
   for (const key of [
     'definitions',
     'imports',
@@ -181,5 +181,17 @@ export function decodeParseCacheEntry(
   ] as const) {
     if (!Array.isArray(parsed[key])) throw new Error(`Parse cache entry lacks ${key}`);
   }
-  return { path: entry.path, extraction: parsed };
+  return {
+    path: entry.path,
+    extraction: {
+      definitions: parsed.definitions,
+      imports: parsed.imports,
+      heritage: parsed.heritage,
+      calls: parsed.calls,
+      reExports: parsed.reExports ?? [],
+      accesses: parsed.accesses ?? [],
+      // Absent on entries written before T13379.
+      parseLimitations: parsed.parseLimitations ?? [],
+    },
+  };
 }

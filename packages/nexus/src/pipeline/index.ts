@@ -188,7 +188,7 @@ import {
   encodeParseCacheEntry,
   type FileExtraction,
 } from './parse-cache.js';
-import { runParseLoop } from './parse-loop.js';
+import { oversizedFileCoverage, runParseLoop } from './parse-loop.js';
 import { detectProcesses } from './process-processor.js';
 import { type ExtractedAccess, resolveAccesses } from './processors/access-processor.js';
 import { createResolutionContext } from './resolution-context.js';
@@ -615,7 +615,15 @@ export async function runPipeline(
   const files = await walkRepositoryPaths(
     repoPath,
     onProgress,
-    (report) => reports.set(report.path, report),
+    // T13380: an oversized file is never read, so its report gets path-based
+    // provenance here instead of reaching coverage as a "legacy" report.
+    (report) =>
+      reports.set(
+        report.path,
+        report.status === 'oversized' && !report.capabilities
+          ? { ...report, capabilities: oversizedFileCoverage(report.path) }
+          : report,
+      ),
     options?.includedRepositories,
   );
   const scannedFiles = new Map(files.map((file) => [file.path, file]));

@@ -117,7 +117,7 @@ function heapCapApplied() {
 
 if (
   args[0] === 'hook' &&
-  args[1] === 'heavy-command' &&
+  (args[1] === 'heavy-command' || args[1] === 'ask-enforce') &&
   !args.includes('--help') &&
   !args.includes('-h')
 ) {

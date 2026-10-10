@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.17.5
+version: 3.17.6
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,13 +16,13 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.17.5
+  version: 3.17.6
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/docs.ts
     - packages/contracts/src/docs-taxonomy.ts
-  lastReviewed: 2026-10-04
+  lastReviewed: 2026-10-10
   stability: stable
 ---
 
@@ -65,8 +65,9 @@ legacy discovery verbs only when `list` is insufficient.
 
 After `cleo docs add`, retain the canonical attachment ID and SHA-256, then use
 `cleo docs fetch <slug>` to verify the accepted bytes. For exact-byte checks,
-decode `data.bytesBase64` from the JSON response and compare its digest with
-`data.metadata.sha256`; rendered content can add a trailing newline.
+hash the UTF-8 bytes of `data.content` from the JSON response (text docs, T13352;
+binary docs carry `data.bytesBase64` to decode instead) and compare its digest
+with `data.metadata.sha256`; rendered content can add a trailing newline.
 
 The add result's `projection` reports captured project identity/root, coverage,
 diagnostics, the original deadline, and any durable `jobId` or verified receipt.

@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.11
+version: 3.1.12
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.11
+  version: 3.1.12
   tier: core
   install: harness
   covers:
@@ -24,7 +24,7 @@ metadata:
     - packages/cleo/src/cli/commands/init.ts
     - packages/core/src/git/hooks-install.ts
     - packages/core/src/hooks.ts
-    - packages/core/templates/git-hooks/*
+    - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
   lastReviewed: 2026-10-10
   stability: stable

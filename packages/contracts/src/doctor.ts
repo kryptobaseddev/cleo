@@ -1131,14 +1131,31 @@ export interface SupersededStoreConflict {
    * neither renumbers nor copies the legacy task. `withheld-undecided`: a
    * task-graph table such a run did not copy at all, so the undecided task's
    * children, dependencies and criteria cannot attach to the live task.
+   * `deleted-live` (bare-strands mode, T13309): the row is, or refers to, a
+   * task the live store recorded as deleted, so copying it would resurrect
+   * it. `parent-absent` (bare-strands mode): the row refers to a task that
+   * neither the live store nor the copy holds. `parent-skipped`
+   * (bare-strands mode, T13334): the row refers to a bare task the same run
+   * skipped, so copying it would dangle. `carried-then-deleted`
+   * (bare-strands mode): an earlier reconcile copied the row into the twin
+   * (its copy receipt is in the store) and the runtime deleted it since.
    */
   reason:
     | 'live-authoritative'
     | 'collides-with-live'
     | 'id-collision-undecided'
-    | 'withheld-undecided';
+    | 'withheld-undecided'
+    | 'deleted-live'
+    | 'parent-absent'
+    | 'parent-skipped'
+    | 'carried-then-deleted';
   /** The legacy ids left uncopied, when the run can name them. */
   ids?: string[];
+  /**
+   * Bare-strands mode (T13309): every skipped row's primary key (every column
+   * for a keyless table), as a JSON array, so an operator can see each one.
+   */
+  keys?: string[];
 }
 
 /**
@@ -1174,13 +1191,15 @@ export interface SupersededStoreIdRemap {
 }
 
 /**
- * One bare legacy table of the live store a reconcile carried: its row count
+ * One bare legacy table of the live store a reconcile (full or bare-strands
+ * mode) carried: its row count
  * and key digest when the run verified (T13319). The run records it in the
  * store (T13320) and in its receipt; the sync refusal for stranded bare rows
  * stands down for a table that still matches, so a row the runtime later
  * deletes from the prefixed twin is never mistaken for one never carried.
  *
  * @task T13319
+ * @task T13309
  */
 export interface SupersededStoreBareAccount {
   /** The bare table, e.g. `task_labels`. */
@@ -1222,8 +1241,13 @@ export interface SupersededStoreReconcileResult {
    * `additive` — for a project already running on the consolidated store:
    * copy only rows whose keys are absent from live history tables, never
    * touch the live task graph, and list everything left in `conflicts`.
+   * `bare-strands` (T13309) — for a project already running on the
+   * consolidated store whose live `cleo.db` still holds bare legacy rows its
+   * prefixed tables lack: copy those rows (renumbering a task whose id a
+   * different live task took), never overwrite a live row, and list every row
+   * deliberately skipped in `conflicts`.
    */
-  mode: 'full' | 'additive';
+  mode: 'full' | 'additive' | 'bare-strands';
   /**
    * Legacy rows deliberately left uncopied: additive mode's live-authoritative
    * tables, and in full mode the task-id collisions the run cannot decide.
@@ -1258,10 +1282,15 @@ export interface SupersededStoreReconcileResult {
   /** Human-readable explanation, suitable for printing verbatim. */
   reason: string;
   /**
-   * The live store's bare tables this run carried, on a `reconciled` receipt
-   * that copied the bare family (T13319). Audit only: the sync check reads the
-   * record the run wrote into the store itself, which travels with backups
-   * (T13320).
+   * The live store's bare tables this run carried (full mode) or settled
+   * (bare-strands mode), on a `reconciled` receipt (T13319, T13309). Audit
+   * only: the sync check reads the record the run wrote into the store itself,
+   * which travels with backups (T13320).
    */
   accounted?: SupersededStoreBareAccount[];
+  /**
+   * Bare-strands mode: the `VACUUM INTO` snapshot of the live store taken
+   * before the copy, or `null` when no copy ran (T13309).
+   */
+  snapshotPath?: string | null;
 }

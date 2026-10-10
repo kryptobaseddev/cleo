@@ -2,13 +2,13 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.0.10
+  version: 4.0.11
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-10-04
+  lastReviewed: 2026-10-10
   stability: stable
 ---
 
@@ -252,14 +252,17 @@ On an idle host every ready task is `admitted` and behaviour is unchanged.
 
 After each wave or on request: what completed, blockers needing HITL, next actions.
 Report only when work is done or a decision is needed; no routine status chatter.
+Answer first: the first line is the result or the decision needed, then only the
+evidence the owner needs (bullets or a small table) and what is unverified.
 
 ## Asking the Owner (HITL ask tool)
 
 Whenever the owner must answer, decide, approve or choose ANYTHING, ask through
 the ask tool (`AskUserQuestion` in Claude Code, or the provider equivalent from
 CAAMP's `PROVIDER_ASK_TOOLS`) with concrete, detailed, selectable options. Never
-ask inside a response, and never bury a question or decision in prose. Each option
-states what happens and its trade-offs, with the recommended option first.
+ask inside a response, and never bury a question or decision in prose. Give 2-4
+options, recommended first, each stating what happens and its trade-offs. A relayed
+subagent question with thin options gets filled in before you ask, never passed on bare.
 
 - **Subagent relay.** Subagents never ask the human (most harnesses deny them the
   ask tool). A subagent that needs a decision returns `blocked` with

@@ -192,21 +192,28 @@ export const ENUM_NORMALIZATIONS: ReadonlyMap<string, NormalizeFn> = new Map([
       ` END`,
   ],
 
-  // --- tasks_tasks.archive_reason (T12319) ---------------------------------
+  // --- tasks_tasks.archive_reason (T12319, T12711) -------------------------
   // A legacy tasks.db that never ran the T1408 migration still carries
-  // pre-enum reasons ('deleted', 'completed', 'recovered', 'orphan-cleanup',
-  // 'synthetic-test-artifact', …) that the 6-value CHECK rejects — so
-  // `INSERT OR IGNORE` silently dropped those tasks (23 of 849 in llmtxt, 4,692
-  // of 5,330 in claude-todo) and the acceptance criteria pointing at them then
-  // aborted the whole migration. Apply exactly the T1408 backfill rule
-  // (`drizzle-tasks/20260424000000_t1408-archive-reason-enum`): every non-NULL
-  // out-of-enum value becomes the migration-only tombstone 'completed-unverified'.
+  // pre-enum reasons that the 6-value CHECK rejects — so `INSERT OR IGNORE`
+  // silently dropped those tasks (23 of 849 in llmtxt, 4,692 of 5,330 in
+  // claude-todo) and the acceptance criteria pointing at them then aborted the
+  // whole migration. Each known legacy reason maps to the member that says the
+  // same thing (T12711); the enum is never widened:
+  //   completed                                       → completed-unverified
+  //   deleted, orphan-cleanup, synthetic-test-artifact → cancelled
+  //   recovered                                       → reconciled
+  // Any other non-NULL out-of-enum value takes the T1408 backfill rule
+  // (`drizzle-tasks/20260424000000_t1408-archive-reason-enum`): the
+  // migration-only tombstone 'completed-unverified'. Every mapped row keeps its
+  // legacy value in `_exodus_recovery_value_map` (T12711).
   [
     'tasks_tasks.archive_reason',
     (src: string) =>
       `CASE` +
       ` WHEN ${src} IS NULL THEN NULL` +
       ` WHEN ${src} IN ('verified', 'reconciled', 'superseded', 'shadowed', 'cancelled', 'completed-unverified') THEN ${src}` +
+      ` WHEN ${src} IN ('deleted', 'orphan-cleanup', 'synthetic-test-artifact') THEN 'cancelled'` +
+      ` WHEN ${src} = 'recovered' THEN 'reconciled'` +
       ` ELSE 'completed-unverified'` +
       ` END`,
   ],

@@ -60,6 +60,7 @@ import { doctorSplitBrainCommand } from './doctor-split-brain.js';
 import { doctorSupersededStoreCommand } from './doctor-superseded-store.js';
 import { doctorSyncJournalCommand } from './doctor-sync-journal.js';
 import { doctorSyncTriggersCommand } from './doctor-sync-triggers.js';
+import { doctorSystemCommand } from './doctor-system.js';
 import { doctorToolLocksCommand } from './doctor-tool-locks.js';
 import { doctorTwinCollapseCommand } from './doctor-twin-collapse.js';
 import { doctorWorktreeStoresCommand } from './doctor-worktree-stores.js';
@@ -278,6 +279,8 @@ export const doctorCommand = defineCommand({
     'worktree-stores': doctorWorktreeStoresCommand,
     // T12097 — machine-wide guard for test runs started OUTSIDE cleo verify
     'memory-guard': doctorMemoryGuardCommand,
+    // T13435 — machine + project health: ranked findings with exact remedies (read-only)
+    system: doctorSystemCommand,
     // T13124 — the heavy-command hook per agent harness in use (+ --fix installs it)
     'heavy-command-hook': doctorHeavyCommandHookCommand,
     hooks: doctorHooksCommand,

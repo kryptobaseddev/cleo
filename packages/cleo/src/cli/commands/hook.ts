@@ -154,6 +154,26 @@ const checkSubcommand = defineCommand({
   },
 });
 
+const askEnforceSubcommand = defineCommand({
+  meta: {
+    name: 'ask-enforce',
+    description:
+      'Stop hook (T13420): block a turn that ends asking the owner in prose without an ask-tool call, and tell the agent to re-ask with its ask tool. Reads the Stop JSON on stdin; prints the harness answer.',
+  },
+  args: {
+    provider: {
+      type: 'string',
+      description:
+        'Harness protocol to answer in: claude-code (default), codex, copilot-cli, gemini-cli, cursor, opencode, kimi',
+    },
+  },
+  async run({ args }) {
+    const { runHookCli } = await import('../hook-entry.js');
+    const provider = typeof args.provider === 'string' ? args.provider : 'claude-code';
+    process.exitCode = await runHookCli(['ask-enforce', '--provider', provider]);
+  },
+});
+
 /** cleo hook — agent-harness hooks (stdout is the harness protocol). */
 export const hookCommand = defineCommand({
   meta: {
@@ -163,6 +183,7 @@ export const hookCommand = defineCommand({
   },
   subCommands: {
     'heavy-command': heavyCommandSubcommand,
+    'ask-enforce': askEnforceSubcommand,
     sync: syncSubcommand,
     run: runSubcommand,
     check: checkSubcommand,

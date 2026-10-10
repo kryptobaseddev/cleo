@@ -43,7 +43,7 @@ import {
   sourcesPresent,
   verifyMigration,
 } from '@cleocode/core/store/exodus/index.js';
-import { isDataContinuityOk } from '@cleocode/core/store/exodus/on-open.js';
+import { isDataContinuityOk, verifyIssuesOf } from '@cleocode/core/store/exodus/on-open.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
@@ -235,9 +235,18 @@ const migrateSubCommand = defineCommand({
       (msg) => humanInfo(`  verify: ${msg}`),
     );
     let archived: string[] = [];
+    const verifyIssues = verifyIssuesOf(verifyResult);
+    // A verify the continuity gate tolerates is named, never silent (T12711).
+    for (const issue of verifyIssues) humanInfo(`  ⚠ verify: ${issue}`);
     if (isDataContinuityOk(verifyResult)) {
       const consumed = plan.sources.filter((s) => existsSync(s.path));
-      const archiveResult = archiveMigratedSources(consumed, process.cwd());
+      const archiveResult = archiveMigratedSources(
+        consumed,
+        process.cwd(),
+        undefined,
+        undefined,
+        verifyIssues,
+      );
       archived = archiveResult.sources.filter((s) => s.action === 'archived').map((s) => s.name);
       humanInfo(
         `  Archived ${archived.length} legacy source DB(s) → _archive/ and sealed completion marker(s): ${archiveResult.markersWritten.join(', ')}`,
@@ -260,6 +269,7 @@ const migrateSubCommand = defineCommand({
           backupCount: result.backupPaths.length,
           archivedSources: archived,
           archived: archived.length > 0,
+          verifyIssues,
         },
         tables: result.tables,
       },

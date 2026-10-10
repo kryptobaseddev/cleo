@@ -296,6 +296,74 @@ describe('replaced twin values: focus_state history merged, everything else arch
     expect(all()).toBe(first);
   });
 
+  /** A collapsed store whose merged focus_state holds 52 notes; returns the initial archive. */
+  const collapsedFocus = (): string | undefined => {
+    preMigrationMeta();
+    setMeta(
+      'tasks_schema_meta',
+      'focus_state',
+      JSON.stringify({ currentTask: null, sessionNotes: notes(0, 50, 'history') }),
+    );
+    setMeta(
+      'schema_meta',
+      'focus_state',
+      JSON.stringify({ currentTask: 'T1', sessionNotes: notes(49, 3, 'history') }),
+    );
+    expect(collapseTwinTables(db(), dbPath())[0]?.status).toBe('initial');
+    return meta('tasks_schema_meta', 'twin_collapse_archive:focus_state');
+  };
+  const focusNow = () => JSON.parse(meta('tasks_schema_meta', 'focus_state') ?? '{}');
+  const inTimeOrder = (n: Array<{ timestamp: string }>) => {
+    const stamps = n.map((x) => x.timestamp);
+    return [...stamps].sort().join() === stamps.join();
+  };
+  const oldBuildWrites = () =>
+    setMeta(
+      'schema_meta',
+      'focus_state',
+      JSON.stringify({ currentTask: 'T7', sessionNotes: notes(70, 1, 'old-build') }),
+    );
+
+  it('an older build writing the bare focus_state after the collapse loses no twin note; its current fields win (T12728)', () => {
+    const initialArchive = collapsedFocus();
+    const twinBefore = meta('tasks_schema_meta', 'focus_state');
+    oldBuildWrites();
+
+    const [again] = collapseTwinTables(db(), dbPath());
+    expect(again).toMatchObject({ status: 'incremental', conflicts: [] });
+    const merged = focusNow();
+    expect(merged.currentTask).toBe('T7'); // the bare current fields win
+    expect(merged.sessionNotes).toHaveLength(52 + 1); // the history and the new note
+    expect(inTimeOrder(merged.sessionNotes)).toBe(true);
+    // The replaced twin value is archived without overwriting the initial archive.
+    expect(meta('tasks_schema_meta', 'twin_collapse_archive:focus_state')).toBe(initialArchive);
+    const archives = (
+      db()
+        .prepare(
+          "SELECT value FROM main.tasks_schema_meta WHERE key LIKE 'twin_collapse_archive:focus_state:%'",
+        )
+        .all() as Array<{ value: string }>
+    ).map((r) => r.value);
+    expect(archives).toEqual([twinBefore]);
+    expect(inspectTwinCollapse(db())[0]?.archived).toContain('focus_state');
+  });
+
+  it('when the runtime moved focus_state too, the twin fields win and both sides keep every note (T12728)', () => {
+    collapsedFocus();
+    const twin = focusNow();
+    twin.currentTask = 'T5';
+    twin.sessionNotes.push(...notes(60, 2, 'runtime'));
+    setMeta('tasks_schema_meta', 'focus_state', JSON.stringify(twin));
+    oldBuildWrites();
+
+    const [again] = collapseTwinTables(db(), dbPath());
+    expect(again).toMatchObject({ status: 'incremental', conflicts: ['focus_state'] });
+    const merged = focusNow();
+    expect(merged.currentTask).toBe('T5'); // a conflict keeps the twin's current fields
+    expect(merged.sessionNotes).toHaveLength(52 + 2 + 1);
+    expect(inTimeOrder(merged.sessionNotes)).toBe(true);
+  });
+
   it('malformed focus_state or a non-array sessionNotes: the bare value wins and the twin value is archived', () => {
     const cases: Array<[string, string]> = [
       ['{not json', JSON.stringify({ sessionNotes: notes(0, 2, 'x') })],

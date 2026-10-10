@@ -60,12 +60,10 @@ import {
   RUN_COMMAND_FAILED_CODE,
   RUN_DEFERRED_EXIT_CODE,
 } from '@cleocode/contracts/resource-governor.js';
-import { planFootprintBytes } from '@cleocode/core/resources/admission-ledger.js';
+import { planRunFootprint } from '@cleocode/core/resources/admission-ledger.js';
 import {
-  canonicalForClass,
   isWatchCommand,
   isWholeSuiteTestRun,
-  namedTestFileCount,
   resolveRunClass,
 } from '@cleocode/core/resources/run-admission.js';
 import {
@@ -73,7 +71,6 @@ import {
   type RunNoticeLevel,
   runGoverned,
 } from '@cleocode/core/resources/run-governed.js';
-import { planHeavyToolEnv } from '@cleocode/core/tasks/heavy-tool-env.js';
 import { GovernedRunInTestRunnerError } from '@cleocode/core/tasks/tool-runner-guard.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -241,13 +238,13 @@ export const runCommand = defineCommand({
     // it is labelled as planned (a deferred run never starts). A clamped
     // inherited value is a warning, so it shows even under --passthrough.
     // T13132: a test run that names its files needs at most one worker per
-    // file; it is planned, charged and spawned with that many.
-    const namedFiles = namedTestFileCount(cls, argv);
-    const { overlay, resources } = planHeavyToolEnv(
-      canonicalForClass(cls),
+    // file; it is planned, charged and spawned with that many. T13367: a
+    // formatter on named files is charged light, a one-process linter or
+    // `tsc -p` one process, so neither queues behind a 24 GiB reservation.
+    const { overlay, resources, footprintBytes, footprintReason, namedFiles } = planRunFootprint(
+      cls,
+      argv,
       process.env,
-      undefined,
-      namedFiles ?? undefined,
     );
     if (resources !== null) {
       notice(
@@ -255,6 +252,7 @@ export const runCommand = defineCommand({
         resources.clamped.length > 0 || resources.overBudget ? 'warn' : 'info',
       );
     }
+    notice(`charged footprint: ${footprintReason}`, 'info');
 
     let result: RunGovernedResult;
     try {
@@ -270,7 +268,8 @@ export const runCommand = defineCommand({
         // A terminal on stdin: keep the child in its foreground group.
         foreground: passthrough && process.stdin.isTTY === true,
         notice,
-        ...(resources !== null ? { footprintBytes: planFootprintBytes(resources) } : {}),
+        ...(footprintBytes !== undefined ? { footprintBytes } : {}),
+        footprintReason,
         ...(namedFiles !== null ? { scope: 'narrowed' as const } : {}),
       });
     } catch (err) {

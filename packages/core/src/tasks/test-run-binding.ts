@@ -40,6 +40,10 @@
  *     (test configs exclude tracked test files, so per-package file counts
  *     prove nothing) — `tool:test` runs it. A report with no passed test at
  *     all is refused before any of this.
+ *     A standalone project (no workspace declared, T13403) is one package,
+ *     its root: a change inside the root is that package's, never
+ *     workspace-wide, and since that package is the whole project the report
+ *     must also have passed every test file the change adds or edits.
  *     Docs-only changes, and checkouts with no origin to diff against, are
  *     not judged.
  *  3. **Identity.** HEAD and the tool cache's tree hash (T12958) at verify time are
@@ -59,6 +63,7 @@ import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { discoveryEnv } from '../git/work-tree.js';
 import {
   deriveAffectedPackages,
+  inPackageDir,
   listWorkspacePackages,
   originDefaultMergeBase,
   scopedChangedPaths,
@@ -312,7 +317,23 @@ function ownerOf(
   path: string,
   packages: readonly WorkspacePackage[],
 ): WorkspacePackage | undefined {
-  return packages.find((p) => path === p.dir || path.startsWith(`${p.dir}/`));
+  return packages.find((p) => inPackageDir(path, p.dir));
+}
+
+/**
+ * The changed paths that are test files still on disk (vitest and jest
+ * naming), sorted: the tests a change adds or edits (T13403).
+ *
+ * @param root - Execution root.
+ * @param changed - Root-relative changed paths.
+ * @returns The changed test files that exist.
+ * @task T13403
+ */
+export function changedTestFiles(root: string, changed: readonly string[]): string[] {
+  return changed
+    .filter((f) => TEST_FILE.test(f) && mtimeOf(resolve(root, f)) !== null)
+    .map((f) => f.split('\\').join('/'))
+    .sort();
 }
 
 /**
@@ -478,7 +499,21 @@ export function bindTestRunReport(
   }
   const covered = new Set(testFiles.flatMap((f) => ownerOf(f, workspace)?.name ?? []));
   const missing = required.filter((name) => !covered.has(name));
-  if (missing.length === 0) return { ok: true, untestedPackages };
+  if (missing.length === 0) {
+    // T13403: in a standalone project the one package is the whole project,
+    // so one test file of it says nothing about the change. The report must
+    // also run every test file the change adds or edits.
+    const standalone = workspace.length === 1 && workspace[0]?.dir === '';
+    const ran = new Set(testFiles);
+    const unrun = standalone ? changedTestFiles(root, changed).filter((f) => !ran.has(f)) : [];
+    if (unrun.length === 0) return { ok: true, untestedPackages };
+    return refuse(
+      `test-run report does not run the changed test file(s) ${unrun.slice(0, 5).join(', ')}` +
+        `${unrun.length > 5 ? `, … (${unrun.length} files)` : ''}. In a single-package project ` +
+        'the package is the whole project, so a targeted report must run every test file the ' +
+        'change adds or edits (passing). Run them and record the report, or record tool:test.',
+    );
+  }
   const labelled = missing.map((name) =>
     scope.direct.includes(name) ? `${name} (changed)` : `${name} (depends on a changed package)`,
   );

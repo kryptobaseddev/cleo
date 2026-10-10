@@ -429,6 +429,10 @@ export async function endSession(projectRoot: string, params: SessionEndParams):
 
   await accessor.upsertSingleSession(session);
 
+  // T13425: free the worktree locks this session holds (never throws).
+  const { releaseSessionWorktreeLocks } = await import('../spawn/worktree-lock-holder.js');
+  releaseSessionWorktreeLocks(projectRoot, session.id);
+
   // T11639: best-effort mirror the ENDED session into the GLOBAL session_manifest
   // (status/endedAt now reflect the close). Swallows all errors — NEVER fails
   // session end (AC3). Fire-and-forget.

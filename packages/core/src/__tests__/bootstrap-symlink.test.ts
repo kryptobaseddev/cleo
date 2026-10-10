@@ -28,7 +28,7 @@ describe('bootstrap: ~/.cleo canonical symlink', () => {
   }
 
   function makeContext(): BootstrapContext {
-    return { created: [], warnings: [], isDryRun: false };
+    return { created: [], warnings: [], isDryRun: false, userRequested: false };
   }
 
   beforeEach(async () => {

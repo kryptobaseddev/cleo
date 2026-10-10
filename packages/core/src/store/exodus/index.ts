@@ -27,6 +27,7 @@ export {
   exodusArchiveDir,
   exodusMarkerPath,
   hasExodusCompleteMarker,
+  readExodusVerifyIssues,
   type StrandedResidueEntry,
   writeExodusCompleteMarker,
 } from './archive.js';
@@ -47,7 +48,10 @@ export { buildExodusPlan, deriveStagingDirName, sourcesPresent } from './plan.js
 export {
   assessSupersededProjectStores,
   legacySourcesHoldRows,
+  type ReconcileOptions,
   reconcileSupersededStores,
+  rollbackSupersededReconcile,
+  type SupersededReconcileRollback,
 } from './reconcile.js';
 export {
   type SealResult,

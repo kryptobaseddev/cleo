@@ -375,6 +375,22 @@ export const selfUpdateCommand = defineCommand({
 });
 
 /**
+ * List every project file the upgrade changed, with its backup (T13409).
+ *
+ * @param changes - The upgrade result's file changes.
+ */
+function reportFileChanges(changes: Awaited<ReturnType<typeof runUpgrade>>['fileChanges']): void {
+  if (changes.length === 0) return;
+  humanInfo('Changed files (previous bytes backed up):');
+  for (const change of changes) {
+    humanInfo(
+      `  ${change.path}${change.backupPath ? ` (backup: ${change.backupPath})` : ' (created)'}`,
+    );
+  }
+  humanInfo('');
+}
+
+/**
  * Run post-update diagnostics and auto-upgrade.
  *
  * Called after a version update to detect and fix:
@@ -451,6 +467,7 @@ async function runPostUpdateDiagnostics(opts?: {
       }
       humanInfo('');
     }
+    reportFileChanges(result.fileChanges);
 
     cliOutput(
       {
@@ -459,6 +476,7 @@ async function runPostUpdateDiagnostics(opts?: {
           success: result.success,
           applied: result.applied,
           actions: result.actions,
+          fileChanges: result.fileChanges,
           storageMigration: result.storageMigration,
           errors: result.errors.length > 0 ? result.errors : undefined,
         },
@@ -492,6 +510,7 @@ async function runPostUpdateDiagnostics(opts?: {
           }
           humanInfo('');
         }
+        reportFileChanges(result.fileChanges);
 
         cliOutput(
           {
@@ -500,6 +519,7 @@ async function runPostUpdateDiagnostics(opts?: {
               success: result.success,
               applied: result.applied,
               actions: result.actions,
+              fileChanges: result.fileChanges,
               errors: result.errors.length > 0 ? result.errors : undefined,
             },
           },

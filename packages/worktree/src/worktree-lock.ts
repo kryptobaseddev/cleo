@@ -27,7 +27,9 @@
  *   owner's `ps lstart` start time (rendered under `PS_STABLE_ENV`), host name
  *   and a heartbeat timestamp.
  * - **Liveness:** a held lock is reclaimable only when its holder is provably
- *   dead (pid gone, or alive with a different start time = recycled pid). The
+ *   dead: its CLEO session has ended (T13425; the recorded owner pid is often a
+ *   long-lived agent harness that outlives every session it hosts), its pid is
+ *   gone, or the pid is alive with a different start time (recycled). The
  *   heartbeat TTL applies ONLY to holders whose pid cannot be verified (another
  *   device, or no recorded start time); a verified live holder is never
  *   reclaimed on age. Anything else is `E_WORKTREE_LOCKED`.
@@ -49,6 +51,7 @@ import {
   linkSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
   statSync,
@@ -61,6 +64,7 @@ import type {
   WorktreeLockAcquisition,
   WorktreeLockHolder,
   WorktreeLockRecord,
+  WorktreeLockSessionProbe,
 } from '@cleocode/contracts';
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
@@ -107,7 +111,7 @@ export interface WorktreeLockAssessment {
   /** True when the holder must be treated as live (lock not reclaimable). */
   live: boolean;
   /** Why a non-live holder is reclaimable. */
-  reason?: 'pid-gone' | 'pid-recycled' | 'heartbeat-stale';
+  reason?: 'pid-gone' | 'pid-recycled' | 'heartbeat-stale' | 'session-ended';
   /** True when the holder's pid + start time were verified live on this device. */
   verified?: boolean;
 }
@@ -128,6 +132,8 @@ export interface AcquireWorktreeTaskLockOptions {
   now?: () => number;
   /** This device's id (default: the persisted `<cleoHome>/device-id`, if any). */
   deviceId?: string | null;
+  /** The existing holder's session state (T13425); absent = pid and heartbeat only. */
+  sessionProbe?: WorktreeLockSessionProbe;
 }
 
 /** Error thrown when the lock is held by a live holder. */
@@ -220,6 +226,9 @@ export function readStableDeviceId(): string | null {
 /**
  * Decide whether an existing lock's holder is live.
  *
+ * - Same device, holder session reported `ended` by `sessionProbe`: reclaimable
+ *   (`session-ended`) even while the owner pid lives. The pid is usually the
+ *   agent harness, which hosts many sessions in turn (T13425).
  * - Same device (device ids equal; host names equal when either id is
  *   unknown): the pid is probed. Gone → `pid-gone`; alive with a different
  *   start time → `pid-recycled`; alive with the SAME start time → live and
@@ -234,12 +243,26 @@ export function readStableDeviceId(): string | null {
  */
 export function assessWorktreeLockHolder(
   record: WorktreeLockRecord,
-  opts: { ttlMs: number; now: number; probe: ProcessProbe; deviceId: string | null },
+  opts: {
+    ttlMs: number;
+    now: number;
+    probe: ProcessProbe;
+    deviceId: string | null;
+    sessionProbe?: WorktreeLockSessionProbe;
+  },
 ): WorktreeLockAssessment {
   const sameDevice =
     record.deviceId !== null && opts.deviceId !== null
       ? record.deviceId === opts.deviceId
       : record.hostname === hostname();
+  if (
+    sameDevice &&
+    record.sessionId !== null &&
+    opts.sessionProbe !== undefined &&
+    opts.sessionProbe(record.sessionId) === 'ended'
+  ) {
+    return { live: false, reason: 'session-ended' };
+  }
   if (sameDevice) {
     const liveness = opts.probe(record.pid);
     if (!liveness.alive) return { live: false, reason: 'pid-gone' };
@@ -631,6 +654,7 @@ function acquireUnchecked(
         now: now(),
         probe,
         deviceId,
+        ...(options.sessionProbe ? { sessionProbe: options.sessionProbe } : {}),
       });
       if (verdict.live) throw lockedError(taskId, lockPath, existing.record);
       status = 'reclaimed';
@@ -730,4 +754,36 @@ export function releaseWorktreeTaskLock(
   } catch {
     return false;
   }
+}
+
+/**
+ * Release every per-task worktree lock of a project whose holder is
+ * `sessionId` (T13425): `cleo session end` frees the worktrees that session
+ * holds, so a successor's `--resume` is not refused while the harness pid that
+ * spawned it lives on. Each lock is removed by its own token, so a lock another
+ * holder took in the meantime is left alone.
+ *
+ * @param projectHash - Project hash.
+ * @param sessionId - The ended session.
+ * @returns The released locks' records.
+ */
+export function releaseWorktreeTaskLocksForSession(
+  projectHash: string,
+  sessionId: string,
+): WorktreeLockRecord[] {
+  const dir = dirname(resolveWorktreeTaskLockPath(projectHash, '_'));
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((n) => n.endsWith('.lock'));
+  } catch {
+    return [];
+  }
+  const released: WorktreeLockRecord[] = [];
+  for (const name of names) {
+    const taskId = name.slice(0, -'.lock'.length);
+    const record = readWorktreeTaskLock(projectHash, taskId);
+    if (record === null || record.sessionId !== sessionId) continue;
+    if (releaseWorktreeTaskLock(projectHash, taskId, record.token)) released.push(record);
+  }
+  return released;
 }

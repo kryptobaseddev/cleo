@@ -20,7 +20,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { resolveCommitPresenceInTag } from '../commit-presence.js';
+import { filesAtomPathProblem, resolveCommitPresenceInTag } from '../commit-presence.js';
 
 const repo = join(tmpdir(), `cleo-t12311-${Date.now()}-${process.pid}`);
 
@@ -137,5 +137,41 @@ describe('T12311 AC2/AC3 — absence is explained, and its remedy is executable'
     expect(presence.present).toBe(false);
     if (presence.present) return;
     expect(presence.reason).toMatch(/merge or empty commit|carries its patch/);
+  });
+});
+
+describe('T13364 — a files: path deleted later in the release is accounted for', () => {
+  const deletedRepo = join(tmpdir(), `cleo-t13364-${Date.now()}-${process.pid}`);
+  const g = (...args: string[]): string =>
+    execFileSync('git', args, { cwd: deletedRepo, encoding: 'utf-8' }).trim();
+
+  beforeAll(() => {
+    mkdirSync(deletedRepo, { recursive: true });
+    g('init', '-q', '-b', 'main');
+    g('config', 'user.email', 't13364@example.test');
+    g('config', 'user.name', 'T13364 Fixture');
+    // T13158's change adds a guard; T13167 later deletes it; then the tag.
+    writeFileSync(join(deletedRepo, 'guard.ts'), 'export const guard = 1;\n');
+    g('add', 'guard.ts');
+    g('-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'feat: add the guard');
+    g('rm', '-q', 'guard.ts');
+    g('-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'refactor: retire the guard');
+    g('tag', '-a', 'v1.0.0', '-m', 'Release v1.0.0');
+  });
+
+  afterAll(() => rmSync(deletedRepo, { recursive: true, force: true }));
+
+  it('a path absent from the tree but touched in the tag history is not stale', () => {
+    expect(filesAtomPathProblem(deletedRepo, 'guard.ts', 'v1.0.0', false)).toBeNull();
+  });
+
+  it('a path that never existed up to the tag is stale', () => {
+    expect(filesAtomPathProblem(deletedRepo, 'never.ts', 'v1.0.0', false)).toContain(
+      'has no history up to v1.0.0',
+    );
+  });
+
+  it('a path present in the working tree is accounted for without asking git', () => {
+    expect(filesAtomPathProblem(deletedRepo, 'never.ts', 'v1.0.0', true)).toBeNull();
   });
 });

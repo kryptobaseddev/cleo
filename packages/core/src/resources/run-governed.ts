@@ -180,6 +180,8 @@ export interface RunGovernedOptions {
    * (`planFootprintBytes`, T13132). @defaultValue the class's default footprint
    */
   readonly footprintBytes?: number;
+  /** Why the run is charged `footprintBytes`, for the ledger and status (T13367). */
+  readonly footprintReason?: string;
   /** How much of the project the run covers, for status (T13132). */
   readonly scope?: AdmissionScope;
   readonly deps?: Partial<RunGovernedDeps>;
@@ -388,6 +390,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       {
         label: `run:${opts.cls}`,
         footprintBytes: opts.footprintBytes ?? footprintForClass(opts.cls),
+        ...(opts.footprintReason !== undefined ? { footprintReason: opts.footprintReason } : {}),
         ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
         // T13237: one full-build machine-wide, whatever its footprint.
         ...(opts.cls === 'full-build' ? { exclusive: true } : {}),

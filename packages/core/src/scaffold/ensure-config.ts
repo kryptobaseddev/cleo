@@ -13,6 +13,7 @@ import { getConfigPath, resolveCleoDir } from '../paths.js';
 import { computePortableProjectHash, computeStableProjectHash } from '../project-scope.js';
 import { saveJson } from '../store/json.js';
 import { decideProjectIdentity, ensurePortableProjectId } from './project-identity.js';
+import type { UpgradeFileJournal } from './upgrade-file-journal.js';
 
 /**
  * Resolve the `.cleo` directory for scaffold steps.
@@ -276,26 +277,67 @@ export function createDefaultConfig(): Record<string, unknown> {
   };
 }
 
+/** Comment written above rules a repair appends to a user-owned ignore/include file. */
+const APPENDED_RULES_HEADER = '# Added by cleo: CLEO-required entries missing from this file';
+
 /**
- * Create or repair .cleo/.gitignore from template.
- * Idempotent: skips if file already exists with correct content.
+ * Options for the repair of user-owned rule files
+ * ({@link ensureGitignore}, {@link ensureWorktreeInclude}).
+ */
+export interface RuleFileRepairOptions {
+  /** Journal that backs up the file before it changes and lists it (upgrade, T13409). */
+  journal?: UpgradeFileJournal;
+}
+
+/**
+ * Append the template entries an existing rule file lacks, never dropping or
+ * reordering the user's lines (T13409).
+ *
+ * A bare `*` is never appended: in a file without it, the user chose not to
+ * deny everything, and a trailing `*` would override every allow rule they wrote.
+ */
+async function repairRuleFile(
+  path: string,
+  templateContent: string,
+  opts?: RuleFileRepairOptions,
+): Promise<ScaffoldResult> {
+  // Loaded lazily: this module is on the startup path of read commands (gate 39).
+  const { appendMissingLines, writeIfChanged } = await import('./upgrade-file-journal.js');
+  const existing = readFileSync(path, 'utf-8');
+  const template = templateContent
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== '*')
+    .join('\n');
+  const { content, added } = appendMissingLines(existing, template, APPENDED_RULES_HEADER);
+  if (added.length === 0) {
+    return { action: 'skipped', path, details: 'All CLEO-required entries present' };
+  }
+  await writeIfChanged(path, content, opts?.journal);
+  return {
+    action: 'repaired',
+    path,
+    details: `Appended ${added.length} missing CLEO-required entr${added.length === 1 ? 'y' : 'ies'}: ${added.join(', ')}`,
+  };
+}
+
+/**
+ * Create .cleo/.gitignore from the template, or append the template rules an
+ * existing file lacks. Idempotent; never drops or reorders the user's lines (T13409).
  *
  * @param projectRoot - Absolute path to the project root directory
+ * @param opts - Backup journal (upgrade)
  * @returns Scaffold result indicating whether the gitignore was created, repaired, or skipped
  */
-export async function ensureGitignore(projectRoot: string): Promise<ScaffoldResult> {
+export async function ensureGitignore(
+  projectRoot: string,
+  opts?: RuleFileRepairOptions,
+): Promise<ScaffoldResult> {
   const cleoDir = resolveScaffoldCleoDir(projectRoot);
   const gitignorePath = join(cleoDir, '.gitignore');
   const templateContent = getGitignoreContent();
 
   if (existsSync(gitignorePath)) {
-    const existing = readFileSync(gitignorePath, 'utf-8');
-    const normalize = (s: string) => s.trim().replace(/\r\n/g, '\n');
-    if (normalize(existing) === normalize(templateContent)) {
-      return { action: 'skipped', path: gitignorePath, details: 'Already matches template' };
-    }
-    await writeFile(gitignorePath, templateContent);
-    return { action: 'repaired', path: gitignorePath, details: 'Updated to match template' };
+    return repairRuleFile(gitignorePath, templateContent, opts);
   }
 
   await writeFile(gitignorePath, templateContent);
@@ -303,37 +345,35 @@ export async function ensureGitignore(projectRoot: string): Promise<ScaffoldResu
 }
 
 /**
- * Create or repair `.worktreeinclude` (canonical, at project root) from the
- * shipped template. Idempotent — skips when the existing file already
- * matches the template byte-for-byte (after CR-LF + trim normalisation).
+ * Create `.worktreeinclude` (canonical, at project root) from the shipped
+ * template, or append the template entries an existing file lacks.
+ * Idempotent; never drops or reorders the user's lines (T13409).
  *
  * Resolution rules (T9983):
- * - If `<projectRoot>/.worktreeinclude` already exists → keep + compare to
- *   the template; repair if drifted.
+ * - If `<projectRoot>/.worktreeinclude` already exists → keep it and append
+ *   only the missing template entries.
  * - Else if legacy `<projectRoot>/.cleo/worktree-include` exists → SKIP
  *   (do not overwrite the legacy file in place; `cleo doctor
  *   --migrate-worktree-include` is the explicit migration path).
  * - Else → write the canonical template.
  *
  * @param projectRoot - Absolute path to the project root directory
+ * @param opts - Backup journal (upgrade)
  * @returns Scaffold result indicating whether `.worktreeinclude` was
  *          created, repaired, or skipped.
  *
  * @task T9983
  */
-export async function ensureWorktreeInclude(projectRoot: string): Promise<ScaffoldResult> {
+export async function ensureWorktreeInclude(
+  projectRoot: string,
+  opts?: RuleFileRepairOptions,
+): Promise<ScaffoldResult> {
   const canonicalPath = join(projectRoot, '.worktreeinclude');
   const legacyPath = join(resolveScaffoldCleoDir(projectRoot), 'worktree-include');
   const templateContent = getWorktreeIncludeContent();
 
   if (existsSync(canonicalPath)) {
-    const existing = readFileSync(canonicalPath, 'utf-8');
-    const normalize = (s: string) => s.trim().replace(/\r\n/g, '\n');
-    if (normalize(existing) === normalize(templateContent)) {
-      return { action: 'skipped', path: canonicalPath, details: 'Already matches template' };
-    }
-    await writeFile(canonicalPath, templateContent);
-    return { action: 'repaired', path: canonicalPath, details: 'Updated to match template' };
+    return repairRuleFile(canonicalPath, templateContent, opts);
   }
 
   // T9983: when only the legacy file exists, leave it in place. The reader
@@ -578,9 +618,28 @@ export async function ensureProjectInfo(
     },
   };
 
+  // T13409: a regenerate that changes nothing but the timestamp writes nothing,
+  // so a second `cleo upgrade` reports no applied action.
+  if (existing) {
+    const { lastUpdated: _next, ...nextFields } = projectInfo;
+    const { lastUpdated: _prev, ...prevFields } = existing;
+    if (stableStringify(nextFields) === stableStringify(prevFields)) {
+      return { action: 'skipped', path: projectInfoPath, details: 'project-info.json current' };
+    }
+  }
+
   await writeFile(projectInfoPath, JSON.stringify(projectInfo, null, 2));
   const action = opts?.force && existsSync(projectInfoPath) ? 'regenerated' : 'created';
   return { action, path: projectInfoPath, details: await describeIdentity() };
+}
+
+/** JSON with object keys sorted at every level, so key order never counts as a change. */
+function stableStringify(value: unknown): string {
+  return JSON.stringify(value, (_key, v) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)))
+      : v,
+  );
 }
 
 /**
