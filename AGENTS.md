@@ -218,7 +218,7 @@ This frontmatter is the metadata SSoT: gate 29 fails when `packages/skills/skill
 
 ## Release & Branching (ADR-065 · SPEC-T9345 · ADR-087)
 
-PR-gated pipeline. **NO direct pushes to `main`.** All PRs target `main` through GitHub Merge Queue.
+PR-gated pipeline. **NO direct pushes to `main`.** All PRs target `main` and merge serially once their own required `CI` is green; there is no GitHub Merge Queue (personal-account repo, GraphQL `repository.mergeQueue` is `null`).
 
 > Deliberate exception (T12152): branch protection sets `enforce_admins: false`, so a repo admin CAN merge without `CI` — the owner's intended escape hatch, not a vulnerability or evidence the pipeline is broken. Force-pushes and deletions stay blocked; `required_status_checks.strict: false` (owner decision 2026-09-29): a PR merges once its own `CI` is green without re-running after every other merge, and main-push CI catches any break from combining PRs.
 
