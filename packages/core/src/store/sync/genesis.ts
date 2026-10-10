@@ -394,7 +394,15 @@ export function cutGenesis(db: DatabaseSync, opts: GenesisCutOptions): GenesisCu
 
 /** A write reached the store between the cut and the end of its snapshot; the cut was undone. */
 export class GenesisRacedError extends Error {
-  readonly code = 'E_SYNC_GENESIS_RACED';
+  readonly code: string = 'E_SYNC_GENESIS_RACED';
+}
+
+/**
+ * Another process took the genesis marker over during the snapshot: the
+ * pending cut, and any bundle saved for it, are the new holder's (T13390).
+ */
+export class GenesisTakenOverError extends GenesisRacedError {
+  override readonly code = 'E_SYNC_GENESIS_MARKER_LOST';
 }
 
 /**
@@ -502,7 +510,14 @@ export async function cutGenesisWithSnapshot(
       await snapshot(cut);
     } catch (err) {
       // A holder that took the marker over owns the pending cut now: leave it.
-      if (!marker.takenOver()) uncutGenesis(db, opts);
+      if (marker.takenOver()) {
+        // @sync-invariant none:local-only the snapshot failed after another process took the genesis marker over; the pending cut is left to it
+        throw new GenesisTakenOverError(
+          `E_SYNC_GENESIS_MARKER_LOST: another process took over the genesis marker; the snapshot failed: ${err instanceof Error ? err.message : String(err)}`,
+          { cause: err },
+        );
+      }
+      uncutGenesis(db, opts);
       throw err;
     }
     // Our marker went stale and another process took it over (a genesis run
@@ -510,7 +525,7 @@ export async function cutGenesisWithSnapshot(
     // replace. Abort without undoing it, and push nothing from this snapshot.
     if (marker.takenOver()) {
       // @sync-invariant none:local-only another process took the genesis marker over during the snapshot; the pending cut is left to it and nothing is pushed
-      throw new GenesisRacedError(
+      throw new GenesisTakenOverError(
         'E_SYNC_GENESIS_MARKER_LOST: another process took over the genesis marker during the snapshot; the pending cut is left to it and nothing is pushed',
       );
     }

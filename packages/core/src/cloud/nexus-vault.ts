@@ -112,6 +112,7 @@ import {
   completeGenesis,
   cutGenesisWithSnapshot,
   GenesisRacedError,
+  GenesisTakenOverError,
   genesisCutOf,
   genesisPending,
   joinStream,
@@ -1718,8 +1719,12 @@ async function enableSyncPushImpl(
         baselined = { ...report.baselined };
       } catch (err) {
         // The cut was undone (a failed export, or a write raced it): nothing is saved or pushed.
-        fs.rmSync(saved.bundle, { force: true });
-        fs.rmSync(saved.meta, { force: true });
+        // After a takeover the pending cut, and any bundle saved at these paths, belong
+        // to the new holder: leave them (T13390).
+        if (!(err instanceof GenesisTakenOverError)) {
+          fs.rmSync(saved.bundle, { force: true });
+          fs.rmSync(saved.meta, { force: true });
+        }
         if (err instanceof GenesisRacedError) {
           throw vaultError('E_NEXUS_SYNC_REFUSED', err.message, 'nothing was pushed; run it again');
         }
