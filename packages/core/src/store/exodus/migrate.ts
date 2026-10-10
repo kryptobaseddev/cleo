@@ -148,6 +148,7 @@ import {
   hasExodusRecovery,
   insertWithExodusReceipts,
   prepareExodusRecovery,
+  recordExodusValueMap,
 } from './recovery.js';
 import type { TargetResolver } from './runtime-targets.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
@@ -941,6 +942,38 @@ function copyTableFromAttached(
     sourcePath,
     legacyTableName,
   );
+
+  // --- Step 6c: Value lineage (T12711) --------------------------------------
+  // Every row whose enum value the copy mapped keeps its legacy value, keyed
+  // by the target row's key, in the target's `_exodus_recovery_value_map`.
+  const landedExpr = new Map(
+    allInsertCols.map((c, i) => [c, (allSelectExprs[i] as string).replace(/ AS "[^"]*"$/, '')]),
+  );
+  const keyCols = (
+    targetNativeDb
+      .prepare(`PRAGMA "${targetSchema}".table_info("${targetTableName}")`)
+      .all() as Array<{ name: string; pk: number }>
+  )
+    .filter((c) => c.pk > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((c) => c.name);
+  const keyExprs = keyCols.map((c) => landedExpr.get(c));
+  for (const col of normalizedCols) {
+    if (projection.has(col) || keyExprs.length === 0) continue;
+    if (!keyExprs.every((e): e is string => e !== undefined)) continue;
+    recordExodusValueMap(targetNativeDb, targetSchema, {
+      operation: recoveryOperation,
+      sourceDb: sourceName,
+      sourceTable: legacyTableName,
+      targetTable: targetTableName,
+      column: col,
+      legacyExpr: srcCol(col),
+      mappedExpr: landedExpr.get(col) as string,
+      keyColumns: keyCols,
+      keyExprs,
+      fromSql: `"${attachAlias}"."${legacyTableName}"`,
+    });
+  }
 
   // --- Step 7: No-swallow assertion — idempotent dedup vs real loss (T11835) ---
   //

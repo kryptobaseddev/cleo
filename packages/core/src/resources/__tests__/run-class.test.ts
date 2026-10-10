@@ -18,6 +18,7 @@ import {
   looksHeavy,
   namedTestFileCount,
   resolveRunClass,
+  runFootprint,
 } from '../run-class.js';
 
 let dir: string;
@@ -691,5 +692,46 @@ describe('isWholeSuiteTestRun across a workspace (T13277)', () => {
   it('a malformed package.json is skipped, not trusted', () => {
     write('packages/a/package.json', '{ not json');
     expect(isWholeSuiteTestRun(['pnpm', '--filter', '@x/a', 'test'], ws)).toBe(false);
+  });
+});
+
+describe('runFootprint sizes by real scope (T13367)', () => {
+  const size = (...argv: string[]) => runFootprint(argv).size;
+
+  it('a native formatter on named paths is light', () => {
+    expect(size('pnpm', 'biome', 'check', 'a.ts', 'b.ts')).toBe('light');
+    expect(size('pnpm', 'exec', 'biome', 'format', '--write', 'a.ts')).toBe('light');
+    expect(size('npx', 'biome', 'lint', '--max-diagnostics', '50', 'src/a.ts')).toBe('light');
+  });
+
+  it('a formatter on the whole tree or with no paths keeps its class', () => {
+    expect(size('pnpm', 'biome', 'check', '.')).toBe('class');
+    expect(size('pnpm', 'biome', 'check')).toBe('class');
+    expect(size('pnpm', 'biome', 'check', '--write')).toBe('class');
+  });
+
+  it('eslint and prettier on named files are one process', () => {
+    expect(size('pnpm', 'exec', 'eslint', 'src/a.ts')).toBe('single-process');
+    expect(size('pnpm', 'prettier', '--check', 'a.md')).toBe('single-process');
+    expect(size('eslint', '-c', 'cfg.js', '.')).toBe('class');
+  });
+
+  it('tsc -p on one project is one process; tsc -b and the root config keep their class', () => {
+    expect(size('pnpm', 'exec', 'tsc', '--noEmit', '-p', 'packages/core')).toBe('single-process');
+    expect(size('tsc', '--project=packages/cleo/tsconfig.json')).toBe('single-process');
+    expect(size('tsc', '-b')).toBe('class');
+    expect(size('tsc', '-b', '-p', 'packages/core')).toBe('class');
+    expect(size('tsc', '-p', '.')).toBe('class');
+    expect(size('tsc', '-p', 'tsconfig.json')).toBe('class');
+  });
+
+  it('builds and test runs keep their class', () => {
+    expect(size('pnpm', 'run', 'build')).toBe('class');
+    expect(size('pnpm', 'run', 'typecheck')).toBe('class');
+    expect(size('pnpm', 'exec', 'vitest', 'run', 'a.test.ts')).toBe('class');
+  });
+
+  it('names the reason', () => {
+    expect(runFootprint(['biome', 'check', 'a.ts']).reason).toBe('biome check on 1 named path');
   });
 });
