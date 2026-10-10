@@ -330,6 +330,7 @@ async function refuseLiveWorkerSession(
     `lease expires ${held.leaseExpiresAt}, last activity ${session?.lastActivity ?? 'unknown'}.`;
   return {
     ok: false,
+    // @sync-invariant none:local-only refuses before any write; lease liveness is this device's spawn coordination
     code: 'E_TASK_CLAIMED',
     exitCode: ExitCode.TASK_CLAIMED,
     message,
