@@ -1958,6 +1958,32 @@ export async function serverRetirementsFor(
   );
 }
 
+/**
+ * {@link serverRetirementsFor}, soft (T13395): a listing that fails (network,
+ * 5xx, a 404) confirms nothing this round instead of failing the pull. The
+ * pull still stages and applies; retires it records stay unconfirmed until a
+ * later pull reads the listing. The failure is a `W_NEXUS_RETIREMENTS_UNAVAILABLE`
+ * warning on the connection.
+ *
+ * @param conn - The vault connection (its warnings collect the failure).
+ * @param scope - The store's scope.
+ * @returns The retirements, `[]` when the listing failed, or undefined for a project stream.
+ */
+export async function confirmableRetirements(
+  conn: Pick<NexusVaultConnection, 'find' | 'warnings'>,
+  scope: CloudVaultScope,
+): Promise<ServerRetirement[] | undefined> {
+  try {
+    return await serverRetirementsFor(conn, scope);
+  } catch (err) {
+    conn.warnings.push({
+      code: 'W_NEXUS_RETIREMENTS_UNAVAILABLE',
+      message: `the home replica listing could not be read (${err instanceof Error ? err.message : String(err)}); no replica retire is confirmed this round`,
+    });
+    return [];
+  }
+}
+
 async function pullWithSession(opened: StreamSession): Promise<PullStreamReport> {
   const session = await withCompletedRebind(opened);
   const { conn, key, t } = session;
@@ -2037,7 +2063,7 @@ async function pullWithSession(opened: StreamSession): Promise<PullStreamReport>
   // Pruning waits for a floor the applier refuses below anyway, such as the
   // receive watermark (T13256), and then prunes by that floor, not by
   // stream seq.
-  const serverRetirements = await serverRetirementsFor(conn, t.scope);
+  const serverRetirements = await confirmableRetirements(conn, t.scope);
   const report = await pullStream(db, {
     scope: tableScopeOf(t),
     stream: t.streamId,
