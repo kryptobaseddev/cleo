@@ -554,6 +554,49 @@ function roleCoverage(
   };
 }
 
+/** Limitation recorded on a file too large to read (T13380). */
+export const OVERSIZED_FILE_LIMITATION =
+  'Exceeds the 512 KB scan limit and was not read; none of its capabilities were assessed.';
+
+/**
+ * Capability provenance for a file the walker refused to read as oversized (T13380).
+ *
+ * Without it the report carried no `capabilities`, and knowledge coverage
+ * counted every such file of a fresh index as a "legacy report lacking role
+ * and capability provenance" — 189 on a 5 357-file repository. The role comes
+ * from the path alone, because the bytes were never read; nothing is completed.
+ *
+ * @param path - Repository-relative path of the oversized file.
+ * @returns Path-based role, the capabilities that role requests, none completed.
+ * @example
+ * ```ts
+ * const coverage = oversizedFileCoverage('src/generated/schema.ts');
+ * ```
+ */
+export function oversizedFileCoverage(path: string): GraphFileCapabilityCoverage {
+  const extension = extname(path).toLowerCase();
+  const executable =
+    EXECUTABLE_LANGUAGES.has(detectLanguageFromPath(path) ?? '') ||
+    ['.svelte', '.mdx', '.lua', '.pl', '.r', '.ps1', '.bat', '.cmd'].includes(extension) ||
+    /^(?:Makefile|Dockerfile)$/.test(basename(path));
+  const coverage = executable
+    ? roleCoverage('executable', {
+        basis: 'path',
+        reason: `Recognized executable language or filename: ${path}; content not read`,
+      })
+    : extension === '.sql'
+      ? roleCoverage('sql', { basis: 'path', reason: 'SQL source extension; content not read' })
+      : roleCoverage('unknown', {
+          basis: 'unknown',
+          reason: 'Oversized file was not read, so its role is unobserved',
+        });
+  return {
+    ...coverage,
+    completed: [],
+    limitations: [OVERSIZED_FILE_LIMITATION, ...coverage.limitations],
+  };
+}
+
 /** Identify known binary resources from both their extension and observed bytes. */
 function hasResourceSignature(extension: string, bytes: Buffer): boolean {
   if (extension === '.ico') return hasIconDirectory(bytes);
