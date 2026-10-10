@@ -436,6 +436,83 @@ describe('the tool tree must contain the change (T12625 review HIGH)', () => {
     expect(r.error.message).toMatch(
       /squash- or rebase-merged branch never contains its merge commit/,
     );
+    // T13463: evidence.ciSatisfies is not set here, so ci:<pr> is not offered as ready to use.
+    expect(r.error.message).not.toMatch(/evidence\.ciSatisfies is set/);
+    expect(r.error.message).toMatch(/Setting evidence\.ciSatisfies would let ci:<pr>/);
+    // One PR: the missing commit IS the switch target, so no second commit is named.
+    expect(r.error.message).not.toMatch(/The command switches to/);
+  });
+
+  it('T13463: two PRs, the earlier merge missing: the message names the latest merge it switches to', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    const base = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: one`]);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', `task/${id}`]);
+    git(root, ['commit', '-q', '-m', `${id}: one (#41)`]);
+    const first = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', '-c', `task/${id}-b`]);
+    writeFileSync(join(root, 'src', 'd.ts'), 'export const d = 1;\n');
+    git(root, ['add', 'src/d.ts']);
+    git(root, ['commit', '-q', '-m', `${id}: two`]);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', `task/${id}-b`]);
+    git(root, ['commit', '-q', '-m', `${id}: two (#42)`]);
+    const second = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', '--detach', base]);
+    const resolution = (n: number, sha: string, paths: string[]) => ({
+      ok: true as const,
+      prNumber: n,
+      mergeCommitSha: sha,
+      mergedAt: '2026-09-28T00:00:00Z',
+      successCount: 1,
+      totalChecks: 1,
+      cacheHit: true,
+      title: id,
+      body: '',
+      headRefName: n === 41 ? `task/${id}` : `task/${id}-b`,
+      changedPaths: paths,
+      changedFileCount: paths.length,
+    });
+    const r = await recordTaskDone(
+      id,
+      opts({
+        previewEvidence: async () => ({ ok: true }),
+        deps: {
+          ...deps,
+          listMergedPrs: async () => ({
+            ok: true,
+            prs: [
+              { number: 41, title: `${id}: one`, body: '', headRefName: `task/${id}` },
+              { number: 42, title: `${id}: two`, body: '', headRefName: `task/${id}-b` },
+            ],
+          }),
+          viewPr: async (n) => ({
+            number: n,
+            title: id,
+            headRefName: '',
+            baseRefName: 'main',
+            state: 'MERGED',
+            mergedAt: '2026-09-28T00:00:00Z',
+            headRefOid: null,
+            mergeCommitSha: n === 41 ? first : second,
+          }),
+          findPrByHead: async () => null,
+          resolvePr: async (n) =>
+            n === 41 ? resolution(41, first, ['src/a.ts']) : resolution(42, second, ['src/d.ts']),
+        },
+      }),
+    );
+    expect(r.success).toBe(false);
+    if (r.success) return;
+    const details = r.error.details as DoneBlockedDetails;
+    expect(details.blocker, r.error.message).toBe('checkout-required');
+    expect(r.error.message).toContain(
+      `PR #41's merge commit ${first.slice(0, 12)}. The command switches to PR #42's merge commit ${second.slice(0, 12)}, which contains it`,
+    );
+    expect(details.next.command).toContain(`switch --detach ${second}`);
   });
 
   it('T13429: a merge commit this checkout has not fetched: the remedy fetches first', async () => {

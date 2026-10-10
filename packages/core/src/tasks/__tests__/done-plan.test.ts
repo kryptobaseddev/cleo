@@ -1340,6 +1340,57 @@ describe('research and no-change-set tasks', () => {
       );
     });
 
+    it("T13463: a PR merged from the task's OWN branch still implements it, doc or not", async () => {
+      const { id, sha } = await researchDoc();
+      commitOnTaskBranch(id);
+      git(root, ['switch', '-q', 'main']);
+      git(root, ['merge', '-q', '--squash', `task/${id}`]);
+      git(root, ['commit', '-q', '-m', `${id}: squash (#43)`]);
+      const merge = git(root, ['rev-parse', 'HEAD']);
+      const plan = await deriveTaskEvidence(id, {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        previewEvidence: async () => ({ ok: true }),
+        deps: {
+          ...deps,
+          listMergedPrs: async () => ({
+            ok: true,
+            prs: [{ number: 43, title: `${id}: spike code`, body: '', headRefName: `task/${id}` }],
+          }),
+          viewPr: async (n) => ({
+            number: n,
+            title: '',
+            headRefName: `task/${id}`,
+            baseRefName: 'main',
+            state: 'MERGED',
+            mergedAt: '2026-09-28T00:00:00Z',
+            headRefOid: null,
+            mergeCommitSha: merge,
+          }),
+          findPrByHead: async () => null,
+          resolvePr: async (n) => ({
+            ok: true,
+            prNumber: n,
+            mergeCommitSha: merge,
+            mergedAt: '2026-09-28T00:00:00Z',
+            successCount: 1,
+            totalChecks: 1,
+            cacheHit: false,
+            title: '',
+            body: '',
+            headRefName: `task/${id}`,
+            changedPaths: ['src/a.ts'],
+            changedFileCount: 1,
+          }),
+          listTaskDocs: async () => [{ id: 'att', slug: 'review', sha256: sha }],
+          listTaskDecisions: async () => ['D900'],
+        },
+      });
+      expect(plan.changeSet.source).toBe('pr');
+      expect(plan.changeSet.prNumber).toBe(43);
+    });
+
     it('with a doc but no decision yet: still no suite or typecheck, only the decision blocker', async () => {
       const { id, sha } = await researchDoc();
       const plan = await deriveTaskEvidence(id, {

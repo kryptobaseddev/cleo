@@ -996,6 +996,19 @@ function componentEvidence(
     : `${pr};note:${atomSafe(`Component PR #${component} only deleted: ${deleted.join(', ')}`)}`;
 }
 
+/**
+ * Whether a merged PR came from the task's own branch (T13463). A failed
+ * lookup answers no: the review doc stays the research task's artifact.
+ */
+async function hasOwnBranchMergedPr(
+  taskId: string,
+  root: string,
+  listMergedPrs: NonNullable<ChangeSetDeps['listMergedPrs']>,
+): Promise<boolean> {
+  const listed = await listMergedPrs(taskId, root);
+  return listed.ok && listed.prs.some((pr) => isOwnBranch(pr.headRefName, taskId));
+}
+
 /** A PR merged from the task's own branch (`task/<id>` or `task/<id>-…`). */
 function isOwnBranch(headRefName: string, taskId: string): boolean {
   return headRefName === `task/${taskId}` || headRefName.startsWith(`task/${taskId}-`);
@@ -1342,18 +1355,19 @@ export async function deriveTaskChangeSet(
   // T13428: a research or spike task's canonical artifact is its review
   // document and decision. A merged PR that merely cites it (often the
   // author's own code PR) must not turn it into a code change set that plans
-  // a whole suite and a typecheck. An explicit --pr still wins.
+  // a whole suite and a typecheck. An explicit --pr still wins, and so does a
+  // PR merged from the task's OWN branch (T13463): that PR implements it.
   const researchKind = input.task.kind === 'research' || input.task.kind === 'spike';
-  if (
+  const listMergedPrs = deps.listMergedPrs ?? defaultListMergedPrs;
+  const docsFirst =
     researchKind &&
     input.prNumber === undefined &&
-    (await deriveDocsChangeSet(cs, input, docsDeps))
-  )
-    return cs;
+    !(await hasOwnBranchMergedPr(input.task.id, root, listMergedPrs));
+  if (docsFirst && (await deriveDocsChangeSet(cs, input, docsDeps))) return cs;
 
   if (
     await derivePrChangeSet(cs, input, roots, {
-      listMergedPrs: deps.listMergedPrs ?? defaultListMergedPrs,
+      listMergedPrs,
       resolvePr: deps.resolvePr ?? defaultResolvePr,
       viewPr: deps.viewPr ?? defaultViewPr,
       findPrByHead: deps.findPrByHead ?? defaultFindPrByHead,
@@ -1376,7 +1390,7 @@ export async function deriveTaskChangeSet(
     return cs;
   }
   if (refused.length > 0) return cs;
-  if (!researchKind && (await deriveDocsChangeSet(cs, input, docsDeps))) return cs;
+  if (!docsFirst && (await deriveDocsChangeSet(cs, input, docsDeps))) return cs;
 
   const id = input.task.id;
   cs.blockers.push(

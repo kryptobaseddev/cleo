@@ -191,7 +191,11 @@ function gitRead(cwd: string, args: readonly string[]): string | null {
  *   is already a plan blocker);
  * - pr: the merge commit must be an ancestor of the checked-out HEAD.
  */
-function checkoutBlocker(taskId: string, cs: TaskChangeSet): DonePlanBlocker | null {
+function checkoutBlocker(
+  taskId: string,
+  cs: TaskChangeSet,
+  ciSatisfies: boolean,
+): DonePlanBlocker | null {
   const root = cs.executionRoot;
   const head = gitRead(root, ['rev-parse', 'HEAD']);
   const short = (sha: string | null | undefined): string => (sha ?? 'nothing').slice(0, 12);
@@ -227,12 +231,21 @@ function checkoutBlocker(taskId: string, cs: TaskChangeSet): DonePlanBlocker | n
     // all; the remedy says which, so `switch` never fails on a missing commit.
     const local = gitRead(root, ['cat-file', '-e', `${cs.mergeCommitSha}^{commit}`]) !== null;
     const fetch = local ? '' : `git -C ${shellQuote(root)} fetch origin && `;
+    // T13463: the command switches to the LATEST merge, which holds every
+    // earlier one; name it when the missing commit is an earlier PR's.
+    const target =
+      missing.sha === cs.mergeCommitSha
+        ? ''
+        : ` The command switches to PR #${cs.prNumber}'s merge commit ${short(cs.mergeCommitSha)}, which contains it.`;
     return {
       code: 'checkout-required',
       message:
         `${root} has ${short(head)} checked out, which does not contain PR #${missing.pr}'s merge commit ${short(missing.sha)}` +
-        `${local ? '' : ' (not fetched into this checkout yet)'}. A squash- or rebase-merged branch never contains ` +
-        'its merge commit, so the tools must run on the merged tree; with evidence.ciSatisfies, ci:<pr> needs no local run.',
+        `${local ? '' : ' (not fetched into this checkout yet)'}.${target} A squash- or rebase-merged branch never ` +
+        'contains its merge commit, so the tools must run on the merged tree' +
+        (ciSatisfies
+          ? '; evidence.ciSatisfies is set, so ci:<pr> needs no local run.'
+          : '. (Setting evidence.ciSatisfies would let ci:<pr>, the merged CI, stand in.)'),
       next: {
         command: `${fetch}git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && cleo done ${taskId}`,
         why: 'Tests, lint, typecheck and typed gates must run on a tree containing the merged change.',
@@ -277,7 +290,7 @@ async function readinessBlockers(input: {
         },
       ];
     }
-    const checkout = checkoutBlocker(taskId, cs);
+    const checkout = checkoutBlocker(taskId, cs, readCiSatisfies(input.storeRoot));
     if (checkout) return [checkout];
   }
   const pending = input.gates.filter((g) => !g.passed && g.evidence !== null);
