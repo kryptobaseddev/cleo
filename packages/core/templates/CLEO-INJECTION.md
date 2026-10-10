@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.24.8 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.24.9 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -143,6 +143,7 @@ Anti-patterns: completing without running tests · self-attesting without progra
 
 - No time estimates — use `small`, `medium`, `large` sizing
 - Heavy work (tests, typechecks, builds): one at a time via `cleo run --wait --class <test|build|full-build> -- <cmd>` (exit 75: wait, retry). Never wrap `cleo run`/`cleo verify` in another queue or raise heap/workers (`NODE_OPTIONS`, `--maxWorkers`). Prove with single files, `tool:test-affected` or `ci:<pr>`, never a whole suite
+- **Lean change (`ct-lean`).** Smallest complete change: reuse before writing, nothing unrequested, fix roots once, finish every caller and test it breaks. Never cut validation, data safety, security, evidence or the package boundary. Load `ct-lean` before coding
 - Do not read full task details for tasks you won't work on
 - Never read `.cleo/*.db` directly — the store is `.cleo/cleo.db` (prefixed tables); `tasks.db` and `tasks-*.db` snapshots are decoys. Ask the CLI (`cleo doctor superseded-store`)
 <!-- /CLEO-INJECTION:section=rules -->

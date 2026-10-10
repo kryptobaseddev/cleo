@@ -195,7 +195,7 @@ Canonical `ct-*` skills under `packages/skills/skills/` describe how CLEO works 
 
 **Enforced (gate 32, `scripts/lint-skill-coverage.mjs`, T12124):** each skill declares the code it documents in `metadata.covers` (repo globs). A PR that changes a covered path must change that skill's directory, and a changed skill must bump `metadata.version`. CI runs the PR check against the PR base; `cleo check arch` checks that every core and LOOM-stage skill declares covers and that every glob matches a tracked file.
 
-**Core skills (`metadata.tier: core`) — no override:** `ct-cleo` · `ct-orchestrator` · `ct-lead` · `ct-task-executor` · `ct-dev-workflow` · `ct-documentor` (D11157). A covered change must update the skill.
+**Core skills (`metadata.tier: core`) — no override:** `ct-cleo` · `ct-orchestrator` · `ct-lead` · `ct-task-executor` · `ct-dev-workflow` · `ct-documentor` (D11157) · `ct-lean` (T13422). A covered change must update the skill.
 
 **On-demand skills** (the LOOM-stage skills in `packages/core/src/validation/protocols/`, ct-council, ct-codebase-mapper) accept a commit trailer instead: `Skill-Drift-Reviewed: <skill>: <why no update is needed>`.
 
