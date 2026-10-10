@@ -21,7 +21,7 @@
  * @saga T10281
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -185,7 +185,7 @@ describe('doctor db-substrate (T10307)', () => {
     const projectRoot = join(fleetRoot, name);
     const cleoDir = join(projectRoot, '.cleo');
     mkdirSync(cleoDir, { recursive: true });
-    seedHealthyDb(join(cleoDir, 'tasks.db'));
+    seedHealthyDb(join(cleoDir, 'cleo.db'));
     return projectRoot;
   }
 
@@ -226,18 +226,22 @@ describe('doctor db-substrate (T10307)', () => {
     expect(tasks.integrityCheckMs).not.toBeNull();
     expect(tasks.timedOut).toBe(false);
 
-    // brain.db wasn't seeded — should be exists: false.
-    const brain = survey.dbs['brain'];
-    expect(brain).toBeDefined();
-    if (!brain) throw new Error('brain entry absent');
-    expect(brain.exists).toBe(false);
-    expect(brain.integrityOK).toBeNull();
-    expect(brain.rowCounts).toBeNull();
-    expect(brain.error).toBeNull();
+    // brain and conduit live in the same cleo.db: the same inspection (T13245).
+    expect(survey.dbs['brain']).toBe(tasks);
+    expect(survey.dbs['conduit']).toBe(tasks);
+
+    // signaldock.db wasn't seeded — should be exists: false.
+    const missing = survey.dbs['signaldock-project'];
+    expect(missing).toBeDefined();
+    if (!missing) throw new Error('signaldock-project entry absent');
+    expect(missing.exists).toBe(false);
+    expect(missing.integrityOK).toBeNull();
+    expect(missing.rowCounts).toBeNull();
+    expect(missing.error).toBeNull();
     // T10312 fields: missing DB has null elapsed + no quarantine.
-    expect(brain.quarantinedTo).toBeNull();
-    expect(brain.integrityCheckMs).toBeNull();
-    expect(brain.timedOut).toBe(false);
+    expect(missing.quarantinedTo).toBeNull();
+    expect(missing.integrityCheckMs).toBeNull();
+    expect(missing.timedOut).toBe(false);
   });
 
   it('surfaces integrityOK=false + suggestedFix when the DB is corrupt', async () => {
@@ -247,7 +251,7 @@ describe('doctor db-substrate (T10307)', () => {
     const projectRoot = createProjectWithTasksDb('project-corrupt');
 
     // Overwrite tasks.db with garbage AFTER seedHealthyDb wrote it.
-    seedCorruptDb(join(projectRoot, '.cleo', 'tasks.db'));
+    seedCorruptDb(join(projectRoot, '.cleo', 'cleo.db'));
 
     const result = surveyDbSubstrate(projectRoot);
     const survey = result.projects[0];
@@ -310,7 +314,7 @@ describe('doctor db-substrate (T10307)', () => {
     try {
       const projectB = join(secondRoot, 'project-b');
       mkdirSync(join(projectB, '.cleo'), { recursive: true });
-      seedHealthyDb(join(projectB, '.cleo', 'tasks.db'));
+      seedHealthyDb(join(projectB, '.cleo', 'cleo.db'));
 
       // fleetRoot listed twice: project-a must still appear exactly once.
       const result = surveyFleetDbSubstrate([fleetRoot, secondRoot, fleetRoot]);
@@ -382,7 +386,7 @@ describe('doctor db-substrate (T10307)', () => {
     expect(tasksEntry).toBeDefined();
     if (!tasksEntry) return;
     expect(resolveInventoryFilePath(tasksEntry, projectRoot)).toBe(
-      join(projectRoot, '.cleo', 'tasks.db'),
+      join(projectRoot, '.cleo', 'cleo.db'),
     );
 
     // nexus.db is global-tier — should resolve under cleoHomeOverride.
@@ -514,7 +518,7 @@ describe('doctor db-substrate (T10307)', () => {
     const fleetCleoDir = join(fleetRoot, '.cleo');
     mkdirSync(fleetCleoDir, { recursive: true });
     writeFileSync(join(fleetCleoDir, 'project-info.json'), JSON.stringify({ name: 'root' }));
-    seedHealthyDb(join(fleetCleoDir, 'tasks.db'));
+    seedHealthyDb(join(fleetCleoDir, 'cleo.db'));
     createProjectWithTasksDb('child-project');
 
     const result = surveyFleetDbSubstrate(fleetRoot);
@@ -571,7 +575,9 @@ describe('doctor db-substrate (T10307)', () => {
     mkdirSync(join(projectRoot, '.cleo', 'blobs'), { recursive: true });
     // Build a manifest.db with a populated journal that would otherwise
     // confuse a less-careful check.
-    const tasksFolder = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks/');
+    const tasksFolder = resolveInventoryMigrationsFolder(
+      'packages/core/migrations/drizzle-cleo-project/',
+    );
     seedDbWithMigrationJournal(manifestPath, tasksFolder);
 
     const result = surveyDbSubstrate(projectRoot);
@@ -587,9 +593,11 @@ describe('doctor db-substrate (T10307)', () => {
     );
     const projectRoot = join(fleetRoot, 'healthy-coverage');
     mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
-    const tasksFolder = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks/');
+    const tasksFolder = resolveInventoryMigrationsFolder(
+      'packages/core/migrations/drizzle-cleo-project/',
+    );
     const onDisk = readMigrationFiles({ migrationsFolder: tasksFolder });
-    seedDbWithMigrationJournal(join(projectRoot, '.cleo', 'tasks.db'), tasksFolder);
+    seedDbWithMigrationJournal(join(projectRoot, '.cleo', 'cleo.db'), tasksFolder);
 
     const result = surveyDbSubstrate(projectRoot);
     const tasks = result.projects[0]?.dbs['tasks'];
@@ -608,10 +616,12 @@ describe('doctor db-substrate (T10307)', () => {
     );
     const projectRoot = join(fleetRoot, 'orphan-row');
     mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
-    const tasksFolder = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks/');
+    const tasksFolder = resolveInventoryMigrationsFolder(
+      'packages/core/migrations/drizzle-cleo-project/',
+    );
     // Real-looking SHA-256 that will never collide with any on-disk hash.
     const fakeHash = 'deadbeef'.repeat(8);
-    seedDbWithMigrationJournal(join(projectRoot, '.cleo', 'tasks.db'), tasksFolder, {
+    seedDbWithMigrationJournal(join(projectRoot, '.cleo', 'cleo.db'), tasksFolder, {
       includeOrphanHash: fakeHash,
     });
 
@@ -634,12 +644,14 @@ describe('doctor db-substrate (T10307)', () => {
     );
     const projectRoot = join(fleetRoot, 'missing-file');
     mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
-    const tasksFolder = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks/');
+    const tasksFolder = resolveInventoryMigrationsFolder(
+      'packages/core/migrations/drizzle-cleo-project/',
+    );
     const onDisk = readMigrationFiles({ migrationsFolder: tasksFolder });
     // Skip the last 2 hashes from the journal to simulate migrations that
     // were never applied yet. Drizzle's `migrate()` would pick them up on
     // next open — the survey just needs to surface them.
-    seedDbWithMigrationJournal(join(projectRoot, '.cleo', 'tasks.db'), tasksFolder, {
+    seedDbWithMigrationJournal(join(projectRoot, '.cleo', 'cleo.db'), tasksFolder, {
       skipLastN: 2,
     });
 
@@ -668,8 +680,10 @@ describe('doctor db-substrate (T10307)', () => {
     );
     const projectRoot = join(fleetRoot, 'both-drifts');
     mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
-    const tasksFolder = resolveInventoryMigrationsFolder('packages/core/migrations/drizzle-tasks/');
-    seedDbWithMigrationJournal(join(projectRoot, '.cleo', 'tasks.db'), tasksFolder, {
+    const tasksFolder = resolveInventoryMigrationsFolder(
+      'packages/core/migrations/drizzle-cleo-project/',
+    );
+    seedDbWithMigrationJournal(join(projectRoot, '.cleo', 'cleo.db'), tasksFolder, {
       skipLastN: 1,
       includeOrphanHash: 'cafebabe'.repeat(8),
     });
@@ -745,7 +759,7 @@ describe('doctor db-substrate (T10307)', () => {
       _resetCleoPlatformPathsCache(),
     );
     const projectRoot = createProjectWithTasksDb('corrupt-pragma-project');
-    seedCorruptDb(join(projectRoot, '.cleo', 'tasks.db'));
+    seedCorruptDb(join(projectRoot, '.cleo', 'cleo.db'));
 
     const result = surveyDbSubstrate(projectRoot);
     const tasks = result.projects[0]?.dbs['tasks'];
@@ -791,7 +805,7 @@ describe('doctor db-substrate (T10307)', () => {
       _resetCleoPlatformPathsCache(),
     );
     const projectRoot = createProjectWithTasksDb('override-pragma-project');
-    const dbPath = join(projectRoot, '.cleo', 'tasks.db');
+    const dbPath = join(projectRoot, '.cleo', 'cleo.db');
 
     const writer = new DatabaseSyncCtor(dbPath);
     try {
@@ -861,43 +875,120 @@ describe('doctor db-substrate (T10307)', () => {
       _resetCleoPlatformPathsCache(),
     );
     const projectRoot = createProjectWithTasksDb('project-auto-quarantine');
-    const tasksDbPath = join(projectRoot, '.cleo', 'tasks.db');
-
-    // Replace healthy tasks.db with garbage AFTER seedHealthyDb wrote it.
-    seedCorruptDb(tasksDbPath);
+    // A role with no legacy file of its own (the project signaldock.db).
+    const dbPath = join(projectRoot, '.cleo', 'signaldock.db');
+    seedCorruptDb(dbPath);
 
     // Also create sidecar -wal + -shm so we can verify they're preserved.
-    writeFileSync(`${tasksDbPath}-wal`, 'placeholder wal sidecar');
-    writeFileSync(`${tasksDbPath}-shm`, 'placeholder shm sidecar');
+    writeFileSync(`${dbPath}-wal`, 'placeholder wal sidecar');
+    writeFileSync(`${dbPath}-shm`, 'placeholder shm sidecar');
 
     const result = surveyDbSubstrate(projectRoot);
     const survey = result.projects[0];
     if (!survey) throw new Error('survey absent');
-    const tasks = survey.dbs['tasks'];
-    if (!tasks) throw new Error('tasks entry absent');
+    const entry = survey.dbs['signaldock-project'];
+    if (!entry) throw new Error('signaldock-project entry absent');
 
     // Auto-quarantine fired — the structured envelope carries the path.
-    expect(tasks.integrityOK).toBe(false);
-    expect(tasks.quarantinedTo).not.toBeNull();
-    if (tasks.quarantinedTo === null) throw new Error('quarantinedTo absent');
+    expect(entry.integrityOK).toBe(false);
+    expect(entry.quarantinedTo).not.toBeNull();
+    if (entry.quarantinedTo === null) throw new Error('quarantinedTo absent');
 
-    // Path lives under <projectRoot>/.cleo/quarantine/tasks-malformed-<iso>/.
-    expect(tasks.quarantinedTo).toContain(join(projectRoot, '.cleo', 'quarantine'));
-    expect(tasks.quarantinedTo).toMatch(/tasks-malformed-/);
+    // Path lives under <projectRoot>/.cleo/quarantine/<role>-malformed-<iso>/.
+    expect(entry.quarantinedTo).toContain(join(projectRoot, '.cleo', 'quarantine'));
+    expect(entry.quarantinedTo).toMatch(/signaldock-project-malformed-/);
 
     // Corrupt DB has been moved off the live path.
-    expect(existsSync(tasksDbPath)).toBe(false);
+    expect(existsSync(dbPath)).toBe(false);
 
     // Quarantine directory contains the .malformed file + both sidecars.
-    expect(existsSync(join(tasks.quarantinedTo, 'tasks.db.malformed'))).toBe(true);
-    expect(existsSync(join(tasks.quarantinedTo, 'tasks.db.malformed-wal'))).toBe(true);
-    expect(existsSync(join(tasks.quarantinedTo, 'tasks.db.malformed-shm'))).toBe(true);
+    expect(existsSync(join(entry.quarantinedTo, 'signaldock.db.malformed'))).toBe(true);
+    expect(existsSync(join(entry.quarantinedTo, 'signaldock.db.malformed-wal'))).toBe(true);
+    expect(existsSync(join(entry.quarantinedTo, 'signaldock.db.malformed-shm'))).toBe(true);
 
     // suggestedFix carries the recover command + quarantine path so the
     // operator has a single one-liner without poking at structured fields.
-    expect(tasks.suggestedFix).not.toBeNull();
-    expect(tasks.suggestedFix).toContain('cleo backup recover tasks');
-    expect(tasks.suggestedFix).toContain(tasks.quarantinedTo);
+    expect(entry.suggestedFix).not.toBeNull();
+    expect(entry.suggestedFix).toContain('cleo backup recover signaldock-project');
+    expect(entry.suggestedFix).toContain(entry.quarantinedTo);
+  });
+
+  it('T13245: the live project store (tasks, brain, conduit) is inspected once and never quarantined', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const projectRoot = createProjectWithTasksDb('project-store-no-quarantine');
+    const storePath = join(projectRoot, '.cleo', 'cleo.db');
+    seedCorruptDb(storePath);
+    writeFileSync(`${storePath}-wal`, 'placeholder wal sidecar');
+
+    const survey = surveyDbSubstrate(projectRoot).projects[0];
+    if (!survey) throw new Error('survey absent');
+    const [tasks, brain, conduit] = [
+      survey.dbs['tasks'],
+      survey.dbs['brain'],
+      survey.dbs['conduit'],
+    ];
+    expect(tasks?.filePath).toBe(storePath);
+    // One inspection, reported under each role sharing the file.
+    expect(brain).toBe(tasks);
+    expect(conduit).toBe(tasks);
+    expect(tasks?.integrityOK).toBe(false);
+    // Never moved: the guarded restore recovers it.
+    expect(tasks?.quarantinedTo).toBeNull();
+    expect(existsSync(storePath)).toBe(true);
+    expect(existsSync(`${storePath}-wal`)).toBe(true);
+    expect(tasks?.suggestedFix).toBe('cleo backup recover tasks');
+  });
+
+  it('T13245: default mode never renames, moves or deletes .cleo/cleo.db or its -wal/-shm, slow or failing', async () => {
+    await import('@cleocode/paths').then(({ _resetCleoPlatformPathsCache }) =>
+      _resetCleoPlatformPathsCache(),
+    );
+    const files = (store: string) => [store, `${store}-wal`, `${store}-shm`];
+
+    // 1. A SLOW integrity_check: a healthy WAL store held open by a writer (so
+    //    its -wal/-shm exist), with the clock jumping past the 60 s budget.
+    const slowRoot = join(fleetRoot, 'project-store-slow');
+    mkdirSync(join(slowRoot, '.cleo'), { recursive: true });
+    const slowStore = join(slowRoot, '.cleo', 'cleo.db');
+    const writer = new DatabaseSyncCtor(slowStore);
+    try {
+      writer.exec(`PRAGMA journal_mode=WAL;
+        CREATE TABLE tasks_tasks (id TEXT PRIMARY KEY);
+        INSERT INTO tasks_tasks VALUES ('T1');`);
+      for (const f of files(slowStore)) expect(existsSync(f), f).toBe(true);
+      let clock = 1_000_000;
+      const now = vi.spyOn(Date, 'now').mockImplementation(() => {
+        clock += 61_000;
+        return clock;
+      });
+      let slow: ReturnType<typeof surveyDbSubstrate>;
+      try {
+        slow = surveyDbSubstrate(slowRoot);
+      } finally {
+        now.mockRestore();
+      }
+      const tasks = slow.projects[0]?.dbs['tasks'];
+      expect(tasks?.timedOut).toBe(true);
+      expect(tasks?.integrityOK).toBe(false);
+      expect(tasks?.quarantinedTo).toBeNull();
+      for (const f of files(slowStore)) expect(existsSync(f), f).toBe(true);
+    } finally {
+      writer.close();
+    }
+
+    // 2. A FAILING integrity_check: garbage bytes plus sidecars.
+    const badRoot = createProjectWithTasksDb('project-store-corrupt-sidecars');
+    const badStore = join(badRoot, '.cleo', 'cleo.db');
+    seedCorruptDb(badStore);
+    writeFileSync(`${badStore}-wal`, 'placeholder wal sidecar');
+    writeFileSync(`${badStore}-shm`, 'placeholder shm sidecar');
+    const bad = surveyDbSubstrate(badRoot).projects[0]?.dbs['tasks'];
+    expect(bad?.integrityOK).toBe(false);
+    expect(bad?.quarantinedTo).toBeNull();
+    for (const f of files(badStore)) expect(existsSync(f), f).toBe(true);
+    expect(readdirSync(join(badRoot, '.cleo'))).not.toContain('quarantine');
   });
 
   it('T10312: --no-quarantine leaves the corrupt DB in place', async () => {
@@ -905,7 +996,7 @@ describe('doctor db-substrate (T10307)', () => {
       _resetCleoPlatformPathsCache(),
     );
     const projectRoot = createProjectWithTasksDb('project-no-quarantine');
-    const tasksDbPath = join(projectRoot, '.cleo', 'tasks.db');
+    const tasksDbPath = join(projectRoot, '.cleo', 'cleo.db');
     seedCorruptDb(tasksDbPath);
 
     const result = surveyDbSubstrate(projectRoot, { autoQuarantine: false });
@@ -1044,15 +1135,16 @@ describe('doctor db-substrate (T10307)', () => {
     options: { taskIds: string[]; sessionIds: string[] },
   ): void {
     const writer = new DatabaseSyncCtor(dbPath);
+    // The consolidated store's prefixed tables (T13245).
     writer.exec(
-      `CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT);
-       CREATE TABLE sessions (id TEXT PRIMARY KEY, scope TEXT);`,
+      `CREATE TABLE tasks_tasks (id TEXT PRIMARY KEY, title TEXT);
+       CREATE TABLE tasks_sessions (id TEXT PRIMARY KEY, scope TEXT);`,
     );
-    const insertTask = writer.prepare('INSERT INTO tasks (id, title) VALUES (?, ?)');
+    const insertTask = writer.prepare('INSERT INTO tasks_tasks (id, title) VALUES (?, ?)');
     for (const id of options.taskIds) {
       insertTask.run(id, `title-for-${id}`);
     }
-    const insertSession = writer.prepare('INSERT INTO sessions (id, scope) VALUES (?, ?)');
+    const insertSession = writer.prepare('INSERT INTO tasks_sessions (id, scope) VALUES (?, ?)');
     for (const id of options.sessionIds) {
       insertSession.run(id, 'global');
     }
@@ -1228,11 +1320,11 @@ describe('doctor db-substrate (T10307)', () => {
       JSON.stringify({ projectId: `substrate-${name}` }),
     );
 
-    seedTasksDbForCrossDb(join(cleoDir, 'tasks.db'), {
+    seedTasksDbForCrossDb(join(cleoDir, 'cleo.db'), {
       taskIds: ['T100'],
       sessionIds: ['ses_live'],
     });
-    seedBrainDbForCrossDb(join(cleoDir, 'brain.db'), {
+    seedBrainDbForCrossDb(join(cleoDir, 'cleo.db'), {
       linkTaskIds: ['T100', 'T999'], // T999 is the orphan
       pageNodeIds: ['task:T100'],
       observationIds: ['O-anchor-1'],
@@ -1250,7 +1342,7 @@ describe('doctor db-substrate (T10307)', () => {
       { projectId: expectedId, projectPath: `${projectRoot}-MOVED` },
     ]);
     seedLlmtxtDbForCrossDb(join(llmtxtDir, 'llmtxt.db'), ['ses_live', 'ses_orphan']);
-    seedConduitDbForCrossDb(join(cleoDir, 'conduit.db'), [
+    seedConduitDbForCrossDb(join(cleoDir, 'cleo.db'), [
       'T100', // resolves via tasks
       'task:T100', // resolves via brain_page_nodes
       'O-anchor-1', // resolves via brain_observations
@@ -1338,11 +1430,11 @@ describe('doctor db-substrate (T10307)', () => {
   it('T10323: I1 reports zero orphans when every brain link anchors a live task', () => {
     const projectRoot = join(fleetRoot, 'i1-clean');
     mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
-    seedTasksDbForCrossDb(join(projectRoot, '.cleo', 'tasks.db'), {
+    seedTasksDbForCrossDb(join(projectRoot, '.cleo', 'cleo.db'), {
       taskIds: ['T1', 'T2'],
       sessionIds: [],
     });
-    seedBrainDbForCrossDb(join(projectRoot, '.cleo', 'brain.db'), {
+    seedBrainDbForCrossDb(join(projectRoot, '.cleo', 'cleo.db'), {
       linkTaskIds: ['T1', 'T2'],
     });
 
@@ -1397,7 +1489,7 @@ describe('doctor db-substrate (T10307)', () => {
     const cleoDir = join(projectRoot, '.cleo');
     const llmtxtDir = join(cleoDir, 'llmtxt');
     mkdirSync(llmtxtDir, { recursive: true });
-    seedTasksDbForCrossDb(join(cleoDir, 'tasks.db'), { taskIds: [], sessionIds: [] });
+    seedTasksDbForCrossDb(join(cleoDir, 'cleo.db'), { taskIds: [], sessionIds: [] });
 
     // Seed an llmtxt.db with a `documents` table that has NO session_id.
     const writer = new DatabaseSyncCtor(join(llmtxtDir, 'llmtxt.db'));
@@ -1418,7 +1510,7 @@ describe('doctor db-substrate (T10307)', () => {
   it('T10323: orphan reports are bounded — never more than 100 candidate rows scanned', () => {
     const projectRoot = join(fleetRoot, 'i1-bounded');
     mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
-    seedTasksDbForCrossDb(join(projectRoot, '.cleo', 'tasks.db'), {
+    seedTasksDbForCrossDb(join(projectRoot, '.cleo', 'cleo.db'), {
       taskIds: [],
       sessionIds: [],
     });
@@ -1427,7 +1519,7 @@ describe('doctor db-substrate (T10307)', () => {
     for (let i = 0; i < 150; i += 1) {
       ids.push(`T-orphan-${i}`);
     }
-    seedBrainDbForCrossDb(join(projectRoot, '.cleo', 'brain.db'), { linkTaskIds: ids });
+    seedBrainDbForCrossDb(join(projectRoot, '.cleo', 'cleo.db'), { linkTaskIds: ids });
 
     const reports = walkCrossDbInvariants(projectRoot);
     const i1 = reports.find((r) => r.invariant === 'I1');
