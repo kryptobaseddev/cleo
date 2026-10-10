@@ -28,6 +28,16 @@ export async function probeInstalledHooks({ bin, project, installDir, env }) {
     throw new Error(
       'Installed SDK hook probe requires a process launched with the isolated environment',
     );
+  const require = createRequire(join(installDir, 'package.json'));
+  // Check the installed public asset directly: CLI bootstrap fail-open can hide missing delivery code.
+  const heavy = await import(
+    pathToFileURL(require.resolve('@cleocode/adapters/heavy-command-hook')).href
+  );
+  if (
+    typeof heavy.inspectProjectHeavyCommandHooks !== 'function' ||
+    typeof heavy.syncProjectHeavyCommandHooks !== 'function'
+  )
+    throw new Error('Installed heavy-command hook delivery API is missing');
   const call = (file, args, input, expected = 0) => {
     const result = spawnSync(file, args, {
       cwd: project,
@@ -143,7 +153,6 @@ const request=JSON.parse(text);if(request.source==='worktree')appendFileSync('ho
     git('--git-dir', remote, 'for-each-ref', '--format=%(refname)').includes('refs/heads/blocked')
   )
     throw new Error('Blocked ref reached remote');
-  const require = createRequire(join(installDir, 'package.json'));
   const core = await import(
     pathToFileURL(require.resolve('@cleocode/core/hooks/project-runner')).href
   );
@@ -174,7 +183,7 @@ const request=JSON.parse(text);if(request.source==='worktree')appendFileSync('ho
     call(bin, ['doctor', 'hooks', '--providers', 'codex,claude-code'], undefined, 1),
   ).data;
   if (drift.activation !== 'drifted') throw new Error('Executable drift was not detected');
-  return 'installed activation, native ordinary command, actual allow/block pushes, worktree port and executable drift verified';
+  return 'installed heavy-command delivery asset, activation, native ordinary command, actual allow/block pushes, worktree port and executable drift verified';
 }
 
 /** Pack the complete publish cohort and retain an isolated installed hook probe. */
