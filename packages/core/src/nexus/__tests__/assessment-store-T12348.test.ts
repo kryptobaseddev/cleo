@@ -270,13 +270,19 @@ describe('assessment summary and reference list (T12348)', () => {
       }
     });
 
-    it('streams a list far larger than the reader heap without holding it', () => {
-      // 300 000 references (~75 MB of JSON) read by a process capped at 32 MiB:
-      // only a reader that drops each reference after counting it survives.
+    it('pages a list far larger than the reader heap, keeping only the page', () => {
+      // 300 000 references (~75 MB of JSON) paged by a process capped at 32 MiB,
+      // through the same stream and fold the status reader uses: only a reader
+      // that drops each reference after counting it survives.
       const directory = mkdtempSync(join(tmpdir(), 'nexus-references-stream-'));
       try {
+        writeFileSync(
+          join(directory, 'entry.ts'),
+          `export { streamStoredReferences } from ${JSON.stringify(fileURLToPath(new URL('../assessment-store.ts', import.meta.url)))};
+          export { pageReferences } from ${JSON.stringify(fileURLToPath(new URL('../assessment-projection.ts', import.meta.url)))};`,
+        );
         buildSync({
-          entryPoints: [fileURLToPath(new URL('../assessment-store.ts', import.meta.url))],
+          entryPoints: [join(directory, 'entry.ts')],
           outfile: join(directory, 'store.mjs'),
           bundle: true,
           platform: 'node',
@@ -287,7 +293,7 @@ describe('assessment summary and reference list (T12348)', () => {
           `
           import assert from 'node:assert/strict';
           import { gzipSync } from 'node:zlib';
-          import { streamStoredReferences } from './store.mjs';
+          import { pageReferences, streamStoredReferences } from './store.mjs';
           // Built member by member, in the stored format, so the writer holds no list either.
           const members = [];
           let text = '[';
@@ -297,14 +303,15 @@ describe('assessment summary and reference list (T12348)', () => {
           }
           members.push(gzipSync(text + '\\n]'));
           const blob = Buffer.concat(members);
-          let count = 0;
-          const kept = [];
-          for await (const { item } of streamStoredReferences(blob)) {
-            count++;
-            if (kept.length < 20) kept.push(item);
-          }
-          assert.equal(count, 300000);
-          assert.equal(kept[19].sourceId, 'a.ts::fn19');
+          const result = await pageReferences(streamStoredReferences(blob), { limit: 20, offset: 299970 }, {
+            kind: (item) => item.kind,
+            row: (item) => item,
+          });
+          assert.equal(result.count, 300000);
+          assert.equal(result.byKind.external + result.byKind.unresolved, 300000);
+          assert.equal(result.page.returned, 20);
+          assert.equal(result.page.rows[19].sourceId, 'a.ts::fn299989');
+          assert.equal(result.page.nextOffset, 299990);
           `,
         );
         execFileSync(process.execPath, ['--max-old-space-size=32', join(directory, 'probe.mjs')], {

@@ -14,7 +14,6 @@ import { promisify } from 'node:util';
 import type {
   GraphIndexAssessment,
   GraphIndexFileReport,
-  GraphIndexReferenceKindCounts,
   GraphIndexReferenceReport,
   KnowledgeCoverage,
   KnowledgeCoverageStatus,
@@ -26,7 +25,11 @@ import { z } from 'zod';
 import { getProjectRoot, worktreeScope } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
 import { getNexusDb, getNexusNativeDb, nexusSchema } from '../store/nexus-sqlite.js';
-import type { ReferencePageRequest, ReferencePageResult } from './assessment-projection.js';
+import {
+  pageReferences,
+  type ReferencePageRequest,
+  type ReferencePageResult,
+} from './assessment-projection.js';
 import {
   ASSESSMENT_KEY,
   ASSESSMENT_REFERENCES_KEY,
@@ -374,45 +377,15 @@ export async function readKnowledgeIndexReferencePage(
       throw new Error('Graph assessment reports references, but none are stored.');
     items = row ? streamStoredReferences(row.value) : [];
   }
-  const byKind: GraphIndexReferenceKindCounts = {
-    'unmodeled-source': 0,
-    ambiguous: 0,
-    external: 0,
-    dynamic: 0,
-    shadowed: 0,
-    unresolved: 0,
-  };
-  const rows: GraphIndexReferenceReport[] = [];
-  let count = 0;
-  let matching = 0;
-  let bytes = 0;
-  for await (const { item, bytes: size } of items) {
-    const { kind } = referenceKindSchema.parse(item);
-    byKind[kind] += 1;
-    count += 1;
-    bytes += size;
-    if (request.kind !== undefined && kind !== request.kind) continue;
-    if (matching >= request.offset && rows.length < request.limit)
-      rows.push(referenceSchema.parse(item));
-    matching += 1;
-  }
-  if (assessment.referenceCount !== undefined && count !== assessment.referenceCount)
+  const result = await pageReferences(items, request, {
+    kind: (item) => referenceKindSchema.parse(item).kind,
+    row: (item) => referenceSchema.parse(item),
+  });
+  if (assessment.referenceCount !== undefined && result.count !== assessment.referenceCount)
     // @sync-invariant none:input-shape a read of the stored reference list refuses malformed state; nothing is written
     throw new Error('Stored graph references disagree with the assessment reference count.');
-  const end = Math.min(request.offset + request.limit, matching);
-  return {
-    byKind,
-    bytes: bytes + 2 + Math.max(count - 1, 0),
-    page: {
-      offset: request.offset,
-      limit: request.limit,
-      ...(request.kind === undefined ? {} : { kind: request.kind }),
-      total: matching,
-      returned: rows.length,
-      nextOffset: end < matching ? end : null,
-      rows,
-    },
-  };
+  const { count: _count, ...page } = result;
+  return page;
 }
 
 /**

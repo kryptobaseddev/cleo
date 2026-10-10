@@ -29,6 +29,7 @@ import type {
   GraphIndexReferenceKind,
   GraphIndexReferenceKindCounts,
   GraphIndexReferencePage,
+  GraphIndexReferenceReport,
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
@@ -76,6 +77,7 @@ export interface AssessmentFilesFlags {
 function parseCount(flag: string, value: string | undefined): number | undefined {
   if (value === undefined) return undefined;
   if (!/^\d+$/.test(value.trim()))
+    // @sync-invariant none:input-shape a malformed CLI flag is refused before any read; nothing is written
     throw new CleoError(ExitCode.INVALID_INPUT, `--${flag} must be a non-negative integer`, {
       fix: `cleo nexus status --${flag} <n>`,
       details: { field: flag, actual: value },
@@ -96,6 +98,7 @@ function parseCount(flag: string, value: string | undefined): number | undefined
 export function parseAssessmentFilesRequest(flags: AssessmentFilesFlags): AssessmentFilesRequest {
   const status = flags.fileStatus?.trim();
   if (status !== undefined && !GRAPH_INDEX_FILE_STATUSES.some((known) => known === status))
+    // @sync-invariant none:input-shape a malformed CLI flag is refused before any read; nothing is written
     throw new CleoError(
       ExitCode.INVALID_INPUT,
       `--file-status must be one of ${GRAPH_INDEX_FILE_STATUSES.join(', ')}`,
@@ -256,6 +259,7 @@ export interface ReferencePageResult {
 export function parseReferencePageRequest(flags: ReferencePageFlags): ReferencePageRequest {
   const kind = flags.kind?.trim();
   if (kind !== undefined && !GRAPH_INDEX_REFERENCE_KINDS.some((known) => known === kind))
+    // @sync-invariant none:input-shape a malformed CLI flag is refused before any read; nothing is written
     throw new CleoError(
       ExitCode.INVALID_INPUT,
       `--reference-kind must be one of ${GRAPH_INDEX_REFERENCE_KINDS.join(', ')}`,
@@ -266,6 +270,7 @@ export function parseReferencePageRequest(flags: ReferencePageFlags): ReferenceP
     );
   const limit = parseCount('references-limit', flags.limit) ?? DEFAULT_REFERENCE_PAGE_SIZE;
   if (limit < 1 || limit > MAX_REFERENCE_PAGE_SIZE)
+    // @sync-invariant none:input-shape a malformed CLI flag is refused before any read; nothing is written
     throw new CleoError(
       ExitCode.INVALID_INPUT,
       `--references-limit must be from 1 to ${MAX_REFERENCE_PAGE_SIZE}; walk the whole list ` +
@@ -308,5 +313,73 @@ export function withReferencePage(
     _withheld: { ...projection._withheld, references: result.bytes },
     referencesByKind: result.byKind,
     referencesPage: result.page,
+  };
+}
+
+/** How {@link pageReferences} reads one stored reference. */
+export interface ReferenceReaders {
+  /** The reference's kind, validated; called for every reference. */
+  kind: (item: unknown) => GraphIndexReferenceKind;
+  /** The fully validated reference; called only for rows in the page. */
+  row: (item: unknown) => GraphIndexReferenceReport;
+}
+
+/**
+ * Fold a stream of stored references into one page plus whole-list totals (T13330).
+ *
+ * Every reference is counted by kind and then dropped; only the rows of the
+ * requested page are kept. Memory is therefore bounded by the page whatever
+ * the length of the list — 846 151 references on one repository.
+ * @param items - Stored references in stored order, with their JSON sizes.
+ * @param request - Page size, offset and optional kind filter.
+ * @param readers - Validation for a reference's kind and for a page row.
+ * @returns The page, per-kind counts, whole-list JSON size and reference count.
+ * @example
+ * ```ts
+ * const result = await pageReferences(streamStoredReferences(blob), request, readers);
+ * ```
+ */
+export async function pageReferences(
+  items:
+    | AsyncIterable<{ item: unknown; bytes: number }>
+    | Iterable<{ item: unknown; bytes: number }>,
+  request: ReferencePageRequest,
+  readers: ReferenceReaders,
+): Promise<ReferencePageResult & { count: number }> {
+  const byKind: GraphIndexReferenceKindCounts = {
+    'unmodeled-source': 0,
+    ambiguous: 0,
+    external: 0,
+    dynamic: 0,
+    shadowed: 0,
+    unresolved: 0,
+  };
+  const rows: GraphIndexReferenceReport[] = [];
+  let count = 0;
+  let matching = 0;
+  let bytes = 0;
+  for await (const { item, bytes: size } of items) {
+    const kind = readers.kind(item);
+    byKind[kind] += 1;
+    count += 1;
+    bytes += size;
+    if (request.kind !== undefined && kind !== request.kind) continue;
+    if (matching >= request.offset && rows.length < request.limit) rows.push(readers.row(item));
+    matching += 1;
+  }
+  const end = Math.min(request.offset + request.limit, matching);
+  return {
+    count,
+    byKind,
+    bytes: bytes + 2 + Math.max(count - 1, 0),
+    page: {
+      offset: request.offset,
+      limit: request.limit,
+      ...(request.kind === undefined ? {} : { kind: request.kind }),
+      total: matching,
+      returned: rows.length,
+      nextOffset: end < matching ? end : null,
+      rows,
+    },
   };
 }
