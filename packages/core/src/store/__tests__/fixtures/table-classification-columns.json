@@ -2721,6 +2721,9 @@
       "weight_after",
       "weight_before"
     ],
+    "cleo_trigger_suspend": [
+      "scope"
+    ],
     "models_catalog": [
       "attachment",
       "context_limit",
