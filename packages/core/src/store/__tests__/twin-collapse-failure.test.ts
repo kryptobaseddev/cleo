@@ -236,6 +236,31 @@ describe('a blocked backups directory', () => {
   });
 });
 
+describe('a retry that fails again (T13455)', () => {
+  it('restores the read shadows, so reads stay merged and the store stays degraded', async () => {
+    const backups = join(projectDir, '.cleo', 'backups');
+    writeFileSync(backups, 'not a directory');
+    expect(await reopen()).toBeUndefined();
+    const accessor = await createSqliteDataAccessor(projectDir);
+    expect(await accessor.getMetaValue('project_meta')).toEqual({ name: 'live' });
+
+    // Still blocked: the retry drops the shadows for its snapshot, fails again …
+    await expect(retryTwinCollapse(projectDir, { cwd: projectDir })).rejects.toMatchObject({
+      code: 55,
+    });
+    // … and the same connection keeps serving the merged view, read-only.
+    expect(await accessor.getMetaValue('project_meta')).toEqual({ name: 'live' });
+    expect(await storeWriteBlock(projectDir)).toMatchObject({ code: 55 });
+
+    rmSync(backups);
+    expect((await retryTwinCollapse(projectDir, { cwd: projectDir }))[0]).toMatchObject({
+      table: 'schema_meta',
+      status: 'initial',
+    });
+    expect(await storeWriteBlock(projectDir)).toBeNull();
+  });
+});
+
 describe('the degraded sticky shadow follows tags_json', () => {
   it('recomputes the TEMP junction from each note tags_json, not from the merge plan alone (T12724)', async () => {
     // The bare junction and the note's tags_json disagree: the merge plan
