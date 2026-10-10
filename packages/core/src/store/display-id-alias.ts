@@ -631,7 +631,7 @@ export function remintTaskDisplayId(
     .get(taskId) as { uid: string | null; birthFp: string | null } | undefined;
   if (!row?.uid || !row.birthFp) {
     throw new CleoError(ExitCode.NOT_FOUND, `No task ${taskId} with a uid and birth fingerprint`, {
-      fix: 'Check the id with `cleo show`; row identity is filled when CLEO_ROW_UID_FILL=1.',
+      fix: 'Check the id with `cleo show`; row identity is not filled while CLEO_ROW_UID_FILL=0.',
       details: { field: 'taskId', actual: taskId },
     });
   }

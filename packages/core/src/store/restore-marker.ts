@@ -253,6 +253,13 @@ export interface RestoreMarkerHold {
    * processes may already be writing) or another process replaced it.
    */
   readonly intact: () => boolean;
+  /**
+   * Whether another holder took the marker over: the file on disk is no
+   * longer the one written here (replaced, or replaced and already released).
+   * Only a new holder removes or replaces a held marker, and only after it
+   * went stale, so a holder that sees this no longer owns what it guarded.
+   */
+  readonly takenOver: () => boolean;
 }
 
 /**
@@ -304,6 +311,7 @@ export function holdRestoreMarker(dbPath: string, kind: RestoreMarker['kind']): 
       if (ours()) rmSync(file, { force: true });
     },
     intact: () => !released && Date.now() - startedMs <= RESTORE_MARKER_MAX_AGE_MS && ours(),
+    takenOver: () => !released && !ours(),
   };
 }
 
