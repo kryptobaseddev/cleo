@@ -26,7 +26,8 @@ import { CleoError } from '../errors.js';
 import { generateSessionId } from '../sessions/session-id.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { withLock } from '../store/lock.js';
-import { endSession } from '../store/session-store.js';
+import { endSession, getSession } from '../store/session-store.js';
+import { isClaimExpired, taskClaimedError } from '../store/task-claim.js';
 import {
   claimSpawnedTask,
   releaseSpawnClaim,
@@ -234,6 +235,10 @@ export async function requireSpawnSession(
       cause,
     };
   }
+  if (identity.reused) {
+    const refusal = await refuseLiveWorkerSession(projectRoot, taskId, identity);
+    if (refusal) return refusal;
+  }
   let claim: SpawnClaimReceipt;
   try {
     claim = await claimSpawnedTask(projectRoot, taskId, {
@@ -259,6 +264,90 @@ export async function requireSpawnSession(
     };
   }
   return { ok: true, identity, claim };
+}
+
+/**
+ * Refuse a re-spawn that would hand the child a session a live worker is
+ * already using (T13491, axiom T1544). A re-spawn reuses the task's per-agent
+ * session; when that session holds a live lease on the task AND has done work
+ * since it took it (its `lastActivity` moved past `claimedAt`), a worker is
+ * running under it, and a second agent bound to the same session would bleed
+ * into it. The orchestrator gets `E_TASK_CLAIMED` naming the holder, and a
+ * hand-off instead of a prompt.
+ *
+ * The holder stops counting as live through the existing rules only: ending
+ * its session releases the lease and worktree lock (T13425, SQL trigger), and
+ * a lease its worker stopped renewing expires. Reusing a session whose lease
+ * expired is audited (`spawn_session_reclaim`). A session that never did work
+ * after its spawn (a prompt the orchestrator asks for again) is reused as before.
+ *
+ * shortcut: activity is throttled to one write a minute (SESSION_ACTIVITY_THROTTLE_MS),
+ * so a worker active only within its first minute is not yet detected; its
+ * lease and worktree lock still guard the task.
+ *
+ * @param projectRoot - Project root.
+ * @param taskId - The task being spawned.
+ * @param identity - The reused per-agent session.
+ * @returns The refusal, or `null` to continue the spawn.
+ * @task T13491
+ */
+async function refuseLiveWorkerSession(
+  projectRoot: string,
+  taskId: string,
+  identity: SpawnAgentIdentity,
+): Promise<Extract<SpawnSessionResolution, { ok: false }> | null> {
+  const acc = await getTaskAccessor(projectRoot);
+  const held = (await acc.loadSingleTask(taskId))?.claim;
+  if (!held || held.sessionId !== identity.sessionId) return null;
+  const now = new Date().toISOString();
+  if (isClaimExpired(held, now)) {
+    await acc.appendLog({
+      action: 'spawn_session_reclaim',
+      taskId,
+      actor: identity.agentId,
+      sessionId: identity.sessionId,
+      timestamp: now,
+      details: { reason: 'lease-expired', leaseExpiresAt: held.leaseExpiresAt },
+      before: held,
+    });
+    return null;
+  }
+  const session = await getSession(identity.sessionId, projectRoot);
+  const worked = (Date.parse(session?.lastActivity ?? '') || 0) > Date.parse(held.claimedAt);
+  if (!worked) return null;
+  const err = taskClaimedError(
+    taskId,
+    held,
+    { sessionId: null, agentId: null },
+    now,
+    'orchestrate spawn',
+  );
+  const who = held.agentId
+    ? `session ${held.sessionId} (agent ${held.agentId})`
+    : `session ${held.sessionId}`;
+  const message =
+    `Refusing to spawn ${taskId}: a live worker is using ${who}, the session this spawn would hand the child; ` +
+    `lease expires ${held.leaseExpiresAt}, last activity ${session?.lastActivity ?? 'unknown'}.`;
+  return {
+    ok: false,
+    code: 'E_TASK_CLAIMED',
+    exitCode: ExitCode.TASK_CLAIMED,
+    message,
+    fix:
+      `Hand off instead of spawning over it: coordinate with that worker, or once it has stopped end its session ` +
+      `(cleo session end --session ${held.sessionId}), which releases its claim and worktree lock, then spawn again. ` +
+      `A worker that stops renewing loses the lease at ${held.leaseExpiresAt}; the next spawn then reuses the session (audited).`,
+    cause: message,
+    details: {
+      ...(err.details ?? {}),
+      handoff: {
+        holderSessionId: held.sessionId,
+        holderAgentId: held.agentId,
+        leaseExpiresAt: held.leaseExpiresAt,
+        lastActivity: session?.lastActivity ?? null,
+      },
+    },
+  };
 }
 
 /**
