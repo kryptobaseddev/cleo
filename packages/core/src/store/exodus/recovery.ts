@@ -32,13 +32,28 @@ function identifier(value: string): string {
 
 /** SQLite encodes every value without lossy JS numbers or NUL string truncation. */
 function image(columns: readonly string[]): string {
-  return `json_array(${columns
-    .map((name) => {
-      const col = identifier(name);
-      return `json_array(typeof(${col}), CASE WHEN typeof(${col}) IN ('text','blob') THEN hex(${col}) ELSE quote(${col}) END)`;
-    })
+  return identityImageSql(columns.map(identifier));
+}
+
+/**
+ * The SQL image of a row identity as copy receipts record it (`identity_json`),
+ * over arbitrary SQL value expressions: a caller comparing other rows with
+ * recorded identities builds them the same way (T13309).
+ *
+ * @param expressions - One SQL expression per key column, in key order.
+ * @returns A SQL expression evaluating to the identity image.
+ */
+export function identityImageSql(expressions: readonly string[]): string {
+  return `json_array(${expressions
+    .map(
+      (col) =>
+        `json_array(typeof(${col}), CASE WHEN typeof(${col}) IN ('text','blob') THEN hex(${col}) ELSE quote(${col}) END)`,
+    )
     .join(',')})`;
 }
+
+/** The table holding copy receipts in an Exodus target. */
+export const EXODUS_RECEIPTS_TABLE = RECEIPTS;
 
 function tableShape(db: DatabaseSync, schema: string, table: string) {
   const sql = db
@@ -518,6 +533,15 @@ export function rollbackExodusReceipts(db: DatabaseSync, operation: string): num
       .filter((row) => !beforeViolations.has(JSON.stringify(row)));
     if (introduced.length)
       throw new ExodusRecoveryError('Exodus recovery would orphan unrelated rows');
+    // The rolled-back copy's value lineage goes with it (T12711).
+    if (
+      db
+        .prepare("SELECT 1 FROM main.sqlite_master WHERE type='table' AND name=?")
+        .get(EXODUS_VALUE_MAP_TABLE)
+    )
+      db.prepare(`DELETE FROM main.${identifier(EXODUS_VALUE_MAP_TABLE)} WHERE operation_id=?`).run(
+        operation,
+      );
     db.exec('COMMIT');
     return guarded.length;
   } catch (error) {
@@ -581,5 +605,82 @@ export function hasExodusDatabaseIdentity(db: DatabaseSync, token: string): bool
     present &&
       db.prepare('SELECT token FROM main._exodus_database_identity WHERE id=1').get()?.token ===
         token,
+  );
+}
+
+/** The table recording each legacy value a copy mapped to another (T12711). */
+export const EXODUS_VALUE_MAP_TABLE = '_exodus_recovery_value_map';
+
+/** One mapped column of an Exodus copy, for {@link recordExodusValueMap}. */
+export interface ExodusValueMapping {
+  /** Recovery operation of the copy; its rollback removes these records. */
+  readonly operation: string;
+  /** Logical source name (`LegacyDbDescriptor.name`). */
+  readonly sourceDb: string;
+  /** Source table, as attached. */
+  readonly sourceTable: string;
+  /** Target table the rows landed in. */
+  readonly targetTable: string;
+  /** The mapped column. */
+  readonly column: string;
+  /** SQL expression of the legacy value, over `fromSql`. */
+  readonly legacyExpr: string;
+  /** SQL expression of the value the copy wrote, over `fromSql`. */
+  readonly mappedExpr: string;
+  /** The target table's key columns, in key order. */
+  readonly keyColumns: readonly string[];
+  /** SQL expressions of the target row's key, in `keyColumns` order, over `fromSql`. */
+  readonly keyExprs: readonly string[];
+  /** The `FROM` clause naming the attached source table. */
+  readonly fromSql: string;
+}
+
+/**
+ * Record, in the Exodus target, every source row whose value in one column the
+ * copy mapped to a different value and which the target now holds (T12711):
+ * the legacy value, what it became, and the target row's key. The record is lineage, local to the store like the
+ * copy receipts; a re-run keeps the first record per row and column.
+ *
+ * @param db - The target connection, inside the copy's transaction.
+ * @param schema - Schema the target lives in (`main` or an attach alias).
+ * @param mapping - The mapped column and its expressions.
+ * @returns Records written.
+ */
+export function recordExodusValueMap(
+  db: DatabaseSync,
+  schema: string,
+  mapping: ExodusValueMapping,
+): number {
+  const table = `${identifier(schema)}.${identifier(EXODUS_VALUE_MAP_TABLE)}`;
+  db.exec(`CREATE TABLE IF NOT EXISTS ${table} (
+    operation_id TEXT NOT NULL,
+    source_db TEXT NOT NULL,
+    source_table TEXT NOT NULL,
+    target_table TEXT NOT NULL,
+    column_name TEXT NOT NULL,
+    identity_json TEXT NOT NULL,
+    legacy_value TEXT,
+    mapped_value TEXT,
+    PRIMARY KEY (target_table, column_name, identity_json)
+  )`);
+  const legacy = `(${mapping.legacyExpr})`;
+  const mapped = `(${mapping.mappedExpr})`;
+  return Number(
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO ${table} (operation_id, source_db, source_table, target_table, column_name, identity_json, legacy_value, mapped_value) ` +
+          `SELECT ?, ?, ?, ?, ?, json_array(${mapping.keyExprs.join(', ')}), ${legacy}, ${mapped} ` +
+          `FROM ${mapping.fromSql} WHERE ${legacy} IS NOT ${mapped} ` +
+          `AND EXISTS (SELECT 1 FROM ${identifier(schema)}.${identifier(mapping.targetTable)} AS landed WHERE ${mapping.keyColumns
+            .map((c, i) => `landed.${identifier(c)} IS ${mapping.keyExprs[i]}`)
+            .join(' AND ')})`,
+      )
+      .run(
+        mapping.operation,
+        mapping.sourceDb,
+        mapping.sourceTable,
+        mapping.targetTable,
+        mapping.column,
+      ).changes,
   );
 }

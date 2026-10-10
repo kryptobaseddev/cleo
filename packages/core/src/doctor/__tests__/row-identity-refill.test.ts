@@ -139,8 +139,20 @@ describe('cleo doctor row-identity --refill (T13231)', () => {
     });
     expect(report.applied).toBe(true);
     expect(report.snapshot && existsSync(report.snapshot)).toBe(true);
-    expect(report.undo).toContain(String(report.snapshot));
-    expect(report.undo).toMatch(/^STOP EVERY cleo PROCESS FIRST/);
+    // The undo is the guarded store restore of that snapshot, never a raw copy (T13240).
+    expect(report.undo).toContain(`cleo restore backup --snapshot '${String(report.snapshot)}'`);
+    expect(report.undo).toContain('--dry-run');
+    expect(report.undo).not.toMatch(/\bcp\b|rm -f/);
+    // ...and the restore accepts it: the snapshot sits under .cleo/backups/.
+    const { restoreStoreSnapshot } = await import('../../store/restore-store.js');
+    const plan = await restoreStoreSnapshot({
+      scope: 'project',
+      projectRoot: env.tempDir,
+      snapshot: String(report.snapshot),
+      dryRun: true,
+      cwd: env.tempDir,
+    });
+    expect(plan.dryRun).toBe(true);
     expect(relUid()).not.toBe(BOGUS_REL);
     expect(relUid()).not.toBeNull();
   });

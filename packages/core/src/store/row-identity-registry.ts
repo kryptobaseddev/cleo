@@ -23,6 +23,113 @@ export const BIRTH_FP_COLUMN = 'birth_fp';
 const TASKS: RowIdentityRef['table'] = 'tasks_tasks';
 const SESSIONS: RowIdentityRef['table'] = 'tasks_sessions';
 const ACS: RowIdentityRef['table'] = 'tasks_task_acceptance_criteria';
+const BRAIN_DECISIONS: RowIdentityRef['table'] = 'brain_decisions';
+
+/**
+ * Brain text-keyed tables (T12894), the same in both scopes: minted from their
+ * TEXT id and birth column, with creation facts no edit changes. Brain ids are
+ * random (`O-`, `L-`, `P-` hex) or counter-allocated (`D####`, `SN-###`); a
+ * counter id another device also allocated is held as a key collision on
+ * receive, never merged (no display-id re-mint for brain ids yet).
+ * `brain_attention.created_at` is INTEGER epoch ms (read as the birth as is).
+ * `brain_session_narrative` is one row per session: natural on its session id.
+ *
+ * `birthFacts` are FROZEN for recipe v2 like every other entry.
+ */
+function brainTextKeyed(): RowIdentitySpec[] {
+  return [
+    {
+      table: BRAIN_DECISIONS,
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['type', 'decision'],
+      refs: [
+        { column: 'supersedes', table: BRAIN_DECISIONS },
+        { column: 'superseded_by', table: BRAIN_DECISIONS },
+      ],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_patterns',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'extracted_at',
+      birthFacts: ['type', 'pattern'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_learnings',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['insight', 'source'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_observations',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['type', 'title'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_page_nodes',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['node_type', 'label'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_attention',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['scope_kind', 'scope_id', 'content'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_backfill_runs',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['kind', 'source', 'target_table'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_observations_staging',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['source_table', 'source_id', 'sweep_run_id', 'action'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_promotion_log',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'decided_at',
+      birthFacts: ['observation_id', 'from_tier', 'to_tier'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_transcript_events',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['session_id', 'seq', 'role', 'block_type'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_session_narrative',
+      kind: 'natural',
+      key: ['session_id'],
+      task: 'T12894',
+    },
+  ];
+}
 
 /**
  * Declared row identity, per scope. Every syncing table is either declared
@@ -153,8 +260,21 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['entity_table', 'old_uid', 'old_birth_fp'],
       task: 'T12341',
     },
+    ...brainTextKeyed(),
   ],
-  global: [],
+  global: [
+    ...brainTextKeyed(),
+    {
+      // The global store has no bare sticky twin (the project table waits on
+      // the T12535 collapse). `SN-###` ids are counter-allocated.
+      table: 'brain_sticky_notes',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['content'],
+      task: 'T12894',
+    },
+  ],
 };
 
 /**
@@ -202,13 +322,6 @@ export interface RowIdentityExemption {
   readonly task: string;
 }
 
-const BRAIN_TEXT_KEY: RowIdentityExemption = {
-  category: 'planned',
-  reason:
-    'text-keyed brain table: uid and birth_fp with a deterministic fill and uq index are planned',
-  task: 'T12894',
-};
-
 const BRAIN_NATURAL_KEY: RowIdentityExemption = {
   category: 'planned',
   reason: 'natural composite key: a uid derived from the key columns is planned',
@@ -227,11 +340,11 @@ const STICKY_REASON =
   'the degraded-mode TEMP shadow tables in store/twin-collapse.ts declare its columns and must carry uid first; that file is being edited by twin-collapse slice 2 (T12535)';
 
 /**
- * The global sticky tables have no twin: a uid planned with the other
- * text-keyed (notes) and natural-key (tags) brain tables.
+ * The global sticky tags have no twin: a uid planned with the other
+ * natural-key brain tables (the global notes are declared, T12894).
  */
 const GLOBAL_STICKY_REASON =
-  'global-scope sticky table (no bare twin): uid planned with the other brain tables, notes text-keyed and tags on the (sticky_id, tag) key';
+  'global-scope sticky table (no bare twin): uid planned with the other natural-key brain tables, on the (sticky_id, tag) key';
 
 /** The project sticky tables wait on the twin collapse itself (#1764 review L5). */
 const STICKY_TWIN: RowIdentityExemption = {
@@ -273,22 +386,6 @@ function exempt(
 
 /** Brain tables of both scopes, by the task that gives them a uid. */
 const BRAIN_EXEMPT: Readonly<Record<string, RowIdentityExemption>> = {
-  ...exempt(
-    [
-      'brain_attention',
-      'brain_backfill_runs',
-      'brain_decisions',
-      'brain_learnings',
-      'brain_observations',
-      'brain_observations_staging',
-      'brain_page_nodes',
-      'brain_patterns',
-      'brain_promotion_log',
-      'brain_session_narrative',
-      'brain_transcript_events',
-    ],
-    BRAIN_TEXT_KEY,
-  ),
   ...exempt(['brain_memory_links', 'brain_page_edges'], BRAIN_NATURAL_KEY),
   ...exempt(
     [
@@ -302,9 +399,8 @@ const BRAIN_EXEMPT: Readonly<Record<string, RowIdentityExemption>> = {
     ],
     BRAIN_AUTOINCREMENT,
   ),
-  // Global scope (the project scope overrides both with STICKY_TWIN): the
+  // Global scope (the project scope overrides it with STICKY_TWIN): the
   // global store has no bare sticky twin, so nothing waits on the collapse.
-  brain_sticky_notes: { category: 'planned', reason: GLOBAL_STICKY_REASON, task: 'T12894' },
   brain_sticky_tags: { category: 'planned', reason: GLOBAL_STICKY_REASON, task: 'T12895' },
   brain_embeddings: {
     category: 'not-row-replicated',
@@ -476,11 +572,12 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * and a new syncing table is declared rather than exempted unless the change
  * raises this on purpose.
  *
- * At T12897 ({@link rowIdentityExemptionSummary} prints the live numbers):
+ * Since T12894 declared the brain text-keyed tables (11 project, 12 global)
+ * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
  * |----------------------|--------|---------|--------|
- * | planned              | T12894 | 11      | 12     |
+ * | planned              | T12894 | 0       | 0      |
  * | planned              | T12895 | 3       | 3      |
  * | planned              | T12896 | 8       | 7      |
  * | planned (conduit)    | T12913 | 12      | 0      |
@@ -492,13 +589,13 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned (misc)       | T12920 | 12      | 0      |
  * | twin-collapse        | T12535 | 30      | 0      |
  * | not-row-replicated   | T12918 | 1       | 1      |
- * | total                |        | 96      | 46     |
+ * | total                |        | 85      | 34     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 96,
-  global: 46,
+  project: 85,
+  global: 34,
 };
 
 /**
@@ -510,8 +607,8 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: '2e020a2f47d461aa646565fd42989a38a02e4321fe57871a26ba57c3532c4a19',
-  global: '4c9328298796b78cdb2ed769e29726530eddf625f300e5051e9ec1345a002268',
+  project: '2bbbe90905189930c06e863b7f052ba3a83a99e18a04099f8799d44b8bc444ac',
+  global: 'acb3d9f1457d11ee074e08486ebae12bc93041d68147223d5962f7c301fe9856',
 };
 
 /**

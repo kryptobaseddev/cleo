@@ -151,6 +151,16 @@ if (
     // Reproduce the child's termination for our own caller: a signalled child
     // must not be reported as a clean exit 0.
     if (signal) {
+      // T13325: V8's "Reached heap limit" is an abort() — no JS handler runs in
+      // the CLI, so the shim is the last place a cause and a remedy can be
+      // named. The child's own report, printed just above, says which abort.
+      if (signal === 'SIGABRT') {
+        process.stderr.write(
+          `cleo: E_CLI_ABORTED: the CLI process (pid ${child.pid}) aborted. If the output above ` +
+            `reads "Reached heap limit", it exhausted its ${heapCapMb} MB V8 heap cap; re-run ` +
+            `with CLEO_MAX_OLD_SPACE_MB=<MB> set higher (for example ${heapCapMb * 2}).\n`,
+        );
+      }
       process.kill(process.pid, signal);
       return;
     }

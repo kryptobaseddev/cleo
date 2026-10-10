@@ -102,7 +102,9 @@ import {
   sqliteTable,
   text,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
+import { defaultRowUid } from '../../row-identity-flag.js';
 import { jsonb } from '../jsonb.js';
 import {
   BRAIN_ATTENTION_SCOPE_KINDS,
@@ -382,8 +384,17 @@ export const brainDecisions = sqliteTable(
     decisionCategory: text('decision_category', { enum: BRAIN_DECISION_CATEGORIES })
       .notNull()
       .default('architectural'),
+    /**
+     * Row uid (T12894): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12894): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_decisions_uid').on(table.uid),
     index('idx_brain_decisions_type').on(table.type),
     index('idx_brain_decisions_confidence').on(table.confidence),
     index('idx_brain_decisions_outcome').on(table.outcome),
@@ -444,8 +455,17 @@ export const brainPatterns = sqliteTable(
     occurrenceCount: integer('occurrence_count').notNull().default(1),
     /** ISO-8601 UTC last-seen instant (canonical TEXT, §4). */
     lastSeenAt: text('last_seen_at'),
+    /**
+     * Row uid (T12894): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12894): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_patterns_uid').on(table.uid),
     index('idx_brain_patterns_type').on(table.type),
     index('idx_brain_patterns_impact').on(table.impact),
     index('idx_brain_patterns_frequency').on(table.frequency),
@@ -492,8 +512,17 @@ export const brainLearnings = sqliteTable(
     // Shared 14-column memory block (T11542 · ADR-090) — contiguous in this
     // table, so the full aggregate spreads in one statement.
     ...brainMemoryColumns({ memoryTier: 'short', memoryType: 'semantic' }),
+    /**
+     * Row uid (T12894): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12894): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_learnings_uid').on(table.uid),
     index('idx_brain_learnings_confidence').on(table.confidence),
     index('idx_brain_learnings_actionable').on(table.actionable),
     index('idx_brain_learnings_quality').on(table.qualityScore),
@@ -588,8 +617,17 @@ export const brainObservations = sqliteTable(
      * each scope's own `cleo.db` file.
      */
     idempotencyKey: text('idempotency_key'),
+    /**
+     * Row uid (T12894): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12894): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_observations_uid').on(table.uid),
     index('idx_brain_observations_type').on(table.type),
     index('idx_brain_observations_project').on(table.project),
     index('idx_brain_observations_created_at').on(table.createdAt),
@@ -648,8 +686,17 @@ export const brainStickyNotes = sqliteTable(
     priority: text('priority', { enum: BRAIN_STICKY_PRIORITIES }),
     /** Source-type tag. */
     sourceType: text('source_type').default('sticky-note'),
+    /**
+     * Row uid (T12894): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12894): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_sticky_notes_uid').on(table.uid),
     index('idx_brain_sticky_status').on(table.status),
     index('idx_brain_sticky_created').on(table.createdAt),
     index('idx_brain_sticky_tags').on(table.tagsJson),
@@ -741,8 +788,17 @@ export const brainAttention = sqliteTable(
     decayScore: real('decay_score'),
     /** Lifecycle status — CHECK-backed via {@link BRAIN_ATTENTION_STATUSES}. */
     status: text('status', { enum: BRAIN_ATTENTION_STATUSES }).notNull().default('open'),
+    /**
+     * Row uid (T12894): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12894): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_attention_uid').on(table.uid),
     index('idx_brain_attention_scope').on(table.scopeKind, table.scopeId),
     index('idx_brain_attention_session').on(table.sessionId),
     index('idx_brain_attention_status_expires').on(table.status, table.expiresAt),
@@ -859,8 +915,17 @@ export const brainPageNodes = sqliteTable(
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC last-update instant (canonical TEXT, §4). */
     updatedAt: text('updated_at'),
+    /**
+     * Row uid (T12894): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12894): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_page_nodes_uid').on(table.uid),
     index('idx_brain_nodes_type').on(table.nodeType),
     index('idx_brain_nodes_quality').on(table.qualityScore),
     index('idx_brain_nodes_content_hash').on(table.contentHash),
@@ -1144,8 +1209,17 @@ export const brainTranscriptEvents = sqliteTable(
     redactedAt: text('redacted_at'),
     /** ISO-8601 UTC creation instant (canonical TEXT, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Row uid (T12894): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12894): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_transcript_events_uid').on(table.uid),
     index('idx_transcript_events_session').on(table.sessionId),
     index('idx_transcript_events_role').on(table.role),
     index('idx_transcript_events_block_type').on(table.blockType),
@@ -1177,8 +1251,17 @@ export const brainPromotionLog = sqliteTable(
     decidedBy: text('decided_by').notNull().default('composite-scorer'),
     /** JSON rationale (TEXT per JSON audit). */
     rationaleJson: text('rationale_json'),
+    /**
+     * Row uid (T12894): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12894): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_promotion_log_uid').on(table.uid),
     index('idx_promotion_log_observation').on(table.observationId),
     index('idx_promotion_log_decided_at').on(table.decidedAt),
     index('idx_promotion_log_to_tier').on(table.toTier),
@@ -1214,8 +1297,17 @@ export const brainBackfillRuns = sqliteTable(
     targetTable: text('target_table').notNull().default('brain_observations'),
     /** Approver identity. */
     approvedBy: text('approved_by'),
+    /**
+     * Row uid (T12894): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12894): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_backfill_runs_uid').on(table.uid),
     index('idx_backfill_runs_status').on(table.status),
     index('idx_backfill_runs_kind').on(table.kind),
     index('idx_backfill_runs_created_at').on(table.createdAt),
@@ -1230,24 +1322,30 @@ export const brainBackfillRuns = sqliteTable(
  *
  * @task T11360 (target shape) · T1089 (original)
  */
-export const brainSessionNarrative = sqliteTable('brain_session_narrative', {
-  /** Session id (cross-DB soft FK → tasks.sessions). */
-  sessionId: text('session_id').primaryKey(),
-  /** Rolling prose summary. */
-  narrative: text('narrative').notNull().default(''),
-  /** Dialectic turn count. */
-  turnCount: integer('turn_count').notNull().default(0),
-  /**
-   * Epoch-millisecond last-update instant. Kept as `integer` epoch-ms to match
-   * the LEGACY RUNTIME shape (`memory-schema.ts` —
-   * `integer('last_updated_at').notNull().default(0)`) so the exodus target
-   * equals the runtime shape and the first runtime open does not rebuild it
-   * (T11647).
-   */
-  lastUpdatedAt: integer('last_updated_at').notNull().default(0),
-  /** Topic-pivot count. */
-  pivotCount: integer('pivot_count').notNull().default(0),
-});
+export const brainSessionNarrative = sqliteTable(
+  'brain_session_narrative',
+  {
+    /** Session id (cross-DB soft FK → tasks.sessions). */
+    sessionId: text('session_id').primaryKey(),
+    /** Rolling prose summary. */
+    narrative: text('narrative').notNull().default(''),
+    /** Dialectic turn count. */
+    turnCount: integer('turn_count').notNull().default(0),
+    /**
+     * Epoch-millisecond last-update instant. Kept as `integer` epoch-ms to match
+     * the LEGACY RUNTIME shape (`memory-schema.ts` —
+     * `integer('last_updated_at').notNull().default(0)`) so the exodus target
+     * equals the runtime shape and the first runtime open does not rebuild it
+     * (T11647).
+     */
+    lastUpdatedAt: integer('last_updated_at').notNull().default(0),
+    /** Topic-pivot count. */
+    pivotCount: integer('pivot_count').notNull().default(0),
+    /** Row uid (T12894): a UUIDv8 over the session id, filled at open or by the uid trigger. */
+    uid: text('uid'),
+  },
+  (table) => [uniqueIndex('uq_brain_session_narrative_uid').on(table.uid)],
+);
 
 /**
  * `brain_deriver_queue` — durable background derivation work queue.
@@ -1357,8 +1455,17 @@ export const brainObservationsStaging = sqliteTable(
       .default('pending'),
     /** ISO-8601 UTC creation instant (canonical TEXT, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Row uid (T12894): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12894): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_observations_staging_uid').on(table.uid),
     index('idx_bos_sweep_run').on(table.sweepRunId),
     index('idx_bos_source').on(table.sourceTable, table.sourceId),
     index('idx_bos_status').on(table.validationStatus),
