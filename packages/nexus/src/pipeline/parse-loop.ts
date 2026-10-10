@@ -55,7 +55,7 @@ import type {
 import { confidenceLabelFromNumeric } from '@cleocode/contracts/graph.js';
 import { type ParseError, parseTree, printParseErrorCode } from 'jsonc-parser';
 import type Parser from 'tree-sitter';
-import { parseOriginalSource } from '../code/parser.js';
+import { parseOriginalSourceWithRecovery } from '../code/parser.js';
 import { extractGo } from './extractors/go-extractor.js';
 import { extractPython } from './extractors/python-extractor.js';
 import { extractRust } from './extractors/rust-extractor.js';
@@ -233,6 +233,11 @@ export interface CommonExtractionResult {
   reExports?: ExtractedReExport[];
   /** Optional property access evidence. */
   accesses?: ExtractedAccess[];
+  /**
+   * Limitations of how the file was parsed, recorded on its report — for
+   * example a `typeof import("…")` query masked around a grammar defect (T13379).
+   */
+  parseLimitations?: string[];
 }
 
 /**
@@ -325,14 +330,17 @@ export function extractOriginalSource(
   if (!language || !grammarKey) throw new Error('Unsupported source language');
   if (!parser || !grammar) throw new Error(`Parser or grammar unavailable: ${grammarKey}`);
   parser.setLanguage(grammar);
-  const tree = parseOriginalSource(parser, source, limits);
-  return runExtractor(
-    language,
-    tree.rootNode,
-    filePath,
-    createHash('sha256').update(source).digest('hex'),
-    publicationGeneration,
-  );
+  const { tree, limitations } = parseOriginalSourceWithRecovery(parser, source, limits);
+  return {
+    ...runExtractor(
+      language,
+      tree.rootNode,
+      filePath,
+      createHash('sha256').update(source).digest('hex'),
+      publicationGeneration,
+    ),
+    parseLimitations: limitations,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -898,6 +906,7 @@ function completeExtraction(result: CommonExtractionResult): Required<CommonExtr
     calls: result.calls,
     reExports: result.reExports ?? [],
     accesses: result.accesses ?? [],
+    parseLimitations: result.parseLimitations ?? [],
   };
 }
 
@@ -1198,9 +1207,12 @@ async function extractSequentially(
     }
 
     let rootNode: Parser.SyntaxNode;
+    let parseLimitations: string[];
     try {
       parser.setLanguage(grammar);
-      rootNode = parseOriginalSource(parser, source, options.parserLimits).rootNode;
+      const parsed = parseOriginalSourceWithRecovery(parser, source, options.parserLimits);
+      rootNode = parsed.tree.rootNode;
+      parseLimitations = parsed.limitations;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       fail(file.path, `parse: ${msg}`);
@@ -1219,7 +1231,7 @@ async function extractSequentially(
       );
       pass.extracted.set(file.path, {
         path: file.path,
-        extraction: completeExtraction(extracted),
+        extraction: completeExtraction({ ...extracted, parseLimitations }),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1279,7 +1291,10 @@ export async function runParseLoop(
   // Attach one capability contract to sequential and worker-returned reports.
   const callerReports = options.onFileReport;
   const classifications = new Map<string, GraphFileCapabilityCoverage>();
-  const emitReport = (report: GraphIndexFileReport): void => {
+  const emitReport = (
+    report: GraphIndexFileReport,
+    parseLimitations: readonly string[] = [],
+  ): void => {
     const coverage = classifications.get(report.path);
     if (!coverage) throw new Error(`Missing file capability classification: ${report.path}`);
     callerReports?.({
@@ -1291,7 +1306,7 @@ export async function runParseLoop(
           report.status === 'analyzed' && coverage.role === 'executable'
             ? [...coverage.requested]
             : [...coverage.completed],
-        limitations: [...coverage.limitations],
+        limitations: [...coverage.limitations, ...parseLimitations],
       },
     });
   };
@@ -1373,8 +1388,8 @@ export async function runParseLoop(
     }
     // Capture the cache entry before any later phase mutates these nodes.
     if (fresh) options.onFileExtracted?.(fresh);
-    emitReport({ path: file.path, status: 'analyzed' });
     const extracted = fileExtraction.extraction;
+    emitReport({ path: file.path, status: 'analyzed' }, extracted.parseLimitations);
     registerInSymbolTable(extracted.definitions, symbolTable);
     for (const node of extracted.definitions) graph.addNode(node);
     emitDefinesEdges(file.path, extracted.definitions, graph);

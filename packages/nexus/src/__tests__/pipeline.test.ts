@@ -33,7 +33,11 @@ import { buildSync } from 'esbuild';
 import Parser from 'tree-sitter';
 import TypeScript from 'tree-sitter-typescript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { parseOriginalSource } from '../code/parser.js';
+import {
+  parseOriginalSource,
+  parseOriginalSourceWithRecovery,
+  TYPEOF_IMPORT_RECOVERY_LIMITATION,
+} from '../code/parser.js';
 import type { ScannedFile } from '../pipeline/filesystem-walker.js';
 import { walkRepositoryPaths } from '../pipeline/filesystem-walker.js';
 import { buildImportResolutionContext } from '../pipeline/import-processor.js';
@@ -532,6 +536,91 @@ describe('streamed parse results (T13325)', () => {
     const live = createParentHeapGuard();
     expect(() => live.check(1, 1)).not.toThrow();
     live.dispose();
+  });
+});
+
+describe('typeof import() grammar-defect recovery (T13379)', () => {
+  // tree-sitter-typescript 0.23.2 rejects a type query as a call's type
+  // argument; this is the vitest mock idiom, and it dropped whole files.
+  const idiom = [
+    "import { vi } from 'vitest';",
+    'vi.mock("@/lib/api", async (importOriginal) => ({',
+    '  ...(await importOriginal<typeof import("@/lib/api")>()),',
+    '  extra: 1,',
+    '}));',
+    'export function afterMock(value: number): number {',
+    '  return helper(value);',
+    '}',
+  ].join('\n');
+
+  it('documents the defect: the grammar alone still rejects the idiom', () => {
+    // When the grammar parses this natively, this test fails: remove the
+    // workaround then (T13382).
+    const parser = new Parser();
+    parser.setLanguage(TypeScript.typescript);
+    expect(() => parseOriginalSource(parser, 'const a = f<typeof import("x")>();')).toThrow(
+      /E_PARSE_SYNTAX/,
+    );
+  });
+
+  it('indexes the vitest idiom with original positions and records the limitation', () => {
+    const extracted = extractOriginalSource(idiom, 'route.test.ts');
+    expect(extracted.parseLimitations).toEqual([TYPEOF_IMPORT_RECOVERY_LIMITATION]);
+    const afterMock = extracted.definitions.find((node) => node.name === 'afterMock');
+    expect(afterMock?.startLine).toBe(6);
+    // The grammar reads `await f<T>()` as a call of `await f` (a separate,
+    // pre-existing quirk), so match the callee by suffix.
+    const call = extracted.calls.find((entry) => entry.calledName.endsWith('importOriginal'));
+    expect(call?.span?.startIndex).toBe(idiom.indexOf('await importOriginal'));
+    expect(call?.span?.startLine).toBe(3);
+    const helper = extracted.calls.find((entry) => entry.calledName === 'helper');
+    expect(helper?.span?.startIndex).toBe(idiom.indexOf('helper(value)'));
+    expect(helper?.span?.startLine).toBe(7);
+  });
+
+  it('reads node text from the original source, not the masked parse text', () => {
+    const source = 'const a = await f<typeof import("資料🌱")>();\nexport const b = 1;';
+    const parser = new Parser();
+    parser.setLanguage(TypeScript.typescript);
+    const { tree, limitations } = parseOriginalSourceWithRecovery(parser, source);
+    expect(limitations).toEqual([TYPEOF_IMPORT_RECOVERY_LIMITATION]);
+    expect(tree.rootNode.text).toBe(source);
+    expect(tree.rootNode.descendantsOfType('type_arguments')[0]?.text).toBe(
+      '<typeof import("資料🌱")>',
+    );
+  });
+
+  it('still fails a file closed when it also has a genuine syntax error', () => {
+    expect(() =>
+      extractOriginalSource(`${idiom}\nexport function broken( {`, 'route.test.ts'),
+    ).toThrow(/E_PARSE_SYNTAX/);
+    expect(() => extractOriginalSource('export function broken( {', 'plain.ts')).toThrow(
+      /E_PARSE_SYNTAX/,
+    );
+    const clean = extractOriginalSource('export const ok = 1;', 'clean.ts');
+    expect(clean.parseLimitations).toEqual([]);
+  });
+
+  it('carries the limitation onto the file report', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFile(directory, 'route.test.ts', idiom);
+      const files = await walkRepositoryPaths(directory);
+      const reports: GraphIndexFileReport[] = [];
+      await runParseLoop(
+        files,
+        createKnowledgeGraph(),
+        createSymbolTable(),
+        buildImportResolutionContext(['route.test.ts']),
+        directory,
+        { onFileReport: (report) => reports.push(report) },
+      );
+      expect(reports).toHaveLength(1);
+      expect(reports[0]?.status).toBe('analyzed');
+      expect(reports[0]?.capabilities?.limitations).toContain(TYPEOF_IMPORT_RECOVERY_LIMITATION);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 
