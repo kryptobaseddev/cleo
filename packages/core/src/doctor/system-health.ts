@@ -323,7 +323,12 @@ export function mcpServerName(row: ProcessRow): string | null {
   const words = commandWords(row.argv);
   // `npx -y @playwright/mcp@latest`, `uvx mcp-server-fetch`: the package names the server.
   const pkg = launchedPackage(words);
-  if (pkg !== undefined) return pkg !== null && /mcp/i.test(pkg) ? pkg : null;
+  if (pkg !== undefined) {
+    if (pkg === null) return null;
+    // `npx -y agentmbx mcp`: an `mcp` subcommand marks a server too.
+    const next = words[words.findIndex((w) => w.startsWith(pkg)) + 1];
+    return /mcp/i.test(pkg) || next === 'mcp' ? pkg : null;
+  }
   if (
     !withoutInterpreter(row.argv)
       .slice(0, 3)
