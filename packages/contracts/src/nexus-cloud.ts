@@ -602,6 +602,18 @@ export interface CloudStatusHeld {
   readonly warnDays: number;
 }
 
+/** `CloudStatusSyncStream.undo`: the store's undo against its budget (journal spec §3.5 Rule 2, D5). */
+export interface CloudStatusUndoBudget {
+  /** Undo payload bytes held for unsequenced local transactions. */
+  readonly bytes: number;
+  /** The budget in bytes (256 MiB by default). */
+  readonly budget: number;
+  /** `warn` from 80% (pull to drain it); `exceeded` at 100%, which persists until a rebind. */
+  readonly state: 'ok' | 'warn' | 'exceeded';
+  /** When undo first reached the budget (a rebind is scheduled for the next pull), or `null`. */
+  readonly exceededAt: string | null;
+}
+
 export interface CloudStatusSyncStream {
   /** Which store. */
   readonly scope: 'project' | 'global';
@@ -625,6 +637,8 @@ export interface CloudStatusSyncStream {
   readonly suspectTables: readonly string[];
   /** Local writes a sync rebase holds, until their echo is decided (§3.5 Rule 5). */
   readonly held: CloudStatusHeld;
+  /** Undo held against its budget (§3.5 Rule 2, D5). */
+  readonly undo: CloudStatusUndoBudget;
   /** Sealed ops not yet handed to the outbox for sending. */
   readonly unsentOps: CloudSyncFact<number>;
   /** The last sequence this store pushed to the server. */

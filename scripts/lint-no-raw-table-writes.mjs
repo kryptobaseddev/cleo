@@ -376,7 +376,7 @@ export const EXEMPT = {
       reason:
         'foreign-touch index (local-only): rows applied foreign txns touched, for the own-echo fast path; pruned past the oldest unsequenced local txn (T13193)',
     },
-    _sync_meta: { count: 3, reason: SYNC_BOOKKEEPING },
+    _sync_meta: { count: 4, reason: SYNC_BOOKKEEPING },
     _sync_row_undo: {
       count: 3,
       reason:

@@ -36,7 +36,7 @@ export const doctorRowIdentityCommand = defineCommand({
       type: 'boolean',
       description:
         'With --refill: snapshot the store, then re-derive every identity value from scratch. ' +
-        'Refused unless the verdict is unshared and CLEO_ROW_UID_FILL=1',
+        'Refused unless the verdict is unshared, and while CLEO_ROW_UID_FILL=0',
     },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },

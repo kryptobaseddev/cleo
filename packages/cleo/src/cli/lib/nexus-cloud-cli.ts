@@ -160,6 +160,13 @@ export function syncStreamClause(st: CloudStatusSyncStream): string {
     `${st.unsealedOps} unsealed`,
     `last sealed seq ${st.lastSealedSeq ?? 'none'}`,
     ...(quarantined > 0 ? [`${quarantined} quarantined`] : []),
+    ...(st.undo.state === 'ok'
+      ? []
+      : [
+          st.undo.state === 'warn'
+            ? `undo at ${Math.round((st.undo.bytes / st.undo.budget) * 100)}% of its budget: pull to drain it`
+            : `undo budget exceeded${st.undo.exceededAt ? ` since ${st.undo.exceededAt}` : ''}: a rebind runs at the next pull`,
+        ]),
     ...(st.held.count > 0
       ? [
           `${st.held.count} held by a rebase${long > 0 ? ` (${long} older than ${st.held.warnDays} days)` : ''}`,

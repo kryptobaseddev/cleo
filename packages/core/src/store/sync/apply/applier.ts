@@ -96,8 +96,10 @@ import {
   ownEchoFastPath,
   readRowUndo,
   recordForeignTouches,
+  recordUndoBudget,
   resnapshotRowUndo,
   type TouchedRow,
+  type UndoBudget,
   type UnsequencedTxn,
   unsequencedLocalTxn,
   unsequencedLocalTxns,
@@ -128,6 +130,8 @@ export interface ApplyStagedOptions {
   readonly pageOps?: number;
   /** A page stops taking transactions after this many ms; defaults to {@link REBASE_PAGE_MS}. */
   readonly pageMs?: number;
+  /** The undo budget in bytes; defaults to 256 MiB (`UNDO_BUDGET_BYTES`). */
+  readonly undoBudgetBytes?: number;
 }
 
 /** What one {@link applyStagedTxns} call left in the inbox, per status. */
@@ -145,6 +149,8 @@ export interface ApplyReport {
   readonly rebased: number;
   /** Local transactions this call left held: a replay the stream refused (§3.5 Rule 5). */
   readonly held: readonly string[];
+  /** Undo against its budget; `exceeded` is the persistent warning every pull carries (D5). */
+  readonly undoBudget: UndoBudget | null;
   /** Why nothing was applied (PAC-15 apply preconditions), when so. */
   readonly blocked?: string;
 }
@@ -1388,6 +1394,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
       passes: 0,
       rebased: 0,
       held: [],
+      undoBudget: null,
       blocked,
     };
   }
@@ -1505,5 +1512,8 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
     rebased,
     // Still held when the call ends (a later page of it may have applied one).
     held: [...heldTxns].filter((t) => txnHasHold(db, t)),
+    undoBudget: sequencingOn
+      ? recordUndoBudget(db, new Date(now()).toISOString(), opts.undoBudgetBytes)
+      : null,
   };
 }

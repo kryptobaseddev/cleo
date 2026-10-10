@@ -474,8 +474,45 @@ function readState(db: DatabaseSync, pair: TwinPair): CollapseState | undefined 
     merged: Array.isArray(parsed.merged) ? parsed.merged : [],
     renamed: Array.isArray(parsed.renamed) ? parsed.renamed : [],
     kept: Array.isArray(parsed.kept) ? parsed.kept : [],
-    archived: Array.isArray(parsed.archived) ? parsed.archived : [],
+    // 2026.9.21-9.23 rewrite the marker on an incremental merge without the
+    // lists 9.24 added; the archived values are still under their keys, so
+    // the list is read back from those (T12730).
+    archived: Array.isArray(parsed.archived) ? parsed.archived : archivedFromKeys(db, pair),
   };
+}
+
+/**
+ * What a pair's initial collapse archived, read from the archive keys
+ * themselves (T12730): for `schema_meta`, every `twin_collapse_archive:<key>`
+ * in `tasks_schema_meta` (by key); for `sticky_tags`, the rows recorded under
+ * `twin_collapse_archive:sticky_tags` in `brain_schema_meta`. Other pairs
+ * archive nothing. Used when a marker lacks its `archived` list, which an
+ * older build's rewrite drops; `kept` cannot be read back this way (the kept
+ * rows are ordinary twin rows), but nothing it named is hidden.
+ */
+function archivedFromKeys(db: DatabaseSync, pair: TwinPair): string[] {
+  try {
+    if (pair.table === 'sticky_tags') {
+      const rows = parseJson(readKv(db, pair.kvTable, STICKY_ARCHIVE_KEY) ?? '[]');
+      return StickyArchiveShape.safeParse(rows).success ? (rows as string[]) : [];
+    }
+    if (pair.table !== 'schema_meta') return [];
+    return (
+      db
+        .prepare(
+          `SELECT key FROM main.${pair.kvTable} WHERE substr(key, 1, ?) = ? AND key <> ? ORDER BY key`,
+        )
+        .all(
+          TWIN_COLLAPSE_ARCHIVE_PREFIX.length,
+          TWIN_COLLAPSE_ARCHIVE_PREFIX,
+          STICKY_ARCHIVE_KEY,
+        ) as Array<{
+        key: string;
+      }>
+    ).map((r) => r.key.slice(TWIN_COLLAPSE_ARCHIVE_PREFIX.length));
+  } catch {
+    return [];
+  }
 }
 
 /** Whether the bare side moved since the stored hashes (or no usable state exists). */

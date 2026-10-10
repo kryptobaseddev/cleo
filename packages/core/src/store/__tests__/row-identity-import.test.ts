@@ -546,7 +546,7 @@ describe('row uids off (T12806 review 1)', () => {
   let db: DatabaseSync;
 
   beforeEach(async () => {
-    delete process.env.CLEO_ROW_UID_FILL;
+    process.env.CLEO_ROW_UID_FILL = '0';
     env = await createTestDb();
     await seedTasks(env.accessor, [
       { id: 'T001', title: 'A', type: 'task', createdAt: '2026-09-01T10:00:00.000Z' },

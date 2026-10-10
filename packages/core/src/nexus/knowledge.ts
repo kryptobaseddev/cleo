@@ -28,7 +28,7 @@ import { getNexusDb, getNexusNativeDb, nexusSchema } from '../store/nexus-sqlite
 import {
   ASSESSMENT_KEY,
   ASSESSMENT_REFERENCES_KEY,
-  decodeStoredReferences,
+  parseStoredReferences,
 } from './assessment-store.js';
 import { generateProjectHash } from './hash.js';
 import { resolveSourceRoots } from './source-roots.js';
@@ -320,7 +320,7 @@ export async function readKnowledgeIndexReferences(
       throw new Error('Graph assessment reports references, but none are stored.');
     return [];
   }
-  const references = z.array(referenceSchema).parse(JSON.parse(decodeStoredReferences(row.value)));
+  const references = z.array(referenceSchema).parse(parseStoredReferences(row.value));
   if (assessment.referenceCount !== undefined && references.length !== assessment.referenceCount)
     throw new Error('Stored graph references disagree with the assessment reference count.');
   return references;

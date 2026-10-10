@@ -67,6 +67,7 @@ import {
   raiseMinWriterVersion,
   readMinWriterVersion,
 } from '../writer-version.js';
+import { asOlderBuild } from './older-build.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
 
@@ -275,6 +276,9 @@ describe('identity (N4, N11, H5)', () => {
   it('an identity fill patches the latest live I capture and captures nothing new, in both trigger orders', async () => {
     for (const order of ['fill-first', 'capture-first'] as const) {
       const db = await captureOn();
+      // A stand-in fill with a known uid; the real per-connection fill
+      // (row uids on) is dropped so it cannot fill first (T13311).
+      db.exec('DROP TRIGGER temp.trg_row_uid_tasks_tasks');
       const fill =
         "CREATE TEMP TRIGGER fill_uid AFTER INSERT ON main.tasks_tasks WHEN NEW.uid IS NULL BEGIN UPDATE tasks_tasks SET uid = 'u-' || NEW.id WHERE id = NEW.id; END";
       if (order === 'fill-first') {
@@ -299,6 +303,39 @@ describe('identity (N4, N11, H5)', () => {
       rmSync(join(dir, 'project', '.cleo'), { recursive: true, force: true });
       mkdirSync(join(dir, 'project', '.cleo'), { recursive: true });
     }
+  });
+
+  it('the per-connection uid fill (row uids on) captures one I with the live identity and no K, in both orders (T13311)', async () => {
+    const db = await captureOn();
+    // Fill first: the TEMP fill sets uid, then birth_fp, before the capture reads the row.
+    addTask(db, 'T1');
+    const live = db.prepare("SELECT uid, birth_fp FROM tasks_tasks WHERE id = 'T1'").get() as {
+      uid: string;
+      birth_fp: string;
+    };
+    expect(live.uid).toBeTruthy();
+    expect(live.birth_fp).toBeTruthy();
+    const t1 = captures(db, 'tasks_tasks');
+    expect(t1.map((c) => c.op)).toEqual(['I']);
+    expect(t1[0]?.uid).toBe(live.uid);
+    expect(img(t1[0] as Cap).birth_fp).toBe(`'${live.birth_fp}'`);
+
+    // Capture first: the I records NULL identity, then the fill's two UPDATEs
+    // (uid, then birth_fp with the uid already set) patch it through `_f`.
+    db.exec('DROP TRIGGER temp.trg_row_uid_tasks_tasks');
+    addTask(db, 'T2');
+    db.exec("UPDATE tasks_tasks SET uid = 'u-T2' WHERE id = 'T2' AND uid IS NULL");
+    db.exec("UPDATE tasks_tasks SET birth_fp = 'fp-T2' WHERE id = 'T2' AND birth_fp IS NULL");
+    const t2 = captures(db, 'tasks_tasks').filter((c) => c.rk === `["'T2'"]`);
+    expect(t2.map((c) => c.op)).toEqual(['I']);
+    expect(t2[0]?.uid).toBe('u-T2');
+    expect(img(t2[0] as Cap).birth_fp).toBe("'fp-T2'");
+
+    // A birth_fp that changes from one value to another is still a re-key.
+    db.exec("UPDATE tasks_tasks SET birth_fp = 'fp-other' WHERE id = 'T2'");
+    const k = captures(db, 'tasks_tasks').at(-1) as Cap;
+    expect(k.op).toBe('K');
+    expect(img(k).birth_fp as string[]).toEqual(["'fp-T2'", "'fp-other'"]);
   });
 
   it('a re-key of a keyed row captures K with old and new identity', async () => {
@@ -672,26 +709,30 @@ describe('structural safety (§2.3a, H4, N3)', () => {
 describe('the rule-1 bracket, touch sets and suspect marking (§2.3a rules 1, 3; B, NEW-8)', () => {
   it('a rebuild of tasks_tasks inside the bracket keeps capture working, with triggers regenerated', async () => {
     const db = await captureOn();
-    withSyncTriggersSuspended(db, 'project', () => {
-      const referencing = (
-        db
-          .prepare(
-            "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%tasks_tasks%'",
-          )
-          .all() as Array<{ name: string; sql: string }>
-      ).filter((t) => !t.name.startsWith('_sync_cap_'));
-      for (const t of referencing) db.exec(`DROP TRIGGER "${t.name}"`);
-      const create = (
-        db
-          .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks_tasks'")
-          .get() as { sql: string }
-      ).sql.replace(/CREATE TABLE [`"]?tasks_tasks[`"]?/, 'CREATE TABLE `__new_tasks_tasks`');
-      db.exec(create);
-      db.exec('INSERT INTO __new_tasks_tasks SELECT * FROM tasks_tasks');
-      db.exec('DROP TABLE tasks_tasks');
-      db.exec('ALTER TABLE __new_tasks_tasks RENAME TO tasks_tasks');
-      for (const t of referencing) db.exec(t.sql);
-    });
+    // The connection's TEMP row-uid fill triggers (row uids on, T13305)
+    // reference tasks_tasks too; a migration connection has none (T13311).
+    asOlderBuild(db, 'project', () =>
+      withSyncTriggersSuspended(db, 'project', () => {
+        const referencing = (
+          db
+            .prepare(
+              "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%tasks_tasks%'",
+            )
+            .all() as Array<{ name: string; sql: string }>
+        ).filter((t) => !t.name.startsWith('_sync_cap_'));
+        for (const t of referencing) db.exec(`DROP TRIGGER "${t.name}"`);
+        const create = (
+          db
+            .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks_tasks'")
+            .get() as { sql: string }
+        ).sql.replace(/CREATE TABLE [`"]?tasks_tasks[`"]?/, 'CREATE TABLE `__new_tasks_tasks`');
+        db.exec(create);
+        db.exec('INSERT INTO __new_tasks_tasks SELECT * FROM tasks_tasks');
+        db.exec('DROP TABLE tasks_tasks');
+        db.exec('ALTER TABLE __new_tasks_tasks RENAME TO tasks_tasks');
+        for (const t of referencing) db.exec(t.sql);
+      }),
+    );
     addTask(db, 'T1');
     expect(captures(db, 'tasks_tasks').map((c) => c.op)).toEqual(['I']);
   });
