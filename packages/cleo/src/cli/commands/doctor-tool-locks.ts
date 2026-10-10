@@ -96,6 +96,8 @@ export const doctorToolLocksCommand = defineCommand({
           command: e.command,
           cwd: e.cwd,
           footprintBytes: e.footprintBytes,
+          // T13367: why the run is charged that much (its real scope).
+          footprintReason: e.footprintReason ?? null,
           // T13132: what the run covers (`full` = a whole-suite run) and its task.
           scope: e.scope ?? null,
           task: e.task ?? null,

@@ -360,8 +360,12 @@ export const ReleasePlanSchema = z.object({
   scheme: ReleaseSchemeSchema,
   /** npm dist-tag channel for this release. */
   channel: ReleaseChannelSchema,
-  /** Epic ID this release ships. */
-  epicId: NonEmptyString,
+  /**
+   * Epic ID this release ships: the `--epic` epic or the `--saga` saga. `null`
+   * for a `--tasks` plan, whose tasks may span several epics; each task's own
+   * epic is on its `epicAncestor` (T13323).
+   */
+  epicId: NonEmptyString.nullable(),
   /** Release-kind classification. */
   releaseKind: ReleaseKindSchema,
   /** ISO-8601 timestamp the plan was written. */
