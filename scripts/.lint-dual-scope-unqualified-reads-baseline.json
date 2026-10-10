@@ -2,7 +2,7 @@
   "generatedAt": "2026-09-12T20:31:14.008Z",
   "note": "Unqualified reads of tables resident in BOTH cleo.db scopes (gh#1283). Counts may only DECREASE. Regenerate with: node scripts/lint-dual-scope-unqualified-reads.mjs --update-baseline",
   "ambiguousTables": 27,
-  "totalFindings": 626,
+  "totalFindings": 632,
   "counts": {
     "crates/cleo-supervisor/src/lease_handler.rs": {
       "_writer_leases": 2
@@ -149,6 +149,11 @@
       "brain_sticky_notes": 2,
       "brain_transcript_events": 2
     },
+    "packages/core/migrations/drizzle-cleo-global/20261010130000_t12895-brain-natural-uids/migration.sql": {
+      "brain_memory_links": 1,
+      "brain_page_edges": 1,
+      "brain_sticky_tags": 1
+    },
     "packages/core/migrations/drizzle-cleo-project/20260531000001_t11363-consolidation-cleo-project/migration.sql": {
       "brain_attention": 1,
       "brain_backfill_runs": 1,
@@ -187,6 +192,11 @@
       "brain_session_narrative": 1,
       "brain_sticky_notes": 2,
       "brain_transcript_events": 2
+    },
+    "packages/core/migrations/drizzle-cleo-project/20261010130000_t12895-brain-natural-uids/migration.sql": {
+      "brain_memory_links": 1,
+      "brain_page_edges": 1,
+      "brain_sticky_tags": 1
     },
     "packages/core/src/deriver/deriver.ts": {
       "brain_observations": 3
