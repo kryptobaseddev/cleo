@@ -23,7 +23,7 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AUTO_GLOBAL_BACKUP_INTERVAL_MS,
   autoGlobalBackup,
@@ -254,6 +254,8 @@ describe('backups restore onto the live cleo.db (T13245)', () => {
 });
 
 describe('the global store backs up and restores (T13245)', () => {
+  /** A stand-in held lock whose release and abandon are recorded. */
+  const heldLock = () => ({ release: vi.fn(async () => {}), abandon: vi.fn(async () => {}) });
   /** Row counts and checksums of the global brain and the nexus registry. */
   function globalFingerprint(file: string): Record<string, string> {
     const db = new DatabaseSync(file, { readOnly: true });
@@ -438,18 +440,72 @@ describe('the global store backs up and restores (T13245)', () => {
     const gdir = join(dirname(gpath), 'backups', 'sqlite');
     mkdirSync(gdir, { recursive: true });
     const before = readdirSync(gdir).sort();
+    const held = heldLock();
     const id = await autoGlobalBackup(new Date(), {
       admit: async () => ({ release: async () => {} }),
       // The lock is reported compromised while held (as proper-lockfile does
       // when its refresh finds the lock taken).
       lock: async (onCompromised) => {
         onCompromised(new Error('lock taken as stale by another process'));
-        return async () => {};
+        return held;
       },
     });
     expect(id).toBeNull();
     expect(readdirSync(gdir).sort()).toEqual(before);
     expect(listGlobalBackups().filter((b) => b.type === 'auto')).toEqual([]);
+    // The lost lock may be another process's: abandoned, never removed (T13299).
+    expect(held.abandon).toHaveBeenCalledOnce();
+    expect(held.release).not.toHaveBeenCalled();
+  });
+
+  it('the admission wait counts against the stale window: a lock held past it discards the copy (T13299)', async () => {
+    const { path: gpath } = await globalDb();
+    const gdir = join(dirname(gpath), 'backups', 'sqlite');
+    mkdirSync(gdir, { recursive: true });
+    const held = heldLock();
+    const realNow = Date.now.bind(Date);
+    const id = await autoGlobalBackup(new Date(), {
+      lock: async () => held,
+      // The admission returns only after the whole stale window has passed.
+      admit: async () => {
+        vi.spyOn(Date, 'now').mockImplementation(() => realNow() + GLOBAL_BACKUP_LOCK_STALE_MS);
+        return { release: async () => {} };
+      },
+    });
+    vi.restoreAllMocks();
+    expect(id).toBeNull();
+    expect(readdirSync(gdir).filter((f) => f.startsWith('cleo.db.auto-'))).toEqual([]);
+    expect(held.abandon).toHaveBeenCalledOnce();
+    expect(held.release).not.toHaveBeenCalled();
+  });
+
+  it('a backup that kept its lock releases it, removing the lock directory (T13299)', async () => {
+    const { path: gpath } = await globalDb();
+    const gdir = join(dirname(gpath), 'backups', 'sqlite');
+    const id = await autoGlobalBackup(new Date(), {
+      admit: async () => ({ release: async () => {} }),
+    });
+    expect(id).not.toBeNull();
+    expect(existsSync(`${gdir}.lock`)).toBe(false);
+  });
+
+  it('copies a killed backup left behind are swept under the lock once stale; a live one is kept (T13299)', async () => {
+    const { path: gpath } = await globalDb();
+    const gdir = join(dirname(gpath), 'backups', 'sqlite');
+    mkdirSync(gdir, { recursive: true });
+    const old = new Date(Date.now() - GLOBAL_BACKUP_LOCK_STALE_MS - 60_000);
+    for (const name of ['cleo.db.auto-old.tmp', 'cleo.db.auto-old.tmp-journal', 'other.tmp']) {
+      writeFileSync(join(gdir, name), 'x');
+      utimesSync(join(gdir, name), old, old);
+    }
+    writeFileSync(join(gdir, 'cleo.db.auto-live.tmp'), 'x');
+    // A deferred admission copies nothing; the sweep already ran under the lock.
+    expect(await autoGlobalBackup(new Date(), { admit: async () => null })).toBeNull();
+    const left = readdirSync(gdir);
+    expect(left).not.toContain('cleo.db.auto-old.tmp');
+    expect(left).not.toContain('cleo.db.auto-old.tmp-journal');
+    expect(left).toContain('cleo.db.auto-live.tmp');
+    expect(left).toContain('other.tmp');
   });
 
   it('a deferred db-heavy admission takes no global backup', async () => {
