@@ -749,7 +749,10 @@ export async function deriveTaskEvidence(
     : null;
   const toolRuns: DonePlanToolRun[] = [];
   const testRunBlockers: DonePlanBlocker[] = [];
-  if (!decisionOnly && ciPr === null) {
+  // T13428: a docs change set (a research or documentation deliverable) has
+  // no code to test or typecheck, decision recorded yet or not: never plan a
+  // whole suite or a typecheck for it.
+  if (!decisionOnly && changeSet.source !== 'docs' && ciPr === null) {
     for (const gate of pending) {
       for (const tool of GATE_TOOLS[gate] ?? []) {
         // T13403: a standalone project is one package, the whole project, so

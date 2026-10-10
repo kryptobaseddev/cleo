@@ -1334,6 +1334,22 @@ export async function deriveTaskChangeSet(
   );
   const cs = emptyChangeSet(root, source);
   const roots: EvidenceRoots = { storeRoot: input.storeRoot, executionRoot: root };
+  const docsDeps = {
+    listTaskDocs: deps.listTaskDocs ?? defaultListTaskDocs,
+    listTaskDecisions: deps.listTaskDecisions ?? defaultListTaskDecisions,
+  };
+
+  // T13428: a research or spike task's canonical artifact is its review
+  // document and decision. A merged PR that merely cites it (often the
+  // author's own code PR) must not turn it into a code change set that plans
+  // a whole suite and a typecheck. An explicit --pr still wins.
+  const researchKind = input.task.kind === 'research' || input.task.kind === 'spike';
+  if (
+    researchKind &&
+    input.prNumber === undefined &&
+    (await deriveDocsChangeSet(cs, input, docsDeps))
+  )
+    return cs;
 
   if (
     await derivePrChangeSet(cs, input, roots, {
@@ -1360,13 +1376,7 @@ export async function deriveTaskChangeSet(
     return cs;
   }
   if (refused.length > 0) return cs;
-  if (
-    await deriveDocsChangeSet(cs, input, {
-      listTaskDocs: deps.listTaskDocs ?? defaultListTaskDocs,
-      listTaskDecisions: deps.listTaskDecisions ?? defaultListTaskDecisions,
-    })
-  )
-    return cs;
+  if (!researchKind && (await deriveDocsChangeSet(cs, input, docsDeps))) return cs;
 
   const id = input.task.id;
   cs.blockers.push(
