@@ -59,7 +59,7 @@ describe('repairMalformedDbs (T11829)', () => {
   });
 
   it('skips a healthy DB (quick_check passes) without quarantining', () => {
-    writeHealthyTasksDb(join(cleoDir, 'tasks.db'), 3);
+    writeHealthyTasksDb(join(cleoDir, 'cleo.db'), 3);
 
     const result = repairMalformedDbs({ projectRoot, cwd: projectRoot, roles: ['tasks'], logger });
 
@@ -80,27 +80,32 @@ describe('repairMalformedDbs (T11829)', () => {
 
   it('detects a malformed DB and restores it from the freshest valid snapshot', () => {
     // Live DB = garbage bytes → PRAGMA quick_check fails ("disk image malformed").
-    writeFileSync(join(cleoDir, 'tasks.db'), Buffer.from('not a sqlite file at all, corrupt'));
+    writeFileSync(join(cleoDir, 'signaldock.db'), Buffer.from('not a sqlite file at all, corrupt'));
 
     // A valid VACUUM-INTO snapshot the pipeline can restore from:
-    // <cleoDir>/backups/sqlite/tasks-YYYYMMDD-HHmmss.db.
+    // <cleoDir>/backups/sqlite/signaldock-project-YYYYMMDD-HHmmss.db.
     const vacuumDir = join(cleoDir, 'backups', 'sqlite');
     mkdirSync(vacuumDir, { recursive: true });
-    writeHealthyTasksDb(join(vacuumDir, 'tasks-20260101-120000.db'), 5);
+    writeHealthyTasksDb(join(vacuumDir, 'signaldock-project-20260101-120000.db'), 5);
 
-    const result = repairMalformedDbs({ projectRoot, cwd: projectRoot, roles: ['tasks'], logger });
+    const result = repairMalformedDbs({
+      projectRoot,
+      cwd: projectRoot,
+      roles: ['signaldock-project'],
+      logger,
+    });
 
     expect(result.malformedCount).toBe(1);
     expect(result.repairedCount).toBe(1);
     expect(result.failedCount).toBe(0);
-    const tasks = result.roles.find((r) => r.role === 'tasks');
+    const tasks = result.roles.find((r) => r.role === 'signaldock-project');
     expect(tasks?.healthy).toBe(false);
     expect(tasks?.action).toBe('repaired');
-    expect(tasks?.restoredFrom).toContain('tasks-20260101-120000.db');
+    expect(tasks?.restoredFrom).toContain('signaldock-project-20260101-120000.db');
     expect(tasks?.quarantinedTo).toBeTruthy();
 
     // Post-repair the live DB is readable again with the snapshot's rows.
-    const restored = new DatabaseSync(join(cleoDir, 'tasks.db'));
+    const restored = new DatabaseSync(join(cleoDir, 'signaldock.db'));
     try {
       const row = restored.prepare('SELECT COUNT(*) AS n FROM tasks').get() as { n: number };
       expect(row.n).toBe(5);
@@ -110,15 +115,15 @@ describe('repairMalformedDbs (T11829)', () => {
   });
 
   it('--dry-run detects corruption but performs no quarantine/restore', () => {
-    writeFileSync(join(cleoDir, 'tasks.db'), Buffer.from('corrupt bytes here'));
+    writeFileSync(join(cleoDir, 'signaldock.db'), Buffer.from('corrupt bytes here'));
     const vacuumDir = join(cleoDir, 'backups', 'sqlite');
     mkdirSync(vacuumDir, { recursive: true });
-    writeHealthyTasksDb(join(vacuumDir, 'tasks-20260101-120000.db'), 7);
+    writeHealthyTasksDb(join(vacuumDir, 'signaldock-project-20260101-120000.db'), 7);
 
     const result = repairMalformedDbs({
       projectRoot,
       cwd: projectRoot,
-      roles: ['tasks'],
+      roles: ['signaldock-project'],
       dryRun: true,
       logger,
     });
@@ -126,12 +131,12 @@ describe('repairMalformedDbs (T11829)', () => {
     expect(result.dryRun).toBe(true);
     expect(result.malformedCount).toBe(1);
     expect(result.repairedCount).toBe(0);
-    const tasks = result.roles.find((r) => r.role === 'tasks');
+    const tasks = result.roles.find((r) => r.role === 'signaldock-project');
     expect(tasks?.action).toBe('would-repair');
     expect(tasks?.quarantinedTo).toBeNull();
 
     // Live DB is STILL the corrupt file — dry-run mutated nothing.
-    const live = new DatabaseSync(join(cleoDir, 'tasks.db'));
+    const live = new DatabaseSync(join(cleoDir, 'signaldock.db'));
     let threw = false;
     try {
       live.prepare('SELECT 1').get();
@@ -144,13 +149,52 @@ describe('repairMalformedDbs (T11829)', () => {
   });
 
   it('reports failed when a malformed DB has no valid snapshot to restore from', () => {
-    writeFileSync(join(cleoDir, 'tasks.db'), Buffer.from('corrupt, no snapshots exist'));
+    writeFileSync(join(cleoDir, 'signaldock.db'), Buffer.from('corrupt, no snapshots exist'));
 
-    const result = repairMalformedDbs({ projectRoot, cwd: projectRoot, roles: ['tasks'], logger });
+    const result = repairMalformedDbs({
+      projectRoot,
+      cwd: projectRoot,
+      roles: ['signaldock-project'],
+      logger,
+    });
 
     expect(result.malformedCount).toBe(1);
     expect(result.repairedCount).toBe(0);
     expect(result.failedCount).toBe(1);
-    expect(result.roles.find((r) => r.role === 'tasks')?.action).toBe('failed');
+    expect(result.roles.find((r) => r.role === 'signaldock-project')?.action).toBe('failed');
+  });
+
+  it('never repairs the live project store: tasks, brain and conduit are one probe, pointed at the guarded restore (T13245)', () => {
+    const store = join(cleoDir, 'cleo.db');
+    writeFileSync(store, Buffer.from('corrupt project store'));
+    const vacuumDir = join(cleoDir, 'backups', 'sqlite');
+    mkdirSync(vacuumDir, { recursive: true });
+    writeHealthyTasksDb(join(vacuumDir, 'tasks-20260101-120000.db'), 5);
+
+    for (const dryRun of [true, false]) {
+      const result = repairMalformedDbs({
+        projectRoot,
+        cwd: projectRoot,
+        roles: ['tasks', 'brain', 'conduit'],
+        dryRun,
+        logger,
+      });
+      expect(result.roles.map((r) => r.dbPath)).toEqual([store, store, store]);
+      expect(result.malformedCount).toBe(1);
+      expect(result.repairedCount).toBe(0);
+      expect(result.failedCount).toBe(dryRun ? 0 : 1);
+      for (const r of result.roles) {
+        expect(r.action).toBe(dryRun ? 'would-repair' : 'failed');
+        expect(r.quarantinedTo).toBeNull();
+        expect(r.detail).toContain('cleo backup recover tasks');
+      }
+    }
+    // Untouched: no quarantine, no copy over the live store.
+    const live = new DatabaseSync(store);
+    try {
+      expect(() => live.prepare('SELECT 1 FROM sqlite_master').get()).toThrow();
+    } finally {
+      live.close();
+    }
   });
 });
