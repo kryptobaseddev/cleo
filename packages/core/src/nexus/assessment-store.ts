@@ -20,6 +20,14 @@
  * ~0.6 s to compress and ~0.55 s to inflate. A historical plain-text list is
  * still read as stored.
  *
+ * The list is written one reference per line, in gzip members of
+ * {@link REFERENCES_PER_MEMBER} references, and read back line by line
+ * (T13326). Building it as ONE `JSON.stringify` string failed outright on a
+ * 5 357-file repository: 846 151 references exceed V8's maximum string length
+ * (2^29 - 24 characters), so publication died with "Invalid string length"
+ * after every other phase had finished. The text is still one valid JSON
+ * array, so a reader that parses it whole keeps working for lists that fit.
+ *
  * Code placed in `packages/core/` per Package-Boundary Check — verified against AGENTS.md.
  *
  * @task T12348
@@ -43,7 +51,23 @@ export const ASSESSMENT_REFERENCES_KEY = 'graph_assessment_references';
 const REFERENCES_GZIP_LEVEL = 1;
 
 /**
+ * References compressed per gzip member of the stored list.
+ *
+ * Bounds the largest string the encoder builds to one member's worth (a few
+ * MB) whatever the repository size, while keeping members large enough that
+ * per-member gzip framing does not cost compression.
+ */
+const REFERENCES_PER_MEMBER = 4096;
+
+/** Newline byte; JSON text never contains a raw one inside a value. */
+const NEWLINE = 0x0a;
+
+/**
  * Encode a reference list for storage under {@link ASSESSMENT_REFERENCES_KEY}.
+ *
+ * The decompressed text is the JSON array `[\n<ref>,\n<ref>\n]` — one
+ * reference per line — written as concatenated gzip members, so no string
+ * longer than one member's text is ever built (T13326).
  *
  * @param references - The generation's retained references.
  * @returns gzip-compressed JSON, stored as a BLOB.
@@ -51,7 +75,61 @@ const REFERENCES_GZIP_LEVEL = 1;
 export function encodeStoredReferences(
   references: readonly GraphIndexReferenceReport[],
 ): Uint8Array {
-  return gzipSync(JSON.stringify(references), { level: REFERENCES_GZIP_LEVEL });
+  const members: Buffer[] = [];
+  let text = '[';
+  references.forEach((reference, index) => {
+    text += `${index === 0 ? '\n' : ',\n'}${JSON.stringify(reference)}`;
+    if ((index + 1) % REFERENCES_PER_MEMBER === 0) {
+      members.push(gzipSync(text, { level: REFERENCES_GZIP_LEVEL }));
+      text = '';
+    }
+  });
+  members.push(gzipSync(`${text}\n]`, { level: REFERENCES_GZIP_LEVEL }));
+  return Buffer.concat(members);
+}
+
+/**
+ * Parse a stored reference list into its items without building one string
+ * of the whole list (T13326).
+ *
+ * Reads the line-per-reference form written by {@link encodeStoredReferences},
+ * and the single-line form written before it — compressed or plain text —
+ * by parsing that one line whole, as it was always read.
+ *
+ * @param value - The raw `_nexus_meta.value` of {@link ASSESSMENT_REFERENCES_KEY}.
+ * @returns The stored items, not yet validated.
+ * @throws When the value is neither text nor a compressed list, or is not a JSON array.
+ * @example
+ * ```ts
+ * const references = z.array(referenceSchema).parse(parseStoredReferences(row.value));
+ * ```
+ */
+export function parseStoredReferences(value: unknown): unknown[] {
+  let bytes: Buffer;
+  if (typeof value === 'string') bytes = Buffer.from(value, 'utf8');
+  else if (value instanceof Uint8Array) bytes = gunzipSync(value);
+  // @sync-invariant none:input-shape a malformed stored list is refused on read; nothing is written
+  else throw new Error('Graph reference metadata is neither text nor a compressed list.');
+  const firstBreak = bytes.indexOf(NEWLINE);
+  if (firstBreak === -1 || bytes.toString('utf8', 0, firstBreak).trim() !== '[') {
+    const whole: unknown = JSON.parse(bytes.toString('utf8'));
+    // @sync-invariant none:input-shape a malformed stored list is refused on read; nothing is written
+    if (!Array.isArray(whole)) throw new Error('Graph reference metadata is not a list.');
+    return whole;
+  }
+  const items: unknown[] = [];
+  let start = firstBreak + 1;
+  while (start < bytes.length) {
+    const end = bytes.indexOf(NEWLINE, start);
+    const line = bytes
+      .toString('utf8', start, end === -1 ? bytes.length : end)
+      .trim()
+      .replace(/,$/, '');
+    if (line !== ']' && line !== '') items.push(JSON.parse(line));
+    if (end === -1) break;
+    start = end + 1;
+  }
+  return items;
 }
 
 /**
