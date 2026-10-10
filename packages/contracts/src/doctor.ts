@@ -1134,7 +1134,9 @@ export interface SupersededStoreConflict {
    * `deleted-live` (bare-strands mode, T13309): the row is, or refers to, a
    * task the live store recorded as deleted, so copying it would resurrect
    * it. `parent-absent` (bare-strands mode): the row refers to a task that
-   * neither the live store nor the copy holds. `carried-then-deleted`
+   * neither the live store nor the copy holds. `parent-skipped`
+   * (bare-strands mode, T13334): the row refers to a bare task the same run
+   * skipped, so copying it would dangle. `carried-then-deleted`
    * (bare-strands mode): an earlier reconcile copied the row into the twin
    * (its copy receipt is in the store) and the runtime deleted it since.
    */
@@ -1145,6 +1147,7 @@ export interface SupersededStoreConflict {
     | 'withheld-undecided'
     | 'deleted-live'
     | 'parent-absent'
+    | 'parent-skipped'
     | 'carried-then-deleted';
   /** The legacy ids left uncopied, when the run can name them. */
   ids?: string[];

@@ -25,12 +25,11 @@ import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import { bareTableDigest } from '../sync/flags.js';
 import { taskReferenceColumns } from '../task-reference-columns.js';
 import { legacyRowProjection } from './column-transforms.js';
-import { loadPriorRecoveries, priorRecoveries } from './prior-recoveries.js';
 import { EXODUS_RECEIPTS_TABLE, identityImageSql } from './recovery.js';
 import type { TargetResolver } from './runtime-targets.js';
 import { resolveConsolidatedTableName } from './table-name-map.js';
 import { countRows, hasTable, ident } from './table-order.js';
-import { taskIdCollisionsSql } from './task-id-collision-sql.js';
+import { remapCollidingTaskIds, type TaskIdRemapResult } from './task-id-remap.js';
 import { BARE_SOURCE_NAME, BARE_STRANDS_SOURCE_NAME, type LegacyDbDescriptor } from './types.js';
 
 /**
@@ -200,7 +199,28 @@ export interface BareStrandSource {
   readonly accounted: SupersededStoreBareAccount[];
   /** `false` when the live task graph is empty: full mode's case, not this one. */
   readonly populated: boolean;
+  /**
+   * The renumbering of bare tasks a different live task shadows, applied
+   * BEFORE any row was judged present or skipped (T13333), so each row is
+   * judged by the key it is copied under. Its `sources` is `source`.
+   */
+  readonly remap: TaskIdRemapResult;
+  /**
+   * Every stranded row the run did NOT list in `skipped`, renumbered: the
+   * rows it copies plus those it judged already present. Each must be in the
+   * live store once the run is over, or the run is refused (T13333).
+   * `null` when the live task graph is empty or no bare table holds rows.
+   */
+  readonly accountingPath: string | null;
 }
+
+/** A renumbering that changes nothing (no shadowed bare task, or no source). */
+const NO_REMAP: TaskIdRemapResult = {
+  sources: [],
+  remaps: [],
+  undecided: null,
+  remappedPath: null,
+};
 
 /**
  * How a bare row (alias `s`) produces the twin's primary key: `match` joins it
@@ -251,11 +271,18 @@ function twinKey(
  * the prefixed twin lacks, and the bare tasks a different live task shadows by
  * id (kept so the caller's renumbering recovers them).
  *
+ * The shadowed tasks are renumbered first, with every reference re-pointed,
+ * so a child row is judged by the key it is copied under, never by the key of
+ * the live holder's child (T13333). An undecided collision is not renumbered:
+ * the caller withholds the task graph.
+ *
  * Skipped, and named in `skipped`: a row that is, or whose task reference
  * points at, a task the live store recorded as deleted (`tasks_audit_log`
- * action `task_deleted`), and a row whose task reference neither the live
- * store nor the copy holds. A deletion record of a shadowed id belongs to the
- * live task holding it and skips nothing. A table whose twin key the bare
+ * action `task_deleted`), a row whose task reference neither the live store
+ * nor the copy holds (`parent-absent`), and, to a fixed point, a row whose
+ * task reference is a bare task this run skipped (`parent-skipped`, T13334).
+ * A deletion record of a shadowed id, or of a fresh id a renumbering took,
+ * belongs to another task and skips nothing. A table whose twin key the bare
  * table cannot produce keeps every row, and the post-copy verification judges
  * it.
  *
@@ -272,16 +299,13 @@ export async function bareStrandSource(
 ): Promise<BareStrandSource> {
   const live = openCleoDbSnapshot(liveStorePath, { readOnly: true });
   let tables: Array<{ name: string; sql: string }>;
-  let shadowed: string[] = [];
   let deleted: string[] = [];
   let accounted: SupersededStoreBareAccount[];
+  const none = { source: null, skipped: [], remap: NO_REMAP, accountingPath: null };
   try {
-    if (!liveTaskGraphPopulated(live.db)) {
-      return { source: null, skipped: [], accounted: [], populated: false };
-    }
+    if (!liveTaskGraphPopulated(live.db)) return { ...none, accounted: [], populated: false };
     tables = deadBareTables(live.db, resolveTarget);
     accounted = tables.map((t) => bareTableDigest(live.db, 'main', t.name));
-    if (tables.some((t) => t.name === 'tasks')) shadowed = shadowedBareTaskIds(live.db, cleoDir);
     if (hasTable(live.db, 'main', 'tasks_audit_log')) {
       deleted = (
         live.db
@@ -294,25 +318,49 @@ export async function bareStrandSource(
   } finally {
     live.close();
   }
-  if (tables.length === 0) return { source: null, skipped: [], accounted, populated: true };
+  if (tables.length === 0) return { ...none, accounted, populated: true };
 
-  const path = join(outDir, 'cleo-bare-strands.db');
-  await materializeBareTables(liveStorePath, tables, path, outDir);
+  const materialized = join(outDir, 'cleo-bare-strands.db');
+  await materializeBareTables(liveStorePath, tables, materialized, outDir);
+  // Renumber BEFORE judging any row (T13333): a child of a shadowed task keyed
+  // by the shadowed id would otherwise match the live holder's child.
+  const remap = remapCollidingTaskIds(
+    liveStorePath,
+    [{ name: 'tasks', path: materialized, targetScope: 'project' }],
+    outDir,
+    cleoDir,
+  );
+  // An undecided collision withholds the whole task graph, so the caller
+  // reads the rows as they are (as a full run reads its original files).
+  const path = remap.undecided === null ? (remap.remappedPath ?? materialized) : materialized;
+  const shadowed = [...remap.remaps.map((r) => r.legacyId), ...(remap.undecided?.ids ?? [])];
+  // A fresh id is new to this store: a deletion record of it is another task's.
+  const fresh =
+    remap.undecided === null
+      ? remap.remaps.filter((r) => !r.alreadyRecovered).map((r) => r.newId)
+      : [];
+  // Everything not listed as skipped, renumbered (T13333).
+  const accountingPath = join(outDir, 'cleo-bare-strands-accounting.db');
   const skipped: SupersededStoreConflict[] = [];
   const snap = openCleoDbSnapshot(path, { readOnly: false, applyPragmas: false });
   let kept = 0;
   try {
     const db = snap.db;
+    db.exec(`VACUUM INTO '${accountingPath.replace(/'/g, "''")}'`);
     db.exec('PRAGMA foreign_keys=OFF');
     db.exec(`ATTACH DATABASE '${liveStorePath.replace(/'/g, "''")}' AS live`);
+    db.exec(`ATTACH DATABASE '${accountingPath.replace(/'/g, "''")}' AS acct`);
     db.exec('CREATE TEMP TABLE strand_shadowed (id TEXT PRIMARY KEY)');
     db.exec('CREATE TEMP TABLE strand_deleted (id TEXT PRIMARY KEY)');
     const addShadowed = db.prepare('INSERT OR IGNORE INTO temp.strand_shadowed VALUES (?)');
     for (const id of shadowed) addShadowed.run(id);
     const addDeleted = db.prepare('INSERT OR IGNORE INTO temp.strand_deleted VALUES (?)');
     for (const id of deleted) addDeleted.run(id);
-    // A shadowed id's deletion record is the LIVE holder's, a different task.
+    // A shadowed id's deletion record is the LIVE holder's, a different task;
+    // a fresh id's is a task deleted before the renumbering took its id.
     db.exec('DELETE FROM temp.strand_deleted WHERE id IN (SELECT id FROM temp.strand_shadowed)');
+    const dropFresh = db.prepare('DELETE FROM temp.strand_deleted WHERE id = ?');
+    for (const id of fresh) dropFresh.run(id);
     const present = (): string[] =>
       tables.map((t) => t.name).filter((name) => hasTable(db, 'main', name));
     const twinOf = (bare: string): string => {
@@ -345,13 +393,29 @@ export async function bareStrandSource(
         .filter((c) => c.pk > 0)
         .sort((a, b) => a.pk - b.pk)
         .map((c) => c.name);
-      const keyCols = (pk.length > 0 ? pk : info.map((c) => c.name)).map(ident).join(', ');
+      const keyNames = pk.length > 0 ? pk : info.map((c) => c.name);
+      const keyCols = keyNames.map(ident).join(', ');
       const keys = (
         db
           .prepare(`SELECT ${keyCols} FROM main.${ident(table)} AS s WHERE ${where} ORDER BY 1`)
           .all() as Array<Record<string, string | number | null>>
       ).map((row) => JSON.stringify(Object.values(row)));
+      // A listed row leaves the accounting copy too: only it may go uncopied.
+      if (hasTable(db, 'acct', table)) {
+        const same = keyNames.map((c) => `a.${ident(c)} IS s.${ident(c)}`).join(' AND ');
+        db.exec(
+          `DELETE FROM acct.${ident(table)} AS a WHERE EXISTS (SELECT 1 FROM main.${ident(table)} AS s WHERE (${where}) AND ${same})`,
+        );
+      }
       const rows = db.prepare(`DELETE FROM main.${ident(table)} AS s WHERE ${where}`).run().changes;
+      // One entry per table and reason, however many passes found its rows.
+      const prior = skipped.find((c) => c.sourceTable === table && c.reason === reason);
+      if (prior) {
+        prior.rows += Number(rows);
+        prior.ids = [...new Set([...(prior.ids ?? []), ...ids])].sort();
+        prior.keys = [...(prior.keys ?? []), ...keys];
+        return;
+      }
       skipped.push({
         sourceDb: BARE_STRANDS_SOURCE_NAME,
         sourceTable: table,
@@ -362,8 +426,13 @@ export async function bareStrandSource(
         keys,
       });
     };
-    // 1. Rows the twin already holds by key are not stranded (a shadowed task
-    //    is kept for the caller's renumbering). A row an earlier reconcile
+    // Every bare task before any is judged: a reference to one this run then
+    // skips is `parent-skipped`, to one no side ever held `parent-absent`.
+    db.exec(
+      `CREATE TEMP TABLE strand_tasks AS SELECT id FROM ${hasTable(db, 'main', 'tasks') ? 'main.tasks' : '(SELECT NULL AS id WHERE 0)'}`,
+    );
+    // 1. Rows the twin already holds by key are not stranded (an undecided
+    //    shadowed task, left unrenumbered, is not the live holder). A row an earlier reconcile
     //    copied into the twin (its committed copy receipt, in the store) that
     //    the twin no longer holds was deleted since: copying it again would
     //    resurrect it.
@@ -403,35 +472,95 @@ export async function bareStrandSource(
       );
     }
 
-    // 3. A reference to a task neither side holds would dangle.
+    // 3. A reference to a task neither side holds would dangle. Repeated to a
+    //    fixed point (T13334): skipping a task strands every row referring to
+    //    it, whatever the order of the reference columns.
     const copiesTasks = hasTable(db, 'main', 'tasks');
-    for (const ref of refs) {
-      if (!hasTable(db, 'main', ref.table)) continue;
-      const c = ident(ref.column);
-      const inCopy = copiesTasks ? ` AND ${c} NOT IN (SELECT id FROM main.tasks)` : '';
-      drop(
-        ref.table,
-        ref.column,
-        `${c} IS NOT NULL AND ${c} NOT IN (SELECT id FROM live.tasks_tasks)${inCopy}`,
-        'parent-absent',
-      );
-    }
+    let grew: boolean;
+    do {
+      grew = false;
+      for (const ref of refs) {
+        if (!hasTable(db, 'main', ref.table)) continue;
+        const c = ident(ref.column);
+        const inCopy = copiesTasks ? ` AND ${c} NOT IN (SELECT id FROM main.tasks)` : '';
+        const dangling = `${c} IS NOT NULL AND ${c} NOT IN (SELECT id FROM live.tasks_tasks)${inCopy}`;
+        const before = skipped.reduce((n, s) => n + s.rows, 0);
+        drop(
+          ref.table,
+          ref.column,
+          `${dangling} AND ${c} IN (SELECT id FROM temp.strand_tasks)`,
+          'parent-skipped',
+        );
+        drop(
+          ref.table,
+          ref.column,
+          `${dangling} AND ${c} NOT IN (SELECT id FROM temp.strand_tasks)`,
+          'parent-absent',
+        );
+        if (skipped.reduce((n, s) => n + s.rows, 0) > before) grew = true;
+      }
+    } while (grew);
 
     for (const bare of present()) {
       const n = countRows(db, 'main', bare);
       if (n === 0) db.exec(`DROP TABLE main.${ident(bare)}`);
       kept += n;
     }
+    db.exec('DETACH DATABASE acct');
     db.exec('DETACH DATABASE live');
   } finally {
     snap.close();
   }
+  const source: LegacyDbDescriptor | null =
+    kept > 0 ? { name: BARE_STRANDS_SOURCE_NAME, path, targetScope: 'project' } : null;
   return {
-    source: kept > 0 ? { name: BARE_STRANDS_SOURCE_NAME, path, targetScope: 'project' } : null,
+    source,
     skipped,
     accounted,
     populated: true,
+    // Under the strands source name, which the receipt and later runs read.
+    remap: {
+      sources: source ? [source] : [],
+      remaps: remap.remaps.map((r) => ({ ...r, sourceDb: BARE_STRANDS_SOURCE_NAME })),
+      undecided: remap.undecided && { ...remap.undecided, sourceDb: BARE_STRANDS_SOURCE_NAME },
+      remappedPath: path === materialized ? null : path,
+    },
+    accountingPath,
   };
+}
+
+/**
+ * Task references in the copied strands source that the live store cannot
+ * resolve after the copy: `table.column -> id` for each (T13334). Empty when
+ * every reference a copied row carries names a live task.
+ *
+ * @param liveStorePath - The live project `cleo.db` (read only).
+ * @param sourcePath - The strands source the run copied from.
+ */
+export function danglingStrandReferences(liveStorePath: string, sourcePath: string): string[] {
+  const snap = openCleoDbSnapshot(sourcePath, { readOnly: true, applyPragmas: false });
+  try {
+    const db = snap.db;
+    db.exec(`ATTACH DATABASE '${liveStorePath.replace(/'/g, "''")}' AS live`);
+    const out: string[] = [];
+    try {
+      for (const ref of taskReferenceColumns(db, localNameOf(db))) {
+        if (ref.jsonArray || !hasTable(db, 'main', ref.table)) continue;
+        const c = ident(ref.column);
+        const ids = db
+          .prepare(
+            `SELECT DISTINCT ${c} AS id FROM main.${ident(ref.table)} WHERE ${c} IS NOT NULL AND ${c} NOT IN (SELECT id FROM live.tasks_tasks) ORDER BY 1`,
+          )
+          .all() as Array<{ id: string }>;
+        for (const { id } of ids) out.push(`${ref.table}.${ref.column} -> ${String(id)}`);
+      }
+    } finally {
+      db.exec('DETACH DATABASE live');
+    }
+    return out;
+  } finally {
+    snap.close();
+  }
 }
 
 /** The first primary-key column of a bare-family table (its first column if keyless). */
@@ -441,31 +570,6 @@ function firstKeyColumn(db: DatabaseSync, table: string): string {
     pk: number;
   }>;
   return (info.find((c) => c.pk === 1) ?? info[0])?.name ?? 'rowid';
-}
-
-/**
- * Bare `tasks` ids a DIFFERENT live task holds (the T001 reuse case), by the
- * reconcile's one collision definition. One an earlier run already recovered
- * is included too: the caller's renumbering maps it to the recovered task, so
- * its children re-point there instead of onto the live task holding the id.
- */
-function shadowedBareTaskIds(live: DatabaseSync, cleoDir: string): string[] {
-  const has = (table: string, cols: readonly string[]): boolean => {
-    const names = new Set(
-      (
-        live.prepare(`PRAGMA main.table_info(${ident(table)})`).all() as Array<{ name: string }>
-      ).map((c) => c.name),
-    );
-    return cols.every((c) => names.has(c));
-  };
-  const cols = ['id', 'title', 'created_at', 'type'] as const;
-  if (!has('tasks', cols) || !has('tasks_tasks', cols)) return [];
-  loadPriorRecoveries(live, priorRecoveries(cleoDir));
-  return (
-    live.prepare(`SELECT legacyId FROM (${taskIdCollisionsSql('main.tasks')})`).all() as Array<{
-      legacyId: string;
-    }>
-  ).map((r) => r.legacyId);
 }
 
 /** Consolidated table name → its name in a bare-family file, by the exodus map. */
