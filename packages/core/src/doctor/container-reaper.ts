@@ -72,6 +72,13 @@ export interface ContainerReapInput {
   readonly labelledContainers: string | null;
   /** Full container id → `State.StartedAt` (RFC 3339), for the running candidates. */
   readonly startedAt: Readonly<Record<string, string>>;
+  /**
+   * Full container id → `State.FinishedAt`, for the stopped candidates: a stopped
+   * container's ttl runs from when it last stopped, so one reused across runs
+   * is not removed between them. Docker's zero time (never started) falls back
+   * to `CreatedAt`.
+   */
+  readonly finishedAt?: Readonly<Record<string, string>>;
   /** `docker volume ls -q -f dangling=true`. */
   readonly danglingVolumes: string | null;
   readonly nowMs: number;
@@ -111,12 +118,13 @@ export function planContainerReap(input: ContainerReapInput): ContainerReapPlan 
   const containers: ReapContainer[] = [];
   const runningExpired: ReapContainer[] = [];
   const invalidTtl: string[] = [];
-  const startedAtOf = (id: string): number => {
-    const full = Object.keys(input.startedAt).find((k) => k.startsWith(id));
-    // shortcut: drop sub-millisecond digits Date.parse may not accept
-    return full === undefined
+  const timeOf = (map: Readonly<Record<string, string>>, id: string): number => {
+    const full = Object.keys(map).find((k) => k.startsWith(id));
+    const at = full === undefined ? '' : (map[full] ?? '');
+    // Docker's zero time means "never"; drop sub-millisecond digits Date.parse may not accept.
+    return at === '' || at.startsWith('0001-')
       ? Number.NaN
-      : Date.parse((input.startedAt[full] ?? '').replace(/(\.\d{3})\d+/, '$1'));
+      : Date.parse(at.replace(/(\.\d{3})\d+/, '$1'));
   };
   for (const line of (input.labelledContainers ?? '').split('\n')) {
     const [id, name, image, createdAt, state, rawLabels = ''] = line.split('\t');
@@ -126,7 +134,12 @@ export function planContainerReap(input: ContainerReapInput): ContainerReapPlan 
     if (ttl === undefined) continue;
     const ttlSec = parseTtl(ttl);
     const running = state === 'running' || state === 'restarting' || state === 'paused';
-    const since = running ? startedAtOf(id) : parseDockerCreatedAt(createdAt);
+    const finished = timeOf(input.finishedAt ?? {}, id);
+    const since = running
+      ? timeOf(input.startedAt, id)
+      : Number.isNaN(finished)
+        ? parseDockerCreatedAt(createdAt)
+        : finished;
     if (ttlSec === null || Number.isNaN(since)) {
       invalidTtl.push(name);
       continue;
@@ -189,25 +202,26 @@ export async function collectContainerReapInput(): Promise<ContainerReapInput> {
     readDocker(['ps', '-a', '--filter', `label=${CLEO_TTL_LABEL}`, '--format', LABELLED_FORMAT]),
     readDocker(['volume', 'ls', '-q', '-f', 'dangling=true']),
   ]);
-  const running = (labelledContainers ?? '')
+  const ids = (labelledContainers ?? '')
     .split('\n')
-    .map((l) => l.split('\t'))
-    .filter((f) => f[4] === 'running' || f[4] === 'restarting' || f[4] === 'paused')
-    .map((f) => f[0] as string);
+    .map((l) => l.split('\t')[0] ?? '')
+    .filter((id) => id !== '');
   const startedAt: Record<string, string> = {};
-  if (running.length > 0) {
+  const finishedAt: Record<string, string> = {};
+  if (ids.length > 0) {
     const out = await readDocker([
       'inspect',
       '--format',
-      '{{.Id}}\t{{.State.StartedAt}}',
-      ...running,
+      '{{.Id}}\t{{.State.StartedAt}}\t{{.State.FinishedAt}}',
+      ...ids,
     ]);
     for (const line of (out ?? '').split('\n')) {
-      const [id, at] = line.split('\t');
-      if (id && at) startedAt[id] = at;
+      const [id, started, finished] = line.split('\t');
+      if (id && started) startedAt[id] = started;
+      if (id && finished) finishedAt[id] = finished;
     }
   }
-  return { labelledContainers, danglingVolumes, startedAt, nowMs: Date.now() };
+  return { labelledContainers, danglingVolumes, startedAt, finishedAt, nowMs: Date.now() };
 }
 
 /**
