@@ -27,7 +27,9 @@
  * Rows: a row only the merged state has is adopted (inserted) unless the
  * store holds a newer tombstone for it (rule 3: a pinned delete); a row the
  * merged state deleted is adopted (deleted) unless the store's row is newer
- * (rule 3: its fields, pinned). A live row the merged state never knew, with
+ * (rule 3: the whole live row re-inserted as an I whose op HLC is above the
+ * tombstone, its field HLCs pinned; the merge engine voids a U on a
+ * tombstoned row but re-creates the row from a newer I, T13392). A live row the merged state never knew, with
  * no inherited change, is emitted: with its row meta's HLCs pinned when it
  * has meta, else as a plain insert (nothing local is ever deleted that the
  * stream cannot account for).
@@ -60,7 +62,7 @@ import {
   type TouchedRow,
   touchedRowKey,
 } from './reconcile.js';
-import { RECONCILE_DUE_KEY, reconcileDue } from './replica.js';
+import { activeReplica, RECONCILE_DUE_KEY, reconcileDue } from './replica.js';
 import { fieldHlcsOf, type RowMetaFull, type RowMetaRow, readRowMetaFull } from './row-meta.js';
 import { hasTable } from './schema.js';
 import { canonicalJson } from './sealer-values.js';
@@ -127,6 +129,7 @@ export function reconcileCopy(
       gathered.rows.get(touchedRowKey(tbl, uid));
     const pinned: PinnedEmit[] = [];
     const atMs = now();
+    const replica = activeReplica(db, o.scope)?.replicaId;
     let adoptedFields = 0;
     let adoptedInserts = 0;
     let adoptedDeletes = 0;
@@ -227,16 +230,21 @@ export function reconcileCopy(
           // The merged state has no live row.
           if (mMeta?.deleted) {
             const localH = rowHlc(lMeta);
-            if (localH === null || localH < mMeta.hlc) {
+            // The re-insert's op HLC must be above the tombstone: a clock
+            // that merged it issues one. A tombstone beyond the skew bound
+            // cannot be passed, so the delete is adopted.
+            const above =
+              localH === null || localH < mMeta.hlc || replica === undefined
+                ? null
+                : api.clockReceive(replica, mMeta.hlc, atMs);
+            if (above === null || above.held) {
               deletes.push({ def, uid, tombstone: mMeta.hlc, meta: mMeta });
             } else {
-              const lH = fieldHlcsOf(def, lMeta as RowMetaRow);
               pinned.push({
                 tbl: def.table,
                 uid,
-                op: 'U',
-                cols: new Set(fields),
-                pin: { fh: Object.fromEntries(fields.map((c) => [c, lH[c] as string])) },
+                op: 'I',
+                pin: { h: above.clock, fh: fieldHlcsOf(def, lMeta as RowMetaRow) },
                 atMs,
               });
             }

@@ -188,7 +188,7 @@ const titleHlc = (db: DatabaseSync, id: string): string => {
  * went on; returns C rebound (sync open pass off, bound as the test device)
  * and the merged scratch at head.
  */
-async function scenario() {
+async function scenario(opts: { lostInsert?: boolean } = {}) {
   stream.length = 0;
   const a = await author();
   // The checkpoint: A right after its genesis cut.
@@ -212,6 +212,8 @@ async function scenario() {
   // Two uploads the server lost: an update and a delete.
   write(a, "UPDATE tasks_tasks SET title = 'lost title' WHERE id = 'T1'");
   write(a, "DELETE FROM tasks_tasks WHERE id = 'T6'");
+  // A row the stream never saw: its insert is in the lost upload too.
+  if (opts.lostInsert) write(a, addTask('T9'));
   expect((await push(a, true)).pushed).toBe(1);
   const lostTitleHlc = titleHlc(a, 'T1');
   const lostDeleteHlc = readRowMeta(a, 'tasks_tasks', 'uid-T6')?.hlc as string;
@@ -331,6 +333,102 @@ describe('the copy reconcile (T13335, §1.5 N7)', () => {
     expect(t7?.fh).toBeUndefined();
     // The pinned field's meta keeps the HLC the original replica issued.
     expect(titleHlc(c, 'T1')).toBe(lostTitleHlc);
+  });
+
+  it('re-inserts a row the stream deleted but the copy changed later, above the tombstone (T13392)', async () => {
+    const { a, c, merged } = await scenario();
+    const tombstone = readRowMeta(merged, 'tasks_tasks', 'uid-T5')?.hlc as string;
+    expect(readRowMeta(merged, 'tasks_tasks', 'uid-T5')?.deleted).toBeTruthy();
+    // C edits T5 after the rebind, sealed before the reconcile runs: its
+    // field HLC is newer than the stream's delete.
+    write(c, "UPDATE tasks_tasks SET title = 'copy title' WHERE id = 'T5'");
+    expect(
+      sealPending(c, { scope: 'project', now: () => ++clock, env: {}, allowUnreleased: true })
+        .refused,
+    ).toBeNull();
+    const copyTitleHlc = titleHlc(c, 'T5');
+    expect(copyTitleHlc > tombstone).toBe(true);
+    const report = reconcileCopy(c, merged, {
+      scope: 'project',
+      stream: STREAM,
+      mergedCursor: readStreamCursor(merged, STREAM) ?? START,
+      now: () => ++clock,
+    });
+    // T5 is the merged state's only delete: kept here, never adopted.
+    expect(report).toMatchObject({ adoptedDeletes: 0, unresolved: 0 });
+    // The copy keeps its newer row.
+    expect(title(c, 'T5')).toBe('copy title');
+    // A clock behind the tombstone (skew, or a fresh replica sealing an
+    // inherited value) must still re-insert above it: the op HLC is pinned
+    // at reconcile time, so the seal's own clock does not matter.
+    c.prepare('UPDATE _sync_clock SET phys = 0, ctr = 0').run();
+    expect(
+      sealPending(c, { scope: 'project', now: () => 1, env: {}, allowUnreleased: true }).refused,
+    ).toBeNull();
+    const before = stream.length;
+    expect((await push(c)).refusedKind).toBeNull();
+    const t5 = stream
+      .slice(before)
+      .flatMap((s) => decode(s.plaintext))
+      .flatMap((t) => t.ops.map((op) => ({ ...op, via: t.via })))
+      .filter((op) => op.u === 'uid-T5' && op.via === 'rebind');
+    // The whole live row as an I whose op HLC is above the tombstone, its
+    // field HLCs pinned: an update would be voided everywhere.
+    expect(t5).toHaveLength(1);
+    expect(t5[0]).toMatchObject({
+      o: 'I',
+      a: { title: 'copy title' },
+      fh: { title: copyTitleHlc },
+    });
+    expect((t5[0]?.h ?? '') > tombstone).toBe(true);
+    // Every replica ends with the same row: A, which deleted it, re-creates it.
+    const pulled = await pullStream(a, {
+      scope: 'project',
+      stream: STREAM,
+      replica: replicaOf(a),
+      pull: pullPage,
+      verify: () => null,
+      initialCursor: readStreamCursor(a, STREAM) ?? START,
+      now: () => ++clock,
+      env: {},
+      seal: () => {},
+    });
+    expect(pulled.refused).toBeNull();
+    expect(title(a, 'T5')).toBe('copy title');
+    expect(titleHlc(a, 'T5')).toBe(titleHlc(c, 'T5'));
+  });
+
+  it('emits a row the stream never saw as an insert with its HLCs pinned (rule 3)', async () => {
+    const { c, merged } = await scenario({ lostInsert: true });
+    expect(title(c, 'T9')).toBe('title T9');
+    expect(readRowMeta(merged, 'tasks_tasks', 'uid-T9')).toBeUndefined();
+    const t9Hlc = titleHlc(c, 'T9');
+    const report = reconcileCopy(c, merged, {
+      scope: 'project',
+      stream: STREAM,
+      mergedCursor: readStreamCursor(merged, STREAM) ?? START,
+      now: () => ++clock,
+    });
+    expect(report).toMatchObject({ pinned: 3, unresolved: 0 });
+    expect(title(c, 'T9')).toBe('title T9');
+    expect(
+      sealPending(c, { scope: 'project', now: () => ++clock, env: {}, allowUnreleased: true })
+        .refused,
+    ).toBeNull();
+    const before = stream.length;
+    expect((await push(c)).refusedKind).toBeNull();
+    const t9 = stream
+      .slice(before)
+      .flatMap((s) => decode(s.plaintext))
+      .flatMap((t) => t.ops.map((op) => ({ ...op, via: t.via })))
+      .filter((op) => op.u === 'uid-T9');
+    expect(t9).toHaveLength(1);
+    expect(t9[0]).toMatchObject({
+      o: 'I',
+      via: 'rebind',
+      a: { title: 'title T9' },
+      fh: { title: t9Hlc },
+    });
   });
 
   it('does nothing when no reconcile is due', async () => {

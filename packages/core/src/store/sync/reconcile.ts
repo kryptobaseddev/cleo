@@ -437,7 +437,7 @@ export function emitRebindFrame(
     if (r.inserted) {
       // The stream never saw this row: the meta an inherited seal wrote must
       // not make the sealer read the re-emitted insert as a REPLACE (a U).
-      db.prepare('DELETE FROM _sync_row_meta WHERE tbl = ? AND uid = ?').run(r.tbl, r.uid);
+      dropRowMeta(db, r.tbl, r.uid);
       captureFromLive(db, def, img.insert, 'I', rk, r.uid, r.atMs, frame);
       if (undoOn) undo.run(frame, null);
       inserts += 1;
@@ -477,6 +477,14 @@ export function emitRebindFrame(
     }
     const rk = liveRk(db, def, p.uid);
     if (rk === null) continue;
+    if (p.op === 'I') {
+      // A pinned insert (a row the stream never saw, or one it deleted that
+      // is newer here, T13392): the meta of the original replica's seal must
+      // not make the sealer read it as a REPLACE (a U, which a receiver
+      // without the row, or with its tombstone, never applies). The pin
+      // carries the field HLCs.
+      dropRowMeta(db, p.tbl, p.uid);
+    }
     const img = repairImageSql(def, 'x', p.op === 'U' ? new Set(p.cols ?? []) : undefined);
     captureFromLive(
       db,
@@ -494,6 +502,15 @@ export function emitRebindFrame(
     else updates += 1;
   }
   return { frame, inserts, updates, deletes, rekeys: rekeys.length, captures, txns };
+}
+
+/**
+ * Forget a row's meta so the sealer reads a re-emitted insert as an insert,
+ * never as a REPLACE (a U). The emit carries its own HLCs (rule 1's tick, or
+ * rule 3's pin).
+ */
+function dropRowMeta(db: DatabaseSync, tbl: string, uid: string): void {
+  db.prepare('DELETE FROM _sync_row_meta WHERE tbl = ? AND uid = ?').run(tbl, uid);
 }
 
 /** The text an `enc()` string value decodes to, or null. */
