@@ -126,4 +126,32 @@ describe('computeCountParity + sealExodus refusal (T11837)', () => {
     // Safety invariant: a refused seal must leave the legacy source UNTOUCHED.
     expect(existsSync(sourcePath), 'refused seal must not archive the source').toBe(true);
   });
+
+  it("re-sealing keeps the cutover's recorded verify issues, so exodus-health still reports them (T13341)", async () => {
+    const saved = { dir: process.env.CLEO_DIR, home: process.env.CLEO_HOME };
+    process.env.CLEO_DIR = join(tmpDir, '.cleo');
+    process.env.CLEO_HOME = join(tmpDir, 'cleo-home');
+    try {
+      seedTarget(50);
+      const { readExodusVerifyIssues, writeExodusCompleteMarker } = await import(
+        '../exodus/archive.js'
+      );
+      const { buildExodusHealth } = await import('../exodus/health.js');
+      // The migrate's tolerated FAILED verify, recorded in the marker.
+      const issues = ['[project] tasks_tasks: content digest differs from tasks'];
+      writeExodusCompleteMarker('project', ['tasks'], tmpDir, undefined, undefined, issues);
+
+      const result = sealExodus(makePlan(), 'project', tmpDir);
+
+      expect(result.ok).toBe(true);
+      expect(result.scopes[0]?.alreadySealed).toBe(true);
+      expect(readExodusVerifyIssues('project', tmpDir)).toEqual(issues);
+      expect(buildExodusHealth(tmpDir).project.verifyIssues).toEqual(issues);
+    } finally {
+      if (saved.dir === undefined) delete process.env.CLEO_DIR;
+      else process.env.CLEO_DIR = saved.dir;
+      if (saved.home === undefined) delete process.env.CLEO_HOME;
+      else process.env.CLEO_HOME = saved.home;
+    }
+  });
 });

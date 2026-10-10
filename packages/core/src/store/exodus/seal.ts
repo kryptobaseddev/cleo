@@ -21,7 +21,12 @@
  */
 
 import { getLogger } from '../../logger.js';
-import { archiveSourceDb, hasExodusCompleteMarker, writeExodusCompleteMarker } from './archive.js';
+import {
+  archiveSourceDb,
+  hasExodusCompleteMarker,
+  readExodusVerifyIssues,
+  writeExodusCompleteMarker,
+} from './archive.js';
 import { type CountParityResult, computeCountParity } from './count-parity.js';
 import type { ExodusPlan, ExodusScope } from './types.js';
 
@@ -107,10 +112,15 @@ export function sealExodus(
       const r = archiveSourceDb(s, cwd);
       return { name: r.name, action: r.action, archivedTo: r.archivedTo };
     });
+    // Seal runs no content verify of its own, so what the cutover's verify
+    // recorded stays on the marker it rewrites (T13341).
     const markerPath = writeExodusCompleteMarker(
       scope,
       scopeSources.map((s) => s.name),
       cwd,
+      undefined,
+      undefined,
+      readExodusVerifyIssues(scope, cwd),
     );
     log.info(
       { scope, alreadySealed, archived: archived.filter((a) => a.action === 'archived').length },
