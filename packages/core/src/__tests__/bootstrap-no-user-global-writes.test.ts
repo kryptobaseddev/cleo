@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bootstrapGlobalCleo } from '../bootstrap.js';
+import { resolveSkillsRoot } from '../skills/skill-root.js';
 
 let isolatedRoot: string;
 let home: string;
@@ -111,9 +112,16 @@ describe('bootstrapGlobalCleo (npm postinstall, self-update) — T13409', () => 
   it('changes no byte under HOME outside CLEO-owned data, and names the owner command', async () => {
     const before = snapshot(home, CLEO_OWNED_UNDER_HOME);
     const ctx = await bootstrapGlobalCleo({});
-    expect(changed(before, snapshot(home, CLEO_OWNED_UNDER_HOME))).toEqual([]);
+    const after = snapshot(home, CLEO_OWNED_UNDER_HOME);
+    // Only new links into CLEO's own skill store (and their parent dirs) may appear.
+    const root = resolveSkillsRoot();
+    const illegal = changed(before, after).filter((path) => {
+      const value = after.get(path);
+      if (value?.startsWith('link:')) return !value.slice(5).startsWith(`${root}/`);
+      return value !== 'dir' || before.has(path);
+    });
+    expect(illegal).toEqual([]);
     expect(readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8')).toBe(USER_CLAUDE);
-    expect(existsSync(join(home, '.claude', 'skills'))).toBe(false);
     expect(ctx.warnings.join('\n')).toContain('caamp instructions update --global');
   });
 

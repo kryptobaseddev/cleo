@@ -626,6 +626,8 @@ export async function initCoreSkills(created: string[], warnings: string[]): Pro
         if (result.success) {
           installed.push(skill.name);
         }
+        // T13409: say which provider entries were left alone (user-owned).
+        for (const error of result.errors) warnings.push(`skill ${skill.name}: ${error}`);
       } catch {
         // Skill may already be installed, continue
       }

@@ -518,12 +518,7 @@ export async function installMcpToProviders(_ctx: BootstrapContext): Promise<voi
  */
 export async function installSkillsGlobally(ctx: BootstrapContext): Promise<void> {
   try {
-    if (!ctx.isDryRun && !ctx.userRequested) {
-      // T13409: linking skills writes provider dirs under HOME (~/.claude/skills, ...).
-      ctx.created.push(
-        'core skills: not linked into provider skill dirs by the npm postinstall — run: cleo install-global',
-      );
-    } else if (!ctx.isDryRun) {
+    if (!ctx.isDryRun) {
       const { initCoreSkills } = await import('./init.js');
       await initCoreSkills(ctx.created, ctx.warnings);
     } else {

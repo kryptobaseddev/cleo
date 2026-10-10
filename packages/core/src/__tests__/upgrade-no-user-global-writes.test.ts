@@ -24,11 +24,13 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resolveSkillsRoot } from '../skills/skill-root.js';
 import { runUpgrade } from '../upgrade.js';
 
 let isolatedRoot: string;
@@ -64,6 +66,28 @@ function snapshot(root: string, exclude: string[] = []): Map<string, string> {
   return out;
 }
 
+/**
+ * Changes allowed under HOME (T13409): a new symlink into CLEO's own skill
+ * store, plus the directories created to hold it. Everything else is a
+ * violation, and nothing that existed may change.
+ */
+function disallowedHomeChanges(
+  before: Map<string, string>,
+  after: Map<string, string>,
+  skillsRoot: string,
+): string[] {
+  const allowed = new Set<string>();
+  for (const [path, value] of after) {
+    if (before.has(path) || !value.startsWith('link:')) continue;
+    if (!value.slice('link:'.length).startsWith(`${skillsRoot}/`)) continue;
+    allowed.add(path);
+    for (let dir = dirname(path); dir !== '.'; dir = dirname(dir)) {
+      if (!before.has(dir)) allowed.add(dir);
+    }
+  }
+  return diff(before, after).filter((entry) => !allowed.has(entry.slice(2)));
+}
+
 /** Entries that differ between two snapshots, for a readable failure. */
 function diff(before: Map<string, string>, after: Map<string, string>): string[] {
   const changed: string[] = [];
@@ -84,8 +108,9 @@ const AGENTS_MD =
   '<!-- CAAMP:START -->\n@~/.agents/AGENTS.md\n@.cleo/project-context.json\n# Run: cleo memory digest\n<!-- CAAMP:END -->\n\n# Project rules (user text)\n\n- keep me\n';
 /** An existing project's settings (memory bridge in its default `cli` mode). */
 const CONFIG = { brain: { memoryBridge: { mode: 'cli' } } };
-const CLAUDE_MD =
-  '<!-- CAAMP:START -->\n@AGENTS.md\n<!-- CAAMP:END -->\n\n## Release Workflow (user text)\n';
+/** Shaped like cleocode's own CLAUDE.md, plus a user `@path` line outside the markers. */
+const CLAUDE_OUTSIDE = '\n\n## Release Workflow (user text)\n\n@docs/my-own-notes.md\n';
+const CLAUDE_MD = `<!-- CAAMP:START -->\n@AGENTS.md\n<!-- CAAMP:END -->${CLAUDE_OUTSIDE}`;
 const GEMINI_MD = '<!-- CAAMP:START -->\n@AGENTS.md\n<!-- CAAMP:END -->\n';
 const GITIGNORE = '# user header\n*\n!.gitignore\n!my-own-file.txt\n';
 const WORKTREEINCLUDE = '# mine first\n.env.local\n.idea/\n';
@@ -181,24 +206,41 @@ afterEach(async () => {
 });
 
 describe('runUpgrade never writes user-global files (T13409 AC1)', () => {
-  it('leaves every byte under HOME unchanged outside CLEO-owned data dirs', async () => {
+  it('changes nothing under HOME but new links into the CLEO skill store', async () => {
+    // A skill the user keeps as a real directory, and one linked elsewhere.
+    const userSkill = join(home, '.claude', 'skills', 'ct-cleo');
+    mkdirSync(userSkill, { recursive: true });
+    writeFileSync(join(userSkill, 'SKILL.md'), '# my own ct-cleo\n');
+    mkdirSync(join(home, 'elsewhere'), { recursive: true });
+    symlinkSync(join(home, 'elsewhere'), join(home, '.claude', 'skills', 'ct-lead'));
+
     const before = snapshot(home, CLEO_OWNED_UNDER_HOME);
     await runUpgrade({ cwd: project });
-    expect(diff(before, snapshot(home, CLEO_OWNED_UNDER_HOME))).toEqual([]);
+    const after = snapshot(home, CLEO_OWNED_UNDER_HOME);
+    expect(disallowedHomeChanges(before, after, resolveSkillsRoot())).toEqual([]);
     expect(readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8')).toBe(USER_GLOBAL_CLAUDE);
+    expect(readFileSync(join(userSkill, 'SKILL.md'), 'utf-8')).toBe('# my own ct-cleo\n');
+    expect(readlinkSync(join(home, '.claude', 'skills', 'ct-lead'))).toBe(join(home, 'elsewhere'));
   });
 });
 
 describe('runUpgrade preserves user-owned project text (T13409 AC2/AC4)', () => {
-  it('keeps the @path reference blocks and the user text in AGENTS.md, CLAUDE.md, GEMINI.md', async () => {
+  it('embeds only inside the markers; text outside them stays byte-identical', async () => {
     const result = await runUpgrade({ cwd: project });
     // The refresh ran (a failed delivery would skip the files and pass vacuously).
     expect(result.actions.find((a) => a.action === 'injection_refresh')?.details).not.toMatch(
       /delivery failed/i,
     );
-    expect(readFileSync(join(project, 'AGENTS.md'), 'utf-8')).toBe(AGENTS_MD);
-    expect(readFileSync(join(project, 'CLAUDE.md'), 'utf-8')).toBe(CLAUDE_MD);
-    expect(readFileSync(join(project, 'GEMINI.md'), 'utf-8')).toBe(GEMINI_MD);
+    const agents = readFileSync(join(project, 'AGENTS.md'), 'utf-8');
+    expect(agents.startsWith('<!-- CAAMP:START -->\n<!-- CAAMP:SOURCE ')).toBe(true);
+    expect(
+      agents.endsWith('<!-- CAAMP:END -->\n\n# Project rules (user text)\n\n- keep me\n'),
+    ).toBe(true);
+    const claude = readFileSync(join(project, 'CLAUDE.md'), 'utf-8');
+    expect(claude.startsWith('<!-- CAAMP:START -->\n<!-- CAAMP:SOURCE ')).toBe(true);
+    expect(claude.endsWith(`<!-- CAAMP:END -->${CLAUDE_OUTSIDE}`)).toBe(true);
+    // Each provider file has exactly one managed block of its own.
+    expect(claude.match(/<!-- CAAMP:START -->/g)).toHaveLength(1);
   });
 
   it('keeps an embedded block embedded and the text outside its markers byte-identical', async () => {
@@ -225,17 +267,15 @@ describe('runUpgrade preserves user-owned project text (T13409 AC2/AC4)', () => 
     expect(readFileSync(join(project, 'GEMINI.md'), 'utf-8')).toBe(userOnly);
   });
 
-  it('embeds the references only when the project opted in (injection.delivery)', async () => {
+  it('keeps @path references when the project opts out (injection.delivery: reference)', async () => {
     writeFileSync(
       join(project, '.cleo', 'config.json'),
-      JSON.stringify({ ...CONFIG, injection: { delivery: 'embedded' } }),
+      JSON.stringify({ ...CONFIG, injection: { delivery: 'reference' } }),
     );
     await runUpgrade({ cwd: project });
-    const text = readFileSync(join(project, 'AGENTS.md'), 'utf-8');
-    expect(text).toContain('<!-- CAAMP:SOURCE ');
-    expect(text.endsWith('<!-- CAAMP:END -->\n\n# Project rules (user text)\n\n- keep me\n')).toBe(
-      true,
-    );
+    expect(readFileSync(join(project, 'AGENTS.md'), 'utf-8')).toBe(AGENTS_MD);
+    expect(readFileSync(join(project, 'CLAUDE.md'), 'utf-8')).toBe(CLAUDE_MD);
+    expect(readFileSync(join(project, 'GEMINI.md'), 'utf-8')).toBe(GEMINI_MD);
   });
 
   it('only appends missing CLEO-required lines to .cleo/.gitignore and .worktreeinclude', async () => {

@@ -26,6 +26,7 @@ import { CleoError } from './errors.js';
 import { ensureGitHooks } from './hooks.js';
 import {
   initAgentDefinition,
+  initCoreSkills,
   initNexusRegistration,
   installGitHubTemplates,
   installHandoffRedirectStubs,
@@ -1111,9 +1112,29 @@ export async function runUpgrade(
       /* best-effort — identity is already-kept-or-skipped on failure */
     }
 
-    // T13409: core skills are not installed here. Installing links them into
-    // every provider's skill dir under HOME (~/.claude/skills, ...), and
-    // upgrade never writes user-global files. `cleo install-global` does it.
+    // Install core skills. T13409: provider skill dirs only gain or refresh
+    // links into CLEO's own store; a user's file or foreign link is reported.
+    try {
+      const skillsCreated: string[] = [];
+      const skillsWarnings: string[] = [];
+      await initCoreSkills(skillsCreated, skillsWarnings);
+      if (skillsCreated.length > 0) {
+        actions.push({
+          action: 'core_skills',
+          status: 'applied',
+          details: skillsCreated.join(', '),
+        });
+      }
+      if (skillsWarnings.length > 0) {
+        actions.push({
+          action: 'core_skills',
+          status: 'skipped',
+          details: skillsWarnings.join('; '),
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
 
     // Register with NEXUS
     try {

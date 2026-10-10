@@ -229,9 +229,8 @@ export async function stripGitNexusBlocks(filePath: string): Promise<boolean> {
  *   AGENTS.md -> @~/.agents/AGENTS.md + @.cleo/project-context.json + @.cleo/memory-bridge.md + @.cleo/nexus-bridge.md
  *
  * In `upgrade` mode (T13409) the files the project owns are refreshed only
- * inside an existing CAAMP block, each block keeps its delivery form (`@path`
- * references stay references unless `.cleo/config.json` sets
- * `injection.delivery: "embedded"`), a file without markers is left alone, an
+ * inside an existing CAAMP block (embedded delivery, opt out with
+ * `injection.delivery: "reference"`), a file without markers is left alone, an
  * absent provider file is not created, the existing `~/.agents/AGENTS.md` hub is
  * never rewritten, and every changed file is backed up through `options.journal`.
  *
@@ -482,12 +481,12 @@ interface ManagedRefreshInput {
 /**
  * Upgrade-mode refresh of the project's instruction files (T13409).
  *
- * Each existing file is rewritten only inside its CAAMP block, keeping the
- * block's form: a reference block stays references, an embedded block (one
- * carrying `CAAMP:SOURCE` stamps) is re-embedded, unless the project opted into
- * a form. Legacy `CLEO:START` blocks (CLEO-managed) are dropped. User text
- * outside the markers is byte-identical, a file without markers is skipped,
- * an absent provider file is not created, and a changed file is backed up first.
+ * Each existing file is rewritten only inside its CAAMP block, with the
+ * self-contained (embedded) delivery unless `.cleo/config.json` sets
+ * `injection.delivery: "reference"`. Legacy `CLEO:START` blocks (CLEO-managed)
+ * are dropped. User text outside the markers, including the user's own `@path`
+ * lines, is byte-identical; a file without markers is skipped, an absent
+ * provider file is not created, and a changed file is backed up first.
  */
 async function refreshManagedProjectFiles(
   projectRoot: string,
@@ -495,7 +494,7 @@ async function refreshManagedProjectFiles(
   caamp: typeof import('@cleocode/caamp'),
   input: ManagedRefreshInput,
 ): Promise<ScaffoldResult> {
-  const { isEmbeddedDelivery, parseCaampBlocks, reconcile, resolveInstructionDelivery } = caamp;
+  const { parseCaampBlocks, reconcile, resolveInstructionDelivery } = caamp;
   // Loaded lazily: injection.ts is on the startup path of read commands (gate 39).
   const { writeIfChanged } = await import('./scaffold/upgrade-file-journal.js');
   const optIn = readDeliveryOptIn(projectRoot);
@@ -511,7 +510,7 @@ async function refreshManagedProjectFiles(
     const name = basename(path);
     if (!existsSync(path)) {
       if (!createWhenAbsent) return null;
-      const body = optIn === 'embedded' ? await embedded() : reference;
+      const body = optIn === 'reference' ? reference : await embedded();
       if (body === null) return null;
       await writeIfChanged(path, `${caamp.buildBlock(body.trim())}\n`, journal);
       actions.push(`${name} (created)`);
@@ -524,9 +523,9 @@ async function refreshManagedProjectFiles(
       actions.push(`${name} (no CAAMP markers; left unchanged)`);
       return null;
     }
-    const wantEmbedded =
-      optIn !== null ? optIn === 'embedded' : blocks.some((b) => isEmbeddedDelivery(b.content));
-    const body = wantEmbedded ? await embedded() : reference;
+    // Self-contained delivery is the default (a literal `@path` is not proof the
+    // file loaded); `injection.delivery: "reference"` opts out.
+    const body = optIn === 'reference' ? reference : await embedded();
     if (body === null) {
       actions.push(`${name} (embedded delivery unresolved; left unchanged)`);
       return null;
@@ -549,7 +548,7 @@ async function refreshManagedProjectFiles(
     true,
   );
 
-  // Provider files embed the complete AGENTS.md only when they already did.
+  // Each provider file gets its own block embedding AGENTS.md, resolved once.
   let providerEmbedded: string | null | undefined;
   const embedProjectRules = async (): Promise<string | null> => {
     if (providerEmbedded !== undefined) return providerEmbedded;
