@@ -89,6 +89,7 @@ import {
   ROW_IDENTITY,
   registerRowUidFunction,
   rowIdentityFillPending,
+  upgradeBrainFtsUpdateTriggers,
 } from './row-identity.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
@@ -830,6 +831,13 @@ async function migrateScopeSchema(
     await import('./sqlite-data-accessor.js');
     healRowIdentitySchema(nativeDb, scope);
   }
+  // T12894: the identity fill UPDATEs brain rows; an unscoped brain FTS update
+  // trigger would replay a delete the index never held and corrupt it. Scope
+  // any older trigger to its indexed columns before the fill runs.
+  const ftsRewritten = upgradeBrainFtsUpdateTriggers(nativeDb);
+  if (ftsRewritten.length > 0) {
+    log.info({ scope, triggers: ftsRewritten }, 'brain FTS update triggers scoped (T12894)');
+  }
   execution?.assertActive();
   if (scope === 'project') {
     const findings = verifyOwnedTriggers(nativeDb, { repair: true });
@@ -860,7 +868,7 @@ async function migrateScopeSchema(
  */
 function identityWorkOnOpen(nativeDb: DatabaseSync, scope: DualScope): boolean {
   if (ROW_IDENTITY[scope].length === 0) return false;
-  return missingRowIdentitySchema(nativeDb).length > 0;
+  return missingRowIdentitySchema(nativeDb, scope).length > 0;
 }
 
 /**

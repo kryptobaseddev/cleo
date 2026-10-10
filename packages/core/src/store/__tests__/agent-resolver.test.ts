@@ -221,6 +221,17 @@ function writeSource(dir: string, filename: string, body: string): string {
 // Suite
 // ---------------------------------------------------------------------------
 
+// T12894 gave the global store row-identity fill work at open; under this
+// vi.resetModules + vi.doMock harness that hits the TDZ on dual-scope-db's
+// cache (T13313), as spawn.test.ts and pipeline-e2e.test.ts do. The built CLI
+// is unaffected. Pinned off until T13313 lands.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROW_UID_FILL', '0');
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
   let env: TmpEnv;
 
