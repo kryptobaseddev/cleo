@@ -12,12 +12,18 @@ import type { MemoryGuardAudit } from '../../resources/memory-guard.js';
 import {
   assessSystemHealth,
   commandWords,
+  gitRootOf,
+  isQuiet,
   mcpServerName,
+  parseCpuTime,
   parseDockerCreatedAt,
   parseDockerSize,
   parseEtime,
   parseLinuxSwap,
+  parseLsofCwd,
   parsePs,
+  parsePsTimes,
+  runReadOnly,
   type SystemSnapshot,
 } from '../system-health.js';
 
@@ -46,13 +52,14 @@ function psRow(
   etime: string,
   args: string,
   pgid = pid,
+  tty = '??',
 ): string {
-  return `${String(pid).padStart(6)} ${String(ppid).padStart(6)} ${String(pgid).padStart(6)} ${String(rssKib).padStart(8)} ${pcpu.toFixed(1).padStart(5)} ${etime.padStart(11)} ${args}`;
+  return `${String(pid).padStart(6)} ${String(ppid).padStart(6)} ${String(pgid).padStart(6)} ${String(rssKib).padStart(8)} ${pcpu.toFixed(1).padStart(5)} ${etime.padStart(11)} ${tty.padEnd(8)} ${args}`;
 }
 
 function incidentPs(): string {
   const rows: string[] = [psRow(1, 0, 10_000, 0, '2-20:00:00', '/sbin/launchd')];
-  // 8 claude sessions, 6 idle; each runs playwright-mcp, mcpvault and agentmbx.
+  // 8 claude sessions; each runs playwright-mcp, mcpvault and agentmbx.
   for (let i = 0; i < 8; i++) {
     const s = 1000 + i * 10;
     rows.push(
@@ -112,6 +119,20 @@ function incidentPs(): string {
       psRow(s + 6, s, 60_000, 0, '1-02:00:00', `${NODE} /w/tools/axiom-qa-mcp/dist/server.js`),
     );
   }
+  // Harness helpers are not sessions.
+  rows.push(
+    psRow(
+      900,
+      1,
+      20_000,
+      0,
+      '2-00:00:00',
+      '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex exec-server --remote https://x',
+    ),
+  );
+  rows.push(
+    psRow(901, 1, 20_000, 0, '2-00:00:00', '/Users/u/.local/bin/claude --chrome-native-host'),
+  );
   // Ungoverned typecheck in another project, with a worker child.
   rows.push(psRow(5000, 1000, 2_000, 0, '00:10:00', '/bin/zsh -c pnpm run typecheck'));
   rows.push(psRow(5001, 5000, 90_000, 30, '00:10:00', 'pnpm run typecheck', 5001));
@@ -284,8 +305,12 @@ describe('parsers', () => {
   });
 
   it('parses ps rows and keeps the whole command line', () => {
-    const [row] = parsePs(psRow(42, 1, 1024, 3.5, '10:00', '/bin/zsh -c echo hi there'));
+    const [row] = parsePs(
+      psRow(42, 1, 1024, 3.5, '10:00', '/bin/zsh -c echo hi there', 42, 'pts/3'),
+    );
+    expect(parsePs(psRow(43, 1, 1, 0, '00:01', 'x'))[0]?.tty).toBeNull();
     expect(row).toMatchObject({
+      tty: 'pts/3',
       pid: 42,
       ppid: 1,
       pgid: 42,
@@ -338,6 +363,44 @@ describe('parsers', () => {
     );
     expect(Number.isNaN(parseDockerCreatedAt('yesterday'))).toBe(true);
     expect(parseLinuxSwap(MEMINFO)).toEqual({ usedBytes: 15 * GIB, totalBytes: 16 * GIB });
+  });
+});
+
+describe('session context parsers (T13438)', () => {
+  it('parses lsof cwd output and finds the git root', () => {
+    expect(parseLsofCwd('p4112\nfcwd\nn/Users/u/p/app\np5058\nfcwd\nn/tmp\n')).toEqual(
+      new Map([
+        [4112, '/Users/u/p/app'],
+        [5058, '/tmp'],
+      ]),
+    );
+    const has = new Set(['/Users/u/p/.git']);
+    expect(gitRootOf('/Users/u/p/app/src', (x) => has.has(x))).toBe('/Users/u/p');
+    expect(gitRootOf('/tmp/x', (x) => has.has(x))).toBeNull();
+  });
+});
+
+describe('cpu time parsers (T13460)', () => {
+  it('parses BSD and procps cpu time', () => {
+    expect(parseCpuTime('1:23.45')).toBeCloseTo(83.45);
+    expect(parseCpuTime('00:01:05')).toBe(65);
+    expect(parseCpuTime('1-00:00:01')).toBe(86401);
+    expect(parsePsTimes('  12 0:01.50\n  13 10:00.00\n')).toEqual(
+      new Map([
+        [12, 1.5],
+        [13, 600],
+      ]),
+    );
+  });
+});
+
+describe('runReadOnly', () => {
+  it('keeps stdout of a non-zero exit only when asked (lsof with a vanished pid)', async () => {
+    const script = ['-c', 'printf "p1\\nn/a\\n"; exit 1'];
+    expect(await runReadOnly('sh', script, { keepStdoutOnExit: true })).toBe('p1\nn/a\n');
+    expect(await runReadOnly('sh', script)).toBeNull();
+    expect(await runReadOnly('sh', ['-c', 'exit 1'], { keepStdoutOnExit: true })).toBeNull();
+    expect(await runReadOnly('/nonexistent/cmd', [], { keepStdoutOnExit: true })).toBeNull();
   });
 });
 
@@ -410,12 +473,74 @@ describe('assessSystemHealth on macOS (the 2026-10-10 incident)', () => {
     expect(r.findings.find((f) => f.id === 'docker-build-cache')).toBeUndefined();
   });
 
-  it('reports sessions with idle RSS including their MCP servers', async () => {
-    const s = assessSystemHealth(await darwinSnapshot()).findings.find((f) => f.id === 'sessions');
+  it('reports quiet sessions only when no signal shows activity', async () => {
+    const r = assessSystemHealth(await darwinSnapshot());
+    const s = r.findings.find((f) => f.id === 'sessions');
     expect(s?.evidence.sessions).toBe(8);
-    expect(s?.evidence.idle).toBe(6);
+    // 1000/1010 burn CPU and run children (a typecheck, a cleo run), 1020 runs biome lsp-proxy;
+    // MCP servers and their npm-exec wrappers do not count as work
+    expect(s?.evidence.quiet).toBe(5);
+    expect(r.sessions.find((x) => x.pid === 1020)?.signals.activeChildren).toBe(1);
+    expect(r.sessions.find((x) => x.pid === 1030)?.signals.activeChildren).toBe(0);
     expect(s?.needsOwnerChoice).toBe(true);
     expect(s?.remedy?.command).toBeNull();
+    expect(s?.remedy?.description).toContain('Quiet is not dead');
+  });
+
+  it('terminal silence alone never makes a session quiet (T13460)', async () => {
+    const ctx = (
+      project: string,
+      ttyIdleSec: number | null,
+      cpuDeltaSec: number | null,
+      lastWriteSec: number | null = null,
+    ) => ({ cwd: `${project}/packages/x`, project, ttyIdleSec, cpuDeltaSec, lastWriteSec });
+    const r = assessSystemHealth(
+      await darwinSnapshot({
+        sessionContext: {
+          // kimi under Orca: terminal silent 14.7h, but it used CPU across the sample
+          1030: ctx('/Users/u/projects/vidapeps', 14.7 * 3600, 0.8),
+          // silent and no CPU, but it wrote to its worktree 5 minutes ago
+          1040: ctx('/Users/u/projects/vidapeps', 3 * 3600, 0, 300),
+          // silent 2h, no CPU, no writes, no children: quiet
+          1050: ctx('/Users/u/projects/cleocode', 7200, 0, 7200),
+          // typed into a minute ago
+          1060: ctx('/Users/u/projects/axiom', 60, 0),
+        },
+      }),
+    );
+    const byPid = new Map(r.sessions.map((x) => [x.pid, x]));
+    expect(byPid.get(1030)?.quiet).toBe(false);
+    expect(byPid.get(1040)?.quiet).toBe(false);
+    expect(byPid.get(1050)).toMatchObject({ quiet: true, project: '/Users/u/projects/cleocode' });
+    expect(byPid.get(1060)?.quiet).toBe(false);
+    // a tty-silent session with a running child is not quiet either (1000 runs a typecheck)
+    expect(byPid.get(1000)?.quiet).toBe(false);
+    // no context at all: judged by %cpu and children only
+    expect(byPid.get(1070)).toMatchObject({ project: null, quiet: true });
+    expect(r.sessions[0]?.pid).toBe(1050);
+    const f = r.findings.find((x) => x.id === 'sessions');
+    expect(f?.evidence.byProject).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^vidapeps: 2 sessions \(0 quiet\)/)]),
+    );
+    expect(f?.evidence.quietSessions).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(
+          /^cleocode claude pid 1050 up 26h, \d+ MiB \(tty silent 2h, cpu 0.00s\/sample, 0 children, last write 2h ago\)/,
+        ),
+      ]),
+    );
+  });
+
+  it('isQuiet needs every signal quiet', () => {
+    const base = { ttySilentSec: 7200, cpuDeltaSec: 0, activeChildren: 0, lastWriteSec: 7200 };
+    expect(isQuiet(base, 0)).toBe(true);
+    expect(isQuiet({ ...base, cpuDeltaSec: 0.5 }, 0)).toBe(false);
+    expect(isQuiet({ ...base, activeChildren: 1 }, 0)).toBe(false);
+    expect(isQuiet({ ...base, lastWriteSec: 60 }, 0)).toBe(false);
+    expect(isQuiet({ ...base, ttySilentSec: 60 }, 0)).toBe(false);
+    // unsampled CPU falls back to %cpu
+    expect(isQuiet({ ...base, cpuDeltaSec: null }, 5)).toBe(false);
+    expect(isQuiet({ ...base, cpuDeltaSec: null }, 0.2)).toBe(true);
   });
 
   it('flags indexer CPU, Time Machine and Spotlight on node_modules', async () => {
