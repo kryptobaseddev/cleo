@@ -36,6 +36,7 @@ import { listConflicts } from '../../conflicts.js';
 import { setSyncFlag } from '../../flags.js';
 import { stageTxns } from '../../inbox.js';
 import { sealPending } from '../../sealer.js';
+import { canonicalStoreTimestamp, timestampColumns } from '../../timestamps.js';
 import { type ApplyReport, applyStagedTxns } from '../applier.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../../migrations/sync-journal');
@@ -223,9 +224,21 @@ function rowsByUid(db: DatabaseSync): Record<string, unknown[]> {
     const cols = (db.prepare(`PRAGMA main.table_info("${t}")`).all() as Array<{ name: string }>)
       .map((c) => c.name)
       .filter((c) => c !== 'id' && c !== 'retrieval_log_id' && c !== 'source_plasticity_event_id');
-    out[t] = db
-      .prepare(`SELECT ${cols.map((c) => `"${c}"`).join(', ')} FROM main."${t}" ORDER BY uid`)
-      .all();
+    // Timestamps compare by canonical value (journal spec §1.8): the origin
+    // keeps its local text, the receiver writes the canonical form.
+    const stamps = timestampColumns('project', t);
+    out[t] = (
+      db
+        .prepare(`SELECT ${cols.map((c) => `"${c}"`).join(', ')} FROM main."${t}" ORDER BY uid`)
+        .all() as Array<Record<string, unknown>>
+    ).map((row) =>
+      Object.fromEntries(
+        Object.entries(row).map(([c, v]) => [
+          c,
+          stamps.has(c) && typeof v === 'string' ? (canonicalStoreTimestamp(v) ?? v) : v,
+        ]),
+      ),
+    );
   }
   out.plasticityRefs = db
     .prepare(
