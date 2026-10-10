@@ -123,8 +123,9 @@ export function parseOriginalSource(
  * node — which is the vitest mock idiom `importOriginal<typeof import("…")>()`.
  * Every file using it failed with E_PARSE_SYNTAX and was dropped from the
  * index: 248 of 286 failures on a 5 357-file repository, 203 test files in this
- * one (T13379). Remove this workaround (T13382) once a tree-sitter-typescript
- * release parses the idiom; pipeline.test.ts fails when it does.
+ * one (T13379). Upstream: tree-sitter/tree-sitter-typescript#367
+ * (https://github.com/tree-sitter/tree-sitter-typescript/issues/367). Remove this
+ * workaround (T13382) once a fixed grammar is in use; pipeline.test.ts fails when it is.
  */
 const TYPEOF_IMPORT_QUERY = /typeof(\s+)import\(\s*(['"])[^'"\n\\]*\2\s*\)/g;
 
