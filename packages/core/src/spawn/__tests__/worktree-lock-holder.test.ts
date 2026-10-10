@@ -204,11 +204,11 @@ describe('worktree lock follows the holder SESSION, not the harness pid (T13425)
     await rm(cleoHome, { recursive: true, force: true });
   });
 
-  it('maps session rows to lock states: active and suspended keep, ended, archived and missing release', () => {
+  it('maps session rows to lock states: active and suspended keep; ended, orphaned and missing release', () => {
     expect(lockSessionState({ status: 'active' })).toBe('active');
     expect(lockSessionState({ status: 'suspended' })).toBe('active');
     expect(lockSessionState({ status: 'ended' })).toBe('ended');
-    expect(lockSessionState({ status: 'archived' })).toBe('ended');
+    expect(lockSessionState({ status: 'orphaned' })).toBe('ended');
     expect(lockSessionState(null)).toBe('ended');
   });
 

@@ -29,7 +29,6 @@ import { computeProjectHash } from '@cleocode/paths';
 import { readWorktreeTaskLock, releaseWorktreeTaskLocksForSession } from '@cleocode/worktree';
 import { getStableDeviceId } from '../llm/stable-device-id.js';
 import { type ProcessAncestor, resolveOwnerProcess } from '../sessions/terminal-identity.js';
-import { getSession } from '../store/session-store.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from '../worktree/audit.js';
 
 /** Inputs for {@link resolveSpawnLockHolder}. */
@@ -77,8 +76,10 @@ export type SessionStatusLookup = (
 
 /**
  * Map a session row to a lock-liveness state: an active or suspended session
- * keeps its locks (a suspended one may resume); an ended, archived or missing
- * session releases them.
+ * keeps its locks (a suspended one may resume). Any other status releases them:
+ * `ended`, or `orphaned`, which the idle sweep sets on a session idle past its
+ * max age with no live claim. A missing session releases them too, including
+ * a live session absent from an older snapshot after `cleo restore backup`.
  *
  * @param session - The session row, or `null` when none exists.
  * @returns The lock-liveness state.
@@ -104,13 +105,16 @@ export function lockSessionState(session: { status: string } | null): WorktreeLo
 export async function resolveLockSessionProbe(
   projectRoot: string,
   taskId: string,
-  lookup: SessionStatusLookup = getSession,
+  lookup?: SessionStatusLookup,
 ): Promise<WorktreeLockSessionProbe> {
   const holderSession = readWorktreeTaskLock(computeProjectHash(projectRoot), taskId)?.sessionId;
   if (!holderSession) return () => 'unknown';
   let state: WorktreeLockSessionState = 'unknown';
   try {
-    state = lockSessionState(await lookup(holderSession, projectRoot));
+    // Loaded on demand: the session store (drizzle) stays off the static
+    // graph of every module that reaches branch-lock (gate 39).
+    const find = lookup ?? (await import('../store/session-store.js')).getSession;
+    state = lockSessionState(await find(holderSession, projectRoot));
   } catch {
     state = 'unknown';
   }
