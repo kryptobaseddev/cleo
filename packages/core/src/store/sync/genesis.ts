@@ -28,6 +28,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
+import { writeRestoreMarker } from '../restore-marker.js';
 import {
   BIRTH_FP_COLUMN,
   ROW_IDENTITY,
@@ -259,16 +260,20 @@ function setMeta(db: DatabaseSync, key: string, value: string, atIso: string): v
   ).run(key, value, atIso);
 }
 
+/** A cut held open: the write lock is taken, the cut position is fixed, nothing is written yet. */
+interface OpenCut {
+  readonly cut: number;
+  readonly at: number;
+  readonly replica: string;
+  readonly sealed: number;
+}
+
 /**
- * Record a stream's genesis cut and turn push on (§2.11 §10; module docs).
- * Must run outside a transaction (it seals, then opens its own
- * `BEGIN IMMEDIATE`). A refusal changes nothing beyond the drain's seals.
- *
- * @param db - The store.
- * @param opts - {@link GenesisCutOptions}.
- * @returns What was cut, or why not.
+ * The first half of a cut: preconditions, drain, `BEGIN IMMEDIATE`, and the
+ * cut position. Returns the open cut with the transaction held, or a final
+ * report (refused, or already cut) with no transaction open.
  */
-export function cutGenesis(db: DatabaseSync, opts: GenesisCutOptions): GenesisCutReport {
+function openCut(db: DatabaseSync, opts: GenesisCutOptions): OpenCut | GenesisCutReport {
   if (db.isTransaction) {
     // @sync-invariant none:local-only programming-error guard: the cut seals, then opens its own transaction
     throw new Error('cutGenesis must run outside a transaction (no frame open)');
@@ -297,8 +302,6 @@ export function cutGenesis(db: DatabaseSync, opts: GenesisCutOptions): GenesisCu
         db.exec('ROLLBACK');
         return report(opts.stream, { already: true, cut: raced, sealed });
       }
-      const at = now();
-      const atIso = new Date(at).toISOString();
       const cut = Number(
         (
           db.prepare("SELECT seq FROM sqlite_sequence WHERE name = '_sync_capture'").get() as
@@ -306,27 +309,7 @@ export function cutGenesis(db: DatabaseSync, opts: GenesisCutOptions): GenesisCu
             | undefined
         )?.seq ?? 0,
       );
-      // Row meta for every row the sealer never journaled, before the stream
-      // starts (after it, a meta-less row is journaled as an I, T13217).
-      const baselined: Record<string, number> = {};
-      for (const table of syncSetTables(opts.scope)) {
-        const n = baselineRowMeta(db, opts.scope, table, replica, at);
-        if (n) baselined[table] = n;
-      }
-      const folded = db
-        .prepare("UPDATE _sync_txn SET state = 'folded' WHERE state = 'sealed'")
-        .run().changes;
-      setMeta(db, `${GENESIS_CUT_KEY_PREFIX}${opts.stream}`, String(cut), atIso);
-      setMeta(db, `${GENESIS_SOURCE_SEQ_KEY_PREFIX}${opts.stream}`, String(cut), atIso);
-      setMeta(db, `${GENESIS_PENDING_KEY_PREFIX}${opts.stream}`, String(cut), atIso);
-      setMeta(db, UNDO_ENABLED_KEY, '1', atIso);
-      raiseMinWriterVersion(db);
-      setSyncFlag(db, 'sync.push', true, {
-        now: new Date(at),
-        ...(opts.allowUnreleased ? { allowUnreleased: true } : {}),
-      });
-      db.exec('COMMIT');
-      return report(opts.stream, { cut, sealed, folded: Number(folded), baselined });
+      return { cut, at: now(), replica, sealed };
     } catch (err) {
       if (db.isTransaction) db.exec('ROLLBACK');
       throw err;
@@ -336,4 +319,90 @@ export function cutGenesis(db: DatabaseSync, opts: GenesisCutOptions): GenesisCu
     refused: 'writes kept arriving during the genesis cut: run it again',
     sealed,
   });
+}
+
+/** The second half of a cut, in the transaction {@link openCut} holds: write it, then COMMIT. */
+function closeCut(db: DatabaseSync, opts: GenesisCutOptions, o: OpenCut): GenesisCutReport {
+  const atIso = new Date(o.at).toISOString();
+  // Row meta for every row the sealer never journaled, before the stream
+  // starts (after it, a meta-less row is journaled as an I, T13217).
+  const baselined: Record<string, number> = {};
+  for (const table of syncSetTables(opts.scope)) {
+    const n = baselineRowMeta(db, opts.scope, table, o.replica, o.at);
+    if (n) baselined[table] = n;
+  }
+  const folded = db
+    .prepare("UPDATE _sync_txn SET state = 'folded' WHERE state = 'sealed'")
+    .run().changes;
+  setMeta(db, `${GENESIS_CUT_KEY_PREFIX}${opts.stream}`, String(o.cut), atIso);
+  setMeta(db, `${GENESIS_SOURCE_SEQ_KEY_PREFIX}${opts.stream}`, String(o.cut), atIso);
+  setMeta(db, `${GENESIS_PENDING_KEY_PREFIX}${opts.stream}`, String(o.cut), atIso);
+  setMeta(db, UNDO_ENABLED_KEY, '1', atIso);
+  raiseMinWriterVersion(db);
+  setSyncFlag(db, 'sync.push', true, {
+    now: new Date(o.at),
+    ...(opts.allowUnreleased ? { allowUnreleased: true } : {}),
+  });
+  db.exec('COMMIT');
+  return report(opts.stream, { cut: o.cut, sealed: o.sealed, folded: Number(folded), baselined });
+}
+
+/**
+ * Record a stream's genesis cut and turn push on (§2.11 §10; module docs).
+ * Must run outside a transaction (it seals, then opens its own
+ * `BEGIN IMMEDIATE`). A refusal changes nothing beyond the drain's seals.
+ *
+ * @param db - The store.
+ * @param opts - {@link GenesisCutOptions}.
+ * @returns What was cut, or why not.
+ */
+export function cutGenesis(db: DatabaseSync, opts: GenesisCutOptions): GenesisCutReport {
+  const open = openCut(db, opts);
+  if (!('replica' in open)) return open;
+  try {
+    return closeCut(db, opts, open);
+  } catch (err) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+/**
+ * {@link cutGenesis} with the genesis checkpoint's bundle snapshotted at the
+ * cut (§2.11 §10: "snapshotted inside one read transaction that records
+ * genesis_cut"). `snapshot` runs while the cut's `BEGIN IMMEDIATE` is held,
+ * so a snapshot taken on another connection sees exactly the store at the
+ * cut: nothing else can commit, and the cut itself is not committed yet.
+ *
+ * The export can outlast another writer's busy timeout, so for its whole
+ * duration the store carries a `genesis` marker ({@link writeRestoreMarker}):
+ * other cleo processes wait at their store open and write chokepoint, then
+ * refuse with `E_STORE_GENESIS`, instead of failing with SQLITE_BUSY
+ * mid-write. A failing snapshot rolls the cut back; the marker is always
+ * released.
+ *
+ * @param db - The store.
+ * @param opts - {@link GenesisCutOptions}, plus the store file the marker guards.
+ * @param snapshot - Export the store as the checkpoint bundle; receives the cut.
+ * @returns What was cut, or why not.
+ */
+export async function cutGenesisWithSnapshot(
+  db: DatabaseSync,
+  opts: GenesisCutOptions & { readonly dbPath: string },
+  snapshot: (cut: number) => Promise<void>,
+): Promise<GenesisCutReport> {
+  const release = writeRestoreMarker(opts.dbPath, 'genesis');
+  try {
+    const open = openCut(db, opts);
+    if (!('replica' in open)) return open;
+    try {
+      await snapshot(open.cut);
+      return closeCut(db, opts, open);
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    }
+  } finally {
+    release();
+  }
 }
