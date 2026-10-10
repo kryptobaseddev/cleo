@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   commandTarget,
+  gitHookFor,
   isPausable,
   isWatchCommand,
   isWholeSuiteTestRun,
@@ -716,13 +717,19 @@ describe('runFootprint sizes by real scope (T13367)', () => {
     expect(size('eslint', '-c', 'cfg.js', '.')).toBe('class');
   });
 
-  it('tsc -p on one project is one process; tsc -b and the root config keep their class', () => {
+  it('tsc without -b is one process (T13440); tsc -b and a workspace fan-out keep their class', () => {
     expect(size('pnpm', 'exec', 'tsc', '--noEmit', '-p', 'packages/core')).toBe('single-process');
     expect(size('tsc', '--project=packages/cleo/tsconfig.json')).toBe('single-process');
     expect(size('tsc', '-b')).toBe('class');
     expect(size('tsc', '-b', '-p', 'packages/core')).toBe('class');
-    expect(size('tsc', '-p', '.')).toBe('class');
-    expect(size('tsc', '-p', 'tsconfig.json')).toBe('class');
+    // T13440: tsc without -b is one process whatever it checks.
+    expect(size('tsc', '-p', '.')).toBe('single-process');
+    expect(size('tsc', '-p', 'tsconfig.json')).toBe('single-process');
+    expect(size('tsc', '--noEmit')).toBe('single-process');
+    expect(size('pnpm', 'exec', 'tsc', '--noEmit')).toBe('single-process');
+    expect(size('npx', 'tsc')).toBe('single-process');
+    expect(size('tsc', '--build')).toBe('class');
+    expect(size('pnpm', '-r', 'exec', 'tsc', '--noEmit')).toBe('class');
   });
 
   it('builds and test runs keep their class', () => {
@@ -733,5 +740,24 @@ describe('runFootprint sizes by real scope (T13367)', () => {
 
   it('names the reason', () => {
     expect(runFootprint(['biome', 'check', 'a.ts']).reason).toBe('biome check on 1 named path');
+  });
+});
+
+describe('git is charged light; its hook decides (T13452)', () => {
+  it('git commands run no heavy tool', () => {
+    expect(runFootprint(['git', 'push', '-u', 'origin', 'x'])).toEqual({
+      size: 'light',
+      reason: 'git push runs no heavy tool',
+    });
+    expect(runFootprint(['git', 'status']).size).toBe('light');
+  });
+
+  it('names the hook a push or commit may run, unless it is skipped', () => {
+    expect(gitHookFor(['git', 'push', '-u', 'origin', 'x'])).toBe('pre-push');
+    expect(gitHookFor(['git', 'commit', '-m', 'x'])).toBe('pre-commit');
+    expect(gitHookFor(['git', 'push', '--no-verify'])).toBeNull();
+    expect(gitHookFor(['git', 'commit', '-n', '-m', 'x'])).toBeNull();
+    expect(gitHookFor(['git', 'status'])).toBeNull();
+    expect(gitHookFor(['pnpm', 'run', 'push'])).toBeNull();
   });
 });

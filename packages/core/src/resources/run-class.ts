@@ -1183,8 +1183,9 @@ export function isPausable(cls: ResourceClass, argv: readonly string[]): boolean
  * - `light`: a native formatter/linter on named paths (`biome check a.ts b.ts`).
  *   It needs well under a gigabyte, so it is charged the light footprint.
  * - `single-process`: one Node process on named paths (`eslint a.ts`,
- *   `prettier --check a.ts`) or a one-project `tsc -p <dir|tsconfig>`. It is
- *   charged one process's heap plus overhead.
+ *   `prettier --check a.ts`) or any `tsc` without `-b` (`tsc --noEmit`,
+ *   `tsc -p <dir>`; T13440). It is charged one process's heap plus overhead,
+ *   with no worker slots.
  * - `class`: everything else, sized by the class's heavy-run plan as before.
  *   That includes a root `pnpm run build`, `tsc -b`, and a linter on the whole
  *   tree. A test run that names its files keeps its per-file worker cap
@@ -1267,6 +1268,12 @@ function files(n: number): string {
  */
 export function runFootprint(argv: readonly string[]): RunFootprint {
   const t = commandTarget(argv);
+  // T13452: git runs no heavy tool itself (a `git push` was charged 24 GiB).
+  // Its hooks may, and the caller decides that (see gitHookFor).
+  if (t.tool === 'git' && t.pm === null) {
+    const sub = t.rest.find((w) => !w.startsWith('-')) ?? '';
+    return { size: 'light', reason: `git ${sub} runs no heavy tool`.replace(/ {2,}/g, ' ') };
+  }
   // `pnpm prettier --check a.ts`: a package manager running a bin that is not
   // in BUILD_TOOLS reads as a script; treat a file tool's name as the tool.
   const tool =
@@ -1286,15 +1293,49 @@ export function runFootprint(argv: readonly string[]): RunFootprint {
     if (paths.length > 0 && !paths.some(isWholeTree)) {
       return { size: 'single-process', reason: `${tool} on ${files(paths.length)}` };
     }
-  } else if (tool === 'tsc' && t.script === null) {
+  } else if (tool === 'tsc' && t.script === null && !t.recursive) {
+    // T13440: tsc without -b is always ONE process, whatever project it checks
+    // (`tsc --noEmit` was charged heap x 4 workers). Only `tsc -b` builds
+    // project references, and it stays sized by its class.
     const build = t.rest.some((w) => w === '-b' || w === '--build');
-    const p = t.rest.findIndex((w) => w === '-p' || w === '--project');
-    const eq = t.rest.find((w) => w.startsWith('--project='));
-    const project =
-      eq !== undefined ? eq.slice('--project='.length) : p >= 0 ? t.rest[p + 1] : undefined;
-    if (!build && project !== undefined && !isWholeTree(project) && project !== 'tsconfig.json') {
-      return { size: 'single-process', reason: `tsc -p ${project} (one project)` };
+    if (!build) {
+      const p = t.rest.findIndex((w) => w === '-p' || w === '--project');
+      const eq = t.rest.find((w) => w.startsWith('--project='));
+      const project =
+        eq !== undefined ? eq.slice('--project='.length) : p >= 0 ? t.rest[p + 1] : undefined;
+      return {
+        size: 'single-process',
+        reason: `tsc${project !== undefined ? ` -p ${project}` : ''} without -b (one process)`,
+      };
     }
   }
   return { size: 'class', reason: 'sized by its class' };
+}
+
+/** The client-side hook a git subcommand runs, when it runs one that may be heavy. */
+const GIT_HOOKS: Readonly<Record<string, string>> = { push: 'pre-push', commit: 'pre-commit' };
+
+/**
+ * The hook a git command may run that could do heavy work (T13452): `pre-push`
+ * for `git push`, `pre-commit` for `git commit` (unless `--no-verify`/`-n`).
+ * Whether the hook is installed is the caller's question.
+ *
+ * @param argv - The command.
+ * @returns The hook name, or `null`.
+ *
+ * @example
+ * ```ts
+ * gitHookFor(['git', 'push', '-u', 'origin', 'x']); // 'pre-push'
+ * gitHookFor(['git', 'push', '--no-verify']);       // null
+ * gitHookFor(['git', 'status']);                    // null
+ * ```
+ */
+export function gitHookFor(argv: readonly string[]): string | null {
+  const t = commandTarget(argv);
+  if (t.tool !== 'git' || t.pm !== null) return null;
+  const sub = t.rest.find((w) => !w.startsWith('-'));
+  const hook = sub !== undefined ? GIT_HOOKS[sub] : undefined;
+  if (hook === undefined) return null;
+  if (t.rest.includes('--no-verify') || (sub === 'commit' && t.rest.includes('-n'))) return null;
+  return hook;
 }
