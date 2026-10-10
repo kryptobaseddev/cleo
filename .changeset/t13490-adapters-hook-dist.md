@@ -2,7 +2,7 @@
 id: t13490-adapters-hook-dist
 tasks: [T13490]
 kind: fix
-summary: @cleocode/adapters ships dist/heavy-command-hook.js again, so the heavy-command hook installs
+summary: "@cleocode/adapters ships dist/heavy-command-hook.js again, so the heavy-command hook installs"
 ---
 
 `@cleocode/adapters` exports `./heavy-command-hook` (added in T13124), but the
