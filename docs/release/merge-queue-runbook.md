@@ -1,5 +1,10 @@
 # Merge Queue Runbook
 
+> **Not in use (T13480 · #1268):** no GitHub Merge Queue is configured on this
+> repository (personal-account repo; GraphQL `repository.mergeQueue` is `null`).
+> PRs merge serially once their own required `CI` is green. This runbook describes
+> a setup that is not in use; see the Release & Branching section of `AGENTS.md`.
+
 > **Status:** Live · **Owner:** Saga T10431 · **Task:** T10446  
 > **Last updated:** 2026-10-03
 
