@@ -26,8 +26,9 @@
  *   handle keeps the loop alive until the backstop fires 3 s after teardown,
  *   so a leak lands above the ceiling however fast the runner is;
  * - for a stalled provider, the audit line records `fallbackReason: 'timeout'`
- *   with an in-process `latencyMs` of at least the budget and well under the
- *   ceiling: the deadline itself fired, measured without process-startup noise.
+ *   with an in-process `latencyMs` of the budget less its setup (at least
+ *   half the budget) and well under the ceiling: the deadline itself fired,
+ *   measured without process-startup noise.
  *
  * The wall-clock delta used to be held to budget + 600 ms. Process startup on a
  * shared CI runner varies by more than that between two spawns (T12840: 928 ms
@@ -66,6 +67,14 @@ const HANG_CEILING_MS = 3_000;
  * OS connect timeout, so it proves the deadline — not the network — ended the wait.
  */
 const TIMEOUT_LATENCY_CEILING_MS = DECISION_BUDGET_MS + 700;
+/**
+ * Least the decision itself may take when the provider stalls. The audited
+ * `latencyMs` is the budget minus the setup that runs inside it before
+ * `decide()` starts (request building, the audit sink), which the audit line
+ * does not record. Half the budget leaves that setup room on a loaded runner,
+ * while a decision that returned without waiting for its deadline lands near 0.
+ */
+const LATENCY_FLOOR_MS = DECISION_BUDGET_MS / 2;
 /** The teardown backstop's stderr signature. */
 const BACKSTOP = /event loop still alive/;
 
@@ -339,9 +348,13 @@ describe.skipIf(!CLI_DIST_AVAILABLE)(
       const audit = lastAudit();
       const context = JSON.stringify(audit);
       expect(audit.fallbackReason, context).toBe('timeout');
-      // Timers never fire early by more than a millisecond; the clock starts
-      // before the deadline is armed.
-      expect(audit.latencyMs, context).toBeGreaterThanOrEqual(DECISION_BUDGET_MS - 5);
+      // The budget is end to end: it starts before request building and the
+      // audit-sink setup, and `decide()` gets only what is left, so the audited
+      // `latencyMs` is the budget minus that setup. The setup is not in the
+      // audit line and takes more than a few ms on a loaded runner (T12492
+      // #1886: 294.5 ms), so the floor is LATENCY_FLOOR_MS: a decision that gave
+      // up without waiting on the stalled provider lands far below it.
+      expect(audit.latencyMs, context).toBeGreaterThanOrEqual(LATENCY_FLOOR_MS);
       expect(audit.latencyMs, context).toBeLessThan(TIMEOUT_LATENCY_CEILING_MS);
     }
 
