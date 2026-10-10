@@ -24,9 +24,15 @@ import { rekeyRowUid } from '../display-id-alias.js';
 import { mintRowUid } from '../row-identity.js';
 import { BIRTH_FP_COLUMN, rowIdentitySpec, UID_COLUMN } from '../row-identity-registry.js';
 import { setRowUidNative } from '../sqlite-data-accessor.js';
-import { finishCaptureFrame, openCaptureFrame } from './capture.js';
+import {
+  captureRekeyAnnouncement,
+  captureTableDef,
+  finishCaptureFrame,
+  openCaptureFrame,
+} from './capture.js';
 import { stagedTxns } from './inbox.js';
 import { hasTable } from './schema.js';
+import { markAliasAnnounced, owedAnnouncements } from './uid-alias.js';
 
 /** What {@link settleLostUidCollisions} needs. */
 export interface SettleOptions {
@@ -69,7 +75,11 @@ function lostCollisions(
   return out;
 }
 
-/** Whether this replica sealed the insert of the row (table, uid, fingerprint). */
+/**
+ * Whether this replica sealed the insert of the row (table, uid,
+ * fingerprint). `_sync_authored` keeps it after the transaction's ops are
+ * folded or collected (T13399); a store without it falls back to the ops.
+ */
 function authoredHere(
   db: DatabaseSync,
   table: string,
@@ -77,7 +87,16 @@ function authoredHere(
   fp: string,
   replica: string,
 ): boolean {
+  if (
+    hasTable(db, '_sync_authored') &&
+    db
+      .prepare('SELECT 1 FROM _sync_authored WHERE tbl = ? AND uid = ? AND bfp = ? AND replica = ?')
+      .get(table, uid, fp, replica) !== undefined
+  ) {
+    return true;
+  }
   return (
+    hasTable(db, '_sync_op') &&
     db
       .prepare(
         `SELECT 1 FROM _sync_op o JOIN _sync_txn t ON t.txn = o.txn
@@ -98,7 +117,7 @@ function authoredHere(
  * @returns The re-keys made.
  */
 export function settleLostUidCollisions(db: DatabaseSync, opts: SettleOptions): SettledCollision[] {
-  if (!hasTable(db, '_sync_conflict') || !hasTable(db, '_sync_op')) return [];
+  if (!hasTable(db, '_sync_conflict')) return [];
   const settled: SettledCollision[] = [];
   for (const c of lostCollisions(db, opts.stream).values()) {
     const row = db
@@ -138,4 +157,46 @@ export function settleLostUidCollisions(db: DatabaseSync, opts: SettleOptions): 
     }
   }
   return settled;
+}
+
+/**
+ * Announce every re-key this replica applied to a loser it had placed
+ * (T13399). The loser's origin draws the boundary for its own references with
+ * its K; a replica the origin's insert reached before the winner's may also
+ * have written references to the old uid that meant the loser. Receivers only
+ * read a writer's references through an alias that writer drew, so this
+ * replica re-states the re-key under its own name: an alias-only K in a local
+ * `rekey` frame (it moves nothing here). The caller seals.
+ *
+ * @param db - The store; must not be inside a transaction.
+ * @param opts - Scope, stream and this replica.
+ * @param nowIso - The time.
+ * @returns The announcements captured.
+ */
+export function announcePlacedRekeys(
+  db: DatabaseSync,
+  opts: SettleOptions,
+  nowIso: string,
+): number {
+  const owed = owedAnnouncements(db);
+  if (owed.length === 0) return 0;
+  let n = 0;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const frame = openCaptureFrame(db, 'rekey', null);
+    // Capture off: nothing can be announced, and the debt stays.
+    if (frame !== null) {
+      for (const a of owed) {
+        const def = captureTableDef(db, opts.scope, a.table);
+        if (def) n += captureRekeyAnnouncement(db, def, a.oldUid, a.newUid, a.oldBfp);
+        markAliasAnnounced(db, a, nowIso);
+      }
+      finishCaptureFrame(db, frame);
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    throw err;
+  }
+  return n;
 }

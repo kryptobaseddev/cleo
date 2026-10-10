@@ -62,7 +62,7 @@ import type { TableScope } from '@cleocode/contracts';
 import type { LedgerActor, LedgerOp, LedgerWireValue } from '@cleocode/contracts/ledger';
 import { BIRTH_FP_COLUMN, UID_COLUMN } from '../../row-identity-registry.js';
 import { type CaptureTableDef, captureTableDef } from '../capture.js';
-import { settleLostUidCollisions } from '../collision-settle.js';
+import { announcePlacedRekeys, settleLostUidCollisions } from '../collision-settle.js';
 import { recordConflictOnce, recordConflicts, resolveHeldConflicts } from '../conflicts.js';
 import {
   clearFieldLeaves,
@@ -106,7 +106,7 @@ import {
   unsequencedLocalTxns,
 } from '../sequencing.js';
 import { withTriggersSuspended } from '../trigger-classes.js';
-import { followUidAliases, recordUidAlias } from '../uid-alias.js';
+import { followUidAliases, markAliasPlaced, recordUidAlias } from '../uid-alias.js';
 import { widenFootprint } from './footprints.js';
 import { type ApplyApi, withApplyFrame } from './frame.js';
 import { parentDeletePolicy } from './parent-delete.js';
@@ -347,6 +347,18 @@ function collidingRef(
     if (open.get(target.table, v) !== undefined) return { col, uid: v };
   }
   return null;
+}
+
+/** Whether a uid collision on (table, uid) was ever recorded here (T13399). */
+function hadUidCollision(db: DatabaseSync, table: string, uid: string): boolean {
+  return (
+    hasTable(db, '_sync_conflict') &&
+    db
+      .prepare(
+        `SELECT 1 FROM _sync_conflict WHERE kind = 'uid-collision' AND tbl = ? AND uid = ? LIMIT 1`,
+      )
+      .get(table, uid) !== undefined
+  );
 }
 
 /**
@@ -755,6 +767,12 @@ function applyRekey(
   // and it would no longer match its `*K` intent.
   remapPending(c.db, { table: op.t, oldUid: op.u, newUid: nu, newBfp: op.bfp ?? null });
   c.api.rekeyRow(op.t, op.u, nu, op.bfp ?? null);
+  // Another replica settled a uid collision by re-keying a loser this replica
+  // had placed: its own earlier references to the old uid meant this row, so
+  // it owes the re-key's announcement (T13399).
+  if (op.obfp && nu !== op.u && c.st.replicaId !== c.replica && hadUidCollision(c.db, op.t, op.u)) {
+    markAliasPlaced(c.db, op.t, op.u, op.obfp);
+  }
   return { result: 'applied', conflicts: 0 };
 }
 
@@ -1707,6 +1725,9 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
     opts.seal?.();
     runPasses();
   }
+  // Every other replica that had placed a re-keyed loser announces the
+  // re-key, so its earlier references follow the loser too (T13399).
+  if (announcePlacedRekeys(db, opts, new Date(now()).toISOString()) > 0) opts.seal?.();
   const count = (s: InboxStatus): number => [...last.values()].filter((v) => v === s).length;
   return {
     applied: count('applied'),

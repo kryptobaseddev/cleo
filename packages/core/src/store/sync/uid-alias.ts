@@ -11,13 +11,20 @@
  * - **the loser's own ops**: an op naming (uid, birth fingerprint) of a
  *   re-keyed row takes the new uid. The winner keeps the uid with another
  *   fingerprint, so it is never matched;
- * - **references**: a reference to the old uid written by the K's origin
- *   before its K meant the loser (until then the origin was the only replica
- *   that had placed it), so it takes the new uid. A reference written after
- *   the K, or by any other replica, means the winner and is left alone.
+ * - **references**: a reference to the old uid written by a replica that
+ *   had placed the loser, before that replica's K, meant the loser, so it
+ *   takes the new uid. The origin's K draws that boundary for the origin.
+ *   Any other replica that placed the loser first (a third replica the
+ *   origin's insert reached before the winner's) announces the re-key under
+ *   its own name once it applies the origin's K (T13399,
+ *   store/sync/collision-settle `announcePlacedRekeys`): an alias-only K
+ *   that draws its own boundary. A reference written after the writer's
+ *   boundary, or by a replica that never placed the loser, means the winner
+ *   and is left alone.
  *
  * The aliases are local-only: each replica derives them from the K ops it
- * applied. Read-mostly; {@link recordUidAlias} is the one writer.
+ * applied. {@link recordUidAlias} writes them; {@link markAliasPlaced} and
+ * {@link markAliasAnnounced} track the announcement this replica owes.
  *
  * @module store/sync/uid-alias
  * @task T13397
@@ -32,6 +39,9 @@ import { hasTable } from './schema.js';
 
 /** The local-only alias table (sync-journal folder `20261010150000_t13397-uid-alias`). */
 export const UID_ALIAS_JOURNAL_TABLE = '_sync_uid_alias';
+
+/** One reference boundary per (table, old uid, origin) (sync-journal folder `20261010160000_t13399-rekey-follow`). */
+export const UID_REF_ALIAS_JOURNAL_TABLE = '_sync_uid_ref_alias';
 
 const MAX_ALIAS_HOPS = 32;
 
@@ -63,6 +73,122 @@ export function recordUidAlias(db: DatabaseSync, alias: UidAlias, nowIso: string
      VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (tbl, old_uid, old_bfp) DO NOTHING`,
   ).run(alias.table, alias.oldUid, alias.oldBfp, alias.newUid, alias.origin, alias.hlc, nowIso);
+  // Every K, the origin's and each announcement, draws its writer's boundary.
+  if (hasTable(db, UID_REF_ALIAS_JOURNAL_TABLE)) {
+    db.prepare(
+      `INSERT INTO ${UID_REF_ALIAS_JOURNAL_TABLE} (tbl, old_uid, origin, new_uid, hlc)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (tbl, old_uid, origin) DO NOTHING`,
+    ).run(alias.table, alias.oldUid, alias.origin, alias.newUid, alias.hlc);
+  }
+}
+
+/**
+ * Applying a K moved a loser this replica had placed, and another replica
+ * wrote the K (T13399): this replica owes the re-key's announcement, since
+ * its own earlier references to the old uid meant the loser.
+ *
+ * @param db - The store, inside the apply frame's transaction.
+ * @param table - The re-keyed row's table.
+ * @param oldUid - Its uid before the K.
+ * @param oldBfp - Its birth fingerprint.
+ */
+export function markAliasPlaced(
+  db: DatabaseSync,
+  table: string,
+  oldUid: string,
+  oldBfp: string,
+): void {
+  if (!hasTable(db, UID_REF_ALIAS_JOURNAL_TABLE)) return;
+  db.prepare(
+    `UPDATE ${UID_ALIAS_JOURNAL_TABLE} SET placed = 1 WHERE tbl = ? AND old_uid = ? AND old_bfp = ?`,
+  ).run(table, oldUid, oldBfp);
+}
+
+/** One announcement this replica owes ({@link markAliasPlaced}). */
+export interface OwedAnnouncement {
+  readonly table: string;
+  readonly oldUid: string;
+  readonly oldBfp: string;
+  readonly newUid: string;
+}
+
+/**
+ * The re-key announcements this replica owes, oldest first.
+ *
+ * @param db - The store.
+ */
+export function owedAnnouncements(db: DatabaseSync): OwedAnnouncement[] {
+  if (!hasTable(db, UID_REF_ALIAS_JOURNAL_TABLE)) return [];
+  return db
+    .prepare(
+      `SELECT tbl AS "table", old_uid AS oldUid, old_bfp AS oldBfp, new_uid AS newUid
+         FROM ${UID_ALIAS_JOURNAL_TABLE} WHERE placed = 1 AND followed_at IS NULL ORDER BY created_at, tbl, old_uid`,
+    )
+    .all() as Array<{ table: string; oldUid: string; oldBfp: string; newUid: string }>;
+}
+
+/**
+ * The announcement of `a` was captured (T13399).
+ *
+ * @param db - The store, inside the announcing transaction.
+ * @param a - The announced re-key.
+ * @param nowIso - The time.
+ */
+export function markAliasAnnounced(db: DatabaseSync, a: OwedAnnouncement, nowIso: string): void {
+  db.prepare(
+    `UPDATE ${UID_ALIAS_JOURNAL_TABLE} SET followed_at = ? WHERE tbl = ? AND old_uid = ? AND old_bfp = ?`,
+  ).run(nowIso, a.table, a.oldUid, a.oldBfp);
+}
+
+/**
+ * Whether `uid` is the old uid of a re-key this replica owes or made an
+ * announcement of (T13399): the stream carried it (the origin's insert and
+ * K), so the sealer never drops the announcement as a re-key of a uid no
+ * replica knew.
+ *
+ * @param db - The store.
+ * @param table - The table.
+ * @param uid - The uid.
+ */
+export function isAnnouncedOldUid(db: DatabaseSync, table: string, uid: string): boolean {
+  if (!hasTable(db, UID_REF_ALIAS_JOURNAL_TABLE)) return false;
+  return (
+    db
+      .prepare(
+        `SELECT 1 FROM ${UID_ALIAS_JOURNAL_TABLE} WHERE tbl = ? AND old_uid = ? AND placed = 1`,
+      )
+      .get(table, uid) !== undefined
+  );
+}
+
+/**
+ * Whether a K this replica is sealing is an announcement ({@link markAliasPlaced}):
+ * the re-key it names was already applied here from another replica, so it
+ * moves nothing and only draws this replica's reference boundary.
+ *
+ * @param db - The store.
+ * @param table - The K's table.
+ * @param oldUid - The K's uid.
+ * @param oldBfp - The K's old birth fingerprint.
+ * @param newUid - The K's new uid.
+ */
+export function isAnnouncedRekey(
+  db: DatabaseSync,
+  table: string,
+  oldUid: string,
+  oldBfp: string,
+  newUid: string,
+): boolean {
+  if (!hasTable(db, UID_REF_ALIAS_JOURNAL_TABLE)) return false;
+  return (
+    db
+      .prepare(
+        `SELECT 1 FROM ${UID_ALIAS_JOURNAL_TABLE}
+          WHERE tbl = ? AND old_uid = ? AND old_bfp = ? AND new_uid = ? AND placed = 1`,
+      )
+      .get(table, oldUid, oldBfp, newUid) !== undefined
+  );
 }
 
 /**
@@ -84,7 +210,8 @@ function rowAlias(db: DatabaseSync, table: string, uid: string, bfp: string): st
 
 /**
  * The new uid a reference to `uid` written by `replica` at `txnHlc` means,
- * or null: only the K's own origin, before its K, meant the re-keyed row.
+ * or null: only a replica that placed the re-keyed row (its origin, or one
+ * that announced the re-key), before its own K, meant it.
  */
 function refAlias(
   db: DatabaseSync,
@@ -93,10 +220,11 @@ function refAlias(
   replica: string,
   txnHlc: string,
 ): string | null {
+  const from = hasTable(db, UID_REF_ALIAS_JOURNAL_TABLE)
+    ? UID_REF_ALIAS_JOURNAL_TABLE
+    : UID_ALIAS_JOURNAL_TABLE;
   const rows = db
-    .prepare(
-      `SELECT new_uid AS uid, hlc FROM ${UID_ALIAS_JOURNAL_TABLE} WHERE tbl = ? AND old_uid = ? AND origin = ?`,
-    )
+    .prepare(`SELECT new_uid AS uid, hlc FROM ${from} WHERE tbl = ? AND old_uid = ? AND origin = ?`)
     .all(table, uid, replica) as Array<{ uid: string; hlc: string }>;
   const at = parseHlc(txnHlc);
   const before = rows.filter((r) => compareHlc(at, parseHlc(r.hlc)) < 0);

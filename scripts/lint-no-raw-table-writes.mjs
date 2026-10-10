@@ -304,7 +304,7 @@ export const EXEMPT = {
     },
   },
   'packages/core/src/store/sync/capture.ts': {
-    _sync_capture: { count: 4, reason: CAPTURE_MACHINERY },
+    _sync_capture: { count: 5, reason: CAPTURE_MACHINERY }, // +1 T13399 re-key announcement capture
     _sync_frame: { count: 2, reason: CAPTURE_MACHINERY },
     _sync_undo: { count: 4, reason: CAPTURE_MACHINERY },
   },
@@ -358,6 +358,10 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/sealer.ts': {
     _sync_apply_intent: { count: 1, reason: SEALER },
+    _sync_authored: {
+      count: 1,
+      reason: `${SEALER}; records each minted row this replica sealed an insert of, the collision settle path's origin test (T13399)`,
+    },
     _sync_capture: { count: 2, reason: SEALER },
     _sync_frame: { count: 1, reason: SEALER },
     _sync_ledger: { count: 1, reason: SEALER },

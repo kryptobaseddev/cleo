@@ -25,12 +25,16 @@ import {
   getDualScopeNativeDb,
   openDualScopeDbAtPath,
 } from '../../../dual-scope-db.js';
+import { mintRowUid } from '../../../row-identity.js';
+import { setRowUidNative } from '../../../sqlite-data-accessor.js';
 import { finishCaptureFrame, openCaptureFrame, setCaptureEnabled } from '../../capture.js';
+import { announcePlacedRekeys } from '../../collision-settle.js';
 import { listConflicts } from '../../conflicts.js';
 import { setSyncFlag } from '../../flags.js';
 import { stageTxns } from '../../inbox.js';
 import { sealPending } from '../../sealer.js';
 import { TRIGGER_SUSPEND_TABLE_DDL } from '../../trigger-classes.js';
+import { markAliasPlaced, recordUidAlias } from '../../uid-alias.js';
 import { type ApplyReport, applyStagedTxns } from '../applier.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../../migrations/sync-journal');
@@ -313,6 +317,148 @@ describe('the loser of a uid collision is re-keyed by its origin, and everyone f
       expect.objectContaining({ source_node: 'n:later', query: winnerQuery, uid }),
     ]);
     expect(child(winner.db)).toEqual(child(loser.db));
+  });
+
+  it('a third replica that placed the loser first announces the re-key, so its references follow the loser', async () => {
+    const { winner, loser, uid } = await collide(
+      'project',
+      'brain_retrieval_log',
+      retrieval('query a'),
+      retrieval('query b'),
+    );
+    const loserQuery = retrievalRows(loser)[0]?.query;
+    // The loser's insert reaches C before the winner's: C places the loser and
+    // writes a row referencing its uid (T13399).
+    push(loser);
+    const c = await replica(RC);
+    expect(pull(c)).toMatchObject({ pending: 0, void: 0 });
+    write(c, plasticity('n:third'));
+    push(c);
+    push(winner);
+    // The origin settles and publishes its K.
+    expect(pull(loser)).toMatchObject({ pending: 0, void: 0 });
+    push(loser);
+    // C moves its placed loser, places the winner, and announces the re-key
+    // under its own name: an alias-only K that moves nothing here.
+    expect(pull(c)).toMatchObject({ pending: 0, void: 0 });
+    const movedUid = retrievalRows(c).find((r) => r.uid !== uid)?.uid;
+    const announced = push(c);
+    expect(announced.map((t) => t.kind)).toEqual(['rekey']);
+    expect(announced.flatMap((t) => t.ops)).toEqual([
+      expect.objectContaining({ o: 'K', t: 'brain_retrieval_log', u: uid, nu: movedUid }),
+    ]);
+    expect(retrievalRows(c).find((r) => r.uid === movedUid)?.query).toBe(loserQuery);
+    // Sealing the announcement left each row's meta with its own row.
+    expect(
+      rows(
+        c.db,
+        `SELECT m.uid, r.birth_fp = m.bfp AS same FROM _sync_row_meta m
+           JOIN brain_retrieval_log r ON r.uid = m.uid WHERE m.tbl = 'brain_retrieval_log' ORDER BY m.uid`,
+      ),
+    ).toEqual([uid, movedUid].sort().map((u) => ({ uid: u, same: 1 })));
+
+    for (const r of [winner, loser, c]) {
+      expect(pull(r)).toMatchObject({ pending: 0, void: 0 });
+    }
+    const child = (db: DatabaseSync) =>
+      rows(
+        db,
+        `SELECT p.source_node, r.query, r.uid FROM brain_plasticity_events p
+           JOIN brain_retrieval_log r ON r.id = p.retrieval_log_id`,
+      );
+    for (const r of [winner, loser, c]) {
+      expect(child(r.db)).toEqual([{ source_node: 'n:third', query: loserQuery, uid: movedUid }]);
+      expect(retrievalRows(r)).toEqual(retrievalRows(winner));
+      expect(listConflicts(r.db, { open: true })).toEqual([]);
+    }
+  });
+
+  it('a replica that placed a row re-keyed without a collision announces nothing', async () => {
+    const a = await replica(RA);
+    const c = await replica(RC);
+    write(a, retrieval('plain'));
+    push(a);
+    expect(pull(c)).toMatchObject({ pending: 0, void: 0 });
+    const row = a.db.prepare('SELECT uid, birth_fp AS fp FROM brain_retrieval_log').get() as {
+      uid: string;
+      fp: string;
+    };
+    a.db.exec('BEGIN IMMEDIATE');
+    const frame = openCaptureFrame(a.db, 'rekey', null);
+    setRowUidNative(a.db, 'brain_retrieval_log', row.uid, row.fp, mintRowUid());
+    finishCaptureFrame(a.db, frame);
+    a.db.exec('COMMIT');
+    seal(a);
+    expect(push(a).flatMap((t) => t.ops)).toEqual([
+      expect.objectContaining({ o: 'K', u: row.uid, obfp: row.fp }),
+    ]);
+    expect(pull(c)).toMatchObject({ pending: 0, void: 0 });
+    expect(retrievalRows(c)).toEqual(retrievalRows(a));
+    expect(push(c)).toEqual([]);
+  });
+
+  it('an announcement seals as an alias-only K even when its old uid has no meta here', async () => {
+    const c = await replica(RC);
+    write(c, retrieval('solo'));
+    push(c);
+    const row = c.db.prepare('SELECT uid, birth_fp AS fp FROM brain_retrieval_log').get() as {
+      uid: string;
+      fp: string;
+    };
+    // Another replica's K moved this row here from OLD; C owes its announcement.
+    const OLD = '0192dddd-7f00-7000-8000-0000000000d1';
+    recordUidAlias(
+      c.db,
+      {
+        table: 'brain_retrieval_log',
+        oldUid: OLD,
+        oldBfp: row.fp,
+        newUid: row.uid,
+        origin: RA,
+        hlc: `${String(++clock).padStart(13, '0')}-000000-${RA}`,
+      },
+      new Date().toISOString(),
+    );
+    markAliasPlaced(c.db, 'brain_retrieval_log', OLD, row.fp);
+    expect(
+      announcePlacedRekeys(
+        c.db,
+        { scope: 'project', stream: streamOf('project'), replica: RC },
+        new Date().toISOString(),
+      ),
+    ).toBe(1);
+    seal(c);
+    expect(push(c).flatMap((t) => t.ops)).toEqual([
+      expect.objectContaining({ o: 'K', t: 'brain_retrieval_log', u: OLD, nu: row.uid }),
+    ]);
+    expect(
+      c.db.prepare(`SELECT uid FROM _sync_row_meta WHERE tbl = 'brain_retrieval_log'`).all(),
+    ).toEqual([{ uid: row.uid }]);
+    // Owed once: a second call announces nothing.
+    expect(
+      announcePlacedRekeys(
+        c.db,
+        { scope: 'project', stream: streamOf('project'), replica: RC },
+        new Date().toISOString(),
+      ),
+    ).toBe(0);
+  });
+
+  it('the origin settles after its sealed insert ops are folded away', async () => {
+    const { winner, loser } = await collide(
+      'project',
+      'brain_retrieval_log',
+      retrieval('query a'),
+      retrieval('query b'),
+    );
+    push(winner);
+    push(loser);
+    // Folded: the insert's ops are gone; only _sync_authored remembers the origin (T13399).
+    loser.db.exec(`DELETE FROM _sync_op WHERE o = 'I' AND tbl = 'brain_retrieval_log'`);
+    expect(pull(loser)).toMatchObject({ pending: 0, void: 0 });
+    expect(retrievalRows(loser)).toHaveLength(2);
+    expect(listConflicts(loser.db, { open: true })).toEqual([]);
+    expect(push(loser).flatMap((t) => t.ops.filter((o) => o.o === 'K'))).toHaveLength(1);
   });
 
   it('the global store settles its brain collisions the same way', async () => {
