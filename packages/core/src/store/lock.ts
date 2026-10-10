@@ -5,6 +5,7 @@
  * @task T4457
  */
 
+import * as fs from 'node:fs';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import lockfile from 'proper-lockfile';
 import { CleoError } from '../errors.js';
@@ -51,6 +52,84 @@ export async function acquireLock(
       cause: err,
     });
   }
+}
+
+/**
+ * A held lock that can be released, or abandoned when it may no longer be
+ * ours (T13299).
+ */
+export interface AbandonableLock {
+  /** Release the lock: stop refreshing it and remove its directory. */
+  release: ReleaseFn;
+  /**
+   * Stop holding the lock WITHOUT removing its directory: for a lock that was
+   * lost or outlasted its stale window, which another process may have taken
+   * since. proper-lockfile's release and its exit hook remove the directory
+   * without checking who owns it; after `abandon` neither touches it. A
+   * directory that was still ours is already stale, so the next taker
+   * reclaims it. Never throws.
+   */
+  abandon: ReleaseFn;
+}
+
+/**
+ * {@link acquireLock}, returning a lock that can also be abandoned (see
+ * {@link AbandonableLock}). The lock's file operations go through node's fs,
+ * with the directory removal skipped once the lock is abandoned.
+ *
+ * @param filePath - The file to lock (the lock is `<filePath>.lock`).
+ * @param options - As for {@link acquireLock}.
+ * @returns The held lock.
+ * @throws CleoError (LOCK_TIMEOUT) when the lock cannot be acquired.
+ * @task T13299
+ */
+export async function acquireAbandonableLock(
+  filePath: string,
+  options?: { stale?: number; retries?: number; onCompromised?: (err: Error) => void },
+): Promise<AbandonableLock> {
+  let abandoned = false;
+  const guardedFs = {
+    ...fs,
+    rmdir(target: fs.PathLike, cb: (err: NodeJS.ErrnoException | null) => void): void {
+      if (abandoned) {
+        cb(null);
+        return;
+      }
+      fs.rmdir(target, cb);
+    },
+    rmdirSync(target: fs.PathLike): void {
+      if (!abandoned) fs.rmdirSync(target);
+    },
+  };
+  let release: ReleaseFn;
+  try {
+    release = await lockfile.lock(filePath, {
+      ...DEFAULT_LOCK_OPTIONS,
+      fs: guardedFs,
+      ...(options?.stale !== undefined && { stale: options.stale }),
+      ...(options?.onCompromised !== undefined && { onCompromised: options.onCompromised }),
+      ...(options?.retries !== undefined && {
+        retries: { ...DEFAULT_LOCK_OPTIONS.retries, retries: options.retries },
+      }),
+    });
+  } catch (err) {
+    // @sync-invariant none:local-only a file lock held by another local process; never replicated
+    throw new CleoError(ExitCode.LOCK_TIMEOUT, `Failed to acquire lock: ${filePath}`, {
+      fix: `Another process may be writing to this file. Wait and retry.`,
+      cause: err,
+    });
+  }
+  return {
+    release,
+    abandon: async () => {
+      abandoned = true;
+      try {
+        await release();
+      } catch {
+        // already released as compromised: nothing is held
+      }
+    },
+  };
 }
 
 /**

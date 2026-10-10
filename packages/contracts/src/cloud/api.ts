@@ -210,6 +210,10 @@ export const HomeReplica = z.object({
   lastSyncAt: z.iso.datetime().nullable(),
   presence: ReplicaPresence.nullable(),
   presenceAt: z.iso.datetime().nullable(),
+  /** When the replica was retired (T123), else null. Absent from servers older than retirement. */
+  retiredAt: z.iso.datetime().nullable().optional(),
+  /** The retired replica's named successor, else null (not retired, or retired with none). */
+  successor: ReplicaId.nullable().optional(),
 });
 export type HomeReplica = z.infer<typeof HomeReplica>;
 
@@ -641,6 +645,69 @@ export type ListedLease = z.infer<typeof ListedLease>;
 /** `GET /v1/streams/:streamId/leases`: the stream's live leases, by role. Expired leases are omitted. */
 export const ListLeasesResult = z.object({ leases: z.array(ListedLease) });
 export type ListLeasesResult = z.infer<typeof ListLeasesResult>;
+
+// ---------- replica retirement (T123; cleocode journal spec §1.3, §3.5 D5) ----------
+
+/**
+ * A journal transaction id, `<emittingReplicaId>:<localTxnSeq>`: the replica that emitted the transaction and its own
+ * transaction counter. Only the format is checked: the emitting replica may be the successor (a rebind), not the
+ * retired one.
+ */
+const JournalTxnId = z
+  .string()
+  .regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:(0|[1-9][0-9]{0,15})$/,
+    'expected <uuid>:<non-negative integer>',
+  );
+
+/**
+ * E31 `POST /v1/streams/:streamId/replicas/:replicaId/retirements` (cleo-nexus T123, contract v2.28): the replica
+ * writes no segment past `lastReplicaSeq` (none at all when it is null). The journal's own `retire` transaction
+ * travels E2E-encrypted; this is the server's signed copy, so it can refuse later appends and show the retirement in
+ * the reads.
+ */
+export const RetireReplicaRequest = z.object({
+  /** The signing device. It must be the calling device. */
+  deviceId: DeviceId,
+  /** The replica that carries on this one's history, or null. Never the retired replica itself. */
+  successor: ReplicaId.nullable(),
+  /**
+   * The replica's last segment: at least its highest appended replicaSeq, and late segments up to it still land. Null
+   * when the replica wrote nothing: then no segment of it is stored, and none may land.
+   */
+  lastReplicaSeq: z.number().int().nonnegative().nullable(),
+  /**
+   * The journal transaction that carries the retire (`${emittingReplicaId}:${localTxnSeq}`), or null for an owner's
+   * retirement with no journal transaction.
+   */
+  txnId: JournalTxnId.nullable(),
+  /** Ed25519 by the calling device over replicaRetireMessage(...). */
+  signature: Base64,
+});
+/** The E31 request body. */
+export type RetireReplicaRequest = z.infer<typeof RetireReplicaRequest>;
+
+/** A stored retirement: one per (stream, replica), insert-only. */
+export const ReplicaRetirement = z.object({
+  streamId: StreamId,
+  replicaId: ReplicaId,
+  successor: ReplicaId.nullable(),
+  /** Null: the replica wrote nothing. */
+  lastReplicaSeq: z.number().int().nonnegative().nullable(),
+  /** The device that signed it: the replica's own, a project owner's, or (home streams) another of the account's. */
+  signerDeviceId: DeviceId,
+  txnId: JournalTxnId.nullable(),
+  /** The signer's Ed25519 over replicaRetireMessage(...), so a client or an auditor can verify the record. */
+  signature: Base64,
+  retiredAt: z.iso.datetime(),
+});
+/** A stored replica retirement. */
+export type ReplicaRetirement = z.infer<typeof ReplicaRetirement>;
+
+/** 201 for a new retirement, 200 with the stored one for a repeat with the same successor and lastReplicaSeq. */
+export const RetireReplicaResult = z.object({ retirement: ReplicaRetirement });
+/** The E31 answer. */
+export type RetireReplicaResult = z.infer<typeof RetireReplicaResult>;
 
 // ---------- keys (wrapped project keys; the account master key is escrowed on the server, T082: encryption at rest, not end-to-end) ----------
 
