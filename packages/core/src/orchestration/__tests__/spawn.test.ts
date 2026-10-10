@@ -195,6 +195,16 @@ const BASE_TASK: Task = {
 // Suite
 // ---------------------------------------------------------------------------
 
+// Row uids are on by default since T13305 (C2). With the fill on, this
+// vi.resetModules + vi.doMock harness hits a TDZ on dual-scope-db's cache
+// (T13313); the built CLI is unaffected. Pinned off until T13313 lands.
+beforeEach(() => {
+  vi.stubEnv('CLEO_ROW_UID_FILL', '0');
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('composeSpawnPayload — full envelope', () => {
   let env: TmpEnv;
 

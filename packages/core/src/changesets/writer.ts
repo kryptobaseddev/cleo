@@ -119,7 +119,8 @@ export type WriteChangesetOutcome =
 export function yamlScalar(value: string): string {
   if (!value.includes('\n')) {
     try {
-      const back = (parseYaml(`v: ${value}`) as { v?: unknown } | null)?.v;
+      const doc: unknown = parseYaml(`v: ${value}`);
+      const back = typeof doc === 'object' && doc !== null && 'v' in doc ? doc.v : undefined;
       if (back === value) return value;
     } catch {
       // Not a valid plain scalar: quote it.
@@ -181,6 +182,9 @@ function roundTripMismatch(wrote: ChangesetEntry, read: ChangesetEntry): string 
   }
   if (wrote.tasks.join(',') !== read.tasks.join(',')) {
     return 'rendered changeset does not round-trip: tasks changed';
+  }
+  if ((wrote.prs ?? []).join(',') !== (read.prs ?? []).join(',')) {
+    return 'rendered changeset does not round-trip: prs changed';
   }
   return null;
 }
