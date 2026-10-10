@@ -27,6 +27,7 @@ import {
   pullStream,
   readStreamCursor,
   type StreamCursor,
+  seenTxnReport,
 } from '../pull.js';
 import { ensureSyncSchema } from '../schema.js';
 import { sealPending } from '../sealer.js';
@@ -351,6 +352,26 @@ describe('per-origin seen floor (T13318)', () => {
     expect(db.prepare('SELECT sum(seen_bytes) AS b FROM _sync_seen_floor').get()).toEqual({
       b: row(`${RA}:1`) + row(`${RA}:9`) + row(`${RC}:4`),
     });
+  });
+
+  it('a store whose journal records the floor folder but lost the table gets it back on pull, counts re-seeded', async () => {
+    const a = await store('a');
+    const b = await store('b');
+    const stream = fakeStream();
+    write(a, addTask('T1'));
+    stream.append(authorSegment(a), 0); // RA:1
+    write(a, addTask('T2'));
+    stream.append(authorSegment(a), 1); // RA:2
+    await pullStream(b, pullOpts(b, stream));
+    b.exec('DROP TABLE _sync_seen_floor');
+    // Until the next pull, status still reports the ledger, never zero.
+    expect(seenTxnReport(b)).toMatchObject({ rows: 2, byStream: { [STREAM]: 2 } });
+    write(a, addTask('T3'));
+    stream.append(authorSegment(a), 2); // RA:3
+    const r = await pullStream(b, pullOpts(b, stream));
+    expect(r).toMatchObject({ refused: null, staged: 1, after: 3 });
+    expect(floorOf(b, RA)).toEqual({ stagedUpto: 3, prunedUpto: 0, rows: 3 });
+    expect(seenTxnReport(b)).toMatchObject({ rows: 3, byStream: { [STREAM]: 3 } });
   });
 
   it("a transaction that is not the segment replica's is refused", async () => {

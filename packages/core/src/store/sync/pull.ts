@@ -44,7 +44,7 @@ import { type ApplyReport, type ApplyStagedOptions, applyStagedTxns } from './ap
 import { withImmediateTransaction } from './clock-store.js';
 import { isSyncFlagOn } from './flags.js';
 import { stageTxns } from './inbox.js';
-import { ensureSyncSchema, hasTable } from './schema.js';
+import { ensureSyncSchema, hasTable, healSyncSchema } from './schema.js';
 
 /** Where a pull stands (the journal client's `PullCursor`). */
 export interface StreamCursor {
@@ -337,6 +337,45 @@ const seenBytes = (stream: string, txn: string): number =>
   Buffer.byteLength(stream, 'utf8') + Buffer.byteLength(txn, 'utf8') + SEEN_SEQ_BYTES;
 
 /**
+ * Install the floor table before a pull: a store whose journal predates it
+ * gains it, and a store whose journal records the folder but lost the table
+ * gets it re-created (§2.3a rule 9), its counts re-seeded from the seen rows.
+ *
+ * @param db - The store, outside a transaction.
+ */
+function ensureSeenFloor(db: DatabaseSync): void {
+  if (hasTable(db, '_sync_seen_floor')) return;
+  ensureSyncSchema(db);
+  healSyncSchema(db, ['_sync_seen_floor']);
+}
+
+/**
+ * {@link seenTxnReport} for a store with seen rows but no floor table yet
+ * (its next pull installs it): the ledger walked once, O(rows).
+ */
+function seenLedgerWalk(db: DatabaseSync): {
+  rows: number;
+  bytes: number;
+  byStream: Record<string, number>;
+} {
+  const byStream: Record<string, number> = {};
+  let rows = 0;
+  let bytes = 0;
+  if (!hasTable(db, '_sync_seen_txn')) return { rows, bytes, byStream };
+  for (const r of db
+    .prepare(
+      `SELECT stream, count(*) AS n, sum(octet_length(stream) + octet_length(txn) + ${SEEN_SEQ_BYTES}) AS b
+         FROM _sync_seen_txn GROUP BY stream ORDER BY stream`,
+    )
+    .all() as Array<{ stream: string; n: number; b: number | null }>) {
+    byStream[r.stream] = Number(r.n);
+    rows += Number(r.n);
+    bytes += Number(r.b ?? 0);
+  }
+  return { rows, bytes, byStream };
+}
+
+/**
  * The size of `_sync_seen_txn` (T13317), for `cleo cloud status`: rows per
  * stream and the estimated payload bytes (stream and txn text plus the seq
  * integer, without SQLite's page overhead). Read-only, and O(origins): it
@@ -344,14 +383,15 @@ const seenBytes = (stream: string, txn: string): number =>
  * prune (T13318), never the ledger itself.
  *
  * @param db - The store.
- * @returns Zeroes when the tables are not installed.
+ * @returns Zeroes when the tables are not installed; the ledger walked when
+ *   only the floor table is missing.
  */
 export function seenTxnReport(db: DatabaseSync): {
   rows: number;
   bytes: number;
   byStream: Record<string, number>;
 } {
-  if (!hasTable(db, '_sync_seen_floor')) return { rows: 0, bytes: 0, byStream: {} };
+  if (!hasTable(db, '_sync_seen_floor')) return seenLedgerWalk(db);
   const byStream: Record<string, number> = {};
   let rows = 0;
   let bytes = 0;
@@ -454,8 +494,7 @@ export async function pullStream(
       apply: null,
     };
   }
-  // A store whose journal predates the floor gains it before the first page.
-  if (!hasTable(db, '_sync_seen_floor')) ensureSyncSchema(db);
+  ensureSeenFloor(db);
   let cursor = readStreamCursor(db, o.stream) ?? o.initialCursor;
   let segments = 0;
   let vaultDeltas = 0;
