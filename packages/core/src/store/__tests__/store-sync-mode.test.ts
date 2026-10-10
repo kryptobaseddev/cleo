@@ -20,7 +20,7 @@ import {
   openDualScopeDbAtPath,
   resolveStoreSyncMode,
 } from '../dual-scope-db.js';
-import { dropCaptureTriggers, setCaptureEnabled } from '../sync/capture.js';
+import { captureBracketHooks, dropCaptureTriggers, setCaptureEnabled } from '../sync/capture.js';
 import { activeReplica } from '../sync/replica.js';
 import { classifyStoreTriggers } from '../sync/trigger-classes.js';
 
@@ -145,6 +145,28 @@ describe('a sync-off open never touches capture triggers or the replica', () => 
     const off = await open(copy, { syncMode: 'off' });
     expect(activeReplica(off, 'project')?.replicaId).toBe(replicaId);
     expect(captureTriggerCount(off)).toBe(0);
+  });
+});
+
+describe('capture brackets restore only what they dropped', () => {
+  it('a migration bracket on a store with capture on but no triggers installs none', async () => {
+    const { db } = await boundCaptureStore();
+    dropCaptureTriggers(db);
+    const hooks = captureBracketHooks(db, 'project');
+    hooks.suspendCapture?.(db);
+    hooks.reinstallCapture?.(db);
+    expect(captureTriggerCount(db)).toBe(0);
+  });
+
+  it('a migration bracket regenerates the triggers it dropped', async () => {
+    const { db } = await boundCaptureStore();
+    const before = captureTriggerCount(db);
+    expect(before).toBeGreaterThan(0);
+    const hooks = captureBracketHooks(db, 'project');
+    hooks.suspendCapture?.(db);
+    expect(captureTriggerCount(db)).toBe(0);
+    hooks.reinstallCapture?.(db);
+    expect(captureTriggerCount(db)).toBe(before);
   });
 });
 

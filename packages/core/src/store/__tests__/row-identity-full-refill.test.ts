@@ -15,16 +15,20 @@
  * @task T13231
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   prepareRowIdentity,
   ROW_IDENTITY,
+  ROW_IDENTITY_RECIPE,
   ROW_IDENTITY_RECIPE_KEY,
   ROW_IDENTITY_REFILL_SNAPSHOT_KEY,
+  ROW_IDENTITY_REFUSED_KEY,
+  readRowIdentityRefusal,
   rowIdentityColumns,
+  rowIdentityFillPending,
   rowIdentityShareState,
 } from '../row-identity.js';
 import { getNativeTasksDb } from '../sqlite.js';
@@ -227,6 +231,73 @@ describe('full from-scratch identity refill (T13231)', () => {
       // `_` is a LIKE wildcard: LIKE '_sync_%' would match this table.
       db.exec("CREATE TABLE async_notes (x); INSERT INTO async_notes VALUES ('n');");
       expect(rowIdentityShareState(db).state).toBe('unshared');
+    });
+  });
+
+  describe('a refused refill is recorded: later opens are fast and quiet (T13305)', () => {
+    function linkNoVault(): void {
+      writeFileSync(
+        join(env.cleoDir, 'nexus-link.json'),
+        JSON.stringify({ version: 1, links: { 'https://api.example': { remoteProjectId: 'p1' } } }),
+      );
+    }
+
+    it('the second open takes the fast path; a NULL-uid row is filled without re-warning', () => {
+      linkNoVault();
+      plantStale();
+      expect(prepareRowIdentity(db, 'project')?.refill).toBe('refused');
+      const first = readRowIdentityRefusal(db);
+      expect(first).toMatchObject({
+        state: 'refused',
+        recipe: ROW_IDENTITY_RECIPE,
+        shareState: 'unknown',
+      });
+      // Nothing else pending: the stale marker is settled by the refusal.
+      expect(rowIdentityFillPending(db, 'project')).toEqual([]);
+      expect(prepareRowIdentity(db, 'project')?.refill).toBe('none');
+      // New work (a row without a uid) runs the pass; the refusal is not logged again.
+      db.exec(
+        "INSERT INTO tasks_task_relations (task_id, related_to, relation_type) VALUES ('T002', 'T001', 'blocks')",
+      );
+      db.exec("UPDATE tasks_task_relations SET uid = NULL WHERE relation_type = 'blocks'");
+      expect(rowIdentityFillPending(db, 'project')).toContain('uid:tasks_task_relations');
+      expect(prepareRowIdentity(db, 'project')?.refill).toBe('refused');
+      expect(readRowIdentityRefusal(db)?.warnedAt).toBe(first?.warnedAt);
+      expect(relUid()).toBe(BOGUS_REL);
+    });
+
+    it('a change of the share verdict re-evaluates: unlinked, the store refills', () => {
+      linkNoVault();
+      plantStale();
+      expect(prepareRowIdentity(db, 'project')?.refill).toBe('refused');
+      rmSync(join(env.cleoDir, 'nexus-link.json'));
+      expect(rowIdentityFillPending(db, 'project')).toContain('recipe');
+      expect(prepareRowIdentity(db, 'project')?.refill).toBe('cleared');
+      expect(relUid()).not.toBe(BOGUS_REL);
+    });
+
+    it('a refusal recorded under another recipe is not settled', () => {
+      linkNoVault();
+      plantStale();
+      prepareRowIdentity(db, 'project');
+      const prior = readRowIdentityRefusal(db);
+      db.prepare('UPDATE tasks_row_identity_meta SET value = ? WHERE key = ?').run(
+        JSON.stringify({ ...prior, recipe: 'cleo/row-identity/v1' }),
+        ROW_IDENTITY_REFUSED_KEY,
+      );
+      expect(rowIdentityFillPending(db, 'project')).toContain('recipe');
+    });
+
+    it('cleo doctor row-identity --refill (dry run) clears the refusal and re-evaluates', async () => {
+      linkNoVault();
+      plantStale();
+      prepareRowIdentity(db, 'project');
+      expect(rowIdentityFillPending(db, 'project')).toEqual([]);
+      const { rowIdentityRefill } = await import('../../doctor/row-identity-refill.js');
+      const report = await rowIdentityRefill(env.tempDir, { probe: async () => [] });
+      expect(report.refusalCleared).toBe(true);
+      expect(readRowIdentityRefusal(db)?.state).toBe('cleared');
+      expect(rowIdentityFillPending(db, 'project')).toContain('recipe');
     });
   });
 });
