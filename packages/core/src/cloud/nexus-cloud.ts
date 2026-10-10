@@ -18,11 +18,14 @@
  * @epic T12323
  */
 
+import { existsSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
 import type {
   CloudDevicesResult,
   CloudPaging,
   CloudProjectShowResult,
   CloudProjectsResult,
+  CloudRetiredReplica,
   CloudWarning,
   CloudWhoamiResult,
   NexusCloudReplica,
@@ -39,7 +42,8 @@ import {
   nexusCloudWhoamiSchema,
 } from '@cleocode/contracts/nexus-cloud.js';
 import { readDeclaredProjectIdentity } from '@cleocode/paths';
-import { resolveOrCwd } from '../paths.js';
+import { resolveCleoDir, resolveOrCwd } from '../paths.js';
+import type { RetiredReplica } from '../store/sync/replica-registry.js';
 import { type FetchLike, Http, NexusError, type ResponseSchema } from './http.js';
 import { NexusAccountError, resolveNexusApiUrl } from './nexus-auth.js';
 import { isNexusDeviceEnabled, NexusDeviceStore, type SealedNexusDevice } from './nexus-device.js';
@@ -435,8 +439,63 @@ export async function showNexusCloudProject(
     projectId,
     currentProject,
     replicaPaging,
+    retiredHere: await retiredReplicasAmong(replicas.map((r) => r.replicaId)),
     warnings: [...conn.warnings, ...nexusPagingWarnings('replica list', replicaPaging)],
   };
+}
+
+function toCloudRetiredReplica(r: RetiredReplica): CloudRetiredReplica {
+  return {
+    replicaId: r.replicaId,
+    successor: r.successor,
+    retiredAt: r.retiredAt,
+    reason: r.reason,
+  };
+}
+
+/**
+ * Which of `replicaIds` this device retired, from its replica registry
+ * (read-only; never mints a device id). A retired replica stays listed by the
+ * server as history until S4 announces it (T13109).
+ *
+ * @param replicaIds - Replica ids a server listing returned.
+ * @returns The retired ones, newest first.
+ */
+export async function retiredReplicasAmong(
+  replicaIds: readonly string[],
+): Promise<CloudRetiredReplica[]> {
+  const { readDeviceRegistry } = await import('../store/sync/replica-registry.js');
+  const registry = readDeviceRegistry();
+  if (registry === null) return [];
+  const listed = new Set(replicaIds);
+  return registry
+    .retired()
+    .filter((r) => listed.has(r.replicaId))
+    .map(toCloudRetiredReplica);
+}
+
+/**
+ * Earlier replicas of the project store at `projectRoot` that this device
+ * retired, from its replica registry (read-only; T13109).
+ *
+ * @param projectRoot - Project root.
+ * @returns The retired replicas of that store file, newest first.
+ */
+export async function retiredReplicasOfProject(
+  projectRoot: string,
+): Promise<CloudRetiredReplica[]> {
+  const dbPath = join(resolveCleoDir(projectRoot), 'cleo.db');
+  if (!existsSync(dbPath)) return [];
+  const { readDeviceRegistry } = await import('../store/sync/replica-registry.js');
+  const registry = readDeviceRegistry();
+  if (registry === null) return [];
+  let dbRealpath: string;
+  try {
+    dbRealpath = realpathSync(dbPath);
+  } catch {
+    return [];
+  }
+  return registry.retired({ dbRealpath, scope: 'project' }).map(toCloudRetiredReplica);
 }
 
 /**

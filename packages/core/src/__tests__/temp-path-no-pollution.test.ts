@@ -64,6 +64,8 @@ vi.mock('@cleocode/caamp', () => {
   });
 
   return {
+    // T13257: ensureInjection checks for a $HOME project first.
+    isHomeProject: vi.fn(() => false),
     resolveInstructionDelivery: vi.fn<typeof import('@cleocode/caamp').resolveInstructionDelivery>(
       async (content) => ({ content, sources: [], findings: [], liveEvaluation: 'unverified' }),
     ),

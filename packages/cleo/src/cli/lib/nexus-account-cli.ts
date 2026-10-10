@@ -20,6 +20,7 @@ import {
   writeDeviceCodePrompt,
 } from './device-code-prompt.js';
 import { negatedFlag } from './negated-flag.js';
+import { terminalSafe, terminalSafeLines } from './terminal-safe.js';
 
 /** Name shown in the device-code prompt. */
 const SERVICE_NAME = 'Cleo Nexus';
@@ -90,8 +91,9 @@ export function failNexus(err: unknown, operation: string): never {
     err.publicDetails
       ? err.publicDetails
       : undefined;
+  // A server message may carry terminal control (T13295).
   cliError(
-    err instanceof Error ? err.message : String(err),
+    terminalSafeLines(err instanceof Error ? err.message : String(err)),
     exitCode,
     {
       name: code ?? 'E_NEXUS_REQUEST_FAILED',
@@ -110,11 +112,13 @@ export function failNexus(err: unknown, operation: string): never {
  * @param warnings - Warnings from the result (secret-free).
  */
 export function writeNexusWarnings(warnings: readonly string[]): void {
-  for (const warning of warnings) process.stderr.write(`warning: ${warning}\n`);
+  for (const warning of warnings) process.stderr.write(`warning: ${terminalSafe(warning)}\n`);
 }
 
 /**
- * Emit a result: one human line on a terminal, else the LAFS envelope.
+ * Emit a result: one human line on a terminal, else the LAFS envelope. The
+ * human line passes {@link terminalSafeLines}: it interpolates server-supplied
+ * names (T13295).
  *
  * @param data - Result payload (secret-free).
  * @param summary - Human line.
@@ -127,7 +131,7 @@ export function emitNexusResult(
   command: string,
   operation: string,
 ): void {
-  if (isHumanOutput()) humanLine(summary);
+  if (isHumanOutput()) humanLine(terminalSafeLines(summary));
   else cliOutput(data, { command, operation });
 }
 
@@ -226,7 +230,7 @@ export async function runNexusLogin(
       result = await loginToNexus(hooks);
     }
     if (codeShown) writeDeviceCodeApproved(SERVICE_NAME);
-    for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
+    writeNexusWarnings(result.warnings);
     return result;
   } catch (err) {
     writeDeviceCodeInterrupted();
@@ -313,6 +317,6 @@ export async function runNexusDeviceLogout(args: Readonly<Record<string, unknown
   } catch (err) {
     failNexus(err, 'logout.run');
   }
-  for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
+  writeNexusWarnings(result.warnings);
   emitNexusResult(result, nexusDeviceLogoutSummary(result), 'logout', 'logout.run');
 }

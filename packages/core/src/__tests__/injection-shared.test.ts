@@ -216,6 +216,8 @@ describe('ensureInjection', () => {
   it('creates AGENTS.md even when no providers are detected', async () => {
     // Mock CAAMP with no providers
     vi.doMock('@cleocode/caamp', () => ({
+      // T13257: ensureInjection checks for a $HOME project first.
+      isHomeProject: vi.fn(() => false),
       resolveInstructionDelivery: vi.fn(async (content: string) => ({
         content,
         sources: [],
@@ -250,6 +252,8 @@ describe('ensureInjection', () => {
     ];
 
     vi.doMock('@cleocode/caamp', () => ({
+      // T13257: ensureInjection checks for a $HOME project first.
+      isHomeProject: vi.fn(() => false),
       resolveInstructionDelivery: vi.fn(async (content: string) => ({
         content,
         sources: [],

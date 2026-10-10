@@ -514,6 +514,7 @@ export type {
   SagaAuditResult,
   SagaAuditViolation,
   SagaAuditViolationKind,
+  SupersededStoreBareAccount,
   SupersededStoreConflict,
   SupersededStoreIdRemap,
   SupersededStoreReconcileOutcome,
@@ -2322,7 +2323,13 @@ export type {
 // === Row Identity Types (T12341 — uid merge keys) ===
 export type {
   RowIdentityKind,
+  RowIdentityNexusAnswer,
   RowIdentityRef,
+  RowIdentityRefillCounts,
+  RowIdentityRefillReport,
+  RowIdentityShareSignal,
+  RowIdentityShareSignalCode,
+  RowIdentityShareState,
   RowIdentitySpec,
   StoredRefUid,
   SymmetricEdge,
@@ -2463,6 +2470,14 @@ export {
   // Terminal state sets
   TERMINAL_TASK_STATUSES,
 } from './status-registry.js';
+// === Store restore (T13240 — restore cleo.db from a named snapshot or backup id) ===
+export type {
+  StoreRecoverResult,
+  StoreRestoreKept,
+  StoreRestoreResult,
+  StoreRestoreSource,
+  StoreRestoreVerification,
+} from './store-restore.js';
 // === Sub-Accessor Contracts (T9188) ===
 export type {
   AgentRegistrySubAccessor,
@@ -3051,7 +3066,9 @@ export type {
   CloudPaging,
   CloudProjectShowResult,
   CloudProjectsResult,
+  CloudRetiredReplica,
   CloudStatusGlobalStore,
+  CloudStatusHolder,
   CloudStatusLocal,
   CloudStatusOfflineDetails,
   CloudStatusResult,
@@ -3142,9 +3159,12 @@ export {
   type CloudVaultStatusResult,
   type CloudVaultTable,
   type CloudVaultTableDiff,
+  type CloudVerifyDeepCheck,
   type CloudVerifyResult,
+  NEXUS_REPLICA_RETIREMENT_REASONS,
   NEXUS_VAULT_LEASE_ROLE,
   type NexusActivityEvent,
+  type NexusReplicaRetirementReason,
   nexusActivityEventSchema,
   nexusActivityPageSchema,
   nexusLeaseAcquireSchema,

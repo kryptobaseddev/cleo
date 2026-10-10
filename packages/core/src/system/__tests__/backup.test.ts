@@ -80,27 +80,27 @@ describe('system/backup', () => {
     const { createBackup } = await import('../backup.js');
     const result = await createBackup(testDir, { type: 'snapshot', note: 't5158-test' });
 
+    // T13245: ONE copy of the project store (cleo.db holds tasks AND brain).
     expect(result.files).toEqual(
-      expect.arrayContaining(['tasks.db', 'brain.db', 'config.json', 'project-info.json']),
+      expect.arrayContaining(['cleo.db', 'config.json', 'project-info.json']),
     );
+    expect(result.files).not.toContain('tasks.db');
+    expect(result.files).not.toContain('brain.db');
 
     // VACUUM INTO was invoked with wal_checkpoint preceding it.
     const tasksCalls = tasksExec.mock.calls.map((c) => c[0]);
-    const brainCalls = brainExec.mock.calls.map((c) => c[0]);
     const tasksWal = tasksCalls.findIndex((c) => c.includes('wal_checkpoint'));
     const tasksVacuum = tasksCalls.findIndex((c) => c.includes('VACUUM INTO'));
     expect(tasksWal).toBeGreaterThanOrEqual(0);
     expect(tasksVacuum).toBeGreaterThan(tasksWal);
-    const brainWal = brainCalls.findIndex((c) => c.includes('wal_checkpoint'));
-    const brainVacuum = brainCalls.findIndex((c) => c.includes('VACUUM INTO'));
-    expect(brainWal).toBeGreaterThanOrEqual(0);
-    expect(brainVacuum).toBeGreaterThan(brainWal);
+    // The second, identical copy is gone.
+    expect(brainExec).not.toHaveBeenCalled();
 
     // T10315: snapshot files now materialize in the canonical `sqlite/` dir.
     const canonicalDir = join(testDir, '.cleo', 'backups', 'sqlite');
     const files = readdirSync(canonicalDir);
-    expect(files.some((f) => f.startsWith('tasks.db.'))).toBe(true);
-    expect(files.some((f) => f.startsWith('brain.db.'))).toBe(true);
+    expect(files.some((f) => f.startsWith('cleo.db.'))).toBe(true);
+    expect(files.some((f) => f.startsWith('tasks.db.') || f.startsWith('brain.db.'))).toBe(false);
     expect(files.some((f) => f.startsWith('config.json.'))).toBe(true);
     expect(files.some((f) => f.startsWith('project-info.json.'))).toBe(true);
 
@@ -116,11 +116,12 @@ describe('system/backup', () => {
     const meta = JSON.parse(readFileSync(join(canonicalDir, metaFile!), 'utf-8'));
     expect(meta.note).toBe('t5158-test');
     expect(meta.files).toEqual(
-      expect.arrayContaining(['tasks.db', 'brain.db', 'config.json', 'project-info.json']),
+      expect.arrayContaining(['cleo.db', 'config.json', 'project-info.json']),
     );
+    expect(meta.contains).toEqual(['tasks', 'brain', 'conduit']);
   });
 
-  it('snapshots canonical-only cleo.db through project-bound handles while retaining legacy labels', async () => {
+  it('snapshots canonical-only cleo.db through the project-bound handle, once (T13245)', async () => {
     const database = new DatabaseSync(join(testDir, '.cleo', 'cleo.db'));
     database.exec(
       "PRAGMA journal_mode=WAL; CREATE TABLE backup_fixture(value TEXT); INSERT INTO backup_fixture VALUES ('preserved evidence')",
@@ -134,10 +135,10 @@ describe('system/backup', () => {
       expect(existsSync(join(testDir, '.cleo', 'brain.db'))).toBe(false);
       const { createBackup } = await import('../backup.js');
       const result = await createBackup(testDir);
-      expect(result.files).toEqual(['tasks.db', 'brain.db']);
+      expect(result.files).toEqual(['cleo.db']);
       expect(getNativeDb).toHaveBeenCalledWith(testDir);
-      expect(getBrainNativeDb).toHaveBeenCalledWith(testDir);
-      for (const label of ['tasks.db', 'brain.db']) {
+      expect(getBrainNativeDb).not.toHaveBeenCalled();
+      for (const label of ['cleo.db']) {
         const snapshot = new DatabaseSync(
           join(testDir, '.cleo', 'backups', 'sqlite', `${label}.${result.backupId}`),
           { readOnly: true },

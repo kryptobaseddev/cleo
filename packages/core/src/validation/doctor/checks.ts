@@ -2073,20 +2073,30 @@ const OLD_CLEO_HOOK_MARKER = '# cleo-hook';
 interface OldCleoHook {
   /** The hook event it sits under (`Stop`, `PostToolUse`, `PreCompact`, ...). */
   event: string;
-  /** The `matcher` of the entry holding it (`''` when absent). */
-  matcher: string;
+  /** The `matcher` of the entry holding it, or `null` when the entry has none. */
+  matcher: string | null;
   /** The hook's command. */
   command: string;
 }
 
-/** The first shell word of a command, with surrounding double quotes removed. */
+/**
+ * The first shell word of a command: surrounding double or single quotes
+ * removed, and a leading `~/`, `$HOME/` or `${HOME}/` expanded to the home
+ * directory — the forms CLEO's own hook template tells users to write by hand
+ * (T13221 review).
+ */
 function firstCommandWord(command: string): string {
   const trimmed = command.trim();
-  if (trimmed.startsWith('"')) {
-    const close = trimmed.indexOf('"', 1);
-    return close === -1 ? trimmed.slice(1) : trimmed.slice(1, close);
+  let word: string;
+  const quote = trimmed.charAt(0);
+  if (quote === '"' || quote === "'") {
+    const close = trimmed.indexOf(quote, 1);
+    word = close === -1 ? trimmed.slice(1) : trimmed.slice(1, close);
+  } else {
+    word = trimmed.split(/\s+/, 1)[0] ?? '';
   }
-  return trimmed.split(/\s+/, 1)[0] ?? '';
+  const home = /^(?:~|\$HOME|\$\{HOME\})\//.exec(word);
+  return home === null ? word : join(homedir(), word.slice(home[0].length));
 }
 
 /**
@@ -2121,7 +2131,7 @@ function oldCleoHooks(settings: Record<string, unknown>, claudeHome: string): Ol
       const record = entry as Record<string, unknown>;
       const inner = record.hooks;
       if (!Array.isArray(inner)) continue;
-      const matcher = typeof record.matcher === 'string' ? record.matcher : '';
+      const matcher = typeof record.matcher === 'string' ? record.matcher : null;
       for (const hook of inner) {
         if (typeof hook !== 'object' || hook === null) continue;
         const command = (hook as Record<string, unknown>).command;
@@ -2185,7 +2195,7 @@ export function checkUserGlobalClaudeLeftovers(
         for (const hook of oldCleoHooks(settings, claudeHome)) {
           found.push(`${hook.event} hook ${hook.command}`);
           steps.push(
-            `in ${settingsPath}, under "hooks.${hook.event}" (matcher ${JSON.stringify(hook.matcher)}), ` +
+            `in ${settingsPath}, under "hooks.${hook.event}" (${hook.matcher === null ? 'no matcher' : `matcher ${JSON.stringify(hook.matcher)}`}), ` +
               `remove the one hook object whose command is ${JSON.stringify(hook.command)} from that entry's "hooks" array, ` +
               `then delete the entry if its "hooks" array is left empty, and "${hook.event}" if it has no entries left`,
           );

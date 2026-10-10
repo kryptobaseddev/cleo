@@ -143,13 +143,37 @@ const finalizeCommand = defineCommand({
   },
 });
 
-/** cleo restore backup — restore todo files from a backup snapshot */
+/** Store-file labels: the live store is `.cleo/cleo.db`; these restore only through --id/--snapshot (T13240). */
+const STORE_FILE_LABELS = new Set(['tasks.db', 'brain.db', 'cleo.db']);
+
+/** cleo restore backup — restore the project store or a config file from a backup */
 const backupSubCommand = defineCommand({
-  meta: { name: 'backup', description: 'Restore todo files from backup' },
+  meta: {
+    name: 'backup',
+    description:
+      'Restore the project store (.cleo/cleo.db: tasks and brain) from a named snapshot (--snapshot) ' +
+      'or a backup id (--id): the snapshot is verified, live writers refuse it, and the replaced ' +
+      'store is kept as a pre-restore backup. --file config.json restores a config file.',
+  },
   args: {
+    snapshot: {
+      type: 'string',
+      description:
+        "A snapshot file of this project's store under .cleo/backups/ (e.g. cleo-identity-refill-*.db, tasks-*.db)",
+    },
+    id: {
+      type: 'string',
+      description: 'A backup id from `cleo backup list` (its store file is restored)',
+    },
+    'allow-external': {
+      type: 'boolean',
+      description: "With --snapshot: accept a file outside this project's .cleo/backups/",
+      default: false,
+    },
     file: {
       type: 'string',
-      description: 'Specific file to restore (tasks.db, config.json, etc.)',
+      description:
+        'Config file to restore from the newest numbered backup (config.json). The store restores only through --snapshot or --id',
     },
     'dry-run': {
       type: 'boolean',
@@ -158,7 +182,8 @@ const backupSubCommand = defineCommand({
     },
     scope: {
       type: 'string',
-      description: 'Backup scope to restore from: project or global (default: project)',
+      description:
+        'With --snapshot/--id: project (.cleo/cleo.db, the default) or global (<CLEO_HOME>/cleo.db: the global brain, nexus, agent registry). A global restore needs every cleo process stopped (agent sessions, daemons, Studio): nearly all of them hold the global store open',
       default: 'project',
     },
     'confirm-owner-store': {
@@ -170,8 +195,38 @@ const backupSubCommand = defineCommand({
   },
   async run({ args }) {
     try {
+      if (args.snapshot !== undefined || args.id !== undefined) {
+        const { restoreStoreSnapshot } = await import('@cleocode/core/store/restore-store.js');
+        const scope = args.scope === 'global' ? 'global' : 'project';
+        const result = await restoreStoreSnapshot({
+          scope,
+          projectRoot: scope === 'global' ? process.cwd() : getProjectRoot(),
+          snapshot: args.snapshot,
+          backupId: args.id,
+          dryRun: args['dry-run'] === true,
+          allowExternal: args['allow-external'] === true,
+          confirmOwnerStore: args['confirm-owner-store'] === true,
+          cwd: process.cwd(),
+        });
+        cliOutput(result, {
+          command: 'restore',
+          operation: 'admin.backup.restore-store',
+          ...(result.dryRun ? { message: 'Dry run - no changes made' } : {}),
+        });
+        return;
+      }
       const fileName = args.file ?? RESTORE_DEFAULT_FILE;
       const scope = args.scope ?? 'project';
+      if (STORE_FILE_LABELS.has(fileName)) {
+        // The numbered-copy path wrote a file nothing reads (`.cleo/tasks.db`).
+        throw new CleoError(
+          ExitCode.INVALID_INPUT,
+          `E_RESTORE_STORE_LABEL: --file ${fileName} cannot restore the live store (.cleo/cleo.db holds tasks and brain)`,
+          {
+            fix: 'cleo backup list, then cleo restore backup --id <backupId> (or --snapshot <file>)',
+          },
+        );
+      }
 
       const response = await dispatchRaw('mutate', 'admin', 'backup', {
         action: 'restore.file',

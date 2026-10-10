@@ -92,7 +92,8 @@ const addCommand = defineCommand({
     },
     global: {
       type: 'boolean',
-      description: 'Also snapshot global-tier databases (nexus.db)',
+      description:
+        'Also back up the global store (<CLEO_HOME>/cleo.db: global brain, nexus, agent registry); restore it with cleo restore backup --scope global --id <id>',
     },
   },
   async run({ args }) {

@@ -28,16 +28,16 @@ What CI/hook surfaces run on PR, main, dev, tag, cron, and manual dispatch paths
 
 ## Trigger parity summary
 
-Legend: yes = configured trigger; path = configured but path-filtered; n/a = intentionally not a trigger for that surface.
+Legend: yes = configured trigger; path = configured but path-filtered; n/a = intentionally not a trigger for that surface; via CI = a reusable workflow called from `ci.yml`, so it runs on CI's triggers and the required `CI` aggregate needs it (T13263).
 
 | Surface | File | Class | PR to main | Push to main | Dev branch | Tag | Cron | Manual dispatch | Merge queue | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | CI | `.github/workflows/ci.yml` | Cleocode dogfood-only, with shared quality signal | yes | yes | no | no | no | no | yes | Broad repo gate; check name `CI` is branch-protection candidate. |
-| Lockfile Check | `.github/workflows/lockfile-check.yml` | Shared | yes | yes | no | no | no | no | yes | Consumer-relevant invariant for reproducible installs; check name `Lockfile Check`. |
-| Arch Boundary Check | `.github/workflows/arch-boundary-check.yml` | Cleocode dogfood-only | yes | yes | no | no | no | no | yes | Repo architecture guard; not a shipped template. |
-| Boundary Registry Lint | `.github/workflows/boundary-registry-lint.yml` | Cleocode dogfood-only | yes | yes | no | no | no | no | yes | Registry hygiene gate for this monorepo. |
-| Dual Implementation Lint | `.github/workflows/dual-implementation-lint.yml` | Cleocode dogfood-only | yes | yes | no | no | no | no | yes | Prevents duplicated implementation drift in this repo. |
-| Identity Pollution Check | `.github/workflows/identity-pollution-check.yml` | Shared | yes | yes | no | no | no | no | yes | Protects shipped artifacts from cleocode identity leakage. |
+| Lockfile Check | `.github/workflows/lockfile-check.yml` | Shared | via CI | via CI | no | no | via CI | via CI | via CI | Consumer-relevant invariant for reproducible installs. Called from `ci.yml` (job `lockfile-gate`) since T13279; its check reports as `Lockfile Check / Verify pnpm-lock.yaml consistency`, covered by `CI`. |
+| Arch Boundary Check | `.github/workflows/arch-boundary-check.yml` | Cleocode dogfood-only | via CI | via CI | no | no | via CI | via CI | via CI | Repo architecture guard; not a shipped template. Since T13263 a reusable workflow called from `ci.yml` (job `arch-gates`), so `CI` requires it. |
+| Boundary Registry Lint | `.github/workflows/boundary-registry-lint.yml` | Cleocode dogfood-only | via CI | via CI | no | no | via CI | via CI | via CI | Registry hygiene gate for this monorepo. Called from `ci.yml` since T13263. |
+| Dual Implementation Lint | `.github/workflows/dual-implementation-lint.yml` | Cleocode dogfood-only | via CI | via CI | no | no | via CI | via CI | via CI | Prevents duplicated implementation drift in this repo. Called from `ci.yml` since T13263. |
+| Identity Pollution Check | `.github/workflows/identity-pollution-check.yml` | Shared | via CI | via CI | no | no | via CI | via CI | via CI | Protects shipped artifacts from cleocode identity leakage. Called from `ci.yml` since T13263. |
 | Skills Depth Check | `.github/workflows/skills-depth-check.yml` | Shared | path | yes | no | no | no | no | yes | Validates packaged skill-depth invariants. |
 | Worktree Cleanup | `.github/workflows/worktree-cleanup.yml` | Cleocode dogfood-only | yes | yes | no | no | no | no | yes | Cleans orphaned CLEO worktrees for this repository. |
 | Docs Re-ingest | `.github/workflows/docs-reingest.yml` | Cleocode dogfood-only | closed PR only | no | no | no | no | no | yes | Runs after PR merge to refresh repo docs/search state. |
@@ -70,8 +70,8 @@ These are product surfaces because consumers can receive or model them from CLEO
 
 | Protection dimension | Desired value | Rationale |
 | --- | --- | --- |
-| Required status checks | `CI`, `Lockfile Check`, `Contracts Dep Lint` | Minimum merge gate for broad test/build, frozen lockfile, and package-boundary lint. |
-| Strict required checks | `true` | PR branch must be up-to-date with `main` before merge. |
+| Required status checks | `CI`, `Contracts Dep Lint` | Minimum merge gate: `CI` now includes the frozen-lockfile check and every gating workflow (T13263, T13279), plus the package-boundary lint. |
+| Strict required checks | `false` | Owner decision 2026-09-29: a PR merges once its own `CI` is green; main-push CI catches combination breaks. |
 | Pull-request reviews | `required_approving_review_count=0` | Allows bot-driven release PR merges after checks pass. |
 | Admin enforcement | `false` | Emergency owner bypass remains possible and must be audit-logged. |
 | Restrictions | `null` | No additional actor/team push restrictions beyond status checks. |
@@ -85,14 +85,16 @@ gh repo view --json nameWithOwner,defaultBranchRef
 gh api repos/:owner/:repo/branches/main/protection --jq '{required_status_checks:.required_status_checks.contexts, strict:.required_status_checks.strict, enforce_admins:.enforce_admins.enabled, required_reviews:.required_pull_request_reviews.required_approving_review_count, restrictions:.restrictions}'
 ```
 
-Observed result on 2026-05-25T03:08:25Z: repository `kryptobaseddev/cleo` default branch is `main`; GitHub reports `main` is protected with strict required status checks `CI`, `Lockfile Check`, and `Contracts Dep Lint`, zero required approving reviews, admin enforcement disabled, no push restrictions, force pushes disabled, and deletions disabled.
+> **Current state (2026-10-05, T13263 / T13279):** live branch protection requires only `CI` (`strict=false`). The arch gates, Lockfile Check and the other gating workflows run INSIDE `CI` (reusable workflows its aggregate needs). Do NOT require a `Lockfile Check` or `Arch Boundary Check` context: neither reports under that name, so requiring it blocks every merge. The canonical command is in `AGENTS.md` and `docs/release/branch-protection-setup.md` (`CI` + `Contracts Dep Lint`).
+
+Historical observed result on 2026-05-25T03:08:25Z: repository `kryptobaseddev/cleo` default branch is `main`; GitHub reports `main` is protected with strict required status checks `CI`, `Lockfile Check`, and `Contracts Dep Lint`, zero required approving reviews, admin enforcement disabled, no push restrictions, force pushes disabled, and deletions disabled.
 
 ### Check-name reconciliation
 
 | Documented required context | Backing workflow/job status in this tree | Status |
 | --- | --- | --- |
 | `CI` | Workflow name in `.github/workflows/ci.yml` is `CI`; jobs include `typecheck`, `unit-tests`, `build-verify`, and many lints. | Present. |
-| `Lockfile Check` | Workflow name in `.github/workflows/lockfile-check.yml` is `Lockfile Check`. | Present. |
+| ~~`Lockfile Check`~~ | The workflow is named `Lockfile Check`, but its check reports under its job name (`Verify pnpm-lock.yaml consistency`), and since T13279 it runs inside `CI` (`Lockfile Check / Verify pnpm-lock.yaml consistency`). | Not a context: covered by `CI`. Do not require it. |
 | `Contracts Dep Lint` | No `.github/workflows/contracts-dep-lint.yml` exists; the live GitHub branch-protection API now reports `Contracts Dep Lint` as an installed required context (`app_id=15368`). `ci.yml` also contains job `contracts-dep-lint` as repo-local parity coverage. | Reconciled; keep the exact live context string unless future `gh pr checks <pr>` evidence proves the emitted check name changed. |
 
 ## Findings

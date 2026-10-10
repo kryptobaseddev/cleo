@@ -62,7 +62,7 @@ import { resolveOrCwd } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
 import type { DualScope } from './dual-scope-db.js';
 import { openDualScopeDb } from './dual-scope-db.js';
-import { assertStoreNotRestoring } from './restore-marker.js';
+import { openUnlessRestoring } from './restore-marker.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertDbPathIsNotWorktreeResident } from './worktree-isolation-guard.js';
@@ -382,9 +382,8 @@ export function openCleoDbSnapshot(
     DatabaseSync: new (...args: ConstructorParameters<typeof DatabaseSync>) => DatabaseSync;
   };
 
-  // T13258: never open a store file a restore is replacing.
-  assertStoreNotRestoring(path);
-  const db = new DatabaseSyncCtor(path, { readOnly });
+  // T13258: never open a store file a restore is replacing (before and after the open).
+  const db = openUnlessRestoring(path, () => new DatabaseSyncCtor(path, { readOnly }));
   if (!readOnly) installSchemaWriteGuard(db); // T12687
 
   if (applyPragmas) {

@@ -31,6 +31,7 @@ import {
   getAllProviders,
   getInstalledProviders,
   getTrackedSkills,
+  HomeInstructionFileError,
   injectAll,
   installSkillFromSource,
   removeSkill,
@@ -1349,6 +1350,12 @@ export async function toolsProviderInject(
     );
     return engineSuccess({ actions, count: actions.length });
   } catch (error) {
+    if (error instanceof HomeInstructionFileError) {
+      // T13257: nothing was written for a $HOME project.
+      return engineError('E_HOME_INSTRUCTION_FILE', error.message, {
+        fix: 'Run it inside a project directory, or use --scope global for the global instruction files',
+      });
+    }
     return engineError('E_INTERNAL', error instanceof Error ? error.message : String(error));
   }
 }

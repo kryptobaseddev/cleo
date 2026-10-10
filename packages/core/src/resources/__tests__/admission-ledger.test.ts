@@ -224,6 +224,128 @@ describe('schedulePass', () => {
   });
 });
 
+describe('the full-build slot is exclusive whatever the footprint (T13237)', () => {
+  const ctx = { capacityBytes: 36 * GIB, share: 'full' as const, nowMs: 1_000 };
+
+  it('admits one exclusive run at a time even when two fit the budget', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'fb1', enqueuedAtMs: 1, footprintBytes: 12 * GIB, exclusive: true }),
+        entry({ id: 'fb2', enqueuedAtMs: 2, footprintBytes: 12 * GIB, exclusive: true }),
+      ],
+      ctx,
+    );
+    expect(admittedIds(out)).toEqual(['fb1']);
+  });
+
+  it('an admitted full build keeps a second one waiting; other runs still share the budget', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'fb1', state: 'admitted', footprintBytes: 12 * GIB, exclusive: true }),
+        entry({ id: 'fb2', enqueuedAtMs: 2, footprintBytes: 2 * GIB, exclusive: true }),
+        entry({ id: 'test', enqueuedAtMs: 3, footprintBytes: 12 * GIB }),
+      ],
+      ctx,
+    );
+    expect(admittedIds(out).sort()).toEqual(['fb1', 'test']);
+  });
+
+  it('a reserved full-build head blocked only by the slot lets light runs pass but no heavy run', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'fb1', state: 'admitted', footprintBytes: 12 * GIB, exclusive: true }),
+        entry({ id: 'fb2', enqueuedAtMs: 0, footprintBytes: 12 * GIB, exclusive: true }),
+        entry({ id: 'heavy', enqueuedAtMs: 1, footprintBytes: 12 * GIB }),
+        entry({ id: 'light', enqueuedAtMs: 2, footprintBytes: GIB }),
+      ],
+      { ...ctx, nowMs: 10 * 60_000 },
+    );
+    expect(admittedIds(out).sort()).toEqual(['fb1', 'light']);
+  });
+});
+
+describe('no two exclusive runs ever overlap (T13237, #1899 review HIGH)', () => {
+  // A 16 GiB host: capacity 12 GiB, and a full build is charged exactly
+  // HEAVY_FOOTPRINT_BYTES (6 GiB), so it counts as LIGHT.
+  const capacityBytes = admissionCapacityBytes(16 * GIB);
+
+  it('the reviewer sequence: three light exclusive entries past the reservation admit one', () => {
+    const entries = [
+      entry({ id: 'e1', state: 'admitted', footprintBytes: 6 * GIB, exclusive: true }),
+      entry({ id: 'e2', enqueuedAtMs: 0, footprintBytes: 6 * GIB, exclusive: true }),
+      entry({ id: 'e3', enqueuedAtMs: 1_000, footprintBytes: 6 * GIB, exclusive: true }),
+    ];
+    // Also on a 48 GiB host's capacity, where e3 fits beside the reserved
+    // head by bytes, so only the exclusive check keeps it out.
+    for (const cap of [capacityBytes, admissionCapacityBytes(48 * GIB)]) {
+      for (const nowMs of [60_000, 200_000]) {
+        const out = schedulePass(entries, { capacityBytes: cap, share: 'full', nowMs });
+        expect(admittedIds(out)).toEqual(['e1']);
+      }
+    }
+  });
+
+  it('a light exclusive does not pass a CPU-reserved heavy head while another holds the slot', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'fb', state: 'admitted', footprintBytes: GIB, exclusive: true }),
+        entry({ id: 'heavy-run', state: 'admitted', footprintBytes: 7 * GIB }),
+        entry({ id: 'heavy-head', enqueuedAtMs: 0, footprintBytes: 7 * GIB }),
+        entry({ id: 'fb2', enqueuedAtMs: 1, footprintBytes: GIB, exclusive: true }),
+      ],
+      { capacityBytes: 36 * GIB, share: 'one', lightShare: 'full', nowMs: 10 * 60_000 },
+    );
+    expect(admittedIds(out).sort()).toEqual(['fb', 'heavy-run']);
+  });
+
+  it('property: over random arrivals, completions and pressure, at most one exclusive run is admitted', () => {
+    // Deterministic PRNG (mulberry32), so a failure reproduces from its seed.
+    const rng = (seed: number) => () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const sizes = [GIB, 6 * GIB, 6 * GIB, 7 * GIB, 12 * GIB, 40 * GIB];
+    const shares = ['full', 'full', 'half', 'one'] as const;
+    for (let seed = 1; seed <= 300; seed++) {
+      const r = rng(seed);
+      const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)] as T;
+      let ledger: LedgerEntry[] = [];
+      let nowMs = 0;
+      let n = 0;
+      for (let step = 0; step < 60; step++) {
+        nowMs += Math.floor(r() * 90_000);
+        // Arrivals.
+        const arrivals = Math.floor(r() * 3);
+        for (let k = 0; k < arrivals; k++) {
+          ledger.push(
+            entry({
+              id: `s${seed}-${n++}`,
+              enqueuedAtMs: nowMs,
+              footprintBytes: pick(sizes),
+              ...(r() < 0.5 ? { exclusive: true } : {}),
+            }),
+          );
+        }
+        // Completions.
+        ledger = ledger.filter((e) => e.state !== 'admitted' || r() > 0.3);
+        const cap = pick([admissionCapacityBytes(16 * GIB), 36 * GIB]);
+        ledger = schedulePass(ledger, {
+          capacityBytes: cap,
+          share: pick(shares),
+          lightShare: pick(['full', 'half'] as const),
+          nowMs,
+        });
+        const exclusives = ledger.filter((e) => e.state === 'admitted' && e.exclusive === true);
+        if (exclusives.length > 1) {
+          throw new Error(`seed ${seed} step ${step}: ${exclusives.map((e) => e.id).join(', ')}`);
+        }
+      }
+    }
+  });
+});
+
 describe('entryLiveness', () => {
   const probe = (over: Partial<PidProbe>): PidProbe => ({
     liveness: () => 'alive',
@@ -510,6 +632,37 @@ describe('admit (one ledger, real critical section)', () => {
     );
     expect(c.admitted).toBe(true);
     if (c.admitted) await c.grant.release();
+  });
+
+  it('T13237: a second full build is refused while one holds the slot, naming it; free on release', async () => {
+    const first = await admit(
+      { label: 'run:full-build', footprintBytes: 2 * GIB, exclusive: true },
+      { ...base, dir, wait: false },
+    );
+    expect(first.admitted).toBe(true);
+    const second = await admit(
+      { label: 'run:full-build', footprintBytes: 2 * GIB, exclusive: true },
+      { ...base, dir, wait: false },
+    );
+    expect(second.admitted).toBe(false);
+    if (!second.admitted) {
+      expect(second.refusal.reason).toMatch(
+        /holds the machine-wide full-build slot \(run:full-build pid \d+\)/,
+      );
+    }
+    const other = await admit(
+      { label: 'tool:test', footprintBytes: 2 * GIB },
+      { ...base, dir, wait: false },
+    );
+    expect(other.admitted).toBe(true);
+    if (other.admitted) await other.grant.release();
+    if (first.admitted) await first.grant.release();
+    const third = await admit(
+      { label: 'run:full-build', footprintBytes: 2 * GIB, exclusive: true },
+      { ...base, dir, wait: false },
+    );
+    expect(third.admitted).toBe(true);
+    if (third.admitted) await third.grant.release();
   });
 
   it('a run larger than the budget is charged the budget: it runs alone, and the report says so', async () => {

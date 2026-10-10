@@ -7,7 +7,7 @@
  * @task T12343
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -18,7 +18,11 @@ import {
   getDualScopeNativeDb,
   openDualScopeDbAtPath,
 } from '../../dual-scope-db.js';
-import { RESTORE_MARKER_SUFFIX } from '../../restore-marker.js';
+import {
+  holdRestoreMarker,
+  RESTORE_MARKER_MAX_AGE_MS,
+  RESTORE_MARKER_SUFFIX,
+} from '../../restore-marker.js';
 import {
   ROW_IDENTITY_META_TABLE,
   ROW_IDENTITY_RECIPE,
@@ -116,6 +120,14 @@ const cut = (db: DatabaseSync) =>
     env: {},
     allowUnreleased: true,
   });
+
+/** The cut is still committed and pending, as its new holder needs it. */
+function expectCutPending(db: DatabaseSync): void {
+  expect(genesisCutOf(db, STREAM)).toBeDefined();
+  expect(meta(db, `${GENESIS_PENDING_KEY_PREFIX}${STREAM}`)).toBeDefined();
+  expect(meta(db, UNDO_ENABLED_KEY)).toBeDefined();
+  expect(n(db, "SELECT count(*) AS n FROM _sync_txn WHERE state = 'folded'")).toBe(1);
+}
 
 /** Nothing of the cut was written. */
 function expectUncut(db: DatabaseSync): void {
@@ -432,6 +444,94 @@ describe('genesis cut with its checkpoint snapshot (S4-1b; T13296, T13297)', () 
     // A second attempt cuts cleanly.
     const again = await cutGenesisWithSnapshot(db, opts(), async () => {});
     expect(again).toMatchObject({ refused: null, folded: 1 });
+  });
+
+  it('a marker another process took over during the snapshot aborts WITHOUT undoing the cut, and its marker is left in place', async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    seal(db);
+    const theirs = `${JSON.stringify({ pid: 999_999, host: 'elsewhere', startedAt: new Date().toISOString(), kind: 'restore' })}\n`;
+    const run = cutGenesisWithSnapshot(db, opts(), async () => {
+      // Our marker went stale and another holder replaced it.
+      writeFileSync(dbPath + RESTORE_MARKER_SUFFIX, theirs);
+    });
+    await expect(run).rejects.toThrow(/E_SYNC_GENESIS_MARKER_LOST: another process took over/);
+    // The new holder owns the pending cut: it is left committed.
+    expectCutPending(db);
+    // Our release never removes the new holder's marker.
+    expect(readFileSync(dbPath + RESTORE_MARKER_SUFFIX, 'utf8')).toBe(theirs);
+  });
+
+  it('a second genesis holder that takes over a stale marker keeps the cut it resumes: the first run aborts and never undoes it', async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    seal(db);
+    const realNow = Date.now;
+    let second: ReturnType<typeof holdRestoreMarker> | undefined;
+    const run = cutGenesisWithSnapshot(db, opts(), async () => {
+      // Our marker outlives its window; a second genesis process takes it over
+      // to resume our pending cut, and is still snapshotting when we wake.
+      const late = realNow() + RESTORE_MARKER_MAX_AGE_MS + 1_000;
+      vi.spyOn(Date, 'now').mockImplementation(() => late);
+      second = holdRestoreMarker(dbPath, 'genesis');
+    });
+    try {
+      await expect(run).rejects.toThrow(/E_SYNC_GENESIS_MARKER_LOST: another process took over/);
+      expectCutPending(db);
+      expect(second?.intact()).toBe(true);
+      expect(existsSync(dbPath + RESTORE_MARKER_SUFFIX)).toBe(true);
+    } finally {
+      second?.release();
+      vi.restoreAllMocks();
+    }
+    expect(existsSync(dbPath + RESTORE_MARKER_SUFFIX)).toBe(false);
+  });
+
+  it('a holder that took over and already released keeps the cut too: an absent marker is never read as ours expired', async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    seal(db);
+    const run = cutGenesisWithSnapshot(db, opts(), async () => {
+      const second = holdRestoreMarker(dbPath, 'genesis');
+      second.release();
+    });
+    await expect(run).rejects.toThrow(/E_SYNC_GENESIS_MARKER_LOST: another process took over/);
+    expectCutPending(db);
+  });
+
+  it("a failing snapshot after a takeover rethrows without undoing the new holder's cut", async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    seal(db);
+    let second: ReturnType<typeof holdRestoreMarker> | undefined;
+    const run = cutGenesisWithSnapshot(db, opts(), async () => {
+      second = holdRestoreMarker(dbPath, 'genesis');
+      throw new Error('upload failed');
+    });
+    try {
+      await expect(run).rejects.toThrow('upload failed');
+      expectCutPending(db);
+    } finally {
+      second?.release();
+    }
+  });
+
+  it('a snapshot that outlives the marker window undoes the cut: a stale marker held nobody off', async () => {
+    const { db } = await store();
+    write(db, addTask('T1'));
+    seal(db);
+    const realNow = Date.now;
+    const run = cutGenesisWithSnapshot(db, opts(), async () => {
+      const late = realNow() + RESTORE_MARKER_MAX_AGE_MS + 1_000;
+      vi.spyOn(Date, 'now').mockImplementation(() => late);
+    });
+    try {
+      await expect(run).rejects.toThrow(/E_SYNC_GENESIS_MARKER_LOST/);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expectUncut(db);
+    expect(existsSync(dbPath + RESTORE_MARKER_SUFFIX)).toBe(false);
   });
 
   it('a refused cut never runs the snapshot and releases the marker', async () => {

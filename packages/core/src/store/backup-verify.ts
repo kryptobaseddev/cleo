@@ -140,8 +140,14 @@ function buildSnapshotPatterns(role: string): readonly RegExp[] {
     new RegExp(`^${safe}-\\d{8}-\\d{6}\\.db$`),
     new RegExp(`^${safe}\\.db\\.[A-Za-z0-9_-]+-\\d{8}-\\d{6}$`),
     new RegExp(`^${safe}\\.db\\.snapshot-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z$`),
+    // T13245: `createBackup` writes ONE `cleo.db.<backupId>` copy of the
+    // project store, which holds the tasks, brain and conduit tables.
+    ...(PROJECT_STORE_LABEL_ROLES.has(role) ? [/^cleo\.db\.[A-Za-z0-9_-]+-\d{8}-\d{6}$/] : []),
   ];
 }
+
+/** Roles whose data lives in the project `cleo.db` (its `cleo.db.<backupId>` copies count for each). */
+const PROJECT_STORE_LABEL_ROLES: ReadonlySet<string> = new Set(['tasks', 'brain', 'conduit']);
 
 /**
  * Test whether a filename is a snapshot for the given role, using

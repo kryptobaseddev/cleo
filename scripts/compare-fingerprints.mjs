@@ -319,6 +319,12 @@ function compare(source, replica, mode, rows, key) {
       table: '*',
       reason: `the replica belongs to another project (${sid.projectId} vs ${rid.projectId})`,
     });
+  if ((source.canonTimestamps === true) !== (replica.canonTimestamps === true))
+    failures.push({
+      gate: 'B',
+      table: '*',
+      reason: `timestamp modes differ (source canonTimestamps ${source.canonTimestamps === true}, replica ${replica.canonTimestamps === true}): fingerprint both sides with or without --canon-timestamps`,
+    });
   if (!source.keyId || source.keyId !== replica.keyId)
     failures.push({
       gate: 'B',

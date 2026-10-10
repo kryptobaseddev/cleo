@@ -21,6 +21,7 @@
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { resolveStableDeviceIdPath } from '@cleocode/paths';
 import { CleoError } from '../errors.js';
 import { isPidAlive } from './pid-alive.js';
 
@@ -44,6 +45,8 @@ function waitBudget(): number {
 export interface RestoreMarker {
   readonly pid: number;
   readonly host: string;
+  /** The holder machine's stable device id (a hostname can change with the network). */
+  readonly deviceId?: string;
   readonly startedAt: string;
   /**
    * `restore` (`cleo restore backup` / `backup recover`), `vault` (a vault
@@ -65,6 +68,40 @@ function readMarker(dbPath: string): RestoreMarker | 'unreadable' | null {
 }
 
 /**
+ * A marker older than this is stale whoever wrote it: a restore holds it for
+ * seconds (the copy of the replaced store and a rename), and a crashed holder
+ * on another host (or this one under a changed hostname) cannot be probed.
+ *
+ * A genesis cut holds it longest: the cut plus the bundle export, measured on
+ * scratch copies of the largest real stores (2026-10-07, #1953 review): about
+ * 63 s worst on cleocode's 1.3 GB store (cut 2.4 s, export 48.7 s, extract
+ * and manifest 11.8 s) and 2.8 s on claude-todo. The window is the 1 h floor,
+ * over 50x that worst case, and a holder that outlives it never finishes:
+ * {@link RestoreMarkerHold.intact} turns false and the genesis cut aborts.
+ */
+export const RESTORE_MARKER_MAX_AGE_MS = 60 * 60 * 1000;
+
+/**
+ * This machine's stable device id, read-only (an open that meets a marker
+ * never writes: a missing id file is not minted here), or `null`.
+ */
+function readDeviceId(): string | null {
+  try {
+    const id = readFileSync(resolveStableDeviceIdPath(), 'utf8').trim();
+    return id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether the marker was written on this machine (stable device id when both sides have one, else hostname). */
+function onThisMachine(marker: RestoreMarker): boolean {
+  const mine = marker.deviceId !== undefined ? readDeviceId() : null;
+  if (marker.deviceId !== undefined && mine !== null) return marker.deviceId === mine;
+  return marker.host === hostname();
+}
+
+/**
  * Whether a marker blocks this process: held by another live process (or
  * unreadable). A writer is blocked by its OWN process's `genesis` marker too
  * (T13297): the genesis cut writes nothing while its snapshot runs, so any
@@ -74,11 +111,47 @@ function readMarker(dbPath: string): RestoreMarker | 'unreadable' | null {
 function blocks(marker: RestoreMarker | 'unreadable' | null, forWrite = false): boolean {
   if (marker === null) return false;
   if (marker === 'unreadable') return true;
-  if (marker.host === hostname() && marker.pid === process.pid) {
-    return forWrite && marker.kind === 'genesis';
+  const age = Date.now() - Date.parse(marker.startedAt);
+  if (Number.isFinite(age) && age > RESTORE_MARKER_MAX_AGE_MS) return false;
+  if (!onThisMachine(marker)) return true;
+  // This machine: the holder itself passes (a writer not past its own
+  // genesis marker); a holder that is gone is stale.
+  if (marker.pid === process.pid) return forWrite && marker.kind === 'genesis';
+  return isPidAlive(marker.pid);
+}
+
+/**
+ * Whether a restore marker on `dbPath` blocks this process right now (no
+ * wait). An opener re-checks it AFTER opening (T13258 LOW-3): a marker
+ * written between its first check and its open means it may hold the file
+ * about to be replaced.
+ *
+ * @param dbPath - The store file.
+ * @returns `true` when another live process holds the marker.
+ * @task T13258
+ */
+export function restoreMarkerBlocks(dbPath: string): boolean {
+  return blocks(readMarker(dbPath));
+}
+
+/**
+ * Open `dbPath` only while no restore is replacing it: wait out (or refuse
+ * on) a marker before opening, and re-check after; when one appeared in
+ * between, close and wait again (T13258).
+ *
+ * @param dbPath - The store file.
+ * @param open - Opens it.
+ * @returns The open handle.
+ * @throws {CleoError} `E_STORE_RESTORING` when the restore outlasts the wait.
+ * @task T13258
+ */
+export function openUnlessRestoring<T extends { close(): void }>(dbPath: string, open: () => T): T {
+  for (;;) {
+    assertStoreNotRestoring(dbPath);
+    const db = open();
+    if (!restoreMarkerBlocks(dbPath)) return db;
+    db.close();
   }
-  // Stale: the restorer is gone. A marker from another host is honoured.
-  return !(marker.host === hostname() && !isPidAlive(marker.pid));
 }
 
 /** Block this thread for `ms` (an open is synchronous here). */
@@ -170,37 +243,88 @@ export async function awaitStoreWritable(
   throw markerRefusal(dbPath, marker);
 }
 
+/** A held marker: its release, and whether it is still this holder's and inside its window. */
+export interface RestoreMarkerHold {
+  /** Remove the marker, but only while it is still this holder's (idempotent). */
+  readonly release: () => void;
+  /**
+   * Whether the marker on disk is still the one written here and younger than
+   * {@link RESTORE_MARKER_MAX_AGE_MS}. False once it went stale (other
+   * processes may already be writing) or another process replaced it.
+   */
+  readonly intact: () => boolean;
+  /**
+   * Whether another holder took the marker over: the file on disk is no
+   * longer the one written here (replaced, or replaced and already released).
+   * Only a new holder removes or replaces a held marker, and only after it
+   * went stale, so a holder that sees this no longer owns what it guarded.
+   */
+  readonly takenOver: () => boolean;
+}
+
 /**
- * Write the marker for a restore of `dbPath` (exclusive). Returns its release.
+ * Write the marker for a restore of `dbPath` (exclusive) and hold it. A holder
+ * whose work outlives the window must check {@link RestoreMarkerHold.intact}
+ * before it commits to its result, and discard the result when it is false.
  *
- * @param dbPath - The store file about to be replaced.
- * @param kind - Who is replacing it.
- * @returns A function that removes the marker (idempotent).
- * @throws {CleoError} `E_STORE_RESTORING` when another live restore holds it.
+ * @param dbPath - The store file about to be replaced or snapshotted.
+ * @param kind - Who is holding it.
+ * @returns The hold.
+ * @throws {CleoError} `E_STORE_RESTORING` / `E_STORE_GENESIS` when another live holder has it.
  * @task T13258
  */
-export function writeRestoreMarker(dbPath: string, kind: RestoreMarker['kind']): () => void {
+export function holdRestoreMarker(dbPath: string, kind: RestoreMarker['kind']): RestoreMarkerHold {
   const file = dbPath + RESTORE_MARKER_SUFFIX;
+  const deviceId = readDeviceId();
+  const startedMs = Date.now();
   const marker: RestoreMarker = {
     pid: process.pid,
     host: hostname(),
-    startedAt: new Date().toISOString(),
+    ...(deviceId !== null ? { deviceId } : {}),
+    startedAt: new Date(startedMs).toISOString(),
     kind,
   };
+  const body = `${JSON.stringify(marker)}\n`;
   const existing = readMarker(dbPath);
   if (existing !== null && blocks(existing)) assertStoreNotRestoring(dbPath, 0);
   // A stale marker (its restorer is gone) is replaced.
   if (existing !== null) rmSync(file, { force: true });
   const fd = openSync(file, 'wx');
   try {
-    writeSync(fd, `${JSON.stringify(marker)}\n`);
+    writeSync(fd, body);
   } finally {
     closeSync(fd);
   }
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    rmSync(file, { force: true });
+  const ours = (): boolean => {
+    try {
+      return readFileSync(file, 'utf8') === body;
+    } catch {
+      return false;
+    }
   };
+  let released = false;
+  return {
+    release: () => {
+      if (released) return;
+      released = true;
+      // Never remove a marker another process took over after ours went stale.
+      if (ours()) rmSync(file, { force: true });
+    },
+    intact: () => !released && Date.now() - startedMs <= RESTORE_MARKER_MAX_AGE_MS && ours(),
+    takenOver: () => !released && !ours(),
+  };
+}
+
+/**
+ * Write the marker for a restore of `dbPath` (exclusive). Returns its release
+ * ({@link holdRestoreMarker} for a holder that must check it still holds it).
+ *
+ * @param dbPath - The store file about to be replaced.
+ * @param kind - Who is replacing it.
+ * @returns A function that removes the marker while it is still this holder's (idempotent).
+ * @throws {CleoError} `E_STORE_RESTORING` when another live restore holds it.
+ * @task T13258
+ */
+export function writeRestoreMarker(dbPath: string, kind: RestoreMarker['kind']): () => void {
+  return holdRestoreMarker(dbPath, kind).release;
 }

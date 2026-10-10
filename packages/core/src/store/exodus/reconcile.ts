@@ -40,6 +40,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+  SupersededStoreBareAccount,
   SupersededStoreConflict,
   SupersededStoreReconcileResult,
   SupersededStoreTableCount,
@@ -47,9 +48,11 @@ import type {
 import { getLogger } from '../../logger.js';
 import { resolveCleoDir } from '../../paths.js';
 import { resolveDualScopeDbPath } from '../dual-scope-db.js';
-import { withLock } from '../lock.js';
+import { lockCompromiseTracker, withLock } from '../lock.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import { rowIdentityColumns } from '../row-identity-registry.js';
+import { bareTableDigest, recordBareAccounts } from '../sync/flags.js';
+import { EXODUS_LOCK_STALE_MS, exodusRunLockPath, whileExodusRunHeld } from './abort-events.js';
 import { legacyRowProjection } from './column-transforms.js';
 import { runExodusMigrate } from './migrate.js';
 import { buildExodusPlan } from './plan.js';
@@ -337,6 +340,32 @@ async function bareTaskCoreSource(
 }
 
 /**
+ * Key digests ({@link bareTableDigest}) of the live store's bare tables that
+ * the materialised bare source at `barePath` carries (T13319).
+ */
+function bareAccounts(liveStorePath: string, barePath: string): SupersededStoreBareAccount[] {
+  const src = openCleoDbSnapshot(barePath, { readOnly: true });
+  let tables: string[];
+  try {
+    tables = (
+      src.db.prepare("SELECT name FROM main.sqlite_master WHERE type='table'").all() as Array<{
+        name: string;
+      }>
+    ).map((t) => t.name);
+  } finally {
+    src.close();
+  }
+  const live = openCleoDbSnapshot(liveStorePath, { readOnly: true });
+  try {
+    return tables
+      .filter((t) => hasTable(live.db, 'main', t))
+      .map((t) => bareTableDigest(live.db, 'main', t));
+  } finally {
+    live.close();
+  }
+}
+
+/**
  * Build a FRESH project store — consolidated schema plus the tasks-domain
  * lineage, exactly as a brand-new project gets it — and return its path. Its
  * rows are, by construction, only what CLEO seeds (e.g. the 18 backfilled
@@ -459,6 +488,27 @@ function describeGaps(counts: readonly SupersededStoreTableCount[]): string {
         `${c.targetTable} (${c.missingInLive ?? c.sourceRows - c.liveRows} of ${c.sourceRows} missing)`,
     )
     .join(', ');
+}
+
+/**
+ * Record in the live store that this run carried `accounts` (T13320), through
+ * a dedicated connection: the sync check reads the record from the store, so
+ * it travels with backups and a pre-reconcile snapshot carries none.
+ */
+async function recordCarriedBareTables(
+  liveStorePath: string,
+  accounts: readonly SupersededStoreBareAccount[],
+  run: string,
+): Promise<void> {
+  const { getDualScopeNativeDb, openDualScopeDbAtPath } = await import('../dual-scope-db.js');
+  const handle = await openDualScopeDbAtPath('project', liveStorePath, undefined, {
+    dedicated: true,
+  });
+  try {
+    recordBareAccounts(getDualScopeNativeDb(handle), accounts, run);
+  } finally {
+    handle.close();
+  }
 }
 
 /** Revert every row this reconcile inserted, proven by its receipts. */
@@ -758,6 +808,12 @@ async function reconcileWithScratch(
     !additive && existsSync(liveStorePath)
       ? await bareTaskCoreSource(liveStorePath, resolveTarget, scratch)
       : null;
+  // The bare tables this run carries, by key digest. A verified run records
+  // them in the store (T13320) — the sync refusal for stranded bare rows
+  // stands down for them, so a row the runtime later deletes from the twin
+  // is not mistaken for one never carried (T13319) — and in the receipt, for
+  // the audit trail.
+  const accounted = bare ? bareAccounts(liveStorePath, bare.path) : [];
   // Additive (and a full run with an undecided collision): the live task
   // graph is never written — only history tables.
   const copyResolver: TargetResolver =
@@ -904,18 +960,27 @@ async function reconcileWithScratch(
   const reconcilePlan = { ...plan, sources: copySources, stagingDir, resumeFromStaging: false };
 
   // Serialise with exodus-on-open, which takes the same lock on this target.
+  // A lock lost to a long stage stops the run and reverts it (T12785).
+  const lock = lockCompromiseTracker();
+  const lockPath = exodusRunLockPath(liveStorePath);
   const result = await withLock(
-    `${liveStorePath}.exodus-on-open.lock`,
-    async (): Promise<SupersededStoreReconcileResult> => {
+    lockPath,
+    whileExodusRunHeld(lockPath, async (): Promise<SupersededStoreReconcileResult> => {
       // Prove "never overwrites": every live row that existed before the copy
       // must still exist, byte for byte, afterwards.
       const liveBefore = join(scratch, 'live-before.db');
       snapshotLive(liveStorePath, liveBefore);
-      const migrated = await runExodusMigrate(reconcilePlan, false, (msg) => log.debug(msg), {
+      const copied = await runExodusMigrate(reconcilePlan, false, (msg) => log.debug(msg), {
         projectOnly: true,
         resolveTarget: copyResolver,
         ensureRuntimeTables: true,
+        abortReason: lock.reason,
       });
+      const lockLost = lock.reason();
+      const migrated =
+        copied.ok && lockLost !== null
+          ? { ...copied, ok: false, error: `E_EXODUS_LOCK_LOST: ${lockLost}` }
+          : copied;
       const rowsCopied = migrated.tables.reduce((n, t) => n + t.rowsCopied, 0);
       const after = migrated.ok
         ? assessSupersededProjectStores(liveStorePath, sources, resolveTarget)
@@ -944,13 +1009,23 @@ async function reconcileWithScratch(
       // would call it present (review LOW-1).
       const unlanded =
         migrated.ok && !graphWithheld ? unlandedRemaps(liveStorePath, remap.remaps) : [];
-      if (
+      const verified =
         migrated.ok &&
         settled &&
         lost.length === 0 &&
         altered.length === 0 &&
-        unlanded.length === 0
-      ) {
+        unlanded.length === 0;
+      // The store's own record of the bare tables this run carried (T13320),
+      // written only once the copy verified, so a revert never leaves one.
+      let unrecorded: string | null = null;
+      if (verified && bare && !graphWithheld) {
+        try {
+          await recordCarriedBareTables(liveStorePath, accounted, basename(stagingDir));
+        } catch (error) {
+          unrecorded = error instanceof Error ? error.message : String(error);
+        }
+      }
+      if (verified && unrecorded === null) {
         return {
           ...base,
           conflicts,
@@ -959,6 +1034,7 @@ async function reconcileWithScratch(
           after,
           rowsCopied,
           stagingDir,
+          ...(bare && !graphWithheld ? { accounted } : {}),
           reason: additive
             ? `copied ${rowsCopied} row(s) with keys absent from live; live rows unchanged; ${describeConflicts(conflicts)}`
             : graphWithheld
@@ -975,7 +1051,9 @@ async function reconcileWithScratch(
             ? `pre-existing live rows changed in: ${altered.join(', ')}`
             : unlanded.length > 0
               ? `a concurrent write took the id of a recovered task (${unlanded.join(', ')}); run the reconcile again`
-              : `rows still missing after copy: ${describeGaps(after)}`;
+              : unrecorded !== null
+                ? `could not record the carried bare tables in the store: ${unrecorded}`
+                : `rows still missing after copy: ${describeGaps(after)}`;
       return {
         ...base,
         outcome: 'refused',
@@ -986,8 +1064,8 @@ async function reconcileWithScratch(
         stagingDir,
         reason: `${cause} — reverted the ${rolledBack} row(s) this run inserted; legacy files untouched`,
       };
-    },
-    { stale: 600_000, retries: 30 },
+    }),
+    { stale: EXODUS_LOCK_STALE_MS, retries: 30, onCompromised: lock.onCompromised },
   );
 
   const receiptPath = join(stagingDir, RECEIPT_FILENAME);

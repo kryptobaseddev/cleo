@@ -241,6 +241,20 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     };
   }
 
+  // T13257: a project rooted at the home directory gets no instruction files:
+  // providers load them from every ancestor directory, so ~/AGENTS.md or
+  // ~/CLAUDE.md would reach every session under $HOME. Reported, not failed,
+  // so `cleo init` / `cleo upgrade` say why.
+  if (caamp.isHomeProject(projectRoot)) {
+    return {
+      action: 'skipped',
+      path: join(projectRoot, 'AGENTS.md'),
+      details:
+        'injection skipped: the project is your home directory, and providers load instruction ' +
+        'files (AGENTS.md, CLAUDE.md, ...) from every ancestor directory, so they would apply to ' +
+        'every project under it. Run cleo init inside a project directory.',
+    };
+  }
   const { getInstalledProviders, inject, injectAll, resolveInstructionDelivery } = caamp;
 
   const providers = getInstalledProviders();

@@ -26,7 +26,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,6 +50,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo test
+  arch-gates:
+    name: Arch Gates
+    uses: ./.github/workflows/arch-boundary-check.yml
   ci:
     name: CI
     if: always()
@@ -57,6 +60,7 @@ jobs:
     needs:
       - biome
       - unit-tests
+      - arch-gates
     steps:
       - name: gate
         env:
@@ -68,8 +72,7 @@ jobs:
 /** arch workflow with a COMPLETE aggregate gate. */
 const ARCH_OK = `name: Arch Boundary Check
 on:
-  pull_request:
-    branches: [main]
+  workflow_call:
 jobs:
   db-open-guard:
     runs-on: ubuntu-latest
@@ -96,9 +99,34 @@ jobs:
 
 let tmpRoot;
 
+/**
+ * The ADVISORY_WORKFLOWS files, read from the script itself so the fixture
+ * cannot drift from it (T13263).
+ */
+const ADVISORY_FILES = [
+  ...readFileSync(SCRIPT, 'utf8')
+    .slice(readFileSync(SCRIPT, 'utf8').indexOf('const ADVISORY_WORKFLOWS'))
+    .split('};')[0]
+    .matchAll(/'(\.github\/workflows\/[^']+\.yml)'/g),
+].map((m) => m[1]);
+
+/** A standalone single-job pull_request workflow. */
+const standalone = (name) => `name: ${name}
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  only:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${name}
+`;
+
 beforeEach(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), 'cleo-merge-bar-aggregate-'));
   mkdirSync(join(tmpRoot, '.github', 'workflows'), { recursive: true });
+  // The advisory workflows exist, as in the real repo (a missing one is stale).
+  for (const file of ADVISORY_FILES) writeFileSync(join(tmpRoot, file), standalone(file));
 });
 
 afterEach(() => {
@@ -134,8 +162,7 @@ describe('lint-merge-bar-aggregate — PASS cases', () => {
     writeCi(CI_OK);
     writeArch(`name: Arch Boundary Check
 on:
-  pull_request:
-    branches: [main]
+  workflow_call:
 jobs:
   only-job:
     runs-on: ubuntu-latest
@@ -153,8 +180,7 @@ describe('lint-merge-bar-aggregate — FAIL cases', () => {
     writeCi(CI_OK);
     writeArch(`name: Arch Boundary Check
 on:
-  pull_request:
-    branches: [main]
+  workflow_call:
 jobs:
   db-open-guard:
     runs-on: ubuntu-latest
@@ -198,8 +224,7 @@ jobs:
     writeCi(CI_OK);
     writeArch(`name: Arch Boundary Check
 on:
-  pull_request:
-    branches: [main]
+  workflow_call:
 jobs:
   db-open-guard:
     runs-on: ubuntu-latest
@@ -222,6 +247,116 @@ jobs:
     const r = runLint();
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('needs.*.result');
+  });
+});
+
+describe('lint-merge-bar-aggregate — coverage: nothing gates outside CI (T13263)', () => {
+  const write = (file, content) => writeFileSync(join(tmpRoot, '.github/workflows', file), content);
+
+  it('fails on a new standalone pull_request workflow that nothing requires', () => {
+    writeCi(CI_OK);
+    writeArch(ARCH_OK);
+    write('new-gate.yml', standalone('New Gate'));
+    const r = runLint();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('new-gate.yml: runs on pull_request but nothing requires it');
+  });
+
+  it('passes once that workflow is called from ci.yml and the aggregate needs it', () => {
+    writeCi(
+      CI_OK.replace(
+        '  ci:\n',
+        '  new-gate:\n    uses: ./.github/workflows/new-gate.yml\n  ci:\n',
+      ).replace('      - arch-gates\n', '      - arch-gates\n      - new-gate\n'),
+    );
+    writeArch(ARCH_OK);
+    write(
+      'new-gate.yml',
+      standalone('New Gate').replace(
+        '  pull_request:\n    branches: [main]\n',
+        '  workflow_call:\n',
+      ),
+    );
+    const r = runLint();
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
+  });
+
+  it('fails when the calling job is not a need of the ci aggregate', () => {
+    writeCi(CI_OK.replace('      - arch-gates\n', ''));
+    writeArch(ARCH_OK);
+    const r = runLint();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("does not 'needs:' sibling job 'arch-gates'");
+  });
+
+  it('fails when a called workflow still triggers on pull_request (a redundant second run)', () => {
+    writeCi(CI_OK);
+    writeArch(
+      ARCH_OK.replace(
+        '  workflow_call:\n',
+        '  workflow_call:\n  pull_request:\n    branches: [main]\n',
+      ),
+    );
+    const r = runLint();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('must not also run on its own pull_request trigger');
+  });
+
+  it('allows a called workflow to keep workflow_dispatch and a tag-only push (T13279)', () => {
+    writeCi(CI_OK);
+    writeArch(
+      ARCH_OK.replace(
+        '  workflow_call:\n',
+        "  workflow_call:\n  workflow_dispatch:\n  push:\n    tags: ['v*']\n",
+      ),
+    );
+    const r = runLint();
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
+  });
+
+  it('fails when a called workflow still runs on a branch push (T13279)', () => {
+    writeCi(CI_OK);
+    writeArch(
+      ARCH_OK.replace('  workflow_call:\n', '  workflow_call:\n  push:\n    branches: [main]\n'),
+    );
+    const r = runLint();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('must not also run on its own push trigger');
+  });
+
+  it('fails when a called workflow declares workflow-level concurrency', () => {
+    writeCi(CI_OK);
+    writeArch(
+      ARCH_OK.replace(
+        '  workflow_call:\n',
+        '  workflow_call:\nconcurrency:\n  group: x\n  cancel-in-progress: true\n',
+      ),
+    );
+    const r = runLint();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("must not declare workflow-level 'concurrency'");
+  });
+
+  it('fails on a stale advisory entry (the workflow no longer runs on pull_request)', () => {
+    writeCi(CI_OK);
+    writeArch(ARCH_OK);
+    const file = ADVISORY_FILES[0];
+    writeFileSync(
+      join(tmpRoot, file),
+      standalone('x').replace('  pull_request:\n    branches: [main]\n', '  push:\n'),
+    );
+    const r = runLint();
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain(`ADVISORY_WORKFLOWS: ${file} no longer runs on pull_request`);
+  });
+
+  it('the real ci.yml calls the arch gates and its aggregate needs them', () => {
+    const ci = readFileSync(join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
+    expect(ci).toContain('uses: ./.github/workflows/arch-boundary-check.yml');
+    const needs = ci.slice(ci.indexOf('\n  ci:\n'));
+    expect(needs).toContain('      - arch-gates\n');
   });
 });
 

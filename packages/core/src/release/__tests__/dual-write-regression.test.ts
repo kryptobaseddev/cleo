@@ -24,6 +24,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { optOutOfForeignKeys } from '../../store/__tests__/test-db-helper.js';
+
+// T13228: fixtures record commits for task ids that are never seeded; they run with foreign keys OFF.
+optOutOfForeignKeys();
 
 // T9784 / Saga T9782: the previous `vi.mock('../changelog-writer.js', ...)`
 // stub was deleted alongside the changelog-writer module itself.

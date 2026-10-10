@@ -487,7 +487,11 @@ describe('Migration Safety Integration Tests', () => {
     it('should preserve all task fields through migration', async () => {
       const fullTask = createFullTask('T001');
       await writeFile(join(cleoDir, 'todo.json'), JSON.stringify(createTodoJson([fullTask])));
-      await writeFile(join(cleoDir, 'sessions.json'), JSON.stringify(createSessionsJson()));
+      // The provenance session must be in the import to be kept (T13259).
+      await writeFile(
+        join(cleoDir, 'sessions.json'),
+        JSON.stringify(createSessionsJson([createTestSession('sess-001')])),
+      );
 
       const { migrateJsonToSqlite } = await import('../migration-sqlite.js');
       await migrateJsonToSqlite();

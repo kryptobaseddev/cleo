@@ -25,6 +25,7 @@ import {
   installProviderHookTemplates,
 } from '../shared/hook-template-installer.js';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
+import { ensureProjectInstructionFile } from '../shared/project-instruction-file.js';
 
 /**
  * Install provider for OpenCode.
@@ -57,15 +58,16 @@ export class OpenCodeInstallProvider implements AdapterInstallProvider {
     const details: Record<string, unknown> = {};
 
     // Step 1: Ensure AGENTS.md has @-references via CAAMP canonical API.
-    const instructResult = await ensureProviderInstructionFile('opencode', projectDir, {
+    const instructResult = await ensureProjectInstructionFile('opencode', projectDir, {
       scope: 'project',
       references: [`@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`, '@.cleo/memory-bridge.md'],
     });
 
-    const instructionFileUpdated = instructResult.action !== 'intact';
+    const instructionFileUpdated = instructResult !== null && instructResult.action !== 'intact';
     if (instructionFileUpdated) {
       details.instructionFile = join(projectDir, instructResult.instructFile);
     }
+    if (instructResult === null) details.instructionFile = 'skipped'; // T13227: $HOME project
 
     // Step 2 (T1013): Install PreCompact hook templates + generate the JS
     // plugin wrapper that spawns the bash shim on

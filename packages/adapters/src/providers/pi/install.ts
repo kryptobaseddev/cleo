@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { ensureProviderInstructionFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
+import { ensureProjectInstructionFile } from '../shared/project-instruction-file.js';
 
 /**
  * CLEO @-references injected into Pi instruction files.
@@ -55,15 +56,16 @@ export class PiInstallProvider implements AdapterInstallProvider {
     const details: Record<string, unknown> = {};
 
     // Step 1: Ensure project AGENTS.md has @-references via CAAMP canonical API.
-    const projectResult = await ensureProviderInstructionFile('pi', projectDir, {
+    const projectResult = await ensureProjectInstructionFile('pi', projectDir, {
       scope: 'project',
       references: getCleoReferences(),
     });
 
-    const projectUpdated = projectResult.action !== 'intact';
+    const projectUpdated = projectResult !== null && projectResult.action !== 'intact';
     if (projectUpdated) {
       details.instructionFile = join(projectDir, projectResult.instructFile);
     }
+    if (projectResult === null) details.instructionFile = 'skipped'; // T13227: $HOME project
 
     // Step 2: Ensure global AGENTS.md has @-references (best-effort).
     // CAAMP resolves pathGlobal from the registry ($HOME/.pi/agent).

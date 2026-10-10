@@ -92,7 +92,7 @@ export { type DatabaseSync, openNativeDatabase } from './sqlite-native.js';
 // Type-only import for internal use (annotations on _nativeDb, runMigrations, etc.).
 // Type-only imports are erased at compile time and produce no Vite SSR binding.
 import type { DatabaseSync } from './sqlite-native.js';
-
+import { testForeignKeysOff } from './sqlite-pragmas.js';
 import * as schema from './tasks-schema.js';
 
 /** Schema version for newly created databases. Single source of truth. */
@@ -620,10 +620,9 @@ function establishTasksSchema(
   // refuses writes with E_TWIN_COLLAPSE_FAILED.
   collapseTwinTables(nativeDb, store.dbPath, { onFailure: 'degrade' });
 
-  // Migration SQL contains PRAGMA foreign_keys=ON statements. In test
-  // environments, disable FKs after migration so fixtures can insert
-  // without full referential integrity.
-  if (process.env.VITEST) {
+  // Foreign keys stay ON under vitest, as in production (T13228); a test whose
+  // fixtures seed out of FK order opts out explicitly.
+  if (testForeignKeysOff()) {
     nativeDb.exec('PRAGMA foreign_keys=OFF');
   }
 

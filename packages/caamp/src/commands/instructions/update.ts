@@ -10,6 +10,7 @@ import {
   resolveDefaultTargetProviders,
 } from '../../core/harness/index.js';
 import { syncGlobalInstructions } from '../../core/instructions/global-sync.js';
+import { isHomeProject } from '../../core/instructions/home-project.js';
 import { checkAllInjections, injectAll } from '../../core/instructions/injector.js';
 import { generateInjectionContent } from '../../core/instructions/templates.js';
 import {
@@ -20,6 +21,7 @@ import {
   resolveFormat,
 } from '../../core/lafs.js';
 import type { Provider } from '../../types.js';
+import { refuseHomeProject } from './home-refusal.js';
 
 /** A file or provider the update could not refresh. */
 interface UpdateFailure {
@@ -137,6 +139,9 @@ export function registerInstructionsUpdate(parent: Command): void {
         await updateGlobal(format);
         return;
       }
+
+      // T13257: no project instruction files in $HOME (harness or generic).
+      if (isHomeProject(process.cwd())) refuseHomeProject(operation, mvi, format);
 
       const providers = resolveDefaultTargetProviders();
       const scope = 'project' as const;

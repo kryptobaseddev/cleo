@@ -46,6 +46,7 @@ import {
   sessionSwitch,
 } from '../../session/engine-ops.js';
 import { requireSpawnSession } from '../../spawn/agent-identity.js';
+import { optOutOfForeignKeys } from '../../store/__tests__/test-db-helper.js';
 import {
   getSession,
   hasActiveSession,
@@ -59,6 +60,9 @@ import { safestop } from '../../system/safestop.js';
 import { endSession, startSession } from '../index.js';
 import { SESSION_ENV_KEY_PRECEDENCE } from '../session-id.js';
 import { TERMINAL_KEY_SOURCES } from '../terminal-identity.js';
+
+// T13228: fixture spawns allocate sessions for task ids that are never seeded; they run with foreign keys OFF.
+optOutOfForeignKeys();
 
 /** Every env var the resolvers read — cleared so the host terminal cannot leak in. */
 const IDENTITY_ENV_VARS: readonly string[] = [

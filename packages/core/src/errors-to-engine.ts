@@ -22,6 +22,7 @@ import { CleoError } from './errors.js';
 import {
   ExodusAbortWriteUnsafeError,
   ExodusGuardFailedError,
+  ExodusRunInProgressError,
 } from './store/exodus/abort-events.js';
 
 /**
@@ -95,6 +96,10 @@ export function cleoErrorToEngineResult<T>(
  * @task T13167
  */
 export function exodusRefusalToEngineResult<T>(err: unknown): EngineResult<T> | null {
+  if (err instanceof ExodusRunInProgressError) {
+    // @sync-invariant none:local-only another local process runs this store's legacy migration or reconcile; never replicated
+    return engineError<T>(err.codeName, err.message, { fix: err.fix });
+  }
   if (err instanceof ExodusGuardFailedError) {
     // @sync-invariant none:local-only this store's own legacy migration could not be guarded; never replicated
     return engineError<T>(err.codeName, err.message, { fix: err.fix });

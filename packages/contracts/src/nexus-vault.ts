@@ -46,6 +46,38 @@ export const nexusProjectKeysSchema = z.looseObject({
   ),
 });
 
+// ---------- wire: replica retirement refusals (cleo-nexus T123) ----------
+
+/**
+ * The `details.reason` values E31 (`POST …/replicas/:replicaId/retirements`) and the calls it guards answer with
+ * (cleo-nexus #41, contract v2.28):
+ * - `not-pinned-or-owner` (403): the caller is neither the replica's pinned device nor, on a project stream, an
+ *   owner's device (on a home stream, any device of the account may retire).
+ * - `retire-below-head` (409): `lastReplicaSeq` is under the replica's highest appended replicaSeq, or null while
+ *   the replica has a segment.
+ * - `retired` (409): the replica is already retired with another successor or `lastReplicaSeq` (the same pair
+ *   again answers 200 with the stored record).
+ * - `successor-other-user` (403): on a project stream, the successor is pinned to another user's device.
+ * - `successor-taken` (409): another user's retirement already names that successor.
+ * - `successor-retired` (409): the successor is itself retired (this also refuses a cycle).
+ * - `replica-retired` (409, `E_CONFLICT`, with `lastReplicaSeq` and `successor`): a segment append past the
+ *   retirement, or a lease request, for a retired replica.
+ * The server's strings, not a cloud wire schema: kept here, beside the vault's other wire constants, so the
+ * `@cleocode/contracts/cloud` mirror stays byte-for-byte the server's.
+ */
+export const NEXUS_REPLICA_RETIREMENT_REASONS = [
+  'not-pinned-or-owner',
+  'retire-below-head',
+  'retired',
+  'successor-other-user',
+  'successor-taken',
+  'successor-retired',
+  'replica-retired',
+] as const;
+
+/** One E31 refusal reason ({@link NEXUS_REPLICA_RETIREMENT_REASONS}). */
+export type NexusReplicaRetirementReason = (typeof NEXUS_REPLICA_RETIREMENT_REASONS)[number];
+
 // ---------- wire: leases (cleo-nexus T083) ----------
 
 /** The lease role of the vault's single writer. */
@@ -195,7 +227,51 @@ export interface CloudRestoreResult {
   tables: number;
   /** Local safety backup taken before activation, if any. */
   safetyBackup: string | null;
+  /**
+   * The placed file is a new store instance, so the replica this store had is
+   * retired and a new one bound (journal spec §1.5; T13109). The server keeps
+   * the retired one as history until S4 announces its retirement. `null` when
+   * nothing was placed or the store had no replica yet (a first restore here).
+   *
+   * `reason` is `vault-restore` when the retired replica was this device's
+   * replica of the replaced file (recorded as a retire candidate unless the
+   * registry write failed), `file-identity` or `foreign-device` when the store
+   * was a copy or another device's (the carried replica stays live where it
+   * belongs; nothing to retire), and `null` when the rebind's registry write
+   * failed.
+   */
+  replica: {
+    retired: string;
+    current: string;
+    reason: 'vault-restore' | 'file-identity' | 'foreign-device' | null;
+  } | null;
   warnings: CloudWarning[];
+}
+
+/**
+ * `cleo cloud verify --deep` (T13291): the cloud copy downloaded again and
+ * checked byte for byte. Local backups are checked by `cleo backup verify`.
+ */
+export interface CloudVerifyDeepCheck {
+  /**
+   * The head snapshot and each device's newest snapshot: its bundle downloaded,
+   * checked against the size and sha256 its signed checkpoint records, and
+   * decrypted. `problem` says why a check failed; `null` when it passed.
+   */
+  snapshots: Array<{
+    checkpointId: string;
+    deviceId: string;
+    sizeBytes: number;
+    ok: boolean;
+    problem: string | null;
+  }>;
+  /**
+   * The journal segments after the head snapshot (from the start of the stream
+   * when there is none), each re-hashed, signature-checked and decrypted.
+   * `from` is the stream seq they start after; `checked` counts the segments
+   * that passed; `problem` is the first failure, `null` when none.
+   */
+  segments: { from: number; checked: number; ok: boolean; problem: string | null };
 }
 
 /** `cleo cloud verify`. */
@@ -203,7 +279,7 @@ export interface CloudVerifyResult {
   apiUrl: string;
   scope: CloudVaultScope;
   streamId: string;
-  /** `match`: local equals the head snapshot; `ahead`: local changed since this machine's last snapshot; `behind`: the cloud has a newer snapshot; `diverged`: both; `empty`: no snapshot yet; `untrusted`: the head snapshot's signature does not verify against a trusted device key (nothing is compared with it). */
+  /** `match`: local equals the head snapshot; `ahead`: local changed since this machine's last snapshot; `behind`: the cloud has a newer snapshot; `diverged`: both; `empty`: no snapshot yet; `untrusted`: the head snapshot's signature does not verify against a trusted device key (nothing is compared with it), or with `--deep`, its bundle or a segment after it failed the byte check. */
   verdict: 'match' | 'ahead' | 'behind' | 'diverged' | 'empty' | 'untrusted';
   /** What to do about a verdict other than `match` (or a failed integrity check); `null` when nothing. */
   remedy: string | null;
@@ -222,6 +298,8 @@ export interface CloudVerifyResult {
     createdAt: string | null;
     matchesHead: boolean;
   }>;
+  /** The byte-level check of `--deep`; absent without it. */
+  deep?: CloudVerifyDeepCheck;
   warnings: CloudWarning[];
 }
 

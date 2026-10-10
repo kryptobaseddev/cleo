@@ -70,7 +70,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { VerifyMigrationResult } from '@cleocode/contracts';
 import { getLogger } from '../../logger.js';
 import type { DualScope, DualScopeDbHandle } from '../dual-scope-db.js';
-import { withLock } from '../lock.js';
+import { lockCompromiseTracker, withLock } from '../lock.js';
+import { EXODUS_LOCK_STALE_MS, exodusRunLockPath, whileExodusRunHeld } from './abort-events.js';
 import { archiveMigratedSources, hasExodusCompleteMarker } from './archive.js';
 import { rollbackExodusReceipts, sealExodusDatabase } from './recovery.js';
 import type { ExodusPlan, ExodusRecoveryResult, ExodusScope, LegacyDbDescriptor } from './types.js';
@@ -613,11 +614,15 @@ async function migrateOnOpen(
 
   // Single-flight: serialise the first-open migration across processes so two
   // concurrent opens never both migrate (AC6 · T11554 first-run race).
-  const lockPath = `${dbPath}.exodus-on-open.lock`;
+  const lockPath = exodusRunLockPath(dbPath);
+  // T12785: a stage longer than the stale window blocks the lock refresh, so
+  // another process could take the lock; the run then stops at its next stage
+  // boundary and rolls back instead of crashing from proper-lockfile's timer.
+  const lock = lockCompromiseTracker();
 
   return withLock(
     lockPath,
-    async (): Promise<ExodusOnOpenResult> => {
+    whileExodusRunHeld(lockPath, async (): Promise<ExodusOnOpenResult> => {
       // Double-checked locking: a process that lost the race will find the DB
       // already populated (by the winner) and bail without re-migrating.
       if (!consolidatedIsEmpty(nativeDb, scope)) {
@@ -670,12 +675,18 @@ async function migrateOnOpen(
               )
             : { first: [], last: [] };
         const migratePlan = { ...plan, sources: [...bare.first, ...plan.sources, ...bare.last] };
-        const migrateResult = await runExodusMigrate(
+        const migrated = await runExodusMigrate(
           migratePlan,
           false,
           (msg) => log.debug({ scope }, `exodus-on-open: ${msg}`),
-          { resolveTarget, ensureRuntimeTables: true },
+          { resolveTarget, ensureRuntimeTables: true, abortReason: lock.reason },
         );
+        // A lock lost during the last stage is caught here (T12785).
+        const lost = lock.reason();
+        const migrateResult =
+          migrated.ok && lost !== null
+            ? { ...migrated, ok: false, error: `E_EXODUS_LOCK_LOST: ${lost}` }
+            : migrated;
 
         if (!migrateResult.ok) {
           // Revert only migration-owned rows; retain conflicts and their evidence.
@@ -806,10 +817,10 @@ async function migrateOnOpen(
         _exodusInProgress = false;
         rmSync(bareScratch, { recursive: true, force: true });
       }
-    },
+    }),
     // Tolerate a slow migration: a large fleet copy can take a while, so allow a
     // generous stale window and a few retries while the winner holds the lock.
-    { stale: 600_000, retries: 30 },
+    { stale: EXODUS_LOCK_STALE_MS, retries: 30, onCompromised: lock.onCompromised },
   );
 }
 

@@ -12,13 +12,14 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Task } from '@cleocode/contracts';
-import { vi } from 'vitest';
+import { afterAll, beforeAll, vi } from 'vitest';
 import { canonicalProjectId } from '../../nexus/identity.js';
 import { registerProjectOnEncounter } from '../../paths.js';
 import { awaitBackgroundOps } from '../background-ops.js';
 import type { DataAccessor } from '../data-accessor.js';
 import { resetDbState } from '../sqlite.js';
 import { createSqliteDataAccessor } from '../sqlite-data-accessor.js';
+import { TEST_FOREIGN_KEYS_OFF_ENV } from '../sqlite-pragmas.js';
 
 function isWindowsCleanupError(error: unknown): boolean {
   if (process.platform !== 'win32' || typeof error !== 'object' || error === null) {
@@ -297,4 +298,23 @@ export async function bindTestSession(
     await cleanup();
   };
   return sessionId;
+}
+
+/**
+ * Opt the calling test file out of foreign keys (T13228). For fixtures that
+ * deliberately seed rows out of FK order or with orphan references; every
+ * other test runs with foreign keys ON, as production does. Call it at the
+ * top level of the file: it sets the opt-out before the first store opens
+ * and removes it after the last test.
+ */
+export function optOutOfForeignKeys(): void {
+  let prev: string | undefined;
+  beforeAll(() => {
+    prev = process.env[TEST_FOREIGN_KEYS_OFF_ENV];
+    process.env[TEST_FOREIGN_KEYS_OFF_ENV] = '1';
+  });
+  afterAll(() => {
+    if (prev === undefined) delete process.env[TEST_FOREIGN_KEYS_OFF_ENV];
+    else process.env[TEST_FOREIGN_KEYS_OFF_ENV] = prev;
+  });
 }

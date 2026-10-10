@@ -10,7 +10,15 @@
  * @task T12987
  */
 
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -35,6 +43,7 @@ import {
   repairSuspectTables,
   streamStarted,
 } from '../repair.js';
+import { GENESIS_CUT_KEY_PREFIX } from '../schema.js';
 import { rowChash, sealPending } from '../sealer.js';
 import { markSuspect } from '../structural.js';
 
@@ -52,6 +61,9 @@ beforeEach(() => {
   vi.stubEnv('CLEO_HOME', join(dir, 'cleo'));
   vi.stubEnv('CLEO_ROOT', undefined);
   vi.stubEnv('CLEO_DIR', undefined);
+  // Written against row uids off; on by default since T13305 (C2). The
+  // capture + fill-on interplay (K captures alongside I/U/D) is T13311.
+  vi.stubEnv('CLEO_ROW_UID_FILL', '0');
   dbPath = join(dir, 'project', '.cleo', 'cleo.db');
 });
 
@@ -366,6 +378,64 @@ describe('a table never baselined is baselined, not journaled (T12987)', () => {
   });
 });
 
+describe('NEW-8 order at a migration: seal and repair, then bracket, then re-baseline (T12987)', () => {
+  const migrate = (db: DatabaseSync, sql: string) => {
+    const lineage = join(dir, 'order');
+    mkdirSync(join(lineage, '20991231000001_order'), { recursive: true });
+    writeFileSync(join(lineage, '20991231000001_order', 'migration.sql'), sql);
+    runBracketedMigrations(
+      db,
+      drizzle({ client: db }),
+      [{ folder: lineage }],
+      syncMigrationHooks(db, 'project', { replica: REPLICA, allowUnreleased: true, env: {} }),
+    );
+  };
+
+  /** The sealed ops on `uid`, by `via`, oldest first. */
+  const opsOn = (db: DatabaseSync, uid: string) =>
+    (
+      db
+        .prepare(
+          `SELECT t.via, o.body FROM _sync_op o JOIN _sync_txn t ON t.txn = o.txn
+           WHERE o.uid = ? ORDER BY t.local_seq, o.idx`,
+        )
+        .all(uid) as Array<{ via: string; body: string }>
+    ).map((r) => ({ via: r.via, op: JSON.parse(r.body) as Op }));
+
+  it('the real hooks seal the captured edit and repair the uncaptured one under the OLD values', async () => {
+    const db = await baselinedStore();
+    captured(db, "UPDATE tasks_tasks SET title = 'captured edit' WHERE id = 'T1'");
+    uncaptured(db, "UPDATE tasks_tasks SET title = 'uncaptured edit' WHERE id = 'T2'");
+    markSuspect(db, 'project', ['tasks_tasks']);
+
+    migrate(db, 'UPDATE `tasks_tasks` SET `title` = upper(`title`)');
+
+    // Sealed and repaired BEFORE the bracket: both ops carry pre-migration values.
+    const t1 = opsOn(db, 'uid-T1').at(-1);
+    expect(t1).toEqual({ via: 'accessor', op: expect.objectContaining({ o: 'U' }) });
+    expect(t1?.op.a?.title).toBe('captured edit');
+    const t2 = opsOn(db, 'uid-T2').at(-1);
+    expect(t2).toEqual({ via: 'repair', op: expect.objectContaining({ o: 'U' }) });
+    expect(t2?.op.a?.title).toBe('uncaptured edit');
+    // The backfill itself is never emitted, and the re-baseline (after the
+    // repair cleared the table) moved every row to the migrated hash.
+    expect(n(db, "SELECT count(*) AS n FROM _sync_capture WHERE state = 'live'")).toBe(0);
+    expect(opsOn(db, 'uid-T1').some((o) => o.op.a?.title === 'CAPTURED EDIT')).toBe(false);
+    for (const uid of ['uid-T1', 'uid-T2']) {
+      expect(metaOf(db, 'tasks_tasks', uid)?.chash).toBe(liveChash(db, uid));
+    }
+    expect(suspect(db)).toEqual([]);
+  });
+
+  it('pending captures are sealed before the bracket even when no table is suspect', async () => {
+    const db = await baselinedStore();
+    captured(db, "UPDATE tasks_tasks SET title = 'captured edit' WHERE id = 'T1'");
+    migrate(db, 'UPDATE `tasks_tasks` SET `title` = upper(`title`)');
+    expect(opsOn(db, 'uid-T1').at(-1)?.op.a?.title).toBe('captured edit');
+    expect(metaOf(db, 'tasks_tasks', 'uid-T1')?.chash).toBe(liveChash(db, 'uid-T1'));
+  });
+});
+
 describe('baselineRowMeta, the one row-meta initializer (T12987, for T12342)', () => {
   it('baselines every live row without meta once, with the ledger and the marker', async () => {
     const db = await store();
@@ -393,8 +463,10 @@ describe('after the stream starts, nothing is baselined silently (T13217)', () =
     addTask(db, 'T1');
     seal(db);
     // A genesis cut was recorded: a checkpoint may already have left.
-    db.exec(
-      "INSERT INTO _sync_meta (key, value, updated_at) VALUES ('genesis_cut:project:x', '1', '2026-10-05T00:00:00.000Z')",
+    db.prepare('INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?)').run(
+      `${GENESIS_CUT_KEY_PREFIX}project:x`,
+      '1',
+      '2026-10-05T00:00:00.000Z',
     );
     uncaptured(
       db,
@@ -412,11 +484,31 @@ describe('after the stream starts, nothing is baselined silently (T13217)', () =
     ).toBe(1);
   });
 
-  it('a segmented transaction also counts as a started stream', async () => {
+  it('a segmented or folded transaction counts as a started stream; inherited does not', async () => {
     const db = await store();
     addTask(db, 'T1');
     seal(db);
-    db.exec("UPDATE _sync_txn SET state = 'segmented'");
+    expect(streamStarted(db)).toBe(false);
+    for (const [state, started] of [
+      ['inherited', false],
+      ['segmented', true],
+      ['folded', true],
+    ] as const) {
+      db.prepare('UPDATE _sync_txn SET state = ?').run(state);
+      expect(streamStarted(db), state).toBe(started);
+    }
+  });
+
+  it('only a key with the exact genesis-cut prefix counts (`_` is no wildcard)', async () => {
+    const db = await store();
+    const put = (key: string) =>
+      db
+        .prepare('INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?)')
+        .run(key, '1', '2026-10-06T00:00:00.000Z');
+    put('genesisXcut:project:x');
+    put('genesis_cutX');
+    expect(streamStarted(db)).toBe(false);
+    put(`${GENESIS_CUT_KEY_PREFIX}project:x`);
     expect(streamStarted(db)).toBe(true);
   });
 });
@@ -432,10 +524,25 @@ describe('a crash mid-baseline leaves nothing half-written (T12987)', () => {
       );
     }
     markSuspect(db, 'project', ['tasks_tasks']);
-    // At P2's meta write, copy the files exactly as a SIGKILL would leave
-    // them (the WAL holds P1's uncommitted meta), then abort.
+    // Start from an empty WAL, and make the page cache tiny so the baseline's
+    // uncommitted pages spill into the WAL (T13225): the copy then really
+    // holds uncommitted frames, which recovery must discard. At P2's meta
+    // write, copy the files exactly as a SIGKILL would leave them, then abort.
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    db.exec('PRAGMA cache_size = 1');
     const crash = join(dir, 'crash');
     mkdirSync(crash, { recursive: true });
+    // WAL size when the baseline wrote its FIRST row: frames added after it
+    // are uncommitted (the transaction is still open at P2).
+    let walAtFirstRow = -1;
+    db.function('wal_at_first_row', () => {
+      walAtFirstRow = existsSync(`${dbPath}-wal`) ? statSync(`${dbPath}-wal`).size : 0;
+      return 0;
+    });
+    db.exec(
+      `CREATE TEMP TRIGGER wal_at_first_row AFTER INSERT ON _sync_row_meta
+       WHEN NEW.uid = 'uid-P1' BEGIN SELECT wal_at_first_row(); END`,
+    );
     db.function('kill_mid_baseline', () => {
       for (const suffix of ['', '-wal']) {
         if (existsSync(dbPath + suffix))
@@ -449,6 +556,11 @@ describe('a crash mid-baseline leaves nothing half-written (T12987)', () => {
     );
     expect(() => repair(db)).toThrow(/killed mid-baseline/);
     _resetDualScopeDbCache();
+    // The copy holds frames written after the baseline's first row, inside
+    // the still-open transaction: proof the test is not just a copy of the
+    // pre-transaction state.
+    expect(walAtFirstRow).toBeGreaterThanOrEqual(0);
+    expect(statSync(join(crash, 'cleo.db-wal')).size).toBeGreaterThan(walAtFirstRow);
 
     const after = new DatabaseSync(join(crash, 'cleo.db'));
     try {

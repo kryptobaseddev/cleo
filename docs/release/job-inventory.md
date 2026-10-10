@@ -203,11 +203,14 @@ $ gh api repos/kryptobaseddev/cleo/rules/branches/main
 []
 ```
 
+> **Current state (2026-10-05, T13263 / T13279):** live branch protection requires only `CI` (`strict=false`). The arch gates, Lockfile Check and the other gating workflows run INSIDE `CI` (reusable workflows its aggregate needs). Do NOT require a `Lockfile Check` or `Arch Boundary Check` context: neither reports under that name, so requiring it blocks every merge. The canonical command is in `AGENTS.md` and `docs/release/branch-protection-setup.md` (`CI` + `Contracts Dep Lint`).
+
 `AGENTS.md` § Release & Branching (ADR-065) declares the required status checks the owner is *expected* to enable:
 
 - `CI`
-- `Lockfile Check`
 - `Contracts Dep Lint`
+
+(At the time of this inventory it also listed `Lockfile Check`; that check now runs inside `CI`, T13279.)
 
 But the GitHub Branches API + Rulesets API both return empty. The protection is currently **policy-only**, not enforced by the platform.
 
@@ -220,7 +223,7 @@ Assuming the owner enables the `AGENTS.md`-declared required set:
 | Required check (planned) | Workflow / job | Runs on PR→main? | Runs on push→main? | Match? |
 |---|---|---|---|---|
 | `CI` | `ci.yml` (all 30+ jobs aggregated under workflow name `CI`) | Y | Y | OK |
-| `Lockfile Check` | `lockfile-check.yml` / `lockfile-consistency` | Y | Y | OK |
+| ~~`Lockfile Check`~~ | `lockfile-check.yml`, now called from `ci.yml` (job `lockfile-gate`, T13279); covered by `CI`, not a separate context | Y (via CI) | Y (via CI) | Not a context — its check reports as `Lockfile Check / Verify pnpm-lock.yaml consistency` |
 | `Contracts Dep Lint` | `ci.yml` / `contracts-dep-lint` job (workflow name `CI`, job `Contracts Dep Lint`) | Y | Y | OK — but the check name "Contracts Dep Lint" maps to the **job name** inside the `CI` workflow, not a standalone workflow file. Verify the protection rule context string matches the job name exactly when enabled. |
 
 No required-only-on-PR mismatches detected at this time.

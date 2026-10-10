@@ -18,8 +18,8 @@
  * @epic T12978
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { ResourceClass } from '@cleocode/contracts';
 import type { CanonicalTool } from '../tasks/tool-resolver.js';
 
@@ -758,22 +758,139 @@ function vitestArgsScope(
   return 'whole';
 }
 
-/** The `scripts[name]` of the package.json nearest `cwd` (walking up), else null. */
+/** A parsed JSON object (a type guard: no cast). */
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** What run classification reads from a package.json. */
+interface PackageManifest {
+  /** `name`, when it is a string. */
+  readonly name: string | null;
+  /** String-valued `scripts` entries. */
+  readonly scripts: ReadonlyMap<string, string>;
+  /** `workspaces` globs (npm / yarn), when declared. */
+  readonly workspaces: readonly string[];
+}
+
+/** Read `<dir>/package.json`, or `null` when it is missing or not a JSON object. */
+function readManifest(dir: string): PackageManifest | null {
+  const path = join(dir, 'package.json');
+  if (!existsSync(path)) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf-8'));
+  } catch {
+    return null;
+  }
+  if (!isJsonRecord(parsed)) return null;
+  const scripts = new Map<string, string>();
+  const rawScripts = parsed['scripts'];
+  if (isJsonRecord(rawScripts)) {
+    for (const [key, value] of Object.entries(rawScripts)) {
+      if (typeof value === 'string') scripts.set(key, value);
+    }
+  }
+  const rawWorkspaces = parsed['workspaces'];
+  const globs = Array.isArray(rawWorkspaces)
+    ? rawWorkspaces
+    : isJsonRecord(rawWorkspaces) && Array.isArray(rawWorkspaces['packages'])
+      ? rawWorkspaces['packages']
+      : [];
+  return {
+    name: typeof parsed['name'] === 'string' ? parsed['name'] : null,
+    scripts,
+    workspaces: globs.filter((g): g is string => typeof g === 'string'),
+  };
+}
+
+/** The script `name` of the package.json nearest `cwd` (walking up), else null. */
 function packageScript(cwd: string, name: string): string | null {
   let dir = resolve(cwd);
   for (;;) {
-    const pkg = join(dir, 'package.json');
-    if (existsSync(pkg)) {
+    if (existsSync(join(dir, 'package.json'))) return readManifest(dir)?.scripts.get(name) ?? null;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/** The `packages:` globs of a pnpm-workspace.yaml (a plain YAML list). */
+function pnpmWorkspaceGlobs(file: string): string[] {
+  const globs: string[] = [];
+  let inPackages = false;
+  for (const raw of readFileSync(file, 'utf-8').split('\n')) {
+    const line = raw.replace(/\s+#.*$/, '').trimEnd();
+    if (/^packages\s*:/.test(line)) {
+      inPackages = true;
+      continue;
+    }
+    if (!inPackages || line.trim() === '' || line.trimStart().startsWith('#')) continue;
+    if (!/^\s/.test(line)) break; // the next top-level key
+    const item = /^\s*-\s*['"]?([^'"]+)['"]?\s*$/.exec(line);
+    if (item?.[1]) globs.push(item[1].trim());
+  }
+  return globs;
+}
+
+/** Directories matched by one workspace glob (`packages/*`, `apps/**`, `crates/x`). */
+function expandWorkspaceGlob(root: string, glob: string): string[] {
+  const clean = glob.replace(/\/+$/, '');
+  const recursive = clean.endsWith('/**');
+  const single = !recursive && clean.endsWith('/*');
+  if (!recursive && !single) return [join(root, clean)];
+  const base = join(root, clean.slice(0, clean.lastIndexOf('/')));
+  const out: string[] = [];
+  const walk = (dir: string, depth: number): void => {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry === 'node_modules' || entry.startsWith('.')) continue;
+      const child = join(dir, entry);
       try {
-        const parsed: unknown = JSON.parse(readFileSync(pkg, 'utf-8'));
-        if (typeof parsed !== 'object' || parsed === null) return null;
-        const scripts = (parsed as { scripts?: unknown }).scripts;
-        if (typeof scripts !== 'object' || scripts === null) return null;
-        const script = (scripts as Record<string, unknown>)[name];
-        return typeof script === 'string' ? script : null;
+        if (!statSync(child).isDirectory()) continue;
       } catch {
-        return null;
+        continue;
       }
+      out.push(child);
+      if (recursive && depth < 4) walk(child, depth + 1);
+    }
+  };
+  walk(base, 0);
+  return out;
+}
+
+/**
+ * The workspace packages around `cwd`: the root (the nearest dir with a
+ * pnpm-workspace.yaml, or a package.json declaring `workspaces`) and every
+ * member package dir (holding a package.json), root excluded. `null` outside
+ * a workspace.
+ */
+function workspacePackages(
+  cwd: string,
+): { readonly root: string; readonly packages: readonly string[] } | null {
+  let dir = resolve(cwd);
+  for (;;) {
+    const pnpmFile = join(dir, 'pnpm-workspace.yaml');
+    const globs = existsSync(pnpmFile)
+      ? pnpmWorkspaceGlobs(pnpmFile)
+      : (readManifest(dir)?.workspaces ?? []);
+    if (globs.length > 0 || existsSync(pnpmFile)) {
+      const root = dir;
+      const include = globs.filter((g) => !g.startsWith('!'));
+      const exclude = new Set(
+        globs
+          .filter((g) => g.startsWith('!'))
+          .flatMap((g) => expandWorkspaceGlob(root, g.slice(1))),
+      );
+      const packages = [...new Set(include.flatMap((g) => expandWorkspaceGlob(root, g)))].filter(
+        (d) => d !== root && !exclude.has(d) && existsSync(join(d, 'package.json')),
+      );
+      return { root, packages };
     }
     const parent = dirname(dir);
     if (parent === dir) return null;
@@ -781,10 +898,174 @@ function packageScript(cwd: string, name: string): string | null {
   }
 }
 
+/** pnpm `--filter` / `-F` selectors in a package-manager command, in order. */
+function filterSelectors(argv: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const w = argv[i] as string;
+    if (w === '--') break;
+    if ((w === '--filter' || w === '-F') && argv[i + 1] !== undefined) {
+      out.push(argv[i + 1] as string);
+      i++;
+    } else if (w.startsWith('--filter=')) {
+      out.push(w.slice('--filter='.length));
+    }
+  }
+  return out;
+}
+
+/** The `-C` / `--dir` a package-manager command runs in, else null. */
+function commandDir(argv: readonly string[]): string | null {
+  for (let i = 0; i < argv.length; i++) {
+    const w = argv[i] as string;
+    if (w === '--') break;
+    if ((w === '-C' || w === '--dir') && argv[i + 1] !== undefined) return argv[i + 1] as string;
+    if (w.startsWith('--dir=')) return w.slice('--dir='.length);
+  }
+  return null;
+}
+
+/** Whether `path` is `dir` or lies inside it. */
+function isAtOrBelow(path: string, dir: string): boolean {
+  const rel = relative(dir, path);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+/**
+ * The packages a positive pnpm selector matches. A plain or glob name, or a
+ * path (`./pkg`, `{pkg}`), matches precisely; a graph or git selector
+ * (`pkg...`, `...pkg`, `[ref]`) matches every package, a superset: the
+ * refusal asks whether ANY matched package would run its whole suite, so a
+ * superset only refuses more, never less.
+ */
+function selectorMatches(
+  selector: string,
+  packages: readonly string[],
+  cwd: string,
+): readonly string[] {
+  return preciseSelectorMatches(selector, packages, cwd) ?? packages;
+}
+
+/**
+ * The packages matched by a pnpm `--filter` set, pnpm's way (T13280): the
+ * union of the positive selectors — or EVERY package when there are only
+ * exclusions (`--filter '!foo'` selects all but foo) — minus the exclusions.
+ * An exclusion is subtracted only when it matches precisely: a graph or git
+ * exclusion would subtract a superset, i.e. refuse less, so it subtracts
+ * nothing.
+ */
+function filteredPackages(
+  selectors: readonly string[],
+  packages: readonly string[],
+  cwd: string,
+): readonly string[] {
+  const positive = selectors.filter((sel) => !sel.startsWith('!'));
+  const base =
+    positive.length === 0
+      ? packages
+      : [...new Set(positive.flatMap((sel) => selectorMatches(sel, packages, cwd)))];
+  const excluded = new Set(
+    selectors
+      .filter((sel) => sel.startsWith('!'))
+      .flatMap((sel) => preciseSelectorMatches(sel.slice(1), packages, cwd) ?? []),
+  );
+  return base.filter((pkg) => !excluded.has(pkg));
+}
+
+/**
+ * The packages a selector matches precisely (name, name glob, or path), or
+ * `null` for a graph or git selector, whose exact set is not known here.
+ * Mid-path globs (`packages/*\/sub`, `apps/web-*` as a path) are taken
+ * literally.
+ */
+function preciseSelectorMatches(
+  selector: string,
+  packages: readonly string[],
+  cwd: string,
+): readonly string[] | null {
+  if (selector.includes('...') || selector.includes('[')) return null;
+  const braced = /^\{(.+)\}$/.exec(selector);
+  const pathSel = braced?.[1] ?? (/^\.{1,2}(\/|$)|^\//.test(selector) ? selector : null);
+  if (pathSel !== null) {
+    const target = resolve(cwd, pathSel);
+    return packages.filter((d) => isAtOrBelow(d, target));
+  }
+  const pattern = new RegExp(
+    `^${selector.replace(/[.+?^${}()|\\]/g, '\\$&').replace(/\*/g, '.*')}$`,
+  );
+  return packages.filter((d) => {
+    const name = readManifest(d)?.name;
+    return name !== null && name !== undefined && pattern.test(name);
+  });
+}
+
+/**
+ * The words of one package-script command, each with one layer of
+ * surrounding quotes removed (`--filter "@x/a"` → `@x/a`), as the shell
+ * would pass them (T13280).
+ */
+function scriptWords(segment: string): string[] {
+  return segment
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => (w.length >= 2 && /^(['"]).*\1$/.test(w) ? w.slice(1, -1) : w));
+}
+
+/** How deep a script that runs other package scripts (`pnpm -r test`) is followed. */
+const MAX_SCRIPT_DEPTH = 2;
+
+/**
+ * Whether a package script, run in `dir` with the caller's extra arguments,
+ * is a whole vitest suite: it runs vitest unnarrowed, or it delegates to a
+ * recursive / filtered package-manager run (`pnpm -r test`) that is.
+ */
+function scriptIsWholeSuite(
+  script: string | null | undefined,
+  extra: readonly string[],
+  dir: string,
+  depth: number,
+): boolean {
+  if (script === null || script === undefined) return false;
+  const fixed = scriptVitestArgs(script);
+  if (fixed !== null) return vitestArgsScope([...fixed, ...extra], fixed.length, false) === 'whole';
+  if (depth >= MAX_SCRIPT_DEPTH) return false;
+  return script.split(/&&|\|\||;/).some((segment) => {
+    const words = scriptWords(segment);
+    if (words.length === 0) return false;
+    const t = commandTarget(words);
+    if (t.pm === null || t.script === null) return false;
+    if (!t.recursive && filterSelectors(words).length === 0) return false;
+    return wholeSuiteScriptRun([...words, ...extra], dir, depth + 1);
+  });
+}
+
+/** {@link isWholeSuiteTestRun} for a package-manager script command, at a delegation depth. */
+function wholeSuiteScriptRun(argv: readonly string[], cwd: string, depth: number): boolean {
+  const t = commandTarget(argv);
+  if (t.pm === null || t.script === null) return false;
+  const name = t.script;
+  const dir = resolve(cwd, commandDir(argv) ?? '.');
+  const selectors = filterSelectors(argv);
+  // T13277: `pnpm -r test` / `--filter <sel> test` run each MATCHED package's
+  // own script, not the root's: refuse when any of them is a whole suite.
+  if (t.recursive || selectors.length > 0) {
+    const ws = workspacePackages(dir);
+    if (ws !== null) {
+      const matched =
+        selectors.length === 0 ? ws.packages : filteredPackages(selectors, ws.packages, dir);
+      return matched.some((pkg) =>
+        scriptIsWholeSuite(readManifest(pkg)?.scripts.get(name), t.rest, pkg, depth),
+      );
+    }
+  }
+  return scriptIsWholeSuite(packageScript(dir, name), t.rest, dir, depth);
+}
+
 /** The arguments after `vitest` in a package script's vitest command, else null. */
 function scriptVitestArgs(script: string): string[] | null {
   for (const segment of script.split(/&&|\|\||;/)) {
-    const words = segment.trim().split(/\s+/).filter(Boolean);
+    const words = scriptWords(segment);
     if (words.length === 0) continue;
     const t = commandTarget(words);
     if (t.tool === 'vitest' && t.script === null) return [...t.rest];
@@ -805,7 +1086,9 @@ function scriptVitestArgs(script: string): string[] | null {
  *   `pnpm run test`, `pnpm -r test`, `pnpm --filter x test`; every `test`
  *   script in this repo is `vitest run …`), unless the caller's own
  *   arguments narrow it (`pnpm test src/a.test.ts`, `pnpm test:pkg core`).
- *   The script is read from the package.json nearest `cwd`; one that does
+ *   The script is read from the package.json nearest `cwd` (or `-C` dir);
+ *   for `-r` / `--filter` (T13277) from EACH matched workspace package, and a
+ *   script that itself runs `pnpm -r …` / `--filter …` is followed. One that does
  *   not run vitest (or is missing) is not refused.
  *
  * `cleo run` refuses these unless `--whole-suite` says it is deliberate.
@@ -832,12 +1115,7 @@ export function isWholeSuiteTestRun(
   const t = commandTarget(argv);
   if (t.tool === 'vitest' && t.script === null)
     return vitestArgsScope(t.rest, 0, false) === 'whole';
-  if (t.pm === null || t.script === null) return false;
-  const script = packageScript(cwd, t.script);
-  if (script === null) return false;
-  const fixed = scriptVitestArgs(script);
-  if (fixed === null) return false;
-  return vitestArgsScope([...fixed, ...t.rest], fixed.length, false) === 'whole';
+  return wholeSuiteScriptRun(argv, cwd, 0);
 }
 
 /** Flags whose value names test files to leave out. */

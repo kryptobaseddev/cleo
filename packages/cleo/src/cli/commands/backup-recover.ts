@@ -28,8 +28,13 @@
 import type { DbRole } from '@cleocode/contracts';
 import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { getLogger, getProjectRoot } from '@cleocode/core';
-import { BackupRecoverError, runBackupRecover } from '@cleocode/core/store/backup-recover.js';
+import { CleoError, getLogger, getProjectRoot } from '@cleocode/core';
+import {
+  BackupRecoverError,
+  PROJECT_STORE_ROLES,
+  recoverProjectStore,
+  runBackupRecover,
+} from '@cleocode/core/store/backup-recover.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
@@ -61,7 +66,8 @@ function readStringFlag(args: Record<string, unknown>, key: string): string {
  *
  * @internal
  */
-function executeRecover(role: DbRole, args: Record<string, unknown>): void {
+async function executeRecover(role: DbRole, args: Record<string, unknown>): Promise<void> {
+  if (PROJECT_STORE_ROLES.has(role)) return executeStoreRecover(role, args);
   const projectRoot = getProjectRoot();
   const dryRun = readBoolFlag(args, 'dry-run');
   const fromSnapshot = readStringFlag(args, 'from-snapshot');
@@ -119,9 +125,71 @@ function executeRecover(role: DbRole, args: Record<string, unknown>): void {
   }
 }
 
+/**
+ * `tasks`, `brain` and `conduit` all live in the project `.cleo/cleo.db`:
+ * recover THAT file through the safe restore (T13245), never the
+ * pre-consolidation path the inventory still names.
+ */
+async function executeStoreRecover(role: DbRole, args: Record<string, unknown>): Promise<void> {
+  const operation = `backup.recover.${role}`;
+  try {
+    const fromSnapshot = readStringFlag(args, 'from-snapshot');
+    const result = await recoverProjectStore({
+      role,
+      projectRoot: getProjectRoot(),
+      ...(fromSnapshot.length > 0 ? { fromSnapshot } : {}),
+      dryRun: readBoolFlag(args, 'dry-run'),
+      force: readBoolFlag(args, 'force'),
+      confirmOwnerStore: readBoolFlag(args, 'confirm-owner-store'),
+      cwd: process.cwd(),
+    });
+    cliOutput(result, { command: 'backup', operation });
+  } catch (err) {
+    const coded = err instanceof BackupRecoverError || err instanceof CleoError;
+    const code = coded ? err.code : ExitCode.GENERAL_ERROR;
+    const message = err instanceof Error ? err.message : String(err);
+    const fix = coded ? err.fix : undefined;
+    cliError(message, code, { name: 'E_RECOVERY_FAILED', ...(fix ? { fix } : {}) }, { operation });
+    process.exitCode = code;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Backward-compat leaf — `cleo backup recover brain`
 // ---------------------------------------------------------------------------
+
+/** Flags of the project-store recover leaves (`brain`, `tasks`, `conduit`). */
+const STORE_LEAF_ARGS = {
+  'dry-run': {
+    type: 'boolean',
+    description: 'Print what would be done without quarantining or copying any files',
+    default: false,
+  },
+  'from-snapshot': {
+    type: 'string',
+    description:
+      'Pin recovery to a specific snapshot — absolute path or ISO timestamp prefix (e.g. 2026-05-23)',
+    default: '',
+  },
+  'no-delta': {
+    type: 'boolean',
+    description:
+      'Skip the sqlite3 .recover delta-merge step (reserved — current pipeline does not delta-merge; flag plumbed for forward-compat)',
+    default: false,
+  },
+  force: {
+    type: 'boolean',
+    description:
+      'tasks/brain/conduit: the live cleo.db is unreadable and every cleo process is stopped, so the restore may proceed without the live-writer check',
+    default: false,
+  },
+  'confirm-owner-store': {
+    type: 'boolean',
+    description:
+      "From inside a git worktree: allow overwriting the owning project's LIVE store (refused without it)",
+    default: false,
+  },
+} as const;
 
 /**
  * `cleo backup recover brain` — backward-compatible brain.db recovery leaf.
@@ -150,41 +218,31 @@ export const backupRecoverBrainLeaf = defineCommand({
     description:
       'Recover a malformed brain.db from the freshest validated snapshot (Saga T10281 SG-BRAIN-DB-RESILIENCE)',
   },
-  args: {
-    'dry-run': {
-      type: 'boolean',
-      description: 'Print what would be done without quarantining or copying any files',
-      default: false,
-    },
-    'from-snapshot': {
-      type: 'string',
-      description:
-        'Pin recovery to a specific snapshot — absolute path or ISO timestamp prefix (e.g. 2026-05-23)',
-      default: '',
-    },
-    'no-delta': {
-      type: 'boolean',
-      description:
-        'Skip the sqlite3 .recover delta-merge step (reserved — current pipeline does not delta-merge; flag plumbed for forward-compat)',
-      default: false,
-    },
-    force: {
-      type: 'boolean',
-      description: 'Bypass any safety prompts (currently a no-op; reserved)',
-      default: false,
-    },
-    'confirm-owner-store': {
-      type: 'boolean',
-      description:
-        "From inside a git worktree: allow overwriting the owning project's LIVE store (refused without it)",
-      default: false,
-    },
-  },
+  args: STORE_LEAF_ARGS,
   async run({ args }): Promise<void> {
     const argsBag: Record<string, unknown> = args;
-    executeRecover('brain', argsBag);
+    await executeRecover('brain', argsBag);
   },
 });
+
+/**
+ * `cleo backup recover tasks|conduit`: the project store under its other role
+ * names. citty resolves a known subcommand before the parent's positional
+ * `<role>`, so each project-store role needs its own leaf (T13245).
+ */
+function makeStoreRecoverLeafCommand(role: 'tasks' | 'conduit') {
+  return defineCommand({
+    meta: {
+      name: role,
+      description: `Recover the live project store (.cleo/cleo.db, which holds the ${role} tables) from the freshest validated snapshot`,
+    },
+    args: STORE_LEAF_ARGS,
+    async run({ args }): Promise<void> {
+      const argsBag: Record<string, unknown> = args;
+      await executeRecover(role, argsBag);
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Generic group — `cleo backup recover <role>`
@@ -253,7 +311,8 @@ export const backupRecoverSubCommand = defineCommand({
     },
     force: {
       type: 'boolean',
-      description: 'Bypass any safety prompts (currently a no-op; reserved)',
+      description:
+        'tasks/brain/conduit: the live cleo.db is unreadable and every cleo process is stopped, so the restore may proceed without the live-writer check',
       default: false,
     },
     'confirm-owner-store': {
@@ -265,10 +324,16 @@ export const backupRecoverSubCommand = defineCommand({
   },
   subCommands: {
     brain: backupRecoverBrainLeaf,
+    tasks: makeStoreRecoverLeafCommand('tasks'),
+    conduit: makeStoreRecoverLeafCommand('conduit'),
   },
   async run({ args }): Promise<void> {
     const argsBag: Record<string, unknown> = args;
     const roleArg = readStringFlag(argsBag, 'role');
+    // citty runs this parent after a matched leaf too, with the leaf's name as
+    // the positional: the leaf already recovered (running again would refuse
+    // on, or re-restore over, the store it just placed; T13245).
+    if (roleArg === 'brain' || roleArg === 'tasks' || roleArg === 'conduit') return;
 
     // No positional + no subcommand → surface usage. citty fires the parent
     // `run` AFTER a subcommand resolves, so this branch only triggers when
@@ -308,6 +373,6 @@ export const backupRecoverSubCommand = defineCommand({
       throw err;
     }
 
-    executeRecover(role, argsBag);
+    await executeRecover(role, argsBag);
   },
 });

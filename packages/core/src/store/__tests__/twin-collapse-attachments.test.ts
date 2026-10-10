@@ -50,6 +50,10 @@ import {
   setFreezeBuildForTests,
   TWIN_COLLAPSE_MARKER_PREFIX,
 } from '../twin-collapse.js';
+import { optOutOfForeignKeys } from './test-db-helper.js';
+
+// T13228: fixtures seed bare legacy tables with references the twin collapse resolves; they run with foreign keys OFF.
+optOutOfForeignKeys();
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const MARKERS = [`${TWIN_COLLAPSE_MARKER_PREFIX}attachments`];

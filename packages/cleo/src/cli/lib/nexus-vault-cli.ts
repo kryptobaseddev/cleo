@@ -23,6 +23,7 @@ import type {
 } from '@cleocode/contracts';
 import { failNexus, nexusApiUrlArg } from './nexus-account-cli.js';
 import { runCloudRead, stringArg } from './nexus-cloud-cli.js';
+import { terminalSafe } from './terminal-safe.js';
 
 /** Parsed citty args. */
 type Args = Readonly<Record<string, unknown>>;
@@ -46,7 +47,8 @@ function common(args: Args, operation: string) {
   return { apiUrl: nexusApiUrlArg(args), scope: scopeArg(args, operation) };
 }
 
-const who = (name: string | null, id: string) => name ?? id;
+/** A device as a human line names it: its server-supplied name, else its id, made terminal-safe (T13295). */
+const who = (name: string | null, id: string) => terminalSafe(name ?? id);
 
 /**
  * `--limit` of `cleo cloud activity`, validated (T13007): a whole number from
@@ -141,7 +143,9 @@ async function restoreProjectId(args: Args): Promise<string | undefined> {
   if (stringArg(args, 'into') === undefined) assertNexusRestoreTarget();
   const resolved = await resolveNexusProjectRef(ref, { apiUrl: nexusApiUrlArg(args) });
   if (resolved.matchedBy === 'name') {
-    process.stderr.write(`Restoring "${resolved.name}" (project ${resolved.projectId})...\n`);
+    process.stderr.write(
+      `Restoring "${terminalSafe(resolved.name ?? '')}" (project ${resolved.projectId})...\n`,
+    );
   }
   return resolved.projectId;
 }
@@ -179,32 +183,84 @@ async function runCloudRestoreLike(
         },
       });
     },
-    (r) =>
-      r.status === 'up-to-date'
-        ? `Up to date: this ${r.scope} store already holds snapshot ${r.snapshot?.checkpointId ?? 'none'}.`
-        : `Restored ${r.scope} snapshot ${r.snapshot?.checkpointId} into ${r.target}: ${r.tables} table(s) verified by count and hash${r.safetyBackup ? `; previous state saved to ${r.safetyBackup}` : ''}.`,
+    cloudRestoreSummary,
   );
 }
 
 /**
- * `cleo cloud verify [--scope]`.
+ * One human line for `cleo cloud pull` and `cleo cloud restore`.
+ *
+ * @param r - Restore result.
+ * @returns e.g. `Restored project snapshot cp-1 into /p: 12 table(s) verified by count and hash; replica r-1 retired → r-2.`
+ */
+export function cloudRestoreSummary(r: CloudRestoreResult): string {
+  if (r.status === 'up-to-date') {
+    return `Up to date: this ${r.scope} store already holds snapshot ${r.snapshot?.checkpointId ?? 'none'}.`;
+  }
+  const backup = r.safetyBackup ? `; previous state saved to ${r.safetyBackup}` : '';
+  // The placed file is a new store instance: its replica was retired (T13109).
+  // A copy's carried replica stays live where it belongs; only the copy moves on.
+  const carried =
+    r.replica?.reason === 'file-identity'
+      ? 'from a copied file'
+      : r.replica?.reason === 'foreign-device'
+        ? 'from another device'
+        : null;
+  const replica = !r.replica
+    ? ''
+    : carried
+      ? `; this copy now has its own replica ${r.replica.current} (${r.replica.reason}: it carried ${r.replica.retired} ${carried})`
+      : `; replica ${r.replica.retired} retired → ${r.replica.current}`;
+  return `Restored ${r.scope} snapshot ${r.snapshot?.checkpointId} into ${r.target}: ${r.tables} table(s) verified by count and hash${backup}${replica}.`;
+}
+
+/**
+ * The `--deep` part of the `cleo cloud verify` line (T13291): how many
+ * snapshots and segments passed the byte check, and the first failure.
+ *
+ * @param deep - The deep check, absent without `--deep`.
+ * @returns The clause, empty without `--deep`.
+ */
+export function deepVerifyClause(deep: CloudVerifyResult['deep']): string {
+  if (!deep) return '';
+  const passed = deep.snapshots.filter((x) => x.ok).length;
+  const failed = deep.snapshots.find((x) => !x.ok);
+  const segments = `${deep.segments.checked} segment(s) after seq ${deep.segments.from} ${deep.segments.ok ? 'verified' : `verified, then FAILED: ${deep.segments.problem}`}`;
+  return `; deep: ${passed}/${deep.snapshots.length} snapshot bundle(s) verified${failed ? ` (${failed.checkpointId} FAILED: ${failed.problem})` : ''}, ${segments}`;
+}
+
+/**
+ * The human line of `cleo cloud verify`: verdict, differing tables, local
+ * integrity, each device against the head, the `--deep` part, and where local
+ * backups are checked.
+ *
+ * @param r - The verify result.
+ * @returns The line.
+ */
+export function cloudVerifySummary(r: CloudVerifyResult): string {
+  const bad = r.tables.filter((t) => !t.match).map((t) => t.table);
+  const devices = r.devices
+    .map(
+      (d) => `${who(d.deviceName, d.deviceId)} ${d.matchesHead ? 'matches' : 'differs from'} head`,
+    )
+    .join('; ');
+  return `Verify ${r.scope}: ${r.verdict}${bad.length ? ` (${bad.length} table(s) differ: ${bad.slice(0, 8).join(', ')}${bad.length > 8 ? ', …' : ''})` : ''}; local integrity ${r.localIntegrity ? 'ok' : 'FAILED'}${devices ? `; ${devices}` : ''}${deepVerifyClause(r.deep)}. Local backups: \`cleo backup verify\`.`;
+}
+
+/**
+ * `cleo cloud verify [--scope] [--deep]`.
  *
  * @param args - Parsed args.
  */
 export async function runCloudVerify(args: Args): Promise<void> {
   await runCloudRead<CloudVerifyResult>(
     'cloud.verify',
-    async () => (await vaultModule()).verifyNexusVault(common(args, 'cloud.verify')),
-    (r) => {
-      const bad = r.tables.filter((t) => !t.match).map((t) => t.table);
-      const devices = r.devices
-        .map(
-          (d) =>
-            `${who(d.deviceName, d.deviceId)} ${d.matchesHead ? 'matches' : 'differs from'} head`,
-        )
-        .join('; ');
-      return `Verify ${r.scope}: ${r.verdict}${bad.length ? ` (${bad.length} table(s) differ: ${bad.slice(0, 8).join(', ')}${bad.length > 8 ? ', …' : ''})` : ''}; local integrity ${r.localIntegrity ? 'ok' : 'FAILED'}${devices ? `; ${devices}` : ''}.`;
-    },
+    async () =>
+      (await vaultModule()).verifyNexusVault({
+        ...common(args, 'cloud.verify'),
+        deep: args['deep'] === true,
+      }),
+    cloudVerifySummary,
   );
 }
 
@@ -277,7 +333,7 @@ export async function runCloudActivity(args: Args): Promise<void> {
         .slice(0, 10)
         .map(
           (i) =>
-            `${i.at} ${who(i.deviceName, i.deviceId ?? 'account')}${i.thisDevice ? ' (this machine)' : ''} ${i.action}${i.target ? ` ${i.target}` : ''}`,
+            `${i.at} ${who(i.deviceName, i.deviceId ?? 'account')}${i.thisDevice ? ' (this machine)' : ''} ${terminalSafe(i.action)}${i.target ? ` ${terminalSafe(i.target)}` : ''}`,
         )
         .join('; ')}${r.items.length > 10 ? '; …' : ''}`,
   );

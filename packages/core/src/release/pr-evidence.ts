@@ -901,7 +901,7 @@ export async function resolveRequiredWorkflowsDetailed(
   }
 
   // gh#1323 — do NOT fall through to `PR_REQUIRED_WORKFLOWS` here. Those are
-  // CLEOCODE's gate names ('CI', 'Lockfile Check', 'Contracts Dep Lint'), and
+  // CLEOCODE's gate names ('CI', 'Contracts Dep Lint'), and
   // applying them to whatever repository we happen to be pointed at is the
   // defect: in a project without them, every `pr:` atom is refused because the
   // checks it looks for belong to a different codebase. The refusal reads as

@@ -58,6 +58,7 @@ import { getDb } from '../sqlite.js';
 import {
   clearAcUidGraveyardNative,
   clearBirthFpNative,
+  clearIdentityColumnsNative,
   fillIdentityColumnNative,
   relinkAcUidNative,
   writeRowIdentityMetaNative,
@@ -70,6 +71,7 @@ const CHOKEPOINT_WRITERS: RowIdentityWriters = {
   writeRowIdentityMetaNative,
   fillIdentityColumnNative,
   clearBirthFpNative,
+  clearIdentityColumnsNative,
 };
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');

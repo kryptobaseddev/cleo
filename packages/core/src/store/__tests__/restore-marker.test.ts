@@ -7,13 +7,15 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import {
   assertStoreNotRestoring,
+  openUnlessRestoring,
+  RESTORE_MARKER_MAX_AGE_MS,
   RESTORE_MARKER_SUFFIX,
   writeRestoreMarker,
 } from '../restore-marker.js';
@@ -23,10 +25,19 @@ let dir: string;
 let db: string;
 
 /** A marker as another process would write it. */
-function markerOf(pid: number): void {
+function markerOf(
+  pid: number,
+  extra: { host?: string; deviceId?: string; startedAt?: string } = {},
+): void {
   writeFileSync(
     db + RESTORE_MARKER_SUFFIX,
-    JSON.stringify({ pid, host: hostname(), startedAt: new Date().toISOString(), kind: 'restore' }),
+    JSON.stringify({
+      pid,
+      host: extra.host ?? hostname(),
+      ...(extra.deviceId ? { deviceId: extra.deviceId } : {}),
+      startedAt: extra.startedAt ?? new Date().toISOString(),
+      kind: 'restore',
+    }),
   );
 }
 
@@ -40,6 +51,8 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'cleo-restore-marker-'));
   db = join(dir, 'cleo.db');
   vi.stubEnv('CLEO_RESTORE_WAIT_MS', '50');
+  // The device id file lives under CLEO_HOME: never the real one.
+  vi.stubEnv('CLEO_HOME', join(dir, 'home'));
 });
 
 afterEach(() => {
@@ -98,5 +111,46 @@ describe('restore-in-progress marker (T13258)', () => {
     } finally {
       clearer.kill();
     }
+  });
+
+  it('a dead holder on this machine is stale even when the hostname changed (device id; LOW-2)', () => {
+    mkdirSync(join(dir, 'home'), { recursive: true });
+    writeFileSync(join(dir, 'home', 'device-id'), 'this-device\n');
+    markerOf(deadPid(), { host: 'renamed-by-dhcp.local', deviceId: 'this-device' });
+    expect(() => assertStoreNotRestoring(db)).not.toThrow();
+  });
+
+  it('an open that meets a marker never writes: no device id is minted (read-only lookup)', () => {
+    markerOf(process.ppid, { deviceId: 'some-device' });
+    // No device-id file here: the hostname decides, and nothing is created.
+    expect(() => assertStoreNotRestoring(db)).toThrow(/E_STORE_RESTORING/);
+    expect(existsSync(join(dir, 'home', 'device-id'))).toBe(false);
+    rmSync(db + RESTORE_MARKER_SUFFIX, { force: true });
+    const release = writeRestoreMarker(db, 'restore');
+    release();
+    expect(existsSync(join(dir, 'home', 'device-id'))).toBe(false);
+  });
+
+  it('another machine: a fresh marker blocks; one older than the max age is stale', () => {
+    markerOf(1, { host: 'elsewhere', deviceId: 'another-device' });
+    expect(() => assertStoreNotRestoring(db)).toThrow(/E_STORE_RESTORING/);
+    const old = new Date(Date.now() - RESTORE_MARKER_MAX_AGE_MS - 1000).toISOString();
+    markerOf(1, { host: 'elsewhere', deviceId: 'another-device', startedAt: old });
+    expect(() => assertStoreNotRestoring(db)).not.toThrow();
+  });
+
+  it('a marker written between the check and the open closes the handle and waits (LOW-3)', () => {
+    let closes = 0;
+    let opens = 0;
+    expect(() =>
+      openUnlessRestoring(db, () => {
+        opens++;
+        // The restore starts while this open is in flight.
+        if (opens === 1) markerOf(process.ppid);
+        return { close: () => closes++ };
+      }),
+    ).toThrow(/E_STORE_RESTORING/);
+    expect(opens).toBe(1);
+    expect(closes).toBe(1);
   });
 });

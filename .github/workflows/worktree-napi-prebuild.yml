@@ -22,40 +22,15 @@ name: worktree-napi prebuild
 # binary that does not carry it.
 
 on:
+  # T13279: called by ci.yml (job `worktree-napi-gate`), which the required `CI` aggregate
+  # needs; ci.yml runs it only when its paths change (the `changes` job). It
+  # no longer runs on its own pull_request / merge_group / push-to-main triggers.
   workflow_call:
     outputs:
       source-hash:
         description: 'Native source hash every worktree-napi binary in this run is stamped with'
         value: ${{ jobs.source-hash.outputs.hash }}
-  push:
-    branches: [main]
-    paths:
-      - 'crates/worktree-napi/**'
-      - 'crates/worktrunk-core/**'
-      - 'packages/worktree/**'
-      - 'packages/contracts/**'
-      - 'packages/worktree-napi-*/**'
-      - 'rust-toolchain.toml'
-      - 'Cargo.lock'
-      - 'Cargo.toml'
-      - 'pnpm-lock.yaml'
-      - 'scripts/native-source-hash.mjs'
-      - '.github/workflows/worktree-napi-prebuild.yml'
-  pull_request:
-    paths:
-      - 'crates/worktree-napi/**'
-      - 'crates/worktrunk-core/**'
-      - 'packages/worktree/**'
-      - 'packages/contracts/**'
-      - 'packages/worktree-napi-*/**'
-      - 'rust-toolchain.toml'
-      - 'Cargo.lock'
-      - 'Cargo.toml'
-      - 'pnpm-lock.yaml'
-      - 'scripts/native-source-hash.mjs'
-      - '.github/workflows/worktree-napi-prebuild.yml'
   workflow_dispatch:
-  merge_group:
 
 permissions:
   contents: read

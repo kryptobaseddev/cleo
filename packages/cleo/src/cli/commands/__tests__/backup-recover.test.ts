@@ -11,8 +11,10 @@
  *   - BackupRecoverError instances are mapped to their stable exit codes.
  *   - Generic errors fall back to exit code 1.
  *
- * The core `runBackupRecover` helper is mocked so this test exercises only
- * the CLI command's wiring (arg parsing, envelope shape, exit codes).
+ * The core helpers are mocked so this test exercises only the CLI command's
+ * wiring (arg parsing, envelope shape, exit codes). `tasks`, `brain` and
+ * `conduit` all live in the project cleo.db and go through
+ * `recoverProjectStore` (T13245); every other role through `runBackupRecover`.
  *
  * @task T10318
  * @epic T10284
@@ -28,6 +30,7 @@ import { backupCommand } from '../backup.js';
 // ---------------------------------------------------------------------------
 
 const mockRunBackupRecover = vi.fn();
+const mockRecoverProjectStore = vi.fn();
 
 vi.mock('@cleocode/core/store/backup-recover.js', () => {
   class BackupRecoverErrorMock extends Error {
@@ -43,6 +46,8 @@ vi.mock('@cleocode/core/store/backup-recover.js', () => {
   }
   return {
     runBackupRecover: (...args: unknown[]) => mockRunBackupRecover(...args),
+    recoverProjectStore: (...args: unknown[]) => mockRecoverProjectStore(...args),
+    PROJECT_STORE_ROLES: new Set(['tasks', 'brain', 'conduit']),
     BackupRecoverError: BackupRecoverErrorMock,
   };
 });
@@ -166,8 +171,6 @@ const BRAIN_ROW_COUNTS: DbRecoveredRowCounts = {
   brain_learnings: 17,
 };
 
-const ZERO_ROW_COUNTS: DbRecoveredRowCounts = {};
-
 const HAPPY_RESULT: BackupRecoverResult = {
   role: 'brain',
   restoredFrom:
@@ -177,12 +180,6 @@ const HAPPY_RESULT: BackupRecoverResult = {
   integrityOK: true,
   quarantinedTo: '/tmp/test-project/.cleo/quarantine/brain-malformed-2026-05-23T13-12-00-000Z',
   dryRun: false,
-};
-
-const DRY_RUN_PLAN: BackupRecoverResult = {
-  ...HAPPY_RESULT,
-  quarantinedTo: '',
-  dryRun: true,
 };
 
 const TASKS_HAPPY_RESULT: BackupRecoverResult = {
@@ -197,7 +194,7 @@ const TASKS_HAPPY_RESULT: BackupRecoverResult = {
 // Tests — backward-compat `cleo backup recover brain` leaf
 // ---------------------------------------------------------------------------
 
-describe('cleo backup recover brain — dry-run mode (T10318 backward compat)', () => {
+describe('cleo backup recover brain — the project store (T10318 backward compat, T13245)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.exitCode = undefined;
@@ -207,162 +204,56 @@ describe('cleo backup recover brain — dry-run mode (T10318 backward compat)', 
     process.exitCode = undefined;
   });
 
-  it('returns a plan envelope with dryRun=true without mutating state', async () => {
-    mockRunBackupRecover.mockReturnValue(DRY_RUN_PLAN);
+  it('a dry run plans the live store recovery without the legacy decoy path', async () => {
+    mockRecoverProjectStore.mockResolvedValue({ dryRun: true, restored: false });
 
     await runRecoverBrain({ 'dry-run': true });
 
-    expect(mockRunBackupRecover).toHaveBeenCalledOnce();
-    const call = mockRunBackupRecover.mock.calls[0]?.[0];
-    expect(call).toMatchObject({
+    expect(mockRunBackupRecover).not.toHaveBeenCalled();
+    expect(mockRecoverProjectStore).toHaveBeenCalledOnce();
+    expect(mockRecoverProjectStore.mock.calls[0]?.[0]).toMatchObject({
       role: 'brain',
       projectRoot: '/tmp/test-project',
       dryRun: true,
+      force: false,
     });
     expect(process.exitCode).toBeUndefined();
   });
 
-  it('plumbs --from-snapshot through to the core helper', async () => {
-    mockRunBackupRecover.mockReturnValue(DRY_RUN_PLAN);
+  it('plumbs --from-snapshot and --force through', async () => {
+    mockRecoverProjectStore.mockResolvedValue({ dryRun: false, restored: true });
 
-    await runRecoverBrain({
-      'dry-run': true,
-      'from-snapshot': '2026-05-22',
-    });
+    await runRecoverBrain({ 'from-snapshot': '2026-05-22', force: true });
 
-    const call = mockRunBackupRecover.mock.calls[0]?.[0];
-    expect(call?.fromSnapshot).toBe('2026-05-22');
-  });
-
-  it('plumbs --no-delta through to the core helper', async () => {
-    mockRunBackupRecover.mockReturnValue(DRY_RUN_PLAN);
-
-    await runRecoverBrain({ 'dry-run': true, 'no-delta': true });
-
-    const call = mockRunBackupRecover.mock.calls[0]?.[0];
-    expect(call?.noDelta).toBe(true);
-  });
-
-  // T12528: the case above hands the handler `{ 'no-delta': true }`, a shape
-  // citty never produces — real argv `--no-delta` parses to `{ delta: false }`.
-  it('plumbs a citty-parsed --no-delta through to the core helper (T12528)', async () => {
-    mockRunBackupRecover.mockReturnValue(DRY_RUN_PLAN);
-    const { parseArgs } = await import('citty');
-    const recoverGroup = backupCommand.subCommands?.['recover'] as {
-      subCommands: Record<string, { args: import('citty').ArgsDef; run: CittyLeaf['run'] }>;
-    };
-    const brainCmd = recoverGroup.subCommands['brain'];
-    if (!brainCmd) throw new Error('backup recover brain subcommand not found');
-    const argv = ['--dry-run', '--no-delta'];
-    const args = parseArgs(argv, brainCmd.args);
-    expect(args['no-delta']).not.toBe(true);
-
-    await brainCmd.run({ args: args as RecoverArgs, rawArgs: argv });
-
-    const call = mockRunBackupRecover.mock.calls[0]?.[0];
-    expect(call?.noDelta).toBe(true);
-  });
-});
-
-describe('cleo backup recover brain — happy path (T10318 backward compat)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    process.exitCode = undefined;
-  });
-
-  afterEach(() => {
-    process.exitCode = undefined;
-  });
-
-  it('returns structured envelope with all expected fields on success', async () => {
-    mockRunBackupRecover.mockReturnValue(HAPPY_RESULT);
-
-    await runRecoverBrain({});
-
-    expect(mockRunBackupRecover).toHaveBeenCalledOnce();
-    const call = mockRunBackupRecover.mock.calls[0]?.[0];
-    expect(call?.role).toBe('brain');
-    expect(call?.dryRun).toBe(false);
-    expect(process.exitCode).toBeUndefined();
-  });
-
-  it('passes role=brain and projectRoot through', async () => {
-    mockRunBackupRecover.mockReturnValue(HAPPY_RESULT);
-
-    await runRecoverBrain({});
-
-    const call = mockRunBackupRecover.mock.calls[0]?.[0];
-    expect(call).toMatchObject({
+    expect(mockRecoverProjectStore.mock.calls[0]?.[0]).toMatchObject({
       role: 'brain',
-      projectRoot: '/tmp/test-project',
+      fromSnapshot: '2026-05-22',
+      force: true,
+      dryRun: false,
     });
   });
-});
 
-describe('cleo backup recover brain — error paths (T10318 backward compat)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    process.exitCode = undefined;
-  });
-
-  afterEach(() => {
-    process.exitCode = undefined;
-  });
-
-  it('surfaces E_NO_SNAPSHOT with exit code 4 when no snapshots present', async () => {
-    mockRunBackupRecover.mockImplementation(() => {
-      throw new MockBackupRecoverError(
-        'No snapshots found for role "brain"',
-        4,
-        'E_NO_SNAPSHOT',
-        'Run `cleo backup add` to create a snapshot for role "brain" before attempting recovery.',
-      );
-    });
+  it('surfaces a BackupRecoverError with its exit code', async () => {
+    mockRecoverProjectStore.mockRejectedValue(
+      new MockBackupRecoverError('No valid brain snapshot', 4, 'E_NO_SNAPSHOT'),
+    );
 
     await runRecoverBrain({});
-
-    expect(process.exitCode).toBe(4);
-  });
-
-  it('surfaces E_NO_SNAPSHOT_MATCH with exit code 4 when --from-snapshot pin matches zero candidates', async () => {
-    mockRunBackupRecover.mockImplementation(() => {
-      throw new MockBackupRecoverError(
-        'Snapshot pin "1970-01-01" matched zero candidates for role "brain"',
-        4,
-        'E_NO_SNAPSHOT_MATCH',
-      );
-    });
-
-    await runRecoverBrain({ 'from-snapshot': '1970-01-01' });
 
     expect(process.exitCode).toBe(4);
   });
 
   it('surfaces generic errors with exit code 1', async () => {
-    mockRunBackupRecover.mockImplementation(() => {
-      throw new Error('disk full');
-    });
+    mockRecoverProjectStore.mockRejectedValue(new Error('disk full'));
 
     await runRecoverBrain({});
 
-    // GENERAL_ERROR = 1
     expect(process.exitCode).toBe(1);
-  });
-
-  it('returns empty-counts envelope when restoration produced empty tables', async () => {
-    mockRunBackupRecover.mockReturnValue({
-      ...HAPPY_RESULT,
-      rowsRecovered: ZERO_ROW_COUNTS,
-    });
-
-    await runRecoverBrain({});
-
-    expect(process.exitCode).toBeUndefined();
   });
 });
 
 // ---------------------------------------------------------------------------
-// Tests — new generic `cleo backup recover <role>` surface
+// Tests — generic `cleo backup recover <role>` surface
 // ---------------------------------------------------------------------------
 
 describe('cleo backup recover <role> — generic surface (T10318)', () => {
@@ -375,14 +266,43 @@ describe('cleo backup recover <role> — generic surface (T10318)', () => {
     process.exitCode = undefined;
   });
 
-  it('accepts an explicit positional role from DB_INVENTORY', async () => {
-    mockRunBackupRecover.mockReturnValue(TASKS_HAPPY_RESULT);
+  it.each([
+    'tasks',
+    'conduit',
+  ])('the %s leaf recovers the live project store (T13245)', async (role) => {
+    mockRecoverProjectStore.mockResolvedValue({ dryRun: false, restored: true });
+    const recoverGroup = backupCommand.subCommands?.['recover'] as {
+      subCommands: Record<string, CittyLeaf>;
+    };
+    const leaf = recoverGroup.subCommands[role];
+    if (!leaf) throw new Error(`backup recover ${role} leaf not found`);
 
-    await runRecoverGeneric({ role: 'tasks' });
+    await leaf.run({ args: { 'dry-run': false, 'from-snapshot': '', force: false }, rawArgs: [] });
 
-    expect(mockRunBackupRecover).toHaveBeenCalledOnce();
-    const call = mockRunBackupRecover.mock.calls[0]?.[0];
-    expect(call?.role).toBe('tasks');
+    expect(mockRunBackupRecover).not.toHaveBeenCalled();
+    expect(mockRecoverProjectStore).toHaveBeenCalledOnce();
+    expect(mockRecoverProjectStore.mock.calls[0]?.[0]).toMatchObject({ role });
+  });
+
+  it.each([
+    'brain',
+    'tasks',
+    'conduit',
+  ])('the parent run after the %s leaf (citty passes the leaf name as the positional) recovers nothing again', async (role) => {
+    await runRecoverGeneric({ role });
+
+    expect(mockRecoverProjectStore).not.toHaveBeenCalled();
+    expect(mockRunBackupRecover).not.toHaveBeenCalled();
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('a non-store role keeps the generic pipeline', async () => {
+    mockRunBackupRecover.mockReturnValue({ ...TASKS_HAPPY_RESULT, role: 'nexus' });
+
+    await runRecoverGeneric({ role: 'nexus' });
+
+    expect(mockRecoverProjectStore).not.toHaveBeenCalled();
+    expect(mockRunBackupRecover.mock.calls[0]?.[0]?.role).toBe('nexus');
     expect(process.exitCode).toBeUndefined();
   });
 
@@ -390,6 +310,7 @@ describe('cleo backup recover <role> — generic surface (T10318)', () => {
     await runRecoverGeneric({ role: '' });
 
     expect(mockRunBackupRecover).not.toHaveBeenCalled();
+    expect(mockRecoverProjectStore).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(6);
   });
 
@@ -401,26 +322,38 @@ describe('cleo backup recover <role> — generic surface (T10318)', () => {
     expect(process.exitCode).not.toBe(0);
   });
 
-  it('plumbs --dry-run, --from-snapshot, --no-delta into the generic path', async () => {
-    mockRunBackupRecover.mockReturnValue({
-      ...TASKS_HAPPY_RESULT,
-      dryRun: true,
-      quarantinedTo: '',
-    });
+  it('plumbs --dry-run, --from-snapshot, --no-delta into the generic pipeline', async () => {
+    mockRunBackupRecover.mockReturnValue({ ...TASKS_HAPPY_RESULT, role: 'nexus', dryRun: true });
 
     await runRecoverGeneric({
-      role: 'tasks',
+      role: 'nexus',
       'dry-run': true,
       'from-snapshot': '2026-05-22',
       'no-delta': true,
     });
 
-    const call = mockRunBackupRecover.mock.calls[0]?.[0];
-    expect(call).toMatchObject({
-      role: 'tasks',
+    expect(mockRunBackupRecover.mock.calls[0]?.[0]).toMatchObject({
+      role: 'nexus',
       dryRun: true,
       fromSnapshot: '2026-05-22',
       noDelta: true,
     });
+  });
+
+  // T12528: real argv `--no-delta` parses to `{ delta: false }`, never `{ 'no-delta': true }`.
+  it('plumbs a citty-parsed --no-delta through to the generic pipeline (T12528)', async () => {
+    mockRunBackupRecover.mockReturnValue({ ...TASKS_HAPPY_RESULT, role: 'nexus', dryRun: true });
+    const { parseArgs } = await import('citty');
+    const recoverGroup = backupCommand.subCommands?.['recover'] as {
+      args: import('citty').ArgsDef;
+      run: CittyLeaf['run'];
+    };
+    const argv = ['nexus', '--dry-run', '--no-delta'];
+    const args = parseArgs(argv, recoverGroup.args);
+    expect(args['no-delta']).not.toBe(true);
+
+    await recoverGroup.run({ args: args as RecoverArgs, rawArgs: argv });
+
+    expect(mockRunBackupRecover.mock.calls[0]?.[0]?.noDelta).toBe(true);
   });
 });

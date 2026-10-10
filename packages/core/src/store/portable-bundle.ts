@@ -109,7 +109,8 @@ export type PortableBundleErrorCode =
   | 'E_DATA_EXISTS'
   | 'E_TARGET_AMBIGUOUS'
   | 'E_RESTORE_MISMATCH'
-  | 'E_REDACTION_FAILED';
+  | 'E_REDACTION_FAILED'
+  | 'E_PROJECT_STORE_UNAVAILABLE';
 
 /**
  * Numeric exit codes for {@link PortableBundleErrorCode}. Decrypt / format /
@@ -118,6 +119,7 @@ export type PortableBundleErrorCode =
  */
 export const PORTABLE_BUNDLE_EXIT_CODES: Readonly<Record<PortableBundleErrorCode, number>> = {
   E_PRIMARY_STORE_MISSING: ExitCode.NOT_FOUND,
+  E_PROJECT_STORE_UNAVAILABLE: ExitCode.LOCK_TIMEOUT,
   E_PRIMARY_STORE_UNREADABLE: ExitCode.FILE_ERROR,
   E_NO_PROJECT: ExitCode.NOT_FOUND,
   E_REGISTRY_UNREADABLE: ExitCode.FILE_ERROR,
@@ -161,6 +163,15 @@ export class PortableBundleError extends Error {
 
 /** Input for {@link exportPortableBundle}. */
 export interface ExportPortableBundleInput {
+  /**
+   * The bundle carries each project store's row identity to wherever it is
+   * imported, so every project store it bundles (one, or each registered
+   * project of a `machine` export) is marked shared first
+   * (`row_identity_synced`, T13250) and the bundle carries the marker too. Default `true`; `false`
+   * only for a local safety bundle that never leaves this machine (the vault's
+   * pre-restore export).
+   */
+  sharesIdentity?: boolean;
   /** Export scope. */
   scope: PortableBundleScope;
   /** Project root (required for `project` / `all`). */
@@ -346,6 +357,8 @@ interface StagingState {
   stripColumns: Readonly<Record<string, readonly string[]>> | null;
   /** Tables emptied in every primary store snapshot ({@link ExportPortableBundleInput.clearTables}). */
   clearTables: readonly string[] | null;
+  /** Mark every staged project store's identity shared first ({@link ExportPortableBundleInput.sharesIdentity}). */
+  sharesIdentity: boolean;
 }
 
 /** Credential tables whose rows {@link listCredentialsForReentry} enumerates, by store. */
@@ -637,6 +650,23 @@ async function stageProject(
   if (!fs.existsSync(cleoDir)) {
     throw new PortableBundleError('E_NO_PROJECT', `No .cleo directory at ${projectRoot}`);
   }
+  // T13250: every project store the bundle carries (one, or each registered
+  // project of a machine export) is marked shared before it is copied, so
+  // the bundle carries the marker too. A store with no identity is decided
+  // read-only and never touched.
+  if (state.sharesIdentity) {
+    const { markProjectIdentityShared } = await import('./identity-share.js');
+    try {
+      await markProjectIdentityShared(projectRoot, 'send', { onlyIfIdentity: true });
+    } catch (err) {
+      // One busy or restoring project fails the whole export (T13270); the
+      // error names it, so the operator knows which one (#1952 review LOW-2).
+      throw new PortableBundleError(
+        'E_PROJECT_STORE_UNAVAILABLE',
+        `cannot mark the identity of ${projectRoot} before bundling it: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
   const info = await readProjectIdentity(projectRoot);
   const name = info.name;
   const safe = name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 60) || 'project';
@@ -736,6 +766,7 @@ export async function exportPortableBundle(
     cleoHome,
     stripColumns: input.stripColumns ?? null,
     clearTables: input.clearTables ?? null,
+    sharesIdentity: input.sharesIdentity !== false,
   };
 
   try {

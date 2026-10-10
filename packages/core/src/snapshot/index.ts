@@ -16,6 +16,7 @@ import type { Task } from '@cleocode/contracts';
 import { resolveCleoDir } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { SameRowPresentError } from '../store/db-helpers.js';
+import { markProjectIdentityShared } from '../store/identity-share.js';
 import { queryTasksIncludingArchived } from '../store/import-remap.js';
 import { rowUidFillEnabled } from '../store/row-identity-flag.js';
 
@@ -143,6 +144,10 @@ export async function exportSnapshot(cwd?: string): Promise<Snapshot> {
       ...(identity.birthFp ? { birthFp: identity.birthFp } : {}),
     };
   });
+  // T13249: a snapshot that carries uids shares this store's identity (it is
+  // committed and imported elsewhere), so the store records the send: a later
+  // recipe bump must never re-derive uids those copies name.
+  if (snapshotTasks.some((t) => t.uid)) await markProjectIdentityShared(cwd, 'send');
   const checksum = computeChecksum(snapshotTasks);
 
   return {
@@ -238,6 +243,9 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
     ).map((r) => [r.id, r.uid]),
   );
 
+  // Tasks inserted with the snapshot's uid: this store now holds identity
+  // minted elsewhere (T13249).
+  let receivedUids = 0;
   // One transaction: a collision on any task leaves nothing half-imported (T12724).
   await accessor.transaction(async (tx) => {
     for (const snapshotTask of snapshot.tasks) {
@@ -281,6 +289,7 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
           continue;
         }
         result.added++;
+        if (snapshotTask.uid) receivedUids++;
         continue;
       }
 
@@ -327,6 +336,7 @@ export async function importSnapshot(snapshot: Snapshot, cwd?: string): Promise<
       }
     }
   });
+  if (receivedUids > 0) await markProjectIdentityShared(cwd, 'receive');
 
   return result;
 }

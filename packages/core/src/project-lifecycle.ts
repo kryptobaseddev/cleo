@@ -308,12 +308,12 @@ async function takeCheckpoint(
   target: string,
 ): Promise<EngineResult<{ id: string; path: string }>> {
   try {
-    const { createBackup } = await import('./system/backup.js');
+    const { createBackup, PROJECT_STORE_BACKUP_FILE } = await import('./system/backup.js');
     const backup = await createBackup(projectRoot, {
       type: kind,
       note: `before cleo project ${kind} ${target}`,
     });
-    if (!backup.files.includes('tasks.db')) {
+    if (!backup.files.includes(PROJECT_STORE_BACKUP_FILE)) {
       throw new Error('the project database was not captured');
     }
     const { getCleoHome } = await import('./paths.js');

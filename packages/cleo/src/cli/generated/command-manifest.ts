@@ -219,7 +219,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'cloudCommand',
     name: 'cloud',
     description:
-      'Cleo Nexus with the device credential: status (one-call verification), whoami, devices, projects [show], activity; the encrypted vault: push, pull, restore, verify, vault, lease release.',
+      'Cleo Nexus with the device credential: status (one-call verification), whoami, devices, projects [show], activity; the encrypted vault: push, pull, restore, verify, vault, lease release; the local sync conflict log: conflicts [resolve <id>].',
     load: async () => (await import('../commands/cloud.js')).cloudCommand as CommandDef,
   },
   {
@@ -557,6 +557,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-repair.js')).doctorRepairCommand as CommandDef,
   },
   {
+    exportName: 'doctorRowIdentityCommand',
+    name: 'row-identity',
+    description:
+      'Plan the from-scratch row-identity refill of a store whose identity predates the current ',
+    load: async () =>
+      (await import('../commands/doctor-row-identity.js')).doctorRowIdentityCommand as CommandDef,
+  },
+  {
     exportName: 'doctorSkillFixturesCommand',
     name: 'skill-fixtures',
     description:
@@ -861,7 +869,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'loginCommand',
     name: 'login',
     description:
-      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. After a Cleo Nexus sign-in inside an unlinked CLEO project it offers to link the project and back it up (--yes does it; a non-interactive run prints the next command); outside a project it lists your projects with the cleo cloud restore command for each. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
+      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. Without a terminal and no target, cleo login signs in to Cleo Nexus (an agent needs no extra word). After a Cleo Nexus sign-in inside an unlinked CLEO project it links the project and backs it up: a terminal is asked, --yes or a non-interactive run (an agent) does it, a restore over this copy is never done unasked, and CI only prints the next command; outside a project it lists your projects with the cleo cloud restore command for each. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
     load: async () => (await import('../commands/login.js')).loginCommand as CommandDef,
   },
   {

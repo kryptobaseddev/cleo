@@ -36,39 +36,15 @@ name: cant-napi build
 #      cache a release restores from (a tag run can read main's caches).
 
 on:
+  # T13279: called by ci.yml (job `cant-napi-gate`), which the required `CI` aggregate
+  # needs; ci.yml runs it only when its paths change (the `changes` job). It
+  # no longer runs on its own pull_request / merge_group / push-to-main triggers.
   workflow_call:
     outputs:
       source-hash:
         description: 'Native source hash every cant binary in this run is stamped with'
         value: ${{ jobs.source-hash.outputs.hash }}
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'crates/cant-core/**'
-      - 'crates/cant-runtime/**'
-      - 'crates/cant-napi/**'
-      - 'packages/caamp/providers/hook-mappings.json'
-      - 'packages/cant/**'
-      - 'Cargo.lock'
-      - 'Cargo.toml'
-      - 'rust-toolchain.toml'
-      - 'scripts/native-source-hash.mjs'
-      - 'scripts/lint-no-committed-native-binaries.mjs'
-      - '.github/workflows/cant-napi-build.yml'
-  pull_request:
-    paths:
-      - 'crates/cant-core/**'
-      - 'crates/cant-runtime/**'
-      - 'crates/cant-napi/**'
-      - 'packages/caamp/providers/hook-mappings.json'
-      - 'packages/cant/**'
-      - 'Cargo.lock'
-      - 'Cargo.toml'
-      - 'rust-toolchain.toml'
-      - 'scripts/native-source-hash.mjs'
-      - 'scripts/lint-no-committed-native-binaries.mjs'
-      - '.github/workflows/cant-napi-build.yml'
 
 permissions:
   contents: read

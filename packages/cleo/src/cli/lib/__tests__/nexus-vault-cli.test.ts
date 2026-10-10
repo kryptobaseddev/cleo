@@ -39,6 +39,9 @@ vi.mock('@cleocode/core/cloud/nexus-cloud-status.js', () => ({
 }));
 
 const {
+  cloudRestoreSummary,
+  cloudVerifySummary,
+  deepVerifyClause,
   runCloudActivity,
   runCloudLease,
   runCloudPull,
@@ -70,6 +73,7 @@ const restoreResult = {
   verified: true,
   tables: 2,
   safetyBackup: null,
+  replica: null,
 };
 
 let stdout: ReturnType<typeof vi.spyOn>;
@@ -193,7 +197,7 @@ describe('flags reach the core calls', () => {
     await runCloudVault({ scope: 'global' });
     await runCloudLease({ action: 'release', scope: 'global' });
     await runCloudLease({});
-    expect(opts(verifyNexusVault)).toEqual({ apiUrl: API, scope: 'global' });
+    expect(opts(verifyNexusVault)).toEqual({ apiUrl: API, scope: 'global', deep: false });
     expect(opts(nexusVaultStatus)).toEqual({ apiUrl: undefined, scope: 'global' });
     expect(opts(releaseNexusVaultLease)).toEqual({ apiUrl: undefined, scope: 'global' });
     expect(releaseNexusVaultLease.mock.calls[1]?.[0]).toEqual({
@@ -219,6 +223,66 @@ describe('flags reach the core calls', () => {
     });
     await runCloudActivity({});
     expect(nexusCloudActivity.mock.calls[1]?.[0]).toEqual({ apiUrl: undefined });
+  });
+});
+
+describe('cleo cloud verify --deep (T13291)', () => {
+  it('passes deep only for --deep', async () => {
+    await runCloudVerify({ deep: true });
+    await runCloudVerify({ deep: 'yes' });
+    expect(opts(verifyNexusVault)).toEqual({ apiUrl: undefined, scope: 'project', deep: true });
+    expect(verifyNexusVault.mock.calls[1]?.[0]).toEqual({
+      apiUrl: undefined,
+      scope: 'project',
+      deep: false,
+    });
+  });
+
+  it('the verify line carries the deep part and points at cleo backup verify', () => {
+    const r = {
+      ...base,
+      scope: 'project' as const,
+      verdict: 'untrusted' as const,
+      remedy: null,
+      localIntegrity: true,
+      head: null,
+      lastSynced: null,
+      tables: [],
+      devices: [],
+      deep: {
+        snapshots: [],
+        segments: { from: 0, checked: 3, ok: true, problem: null },
+      },
+    };
+    expect(cloudVerifySummary(r)).toBe(
+      'Verify project: untrusted; local integrity ok; deep: 0/0 snapshot bundle(s) verified, 3 segment(s) after seq 0 verified. Local backups: `cleo backup verify`.',
+    );
+    const { deep: _deep, ...plain } = r;
+    expect(cloudVerifySummary(plain)).toBe(
+      'Verify project: untrusted; local integrity ok. Local backups: `cleo backup verify`.',
+    );
+  });
+
+  it('the deep clause counts what passed and names the first failure', () => {
+    expect(deepVerifyClause(undefined)).toBe('');
+    const ok = { checkpointId: 'cp-1', deviceId: 'd-1', sizeBytes: 10, ok: true, problem: null };
+    expect(
+      deepVerifyClause({
+        snapshots: [ok],
+        segments: { from: 4, checked: 2, ok: true, problem: null },
+      }),
+    ).toBe('; deep: 1/1 snapshot bundle(s) verified, 2 segment(s) after seq 4 verified');
+    expect(
+      deepVerifyClause({
+        snapshots: [
+          ok,
+          { ...ok, checkpointId: 'cp-2', ok: false, problem: 'bundle does not match its hash' },
+        ],
+        segments: { from: 0, checked: 1, ok: false, problem: 'segment 2 does not decrypt' },
+      }),
+    ).toBe(
+      '; deep: 1/2 snapshot bundle(s) verified (cp-2 FAILED: bundle does not match its hash), 1 segment(s) after seq 0 verified, then FAILED: segment 2 does not decrypt',
+    );
   });
 });
 
@@ -311,6 +375,38 @@ describe('restore relink callback', () => {
     await expect(relink('/r')).resolves.toEqual([
       'restored, but attaching this copy failed (boom); run `cleo project link`',
     ]);
+  });
+});
+
+describe('cloudRestoreSummary (T13109)', () => {
+  it('names the retired and the new replica after a placement', () => {
+    const line = cloudRestoreSummary({
+      ...restoreResult,
+      status: 'restored',
+      replica: { retired: 'r-old', current: 'r-new', reason: 'vault-restore' },
+    });
+    expect(line).toBe(
+      'Restored project snapshot cp-1 into /x: 2 table(s) verified by count and hash; replica r-old retired → r-new.',
+    );
+    const copied = cloudRestoreSummary({
+      ...restoreResult,
+      status: 'restored',
+      replica: { retired: 'r-old', current: 'r-new', reason: 'file-identity' },
+    });
+    expect(copied).toContain(
+      '; this copy now has its own replica r-new (file-identity: it carried r-old from a copied file).',
+    );
+    expect(copied).not.toContain('retired');
+    const foreign = cloudRestoreSummary({
+      ...restoreResult,
+      status: 'restored',
+      replica: { retired: 'r-old', current: 'r-new', reason: 'foreign-device' },
+    });
+    expect(foreign).toContain('(foreign-device: it carried r-old from another device)');
+  });
+
+  it('says nothing about replicas when the store had none', () => {
+    expect(cloudRestoreSummary({ ...restoreResult, status: 'restored' })).not.toContain('replica');
   });
 });
 

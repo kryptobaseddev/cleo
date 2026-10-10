@@ -278,6 +278,28 @@ export function readNexusProjectLink(projectRoot: string, apiUrl: string): Nexus
   return toLink(readLinkFile(nexusLinkPath(projectRoot)).links[new URL(apiUrl).origin]);
 }
 
+/**
+ * Every stored binding of a project, one per origin (T13231). An entry this
+ * version cannot read is listed in `unreadable` by origin, never dropped
+ * silently.
+ *
+ * @param projectRoot - Project root.
+ * @returns The readable bindings and the origins of unreadable ones.
+ */
+export function readNexusProjectLinks(projectRoot: string): {
+  links: NexusProjectLink[];
+  unreadable: string[];
+} {
+  const links: NexusProjectLink[] = [];
+  const unreadable: string[] = [];
+  for (const [origin, raw] of Object.entries(readLinkFile(nexusLinkPath(projectRoot)).links)) {
+    const link = toLink(raw);
+    if (link) links.push(link);
+    else unreadable.push(origin);
+  }
+  return { links, unreadable };
+}
+
 /** Map an API failure to a Nexus error; a 401 means the session expired. */
 function toLinkError(err: unknown): Error {
   if (err instanceof NexusError) {

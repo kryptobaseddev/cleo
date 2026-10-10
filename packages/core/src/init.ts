@@ -1287,15 +1287,15 @@ function managedHookSnapshotSources(projRoot: string): Array<[string, string]> {
  *   from this run's snapshot.
  */
 async function snapshotBeforeForcedReinit(projRoot: string, cleoDir: string): Promise<string> {
-  const { createBackup } = await import('./system/backup.js');
+  const { createBackup, PROJECT_STORE_BACKUP_FILE } = await import('./system/backup.js');
   const result = await createBackup(projRoot, {
     type: 'pre-force-init',
     note: 'taken by `cleo init --force` before it resets project files (T12562)',
   });
   const required = ['config.json', 'project-info.json'].filter((f) => existsSync(join(cleoDir, f)));
-  // `tasks.db` is createBackup's label for the live project store (cleo.db).
+  // createBackup's copy of the live project store (T13245: one `cleo.db`).
   if (existsSync(join(cleoDir, 'cleo.db')) || existsSync(join(cleoDir, 'tasks.db'))) {
-    required.push('tasks.db');
+    required.push(PROJECT_STORE_BACKUP_FILE);
   }
   const missing = required.filter((f) => !result.files.includes(f));
 

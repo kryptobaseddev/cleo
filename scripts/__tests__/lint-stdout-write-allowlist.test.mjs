@@ -194,7 +194,17 @@ describe('stdout jobs install their existing parser dependency', () => {
       '10.30.0',
     );
     expect(workflow.jobs['arch-boundary-check'].needs).toContain(id);
-    expect(workflow.on).toHaveProperty('pull_request');
-    expect(workflow.on).toHaveProperty('merge_group');
+    // T13263: the arch workflow is a reusable workflow that ci.yml calls on
+    // every pull_request and merge_group run, through a job the required
+    // `ci` aggregate needs — so these gates still run (and gate) there.
+    expect(workflow.on).toHaveProperty('workflow_call');
+    const ci = parseYaml(readFileSync(join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8'));
+    expect(ci.on).toHaveProperty('pull_request');
+    expect(ci.on).toHaveProperty('merge_group');
+    const caller = Object.entries(ci.jobs).find(
+      ([, j]) => j.uses === './.github/workflows/arch-boundary-check.yml',
+    );
+    expect(caller).toBeDefined();
+    expect(ci.jobs.ci.needs).toContain(caller?.[0]);
   });
 });

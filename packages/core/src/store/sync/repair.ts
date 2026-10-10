@@ -46,7 +46,7 @@ import { withImmediateTransaction } from './clock-store.js';
 import { encodeHlc, MAX_PHYS } from './hlc.js';
 import { activeReplica } from './replica.js';
 import { upsertRowMeta } from './row-meta.js';
-import { hasTable } from './schema.js';
+import { GENESIS_CUT_KEY_PREFIX, hasTable } from './schema.js';
 import { type SealerRowView, sealerRowView, sealPending, sealPreconditions } from './sealer.js';
 import { decodeEnc, type WireValue } from './sealer-values.js';
 import { suspectTables } from './structural.js';
@@ -173,22 +173,27 @@ function captureTriggersPresent(db: DatabaseSync, table: string): boolean {
 
 /**
  * Whether this store's stream has started (T13217): a genesis cut was
- * recorded (`genesis_cut*` in `_sync_meta`, §2.11 §10), a sealed transaction
- * was carried by a segment (`state = 'segmented'`), or undo is on (it turns
- * on with the genesis cut, C1). After that, a checkpoint may already have
- * left the device, so a row without meta can no longer be assumed to be in
- * it.
+ * recorded (a `_sync_meta` key starting with {@link GENESIS_CUT_KEY_PREFIX},
+ * §2.11 §10), a sealed transaction was carried by a segment or folded into a
+ * checkpoint (`state` `segmented` or `folded`; `inherited` is another
+ * replica's and does not count), or undo is on (it turns on with the genesis
+ * cut, C1). After that, a checkpoint may already have left the device, so a
+ * row without meta can no longer be assumed to be in it.
+ *
+ * The `undo_enabled` clause never decides the repair diff, which refuses to
+ * run while undo is on; it is there for other callers of this function.
  */
 export function streamStarted(db: DatabaseSync): boolean {
   const meta = db
     .prepare(
-      "SELECT 1 FROM _sync_meta WHERE key LIKE 'genesis_cut%' OR key = 'undo_enabled' LIMIT 1",
+      "SELECT 1 FROM _sync_meta WHERE substr(key, 1, length(?)) = ? OR key = 'undo_enabled' LIMIT 1",
     )
-    .get();
+    .get(GENESIS_CUT_KEY_PREFIX, GENESIS_CUT_KEY_PREFIX);
   if (meta !== undefined) return true;
   return (
     hasTable(db, '_sync_txn') &&
-    db.prepare("SELECT 1 FROM _sync_txn WHERE state = 'segmented' LIMIT 1").get() !== undefined
+    db.prepare("SELECT 1 FROM _sync_txn WHERE state IN ('segmented', 'folded') LIMIT 1").get() !==
+      undefined
   );
 }
 
@@ -612,9 +617,11 @@ function verifyAndClear(
 }
 
 /**
- * Run the repair diff over every suspect table (§4.4; S3d, T12987): seal what
- * is pending, emit each table's repair ops in a `repair` frame, seal them,
- * then verify and clear the suspect key. A dry run only plans.
+ * Seal what is pending, then run the repair diff over every suspect table
+ * (§4.4; S3d, T12987): emit each table's repair ops in a `repair` frame, seal
+ * them, then verify and clear the suspect key. The pending seal runs even
+ * when no table is suspect (the NEW-8 step before a migration pass). A dry
+ * run only plans.
  *
  * Prerequisites (§4.4): the sealer's preconditions hold, a replica is bound,
  * the table's capture triggers are present, and no capture of the table is
@@ -633,7 +640,6 @@ export function repairSuspectTables(db: DatabaseSync, opts: RepairOptions): Repa
   }
   const wanted = opts.tables ? new Set(opts.tables) : null;
   const suspect = suspectTables(db).filter((t) => wanted === null || wanted.has(t));
-  if (suspect.length === 0) return empty(null, dryRun);
   if (dryRun) {
     const view = sealerRowView(db, opts.scope);
     return {
@@ -666,8 +672,10 @@ export function repairSuspectTables(db: DatabaseSync, opts: RepairOptions): Repa
       if (r.refused !== null || r.captures === 0 || r.pending.length > 0) return;
     }
   };
-  // §4.4 prerequisite: sealing idle. Captured writes seal first (NEW-8).
+  // §4.4 prerequisite: sealing idle. Captured writes seal first (NEW-8),
+  // whether or not any table is suspect.
   sealAll();
+  if (suspect.length === 0) return { refused: null, dryRun, tables: [], sealed };
 
   const results: RepairTableResult[] = [];
   const written: Array<{ plan: RepairPlan; frame: string | null; mark: string }> = [];

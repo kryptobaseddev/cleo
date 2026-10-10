@@ -13,7 +13,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
+import { optOutOfForeignKeys } from '../../store/__tests__/test-db-helper.js';
 import {
   getAgentCapacity,
   getAgentSpecializations,
@@ -23,6 +23,9 @@ import {
   updateAgentSpecializations,
 } from '../agent-capacity-tracker.js';
 import { registerAgent, updateAgentStatus } from '../registry.js';
+
+// T13228: fixtures register agents against tasks that are never seeded; they run with foreign keys OFF.
+optOutOfForeignKeys();
 
 // Each synthetic project owns its task and agent records.
 beforeEach(() => {

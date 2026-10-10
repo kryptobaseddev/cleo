@@ -145,10 +145,23 @@
  * hashed like any column, so two independent migrations of one store must
  * fingerprint identically (the backfill is deterministic).
  *
+ * ## Canonical timestamps (journal spec §1.8; T12987)
+ *
+ * `--canon-timestamps` hashes every captured timestamp column (the
+ * `SYNC_TIMESTAMP_COLUMNS` of the scope) in its canonical wire form, through
+ * the sealer's own `canonicalStoreTimestamp`
+ * (`packages/core/src/store/sync/timestamp-canon.ts`); a value it refuses is
+ * hashed as stored, as the sealer sends it. The journal canonicalizes on the
+ * wire only, so a replayed copy holds the canonical text where the source may
+ * keep a legacy form (`tasks_tasks.updated_at`, the CAS token, is never
+ * rewritten). It records `canonTimestamps: true` in the (MAC'd) JSON, and the
+ * comparator fails when the two sides disagree on it.
+ *
  * Usage:
  *   node scripts/fingerprint-store.mjs --db <cleo.db> [--scope project|global]
  *     (--key-file <file> | --key-out <file>) [--label <name>] [--out <file.json>]
  *     --role source|replica [--rows <file.rows>] [--nonce <value>] [--omit-row-identity]
+ *     [--canon-timestamps]
  *
  * Companion: scripts/compare-fingerprints.mjs.
  *
@@ -158,6 +171,7 @@
  * @task T12341
  * @task T12641
  * @task T12675
+ * @task T12987
  */
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import {
@@ -184,6 +198,10 @@ import {
   rowIdentityColumns,
 } from '../packages/core/src/store/row-identity-registry.ts';
 import {
+  canonicalStoreTimestamp,
+  SYNC_TIMESTAMP_COLUMNS,
+} from '../packages/core/src/store/sync/timestamp-canon.ts';
+import {
   classifyTable,
   isPortableTableClass,
 } from '../packages/core/src/store/table-classification.ts';
@@ -203,6 +221,7 @@ const { values } = parseArgs({
     'key-file': { type: 'string' },
     'key-out': { type: 'string' },
     'omit-row-identity': { type: 'boolean', default: false },
+    'canon-timestamps': { type: 'boolean', default: false },
     role: { type: 'string' },
     nonce: { type: 'string' },
   },
@@ -410,6 +429,7 @@ const result = {
   vecLoaded,
   keyId,
   omitRowIdentity: values['omit-row-identity'],
+  canonTimestamps: values['canon-timestamps'],
   identity,
   rowsFile: rowsPath ? basename(rowsPath) : null,
   rowsSha256: null,
@@ -447,6 +467,12 @@ for (const t of tables) {
       .sort();
     entry.columns = cols;
     entry.excludedColumns = [...excluded].sort();
+    const stampCols = values['canon-timestamps']
+      ? (Object.hasOwn(SYNC_TIMESTAMP_COLUMNS[scope], t)
+          ? SYNC_TIMESTAMP_COLUMNS[scope][t]
+          : []
+        ).filter((c) => cols.includes(c))
+      : [];
     const stmt = db.prepare(`SELECT ${cols.map(ident).join(',')} FROM ${ident(t)}`);
     stmt.setReadBigInts(true);
     const hashes = [];
@@ -460,6 +486,9 @@ for (const t of tables) {
         } catch {
           // Not JSON: nothing to strip.
         }
+      }
+      for (const col of stampCols) {
+        if (typeof row[col] === 'string') row[col] = canonicalStoreTimestamp(row[col]) ?? row[col];
       }
       hashes.push(
         createHmac('sha256', key)

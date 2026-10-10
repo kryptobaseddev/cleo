@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { ensureProviderInstructionFile } from '@cleocode/caamp';
 import type { AdapterInstallProvider, InstallOptions, InstallResult } from '@cleocode/contracts';
 import { getCleoTemplatesTildePath } from '../shared/paths.js';
+import { ensureProjectInstructionFile } from '../shared/project-instruction-file.js';
 
 /**
  * Install provider for Gemini CLI.
@@ -43,15 +44,16 @@ export class GeminiCliInstallProvider implements AdapterInstallProvider {
     const installedAt = new Date().toISOString();
     const details: Record<string, unknown> = {};
 
-    const result = await ensureProviderInstructionFile('gemini-cli', projectDir, {
+    const result = await ensureProjectInstructionFile('gemini-cli', projectDir, {
       references: [`@${getCleoTemplatesTildePath()}/CLEO-INJECTION.md`, '@.cleo/memory-bridge.md'],
       scope: 'project',
     });
 
-    const instructionFileUpdated = result.action !== 'intact';
+    const instructionFileUpdated = result !== null && result.action !== 'intact';
     if (instructionFileUpdated) {
       details.instructionFile = result.filePath;
     }
+    if (result === null) details.instructionFile = 'skipped'; // T13227: $HOME project
 
     return {
       success: true,

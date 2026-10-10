@@ -2,16 +2,29 @@
  * Agent installation functions.
  * Ports lib/skills/agents-install.sh.
  *
- * Installs agent configurations to the appropriate locations.
+ * Installs a project's agents (`<project>/agents/<name>/AGENT.md`) for Claude
+ * Code by symlinking them into the PROJECT's `.claude/agents/` (T13241). CLEO
+ * never writes the user-global Claude config (`CLAUDE_HOME`, else
+ * `~/.claude`): a project that is the home directory, or whose `.claude/`
+ * lies inside the user-global Claude dir, is refused and nothing is written.
  *
  * @epic T4454
  * @task T4518
+ * @task T13241
  */
 
-import { existsSync, mkdirSync, readdirSync, readlinkSync, symlinkSync, unlinkSync } from 'node:fs';
-import { platform } from 'node:os';
-import { basename, join } from 'node:path';
-import { getClaudeAgentsDir } from '../../paths.js';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
+  symlinkSync,
+  unlinkSync,
+} from 'node:fs';
+import { homedir, platform } from 'node:os';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { getProjectRoot } from '../../paths.js';
 import { getAgentsDir } from './config.js';
 
 /**
@@ -25,22 +38,81 @@ const DIR_SYMLINK_TYPE: 'junction' | 'dir' = platform() === 'win32' ? 'junction'
 // Agent Installation
 // ============================================================================
 
-/** Installation target directory. */
-function getAgentInstallDir(): string {
-  return getClaudeAgentsDir();
+/** `path` with its existing leading part resolved through the native realpath (on-disk case). */
+function canonicalPath(path: string): string {
+  const abs = resolve(path);
+  try {
+    return realpathSync.native(abs);
+  } catch {
+    const parent = dirname(abs);
+    return parent === abs ? abs : join(canonicalPath(parent), basename(abs));
+  }
+}
+
+/** Case-folded where volumes are case-insensitive by default (APFS, NTFS). */
+function comparable(path: string): string {
+  return platform() === 'darwin' || platform() === 'win32' ? path.toLowerCase() : path;
+}
+
+/** Whether `path` is `dir` or inside it. */
+function isAtOrInside(path: string, dir: string): boolean {
+  const rel = relative(comparable(canonicalPath(dir)), comparable(canonicalPath(path)));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 /**
- * Install a single agent via symlink.
- * @task T4518
+ * Where a project's agents are installed: `<projectRoot>/.claude/agents`, or
+ * the reason it is refused because that would be user-global Claude config
+ * (T13241): the project is the home directory (its `.claude/` IS the
+ * user-global dir), or the target lies inside `CLAUDE_HOME` / `~/.claude`.
+ *
+ * @param cwd - a directory in the project. @defaultValue process.cwd()
+ * @returns `{ dir }`, or `{ refused }` with the reason.
+ *
+ * @example
+ * ```typescript
+ * projectAgentInstallDir('/repo'); // { dir: '/repo/.claude/agents' }
+ * ```
  */
-export function installAgent(agentDir: string): {
+export function projectAgentInstallDir(
+  cwd?: string,
+): { readonly dir: string } | { readonly refused: string } {
+  const root = getProjectRoot(cwd);
+  const dir = join(root, '.claude', 'agents');
+  if (comparable(canonicalPath(root)) === comparable(canonicalPath(homedir()))) {
+    return { refused: `refusing to write ${dir}: the project is the home directory` };
+  }
+  const claudeHome = process.env['CLAUDE_HOME'] ?? join(homedir(), '.claude');
+  if (isAtOrInside(dir, claudeHome)) {
+    return { refused: `refusing to write ${dir}: it is inside the user-global Claude config dir` };
+  }
+  return { dir };
+}
+
+/**
+ * Install a single agent via symlink into the project's `.claude/agents/`.
+ *
+ * @param agentDir - the agent's source directory.
+ * @param cwd - a directory in the project. @defaultValue process.cwd()
+ * @returns whether it is installed, where, and why not. A user-global target
+ *   (T13241) is refused with nothing written.
+ * @task T4518
+ * @task T13241
+ */
+export function installAgent(
+  agentDir: string,
+  cwd?: string,
+): {
   installed: boolean;
   path: string;
   error?: string;
 } {
-  const targetDir = getAgentInstallDir();
   const agentName = basename(agentDir);
+  const target = projectAgentInstallDir(cwd);
+  if ('refused' in target) {
+    return { installed: false, path: agentName, error: target.refused };
+  }
+  const targetDir = target.dir;
   const targetPath = join(targetDir, agentName);
 
   // Ensure target directory exists
@@ -81,8 +153,12 @@ export function installAgent(agentDir: string): {
 }
 
 /**
- * Install all agents from the project agents/ directory.
+ * Install all agents from the project agents/ directory into the project's
+ * `.claude/agents/` (T13241).
+ *
+ * @param cwd - a directory in the project. @defaultValue process.cwd()
  * @task T4518
+ * @task T13241
  */
 export function installAllAgents(
   cwd?: string,
@@ -103,7 +179,7 @@ export function installAllAgents(
     const agentMdPath = join(agentDir, 'AGENT.md');
     if (!existsSync(agentMdPath)) continue;
 
-    const result = installAgent(agentDir);
+    const result = installAgent(agentDir, cwd);
     results.push({
       name: entry,
       installed: result.installed,
@@ -115,12 +191,19 @@ export function installAllAgents(
 }
 
 /**
- * Uninstall a single agent by removing its symlink.
+ * Uninstall a single agent by removing its symlink from the project's
+ * `.claude/agents/`. Never touches the user-global Claude dir (T13241):
+ * a refused target returns `false`.
+ *
+ * @param agentName - the agent's directory name.
+ * @param cwd - a directory in the project. @defaultValue process.cwd()
  * @task T4518
+ * @task T13241
  */
-export function uninstallAgent(agentName: string): boolean {
-  const targetDir = getAgentInstallDir();
-  const targetPath = join(targetDir, agentName);
+export function uninstallAgent(agentName: string, cwd?: string): boolean {
+  const target = projectAgentInstallDir(cwd);
+  if ('refused' in target) return false;
+  const targetPath = join(target.dir, agentName);
 
   if (!existsSync(targetPath)) {
     return false;
