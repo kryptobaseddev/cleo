@@ -23,5 +23,13 @@ headings, tables, URLs and open-questions sections are stripped, only the
 reply's tail is read, and attributed or self-answered questions do not count.
 A 50-case corpus pins 0 false positives and at least 90% recall. Every error
 fails open, the second stop of a turn always passes, and `CLEO_ASK_ENFORCE`
-selects `block` (default), `warn` or `off`. Installation into each harness
-follows in a separate change.
+selects `block` (default), `warn` or `off`.
+
+`cleo init`, `cleo upgrade` and `cleo doctor heavy-command-hook --fix` install
+the hook as a `hooks.Stop` entry beside the heavy-command hook in Claude Code's
+`.claude/settings.local.json` and Codex's `.codex/hooks.json` (same
+project-level-only, never-the-team's-file rules). It is removed when the
+heavy-command hook's mode is `off` or `CLEO_ASK_ENFORCE=off`. The installed
+script exits 0 on a machine without `cleo` or with an older `cleo`. The
+opencode plugin, Gemini CLI, Cursor and Copilot CLI installers follow
+separately; their runtime answers already ship here.
