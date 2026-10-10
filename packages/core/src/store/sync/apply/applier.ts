@@ -62,7 +62,7 @@ import type { TableScope } from '@cleocode/contracts';
 import type { LedgerActor, LedgerOp, LedgerWireValue } from '@cleocode/contracts/ledger';
 import { BIRTH_FP_COLUMN, UID_COLUMN } from '../../row-identity-registry.js';
 import { type CaptureTableDef, captureTableDef } from '../capture.js';
-import { recordConflicts } from '../conflicts.js';
+import { recordConflictOnce, recordConflicts } from '../conflicts.js';
 import {
   clearFieldLeaves,
   type FieldFrontier,
@@ -176,6 +176,8 @@ type TxnPlan =
       readonly reason: string;
       /** Rows later transactions must not write before this one applies. */
       readonly holds: readonly string[];
+      /** A held uid collision (T12341 §6.4 step 3), recorded once as a conflict. */
+      readonly collision?: { readonly opIdx: number; readonly conflict: MergeConflict };
     }
   | { readonly kind: 'refused-schema'; readonly reason: string };
 
@@ -250,6 +252,38 @@ function rowExists(api: ApplyApi, table: string, uid: string): boolean {
 }
 
 /**
+ * The uid collision `op` would merge into, or null (T12341 §6.4 step 3,
+ * T13394): a minted row op whose birth fingerprint differs from the live row
+ * holding its uid here. Two different rows that minted one uid are never
+ * merged. The conflict names the loser, the greater fingerprint (§6.4), in
+ * its `rule`. A row without a stored fingerprint (not filled yet) or an op
+ * without `bfp` (an older build) is not classified.
+ */
+function uidCollision(
+  db: DatabaseSync,
+  def: CaptureTableDef,
+  op: LedgerOp,
+  resolution: MergeConflict['resolution'],
+): MergeConflict | null {
+  if (op.o === 'K' || !op.bfp || !def.identity.includes(BIRTH_FP_COLUMN)) return null;
+  const row = db
+    .prepare(
+      `SELECT "${BIRTH_FP_COLUMN}" AS bfp FROM main."${def.table.replaceAll('"', '""')}" WHERE "${UID_COLUMN}" = ?`,
+    )
+    .get(op.u) as { bfp: string | null } | undefined;
+  if (!row || row.bfp === null || row.bfp === op.bfp) return null;
+  return {
+    kind: 'uid-collision',
+    table: op.t,
+    uid: op.u,
+    columns: [UID_COLUMN, BIRTH_FP_COLUMN],
+    rule: `loser:${op.bfp > row.bfp ? 'incoming' : 'local'}`,
+    resolution,
+    opHlc: op.h,
+  };
+}
+
+/**
  * A missing reference of `op` (a target never seen), or null. A target the
  * transaction itself inserts or re-keys to counts as present wherever its op
  * sits: netting keeps an op at its FIRST capture, so a row may reference a
@@ -291,7 +325,7 @@ function planTxn(
   const holds = (except?: string): string[] => [
     ...new Set(st.txn.ops.map((o) => rowKey(o.t, o.u)).filter((k) => k !== except)),
   ];
-  for (const op of st.txn.ops) {
+  for (const [opIdx, op] of st.txn.ops.entries()) {
     const def = defs(op.t);
     if (!def) return { kind: 'refused-schema', reason: `unknown table ${op.t}` };
     const blocked = notYet(op, def);
@@ -311,6 +345,18 @@ function planTxn(
         };
       }
       continue;
+    }
+    // A uid this transaction placed earlier is its own row, not a collision.
+    const collision = states.has(k) ? null : uidCollision(db, def, op, 'op-held');
+    if (collision !== null) {
+      return {
+        kind: 'pending',
+        reason: `${op.t}/${op.u}: uid collision with a local row of another birth fingerprint (${collision.rule})`,
+        // The local row holding the uid is a different row: writes to it
+        // (its own echo, later edits) are not held behind this one.
+        holds: holds(k),
+        collision: { opIdx, conflict: collision },
+      };
     }
     const missing = missingRef(db, op, def, txnRows);
     if (missing === 'malformed') {
@@ -591,6 +637,13 @@ function applyRekey(
   const oldLive = rowExists(c.api, op.t, op.u);
   const newLive = nu !== op.u && rowExists(c.api, op.t, nu);
   if (!oldLive) return { result: 'skipped', conflicts: 0 }; // already re-keyed, or deleted
+  // A K names the row it moves by (uid, old fingerprint): a live row holding
+  // that uid with another fingerprint is the collision's winner, and a re-key
+  // of the other row never touches it (T12341 §6.4, T13394).
+  const def = c.defs(op.t);
+  if (def && op.obfp && uidCollision(c.db, def, { ...op, o: 'U', bfp: op.obfp }, 'op-voided')) {
+    return { result: 'skipped', conflicts: 0 };
+  }
   if (newLive || (nu !== op.u && c.api.rowMeta(op.t, nu) !== undefined)) {
     return voidWith(c, opIdx, {
       kind: 'uid-collision',
@@ -676,6 +729,9 @@ function applyOne(
   const def = c.defs(op.t);
   // @sync-invariant none:input-shape planning refused-schema'd every op on an unknown table
   if (!def) throw new Error(`apply: ${op.t} is not a sync-set table`);
+  // Planning holds a collision; a replay or a row placed since is refused here.
+  const collision = uidCollision(c.db, def, op, 'op-voided');
+  if (collision !== null) return voidWith(c, opIdx, collision);
   const refKeys = new Map<string, LedgerWireValue>();
   for (const [col, v] of Object.entries(op.a ?? {})) {
     const target = def.refs.get(col);
@@ -1296,6 +1352,15 @@ function applyInPage(x: PageContext, st: StagedTxn): InPageResult {
   }
   const plan = planTxn(db, api, st, defs, opts.replica);
   if (plan.kind !== 'apply') {
+    if (plan.kind === 'pending' && plan.collision) {
+      recordConflictOnce(
+        db,
+        { ...st.key, opIdx: plan.collision.opIdx },
+        plan.collision.conflict,
+        st.replicaId,
+        nowIso,
+      );
+    }
     return stop(plan.kind, plan.reason, plan.kind === 'pending' ? plan.holds : []);
   }
   if (api.clockReceive(opts.replica, st.txn.hlc, x.nowMs).held) {

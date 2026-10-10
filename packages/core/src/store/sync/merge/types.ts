@@ -160,7 +160,11 @@ export type MergeConflictKind =
   | 'guard'
   /** (applier) A parent delete whose sync-set children remain: the delete is voided. */
   | 'delete-with-live-children'
-  /** (applier) A re-key onto a uid another live row holds: voided. */
+  /**
+   * (applier) A uid held here by a row with another birth fingerprint
+   * (T12341 §6.4 step 3): an incoming row op is held, never merged; a re-key
+   * onto a live uid is voided.
+   */
   | 'uid-collision'
   /** (applier) A Gate C post-apply invariant broke: the whole transaction is voided. */
   | 'post-apply';
@@ -174,7 +178,13 @@ export interface MergeConflict {
   /** The typed rule, for `typed-rule`. */
   readonly rule?: string;
   /** What happened to the incoming values of `columns`. */
-  readonly resolution: 'incoming-applied' | 'incoming-dropped' | 'row-deleted' | 'op-voided';
+  readonly resolution:
+    | 'incoming-applied'
+    | 'incoming-dropped'
+    | 'row-deleted'
+    | 'op-voided'
+    /** The op's transaction waits, pending, until the collision is settled (§6.4). */
+    | 'op-held';
   readonly opHlc: string;
   /** The local HLC the op was compared against, when there was one. */
   readonly localHlc?: string;
