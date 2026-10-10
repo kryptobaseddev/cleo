@@ -2411,3 +2411,83 @@ export function prepareRowIdentity(
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Brain FTS5 update triggers vs the identity fill (T12894)
+// ---------------------------------------------------------------------------
+//
+// The brain FTS5 tables are external-content (`content=brain_<x>`), so their
+// AFTER UPDATE trigger replays a `'delete'` of the old row before indexing the
+// new one. A delete of a row the index does not hold corrupts the index
+// ("database disk image is malformed"). The uid fill is a per-connection TEMP
+// AFTER INSERT trigger that UPDATEs the row, and TEMP triggers fire before
+// main ones, so an unscoped update trigger deleted the new row from the index
+// before the insert trigger had added it; the open-time fill hits the same
+// path for any row the index is missing. Scoping each trigger to its indexed
+// columns (`AFTER UPDATE OF …`) keeps every write that leaves the indexed text
+// alone, the fill included, off the index. Kept here, not in its own module,
+// so the CLI's store-opening graph loads no extra module (gate 39).
+
+/** Each brain FTS5 table's content table and its indexed columns (in FTS order). */
+const BRAIN_FTS: ReadonlyArray<{ readonly table: string; readonly columns: readonly string[] }> = [
+  { table: 'brain_decisions', columns: ['id', 'decision', 'rationale'] },
+  { table: 'brain_patterns', columns: ['id', 'pattern', 'context'] },
+  { table: 'brain_learnings', columns: ['id', 'insight', 'source'] },
+  { table: 'brain_observations', columns: ['id', 'title', 'narrative'] },
+];
+
+/**
+ * The AFTER UPDATE content-sync trigger for one brain FTS5 table, fired only
+ * when an indexed column changes.
+ *
+ * @param table - The content table, e.g. `brain_observations`.
+ * @returns The `CREATE TRIGGER IF NOT EXISTS` statement.
+ */
+export function brainFtsUpdateTriggerSql(table: string): string {
+  const spec = BRAIN_FTS.find((f) => f.table === table);
+  // @sync-invariant none:input-shape programming error: a caller named a table with no brain FTS index
+  if (!spec) throw new Error(`no brain FTS table for ${table}`);
+  const cols = spec.columns.join(', ');
+  const oldCols = spec.columns.map((c) => `old.${c}`).join(', ');
+  const newCols = spec.columns.map((c) => `new.${c}`).join(', ');
+  return `CREATE TRIGGER IF NOT EXISTS ${table}_au AFTER UPDATE OF ${cols} ON ${table} BEGIN
+      INSERT INTO ${table}_fts(${table}_fts, rowid, ${cols})
+      VALUES('delete', old.rowid, ${oldCols});
+      INSERT INTO ${table}_fts(rowid, ${cols})
+      VALUES (new.rowid, ${newCols});
+    END`;
+}
+
+/**
+ * Rewrite every existing unscoped brain FTS update trigger to its scoped form.
+ * A store without the trigger is left alone (the FTS tables are created
+ * lazily by `ensureFts5Tables`). Idempotent; one `sqlite_master` read when
+ * there is nothing to do.
+ *
+ * @param db - The store handle.
+ * @returns The triggers rewritten.
+ */
+export function upgradeBrainFtsUpdateTriggers(db: DatabaseSync): string[] {
+  const live = db
+    .prepare(
+      "SELECT name, sql FROM main.sqlite_master WHERE type = 'trigger' AND name IN (?, ?, ?, ?)",
+    )
+    .all(...BRAIN_FTS.map((f) => `${f.table}_au`)) as Array<{ name: string; sql: string }>;
+  const rewritten: string[] = [];
+  for (const { name, sql } of live) {
+    if (/\bAFTER\s+UPDATE\s+OF\b/i.test(sql)) continue;
+    const table = name.slice(0, -'_au'.length);
+    db.exec('SAVEPOINT brain_fts_au');
+    try {
+      db.exec(`DROP TRIGGER ${name}`);
+      db.exec(brainFtsUpdateTriggerSql(table));
+      db.exec('RELEASE brain_fts_au');
+    } catch (err) {
+      db.exec('ROLLBACK TO brain_fts_au');
+      db.exec('RELEASE brain_fts_au');
+      throw err;
+    }
+    rewritten.push(name);
+  }
+  return rewritten;
+}

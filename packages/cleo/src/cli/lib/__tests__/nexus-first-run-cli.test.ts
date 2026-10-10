@@ -173,11 +173,20 @@ describe('consent', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('a terminal stdin with stderr redirected never prompts (the prompt would be invisible): unattended (T13288)', async () => {
+  it('a terminal stdin with stderr redirected: a person who cannot see the question is never acted for (T13321)', async () => {
     setTTY(true, false);
     await runNexusLoginCommand({ provider: 'nexus' }, 'login.run', vi.fn());
-    expect(firstRunOpts()).toMatchObject({ consent: 'unattended' });
+    // Consent never: the core links and uploads nothing; the next commands are printed.
+    expect(firstRunOpts()).toMatchObject({ consent: 'never' });
+    expect(firstRunOpts()).not.toHaveProperty('confirm');
     expect(ioCreated).not.toHaveBeenCalled();
+    expect(err()).toContain('next: cleo project link && cleo cloud push\n');
+  });
+
+  it('a terminal stdin with stderr redirected and --yes: the explicit opt-in acts', async () => {
+    setTTY(true, false);
+    await runNexusLoginCommand({ provider: 'nexus', yes: true }, 'login.run', vi.fn());
+    expect(firstRunOpts()).toMatchObject({ consent: 'yes' });
   });
 
   it('under CI a terminal never prompts', async () => {
