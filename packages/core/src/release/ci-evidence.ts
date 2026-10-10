@@ -619,7 +619,9 @@ export function evaluateMergeCommitChecks(
       descendantSha !== undefined &&
       descendantSha !== mergeCommitSha &&
       (SUPERSEDED_VERDICTS.has(onMerge.verdict) ||
-        (opts.inheritedFailures === true && onMerge.verdict !== 'missing' && !onMerge.verdict.startsWith('pending')))
+        (opts.inheritedFailures === true &&
+          onMerge.verdict !== 'missing' &&
+          !onMerge.verdict.startsWith('pending')))
     ) {
       const onDescendant = judgeOnSha(pinned, descendantSha, 'push');
       if (onDescendant.ok) {
@@ -809,7 +811,11 @@ export function supersededOnMerge(
 }
 
 /** Latest completed run per (name, source, event) on `sha` within `scope`. */
-function latestRuns(checks: readonly CommitCheck[], sha: string, scope: PinnedScope): CommitCheck[] {
+function latestRuns(
+  checks: readonly CommitCheck[],
+  sha: string,
+  scope: PinnedScope,
+): CommitCheck[] {
   const latest = new Map<string, CommitCheck>();
   for (const c of checks) {
     if (c.headSha !== sha || !inPinnedScope(c, scope)) continue;
@@ -855,7 +861,10 @@ export function inheritedOnMerge(
   const onMerge = latestRuns(checks, mergeCommitSha, scope);
   const pending = onMerge.find((c) => c.status !== 'completed');
   if (pending) {
-    return { ok: false, reason: `${pending.name}: pending on merge commit ${mergeCommitSha.slice(0, 12)}` };
+    return {
+      ok: false,
+      reason: `${pending.name}: pending on merge commit ${mergeCommitSha.slice(0, 12)}`,
+    };
   }
   const failing = onMerge.filter((c) => !HARMLESS_CONCLUSIONS.has(c.conclusion ?? ''));
   if (failing.length === 0) return { ok: false, reason: 'no job failed on the merge commit' };
@@ -888,10 +897,19 @@ export function inheritedOnMerge(
         reason: `${job.name}: ${job.conclusion} on merge commit ${mergeCommitSha.slice(0, 12)} but success on its base ${base.sha.slice(0, 12)} — the PR introduced this failure`,
       };
     }
-    inherited.push({ name: job.name, mergeRunId: job.id, baseSha: base.sha, baseRunId: base.run.id });
+    inherited.push({
+      name: job.name,
+      mergeRunId: job.id,
+      baseSha: base.sha,
+      baseRunId: base.run.id,
+    });
   }
   const names = required.filter(
-    (name) => !judgeOnSha(checks.filter((c) => c.name === name && pinMatches(c, pins[name])), mergeCommitSha).ok,
+    (name) =>
+      !judgeOnSha(
+        checks.filter((c) => c.name === name && pinMatches(c, pins[name])),
+        mergeCommitSha,
+      ).ok,
   );
   return { ok: true, names, inherited };
 }
@@ -1034,7 +1052,10 @@ export async function findGreenDescendant(
       superseded = { ok: true, names: result.names };
       inherited = result.inherited;
     } else {
-      superseded = { ok: false, reason: `${superseded.reason}; not inherited from main: ${result.reason}` };
+      superseded = {
+        ok: false,
+        reason: `${superseded.reason}; not inherited from main: ${result.reason}`,
+      };
     }
   }
   if (!superseded.ok) return superseded;

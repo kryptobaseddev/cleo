@@ -939,7 +939,9 @@ describe('resolveCiEvidenceAtom', () => {
       const RED = new Set(['CI', 'Unit Tests (ubuntu-latest, shard 1)']);
       const red = (sha: string, ids: number) =>
         allGreen.map((c) =>
-          RED.has(c.name) ? { ...c, headSha: sha, conclusion: 'failure', id: c.id + ids } : { ...c, headSha: sha },
+          RED.has(c.name)
+            ? { ...c, headSha: sha, conclusion: 'failure', id: c.id + ids }
+            : { ...c, headSha: sha },
         );
       const parents = (sha: string) => (sha === MERGE ? BASE : null);
 
@@ -951,7 +953,13 @@ describe('resolveCiEvidenceAtom', () => {
             fetchChecks: async (sha) => ({
               ok: true,
               checks:
-                sha === MERGE ? red(MERGE, 100) : sha === BASE ? red(BASE, 200) : sha === HEAD ? onHead : onSha(DESC1),
+                sha === MERGE
+                  ? red(MERGE, 100)
+                  : sha === BASE
+                    ? red(BASE, 200)
+                    : sha === HEAD
+                      ? onHead
+                      : onSha(DESC1),
             }),
           },
         );
@@ -962,7 +970,12 @@ describe('resolveCiEvidenceAtom', () => {
         expect(atom?.inheritedFailures).toEqual(
           expect.arrayContaining([
             { name: 'CI', mergeRunId: 101, baseSha: BASE, baseRunId: 201 },
-            { name: 'Unit Tests (ubuntu-latest, shard 1)', mergeRunId: 101, baseSha: BASE, baseRunId: 201 },
+            {
+              name: 'Unit Tests (ubuntu-latest, shard 1)',
+              mergeRunId: 101,
+              baseSha: BASE,
+              baseRunId: 201,
+            },
           ]),
         );
         expect(atom?.checks.find((c) => c.name === 'CI')?.sha).toBe(DESC1);
@@ -970,7 +983,9 @@ describe('resolveCiEvidenceAtom', () => {
 
       it('a failure the base did NOT have was introduced by the PR: refused, the descendant never consulted', async () => {
         const baseOnlyCiRed = allGreen.map((c) =>
-          c.name === 'CI' ? { ...c, headSha: BASE, conclusion: 'failure' } : { ...c, headSha: BASE },
+          c.name === 'CI'
+            ? { ...c, headSha: BASE, conclusion: 'failure' }
+            : { ...c, headSha: BASE },
         );
         const { run, fetched } = descend(
           { [DESC1]: onSha(DESC1) },
@@ -980,7 +995,8 @@ describe('resolveCiEvidenceAtom', () => {
               fetched.push(sha);
               return {
                 ok: true,
-                checks: sha === MERGE ? red(MERGE, 100) : sha === BASE ? baseOnlyCiRed : onSha(DESC1),
+                checks:
+                  sha === MERGE ? red(MERGE, 100) : sha === BASE ? baseOnlyCiRed : onSha(DESC1),
               };
             },
           },
@@ -995,7 +1011,11 @@ describe('resolveCiEvidenceAtom', () => {
 
       it('looks past a cancelled base run to the nearest decided ancestor', async () => {
         const OLDER = '6'.repeat(40);
-        const cancelledBase = allGreen.map((c) => ({ ...c, headSha: BASE, conclusion: 'cancelled' }));
+        const cancelledBase = allGreen.map((c) => ({
+          ...c,
+          headSha: BASE,
+          conclusion: 'cancelled',
+        }));
         const { run } = descend(
           { [DESC1]: onSha(DESC1) },
           {

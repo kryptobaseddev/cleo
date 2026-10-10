@@ -547,7 +547,12 @@ export type EvidenceAtom =
        * the later green main run standing in. Each job records the failing
        * merge-commit run and the base run it inherited from.
        */
-      inheritedFailures?: Array<{ name: string; mergeRunId: number; baseSha: string; baseRunId: number }>;
+      inheritedFailures?: Array<{
+        name: string;
+        mergeRunId: number;
+        baseSha: string;
+        baseRunId: number;
+      }>;
       /**
        * The PR edited a pinned workflow, so only default-branch `push` runs
        * attested it; its own `pull_request` runs (which ran the edited
