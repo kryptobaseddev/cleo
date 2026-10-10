@@ -47,6 +47,9 @@ function tryRequire(id: string): unknown {
  * @param parser - Configured native parser; the caller selects its grammar.
  * @param source - Unmodified source text, retained for accurate node text and spans.
  * @param limits - Per-file source size, native deadline and cooperative cancellation.
+ * @param parseText - Text the grammar reads instead of `source`, of identical
+ *   UTF-16 length, so every index and position still describes `source`; node
+ *   text read after parsing comes from `source` (T13379). Defaults to `source`.
  * @returns The native syntax tree retaining original UTF-16 source indexes.
  * @remarks The native timeout bounds synchronous parsing; a JavaScript timer cannot
  * preempt it. Cancellation in this realm is cooperative. Worker resource limits
@@ -62,7 +65,10 @@ export function parseOriginalSource(
   parser: Pick<Parser, 'parse' | 'reset' | 'setTimeoutMicros'>,
   source: string,
   limits: ParserExecutionLimits = {},
+  parseText: string = source,
 ): Parser.Tree {
+  if (parseText.length !== source.length)
+    throw new Error('E_PARSE_LIMIT: substitute parse text must keep the source length');
   const maxSourceBytes = limits.maxSourceBytes ?? 512 * 1024;
   const timeoutMs = limits.timeoutMs ?? 1000;
   if (
@@ -85,10 +91,12 @@ export function parseOriginalSource(
       if (performance.now() >= deadline)
         throw new Error('E_PARSE_TIMEOUT: input deadline exceeded');
     }
-    let end = Math.min(source.length, offset + 4096);
-    const last = source.charCodeAt(end - 1);
-    if (end < source.length && last >= 0xd800 && last <= 0xdbff) end--;
-    return source.slice(offset, end);
+    // The grammar reads `parseText`; node text read after parsing reads `source`.
+    const text = parsing ? parseText : source;
+    let end = Math.min(text.length, offset + 4096);
+    const last = text.charCodeAt(end - 1);
+    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end--;
+    return text.slice(offset, end);
   };
   parser.reset();
   parser.setTimeoutMicros(Math.max(1, Math.floor(timeoutMs * 1000)));
@@ -104,6 +112,90 @@ export function parseOriginalSource(
     parsing = false;
     parser.reset();
     parser.setTimeoutMicros(0);
+  }
+}
+
+/**
+ * `typeof import("…")` written on one line, with either quote style.
+ *
+ * tree-sitter-typescript 0.23.2 (the newest release) cannot parse this type
+ * query as a call's type argument — `f<typeof import("x")>()` yields an ERROR
+ * node — which is the vitest mock idiom `importOriginal<typeof import("…")>()`.
+ * Every file using it failed with E_PARSE_SYNTAX and was dropped from the
+ * index: 248 of 286 failures on a 5 357-file repository, 203 test files in this
+ * one (T13379). Remove this workaround (T13382) once a tree-sitter-typescript
+ * release parses the idiom; pipeline.test.ts fails when it does.
+ */
+const TYPEOF_IMPORT_QUERY = /typeof(\s+)import\(\s*(['"])[^'"\n\\]*\2\s*\)/g;
+
+/** Limitation recorded on a file parsed through {@link maskTypeofImportQueries}. */
+export const TYPEOF_IMPORT_RECOVERY_LIMITATION =
+  'typeof import("…") type queries were masked so the file could be parsed around a ' +
+  'tree-sitter-typescript 0.23.2 grammar defect; those type-only references are not modelled.';
+
+/**
+ * Replace each `import("…")` of a `typeof import("…")` type query with an
+ * identifier of the same UTF-16 length, so the grammar parses `typeof i____`.
+ * Lines, columns and indexes of everything else are unchanged.
+ *
+ * @param source - Original source text.
+ * @returns Masked text of identical length.
+ */
+export function maskTypeofImportQueries(source: string): string {
+  return source.replace(
+    TYPEOF_IMPORT_QUERY,
+    (match: string, space: string) =>
+      `typeof${space}i${'_'.repeat(match.length - 'typeof'.length - space.length - 1)}`,
+  );
+}
+
+/** A syntax tree and the limitations of how it was obtained. */
+export interface RecoveredParse {
+  /** The syntax tree, with original-source indexes and node text. */
+  tree: Parser.Tree;
+  /** Limitations to record on the file; empty for an unmodified parse. */
+  limitations: string[];
+}
+
+/**
+ * Parse original source, retrying once around the tree-sitter-typescript
+ * `typeof import("…")` defect (T13379).
+ *
+ * Fail-closed is kept for everything else: the retry runs only when the parse
+ * failed with E_PARSE_SYNTAX AND the file contains a `typeof import("…")`
+ * query, and its tree is accepted only when it has no error at all. A genuine
+ * syntax error anywhere in the file therefore still fails it.
+ *
+ * @param parser - Configured native parser; the caller selects its grammar.
+ * @param source - Unmodified source text.
+ * @param limits - Per-file source size, native deadline and cooperative cancellation.
+ * @returns The tree, with {@link TYPEOF_IMPORT_RECOVERY_LIMITATION} when recovered.
+ * @throws The original E_PARSE_SYNTAX when recovery does not apply or does not parse cleanly.
+ * @example
+ * ```ts
+ * const { tree, limitations } = parseOriginalSourceWithRecovery(parser, source);
+ * ```
+ */
+export function parseOriginalSourceWithRecovery(
+  parser: Pick<Parser, 'parse' | 'reset' | 'setTimeoutMicros'>,
+  source: string,
+  limits: ParserExecutionLimits = {},
+): RecoveredParse {
+  try {
+    return { tree: parseOriginalSource(parser, source, limits), limitations: [] };
+  } catch (error) {
+    const syntax = error instanceof Error && error.message.startsWith('E_PARSE_SYNTAX');
+    const masked = syntax ? maskTypeofImportQueries(source) : source;
+    if (masked === source) throw error;
+    try {
+      return {
+        tree: parseOriginalSource(parser, source, limits, masked),
+        limitations: [TYPEOF_IMPORT_RECOVERY_LIMITATION],
+      };
+    } catch {
+      // Still broken: the file has a genuine syntax error. Report the original.
+      throw error;
+    }
   }
 }
 
