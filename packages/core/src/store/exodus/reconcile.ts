@@ -695,13 +695,24 @@ function writeReceipt(
  * (T13320), so the sync refusal for stranded rows stands down, and a
  * `reconciled` receipt naming any skipped rows (T13309). This is also how a
  * store reconciled before T13319 gets its record. A dry run only reports.
+ * A stranded row neither present nor listed as skipped refuses the settle,
+ * so the refusal stands (T13333).
  */
 async function settleStrands(
   none: SupersededStoreReconcileResult,
   strands: BareStrandSource,
   cleoDir: string,
+  resolveTarget: TargetResolver,
 ): Promise<SupersededStoreReconcileResult> {
   if (none.dryRun || strands.accounted.length === 0) return none;
+  const unaccounted = unaccountedStrands(none.liveStorePath, strands, resolveTarget);
+  if (unaccounted.length > 0) {
+    return {
+      ...none,
+      outcome: 'refused',
+      reason: `stranded rows neither in cleo.db nor listed as skipped: ${describeGaps(unaccounted)}`,
+    };
+  }
   const stagingDir = newRunDir(cleoDir);
   await recordCarriedBareTables(none.liveStorePath, strands.accounted, basename(stagingDir));
   return writeReceipt(
@@ -717,14 +728,22 @@ async function settleStrands(
   );
 }
 
-/** A renumbering of the stranded bare rows, under their own source name. */
-function asStrandRemap(remap: TaskIdRemapResult): TaskIdRemapResult {
-  return {
-    ...remap,
-    sources: remap.sources.map((s) => ({ ...s, name: BARE_STRANDS_SOURCE_NAME })),
-    remaps: remap.remaps.map((r) => ({ ...r, sourceDb: BARE_STRANDS_SOURCE_NAME })),
-    undecided: remap.undecided && { ...remap.undecided, sourceDb: BARE_STRANDS_SOURCE_NAME },
-  };
+/**
+ * The tables where a bare-strands run's accounting copy (every stranded row
+ * it did not list as skipped, renumbered) holds rows the live store lacks by
+ * key (T13333). Empty when every such row is in the live store.
+ */
+function unaccountedStrands(
+  liveStorePath: string,
+  strands: BareStrandSource,
+  resolveTarget: TargetResolver,
+): SupersededStoreTableCount[] {
+  if (strands.accountingPath === null) return [];
+  return assessSupersededProjectStores(
+    liveStorePath,
+    [{ name: BARE_STRANDS_SOURCE_NAME, path: strands.accountingPath, targetScope: 'project' }],
+    resolveTarget,
+  ).filter((c) => !isComplete([c]));
 }
 
 /**
@@ -839,25 +858,17 @@ async function reconcileWithScratch(
       : null;
   // Rows bare-strands mode deliberately leaves uncopied, named in the receipt.
   const skipped = strands?.skipped ?? [];
-  // What the renumbering reads: the legacy files, or the stranded bare rows
-  // under the name the renumbering looks for.
+  // What the run reads: the legacy files, or the stranded bare rows.
   const originals = strandsMode ? (strands?.source ? [strands.source] : []) : legacyFiles;
   // T13172: a legacy task whose id a DIFFERENT live task holds is renumbered in
   // a scratch copy (references re-pointed) and the run reads that copy, so it
   // is recovered, never skipped by INSERT OR IGNORE and counted as present.
   // Additive runs never write the task graph, so they never renumber.
-  const remap =
-    !additive && existsSync(liveStorePath)
-      ? strandsMode
-        ? asStrandRemap(
-            remapCollidingTaskIds(
-              liveStorePath,
-              originals.map((s) => ({ ...s, name: 'tasks' })),
-              scratch,
-              cleoDir,
-            ),
-          )
-        : remapCollidingTaskIds(liveStorePath, legacyFiles, scratch, cleoDir)
+  // Bare-strands mode renumbered before judging its rows (T13333).
+  const remap: TaskIdRemapResult = strandsMode
+    ? (strands?.remap ?? { sources: [], remaps: [], undecided: null, remappedPath: null })
+    : !additive && existsSync(liveStorePath)
+      ? remapCollidingTaskIds(liveStorePath, legacyFiles, scratch, cleoDir)
       : { sources: legacyFiles, remaps: [], undecided: null, remappedPath: null };
   // An undecided collision withholds the WHOLE task graph (review MED-2): its
   // children, dependencies and criteria would otherwise attach to the live
@@ -941,7 +952,7 @@ async function reconcileWithScratch(
             : `no stranded bare row is left to copy${skipped.length > 0 ? `; ${describeConflicts(skipped)}` : ''}`
           : 'no legacy project store (tasks.db / brain.db / conduit.db, or bare task tables in an unmigrated cleo.db) is present',
     };
-    return strands?.populated ? settleStrands(none, strands, cleoDir) : none;
+    return strands?.populated ? settleStrands(none, strands, cleoDir, resolveTarget) : none;
   }
 
   const before = assessSupersededProjectStores(liveStorePath, sources, resolveTarget);
@@ -991,7 +1002,9 @@ async function reconcileWithScratch(
       before,
       reason: `${undecided ? 'every other legacy row' : 'every legacy row'} is already present in cleo.db — nothing to copy${graphWithheld ? (undecided ? `; ${describeUndecided(undecided)}` : '') : remapNote}${skipped.length > 0 ? `; ${describeConflicts(skipped)}` : ''}`,
     };
-    return strands?.populated && !graphWithheld ? settleStrands(none, strands, cleoDir) : none;
+    return strands?.populated && !graphWithheld
+      ? settleStrands(none, strands, cleoDir, resolveTarget)
+      : none;
   }
   if (dryRun) {
     return {
@@ -1090,12 +1103,28 @@ async function reconcileWithScratch(
       // would call it present (review LOW-1).
       const unlanded =
         migrated.ok && !graphWithheld ? unlandedRemaps(liveStorePath, remap.remaps) : [];
+      // Bare-strands mode: every stranded row not listed as skipped is now in
+      // the live store (T13333), and no copied row refers to a task the live
+      // store lacks (T13334).
+      const strandsChecked = migrated.ok && strands && !graphWithheld;
+      const unaccounted = strandsChecked
+        ? unaccountedStrands(liveStorePath, strands, resolveTarget)
+        : [];
+      const dangling =
+        strandsChecked && strands.source
+          ? (await import('./bare-family.js')).danglingStrandReferences(
+              liveStorePath,
+              strands.source.path,
+            )
+          : [];
       const verified =
         migrated.ok &&
         settled &&
         lost.length === 0 &&
         altered.length === 0 &&
-        unlanded.length === 0;
+        unlanded.length === 0 &&
+        unaccounted.length === 0 &&
+        dangling.length === 0;
       // The store's own record of the bare tables this run carried (T13320),
       // written only once the copy verified, so a revert never leaves one.
       let unrecorded: string | null = null;
@@ -1144,9 +1173,13 @@ async function reconcileWithScratch(
             ? `pre-existing live rows changed in: ${altered.join(', ')}`
             : unlanded.length > 0
               ? `a concurrent write took the id of a recovered task (${unlanded.join(', ')}); run the reconcile again`
-              : unrecorded !== null
-                ? `could not record the carried bare tables in the store: ${unrecorded}`
-                : `rows still missing after copy: ${describeGaps(after)}`;
+              : unaccounted.length > 0
+                ? `stranded rows neither copied nor listed as skipped: ${describeGaps(unaccounted)}`
+                : dangling.length > 0
+                  ? `copied rows refer to tasks cleo.db does not hold: ${dangling.join(', ')}`
+                  : unrecorded !== null
+                    ? `could not record the carried bare tables in the store: ${unrecorded}`
+                    : `rows still missing after copy: ${describeGaps(after)}`;
       return {
         ...base,
         outcome: 'refused',
