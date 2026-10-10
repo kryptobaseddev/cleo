@@ -560,7 +560,8 @@ async function refreshManagedProjectFiles(
   };
   const seen = new Set<string>([input.agentsMdPath]);
   for (const provider of providers) {
-    const path = join(projectRoot, provider.pathProject, provider.instructFile);
+    // Same project path as caamp injectAll: the instruction file at the project root.
+    const path = join(projectRoot, provider.instructFile);
     if (seen.has(path)) continue;
     seen.add(path);
     await refreshed(path, '@AGENTS.md', embedProjectRules, false);
