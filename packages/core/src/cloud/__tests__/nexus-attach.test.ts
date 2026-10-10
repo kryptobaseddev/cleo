@@ -319,6 +319,7 @@ describe('presence and binding hold their guarantees (review M3)', () => {
         '_sync_replica',
         '_sync_row_meta',
         '_sync_row_undo',
+        '_sync_seen_floor',
         '_sync_seen_txn',
         '_sync_segment',
         '_sync_segment_txn',

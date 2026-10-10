@@ -405,7 +405,12 @@ export const EXEMPT = {
     _sync_seen_txn: {
       count: 2,
       reason:
-        'staged transaction ids (local-only): a re-delivered transaction is never staged twice, and rows past the latest verified checkpoint are pruned (§3.1, T12343 S5-1)',
+        "staged transaction ids (local-only): a re-delivered transaction is never staged twice, and rows below their origin's staged floor are pruned (§3.1, T12343 S5-1, T13318)",
+    },
+    _sync_seen_floor: {
+      count: 2,
+      reason:
+        'per-origin staged local_seq floor and seen-ledger counts (local-only): raised with every staged txn, marked with every prune (§3.1, T13318)',
     },
   },
   'packages/core/src/store/sync/push.ts': {

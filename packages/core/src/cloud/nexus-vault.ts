@@ -826,6 +826,9 @@ const VAULT_CLEARED_JOURNAL_TABLES = [
   // from the checkpoint it restored, never from another device's position.
   '_sync_cursor',
   '_sync_seen_txn',
+  // Its floor goes with it: a floor without its seen rows would refuse
+  // every transaction below it (T13318).
+  '_sync_seen_floor',
 ] as const;
 
 /**
@@ -1981,18 +1984,16 @@ async function pullWithSession(session: StreamSession): Promise<PullStreamReport
     journal.verifyCheckpoint(from, key.signers);
     initialCursor = cursorFromCheckpoint(from);
   }
-  // Seen-txn rows are never pruned here yet: a txn already seen can come
-  // back in a NEW segment above any checkpoint (a retired replica's late
-  // segment, a rebind re-pushing an upload that was stored but never
-  // recorded), and with its first-delivery row gone it would apply twice.
-  // Pruning waits for a floor the applier refuses below anyway, such as the
-  // receive watermark (T13256), and then prunes by that floor, not by
-  // stream seq.
+  // Seen-txn rows below each origin's staged floor are pruned after every
+  // pull (T13318): an origin's transactions are first delivered in local_seq
+  // order, so one at or below the floor with no seen row is refused loudly
+  // (`below-floor`), never applied twice.
   return pullStream(db, {
     scope: tableScopeOf(t),
     stream: t.streamId,
     replica: replicaId,
     initialCursor,
+    pruneSeen: true,
     pull: async (cursor) => {
       const page = await journal.pull(
         {

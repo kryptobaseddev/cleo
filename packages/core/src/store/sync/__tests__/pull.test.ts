@@ -8,7 +8,7 @@
  * @task T12343
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -28,6 +28,7 @@ import {
   readStreamCursor,
   type StreamCursor,
 } from '../pull.js';
+import { ensureSyncSchema } from '../schema.js';
 import { sealPending } from '../sealer.js';
 import { buildSegment } from '../segments.js';
 import { firstBadTxnSignature, signTxn } from '../txn-signing.js';
@@ -36,6 +37,9 @@ const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-jo
 const STREAM = 'project:0192ffff-7f00-7000-8000-00000000000f';
 const RA = '0192aaaa-7f00-7000-8000-00000000000a';
 const RB = '0192bbbb-7f00-7000-8000-00000000000b';
+const RC = '0192cccc-7f00-7000-8000-00000000000c';
+/** A's successor after a rebind: a new replica id, the store's local_seq counter continues. */
+const RA2 = '0192aaaa-7f00-7000-8000-0000000000a2';
 const DEV_A = 'dev-a';
 const KEY_A = generateEd25519();
 let clock = Date.now();
@@ -76,23 +80,23 @@ const seal = (db: DatabaseSync, replica: string) => () => {
   });
 };
 
-function write(db: DatabaseSync, sql: string): void {
+function write(db: DatabaseSync, sql: string, replica = RA): void {
   db.exec('BEGIN IMMEDIATE');
   const frame = openCaptureFrame(db, 'write', null);
   db.exec(sql);
   finishCaptureFrame(db, frame);
   db.exec('COMMIT');
-  seal(db, RA)();
+  seal(db, replica)();
 }
 
 const addTask = (id: string) =>
   `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('${id}', 'title ${id}', 'task', 'pending', 'medium', 'uid-${id}', 'fp-${id}')`;
 
 /** A's next segment, signed by A's device, as the stream serves it (the sealer is identity here). */
-function authorSegment(a: DatabaseSync): Uint8Array {
+function authorSegment(a: DatabaseSync, replica = RA): Uint8Array {
   const seg = buildSegment(a, {
     stream: STREAM,
-    replica: RA,
+    replica,
     scope: 'project',
     project: null,
     sealer: (_seq, plaintext) => Buffer.from(plaintext),
@@ -246,20 +250,6 @@ describe('pullStream (S5-1)', () => {
     expect(n(b, "SELECT count(*) AS n FROM tasks_tasks WHERE id = 'T1'")).toBe(1);
   });
 
-  it('seen-txn rows at or below the prune floor are dropped, later ones kept', async () => {
-    const a = await store('a');
-    const b = await store('b');
-    const stream = fakeStream();
-    write(a, addTask('T1'));
-    stream.append(authorSegment(a), 0);
-    write(a, addTask('T2'));
-    stream.append(authorSegment(a), 1);
-    await pullStream(b, pullOpts(b, stream));
-    expect(n(b, 'SELECT count(*) AS n FROM _sync_seen_txn')).toBe(2);
-    await pullStream(b, { ...pullOpts(b, stream), pruneSeenUpTo: 1 });
-    expect(b.prepare('SELECT seq FROM _sync_seen_txn').all()).toEqual([{ seq: 2 }]);
-  });
-
   it('refuses with sync.pull off: nothing pulled, nothing staged', async () => {
     const a = await store('a');
     const b = await store('b');
@@ -271,5 +261,159 @@ describe('pullStream (S5-1)', () => {
     expect(r).toMatchObject({ refused: 'sync.pull is off', segments: 0, apply: null });
     expect(stream.pages).toBe(0);
     expect(n(b, 'SELECT count(*) AS n FROM _sync_inbox')).toBe(0);
+  });
+});
+
+describe('per-origin seen floor (T13318)', () => {
+  const floorOf = (db: DatabaseSync, origin: string) =>
+    db
+      .prepare(
+        'SELECT staged_upto AS stagedUpto, pruned_upto AS prunedUpto, seen_rows AS rows FROM _sync_seen_floor WHERE stream = ? AND origin = ?',
+      )
+      .get(STREAM, origin);
+
+  it('a re-delivered txn below the floor is skipped while its seen row exists, and refused loudly once pruned', async () => {
+    const a = await store('a');
+    const b = await store('b');
+    const stream = fakeStream();
+    write(a, addTask('T1'));
+    const first = authorSegment(a); // RA:1
+    stream.append(first, 0);
+    write(a, addTask('T2'));
+    stream.append(authorSegment(a), 1); // RA:2
+    write(a, addTask('T3'));
+    const third = authorSegment(a); // RA:3
+    stream.append(third, 2);
+    await pullStream(b, pullOpts(b, stream));
+    expect(floorOf(b, RA)).toEqual({ stagedUpto: 3, prunedUpto: 0, rows: 3 });
+
+    // Below the floor, row present: skipped as seen.
+    stream.append(first, 3);
+    const seen = await pullStream(b, { ...pullOpts(b, stream), pruneSeen: true });
+    expect(seen).toMatchObject({ refused: null, staged: 0, redelivered: 1, after: 4 });
+    // The prune drops every row below the floor and keeps the floor's own.
+    expect(floorOf(b, RA)).toEqual({ stagedUpto: 3, prunedUpto: 2, rows: 1 });
+    expect(b.prepare('SELECT txn FROM _sync_seen_txn').all()).toEqual([{ txn: `${RA}:3` }]);
+
+    // The latest txn is still skipped quietly; a pruned one is refused, never staged.
+    stream.append(third, 4);
+    stream.append(first, 5);
+    const r = await pullStream(b, pullOpts(b, stream));
+    expect(r.refusedKind).toBe('below-floor');
+    expect(r.refused).toMatch(
+      new RegExp(`segment 6 of replica ${RA}: transaction ${RA}:1 .*pruned \\(pruned_upto 2\\)`),
+    );
+    expect(r).toMatchObject({ segments: 1, staged: 0, redelivered: 1, after: 5 });
+    expect(readStreamCursor(b, STREAM)).toMatchObject({ after: 5 });
+    expect(n(b, 'SELECT count(*) AS n FROM _sync_inbox')).toBe(3);
+    expect(n(b, "SELECT count(*) AS n FROM tasks_tasks WHERE id = 'T1'")).toBe(1);
+    // The refusal holds on retry: the stream stops there until someone looks.
+    const retry = await pullStream(b, pullOpts(b, stream));
+    expect(retry).toMatchObject({ refusedKind: 'below-floor', segments: 0, after: 5 });
+  });
+
+  it('a txn below the floor that was never staged is refused as out of order, never skipped', async () => {
+    const a = await store('a');
+    const b = await store('b');
+    const stream = fakeStream();
+    write(a, addTask('T1'));
+    const early = authorSegment(a); // RA:1, held back
+    write(a, addTask('T2'));
+    stream.append(authorSegment(a), 0); // RA:2 first
+    stream.append(early, 1);
+    const r = await pullStream(b, pullOpts(b, stream));
+    expect(r.refusedKind).toBe('below-floor');
+    expect(r.refused).toMatch(/transaction .*:1 is at or below .*floor 2.*out of local_seq order/);
+    expect(r).toMatchObject({ segments: 1, staged: 1, after: 1 });
+    expect(n(b, "SELECT count(*) AS n FROM tasks_tasks WHERE id = 'T1'")).toBe(0);
+    expect(n(b, 'SELECT count(*) AS n FROM _sync_seen_txn')).toBe(1);
+  });
+
+  it("the migration seeds each origin's floor and counts from rows staged before it existed", async () => {
+    // A journal at the folder before the floor, with seen rows already staged.
+    const older = join(dir, 'older-schema');
+    for (const f of readdirSync(SYNC_SCHEMA).filter((f) => f < '20261009120000')) {
+      cpSync(join(SYNC_SCHEMA, f), join(older, f), { recursive: true });
+    }
+    mkdirSync(join(dir, 'old', '.cleo'), { recursive: true });
+    const db = getDualScopeNativeDb(
+      await openDualScopeDbAtPath('project', join(dir, 'old', '.cleo', 'cleo.db')),
+    );
+    ensureSyncSchema(db, { root: older });
+    const ins = db.prepare('INSERT INTO _sync_seen_txn (stream, txn, seq) VALUES (?, ?, ?)');
+    ins.run(STREAM, `${RA}:1`, 1);
+    ins.run(STREAM, `${RA}:9`, 2);
+    ins.run(STREAM, `${RC}:4`, 3);
+    ensureSyncSchema(db, { root: SYNC_SCHEMA });
+    const row = (txn: string) => STREAM.length + txn.length + 8;
+    expect(floorOf(db, RA)).toEqual({ stagedUpto: 9, prunedUpto: 0, rows: 2 });
+    expect(floorOf(db, RC)).toEqual({ stagedUpto: 4, prunedUpto: 0, rows: 1 });
+    expect(db.prepare('SELECT sum(seen_bytes) AS b FROM _sync_seen_floor').get()).toEqual({
+      b: row(`${RA}:1`) + row(`${RA}:9`) + row(`${RC}:4`),
+    });
+  });
+
+  it("a transaction that is not the segment replica's is refused", async () => {
+    const a = await store('a');
+    const b = await store('b');
+    const stream = fakeStream();
+    write(a, addTask('T1'));
+    stream.append(authorSegment(a), 0, RC); // RA's txn served as replica RC's
+    const r = await pullStream(b, pullOpts(b, stream));
+    expect(r.refusedKind).toBe('segment');
+    expect(r.refused).toMatch(new RegExp(`transaction ${RA}:1 is not one of its transactions`));
+    expect(r).toMatchObject({ staged: 0, after: 0 });
+  });
+
+  it("rebind proof case: a retired replica's late segment and its successor keep separate floors; nothing is refused", async () => {
+    const a = await store('a');
+    const b = await store('b');
+    const stream = fakeStream();
+    write(a, addTask('T1'));
+    const old0 = authorSegment(a); // RA:1
+    write(a, addTask('T2'));
+    const late = authorSegment(a); // RA:2: pushed before the rebind, sequenced after
+    // The rebind: a new replica id; the store's local_seq counter continues.
+    write(a, addTask('T3'), RA2);
+    const succ = authorSegment(a, RA2);
+    stream.append(old0, 0, RA);
+    stream.append(succ, 0, RA2);
+    stream.append(late, 1, RA);
+    const r = await pullStream(b, pullOpts(b, stream));
+    expect(r).toMatchObject({ refused: null, staged: 3, after: 3 });
+    expect(floorOf(b, RA)).toMatchObject({ stagedUpto: 2 });
+    expect(floorOf(b, RA2)).toMatchObject({ stagedUpto: 3 });
+    expect(n(b, "SELECT count(*) AS n FROM tasks_tasks WHERE id IN ('T1', 'T2', 'T3')")).toBe(3);
+  });
+
+  it("revive proof case: a voided txn stays seen; the author's later txn is staged above the floor; re-delivery of the void is skipped", async () => {
+    const a = await store('a');
+    const b = await store('b');
+    const c = await store('c');
+    const stream = fakeStream();
+    write(a, addTask('T1')); // RA:1
+    stream.append(authorSegment(a), 0);
+    await pullStream(c, { ...pullOpts(c, stream), replica: RC, seal: seal(c, RC) });
+    write(a, "DELETE FROM tasks_tasks WHERE id = 'T1'"); // RA:2
+    stream.append(authorSegment(a), 1);
+    await new Promise((r) => setTimeout(r, 5)); // C's edit is newer than A's delete
+    write(c, "UPDATE tasks_tasks SET priority = 'high' WHERE id = 'T1'", RC); // RC:1
+    const voided = authorSegment(c, RC);
+    stream.append(voided, 0, RC);
+    await pullStream(b, pullOpts(b, stream));
+    expect(b.prepare('SELECT status FROM _sync_inbox WHERE replica_id = ?').all(RC)).toEqual([
+      { status: 'void' },
+    ]);
+    expect(floorOf(b, RC)).toMatchObject({ stagedUpto: 1 });
+    // The author writes again (a re-emit is a new txn, `reemitOf`, spec §2.11 §6).
+    write(c, addTask('T4'), RC); // RC:2
+    stream.append(authorSegment(c, RC), 1, RC);
+    stream.append(voided, 2, RC);
+    const r = await pullStream(b, { ...pullOpts(b, stream), pruneSeen: true });
+    expect(r).toMatchObject({ refused: null, staged: 1, redelivered: 1 });
+    expect(floorOf(b, RC)).toMatchObject({ stagedUpto: 2, prunedUpto: 1 });
+    expect(b.prepare('SELECT count(*) AS n FROM _sync_inbox WHERE replica_id = ?').get(RC)).toEqual(
+      { n: 2 },
+    );
   });
 });

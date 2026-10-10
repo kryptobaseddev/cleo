@@ -208,6 +208,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343 S5-1)',
     note: 'every transaction id staged from a stream, so a re-delivered transaction is never staged twice (a counter delta would double). This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
   },
+  _sync_seen_floor: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T13318)',
+    note: 'per stream and origin replica: the highest local_seq staged, how far its seen-txn rows were pruned, and their row and byte counts. A txn at or below the floor with no seen row is refused. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13318)',
+  },
   _sync_row_meta: {
     class: 'local-only',
     status: 'optional-transient',
@@ -1453,6 +1459,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343 S5-1)',
     note: 'every transaction id staged from a stream, so a re-delivered transaction is never staged twice (a counter delta would double). This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_seen_floor: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T13318)',
+    note: 'per stream and origin replica: the highest local_seq staged, how far its seen-txn rows were pruned, and their row and byte counts. A txn at or below the floor with no seen row is refused. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13318)',
   },
   _sync_row_meta: {
     class: 'local-only',
