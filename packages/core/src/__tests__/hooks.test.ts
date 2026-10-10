@@ -1,6 +1,6 @@
 /** Public init/upgrade/doctor wrappers use the same real Git installation. */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -45,6 +45,6 @@ describe('canonical Git hook wrappers', () => {
     await ensureGitHooks(root);
     const checks = await checkGitHooks(root);
     expect(checks.every((result) => result.current)).toBe(true);
-    expect(checks[0]?.installedPath).toBe(join(root, 'team hooks', 'commit-msg'));
+    expect(checks[0]?.installedPath).toBe(join(realpathSync(root), 'team hooks', 'commit-msg'));
   });
 });

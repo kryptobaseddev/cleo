@@ -522,6 +522,17 @@ describe('Git-native installation and recovery (T13349)', () => {
     expect(fs.readFileSync(target, 'utf8')).toBe(customized);
   });
 
+  it('does not overwrite hooks or foreign metadata when the receipt is invalid', async () => {
+    const repo = gitInit(path.join(tmpRoot, 'invalid-receipt'));
+    const receipt = path.join(repo, '.git', 'hooks', '.cleo-install-receipt.json');
+    fs.writeFileSync(receipt, '[]');
+    await expect(installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR })).rejects.toThrow(
+      'receipt is invalid',
+    );
+    expect(fs.readFileSync(receipt, 'utf8')).toBe('[]');
+    expect(fs.existsSync(path.join(repo, '.git', 'hooks', 'commit-msg'))).toBe(false);
+  });
+
   it('recognizes an exact legacy pre-commit template without a marker', async () => {
     const repo = gitInit(path.join(tmpRoot, 'legacy'));
     const target = path.join(repo, '.git', 'hooks', 'pre-commit');
