@@ -23,7 +23,9 @@ import {
   ROW_IDENTITY,
   type RowIdentityFindings,
   type RowIdentityHealReceipt,
+  type RowIdentityRefusal,
   readRowIdentityHealReceipt,
+  readRowIdentityRefusal,
   rowIdentityFindings,
   UID_COLUMN,
 } from '../store/row-identity.js';
@@ -84,6 +86,7 @@ export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCh
   let unfilled: Record<string, number>;
   let findings: RowIdentityFindings;
   let held: Record<string, number> = {};
+  let refusal: RowIdentityRefusal | null = null;
   try {
     const snap = openCleoDbSnapshot(dbPath, { readOnly: true });
     try {
@@ -103,6 +106,7 @@ export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCh
       }
       findings = rowIdentityFindings(snap.db, 'project');
       held = heldRowCounts(snap.db);
+      refusal = readRowIdentityRefusal(snap.db);
     } finally {
       snap.close();
     }
@@ -120,6 +124,10 @@ export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCh
   const heldTotal = Object.values(held).reduce((a, n) => a + n, 0);
   const parts = [
     missing.length > 0 ? schemaNote : '',
+    // T13305: a refused full refill is reported here, not on every open.
+    refusal?.state === 'refused'
+      ? `identity refill refused (${refusal.shareState}: ${refusal.reasons.join('; ')}); run \`cleo doctor row-identity --refill\``
+      : '',
     // A row the store refused (invalid) needs a person; the rest wait for sync.
     (held.invalid ?? 0) > 0 ? `received rows refused as invalid: ${held.invalid}` : '',
     Object.keys(unfilled).length > 0
@@ -135,7 +143,7 @@ export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCh
       ? `symmetric relations stored in both directions (duplicates to drop): ${list(findings.mirrorEdges)}`
       : '',
   ].filter(Boolean);
-  const details = { dbPath, unfilled, findings, held, ...schemaDetails };
+  const details = { dbPath, unfilled, findings, held, refusal, ...schemaDetails };
   const uids =
     heldTotal > 0
       ? `every row has a uid; rows held for sync: ${list(held)}`
