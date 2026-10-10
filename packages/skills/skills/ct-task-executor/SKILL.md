@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.8.0
+version: 2.8.1
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.8.0
+  version: 2.8.1
   tier: core
   install: harness
   covers:
@@ -131,7 +131,7 @@ A database or service started for a test run must not outlive it. A `docker run`
 
 - One-shot: `docker run --rm --label cleo.task=T#### --label cleo.ttl=4h postgres:17 …`
 - Reused across runs: a named volume (`-v t####-pgdata:/var/lib/postgresql/data`) plus the same two labels, and stop the container when the task ends.
-- `cleo doctor system` reports long-running database containers and dangling volumes. `cleo doctor system --repair` lists the expired `cleo.ttl` containers and anonymous dangling volumes (dry run). `--repair --apply` removes only those, never an unlabelled container or a named volume. Removing them is the owner's call, so relay the list through your orchestrator first.
+- `cleo doctor system` reports long-running database containers and dangling volumes. `cleo doctor system --repair` lists, as a dry run, the STOPPED `cleo.ttl` containers created longer ago than their ttl, and the anonymous dangling volumes (including ones left by non-CLEO containers). `--repair --apply` removes only those. It never removes a running container: one running past its ttl since its last start is reported for you to stop. It never touches an unlabelled container or a named volume. Removing them is the owner's call, so relay the list through your orchestrator first.
 
 ### Post-Execution
 

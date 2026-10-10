@@ -321,6 +321,9 @@ export function isHarnessSession(row: ProcessRow): boolean {
  */
 export function mcpServerName(row: ProcessRow): string | null {
   const words = commandWords(row.argv);
+  // `npx -y @playwright/mcp@latest`, `uvx mcp-server-fetch`: the package names the server.
+  const pkg = launchedPackage(words);
+  if (pkg !== undefined) return pkg !== null && /mcp/i.test(pkg) ? pkg : null;
   if (
     !withoutInterpreter(row.argv)
       .slice(0, 3)
@@ -341,6 +344,32 @@ export function mcpServerName(row: ProcessRow): string | null {
     return pkg ?? first;
   }
   return first;
+}
+
+const LAUNCHERS = new Set(['npx', 'pnpx', 'bunx', 'uvx']);
+const PM_LAUNCH = /^(npm|pnpm|yarn|bun)$/;
+const PM_LAUNCH_SUB = new Set(['exec', 'dlx', 'x']);
+
+/**
+ * The package a launcher runs (`npx -y @playwright/mcp@latest` → `@playwright/mcp`),
+ * `null` when a launcher names none, `undefined` when `words` is not a launcher.
+ * The scope is kept (`@a/mcp` and `@b/mcp` are different servers); the version is not.
+ */
+export function launchedPackage(words: readonly string[]): string | null | undefined {
+  const [head = '', sub = ''] = words;
+  let rest: readonly string[];
+  if (LAUNCHERS.has(head)) rest = words.slice(1);
+  else if (head === 'pipx' && sub === 'run') rest = words.slice(2);
+  else if (PM_LAUNCH.test(head) && PM_LAUNCH_SUB.has(sub)) rest = words.slice(2);
+  else return undefined;
+  const pkg = rest.find((w) => !w.startsWith('-'));
+  if (pkg === undefined) return null;
+  return pkg.replace(/(.)@[^/]*$/, '$1').replace(/==.*$/, '');
+}
+
+/** Single-quote `value` for a POSIX shell. */
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 /** Long-lived tool servers `looksHeavy` would otherwise count (`biome lsp-proxy`, `esbuild --service`). */
@@ -640,14 +669,14 @@ function containerFindings(s: SystemSnapshot, docker: DockerSnapshot): Finding[]
     if (!DB_IMAGES.test(repo) || labels.includes('com.docker.compose.project=')) continue;
     const ageSec = (s.sampledAtMs - parseDockerCreatedAt(createdAt)) / 1000;
     if (ageSec >= THROWAWAY_AGE_SEC)
-      stale.push(`${name} (${image}, up ${Math.round(ageSec / 3600)}h)`);
+      stale.push(`${name} (${image}, created ${Math.round(ageSec / 3600)}h ago)`);
   }
   if (stale.length > 0) {
     out.push({
       id: 'docker-long-running-db',
       category: 'containers',
       severity: stale.length >= 5 ? 'warning' : 'info',
-      title: `${stale.length} database containers outside compose running over ${THROWAWAY_AGE_SEC / 3600}h`,
+      title: `${stale.length} running database containers outside compose, created over ${THROWAWAY_AGE_SEC / 3600}h ago`,
       evidence: { containers: stale.slice(0, 20) },
       impactBytes: null,
       remedy: {
@@ -791,11 +820,12 @@ function indexingFindings(
       evidence: { path: nodeModules },
       impactBytes: null,
       remedy: {
-        command: `tmutil addexclusion '${nodeModules}'`,
+        command: `tmutil addexclusion ${shellQuote(nodeModules)}`,
         description:
-          'A sticky exclusion on the directory; it is reinstallable, so nothing of value is lost.',
+          'A sticky exclusion on the directory; it is reinstallable, so nothing of value is lost. ' +
+          'It changes the owner’s backup settings, so ask first.',
       },
-      needsOwnerChoice: false,
+      needsOwnerChoice: true,
     });
   }
   const count = Number((indexing.spotlightCount ?? '').trim());
@@ -944,19 +974,37 @@ const execFileAsync = promisify(execFile);
 /** The `ps` columns {@link parsePs} reads. */
 const PS_FORMAT = 'pid=,ppid=,pgid=,rss=,pcpu=,etime=,tty=,args=';
 
-/** Run a read-only command, time-boxed. `null` on any failure (absent, timeout, non-zero). */
-async function run(cmd: string, args: readonly string[], timeoutMs = 5000): Promise<string | null> {
+/**
+ * Run a read-only command, time-boxed. `null` on any failure (absent, timeout,
+ * non-zero). With `keepStdoutOnExit`, a non-zero exit that still printed
+ * returns what it printed: `lsof -p a,b` exits 1 when one pid has vanished but
+ * still reports the others.
+ *
+ * @task T13435
+ */
+export async function runReadOnly(
+  cmd: string,
+  args: readonly string[],
+  opts: { readonly timeoutMs?: number; readonly keepStdoutOnExit?: boolean } = {},
+): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync(cmd, [...args], {
-      timeout: timeoutMs,
+      timeout: opts.timeoutMs ?? 5000,
       maxBuffer: 32 * MIB,
       encoding: 'utf8',
     });
     return stdout;
-  } catch {
-    return null;
+  } catch (err) {
+    const exited = err instanceof Error && 'code' in err && typeof err.code === 'number';
+    const stdout = err instanceof Error && 'stdout' in err ? err.stdout : undefined;
+    return opts.keepStdoutOnExit === true && exited && typeof stdout === 'string' && stdout !== ''
+      ? stdout
+      : null;
   }
 }
+
+const run = (cmd: string, args: readonly string[]): Promise<string | null> =>
+  runReadOnly(cmd, args);
 
 /** Linux swap from `/proc/meminfo`, `null` when unreadable. */
 export function parseLinuxSwap(meminfo: string): { usedBytes: number; totalBytes: number } | null {
@@ -1098,14 +1146,12 @@ async function collectSessionContext(
       }
     }
   } else {
-    const out = await run('lsof', [
-      '-a',
-      '-d',
-      'cwd',
-      '-p',
-      sessions.map((r) => r.pid).join(','),
-      '-Fpn',
-    ]);
+    // A session that exits between ps and lsof makes lsof exit 1; keep the rest.
+    const out = await runReadOnly(
+      'lsof',
+      ['-a', '-d', 'cwd', '-p', sessions.map((r) => r.pid).join(','), '-Fpn'],
+      { keepStdoutOnExit: true },
+    );
     cwds = out === null ? cwds : parseLsofCwd(out);
   }
   const now = Date.now();
