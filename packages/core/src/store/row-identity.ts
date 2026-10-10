@@ -50,8 +50,9 @@
  *
  * A row an older build inserts keeps NULL values until the next open by this
  * build: there is no persistent trigger that computes them (see the
- * migration's header). Row uids are OPT-IN: nothing here runs unless
- * `CLEO_ROW_UID_FILL=1` ({@link rowUidFillEnabled}).
+ * migration's header). Row uids are on by default (T13305); nothing here
+ * runs when the kill switch `CLEO_ROW_UID_FILL=0` is set
+ * ({@link rowUidFillEnabled}).
  *
  * A failure never fails the open: it is logged, and the rows keep NULL values
  * until a later open succeeds. A uid's timestamp is ordering sugar only: HLC
@@ -657,6 +658,27 @@ function birthFpCallSql(scope: TableScope, spec: RowIdentitySpec, row: string): 
   const birth = spec.birth ? `${row}.${q(spec.birth)}` : 'NULL';
   const facts = (spec.birthFacts ?? []).map((f) => birthFactSql(scope, spec, f, row));
   return `${ROW_BIRTH_FP_SQL_FUNCTION}(${[`'${spec.table}'`, birth, ...facts].join(', ')})`;
+}
+
+/**
+ * SQL that is true exactly when {@link storedRefSql} would be NOT NULL for
+ * `row`, without calling a JS function: the AC text hash is non-NULL iff the
+ * referenced row's text is a string, which SQLite says as `typeof = 'text'`.
+ * The pending probe uses it, so a store with many legitimately dangling refs
+ * opens without one JS hash per dangling row (T13261).
+ */
+function storedRefPresentSql(
+  scope: TableScope,
+  ref: NonNullable<RowIdentitySpec['storedRefUids']>[number],
+  row: string,
+): string {
+  if (ref.source === 'text_hash') {
+    return (
+      `(SELECT typeof(_r.${q('text')}) FROM main.${q(ref.table)} AS _r ` +
+      `WHERE _r.${q(targetKey(scope, ref.table))} = ${row}.${q(ref.from)}) = 'text'`
+    );
+  }
+  return `${refUidSql(scope, { column: ref.from, table: ref.table }, row)} IS NOT NULL`;
 }
 
 /** SQL for a stored reference fact (`ac_uid`, `ac_text_hash`) read from `row`. */
@@ -1815,14 +1837,124 @@ function resetStaleIdentity(
     );
     return 'cleared';
   }
-  getLogger('row-identity').error(
-    { scope, state: share.state, reasons: share.reasons },
-    share.state === 'shared'
-      ? 'identity values predate the current recipe but may have left this store; kept as they are'
-      : 'identity values predate the current recipe and the store cannot be proven unshared; kept as they are. ' +
-          'Remedy: `cleo doctor row-identity --refill` asks Cleo Nexus and shows the plan',
-  );
+  // T13305: the refusal is recorded, so later opens take the fast path while
+  // nothing changed, and it is said at most once a day (a doctor finding
+  // carries it in between).
+  const key = shareKeyOf(share);
+  const prior = readRowIdentityRefusal(db);
+  const now = Date.now();
+  const sameRefusal =
+    prior?.state === 'refused' && prior.recipe === ROW_IDENTITY_RECIPE && prior.shareKey === key;
+  const warnDue =
+    !sameRefusal || prior === null || now - Date.parse(prior.warnedAt) >= REFUSAL_WARN_INTERVAL_MS;
+  if (warnDue) {
+    getLogger('row-identity').warn(
+      { scope, state: share.state, reasons: share.reasons },
+      share.state === 'shared'
+        ? 'identity values predate the current recipe but may have left this store; kept as they are'
+        : 'identity values predate the current recipe and the store cannot be proven unshared; kept as they are. ' +
+            'Remedy: `cleo doctor row-identity --refill` asks Cleo Nexus and shows the plan',
+    );
+  }
+  if (!sameRefusal || warnDue) {
+    const marker: RowIdentityRefusal = {
+      state: 'refused',
+      recipe: ROW_IDENTITY_RECIPE,
+      shareKey: key,
+      shareState: share.state,
+      reasons: [...share.reasons],
+      at: sameRefusal && prior ? prior.at : new Date(now).toISOString(),
+      warnedAt: warnDue
+        ? new Date(now).toISOString()
+        : (prior?.warnedAt ?? new Date(now).toISOString()),
+    };
+    writers.writeRowIdentityMetaNative(db, ROW_IDENTITY_REFUSED_KEY, JSON.stringify(marker));
+  }
   return 'refused';
+}
+
+/** Meta key recording a refused full refill (T13305). */
+export const ROW_IDENTITY_REFUSED_KEY = 'row_identity_refused';
+
+/** How often a standing refusal is logged again (the doctor reports it in between). */
+export const REFUSAL_WARN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A recorded refusal of the full identity refill (T13305). While `state` is
+ * `refused` for the current recipe and the store's share signals are
+ * unchanged (`shareKey`), opens skip the refill pass. `cleared` means it was
+ * reset (`cleo doctor row-identity --refill`, or a refill that ran).
+ */
+export interface RowIdentityRefusal {
+  readonly state: 'refused' | 'cleared';
+  readonly recipe: string;
+  /** Digest of the share verdict and its signals when refused. */
+  readonly shareKey: string;
+  readonly shareState: 'shared' | 'unknown' | 'unshared';
+  readonly reasons: readonly string[];
+  /** When the refusal was first recorded. */
+  readonly at: string;
+  /** When it was last logged. */
+  readonly warnedAt: string;
+}
+
+/** Digest of a share verdict: a change of state or of any signal re-evaluates a refusal. */
+function shareKeyOf(share: RowIdentityShareState): string {
+  return createHash('sha256')
+    .update(`${share.state}\n${share.signals.map((s) => `${s.code}:${s.detail}`).join('\n')}`)
+    .digest('hex')
+    .slice(0, 32);
+}
+
+/**
+ * The store's recorded refusal of the full identity refill, if any.
+ *
+ * @param db - Connection on a project `cleo.db` (read-only is fine).
+ * @returns The refusal record, or `null`.
+ * @task T13305
+ */
+export function readRowIdentityRefusal(db: DatabaseSync): RowIdentityRefusal | null {
+  if (!hasTable(db, ROW_IDENTITY_META_TABLE)) return null;
+  const raw = readMeta(db, ROW_IDENTITY_REFUSED_KEY);
+  if (raw === undefined) return null;
+  try {
+    return JSON.parse(raw) as RowIdentityRefusal;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a recorded refusal still holds: refused for the current recipe, and
+ * the share verdict unchanged. Then the stale marker is not open-time work.
+ */
+function refusalHolds(db: DatabaseSync): boolean {
+  const prior = readRowIdentityRefusal(db);
+  if (prior?.state !== 'refused' || prior.recipe !== ROW_IDENTITY_RECIPE) return false;
+  return prior.shareKey === shareKeyOf(rowIdentityShareState(db));
+}
+
+/**
+ * Clear a recorded refusal, so the next open (or this caller) re-evaluates
+ * the full refill (`cleo doctor row-identity --refill`, T13305).
+ *
+ * @param db - Connection on a project `cleo.db`.
+ * @param writers - The chokepoint writers.
+ * @returns Whether a standing refusal was cleared.
+ * @task T13305
+ */
+export function clearRowIdentityRefusal(
+  db: DatabaseSync,
+  writers: RowIdentityWriters = requireWriters(),
+): boolean {
+  const prior = readRowIdentityRefusal(db);
+  if (prior?.state !== 'refused') return false;
+  writers.writeRowIdentityMetaNative(
+    db,
+    ROW_IDENTITY_REFUSED_KEY,
+    JSON.stringify({ ...prior, state: 'cleared' } satisfies RowIdentityRefusal),
+  );
+  return true;
 }
 
 /**
@@ -1887,7 +2019,7 @@ export function markRowIdentityShared(
  * their indexes. No row value is read or written. A store whose uid migration
  * was journaled without running its statements (journal Scenario 3 Case A:
  * live cleocode under 9.25, spec §12.2) gets the full schema here; the fill,
- * refill and TEMP triggers stay opt-in ({@link prepareRowIdentity}).
+ * refill and TEMP triggers follow the fill flag ({@link prepareRowIdentity}).
  *
  * Never throws: a failure is logged and the open continues.
  *
@@ -2149,9 +2281,15 @@ export function rowIdentityFillPending(db: DatabaseSync, scope: TableScope): str
   }
   const pending: string[] = [];
   // A stale marker is work even when the identity has synced: the pass then
-  // refuses the refill and says so (refill 'refused'), every open, until the
-  // store is repaired — that anomaly must stay loud, not become a fast path.
-  if (scope === 'project' && readMeta(db, ROW_IDENTITY_RECIPE_KEY) !== ROW_IDENTITY_RECIPE) {
+  // refuses the refill and records it; the record keeps later opens fast and
+  // quiet until the recipe or the share verdict changes (T13305).
+  // T13305: a refusal recorded for this recipe, with the share verdict
+  // unchanged, is settled: the pass would only refuse again.
+  if (
+    scope === 'project' &&
+    readMeta(db, ROW_IDENTITY_RECIPE_KEY) !== ROW_IDENTITY_RECIPE &&
+    !refusalHolds(db)
+  ) {
     pending.push('recipe');
   }
   if (
@@ -2171,12 +2309,7 @@ export function rowIdentityFillPending(db: DatabaseSync, scope: TableScope): str
     }
     const row = `main.${q(spec.table)}`;
     for (const ref of spec.storedRefUids ?? []) {
-      if (
-        any(
-          spec.table,
-          `${q(ref.column)} IS NULL AND (${storedRefSql(scope, ref, row)}) IS NOT NULL`,
-        )
-      ) {
+      if (any(spec.table, `${q(ref.column)} IS NULL AND ${storedRefPresentSql(scope, ref, row)}`)) {
         pending.push(`ref:${spec.table}.${ref.column}`);
       }
     }

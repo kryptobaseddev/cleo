@@ -339,7 +339,10 @@ async function runMigration(
     getGlobalSalt: () => Buffer.alloc(32, 0xab),
     __clearGlobalSaltCache: vi.fn(),
   }));
-  vi.doMock('../agent-registry-store.js', () => ({
+  // Partial: the open pass (row uids on by default, T13305) loads the store
+  // writers, which import the rest of this module.
+  vi.doMock('../agent-registry-store.js', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../agent-registry-store.js')>()),
     ensureGlobalSignaldockDb: vi.fn(async () => ({
       action: 'exists',
       path: join(home, 'signaldock.db'),
