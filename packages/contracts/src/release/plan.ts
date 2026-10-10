@@ -377,6 +377,8 @@ export const ReleasePlanSchema = z
     epicId: NonEmptyString.nullable(),
     /** Release-kind classification. */
     releaseKind: ReleaseKindSchema,
+    /** Explicit hooks-v1 stable promotion; ordinary and hotfix releases are exempt. */
+    hooksV1Promotion: z.boolean().optional(),
     /** ISO-8601 timestamp the plan was written. */
     createdAt: Iso8601,
     /** Identifier of the actor that wrote the plan (agent name or operator). */

@@ -98,6 +98,10 @@ function runPublish({ rc, tag = 'latest', payloadExit = 0, soakExit = 0, publish
     'release-canary-soak.mjs',
     `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(log)}, 'soak ' + process.argv.slice(2).join(' ') + '\\n');\nprocess.exit(${soakExit});\n`,
   );
+  script(
+    'hook-pilot-evidence.mjs',
+    `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(log)}, 'digest ' + process.argv.slice(2).join(' ') + '\\n');\nprocess.stdout.write('{"digest":"fixture"}\\n');\n`,
+  );
   for (const pkg of PACKAGES)
     mkdirSync(path.join(dir, 'packages', pkg, 'dist'), { recursive: true });
   const bin = path.join(dir, 'bin');
@@ -126,6 +130,7 @@ function runPublish({ rc, tag = 'latest', payloadExit = 0, soakExit = 0, publish
       TAG: tag,
       RC_VERSION: rc,
       GITHUB_STEP_SUMMARY: summary,
+      GITHUB_WORKSPACE: dir,
     },
     encoding: 'utf8',
   });
@@ -213,6 +218,7 @@ describe('the Publish step runs the release candidate gate (T13181)', () => {
     expect(status, log.join('\n')).toBe(0);
     expect(publishes(log, 'canary')).toHaveLength(18);
     expect(publishes(log, 'latest')).toHaveLength(0);
+    expect(log).toContain(`digest digest --root ${dir}`);
     expect(log.some((line) => line.startsWith('payload '))).toBe(true);
     expect(log.some((line) => line.startsWith('soak '))).toBe(true);
   });
@@ -296,9 +302,13 @@ describe('unified hooks stable promotion gate (T13350)', () => {
     (step) => step.name === 'Validate unified-hooks stable promotion evidence',
   );
 
-  it('requires retained pilot evidence before any publication, only for stable releases', () => {
+  it('requires scoped pilot evidence before GitHub and npm publication', () => {
     expect(gate).toBeDefined();
     expect(steps.indexOf(gate)).toBeLessThan(steps.indexOf(publishStep));
+    expect(steps.indexOf(gate)).toBeLessThan(
+      steps.findIndex((step) => step.name === 'Create GitHub Release (idempotent)'),
+    );
+    expect(gate.run).toContain('promotion-required');
     expect(gate.if).toBe("needs.build-verify.outputs.dist_tag == 'latest'");
     expect(gate['continue-on-error'] ?? false).toBe(false);
     expect(releaseYaml.jobs.publish['continue-on-error'] ?? false).toBe(false);
@@ -314,7 +324,7 @@ describe('unified hooks stable promotion gate (T13350)', () => {
     const node = path.join(bin, 'node');
     writeFileSync(
       node,
-      '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$GATE_LOG"\nexit "$GATE_EXIT"\n',
+      '#!/usr/bin/env bash\nif [[ "$2" == promotion-required ]]; then echo true; exit 0; fi\nprintf "%s\\n" "$@" > "$GATE_LOG"\nexit "$GATE_EXIT"\n',
     );
     chmodSync(node, 0o755);
     const sentinel = path.join(dir, 'publish-reached');

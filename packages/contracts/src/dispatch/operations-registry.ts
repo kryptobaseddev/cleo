@@ -9437,6 +9437,12 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Mark plan as release_kind=hotfix',
       },
       {
+        name: 'hooksV1Promotion',
+        type: 'boolean',
+        required: false,
+        description: 'Require the unified-hooks pilot for this stable promotion',
+      },
+      {
         name: 'dryRun',
         type: 'boolean',
         required: false,

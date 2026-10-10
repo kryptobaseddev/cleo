@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   closeSync,
+  existsSync,
   fstatSync,
   lstatSync,
   openSync,
@@ -62,6 +63,17 @@ function git(root, args) {
 function canonicalJson(value, cohort, packageJson = false) {
   if (Array.isArray(value)) return value.map((item) => canonicalJson(item, cohort));
   if (value === null || typeof value !== 'object') return value;
+  if (packageJson && value.cleo && typeof value.cleo === 'object' && !Array.isArray(value.cleo)) {
+    const metadata = Object.fromEntries(
+      Object.entries(value.cleo).filter(
+        ([name, item]) =>
+          !(name === 'hotfix' && typeof item === 'boolean') &&
+          !(name === 'channel' && item === 'canary'),
+      ),
+    );
+    const { cleo: _releaseMetadata, ...manifest } = value;
+    value = Object.keys(metadata).length ? { ...manifest, cleo: metadata } : manifest;
+  }
   return Object.fromEntries(
     Object.keys(value)
       .sort()
@@ -137,6 +149,24 @@ export function implementationSourceDigest(root) {
       .update(content);
   }
   return { schemaVersion: 1, digest: hash.digest('hex'), fileCount: tracked.length, cohort };
+}
+
+/** Determine whether a committed plan requests hooks-v1 stable promotion.
+ * @param {string} root Repository checkout.
+ * @param {string} version Release version without a leading v.
+ * @returns {boolean} Hotfixes and ordinary releases are exempt.
+ */
+export function hooksPromotionRequired(root, version) {
+  if (!/^\d{4}\.\d{1,2}\.\d+$/.test(version)) return false;
+  const path = resolve(root, '.cleo/release', `v${version}.plan.json`);
+  if (!existsSync(path)) return false;
+  const plan = JSON.parse(boundedBytes(path).toString('utf8'));
+  if (
+    typeof plan.releaseKind !== 'string' ||
+    (plan.hooksV1Promotion !== undefined && typeof plan.hooksV1Promotion !== 'boolean')
+  )
+    throw new Error('Promotion held: invalid release plan metadata.');
+  return plan.releaseKind !== 'hotfix' && plan.hooksV1Promotion === true;
 }
 
 function boundedBytes(path) {
@@ -289,6 +319,14 @@ export async function validateHookPilotEvidence(options) {
 export async function hookPilotEvidenceMain(args) {
   try {
     const value = (flag) => args[args.indexOf(flag) + 1];
+    if (args[0] === 'promotion-required') {
+      if (!args.includes('--root') || !args.includes('--stable-version'))
+        throw new Error('Promotion held: explicit root and version required.');
+      process.stdout.write(
+        `${hooksPromotionRequired(value('--root'), value('--stable-version'))}\n`,
+      );
+      return 0;
+    }
     if (args[0] === 'digest') {
       process.stdout.write(
         `${JSON.stringify(implementationSourceDigest(args.includes('--root') ? value('--root') : process.cwd()))}\n`,
