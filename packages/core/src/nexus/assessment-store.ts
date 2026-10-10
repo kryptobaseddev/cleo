@@ -35,7 +35,8 @@
  */
 
 import { isAbsolute } from 'node:path';
-import { gunzipSync, gzipSync } from 'node:zlib';
+import { Readable } from 'node:stream';
+import { createGunzip, gunzipSync, gzipSync } from 'node:zlib';
 import type { GraphIndexAssessment, GraphIndexReferenceReport } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
@@ -130,6 +131,88 @@ export function parseStoredReferences(value: unknown): unknown[] {
     start = end + 1;
   }
   return items;
+}
+
+/** One stored reference, not yet validated, and the UTF-8 size of its JSON. */
+export interface StoredReferenceItem {
+  /** The parsed reference. */
+  item: unknown;
+  /** UTF-8 bytes of the reference's own JSON text. */
+  bytes: number;
+}
+
+/**
+ * Stream a stored reference list one reference at a time (T13330).
+ *
+ * The compressed list is inflated incrementally and split on line breaks, so
+ * neither the decompressed text nor the parsed list is ever held whole: a
+ * reader that keeps one page holds one page. The single-line form written
+ * before T13326 has no line breaks to split on; it was small enough to be
+ * written whole, so it is parsed whole, as it was always read.
+ *
+ * @param value - The raw `_nexus_meta.value` of {@link ASSESSMENT_REFERENCES_KEY}.
+ * @returns The stored references in stored order.
+ * @throws When the value is neither text nor a compressed list, or is not a JSON array.
+ * @example
+ * ```ts
+ * for await (const { item } of streamStoredReferences(row.value)) count++;
+ * ```
+ */
+export async function* streamStoredReferences(
+  value: unknown,
+): AsyncGenerator<StoredReferenceItem, void, undefined> {
+  let source: AsyncIterable<Buffer>;
+  if (typeof value === 'string') source = Readable.from([Buffer.from(value, 'utf8')]);
+  else if (value instanceof Uint8Array) source = Readable.from([value]).pipe(createGunzip());
+  // @sync-invariant none:input-shape a malformed stored list is refused on read; nothing is written
+  else throw new Error('Graph reference metadata is neither text nor a compressed list.');
+  // Unterminated bytes, kept as chunks and joined once per line (T13372): a
+  // join per CHUNK, then a rescan of the whole buffer, made a long line —
+  // the legacy single-line list is one line — cost quadratic time.
+  let parts: Buffer[] = [];
+  let legacy = false;
+  let sawOpening = false;
+  for await (const chunk of source) {
+    if (legacy) {
+      parts.push(chunk);
+      continue;
+    }
+    let start = 0;
+    for (let end = chunk.indexOf(NEWLINE); end !== -1; end = chunk.indexOf(NEWLINE, start)) {
+      const lineBytes =
+        parts.length === 0
+          ? chunk.subarray(start, end)
+          : Buffer.concat([...parts, chunk.subarray(start, end)]);
+      parts = [];
+      const line = lineBytes.toString('utf8').trim();
+      if (!sawOpening) {
+        if (line !== '[') {
+          // Not the line-per-reference form: keep every byte for a whole parse.
+          legacy = true;
+          parts = [lineBytes, chunk.subarray(end)];
+          break;
+        }
+        sawOpening = true;
+      } else {
+        const text = line.replace(/,$/, '');
+        if (text !== ']' && text !== '')
+          yield { item: JSON.parse(text), bytes: Buffer.byteLength(text, 'utf8') };
+      }
+      start = end + 1;
+    }
+    if (!legacy && start < chunk.length) parts.push(chunk.subarray(start));
+  }
+  const rest = Buffer.concat(parts).toString('utf8').trim();
+  if (sawOpening && !legacy) {
+    const text = rest.replace(/,$/, '');
+    if (text !== ']' && text !== '')
+      yield { item: JSON.parse(text), bytes: Buffer.byteLength(text, 'utf8') };
+    return;
+  }
+  const whole: unknown = JSON.parse(rest);
+  // @sync-invariant none:input-shape a malformed stored list is refused on read; nothing is written
+  if (!Array.isArray(whole)) throw new Error('Graph reference metadata is not a list.');
+  for (const item of whole) yield { item, bytes: Buffer.byteLength(JSON.stringify(item), 'utf8') };
 }
 
 /**
