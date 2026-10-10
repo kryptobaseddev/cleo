@@ -49,13 +49,12 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import type { RowIdentityRef, TableScope } from '@cleocode/contracts';
 import {
   BIRTH_FP_COLUMN,
-  ROW_IDENTITY,
   rowIdentityColumns,
   rowIdentitySpec,
   UID_COLUMN,
 } from '../row-identity-registry.js';
-import { classifyTable, isPortableTableClass } from '../table-classification.js';
-import { readSyncFlags, setSyncFlag } from './flags.js';
+import { classifyTable } from '../table-classification.js';
+import { readSyncFlags, setSyncFlag, syncSetTables } from './flags.js';
 import { mergeGroupsOf } from './merge/rules.js';
 import { ensureSyncSchema, hasTable, healSyncSchema } from './schema.js';
 import { canonicalizeStoreTimestamps } from './timestamps.js';
@@ -113,17 +112,7 @@ export const AT_MS_SQL = "CAST((julianday('now') - 2440587.5) * 86400000 AS INTE
 const CAPTURE_WHEN = suspendClause('capture');
 const UNDO_ON = "EXISTS (SELECT 1 FROM _sync_meta WHERE key = 'undo_enabled')";
 
-/** The sync set: portable, not frozen-legacy, declared in ROW_IDENTITY (§2.1). */
-export function syncSetTables(scope: TableScope): string[] {
-  return ROW_IDENTITY[scope]
-    .map((spec) => spec.table)
-    .filter((t) => {
-      const c = classifyTable(scope, t);
-      return (
-        c.kind === 'entry' && isPortableTableClass(c.class) && c.entry.status !== 'frozen-legacy'
-      );
-    });
-}
+export { syncSetTables };
 
 /**
  * The capture definition of a sync-set table in this store, or `undefined`

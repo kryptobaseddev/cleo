@@ -293,6 +293,63 @@ export function listHeldOps(db: DatabaseSync): HeldOp[] {
   ).map(toHeld);
 }
 
+/** A hold older than this many days is a long hold `cleo doctor sync-journal` lists (§3.5 Rule 5). */
+export const HELD_WARN_DAYS = 7;
+
+/** A held op as the status and doctor surfaces report it (no kept snapshot). */
+export interface HeldSummary {
+  readonly txn: string;
+  readonly idx: number;
+  readonly table: string;
+  readonly uid: string;
+  readonly heldAt: string;
+  /** What refused the replay (the conflict preview). */
+  readonly reason: string;
+}
+
+/** Every hold in a store, and those older than the warn age. */
+export interface HoldsReport {
+  readonly total: number;
+  /** The oldest hold's time, or null when none. */
+  readonly oldestAt: string | null;
+  /** Holds older than {@link HoldsReport.warnDays}, oldest first. */
+  readonly long: readonly HeldSummary[];
+  readonly warnDays: number;
+}
+
+/**
+ * The store's holds for `cleo cloud status` and `cleo doctor sync-journal`
+ * (§3.5 Rule 5): how many, the oldest, and the long ones with their reason.
+ *
+ * @param db - The store (a read-only snapshot is fine).
+ * @param nowMs - The current time (epoch ms).
+ * @param warnDays - The long-hold age. @defaultValue HELD_WARN_DAYS
+ * @returns The report; empty when the journal has no row undo.
+ */
+export function holdsReport(
+  db: DatabaseSync,
+  nowMs: number,
+  warnDays = HELD_WARN_DAYS,
+): HoldsReport {
+  const all = listHeldOps(db);
+  const cutoff = nowMs - warnDays * 86_400_000;
+  return {
+    total: all.length,
+    oldestAt: all[0]?.at ?? null,
+    long: all
+      .filter((h) => Date.parse(h.at) < cutoff)
+      .map((h) => ({
+        txn: h.txn,
+        idx: h.idx,
+        table: h.tbl,
+        uid: h.uid,
+        heldAt: h.at,
+        reason: h.reason,
+      })),
+    warnDays,
+  };
+}
+
 /**
  * The held insert into `table` whose sealed values carry `column = value`
  * (a held row is absent, so `cleo show` finds it here), or null.
