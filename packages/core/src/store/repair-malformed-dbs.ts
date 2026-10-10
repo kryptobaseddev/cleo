@@ -37,7 +37,7 @@
 import { existsSync } from 'node:fs';
 import type { DbRole, DoctorRepairResult } from '@cleocode/contracts';
 import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
-import { BackupRecoverError, runBackupRecover } from './backup-recover.js';
+import { BackupRecoverError, PROJECT_STORE_ROLES, runBackupRecover } from './backup-recover.js';
 import { probeSnapshot, type RecoveryLogger, resolveRoleDbPath } from './recover-malformed-db.js';
 
 /**
@@ -117,7 +117,27 @@ function repairOneRole(
     };
   }
 
-  // MALFORMED — plan or repair.
+  // MALFORMED. The project store (tasks, brain and conduit all resolve to the
+  // live `.cleo/cleo.db`) is never repaired by this pipeline's plain rename
+  // and copy: it is reported with the guarded restore that recovers it (T13245).
+  if (PROJECT_STORE_ROLES.has(role)) {
+    return {
+      role,
+      dbPath,
+      present: true,
+      healthy: false,
+      action: opts.dryRun === true ? 'would-repair' : 'failed',
+      restoredFrom: null,
+      quarantinedTo: null,
+      dataLossWindowHours: null,
+      detail:
+        `malformed — the live project store is recovered only through the guarded restore: ` +
+        `cleo backup recover ${role} --dry-run, then cleo backup recover ${role} ` +
+        '(verifies the snapshot, refuses live writers, keeps the replaced store)',
+    };
+  }
+
+  // Plan or repair.
   if (opts.dryRun === true) {
     try {
       // Dry-run delegates to the SAME pipeline (no mutation) for an honest plan.
@@ -225,13 +245,24 @@ export function repairMalformedDbs(opts: RepairMalformedDbsOptions): DoctorRepai
         existsSync(resolveRoleDbPath(role, { projectRoot: opts.projectRoot })),
       );
 
-  const roles = candidateRoles.map((role) => repairOneRole(role, opts));
+  // Roles sharing one file (tasks, brain and conduit: the project store) are
+  // probed once and reported under each role (T13245).
+  const byPath = new Map<string, DoctorRepairResult['roles'][number]>();
+  const roles = candidateRoles.map((role) => {
+    const dbPath = resolveRoleDbPath(role, { projectRoot: opts.projectRoot });
+    const seen = byPath.get(dbPath);
+    if (seen !== undefined) return { ...seen, role };
+    const result = repairOneRole(role, opts);
+    byPath.set(dbPath, result);
+    return result;
+  });
 
   return {
     dryRun: opts.dryRun === true,
     roles,
-    malformedCount: roles.filter((r) => !r.healthy).length,
-    repairedCount: roles.filter((r) => r.action === 'repaired').length,
-    failedCount: roles.filter((r) => r.action === 'failed').length,
+    // Counted per file, not per role sharing it.
+    malformedCount: [...byPath.values()].filter((r) => !r.healthy).length,
+    repairedCount: [...byPath.values()].filter((r) => r.action === 'repaired').length,
+    failedCount: [...byPath.values()].filter((r) => r.action === 'failed').length,
   };
 }

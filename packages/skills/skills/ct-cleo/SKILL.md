@@ -175,9 +175,9 @@ and inspect it before explicit resume. Repeating the add is not a recovery step.
 The original two-second maintenance budget covers preparation through verification;
 timer expiry does not preempt synchronous SQLite work.
 
-Verify storage with `cleo docs fetch <slug>` and its JSON `data.bytesBase64` plus
-`data.metadata.sha256`. Keep canonical storage success, optional projection
-verification, and installed-provider workflow verification as separate evidence.
+Verify storage with `cleo docs fetch <slug>` and its JSON `data.content` (text docs,
+T13352; binary docs carry `data.bytesBase64`) plus `data.metadata.sha256`. Keep
+canonical storage success, optional projection verification, and installed-provider workflow verification as separate evidence.
 
 ## Acceptance input and historical evidence
 

@@ -74,13 +74,15 @@
           { "paths": ["scripts/**"], "jobs": ["Scripts Tests"] },
           { "paths": [".changeset/**"], "jobs": ["Changeset Lint (T13281)"] },
           { "paths": ["docs/**"], "jobs": ["Canon Drift Check"] },
-          { "paths": ["AGENTS.md"], "jobs": ["Arch Gates / Arch-Gate Parity (T12122 · gate 20)"] }
+          { "paths": ["AGENTS.md"], "jobs": ["Arch Gates / Arch-Gate Parity (T12122 · gate 20)"] },
+          { "paths": [".cleo/project-context.json"], "jobs": ["Lint & Format"] }
         ],
         "qa": [
           { "paths": ["scripts/**"], "jobs": ["Lint & Format"] },
           { "paths": [".changeset/**"], "jobs": ["Changeset Lint (T13281)"] },
           { "paths": ["docs/**"], "jobs": ["Canon Drift Check"] },
-          { "paths": ["AGENTS.md"], "jobs": ["Arch Gates / Arch-Gate Parity (T12122 · gate 20)"] }
+          { "paths": ["AGENTS.md"], "jobs": ["Arch Gates / Arch-Gate Parity (T12122 · gate 20)"] },
+          { "paths": [".cleo/project-context.json"], "jobs": ["Lint & Format"] }
         ]
       }
     }

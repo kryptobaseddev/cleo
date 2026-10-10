@@ -2031,6 +2031,8 @@ export type {
   WorktreeLockAcquisitionStatus,
   WorktreeLockHolder,
   WorktreeLockRecord,
+  WorktreeLockSessionProbe,
+  WorktreeLockSessionState,
   WorktreeSource,
   WorktreeStatusCategory,
 } from './operations/worktree.js';
@@ -3156,6 +3158,9 @@ export {
   type CloudLeaseReleaseResult,
   type CloudPushResult,
   type CloudRestoreResult,
+  type CloudSyncPushEnableResult,
+  type CloudSyncResult,
+  type CloudSyncStreamResult,
   type CloudVaultLease,
   type CloudVaultScope,
   type CloudVaultSnapshot,

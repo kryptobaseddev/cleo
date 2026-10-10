@@ -819,6 +819,126 @@ describe('a worktree-bound test-run is judged in one root (T12965 review M2)', (
   });
 });
 
+describe('a standalone single-package project plans a targeted test-run (T13403)', () => {
+  /** Make the fixture one package: a root package.json, no workspace declared. */
+  function standalone(): void {
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ name: 'solo', scripts: { test: 'vitest run' } }),
+    );
+    writeFileSync(join(root, 'src', 'a.test.ts'), 'export {};\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'solo']);
+    git(root, ['push', '-q', 'origin', 'main']);
+  }
+
+  it('with a changed test file, plans test-run for testsPassed, never a whole-suite tool:test', async () => {
+    standalone();
+    const id = await seedTask(['Change src/a.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+    writeFileSync(join(root, 'src', 'a.test.ts'), 'export const t = 1;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a and its test`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.filter((r) => r.gate === 'testsPassed')).toEqual([]);
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBeNull();
+    const blocker = plan.blockers.find((b) => b.code === 'test-run-needed');
+    expect(blocker?.message).toMatch(/src\/a\.test\.ts.*test-run:/);
+    expect(blocker?.next.command).toBe(
+      `cleo verify ${id} --gate testsPassed --evidence 'test-run:<vitest-json-report>'`,
+    );
+    // qaPassed is separate: it still binds lint and typecheck tool receipts.
+    expect(
+      plan.toolRuns
+        .filter((r) => r.gate === 'qaPassed')
+        .map((r) => r.tool)
+        .sort(),
+    ).toEqual(['lint', 'typecheck']);
+    expect(plan.gates.find((g) => g.gate === 'qaPassed')?.evidence).toMatch(
+      /^tool:(lint|typecheck);tool:(lint|typecheck);satisfies:/,
+    );
+  });
+
+  it('qaPassed binds tool receipts only; a test-run report never satisfies it', () => {
+    const run: EvidenceAtom = {
+      kind: 'test-run',
+      path: 'reports/vitest.json',
+      sha256: 'c'.repeat(64),
+    };
+    expect(checkGateEvidenceMinimum('qaPassed', [run])).not.toBeNull();
+    expect(checkGateEvidenceMinimum('testsPassed', [run])).toBeNull();
+  });
+
+  it('a research task in a standalone project plans no test run of any kind', async () => {
+    standalone();
+    const id = await seedTask(['Report the findings'], 'research');
+    const content = '# findings\n';
+    const sha = createHash('sha256').update(content).digest('hex');
+    mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+    // Even with a test file changed on the checkout.
+    writeFileSync(join(root, 'src', 'a.test.ts'), 'export const t = 2;\n');
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+      deps: {
+        ...deps,
+        listTaskDocs: async () => [{ id: 'att', slug: 'findings', sha256: sha }],
+        listTaskDecisions: async () => ['D900'],
+      },
+    });
+    expect(plan.changeSet.source).toBe('docs');
+    expect(plan.toolRuns).toEqual([]);
+    expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
+      `note:decision-only implementation, no code changed;satisfies:${id}#AC1`,
+    );
+  });
+
+  it('with no changed test file, testsPassed keeps its tool run', async () => {
+    standalone();
+    const id = await seedTask(['Change src/a.ts']);
+    commitOnTaskBranch(id);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+  });
+
+  it('a workspace with a changed test file keeps its tool run (monorepo unchanged)', async () => {
+    writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "pkgs/*"\n');
+    mkdirSync(join(root, 'pkgs', 'a'), { recursive: true });
+    writeFileSync(join(root, 'pkgs', 'a', 'package.json'), JSON.stringify({ name: '@w/a' }));
+    writeFileSync(join(root, 'pkgs', 'a', 'a.test.ts'), 'export {};\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'workspace']);
+    git(root, ['push', '-q', 'origin', 'main']);
+    const id = await seedTask(['Change pkgs/a/a.test.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'a', 'a.test.ts'), 'export const t = 1;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a test`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+  });
+});
+
 describe('affected-scope test runs (T12635, D11150)', () => {
   function workspaceWithPackages(withVitest = true): void {
     writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "pkgs/*"\n');
@@ -1176,6 +1296,69 @@ describe('research and no-change-set tasks', () => {
       `note:decision-only implementation, no code changed;satisfies:${id}#AC1`,
     );
     expect(plan.blockers).toEqual([]);
+  });
+
+  describe('T13428: a research task is judged on its review artifact, never a citing PR', () => {
+    async function researchDoc(): Promise<{ id: string; sha: string }> {
+      const id = await seedTask(['Report the findings'], 'research');
+      const content = '# review\n';
+      const sha = createHash('sha256').update(content).digest('hex');
+      mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+      writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+      return { id, sha };
+    }
+    /** An author code PR that cites the task: it must not be consulted. */
+    const citingPr = (id: string): Partial<ChangeSetDeps> => ({
+      listMergedPrs: async () => ({
+        ok: true,
+        prs: [{ number: 1756, title: `${id}: author code`, body: '', headRefName: 'feat/x' }],
+      }),
+      resolvePr: async () => {
+        throw new Error('a citing PR must not be resolved for a research task with a review doc');
+      },
+    });
+
+    it('with a doc and a decision: docs change set, decision-only gates, no tool runs', async () => {
+      const { id, sha } = await researchDoc();
+      const plan = await deriveTaskEvidence(id, {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        previewEvidence: async () => ({ ok: true }),
+        deps: {
+          ...deps,
+          ...citingPr(id),
+          listTaskDocs: async () => [{ id: 'att', slug: 'review', sha256: sha }],
+          listTaskDecisions: async () => ['D900'],
+        },
+      });
+      expect(plan.changeSet.source).toBe('docs');
+      expect(plan.changeSet.prNumber).toBeUndefined();
+      expect(plan.toolRuns).toEqual([]);
+      expect(plan.gates.find((g) => g.gate === 'implemented')?.evidence).toMatch(
+        /^decision:D900;files:/,
+      );
+    });
+
+    it('with a doc but no decision yet: still no suite or typecheck, only the decision blocker', async () => {
+      const { id, sha } = await researchDoc();
+      const plan = await deriveTaskEvidence(id, {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        previewEvidence: async () => ({ ok: true }),
+        deps: {
+          ...deps,
+          ...citingPr(id),
+          listTaskDocs: async () => [{ id: 'att', slug: 'review', sha256: sha }],
+          listTaskDecisions: async () => [],
+        },
+      });
+      expect(plan.changeSet.source).toBe('docs');
+      expect(plan.toolRuns).toEqual([]);
+      expect(plan.blockers.map((b) => b.code)).toContain('decision-missing');
+      expect(plan.blockers.map((b) => b.code)).not.toContain('tool-unresolved');
+    });
   });
 
   it('a task with no change set is blocked on it, with no complete command', async () => {
