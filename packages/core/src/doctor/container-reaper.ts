@@ -5,11 +5,15 @@
  * The convention: a throwaway container is started with `docker run --rm` or
  * labelled `cleo.task=<id>` and `cleo.ttl=<duration>` (`4h`, `2d`). The reaper
  * removes exactly two things:
- * - containers carrying `cleo.ttl` whose age is past it (opted in by the label);
+ * - STOPPED containers carrying `cleo.ttl` created longer ago than it (opted in
+ *   by the label);
  * - anonymous volumes no container uses (64-hex names: the ones
- *   `docker run` without `--rm` leaves behind).
+ *   `docker run` without `--rm` leaves behind, from any container).
  *
- * It never touches an unlabelled container, running or not, or a named volume.
+ * A RUNNING labelled container is never removed: one past its ttl since it
+ * last STARTED (a restart resets the clock, creation does not) is only
+ * reported, because a reused container may be mid-test (T13451). It never
+ * touches an unlabelled container or a named volume.
  *
  * @task T13436
  * @epic T13434
@@ -24,13 +28,18 @@ export const CLEO_TTL_LABEL = 'cleo.ttl';
 /** The label naming the task a container was started for. */
 export const CLEO_TASK_LABEL = 'cleo.task';
 
-/** A container the reaper would remove. */
+/** `docker ps` columns {@link planContainerReap} reads; labels last (they may hold anything but tabs). */
+export const LABELLED_FORMAT =
+  '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.CreatedAt}}\t{{.State}}\t{{.Labels}}';
+
+/** A labelled container past its ttl. */
 export interface ReapContainer {
   readonly id: string;
   readonly name: string;
   readonly image: string;
   readonly task: string | null;
   readonly ttl: string;
+  /** Since creation for a stopped container, since its last start for a running one. */
   readonly ageSec: number;
 }
 
@@ -47,7 +56,10 @@ export interface ContainerReapPlan {
   readonly mode: 'dry-run' | 'apply';
   /** False when docker is absent or did not answer: nothing was assessed. */
   readonly dockerAvailable: boolean;
+  /** Stopped containers past their ttl: removed by `--apply`. */
   readonly containers: readonly ReapContainer[];
+  /** Running containers past their ttl since their last start: reported, never removed. */
+  readonly runningExpired: readonly ReapContainer[];
   readonly volumes: readonly string[];
   /** Labelled containers whose `cleo.ttl` could not be parsed (left alone). */
   readonly invalidTtl: readonly string[];
@@ -56,8 +68,10 @@ export interface ContainerReapPlan {
 
 /** Raw docker output for {@link planContainerReap}. */
 export interface ContainerReapInput {
-  /** `docker ps -a --filter label=cleo.ttl --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.CreatedAt}}\t{{.Labels}}'`. */
+  /** `docker ps -a --filter label=cleo.ttl --format` {@link LABELLED_FORMAT}. */
   readonly labelledContainers: string | null;
+  /** Full container id → `State.StartedAt` (RFC 3339), for the running candidates. */
+  readonly startedAt: Readonly<Record<string, string>>;
   /** `docker volume ls -q -f dangling=true`. */
   readonly danglingVolumes: string | null;
   readonly nowMs: number;
@@ -95,23 +109,32 @@ const ANONYMOUS_VOLUME = /^[0-9a-f]{64}$/;
  */
 export function planContainerReap(input: ContainerReapInput): ContainerReapPlan {
   const containers: ReapContainer[] = [];
+  const runningExpired: ReapContainer[] = [];
   const invalidTtl: string[] = [];
+  const startedAtOf = (id: string): number => {
+    const full = Object.keys(input.startedAt).find((k) => k.startsWith(id));
+    // shortcut: drop sub-millisecond digits Date.parse may not accept
+    return full === undefined
+      ? Number.NaN
+      : Date.parse((input.startedAt[full] ?? '').replace(/(\.\d{3})\d+/, '$1'));
+  };
   for (const line of (input.labelledContainers ?? '').split('\n')) {
-    const [id, name, image, createdAt, rawLabels = ''] = line.split('\t');
-    if (!id || !name || !image || !createdAt) continue;
+    const [id, name, image, createdAt, state, rawLabels = ''] = line.split('\t');
+    if (!id || !name || !image || !createdAt || !state) continue;
     const labels = parseLabels(rawLabels);
     const ttl = labels.get(CLEO_TTL_LABEL);
     if (ttl === undefined) continue;
     const ttlSec = parseTtl(ttl);
-    const created = parseDockerCreatedAt(createdAt);
-    if (ttlSec === null || Number.isNaN(created)) {
+    const running = state === 'running' || state === 'restarting' || state === 'paused';
+    const since = running ? startedAtOf(id) : parseDockerCreatedAt(createdAt);
+    if (ttlSec === null || Number.isNaN(since)) {
       invalidTtl.push(name);
       continue;
     }
-    const ageSec = Math.round((input.nowMs - created) / 1000);
-    if (ageSec > ttlSec) {
-      containers.push({ id, name, image, task: labels.get(CLEO_TASK_LABEL) ?? null, ttl, ageSec });
-    }
+    const ageSec = Math.round((input.nowMs - since) / 1000);
+    if (ageSec <= ttlSec) continue;
+    const entry = { id, name, image, task: labels.get(CLEO_TASK_LABEL) ?? null, ttl, ageSec };
+    (running ? runningExpired : containers).push(entry);
   }
   const volumes = (input.danglingVolumes ?? '')
     .split('\n')
@@ -121,6 +144,7 @@ export function planContainerReap(input: ContainerReapInput): ContainerReapPlan 
     mode: 'dry-run',
     dockerAvailable: input.labelledContainers !== null || input.danglingVolumes !== null,
     containers,
+    runningExpired,
     volumes,
     invalidTtl,
     applied: [],
@@ -162,22 +186,34 @@ const readDocker = async (args: readonly string[]): Promise<string | null> => {
  */
 export async function collectContainerReapInput(): Promise<ContainerReapInput> {
   const [labelledContainers, danglingVolumes] = await Promise.all([
-    readDocker([
-      'ps',
-      '-a',
-      '--filter',
-      `label=${CLEO_TTL_LABEL}`,
-      '--format',
-      '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.CreatedAt}}\t{{.Labels}}',
-    ]),
+    readDocker(['ps', '-a', '--filter', `label=${CLEO_TTL_LABEL}`, '--format', LABELLED_FORMAT]),
     readDocker(['volume', 'ls', '-q', '-f', 'dangling=true']),
   ]);
-  return { labelledContainers, danglingVolumes, nowMs: Date.now() };
+  const running = (labelledContainers ?? '')
+    .split('\n')
+    .map((l) => l.split('\t'))
+    .filter((f) => f[4] === 'running' || f[4] === 'restarting' || f[4] === 'paused')
+    .map((f) => f[0] as string);
+  const startedAt: Record<string, string> = {};
+  if (running.length > 0) {
+    const out = await readDocker([
+      'inspect',
+      '--format',
+      '{{.Id}}\t{{.State.StartedAt}}',
+      ...running,
+    ]);
+    for (const line of (out ?? '').split('\n')) {
+      const [id, at] = line.split('\t');
+      if (id && at) startedAt[id] = at;
+    }
+  }
+  return { labelledContainers, danglingVolumes, startedAt, nowMs: Date.now() };
 }
 
 /**
- * Remove exactly what `plan` lists: each expired labelled container with
- * `docker rm -f -v` (its anonymous volumes go with it, named ones never do),
+ * Remove exactly what `plan` lists: each expired STOPPED labelled container
+ * with `docker rm -v`, never `-f`, so one started since the plan is refused by
+ * docker and reported (its anonymous volumes go with it, named ones never do),
  * then each anonymous dangling volume. A volume that gained a user since the
  * plan is refused by docker and reported, not forced.
  *
@@ -189,7 +225,7 @@ export async function applyContainerReap(
 ): Promise<ContainerReapPlan> {
   const applied: ReapOutcome[] = [];
   for (const c of plan.containers) {
-    const error = await docker(['rm', '-f', '-v', c.id]);
+    const error = await docker(['rm', '-v', c.id]);
     applied.push({
       target: c.name,
       kind: 'container',
