@@ -935,19 +935,37 @@ const execFileAsync = promisify(execFile);
 /** The `ps` columns {@link parsePs} reads. */
 const PS_FORMAT = 'pid=,ppid=,pgid=,rss=,pcpu=,etime=,tty=,args=';
 
-/** Run a read-only command, time-boxed. `null` on any failure (absent, timeout, non-zero). */
-async function run(cmd: string, args: readonly string[], timeoutMs = 5000): Promise<string | null> {
+/**
+ * Run a read-only command, time-boxed. `null` on any failure (absent, timeout,
+ * non-zero). With `keepStdoutOnExit`, a non-zero exit that still printed
+ * returns what it printed: `lsof -p a,b` exits 1 when one pid has vanished but
+ * still reports the others.
+ *
+ * @task T13435
+ */
+export async function runReadOnly(
+  cmd: string,
+  args: readonly string[],
+  opts: { readonly timeoutMs?: number; readonly keepStdoutOnExit?: boolean } = {},
+): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync(cmd, [...args], {
-      timeout: timeoutMs,
+      timeout: opts.timeoutMs ?? 5000,
       maxBuffer: 32 * MIB,
       encoding: 'utf8',
     });
     return stdout;
-  } catch {
-    return null;
+  } catch (err) {
+    const exited = err instanceof Error && 'code' in err && typeof err.code === 'number';
+    const stdout = err instanceof Error && 'stdout' in err ? err.stdout : undefined;
+    return opts.keepStdoutOnExit === true && exited && typeof stdout === 'string' && stdout !== ''
+      ? stdout
+      : null;
   }
 }
+
+const run = (cmd: string, args: readonly string[]): Promise<string | null> =>
+  runReadOnly(cmd, args);
 
 /** Linux swap from `/proc/meminfo`, `null` when unreadable. */
 export function parseLinuxSwap(meminfo: string): { usedBytes: number; totalBytes: number } | null {
@@ -1089,14 +1107,12 @@ async function collectSessionContext(
       }
     }
   } else {
-    const out = await run('lsof', [
-      '-a',
-      '-d',
-      'cwd',
-      '-p',
-      sessions.map((r) => r.pid).join(','),
-      '-Fpn',
-    ]);
+    // A session that exits between ps and lsof makes lsof exit 1; keep the rest.
+    const out = await runReadOnly(
+      'lsof',
+      ['-a', '-d', 'cwd', '-p', sessions.map((r) => r.pid).join(','), '-Fpn'],
+      { keepStdoutOnExit: true },
+    );
     cwds = out === null ? cwds : parseLsofCwd(out);
   }
   const now = Date.now();

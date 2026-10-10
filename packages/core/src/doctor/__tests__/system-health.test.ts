@@ -20,6 +20,7 @@ import {
   parseLinuxSwap,
   parseLsofCwd,
   parsePs,
+  runReadOnly,
   type SystemSnapshot,
 } from '../system-health.js';
 
@@ -370,6 +371,16 @@ describe('session context parsers (T13438)', () => {
     const has = new Set(['/Users/u/p/.git']);
     expect(gitRootOf('/Users/u/p/app/src', (x) => has.has(x))).toBe('/Users/u/p');
     expect(gitRootOf('/tmp/x', (x) => has.has(x))).toBeNull();
+  });
+});
+
+describe('runReadOnly', () => {
+  it('keeps stdout of a non-zero exit only when asked (lsof with a vanished pid)', async () => {
+    const script = ['-c', 'printf "p1\\nn/a\\n"; exit 1'];
+    expect(await runReadOnly('sh', script, { keepStdoutOnExit: true })).toBe('p1\nn/a\n');
+    expect(await runReadOnly('sh', script)).toBeNull();
+    expect(await runReadOnly('sh', ['-c', 'exit 1'], { keepStdoutOnExit: true })).toBeNull();
+    expect(await runReadOnly('/nonexistent/cmd', [], { keepStdoutOnExit: true })).toBeNull();
   });
 });
 
