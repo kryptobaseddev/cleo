@@ -418,10 +418,49 @@ describe('pinning: the pre-collapse snapshot is never rotated', () => {
       });
       ids.push(id);
     }
-    rotateBackupDir(backupDir(), 10, 'migration');
+    const rotation = rotateBackupDir(backupDir(), 10, 'migration');
     const kept = ids.filter((id) => existsSync(join(backupDir(), `cleo.db.${id}`)));
     // The pinned oldest survives; of the other 11, the 10 newest are kept.
     expect(kept).toEqual([ids[0], ...ids.slice(2)]);
+    // The rotated backup's `<backupId>.meta.json` goes with it (T12729).
+    expect(rotation.sidecars).toEqual([`${ids[1]}.meta.json`]);
+    const sidecars = ids.filter((id) => existsSync(join(backupDir(), `${id}.meta.json`)));
+    expect(sidecars).toEqual(kept);
+    expect(listSystemBackups(projectDir).map((b) => b.backupId)).not.toContain(ids[1]);
+  });
+
+  it('rotation sweeps orphan sidecars of its type, never a pinned, malformed or other-type one (T12729)', () => {
+    mkdirSync(backupDir(), { recursive: true });
+    const sidecar = (id: string, extra: Record<string, unknown> = {}) =>
+      writeBackupSidecar(backupDir(), {
+        backupId: id,
+        type: id.split('-')[0] ?? 'migration',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        files: ['cleo.db'],
+        ...extra,
+      });
+    // Left behind by a pre-T12729 rotation: the file is gone.
+    sidecar('migration-20250101-000000');
+    sidecar('migration-20250101-000001', { pinned: true, pinnedReason: 'test' });
+    sidecar('snapshot-20250101-000002');
+    writeFileSync(join(backupDir(), 'migration-20250101-000003.meta.json'), '{ not json');
+    // A live backup keeps its sidecar.
+    writeFileSync(join(backupDir(), 'cleo.db.migration-20250101-000004'), 'live');
+    sidecar('migration-20250101-000004');
+
+    const rotation = rotateBackupDir(backupDir(), 10, 'migration');
+    expect(rotation.deleted).toEqual([]);
+    expect(rotation.sidecars).toEqual(['migration-20250101-000000.meta.json']);
+    expect(
+      readdirSync(backupDir())
+        .filter((f) => f.endsWith('.meta.json'))
+        .sort(),
+    ).toEqual([
+      'migration-20250101-000001.meta.json',
+      'migration-20250101-000003.meta.json',
+      'migration-20250101-000004.meta.json',
+      'snapshot-20250101-000002.meta.json',
+    ]);
   });
 
   it('rotation never deletes an unpinned snapshot a marker references, and it does not count toward the cap (T12727)', () => {
