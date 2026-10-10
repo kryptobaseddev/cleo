@@ -32,6 +32,13 @@ metadata:
 
 # Development Workflow Context Injection
 
+Opt-in unified-hook releases use the numbered `vYYYY.MM.N-canary.N` channel
+through the normal release plan/open and OIDC workflow. The release-preparation
+workflow accepts this channel explicitly; publication stays on `canary` and does
+not advance to `latest`. Preserve registry retries and installed-package soak
+checks. Stable promotion needs the separately retained, source-bound live harness
+and hosted VidaPeps pilot evidence; missing or unavailable verification holds it.
+
 Before editing, inspect focus/briefing authority and coverage. Missing evidence
 means UNKNOWN impact; current static coverage does not prove every runtime caller.
 Task start, verification, completion, and handoff expose assessed coverage. Preserve
