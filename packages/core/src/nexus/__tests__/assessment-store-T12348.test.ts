@@ -14,10 +14,17 @@
  */
 
 import { DatabaseSync } from 'node:sqlite';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import type { GraphIndexAssessment, GraphIndexReferenceReport } from '@cleocode/contracts';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { assessmentSummary, decodeStoredReferences, writeAssessment } from '../assessment-store.js';
+import {
+  assessmentSummary,
+  decodeStoredReferences,
+  encodeStoredReferences,
+  parseStoredReferences,
+  writeAssessment,
+} from '../assessment-store.js';
 import { readKnowledgeIndexAssessment, readKnowledgeIndexReferences } from '../knowledge.js';
 
 vi.mock('../../store/nexus-sqlite.js', async () => ({
@@ -138,6 +145,44 @@ describe('assessment summary and reference list (T12348)', () => {
       .run(JSON.stringify(assessment.references));
     expect(await readKnowledgeIndexReferences()).toEqual(assessment.references);
     expect(() => decodeStoredReferences(42)).toThrow('neither text nor a compressed list');
+  });
+
+  // T13326: 846 151 references from a 5 357-file repository exceed V8's
+  // maximum string length as ONE JSON.stringify, so publication failed with
+  // "Invalid string length". The encoder must stringify references one at a
+  // time, and the reader must not rebuild the whole list as one string.
+  it('encodes the list without stringifying it whole, and reads it back line by line', () => {
+    const references = Array.from({ length: 10_000 }, (_, index) => reference(`a.ts::fn${index}`));
+    const stringify = vi.spyOn(JSON, 'stringify');
+    let encoded: Uint8Array;
+    try {
+      encoded = encodeStoredReferences(references);
+      expect(stringify.mock.calls.some(([value]) => Array.isArray(value))).toBe(false);
+    } finally {
+      stringify.mockRestore();
+    }
+    const bufferToString = vi.spyOn(Buffer.prototype, 'toString');
+    try {
+      expect(parseStoredReferences(encoded)).toEqual(references);
+      const longest = Math.max(
+        ...bufferToString.mock.results.map((result) => String(result.value).length),
+      );
+      expect(longest).toBeLessThan(1_000);
+    } finally {
+      bufferToString.mockRestore();
+    }
+    // Still one JSON array, so a whole-text reader of a list that fits agrees.
+    expect(JSON.parse(gunzipSync(encoded).toString('utf8'))).toEqual(references);
+    expect(parseStoredReferences(encodeStoredReferences([]))).toEqual([]);
+  });
+
+  it('reads lists written before the line-per-reference form', () => {
+    const references = fullAssessment().references ?? [];
+    const compact = JSON.stringify(references);
+    expect(parseStoredReferences(gzipSync(compact))).toEqual(references);
+    expect(parseStoredReferences(compact)).toEqual(references);
+    expect(() => parseStoredReferences(42)).toThrow('neither text nor a compressed list');
+    expect(() => parseStoredReferences('{"not":"a list"}')).toThrow('not a list');
   });
 
   it('refuses a list that disagrees with the recorded count', async () => {
