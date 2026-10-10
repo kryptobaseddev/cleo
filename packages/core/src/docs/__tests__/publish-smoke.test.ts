@@ -26,7 +26,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { computeProjectHash, resolveTaskWorktreePath } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -270,6 +270,7 @@ describe('T13376: registered canonical worktree publication boundaries', () => {
   it('T13388 publishes the actual owner-bound canonical changeset by UUID, SHA, slug and default', async () => {
     mkdirSync(join(root, '.cleo'));
     vi.mocked(blobOps.blobList).mockResolvedValue([]);
+    vi.mocked(blobOps.blobRead).mockClear();
     const slug = 'owner-bound-changeset';
     const reservation = await reserveSlug('changeset', slug, { cwd: root });
     expect(reservation.ok).toBe(true);
@@ -277,7 +278,13 @@ describe('T13376: registered canonical worktree publication boundaries', () => {
     const text = '---\n"@cleocode/core": patch\n---\n\nReviewable changeset.\n';
     const metadata = await store.put(
       text,
-      { kind: 'blob', mime: 'text/markdown', size: Buffer.byteLength(text), description: slug },
+      {
+        kind: 'blob',
+        storageKey: '',
+        mime: 'text/markdown',
+        size: Buffer.byteLength(text),
+        description: slug,
+      },
       'task',
       'T13388',
       'test',
@@ -293,7 +300,9 @@ describe('T13376: registered canonical worktree publication boundaries', () => {
           toPath: join(worktree, '.changeset', `${attachmentId ?? 'default'}.md`),
         });
         expect(result.blobSha256).toBe(metadata.sha256);
-        expect(result.blobName).toBe(`${slug}.md`);
+        expect(result.blobName).toBe(
+          metadata.attachment.kind === 'blob' ? basename(metadata.attachment.storageKey) : slug,
+        );
         expect(readFileSync(result.publishedPath, 'utf8')).toContain('Reviewable changeset.');
       }
       await expect(
@@ -304,7 +313,7 @@ describe('T13376: registered canonical worktree publication boundaries', () => {
           toPath: join(worktree, '.changeset/wrong-owner.md'),
         }),
       ).rejects.toThrow('not found for owner');
-      expect(blobOps.blobRead).not.toHaveBeenCalledWith('T13388', `${slug}.md`, root);
+      expect(blobOps.blobRead).not.toHaveBeenCalled();
     } finally {
       await closeAllDatabases();
     }

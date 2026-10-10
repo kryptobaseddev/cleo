@@ -1118,7 +1118,10 @@ export async function publishDocs(opts: {
           canonicalBytes = content.bytes;
           const extras = await store.getExtras(metadata.id, root);
           target = {
-            name: extras?.slug ? `${extras.slug}.md` : metadata.id,
+            name:
+              metadata.attachment.kind === 'blob' && metadata.attachment.storageKey
+                ? basename(metadata.attachment.storageKey)
+                : (extras?.slug ?? metadata.id),
             sha256: metadata.sha256,
             sizeBytes: content.bytes.byteLength,
             mimeType: metadata.attachment.kind === 'blob' ? metadata.attachment.mime : undefined,
@@ -1130,8 +1133,8 @@ export async function publishDocs(opts: {
   }
 
   if (!target) {
-    // @sync-invariant none:local-only absent readable owner content prevents local publication; no synced state is changed.
     if (!opts.attachmentId && !blobs.length)
+      // @sync-invariant none:local-only absent readable owner content prevents local publication; no synced state is changed.
       throw new Error(`publishDocs: no attachments found for owner "${opts.ownerId}"`);
     throw new Error(
       `publishDocs: attachment "${opts.attachmentId}" not found for owner "${opts.ownerId}"`,
