@@ -356,7 +356,8 @@
       "link_type",
       "memory_id",
       "memory_type",
-      "task_id"
+      "task_id",
+      "uid"
     ],
     "brain_memory_trees": [
       "centroid",
@@ -449,6 +450,7 @@
       "reinforcement_count",
       "stability_score",
       "to_id",
+      "uid",
       "weight"
     ],
     "brain_page_nodes": [
@@ -572,7 +574,8 @@
     ],
     "brain_sticky_tags": [
       "sticky_id",
-      "tag"
+      "tag",
+      "uid"
     ],
     "brain_task_observations": [
       "created_at",
@@ -1582,7 +1585,8 @@
       "created_at",
       "created_by",
       "link_type",
-      "release_id"
+      "release_id",
+      "uid"
     ],
     "tasks_commit_files": [
       "change_type",
@@ -2479,7 +2483,8 @@
       "link_type",
       "memory_id",
       "memory_type",
-      "task_id"
+      "task_id",
+      "uid"
     ],
     "brain_memory_trees": [
       "centroid",
@@ -2570,6 +2575,7 @@
       "reinforcement_count",
       "stability_score",
       "to_id",
+      "uid",
       "weight"
     ],
     "brain_page_nodes": [
@@ -2684,7 +2690,8 @@
     ],
     "brain_sticky_tags": [
       "sticky_id",
-      "tag"
+      "tag",
+      "uid"
     ],
     "brain_transcript_events": [
       "birth_fp",
