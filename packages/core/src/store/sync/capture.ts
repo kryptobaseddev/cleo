@@ -63,6 +63,7 @@ import {
   CAPTURE_TRIGGER_PREFIX,
   normalizeSql,
   suspendClause,
+  TRIGGER_SUSPEND_TABLE_DDL,
 } from './trigger-classes.js';
 import { raiseMinWriterVersion } from './writer-version.js';
 
@@ -545,6 +546,10 @@ export function installCaptureTriggers(db: DatabaseSync, scope: TableScope): Cap
     return true;
   });
   if (report.dropped.length + changes.length === 0) return report;
+  // Every capture trigger reads cleo_trigger_suspend (T13398): a store that
+  // never ran the open pass's step 0 (a raw handle, or a global store from
+  // before step 0 covered that scope) gets it before the triggers go in.
+  if (changes.length > 0) db.exec(TRIGGER_SUSPEND_TABLE_DDL);
   // One unit (T13024 MED-2): a failed CREATE never leaves a dropped trigger committed.
   atomicDdl(db, () => {
     for (const name of report.dropped) db.exec(`DROP TRIGGER IF EXISTS ${q(name)}`);
