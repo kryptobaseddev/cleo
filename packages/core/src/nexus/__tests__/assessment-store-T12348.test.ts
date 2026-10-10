@@ -13,10 +13,16 @@
  * @task T12348
  */
 
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import type { GraphIndexAssessment, GraphIndexReferenceReport } from '@cleocode/contracts';
 import { drizzle } from 'drizzle-orm/node-sqlite';
+import { buildSync } from 'esbuild';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   assessmentSummary,
@@ -25,7 +31,11 @@ import {
   parseStoredReferences,
   writeAssessment,
 } from '../assessment-store.js';
-import { readKnowledgeIndexAssessment, readKnowledgeIndexReferences } from '../knowledge.js';
+import {
+  readKnowledgeIndexAssessment,
+  readKnowledgeIndexReferencePage,
+  readKnowledgeIndexReferences,
+} from '../knowledge.js';
 
 vi.mock('../../store/nexus-sqlite.js', async () => ({
   getNexusDb: vi.fn(async () => drizzle({ client: native })),
@@ -183,6 +193,139 @@ describe('assessment summary and reference list (T12348)', () => {
     expect(parseStoredReferences(compact)).toEqual(references);
     expect(() => parseStoredReferences(42)).toThrow('neither text nor a compressed list');
     expect(() => parseStoredReferences('{"not":"a list"}')).toThrow('not a list');
+  });
+
+  // T13330: status pages the list; the whole list is never held at once.
+  describe('readKnowledgeIndexReferencePage', () => {
+    const kinds = ['external', 'unresolved', 'dynamic'] as const;
+    const many = (): GraphIndexReferenceReport[] =>
+      Array.from({ length: 10_000 }, (_, index) => ({
+        ...reference(`a.ts::fn${index}`),
+        kind: kinds[index % kinds.length] ?? 'external',
+      }));
+
+    it('streams the stored list into one page plus whole-list totals', async () => {
+      const references = many();
+      writeAssessment(drizzle({ client: native }), { ...fullAssessment(), references });
+      const parse = vi.spyOn(JSON, 'parse');
+      const bufferToString = vi.spyOn(Buffer.prototype, 'toString');
+      let result: Awaited<ReturnType<typeof readKnowledgeIndexReferencePage>>;
+      try {
+        result = await readKnowledgeIndexReferencePage(undefined, { limit: 20, offset: 0 });
+        const longestParsed = Math.max(
+          0,
+          ...parse.mock.calls
+            .map(([text]) => text)
+            .filter((text) => text.includes('a.ts::fn'))
+            .map((text) => text.length),
+        );
+        expect(longestParsed).toBeLessThan(1_000);
+        const longestDecoded = Math.max(
+          ...bufferToString.mock.results.map((entry) => String(entry.value).length),
+        );
+        expect(longestDecoded).toBeLessThan(1_000);
+      } finally {
+        parse.mockRestore();
+        bufferToString.mockRestore();
+      }
+      expect(result?.page).toMatchObject({ offset: 0, limit: 20, total: 10_000, returned: 20 });
+      expect(result?.page.nextOffset).toBe(20);
+      expect(result?.page.rows).toEqual(references.slice(0, 20));
+      expect(result?.byKind).toEqual({
+        'unmodeled-source': 0,
+        ambiguous: 0,
+        external: 3_334,
+        dynamic: 3_333,
+        shadowed: 0,
+        unresolved: 3_333,
+      });
+      expect(result?.bytes).toBe(Buffer.byteLength(JSON.stringify(references), 'utf8'));
+    });
+
+    it('filters by kind, offsets into the filter, and ends with a null nextOffset', async () => {
+      const references = many();
+      writeAssessment(drizzle({ client: native }), { ...fullAssessment(), references });
+      const dynamic = references.filter((entry) => entry.kind === 'dynamic');
+      const result = await readKnowledgeIndexReferencePage(undefined, {
+        limit: 5_000,
+        offset: 3_000,
+        kind: 'dynamic',
+      });
+      expect(result?.page).toMatchObject({ kind: 'dynamic', total: 3_333, returned: 333 });
+      expect(result?.page.nextOffset).toBeNull();
+      expect(result?.page.rows).toEqual(dynamic.slice(3_000));
+    });
+
+    it('pages lists written before the line-per-reference form', async () => {
+      const assessment = fullAssessment();
+      writeAssessment(drizzle({ client: native }), assessment);
+      const compact = JSON.stringify(assessment.references);
+      for (const stored of [gzipSync(compact), compact]) {
+        native
+          .prepare("UPDATE _nexus_meta SET value = ? WHERE key = 'graph_assessment_references'")
+          .run(stored);
+        const result = await readKnowledgeIndexReferencePage(undefined, { limit: 1, offset: 1 });
+        expect(result?.page.rows).toEqual(assessment.references?.slice(1));
+        expect(result?.page.nextOffset).toBeNull();
+      }
+    });
+
+    it('streams a list far larger than the reader heap without holding it', () => {
+      // 300 000 references (~75 MB of JSON) read by a process capped at 32 MiB:
+      // only a reader that drops each reference after counting it survives.
+      const directory = mkdtempSync(join(tmpdir(), 'nexus-references-stream-'));
+      try {
+        buildSync({
+          entryPoints: [fileURLToPath(new URL('../assessment-store.ts', import.meta.url))],
+          outfile: join(directory, 'store.mjs'),
+          bundle: true,
+          platform: 'node',
+          format: 'esm',
+        });
+        writeFileSync(
+          join(directory, 'probe.mjs'),
+          `
+          import assert from 'node:assert/strict';
+          import { gzipSync } from 'node:zlib';
+          import { streamStoredReferences } from './store.mjs';
+          // Built member by member, in the stored format, so the writer holds no list either.
+          const members = [];
+          let text = '[';
+          for (let index = 0; index < 300000; index++) {
+            text += (index === 0 ? '\\n' : ',\\n') + JSON.stringify({ kind: index % 2 ? 'external' : 'unresolved', filePath: 'a.ts', sourceId: 'a.ts::fn' + index, targetName: 'target' + index, relationship: 'calls', reason: 'x'.repeat(120), candidateIds: [] });
+            if ((index + 1) % 4096 === 0) { members.push(gzipSync(text)); text = ''; }
+          }
+          members.push(gzipSync(text + '\\n]'));
+          const blob = Buffer.concat(members);
+          let count = 0;
+          const kept = [];
+          for await (const { item } of streamStoredReferences(blob)) {
+            count++;
+            if (kept.length < 20) kept.push(item);
+          }
+          assert.equal(count, 300000);
+          assert.equal(kept[19].sourceId, 'a.ts::fn19');
+          `,
+        );
+        execFileSync(process.execPath, ['--max-old-space-size=32', join(directory, 'probe.mjs')], {
+          timeout: 60_000,
+          env: { PATH: process.env['PATH'], HOME: directory, TMPDIR: directory },
+          stdio: 'pipe',
+        });
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    });
+
+    it('refuses a stored list that disagrees with the recorded count', async () => {
+      writeAssessment(drizzle({ client: native }), fullAssessment());
+      native
+        .prepare("UPDATE _nexus_meta SET value = ? WHERE key = 'graph_assessment_references'")
+        .run(encodeStoredReferences([reference('a.ts::one')]));
+      await expect(
+        readKnowledgeIndexReferencePage(undefined, { limit: 20, offset: 0 }),
+      ).rejects.toThrow('disagree with the assessment reference count');
+    });
   });
 
   it('refuses a list that disagrees with the recorded count', async () => {

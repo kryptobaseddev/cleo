@@ -26,6 +26,9 @@ import type {
   GraphIndexFileReport,
   GraphIndexFileStatus,
   GraphIndexFileStatusCounts,
+  GraphIndexReferenceKind,
+  GraphIndexReferenceKindCounts,
+  GraphIndexReferencePage,
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
@@ -186,5 +189,124 @@ export function projectAssessmentFiles(
     ...rest,
     ...summary,
     filesPage: pageFiles(files, request),
+  };
+}
+
+/** References in the default page of `assessment.referencesPage` (T13330). */
+export const DEFAULT_REFERENCE_PAGE_SIZE = 20;
+
+/**
+ * Largest reference page one status call returns (T13330).
+ *
+ * A reference is ~700 B of JSON, so this bounds a page near 3.5 MB however
+ * large the repository; the whole list is walked with `nextOffset`.
+ */
+export const MAX_REFERENCE_PAGE_SIZE = 5_000;
+
+/** Every reference limitation kind, in contract order. */
+export const GRAPH_INDEX_REFERENCE_KINDS: readonly GraphIndexReferenceKind[] = [
+  'unmodeled-source',
+  'ambiguous',
+  'external',
+  'dynamic',
+  'shadowed',
+  'unresolved',
+];
+
+/** Which references a status projection returns (T13330). */
+export interface ReferencePageRequest {
+  /** Page size, 1 to {@link MAX_REFERENCE_PAGE_SIZE}. */
+  limit: number;
+  /** References to skip before the page. */
+  offset: number;
+  /** Page only references of this kind. */
+  kind?: GraphIndexReferenceKind;
+}
+
+/** Raw CLI flag values accepted by {@link parseReferencePageRequest}. */
+export interface ReferencePageFlags {
+  /** `--references-limit`. */
+  limit?: string;
+  /** `--references-offset`. */
+  offset?: string;
+  /** `--reference-kind`. */
+  kind?: string;
+}
+
+/** A page of references read from the published generation, with whole-list totals. */
+export interface ReferencePageResult {
+  /** References per kind across the whole list. */
+  byKind: GraphIndexReferenceKindCounts;
+  /** The requested page. */
+  page: GraphIndexReferencePage;
+  /** UTF-8 size of the whole list as one JSON array. */
+  bytes: number;
+}
+
+/**
+ * Validate `cleo nexus status --references` paging flags (T13330).
+ * @param flags - Raw flag values as the CLI received them.
+ * @returns The validated request; a 20-reference first page by default.
+ * @throws CleoError with `INVALID_INPUT` for a malformed or out-of-range count or an unknown kind.
+ * @example
+ * ```ts
+ * parseReferencePageRequest({ limit: '500', offset: '1000', kind: 'unresolved' });
+ * ```
+ */
+export function parseReferencePageRequest(flags: ReferencePageFlags): ReferencePageRequest {
+  const kind = flags.kind?.trim();
+  if (kind !== undefined && !GRAPH_INDEX_REFERENCE_KINDS.some((known) => known === kind))
+    throw new CleoError(
+      ExitCode.INVALID_INPUT,
+      `--reference-kind must be one of ${GRAPH_INDEX_REFERENCE_KINDS.join(', ')}`,
+      {
+        fix: 'cleo nexus status --references --reference-kind unresolved',
+        details: { field: 'reference-kind', actual: kind },
+      },
+    );
+  const limit = parseCount('references-limit', flags.limit) ?? DEFAULT_REFERENCE_PAGE_SIZE;
+  if (limit < 1 || limit > MAX_REFERENCE_PAGE_SIZE)
+    throw new CleoError(
+      ExitCode.INVALID_INPUT,
+      `--references-limit must be from 1 to ${MAX_REFERENCE_PAGE_SIZE}; walk the whole list ` +
+        'with --references-offset <referencesPage.nextOffset>',
+      {
+        fix: `cleo nexus status --references --references-limit ${MAX_REFERENCE_PAGE_SIZE} --references-offset 0`,
+        details: { field: 'references-limit', actual: flags.limit },
+      },
+    );
+  return {
+    limit,
+    offset: parseCount('references-offset', flags.offset) ?? 0,
+    ...(kind === undefined
+      ? {}
+      : { kind: GRAPH_INDEX_REFERENCE_KINDS.find((known) => known === kind) }),
+  };
+}
+
+/**
+ * Attach a reference page to a status projection (T13330).
+ *
+ * `references` is never placed in the projection: it is named in `_withheld`
+ * with the whole list's UTF-8 JSON size, beside the per-kind counts and the
+ * requested page, so a consumer never mistakes a page for the complete list.
+ * @param projection - The bounded status projection.
+ * @param result - The page and totals read from the published generation.
+ * @returns The projection with `referencesByKind` and `referencesPage`.
+ * @example
+ * ```ts
+ * const status = withReferencePage(projectAssessmentFiles(summary), page);
+ * ```
+ */
+export function withReferencePage(
+  projection: GraphIndexAssessmentProjection,
+  result: ReferencePageResult,
+): GraphIndexAssessmentProjection {
+  const { references: _references, ...rest } = projection;
+  return {
+    ...rest,
+    _withheld: { ...projection._withheld, references: result.bytes },
+    referencesByKind: result.byKind,
+    referencesPage: result.page,
   };
 }
