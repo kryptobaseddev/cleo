@@ -202,7 +202,7 @@ const SYNC_SEGMENT_DDL =
 const SYNC_PULL_DDL =
   'packages/core/migrations/sync-journal/20261008120000_t12343-pull-cursor/migration.sql';
 const SYNC_RETIRE_DDL =
-  'packages/core/migrations/sync-journal/20261009120000_t13278-replica-retire/migration.sql';
+  'packages/core/migrations/sync-journal/20261009130000_t13278-replica-retire/migration.sql';
 const SYNC_JOURNAL_TABLES = {
   _sync_capture: { class: 'local-only', ddl: SYNC_CAPTURE_DDL },
   _sync_frame: { class: 'local-only', ddl: SYNC_CAPTURE_DDL },
