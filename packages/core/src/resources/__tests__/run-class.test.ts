@@ -18,6 +18,7 @@ import {
   isWholeSuiteTestRun,
   looksHeavy,
   namedTestFileCount,
+  parseGitInvocation,
   resolveRunClass,
   runFootprint,
 } from '../run-class.js';
@@ -730,6 +731,9 @@ describe('runFootprint sizes by real scope (T13367)', () => {
     expect(size('npx', 'tsc')).toBe('single-process');
     expect(size('tsc', '--build')).toBe('class');
     expect(size('pnpm', '-r', 'exec', 'tsc', '--noEmit')).toBe('class');
+    // T13459: --filter / -F / --dir exec fans out per package too.
+    expect(size('pnpm', '--filter', './packages/**', 'exec', 'tsc', '--noEmit')).toBe('class');
+    expect(size('pnpm', '-F', 'core', 'exec', 'tsc', '--noEmit')).toBe('class');
   });
 
   it('builds and test runs keep their class', () => {
@@ -752,12 +756,51 @@ describe('git is charged light; its hook decides (T13452)', () => {
     expect(runFootprint(['git', 'status']).size).toBe('light');
   });
 
-  it('names the hook a push or commit may run, unless it is skipped', () => {
-    expect(gitHookFor(['git', 'push', '-u', 'origin', 'x'])).toBe('pre-push');
-    expect(gitHookFor(['git', 'commit', '-m', 'x'])).toBe('pre-commit');
+  it('names the hooks a git command may run, unless --no-verify skips them', () => {
+    expect(gitHookFor(['git', 'push', '-u', 'origin', 'x'])).toEqual({
+      hooks: ['pre-push'],
+      globals: [],
+    });
+    expect(gitHookFor(['git', 'commit', '-m', 'x'])?.hooks).toEqual([
+      'pre-commit',
+      'prepare-commit-msg',
+      'commit-msg',
+      'post-commit',
+    ]);
+    // --no-verify skips pre-commit and commit-msg, not prepare-commit-msg or post-commit.
+    expect(gitHookFor(['git', 'commit', '-n', '-m', 'x'])?.hooks).toEqual([
+      'prepare-commit-msg',
+      'post-commit',
+    ]);
     expect(gitHookFor(['git', 'push', '--no-verify'])).toBeNull();
-    expect(gitHookFor(['git', 'commit', '-n', '-m', 'x'])).toBeNull();
+    expect(gitHookFor(['git', 'pull'])?.hooks).toContain('post-merge');
+    expect(gitHookFor(['git', 'switch', 'main'])?.hooks).toEqual(['post-checkout']);
     expect(gitHookFor(['git', 'status'])).toBeNull();
     expect(gitHookFor(['pnpm', 'run', 'push'])).toBeNull();
+  });
+
+  it('skips value-taking global options to find the subcommand, and passes them to the probe (T13458)', () => {
+    expect(gitHookFor(['git', '-C', '/repo', 'push'])).toEqual({
+      hooks: ['pre-push'],
+      globals: ['-C', '/repo'],
+    });
+    expect(gitHookFor(['git', '-c', 'core.hooksPath=.h', '--no-pager', 'push'])).toEqual({
+      hooks: ['pre-push'],
+      globals: ['-c', 'core.hooksPath=.h', '--no-pager'],
+    });
+    expect(parseGitInvocation(['git', '-C'])).toEqual({ globals: ['-C'], sub: null, args: [] });
+  });
+
+  it('gc, repack, fsck, clone and an unparseable git command keep their class (T13458)', () => {
+    for (const argv of [
+      ['git', 'gc', '--aggressive'],
+      ['git', 'repack', '-a', '-d'],
+      ['git', '-C', '/r', 'fsck'],
+      ['git', 'clone', 'u'],
+      ['git', '-C'],
+    ]) {
+      expect(runFootprint(argv).size, argv.join(' ')).toBe('class');
+    }
+    expect(runFootprint(['git', '-C', '/repo', 'push']).reason).toBe('git push runs no heavy tool');
   });
 });

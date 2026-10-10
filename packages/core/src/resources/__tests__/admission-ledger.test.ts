@@ -1293,6 +1293,22 @@ describe('a git push is charged by what actually runs (T13452)', () => {
     expect(plan.footprintReason).toBe('git push runs no heavy tool');
   });
 
+  it('git -C <worktree> push probes the hook with the -C directory (T13458)', () => {
+    const calls: Array<[string, readonly string[]]> = [];
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['git', '-C', '/wt', 'push'],
+      {},
+      RAM,
+      (hook, globals) => {
+        calls.push([hook, globals]);
+        return true;
+      },
+    );
+    expect(calls).toEqual([['pre-push', ['-C', '/wt']]]);
+    expect(plan.footprintReason).toBe('scoped-build plan: runs the pre-push hook');
+  });
+
   it('with an installed pre-push hook: the class plan, naming the hook', () => {
     const seen: string[] = [];
     const plan = planRunFootprint('scoped-build', ['git', 'push'], {}, RAM, (hook) => {
@@ -1313,6 +1329,10 @@ describe('a git push is charged by what actually runs (T13452)', () => {
       expect(gitHookInstalled(repo, 'pre-push')).toBe(false); // not executable
       chmodSync(join(repo, '.git', 'hooks', 'pre-push'), 0o755);
       expect(gitHookInstalled(repo, 'pre-push')).toBe(true);
+      // T13458: probed in the -C directory, from anywhere.
+      expect(gitHookInstalled(tmpdir(), 'pre-push', ['-C', repo])).toBe(true);
+      // An inline -c core.hooksPath on the command is honoured.
+      expect(gitHookInstalled(repo, 'pre-push', ['-c', 'core.hooksPath=nowhere'])).toBe(false);
       execFileSync('git', ['config', 'core.hooksPath', 'hooks-elsewhere'], { cwd: repo });
       expect(gitHookInstalled(repo, 'pre-push')).toBe(false);
     } finally {

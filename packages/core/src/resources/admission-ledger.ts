@@ -271,17 +271,23 @@ export function planFootprintBytes(
  * and the file must exist and be executable. Any failure reads as installed,
  * which keeps the heavier charge.
  *
- * @param cwd - The repository directory.
+ * @param cwd - Where the command runs.
  * @param hook - Hook name (`pre-push`, `pre-commit`).
+ * @param globals - The command's git global options (`-C`, `-c`), passed through.
  */
-export function gitHookInstalled(cwd: string, hook: string): boolean {
+export function gitHookInstalled(
+  cwd: string,
+  hook: string,
+  globals: readonly string[] = [],
+): boolean {
   try {
-    const path = execFileSync('git', ['rev-parse', '--git-path', `hooks/${hook}`], {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 5_000,
-    }).trim();
+    // The command's own global options (`-C <dir>`, `-c core.hooksPath=…`)
+    // pick the repository and hooks directory it will use (T13458).
+    const path = execFileSync(
+      'git',
+      [...globals, 'rev-parse', '--path-format=absolute', '--git-path', `hooks/${hook}`],
+      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5_000 },
+    ).trim();
     accessSync(isAbsolute(path) ? path : join(cwd, path), fsConstants.X_OK);
     return true;
   } catch (err) {
@@ -328,13 +334,15 @@ export function planRunFootprint(
   argv: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
   totalRamGib: number = totalmem() / GIB,
-  hookInstalled: (hook: string) => boolean = (hook) => gitHookInstalled(process.cwd(), hook), // CWD-OK: cleo run runs the command in its own cwd
+  hookInstalled: (hook: string, globals: readonly string[]) => boolean = (hook, globals) =>
+    gitHookInstalled(process.cwd(), hook, globals), // CWD-OK: cleo run runs the command in its own cwd
 ): RunFootprintPlan {
   let scope = cls === 'full-build' ? null : runFootprint(argv);
   // T13452: a hooked git push/commit keeps the class plan, because whatever
   // the hook runs (tests, a build) rides this admission.
-  const hook = scope?.size === 'light' ? gitHookFor(argv) : null;
-  if (hook !== null && hookInstalled(hook)) {
+  const probe = scope?.size === 'light' ? gitHookFor(argv) : null;
+  const hook = probe?.hooks.find((h) => hookInstalled(h, probe.globals));
+  if (hook !== undefined) {
     scope = { size: 'class', reason: `runs the ${hook} hook` };
   }
   if (scope?.size === 'light') {
