@@ -348,30 +348,36 @@ export async function runSpawnReadinessHygiene(
  * `process.exitCode = 0` on success, which would have cleared a failure code
  * set by something else earlier in the process.
  *
+ * The report goes to `report` (stdout by default). A command that prints its
+ * own LAFS envelope on stdout passes a stderr writer, so stdout carries that
+ * one envelope (ADR-086, T13322).
+ *
  * @param projectRoot - Absolute path to project root.
  * @param worktreePath - Expected worktree path (optional).
+ * @param report - Writes one report line. @defaultValue a stdout writer
  * @returns The structured readiness result.
  */
 export async function runSpawnReadinessHygieneCli(
   projectRoot: string = process.cwd(), // CWD-OK: CLI entry point default — `cleo hygiene` invoked from project cwd
   worktreePath?: string,
+  report: (line: string) => void = (line) => process.stdout.write(`${line}\n`),
 ): Promise<SpawnReadinessResult> {
   const result = await runSpawnReadinessHygiene(projectRoot, worktreePath);
 
-  console.log(`Spawn Readiness Check — ${result.checkedAt}`);
-  console.log('='.repeat(50));
+  report(`Spawn Readiness Check — ${result.checkedAt}`);
+  report('='.repeat(50));
   for (const gate of result.gates) {
     const icon = gate.passed ? '✅' : '❌';
     const tag = gate.reason === 'timeout' ? ' [TIMEOUT — not a validation failure]' : '';
-    console.log(`${icon} ${gate.name}${tag}: ${gate.message}`);
+    report(`${icon} ${gate.name}${tag}: ${gate.message}`);
   }
-  console.log('='.repeat(50));
+  report('='.repeat(50));
 
   if (result.hasBlockingFailure) {
-    console.error(`FAILED gates: ${result.blockingGates.join(', ')}`);
+    process.stderr.write(`FAILED gates: ${result.blockingGates.join(', ')}\n`);
     process.exitCode = 1;
   } else {
-    console.log('All gates passed — spawn readiness confirmed.');
+    report('All gates passed — spawn readiness confirmed.');
   }
 
   return result;
