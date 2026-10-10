@@ -298,6 +298,42 @@ describe('releasePlan — happy path', () => {
     expect(plan.tasks.map((t) => t.id)).toEqual(['T10002', 'T10001']);
     expect(plan.meta?.taskIds).toEqual(['T10002', 'T10001']);
   });
+
+  it('a --tasks plan spanning several epics records no epic; each task keeps its own (T13323)', async () => {
+    const accessor = await createSqliteDataAccessor(testDir);
+    try {
+      await accessor.setMetaValue('schema_version', '2.10.0');
+      await accessor.upsertSingleTask(makeTask({ id: 'T20001', title: 'Epic A', type: 'epic' }));
+      await accessor.upsertSingleTask(makeTask({ id: 'T20002', title: 'Epic B', type: 'epic' }));
+      await accessor.upsertSingleTask(
+        makeTask({ id: 'T20011', title: 'Under A', parentId: 'T20001' }),
+      );
+      await accessor.upsertSingleTask(
+        makeTask({ id: 'T20012', title: 'Under B', parentId: 'T20002' }),
+      );
+    } finally {
+      await accessor.close();
+    }
+
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      taskIds: ['T20012', 'T20011'],
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('unreachable');
+    // The first task's parent (T20002) used to become the release's epic.
+    expect(result.data.epicId).toBeNull();
+    const plan = parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8')));
+    expect(plan.epicId).toBeNull();
+    expect(plan.tasks.map((t) => [t.id, t.epicAncestor])).toEqual([
+      ['T20012', 'T20002'],
+      ['T20011', 'T20001'],
+    ]);
+  });
 });
 
 // =============================================================================

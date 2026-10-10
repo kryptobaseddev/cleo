@@ -20,6 +20,14 @@
  * ~0.6 s to compress and ~0.55 s to inflate. A historical plain-text list is
  * still read as stored.
  *
+ * The list is written one reference per line, in gzip members of
+ * {@link REFERENCES_PER_MEMBER} references, and read back line by line
+ * (T13326). Building it as ONE `JSON.stringify` string failed outright on a
+ * 5 357-file repository: 846 151 references exceed V8's maximum string length
+ * (2^29 - 24 characters), so publication died with "Invalid string length"
+ * after every other phase had finished. The text is still one valid JSON
+ * array, so a reader that parses it whole keeps working for lists that fit.
+ *
  * Code placed in `packages/core/` per Package-Boundary Check — verified against AGENTS.md.
  *
  * @task T12348
@@ -27,7 +35,8 @@
  */
 
 import { isAbsolute } from 'node:path';
-import { gunzipSync, gzipSync } from 'node:zlib';
+import { Readable } from 'node:stream';
+import { createGunzip, gunzipSync, gzipSync } from 'node:zlib';
 import type { GraphIndexAssessment, GraphIndexReferenceReport } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
@@ -43,7 +52,23 @@ export const ASSESSMENT_REFERENCES_KEY = 'graph_assessment_references';
 const REFERENCES_GZIP_LEVEL = 1;
 
 /**
+ * References compressed per gzip member of the stored list.
+ *
+ * Bounds the largest string the encoder builds to one member's worth (a few
+ * MB) whatever the repository size, while keeping members large enough that
+ * per-member gzip framing does not cost compression.
+ */
+const REFERENCES_PER_MEMBER = 4096;
+
+/** Newline byte; JSON text never contains a raw one inside a value. */
+const NEWLINE = 0x0a;
+
+/**
  * Encode a reference list for storage under {@link ASSESSMENT_REFERENCES_KEY}.
+ *
+ * The decompressed text is the JSON array `[\n<ref>,\n<ref>\n]` — one
+ * reference per line — written as concatenated gzip members, so no string
+ * longer than one member's text is ever built (T13326).
  *
  * @param references - The generation's retained references.
  * @returns gzip-compressed JSON, stored as a BLOB.
@@ -51,7 +76,143 @@ const REFERENCES_GZIP_LEVEL = 1;
 export function encodeStoredReferences(
   references: readonly GraphIndexReferenceReport[],
 ): Uint8Array {
-  return gzipSync(JSON.stringify(references), { level: REFERENCES_GZIP_LEVEL });
+  const members: Buffer[] = [];
+  let text = '[';
+  references.forEach((reference, index) => {
+    text += `${index === 0 ? '\n' : ',\n'}${JSON.stringify(reference)}`;
+    if ((index + 1) % REFERENCES_PER_MEMBER === 0) {
+      members.push(gzipSync(text, { level: REFERENCES_GZIP_LEVEL }));
+      text = '';
+    }
+  });
+  members.push(gzipSync(`${text}\n]`, { level: REFERENCES_GZIP_LEVEL }));
+  return Buffer.concat(members);
+}
+
+/**
+ * Parse a stored reference list into its items without building one string
+ * of the whole list (T13326).
+ *
+ * Reads the line-per-reference form written by {@link encodeStoredReferences},
+ * and the single-line form written before it — compressed or plain text —
+ * by parsing that one line whole, as it was always read.
+ *
+ * @param value - The raw `_nexus_meta.value` of {@link ASSESSMENT_REFERENCES_KEY}.
+ * @returns The stored items, not yet validated.
+ * @throws When the value is neither text nor a compressed list, or is not a JSON array.
+ * @example
+ * ```ts
+ * const references = z.array(referenceSchema).parse(parseStoredReferences(row.value));
+ * ```
+ */
+export function parseStoredReferences(value: unknown): unknown[] {
+  let bytes: Buffer;
+  if (typeof value === 'string') bytes = Buffer.from(value, 'utf8');
+  else if (value instanceof Uint8Array) bytes = gunzipSync(value);
+  // @sync-invariant none:input-shape a malformed stored list is refused on read; nothing is written
+  else throw new Error('Graph reference metadata is neither text nor a compressed list.');
+  const firstBreak = bytes.indexOf(NEWLINE);
+  if (firstBreak === -1 || bytes.toString('utf8', 0, firstBreak).trim() !== '[') {
+    const whole: unknown = JSON.parse(bytes.toString('utf8'));
+    // @sync-invariant none:input-shape a malformed stored list is refused on read; nothing is written
+    if (!Array.isArray(whole)) throw new Error('Graph reference metadata is not a list.');
+    return whole;
+  }
+  const items: unknown[] = [];
+  let start = firstBreak + 1;
+  while (start < bytes.length) {
+    const end = bytes.indexOf(NEWLINE, start);
+    const line = bytes
+      .toString('utf8', start, end === -1 ? bytes.length : end)
+      .trim()
+      .replace(/,$/, '');
+    if (line !== ']' && line !== '') items.push(JSON.parse(line));
+    if (end === -1) break;
+    start = end + 1;
+  }
+  return items;
+}
+
+/** One stored reference, not yet validated, and the UTF-8 size of its JSON. */
+export interface StoredReferenceItem {
+  /** The parsed reference. */
+  item: unknown;
+  /** UTF-8 bytes of the reference's own JSON text. */
+  bytes: number;
+}
+
+/**
+ * Stream a stored reference list one reference at a time (T13330).
+ *
+ * The compressed list is inflated incrementally and split on line breaks, so
+ * neither the decompressed text nor the parsed list is ever held whole: a
+ * reader that keeps one page holds one page. The single-line form written
+ * before T13326 has no line breaks to split on; it was small enough to be
+ * written whole, so it is parsed whole, as it was always read.
+ *
+ * @param value - The raw `_nexus_meta.value` of {@link ASSESSMENT_REFERENCES_KEY}.
+ * @returns The stored references in stored order.
+ * @throws When the value is neither text nor a compressed list, or is not a JSON array.
+ * @example
+ * ```ts
+ * for await (const { item } of streamStoredReferences(row.value)) count++;
+ * ```
+ */
+export async function* streamStoredReferences(
+  value: unknown,
+): AsyncGenerator<StoredReferenceItem, void, undefined> {
+  let source: AsyncIterable<Buffer>;
+  if (typeof value === 'string') source = Readable.from([Buffer.from(value, 'utf8')]);
+  else if (value instanceof Uint8Array) source = Readable.from([value]).pipe(createGunzip());
+  // @sync-invariant none:input-shape a malformed stored list is refused on read; nothing is written
+  else throw new Error('Graph reference metadata is neither text nor a compressed list.');
+  // Unterminated bytes, kept as chunks and joined once per line (T13372): a
+  // join per CHUNK, then a rescan of the whole buffer, made a long line —
+  // the legacy single-line list is one line — cost quadratic time.
+  let parts: Buffer[] = [];
+  let legacy = false;
+  let sawOpening = false;
+  for await (const chunk of source) {
+    if (legacy) {
+      parts.push(chunk);
+      continue;
+    }
+    let start = 0;
+    for (let end = chunk.indexOf(NEWLINE); end !== -1; end = chunk.indexOf(NEWLINE, start)) {
+      const lineBytes =
+        parts.length === 0
+          ? chunk.subarray(start, end)
+          : Buffer.concat([...parts, chunk.subarray(start, end)]);
+      parts = [];
+      const line = lineBytes.toString('utf8').trim();
+      if (!sawOpening) {
+        if (line !== '[') {
+          // Not the line-per-reference form: keep every byte for a whole parse.
+          legacy = true;
+          parts = [lineBytes, chunk.subarray(end)];
+          break;
+        }
+        sawOpening = true;
+      } else {
+        const text = line.replace(/,$/, '');
+        if (text !== ']' && text !== '')
+          yield { item: JSON.parse(text), bytes: Buffer.byteLength(text, 'utf8') };
+      }
+      start = end + 1;
+    }
+    if (!legacy && start < chunk.length) parts.push(chunk.subarray(start));
+  }
+  const rest = Buffer.concat(parts).toString('utf8').trim();
+  if (sawOpening && !legacy) {
+    const text = rest.replace(/,$/, '');
+    if (text !== ']' && text !== '')
+      yield { item: JSON.parse(text), bytes: Buffer.byteLength(text, 'utf8') };
+    return;
+  }
+  const whole: unknown = JSON.parse(rest);
+  // @sync-invariant none:input-shape a malformed stored list is refused on read; nothing is written
+  if (!Array.isArray(whole)) throw new Error('Graph reference metadata is not a list.');
+  for (const item of whole) yield { item, bytes: Buffer.byteLength(JSON.stringify(item), 'utf8') };
 }
 
 /**

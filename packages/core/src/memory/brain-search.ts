@@ -10,6 +10,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import { getBrainAccessor } from '../store/memory-accessor.js';
+import { brainFtsUpdateTriggerSql, upgradeBrainFtsUpdateTriggers } from '../store/row-identity.js';
 import type {
   BrainDecisionRow,
   BrainLearningRow,
@@ -175,17 +176,7 @@ export function ensureFts5Tables(nativeDb: DatabaseSync): boolean {
     END
   `,
   );
-  execDDL(
-    nativeDb,
-    `
-    CREATE TRIGGER IF NOT EXISTS brain_decisions_au AFTER UPDATE ON brain_decisions BEGIN
-      INSERT INTO brain_decisions_fts(brain_decisions_fts, rowid, id, decision, rationale)
-      VALUES('delete', old.rowid, old.id, old.decision, old.rationale);
-      INSERT INTO brain_decisions_fts(rowid, id, decision, rationale)
-      VALUES (new.rowid, new.id, new.decision, new.rationale);
-    END
-  `,
-  );
+  execDDL(nativeDb, brainFtsUpdateTriggerSql('brain_decisions'));
 
   // Content-sync triggers for patterns
   execDDL(
@@ -206,17 +197,7 @@ export function ensureFts5Tables(nativeDb: DatabaseSync): boolean {
     END
   `,
   );
-  execDDL(
-    nativeDb,
-    `
-    CREATE TRIGGER IF NOT EXISTS brain_patterns_au AFTER UPDATE ON brain_patterns BEGIN
-      INSERT INTO brain_patterns_fts(brain_patterns_fts, rowid, id, pattern, context)
-      VALUES('delete', old.rowid, old.id, old.pattern, old.context);
-      INSERT INTO brain_patterns_fts(rowid, id, pattern, context)
-      VALUES (new.rowid, new.id, new.pattern, new.context);
-    END
-  `,
-  );
+  execDDL(nativeDb, brainFtsUpdateTriggerSql('brain_patterns'));
 
   // Content-sync triggers for learnings
   execDDL(
@@ -237,17 +218,7 @@ export function ensureFts5Tables(nativeDb: DatabaseSync): boolean {
     END
   `,
   );
-  execDDL(
-    nativeDb,
-    `
-    CREATE TRIGGER IF NOT EXISTS brain_learnings_au AFTER UPDATE ON brain_learnings BEGIN
-      INSERT INTO brain_learnings_fts(brain_learnings_fts, rowid, id, insight, source)
-      VALUES('delete', old.rowid, old.id, old.insight, old.source);
-      INSERT INTO brain_learnings_fts(rowid, id, insight, source)
-      VALUES (new.rowid, new.id, new.insight, new.source);
-    END
-  `,
-  );
+  execDDL(nativeDb, brainFtsUpdateTriggerSql('brain_learnings'));
 
   // Observations FTS
   execDDL(
@@ -277,17 +248,10 @@ export function ensureFts5Tables(nativeDb: DatabaseSync): boolean {
     END
   `,
   );
-  execDDL(
-    nativeDb,
-    `
-    CREATE TRIGGER IF NOT EXISTS brain_observations_au AFTER UPDATE ON brain_observations BEGIN
-      INSERT INTO brain_observations_fts(brain_observations_fts, rowid, id, title, narrative)
-      VALUES('delete', old.rowid, old.id, old.title, old.narrative);
-      INSERT INTO brain_observations_fts(rowid, id, title, narrative)
-      VALUES (new.rowid, new.id, new.title, new.narrative);
-    END
-  `,
-  );
+  execDDL(nativeDb, brainFtsUpdateTriggerSql('brain_observations'));
+
+  // Stores created before T12894 hold unscoped update triggers.
+  upgradeBrainFtsUpdateTriggers(nativeDb);
 
   return true;
 }
