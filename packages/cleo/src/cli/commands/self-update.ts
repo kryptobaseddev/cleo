@@ -17,7 +17,7 @@
  * @epic T4454
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as readline from 'node:readline';
@@ -351,11 +351,19 @@ export const selfUpdateCommand = defineCommand({
         { command: 'self-update', message: `Updated to ${latest}` },
       );
 
-      await runPostUpdateDiagnostics({
-        skipUpgrade: noAutoUpgrade,
-        autoMigrate: !!args['auto-migrate'] || !!args.force,
-        checkProjects,
-      });
+      // T13489: maintenance runs in the CLI just installed, never in this process,
+      // which still holds the previous version's code.
+      const postUpdateExit = await runPostUpdateInInstalledCli([
+        ...(noAutoUpgrade ? ['--no-auto-upgrade'] : []),
+        ...(args['auto-migrate'] || args.force ? ['--auto-migrate'] : []),
+        ...(checkProjects ? [] : ['--no-check-projects']),
+        ...(args.json ? ['--json'] : []),
+        ...(args.human ? ['--human'] : []),
+      ]);
+      if (postUpdateExit !== 0) {
+        humanWarn(`\n⚠ Post-update maintenance exited ${postUpdateExit}. Run: cleo upgrade\n`);
+        process.exitCode = postUpdateExit;
+      }
       progress.complete(`Updated to ${latest}`);
     } catch (err) {
       if (err instanceof CleoError) {
@@ -373,6 +381,29 @@ export const selfUpdateCommand = defineCommand({
     }
   },
 });
+
+/**
+ * Run `cleo self-update --post-update` in the CLI that `npm install -g` just
+ * replaced (T13489).
+ *
+ * This process imported the previous version's core before the install, so
+ * calling its `runUpgrade` ran the OLD maintenance: on 10.5 → 10.6 that reset
+ * tracked `.gitignore`, `.worktreeinclude` and `project-context.json` files the
+ * new version leaves alone. The new CLI sits at the same script path.
+ *
+ * @param flags - Flags forwarded to `self-update --post-update`.
+ * @returns The child's exit code.
+ */
+function runPostUpdateInInstalledCli(flags: string[]): Promise<number> {
+  return new Promise((resolvePromise, reject) => {
+    const script = process.argv[1] ?? 'cleo';
+    const child = spawn(process.execPath, [script, 'self-update', '--post-update', ...flags], {
+      stdio: 'inherit',
+    });
+    child.on('error', reject);
+    child.on('close', (code) => resolvePromise(code ?? 1));
+  });
+}
 
 /**
  * List every project file the upgrade changed, with its backup (T13409).
