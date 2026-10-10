@@ -845,7 +845,7 @@ export async function deriveTaskEvidence(
                 : '; evidence.ciSatisfies is set, so ci:<pr> once the PR merges is the preferred evidence and needs no local run'),
           );
         }
-        const run =
+        const run: DonePlanToolRun =
           scoped?.scope === 'affected'
             ? await planToolRun('test-affected', gate, storeRoot, root, scoped.run.command)
             : scoped?.scope === 'pending'
