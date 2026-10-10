@@ -477,6 +477,79 @@ export function forgetBareAccounts(db: DatabaseSync, run: string): number {
   );
 }
 
+/** One record of {@link BARE_ACCOUNTS_TABLE}, as the store holds it. */
+export interface BareAccountRecord {
+  /** The bare legacy table. */
+  readonly table: string;
+  /** Its row count when the run verified. */
+  readonly rows: number;
+  /** Its key digest when the run verified ({@link bareTableDigest}). */
+  readonly digest: string;
+  /** The reconcile's run directory name. */
+  readonly run: string;
+  /** When the run verified (ISO 8601). */
+  readonly recordedAt: string;
+}
+
+/**
+ * Every record of {@link BARE_ACCOUNTS_TABLE} in `db` (none without the table).
+ *
+ * @param db - The store.
+ */
+export function readBareAccounts(db: DatabaseSync): BareAccountRecord[] {
+  if (!hasTable(db, BARE_ACCOUNTS_TABLE)) return [];
+  return (
+    db
+      .prepare(
+        `SELECT bare_table AS "table", rows, digest, run, recorded_at AS recordedAt FROM main."${BARE_ACCOUNTS_TABLE}"`,
+      )
+      .all() as Array<{
+      table: string;
+      rows: number;
+      digest: string;
+      run: string;
+      recordedAt: string;
+    }>
+  ).map((r) => ({ ...r, rows: Number(r.rows) }));
+}
+
+/**
+ * Settle the record of carried bare tables in a restored store (T13324).
+ *
+ * A vault restore places the snapshot's twins and record, but this machine's
+ * bare tables (local-only; none on a new machine). Per bare table, the record
+ * kept is the first of the store's own and `others` (this machine's, from
+ * before the restore) whose row count and key digest match the bare table as
+ * restored; a table neither matches loses its record, so its stranded rows are
+ * judged again ({@link legacyStrands}).
+ *
+ * @param db - The restored store, writable.
+ * @param others - This machine's records before the restore.
+ * @returns The bare tables whose record was dropped.
+ */
+export function settleRestoredBareAccounts(
+  db: DatabaseSync,
+  others: readonly BareAccountRecord[],
+): string[] {
+  const own = readBareAccounts(db);
+  const tables = [...new Set([...own, ...others].map((r) => r.table))].sort();
+  const dropped: string[] = [];
+  for (const table of tables) {
+    const mine = own.find((r) => r.table === table);
+    const theirs = others.find((r) => r.table === table);
+    const matches = (r: BareAccountRecord | undefined): r is BareAccountRecord =>
+      r !== undefined && hasTable(db, table) && isAccounted(db, table, [r]);
+    if (matches(mine)) continue;
+    if (matches(theirs)) {
+      recordBareAccounts(db, [theirs], theirs.run, new Date(theirs.recordedAt));
+    } else if (mine !== undefined) {
+      db.prepare(`DELETE FROM main."${BARE_ACCOUNTS_TABLE}" WHERE bare_table = ?`).run(table);
+      dropped.push(table);
+    }
+  }
+  return dropped;
+}
+
 /** Whether `bare` is unchanged since the store recorded a reconcile carrying it. */
 function isAccounted(db: DatabaseSync, bare: string, records: readonly BareTableRecord[]): boolean {
   const mine = records.find((r) => r.table === bare);

@@ -2215,3 +2215,39 @@ export const SCHEMA_STATE_TABLES: Readonly<Record<TableScope, readonly string[]>
 export function isSchemaStateTable(scope: TableScope, name: string): boolean {
   return SCHEMA_STATE_TABLES[scope].includes(name);
 }
+
+/**
+ * The `local-only` tables whose rows record facts about OTHER rows of the same
+ * file, so they are consistent only with the snapshot that holds those rows:
+ * `_exodus_recovery_bare_accounts`, the key digests of the bare legacy tables
+ * a reconcile carried (T13320; `BARE_ACCOUNTS_TABLE` in `store/sync/flags.ts`).
+ *
+ * They never sync, but a snapshot or bundle carries them with the rows they
+ * describe, and a vault restore does not carry this machine's rows whole: it
+ * keeps, per bare table, the record (the snapshot's, else this machine's) that
+ * still matches the bare table as restored. Carrying only this machine's
+ * record would refuse as a strand a restored store whose twins the snapshot's
+ * reconcile settled (T13324).
+ *
+ * Every name here is classified `local-only` in its scope (asserted by the
+ * classification tests).
+ *
+ * @task T13324
+ */
+export const SNAPSHOT_STATE_TABLES: Readonly<Record<TableScope, readonly string[]>> = {
+  project: ['_exodus_recovery_bare_accounts'],
+  global: [],
+};
+
+/**
+ * Whether a table records facts about the rows of its own file
+ * ({@link SNAPSHOT_STATE_TABLES}).
+ *
+ * @param scope - Which `cleo.db` the table lives in.
+ * @param name - The physical name as `sqlite_master` reports it.
+ * @returns `true` for a table a restore keeps as the snapshot has it.
+ * @task T13324
+ */
+export function isSnapshotStateTable(scope: TableScope, name: string): boolean {
+  return SNAPSHOT_STATE_TABLES[scope].includes(name);
+}

@@ -44,6 +44,7 @@ import {
 } from './portable-bundle-relocate.js';
 import { CREDENTIAL_COLUMNS, credentialRemedy, sha256File } from './portable-bundle-scan.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
+import { readBareAccounts, settleRestoredBareAccounts } from './sync/flags.js';
 import {
   hasTriggerSuspendTable,
   TRIGGER_SUSPEND_TABLE,
@@ -54,6 +55,7 @@ import {
   getTableRegistry,
   isPortableTableClass,
   isSchemaStateTable,
+  isSnapshotStateTable,
 } from './table-classification.js';
 
 // node:sqlite interop (createRequire — Vitest strips `node:` prefix)
@@ -708,6 +710,11 @@ function stableKey(
  *   schema-version sentinels), which stays as the snapshot has it: it
  *   describes the staged file, so the migrator that opens the restored store
  *   reads the journal of that file, not this machine's old one or none (T13104).
+ *   A table recording facts about the file's own rows (`SNAPSHOT_STATE_TABLES`:
+ *   the bare-table key digests a reconcile recorded) is not carried either:
+ *   once the bare tables (local-only) are this machine's, each keeps the
+ *   record, the snapshot's or else this machine's, that still matches it, and
+ *   loses one neither matches (T13324).
  * - `portable-secret` tables: live rows are upserted by a stable key (the
  *   snapshot's copies arrive with their secrets cleared). Without a stable
  *   key the live table is kept whole.
@@ -816,6 +823,8 @@ export function carryMachineState(
           if (t === TRIGGER_SUSPEND_TABLE) continue;
           // The file's own schema state travels with the file (T13104).
           if (isSchemaStateTable(scope, t)) continue;
+          // So does what it records about its own rows, settled below (T13324).
+          if (isSnapshotStateTable(scope, t)) continue;
           const c = classifyTable(scope, t);
           if (c.kind !== 'entry' && c.kind !== 'pattern') continue;
           const credentialCols = CREDENTIAL_COLUMNS[t] ?? [];
@@ -981,6 +990,9 @@ export function carryMachineState(
           }
           if (scrubbed > 0) out.scrubbed.push({ table: t, rows: scrubbed });
         }
+        // The bare tables are this machine's now: keep the record (the
+        // snapshot's, else this machine's) that still matches them (T13324).
+        if (scope === 'project') settleRestoredBareAccounts(staged, readBareAccounts(live));
       };
       // Carrying this machine's values is not a change to capture, and no
       // side-effect trigger may act on it (journal S2, T12819); guards stay on.
