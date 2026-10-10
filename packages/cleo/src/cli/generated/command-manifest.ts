@@ -607,6 +607,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-sync-triggers.js')).doctorSyncTriggersCommand as CommandDef,
   },
   {
+    exportName: 'doctorSystemCommand',
+    name: 'system',
+    description:
+      'Assess machine + project health (memory/swap, MCP fan-out, heavy jobs outside cleo run, ',
+    load: async () =>
+      (await import('../commands/doctor-system.js')).doctorSystemCommand as CommandDef,
+  },
+  {
     exportName: 'doctorToolLocksCommand',
     name: 'tool-locks',
     description:
