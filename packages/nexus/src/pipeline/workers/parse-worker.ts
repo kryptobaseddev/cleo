@@ -22,10 +22,16 @@ export interface ParseWorkerInput {
 }
 
 /**
- * Per-worker results use exactly the same extractor capabilities as sequential parsing.
+ * One sub-batch's results, using exactly the same extractor capabilities as
+ * sequential parsing.
  *
  * Extractions stay grouped per file (T12315) so the pipeline can merge fresh and
  * cached files in one deterministic order and capture a cache entry per file.
+ *
+ * Sent once per sub-batch, never accumulated (T13325). An accumulated result
+ * per worker made the parent `JSON.parse` one message holding a whole chunk —
+ * 68-119 MB of JSON per worker, 765 MB in all, on a 5 357-file repository —
+ * and the 1 536 MB CLI process died inside that parse.
  */
 export interface ParseWorkerResult {
   /** Per-file success and failure evidence. */
@@ -38,7 +44,7 @@ export interface ParseWorkerResult {
   skippedCount: number;
 }
 
-type IncomingMessage = { type: 'sub-batch'; files: ParseWorkerInput[] } | { type: 'flush' };
+type IncomingMessage = { type: 'sub-batch'; files: ParseWorkerInput[] };
 
 if (!parentPort && !process.send) throw new Error('Parser requires owned IPC transport');
 
@@ -56,13 +62,10 @@ function emptyResult(): ParseWorkerResult {
   };
 }
 
-let accumulated = emptyResult();
+/** Files this worker has finished, for progress only; results are not retained. */
+let processed = 0;
 function receive(message: IncomingMessage): void {
-  if (message.type === 'flush') {
-    send({ type: 'result', data: accumulated });
-    accumulated = emptyResult();
-    return;
-  }
+  const result = emptyResult();
   for (const file of message.files) {
     try {
       const extracted = extractOriginalSource(
@@ -71,7 +74,7 @@ function receive(message: IncomingMessage): void {
         file.limits,
         file.publicationGeneration,
       );
-      accumulated.files.push({
+      result.files.push({
         path: file.path,
         extraction: {
           definitions: extracted.definitions,
@@ -82,19 +85,20 @@ function receive(message: IncomingMessage): void {
           accesses: extracted.accesses ?? [],
         },
       });
-      accumulated.reports.push({ path: file.path, status: 'analyzed' });
-      accumulated.fileCount++;
+      result.reports.push({ path: file.path, status: 'analyzed' });
+      result.fileCount++;
     } catch (error) {
-      accumulated.reports.push({
+      result.reports.push({
         path: file.path,
         status: 'failed',
         reason: error instanceof Error ? error.message : String(error),
       });
-      accumulated.skippedCount++;
+      result.skippedCount++;
     }
   }
-  send({ type: 'progress', filesProcessed: accumulated.fileCount + accumulated.skippedCount });
-  send({ type: 'sub-batch-done' });
+  processed += message.files.length;
+  send({ type: 'progress', filesProcessed: processed });
+  send({ type: 'sub-batch-done', data: result });
 }
 
 if (parentPort) parentPort.on('message', receive);

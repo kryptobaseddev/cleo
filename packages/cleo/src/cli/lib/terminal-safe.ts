@@ -22,12 +22,19 @@ const C1_SEQUENCE = /\x9b[0-?]*[ -/]*[@-~]|[\x90\x98\x9d-\x9f][^\x07\x9c\x1b]*(?
 /** Every remaining C0 control but tab and newline, DEL, and C1 control. */
 const CONTROL = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/g;
 
-/** Bidi embeddings, overrides and isolates (U+202A-U+202E, U+2066-U+2069). */
-const BIDI = /[\u202a-\u202e\u2066-\u2069]/g;
+/**
+ * Bidi embeddings, overrides and isolates (U+202A-U+202E, U+2066-U+2069) and
+ * the direction marks LRM, RLM and ALM (U+200E, U+200F, U+061C).
+ */
+const BIDI = /[\u202a-\u202e\u2066-\u2069\u200e\u200f\u061c]/g;
+
+/** Unicode line and paragraph separators (U+2028, U+2029): some terminals break lines on them. */
+const UNICODE_BREAK = /[\u2028\u2029]/g;
 
 /**
- * `text` with escape sequences, controls and bidi overrides removed, keeping
- * tab and newline: for a whole human line or block built by CLEO.
+ * `text` with escape sequences, controls and bidi controls removed, keeping
+ * tab and newline (U+2028/U+2029 become newline): for a whole human line or
+ * block built by CLEO.
  *
  * @param text - Text about to be written to a terminal.
  * @returns The same text without terminal control.
@@ -37,17 +44,18 @@ export function terminalSafeLines(text: string): string {
     .replace(ESC_SEQUENCE, '')
     .replace(C1_SEQUENCE, '')
     .replace(CONTROL, '')
-    .replace(BIDI, '');
+    .replace(BIDI, '')
+    .replace(UNICODE_BREAK, '\n');
 }
 
 /**
  * One server-supplied value (a name, label, id or message) made safe to
  * interpolate into a human line: {@link terminalSafeLines}, with tabs and line
- * breaks turned into spaces so the value cannot forge a line of its own.
+ * breaks (including U+2028/U+2029) turned into spaces so the value cannot forge a line of its own.
  *
  * @param text - The raw value.
  * @returns The value as one line without terminal control.
  */
 export function terminalSafe(text: string): string {
-  return terminalSafeLines(text.replace(/ *[\t\n\r][\t\n\r ]*/g, ' '));
+  return terminalSafeLines(text.replace(/ *[\t\n\r\u2028\u2029][\t\n\r\u2028\u2029 ]*/g, ' '));
 }

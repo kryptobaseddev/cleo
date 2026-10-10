@@ -25,6 +25,14 @@ import {
   PortableBundleError,
 } from '../portable-bundle.js';
 import { importPortableBundle } from '../portable-bundle-import.js';
+import {
+  bareTableDigest,
+  LegacyOnlyStoreError,
+  legacyStrands,
+  recordBareAccounts,
+  SYNC_FLAGS,
+  setSyncFlag,
+} from '../sync/flags.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -556,5 +564,71 @@ describe('portable bundle v2 (T12318)', () => {
     expect(isTempProjectPath(path.join(os.homedir(), '.temp', 'y'))).toBe(true);
     expect(isTempProjectPath('/srv/code/vitest-run-1/project')).toBe(true);
     expect(isTempProjectPath('/srv/code/real-project')).toBe(false);
+  });
+});
+
+describe('portable bundle import keeps the bare-account record honest (T13378)', () => {
+  let tmp: string;
+  let projectRoot: string;
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cleo-t13378-'));
+    projectRoot = path.join(tmp, 'src-root', 'demo');
+    fs.mkdirSync(projectRoot, { recursive: true });
+    seedProject(projectRoot);
+    seedGlobalHome(path.join(tmp, 'home'), projectRoot);
+    // A reconciled store: the twin holds what the bare table had when the
+    // record was written; the bare table gained a row since, so the record
+    // is stale and that row is a strand.
+    const db = new DatabaseSync(path.join(projectRoot, '.cleo', 'cleo.db'));
+    db.exec(`
+      CREATE TABLE tasks_task_labels (task_id TEXT NOT NULL, label TEXT NOT NULL, PRIMARY KEY (task_id, label));
+      INSERT INTO tasks_task_labels VALUES ('T1', 'carried');
+      CREATE TABLE task_labels (task_id TEXT NOT NULL, label TEXT NOT NULL, PRIMARY KEY (task_id, label));
+      INSERT INTO task_labels VALUES ('T1', 'carried'), ('T1', 'removed-later');
+    `);
+    recordBareAccounts(db, [bareTableDigest(db, 'main', 'task_labels')], 'run-1');
+    db.exec(`INSERT INTO task_labels VALUES ('T2', 'never-carried')`);
+    db.close();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  async function roundTrip(): Promise<string> {
+    const bundle = path.join(tmp, 'out', 'p.cleobundle.tar.gz');
+    await exportPortableBundle({
+      scope: 'project',
+      projectRoot,
+      outputPath: bundle,
+      label: 'p',
+      cleoHome: path.join(tmp, 'home'),
+      configHome: path.join(tmp, 'config'),
+    });
+    const target = path.join(tmp, 'dest-root', 'moved');
+    await importPortableBundle({
+      bundlePath: bundle,
+      cwd: '/',
+      target,
+      cleoHome: path.join(tmp, 'home-dest'),
+      configHome: path.join(tmp, 'config-dest'),
+    });
+    return path.join(target, '.cleo', 'cleo.db');
+  }
+
+  it('an imported store whose record no longer matches its bare table is refused sync', async () => {
+    const imported = await roundTrip();
+    const db = new DatabaseSync(imported);
+    try {
+      expect(legacyStrands(db)).toEqual([
+        expect.objectContaining({ bareTable: 'task_labels', missing: 2 }),
+      ]);
+      expect(() => setSyncFlag(db, SYNC_FLAGS[0], true, { allowUnreleased: true })).toThrow(
+        LegacyOnlyStoreError,
+      );
+    } finally {
+      db.close();
+    }
   });
 });
