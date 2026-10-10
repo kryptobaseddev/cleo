@@ -143,19 +143,48 @@ const marker = (db: DatabaseSync) =>
     .get(TIMESTAMP_CANON_MARKER) as { value: string } | undefined;
 
 describe('SYNC_TIMESTAMP_COLUMNS', () => {
-  it('lists exactly the captured *_at columns of the project sync set', async () => {
-    const db = await store();
-    const found: Record<string, string[]> = {};
-    for (const t of syncSetTables('project')) {
-      const def = captureTableDef(db, 'project', t);
-      const cols = (def?.columns ?? []).filter((c) => c.endsWith('_at'));
-      if (cols.length > 0) found[t] = [...cols].sort();
+  /** Captured INTEGER epoch-ms `*_at` columns: already canonical, never in the map. */
+  const EPOCH_MS_COLUMNS: Record<string, string[]> = {
+    brain_attention: ['created_at', 'expires_at'],
+    brain_decisions: ['validator_run_at'],
+    brain_session_narrative: ['last_updated_at'],
+  };
+
+  /** Every captured `*_at` column of the scope's sync set, split by declared type. */
+  const capturedStamps = (db: DatabaseSync, scope: 'project' | 'global') => {
+    const text: Record<string, string[]> = {};
+    const epoch: Record<string, string[]> = {};
+    for (const t of syncSetTables(scope)) {
+      const def = captureTableDef(db, scope, t);
+      const types = new Map(
+        (
+          db.prepare(`PRAGMA table_info("${t}")`).all() as Array<{ name: string; type: string }>
+        ).map((c) => [c.name, c.type.toUpperCase()]),
+      );
+      for (const c of (def?.columns ?? []).filter((x) => x.endsWith('_at'))) {
+        const into = types.get(c) === 'INTEGER' ? epoch : text;
+        into[t] = [...(into[t] ?? []), c].sort();
+      }
     }
-    const pinned = Object.fromEntries(
-      Object.entries(SYNC_TIMESTAMP_COLUMNS.project).map(([t, c]) => [t, [...c].sort()]),
-    );
-    expect(pinned).toEqual(found);
+    return { text, epoch };
+  };
+
+  const sorted = (m: Readonly<Record<string, readonly string[]>>) =>
+    Object.fromEntries(Object.entries(m).map(([t, c]) => [t, [...c].sort()]));
+
+  it('lists exactly the captured *_at columns of the project sync set', async () => {
+    const { text, epoch } = capturedStamps(await store(), 'project');
+    expect(sorted(SYNC_TIMESTAMP_COLUMNS.project)).toEqual(text);
+    expect(epoch).toEqual(EPOCH_MS_COLUMNS);
     expect(CANON_EXCLUDED_COLUMNS.project).toEqual({ tasks_tasks: ['updated_at'] });
+  });
+
+  it('lists exactly the captured *_at columns of the global sync set', async () => {
+    const handle = await openDualScopeDbAtPath('global', join(dir, 'cleo', 'cleo.db'));
+    const { text, epoch } = capturedStamps(handle.db.$client as DatabaseSync, 'global');
+    expect(sorted(SYNC_TIMESTAMP_COLUMNS.global)).toEqual(text);
+    expect(epoch).toEqual(EPOCH_MS_COLUMNS);
+    expect(CANON_EXCLUDED_COLUMNS.global).toEqual({});
   });
 });
 

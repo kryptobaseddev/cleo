@@ -9,7 +9,8 @@
  *
  *   - a `child_task` acceptance criterion whose table sorts before `tasks`
  *     (FK-order: E_CHILD_TASK_TARGET_CONTAINMENT under alphabetical copy);
- *   - a pre-T1408 `archive_reason = 'deleted'` (silently dropped by the CHECK);
+ *   - a pre-T1408 `archive_reason = 'deleted'` (silently dropped by the CHECK;
+ *     mapped to `cancelled` since T12711);
  *   - a pre-T877 `done` task with no terminal `pipeline_stage` (trigger abort);
  *   - a task→task parent edge and a relation duplicating a parent edge
  *     (T10572 guards were created without a backfill — grandfathered);
@@ -35,6 +36,9 @@ import { join } from 'node:path';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ResourceSample } from '../../resources/backend.js';
+import { _resetGovernorStateForTest } from '../../resources/governor.js';
+import { ResourceMonitor } from '../../resources/monitor.js';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync } = _require('node:sqlite') as {
@@ -158,6 +162,20 @@ const KILL_SWITCH_MODES = [
   ['set', '1'],
 ] as const;
 
+/** A host with memory to spare: the governor admits a `db-heavy` migration (T13368). */
+const CALM_HOST: ResourceSample = {
+  sampledAtMs: Date.now(),
+  pressureAvailable: true,
+  memAvailableBytes: 32 * 1024 * 1024 * 1024,
+  globalPressure: {
+    some: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+    full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+  },
+  slicePressure: null,
+  cpuPressure: null,
+  walObservations: [],
+};
+
 describe.each(
   KILL_SWITCH_MODES,
 )('reconcileSupersededStores (T12319) — CLEO_DISABLE_EXODUS_ON_OPEN %s', (_mode, killSwitch) => {
@@ -186,6 +204,8 @@ describe.each(
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
+    _resetGovernorStateForTest();
     takeRemappedId.on = false;
     if (savedKillSwitch === undefined) delete process.env.CLEO_DISABLE_EXODUS_ON_OPEN;
     else process.env.CLEO_DISABLE_EXODUS_ON_OPEN = savedKillSwitch;
@@ -236,11 +256,18 @@ describe.each(
     // The legacy dependency cycle is copied verbatim (T12886).
     expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_task_dependencies')).toBe(2);
     expect(scalar(liveDb, 'SELECT COUNT(*) FROM brain_observations')).toBe(2);
-    // Normalizations mirror the legacy backfills (T1408, T877) and never stamp
-    // migration time onto history.
+    // Normalizations mirror the legacy backfills (T877) and never stamp
+    // migration time onto history; a deleted task is cancelled, its legacy
+    // reason kept in the value map (T12711).
     expect(scalar(liveDb, "SELECT archive_reason FROM tasks_tasks WHERE id='T5'")).toBe(
-      'completed-unverified',
+      'cancelled',
     );
+    expect(
+      scalar(
+        liveDb,
+        "SELECT legacy_value FROM _exodus_recovery_value_map WHERE target_table='tasks_tasks' AND column_name='archive_reason' AND identity_json='[\"T5\"]'",
+      ),
+    ).toBe('deleted');
     expect(scalar(liveDb, "SELECT pipeline_stage FROM tasks_tasks WHERE id='T4'")).toBe(
       'contribution',
     );
@@ -469,6 +496,54 @@ describe.each(
     }
   });
 
+  it('a store reconciled before T13319 is settled by bare-strands without resurrecting deleted rows (T13309)', async () => {
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      DROP TABLE IF EXISTS task_labels;
+      CREATE TABLE task_labels (task_id TEXT NOT NULL, label TEXT NOT NULL, PRIMARY KEY (task_id, label));
+      INSERT INTO task_labels VALUES ('T1', 'kept'), ('T1', 'removed-later');
+    `);
+    live.close();
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    expect((await reconcileSupersededStores(join(root, 'project'))).outcome).toBe('reconciled');
+    // The runtime removes a carried label; the store predates the record (T13319).
+    const after = new DatabaseSync(liveDb);
+    after.exec(`DELETE FROM tasks_task_labels WHERE label = 'removed-later';
+      DROP TABLE _exodus_recovery_bare_accounts;`);
+    after.close();
+    const { legacyStrands } = await import('../sync/flags.js');
+    const strandsNow = (): unknown[] => {
+      const db = new DatabaseSync(liveDb, { readOnly: true });
+      try {
+        return legacyStrands(db);
+      } finally {
+        db.close();
+      }
+    };
+    expect(strandsNow()).toEqual([
+      expect.objectContaining({ bareTable: 'task_labels', missing: 1 }),
+    ]);
+
+    const plan = await reconcileSupersededStores(join(root, 'project'), {
+      bareStrands: true,
+      dryRun: true,
+    });
+    expect(plan.conflicts).toEqual([
+      expect.objectContaining({
+        sourceTable: 'task_labels',
+        reason: 'carried-then-deleted',
+        keys: ['["T1","removed-later"]'],
+      }),
+    ]);
+    const applied = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(applied.outcome, applied.reason).toBe('reconciled');
+    expect(applied.rowsCopied).toBe(0);
+    expect(
+      scalar(liveDb, "SELECT COUNT(*) FROM tasks_task_labels WHERE label = 'removed-later'"),
+    ).toBe(0);
+    expect(strandsNow()).toEqual([]);
+  });
+
   it('copies into a table whose FTS5 content-sync trigger the runtime installed', async () => {
     // proxmox/kodomeet: the runtime's brain FTS triggers write the derived index
     // on insert; the recovery authorizer used to refuse that as an untracked effect.
@@ -609,6 +684,12 @@ describe.each(
   it.skipIf(killSwitch !== undefined)(
     'converges with exodus-on-open whichever runs first (on-open first → reconcile has nothing to do)',
     async () => {
+      // The open admits its migration through the governor's machine-wide
+      // `db-heavy` class, which defers at once under memory pressure: on a
+      // loaded host the open skipped the migration and this test failed (T13368).
+      // The host is pinned calm; admission is exodus-write-guard's subject.
+      _resetGovernorStateForTest();
+      vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(CALM_HOST);
       const { openDualScopeDb, _resetDualScopeDbCache } = await import('../dual-scope-db.js');
       // An ARMED open with the kill switch unset migrates and archives the legacy files.
       await openDualScopeDb('project', join(root, 'project'));
@@ -1197,5 +1278,358 @@ describe.each(
       expect(entry?.safeToArchive).toBe(false);
       expect(entry?.reason).toContain('a different live task now holds');
     });
+  });
+});
+
+describe('bare-strands reconcile: a populated store with stranded bare rows (T13309)', () => {
+  let root: string;
+  let cleoDir: string;
+  let liveDb: string;
+  const savedHome = process.env.CLEO_HOME;
+  const savedDir = process.env.CLEO_DIR;
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), 'cleo-t13309-'));
+    cleoDir = join(root, 'project', '.cleo');
+    mkdirSync(cleoDir, { recursive: true });
+    process.env.CLEO_HOME = join(root, 'cleo-home');
+    process.env.CLEO_DIR = cleoDir;
+    liveDb = join(cleoDir, 'cleo.db');
+    const { openDualScopeDbAtPath } = await import('../dual-scope-db.js');
+    (await openDualScopeDbAtPath('project', liveDb, undefined, { dedicated: true })).close();
+    // The partial strand: the project runs on the consolidated store (T1, T7
+    // and a NEW T001 live), while the bare family still holds rows never
+    // carried. T7 was deleted live; T99 exists nowhere.
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES
+        ('T1', 'live one', 'pending', 'medium', 'task', '2026-02-01T00:00:00Z'),
+        ('T7', 'deleted later', 'archived', 'medium', 'task', '2026-02-07T00:00:00Z'),
+        ('T001', 'new saga', 'pending', 'medium', 'saga', '2026-10-01T00:00:00Z');
+      INSERT INTO tasks_audit_log (id, action, task_id) VALUES ('log-1', 'task_deleted', 'T7');
+      INSERT INTO tasks_task_labels (task_id, label) VALUES ('T7', 'already-live');
+      DROP TABLE IF EXISTS tasks;
+      CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL,
+        priority TEXT NOT NULL, type TEXT, parent_id TEXT, created_at TEXT NOT NULL);
+      INSERT INTO tasks VALUES
+        ('T1', 'bare one (older title)', 'pending', 'medium', 'task', NULL, '2026-02-01T00:00:00Z'),
+        ('T5', 'never carried', 'pending', 'medium', 'task', NULL, '2026-02-05T00:00:00Z'),
+        ('T001', 'legacy epic', 'pending', 'medium', 'epic', NULL, '2026-01-01T00:00:00Z');
+      DROP TABLE IF EXISTS task_labels;
+      CREATE TABLE task_labels (task_id TEXT NOT NULL, label TEXT NOT NULL, PRIMARY KEY (task_id, label));
+      INSERT INTO task_labels VALUES ('T1', 'kept'), ('T001', 'epic-label'), ('T99', 'orphan'),
+        ('T7', 'already-live');
+      DROP TABLE IF EXISTS task_dependencies;
+      CREATE TABLE task_dependencies (task_id TEXT NOT NULL, depends_on TEXT NOT NULL,
+        PRIMARY KEY (task_id, depends_on));
+      INSERT INTO task_dependencies VALUES ('T5', 'T7'), ('T5', 'T1');
+    `);
+    live.close();
+  });
+
+  afterEach(async () => {
+    const { closeDb } = await import('../sqlite.js');
+    closeDb();
+    if (savedHome === undefined) delete process.env.CLEO_HOME;
+    else process.env.CLEO_HOME = savedHome;
+    if (savedDir === undefined) delete process.env.CLEO_DIR;
+    else process.env.CLEO_DIR = savedDir;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  /** The T13225 sync check on the live store. */
+  async function strands(): Promise<unknown[]> {
+    const { legacyStrands } = await import('../sync/flags.js');
+    const db = new DatabaseSync(liveDb, { readOnly: true });
+    try {
+      return legacyStrands(db);
+    } finally {
+      db.close();
+    }
+  }
+
+  it('a dry run plans the copy, names every skipped row, and writes nothing', async () => {
+    const before = digest(liveDb);
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const plan = await reconcileSupersededStores(join(root, 'project'), {
+      bareStrands: true,
+      dryRun: true,
+    });
+    expect(plan.outcome).toBe('planned');
+    expect(plan.mode).toBe('bare-strands');
+    expect(plan.remaps.map((r) => r.legacyId)).toEqual(['T001']);
+    expect(plan.conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceTable: 'task_dependencies',
+          reason: 'deleted-live',
+          ids: ['T7'],
+          keys: ['["T5","T7"]'],
+        }),
+        expect.objectContaining({
+          sourceTable: 'task_labels',
+          reason: 'parent-absent',
+          ids: ['T99'],
+          keys: ['["T99","orphan"]'],
+        }),
+      ]),
+    );
+    expect(digest(liveDb)).toBe(before);
+    expect(readdirSync(cleoDir).some((n) => n.startsWith('exodus-reconcile-'))).toBe(false);
+  });
+
+  it('an apply copies missing rows, renumbers the shadowed task, never overwrites, skips the rest, and clears the sync refusal', async () => {
+    expect((await strands()).length).toBeGreaterThan(0);
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+
+    // Missing rows land; a live row is never overwritten.
+    expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id='T5'")).toBe('never carried');
+    expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id='T1'")).toBe('live one');
+    expect(
+      scalar(
+        liveDb,
+        "SELECT COUNT(*) FROM tasks_task_dependencies WHERE task_id='T5' AND depends_on='T1'",
+      ),
+    ).toBe(1);
+    // The shadowed T001 is recovered under a new id, its label re-pointed; the live T001 keeps its own.
+    const [remap] = result.remaps;
+    expect(remap?.legacyId).toBe('T001');
+    expect(scalar(liveDb, `SELECT title FROM tasks_tasks WHERE id='${remap?.newId}'`)).toBe(
+      'legacy epic',
+    );
+    expect(
+      scalar(liveDb, `SELECT label FROM tasks_task_labels WHERE task_id='${remap?.newId}'`),
+    ).toBe('epic-label');
+    expect(scalar(liveDb, "SELECT COUNT(*) FROM tasks_task_labels WHERE task_id='T001'")).toBe(0);
+    expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id='T001'")).toBe('new saga');
+    // Skipped rows never land, and the receipt names them.
+    expect(
+      scalar(liveDb, "SELECT COUNT(*) FROM tasks_task_dependencies WHERE depends_on='T7'"),
+    ).toBe(0);
+    expect(scalar(liveDb, "SELECT COUNT(*) FROM tasks_task_labels WHERE task_id='T99'")).toBe(0);
+    expect(result.conflicts.map((c) => c.reason).sort()).toEqual(['deleted-live', 'parent-absent']);
+    // A pre-copy snapshot and a receipt accounting for every bare table.
+    expect(result.snapshotPath && existsSync(result.snapshotPath)).toBe(true);
+    expect(result.accounted?.map((a) => a.table).sort()).toEqual([
+      'task_dependencies',
+      'task_labels',
+      'tasks',
+    ]);
+    expect(result.receiptPath && existsSync(result.receiptPath)).toBe(true);
+    // The bare family is untouched, the sync refusal clears, and a second run copies nothing.
+    expect(scalar(liveDb, 'SELECT COUNT(*) FROM task_labels')).toBe(4);
+    expect(await strands()).toEqual([]);
+    const again = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(again.rowsCopied).toBe(0);
+    expect(again.outcome).not.toBe('refused');
+  });
+
+  it('a store with only skipped rows settles with a receipt, so the refusal clears', async () => {
+    const live = new DatabaseSync(liveDb);
+    live.exec(
+      "DELETE FROM tasks; DELETE FROM task_labels WHERE task_id <> 'T99'; DELETE FROM task_dependencies WHERE depends_on <> 'T7'",
+    );
+    live.close();
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+    expect(result.rowsCopied).toBe(0);
+    expect(result.conflicts.map((c) => c.reason).sort()).toEqual(['deleted-live', 'parent-absent']);
+    expect(await strands()).toEqual([]);
+  });
+
+  it('a bare table changed after the run is judged again', async () => {
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(await strands()).toEqual([]);
+    const live = new DatabaseSync(liveDb);
+    live.exec("INSERT INTO task_labels VALUES ('T1', 'appeared later')");
+    live.close();
+    expect(await strands()).toEqual([
+      expect.objectContaining({ bareTable: 'task_labels', missing: 3 }),
+    ]);
+  });
+
+  it("the live holder's deletion record never skips the different bare task sharing its id", async () => {
+    const live = new DatabaseSync(liveDb);
+    live.exec(
+      "INSERT INTO tasks_audit_log (id, action, task_id) VALUES ('log-2', 'task_deleted', 'T001')",
+    );
+    live.close();
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+    const [remap] = result.remaps;
+    expect(scalar(liveDb, `SELECT title FROM tasks_tasks WHERE id='${remap?.newId}'`)).toBe(
+      'legacy epic',
+    );
+  });
+
+  it("a renumbered task keeps a child whose key matches the live holder's child (T13333)", async () => {
+    const live = new DatabaseSync(liveDb);
+    live.exec("INSERT INTO tasks_task_labels (task_id, label) VALUES ('T001', 'epic-label')");
+    live.close();
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+    const [remap] = result.remaps;
+    expect(remap?.legacyId).toBe('T001');
+    expect(
+      scalar(liveDb, `SELECT label FROM tasks_task_labels WHERE task_id='${remap?.newId}'`),
+    ).toBe('epic-label');
+    // The live holder keeps its own label.
+    expect(scalar(liveDb, "SELECT COUNT(*) FROM tasks_task_labels WHERE task_id='T001'")).toBe(1);
+    expect(result.conflicts.map((c) => c.reason).sort()).toEqual(['deleted-live', 'parent-absent']);
+  });
+
+  it("a renumbered task's child is not skipped by the live holder's copy receipt (T13333)", async () => {
+    // An earlier run carried the live T001's label, which the runtime removed since.
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      CREATE TABLE IF NOT EXISTS _exodus_recovery_rows (id INTEGER PRIMARY KEY,
+        operation_id TEXT NOT NULL, target_db TEXT NOT NULL, target_table TEXT NOT NULL,
+        source_db TEXT NOT NULL, source_table TEXT NOT NULL, table_sql TEXT NOT NULL,
+        identity_json TEXT NOT NULL, row_json TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'insert',
+        before_row_json TEXT, before_value TEXT, state TEXT NOT NULL DEFAULT 'committed');
+      INSERT INTO _exodus_recovery_rows (operation_id, target_db, target_table, source_db,
+        source_table, table_sql, identity_json, row_json)
+      VALUES ('op-1', 'project', 'tasks_task_labels', 'tasks', 'task_labels', '',
+        json_array(json_array('text', hex('T001')), json_array('text', hex('epic-label'))), '[]');
+    `);
+    live.close();
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+    const [remap] = result.remaps;
+    expect(
+      scalar(liveDb, `SELECT label FROM tasks_task_labels WHERE task_id='${remap?.newId}'`),
+    ).toBe('epic-label');
+    expect(result.conflicts.map((c) => c.reason)).not.toContain('carried-then-deleted');
+  });
+
+  it('a chain under an absent parent copies none of the chain and lists each row (T13334)', async () => {
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      INSERT INTO tasks VALUES
+        ('T60', 'orphaned root', 'pending', 'medium', 'task', 'T99', '2026-03-01T00:00:00Z'),
+        ('T61', 'child of T60', 'pending', 'medium', 'task', 'T60', '2026-03-02T00:00:00Z'),
+        ('T62', 'grandchild', 'pending', 'medium', 'task', 'T61', '2026-03-03T00:00:00Z');
+      INSERT INTO task_labels VALUES ('T62', 'deep'), ('T60', 'root');
+    `);
+    live.close();
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+    expect(
+      scalar(liveDb, "SELECT COUNT(*) FROM tasks_tasks WHERE id IN ('T60', 'T61', 'T62')"),
+    ).toBe(0);
+    expect(
+      scalar(liveDb, "SELECT COUNT(*) FROM tasks_task_labels WHERE task_id IN ('T60', 'T62')"),
+    ).toBe(0);
+    expect(result.conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceTable: 'tasks',
+          reason: 'parent-absent',
+          keys: ['["T60"]'],
+        }),
+        expect.objectContaining({
+          sourceTable: 'tasks',
+          reason: 'parent-skipped',
+          keys: ['["T61"]', '["T62"]'],
+        }),
+        expect.objectContaining({
+          sourceTable: 'task_labels',
+          reason: 'parent-skipped',
+          keys: ['["T60","root"]', '["T62","deep"]'],
+        }),
+      ]),
+    );
+    // Every copied row's task reference resolves.
+    expect(
+      scalar(
+        liveDb,
+        'SELECT COUNT(*) FROM tasks_tasks WHERE parent_id IS NOT NULL AND parent_id NOT IN (SELECT id FROM tasks_tasks)',
+      ),
+    ).toBe(0);
+  });
+
+  it('a copied session listing a task that is gone is copied, and the run reconciles (T13377)', async () => {
+    // T7 was deleted live and T404 exists nowhere: session history, as the
+    // runtime keeps it and the sync wire tolerates it (T12798).
+    const listed = '["T1","T7","T404"]';
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      DROP TABLE IF EXISTS sessions;
+      CREATE TABLE sessions (id TEXT PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL,
+        scope_json TEXT NOT NULL, started_at TEXT NOT NULL, tasks_completed_json TEXT,
+        tasks_created_json TEXT);
+      INSERT INTO sessions VALUES ('S-old', 'old session', 'ended', '{}',
+        '2026-01-01T00:00:00Z', '${listed}', '["T404"]');
+    `);
+    live.close();
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+    expect(
+      scalar(liveDb, "SELECT tasks_completed_json FROM tasks_sessions WHERE id = 'S-old'"),
+    ).toBe(listed);
+    expect(result.conflicts.map((c) => c.sourceTable)).not.toContain('sessions');
+  });
+
+  it('a reconciled run rolls back from its receipt, and the refusal returns', async () => {
+    const { reconcileSupersededStores, rollbackSupersededReconcile } = await import(
+      '../exodus/index.js'
+    );
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+    const runDir = result.stagingDir ?? '';
+    const undone = await rollbackSupersededReconcile(join(root, 'project'), runDir);
+    expect(undone.rowsReverted).toBe(result.rowsCopied);
+    expect(scalar(liveDb, "SELECT COUNT(*) FROM tasks_tasks WHERE id='T5'")).toBe(0);
+    expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id='T1'")).toBe('live one');
+    expect(existsSync(join(runDir, 'reconcile-receipt.json'))).toBe(false);
+    expect((await strands()).length).toBeGreaterThan(0);
+    await expect(rollbackSupersededReconcile(join(root, 'project'), runDir)).rejects.toThrow(
+      /no reconcile receipt/,
+    );
+  });
+
+  it('a rollback is refused, reverting nothing, when a copied row changed since', async () => {
+    const { reconcileSupersededStores, rollbackSupersededReconcile } = await import(
+      '../exodus/index.js'
+    );
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    const live = new DatabaseSync(liveDb);
+    live.exec("UPDATE tasks_tasks SET title = 'edited since' WHERE id = 'T5'");
+    live.close();
+    await expect(
+      rollbackSupersededReconcile(join(root, 'project'), result.stagingDir ?? ''),
+    ).rejects.toThrow();
+    expect(scalar(liveDb, "SELECT title FROM tasks_tasks WHERE id='T5'")).toBe('edited since');
+    expect(scalar(liveDb, "SELECT COUNT(*) FROM tasks_task_dependencies WHERE task_id='T5'")).toBe(
+      1,
+    );
+  });
+
+  it('a column the runtime adds to a settled bare table does not bring the refusal back', async () => {
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(await strands()).toEqual([]);
+    const live = new DatabaseSync(liveDb);
+    live.exec("ALTER TABLE task_labels ADD COLUMN color TEXT DEFAULT 'red'");
+    live.close();
+    expect(await strands()).toEqual([]);
+  });
+
+  it('waits for the legacy files: their missing rows must be reconciled first', async () => {
+    buildLegacyStore(cleoDir);
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome).toBe('nothing-to-reconcile');
+    expect(result.reason).toMatch(/superseded-store --reconcile` first/);
+    expect(scalar(liveDb, "SELECT COUNT(*) FROM tasks_tasks WHERE id='T5'")).toBe(0);
   });
 });
