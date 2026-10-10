@@ -62,6 +62,7 @@ import {
   DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
   isLifecycleStatus,
 } from '@cleocode/core/docs/docs-update';
+import { buildDocsFetchResult } from '@cleocode/core/docs/fetch-result';
 import { createAttachmentStoreDocsAccessor } from '@cleocode/core/docs/import/attachment-store-accessor';
 import { makeClassifierForScanRoot } from '@cleocode/core/docs/import/scanner';
 import { AUTO_TOKEN } from '@cleocode/core/docs/numbering';
@@ -83,7 +84,7 @@ import type {
 } from '@cleocode/core/internal';
 import { generateProjectHash } from '@cleocode/core/nexus/hash';
 import { pushWarning } from '@cleocode/core/output';
-import { resolveCleoDir, worktreeScope } from '@cleocode/core/paths.js';
+import { worktreeScope } from '@cleocode/core/paths.js';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import {
   createAttachmentBlobStore,
@@ -789,54 +790,17 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       return lafsError('E_NOT_FOUND', `Content not retrievable: ${ref}`, 'fetch');
     }
 
-    const cwd = getProjectRoot();
-    const cleoDir = resolveCleoDir(cwd);
-
-    // Derive storage path for blob kinds
-    let storagePath: string | undefined;
-    if (doc.sha256) {
-      const prefix = doc.sha256.slice(0, 2);
-      const rest = doc.sha256.slice(2);
-      const extMap: Record<string, string> = {
-        'text/markdown': '.md',
-        'text/plain': '.txt',
-        'application/json': '.json',
-        'application/pdf': '.pdf',
-      };
-      const ext = extMap[doc.mimeType ?? ''] ?? '.bin';
-      storagePath = resolve(cleoDir, 'attachments', 'sha256', prefix, `${rest}${ext}`);
-    }
-
-    // Base64-encode bytes only for small attachments (<= 1 MB)
-    const MAX_INLINE = 1024 * 1024;
-    const contentBytes = Buffer.from(content, 'utf-8');
-    const bytesBase64 =
-      contentBytes.length <= MAX_INLINE ? contentBytes.toString('base64') : undefined;
-
     const backend: AttachmentBackend = await currentAttachmentBackend();
 
+    // T13352 — the shared builder surfaces decoded text by default, the real
+    // refCount, and a storage path resolved against the doc's actual store.
     return lafsSuccess<DocsFetchResult>(
-      {
-        metadata: {
-          id: doc.id,
-          sha256: doc.sha256,
-          kind: 'blob',
-          mime: doc.mimeType ?? 'text/plain',
-          size: doc.sizeBytes,
-          description: doc.summary ?? undefined,
-          labels: undefined,
-          createdAt: doc.createdAt,
-          refCount: 0,
-          ...(doc.slug ? { slug: doc.slug } : {}),
-          ...(doc.kind ? { type: doc.kind as DocsType } : {}),
-          ...(doc.displayNumber !== null ? { displayNumber: doc.displayNumber } : {}),
-        },
-        path: storagePath,
-        sizeBytes: contentBytes.length,
-        ...(bytesBase64 !== undefined ? { bytesBase64 } : {}),
-        inlined: bytesBase64 !== undefined,
-        attachmentBackend: backend as DocsFetchResult['attachmentBackend'],
-      },
+      buildDocsFetchResult({
+        doc,
+        content,
+        projectRoot: getProjectRoot(),
+        attachmentBackend: backend,
+      }),
       'fetch',
     );
   },

@@ -477,7 +477,7 @@ export async function updateDocBySlug(
         squashed: false,
         summary,
         ownerVersion: getCanonicalCleoVersion(projectRoot),
-        docVersion: (oldRow as unknown as { doc_version?: number }).doc_version ?? 1,
+        docVersion: oldRow.docVersion,
         dryRun: true,
         wouldWrite: false,
         wouldChange,
@@ -532,7 +532,7 @@ export async function updateDocBySlug(
             ? `slug '${slug}' was left untouched (bytes and lifecycle status unchanged)`
             : `slug '${slug}' bytes unchanged but lifecycle status changed from '${oldRow.lifecycleStatus}' to '${status}'`,
         ownerVersion: getCanonicalCleoVersion(projectRoot),
-        docVersion: (oldRow as unknown as { doc_version?: number }).doc_version ?? 1,
+        docVersion: oldRow.docVersion,
       },
     };
   }
@@ -644,6 +644,7 @@ export async function updateDocBySlug(
           slug,
           type: oldRow.type ?? null,
           lifecycleStatus: status,
+          docVersion: oldRow.docVersion + 1,
         })
         .where(eq(attachments.id, existingNewRow.id))
         .run();
@@ -661,7 +662,7 @@ export async function updateDocBySlug(
           ...(oldRow.type ? { type: oldRow.type } : {}),
           lifecycleStatus: status,
           ownerVersion: getCanonicalCleoVersion(projectRoot),
-          docVersion: ((oldRow as unknown as { doc_version?: number }).doc_version ?? 0) + 1,
+          docVersion: oldRow.docVersion + 1,
         })
         .run();
     }
@@ -748,7 +749,7 @@ export async function updateDocBySlug(
       squashed,
       summary: `slug '${slug}' was changed — content replaced${params.message ? ` ("${params.message}")` : ''}`,
       ownerVersion: getCanonicalCleoVersion(projectRoot),
-      docVersion: ((oldRow as unknown as { doc_version?: number }).doc_version ?? 1) + 1,
+      docVersion: oldRow.docVersion + 1,
     },
   };
 }
