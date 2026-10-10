@@ -474,8 +474,45 @@ function readState(db: DatabaseSync, pair: TwinPair): CollapseState | undefined 
     merged: Array.isArray(parsed.merged) ? parsed.merged : [],
     renamed: Array.isArray(parsed.renamed) ? parsed.renamed : [],
     kept: Array.isArray(parsed.kept) ? parsed.kept : [],
-    archived: Array.isArray(parsed.archived) ? parsed.archived : [],
+    // 2026.9.21-9.23 rewrite the marker on an incremental merge without the
+    // lists 9.24 added; the archived values are still under their keys, so
+    // the list is read back from those (T12730).
+    archived: Array.isArray(parsed.archived) ? parsed.archived : archivedFromKeys(db, pair),
   };
+}
+
+/**
+ * What a pair's initial collapse archived, read from the archive keys
+ * themselves (T12730): for `schema_meta`, every `twin_collapse_archive:<key>`
+ * in `tasks_schema_meta` (by key); for `sticky_tags`, the rows recorded under
+ * `twin_collapse_archive:sticky_tags` in `brain_schema_meta`. Other pairs
+ * archive nothing. Used when a marker lacks its `archived` list, which an
+ * older build's rewrite drops; `kept` cannot be read back this way (the kept
+ * rows are ordinary twin rows), but nothing it named is hidden.
+ */
+function archivedFromKeys(db: DatabaseSync, pair: TwinPair): string[] {
+  try {
+    if (pair.table === 'sticky_tags') {
+      const rows = parseJson(readKv(db, pair.kvTable, STICKY_ARCHIVE_KEY) ?? '[]');
+      return StickyArchiveShape.safeParse(rows).success ? (rows as string[]) : [];
+    }
+    if (pair.table !== 'schema_meta') return [];
+    return (
+      db
+        .prepare(
+          `SELECT key FROM main.${pair.kvTable} WHERE substr(key, 1, ?) = ? AND key <> ? ORDER BY key`,
+        )
+        .all(
+          TWIN_COLLAPSE_ARCHIVE_PREFIX.length,
+          TWIN_COLLAPSE_ARCHIVE_PREFIX,
+          STICKY_ARCHIVE_KEY,
+        ) as Array<{
+        key: string;
+      }>
+    ).map((r) => r.key.slice(TWIN_COLLAPSE_ARCHIVE_PREFIX.length));
+  } catch {
+    return [];
+  }
 }
 
 /** Whether the bare side moved since the stored hashes (or no usable state exists). */
@@ -719,6 +756,21 @@ function planSchemaMeta(db: DatabaseSync, state: CollapseState | undefined): Pla
       // for the rest of the value, and max the counter field against the other.
       const base = twinMoved(key) && current !== undefined ? current : value;
       want(key, withMaxCounter(base, base === value ? current : value, field));
+    } else if (key === 'focus_state' && current !== undefined) {
+      // An older build writing the bare focus_state after the collapse never
+      // loses a session note on either side (T12728): the notes are the union
+      // of both. When only the bare side moved its current fields win and the
+      // twin value it replaces is archived; when both moved the twin's win and
+      // the key is reported as a conflict, as for any other key.
+      if (twinMoved(key)) {
+        plan.conflicts.push(key);
+        want(key, mergeFocusState(current, value));
+      } else {
+        const merged = mergeFocusState(value, current);
+        want(key, merged);
+        if (merged !== current)
+          archiveReplaced(plan, kvRows(db, 'tasks_schema_meta'), key, current);
+      }
     } else if (twinMoved(key)) {
       plan.conflicts.push(key);
     } else {
@@ -731,6 +783,28 @@ function planSchemaMeta(db: DatabaseSync, state: CollapseState | undefined): Pla
     else plan.del.push(key);
   }
   return plan;
+}
+
+/**
+ * Archive a twin value an incremental merge replaces under
+ * `twin_collapse_archive:<key>` (T12728). When that key already holds a
+ * different value (the initial collapse archived one), the new copy goes to
+ * `twin_collapse_archive:<key>:<sha8>`, so no archived value is overwritten;
+ * a value already archived is not copied again.
+ *
+ * @param twinKv - Every row of `tasks_schema_meta`, archive keys included.
+ */
+function archiveReplaced(
+  plan: Plan,
+  twinKv: ReadonlyMap<string, string>,
+  key: string,
+  value: string,
+): void {
+  const base = `${TWIN_COLLAPSE_ARCHIVE_PREFIX}${key}`;
+  const suffixed = `${base}:${sha(value).slice(0, 8)}`;
+  if (twinKv.get(base) === value || twinKv.get(suffixed) === value) return;
+  plan.set.set(twinKv.has(base) ? suffixed : base, value);
+  plan.archived.push(key);
 }
 
 function applyKv(db: DatabaseSync, schema: string, table: string, plan: Plan) {
@@ -2280,7 +2354,9 @@ function collapsePair(
       },
       dropped: state === undefined ? plan.dropped : state.dropped,
       kept: state === undefined ? plan.kept.slice(0, MAX_CONFLICTS) : state.kept,
-      archived: state === undefined ? plan.archived : state.archived,
+      // An incremental merge adds what it archived (T12728).
+      archived:
+        state === undefined ? plan.archived : [...new Set([...state.archived, ...plan.archived])],
       conflicts: plan.conflicts.slice(0, MAX_CONFLICTS),
       conflictsAt: plan.conflicts.length > 0 ? now : null,
       // A truncated drain records no counter, so the next open compares
