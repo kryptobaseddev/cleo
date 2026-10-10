@@ -46,6 +46,7 @@ import {
 import { GENESIS_CUT_KEY_PREFIX } from '../schema.js';
 import { rowChash, sealPending } from '../sealer.js';
 import { markSuspect } from '../structural.js';
+import { asOlderBuild } from './older-build.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
 const REPLICA = '01929a3e-7f00-7000-8000-000000000001';
@@ -61,9 +62,6 @@ beforeEach(() => {
   vi.stubEnv('CLEO_HOME', join(dir, 'cleo'));
   vi.stubEnv('CLEO_ROOT', undefined);
   vi.stubEnv('CLEO_DIR', undefined);
-  // Written against row uids off; on by default since T13305 (C2). The
-  // capture + fill-on interplay (K captures alongside I/U/D) is T13311.
-  vi.stubEnv('CLEO_ROW_UID_FILL', '0');
   dbPath = join(dir, 'project', '.cleo', 'cleo.db');
 });
 
@@ -304,10 +302,12 @@ describe('repair diff re-checks every row of a suspect table (T12987)', () => {
 describe('the suspect key clears only after verification (T12987)', () => {
   it('a row without uid keeps the table suspect, with the reason', async () => {
     const db = await baselinedStore();
-    uncaptured(
-      db,
-      `INSERT INTO tasks_tasks (id, title, type, status, priority)
-       VALUES ('T7', 'no uid', 'task', 'pending', 'medium')`,
+    asOlderBuild(db, 'project', () =>
+      uncaptured(
+        db,
+        `INSERT INTO tasks_tasks (id, title, type, status, priority)
+         VALUES ('T7', 'no uid', 'task', 'pending', 'medium')`,
+      ),
     );
     markSuspect(db, 'project', ['tasks_tasks']);
     const r = repair(db);

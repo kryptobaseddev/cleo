@@ -35,7 +35,9 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { basename, extname } from 'node:path';
+import { PerformanceObserver, constants as perfConstants } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
+import { getHeapStatistics, type HeapInfo } from 'node:v8';
 import type {
   GraphIndexFileReport,
   GraphNode,
@@ -79,7 +81,7 @@ import { buildLexicalScopeModel } from './lexical-scope.js';
 import type { FileExtraction } from './parse-cache.js';
 import { type ExtractedAccess, extractAccesses } from './processors/access-processor.js';
 import type { SymbolTable } from './symbol-table.js';
-import type { ParseWorkerResult } from './workers/parse-worker.js';
+import type { ParseWorkerInput, ParseWorkerResult } from './workers/parse-worker.js';
 import { createWorkerPool } from './workers/worker-pool.js';
 
 // ---------------------------------------------------------------------------
@@ -899,8 +901,179 @@ function completeExtraction(result: CommonExtractionResult): Required<CommonExtr
   };
 }
 
+/** Error code raised when received parse results would exhaust the CLI's own heap. */
+export const NEXUS_HEAP_EXHAUSTED = 'E_NEXUS_HEAP_EXHAUSTED';
+
+/**
+ * Share of the CLI's V8 heap limit that received parse results may fill
+ * before the parse refuses with {@link NEXUS_HEAP_EXHAUSTED}.
+ *
+ * The remaining tenth is what the process needs to unwind and report; past
+ * it, the next allocation is V8's fatal "Reached heap limit" abort, which no
+ * caller can catch and which names neither the cause nor a remedy (T13325).
+ */
+const PARENT_HEAP_REFUSAL_RATIO = 0.9;
+
+/** The two heap figures the guard compares. */
+export type ParentHeapReading = Pick<HeapInfo, 'used_heap_size' | 'heap_size_limit'>;
+
+/** Injectable observations for {@link createParentHeapGuard}; defaults read the live process. */
+export interface ParentHeapGuardSources {
+  /** Current heap statistics. */
+  heap?: () => ParentHeapReading;
+  /** Full (mark-compact) collections completed so far. */
+  majorGcCount?: () => number;
+}
+
+/** A guard checked after each received result; dispose it when the parse ends. */
+export interface ParentHeapGuard {
+  /**
+   * Refuse, with a named error and a remedy, before received results exhaust
+   * the calling process's heap.
+   * @param filesReceived - Files whose results the parent holds so far.
+   * @param totalFiles - Files in this parse.
+   * @throws {Error} `E_NEXUS_HEAP_EXHAUSTED` when the heap stays above the
+   *   refusal share across a full collection.
+   */
+  check(filesReceived: number, totalFiles: number): void;
+  /** Stop observing collections. */
+  dispose(): void;
+}
+
+/**
+ * Create the parse's heap guard.
+ *
+ * `used_heap_size` counts garbage a collection has not yet reclaimed, so one
+ * reading above the refusal share does not prove the data is live: near the
+ * cap it could refuse a run that would have fit. A breach therefore refuses
+ * only when it is still present after a full mark-compact has completed since
+ * the breach was first seen — the point at which what remains is live (T13325
+ * review, T13332). A reading back under the share clears the breach.
+ *
+ * @param sources - Heap and collection observations; defaults read the live process.
+ * @returns The guard.
+ * @example
+ * ```ts
+ * const guard = createParentHeapGuard();
+ * try { guard.check(received, total); } finally { guard.dispose(); }
+ * ```
+ */
+export function createParentHeapGuard(sources: ParentHeapGuardSources = {}): ParentHeapGuard {
+  let observedMajorGcs = 0;
+  let observer: PerformanceObserver | undefined;
+  if (!sources.majorGcCount) {
+    observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        // A 'gc' entry carries NodeGCPerformanceDetail at runtime; the base
+        // PerformanceEntry type does not declare it.
+        const detail: unknown = Reflect.get(entry, 'detail');
+        if (
+          typeof detail === 'object' &&
+          detail !== null &&
+          'kind' in detail &&
+          detail.kind === perfConstants.NODE_PERFORMANCE_GC_MAJOR
+        )
+          observedMajorGcs++;
+      }
+    });
+    observer.observe({ entryTypes: ['gc'] });
+  }
+  const readHeap = sources.heap ?? getHeapStatistics;
+  const majorGcs = sources.majorGcCount ?? ((): number => observedMajorGcs);
+  // Collections completed when the current breach was first seen.
+  let breachSeenAtGc: number | undefined;
+  return {
+    check(filesReceived, totalFiles) {
+      const heap = readHeap();
+      if (heap.used_heap_size <= heap.heap_size_limit * PARENT_HEAP_REFUSAL_RATIO) {
+        breachSeenAtGc = undefined;
+        return;
+      }
+      if (breachSeenAtGc === undefined || majorGcs() <= breachSeenAtGc) {
+        breachSeenAtGc ??= majorGcs();
+        return;
+      }
+      const mib = (bytes: number): number => Math.round(bytes / 1024 / 1024);
+      throw new Error(
+        `${NEXUS_HEAP_EXHAUSTED}: the CLI process holds ${mib(heap.used_heap_size)} MiB of its ` +
+          `${mib(heap.heap_size_limit)} MiB V8 heap after receiving parse results for ` +
+          `${filesReceived} of ${totalFiles} files, and a full collection did not free it, so ` +
+          `finishing the index would abort the process. Nothing was published and the previous ` +
+          `graph is retained. Raise the CLI heap with CLEO_MAX_OLD_SPACE_MB=<MiB> (for example ` +
+          `${Math.max(2048, mib(heap.heap_size_limit) * 2)}), or index a narrower root.`,
+      );
+    },
+    dispose() {
+      observer?.disconnect();
+    },
+  };
+}
+
+/**
+ * Replace every string reachable from `value` with one canonical instance.
+ *
+ * A result that crosses a process boundary arrives as JSON, and `JSON.parse`
+ * materialises each occurrence of a string separately: the 64-character
+ * generation hash, file path, source id and lexical reason repeated on every
+ * call and access record. Measured over 5 098 files of a real repository, the
+ * received extractions retained 806 MiB against 498 MiB for the same objects
+ * built in-process; sharing the strings brought them to 397 MiB (T13325).
+ *
+ * @param value - Freshly received JSON data, mutated in place.
+ * @param pool - Canonical strings for the current parse.
+ */
+function internStrings(value: object, pool: Map<string, string>): void {
+  const canonical = (text: string): string => {
+    const known = pool.get(text);
+    if (known !== undefined) return known;
+    pool.set(text, text);
+    return text;
+  };
+  const pending: object[] = [value];
+  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+    for (const key of Object.keys(node)) {
+      const child: unknown = Reflect.get(node, key);
+      if (typeof child === 'string') Reflect.set(node, key, canonical(child));
+      else if (typeof child === 'object' && child !== null) pending.push(child);
+    }
+  }
+}
+
+/** Read one file's original source for a worker, refusing bytes that changed since the scan. */
+async function readWorkerInput(
+  file: ScannedFile,
+  repoPath: string,
+  options: ParseLoopOptions,
+): Promise<ParseWorkerInput> {
+  try {
+    const absPath = file.path.startsWith('/') ? file.path : `${repoPath}/${file.path}`;
+    options.parserLimits?.signal?.throwIfAborted();
+    const bytes = await fs.readFile(absPath);
+    if (file.contentHash && createHash('sha256').update(bytes).digest('hex') !== file.contentHash) {
+      throw new Error('Source changed between scanning and parsing');
+    }
+    const { signal: _signal, ...limits } = options.parserLimits ?? {};
+    return {
+      path: file.path,
+      content: bytes.toString('utf8'),
+      limits,
+      publicationGeneration: options.publicationGeneration,
+    };
+  } catch (error) {
+    options.parserLimits?.signal?.throwIfAborted();
+    throw new Error(
+      `Parser input unavailable: ${file.path}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 /**
  * Extract files through the worker pool (Wave H — T540).
+ *
+ * Results are received one sub-batch at a time and folded into the pass as
+ * they arrive, and each file's source is read only when it is dispatched, so
+ * the transient memory of the parse is bounded by the in-flight sub-batches
+ * rather than by the repository (T13325).
  *
  * @returns Per-file outcomes, or `null` when the worker script is not built.
  */
@@ -920,70 +1093,43 @@ async function extractInParallel(
   }
 
   const total = files.length;
-  const workerInputs: Array<{
-    path: string;
-    content: string;
-    limits?: Omit<ParserExecutionLimits, 'signal'>;
-    publicationGeneration?: string;
-  }> = [];
-  for (const file of files) {
-    try {
-      const absPath = file.path.startsWith('/') ? file.path : `${repoPath}/${file.path}`;
-      options.parserLimits?.signal?.throwIfAborted();
-      const bytes = await fs.readFile(absPath);
-      if (
-        file.contentHash &&
-        createHash('sha256').update(bytes).digest('hex') !== file.contentHash
-      ) {
-        throw new Error('Source changed between scanning and parsing');
-      }
-      const { signal: _signal, ...limits } = options.parserLimits ?? {};
-      workerInputs.push({
-        path: file.path,
-        content: bytes.toString('utf8'),
-        limits,
-        publicationGeneration: options.publicationGeneration,
-      });
-    } catch (error) {
-      options.parserLimits?.signal?.throwIfAborted();
-      throw new Error(
-        `Parser input unavailable: ${file.path}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
+  const pass: ExtractionPass = { extracted: new Map(), failures: new Map() };
+  const strings = new Map<string, string>();
+  const heapGuard = createParentHeapGuard();
+  let received = 0;
   const pool = createWorkerPool(
     workerUrl,
     undefined,
     options.parserLimits,
     options.parserExecution,
   );
-  let workerResults: ParseWorkerResult[];
   try {
-    workerResults = await pool.dispatch<{ path: string; content: string }, ParseWorkerResult>(
-      workerInputs,
-      (filesProcessed) => {
+    await pool.dispatch<ScannedFile, ParseWorkerResult, ParseWorkerInput>(files, {
+      prepare: (file) => readWorkerInput(file, repoPath, options),
+      onResult: (result) => {
+        internStrings(result, strings);
+        // T12313: failures travel onward as reports; the publish step weighs how
+        // much of the repository they affect instead of one chunk deciding alone.
+        for (const report of result.reports) {
+          if (report.status !== 'analyzed') pass.failures.set(report.path, report);
+        }
+        for (const file of result.files) pass.extracted.set(file.path, file);
+        received += result.reports.length;
+        heapGuard.check(received, total);
+      },
+      onProgress: (filesProcessed) => {
         if (options.onProgress) {
           const lastFile = files[Math.min(filesProcessed, total) - 1];
           options.onProgress(filesProcessed, total, lastFile?.path ?? '');
         }
       },
-    );
+    });
   } finally {
+    heapGuard.dispose();
     await pool.terminate().catch(() => undefined);
   }
   if (!options.onProgress && total > 0) {
     process.stderr.write(`[nexus] Parsing: ${total}/${total} files (100%) [parallel]\n`);
-  }
-
-  const pass: ExtractionPass = { extracted: new Map(), failures: new Map() };
-  for (const workerResult of workerResults) {
-    // T12313: failures travel onward as reports; the publish step weighs how
-    // much of the repository they affect instead of one chunk deciding alone.
-    for (const report of workerResult.reports) {
-      if (report.status !== 'analyzed') pass.failures.set(report.path, report);
-    }
-    for (const file of workerResult.files) pass.extracted.set(file.path, file);
   }
   return pass;
 }

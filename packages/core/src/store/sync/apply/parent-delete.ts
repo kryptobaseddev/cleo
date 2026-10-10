@@ -31,6 +31,10 @@ export type ParentDeletePolicy = 'conflict' | 'cascade-with-ops';
 export const ON_REMOTE_PARENT_DELETE: Readonly<Record<string, ParentDeletePolicy>> = {
   tasks_tasks: 'conflict',
   tasks_sessions: 'conflict',
+  // Self-parent through supersedes / superseded_by (both scopes, T12894).
+  // Those FKs are NO ACTION, so no child ever cascades; a purge deletes
+  // decisions through its own ops.
+  brain_decisions: 'conflict',
 };
 
 /**

@@ -70,3 +70,25 @@ export function orderTablesForCopy(db: DatabaseSync): string[] {
   }
   return ordered;
 }
+
+/** Quote an SQLite identifier. */
+export function ident(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+/** Whether `schema.table` exists on `db`. */
+export function hasTable(db: DatabaseSync, schema: string, table: string): boolean {
+  return (
+    db
+      .prepare(`SELECT 1 AS ok FROM ${ident(schema)}.sqlite_master WHERE type='table' AND name=?`)
+      .get(table) !== undefined
+  );
+}
+
+/** Row count of `schema.table`. */
+export function countRows(db: DatabaseSync, schema: string, table: string): number {
+  const row = db.prepare(`SELECT COUNT(*) AS n FROM ${ident(schema)}.${ident(table)}`).get() as
+    | { n: number }
+    | undefined;
+  return Number(row?.n ?? 0);
+}

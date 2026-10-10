@@ -28,6 +28,12 @@ describe('terminalSafe (T13295)', () => {
     expect(terminalSafe('x\u2066y\u2069\u202az')).toBe('xyz');
   });
 
+  it('strips the direction marks and folds the Unicode line separators (#1958 LOW-2)', () => {
+    expect(terminalSafe('a\u200eb\u200fc\u061cd')).toBe('abcd');
+    expect(terminalSafe('a\u2028b\u2029c')).toBe('a b c');
+    expect(terminalSafeLines('a\u2028b')).toBe('a\nb');
+  });
+
   it('leaves ordinary text, punctuation and non-Latin scripts alone', () => {
     const plain = 'Dev’s MacBook — café 日本 (arm64) [ok] ~/proj';
     expect(terminalSafe(plain)).toBe(plain);
