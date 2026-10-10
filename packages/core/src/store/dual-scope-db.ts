@@ -775,10 +775,10 @@ export function assertHandleForeignKeys(nativeDb: DatabaseSync): void {
  * The cold-open schema pass of a consolidated store, under the cold-open
  * lease (journal spec §2.3a, §3.5 Rule 4; T12796, T12809, T12819):
  *
- * 1. **Step 0 (project):** `cleo_trigger_suspend` exists and is empty, BEFORE
- *    migrations. The owned guard and side-effect triggers read it, so a store
- *    without it cannot write tasks, sessions or acceptance criteria, and any
- *    `ALTER … RENAME` fails.
+ * 1. **Step 0 (both scopes):** `cleo_trigger_suspend` exists and is empty,
+ *    BEFORE migrations. The owned guard and side-effect triggers (project) and
+ *    every capture trigger (both scopes) read it, so a store without it cannot
+ *    write a captured table, and any `ALTER … RENAME` fails (T13398).
  * 2. `reconcileJournal` and every pending migration, one bracket per file,
  *    with the journal drizzle's `migrateSync` would write
  *    ({@link migrateBracketed}).
@@ -801,16 +801,15 @@ async function migrateScopeSchema(
   // S2 ruling (c): before any write, refuse a store that requires a newer
   // writer (sync capture on under a newer build).
   assertWriterVersion(nativeDb);
-  if (scope === 'project') {
-    const step0 = ensureTriggerSuspendTable(nativeDb);
-    if (step0.created)
-      log.warn({ scope }, 'cleo_trigger_suspend was missing; recreated before migrations (T12819)');
-    if (step0.cleared > 0) {
-      log.error(
-        { scope, rows: step0.cleared },
-        'cleo_trigger_suspend held committed suspension rows; cleared (T12819)',
-      );
-    }
+  // Both scopes (T13398): global capture triggers read the table too.
+  const step0 = ensureTriggerSuspendTable(nativeDb);
+  if (step0.created && scope === 'project')
+    log.warn({ scope }, 'cleo_trigger_suspend was missing; recreated before migrations (T12819)');
+  if (step0.cleared > 0) {
+    log.error(
+      { scope, rows: step0.cleared },
+      'cleo_trigger_suspend held committed suspension rows; cleared (T12819)',
+    );
   }
   execution?.assertActive();
   migrateBracketed(
