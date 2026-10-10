@@ -2031,6 +2031,8 @@ export type {
   WorktreeLockAcquisitionStatus,
   WorktreeLockHolder,
   WorktreeLockRecord,
+  WorktreeLockSessionProbe,
+  WorktreeLockSessionState,
   WorktreeSource,
   WorktreeStatusCategory,
 } from './operations/worktree.js';
