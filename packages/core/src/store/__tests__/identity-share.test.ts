@@ -9,10 +9,13 @@
  * @task T13250
  */
 
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { exportPortableBundle } from '../portable-bundle.js';
+import { exportPortableBundle, PortableBundleError } from '../portable-bundle.js';
+import { importPortableBundle } from '../portable-bundle-import.js';
 import {
   prepareRowIdentity,
   ROW_IDENTITY_RECIPE_KEY,
@@ -89,11 +92,89 @@ describe('portable bundle exports mark identity shared (T13250)', () => {
     await exportBundle(false);
     expect(synced()).toBeUndefined();
   });
+
+  it('importing a bundle that carries uids but no marker marks the placed store received (#1952 LOW-1)', async () => {
+    // A bundle made before T13250 has the uids and no synced marker; the
+    // unmarked export reproduces that shape exactly.
+    const bundle = (await exportBundle(false)).bundlePath;
+    expect(synced()).toBeUndefined();
+    const dest = mkdtempSync(join(tmpdir(), 'cleo-t13305-import-'));
+    try {
+      const target = join(dest, 'moved');
+      const imported = await importPortableBundle({
+        bundlePath: bundle,
+        cwd: '/',
+        target,
+        cleoHome: join(dest, 'home'),
+        configHome: join(dest, 'config'),
+      });
+      expect(imported.lossless).toBe(true);
+      const placed = new DatabaseSync(join(target, '.cleo', 'cleo.db'), { readOnly: true });
+      try {
+        const row = placed
+          .prepare('SELECT value FROM tasks_row_identity_meta WHERE key = ?')
+          .get(ROW_IDENTITY_SYNCED_KEY) as { value: string } | undefined;
+        expect(JSON.parse(String(row?.value)).first).toBe('receive');
+      } finally {
+        placed.close();
+      }
+    } finally {
+      rmSync(dest, { recursive: true, force: true });
+    }
+  });
+
+  it('a machine export that cannot mark a project names that project (#1952 LOW-2)', async () => {
+    const share = await import('../identity-share.js');
+    const spy = vi
+      .spyOn(share, 'markProjectIdentityShared')
+      .mockRejectedValue(new Error('store is restoring'));
+    try {
+      const err = await exportPortableBundle({
+        scope: 'machine',
+        outputPath: join(env.tempDir, 'out', 'm.cleobundle.tar.gz'),
+        label: 'm',
+        isTempPath: () => false,
+      }).catch((e: Error) => e);
+      expect(err).toBeInstanceOf(PortableBundleError);
+      expect((err as PortableBundleError).code).toBe('E_PROJECT_STORE_UNAVAILABLE');
+      expect((err as Error).message).toContain(env.tempDir);
+      expect((err as Error).message).toContain('store is restoring');
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe('a store with no identity is never touched (T13250)', () => {
   beforeEach(async () => {
     await setup(false);
+  });
+
+  it('importing a bundle from a store with no uids marks nothing', async () => {
+    const bundle = (await exportBundle()).bundlePath;
+    const dest = mkdtempSync(join(tmpdir(), 'cleo-t13305-import-'));
+    try {
+      const target = join(dest, 'moved');
+      await importPortableBundle({
+        bundlePath: bundle,
+        cwd: '/',
+        target,
+        cleoHome: join(dest, 'home'),
+        configHome: join(dest, 'config'),
+      });
+      const placed = new DatabaseSync(join(target, '.cleo', 'cleo.db'), { readOnly: true });
+      try {
+        expect(
+          placed
+            .prepare('SELECT value FROM tasks_row_identity_meta WHERE key = ?')
+            .get(ROW_IDENTITY_SYNCED_KEY),
+        ).toBeUndefined();
+      } finally {
+        placed.close();
+      }
+    } finally {
+      rmSync(dest, { recursive: true, force: true });
+    }
   });
 
   it('a bundle export of a fill-off store writes no identity meta', async () => {
