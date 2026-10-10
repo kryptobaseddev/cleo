@@ -323,6 +323,17 @@ export function mcpServerName(row: ProcessRow): string | null {
 const LAUNCHERS = new Set(['npx', 'pnpx', 'bunx', 'uvx']);
 const PM_LAUNCH = /^(npm|pnpm|yarn|bun)$/;
 const PM_LAUNCH_SUB = new Set(['exec', 'dlx', 'x']);
+/** Launcher flags that take a separate value. */
+const LAUNCHER_VALUE_FLAGS = new Set([
+  '--package',
+  '-p',
+  '--from',
+  '--with',
+  '--python',
+  '--call',
+  '-c',
+  '--spec',
+]);
 
 /**
  * The package a launcher runs (`npx -y @playwright/mcp@latest` → `@playwright/mcp`),
@@ -336,7 +347,18 @@ export function launchedPackage(words: readonly string[]): string | null | undef
   else if (head === 'pipx' && sub === 'run') rest = words.slice(2);
   else if (PM_LAUNCH.test(head) && PM_LAUNCH_SUB.has(sub)) rest = words.slice(2);
   else return undefined;
-  const pkg = rest.find((w) => !w.startsWith('-'));
+  let pkg: string | undefined;
+  for (let i = 0; i < rest.length; i++) {
+    const w = rest[i] as string;
+    if (w === '--') continue;
+    if (w.startsWith('-')) {
+      // `npx --package foo bin`, `uvx --from git+… srv`: the flag's value is not the server.
+      if (LAUNCHER_VALUE_FLAGS.has(w)) i++;
+      continue;
+    }
+    pkg = w;
+    break;
+  }
   if (pkg === undefined) return null;
   return pkg.replace(/(.)@[^/]*$/, '$1').replace(/==.*$/, '');
 }
