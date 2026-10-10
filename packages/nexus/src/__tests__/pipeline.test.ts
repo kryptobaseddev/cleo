@@ -460,11 +460,12 @@ describe('streamed parse results (T13325)', () => {
         import assert from 'node:assert/strict';
         import { fork } from 'node:child_process';
         import { once } from 'node:events';
+        import { fileURLToPath } from 'node:url';
         import { createWorkerPool } from './pool.mjs';
         const items = Array.from({ length: 6 }, (_, index) => 'item-' + index);
         const scenarios = [['before', 'item-2'], ['before', 'item-5'], ['after', 'item-2'], ['after', 'item-5']];
         for (const [mode, killAt] of scenarios) {
-          const marker = new URL('./marker-' + mode + '-' + killAt, import.meta.url).pathname;
+          const marker = fileURLToPath(new URL('./marker-' + mode + '-' + killAt, import.meta.url));
           let spawns = 0;
           const execution = {
             spawn(path, limits) {
