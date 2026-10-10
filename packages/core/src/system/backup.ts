@@ -54,6 +54,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -64,6 +65,7 @@ import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { formatBackupTimestamp, rotateBackupDir } from '../store/backup-sidecar.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
+import type { AbandonableLock } from '../store/lock.js';
 import { getNativeDb } from '../store/sqlite.js';
 import { assertRestoreTargetConfirmed } from '../store/worktree-isolation-guard.js';
 
@@ -538,8 +540,8 @@ export async function autoGlobalBackup(
   now: Date = new Date(),
   opts: {
     admit?: () => Promise<{ release: () => Promise<void> } | null>;
-    /** The single-flight lock (tests): takes the compromise callback, returns the release. */
-    lock?: (onCompromised: (err: Error) => void) => Promise<() => Promise<void>>;
+    /** The single-flight lock (tests): takes the compromise callback, returns the held lock. */
+    lock?: (onCompromised: (err: Error) => void) => Promise<AbandonableLock>;
   } = {},
 ): Promise<string | null> {
   const due = (): boolean => {
@@ -568,47 +570,72 @@ export async function autoGlobalBackup(
     const takeLock =
       opts.lock ??
       (async (cb: (err: Error) => void) => {
-        const { acquireLock } = await import('../store/lock.js');
-        return acquireLock(dir, {
+        const { acquireAbandonableLock } = await import('../store/lock.js');
+        return acquireAbandonableLock(dir, {
           retries: 0,
           stale: GLOBAL_BACKUP_LOCK_STALE_MS,
           onCompromised: cb,
         });
       });
-    let unlock: (() => Promise<void>) | null = null;
+    let held: AbandonableLock;
     try {
-      unlock = await takeLock(onCompromised);
+      held = await takeLock(onCompromised);
     } catch {
       return null;
     }
+    // The stale window runs from when the lock was taken, not from when the
+    // copy starts: the admission wait counts against it too (T13299).
+    const lockedAt = Date.now();
+    // The copy blocks the event loop, so a compromise may only surface after
+    // it: a lock held past the stale window is treated as lost.
+    const lockLost = (): string | null =>
+      compromised !== null
+        ? `lock compromised: ${compromised}`
+        : Date.now() - lockedAt >= GLOBAL_BACKUP_LOCK_STALE_MS
+          ? 'the copy outlasted the lock stale window'
+          : null;
     try {
+      sweepOrphanedGlobalCopies(dir, Date.now());
       if (!due()) return null;
       // A full VACUUM INTO of the largest shared store is db-heavy work:
       // admitted by the governor, skipped (not queued) under pressure.
       const admission = await (opts.admit ?? admitDbHeavy)();
       if (admission === null) return null;
       try {
-        // The copy blocks the event loop, so a compromise may only surface
-        // after it: a copy that outlasted the stale window is treated as one.
-        const started = Date.now();
-        const r = await createGlobalBackup({
-          type: 'auto',
-          discardIf: () =>
-            compromised !== null
-              ? `lock compromised: ${compromised}`
-              : Date.now() - started >= GLOBAL_BACKUP_LOCK_STALE_MS
-                ? 'the copy outlasted the lock stale window'
-                : null,
-        });
+        const r = await createGlobalBackup({ type: 'auto', discardIf: lockLost });
         return r.files.length > 0 ? r.backupId : null;
       } finally {
         await admission.release();
       }
     } finally {
-      await unlock();
+      // A lost or outlasted lock may be another process's by now: let go of
+      // it without removing its directory (T13299).
+      await (lockLost() !== null ? held.abandon() : held.release());
     }
   } catch {
     return null;
+  }
+}
+
+/**
+ * Remove the `cleo.db.<id>.tmp` copies (and their SQLite sidecars) that a
+ * global backup killed mid-copy left behind, once older than the lock stale
+ * window: a live copy is younger, since `VACUUM INTO` keeps writing it.
+ * Called under the global backup lock (T13299).
+ *
+ * @param dir - The global backup directory.
+ * @param now - Clock in ms.
+ */
+function sweepOrphanedGlobalCopies(dir: string, now: number): void {
+  for (const name of readdirSync(dir)) {
+    if (!/^cleo\.db\..+\.tmp(-journal|-wal|-shm)?$/.test(name)) continue;
+    const file = join(dir, name);
+    try {
+      if (now - statSync(file).mtimeMs >= GLOBAL_BACKUP_LOCK_STALE_MS)
+        rmSync(file, { force: true });
+    } catch {
+      // removed meanwhile
+    }
   }
 }
 

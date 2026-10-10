@@ -26,6 +26,14 @@ import { resolveCorePackageMigrationsFolder } from '../resolve-migrations-folder
 /** The migrations sub-directory that holds the sync schema. */
 export const SYNC_SCHEMA_SET = 'sync-journal';
 
+/**
+ * `_sync_meta` key prefix of a stream's genesis cut (§2.11 §10): S4 records
+ * `${GENESIS_CUT_KEY_PREFIX}<stream>` when it cuts genesis for that stream.
+ * The repair diff reads it to know the stream has started (T13217), so both
+ * sides name the key through this constant, never a hand-typed string.
+ */
+export const GENESIS_CUT_KEY_PREFIX = 'genesis_cut:';
+
 /** Key prefix under which `_sync_meta` records an applied schema folder. */
 const APPLIED_PREFIX = 'schema:';
 
