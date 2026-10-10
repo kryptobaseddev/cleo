@@ -10,29 +10,38 @@
  * node/pnpm dependencies, so they install cleanly into Rust, Python,
  * bare-repo, or any other environment cleo init runs against.
  *
- * Sentinel-based ownership: only files containing the
- * `# CLEO_MANAGED_HOOK v1` line in their first 5 lines are considered
- * CLEO-owned and will be overwritten without `force`. Any pre-existing,
- * non-CLEO hook is preserved unless `force: true` is passed.
+ * Content-based ownership: only exact shipped templates or hash-verified installation receipts authorize
+ * refresh. Foreign and customized files are always preserved.
  */
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  CLEO_GIT_HOOK_NAMES,
+  type GitHookChange,
+  type GitHookInstallReceipt,
+  GitHookInstallReceiptSchema,
+  GitHookLegacyHashesSchema,
+} from '@cleocode/contracts/git-hooks.js';
+import { atomicWrite } from '../store/atomic.js';
+import { withFileLock } from '../store/file-utils.js';
 
 /**
- * Sentinel line embedded in every CLEO-managed hook script. Used to
- * distinguish CLEO-owned hooks from user-customized hooks at upgrade
- * time, so a `cleo upgrade hooks_sync` (T1588) never clobbers user work.
+ * Diagnostic marker embedded in shipped hooks. A marker alone never grants
+ * refresh authority; installation validates content hashes.
  */
 export const CLEO_HOOK_SENTINEL = '# CLEO_MANAGED_HOOK v1';
 
 /**
  * The set of hooks CLEO ships and manages. Order matches the order
- * we iterate them; both names match the on-disk filenames in
+ * we iterate them; all names match the on-disk filenames in
  * `packages/core/templates/git-hooks/` (T9858 relocated cleo→core).
  */
-export const CLEO_HOOK_NAMES = ['commit-msg', 'pre-push'] as const;
+export const CLEO_HOOK_NAMES = CLEO_GIT_HOOK_NAMES;
+/** Name of a shipped Git hook. */
 export type CleoHookName = (typeof CLEO_HOOK_NAMES)[number];
 
 /** Options for {@link installCleoHooks}. */
@@ -45,21 +54,23 @@ export interface InstallCleoHooksOptions {
    */
   templatesDir?: string;
   /**
-   * If true, overwrite existing hook files even when they are NOT
-   * CLEO-managed (no sentinel). Used for emergency repair / explicit
-   * `--force`. Defaults to false.
+   * Deprecated compatibility flag. It never bypasses ownership validation.
    */
   force?: boolean;
   /**
    * If true, do not actually write — return what WOULD happen.
    */
   dryRun?: boolean;
+  /** Restore a prior installation only while its current hashes match. */
+  rollbackReceipt?: GitHookInstallReceipt;
 }
 
 /** Result of {@link installCleoHooks}. */
 export interface InstallCleoHooksResult {
   /** Absolute path to the hooks dir we wrote into. */
   hooksDir: string;
+  /** Recovery receipt for this installation; absent on previews. */
+  receipt?: GitHookInstallReceipt;
   /** Names of hooks that were installed (newly written or overwritten). */
   installed: CleoHookName[];
   /** Names of hooks skipped because a non-CLEO file already exists. */
@@ -72,12 +83,12 @@ export interface InstallCleoHooksResult {
  * Install CLEO's git hooks into a project.
  *
  * Resolves `core.hooksPath` first (so Husky / lefthook / nested
- * worktree configs are respected). Falls back to `<projectRoot>/.git/hooks`.
+ * worktree configs are respected). Git resolves the common directory for linked worktrees.
  *
  * For each managed hook:
  *  - If the destination file is missing → write it (mode 0o755).
- *  - If it exists AND has the CLEO sentinel → overwrite (refresh).
- *  - If it exists AND has NO sentinel → skip unless `force: true`.
+ *  - If its hash matches a shipped template or receipt → refresh.
+ *  - Otherwise preserve it, including files with customized CLEO markers.
  *
  * @param projectRoot Absolute path to the git project root.
  * @param opts        See {@link InstallCleoHooksOptions}.
@@ -106,47 +117,129 @@ export async function installCleoHooks(
     throw new Error(`installCleoHooks: hook templates dir not found: ${templatesDir}`);
   }
 
-  const installed: CleoHookName[] = [];
-  const skipped: CleoHookName[] = [];
-  const skipReasons: Partial<Record<CleoHookName, string>> = {};
-
+  // Validate the entire shipped set before replacing any destination.
   for (const name of CLEO_HOOK_NAMES) {
-    const src = path.join(templatesDir, name);
-    const dst = path.join(hooksDir, name);
-
-    if (!fs.existsSync(src)) {
-      throw new Error(`installCleoHooks: missing template ${src}`);
-    }
-
-    if (fs.existsSync(dst) && !opts.force) {
-      const isManaged = isCleoManagedHook(dst);
-      if (!isManaged) {
-        skipped.push(name);
-        skipReasons[name] = 'existing non-CLEO hook (no sentinel) — pass force:true to overwrite';
-        continue;
-      }
-    }
-
-    if (!opts.dryRun) {
-      const body = fs.readFileSync(src, 'utf8');
-      fs.writeFileSync(dst, body, { mode: 0o755 });
-      // Some filesystems (Windows under WSL) don't honor the mode in
-      // writeFileSync — chmod explicitly.
-      try {
-        fs.chmodSync(dst, 0o755);
-      } catch {
-        // Best-effort; on non-POSIX filesystems chmod is a no-op.
-      }
-    }
-    installed.push(name);
+    const source = path.join(templatesDir, name);
+    if (!fs.existsSync(source)) throw new Error(`installCleoHooks: missing template ${source}`);
   }
 
-  return { hooksDir, installed, skipped, skipReasons };
+  const perform = async (): Promise<InstallCleoHooksResult> => {
+    const installed: CleoHookName[] = [];
+    const skipped: CleoHookName[] = [];
+    const skipReasons: Partial<Record<CleoHookName, string>> = {};
+    const changes: GitHookChange[] = [];
+    const ledgerPath = path.join(hooksDir, '.cleo-install-receipt.json');
+    const ledger = readReceipt(ledgerPath);
+    if (opts.rollbackReceipt) {
+      const receipt = GitHookInstallReceiptSchema.parse(opts.rollbackReceipt);
+      if (receipt.hooksDir !== hooksDir) throw new Error('Git hook rollback directory mismatch');
+      for (const change of receipt.changes) {
+        const dst = path.join(hooksDir, change.name);
+        if (
+          !fs.existsSync(dst) ||
+          fs.lstatSync(dst).isSymbolicLink() ||
+          hash(fs.readFileSync(dst, 'utf8')) !== change.afterHash
+        ) {
+          skipped.push(change.name);
+          skipReasons[change.name] = 'rollback conflict: hook changed since installation';
+          continue;
+        }
+        if (!opts.dryRun) {
+          if (change.before === null) fs.unlinkSync(dst);
+          else await atomicWrite(dst, change.before, { mode: change.beforeMode ?? 0o755 });
+        }
+        installed.push(change.name);
+      }
+      if (!opts.dryRun && ledger) {
+        const restored = receipt.changes.filter((change) => installed.includes(change.name));
+        const untouched = ledger.changes.filter((change) => !installed.includes(change.name));
+        const images = restored.flatMap((change) =>
+          change.before === null ? [] : [{ ...change, afterHash: hash(change.before) }],
+        );
+        await atomicWrite(
+          ledgerPath,
+          JSON.stringify({ ...ledger, changes: [...untouched, ...images] }) + '\n',
+          { mode: 0o600 },
+        );
+      }
+      return { hooksDir, installed, skipped, skipReasons };
+    }
+    for (const name of CLEO_HOOK_NAMES) {
+      const src = path.join(templatesDir, name);
+      const dst = path.join(hooksDir, name);
+      const body = fs.readFileSync(src, 'utf8');
+      const entry = fs.lstatSync(dst, { throwIfNoEntry: false });
+      if (entry && !entry.isFile()) {
+        skipped.push(name);
+        skipReasons[name] = 'existing non-CLEO symbolic or non-file hook preserved';
+        continue;
+      }
+      const exists = entry !== undefined;
+      const before = exists ? fs.readFileSync(dst, 'utf8') : null;
+      const recorded = ledger?.changes.find((change) => change.name === name);
+      const safe =
+        !exists ||
+        (!fs.lstatSync(dst).isSymbolicLink() &&
+          (before === body ||
+            (before !== null && legacyHashes(name).includes(hash(before))) ||
+            (before !== null && recorded?.afterHash === hash(before))));
+      if (!safe) {
+        skipped.push(name);
+        skipReasons[name] =
+          `existing non-CLEO or customized hook preserved; integration: sh '${src.replace(/'/g, "'\\''")}' "$@"`;
+        continue;
+      }
+      const change = {
+        name,
+        before,
+        beforeMode: exists ? fs.statSync(dst).mode & 0o777 : null,
+        afterHash: hash(body),
+      };
+      changes.push(change);
+      if (!opts.dryRun) await atomicWrite(dst, body, { mode: 0o755 });
+      installed.push(name);
+    }
+    const receipt: GitHookInstallReceipt = { schemaVersion: 1, hooksDir, changes };
+    if (!opts.dryRun) {
+      // Keep ownership for preserved entries, without claiming foreign files.
+      const retained =
+        ledger?.changes.filter((change) => !changes.some((next) => next.name === change.name)) ??
+        [];
+      await atomicWrite(
+        ledgerPath,
+        JSON.stringify({ ...receipt, changes: [...retained, ...changes] }) + '\n',
+        { mode: 0o600 },
+      );
+    }
+    return { hooksDir, installed, skipped, skipReasons, ...(opts.dryRun ? {} : { receipt }) };
+  };
+  return opts.dryRun ? perform() : withFileLock(path.join(hooksDir, '.cleo-install'), perform);
+}
+
+function hash(body: string): string {
+  return createHash('sha256').update(body).digest('hex');
+}
+
+function readReceipt(filePath: string): GitHookInstallReceipt | undefined {
+  if (!fs.existsSync(filePath)) return undefined;
+  const parsed = GitHookInstallReceiptSchema.safeParse(
+    JSON.parse(fs.readFileSync(filePath, 'utf8')),
+  );
+  return parsed.success && parsed.data.hooksDir === path.dirname(filePath)
+    ? parsed.data
+    : undefined;
+}
+
+function legacyHashes(name: CleoHookName): string[] {
+  const file = path.join(defaultTemplatesDir(), 'legacy-hashes.json');
+  if (!fs.existsSync(file)) return [];
+  const parsed = GitHookLegacyHashesSchema.safeParse(JSON.parse(fs.readFileSync(file, 'utf8')));
+  return parsed.success ? (parsed.data[name] ?? []) : [];
 }
 
 /**
- * Returns true when `filePath` is a CLEO-managed hook (the first 5 lines
- * contain {@link CLEO_HOOK_SENTINEL}). Returns false on read error.
+ * Detect the CLEO marker for diagnostics, without establishing ownership.
+ * Returns false on read error; installers must validate the content hash.
  */
 export function isCleoManagedHook(filePath: string): boolean {
   try {
@@ -170,45 +263,34 @@ export function isCleoManagedHook(filePath: string): boolean {
  * pointing at `gitdir: ...`).
  */
 export function resolveGitDir(projectRoot: string): string | null {
-  const dotGit = path.join(projectRoot, '.git');
-  if (!fs.existsSync(dotGit)) {
+  try {
+    return execFileSync('git', ['-C', projectRoot, 'rev-parse', '--absolute-git-dir'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
     return null;
   }
-  const stat = fs.statSync(dotGit);
-  if (stat.isDirectory()) {
-    return dotGit;
-  }
-  if (stat.isFile()) {
-    // Worktree-style `.git` file: `gitdir: <abs-or-rel-path>`.
-    const content = fs.readFileSync(dotGit, 'utf8').trim();
-    const m = content.match(/^gitdir:\s*(.+)$/m);
-    if (!m) return null;
-    const target = m[1].trim();
-    return path.isAbsolute(target) ? target : path.resolve(projectRoot, target);
-  }
-  return null;
 }
 
 /**
  * Resolve the hooks directory the project actually uses.
  *
  * If `core.hooksPath` is set (Husky / lefthook / custom), respect it.
- * Otherwise fall back to `<gitDir>/hooks`.
+ * Git resolves its common directory for linked worktrees.
  */
 export function resolveHooksDir(projectRoot: string, gitDir: string): string {
-  // 1. Try `git config core.hooksPath`.
-  try {
-    const out = execFileSync('git', ['-C', projectRoot, 'config', '--get', 'core.hooksPath'], {
+  // Git resolves both the common worktree directory and core.hooksPath.
+  const resolved = execFileSync(
+    'git',
+    ['-C', projectRoot, 'rev-parse', '--path-format=absolute', '--git-path', 'hooks'],
+    {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    if (out) {
-      return path.isAbsolute(out) ? out : path.resolve(projectRoot, out);
-    }
-  } catch {
-    // git config exits 1 when key is unset — fall through.
-  }
-  return path.join(gitDir, 'hooks');
+    },
+  ).trim();
+  void gitDir; // Retained for source compatibility with existing consumers.
+  return resolved;
 }
 
 /**
@@ -259,7 +341,6 @@ export function defaultTemplatesDir(): string {
 function fileURLToDirname(): string {
   // import.meta.url isn't available in CJS; vitest runs ESM in this repo
   // (see packages/core/package.json "type": "module").
-  const url = import.meta.url;
-  const filePath = url.startsWith('file://') ? new URL(url).pathname : url;
+  const filePath = fileURLToPath(import.meta.url);
   return path.dirname(filePath);
 }

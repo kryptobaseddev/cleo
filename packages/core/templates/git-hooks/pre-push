@@ -19,6 +19,17 @@
 # POSIX `/bin/sh` only. No node/pnpm dependency.
 set -e
 
+# Capture once so task-ID validation and project checks receive identical refs.
+REF_INPUT=$(mktemp "${TMPDIR:-/tmp}/cleo-pre-push.XXXXXX") || {
+  printf '%s\n' 'cleo pre-push: cannot capture refs; infrastructure failure, allowing push' >&2
+  exit 0
+}
+trap 'rm -f "$REF_INPUT"' EXIT HUP INT TERM
+if ! cat > "$REF_INPUT"; then
+  printf '%s\n' 'cleo pre-push: cannot read refs; infrastructure failure, allowing push' >&2
+  exit 0
+fi
+
 ZERO_SHA="0000000000000000000000000000000000000000"
 EMPTY_TREE_SHA=""
 FAIL=0
@@ -73,7 +84,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 "
     fi
   done
-done
+done < "$REF_INPUT"
 
 if [ "$FAIL" -ne 0 ]; then
   cat >&2 <<EOF
@@ -89,4 +100,21 @@ EOF
   exit 1
 fi
 
+# Existing projects remain unchanged: the shared runner skips disabled hooks.
+if command -v cleo >/dev/null 2>&1; then
+  capability=$(cleo hook run --probe 2>/dev/null) || capability=""
+  if [ "$capability" != "CLEO_PROJECT_HOOK_V1" ]; then
+    printf '%s\n' 'cleo pre-push: project runner unavailable; allowing push' >&2
+    exit 0
+  fi
+  status=0
+  cleo hook run --source git --event pre-push -- "$@" < "$REF_INPUT" || status=$?
+  case "$status" in
+    0) ;;
+    1) exit 1 ;; # An explicit project verdict/checker policy blocks.
+    *) printf '%s\n' 'cleo pre-push: runner infrastructure failure; allowing push' >&2 ;;
+  esac
+else
+  printf '%s\n' 'cleo pre-push: project runner missing; allowing push' >&2
+fi
 exit 0
