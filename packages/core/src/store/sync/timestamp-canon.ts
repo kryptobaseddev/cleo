@@ -78,10 +78,13 @@ export function canonicalStoreTimestamp(value: string): string | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Captured timestamp columns per sync-set table. The claim-lease columns
+ * Captured TEXT timestamp columns per sync-set table. The claim-lease columns
  * (`claimed_at`, `lease_expires_at`) are local-only and are not captured, so
- * they are not here. A test pins this map against every captured `*_at`
- * column of the sync set.
+ * they are not here. INTEGER epoch-millisecond columns (`brain_attention`,
+ * `brain_decisions.validator_run_at`, `brain_session_narrative.last_updated_at`)
+ * are already canonical and are not here either. A test pins this map, plus
+ * an explicit list of those integer columns, against every captured `*_at`
+ * column of both sync sets.
  */
 export const SYNC_TIMESTAMP_COLUMNS: Readonly<
   Record<TableScope, Readonly<Record<string, readonly string[]>>>
@@ -94,8 +97,56 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     tasks_evidence_ac_bindings: ['created_at'],
     tasks_display_id_aliases: ['created_at'],
     tasks_uid_aliases: ['created_at'],
+    brain_decisions: ['created_at', 'updated_at', 'valid_at', 'invalid_at', 'tier_promoted_at'],
+    brain_patterns: [
+      'extracted_at',
+      'updated_at',
+      'last_seen_at',
+      'valid_at',
+      'invalid_at',
+      'tier_promoted_at',
+    ],
+    brain_learnings: ['created_at', 'updated_at', 'valid_at', 'invalid_at', 'tier_promoted_at'],
+    brain_observations: [
+      'created_at',
+      'updated_at',
+      'validated_at',
+      'valid_at',
+      'invalid_at',
+      'tier_promoted_at',
+    ],
+    brain_page_nodes: ['created_at', 'updated_at', 'last_activity_at'],
+    brain_backfill_runs: ['created_at', 'approved_at'],
+    brain_observations_staging: ['created_at', 'new_invalid_at'],
+    brain_promotion_log: ['decided_at'],
+    brain_transcript_events: ['created_at', 'redacted_at'],
   },
-  global: {},
+  global: {
+    brain_decisions: ['created_at', 'updated_at', 'valid_at', 'invalid_at', 'tier_promoted_at'],
+    brain_patterns: [
+      'extracted_at',
+      'updated_at',
+      'last_seen_at',
+      'valid_at',
+      'invalid_at',
+      'tier_promoted_at',
+    ],
+    brain_learnings: ['created_at', 'updated_at', 'valid_at', 'invalid_at', 'tier_promoted_at'],
+    brain_observations: [
+      'created_at',
+      'updated_at',
+      'validated_at',
+      'valid_at',
+      'invalid_at',
+      'tier_promoted_at',
+    ],
+    brain_page_nodes: ['created_at', 'updated_at', 'last_activity_at'],
+    brain_backfill_runs: ['created_at', 'approved_at'],
+    brain_observations_staging: ['created_at', 'new_invalid_at'],
+    brain_promotion_log: ['decided_at'],
+    brain_transcript_events: ['created_at', 'redacted_at'],
+    brain_sticky_notes: ['created_at', 'updated_at'],
+  },
 };
 
 /**

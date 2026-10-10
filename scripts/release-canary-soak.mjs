@@ -30,6 +30,19 @@
  * global-install layout (`<prefix>/bin`, `<prefix>/lib/node_modules`) differs
  * on Windows.
  *
+ * ## Registry propagation
+ *
+ * `npm install` resolves `@cleocode/<pkg>@<version>` through the abbreviated
+ * packument, a document execute-payload.mjs does not read and that reaches
+ * npm's CDN on its own schedule. On v2026.10.5 the install got ETARGET for
+ * `@cleocode/core` 16 seconds after the verifier saw all 18 packages
+ * installable (T13328). So an install that fails with ETARGET or E404 is
+ * `pending`, not failed: it is retried with backoff through the verifier's
+ * convergence loop (`converge`) for INSTALL_CONVERGE_MS, with `--prefer-online`
+ * so npm re-reads the registry instead of its cached answer. Any other install
+ * failure ends the soak at once, and a package still missing when the window
+ * closes fails it: a version that never appears is a publish defect.
+ *
  * Exit codes: 0 every check passed; 1 a check failed; 2 bad arguments, or the
  * version could not be resolved.
  *
@@ -50,7 +63,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import { REGISTRY } from './execute-payload.mjs';
+import { converge, REGISTRY } from './execute-payload.mjs';
 import { isMain } from './lib/is-main.mjs';
 import { sandboxEnvironment } from './lib/sandbox-env.mjs';
 
@@ -59,6 +72,36 @@ export const VERSION_PATTERN = /^\d{4}\.\d{1,2}\.\d+(?:-[0-9A-Za-z.]+)?$/;
 
 /** Budget for the global install: about 300 packages, some with install scripts. */
 export const INSTALL_TIMEOUT_MS = 15 * 60_000;
+
+/** Window in which an install refused with ETARGET or E404 is retried (T13328). */
+export const INSTALL_CONVERGE_MS = 10 * 60_000;
+
+/** First wait between install attempts; doubled after each, up to INSTALL_RETRY_MAX_MS. */
+export const INSTALL_RETRY_FIRST_MS = 15_000;
+
+/** Longest wait between install attempts. */
+export const INSTALL_RETRY_MAX_MS = 120_000;
+
+/**
+ * npm's answer when a version is not (yet) visible to the resolver: `ETARGET`
+ * (no matching version in the packument) or `E404` (no packument or tarball).
+ */
+const PROPAGATION_ERROR = /\bnpm (?:error|ERR!) code (?:ETARGET|E404)\b/;
+
+/**
+ * Whether a finished install failed only because the registry has not caught
+ * up yet (T13328).
+ *
+ * @param {RunResult} result
+ * @returns {boolean}
+ */
+export function isPropagationPending(result) {
+  return (
+    !result.error &&
+    result.status !== 0 &&
+    PROPAGATION_ERROR.test(`${result.stderr}\n${result.stdout}`)
+  );
+}
 
 /** Budget for each installed-CLI command. */
 export const CLI_TIMEOUT_MS = 120_000;
@@ -97,6 +140,8 @@ const SOAK_ACCEPTANCE = 'installs|starts|writes|reads|finds';
  *   and optional timeout. A check without a command only inspects the sandbox.
  * @property {(result: RunResult | null, ctx: SoakContext) => string} verify - Returns a
  *   one-line detail, throws when the check fails.
+ * @property {(result: RunResult) => boolean} [pending] - True when a failed run is
+ *   registry propagation, retried through `converge` within the soak's window.
  */
 
 /**
@@ -223,12 +268,14 @@ export const SOAK_CHECKS = Object.freeze([
         ctx.prefix,
         '--no-audit',
         '--no-fund',
+        '--prefer-online',
         '--loglevel',
         'error',
         `@cleocode/cleo@${ctx.version}`,
       ],
       INSTALL_TIMEOUT_MS,
     ],
+    pending: isPropagationPending,
     verify: (_result, ctx) => {
       if (!existsSync(ctx.bin)) throw new Error(`npm exited 0 but ${ctx.bin} does not exist`);
       return `@cleocode/cleo@${ctx.version} installed globally into the sandbox prefix`;
@@ -387,9 +434,22 @@ function exitProblem(result) {
  * @param {typeof runCommand} [opts.run] - Injected for tests.
  * @param {readonly SoakCheck[]} [opts.checks] - Injected for tests.
  * @param {(line: string) => void} [opts.log] - Progress sink.
- * @returns {{ version: string, ok: boolean, checks: Array<{ name: string, ok: boolean, skipped?: true, detail: string, durationMs: number }> }}
+ * @param {object} [opts.retry] - Propagation retry window for checks with `pending`.
+ * @param {number} [opts.retry.timeoutMs] @defaultValue INSTALL_CONVERGE_MS
+ * @param {number} [opts.retry.intervalMs] @defaultValue INSTALL_RETRY_FIRST_MS
+ * @param {number} [opts.retry.maxIntervalMs] @defaultValue INSTALL_RETRY_MAX_MS
+ * @param {(ms: number) => Promise<unknown>} [opts.retry.sleepImpl] - Injected for tests.
+ * @param {() => number} [opts.retry.now] - Clock, injected for tests.
+ * @returns {Promise<{ version: string, ok: boolean, checks: Array<{ name: string, ok: boolean, skipped?: true, detail: string, durationMs: number, attempts?: number }> }>}
  */
-export function soak({ version, root, run = runCommand, checks = SOAK_CHECKS, log = () => {} }) {
+export async function soak({
+  version,
+  root,
+  run = runCommand,
+  checks = SOAK_CHECKS,
+  log = () => {},
+  retry = {},
+}) {
   const env = sandboxEnvironment(root);
   const prefix = join(root, 'prefix');
   mkdirSync(prefix, { recursive: true });
@@ -417,21 +477,65 @@ export function soak({ version, root, run = runCommand, checks = SOAK_CHECKS, lo
       continue;
     }
     const started = Date.now();
+    let attempts = 1;
     try {
       let result = null;
+      let retried = '';
       if (check.command) {
         const [file, args, timeoutMs = CLI_TIMEOUT_MS] = check.command(ctx);
-        result = run(file, args, { cwd: ctx.project, env: ctx.env, timeoutMs });
+        const once = () => run(file, args, { cwd: ctx.project, env: ctx.env, timeoutMs });
+        const { pending } = check;
+        if (pending) {
+          const outcome = await converge(
+            async () => {
+              const r = once();
+              return { settled: !pending(r), value: r };
+            },
+            {
+              timeoutMs: retry.timeoutMs ?? INSTALL_CONVERGE_MS,
+              intervalMs: retry.intervalMs ?? INSTALL_RETRY_FIRST_MS,
+              backoff: 2,
+              maxIntervalMs: retry.maxIntervalMs ?? INSTALL_RETRY_MAX_MS,
+              ...(retry.sleepImpl ? { sleepImpl: retry.sleepImpl } : {}),
+              ...(retry.now ? { now: retry.now } : {}),
+              onWait: ({ attempts: n, waitMs }) =>
+                log(
+                  `wait ${check.name}: attempt ${n} hit registry propagation (ETARGET/E404); retrying in ${Math.round(waitMs / 1000)}s`,
+                ),
+            },
+          );
+          result = outcome.value;
+          attempts = outcome.attempts;
+          const secs = Math.round(outcome.elapsedMs / 1000);
+          if (outcome.timedOut)
+            retried = `; still unresolved after ${attempts} attempts over ${secs}s: the version never reached npm's resolver, a publish defect`;
+          else if (attempts > 1)
+            retried = ` (after ${attempts} attempts over ${secs}s of registry propagation)`;
+        } else {
+          result = once();
+        }
         const problem = exitProblem(result);
-        if (problem) throw new Error(problem);
+        if (problem) throw new Error(`${problem}${retried}`);
       }
-      const detail = check.verify(result, ctx);
-      results.push({ name: check.name, ok: true, detail, durationMs: Date.now() - started });
+      const detail = `${check.verify(result, ctx)}${retried}`;
+      results.push({
+        name: check.name,
+        ok: true,
+        detail,
+        durationMs: Date.now() - started,
+        ...(attempts > 1 ? { attempts } : {}),
+      });
       log(`ok   ${check.name}: ${detail}`);
     } catch (error) {
       failed = true;
       const detail = error instanceof Error ? error.message : String(error);
-      results.push({ name: check.name, ok: false, detail, durationMs: Date.now() - started });
+      results.push({
+        name: check.name,
+        ok: false,
+        detail,
+        durationMs: Date.now() - started,
+        ...(attempts > 1 ? { attempts } : {}),
+      });
       log(`FAIL ${check.name}: ${detail}`);
     }
   }
@@ -483,7 +587,7 @@ export async function resolveTag(tag, fetchImpl = fetch) {
 /**
  * Render the report as a Markdown table.
  *
- * @param {ReturnType<typeof soak>} report
+ * @param {Awaited<ReturnType<typeof soak>>} report
  * @returns {string}
  */
 export function renderReport(report) {
@@ -530,7 +634,7 @@ export async function main() {
   const root = mkdtempSync(join(tmpdir(), 'cleo-canary-soak-'));
   let report;
   try {
-    report = soak({ version, root, log: (line) => process.stderr.write(`${line}\n`) });
+    report = await soak({ version, root, log: (line) => process.stderr.write(`${line}\n`) });
   } finally {
     if (!args.keep) rmSync(root, { recursive: true, force: true });
   }

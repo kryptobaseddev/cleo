@@ -123,7 +123,10 @@ export interface ReleasePlanOptions {
   /**
    * Explicit task-list release scope. When set, the plan includes exactly these
    * non-cancelled/non-archived task rows in caller order after de-duplication.
-   * Mutually exclusive with `epicId` and `sagaId`.
+   * Mutually exclusive with `epicId` and `sagaId`. The plan records no epic
+   * (`plan.epicId` is `null`): the tasks may span several epics, and picking
+   * one would attribute the release to it (T13323). Each task's
+   * `epicAncestor` is its own parent.
    *
    * @task T10088
    */
@@ -171,8 +174,8 @@ export interface ReleasePlanResult {
   suffixApplied: boolean;
   /** Release channel. */
   channel: ReleasePlanChannel;
-  /** Epic ID. */
-  epicId: string;
+  /** Epic (or saga) ID; `null` for a `--tasks` plan (T13323). */
+  epicId: string | null;
   /** Absolute path to the written plan file. */
   planPath: string;
   /** Number of tasks rolled into the plan. */
@@ -1317,9 +1320,8 @@ function escapeChangelogRegex(str: string): string {
  * `releases.epic_id` is a nullable FK → `tasks.id` (`ON DELETE SET NULL`). On a
  * consolidated dual-scope `cleo.db` (post-T11578 cutover) the bare `tasks`
  * table is empty — runtime task data lives in the prefixed `tasks_tasks` table.
- * For the `--tasks` scope `plan.epicId` is the first task's `parentId` (a real
- * `tasks.id`, see {@link releasePlan}); for `--epic` / `--saga` it is the epic /
- * saga id. Any of those exist only in `tasks_tasks`, so inserting them straight
+ * For the `--tasks` scope `plan.epicId` is `null` (T13323); for `--epic` /
+ * `--saga` it is the epic / saga id. Any of those exist only in `tasks_tasks`, so inserting them straight
  * into `epic_id` violates the FK at INSERT time and aborts the whole plan.
  *
  * Post-cutover (T11883 · E3) `releases` binds the PREFIXED `tasks_releases`
@@ -1591,7 +1593,7 @@ export async function releasePlan(
   //   (d) `--epic T####` leaf-Epic (zero children) → singleton task list with
   //       the Epic's own evidence atoms (ADR-073 leaf-Epic-as-PR pattern).
   let tasks: Task[];
-  let resolvedEpicId: string; // The ID that goes into `plan.epicId`
+  let resolvedEpicId: string | null; // The ID that goes into `plan.epicId`
   let leafEpicMode = false; // True when path (c) is taken
   if (opts.taskIds?.length) {
     const taskRes = await resolveExplicitTasks(opts.taskIds, projectRoot);
@@ -1618,7 +1620,9 @@ export async function releasePlan(
       );
     }
     tasks = taskRes.tasks;
-    resolvedEpicId = taskRes.tasks[0]?.parentId ?? taskRes.tasks[0]?.id ?? 'explicit-tasks';
+    // T13323: no epic for an explicit task list. The first task's parent named
+    // one epic of possibly several (T12323 for a 28-task, four-epic plan).
+    resolvedEpicId = null;
   } else if (opts.sagaId) {
     const sagaRes = await resolveSagaTasks(opts.sagaId, projectRoot);
     if (!sagaRes.sagaExists) {
@@ -1719,7 +1723,9 @@ export async function releasePlan(
   // tasks whose `implemented` gate was false because each carried a
   // `tool:`/`test-run:` atom. Gate OUTCOMES are judged with the same policy
   // `cleo complete` enforces, and every task's gate state is reported.
-  const planTasks: ReleasePlanTask[] = tasks.map((t) => taskToPlanTask(t, resolvedEpicId));
+  const planTasks: ReleasePlanTask[] = tasks.map((t) =>
+    taskToPlanTask(t, resolvedEpicId ?? t.parentId ?? t.id),
+  );
   const gatePolicy = await loadVerificationGatePolicy(projectRoot);
   // Already-done tasks are grandfathered (ADR-051 §11.1 blocks adding
   // evidence to completed tasks) — reported, never blocking.
@@ -1732,7 +1738,11 @@ export async function releasePlan(
     return engineError<ReleasePlanResult>(
       E_EVIDENCE_INSUFFICIENT,
       `${unverifiedTasks.length} task(s) in ${
-        opts.sagaId ? `saga ${opts.sagaId}` : `epic ${resolvedEpicId}`
+        opts.sagaId
+          ? `saga ${opts.sagaId}`
+          : resolvedEpicId
+            ? `epic ${resolvedEpicId}`
+            : 'the --tasks scope'
       } lack required evidence or verification gates: ${unverifiedTasks
         .map((g) => `${g.id} (${g.reasons.join('; ')})`)
         .join(', ')}`,
