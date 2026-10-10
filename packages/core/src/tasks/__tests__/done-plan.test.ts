@@ -1298,6 +1298,69 @@ describe('research and no-change-set tasks', () => {
     expect(plan.blockers).toEqual([]);
   });
 
+  describe('T13428: a research task is judged on its review artifact, never a citing PR', () => {
+    async function researchDoc(): Promise<{ id: string; sha: string }> {
+      const id = await seedTask(['Report the findings'], 'research');
+      const content = '# review\n';
+      const sha = createHash('sha256').update(content).digest('hex');
+      mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+      writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+      return { id, sha };
+    }
+    /** An author code PR that cites the task: it must not be consulted. */
+    const citingPr = (id: string): Partial<ChangeSetDeps> => ({
+      listMergedPrs: async () => ({
+        ok: true,
+        prs: [{ number: 1756, title: `${id}: author code`, body: '', headRefName: 'feat/x' }],
+      }),
+      resolvePr: async () => {
+        throw new Error('a citing PR must not be resolved for a research task with a review doc');
+      },
+    });
+
+    it('with a doc and a decision: docs change set, decision-only gates, no tool runs', async () => {
+      const { id, sha } = await researchDoc();
+      const plan = await deriveTaskEvidence(id, {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        previewEvidence: async () => ({ ok: true }),
+        deps: {
+          ...deps,
+          ...citingPr(id),
+          listTaskDocs: async () => [{ id: 'att', slug: 'review', sha256: sha }],
+          listTaskDecisions: async () => ['D900'],
+        },
+      });
+      expect(plan.changeSet.source).toBe('docs');
+      expect(plan.changeSet.prNumber).toBeUndefined();
+      expect(plan.toolRuns).toEqual([]);
+      expect(plan.gates.find((g) => g.gate === 'implemented')?.evidence).toMatch(
+        /^decision:D900;files:/,
+      );
+    });
+
+    it('with a doc but no decision yet: still no suite or typecheck, only the decision blocker', async () => {
+      const { id, sha } = await researchDoc();
+      const plan = await deriveTaskEvidence(id, {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        previewEvidence: async () => ({ ok: true }),
+        deps: {
+          ...deps,
+          ...citingPr(id),
+          listTaskDocs: async () => [{ id: 'att', slug: 'review', sha256: sha }],
+          listTaskDecisions: async () => [],
+        },
+      });
+      expect(plan.changeSet.source).toBe('docs');
+      expect(plan.toolRuns).toEqual([]);
+      expect(plan.blockers.map((b) => b.code)).toContain('decision-missing');
+      expect(plan.blockers.map((b) => b.code)).not.toContain('tool-unresolved');
+    });
+  });
+
   it('a task with no change set is blocked on it, with no complete command', async () => {
     const id = await seedTask(['Change src/a.ts']);
     const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
