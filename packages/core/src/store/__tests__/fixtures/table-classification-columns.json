@@ -209,6 +209,7 @@
     ],
     "brain_attention": [
       "agent_id",
+      "birth_fp",
       "content",
       "created_at",
       "decay_score",
@@ -218,11 +219,13 @@
       "scope_kind",
       "session_id",
       "status",
-      "tags"
+      "tags",
+      "uid"
     ],
     "brain_backfill_runs": [
       "approved_at",
       "approved_by",
+      "birth_fp",
       "created_at",
       "id",
       "kind",
@@ -230,7 +233,8 @@
       "rows_affected",
       "source",
       "status",
-      "target_table"
+      "target_table",
+      "uid"
     ],
     "brain_consolidation_events": [
       "duration_ms",
@@ -245,6 +249,7 @@
       "adr_number",
       "adr_path",
       "alternatives_json",
+      "birth_fp",
       "citation_count",
       "confidence",
       "confirmation_state",
@@ -274,6 +279,7 @@
       "tier_promoted_at",
       "tier_promotion_reason",
       "type",
+      "uid",
       "updated_at",
       "valid_at",
       "validator_run_at",
@@ -320,6 +326,7 @@
       "actionable",
       "applicable_types_json",
       "application",
+      "birth_fp",
       "citation_count",
       "confidence",
       "content_hash",
@@ -339,6 +346,7 @@
       "source_confidence",
       "tier_promoted_at",
       "tier_promotion_reason",
+      "uid",
       "updated_at",
       "valid_at",
       "verified"
@@ -372,6 +380,7 @@
     "brain_observations": [
       "agent",
       "attachments_json",
+      "birth_fp",
       "citation_count",
       "concepts_json",
       "content_hash",
@@ -408,6 +417,7 @@
       "title",
       "tree_id",
       "type",
+      "uid",
       "updated_at",
       "valid_at",
       "validated_at",
@@ -415,6 +425,7 @@
     ],
     "brain_observations_staging": [
       "action",
+      "birth_fp",
       "created_at",
       "id",
       "new_invalid_at",
@@ -423,6 +434,7 @@
       "source_id",
       "source_table",
       "sweep_run_id",
+      "uid",
       "validation_status"
     ],
     "brain_page_edges": [
@@ -440,6 +452,7 @@
       "weight"
     ],
     "brain_page_nodes": [
+      "birth_fp",
       "content_hash",
       "created_at",
       "id",
@@ -448,10 +461,12 @@
       "metadata_json",
       "node_type",
       "quality_score",
+      "uid",
       "updated_at"
     ],
     "brain_patterns": [
       "anti_pattern",
+      "birth_fp",
       "citation_count",
       "content_hash",
       "context",
@@ -478,6 +493,7 @@
       "tier_promoted_at",
       "tier_promotion_reason",
       "type",
+      "uid",
       "updated_at",
       "valid_at",
       "verified"
@@ -497,6 +513,7 @@
       "weight_before"
     ],
     "brain_promotion_log": [
+      "birth_fp",
       "decided_at",
       "decided_by",
       "from_tier",
@@ -504,7 +521,8 @@
       "observation_id",
       "rationale_json",
       "score",
-      "to_tier"
+      "to_tier",
+      "uid"
     ],
     "brain_release_links": [
       "brain_entry_id",
@@ -535,9 +553,11 @@
       "narrative",
       "pivot_count",
       "session_id",
-      "turn_count"
+      "turn_count",
+      "uid"
     ],
     "brain_sticky_notes": [
+      "birth_fp",
       "color",
       "content",
       "converted_to_json",
@@ -547,6 +567,7 @@
       "source_type",
       "status",
       "tags_json",
+      "uid",
       "updated_at"
     ],
     "brain_sticky_tags": [
@@ -561,6 +582,7 @@
       "task_id"
     ],
     "brain_transcript_events": [
+      "birth_fp",
       "block_type",
       "content",
       "created_at",
@@ -569,7 +591,8 @@
       "role",
       "seq",
       "session_id",
-      "tokens"
+      "tokens",
+      "uid"
     ],
     "brain_usage_log": [
       "created_at",
@@ -2337,6 +2360,7 @@
     ],
     "brain_attention": [
       "agent_id",
+      "birth_fp",
       "content",
       "created_at",
       "decay_score",
@@ -2346,11 +2370,13 @@
       "scope_kind",
       "session_id",
       "status",
-      "tags"
+      "tags",
+      "uid"
     ],
     "brain_backfill_runs": [
       "approved_at",
       "approved_by",
+      "birth_fp",
       "created_at",
       "id",
       "kind",
@@ -2358,7 +2384,8 @@
       "rows_affected",
       "source",
       "status",
-      "target_table"
+      "target_table",
+      "uid"
     ],
     "brain_consolidation_events": [
       "duration_ms",
@@ -2373,6 +2400,7 @@
       "adr_number",
       "adr_path",
       "alternatives_json",
+      "birth_fp",
       "citation_count",
       "confidence",
       "confirmation_state",
@@ -2400,6 +2428,7 @@
       "tier_promoted_at",
       "tier_promotion_reason",
       "type",
+      "uid",
       "updated_at",
       "valid_at",
       "validator_run_at",
@@ -2422,6 +2451,7 @@
       "actionable",
       "applicable_types_json",
       "application",
+      "birth_fp",
       "citation_count",
       "confidence",
       "content_hash",
@@ -2439,6 +2469,7 @@
       "source_confidence",
       "tier_promoted_at",
       "tier_promotion_reason",
+      "uid",
       "updated_at",
       "valid_at",
       "verified"
@@ -2472,6 +2503,7 @@
     "brain_observations": [
       "agent",
       "attachments_json",
+      "birth_fp",
       "citation_count",
       "concepts_json",
       "content_hash",
@@ -2506,6 +2538,7 @@
       "title",
       "tree_id",
       "type",
+      "uid",
       "updated_at",
       "valid_at",
       "validated_at",
@@ -2513,6 +2546,7 @@
     ],
     "brain_observations_staging": [
       "action",
+      "birth_fp",
       "created_at",
       "id",
       "new_invalid_at",
@@ -2521,6 +2555,7 @@
       "source_id",
       "source_table",
       "sweep_run_id",
+      "uid",
       "validation_status"
     ],
     "brain_page_edges": [
@@ -2538,6 +2573,7 @@
       "weight"
     ],
     "brain_page_nodes": [
+      "birth_fp",
       "content_hash",
       "created_at",
       "id",
@@ -2546,10 +2582,12 @@
       "metadata_json",
       "node_type",
       "quality_score",
+      "uid",
       "updated_at"
     ],
     "brain_patterns": [
       "anti_pattern",
+      "birth_fp",
       "citation_count",
       "content_hash",
       "context",
@@ -2574,6 +2612,7 @@
       "tier_promoted_at",
       "tier_promotion_reason",
       "type",
+      "uid",
       "updated_at",
       "valid_at",
       "verified"
@@ -2593,6 +2632,7 @@
       "weight_before"
     ],
     "brain_promotion_log": [
+      "birth_fp",
       "decided_at",
       "decided_by",
       "from_tier",
@@ -2600,7 +2640,8 @@
       "observation_id",
       "rationale_json",
       "score",
-      "to_tier"
+      "to_tier",
+      "uid"
     ],
     "brain_retrieval_log": [
       "created_at",
@@ -2624,9 +2665,11 @@
       "narrative",
       "pivot_count",
       "session_id",
-      "turn_count"
+      "turn_count",
+      "uid"
     ],
     "brain_sticky_notes": [
+      "birth_fp",
       "color",
       "content",
       "converted_to_json",
@@ -2636,6 +2679,7 @@
       "source_type",
       "status",
       "tags_json",
+      "uid",
       "updated_at"
     ],
     "brain_sticky_tags": [
@@ -2643,6 +2687,7 @@
       "tag"
     ],
     "brain_transcript_events": [
+      "birth_fp",
       "block_type",
       "content",
       "created_at",
@@ -2651,7 +2696,8 @@
       "role",
       "seq",
       "session_id",
-      "tokens"
+      "tokens",
+      "uid"
     ],
     "brain_usage_log": [
       "created_at",
@@ -2674,6 +2720,9 @@
       "source_plasticity_event_id",
       "weight_after",
       "weight_before"
+    ],
+    "cleo_trigger_suspend": [
+      "scope"
     ],
     "models_catalog": [
       "attachment",
