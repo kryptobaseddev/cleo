@@ -256,6 +256,11 @@
       "import": "./dist/harness/*.js",
       "require": "./dist/harness/*.js"
     },
+    "./harness/*.js": {
+      "types": "./dist/harness/*.d.ts",
+      "import": "./dist/harness/*.js",
+      "require": "./dist/harness/*.js"
+    },
     "./system/*": {
       "types": "./dist/system/*.d.ts",
       "import": "./dist/system/*.js",

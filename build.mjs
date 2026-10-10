@@ -98,6 +98,9 @@ const SUBPATH_DIRS = [
   // T11993 — packages/core/src/resources/ hosts spawn-wrapper.ts (and future
   // monitor/backend files from T11994). Exposed as @cleocode/core/resources/*.
   'resources',
+  // T13420 — the ask-enforce Stop-hook classifier, loaded by `cleo hook
+  // ask-enforce` through @cleocode/core/harness/ask-enforce.js.
+  'harness',
 ];
 
 
