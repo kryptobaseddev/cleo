@@ -132,6 +132,7 @@ export async function installCleoHooks(
     const ledger = readReceipt(ledgerPath);
     if (opts.rollbackReceipt) {
       const receipt = GitHookInstallReceiptSchema.parse(opts.rollbackReceipt);
+      // @sync-invariant none:local-only rollback targets local Git hook files, not synced tables.
       if (receipt.hooksDir !== hooksDir) throw new Error('Git hook rollback directory mismatch');
       for (const change of receipt.changes) {
         const dst = path.join(hooksDir, change.name);
@@ -223,11 +224,13 @@ function hash(body: string): string {
 function readReceipt(filePath: string): GitHookInstallReceipt | undefined {
   const entry = fs.lstatSync(filePath, { throwIfNoEntry: false });
   if (!entry) return undefined;
+  // @sync-invariant none:local-only local receipt file ownership protects filesystem hook delivery.
   if (!entry.isFile()) throw new Error('Git hook receipt is not a regular file');
   const parsed = GitHookInstallReceiptSchema.safeParse(
     JSON.parse(fs.readFileSync(filePath, 'utf8')),
   );
   if (!parsed.success || parsed.data.hooksDir !== path.dirname(filePath)) {
+    // @sync-invariant none:local-only malformed or misplaced local Git hook receipts confer no ownership.
     throw new Error('Git hook receipt is invalid or belongs to another directory');
   }
   return parsed.data;
