@@ -1,185 +1,73 @@
-/**
- * Git hook management utilities.
- *
- * Extracted from init.ts to enable shared use across init, upgrade, and
- * doctor/health-check workflows.
- *
- * Handles installation, update, and verification of managed git hooks
- * from the package's templates/git-hooks/ directory.
- */
-
-import { existsSync } from 'node:fs';
-import { chmod, copyFile, mkdir, readFile } from 'node:fs/promises';
+/** Shared Git hook management wrappers for init, upgrade and health. */
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getPackageRoot } from './scaffold.js';
-
-// ── Types ────────────────────────────────────────────────────────────
-//
-// ScaffoldResult and HookCheckResult are now sourced from
-// `@cleocode/contracts/scaffold-diagnostics` (SG-ARCH-SOLID T9831 ·
-// E-CONTRACTS-FOUNDATION T9832 Phase 0a). Re-exported here to preserve
-// the public surface of `@cleocode/core/hooks`.
-
 import type { HookCheckResult, ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
+import {
+  CLEO_HOOK_NAMES,
+  defaultTemplatesDir,
+  installCleoHooks,
+  resolveGitDir,
+  resolveHooksDir,
+} from './git/hooks-install.js';
 
-export type {
-  HookCheckResult,
-  ScaffoldResult,
-} from '@cleocode/contracts/scaffold-diagnostics';
-
+export type { HookCheckResult, ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
+/** Compatibility options; force never permits replacing foreign/customized hooks. */
 export interface EnsureGitHooksOptions {
   force?: boolean;
 }
-
-// ── Constants ────────────────────────────────────────────────────────
-
-/** Git hooks managed by CLEO. */
-export const MANAGED_HOOKS = ['commit-msg', 'pre-commit', 'pre-push'] as const;
-
+/** Canonical shipped hook set shared with the installer. */
+export const MANAGED_HOOKS = CLEO_HOOK_NAMES;
+/** One shipped Git hook name. */
 export type ManagedHook = (typeof MANAGED_HOOKS)[number];
 
-// ── ensureGitHooks ───────────────────────────────────────────────────
-
-/**
- * Install or update managed git hooks from templates/git-hooks/ into .git/hooks/.
- *
- * Handles:
- * - No .git directory (skips gracefully)
- * - No source templates directory (skips gracefully)
- * - Hooks already installed (skips unless force)
- * - Sets executable permissions on installed hooks
- */
+/** Install all managed hooks through the canonical ownership-aware installer. */
 export async function ensureGitHooks(
   projectRoot: string,
   opts?: EnsureGitHooksOptions,
 ): Promise<ScaffoldResult> {
-  const gitDir = join(projectRoot, '.git');
-  const gitHooksDir = join(gitDir, 'hooks');
-
-  if (!existsSync(gitDir)) {
+  if (!resolveGitDir(projectRoot))
     return {
       action: 'skipped',
-      path: gitHooksDir,
-      details: 'No .git/ directory found, skipping git hook installation',
+      path: projectRoot,
+      details: 'No git repository found, skipping git hook installation',
     };
-  }
-
-  const packageRoot = getPackageRoot();
-  const sourceDir = join(packageRoot, 'templates', 'git-hooks');
-
-  if (!existsSync(sourceDir)) {
+  try {
+    const result = await installCleoHooks(projectRoot, opts);
+    const conflicts = result.skipped
+      .map((name) => `${name}: ${result.skipReasons[name]}`)
+      .join('; ');
+    return {
+      action: result.installed.length ? 'created' : 'skipped',
+      path: result.hooksDir,
+      details: `Installed ${result.installed.length} git hooks${conflicts ? `; ${conflicts}` : ''}`,
+    };
+  } catch (err) {
     return {
       action: 'skipped',
-      path: sourceDir,
-      details: 'templates/git-hooks/ not found in package root, skipping git hook installation',
+      path: projectRoot,
+      details: `Git hook installation failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-
-  await mkdir(gitHooksDir, { recursive: true });
-
-  const force = opts?.force ?? false;
-  let installedCount = 0;
-  const errors: string[] = [];
-
-  for (const hook of MANAGED_HOOKS) {
-    const sourcePath = join(sourceDir, hook);
-    const destPath = join(gitHooksDir, hook);
-
-    if (!existsSync(sourcePath)) {
-      continue;
-    }
-
-    if (existsSync(destPath) && !force) {
-      continue;
-    }
-
-    try {
-      await copyFile(sourcePath, destPath);
-      await chmod(destPath, 0o755);
-      installedCount++;
-    } catch (err) {
-      errors.push(
-        `Failed to install git hook ${hook}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-
-  if (errors.length > 0) {
-    return {
-      action: 'repaired',
-      path: gitHooksDir,
-      details: `Installed ${installedCount} hook(s) with ${errors.length} error(s): ${errors.join('; ')}`,
-    };
-  }
-
-  if (installedCount === 0) {
-    return {
-      action: 'skipped',
-      path: gitHooksDir,
-      details: 'All managed hooks already installed',
-    };
-  }
-
-  return {
-    action: 'created',
-    path: gitHooksDir,
-    details: `Installed ${installedCount} git hooks`,
-  };
 }
 
-// ── checkGitHooks ────────────────────────────────────────────────────
-
-/**
- * Verify managed hooks are installed and current.
- *
- * Compares installed hooks in .git/hooks/ against source templates in the
- * package's templates/git-hooks/ directory. Returns per-hook status including
- * whether the hook is installed and whether its content matches the source.
- */
+/** Inspect all hooks at the location Git actually executes, including worktrees. */
 export async function checkGitHooks(projectRoot: string): Promise<HookCheckResult[]> {
-  const gitHooksDir = join(projectRoot, '.git', 'hooks');
-  const packageRoot = getPackageRoot();
-  const sourceDir = join(packageRoot, 'templates', 'git-hooks');
-  const results: HookCheckResult[] = [];
-
-  for (const hook of MANAGED_HOOKS) {
-    const sourcePath = join(sourceDir, hook);
-    const installedPath = join(gitHooksDir, hook);
-
-    const result: HookCheckResult = {
-      hook,
-      installed: false,
-      current: false,
-      sourcePath,
-      installedPath,
-    };
-
-    if (!existsSync(sourcePath)) {
-      // No source template — nothing to compare against
-      results.push(result);
-      continue;
-    }
-
-    if (!existsSync(installedPath)) {
-      results.push(result);
-      continue;
-    }
-
-    result.installed = true;
-
+  const gitDir = resolveGitDir(projectRoot);
+  const hooksDir = gitDir
+    ? resolveHooksDir(projectRoot, gitDir)
+    : join(projectRoot, '.git', 'hooks');
+  const templates = defaultTemplatesDir();
+  return MANAGED_HOOKS.map((hook) => {
+    const sourcePath = join(templates, hook);
+    const installedPath = join(hooksDir, hook);
+    const installed = existsSync(installedPath);
+    let current = false;
     try {
-      const [sourceContent, installedContent] = await Promise.all([
-        readFile(sourcePath, 'utf-8'),
-        readFile(installedPath, 'utf-8'),
-      ]);
-      result.current = sourceContent === installedContent;
+      current =
+        installed && readFileSync(sourcePath, 'utf8') === readFileSync(installedPath, 'utf8');
     } catch {
-      // If we can't read either file, mark as not current
-      result.current = false;
+      /* Report unreadable hooks as not current. */
     }
-
-    results.push(result);
-  }
-
-  return results;
+    return { hook, installed, current, sourcePath, installedPath };
+  });
 }

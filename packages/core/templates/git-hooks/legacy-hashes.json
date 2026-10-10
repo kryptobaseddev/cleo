@@ -1,0 +1,11 @@
+{
+  "commit-msg": [
+    "4b5d6c9864e4955f0fd2e022ed4b8303d37dd222ea2a3759de9a1a500268dea7"
+  ],
+  "pre-commit": [
+    "5ad02ab6d7f5b515a219af8f7d058b6e1a0d4e3f1d730b9147bce64b7a96a7b4"
+  ],
+  "pre-push": [
+    "8a48d9672f27ae1ea9ebc40d7181ab737a1889e32b451594ba30ac7c2558c07c"
+  ]
+}
