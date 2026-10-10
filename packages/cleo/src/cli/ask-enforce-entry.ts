@@ -23,6 +23,11 @@
  * - `kimi`: exit 2 with the reason on stderr (Kimi ignores `decision`). Kimi
  *   sends no message or transcript, so the hook allows until it can read one.
  *
+ * Loop bound: the harness's own fields (`stop_hook_active`, Cursor's
+ * `loop_count`). Kimi allows one stop-hook continuation per turn itself, and
+ * the CLEO opencode plugin must send `stop_hook_active: true` on the stop that
+ * follows its own re-prompt; neither is installed until that bound is tested.
+ *
  * Mode: `CLEO_ASK_ENFORCE` = `block` (default) | `warn` | `off`. `warn` never
  * blocks; Claude Code and Codex show the reason as a `systemMessage`.
  *

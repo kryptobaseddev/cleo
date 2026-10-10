@@ -23,9 +23,12 @@ const EXCERPT_MAX = 160;
 /** The tail read is the last two paragraphs, or this many characters if longer. */
 const TAIL_MIN_CHARS = 600;
 
-/** A question addressed to the reader (second person, or asking leave to act). */
+/**
+ * A question addressed to the reader: second person, or asking leave to act.
+ * Bare verbs (`proceed`, `confirm`) do not count: "Did CI confirm the fix?" is not an ask.
+ */
 const READER_DIRECTED =
-  /\b(you|your|yours|should i|shall i|can i|may i|do i|should we|shall we|want me|would you|could you|which (?:option|approach|one|path|way|of these)|ok(?:ay)? (?:to|if|with)|is (?:it|that) ok(?:ay)?|good to go|go ahead|proceed|approve|confirm)\b/i;
+  /\b(you|your|yours|should i|shall i|can i|may i|do i|should we|shall we|want me|would you|could you|which (?:option|approach|one|path|way|of these)|ok(?:ay)? (?:to|if|with)|is (?:it|that) ok(?:ay)?|good to go)\b/i;
 
 /** A question reported, not asked ("team-lead asked whether …?"). */
 const ATTRIBUTED = /\b(asked|asks|wondered|wonders|wants to know|question (?:was|is) whether)\b/i;
