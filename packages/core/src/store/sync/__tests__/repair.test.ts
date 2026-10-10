@@ -10,7 +10,15 @@
  * @task T12987
  */
 
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -35,6 +43,7 @@ import {
   repairSuspectTables,
   streamStarted,
 } from '../repair.js';
+import { GENESIS_CUT_KEY_PREFIX } from '../schema.js';
 import { rowChash, sealPending } from '../sealer.js';
 import { markSuspect } from '../structural.js';
 
@@ -451,8 +460,10 @@ describe('after the stream starts, nothing is baselined silently (T13217)', () =
     addTask(db, 'T1');
     seal(db);
     // A genesis cut was recorded: a checkpoint may already have left.
-    db.exec(
-      "INSERT INTO _sync_meta (key, value, updated_at) VALUES ('genesis_cut:project:x', '1', '2026-10-05T00:00:00.000Z')",
+    db.prepare('INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?)').run(
+      `${GENESIS_CUT_KEY_PREFIX}project:x`,
+      '1',
+      '2026-10-05T00:00:00.000Z',
     );
     uncaptured(
       db,
@@ -470,11 +481,31 @@ describe('after the stream starts, nothing is baselined silently (T13217)', () =
     ).toBe(1);
   });
 
-  it('a segmented transaction also counts as a started stream', async () => {
+  it('a segmented or folded transaction counts as a started stream; inherited does not', async () => {
     const db = await store();
     addTask(db, 'T1');
     seal(db);
-    db.exec("UPDATE _sync_txn SET state = 'segmented'");
+    expect(streamStarted(db)).toBe(false);
+    for (const [state, started] of [
+      ['inherited', false],
+      ['segmented', true],
+      ['folded', true],
+    ] as const) {
+      db.prepare('UPDATE _sync_txn SET state = ?').run(state);
+      expect(streamStarted(db), state).toBe(started);
+    }
+  });
+
+  it('only a key with the exact genesis-cut prefix counts (`_` is no wildcard)', async () => {
+    const db = await store();
+    const put = (key: string) =>
+      db
+        .prepare('INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?)')
+        .run(key, '1', '2026-10-06T00:00:00.000Z');
+    put('genesisXcut:project:x');
+    put('genesis_cutX');
+    expect(streamStarted(db)).toBe(false);
+    put(`${GENESIS_CUT_KEY_PREFIX}project:x`);
     expect(streamStarted(db)).toBe(true);
   });
 });
@@ -490,10 +521,25 @@ describe('a crash mid-baseline leaves nothing half-written (T12987)', () => {
       );
     }
     markSuspect(db, 'project', ['tasks_tasks']);
-    // At P2's meta write, copy the files exactly as a SIGKILL would leave
-    // them (the WAL holds P1's uncommitted meta), then abort.
+    // Start from an empty WAL, and make the page cache tiny so the baseline's
+    // uncommitted pages spill into the WAL (T13225): the copy then really
+    // holds uncommitted frames, which recovery must discard. At P2's meta
+    // write, copy the files exactly as a SIGKILL would leave them, then abort.
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    db.exec('PRAGMA cache_size = 1');
     const crash = join(dir, 'crash');
     mkdirSync(crash, { recursive: true });
+    // WAL size when the baseline wrote its FIRST row: frames added after it
+    // are uncommitted (the transaction is still open at P2).
+    let walAtFirstRow = -1;
+    db.function('wal_at_first_row', () => {
+      walAtFirstRow = existsSync(`${dbPath}-wal`) ? statSync(`${dbPath}-wal`).size : 0;
+      return 0;
+    });
+    db.exec(
+      `CREATE TEMP TRIGGER wal_at_first_row AFTER INSERT ON _sync_row_meta
+       WHEN NEW.uid = 'uid-P1' BEGIN SELECT wal_at_first_row(); END`,
+    );
     db.function('kill_mid_baseline', () => {
       for (const suffix of ['', '-wal']) {
         if (existsSync(dbPath + suffix))
@@ -507,6 +553,11 @@ describe('a crash mid-baseline leaves nothing half-written (T12987)', () => {
     );
     expect(() => repair(db)).toThrow(/killed mid-baseline/);
     _resetDualScopeDbCache();
+    // The copy holds frames written after the baseline's first row, inside
+    // the still-open transaction: proof the test is not just a copy of the
+    // pre-transaction state.
+    expect(walAtFirstRow).toBeGreaterThanOrEqual(0);
+    expect(statSync(join(crash, 'cleo.db-wal')).size).toBeGreaterThan(walAtFirstRow);
 
     const after = new DatabaseSync(join(crash, 'cleo.db'));
     try {
