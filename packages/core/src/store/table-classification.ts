@@ -184,6 +184,18 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §3.5 (T13193)',
     note: 'own transactions whose echo the stream sequenced; a sealed local transaction without a row here is unsequenced. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13193)',
   },
+  _sync_segment: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.8 Persist before push (T12343)',
+    note: "segments this replica built for a stream, at their replicaSeq: the exact sealed bytes a push sends (never re-sealed) and whether the server stored them. This device's outbox only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
+  },
+  _sync_segment_txn: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.8 (T12343)',
+    note: 'the transactions each persisted segment carries, in order. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
   _sync_row_meta: {
     class: 'local-only',
     status: 'optional-transient',
@@ -1334,6 +1346,13 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   __drizzle_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_meta: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
+  cleo_trigger_suspend: {
+    class: 'local-only',
+    status: 'resolved',
+    source:
+      'journal spec t12342-t12343-journal-design §3.5 Rule 4, C2 (T12819); global scope T13398',
+    note: 'trigger-suspension flag rows, present only inside a suspension frame transaction on this device; read by every global capture trigger; schema-owned and never dropped',
+  },
   _sync_capture: {
     class: 'local-only',
     status: 'optional-transient',
@@ -1405,6 +1424,18 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §3.5 (T13193)',
     note: 'own transactions whose echo the stream sequenced; a sealed local transaction without a row here is unsequenced. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13193)',
+  },
+  _sync_segment: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.8 Persist before push (T12343)',
+    note: "segments this replica built for a stream, at their replicaSeq: the exact sealed bytes a push sends (never re-sealed) and whether the server stored them. This device's outbox only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
+  },
+  _sync_segment_txn: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §2.8 (T12343)',
+    note: 'the transactions each persisted segment carries, in order. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
   },
   _sync_row_meta: {
     class: 'local-only',

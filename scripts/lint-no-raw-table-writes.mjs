@@ -200,10 +200,10 @@ export const EXEMPT = {
     },
   },
   'packages/core/src/memory/brain-search.ts': {
-    brain_decisions_fts: { count: 5, reason: FTS5 },
-    brain_learnings_fts: { count: 5, reason: FTS5 },
-    brain_observations_fts: { count: 5, reason: FTS5 },
-    brain_patterns_fts: { count: 5, reason: FTS5 },
+    brain_decisions_fts: { count: 3, reason: FTS5 },
+    brain_learnings_fts: { count: 3, reason: FTS5 },
+    brain_observations_fts: { count: 3, reason: FTS5 },
+    brain_patterns_fts: { count: 3, reason: FTS5 },
   },
   'packages/core/src/memory/decision-cross-link.ts': {
     _nexus_meta: { count: 1, reason: NEXUS_META },
@@ -349,6 +349,11 @@ export const EXEMPT = {
       reason:
         "repair diff (local-only): records a table's row-meta baseline and clears its verified suspect: key in THIS store (§4.4, T12987)",
     },
+    _sync_undo: {
+      count: 1,
+      reason:
+        "repair diff (local-only): writes THIS store's undo for its own repair captures while undo is on, so a repair keeps its undo until its echo (§3.5 Rule 2, D1, T13212)",
+    },
   },
   'packages/core/src/store/sync/row-meta.ts': {
     _sync_row_meta: {
@@ -369,6 +374,36 @@ export const EXEMPT = {
     _sync_quarantine: { count: 1, reason: SEALER },
     _sync_row_meta: { count: 4, reason: SEALER },
     _sync_txn: { count: 1, reason: SEALER },
+  },
+  'packages/core/src/store/sync/genesis.ts': {
+    _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING },
+    _sync_txn: {
+      count: 1,
+      reason:
+        'sealed transactions (local-only): folds every pre-cut transaction into the genesis checkpoint (§2.11 §10, T12343)',
+    },
+  },
+  'packages/core/src/store/sync/segments.ts': {
+    _sync_row_meta: {
+      count: 1,
+      reason:
+        'sealer row meta (local-only): marks a row sent once a persisted segment carries it (§2.8 step 6, T12343)',
+    },
+    _sync_segment: {
+      count: 2,
+      reason:
+        'segment outbox (local-only): the exact sealed bytes persisted before push, and the server acknowledgement (§2.8, T12343)',
+    },
+    _sync_segment_txn: {
+      count: 1,
+      reason:
+        'segment outbox (local-only): the transactions a persisted segment carries (§2.8, T12343)',
+    },
+    _sync_txn: {
+      count: 1,
+      reason:
+        "sealed transactions (local-only): marks a packed transaction segmented in the segment's persist (§2.8, T12343)",
+    },
   },
   'packages/core/src/store/sync/sequencing.ts': {
     _sync_foreign_touch: {
