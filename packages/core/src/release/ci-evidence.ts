@@ -619,7 +619,9 @@ export function evaluateMergeCommitChecks(
       descendantSha !== undefined &&
       descendantSha !== mergeCommitSha &&
       (SUPERSEDED_VERDICTS.has(onMerge.verdict) ||
-        (opts.inheritedFailures === true && onMerge.verdict !== 'missing' && !onMerge.verdict.startsWith('pending')))
+        (opts.inheritedFailures === true &&
+          onMerge.verdict !== 'missing' &&
+          !onMerge.verdict.startsWith('pending')))
     ) {
       const onDescendant = judgeOnSha(pinned, descendantSha, 'push');
       if (onDescendant.ok) {
@@ -808,11 +810,21 @@ export function supersededOnMerge(
     : { ok: false, reason: 'no required check was superseded on the merge commit' };
 }
 
-/** Latest completed run per (name, source, event) on `sha` within `scope`. */
-function latestRuns(checks: readonly CommitCheck[], sha: string, scope: PinnedScope): CommitCheck[] {
+/**
+ * Latest run per (name, source, event) on `sha` within `scope`; with
+ * `completedOnly`, the latest COMPLETED one, so an in-progress re-run never
+ * hides the newest finished verdict (T13457).
+ */
+function latestRuns(
+  checks: readonly CommitCheck[],
+  sha: string,
+  scope: PinnedScope,
+  completedOnly = false,
+): CommitCheck[] {
   const latest = new Map<string, CommitCheck>();
   for (const c of checks) {
     if (c.headSha !== sha || !inPinnedScope(c, scope)) continue;
+    if (completedOnly && c.status !== 'completed') continue;
     const key = `${c.name}\u0000${c.source}\u0000${c.event ?? ''}`;
     const prev = latest.get(key);
     if (!prev || c.id > prev.id) latest.set(key, c);
@@ -823,17 +835,21 @@ function latestRuns(checks: readonly CommitCheck[], sha: string, scope: PinnedSc
 /** Result of {@link inheritedOnMerge}. */
 export type InheritedOnMergeResult =
   | { ok: true; names: string[]; inherited: InheritedFailure[] }
-  | { ok: false; reason: string };
+  /** `undecided`: some failing job has no decided ancestor yet, so a deeper walk may still settle it. */
+  | { ok: false; reason: string; undecided?: true };
 
 /**
  * Whether the merge commit's failures were all inherited from main (T13453).
  *
  * Every in-scope job whose latest run on the merge commit failed must have
  * failed on its nearest DECIDED first-parent ancestor too: the closest of up to
- * {@link CI_INHERITED_MAX_ANCESTORS} ancestors whose latest run of that job
- * completed as success or failure (cancelled, skipped and missing runs are
- * looked past). A job that passed there, or was never decided, is a failure
+ * {@link CI_INHERITED_MAX_ANCESTORS} ancestors whose latest COMPLETED run of
+ * that job concluded `success` or `failure` (cancelled, skipped, timed-out,
+ * stale and missing runs are looked past; T13457). Only `failure` there counts
+ * as inherited. A job that passed there, or was never decided, is a failure
  * the PR may have introduced and refuses. A pending merge-commit run refuses.
+ * In `mainOnly` mode (a PR editing a pinned workflow) the caller skips the
+ * PR-head check, so this inheritance proof carries the stand-in alone.
  * Pure: the ancestors' checks are passed in, nearest first.
  *
  * @param required - Required check names.
@@ -855,7 +871,10 @@ export function inheritedOnMerge(
   const onMerge = latestRuns(checks, mergeCommitSha, scope);
   const pending = onMerge.find((c) => c.status !== 'completed');
   if (pending) {
-    return { ok: false, reason: `${pending.name}: pending on merge commit ${mergeCommitSha.slice(0, 12)}` };
+    return {
+      ok: false,
+      reason: `${pending.name}: pending on merge commit ${mergeCommitSha.slice(0, 12)}`,
+    };
   }
   const failing = onMerge.filter((c) => !HARMLESS_CONCLUSIONS.has(c.conclusion ?? ''));
   if (failing.length === 0) return { ok: false, reason: 'no job failed on the merge commit' };
@@ -863,13 +882,12 @@ export function inheritedOnMerge(
   for (const job of failing) {
     let base: { sha: string; run: CommitCheck } | undefined;
     for (const a of ancestors.slice(0, CI_INHERITED_MAX_ANCESTORS)) {
-      const run = latestRuns(a.checks, a.sha, scope).find(
+      const run = latestRuns(a.checks, a.sha, scope, true).find(
         (c) =>
           c.name === job.name &&
           c.source === job.source &&
           (c.event ?? '') === (job.event ?? '') &&
-          c.status === 'completed' &&
-          (c.conclusion === 'success' || !HARMLESS_CONCLUSIONS.has(c.conclusion ?? '')),
+          (c.conclusion === 'success' || c.conclusion === 'failure'),
       );
       if (run) {
         base = { sha: a.sha, run };
@@ -879,6 +897,7 @@ export function inheritedOnMerge(
     if (!base) {
       return {
         ok: false,
+        undecided: true,
         reason: `${job.name}: ${job.conclusion} on merge commit ${mergeCommitSha.slice(0, 12)}, and no earlier main commit decided it — the PR may have introduced it`,
       };
     }
@@ -888,10 +907,19 @@ export function inheritedOnMerge(
         reason: `${job.name}: ${job.conclusion} on merge commit ${mergeCommitSha.slice(0, 12)} but success on its base ${base.sha.slice(0, 12)} — the PR introduced this failure`,
       };
     }
-    inherited.push({ name: job.name, mergeRunId: job.id, baseSha: base.sha, baseRunId: base.run.id });
+    inherited.push({
+      name: job.name,
+      mergeRunId: job.id,
+      baseSha: base.sha,
+      baseRunId: base.run.id,
+    });
   }
   const names = required.filter(
-    (name) => !judgeOnSha(checks.filter((c) => c.name === name && pinMatches(c, pins[name])), mergeCommitSha).ok,
+    (name) =>
+      !judgeOnSha(
+        checks.filter((c) => c.name === name && pinMatches(c, pins[name])),
+        mergeCommitSha,
+      ).ok,
   );
   return { ok: true, names, inherited };
 }
@@ -1020,21 +1048,33 @@ export async function findGreenDescendant(
     // T13453: a real failure may still be main's, inherited by a PR that
     // merged into a red main. Walk the first-parent ancestors for each
     // failing job's nearest decided verdict.
+    // Fetched one ancestor at a time, stopping as soon as every failing job
+    // is decided (T13457).
     const ancestors: Array<{ sha: string; checks: CommitCheck[] }> = [];
+    let result = inheritedOnMerge(required, input.checks, merge, ancestors, pins);
     let at: string | null = merge;
-    for (let n = 0; n < CI_INHERITED_MAX_ANCESTORS; n++) {
+    for (let n = 0; n < CI_INHERITED_MAX_ANCESTORS && !result.ok && result.undecided; n++) {
       at = at ? input.firstParentOf(at, cwd) : null;
       if (!at) break;
       const fetched = await input.fetchChecks(at, cwd);
-      if (!fetched.ok) break;
+      if (!fetched.ok) {
+        result = {
+          ok: false,
+          reason: `cannot read CI of ancestor ${at.slice(0, 12)}: ${fetched.reason}`,
+        };
+        break;
+      }
       ancestors.push({ sha: at, checks: fetched.checks });
+      result = inheritedOnMerge(required, input.checks, merge, ancestors, pins);
     }
-    const result = inheritedOnMerge(required, input.checks, merge, ancestors, pins);
     if (result.ok) {
       superseded = { ok: true, names: result.names };
       inherited = result.inherited;
     } else {
-      superseded = { ok: false, reason: `${superseded.reason}; not inherited from main: ${result.reason}` };
+      superseded = {
+        ok: false,
+        reason: `${superseded.reason}; not inherited from main: ${result.reason}`,
+      };
     }
   }
   if (!superseded.ok) return superseded;
@@ -1435,13 +1475,32 @@ export async function recheckCiDescendantAtom(
         reason: `cannot re-check ci:${atom.prNumber} on base ${job.baseSha.slice(0, 12)}: ${fetched.reason}`,
       };
     }
-    const latest = fetched.checks
-      .filter((r) => r.name === job.name && r.headSha === job.baseSha && r.id >= job.baseRunId)
-      .sort((x, y) => y.id - x.id)[0];
-    if (latest?.conclusion === 'success') {
+    // Same source, event and app as the recorded base run (T13457).
+    const recorded = fetched.checks.find(
+      (r) => r.id === job.baseRunId && r.headSha === job.baseSha,
+    );
+    if (!recorded) {
       return {
         ok: false,
-        reason: `${job.name}: now success on base ${job.baseSha.slice(0, 12)}, so the merge commit's failure was not inherited — ci:${atom.prNumber} no longer holds; verify again`,
+        reason: `${job.name}: base run ${job.baseRunId} is no longer on ${job.baseSha.slice(0, 12)} — ci:${atom.prNumber} no longer holds; verify again`,
+      };
+    }
+    const latest = fetched.checks
+      .filter(
+        (r) =>
+          r.name === job.name &&
+          r.headSha === job.baseSha &&
+          r.source === recorded.source &&
+          (r.event ?? '') === (recorded.event ?? '') &&
+          r.appSlug === recorded.appSlug &&
+          r.appId === recorded.appId &&
+          r.status === 'completed',
+      )
+      .sort((x, y) => y.id - x.id)[0];
+    if (latest?.conclusion !== 'failure') {
+      return {
+        ok: false,
+        reason: `${job.name}: now ${latest?.conclusion ?? 'unknown'} on base ${job.baseSha.slice(0, 12)}, so the merge commit's failure was not inherited — ci:${atom.prNumber} no longer holds; verify again`,
       };
     }
   }
