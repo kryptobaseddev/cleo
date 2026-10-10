@@ -89,7 +89,7 @@ import {
   uuidv7,
   verifyEd25519,
 } from '../crypto.js';
-import { type FetchLike, Http } from '../http.js';
+import { type FetchLike, Http, NexusError } from '../http.js';
 import {
   cursorFromCheckpoint,
   Journal,
@@ -124,6 +124,7 @@ import { listNexusNamedProjects, resolveNexusProjectRef } from '../nexus-project
 import {
   classifySyncLegs,
   cloudSync,
+  confirmableRetirements,
   enableSyncPush,
   nexusVaultStatus,
   pullSyncStream,
@@ -6029,5 +6030,36 @@ describe('the server retirements a receiver confirms a retire by (T13366)', () =
       },
     };
     expect(await serverRetirementsFor(never, 'project')).toBeUndefined();
+  });
+
+  it('a listing that fails confirms nothing this round and warns, never failing the pull (T13395)', async () => {
+    for (const fail of [
+      new Error('fetch failed'),
+      new NexusError('E_NETWORK', 'server unavailable', 503, null),
+      new NexusError('E_NOT_FOUND', 'no such route', 404, null),
+    ]) {
+      const conn = {
+        warnings: [] as Array<{ code: string; message: string }>,
+        find: async () => {
+          throw fail;
+        },
+      };
+      expect(await confirmableRetirements(conn, 'global')).toEqual([]);
+      expect(conn.warnings).toHaveLength(1);
+      expect(conn.warnings[0]?.code).toBe('W_NEXUS_RETIREMENTS_UNAVAILABLE');
+    }
+    const ok = {
+      ...listed('/v1/account/home/replicas', []),
+      warnings: [] as Array<{ code: string; message: string }>,
+    };
+    expect(await confirmableRetirements(ok, 'global')).toEqual([]);
+    expect(ok.warnings).toHaveLength(0);
+    const project = {
+      find: async () => {
+        throw new Error('never called');
+      },
+      warnings: [],
+    };
+    expect(await confirmableRetirements(project, 'project')).toBeUndefined();
   });
 });
