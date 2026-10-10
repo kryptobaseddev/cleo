@@ -332,7 +332,7 @@ const planCommand = defineCommand({
     },
     channel: {
       type: 'string',
-      description: 'Release channel: latest | beta | alpha | rc',
+      description: 'Release channel: latest | beta | alpha | rc | canary',
     },
     hotfix: {
       type: 'boolean',

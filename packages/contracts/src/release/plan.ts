@@ -52,7 +52,15 @@ export const RELEASE_PLAN_SCHEMA_URL = 'https://cleocode.io/schemas/release-plan
  * Includes `rc` in addition to the legacy `latest|beta|alpha` triple to allow
  * release candidates without conflating with `beta` per SPEC §6.1.
  */
-export const RELEASE_CHANNEL = ['latest', 'beta', 'alpha', 'rc'] as const;
+export const RELEASE_CHANNEL = ['latest', 'beta', 'alpha', 'rc', 'canary'] as const;
+/** Persisted prerelease classification, shared by planning and reconciliation. */
+export const RELEASE_PERSISTED_CHANNEL = {
+  latest: 'latest',
+  beta: 'beta',
+  alpha: 'dev',
+  rc: 'beta',
+  canary: 'beta',
+} as const;
 
 /**
  * Version-scheme variants. `calver-suffix` is the hotfix grammar
@@ -347,61 +355,76 @@ export const ReleasePlanMetaSchema = z
  * - R-305: `platformMatrix[]` non-empty.
  * - R-306: deterministic re-validation inside `open` and `reconcile`.
  */
-export const ReleasePlanSchema = z.object({
-  /** Schema URL for this plan version. */
-  $schema: z.string().optional(),
-  /** Requested version string (e.g. "v2026.6.0"). Includes the leading `v`. */
-  version: NonEmptyString,
-  /** Resolved version string after suffix application (e.g. "v2026.6.0.2"). */
-  resolvedVersion: NonEmptyString,
-  /** True if a `calver-suffix` was applied to disambiguate a same-day hotfix. */
-  suffixApplied: z.boolean(),
-  /** Versioning scheme governing `version` / `resolvedVersion`. */
-  scheme: ReleaseSchemeSchema,
-  /** npm dist-tag channel for this release. */
-  channel: ReleaseChannelSchema,
-  /**
-   * Epic ID this release ships: the `--epic` epic or the `--saga` saga. `null`
-   * for a `--tasks` plan, whose tasks may span several epics; each task's own
-   * epic is on its `epicAncestor` (T13323).
-   */
-  epicId: NonEmptyString.nullable(),
-  /** Release-kind classification. */
-  releaseKind: ReleaseKindSchema,
-  /** ISO-8601 timestamp the plan was written. */
-  createdAt: Iso8601,
-  /** Identifier of the actor that wrote the plan (agent name or operator). */
-  createdBy: NonEmptyString,
-  /**
-   * Version of the previous release on the same channel. MUST be `null` only
-   * for first-ever releases (R-300, enforced at the verb layer).
-   */
-  previousVersion: z.string().nullable(),
-  /** Git tag of the previous release (typically `previousVersion` prefixed). */
-  previousTag: z.string().nullable(),
-  /** ISO-8601 timestamp the previous release was published. */
-  previousShippedAt: Iso8601.nullable(),
-  /** Tasks rolled into this release. */
-  tasks: z.array(ReleasePlanTaskSchema),
-  /** Bucketed changelog. */
-  changelog: ReleasePlanChangelogSchema,
-  /** Per-gate verification status. */
-  gates: z.array(ReleaseGateSchema),
-  /** Platform / publisher matrix. */
-  platformMatrix: z.array(ReleasePlatformMatrixEntrySchema),
-  /** Preflight summary from `cleo release plan`. */
-  preflightSummary: ReleasePreflightSummarySchema,
-  /** URL of the GHA workflow run (populated by `release-prepare.yml`). */
-  workflowRunUrl: z.string().nullable(),
-  /** URL of the bump PR (populated by `cleo release open`). */
-  prUrl: z.string().nullable(),
-  /** Merge commit SHA on `main` (populated by `release-publish.yml`). */
-  mergeCommitSha: z.string().nullable(),
-  /** Current FSM state per R-302. */
-  status: ReleaseStatusSchema,
-  /** Informational / forward-compat metadata. */
-  meta: ReleasePlanMetaSchema.optional(),
-});
+export const ReleasePlanSchema = z
+  .object({
+    /** Schema URL for this plan version. */
+    $schema: z.string().optional(),
+    /** Requested version string (e.g. "v2026.6.0"). Includes the leading `v`. */
+    version: NonEmptyString,
+    /** Resolved version string after suffix application (e.g. "v2026.6.0.2"). */
+    resolvedVersion: NonEmptyString,
+    /** True if a `calver-suffix` was applied to disambiguate a same-day hotfix. */
+    suffixApplied: z.boolean(),
+    /** Versioning scheme governing `version` / `resolvedVersion`. */
+    scheme: ReleaseSchemeSchema,
+    /** npm dist-tag channel for this release. */
+    channel: ReleaseChannelSchema,
+    /**
+     * Epic ID this release ships: the `--epic` epic or the `--saga` saga. `null`
+     * for a `--tasks` plan, whose tasks may span several epics; each task's own
+     * epic is on its `epicAncestor` (T13323).
+     */
+    epicId: NonEmptyString.nullable(),
+    /** Release-kind classification. */
+    releaseKind: ReleaseKindSchema,
+    /** ISO-8601 timestamp the plan was written. */
+    createdAt: Iso8601,
+    /** Identifier of the actor that wrote the plan (agent name or operator). */
+    createdBy: NonEmptyString,
+    /**
+     * Version of the previous release on the same channel. MUST be `null` only
+     * for first-ever releases (R-300, enforced at the verb layer).
+     */
+    previousVersion: z.string().nullable(),
+    /** Git tag of the previous release (typically `previousVersion` prefixed). */
+    previousTag: z.string().nullable(),
+    /** ISO-8601 timestamp the previous release was published. */
+    previousShippedAt: Iso8601.nullable(),
+    /** Tasks rolled into this release. */
+    tasks: z.array(ReleasePlanTaskSchema),
+    /** Bucketed changelog. */
+    changelog: ReleasePlanChangelogSchema,
+    /** Per-gate verification status. */
+    gates: z.array(ReleaseGateSchema),
+    /** Platform / publisher matrix. */
+    platformMatrix: z.array(ReleasePlatformMatrixEntrySchema),
+    /** Preflight summary from `cleo release plan`. */
+    preflightSummary: ReleasePreflightSummarySchema,
+    /** URL of the GHA workflow run (populated by `release-prepare.yml`). */
+    workflowRunUrl: z.string().nullable(),
+    /** URL of the bump PR (populated by `cleo release open`). */
+    prUrl: z.string().nullable(),
+    /** Merge commit SHA on `main` (populated by `release-publish.yml`). */
+    mergeCommitSha: z.string().nullable(),
+    /** Current FSM state per R-302. */
+    status: ReleaseStatusSchema,
+    /** Informational / forward-compat metadata. */
+    meta: ReleasePlanMetaSchema.optional(),
+  })
+  .superRefine((plan, context) => {
+    const canaryVersion = /-canary\.\d+$/.test(plan.resolvedVersion);
+    const canarySuffix = /-canary(?:\.|$)/.test(plan.resolvedVersion);
+    if (
+      (plan.channel === 'canary' && !canaryVersion) ||
+      (plan.channel !== 'canary' && canarySuffix)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['channel'],
+        message: 'Numbered canary versions require the independent canary channel.',
+      });
+    }
+  });
 
 // ─── Inferred TypeScript types ───────────────────────────────────────────────
 

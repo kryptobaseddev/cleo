@@ -133,8 +133,8 @@ describe('Release plan constant tuples', () => {
     expect(RELEASE_STATUS).toHaveLength(8);
   });
 
-  it('exports the 4-channel set (latest|beta|alpha|rc)', () => {
-    expect(new Set(RELEASE_CHANNEL)).toEqual(new Set(['latest', 'beta', 'alpha', 'rc']));
+  it('exports the independent canary channel alongside existing channels', () => {
+    expect(new Set(RELEASE_CHANNEL)).toEqual(new Set(['latest', 'beta', 'alpha', 'rc', 'canary']));
   });
 
   it('exports the 3-scheme set including calver-suffix', () => {
@@ -254,8 +254,20 @@ describe('ReleasePlanSchema — status FSM', () => {
 
 describe('ReleasePlanSchema — enum rejection', () => {
   it('rejects unknown channel', () => {
-    const plan = { ...makeValidPlan(), channel: 'canary' };
+    const plan = { ...makeValidPlan(), channel: 'rolling' };
     expect(() => parseReleasePlan(plan)).toThrow();
+  });
+
+  it('accepts numbered canaries and rejects channel/version disagreement', () => {
+    const plan = {
+      ...makeValidPlan(),
+      version: 'v2026.10.6-canary.1',
+      resolvedVersion: 'v2026.10.6-canary.1',
+      channel: 'canary',
+    };
+    expect(parseReleasePlan(plan).channel).toBe('canary');
+    expect(() => parseReleasePlan({ ...plan, channel: 'latest' })).toThrow();
+    expect(() => parseReleasePlan({ ...plan, resolvedVersion: 'v2026.10.6-canary' })).toThrow();
   });
 
   it('rejects unknown scheme', () => {

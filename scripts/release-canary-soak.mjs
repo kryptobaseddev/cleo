@@ -63,6 +63,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { converge, REGISTRY } from './execute-payload.mjs';
 import { isMain } from './lib/is-main.mjs';
 import { sandboxEnvironment } from './lib/sandbox-env.mjs';
@@ -407,6 +408,24 @@ export const SOAK_CHECKS = Object.freeze([
       if (failed.length > 0) throw new Error(`cleo doctor failed: ${failed.join(', ')}`);
       const warned = checks.filter((c) => c?.status === 'warn').map((c) => c.name);
       return `cleo doctor: ${checks.length} checks, none failed${warned.length ? ` (warnings: ${warned.join(', ')})` : ''}`;
+    },
+  },
+  {
+    name: 'project-hooks',
+    command: (ctx) => [
+      process.execPath,
+      [
+        fileURLToPath(new URL('./release-hooks-soak.mjs', import.meta.url)),
+        ctx.bin,
+        ctx.project,
+        ctx.installDir,
+      ],
+      120000,
+    ],
+    verify: (result) => {
+      if (!result?.stdout.includes('executable drift verified'))
+        throw new Error('Installed project hook fixture did not cover every required scenario');
+      return result.stdout.trim();
     },
   },
 ]);
