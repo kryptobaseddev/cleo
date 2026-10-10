@@ -821,7 +821,9 @@ function charged(entry: LedgerEntry, capacityBytes: number): number {
  *   oldest waiting entry when nothing is admitted; `none` admits nothing.
  * - A head blocked by bytes past its reservation stops everything behind it,
  *   except up to {@link TINY_LANE_SLOTS} tiny runs ({@link LIGHT_FOOTPRINT_BYTES}
- *   or less) that fit the memory budget (T13367).
+ *   or less) that fit the memory budget (T13367). The lane is open only until
+ *   the head has waited {@link TINY_LANE_WINDOWS} reservation windows, and
+ *   never for a head that needs the whole budget (T13389).
  *
  * @param entries - the ledger.
  * @param ctx - capacity, pressure share and clock.
@@ -944,6 +946,14 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
           exclusiveRunning > 0 &&
           used + cost <= (isHeavy(w) ? heavyBudget : lightBudget);
         if (!cpuOnly && !exclusiveOnly) {
+          // T13367, #2005 review HIGH (T13389): the tiny lane may pass a
+          // byte-blocked head only for a bounded window, and never a head that
+          // needs the whole budget (it starts only once nothing runs). Then
+          // the lane closes, running work drains and the head starts: steady
+          // small arrivals cannot starve it.
+          const laneOpen =
+            cost < lightBudget && ctx.nowMs - w.enqueuedAtMs < reservationMs * TINY_LANE_WINDOWS;
+          if (!laneOpen) break;
           headBlocked = true;
           continue;
         }
@@ -965,6 +975,13 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
  * at most this many gigabytes of short runs.
  */
 export const TINY_LANE_SLOTS = 3;
+
+/**
+ * The tiny lane stays open until the blocked head has waited this many
+ * reservation windows ({@link LEDGER_RESERVATION_MS} each; 6 minutes), then
+ * closes so the head cannot be starved (T13389).
+ */
+export const TINY_LANE_WINDOWS = 3;
 
 /** Whether an entry is a tiny run (a formatter on named files): {@link LIGHT_FOOTPRINT_BYTES} or less. */
 function isTiny(e: Pick<LedgerEntry, 'footprintBytes'>): boolean {

@@ -23,4 +23,4 @@ on the ledger entry and shown in the holder line and in
 
 A queue head blocked by bytes past its reservation still stops heavier runs
 behind it. Up to three tiny runs (1 GiB or less) that fit the memory budget
-may now pass it.
+may now pass it, until the head has waited three reservation windows (6 minutes), and never a head that needs the whole budget. Steady small arrivals cannot starve it.

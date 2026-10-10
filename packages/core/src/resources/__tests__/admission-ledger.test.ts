@@ -41,6 +41,7 @@ import {
   schedulePass,
   suspectCycle,
   TINY_LANE_SLOTS,
+  TINY_LANE_WINDOWS,
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
 import { ResourceMonitor } from '../monitor.js';
@@ -161,6 +162,37 @@ describe('schedulePass', () => {
     );
     expect(TINY_LANE_SLOTS).toBe(3);
     expect(admittedIds(out).sort()).toEqual(['fmt1', 'fmt2', 'fmt3', 'held']);
+  });
+
+  it('a blocked head is admitted under steady 1 GiB arrivals: the tiny lane closes (T13389)', () => {
+    // One pass per 30 s: the oldest tiny run finishes and a new one arrives.
+    const step = 30_000;
+    const run = (head: number, held: number, tinies: number): number | null => {
+      let ledger: LedgerEntry[] = [
+        entry({ id: 'head', enqueuedAtMs: 0, footprintBytes: head }),
+        ...(held > 0 ? [entry({ id: 'held', state: 'admitted', footprintBytes: held })] : []),
+        ...Array.from({ length: tinies }, (_, k) =>
+          entry({ id: `t-${k}`, state: 'admitted', enqueuedAtMs: 1 + k, footprintBytes: GIB }),
+        ),
+      ];
+      for (let n = 1; n <= 50; n++) {
+        const nowMs = LEDGER_RESERVATION_MS + n * step;
+        const oldest = ledger.find((e) => e.state === 'admitted' && e.id.startsWith('t'));
+        ledger = ledger.filter((e) => e !== oldest);
+        ledger.push(entry({ id: `t${n}`, enqueuedAtMs: nowMs, footprintBytes: GIB }));
+        ledger = schedulePass(ledger, { ...ctx, nowMs });
+        if (ledger.find((e) => e.id === 'head')?.state === 'admitted') return n;
+      }
+      return null;
+    };
+    // A head charged the whole budget never opens the lane: it starts once the tiny run drains.
+    expect(run(10 * GIB, 0, 1)).toBe(1);
+    // A partial head, with two tiny runs always in flight, starts at most one
+    // pass after the lane closes (it waited TINY_LANE_WINDOWS reservations).
+    const lastOpenPass = (LEDGER_RESERVATION_MS * (TINY_LANE_WINDOWS - 1)) / step;
+    const n = run(8 * GIB, 1.5 * GIB, 2);
+    expect(n).not.toBeNull();
+    expect(n as number).toBeLessThanOrEqual(lastOpenPass + 2);
   });
 
   it('the tiny lane never takes more than the memory budget leaves (T13367)', () => {
@@ -1188,8 +1220,13 @@ describe('cleo run is charged by its real scope (T13367)', () => {
           footprintBytes: build.footprintBytes ?? 0,
           exclusive: true,
         }),
-        // A whole-suite run queued past its reservation, blocked by bytes.
-        entry({ id: 'test', enqueuedAtMs: 0, footprintBytes: capacity }),
+        // A heavy run queued past its reservation, blocked by bytes (but not
+        // charged the whole budget, which never opens the tiny lane).
+        entry({
+          id: 'test',
+          enqueuedAtMs: 0,
+          footprintBytes: capacity - (build.footprintBytes ?? 0) + GIB,
+        }),
         entry({ id: 'fmt', enqueuedAtMs: 1, footprintBytes: fmt.footprintBytes ?? 0 }),
       ],
       { capacityBytes: capacity, share: 'full', nowMs: LEDGER_RESERVATION_MS + 1 },
