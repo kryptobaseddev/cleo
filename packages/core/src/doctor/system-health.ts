@@ -290,6 +290,9 @@ export function isHarnessSession(row: ProcessRow): boolean {
  */
 export function mcpServerName(row: ProcessRow): string | null {
   const words = commandWords(row.argv);
+  // `npx -y @playwright/mcp@latest`, `uvx mcp-server-fetch`: the package names the server.
+  const pkg = launchedPackage(words);
+  if (pkg !== undefined) return pkg !== null && /mcp/i.test(pkg) ? pkg : null;
   if (
     !withoutInterpreter(row.argv)
       .slice(0, 3)
@@ -310,6 +313,32 @@ export function mcpServerName(row: ProcessRow): string | null {
     return pkg ?? first;
   }
   return first;
+}
+
+const LAUNCHERS = new Set(['npx', 'pnpx', 'bunx', 'uvx']);
+const PM_LAUNCH = /^(npm|pnpm|yarn|bun)$/;
+const PM_LAUNCH_SUB = new Set(['exec', 'dlx', 'x']);
+
+/**
+ * The package a launcher runs (`npx -y @playwright/mcp@latest` → `@playwright/mcp`),
+ * `null` when a launcher names none, `undefined` when `words` is not a launcher.
+ * The scope is kept (`@a/mcp` and `@b/mcp` are different servers); the version is not.
+ */
+export function launchedPackage(words: readonly string[]): string | null | undefined {
+  const [head = '', sub = ''] = words;
+  let rest: readonly string[];
+  if (LAUNCHERS.has(head)) rest = words.slice(1);
+  else if (head === 'pipx' && sub === 'run') rest = words.slice(2);
+  else if (PM_LAUNCH.test(head) && PM_LAUNCH_SUB.has(sub)) rest = words.slice(2);
+  else return undefined;
+  const pkg = rest.find((w) => !w.startsWith('-'));
+  if (pkg === undefined) return null;
+  return pkg.replace(/(.)@[^/]*$/, '$1').replace(/==.*$/, '');
+}
+
+/** Single-quote `value` for a POSIX shell. */
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 /** Long-lived tool servers `looksHeavy` would otherwise count (`biome lsp-proxy`, `esbuild --service`). */
@@ -570,14 +599,14 @@ function containerFindings(s: SystemSnapshot, docker: DockerSnapshot): Finding[]
     if (!DB_IMAGES.test(repo) || labels.includes('com.docker.compose.project=')) continue;
     const ageSec = (s.sampledAtMs - parseDockerCreatedAt(createdAt)) / 1000;
     if (ageSec >= THROWAWAY_AGE_SEC)
-      stale.push(`${name} (${image}, up ${Math.round(ageSec / 3600)}h)`);
+      stale.push(`${name} (${image}, created ${Math.round(ageSec / 3600)}h ago)`);
   }
   if (stale.length > 0) {
     out.push({
       id: 'docker-long-running-db',
       category: 'containers',
       severity: stale.length >= 5 ? 'warning' : 'info',
-      title: `${stale.length} database containers outside compose running over ${THROWAWAY_AGE_SEC / 3600}h`,
+      title: `${stale.length} running database containers outside compose, created over ${THROWAWAY_AGE_SEC / 3600}h ago`,
       evidence: { containers: stale.slice(0, 20) },
       impactBytes: null,
       remedy: {
@@ -679,11 +708,12 @@ function indexingFindings(
       evidence: { path: nodeModules },
       impactBytes: null,
       remedy: {
-        command: `tmutil addexclusion '${nodeModules}'`,
+        command: `tmutil addexclusion ${shellQuote(nodeModules)}`,
         description:
-          'A sticky exclusion on the directory; it is reinstallable, so nothing of value is lost.',
+          'A sticky exclusion on the directory; it is reinstallable, so nothing of value is lost. ' +
+          'It changes the owner’s backup settings, so ask first.',
       },
-      needsOwnerChoice: false,
+      needsOwnerChoice: true,
     });
   }
   const count = Number((indexing.spotlightCount ?? '').trim());
