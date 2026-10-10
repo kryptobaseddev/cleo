@@ -9428,7 +9428,7 @@ export const OPERATIONS: OperationDef[] = [
         name: 'channel',
         type: 'string',
         required: false,
-        description: 'Release channel: latest | beta | alpha | rc',
+        description: 'Release channel: latest | beta | alpha | rc | canary',
       },
       {
         name: 'hotfix',
