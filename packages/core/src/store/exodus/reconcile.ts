@@ -35,9 +35,18 @@
  * @see ../../doctor/superseded-store.ts — the survey that points here
  */
 
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
   SupersededStoreBareAccount,
@@ -51,22 +60,25 @@ import { resolveDualScopeDbPath } from '../dual-scope-db.js';
 import { lockCompromiseTracker, withLock } from '../lock.js';
 import { openCleoDbSnapshot } from '../open-cleo-db.js';
 import { rowIdentityColumns } from '../row-identity-registry.js';
-import { bareTableDigest, recordBareAccounts } from '../sync/flags.js';
+import { bareTableDigest, forgetBareAccounts, recordBareAccounts } from '../sync/flags.js';
 import { EXODUS_LOCK_STALE_MS, exodusRunLockPath, whileExodusRunHeld } from './abort-events.js';
+// Loaded on demand: the exodus barrel is on the CLI open path (gate 39).
+import type { BareStrandSource } from './bare-family.js';
 import { legacyRowProjection } from './column-transforms.js';
 import { runExodusMigrate } from './migrate.js';
 import { buildExodusPlan } from './plan.js';
 import { rollbackExodusReceipts } from './recovery.js';
 import { buildRuntimeTargetResolver, type TargetResolver } from './runtime-targets.js';
 import { resolveConsolidatedTableName, resolveTableTargetScope } from './table-name-map.js';
-import { orderTablesForCopy } from './table-order.js';
+import { countRows, hasTable, ident, orderTablesForCopy } from './table-order.js';
 import {
   describeRemaps,
   describeUndecided,
   remapCollidingTaskIds,
+  type TaskIdRemapResult,
   unlandedRemaps,
 } from './task-id-remap.js';
-import type { LegacyDbDescriptor } from './types.js';
+import { BARE_SOURCE_NAME, BARE_STRANDS_SOURCE_NAME, type LegacyDbDescriptor } from './types.js';
 
 const log = getLogger('exodus-reconcile');
 
@@ -75,28 +87,6 @@ const RECONCILE_DIR_PREFIX = 'exodus-reconcile-' as const;
 
 /** Receipt filename written inside the reconcile staging dir. */
 const RECEIPT_FILENAME = 'reconcile-receipt.json' as const;
-
-/** Quote an SQLite identifier. */
-function ident(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
-
-/** Whether `schema.table` exists on `db`. */
-function hasTable(db: DatabaseSync, schema: string, table: string): boolean {
-  return (
-    db
-      .prepare(`SELECT 1 AS ok FROM ${ident(schema)}.sqlite_master WHERE type='table' AND name=?`)
-      .get(table) !== undefined
-  );
-}
-
-/** Row count of `schema.table`. */
-function countRows(db: DatabaseSync, schema: string, table: string): number {
-  const row = db.prepare(`SELECT COUNT(*) AS n FROM ${ident(schema)}.${ident(table)}`).get() as
-    | { n: number }
-    | undefined;
-  return Number(row?.n ?? 0);
-}
 
 /**
  * Count rows of the attached legacy table whose primary key is absent from the
@@ -232,114 +222,6 @@ export function legacySourcesHoldRows(sources: readonly LegacyDbDescriptor[]): b
 }
 
 /**
- * Whether a bare legacy table in the live `cleo.db` is one the runtime NO LONGER
- * reads — i.e. its runtime target is a different (prefixed) table. Derived from
- * the runtime's own table bindings via `resolveTarget`, never a hand-kept list:
- * `tasks` → `tasks_tasks` is dead-bare; `audit_log` → `audit_log` is live.
- *
- * @task T12346
- */
-function isRuntimeDeadBare(resolveTarget: TargetResolver, table: string): boolean {
-  const target = resolveTarget('tasks', table);
-  return target.kind !== 'skip' && target.targetName !== table;
-}
-
-/** Logical source name for the live store's bare task-core family. */
-const BARE_SOURCE_NAME = 'tasks (cleo.db bare task-core)';
-
-/**
- * The live store's own dead bare task-core family as a reconcile source — item
- * 2 of T12319, found real by the T12346 sweep: a stranded `cleo.db` can hold
- * rows in bare tables the runtime no longer reads that exist in NO legacy file
- * (llmtxt: 1,972 `task_labels`; versionguard: 20 `task_dependencies`).
- *
- * Offered ONLY while the prefixed `tasks_tasks` is still empty — i.e. the
- * project never ran on the consolidated store. Once it has, a bare row missing
- * from the prefixed family may be one the runtime deliberately removed, and
- * re-copying it would resurrect it.
- *
- * Materialised as a standalone file in `outDir` holding exactly the qualifying
- * rows, built table by table from the live file's own DDL (a whole-file copy
- * cannot be pruned: sqlite-vec `vec0` tables cannot be dropped without their
- * module). Rows a FRESH project store already holds (e.g. the lineage's 18
- * backfilled `commits`) are not project data and are excluded — measured by
- * building such a store, not by guessing — so a reconciled project ends up
- * with exactly what a fresh one has there, the same as exodus-on-open.
- * The table set is fixed when the file is built, so the post-copy verification
- * judges exactly what was copied.
- *
- * @returns The descriptor (path = the materialised file), or `null`.
- */
-async function bareTaskCoreSource(
-  liveStorePath: string,
-  resolveTarget: TargetResolver,
-  outDir: string,
-): Promise<LegacyDbDescriptor | null> {
-  const live = openCleoDbSnapshot(liveStorePath, { readOnly: true });
-  let tables: Array<{ name: string; sql: string }>;
-  try {
-    if (hasTable(live.db, 'main', 'tasks_tasks') && countRows(live.db, 'main', 'tasks_tasks') > 0)
-      return null;
-    tables = (
-      live.db
-        .prepare("SELECT name, sql FROM main.sqlite_master WHERE type='table' AND sql IS NOT NULL")
-        .all() as Array<{ name: string; sql: string }>
-    ).filter(
-      (t) => isRuntimeDeadBare(resolveTarget, t.name) && countRows(live.db, 'main', t.name) > 0,
-    );
-  } finally {
-    live.close();
-  }
-  if (tables.length === 0) return null;
-
-  const seedPath = await buildFreshProjectStore(join(outDir, 'fresh-project-seed.db'));
-  const path = join(outDir, 'cleo-bare-task-core.db');
-  const snap = openCleoDbSnapshot(path, { readOnly: false });
-  let kept = 0;
-  try {
-    snap.db.exec('PRAGMA foreign_keys=OFF');
-    snap.db.exec(`ATTACH DATABASE '${liveStorePath.replace(/'/g, "''")}' AS live`);
-    snap.db.exec(`ATTACH DATABASE '${seedPath.replace(/'/g, "''")}' AS seed`);
-    for (const t of tables) {
-      snap.db.exec(t.sql);
-      snap.db.exec(`INSERT INTO main.${ident(t.name)} SELECT * FROM live.${ident(t.name)}`);
-      if (hasTable(snap.db, 'seed', t.name)) {
-        const seedCols = new Set(
-          (
-            snap.db.prepare(`PRAGMA seed.table_info(${ident(t.name)})`).all() as Array<{
-              name: string;
-            }>
-          ).map((c) => c.name),
-        );
-        const cols = snap.db.prepare(`PRAGMA main.table_info(${ident(t.name)})`).all() as Array<{
-          name: string;
-          pk: number;
-        }>;
-        // A seed row is identified by its KEY: seeded rows carry the time they
-        // were seeded (e.g. `commits.created_at`), so whole-row equality never
-        // matches a seed written on another day. Keyless tables compare rows.
-        const pk = cols.filter((c) => c.pk > 0 && seedCols.has(c.name)).map((c) => c.name);
-        const match = (pk.length > 0 ? pk : cols.map((c) => c.name).filter((c) => seedCols.has(c)))
-          .map((c) => `s.${ident(c)} IS m.${ident(c)}`)
-          .join(' AND ');
-        if (match.length > 0)
-          snap.db.exec(
-            `DELETE FROM main.${ident(t.name)} AS m WHERE EXISTS (SELECT 1 FROM seed.${ident(t.name)} s WHERE ${match})`,
-          );
-      }
-      const n = countRows(snap.db, 'main', t.name);
-      if (n === 0) snap.db.exec(`DROP TABLE main.${ident(t.name)}`);
-      kept += n;
-    }
-    snap.db.exec('DETACH DATABASE live');
-    snap.db.exec('DETACH DATABASE seed');
-  } finally {
-    snap.close();
-  }
-  return kept > 0 ? { name: BARE_SOURCE_NAME, path, targetScope: 'project' } : null;
-}
-
-/**
  * Key digests ({@link bareTableDigest}) of the live store's bare tables that
  * the materialised bare source at `barePath` carries (T13319).
  */
@@ -363,29 +245,6 @@ function bareAccounts(liveStorePath: string, barePath: string): SupersededStoreB
   } finally {
     live.close();
   }
-}
-
-/**
- * Build a FRESH project store — consolidated schema plus the tasks-domain
- * lineage, exactly as a brand-new project gets it — and return its path. Its
- * rows are, by construction, only what CLEO seeds (e.g. the 18 backfilled
- * `commits`), never project data.
- */
-async function buildFreshProjectStore(path: string): Promise<string> {
-  const { getDualScopeNativeDb, openDualScopeDbAtPath } = await import('../dual-scope-db.js');
-  const { ensureTasksDomainTables, seedTasksMeta } = await import('../sqlite.js');
-  const handle = await openDualScopeDbAtPath('project', path, undefined, {
-    dedicated: true,
-    syncMode: 'off',
-  });
-  try {
-    const native = getDualScopeNativeDb(handle);
-    ensureTasksDomainTables(native, path);
-    seedTasksMeta(native);
-  } finally {
-    handle.close();
-  }
-  return path;
 }
 
 /**
@@ -523,7 +382,11 @@ async function revertReconcile(liveStorePath: string, stagingDir: string): Promi
     syncMode: 'off',
   });
   try {
-    return rollbackExodusReceipts(getDualScopeNativeDb(handle), stagingDir);
+    const native = getDualScopeNativeDb(handle);
+    const reverted = rollbackExodusReceipts(native, stagingDir);
+    // A reverted run carried nothing, so its record of carried tables goes too.
+    forgetBareAccounts(native, basename(stagingDir));
+    return reverted;
   } finally {
     handle.close();
   }
@@ -703,6 +566,7 @@ export async function unmigratedBareSources(
   legacyTasksPath: string | undefined,
   outDir: string,
 ): Promise<{ first: LegacyDbDescriptor[]; last: LegacyDbDescriptor[] }> {
+  const { bareTaskCoreSource } = await import('./bare-family.js');
   const bare = await bareTaskCoreSource(liveStorePath, resolveTarget, outDir);
   if (bare === null) return { first: [], last: [] };
   const fresher = snapshotFresherBareRows(bare.path, legacyTasksPath, outDir);
@@ -715,11 +579,181 @@ export async function unmigratedBareSources(
   };
 }
 
+/** The receipt name a rolled-back run's receipt is renamed to (T13309). */
+const ROLLED_BACK_RECEIPT_FILENAME = 'reconcile-receipt.rolled-back.json' as const;
+
+/** Result of {@link rollbackSupersededReconcile}. */
+export interface SupersededReconcileRollback {
+  /** The run directory whose rows were reverted. */
+  readonly runDir: string;
+  /** Rows reverted. */
+  readonly rowsReverted: number;
+  /** Where the receipt now lives (renamed so later runs and checks ignore it). */
+  readonly receiptPath: string;
+}
+
+/**
+ * Revert a reconciled run from its receipt (T13309): every row it inserted is
+ * removed, but only when each is still exactly as the run wrote it (the
+ * exodus receipts guard refuses the whole revert otherwise). Holds the store's
+ * exodus lock, so no reconcile or exodus-on-open runs alongside. The receipt
+ * is renamed, so neither a later run's earlier-recoveries scan nor the sync
+ * check for stranded bare rows trusts it again.
+ *
+ * @param projectRoot - Absolute project root.
+ * @param runDir - The run directory (`.cleo/exodus-reconcile-<iso>`), absolute
+ *   or relative to the project's `.cleo`.
+ * @throws When `runDir` is not a reconciled run of this project, or a row the
+ *   run inserted has changed since.
+ * @example
+ * ```ts
+ * await rollbackSupersededReconcile('/p', 'exodus-reconcile-20261007T020000Z');
+ * ```
+ */
+export async function rollbackSupersededReconcile(
+  projectRoot: string,
+  runDir: string,
+): Promise<SupersededReconcileRollback> {
+  const cleoDir = resolveCleoDir(projectRoot);
+  const dir = isAbsolute(runDir) ? runDir : join(cleoDir, runDir);
+  const receiptPath = join(dir, RECEIPT_FILENAME);
+  if (dirname(dir) !== cleoDir || !basename(dir).startsWith(RECONCILE_DIR_PREFIX)) {
+    // @sync-invariant none:local-only rolling back a local reconcile run is refused before any write; never replicated
+    throw new Error(`${runDir} is not a reconcile run directory under ${cleoDir}`);
+  }
+  let receipt: unknown;
+  try {
+    receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+  } catch {
+    // @sync-invariant none:local-only rolling back a local reconcile run is refused before any write; never replicated
+    throw new Error(`no reconcile receipt at ${receiptPath}`);
+  }
+  const outcome =
+    typeof receipt === 'object' && receipt !== null && 'outcome' in receipt
+      ? receipt.outcome
+      : undefined;
+  if (outcome !== 'reconciled') {
+    // @sync-invariant none:local-only rolling back a local reconcile run is refused before any write; never replicated
+    throw new Error(
+      `${receiptPath} records outcome ${String(outcome)}; only a reconciled run can be rolled back`,
+    );
+  }
+  const liveStorePath = resolveDualScopeDbPath('project', projectRoot);
+  const lock = lockCompromiseTracker();
+  const lockPath = exodusRunLockPath(liveStorePath);
+  const rowsReverted = await withLock(
+    lockPath,
+    whileExodusRunHeld(lockPath, async () => revertReconcile(liveStorePath, dir)),
+    { stale: EXODUS_LOCK_STALE_MS, retries: 30, onCompromised: lock.onCompromised },
+  );
+  const rolledBack = join(dir, ROLLED_BACK_RECEIPT_FILENAME);
+  renameSync(receiptPath, rolledBack);
+  log.info({ runDir: dir, rowsReverted }, 'exodus-reconcile: rolled back');
+  return { runDir: dir, rowsReverted, receiptPath: rolledBack };
+}
+
+/** Options of {@link reconcileSupersededStores}. */
+export interface ReconcileOptions {
+  /** Assess and report without writing anything. */
+  readonly dryRun?: boolean;
+  /** Copy only history rows whose keys live lacks; never write the task graph. */
+  readonly additive?: boolean;
+  /**
+   * Copy the live store's stranded bare rows into its populated prefixed
+   * tables (T13309); see {@link bareStrandSource}. Wins over `additive`.
+   */
+  readonly bareStrands?: boolean;
+}
+
+/** Create a fresh run directory under `.cleo/` for a reconcile apply. */
+function newRunDir(cleoDir: string): string {
+  const iso = new Date()
+    .toISOString()
+    .replace(/[:]/g, '')
+    .replace(/\..+Z$/, 'Z');
+  const dir = join(cleoDir, `${RECONCILE_DIR_PREFIX}${iso}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Write `result`'s receipt into its run directory and return it with the path. */
+function writeReceipt(
+  result: SupersededStoreReconcileResult,
+  stagingDir: string,
+): SupersededStoreReconcileResult {
+  const receiptPath = join(stagingDir, RECEIPT_FILENAME);
+  const receipt = { ...result, receiptPath };
+  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
+  log.info(
+    { outcome: receipt.outcome, rowsCopied: receipt.rowsCopied, receiptPath },
+    `exodus-reconcile: ${receipt.reason}`,
+  );
+  return receipt;
+}
+
+/**
+ * A bare-strands run with nothing to copy — every stranded row is present, or
+ * deliberately skipped: record in the store that every bare table is settled
+ * (T13320), so the sync refusal for stranded rows stands down, and a
+ * `reconciled` receipt naming any skipped rows (T13309). This is also how a
+ * store reconciled before T13319 gets its record. A dry run only reports.
+ * A stranded row neither present nor listed as skipped refuses the settle,
+ * so the refusal stands (T13333).
+ */
+async function settleStrands(
+  none: SupersededStoreReconcileResult,
+  strands: BareStrandSource,
+  cleoDir: string,
+  resolveTarget: TargetResolver,
+): Promise<SupersededStoreReconcileResult> {
+  if (none.dryRun || strands.accounted.length === 0) return none;
+  const unaccounted = unaccountedStrands(none.liveStorePath, strands, resolveTarget);
+  if (unaccounted.length > 0) {
+    return {
+      ...none,
+      outcome: 'refused',
+      reason: `stranded rows neither in cleo.db nor listed as skipped: ${describeGaps(unaccounted)}`,
+    };
+  }
+  const stagingDir = newRunDir(cleoDir);
+  await recordCarriedBareTables(none.liveStorePath, strands.accounted, basename(stagingDir));
+  return writeReceipt(
+    {
+      ...none,
+      outcome: 'reconciled',
+      stagingDir,
+      accounted: strands.accounted,
+      snapshotPath: null,
+      reason: `nothing copied; ${none.reason}`,
+    },
+    stagingDir,
+  );
+}
+
+/**
+ * The tables where a bare-strands run's accounting copy (every stranded row
+ * it did not list as skipped, renumbered) holds rows the live store lacks by
+ * key (T13333). Empty when every such row is in the live store.
+ */
+function unaccountedStrands(
+  liveStorePath: string,
+  strands: BareStrandSource,
+  resolveTarget: TargetResolver,
+): SupersededStoreTableCount[] {
+  if (strands.accountingPath === null) return [];
+  return assessSupersededProjectStores(
+    liveStorePath,
+    [{ name: BARE_STRANDS_SOURCE_NAME, path: strands.accountingPath, targetScope: 'project' }],
+    resolveTarget,
+  ).filter((c) => !isComplete([c]));
+}
+
 /**
  * Reconcile a project's stranded legacy stores into its live `cleo.db`.
  *
  * @param projectRoot - Absolute project root.
- * @param options - `dryRun` assesses and reports without writing anything.
+ * @param options - `dryRun` assesses and reports without writing anything;
+ *   `bareStrands` copies the live store's stranded bare rows (T13309).
  * @returns The receipt; `outcome: 'refused'` means the copy did not verify and
  *   every row it inserted was reverted.
  * @example
@@ -731,7 +765,7 @@ export async function unmigratedBareSources(
  */
 export async function reconcileSupersededStores(
   projectRoot: string,
-  options: { readonly dryRun?: boolean; readonly additive?: boolean } = {},
+  options: ReconcileOptions = {},
 ): Promise<SupersededStoreReconcileResult> {
   const liveStorePath = resolveDualScopeDbPath('project', projectRoot);
   // Never let exodus-on-open fire for this store while it is being reconciled
@@ -746,11 +780,12 @@ export async function reconcileSupersededStores(
 /** {@link reconcileSupersededStores} with exodus-on-open suppressed for the store. */
 async function reconcileSuppressed(
   projectRoot: string,
-  options: { readonly dryRun?: boolean; readonly additive?: boolean },
+  options: ReconcileOptions,
   liveStorePath: string,
 ): Promise<SupersededStoreReconcileResult> {
   const dryRun = options.dryRun === true;
-  const additive = options.additive === true;
+  const mode: SupersededStoreReconcileResult['mode'] =
+    options.bareStrands === true ? 'bare-strands' : options.additive === true ? 'additive' : 'full';
   const plan = buildExodusPlan(projectRoot);
   // Rows land where the RUNTIME reads them (T12346), derived from its bindings.
   const resolveTarget = await buildRuntimeTargetResolver();
@@ -761,7 +796,7 @@ async function reconcileSuppressed(
     return await reconcileWithScratch(
       projectRoot,
       dryRun,
-      additive,
+      mode,
       liveStorePath,
       plan,
       resolveTarget,
@@ -776,20 +811,66 @@ async function reconcileSuppressed(
 async function reconcileWithScratch(
   projectRoot: string,
   dryRun: boolean,
-  additive: boolean,
+  mode: SupersededStoreReconcileResult['mode'],
   liveStorePath: string,
   plan: ReturnType<typeof buildExodusPlan>,
   resolveTarget: TargetResolver,
   scratch: string,
 ): Promise<SupersededStoreReconcileResult> {
+  const additive = mode === 'additive';
+  const strandsMode = mode === 'bare-strands';
+  const cleoDir = resolveCleoDir(projectRoot);
   const legacyFiles = plan.sources.filter((s) => s.targetScope === 'project' && existsSync(s.path));
+  // Bare-strands mode (T13309) reads only the live store's stranded bare rows,
+  // and only once the legacy files are carried: a full run recovers a legacy
+  // task whose id was reused, and this run then finds that recovery in the
+  // full run's receipt instead of recovering the same task a second time.
+  if (strandsMode && legacyFiles.length > 0 && existsSync(liveStorePath)) {
+    const pending = assessSupersededProjectStores(liveStorePath, legacyFiles, resolveTarget);
+    if (!isComplete(pending)) {
+      return {
+        outcome: 'nothing-to-reconcile',
+        mode,
+        conflicts: [],
+        remaps: [],
+        dryRun,
+        projectRoot,
+        liveStorePath,
+        sourcePaths: legacyFiles.map((s) => s.path),
+        before: pending,
+        after: [],
+        rowsCopied: 0,
+        rolledBack: 0,
+        stagingDir: null,
+        receiptPath: null,
+        reason:
+          `legacy files still hold rows missing from cleo.db (${describeGaps(pending)}); run ` +
+          '`cleo doctor superseded-store --reconcile` first, then the bare-strands reconcile',
+      };
+    }
+  }
+  const strands =
+    strandsMode && existsSync(liveStorePath)
+      ? await (await import('./bare-family.js')).bareStrandSource(
+          liveStorePath,
+          resolveTarget,
+          scratch,
+          cleoDir,
+        )
+      : null;
+  // Rows bare-strands mode deliberately leaves uncopied, named in the receipt.
+  const skipped = strands?.skipped ?? [];
+  // What the run reads: the legacy files, or the stranded bare rows.
+  const originals = strandsMode ? (strands?.source ? [strands.source] : []) : legacyFiles;
   // T13172: a legacy task whose id a DIFFERENT live task holds is renumbered in
   // a scratch copy (references re-pointed) and the run reads that copy, so it
   // is recovered, never skipped by INSERT OR IGNORE and counted as present.
   // Additive runs never write the task graph, so they never renumber.
-  const remap =
-    !additive && existsSync(liveStorePath)
-      ? remapCollidingTaskIds(liveStorePath, legacyFiles, scratch, resolveCleoDir(projectRoot))
+  // Bare-strands mode renumbered before judging its rows (T13333).
+  const remap: TaskIdRemapResult = strandsMode
+    ? (strands?.remap ?? { sources: [], remaps: [], undecided: null, remappedPath: null })
+    : !additive && existsSync(liveStorePath)
+      ? remapCollidingTaskIds(liveStorePath, legacyFiles, scratch, cleoDir)
       : { sources: legacyFiles, remaps: [], undecided: null, remappedPath: null };
   // An undecided collision withholds the WHOLE task graph (review MED-2): its
   // children, dependencies and criteria would otherwise attach to the live
@@ -797,7 +878,7 @@ async function reconcileWithScratch(
   // legacy files: the renumbered copy would point history rows at fresh ids
   // no live task holds, which the next `cleo add` could then mint (review LOW).
   const graphWithheld = !additive && remap.undecided !== null;
-  const fileSources = graphWithheld ? legacyFiles : remap.sources;
+  const fileSources = graphWithheld ? originals : remap.sources;
   // The receipt records each remap with the legacy creation time and type,
   // which later runs check before trusting it (T13183).
   const remaps = remap.remaps;
@@ -810,8 +891,12 @@ async function reconcileWithScratch(
   // An additive run is for a project already live on the consolidated store;
   // its bare family is not a source (and bareTaskCoreSource agrees).
   const bare =
-    !additive && existsSync(liveStorePath)
-      ? await bareTaskCoreSource(liveStorePath, resolveTarget, scratch)
+    !additive && !strandsMode && existsSync(liveStorePath)
+      ? await (await import('./bare-family.js')).bareTaskCoreSource(
+          liveStorePath,
+          resolveTarget,
+          scratch,
+        )
       : null;
   // The bare tables this run carries, by key digest. A verified run records
   // them in the store (T13320) — the sync refusal for stranded bare rows
@@ -838,15 +923,17 @@ async function reconcileWithScratch(
   // Legacy FILES first so they win any key both hold; the bare family fills gaps.
   const sources = bare ? [...fileSources, bare] : fileSources;
   const base = {
-    mode: additive ? ('additive' as const) : ('full' as const),
-    conflicts: (undecided ? [undecided] : []) as SupersededStoreConflict[],
+    mode,
+    conflicts: [...(undecided ? [undecided] : []), ...skipped] as SupersededStoreConflict[],
     // A withheld graph copies no task, so no remap is applied.
     remaps: graphWithheld ? [] : remaps,
     dryRun,
     projectRoot,
     liveStorePath,
     // The files read: the legacy originals, never the renumbered scratch copy.
-    sourcePaths: [...legacyFiles, ...(bare ? [bare] : [])].map((s) => s.path),
+    sourcePaths: strandsMode
+      ? [liveStorePath]
+      : [...legacyFiles, ...(bare ? [bare] : [])].map((s) => s.path),
     after: [] as SupersededStoreTableCount[],
     rowsCopied: 0,
     rolledBack: 0,
@@ -855,15 +942,19 @@ async function reconcileWithScratch(
   };
 
   if (sources.length === 0 || !existsSync(liveStorePath)) {
-    return {
+    const none: SupersededStoreReconcileResult = {
       ...base,
       outcome: 'nothing-to-reconcile',
       before: [],
-      reason:
-        sources.length === 0
-          ? 'no legacy project store (tasks.db / brain.db / conduit.db, or bare task tables in an unmigrated cleo.db) is present'
-          : `no live store at ${liveStorePath}; the legacy files are still the live data`,
+      reason: !existsSync(liveStorePath)
+        ? `no live store at ${liveStorePath}; the legacy files are still the live data`
+        : strandsMode
+          ? strands?.populated === false
+            ? 'tasks_tasks is empty: the bare family is copied whole by `cleo doctor superseded-store --reconcile`'
+            : `no stranded bare row is left to copy${skipped.length > 0 ? `; ${describeConflicts(skipped)}` : ''}`
+          : 'no legacy project store (tasks.db / brain.db / conduit.db, or bare task tables in an unmigrated cleo.db) is present',
     };
+    return strands?.populated ? settleStrands(none, strands, cleoDir, resolveTarget) : none;
   }
 
   const before = assessSupersededProjectStores(liveStorePath, sources, resolveTarget);
@@ -874,7 +965,7 @@ async function reconcileWithScratch(
       .filter((c) => c.reason === 'live-authoritative')
       .map((c) => ({ ...c, reason: 'withheld-undecided' as const }));
   const withheldConflicts = (counts: readonly SupersededStoreTableCount[]) =>
-    undecided ? [undecided, ...withheldOf(counts)] : [];
+    undecided ? [undecided, ...withheldOf(counts), ...skipped] : skipped;
   const withheldNote = (counts: readonly SupersededStoreTableCount[]) =>
     `; the task graph was NOT copied: ${undecided ? describeUndecided(undecided) : ''}. ` +
     `Withheld: ${describeConflicts(withheldOf(counts))}. Correct the legacy created_at of ` +
@@ -907,12 +998,15 @@ async function reconcileWithScratch(
     };
   }
   if (isComplete(before)) {
-    return {
+    const none: SupersededStoreReconcileResult = {
       ...base,
       outcome: 'nothing-to-reconcile',
       before,
-      reason: `${undecided ? 'every other legacy row' : 'every legacy row'} is already present in cleo.db — nothing to copy${graphWithheld ? (undecided ? `; ${describeUndecided(undecided)}` : '') : remapNote}`,
+      reason: `${undecided ? 'every other legacy row' : 'every legacy row'} is already present in cleo.db — nothing to copy${graphWithheld ? (undecided ? `; ${describeUndecided(undecided)}` : '') : remapNote}${skipped.length > 0 ? `; ${describeConflicts(skipped)}` : ''}`,
     };
+    return strands?.populated && !graphWithheld
+      ? settleStrands(none, strands, cleoDir, resolveTarget)
+      : none;
   }
   if (dryRun) {
     return {
@@ -930,20 +1024,16 @@ async function reconcileWithScratch(
           )} (key collisions are counted after the copy)`
         : graphWithheld
           ? `would copy the missing history rows only${withheldNote(before)}`
-          : `would copy the missing rows of: ${describeGaps(before)}${remapNote}`,
+          : `would copy the missing rows of: ${describeGaps(before)}${remapNote}${skipped.length > 0 ? `; would leave uncopied: ${describeConflicts(skipped)}` : ''}`,
     };
   }
 
-  const iso = new Date()
-    .toISOString()
-    .replace(/[:]/g, '')
-    .replace(/\..+Z$/, 'Z');
-  const stagingDir = join(resolveCleoDir(projectRoot), `${RECONCILE_DIR_PREFIX}${iso}`);
-  mkdirSync(stagingDir, { recursive: true });
+  const stagingDir = newRunDir(cleoDir);
   // Keep the materialised bare source and the renumbered tasks copy with the
   // run's other evidence.
   const copySources = sources.map((s) => {
-    if (s !== bare && s.path !== remap.remappedPath) return s;
+    if (s !== bare && s.path !== remap.remappedPath && s.name !== BARE_STRANDS_SOURCE_NAME)
+      return s;
     const kept = join(stagingDir, basename(s.path));
     copyFileSync(s.path, kept);
     return { ...s, path: kept };
@@ -973,7 +1063,8 @@ async function reconcileWithScratch(
     whileExodusRunHeld(lockPath, async (): Promise<SupersededStoreReconcileResult> => {
       // Prove "never overwrites": every live row that existed before the copy
       // must still exist, byte for byte, afterwards.
-      const liveBefore = join(scratch, 'live-before.db');
+      // Bare-strands mode keeps this snapshot with the receipt (T13309).
+      const liveBefore = join(strandsMode ? stagingDir : scratch, 'live-before.db');
       snapshotLive(liveStorePath, liveBefore);
       const copied = await runExodusMigrate(reconcilePlan, false, (msg) => log.debug(msg), {
         projectOnly: true,
@@ -1014,18 +1105,38 @@ async function reconcileWithScratch(
       // would call it present (review LOW-1).
       const unlanded =
         migrated.ok && !graphWithheld ? unlandedRemaps(liveStorePath, remap.remaps) : [];
+      // Bare-strands mode: every stranded row not listed as skipped is now in
+      // the live store (T13333), and no copied row refers to a task the live
+      // store lacks (T13334).
+      const strandsChecked = migrated.ok && strands && !graphWithheld;
+      const unaccounted = strandsChecked
+        ? unaccountedStrands(liveStorePath, strands, resolveTarget)
+        : [];
+      const dangling =
+        strandsChecked && strands.source
+          ? (await import('./bare-family.js')).danglingStrandReferences(
+              liveStorePath,
+              strands.source.path,
+            )
+          : [];
       const verified =
         migrated.ok &&
         settled &&
         lost.length === 0 &&
         altered.length === 0 &&
-        unlanded.length === 0;
+        unlanded.length === 0 &&
+        unaccounted.length === 0 &&
+        dangling.length === 0;
       // The store's own record of the bare tables this run carried (T13320),
       // written only once the copy verified, so a revert never leaves one.
       let unrecorded: string | null = null;
-      if (verified && bare && !graphWithheld) {
+      if (verified && (bare || strands) && !graphWithheld) {
         try {
-          await recordCarriedBareTables(liveStorePath, accounted, basename(stagingDir));
+          await recordCarriedBareTables(
+            liveStorePath,
+            strands ? strands.accounted : accounted,
+            basename(stagingDir),
+          );
         } catch (error) {
           unrecorded = error instanceof Error ? error.message : String(error);
         }
@@ -1039,12 +1150,20 @@ async function reconcileWithScratch(
           after,
           rowsCopied,
           stagingDir,
-          ...(bare && !graphWithheld ? { accounted } : {}),
+          // A settled run accounts for each bare table it carried (full mode)
+          // or settled (bare-strands mode), so the sync refusal for stranded
+          // rows stands down for it (T13319, T13309).
+          ...(!graphWithheld && (strands || bare)
+            ? { accounted: strands ? strands.accounted : accounted }
+            : {}),
+          ...(strandsMode ? { snapshotPath: liveBefore } : {}),
           reason: additive
             ? `copied ${rowsCopied} row(s) with keys absent from live; live rows unchanged; ${describeConflicts(conflicts)}`
             : graphWithheld
               ? `copied ${rowsCopied} history row(s)${withheldNote(after)}`
-              : `copied ${rowsCopied} row(s); every legacy row is now present in cleo.db${remapNote}`,
+              : strandsMode
+                ? `copied ${rowsCopied} stranded bare row(s); every other stranded row is accounted for${remapNote}${skipped.length > 0 ? `; ${describeConflicts(skipped)}` : ''}; live snapshot before the copy: ${liveBefore}`
+                : `copied ${rowsCopied} row(s); every legacy row is now present in cleo.db${remapNote}`,
         };
       }
       const rolledBack = await revertReconcile(liveStorePath, stagingDir);
@@ -1056,9 +1175,13 @@ async function reconcileWithScratch(
             ? `pre-existing live rows changed in: ${altered.join(', ')}`
             : unlanded.length > 0
               ? `a concurrent write took the id of a recovered task (${unlanded.join(', ')}); run the reconcile again`
-              : unrecorded !== null
-                ? `could not record the carried bare tables in the store: ${unrecorded}`
-                : `rows still missing after copy: ${describeGaps(after)}`;
+              : unaccounted.length > 0
+                ? `stranded rows neither copied nor listed as skipped: ${describeGaps(unaccounted)}`
+                : dangling.length > 0
+                  ? `copied rows refer to tasks cleo.db does not hold: ${dangling.join(', ')}`
+                  : unrecorded !== null
+                    ? `could not record the carried bare tables in the store: ${unrecorded}`
+                    : `rows still missing after copy: ${describeGaps(after)}`;
       return {
         ...base,
         outcome: 'refused',
@@ -1073,12 +1196,5 @@ async function reconcileWithScratch(
     { stale: EXODUS_LOCK_STALE_MS, retries: 30, onCompromised: lock.onCompromised },
   );
 
-  const receiptPath = join(stagingDir, RECEIPT_FILENAME);
-  const receipt = { ...result, receiptPath };
-  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
-  log.info(
-    { outcome: receipt.outcome, rowsCopied: receipt.rowsCopied, receiptPath },
-    `exodus-reconcile: ${receipt.reason}`,
-  );
-  return receipt;
+  return writeReceipt(result, stagingDir);
 }
