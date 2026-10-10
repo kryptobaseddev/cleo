@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.7
+version: 3.1.8
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,16 +14,23 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.7
+  version: 3.1.8
   tier: core
   install: harness
   covers:
     - .github/workflows/release-prepare.yml
-  lastReviewed: 2026-10-04
+  lastReviewed: 2026-10-10
   stability: stable
 ---
 
 # Development Workflow Context Injection
+
+Opt-in unified-hook releases use the numbered `vYYYY.MM.N-canary.N` channel
+through the normal release plan/open and OIDC workflow. The release-preparation
+workflow accepts this channel explicitly; publication stays on `canary` and does
+not advance to `latest`. Preserve registry retries and installed-package soak
+checks. Stable promotion needs the separately retained, source-bound live harness
+and hosted VidaPeps pilot evidence; missing or unavailable verification holds it.
 
 Before editing, inspect focus/briefing authority and coverage. Missing evidence
 means UNKNOWN impact; current static coverage does not prove every runtime caller.
