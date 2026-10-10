@@ -272,9 +272,9 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/conflicts.ts': {
     _sync_conflict: {
-      count: 2,
+      count: 3,
       reason:
-        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction, and marked resolved by `cleo cloud conflicts resolve` (T12344)",
+        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction, and marked resolved by `cleo cloud conflicts resolve` (T12344) or when the held collision it records settles (T13397)",
     },
   },
   'packages/core/src/store/sync/field-leave.ts': {

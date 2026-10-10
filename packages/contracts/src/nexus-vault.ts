@@ -365,7 +365,7 @@ export interface CloudConflict {
   txnIdx: number;
   /** Op index in the transaction; -1 for a whole-transaction (post-apply) conflict. */
   opIdx: number;
-  /** `field`, `typed-rule`, `edit-vs-delete`, `delete-vs-edit`, `dangling-ref`, `guard`, `delete-with-live-children`, `uid-collision`, `post-apply` … */
+  /** `field`, `typed-rule`, `edit-vs-delete`, `delete-vs-edit`, `dangling-ref`, `guard`, `delete-with-live-children`, `uid-collision`, `key-collision`, `post-apply` … */
   kind: string;
   table: string;
   uid: string;

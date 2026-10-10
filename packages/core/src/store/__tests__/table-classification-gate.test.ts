@@ -199,6 +199,8 @@ const SYNC_REBASE_DDL =
   'packages/core/migrations/sync-journal/20261006120000_t13193-rebase-undo/migration.sql';
 const SYNC_SEGMENT_DDL =
   'packages/core/migrations/sync-journal/20261007120000_t12343-segment-outbox/migration.sql';
+const SYNC_UID_ALIAS_DDL =
+  'packages/core/migrations/sync-journal/20261010150000_t13397-uid-alias/migration.sql';
 const SYNC_JOURNAL_TABLES = {
   _sync_capture: { class: 'local-only', ddl: SYNC_CAPTURE_DDL },
   _sync_frame: { class: 'local-only', ddl: SYNC_CAPTURE_DDL },
@@ -217,6 +219,7 @@ const SYNC_JOURNAL_TABLES = {
   _sync_sequenced: { class: 'local-only', ddl: SYNC_REBASE_DDL },
   _sync_segment: { class: 'local-only', ddl: SYNC_SEGMENT_DDL },
   _sync_segment_txn: { class: 'local-only', ddl: SYNC_SEGMENT_DDL },
+  _sync_uid_alias: { class: 'local-only', ddl: SYNC_UID_ALIAS_DDL },
   _sync_clock: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
   _sync_meta: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
   _sync_replica: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },

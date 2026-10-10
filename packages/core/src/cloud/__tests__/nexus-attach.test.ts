@@ -322,6 +322,7 @@ describe('presence and binding hold their guarantees (review M3)', () => {
         '_sync_segment_txn',
         '_sync_sequenced',
         '_sync_txn',
+        '_sync_uid_alias',
         '_sync_undo',
       ]);
       for (const name of tables) expect(classifyTable('project', name).class).toBe('local-only');
