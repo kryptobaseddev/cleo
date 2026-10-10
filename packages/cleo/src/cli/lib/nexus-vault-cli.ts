@@ -425,7 +425,7 @@ async function runCloudJournalActivity(args: Args): Promise<void> {
         `${r.items.length} journal transaction(s) from ${r.devices.length} device(s):`,
         ...r.devices.map(
           (d) =>
-            `  ${who(d.deviceName, d.deviceId)}${d.thisDevice ? ' (this machine)' : ''}: ${d.txns} txn(s), last ${d.lastAt}`,
+            `  ${who(d.deviceName, d.deviceId)}${d.thisDevice ? ' (this machine)' : ''}: ${d.txns} txn(s), last ${d.lastAt}${d.lastSeenAt ? `, seen ${d.lastSeenAt}` : ''}`,
         ),
         ...r.items.slice(0, 10).map(
           (i) =>

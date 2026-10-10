@@ -492,6 +492,8 @@ export interface CloudJournalActivityDevice {
   /** Matching transactions, and the newest one's write time (ISO-8601). */
   txns: number;
   lastAt: string;
+  /** The device's last presence report from the account's device list; `null` offline or when unknown. */
+  lastSeenAt: string | null;
 }
 
 /** `cleo cloud activity --journal`: what each device changed and when, from the local journal. */
