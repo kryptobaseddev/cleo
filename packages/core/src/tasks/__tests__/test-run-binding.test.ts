@@ -584,7 +584,10 @@ describe('relevance in a standalone single-package project (T13403)', () => {
         root,
       );
       expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_INSUFFICIENT');
-      expect(!r.ok && r.reason).toMatch(/edits source but no test file in solo.*Record tool:test/);
+      expect(!r.ok && r.reason).toMatch(
+        /edits source but no test file in solo.*Record tool:test, or ci:<pr>/,
+      );
+      expect(!r.ok && r.reason).not.toMatch(/tool:test-affected/);
     }
   });
 });

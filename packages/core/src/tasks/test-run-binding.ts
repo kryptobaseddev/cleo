@@ -529,11 +529,16 @@ export function bindTestRunReport(
       (name) => withTests.has(name) && !withChangedTests.has(name),
     );
     if (sourceOnly.length === 0) return { ok: true, untestedPackages };
+    // A standalone project's tool:test-affected refuses (its one package is
+    // the whole suite), so only tool:test or merged CI applies there.
+    const toolRun =
+      workspace.length === 1 && workspace[0]?.dir === ''
+        ? 'tool:test'
+        : 'tool:test-affected (or tool:test)';
     return refuse(
       `The change edits source but no test file in ${someNames(sourceOnly)}, so a test-run report ` +
-        "of that package's existing tests cannot speak for it. Record tool:test-affected (or " +
-        'tool:test), or ci:<pr> once the PR merges; or add or edit the test that covers the change ' +
-        'and record a report that runs it.',
+        `of that package's existing tests cannot speak for it. Record ${toolRun}, or ci:<pr> once ` +
+        'the PR merges; or add or edit the test that covers the change and record a report that runs it.',
     );
   }
   const labelled = missing.map((name) =>
