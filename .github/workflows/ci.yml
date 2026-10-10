@@ -2252,9 +2252,11 @@ jobs:
     needs: [biome, changes]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
-    # Runtime is ~4-5 min on a warm runner; the previous 5-minute budget was
-    # routinely hit on slower runners, and a TIMEOUT concludes the job as
-    # `cancelled` — which `continue-on-error` does NOT mask (T11967).
+    # A TIMEOUT concludes the job as `cancelled`, which `continue-on-error`
+    # does NOT mask (T11967), and a cancelled job blocks the merge. The job
+    # used to also run `forge-ts build` (160-525 s, its output discarded: no
+    # artifact, `|| true`), which hit this limit on #1966 and #1973 (T13381).
+    # Only the coverage check runs now (10-23 s plus install).
     timeout-minutes: 10
     continue-on-error: true
     steps:
@@ -2279,8 +2281,6 @@ jobs:
         uses: ./.github/actions/install-ripgrep
       - name: Check TSDoc coverage
         run: pnpm exec forge-ts check --human || true
-      - name: Build documentation
-        run: pnpm exec forge-ts build || true
 
   # ──────────────────────────────────────────────────────────────────────────
   # gh#1403: the scripts/ test project, which nothing used to run on a

@@ -200,10 +200,10 @@ export const EXEMPT = {
     },
   },
   'packages/core/src/memory/brain-search.ts': {
-    brain_decisions_fts: { count: 5, reason: FTS5 },
-    brain_learnings_fts: { count: 5, reason: FTS5 },
-    brain_observations_fts: { count: 5, reason: FTS5 },
-    brain_patterns_fts: { count: 5, reason: FTS5 },
+    brain_decisions_fts: { count: 3, reason: FTS5 },
+    brain_learnings_fts: { count: 3, reason: FTS5 },
+    brain_observations_fts: { count: 3, reason: FTS5 },
+    brain_patterns_fts: { count: 3, reason: FTS5 },
   },
   'packages/core/src/memory/decision-cross-link.ts': {
     _nexus_meta: { count: 1, reason: NEXUS_META },

@@ -380,6 +380,34 @@ export function isDataContinuityOk(result: VerifyMigrationResult): boolean {
 }
 
 /**
+ * What a {@link verifyMigration} result reports beyond the data-continuity
+ * gate, one line per finding: content digests that differ and values outside
+ * an enum. Recorded in the completion marker and surfaced by
+ * `cleo doctor exodus-health`, so a FAILED verify the gate tolerates is never
+ * silent (T12711).
+ *
+ * @param result - The verify result.
+ * @returns The findings; empty when the verify passed.
+ */
+export function verifyIssuesOf(result: VerifyMigrationResult): string[] {
+  if (result.ok) return [];
+  const issues = [
+    ...result.tables
+      .filter((t) => !t.hashMatch)
+      .map((t) => `[${t.scope}] ${t.targetTable}: content digest differs from ${t.sourceTable}`),
+    ...result.enumDrift.map(
+      (d) =>
+        `${d.targetTable}.${d.column}: ${d.driftCount} row(s) with value(s) outside enum — e.g. ${d.offendingValues.map((v) => `'${v}'`).join(', ')}`,
+    ),
+  ];
+  const preExisting = result.preExistingForeignKeyViolations.length;
+  if (issues.length > 0 && preExisting > 0) {
+    issues.push(`[fk] ${preExisting} orphan reference(s) carried over from the source`);
+  }
+  return issues.length > 0 ? issues : [result.error ?? 'verifyMigration FAILED'];
+}
+
+/**
  * Outcome of an exodus-on-open attempt, surfaced for tests + logging.
  */
 export interface ExodusOnOpenResult {
@@ -795,7 +823,13 @@ async function migrateOnOpen(
         try {
           const consumed = plan.sources.filter((s) => existsSync(s.path));
           const identities = await sealTargets(plan, consumed);
-          const archiveResult = archiveMigratedSources(consumed, cwd, plan, identities);
+          const archiveResult = archiveMigratedSources(
+            consumed,
+            cwd,
+            plan,
+            identities,
+            verifyIssuesOf(verifyResult),
+          );
           log.info(
             {
               scope,

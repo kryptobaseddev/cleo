@@ -1176,3 +1176,125 @@ export function isPausable(cls: ResourceClass, argv: readonly string[]): boolean
   if (isCleoCommand(t)) return false;
   return true;
 }
+
+/**
+ * How big a run is, judged from its real scope rather than its class (T13367).
+ *
+ * - `light`: a native formatter/linter on named paths (`biome check a.ts b.ts`).
+ *   It needs well under a gigabyte, so it is charged the light footprint.
+ * - `single-process`: one Node process on named paths (`eslint a.ts`,
+ *   `prettier --check a.ts`) or a one-project `tsc -p <dir|tsconfig>`. It is
+ *   charged one process's heap plus overhead.
+ * - `class`: everything else, sized by the class's heavy-run plan as before.
+ *   That includes a root `pnpm run build`, `tsc -b`, and a linter on the whole
+ *   tree. A test run that names its files keeps its per-file worker cap
+ *   (T13132).
+ */
+export interface RunFootprint {
+  /** The size tier. */
+  readonly size: 'light' | 'single-process' | 'class';
+  /** Why, in a few words, for the ledger and `doctor tool-locks`. */
+  readonly reason: string;
+}
+
+/** Native (non-Node) formatters/linters: a run on named paths is light. */
+const NATIVE_FILE_TOOLS = /^(biome)$/;
+/** Single-process Node formatters/linters. */
+const NODE_FILE_TOOLS = /^(eslint|prettier)$/;
+/** biome subcommands that read files. */
+const BIOME_FILE_SUBCOMMANDS = /^(check|lint|format|ci)$/;
+/** Flags of eslint/prettier/biome whose next word is a value, not a path. */
+const FILE_TOOL_VALUE_FLAGS: ReadonlySet<string> = new Set([
+  '-c',
+  '--config',
+  '--config-path',
+  '--ext',
+  '--format',
+  '-f',
+  '--rule',
+  '--plugin',
+  '--parser',
+  '--ignore-path',
+  '--ignore-pattern',
+  '--max-warnings',
+  '-o',
+  '--output-file',
+  '--reporter',
+  '--log-level',
+  '--loglevel',
+  '--diagnostic-level',
+  '--max-diagnostics',
+  '--stdin-file-path',
+]);
+
+/** Positional path words of a file tool's arguments (flag values skipped). */
+function filePaths(rest: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let x = 0; x < rest.length; x++) {
+    const w = rest[x] as string;
+    if (w === '--') continue;
+    if (w.startsWith('-')) {
+      if (!w.includes('=') && FILE_TOOL_VALUE_FLAGS.has(w)) x++;
+      continue;
+    }
+    out.push(w);
+  }
+  return out;
+}
+
+/** A path that names the whole tree rather than chosen files. */
+function isWholeTree(path: string): boolean {
+  return /^\.\/?$/.test(path) || path === '*' || path === '**';
+}
+
+/** `n file(s)` for a reason line. */
+function files(n: number): string {
+  return `${n} named path${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * Size a run by what it actually touches (T13367). Pure; reads nothing.
+ *
+ * @param argv - the command.
+ * @returns the size tier and its reason.
+ *
+ * @example
+ * ```ts
+ * runFootprint(['pnpm', 'biome', 'check', 'a.ts', 'b.ts']).size;   // 'light'
+ * runFootprint(['pnpm', 'exec', 'tsc', '-p', 'packages/core']).size; // 'single-process'
+ * runFootprint(['pnpm', 'run', 'build']).size;                      // 'class'
+ * ```
+ */
+export function runFootprint(argv: readonly string[]): RunFootprint {
+  const t = commandTarget(argv);
+  // `pnpm prettier --check a.ts`: a package manager running a bin that is not
+  // in BUILD_TOOLS reads as a script; treat a file tool's name as the tool.
+  const tool =
+    t.script !== null && (NODE_FILE_TOOLS.test(t.script) || NATIVE_FILE_TOOLS.test(t.script))
+      ? t.script
+      : t.tool;
+  if (NATIVE_FILE_TOOLS.test(tool)) {
+    const at = t.rest.findIndex((w) => !w.startsWith('-'));
+    const sub = at >= 0 ? (t.rest[at] as string) : undefined;
+    const paths =
+      sub !== undefined && BIOME_FILE_SUBCOMMANDS.test(sub) ? filePaths(t.rest.slice(at + 1)) : [];
+    if (paths.length > 0 && !paths.some(isWholeTree)) {
+      return { size: 'light', reason: `${tool} ${sub} on ${files(paths.length)}` };
+    }
+  } else if (NODE_FILE_TOOLS.test(tool)) {
+    const paths = filePaths(t.rest);
+    if (paths.length > 0 && !paths.some(isWholeTree)) {
+      return { size: 'single-process', reason: `${tool} on ${files(paths.length)}` };
+    }
+  } else if (tool === 'tsc' && t.script === null) {
+    const build = t.rest.some((w) => w === '-b' || w === '--build');
+    const p = t.rest.findIndex((w) => w === '-p' || w === '--project');
+    const eq = t.rest.find((w) => w.startsWith('--project='));
+    const project =
+      eq !== undefined ? eq.slice('--project='.length) : p >= 0 ? t.rest[p + 1] : undefined;
+    if (!build && project !== undefined && !isWholeTree(project) && project !== 'tsconfig.json') {
+      return { size: 'single-process', reason: `tsc -p ${project} (one project)` };
+    }
+  }
+  return { size: 'class', reason: 'sized by its class' };
+}
