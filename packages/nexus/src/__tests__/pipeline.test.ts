@@ -50,6 +50,7 @@ import {
   createParentHeapGuard,
   extractOriginalSource,
   NEXUS_HEAP_EXHAUSTED,
+  OVERSIZED_FILE_LIMITATION,
   runParseLoop,
 } from '../pipeline/parse-loop.js';
 import { processStructure } from '../pipeline/structure-processor.js';
@@ -1756,6 +1757,35 @@ describe('runPipeline', () => {
         expect.objectContaining({ sourceId: 'main.ts', targetId: 'module:pg', type: 'imports' }),
       ]),
     );
+  });
+
+  // T13380: an oversized file is never read; its report must still carry
+  // provenance, or knowledge coverage counts it as a "legacy" report.
+  it('gives oversized files path-based provenance with an oversized limitation', async () => {
+    writeFile(tmpDir, 'main.ts', 'export const ok = 1;');
+    writeFile(tmpDir, 'generated/schema.ts', `export const big = "${'x'.repeat(600 * 1024)}";`);
+    writeFile(tmpDir, 'dump.bin', 'y'.repeat(600 * 1024));
+    const publishGraph = vi.fn<(rows: GraphPublicationRows) => void>();
+    await runPipeline(
+      tmpDir,
+      'project',
+      { insert: vi.fn() },
+      { nexusNodes: stubTable(), nexusRelations: stubTable() },
+      undefined,
+      { publishGraph },
+    );
+    const files = publishGraph.mock.calls[0]?.[0].assessment?.files ?? [];
+    const schema = files.find((file) => file.path === 'generated/schema.ts');
+    expect(schema).toMatchObject({
+      status: 'oversized',
+      capabilities: { role: 'executable', classification: { basis: 'path' }, completed: [] },
+    });
+    expect(schema?.capabilities?.limitations).toContain(OVERSIZED_FILE_LIMITATION);
+    expect(files.find((file) => file.path === 'dump.bin')?.capabilities).toMatchObject({
+      role: 'unknown',
+      completed: [],
+    });
+    expect(files.every((file) => file.capabilities !== undefined)).toBe(true);
   });
 
   it.each([
