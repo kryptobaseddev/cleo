@@ -85,6 +85,13 @@ export type {
   CycleTimeDistribution,
   CycleTimePercentiles,
 } from './archive.js';
+// === Ask-enforce Stop hook (T13420 / Epic T13418) ===
+export type {
+  AskEnforceInput,
+  AskEnforceMode,
+  AskEnforceSignal,
+  AskEnforceVerdict,
+} from './ask-enforce-hook.js';
 // === Attachment Types ===
 export type {
   Attachment,
