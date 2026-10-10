@@ -934,6 +934,93 @@ describe('resolveCiEvidenceAtom', () => {
       expect(fetched).not.toContain(DESC1);
     });
 
+    describe('a merge into a red main: inherited failures (T13453)', () => {
+      const BASE = '5'.repeat(40);
+      const RED = new Set(['CI', 'Unit Tests (ubuntu-latest, shard 1)']);
+      const red = (sha: string, ids: number) =>
+        allGreen.map((c) =>
+          RED.has(c.name) ? { ...c, headSha: sha, conclusion: 'failure', id: c.id + ids } : { ...c, headSha: sha },
+        );
+      const parents = (sha: string) => (sha === MERGE ? BASE : null);
+
+      it('every merge-commit failure also failed on its base: the green descendant stands in, recorded with both run ids', async () => {
+        const { run } = descend(
+          { [DESC1]: onSha(DESC1) },
+          {
+            firstParentOf: parents,
+            fetchChecks: async (sha) => ({
+              ok: true,
+              checks:
+                sha === MERGE ? red(MERGE, 100) : sha === BASE ? red(BASE, 200) : sha === HEAD ? onHead : onSha(DESC1),
+            }),
+          },
+        );
+        const r = await run;
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+        expect(atom?.descendantSha).toBe(DESC1);
+        expect(atom?.inheritedFailures).toEqual(
+          expect.arrayContaining([
+            { name: 'CI', mergeRunId: 101, baseSha: BASE, baseRunId: 201 },
+            { name: 'Unit Tests (ubuntu-latest, shard 1)', mergeRunId: 101, baseSha: BASE, baseRunId: 201 },
+          ]),
+        );
+        expect(atom?.checks.find((c) => c.name === 'CI')?.sha).toBe(DESC1);
+      });
+
+      it('a failure the base did NOT have was introduced by the PR: refused, the descendant never consulted', async () => {
+        const baseOnlyCiRed = allGreen.map((c) =>
+          c.name === 'CI' ? { ...c, headSha: BASE, conclusion: 'failure' } : { ...c, headSha: BASE },
+        );
+        const { run, fetched } = descend(
+          { [DESC1]: onSha(DESC1) },
+          {
+            firstParentOf: parents,
+            fetchChecks: async (sha) => {
+              fetched.push(sha);
+              return {
+                ok: true,
+                checks: sha === MERGE ? red(MERGE, 100) : sha === BASE ? baseOnlyCiRed : onSha(DESC1),
+              };
+            },
+          },
+        );
+        const r = await run;
+        expect(r.ok).toBe(false);
+        expect(!r.ok && r.reason).toMatch(
+          /Unit Tests \(ubuntu-latest, shard 1\): failure on merge commit .* but success on its base 555555555555 — the PR introduced this failure/,
+        );
+        expect(fetched).not.toContain(DESC1);
+      });
+
+      it('looks past a cancelled base run to the nearest decided ancestor', async () => {
+        const OLDER = '6'.repeat(40);
+        const cancelledBase = allGreen.map((c) => ({ ...c, headSha: BASE, conclusion: 'cancelled' }));
+        const { run } = descend(
+          { [DESC1]: onSha(DESC1) },
+          {
+            firstParentOf: (sha) => (sha === MERGE ? BASE : sha === BASE ? OLDER : null),
+            fetchChecks: async (sha) => ({
+              ok: true,
+              checks:
+                sha === MERGE
+                  ? red(MERGE, 100)
+                  : sha === BASE
+                    ? cancelledBase
+                    : sha === OLDER
+                      ? red(OLDER, 300)
+                      : sha === HEAD
+                        ? onHead
+                        : onSha(DESC1),
+            }),
+          },
+        );
+        const r = await run;
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        expect(r.ok && r.atom.kind === 'ci' && r.atom.inheritedFailures?.[0]?.baseSha).toBe(OLDER);
+      });
+    });
+
     it('a job that failed before the run was cancelled is a real failure: refused', async () => {
       const partlyFailed = cancelledMerge.map((c) =>
         c.name === 'Unit Tests (ubuntu-latest, shard 2)' ? { ...c, conclusion: 'failure' } : c,
@@ -1108,6 +1195,40 @@ describe('resolveCiEvidenceAtom', () => {
       );
       const r = await run;
       expect(!r.ok && r.reason).toMatch(/only a cancelled or skipped run is stood in for/);
+    });
+  });
+
+  describe('recheckCiDescendantAtom — an inherited failure must still be red on its base (T13453)', () => {
+    const DESC = '1'.repeat(40);
+    const BASE = '5'.repeat(40);
+    const atom: Extract<EvidenceAtom, { kind: 'ci' }> = {
+      kind: 'ci',
+      prNumber: 42,
+      mergeCommitSha: MERGE,
+      checks: [],
+      descendantSha: DESC,
+      descendantRange: `${MERGE}..${DESC}`,
+      descendantPrHeadSha: HEAD,
+      inheritedFailures: [{ name: 'CI', mergeRunId: 101, baseSha: BASE, baseRunId: 201 }],
+      requiredSource: 'project-context',
+    };
+    const base = (conclusion: string) =>
+      allGreen.map((c) =>
+        c.name === 'CI' ? { ...c, headSha: BASE, id: 205, conclusion } : { ...c, headSha: BASE },
+      );
+    it('holds while the base run is still red', async () => {
+      const r = await recheckCiDescendantAtom(atom, root, async (sha) => ({
+        ok: true,
+        checks: sha === BASE ? base('failure') : [],
+      }));
+      expect(r.ok).toBe(true);
+    });
+    it('a base re-run that went green breaks the claim', async () => {
+      const r = await recheckCiDescendantAtom(atom, root, async (sha) => ({
+        ok: true,
+        checks: sha === BASE ? base('success') : [],
+      }));
+      expect(!r.ok && r.reason).toMatch(/now success on base 555555555555/);
     });
   });
 
