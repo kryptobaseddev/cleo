@@ -36,9 +36,10 @@
  * After a Cleo Nexus sign-in, login runs the guided first run
  * (`../lib/nexus-first-run-cli.js`): inside an unlinked CLEO project it
  * offers to link the project and take its first encrypted backup (`--yes`
- * does it without asking; a non-interactive run outside CI — an agent — does
- * it unattended but never restores over this copy, T13288; CI only prints the
- * next command); outside a project it lists the account's projects with the
+ * does it without asking; a run with no terminal outside CI — an agent — does
+ * it unattended but never restores over this copy, T13288; a terminal with
+ * stderr redirected, where a person cannot see the question, and CI only print
+ * the next commands, T13321); outside a project it lists the account's projects with the
  * exact `cleo cloud restore <name>` command for each. With no terminal and no
  * target, `cleo login` signs in to Cleo Nexus (T13288).
  *
@@ -550,7 +551,7 @@ export const LOGIN_ARGS = {
   yes: {
     type: 'boolean',
     description:
-      'nexus: inside a CLEO project this machine has not linked, link it and take the first encrypted backup without asking (or, when Cleo Nexus already backs it up from another device and this copy never synced, restore that backup here). Without it a terminal (stdin and stderr) is asked; a non-interactive run outside CI (an agent, or stderr redirected as in cleo login 2>log) links and backs up unattended without prompting, but never restores unasked; CI only prints the next command.',
+      'nexus: inside a CLEO project this machine has not linked, link it and take the first encrypted backup without asking (or, when Cleo Nexus already backs it up from another device and this copy never synced, restore that backup here). Without it a terminal (stdin and stderr) is asked; a run with no terminal outside CI (an agent) links and backs up unattended but never restores unasked; a terminal with stderr redirected (cleo login 2>log), where a person cannot see a question, and CI only print the next commands.',
   },
   auth: {
     type: 'string',
@@ -596,7 +597,7 @@ export const loginCommand = defineCommand({
     // captures only the first plain string literal (concatenations + backticks
     // truncate the `cleo --help` text mid-sentence).
     description:
-      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. Without a terminal and no target, cleo login signs in to Cleo Nexus (an agent needs no extra word); the picker and every prompt need stdin and stderr on a terminal, so a run with stderr redirected (cleo login 2>log) also links unattended, without prompting. After a Cleo Nexus sign-in inside an unlinked CLEO project it links the project and backs it up: a terminal is asked, --yes or a non-interactive run (an agent) does it, a restore over this copy is never done unasked, and CI only prints the next command; outside a project it lists your projects with the cleo cloud restore command for each. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
+      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. Without a terminal and no target, cleo login signs in to Cleo Nexus (an agent needs no extra word); the picker and every prompt need stdin and stderr on a terminal; with stdin on a terminal but stderr redirected (cleo login 2>log) a person may be there who cannot see the question, so the run links nothing and only prints the next commands. After a Cleo Nexus sign-in inside an unlinked CLEO project it links the project and backs it up: a terminal is asked, --yes or a non-interactive run (an agent) does it, a restore over this copy is never done unasked, and CI only prints the next command; outside a project it lists your projects with the cleo cloud restore command for each. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
   },
   args: LOGIN_ARGS,
   async run({ args }) {

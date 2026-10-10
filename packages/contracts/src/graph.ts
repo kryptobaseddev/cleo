@@ -707,6 +707,35 @@ export interface GraphIndexFilePage {
   rows: GraphIndexFileReport[];
 }
 
+/** Extraction limitation of one retained reference. */
+export type GraphIndexReferenceKind = GraphIndexReferenceReport['kind'];
+
+/** Retained references per limitation kind; every kind is present, zero included. */
+export type GraphIndexReferenceKindCounts = Record<GraphIndexReferenceKind, number>;
+
+/**
+ * One page of an assessment's retained references, in stored order (T13330).
+ *
+ * The list grows with the repository — 846 151 references, over 500 MB of
+ * JSON, on one 5 357-file project — so it is only ever returned a page at a time.
+ */
+export interface GraphIndexReferencePage {
+  /** References skipped before this page. */
+  offset: number;
+  /** Requested page size. */
+  limit: number;
+  /** Only references of this kind were paged; absent when unfiltered. */
+  kind?: GraphIndexReferenceKind;
+  /** References matching the filter, before paging. */
+  total: number;
+  /** References in this page. */
+  returned: number;
+  /** Offset of the next page; null when this page reaches the end. */
+  nextOffset: number | null;
+  /** The page itself. */
+  rows: GraphIndexReferenceReport[];
+}
+
 /**
  * Bounded status projection of a {@link GraphIndexAssessment} (T12560).
  *
@@ -725,6 +754,13 @@ export interface GraphIndexAssessmentProjection extends Omit<GraphIndexAssessmen
   filesByStatus: GraphIndexFileStatusCounts;
   /** The requested page of file rows; absent when `files` is complete. */
   filesPage?: GraphIndexFilePage;
+  /** Retained references per kind; present when references were requested (T13330). */
+  referencesByKind?: GraphIndexReferenceKindCounts;
+  /**
+   * The requested page of retained references (T13330). `references` itself is
+   * never returned by status; `_withheld.references` carries its UTF-8 JSON size.
+   */
+  referencesPage?: GraphIndexReferencePage;
 }
 
 /** Validated rows staged before an atomic graph publication. */

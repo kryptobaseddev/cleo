@@ -43,25 +43,32 @@ const STEP_LINES = {
 } as const;
 
 /**
- * How the run may act: `--yes`, a terminal prompt, unattended, or never. A
- * prompt needs both stdin and stderr on a terminal (a prompt written to a
- * redirected stderr is invisible and would wait on stdin), and never runs
- * under CI (review LOW-3). Without a terminal and outside CI the run is
- * unattended (T13288): `cleo login nexus` alone then completes the link.
+ * How the run may act: `--yes`, a terminal prompt, unattended, or never.
+ * - `--yes` acts without asking.
+ * - CI never acts (review LOW-3).
+ * - stdin and stderr on a terminal: prompt.
+ * - stdin on a terminal but stderr redirected (`cleo login 2>log`): never. A
+ *   person may be at the keyboard who cannot see the question, so nothing is
+ *   linked or uploaded unasked; the next commands are printed (T13321).
+ * - No terminal at all (an agent): unattended (T13288), so `cleo login` alone
+ *   completes the link and the first backup.
  *
  * @param args - Parsed citty args (`--yes`).
  * @param env - The environment. @defaultValue process.env
- * @param tty - Whether stdin and stderr are terminals. @defaultValue both `isTTY`
+ * @param stdinTty - Whether stdin is a terminal. @defaultValue `process.stdin.isTTY`
+ * @param stderrTty - Whether stderr is a terminal. @defaultValue `process.stderr.isTTY`
  * @returns The consent mode.
  */
 export function consentOf(
   args: Args,
   env: NodeJS.ProcessEnv = process.env,
-  tty: boolean = process.stdin.isTTY === true && process.stderr.isTTY === true,
+  stdinTty: boolean = process.stdin.isTTY === true,
+  stderrTty: boolean = process.stderr.isTTY === true,
 ): 'yes' | 'prompt' | 'unattended' | 'never' {
   if (args['yes'] === true) return 'yes';
   if (isCiEnv(env)) return 'never';
-  return promptAllowed(env, tty) ? 'prompt' : 'unattended';
+  if (promptAllowed(env, stdinTty && stderrTty)) return 'prompt';
+  return stdinTty ? 'never' : 'unattended';
 }
 
 /**
