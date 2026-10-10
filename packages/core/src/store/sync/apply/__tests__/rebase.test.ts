@@ -40,6 +40,7 @@ import {
   FOREIGN_TOUCH_COUNT_KEY,
   FOREIGN_TOUCH_INCOMPLETE_KEY,
   FOREIGN_TOUCH_MAX,
+  undoBudget,
 } from '../../sequencing.js';
 import { type ApplyReport, type ApplyStagedOptions, applyStagedTxns } from '../applier.js';
 
@@ -157,7 +158,7 @@ function publish(r: Replica, ...ids: string[]): void {
 function sync(
   r: Replica,
   upTo = published.length,
-  extra: Partial<Pick<ApplyStagedOptions, 'pageOps' | 'pageMs' | 'now'>> = {},
+  extra: Partial<Pick<ApplyStagedOptions, 'pageOps' | 'pageMs' | 'now' | 'undoBudgetBytes'>> = {},
 ): ApplyReport {
   for (; r.cursor < upTo; r.cursor++) {
     const s = published[r.cursor] as { replicaId: string; txns: LedgerTxn[] };
@@ -987,6 +988,53 @@ describe('pages (§3.5 Rule 3)', () => {
     expect(sync(a, published.length, { pageOps: 1 })).toMatchObject({ applied: 1 });
     expect(row(a, 'x')).toMatchObject({ priority: 'low' });
     expect(row(a, 'y')).toMatchObject({ priority: 'low' });
+  });
+});
+
+describe('undo budget (§3.5 Rule 2, D5)', () => {
+  it('warns from 80%, then persists the exceeded warning and keeps writing undo', async () => {
+    const [a] = await threeReplicas();
+    write(a, "UPDATE tasks_tasks SET priority = 'high' WHERE uid = 'x'");
+    const held = undoBudget(a.db).bytes;
+    const imagesOnly = n(
+      a.db,
+      'SELECT sum(octet_length(tbl) + octet_length(rk) + coalesce(octet_length(uid), 0) + coalesce(octet_length(before_full), 0) + coalesce(octet_length(after_full), 0)) AS n FROM _sync_undo',
+    );
+    expect(held, 'the row undo snapshots count too').toBeGreaterThan(imagesOnly);
+    // Under the budget, past 80%: a warning, nothing persisted.
+    expect(
+      sync(a, published.length, { undoBudgetBytes: Math.ceil(held / 0.85) }).undoBudget,
+    ).toMatchObject({ state: 'warn', exceededAt: null });
+    // Past the budget: the persistent warning every later pull carries.
+    const over = sync(a, published.length, { undoBudgetBytes: held });
+    expect(over.undoBudget).toMatchObject({ state: 'exceeded' });
+    expect(over.undoBudget?.exceededAt).not.toBeNull();
+    expect(sync(a).undoBudget, 'the warning is persistent until a rebind').toMatchObject({
+      state: 'exceeded',
+      exceededAt: over.undoBudget?.exceededAt,
+    });
+    // Undo is never stopped, and it is counted in UTF-8 bytes, not characters.
+    write(a, "UPDATE tasks_tasks SET title = 'ééééé' WHERE uid = 'y'");
+    const utf8 = (v: unknown) => (typeof v === 'string' ? Buffer.byteLength(v, 'utf8') : 0);
+    let expected = 0;
+    for (const r of a.db
+      .prepare('SELECT tbl, rk, uid, before_full, after_full FROM _sync_undo')
+      .all() as Array<Record<string, unknown>>) {
+      for (const v of Object.values(r)) expected += utf8(v);
+    }
+    for (const r of a.db
+      .prepare('SELECT tbl, uid, meta_json, leave_json, values_json, kept_json FROM _sync_row_undo')
+      .all() as Array<Record<string, unknown>>) {
+      for (const v of Object.values(r)) expected += utf8(v);
+    }
+    expect(undoBudget(a.db).bytes).toBe(expected);
+    expect(expected).toBeGreaterThan(held);
+    // Status and the doctor report the same.
+    expect((await readStoreSyncStream(a.db, 'project', null, 'cleo.db')).undo.state).toBe(
+      'exceeded',
+    );
+    expect((await runSyncRepair(join(dir, 'aaaa'))).undo.state).toBe('exceeded');
+    expect((await runSyncRepair(join(dir, 'aaaa'), { repair: true })).undo.state).toBe('exceeded');
   });
 });
 
