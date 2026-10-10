@@ -1152,7 +1152,7 @@ function buildQualityGateBlock(): string {
 function buildHitlLine(type: string, askProviderId: string | undefined): string {
   const tool = askProviderId ? getProviderAskTool(askProviderId).toolName : null;
   const how = tool ? `asks via \`${tool}\`` : 'emits one `hitl.request` LAFS envelope';
-  return `HITL: never ask the human. Return \`${type} blocked. manifest:<entryId>\` + blocker: with {question, options[{label,description}], recommended} in the manifest; the orchestrator ${how}.`;
+  return `HITL: never ask the human. Return \`${type} blocked. manifest:<entryId>\` + blocker: with {question, options[{label,description}], recommended} in the manifest (2-4 options; each description says what happens and its trade-off); the orchestrator ${how}.`;
 }
 
 /**
