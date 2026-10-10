@@ -11,7 +11,7 @@
  * | `_sync_cap_<t>_i` | INSERT | full image; identity read from the LIVE row (N4) |
  * | `_sync_cap_<t>_u` | UPDATE OF captured columns, when one changed | changed columns `[old, new]` |
  * | `_sync_cap_<t>_d` | DELETE | full before-image |
- * | `_sync_cap_<t>_k` | UPDATE OF uid / birth_fp of a keyed row | the re-key (H5) |
+ * | `_sync_cap_<t>_k` | UPDATE OF uid / birth_fp of a keyed row, not a fill | the re-key (H5) |
  * | `_sync_cap_<t>_f` | UPDATE OF uid / birth_fp from NULL | patches the latest live I capture (N4, N11) |
  *
  * - Values are `enc()`-encoded before any JSON function sees them (`quote()`,
@@ -63,6 +63,7 @@ import {
   CAPTURE_TRIGGER_PREFIX,
   normalizeSql,
   suspendClause,
+  TRIGGER_SUSPEND_TABLE_DDL,
 } from './trigger-classes.js';
 import { raiseMinWriterVersion } from './writer-version.js';
 
@@ -401,7 +402,16 @@ export function captureTriggers(def: CaptureTableDef): CaptureTrigger[] {
     const kImg = chunkedObject(
       idCols.map((c) => [c, `json_array(${enc(`OLD.${q(c)}`)}, ${enc(`NEW.${q(c)}`)})`] as const),
     );
-    const rekeyed = idCols.map((c) => `OLD.${q(c)} IS NOT NEW.${q(c)}`).join(' OR ');
+    // A birth_fp going NULL -> value is a fill (`_f` patches it), never a
+    // re-key: the TEMP fill sets uid then birth_fp in separate UPDATEs, so a
+    // bare `IS NOT` captured a stray K on every insert (T13311).
+    const rekeyed = idCols
+      .map((c) =>
+        c === UID_COLUMN
+          ? `OLD.${q(c)} IS NOT NEW.${q(c)}`
+          : `(OLD.${q(c)} IS NOT NULL AND OLD.${q(c)} IS NOT NEW.${q(c)})`,
+      )
+      .join(' OR ');
     out.push({
       name: name('k'),
       table: def.table,
@@ -567,6 +577,10 @@ export function installCaptureTriggers(db: DatabaseSync, scope: TableScope): Cap
     return true;
   });
   if (report.dropped.length + changes.length === 0) return report;
+  // Every capture trigger reads cleo_trigger_suspend (T13398): a store that
+  // never ran the open pass's step 0 (a raw handle, or a global store from
+  // before step 0 covered that scope) gets it before the triggers go in.
+  if (changes.length > 0) db.exec(TRIGGER_SUSPEND_TABLE_DDL);
   // One unit (T13024 MED-2): a failed CREATE never leaves a dropped trigger committed.
   atomicDdl(db, () => {
     for (const name of report.dropped) db.exec(`DROP TRIGGER IF EXISTS ${q(name)}`);
