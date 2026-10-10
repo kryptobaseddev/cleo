@@ -35,6 +35,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { basename, extname } from 'node:path';
+import { PerformanceObserver, constants as perfConstants } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { getHeapStatistics, type HeapInfo } from 'node:v8';
 import type {
@@ -907,42 +908,105 @@ export const NEXUS_HEAP_EXHAUSTED = 'E_NEXUS_HEAP_EXHAUSTED';
  * Share of the CLI's V8 heap limit that received parse results may fill
  * before the parse refuses with {@link NEXUS_HEAP_EXHAUSTED}.
  *
- * V8 runs its full mark-compact repeatedly as the heap approaches the limit,
- * so live data above this share is not garbage waiting to be collected. The
- * remaining tenth is what the process needs to unwind and report; past it,
- * the next allocation is V8's fatal "Reached heap limit" abort, which no
+ * The remaining tenth is what the process needs to unwind and report; past
+ * it, the next allocation is V8's fatal "Reached heap limit" abort, which no
  * caller can catch and which names neither the cause nor a remedy (T13325).
  */
 const PARENT_HEAP_REFUSAL_RATIO = 0.9;
 
+/** The two heap figures the guard compares. */
+export type ParentHeapReading = Pick<HeapInfo, 'used_heap_size' | 'heap_size_limit'>;
+
+/** Injectable observations for {@link createParentHeapGuard}; defaults read the live process. */
+export interface ParentHeapGuardSources {
+  /** Current heap statistics. */
+  heap?: () => ParentHeapReading;
+  /** Full (mark-compact) collections completed so far. */
+  majorGcCount?: () => number;
+}
+
+/** A guard checked after each received result; dispose it when the parse ends. */
+export interface ParentHeapGuard {
+  /**
+   * Refuse, with a named error and a remedy, before received results exhaust
+   * the calling process's heap.
+   * @param filesReceived - Files whose results the parent holds so far.
+   * @param totalFiles - Files in this parse.
+   * @throws {Error} `E_NEXUS_HEAP_EXHAUSTED` when the heap stays above the
+   *   refusal share across a full collection.
+   */
+  check(filesReceived: number, totalFiles: number): void;
+  /** Stop observing collections. */
+  dispose(): void;
+}
+
 /**
- * Refuse, with a named error and a remedy, before received results exhaust
- * the calling process's heap.
+ * Create the parse's heap guard.
  *
- * @param filesReceived - Files whose results the parent holds so far.
- * @param totalFiles - Files in this parse.
- * @param heap - Current heap statistics; defaults to the live process.
- * @throws {Error} `E_NEXUS_HEAP_EXHAUSTED` when live heap exceeds the refusal share.
+ * `used_heap_size` counts garbage a collection has not yet reclaimed, so one
+ * reading above the refusal share does not prove the data is live: near the
+ * cap it could refuse a run that would have fit. A breach therefore refuses
+ * only when it is still present after a full mark-compact has completed since
+ * the breach was first seen — the point at which what remains is live (T13325
+ * review, T13332). A reading back under the share clears the breach.
+ *
+ * @param sources - Heap and collection observations; defaults read the live process.
+ * @returns The guard.
  * @example
  * ```ts
- * assertParentHeapHeadroom(received, total);
+ * const guard = createParentHeapGuard();
+ * try { guard.check(received, total); } finally { guard.dispose(); }
  * ```
  */
-export function assertParentHeapHeadroom(
-  filesReceived: number,
-  totalFiles: number,
-  heap: Pick<HeapInfo, 'used_heap_size' | 'heap_size_limit'> = getHeapStatistics(),
-): void {
-  if (heap.used_heap_size <= heap.heap_size_limit * PARENT_HEAP_REFUSAL_RATIO) return;
-  const mib = (bytes: number): number => Math.round(bytes / 1024 / 1024);
-  throw new Error(
-    `${NEXUS_HEAP_EXHAUSTED}: the CLI process holds ${mib(heap.used_heap_size)} MiB of its ` +
-      `${mib(heap.heap_size_limit)} MiB V8 heap after receiving parse results for ` +
-      `${filesReceived} of ${totalFiles} files, so finishing the index would abort the process. ` +
-      `Nothing was published and the previous graph is retained. Raise the CLI heap with ` +
-      `CLEO_MAX_OLD_SPACE_MB=<MiB> (for example ${Math.max(2048, mib(heap.heap_size_limit) * 2)}), ` +
-      `or index a narrower root.`,
-  );
+export function createParentHeapGuard(sources: ParentHeapGuardSources = {}): ParentHeapGuard {
+  let observedMajorGcs = 0;
+  let observer: PerformanceObserver | undefined;
+  if (!sources.majorGcCount) {
+    observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        // A 'gc' entry carries NodeGCPerformanceDetail at runtime; the base
+        // PerformanceEntry type does not declare it.
+        const detail: unknown = Reflect.get(entry, 'detail');
+        if (
+          typeof detail === 'object' &&
+          detail !== null &&
+          'kind' in detail &&
+          detail.kind === perfConstants.NODE_PERFORMANCE_GC_MAJOR
+        )
+          observedMajorGcs++;
+      }
+    });
+    observer.observe({ entryTypes: ['gc'] });
+  }
+  const readHeap = sources.heap ?? getHeapStatistics;
+  const majorGcs = sources.majorGcCount ?? ((): number => observedMajorGcs);
+  // Collections completed when the current breach was first seen.
+  let breachSeenAtGc: number | undefined;
+  return {
+    check(filesReceived, totalFiles) {
+      const heap = readHeap();
+      if (heap.used_heap_size <= heap.heap_size_limit * PARENT_HEAP_REFUSAL_RATIO) {
+        breachSeenAtGc = undefined;
+        return;
+      }
+      if (breachSeenAtGc === undefined || majorGcs() <= breachSeenAtGc) {
+        breachSeenAtGc ??= majorGcs();
+        return;
+      }
+      const mib = (bytes: number): number => Math.round(bytes / 1024 / 1024);
+      throw new Error(
+        `${NEXUS_HEAP_EXHAUSTED}: the CLI process holds ${mib(heap.used_heap_size)} MiB of its ` +
+          `${mib(heap.heap_size_limit)} MiB V8 heap after receiving parse results for ` +
+          `${filesReceived} of ${totalFiles} files, and a full collection did not free it, so ` +
+          `finishing the index would abort the process. Nothing was published and the previous ` +
+          `graph is retained. Raise the CLI heap with CLEO_MAX_OLD_SPACE_MB=<MiB> (for example ` +
+          `${Math.max(2048, mib(heap.heap_size_limit) * 2)}), or index a narrower root.`,
+      );
+    },
+    dispose() {
+      observer?.disconnect();
+    },
+  };
 }
 
 /**
@@ -1031,6 +1095,7 @@ async function extractInParallel(
   const total = files.length;
   const pass: ExtractionPass = { extracted: new Map(), failures: new Map() };
   const strings = new Map<string, string>();
+  const heapGuard = createParentHeapGuard();
   let received = 0;
   const pool = createWorkerPool(
     workerUrl,
@@ -1050,7 +1115,7 @@ async function extractInParallel(
         }
         for (const file of result.files) pass.extracted.set(file.path, file);
         received += result.reports.length;
-        assertParentHeapHeadroom(received, total);
+        heapGuard.check(received, total);
       },
       onProgress: (filesProcessed) => {
         if (options.onProgress) {
@@ -1060,6 +1125,7 @@ async function extractInParallel(
       },
     });
   } finally {
+    heapGuard.dispose();
     await pool.terminate().catch(() => undefined);
   }
   if (!options.onProgress && total > 0) {

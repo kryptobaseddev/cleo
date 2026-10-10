@@ -43,7 +43,7 @@ import { createKnowledgeGraph } from '../pipeline/knowledge-graph.js';
 import { detectLanguageFromPath, isIndexableFile } from '../pipeline/language-detection.js';
 import { computeExtractorFingerprint } from '../pipeline/parse-cache.js';
 import {
-  assertParentHeapHeadroom,
+  createParentHeapGuard,
   extractOriginalSource,
   NEXUS_HEAP_EXHAUSTED,
   runParseLoop,
@@ -419,25 +419,118 @@ describe('streamed parse results (T13325)', () => {
     }
   });
 
-  it('refuses with a named error and remedy before received results exhaust the heap', () => {
+  it('resumes a dead worker after the items it delivered: every item exactly once, in order', () => {
+    // T13332: a worker killed after k of n sub-batches is replaced, and the
+    // replacement starts at the first undelivered item. Resuming from 0 would
+    // deliver items twice; skipping the in-flight item would lose it.
+    const directory = makeTempDir();
+    try {
+      buildSync({
+        entryPoints: [
+          fileURLToPath(new URL('../pipeline/workers/worker-pool.ts', import.meta.url)),
+        ],
+        outfile: join(directory, 'pool.mjs'),
+        bundle: true,
+        platform: 'node',
+        format: 'esm',
+      });
+      // First life only: on `killAt`, either die while handling it ('before',
+      // so it is in flight and undelivered) or reply and die at once ('after').
+      writeFileSync(
+        join(directory, 'worker.cjs'),
+        `const fs = require('node:fs');
+        const [mode, killAt, marker] = process.argv.slice(2);
+        let processed = 0;
+        process.send({ type: 'ready', heapBytes: require('node:v8').getHeapStatistics().heap_size_limit });
+        process.on('message', (message) => {
+          const item = message.files[0];
+          if (item === killAt && !fs.existsSync(marker)) {
+            fs.writeFileSync(marker, '');
+            if (mode === 'before') process.exit(3);
+            process.send({ type: 'sub-batch-done', data: item }, () => process.exit(3));
+            return;
+          }
+          process.send({ type: 'progress', filesProcessed: ++processed });
+          process.send({ type: 'sub-batch-done', data: item });
+        });`,
+      );
+      writeFileSync(
+        join(directory, 'probe.mjs'),
+        `
+        import assert from 'node:assert/strict';
+        import { fork } from 'node:child_process';
+        import { once } from 'node:events';
+        import { createWorkerPool } from './pool.mjs';
+        const items = Array.from({ length: 6 }, (_, index) => 'item-' + index);
+        const scenarios = [['before', 'item-2'], ['before', 'item-5'], ['after', 'item-2'], ['after', 'item-5']];
+        for (const [mode, killAt] of scenarios) {
+          const marker = new URL('./marker-' + mode + '-' + killAt, import.meta.url).pathname;
+          let spawns = 0;
+          const execution = {
+            spawn(path, limits) {
+              spawns++;
+              const child = fork(path, [mode, killAt, marker], { execArgv: ['--max-old-space-size=' + limits.workerHeapMb, '--max-semi-space-size=8'], stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+              const closed = once(child, 'close');
+              return { child, heapMb: limits.workerHeapMb, nativeMemory: 'unverified', stderrTail: () => '', async stop() { child.kill('SIGKILL'); await closed; } };
+            },
+          };
+          const pool = createWorkerPool(new URL('./worker.cjs', import.meta.url), 1, { workerHeapMb: 64 }, execution);
+          const seen = [];
+          try {
+            await pool.dispatch(items, { onResult: (item) => seen.push(item) });
+          } finally { await pool.terminate(); }
+          assert.deepEqual(seen, items, mode + ' ' + killAt + ': every item exactly once, in scan order');
+          if (mode === 'before') assert.equal(spawns, 2, mode + ' ' + killAt + ': the dead worker was replaced');
+        }
+      `,
+      );
+      execFileSync(process.execPath, [join(directory, 'probe.mjs')], {
+        timeout: 60000,
+        env: { PATH: process.env['PATH'], HOME: directory, TMPDIR: directory },
+        stdio: 'pipe',
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses only when a heap breach survives a full collection, naming the remedy', () => {
     const mib = 1024 * 1024;
-    expect(() =>
-      assertParentHeapHeadroom(10, 20, { used_heap_size: 1000 * mib, heap_size_limit: 1728 * mib }),
-    ).not.toThrow();
+    let used = 1000 * mib;
+    let majorGcs = 0;
+    const guard = createParentHeapGuard({
+      heap: () => ({ used_heap_size: used, heap_size_limit: 1728 * mib }),
+      majorGcCount: () => majorGcs,
+    });
+    guard.check(10, 5357);
+    // Above the share, but no collection has run since: it may be garbage.
+    used = 1600 * mib;
+    guard.check(11, 5357);
+    guard.check(12, 5357);
+    // A collection reclaimed it: the breach is cleared, not remembered.
+    majorGcs = 1;
+    used = 1000 * mib;
+    guard.check(13, 5357);
+    used = 1600 * mib;
+    guard.check(14, 5357);
+    // The same breach after a completed collection is live data: refuse.
+    majorGcs = 2;
     let caught: Error | undefined;
     try {
-      assertParentHeapHeadroom(4000, 5357, {
-        used_heap_size: 1600 * mib,
-        heap_size_limit: 1728 * mib,
-      });
+      guard.check(4000, 5357);
     } catch (error) {
       caught = error instanceof Error ? error : undefined;
     }
+    guard.dispose();
     expect(caught?.message).toMatch(new RegExp(`^${NEXUS_HEAP_EXHAUSTED}:`));
     expect(caught?.message).toContain('1600 MiB of its 1728 MiB');
     expect(caught?.message).toContain('4000 of 5357 files');
+    expect(caught?.message).toContain('a full collection did not free it');
     expect(caught?.message).toContain('CLEO_MAX_OLD_SPACE_MB=<MiB> (for example 3456)');
     expect(caught?.message).toContain('previous graph is retained');
+    const live = createParentHeapGuard();
+    expect(() => live.check(1, 1)).not.toThrow();
+    live.dispose();
   });
 });
 
