@@ -2478,10 +2478,38 @@ export function collapseTwinTables(
   if (nativeDb.isTransaction)
     throw new Error('twin collapse needs a connection outside a transaction');
 
+  const prior = degraded.get(nativeDb);
+  /** Serve `pairs` read-only from sealed TEMP shadows and mark the connection degraded by `failure`. */
+  const shadowPairs = (pairs: readonly TwinPair[], failure: TwinCollapseFailure) => {
+    for (const pair of pairs) {
+      for (const shadow of pair.shadows ?? [pair.twin]) unsealShadow(nativeDb, shadow);
+      pair.shadow?.(nativeDb, pair.plan(nativeDb, readState(nativeDb, pair)));
+      for (const shadow of pair.shadows ?? [pair.twin]) sealShadow(nativeDb, shadow);
+    }
+    degraded.set(nativeDb, failure);
+  };
+
   const fail = (pairs: readonly TwinPair[], failure: TwinCollapseFailure, cause: unknown) => {
     recordFailure(nativeDb, pairs, failure);
     log.error(failure, `twin collapse of ${failure.tables.join(', ')} failed (T12535)`);
-    if (onFailure === 'throw') throw twinCollapseError(failure, cause);
+    if (onFailure === 'throw') {
+      // A retry that dropped a degraded connection's shadows for the snapshot
+      // restores them before throwing, so its reads stay merged (T13455).
+      if (prior && !degraded.has(nativeDb)) {
+        const still = PAIRS.filter(
+          (p) => prior.tables.includes(p.table) && (pairs.includes(p) || !byTable.has(p.table)),
+        );
+        try {
+          if (still.length > 0) shadowPairs(still, { ...failure, tables: still.map((p) => p.table) });
+        } catch (shadowError) {
+          log.error(
+            { err: shadowError },
+            'twin collapse could not restore its read shadows (T13455)',
+          );
+        }
+      }
+      throw twinCollapseError(failure, cause);
+    }
     // A lossless pair degrades nothing: its twin is correct as it is, its bare
     // rows wait, and the next open retries (T13115).
     for (const pair of pairs.filter((p) => p.lossless))
@@ -2492,15 +2520,10 @@ export function collapseTwinTables(
     // Read-only-for-users mode: serve the merged view from TEMP shadows. If
     // even that cannot be built, reads cannot be served correctly either.
     try {
-      for (const pair of degrading) {
-        for (const shadow of pair.shadows ?? [pair.twin]) unsealShadow(nativeDb, shadow);
-        pair.shadow?.(nativeDb, pair.plan(nativeDb, readState(nativeDb, pair)));
-        for (const shadow of pair.shadows ?? [pair.twin]) sealShadow(nativeDb, shadow);
-      }
+      shadowPairs(degrading, scoped);
     } catch (shadowError) {
       throw twinCollapseError(scoped, shadowError);
     }
-    degraded.set(nativeDb, scoped);
     for (const pair of degrading)
       byTable.set(pair.table, receipt(pair, 'degraded', failure.snapshotPath));
   };
@@ -2516,7 +2539,7 @@ export function collapseTwinTables(
   if (needSnapshot.length > 0) {
     // A TEMP shadow named like its main twin captures unqualified names inside
     // VACUUM INTO, so an index on a main-only column (uid) fails the snapshot.
-    // A failure below rebuilds the shadows.
+    // A failure below rebuilds the shadows (in throw mode too: T13455).
     if (degraded.has(nativeDb)) clearShadows(nativeDb);
     const plan = planMigrationSnapshot(nativeDb, dbPath);
     try {
