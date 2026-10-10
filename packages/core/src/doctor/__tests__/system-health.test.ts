@@ -85,6 +85,29 @@ function incidentPs(): string {
         'node /Users/u/.npm/_npx/x/node_modules/.bin/canva mcp',
       ),
     );
+    // Two different servers started through npx, each with its node child.
+    rows.push(psRow(s + 8, s, 30_000, 0, '1-02:00:00', 'npm exec -y @playwright/mcp@latest'));
+    rows.push(
+      psRow(
+        s + 9,
+        s + 8,
+        70_000,
+        0,
+        '1-02:00:00',
+        `${NODE} /Users/u/.npm/_npx/a/node_modules/.bin/mcp-server-playwright`,
+      ),
+    );
+    rows.push(psRow(s + 10, s, 30_000, 0, '1-02:00:00', 'npx -y @upstash/context7-mcp@1.0.17'));
+    rows.push(
+      psRow(
+        s + 11,
+        s + 10,
+        60_000,
+        0,
+        '1-02:00:00',
+        `${NODE} /Users/u/.npm/_npx/b/node_modules/.bin/context7-mcp`,
+      ),
+    );
     rows.push(
       psRow(s + 6, s, 60_000, 0, '1-02:00:00', `${NODE} /w/tools/axiom-qa-mcp/dist/server.js`),
     );
@@ -294,6 +317,12 @@ describe('parsers', () => {
     expect(name(`${NODE} /w/tools/axiom-qa-mcp/dist/server.js`)).toBe('axiom-qa-mcp');
     expect(name(`${NODE} ./mcp/server.mjs`)).toBe('mcp');
     expect(name('claude mcp serve')).toBeNull();
+    expect(name('npx -y @playwright/mcp@latest')).toBe('@playwright/mcp');
+    expect(name('pnpm dlx @upstash/context7-mcp@1.0.17 --api-key x')).toBe('@upstash/context7-mcp');
+    expect(name('uvx mcp-server-fetch==0.6.2')).toBe('mcp-server-fetch');
+    expect(name('bunx --bun mcp-remote https://x')).toBe('mcp-remote');
+    // a launcher running something that is not an MCP server
+    expect(name('npx -y tsx scripts/mcp-check.ts')).toBeNull();
     expect(name('pnpm vitest run')).toBeNull();
   });
 
@@ -344,6 +373,14 @@ describe('assessSystemHealth on macOS (the 2026-10-10 incident)', () => {
     expect(byId.get('mcp-fanout:agentmbx')?.evidence.processes).toBe(8);
     expect(byId.get('mcp-fanout:agentmbx')?.evidence.rssMib).toBe(Math.round((8 * 120_000) / 1024));
     expect(byId.get('mcp-fanout:axiom-qa-mcp')?.evidence.processes).toBe(8);
+    // launcher-started servers group by package, the wrapper and its child once
+    expect(byId.get('mcp-fanout:@playwright/mcp')?.evidence).toMatchObject({
+      processes: 8,
+      rssMib: Math.round((8 * 100_000) / 1024),
+    });
+    expect(byId.get('mcp-fanout:@upstash/context7-mcp')?.evidence.processes).toBe(8);
+    expect(byId.get('mcp-fanout:npm')).toBeUndefined();
+    expect(byId.get('mcp-fanout:npx')).toBeUndefined();
     const pw = byId.get('mcp-fanout:playwright-mcp');
     expect(pw?.needsOwnerChoice).toBe(true);
     expect(pw?.remedy?.command).toBe('claude mcp remove playwright-mcp --scope user');
@@ -381,9 +418,19 @@ describe('assessSystemHealth on macOS (the 2026-10-10 incident)', () => {
   it('flags indexer CPU, Time Machine and Spotlight on node_modules', async () => {
     const r = assessSystemHealth(await darwinSnapshot());
     expect(r.findings.find((f) => f.id.startsWith('indexing-cpu:mds_stores'))).toBeDefined();
-    expect(r.findings.find((f) => f.id === 'time-machine-node-modules')?.remedy?.command).toBe(
-      "tmutil addexclusion '/Users/u/p/node_modules'",
-    );
+    const tm = r.findings.find((f) => f.id === 'time-machine-node-modules');
+    expect(tm?.remedy?.command).toBe("tmutil addexclusion '/Users/u/p/node_modules'");
+    expect(tm?.needsOwnerChoice).toBe(true);
+    const quoted = assessSystemHealth(
+      await darwinSnapshot({
+        indexing: {
+          projectRoot: "/Users/u/o'brien",
+          timeMachine: '[Included] x',
+          spotlightCount: '0',
+        },
+      }),
+    ).findings.find((f) => f.id === 'time-machine-node-modules');
+    expect(quoted?.remedy?.command).toBe("tmutil addexclusion '/Users/u/o'\\''brien/node_modules'");
     expect(
       r.findings.find((f) => f.id === 'spotlight-node-modules')?.evidence.indexedPackageJson,
     ).toBe(1234);
