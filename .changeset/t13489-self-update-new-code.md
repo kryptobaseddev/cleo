@@ -18,6 +18,11 @@ and `project-context.json`. self-update now spawns the installed CLI
   tracked file is turned back into references. Untracked files still get the
   self-contained delivery, and `injection.delivery` in `.cleo/config.json`
   overrides both.
+- `cleo init` follows the same rule in a git checkout, since the files it
+  writes get committed.
+- A new `.cleo/config.json` sets `brain.memoryBridge.mode` to `cli`, the
+  default every reader already assumed. Before this, a fresh clone's second
+  upgrade rewrote AGENTS.md.
 - Upgrade creates `.cleo/project-context.json` only when it is missing.
   `cleo upgrade --detect` re-detects it, keeping its keys and order.
 
