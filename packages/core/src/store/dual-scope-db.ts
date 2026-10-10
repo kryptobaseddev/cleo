@@ -905,7 +905,7 @@ async function migrateScopeSchema(
   // §1.5 (T13336): the replica bind of a canonical open. With every sync.*
   // flag off it reads only the flags, so the module loads only when one is on.
   if (anySyncFlagOn(nativeDb)) {
-    const { syncOpenPass } = await import('./sync/replica.js');
+    const { retireDue, syncOpenPass } = await import('./sync/replica.js');
     const bound = syncOpenPass(nativeDb, { dbPath: sync.dbPath, scope, mode: 'live' });
     if (bound.status === 'rebound') {
       log.warn(
@@ -914,9 +914,22 @@ async function migrateScopeSchema(
           replicaId: bound.replicaId,
           previous: bound.previousReplicaId,
           reasons: bound.reasons,
+          retires: bound.retires === true,
         },
         'store rebound to a new replica at open (T13336)',
       );
+    }
+    // T13337: a rollback or move rebind owes the stream a signed retire; also
+    // resumes one a crash left between the rebind and its retire.
+    if (retireDue(nativeDb) !== null) {
+      const { settleRetireDue } = await import('./sync/rebind.js');
+      const pending = settleRetireDue(nativeDb);
+      if (pending !== null) {
+        log.info(
+          { scope, stream: pending.stream, from: pending.from, to: pending.to },
+          'retire queued for the replica this store retired at open (T13337)',
+        );
+      }
     }
   }
 }

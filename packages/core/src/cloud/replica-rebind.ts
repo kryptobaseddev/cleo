@@ -29,7 +29,12 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { RetireReplicaResult } from '@cleocode/contracts/cloud';
 import { z } from 'zod';
-import { clearPendingRebind, type PendingRebind, pendingRebind } from '../store/sync/rebind.js';
+import {
+  clearPendingRebind,
+  type PendingRebind,
+  pendingRebind,
+  settleRetireDue,
+} from '../store/sync/rebind.js';
 import { confirmRetirements } from '../store/sync/retire.js';
 import { signEd25519 } from './crypto.js';
 import { NexusError } from './http.js';
@@ -132,4 +137,27 @@ export async function completeServerRebind(
   confirmRetirements(db, pending.stream, [stored.retirement]);
   clearPendingRebind(db, pending.to);
   return pending;
+}
+
+/**
+ * Complete every rebind the store owes on `target`'s stream (T13337): the
+ * pending server half of an earlier rebind first, then the retirement an
+ * open-pass rebind (a rollback or a cross-filesystem move) recorded, which
+ * {@link settleRetireDue} turns into a signed `retire` and a pending server
+ * half, completed at once. A refusal leaves what is owed in place.
+ *
+ * @param conn - The vault connection.
+ * @param target - The stream, its project and the project root.
+ * @param db - The store.
+ * @returns The last rebind completed, or null when none was owed.
+ * @throws {NexusAccountError} `E_NEXUS_SYNC_REFUSED` when the server refuses.
+ */
+export async function completeOwedRebinds(
+  conn: Pick<NexusVaultConnection, 'apiUrl' | 'deviceId' | 'keys' | 'raw'>,
+  target: RebindTarget,
+  db: DatabaseSync,
+): Promise<PendingRebind | null> {
+  const earlier = await completeServerRebind(conn, target, db);
+  if (settleRetireDue(db) === null) return earlier;
+  return (await completeServerRebind(conn, target, db)) ?? earlier;
 }
