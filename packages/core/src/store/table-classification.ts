@@ -394,10 +394,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'named in the ruling',
   },
   brain_memory_trees: {
-    class: 'portable-personal',
-    status: 'needs-owner-call',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then. T12896: the surprisal pass deletes and rebuilds every row each cycle, so synced-vs-derived is decided before it gets a uid (still exempt)',
+    class: 'derived',
+    status: 'resolved',
+    source: 'team-lead decision 2026-10-10 (T12896)',
+    note: 'surprisal clustering output that the surprisal pass deletes and rebuilds every cycle (surprisal-tree.ts), so each device recomputes it from the synced brain_observations; brain_observations.tree_id stays stripped from ops and is recomputed with it. Never captured, never replicated',
   },
   brain_modulators: {
     class: 'portable-personal',
@@ -506,7 +506,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'named in the ruling; INTEGER autoincrement PK needs a uid before merge. T12896: still exempt; not in the consolidated schema (the drizzle-brain reconcile creates it), so it joins that schema first, then is declared natural on (observation_id, task uid)',
+    note: 'named in the ruling. T12896: joins the consolidated project schema (migration 20261010170000_t12896b-brain-task-observations) and is declared natural on (observation_id, task uid); its INTEGER id is a local key that never travels',
   },
   brain_transcript_events: {
     class: 'portable-personal',
@@ -1713,10 +1713,10 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'named in the ruling',
   },
   brain_memory_trees: {
-    class: 'portable-personal',
-    status: 'needs-owner-call',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then. T12896: the surprisal pass deletes and rebuilds every row each cycle, so synced-vs-derived is decided before it gets a uid (still exempt)',
+    class: 'derived',
+    status: 'resolved',
+    source: 'team-lead decision 2026-10-10 (T12896)',
+    note: 'surprisal clustering output that the surprisal pass deletes and rebuilds every cycle (surprisal-tree.ts), so each device recomputes it from the synced brain_observations; brain_observations.tree_id stays stripped from ops and is recomputed with it. Never captured, never replicated',
   },
   brain_modulators: {
     class: 'portable-personal',

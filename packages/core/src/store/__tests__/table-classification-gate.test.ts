@@ -641,8 +641,14 @@ describe('Gate A: two-tier policy', () => {
   ]);
   const FTS_SHADOW = /^[a-z_]+_fts(_(config|data|docsize|idx|content))?$/;
   const VEC_SHADOW = /^brain_embeddings_(chunks|info|rowids|vector_chunks[0-9]{2})$/;
+  /**
+   * Recomputed brain state (team-lead decision 2026-10-10, T12896): the
+   * surprisal pass truncates and rebuilds the tree every cycle on each device
+   * from the synced observations, so syncing it would only churn.
+   */
+  const RECOMPUTED_BRAIN = new Set(['brain_memory_trees']);
   const derivedAllowed = (t: string) =>
-    NEXUS_CODE_GRAPH.has(t) || FTS_SHADOW.test(t) || VEC_SHADOW.test(t);
+    NEXUS_CODE_GRAPH.has(t) || RECOMPUTED_BRAIN.has(t) || FTS_SHADOW.test(t) || VEC_SHADOW.test(t);
 
   it.each([
     'project',
@@ -664,12 +670,8 @@ describe('Gate A: two-tier policy', () => {
     'project',
     'global',
   ] as const)('%s: embeddings and LLM/sleep output are not derived', (scope) => {
-    for (const t of [
-      'brain_embeddings',
-      'brain_patterns',
-      'brain_page_edges',
-      'brain_memory_trees',
-    ]) {
+    // brain_memory_trees left this list on purpose (RECOMPUTED_BRAIN above).
+    for (const t of ['brain_embeddings', 'brain_patterns', 'brain_page_edges']) {
       const r = classifyTable(scope, t);
       expect(r.kind === 'entry' && r.class !== 'derived', `${scope}.${t}`).toBe(true);
     }
