@@ -50,6 +50,24 @@ async function backend(): Promise<typeof import('@cleocode/worktree')> {
 // ---------------------------------------------------------------------------
 
 /**
+ * Admit one worktree dependency install as a `scoped-build` run, without
+ * waiting: the release on a grant, `null` when the budget is busy.
+ *
+ * @task T13524
+ */
+export async function admitWorktreeInstall(): Promise<(() => Promise<void>) | null> {
+  const { governor } = await import('../resources/governor.js');
+  try {
+    const grant = await governor.acquire('scoped-build', { blocking: false });
+    return grant.deferred ? null : () => grant.release();
+  } catch {
+    // Admission state cannot be kept here (sandbox, read-only home): fail open,
+    // as every other governed run does.
+    return async () => {};
+  }
+}
+
+/**
  * Create a worktree for an agent task via the native backend.
  *
  * This is the canonical entry point for `orchestrate.spawn` to request a
@@ -67,14 +85,26 @@ export async function spawnWorktree(
   options: CreateWorktreeOptions,
 ): Promise<CreateWorktreeResult> {
   const { createWorktree } = await backend();
-  // T13522: install the git shim before the worktree advertises strict protection.
-  if (options.gitShim) return createWorktree(projectRoot, options);
-  const { ensureGitShimDir } = await import('../spawn/branch-lock.js');
-  const shim = ensureGitShimDir(projectRoot);
-  return createWorktree(projectRoot, {
+  const { createProjectHookExecutor } = await import('../hooks/project-runner.js');
+  const hookOptions = {
     ...options,
-    gitShim: { dir: shim.dir, installed: shim.installed },
-  });
+    projectHookExecutor: options.projectHookExecutor ?? createProjectHookExecutor(projectRoot),
+  };
+  // T13522: install the git shim before the worktree advertises strict protection.
+  let withShim: CreateWorktreeOptions = hookOptions;
+  if (!options.gitShim) {
+    const { ensureGitShimDir } = await import('../spawn/branch-lock.js');
+    const shim = ensureGitShimDir(projectRoot);
+    withShim = { ...hookOptions, gitShim: { dir: shim.dir, installed: shim.installed } };
+  }
+  // T13524: admit the dependency install through the machine-wide heavy queue
+  // (the same `scoped-build` class as `cleo run --class build`); a busy budget
+  // defers it to the worker instead of blocking the spawn.
+  const admitted =
+    withShim.skipInstall || withShim.admitInstall
+      ? withShim
+      : { ...withShim, admitInstall: admitWorktreeInstall };
+  return createWorktree(projectRoot, admitted);
 }
 
 /**

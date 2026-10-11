@@ -96,7 +96,12 @@ jobs:
           # re-runs of this run, so a re-run skips what already published; the
           # `ci.` segment keeps it apart from a hand-cut `-rc.N` prerelease tag.
           RC_VERSION=""
-          if [[ "$VERSION" == *"-alpha"* ]] || [[ "$VERSION" == *"-dev"* ]]; then
+          if [[ "$VERSION" =~ -canary\.[0-9]+$ ]]; then
+            DIST_TAG="canary"
+          elif [[ "$VERSION" == *"-canary"* ]]; then
+            echo "::error::Canary versions require a numbered -canary.N suffix"
+            exit 1
+          elif [[ "$VERSION" == *"-alpha"* ]] || [[ "$VERSION" == *"-dev"* ]]; then
             DIST_TAG="dev"
           elif [[ "$VERSION" == *"-beta"* ]] || [[ "$VERSION" == *"-rc"* ]]; then
             DIST_TAG="beta"
@@ -809,6 +814,28 @@ jobs:
       - name: Verify packed @cleocode/cant (every triple, built from this native source)
         run: node scripts/lint-no-committed-native-binaries.mjs --packed packages/cant --expect-source-hash "${CANT_SOURCE_HASH}"
 
+      # T13350: redacted pilot receipts are reviewed and retained in Git. The
+      # validator re-checks hosted VidaPeps CI independently; no receipt or
+      # inaccessible private Actions evidence means no hooks-v1 stable promotion.
+      - name: Validate unified-hooks stable promotion evidence
+        if: needs.build-verify.outputs.dist_tag == 'latest'
+        env:
+          GH_TOKEN: ${{ secrets.HOOK_PILOT_ACTIONS_READ_TOKEN || github.token }}
+          STABLE_VERSION: ${{ needs.build-verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          REQUIRED=$(node scripts/hook-pilot-evidence.mjs promotion-required \
+            --root "$GITHUB_WORKSPACE" --stable-version "$STABLE_VERSION")
+          if [[ "$REQUIRED" != "true" ]]; then
+            echo "Ordinary or hotfix release: hooks-v1 promotion evidence is not required"
+            exit 0
+          fi
+          node scripts/hook-pilot-evidence.mjs validate \
+            --root "$GITHUB_WORKSPACE" \
+            --evidence "$GITHUB_WORKSPACE/release-evidence/hooks-v1/evidence.json" \
+            --stable-version "$STABLE_VERSION" \
+            --vida-repository kryptobaseddev/VidaPeps
+
       - name: Create GitHub Release (idempotent)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1107,6 +1134,14 @@ jobs:
             scripts/release-sync-versions.sh "$VERSION"
           fi
           publish_release "$VERSION" "$TAG"
+          if [[ "$TAG" == "canary" ]]; then
+            # Retain the normalized source identity recomputed by this release run.
+            node scripts/hook-pilot-evidence.mjs digest --root "$GITHUB_WORKSPACE"
+            # Independent canaries stop here. A stable tag is a separate release.
+            POSTDEPLOY_TIMEOUT_MS=900000 node scripts/execute-payload.mjs \
+              --version "$VERSION" --dist-tag canary --output-dir /tmp/canary-postdeploy
+            node scripts/release-canary-soak.mjs --version "$VERSION" --out /tmp/canary-postdeploy/canary-soak.json
+          fi
 
       # Consumed by release-verdict to render the call -> created -> delay table
       # alongside the registry's own creation timestamps (gh#1479).

@@ -238,12 +238,26 @@ export function ensureWorktreeBuildReady(worktreePath: string, projectRoot: stri
   );
 
   try {
-    execFileSync('pnpm', ['install', '--prefer-offline', '--ignore-scripts'], {
-      cwd: worktreePath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 300_000, // 5 minutes
-    });
+    // Into the worktree's own store, never the shared global one (T9938, T13541).
+    execFileSync(
+      'pnpm',
+      [
+        'install',
+        '--prefer-offline',
+        '--ignore-scripts',
+        '--store-dir',
+        join(worktreePath, '.pnpm-store'),
+      ],
+      {
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        // Piped, never 'inherit': an inherited stdout would print pnpm's output
+        // before the spawn's LAFS envelope (ADR-086) and slip past the stdout
+        // guard test, which only sees process.stdout.write (T13493).
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 300_000, // 5 minutes
+      },
+    );
 
     process.stderr.write(`[worktree-preflight] pnpm install succeeded in ${worktreePath}\n`);
 

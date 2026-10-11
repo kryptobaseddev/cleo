@@ -2047,6 +2047,8 @@ interface RuntimeEntry {
   id: EntryId;
   store: ProjectStore | GlobalStore | null;
   initPromise: Promise<ProjectStore | GlobalStore> | null;
+  /** The operation the initializing open ran under, if any (T13552). */
+  execution?: OperationExecutionContext;
 }
 
 /**
@@ -2213,7 +2215,19 @@ class CleoRuntimeImpl implements CleoRuntime {
     const existing = this._registry.get(key);
     if (existing) {
       if (existing.initPromise) {
-        return existing.initPromise;
+        try {
+          return await existing.initPromise;
+        } catch (error) {
+          // A cancelled or expired initializer's deadline is not this caller's:
+          // a live waiter gets its own attempt, as the chokepoint does (T13552).
+          const own = worktreeScope.getStore()?.execution;
+          own?.assertActive();
+          if (existing.execution?.signal.aborted && existing.execution !== own) {
+            if (this._registry.get(key) === existing) this._registry.delete(key);
+            return this.openEntry(scope, dbPath, depth, exodusCwd);
+          }
+          throw error;
+        }
       }
       if (existing.store?.isOpen) {
         return existing.store;
@@ -2231,7 +2245,13 @@ class CleoRuntimeImpl implements CleoRuntime {
       initReject = reject;
     });
 
-    this._registry.set(key, { id: entryId, store: null, initPromise });
+    const execution = worktreeScope.getStore()?.execution;
+    this._registry.set(key, {
+      id: entryId,
+      store: null,
+      initPromise,
+      ...(execution ? { execution } : {}),
+    });
 
     // Evict on failure so a transient error doesn't poison.
     initPromise.catch(() => {

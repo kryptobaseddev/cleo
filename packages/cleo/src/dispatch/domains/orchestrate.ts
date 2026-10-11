@@ -198,6 +198,8 @@ interface OrchestrateSpawnParams {
   protocolType?: string;
   tier?: 0 | 1 | 2;
   noWorktree?: boolean;
+  /** T13524 — provision without installing dependencies. */
+  noInstall?: boolean;
   /** T9807 — sparse-checkout scope prefix (e.g. `packages/cleo`). */
   spawnScope?: string;
   /**
@@ -460,6 +462,7 @@ async function orchestrateSpawnOp(params: OrchestrateSpawnParams) {
     params.spawnScope,
     params.atomicityScope,
     params.resume,
+    params.noInstall,
   );
 }
 
@@ -878,6 +881,7 @@ export class OrchestrateHandler implements DomainHandler {
             // T12506 — `--resume` was dropped here, so every resume ran the
             // normal provisioning path (and hit the worktree lock).
             ...(params.resume === true ? { resume: true } : {}),
+            ...(params.noInstall === true ? { noInstall: true } : {}),
           };
           return wrapResult(await coreOps.spawn(p), 'mutate', 'orchestrate', operation, startTime);
         }
