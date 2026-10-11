@@ -270,6 +270,9 @@ function runWorktreeInstall(
   copiedPaths: string[],
   failedPaths: string[],
 ): WorktreeInstallOutcome {
+  // Both install paths use the worktree's own store: point its .npmrc there and
+  // exclude the store from git before pnpm creates it (T13542).
+  configureWorktreePnpmStore(worktreePath);
   if (appliedPatterns.some((p) => p.pattern === 'pnpm-lock.yaml')) {
     if (installWorktreeDependencies(worktreePath, gitRoot)) {
       copiedPaths.push('node_modules/ (pnpm install)');

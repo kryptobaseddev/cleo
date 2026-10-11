@@ -137,6 +137,18 @@ describe('createWorktree dependency install (T13524)', () => {
     expect(existsSync(marker)).toBe(true);
     expect(r.install?.status).toBe('installed');
     expect(released).toBe(1);
+    // No .worktreeinclude lists pnpm-lock.yaml here (the default template omits it), so this
+    // is the build-ready path: it, too, points .npmrc at the worktree store and excludes it (T13542).
+    expect(readFileSync(join(r.path, '.npmrc'), 'utf-8')).toBe(
+      `store-dir=${join(r.path, '.pnpm-store')}\n`,
+    );
+    mkdirSync(join(r.path, '.pnpm-store'), { recursive: true });
+    writeFileSync(join(r.path, '.pnpm-store', 'x'), 'x');
+    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+      cwd: r.path,
+      encoding: 'utf-8',
+    });
+    expect(status).not.toContain('.pnpm-store');
     expect(order).toEqual(['admit', 'release-after-pnpm']);
   });
 
