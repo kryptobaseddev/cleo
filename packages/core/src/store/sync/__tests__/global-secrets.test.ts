@@ -348,6 +348,42 @@ describe('global secrets travel sealed on the home stream (T13467)', () => {
     expect(live.n).toBe(1);
   });
 
+  it('a secret another machine encrypted never blocks the rest: it is held and named (T13532)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    await addAccount(a, 'anthropic', 'work', SECRET);
+    // A restored or copied row: its ciphertext is under B's machine key, not A's.
+    const foreign = await encryptGlobal('other-secret', 'account:openai:home', {
+      cleoHome: b.home,
+    });
+    write(
+      a.db,
+      `INSERT INTO accounts (provider, label, auth_type, secret_enc, priority, created_at, updated_at)
+       VALUES ('openai', 'home', 'api-key', ?, 1, '2026-10-11T00:00:00.000Z', '2026-10-11T00:00:00.000Z')`,
+      foreign,
+    );
+    const warnings: Array<{ code: string; message: string }> = [];
+    const secrets = await prepareSecretSeals(a.db, 'global', secretKey, {
+      cleoHome: a.home,
+      warn: (w) => warnings.push(w),
+    });
+    const homeUid = accountRow(a, 'openai', 'home')?.uid ?? '';
+    expect(warnings).toEqual([
+      expect.objectContaining({
+        code: 'W_SYNC_SECRET_UNREADABLE',
+        message: expect.stringContaining(`accounts ${homeUid} secret_enc`),
+      }),
+    ]);
+    const out = await push(a, stream, secrets);
+    expect(out.held).toEqual([
+      expect.objectContaining({ reason: expect.stringMatching(/accounts .*secret_enc/) }),
+    ]);
+    await pull(b, stream);
+    expect(accountRow(b, 'anthropic', 'work')).toBeDefined();
+    expect(accountRow(b, 'openai', 'home')).toBeUndefined();
+    expect(stream.text()).not.toContain('other-secret');
+  });
+
   it('a receiver that cannot open the secrets holds the op, never writes a row without them', async () => {
     const { a, b } = await twoDevices();
     const stream = fakeStream();

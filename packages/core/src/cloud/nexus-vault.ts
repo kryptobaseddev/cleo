@@ -1881,9 +1881,14 @@ async function pushWithSession(
   // §2.5 phase A (T13467): seal the secret values the pending captures will
   // send; only here, where the master key is held, never at store open.
   const { prepareSecretSeals, secretValuesKey } = await import('./secret-seal.js');
-  const secrets = await prepareSecretSeals(db, tableScopeOf(t), secretValuesKey(key.masterKey));
+  const warn = (w: CloudWarning): void => {
+    conn.warnings.push(w);
+  };
+  const secrets = await prepareSecretSeals(db, tableScopeOf(t), secretValuesKey(key.masterKey), {
+    warn,
+  });
   try {
-    return await pushStream(db, {
+    const report = await pushStream(db, {
       secrets,
       scope: tableScopeOf(t),
       stream: t.streamId,
@@ -1897,6 +1902,14 @@ async function pushWithSession(
       registry: ReplicaRegistry.forDevice(conn.deviceId),
       ...(opts.allowUnreleased ? { allowUnreleased: true } : {}),
     });
+    // A held group holds back every later capture (§2.9): name it, never stay silent.
+    for (const h of report.held) {
+      warn({
+        code: 'W_SYNC_CAPTURE_HELD',
+        message: `${t.streamId}: capture ${h.firstSeq} is held (${h.reason}); later changes wait behind it`,
+      });
+    }
+    return report;
   } catch (err) {
     // The server holds a different segment at this replicaSeq, or a later one
     // than this store has: the store is behind (§1.5, §2.9).
@@ -1992,7 +2005,11 @@ async function pullWithSession(session: StreamSession): Promise<PullStreamReport
     './secret-seal.js'
   );
   const secretKey = secretValuesKey(key.masterKey);
-  const secrets = await prepareSecretSeals(db, tableScopeOf(t), secretKey);
+  const secrets = await prepareSecretSeals(db, tableScopeOf(t), secretKey, {
+    warn: (w) => {
+      conn.warnings.push(w);
+    },
+  });
   // Seen-txn rows are never pruned here yet: a txn already seen can come
   // back in a NEW segment above any checkpoint (a retired replica's late
   // segment, a rebind re-pushing an upload that was stored but never

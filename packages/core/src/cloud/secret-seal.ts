@@ -22,7 +22,7 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import type { TableScope } from '@cleocode/contracts';
+import type { CloudWarning, TableScope } from '@cleocode/contracts';
 import type { LedgerWireValue } from '@cleocode/contracts/ledger';
 import { decryptGlobal, encryptGlobal } from '../crypto/credentials.js';
 import { openedSecretKey } from '../store/sync/apply/applier.js';
@@ -81,11 +81,16 @@ export function secretValuesKey(masterKey: Uint8Array): Buffer {
 export interface SecretSealOptions {
   /** The CLEO home whose machine key encrypts credentials. @defaultValue the current home */
   readonly cleoHome?: string;
+  /** Receives a warning for each value phase A could not read (T13532). */
+  readonly warn?: (warning: CloudWarning) => void;
 }
 
 /**
  * Phase A (§2.5): seal every live secret value the pending captures of
- * {@link SEALED_SECRET_TABLES} rows will send. Read-only on the store.
+ * {@link SEALED_SECRET_TABLES} rows will send. Read-only on the store. A value
+ * this machine's key cannot decrypt (a restored or copied store, a rotated key)
+ * is left out with a `W_SYNC_SECRET_UNREADABLE` warning: its group stays
+ * pending, and every other row still seals (T13532).
  *
  * @param db - The store.
  * @param scope - Its scope.
@@ -108,10 +113,19 @@ export async function prepareSecretSeals(
         continue;
       }
       const id = CREDENTIAL_IDS[row.table]?.[col]?.(row.key);
-      const plaintext =
-        id !== undefined
-          ? await decryptGlobal(String(value), id, { cleoHome: opts.cleoHome })
-          : live;
+      let plaintext = live;
+      if (id !== undefined) {
+        try {
+          plaintext = await decryptGlobal(String(value), id, { cleoHome: opts.cleoHome });
+        } catch {
+          // The cause is not echoed: a warning never carries secret material.
+          opts.warn?.({
+            code: 'W_SYNC_SECRET_UNREADABLE',
+            message: `${row.table} ${row.uid} ${col}: this machine's key cannot decrypt the stored secret, so the row stays unsent until it is re-entered`,
+          });
+          continue;
+        }
+      }
       const sealed = seal(
         secretKey,
         Buffer.from(plaintext, 'utf8'),
