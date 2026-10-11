@@ -209,6 +209,32 @@ describe('createWorktree dependency install (T13524)', () => {
     expect(readFileSync(join(r.path, '.npmrc'), 'utf-8')).toBe('auto-install-peers=true\n');
   });
 
+  it('a .worktreeinclude that omits the lockfile takes the build-ready path with the worktree store (T13542)', async () => {
+    writeFileSync(join(projectRoot, '.worktreeinclude'), '.env\n');
+    execFileSync('git', ['add', '.worktreeinclude'], { cwd: projectRoot, stdio: 'pipe' });
+    execFileSync('git', ['commit', '-qm', 'include without lockfile'], {
+      cwd: projectRoot,
+      stdio: 'pipe',
+    });
+    const r = await createWorktree(projectRoot, {
+      taskId: 'T9208',
+      lockWorktree: false,
+      admitInstall: async () => async () => {},
+    });
+    const store = join(r.path, '.pnpm-store');
+    expect(r.install?.status).toBe('installed');
+    expect(readFileSync(marker, 'utf-8')).toContain(`--store-dir ${store}`);
+    expect(readFileSync(join(r.path, '.npmrc'), 'utf-8')).toBe(`store-dir=${store}\n`);
+    mkdirSync(store, { recursive: true });
+    writeFileSync(join(store, 'x'), 'x');
+    expect(
+      execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+        cwd: r.path,
+        encoding: 'utf-8',
+      }),
+    ).not.toContain('.pnpm-store');
+  });
+
   it('the slot is released even when the install throws (guard)', async () => {
     // A pnpm that fails: the install reports failure, and the slot still comes back.
     writeFileSync(join(binDir, 'pnpm'), '#!/bin/sh\nexit 1\n');
