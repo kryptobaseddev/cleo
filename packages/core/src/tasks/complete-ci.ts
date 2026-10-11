@@ -282,10 +282,16 @@ export async function satisfyGatesFromMergedCi(
   const code = written.error?.code ?? 'E_INTERNAL';
   const message = written.error?.message ?? 'unknown error';
   if (code === 'E_EVIDENCE_TESTS_FAILED') return ciRefusal(`ci:${prRef} does not hold: ${message}`);
+  // T13516: complete's write is cache-only (T13515), so a typed-gate cache
+  // refusal means the gates were never run here, not that the user passed
+  // --no-run: name the command that runs them.
+  const typedCache = code === 'E_GATE_CACHE_DISABLED' || code === 'E_GATE_NOT_CACHED';
   return {
     kind: 'skipped',
     testsPassedReason,
     qaPassedReason,
-    ciUnavailable: `ci:${prRef} (${code}): ${message}`,
+    ciUnavailable: typedCache
+      ? `ci:${prRef} could not be recorded because cleo complete never executes typed gates and a typed gate has no usable cached pass (${code}); run cleo verify ${task.id} --run, then cleo complete ${task.id}`
+      : `ci:${prRef} (${code}): ${message}`,
   };
 }

@@ -1397,6 +1397,8 @@ describe('expect pass reads runner summaries, not the word "fail" (T13511)', () 
     ['mocha failing', '  2 passing\n  1 failing'],
     ['an Error: line', 'Error: boom'],
     ['fail 10 is not fail 0', 'ℹ fail 10'],
+    ['T13516: an exit-0 runner printing only a non-zero failed count', 'Tests: 3 failed, 9 passed'],
+    ['T13516: 1 failure', 'Ran 4 tests\n1 failure'],
   ])('%s reports a failure', (_label, out) => {
     expect(outputReportsFailure(out)).toBe(true);
   });

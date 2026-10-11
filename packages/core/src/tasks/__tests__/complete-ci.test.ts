@@ -518,6 +518,25 @@ describe('satisfyGatesFromMergedCi', () => {
     });
   });
 
+  it('T13516: a typed-gate cache refusal names cleo verify --run, not --no-run', async () => {
+    const out = await satisfyGatesFromMergedCi(
+      task({}),
+      '/nonexistent',
+      REQUIRED,
+      deps({
+        recordGates: async () =>
+          engineError(
+            'E_GATE_CACHE_DISABLED',
+            'this project sets evidence.allowCachedGates to false; drop --no-run to verify',
+          ) as never,
+      }),
+    );
+    expect(out.kind).toBe('skipped');
+    const why = out.kind === 'skipped' ? (out.ciUnavailable ?? '') : '';
+    expect(why).toContain('cleo verify T9001 --run');
+    expect(why).not.toMatch(/--no-run/);
+  });
+
   it('standing gates pay nothing', async () => {
     const full: EvidenceAtom = { kind: 'tool', tool: 'test', exitCode: 0, scope: 'full' };
     const out = await satisfyGatesFromMergedCi(
