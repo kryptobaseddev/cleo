@@ -676,17 +676,23 @@
       "subject"
     ],
     "conduit_attachment_approvals": [
+      "attachment_uid",
+      "birth_fp",
       "comment",
       "created_at",
       "id",
       "reviewer_agent_id",
+      "section_id",
       "slug",
       "status",
+      "uid",
       "updated_at",
-      "version_reviewed"
+      "version_reviewed",
+      "version_uid"
     ],
     "conduit_attachment_contributors": [
       "agent_id",
+      "attachment_uid",
       "first_contribution_at",
       "last_contribution_at",
       "slug",
@@ -695,7 +701,9 @@
       "version_count"
     ],
     "conduit_attachment_versions": [
+      "attachment_uid",
       "author_agent_id",
+      "birth_fp",
       "change_summary",
       "change_type",
       "compressed_size",
@@ -703,6 +711,7 @@
       "created_at",
       "id",
       "original_size",
+      "parent_version_uid",
       "patch_text",
       "sections_modified",
       "slug",
@@ -710,9 +719,11 @@
       "tokens",
       "tokens_added",
       "tokens_removed",
+      "uid",
       "version_number"
     ],
     "conduit_attachments": [
+      "birth_fp",
       "compressed_size",
       "content",
       "content_hash",
@@ -728,6 +739,7 @@
       "storage_key",
       "title",
       "tokens",
+      "uid",
       "version_count"
     ],
     "conduit_conversations": [
@@ -759,6 +771,22 @@
       "payload",
       "status",
       "updated_at"
+    ],
+    "conduit_doc_heads": [
+      "attachment_uid",
+      "conflict_count",
+      "head_hlc",
+      "head_version_uid",
+      "last_conflict_json",
+      "uid",
+      "updated_at"
+    ],
+    "conduit_doc_slug_aliases": [
+      "created_at",
+      "doc_uid",
+      "reason",
+      "slug",
+      "uid"
     ],
     "conduit_message_pins": [
       "conversation_id",
@@ -1293,6 +1321,13 @@
     "schema_meta": [
       "key",
       "value"
+    ],
+    "section_crdt_states": [
+      "attachment_uid",
+      "base_version_uid",
+      "section_id",
+      "snapshot",
+      "updated_at"
     ],
     "selfimprove_dhq": [
       "created_at",

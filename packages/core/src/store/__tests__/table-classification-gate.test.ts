@@ -655,7 +655,13 @@ describe('Gate A: two-tier policy', () => {
   const FTS_SHADOW = /^[a-z_]+_fts(_(config|data|docsize|idx|content))?$/;
   const VEC_SHADOW = /^brain_embeddings_(chunks|info|rowids|vector_chunks[0-9]{2})$/;
   const derivedAllowed = (t: string) =>
-    NEXUS_CODE_GRAPH.has(t) || FTS_SHADOW.test(t) || VEC_SHADOW.test(t);
+    NEXUS_CODE_GRAPH.has(t) ||
+    FTS_SHADOW.test(t) ||
+    VEC_SHADOW.test(t) ||
+    // T13354 (team-sync verdict, D11165): the contributor rollup is rebuilt
+    // deterministically from conduit_attachment_versions after apply — never
+    // synced, never a second source of truth.
+    t === 'conduit_attachment_contributors';
 
   it.each([
     'project',

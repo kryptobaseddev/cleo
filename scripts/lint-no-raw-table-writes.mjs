@@ -231,6 +231,13 @@ export const EXEMPT = {
       reason: 'background job queue (local-only): pids and progress of jobs on this device',
     },
   },
+  'packages/core/src/store/conduit-doc-history.ts': {
+    conduit_attachment_contributors: {
+      count: 3,
+      reason:
+        'derived rollup (T13354 · spec cleodocs-rearch-design §10): rebuilt from conduit_attachment_versions after apply; never synced',
+    },
+  },
   'packages/core/src/store/conduit-sqlite.ts': {
     _conduit_meta: { count: 1, reason: SCHEMA_STAMP },
   },

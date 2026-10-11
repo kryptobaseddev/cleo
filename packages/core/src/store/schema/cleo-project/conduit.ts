@@ -361,7 +361,8 @@ export const conduitAttachments = sqliteTable(
  * (`storage_key` + `content_hash`, the T12918 precedent), never inline in ops.
  *
  * Legacy rows carried by the T13354 rebuild keep their pre-rekey slug in
- * `legacy_slug` with `attachment_uid` NULL until the doc resolves.
+ * `slug` (now a nullable display alias, no longer a key or FK) with
+ * `attachment_uid` NULL until the doc resolves.
  *
  * @task T13354 (re-key) · T11360 (target shape) · T344 (original)
  */
@@ -390,8 +391,13 @@ export const conduitAttachmentVersions = sqliteTable(
       (): AnySQLiteColumn => conduitAttachmentVersions.uid,
       { onDelete: 'no action' },
     ),
-    /** Pre-rekey slug (T13354 legacy carry); NULL for rows written re-keyed. */
-    legacySlug: text('legacy_slug'),
+    /**
+     * Pre-rekey slug (T13354 legacy carry / display alias). No longer a key,
+     * no longer an FK: the canonical old-slug lookup is
+     * `conduit_doc_slug_aliases`. Kept under its original name so the
+     * signaldock→conduit exodus column-intersection copy still carries it.
+     */
+    slug: text('slug'),
     /** Display ordinal minted locally; collides across devices — never a key. */
     versionNumber: integer('version_number').notNull(),
     /** Revision author agent id (cross-DB soft FK → signaldock). */
@@ -460,8 +466,13 @@ export const conduitAttachmentApprovals = sqliteTable(
     ),
     /** Section the verdict covers; NULL = whole document (T13354 AC3). */
     sectionId: text('section_id'),
-    /** Pre-rekey slug (T13354 legacy carry); NULL for rows written re-keyed. */
-    legacySlug: text('legacy_slug'),
+    /**
+     * Pre-rekey slug (T13354 legacy carry / display alias). No longer a key,
+     * no longer an FK: the canonical old-slug lookup is
+     * `conduit_doc_slug_aliases`. Kept under its original name so the
+     * signaldock→conduit exodus column-intersection copy still carries it.
+     */
+    slug: text('slug'),
     /** Reviewer agent id (cross-DB soft FK → signaldock). */
     reviewerAgentId: text('reviewer_agent_id').notNull(),
     /**
@@ -503,8 +514,8 @@ export const conduitAttachmentApprovals = sqliteTable(
  * recomputable table would double writes and create a second source of
  * truth). The per-version, per-section facts it aggregates live on
  * `versions.sections_modified` and `approvals.section_id`; this rollup is
- * keyed (attachment_uid, agent_id). No cascade delete; `legacy_slug` carries
- * the pre-rekey slug on migrated rows.
+ * keyed (attachment_uid, agent_id). No cascade delete; `slug` (nullable, no
+ * longer a key or FK) carries the pre-rekey slug on migrated rows.
  *
  * @task T13354 (re-key) · T11360 (target shape) · T344 (original)
  */
@@ -516,8 +527,12 @@ export const conduitAttachmentContributors = sqliteTable(
       (): AnySQLiteColumn => conduitAttachments.uid,
       { onDelete: 'no action' },
     ),
-    /** Pre-rekey slug (T13354 legacy carry); NULL once rebuilt from versions. */
-    legacySlug: text('legacy_slug'),
+    /**
+     * Pre-rekey slug (T13354 legacy carry / display alias; see
+     * `conduit_doc_slug_aliases` for the canonical lookup). Kept under its
+     * original name so the exodus column-intersection copy still carries it.
+     */
+    slug: text('slug'),
     /** Contributor agent id (cross-DB soft FK → signaldock). */
     agentId: text('agent_id').notNull(),
     /** Number of versions contributed. */

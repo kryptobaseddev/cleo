@@ -485,6 +485,40 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     ['D04', 'D05', 'D31', 'D32', 'D39', 'D50'],
     'superseded is sticky; lifecycle transitions follow a matrix',
   ),
+  // T13354 (D11165) — CleoDocs re-keyed history family; the typed merge rules
+  // land with the write path (T13355).
+  rule(
+    'docs.versions.append-only',
+    'T13355',
+    'conduit_attachment_versions',
+    ['*'],
+    [],
+    'version rows are append-only and unique by uid; inserts never conflict, so no merge rule fires',
+  ),
+  rule(
+    'docs.approvals.append-only',
+    'T13355',
+    'conduit_attachment_approvals',
+    ['*'],
+    [],
+    'approval rows are append-only; a revoke is a tombstone row, never an UPDATE/DELETE',
+  ),
+  rule(
+    'docs.doc-alias.append-only',
+    'T13355',
+    'conduit_doc_slug_aliases',
+    ['*'],
+    [],
+    'alias rows carry natural identity over (slug, doc_uid); identical aliases merge to one row',
+  ),
+  rule(
+    'docs.head.max-hlc',
+    'T13355',
+    'conduit_doc_heads',
+    ['*'],
+    [],
+    'the projection keeps the max-HLC head; a losing concurrent head is recorded (conflict_count/last_conflict_json), never silently shadowed',
+  ),
 
   // §3.6.0 identity-layer rows.
   {
