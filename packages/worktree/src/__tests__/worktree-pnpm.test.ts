@@ -9,8 +9,19 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installWorktreeDependencies } from '../worktree-pnpm.js';
+
+// pnpm is stubbed to fail: a real install takes seconds and timed out under
+// parallel load (T13547). These tests check the lock and .npmrc, not pnpm.
+vi.mock('node:child_process', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('node:child_process')>();
+  const execFileSync = ((file: string, ...rest: unknown[]) => {
+    if (file === 'pnpm') throw new Error('pnpm stub: install failed');
+    return (mod.execFileSync as (f: string, ...r: unknown[]) => unknown)(file, ...rest);
+  }) as typeof mod.execFileSync;
+  return { ...mod, execFileSync };
+});
 
 describe('installWorktreeDependencies (T9938)', () => {
   let tmpDir: string;

@@ -109,6 +109,11 @@ export const doneCommand = defineCommand({
       type: 'string',
       description: 'The merged PR that implements the task (skips PR selection)',
     },
+    'run-typed': {
+      type: 'boolean',
+      description:
+        "Execute the task's typed gates before recording. Without it cleo done executes no typed gate command: it uses passes cached by `cleo verify --run` (T13521).",
+    },
   },
   async run({ args }) {
     const { parseDoneOptions, planTaskDone } = await import('@cleocode/core/tasks/done-plan.js');
@@ -119,7 +124,11 @@ export const doneCommand = defineCommand({
       return;
     }
     const { getProjectRoot } = await import('@cleocode/core/paths.js');
-    const options = { projectRoot: getProjectRoot(), ...parsed.options };
+    const options = {
+      projectRoot: getProjectRoot(),
+      ...parsed.options,
+      ...(args['run-typed'] === true ? { runTyped: true } : {}),
+    };
     // T12628: `cleo done T1 T2 T3 [--pr N]` closes several tasks in one call.
     // Every id must be a task id — a silently dropped `t2` would report success.
     const requested = [

@@ -318,6 +318,15 @@ export interface CreateWorktreeOptions {
    */
   lockTtlMs?: number;
   /**
+   * The git shim the caller installed for this worktree (T13522). Only when
+   * `installed` is the shim dir prepended to PATH and
+   * `CLEO_BRANCH_PROTECTION=strict` advertised; otherwise the env says
+   * `unavailable`, so nothing claims a fence that is not there.
+   *
+   * @task T13522
+   */
+  gitShim?: { readonly dir: string; readonly installed: boolean };
+  /**
    * Provision without installing dependencies (`--no-install`, T13524). The
    * result's `install` says so, with the command the worker runs instead.
    *

@@ -331,6 +331,7 @@ describe('journal activity lists what each device changed and when (T13369)', ()
       ...local(a),
       limit: 1,
       deviceNames: new Map([['dev-b', 'laptop B']]),
+      deviceLastSeen: new Map([['dev-b', '2026-10-10T12:00:00.000Z']]),
     });
     expect(page.items).toHaveLength(1);
     expect(page.items[0]?.deviceName).toBe('laptop B');
@@ -339,6 +340,7 @@ describe('journal activity lists what each device changed and when (T13369)', ()
       ['dev-a', null, true, 1],
     ]);
     expect(page.devices[0]?.lastAt).toBe(page.items[0]?.at);
+    expect(page.devices.map((d) => d.lastSeenAt)).toEqual(['2026-10-10T12:00:00.000Z', null]);
   });
 
   it('pages with nextBefore, never repeating or skipping a transaction', async () => {

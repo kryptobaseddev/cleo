@@ -65,7 +65,17 @@ import type { TableScope } from '@cleocode/contracts';
 import type { LedgerActor, LedgerOp, LedgerWireValue } from '@cleocode/contracts/ledger';
 import { BIRTH_FP_COLUMN, UID_COLUMN } from '../../row-identity-registry.js';
 import { type CaptureTableDef, captureTableDef } from '../capture.js';
-import { announcePlacedRekeys, settleLostUidCollisions } from '../collision-settle.js';
+import {
+  announcePlacedRekeys,
+  type DecisionKeyMove,
+  displayKeyColumn,
+  displayKeyReferrers,
+  foldDisplayRemints,
+  followLocalTaskRefs,
+  remintLostKeyCollisions,
+  repointOwnDecisionText,
+  settleLostUidCollisions,
+} from '../collision-settle.js';
 import { recordConflictOnce, recordConflicts, resolveHeldConflicts } from '../conflicts.js';
 import {
   clearFieldLeaves,
@@ -897,9 +907,12 @@ function applyOne(
       });
     }
   }
+  const keyMove = displayKeyMove(def, before, out);
   const sp = `apply_op_${opIdx}`;
   c.db.exec(`SAVEPOINT ${sp}`);
   try {
+    // A display key that moves leaves its referrers behind until they follow.
+    if (keyMove) c.db.exec('PRAGMA defer_foreign_keys = ON');
     // cascade-with-ops: the remaining children go first, with ops' tombstones.
     const actor = c.st.txn.actor ? JSON.stringify(c.st.txn.actor) : null;
     for (const x of live) cascadeDelete(c, x.key.child, x.uid, op.h, actor);
@@ -916,6 +929,7 @@ function applyOne(
       c.nowIso,
       c.replay !== undefined || history,
     );
+    if (keyMove) followDisplayKey(c, op.t, op.u, keyMove);
     const n = history ? 0 : recorded;
     c.db.exec(`RELEASE ${sp}`);
     const result: OpResult =
@@ -940,6 +954,53 @@ function applyOne(
       opHlc: op.h,
     });
   }
+}
+
+/** Decision key moves applied in the current apply call, by store (T13433). */
+const decisionMoves = new WeakMap<DatabaseSync, DecisionKeyMove[]>();
+
+/** A counter display key an applied update moves (T13405), or null. */
+function displayKeyMove(
+  def: CaptureTableDef,
+  before: RowState,
+  out: { readonly effect: string; readonly next: RowState },
+): { readonly column: string; readonly from: string; readonly to: string } | null {
+  const column = displayKeyColumn(def.table);
+  if (!column || out.effect !== 'update' || !before.live) return null;
+  const from = before.fields[column]?.value;
+  const to = out.next.fields[column]?.value;
+  return typeof from === 'string' && typeof to === 'string' && from !== to
+    ? { column, from, to }
+    : null;
+}
+
+/**
+ * Point the local rows that reference a moved display key at the new key
+ * (T13405): a replica that had placed a re-minted loser keeps its own
+ * children on it, never on the winner that takes the old key. Writes go
+ * through the write API, so each is an apply intent, not a local change.
+ */
+function followDisplayKey(
+  c: OpContext,
+  table: string,
+  uid: string,
+  move: { readonly column: string; readonly from: string; readonly to: string },
+): void {
+  // Its own text references re-point after the passes, in a local frame (T13433).
+  if (table === 'brain_decisions' && !c.replay) {
+    const moves = decisionMoves.get(c.db) ?? [];
+    moves.push({ uid, from: move.from, to: move.to });
+    decisionMoves.set(c.db, moves);
+  }
+  for (const ref of displayKeyReferrers(c.db, c.defs, table, move.column)) {
+    const rows = c.db
+      .prepare(
+        `SELECT "${UID_COLUMN}" AS uid FROM main."${ref.table.replaceAll('"', '""')}" WHERE "${ref.column.replaceAll('"', '""')}" = ? AND "${UID_COLUMN}" IS NOT NULL`,
+      )
+      .all(move.from) as Array<{ uid: string }>;
+    for (const r of rows) c.api.writeFields(ref.table, r.uid, { [ref.column]: move.to });
+  }
+  if (table === 'tasks_tasks') followLocalTaskRefs(c.db, c.defs, move.from, move.to);
 }
 
 /** What a scoped rebase does around one incoming transaction (§3.5 Rule 3). */
@@ -1650,8 +1711,13 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
       passes += 1;
       const heldReplicas = new Set<string>();
       const held = new Set<string>(); // rows written by a pending transaction
-      const staged = stagedTxns(db, opts.stream).map((st) =>
-        followUidAliases(db, withoutLocalRowids(st, defs), defs),
+      // An origin's display-key re-mint folds into the insert it held (T13405).
+      const staged = foldDisplayRemints(
+        db,
+        stagedTxns(db, opts.stream).map((st) =>
+          followUidAliases(db, withoutLocalRowids(st, defs), defs),
+        ),
+        defs,
       );
       // Each page is one frame and one scoped rebase (§3.5 Rule 3): rewind the
       // page's scope once, apply its transactions in stream order, replay once.
@@ -1746,6 +1812,18 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
     opts.seal?.();
     runPasses();
   }
+  // The origin of a row that lost a key collision re-mints its key, then the
+  // held insert places (T13405). Driven by the open conflicts, so a failed
+  // re-mint is retried by the next apply (T13431).
+  if (remintLostKeyCollisions(db, opts).length > 0) {
+    opts.seal?.();
+    runPasses();
+  }
+  // Forget the moves only once their frames committed: a busy or failed frame
+  // keeps them for the next apply on this handle (re-pointing is idempotent).
+  const moves = decisionMoves.get(db) ?? [];
+  if (repointOwnDecisionText(db, opts, moves) > 0) opts.seal?.();
+  decisionMoves.delete(db);
   // Every other replica that had placed a re-keyed loser announces the
   // re-key, so its earlier references follow the loser too (T13399).
   if (announcePlacedRekeys(db, opts, new Date(now()).toISOString()) > 0) opts.seal?.();

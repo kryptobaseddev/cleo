@@ -52,6 +52,7 @@ import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { buildNexusMetaExtensions } from '../../dispatch/nexus-decorator.js';
 import { asCleoErrorLike, cleoErrorCodeName } from '../cleo-error-like.js';
 import { getFormatContext, setFormatContext } from '../format-context.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -1078,6 +1079,11 @@ const contextCommand = defineCommand({
     },
     limit: { type: 'string', description: 'Max callers/callees to show per side', default: '20' },
     content: { type: 'boolean', description: 'Append source code content for the symbol' },
+    'no-refresh': {
+      type: 'boolean',
+      description: 'Answer from the index as it stands, without an inline refresh (T13523)',
+      default: false,
+    },
   },
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
@@ -1095,6 +1101,7 @@ const contextCommand = defineCommand({
       projectId,
       limit,
       content: showContent,
+      ...(negatedFlag(args, 'refresh') ? { noRefresh: true } : {}),
       _legacyAliasFor: 'cleo graph context',
     });
     const durationMs = Date.now() - startTime;
@@ -1145,6 +1152,11 @@ const impactCommand = defineCommand({
     },
     depth: { type: 'string', description: 'Maximum traversal depth (default: 3)', default: '3' },
     why: { type: 'boolean', description: 'Append reasons[] path-strings for each affected symbol' },
+    'no-refresh': {
+      type: 'boolean',
+      description: 'Answer from the index as it stands, without an inline refresh (T13523)',
+      default: false,
+    },
   },
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
@@ -1157,7 +1169,9 @@ const impactCommand = defineCommand({
     const symbolName = args.symbol as string;
     try {
       // T12316: disclose how current the graph behind this answer is.
-      const assessment = await assessNexusFreshnessForQuery(repoPath);
+      const assessment = await assessNexusFreshnessForQuery(repoPath, {
+        refresh: !negatedFlag(args, 'refresh'),
+      });
       const result = await getSymbolImpact(symbolName, projectId, repoPath, {
         maxDepth,
         why: whyFlag,

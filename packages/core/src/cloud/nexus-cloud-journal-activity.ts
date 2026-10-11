@@ -23,11 +23,10 @@ import type {
   CloudVaultScope,
   CloudWarning,
 } from '@cleocode/contracts';
-import { nexusCloudDevicePageSchema } from '@cleocode/contracts/nexus-cloud.js';
 import { getDualScopeNativeDb, openDualScopeDb } from '../store/dual-scope-db.js';
 import { journalActivity } from '../store/sync/activity.js';
 import { hasTable } from '../store/sync/schema.js';
-import { connectNexusCloud, type NexusCloudOptions } from './nexus-cloud.js';
+import { listNexusCloudDevices, type NexusCloudOptions } from './nexus-cloud.js';
 
 /** Options of {@link nexusJournalActivity}. */
 export interface NexusJournalActivityOptions extends NexusCloudOptions {
@@ -65,18 +64,26 @@ export class JournalActivitySinceError extends Error {
   }
 }
 
-/** Device names by Nexus device id, or why there are none. */
-async function deviceNames(
-  opts: NexusJournalActivityOptions,
-): Promise<{ names: Map<string, string>; warning: CloudWarning | null }> {
-  if (opts.offline === true) return { names: new Map(), warning: null };
+/** Device names and last presence by Nexus device id, or why there are none. */
+async function deviceNames(opts: NexusJournalActivityOptions): Promise<{
+  names: Map<string, string>;
+  lastSeen: Map<string, string>;
+  warning: CloudWarning | null;
+}> {
+  if (opts.offline === true) return { names: new Map(), lastSeen: new Map(), warning: null };
   try {
-    const conn = await connectNexusCloud(opts);
-    const page = await conn.get('/v1/devices?limit=100', nexusCloudDevicePageSchema);
-    return { names: new Map(page.devices.map((d) => [d.deviceId, d.name])), warning: null };
+    // Every page and every state: a signed-out or revoked device's history keeps its name.
+    const { devices } = await listNexusCloudDevices({ ...opts, state: 'all' });
+    const lastSeen = new Map<string, string>();
+    for (const d of devices) {
+      const at = d.lastPresenceAt ?? d.lastSeenAt;
+      if (at) lastSeen.set(d.deviceId, at);
+    }
+    return { names: new Map(devices.map((d) => [d.deviceId, d.name])), lastSeen, warning: null };
   } catch (err) {
     return {
       names: new Map(),
+      lastSeen: new Map(),
       warning: {
         code: 'W_DEVICE_NAMES_UNAVAILABLE',
         message: `device names are not shown: ${err instanceof Error ? err.message : String(err)}`,
@@ -111,9 +118,10 @@ export async function nexusJournalActivity(
   if (!hasTable(db, '_sync_inbox')) {
     return { scope, items: [], devices: [], nextBefore: null, warnings: [NOT_SYNCING] };
   }
-  const { names, warning } = await deviceNames(opts);
+  const { names, lastSeen, warning } = await deviceNames(opts);
   const page = journalActivity(db, {
     deviceNames: names,
+    deviceLastSeen: lastSeen,
     ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
     ...(opts.before !== undefined ? { before: opts.before } : {}),
     ...(opts.deviceId !== undefined ? { deviceId: opts.deviceId } : {}),
