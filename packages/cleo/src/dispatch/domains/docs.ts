@@ -30,12 +30,14 @@
 
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { BlobAttachment } from '@cleocode/contracts';
 import { DocKindRegistry } from '@cleocode/contracts/docs-taxonomy.js';
 import type {
   DocsAddParams,
   DocsAddResult,
+  DocsDoctorParams,
+  DocsDoctorResult,
   DocsFetchParams,
   DocsFetchResult,
   DocsGenerateParams,
@@ -62,6 +64,7 @@ import {
   DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
   isLifecycleStatus,
 } from '@cleocode/core/docs/docs-update';
+import { buildDocsFetchResult } from '@cleocode/core/docs/fetch-result';
 import { createAttachmentStoreDocsAccessor } from '@cleocode/core/docs/import/attachment-store-accessor';
 import { makeClassifierForScanRoot } from '@cleocode/core/docs/import/scanner';
 import { AUTO_TOKEN } from '@cleocode/core/docs/numbering';
@@ -83,7 +86,7 @@ import type {
 } from '@cleocode/core/internal';
 import { generateProjectHash } from '@cleocode/core/nexus/hash';
 import { pushWarning } from '@cleocode/core/output';
-import { resolveCleoDir, worktreeScope } from '@cleocode/core/paths.js';
+import { worktreeScope } from '@cleocode/core/paths.js';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import {
   createAttachmentBlobStore,
@@ -138,6 +141,12 @@ const resolveAttachmentBackend = lazyOperation(
 );
 const runDocsImport = lazyOperation(
   async () => (await import('@cleocode/core/docs/import/import-orchestrator')).runDocsImport,
+);
+const runDocsDoctor = lazyOperation(
+  async () => (await import('@cleocode/core/docs/doctor')).runDocsDoctor,
+);
+const createSystemBackup = lazyOperation(
+  async () => (await import('@cleocode/core/system/backup')).createBackup,
 );
 const searchAllProjectDocs = lazyOperation(
   async () => (await import('@cleocode/core/docs/docs-ops')).searchAllProjectDocs,
@@ -260,6 +269,7 @@ type DocsTypedOps = {
   readonly remove: readonly [DocsRemoveParams, DocsRemoveResult];
   readonly update: readonly [DocsUpdateParams, DocsUpdateResult];
   readonly supersede: readonly [DocsSupersedeParams, DocsSupersedeResult];
+  readonly doctor: readonly [DocsDoctorParams, DocsDoctorResult];
 };
 
 // ─── Owner type inference ─────────────────────────────────────────────────────
@@ -269,6 +279,9 @@ type DocsTypedOps = {
  *
  * Heuristics:
  *   `T<digits>`  → 'task'
+ *   `D<digits>`  → 'decision' (T13358 — real brain decision IDs are
+ *                  bare `D####`; the `D-`/`dec_` prefixes below never
+ *                  matched them, so they fell through to 'task')
  *   `ses_`       → 'session'
  *   `O-`         → 'observation'
  *   (fallback)   → 'task'
@@ -277,6 +290,7 @@ type DocsTypedOps = {
  */
 function inferOwnerType(ownerId: string): AttachmentRef['ownerType'] {
   if (/^T\d+$/i.test(ownerId)) return 'task';
+  if (/^D\d+$/.test(ownerId)) return 'decision';
   if (ownerId.startsWith('ses_')) return 'session';
   if (ownerId.startsWith('O-')) return 'observation';
   // Broader prefixes for other BRAIN entity types
@@ -789,56 +803,59 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       return lafsError('E_NOT_FOUND', `Content not retrievable: ${ref}`, 'fetch');
     }
 
-    const cwd = getProjectRoot();
-    const cleoDir = resolveCleoDir(cwd);
-
-    // Derive storage path for blob kinds
-    let storagePath: string | undefined;
-    if (doc.sha256) {
-      const prefix = doc.sha256.slice(0, 2);
-      const rest = doc.sha256.slice(2);
-      const extMap: Record<string, string> = {
-        'text/markdown': '.md',
-        'text/plain': '.txt',
-        'application/json': '.json',
-        'application/pdf': '.pdf',
-      };
-      const ext = extMap[doc.mimeType ?? ''] ?? '.bin';
-      storagePath = resolve(cleoDir, 'attachments', 'sha256', prefix, `${rest}${ext}`);
-    }
-
-    // Base64-encode bytes only for small attachments (<= 1 MB)
-    const MAX_INLINE = 1024 * 1024;
-    const contentBytes = Buffer.from(content, 'utf-8');
-    const bytesBase64 =
-      contentBytes.length <= MAX_INLINE ? contentBytes.toString('base64') : undefined;
-
     const backend: AttachmentBackend = await currentAttachmentBackend();
 
+    // T13352 — the shared builder surfaces decoded text by default, the real
+    // refCount, and a storage path resolved against the doc's actual store.
     return lafsSuccess<DocsFetchResult>(
-      {
-        metadata: {
-          id: doc.id,
-          sha256: doc.sha256,
-          kind: 'blob',
-          mime: doc.mimeType ?? 'text/plain',
-          size: doc.sizeBytes,
-          description: doc.summary ?? undefined,
-          labels: undefined,
-          createdAt: doc.createdAt,
-          refCount: 0,
-          ...(doc.slug ? { slug: doc.slug } : {}),
-          ...(doc.kind ? { type: doc.kind as DocsType } : {}),
-          ...(doc.displayNumber !== null ? { displayNumber: doc.displayNumber } : {}),
-        },
-        path: storagePath,
-        sizeBytes: contentBytes.length,
-        ...(bytesBase64 !== undefined ? { bytesBase64 } : {}),
-        inlined: bytesBase64 !== undefined,
-        attachmentBackend: backend as DocsFetchResult['attachmentBackend'],
-      },
+      buildDocsFetchResult({
+        doc,
+        content,
+        projectRoot: getProjectRoot(),
+        attachmentBackend: backend,
+      }),
       'fetch',
     );
+  },
+
+  // ── docs.doctor ────────────────────────────────────────────────────────────
+
+  doctor: async (params) => {
+    const apply = params.apply === true;
+    const projectRoot = getProjectRoot();
+
+    // T13447 — an apply run must have a fresh backup. Create it through the
+    // same core function `cleo backup add` dispatches to, then hand the
+    // resulting store snapshot to core as the receipt (existence + mtime is
+    // verified there). When the store file was not captured, refuse to apply.
+    let backupReceiptPath: string | undefined;
+    if (apply) {
+      const backup = await createSystemBackup(projectRoot, {
+        type: 'snapshot',
+        note: 'docs doctor pre-repair (T13447)',
+      });
+      // PROJECT_STORE_BACKUP_FILE in @cleocode/core/system/backup — the
+      // snapshot filename prefix for the project store.
+      const STORE_FILE = 'cleo.db';
+      if (!backup.files.includes(STORE_FILE)) {
+        return lafsError(
+          'E_DOCS_DOCTOR_BACKUP_FAILED', // @sync-invariant none:input-shape a precondition refusal before any repair write; nothing was written
+          'backup did not capture the project store — refusing to apply repairs',
+          'doctor',
+        );
+      }
+      backupReceiptPath = join(backup.path, `${STORE_FILE}.${backup.backupId}`);
+    }
+
+    const result = await runDocsDoctor(projectRoot, {
+      apply,
+      ...(params.olderThanDays !== undefined ? { olderThanDays: params.olderThanDays } : {}),
+      ...(backupReceiptPath !== undefined ? { backupReceiptPath } : {}),
+    });
+    if (!result.ok) {
+      return lafsError(result.error.code, result.error.message, 'doctor');
+    }
+    return lafsSuccess<DocsDoctorResult>(result.report, 'doctor');
   },
 
   // ── docs.add ───────────────────────────────────────────────────────────────
@@ -2023,6 +2040,7 @@ const QUERY_OPS = new Set<string>([
   'versions',
   'status',
   'audit',
+  'doctor',
 ]);
 const MUTATE_OPS = new Set<string>([
   'add',
@@ -2033,6 +2051,7 @@ const MUTATE_OPS = new Set<string>([
   'publish-pr',
   'sync',
   'import',
+  'doctor',
 ]);
 
 async function dispatchDocsLegacyQuery(
@@ -2364,8 +2383,19 @@ export class DocsHandler implements DomainHandler {
         'versions',
         'status',
         'audit',
+        'doctor',
       ],
-      mutate: ['add', 'remove', 'update', 'supersede', 'publish', 'publish-pr', 'sync', 'import'],
+      mutate: [
+        'add',
+        'remove',
+        'update',
+        'supersede',
+        'publish',
+        'publish-pr',
+        'sync',
+        'import',
+        'doctor',
+      ],
     };
   }
 }

@@ -306,6 +306,7 @@ export async function createWorktree(
     projectHash,
     taskId,
     ...(options.holder ? { holder: options.holder } : {}),
+    ...(options.sessionProbe ? { sessionProbe: options.sessionProbe } : {}),
     ...(options.lockTtlMs !== undefined ? { ttlMs: options.lockTtlMs } : {}),
   });
   const ctx: ProvisionContext = {
@@ -609,18 +610,23 @@ async function provisionUnderLock(
 
   // Build env vars for agent spawn.
   const pathKey = pathEnvKey();
-  const shimDir = join(projectRoot, '.cleo', 'bin', 'git-shim');
+  // T13522: advertise strict protection only when the caller installed the shim.
+  const shimActive = options.gitShim?.installed === true;
   const envVars: Record<string, string> = {
     CLEO_AGENT_ROLE: 'worker',
     CLEO_AGENT_CWD: worktreePath,
     CLEO_WORKTREE_ROOT: worktreePath,
     CLEO_WORKTREE_BRANCH: branch,
     CLEO_PROJECT_HASH: projectHash,
-    CLEO_BRANCH_PROTECTION: 'strict',
-    CLEO_SHIM_MARKER: '.cleo/bin/git-shim',
-    // Platform delimiter: ':' would fuse the shim dir with the first real
-    // Windows PATH entry and lose both (T12605).
-    [pathKey]: prependPathEntry(shimDir, process.env[pathKey]),
+    CLEO_BRANCH_PROTECTION: shimActive ? 'strict' : 'unavailable',
+    ...(shimActive && options.gitShim
+      ? {
+          CLEO_SHIM_MARKER: '.cleo/bin/git-shim',
+          // Platform delimiter: ':' would fuse the shim dir with the first real
+          // Windows PATH entry and lose both (T12605).
+          [pathKey]: prependPathEntry(options.gitShim.dir, process.env[pathKey]),
+        }
+      : {}),
   };
 
   // Build the preamble text for agent context isolation (per acceptance criterion).
@@ -636,7 +642,9 @@ async function provisionUnderLock(
     '  git checkout, git switch, git branch -b/-D, git reset --hard,',
     '  git worktree add/remove, git rebase, git stash pop, git push --force',
     '',
-    'A git shim is active on your PATH that will exit 77 if you attempt these.',
+    shimActive
+      ? 'A git shim is active on your PATH that will exit 77 if you attempt these, or a push to main.'
+      : 'No git shim could be installed for this worktree: these rules are NOT enforced, so follow them yourself.',
     `Your working directory is: ${worktreePath}`,
     `You are authorized only within \`${worktreePath}\``,
     'All your commits must land on YOUR branch only.',

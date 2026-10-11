@@ -25,7 +25,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
@@ -60,6 +60,7 @@ import {
 import { runBracketedMigrations } from '../../store/migration-runner.js';
 import { computeManifestHash, exportPortableBundle } from '../../store/portable-bundle.js';
 import { resolveCorePackageMigrationsFolder } from '../../store/resolve-migrations-folder.js';
+import { holdRestoreMarker, RESTORE_MARKER_MAX_AGE_MS } from '../../store/restore-marker.js';
 import {
   ROW_IDENTITY_META_TABLE,
   ROW_IDENTITY_RECIPE,
@@ -94,7 +95,7 @@ import {
   uuidv7,
   verifyEd25519,
 } from '../crypto.js';
-import { type FetchLike, Http } from '../http.js';
+import { type FetchLike, Http, NexusError } from '../http.js';
 import {
   cursorFromCheckpoint,
   Journal,
@@ -129,6 +130,7 @@ import { listNexusNamedProjects, resolveNexusProjectRef } from '../nexus-project
 import {
   classifySyncLegs,
   cloudSync,
+  confirmableRetirements,
   enableSyncPush,
   nexusVaultStatus,
   pullSyncStream,
@@ -163,6 +165,22 @@ vi.mock('../../store/restore-marker.js', async (importOriginal) => {
     writeRestoreMarker: (dbPath: string, kind: 'restore' | 'vault') => {
       markerCalls.push({ dbPath, kind });
       return mod.writeRestoreMarker(dbPath, kind);
+    },
+  };
+});
+
+/** Runs right after the vault exports a bundle (inside a genesis snapshot, T13390). */
+const exportHooks = vi.hoisted(() => ({
+  afterExport: null as ((outputPath: string) => void) | null,
+}));
+vi.mock('../../store/portable-bundle.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../store/portable-bundle.js')>();
+  return {
+    ...mod,
+    exportPortableBundle: async (input: Parameters<typeof mod.exportPortableBundle>[0]) => {
+      const out = await mod.exportPortableBundle(input);
+      exportHooks.afterExport?.(input.outputPath);
+      return out;
     },
   };
 });
@@ -5388,6 +5406,68 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     });
   });
 
+  /** Where a cut saves its bundle and record for `STREAM` (mirrors genesisBundlePaths). */
+  function savedGenesisPaths(dbPath: string): { dir: string; bundle: string; meta: string } {
+    const dir = path.join(path.dirname(dbPath), 'sync-genesis');
+    const name = createHash('sha256').update(STREAM).digest('hex').slice(0, 16);
+    return {
+      dir,
+      bundle: path.join(dir, `${name}.cleobundle.tar.gz`),
+      meta: path.join(dir, `${name}.json`),
+    };
+  }
+
+  it("a takeover abort leaves the new holder's saved bundle and record in place (T13390)", async () => {
+    const { m, dbPath } = await journalMachine();
+    const saved = savedGenesisPaths(dbPath);
+    let holder: ReturnType<typeof holdRestoreMarker> | undefined;
+    exportHooks.afterExport = (out) => {
+      if (!out.includes('sync-genesis')) return;
+      exportHooks.afterExport = null;
+      // A second genesis run takes the marker over and saves its own bundle at the same paths.
+      holder = holdRestoreMarker(dbPath, 'genesis');
+      fs.mkdirSync(saved.dir, { recursive: true });
+      fs.writeFileSync(saved.bundle, 'holder bundle');
+      fs.writeFileSync(saved.meta, 'holder record');
+    };
+    try {
+      const err = await failure(on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true }))));
+      expect(err.message).toMatch(/E_SYNC_GENESIS_MARKER_LOST: another process took over/);
+      expect(fs.readFileSync(saved.bundle, 'utf8')).toBe('holder bundle');
+      expect(fs.readFileSync(saved.meta, 'utf8')).toBe('holder record');
+      await on(m, async () => {
+        expect(genesisPending(await storeOf(dbPath), STREAM)).toBe(true);
+      });
+    } finally {
+      exportHooks.afterExport = null;
+      holder?.release();
+    }
+  });
+
+  it('an abort on our own expired marker still removes what it saved (T13390)', async () => {
+    const { m, dbPath } = await journalMachine();
+    const saved = savedGenesisPaths(dbPath);
+    const realNow = Date.now;
+    exportHooks.afterExport = (out) => {
+      if (!out.includes('sync-genesis')) return;
+      exportHooks.afterExport = null;
+      fs.mkdirSync(saved.dir, { recursive: true });
+      fs.writeFileSync(saved.bundle, 'stale bundle');
+      fs.writeFileSync(saved.meta, 'stale record');
+      const late = realNow() + RESTORE_MARKER_MAX_AGE_MS + 1_000;
+      vi.spyOn(Date, 'now').mockImplementation(() => late);
+    };
+    try {
+      const err = await failure(on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true }))));
+      expect(err.message).toMatch(/E_SYNC_GENESIS_MARKER_LOST: the genesis marker went stale/);
+    } finally {
+      exportHooks.afterExport = null;
+      vi.restoreAllMocks();
+    }
+    expect(fs.existsSync(saved.bundle)).toBe(false);
+    expect(fs.existsSync(saved.meta)).toBe(false);
+  });
+
   it('a checkpoint push that fails after the cut keeps the bundle and resumes without a second cut', async () => {
     const { m, dbPath } = await journalMachine();
     fake.beforeCheckpoint = {
@@ -5976,6 +6056,35 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     });
   });
 
+  it('restore and join keep the checkpoint row meta; a later pull keeps the writer origin and field HLCs (T13462)', async () => {
+    const META =
+      "SELECT tbl, uid, hlc, fhlc, origin, actor, version, deleted, key_json, chash FROM _sync_row_meta WHERE tbl = 'tasks_tasks' ORDER BY uid";
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    const atGenesis = await on(a, async () => (await storeOf(aDb)).prepare(META).all());
+    expect(atGenesis).toHaveLength(2);
+    const { b, bDb } = await restoredJoiner();
+    // The restore keeps the snapshot's merge state, never an empty or local one.
+    expect(await on(b, async () => (await storeOf(bDb)).prepare(META).all())).toEqual(atGenesis);
+    expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'joined',
+    );
+    expect(await on(b, async () => (await storeOf(bDb)).prepare(META).all())).toEqual(atGenesis);
+    // A's later edit reaches B attributed to A, with A's HLCs.
+    await on(a, async () => {
+      (await storeOf(aDb)).exec("UPDATE tasks_tasks SET title = 'from A' WHERE id = 'T1'");
+    });
+    await on(a, () => pushSyncStream(vopts(a, { allowUnreleased: true })));
+    expect((await on(b, () => pullSyncStream(vopts(b)))).refused).toBeNull();
+    // The apply leaves chash for B's sealer to recompute from the applied row.
+    await on(b, () => pushSyncStream(vopts(b, { allowUnreleased: true })));
+    const T1 =
+      "SELECT hlc, fhlc, origin, version, deleted, chash FROM _sync_row_meta WHERE tbl = 'tasks_tasks' AND uid = 'uid-T1'";
+    const onA = await on(a, async () => (await storeOf(aDb)).prepare(T1).get());
+    expect(onA).toMatchObject({ origin: a.replicaId });
+    expect(await on(b, async () => (await storeOf(bDb)).prepare(T1).get())).toEqual(onA);
+  });
+
   it('S4-2: a device clock ahead of the server pauses push', async () => {
     const { m, dbPath } = await journalMachine();
     await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
@@ -6134,6 +6243,64 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     const onA = await read(a, observationSql);
     expect(await read(b, observationSql)).toEqual(onA);
     expect(onA).toMatchObject({ title: 'from B' });
+  });
+
+  it("with sync on, two devices see each other's brain writes after a session end, with no manual cloud sync (T13468)", async () => {
+    const { autoCloudSync } = await import('../auto-sync.js');
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    await onM(a, async () => {
+      const db = await globalStore(a);
+      setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_JOURNAL });
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+    });
+    await onM(a, () => enableSyncPush(vopts(a, { scope: 'global', allowUnreleased: true })));
+    await onM(a, async () => {
+      setSyncFlag(await globalStore(a), 'sync.pull', true, { allowUnreleased: true });
+    });
+    await onM(b, () => restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull', force: true })));
+    await onM(b, () => enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })));
+
+    // What the session-end worker runs: the real flag check and lock, this
+    // machine's cloud sync, and each call a minute after the last.
+    let clock = Date.parse('2026-10-10T10:00:00Z');
+    const sessionEnd = (m: Machine) => {
+      clock += 61_000;
+      const now = new Date(clock);
+      return onM(m, () =>
+        autoCloudSync(m.root, 'session-end', {
+          cleoHome: m.home,
+          now,
+          admit: async () => ({ release: async () => {} }),
+          sync: () => cloudSync(vopts(m, { allowUnreleased: true })),
+        }),
+      );
+    };
+    const read = async (m: Machine, sql: string) =>
+      onM(m, async () => (await globalStore(m)).prepare(sql).get());
+
+    await onM(a, async () => {
+      (await globalStore(a)).exec(
+        "INSERT INTO brain_decisions (id, type, decision, rationale, confidence, created_at, valid_at) VALUES ('D9101', 'architecture', 'Auto sync at session end', 'no manual sync', 'high', '2026-10-10 10:01:00', '2026-10-10 10:01:00')",
+      );
+    });
+    await onM(b, async () => {
+      (await globalStore(b)).exec(
+        "INSERT INTO brain_observations (id, type, title, created_at, valid_at) VALUES ('O-home0101', 'discovery', 'written on B', '2026-10-10T10:02:00.000Z', '2026-10-10 10:02:00')",
+      );
+    });
+    expect(await sessionEnd(a)).toBe('synced');
+    expect(await sessionEnd(b)).toBe('synced');
+    expect(await sessionEnd(a)).toBe('synced');
+
+    const decisionSql = "SELECT uid, decision FROM brain_decisions WHERE id = 'D9101'";
+    const obsSql = "SELECT uid, title FROM brain_observations WHERE id = 'O-home0101'";
+    const decisionA = await read(a, decisionSql);
+    expect(decisionA).toMatchObject({ decision: 'Auto sync at session end' });
+    expect(await read(b, decisionSql)).toEqual(decisionA);
+    const obsB = await read(b, obsSql);
+    expect(obsB).toMatchObject({ title: 'written on B' });
+    expect(await read(a, obsSql)).toEqual(obsB);
   });
 
   /** An observation row with its own modification time and narrative. */
@@ -6367,6 +6534,7 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     expect(await rowsOf(a, d1)).toEqual(both);
     expect(await rowsOf(b, d1)).toEqual(both);
   });
+  });
 });
 
 describe('the server retirements a receiver confirms a retire by (T13366)', () => {
@@ -6398,15 +6566,74 @@ describe('the server retirements a receiver confirms a retire by (T13366)', () =
     ]);
   });
 
-  it('home on a server without the listing: none; a project stream: no source at all', async () => {
+  it('home on a server without the listing: none; a project stream with no server project: no source', async () => {
     expect(await serverRetirementsFor(listed('/v1/account/home/replicas', null), 'global')).toEqual(
       [],
     );
     const never = {
       find: async () => {
-        throw new Error('a project stream has no retirement read');
+        throw new Error('a project stream without a server project has no retirement read');
       },
     };
     expect(await serverRetirementsFor(never, 'project')).toBeUndefined();
+  });
+
+  it('project: retired replicas from E15, a server without it confirms none (T13391)', async () => {
+    const P = '0192ffff-7f00-7000-8000-00000000000f';
+    const row = { projectId: P, deviceId: D1, deviceName: 'd', ...quiet };
+    const e15 = (replicas: unknown[] | null) => ({
+      find: async <T>(
+        p: string,
+        schema: { safeParse(v: unknown): { success: boolean; data?: T } },
+      ): Promise<T | null> => {
+        expect(p.startsWith(`/v1/projects/${P}/replicas?`)).toBe(true);
+        if (replicas === null) return null;
+        const parsed = schema.safeParse({ replicas, nextCursor: null });
+        if (!parsed.success || parsed.data === undefined) throw new Error('E15 does not parse');
+        return parsed.data;
+      },
+    });
+    expect(
+      await serverRetirementsFor(
+        e15([
+          { ...row, replicaId: R1, retiredAt: '2026-10-09T00:00:01.000Z', successor: R2 },
+          { ...row, replicaId: R2 },
+        ]),
+        'project',
+        P,
+      ),
+    ).toEqual([{ replicaId: R1, successor: R2, retiredAt: '2026-10-09T00:00:01.000Z' }]);
+    expect(await serverRetirementsFor(e15(null), 'project', P)).toEqual([]);
+  });
+
+  it('a listing that fails confirms nothing this round and warns, never failing the pull (T13395)', async () => {
+    for (const fail of [
+      new Error('fetch failed'),
+      new NexusError('E_NETWORK', 'server unavailable', 503, null),
+      new NexusError('E_NOT_FOUND', 'no such route', 404, null),
+    ]) {
+      const conn = {
+        warnings: [] as Array<{ code: string; message: string }>,
+        find: async () => {
+          throw fail;
+        },
+      };
+      expect(await confirmableRetirements(conn, 'global')).toEqual([]);
+      expect(conn.warnings).toHaveLength(1);
+      expect(conn.warnings[0]?.code).toBe('W_NEXUS_RETIREMENTS_UNAVAILABLE');
+    }
+    const ok = {
+      ...listed('/v1/account/home/replicas', []),
+      warnings: [] as Array<{ code: string; message: string }>,
+    };
+    expect(await confirmableRetirements(ok, 'global')).toEqual([]);
+    expect(ok.warnings).toHaveLength(0);
+    const project = {
+      find: async () => {
+        throw new Error('never called');
+      },
+      warnings: [],
+    };
+    expect(await confirmableRetirements(project, 'project')).toBeUndefined();
   });
 });

@@ -60,7 +60,7 @@ import {
   SECRET_MARKER,
   syncSetTables,
 } from './capture.js';
-import { tickClock, withImmediateTransaction } from './clock-store.js';
+import { sealWallCeiling, tickClock, withImmediateTransaction } from './clock-store.js';
 import {
   actorOpOf,
   clearFieldLeaves,
@@ -80,7 +80,7 @@ import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './n
 import { encText, remapCapture, remapPending } from './remap.js';
 import { activeReplica } from './replica.js';
 import { compressFieldHlcs, nextFhlc, type RowMetaRow, upsertRowMeta } from './row-meta.js';
-import { hasTable } from './schema.js';
+import { hasTable, isAnnouncedOldUid, isAnnouncedRekey } from './schema.js';
 import { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
 import { snapshotRowUndo, undoEnabled } from './sequencing.js';
 import { markSuspect } from './structural.js';
@@ -1155,6 +1155,10 @@ function sealInTransaction(
   const started = performance.now();
   const maxMs = opts.maxMs ?? 200;
   const replica = opts.replica;
+  // §1.3: a capture stamped while this clock ran ahead seals no later than
+  // the server's date plus MAX_DRIFT, once a recent server date is known.
+  const ceiling = sealWallCeiling(db, now());
+  const wall = (ms: number): number => (ceiling === null ? ms : Math.min(ms, ceiling));
 
   // 1. Read a batch. A frame cut by the budget is completed only when it is
   //    the batch's first group (it must seal whole); otherwise it is left for
@@ -1230,6 +1234,14 @@ function sealInTransaction(
   const insOp = db.prepare(
     'INSERT INTO _sync_op (txn, idx, tbl, uid, o, hlc, body) VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
+  // Minted rows this replica sealed an insert of: the settle path's origin
+  // test outlives the ops (T13399).
+  const insAuthored = hasTable(db, '_sync_authored')
+    ? db.prepare(
+        `INSERT INTO _sync_authored (tbl, uid, bfp, replica) VALUES (?, ?, ?, ?)
+         ON CONFLICT (tbl, uid, bfp) DO NOTHING`,
+      )
+    : null;
   // The counter only rises: a txn id is never reused after old rows are
   // collected (T13033).
   const stored = db.prepare('SELECT value FROM _sync_meta WHERE key = ?').get(SEAL_COUNTER_KEY) as
@@ -1254,7 +1266,10 @@ function sealInTransaction(
   const rowUndo = hasTable(db, '_sync_row_undo') && undoEnabled(db);
 
   const metaFacts: MetaFacts = {
-    sent: (t, u) => (meta.flags.get(t, u) as { sent: number } | undefined)?.sent === 1,
+    // An announced re-key's old uid came from the stream (T13399).
+    sent: (t, u) =>
+      (meta.flags.get(t, u) as { sent: number } | undefined)?.sent === 1 ||
+      isAnnouncedOldUid(db, t, u),
     live: (t, u) => (meta.flags.get(t, u) as { deleted: number } | undefined)?.deleted === 0,
     known: (t, u) => meta.flags.get(t, u) !== undefined,
   };
@@ -1416,7 +1431,7 @@ function sealInTransaction(
           ...(pin?.fh ? { fh: pin.fh } : {}),
           seq,
           last,
-          h: pin?.h ?? tickClock(db, replica, at(op)?.at_ms ?? now()),
+          h: pin?.h ?? tickClock(db, replica, wall(at(op)?.at_ms ?? now())),
         };
       },
     );
@@ -1452,7 +1467,19 @@ function sealInTransaction(
     sealedOps.forEach(({ seq, last, ...op }, i) => {
       const rk = at({ seq, last })?.rk ?? '';
       insOp.run(txn, i, op.t, op.u, op.o, op.h, canonicalJson(op));
+      if (op.o === 'I' && op.bfp) insAuthored?.run(op.t, op.u, op.bfp, replica);
       const def = ctx.def(op.t);
+      // An announcement K re-states a re-key already applied here from another
+      // replica (T13399): it moves nothing, so it keeps no undo and leaves row
+      // meta where the apply put it.
+      if (
+        op.o === 'K' &&
+        typeof op.nu === 'string' &&
+        op.obfp &&
+        isAnnouncedRekey(db, op.t, op.u, op.obfp, op.nu)
+      ) {
+        return;
+      }
       const prev = meta.get.get(op.t, op.u) as RowMetaRow | undefined;
       if (rowUndo) snapshotRowUndo(db, txn, i, op.t, op.u);
       const keyJson = op.k ? canonicalJson(op.k) : null;

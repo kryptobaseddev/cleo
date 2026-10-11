@@ -47,6 +47,7 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { DeniedGitOp } from '@cleocode/contracts';
 import { pathEnvKey, splitPathEnv } from '@cleocode/paths';
 import { type AuditRecord, writeAuditRecord } from './audit-log.js';
 import {
@@ -56,7 +57,13 @@ import {
   validateCommitSubject,
   validateMergeAllowed,
 } from './boundary.js';
-import { findDeniedOp, RESTRICTED_ROLES } from './denylist.js';
+import {
+  findDeniedOp,
+  porcelainDestinations,
+  protectedPorcelainDestinations,
+  RESTRICTED_ROLES,
+  splitGitArgv,
+} from './denylist.js';
 import { evaluateIsolationBoundary } from './isolation-boundary.js';
 import { resolveActiveWorktree } from './worktree-path.js';
 
@@ -339,9 +346,55 @@ function buildAuditRecord(
  * Reads argv, env, applies the isolation fence + denylist + boundary fence,
  * and either blocks or passes through to the real git binary.
  */
+/**
+ * Resolve where a worker's push would really go, with git itself: rerun it as
+ * `--dry-run --porcelain` with the worker's own global options, arguments and
+ * config, and refuse when any destination is a protected branch, or when the
+ * dry run fails (fail closed). This catches pattern refspecs, configured
+ * `remote.<r>.push` / `push.default` targets, `-c` overrides and global
+ * options the argv parser does not know (T13535). The argv denylist stays the
+ * fast path in front of it.
+ */
+function dryRunPushDenial(
+  subcommand: string,
+  args: string[],
+  globalArgs: string[],
+): DeniedGitOp | null {
+  if (subcommand !== 'push') return null;
+  const realGit = resolveRealGit();
+  if (!realGit) return null;
+  const r = spawnSync(
+    realGit,
+    [...globalArgs, 'push', '--dry-run', '--porcelain', '--no-verify', ...args],
+    { encoding: 'utf8', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
+  );
+  const stdout = r.stdout ?? '';
+  const hits = protectedPorcelainDestinations(stdout);
+  if (hits.length > 0) {
+    return {
+      subcommand: 'push',
+      flag: hits.join(','),
+      reason: `the push would update the protected branch ${hits.join(', ')} — push your task branch only`,
+    };
+  }
+  // A dry run that resolved its refs but failed (e.g. non-fast-forward) touches
+  // no protected branch: let the real push fail with git's own message. Only a
+  // dry run that resolved nothing is refused (fail closed).
+  if (r.status !== 0 && porcelainDestinations(stdout).length === 0) {
+    const detail = (r.stderr ?? '').trim().split('\n').pop() ?? '';
+    return {
+      subcommand: 'push',
+      flag: '(dry-run failed)',
+      reason: `could not verify where this push goes (git push --dry-run failed: ${detail}); refusing`,
+    };
+  }
+  return null;
+}
+
 function main(): void {
   const argv = process.argv.slice(2);
-  const subcommand = argv[0];
+  // Global options (`-C dir`, `-c k=v`) precede the subcommand (T13533).
+  const { global: globalArgs, subcommand, args: subArgs, unknownGlobal } = splitGitArgv(argv);
 
   // Fast path: no subcommand → pass through (git with no args shows usage).
   if (!subcommand) {
@@ -369,7 +422,25 @@ function main(): void {
     return;
   }
 
-  const remainingArgs = argv.slice(1);
+  const remainingArgs = subArgs;
+
+  // An unknown leading option may take a value, hiding the real subcommand:
+  // fail closed for a restricted role rather than guess (T13535).
+  if (unknownGlobal !== null && process.env['CLEO_ALLOW_GIT'] !== '1') {
+    emitBlockedError(
+      'E_GIT_OP_BLOCKED',
+      `git ${unknownGlobal} is not a global option the shim understands; refusing for role '${role}' (set CLEO_ALLOW_GIT=1 to bypass, audited)`,
+      { subcommand: subcommand ?? '', flag: unknownGlobal, role },
+    );
+    writeAuditRecord(
+      buildAuditRecord('blocked', 'denylist', 'E_GIT_OP_BLOCKED', subcommand ?? '', subArgs, {
+        flag: unknownGlobal,
+        reason: 'unknown global option',
+      }),
+    );
+    process.exit(BLOCKED_EXIT_CODE);
+    return;
+  }
   const allowBranchOps = process.env['CLEO_ALLOW_BRANCH_OPS'] === '1';
   const allowGit = process.env['CLEO_ALLOW_GIT'] === '1';
 
@@ -418,7 +489,10 @@ function main(): void {
   // ---------------------------------------------------------------------------
   // Layer 1 — T1118 denylist (branch-mutation ops).
   // ---------------------------------------------------------------------------
-  const denied = findDeniedOp(subcommand, remainingArgs);
+  const denied =
+    findDeniedOp(subcommand, remainingArgs) ??
+    // An audited override skips the dry run's extra network round trip.
+    (allowBranchOps || allowGit ? null : dryRunPushDenial(subcommand, remainingArgs, globalArgs));
   if (denied && !allowBranchOps && !allowGit) {
     const worktreeRoot = process.env['CLEO_WORKTREE_ROOT'] ?? '(unknown)';
     emitBlockedError(

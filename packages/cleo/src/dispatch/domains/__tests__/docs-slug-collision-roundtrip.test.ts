@@ -273,7 +273,7 @@ describe('Docs North Star round-trip (S6)', () => {
     expect(fetched.success, JSON.stringify(fetched)).toBe(true);
     expect(fetched.data).toMatchObject({
       metadata: { sha256: createHash('sha256').update(content).digest('hex') },
-      bytesBase64: Buffer.from(content).toString('base64'),
+      content,
       path: expect.stringContaining(join(tempDir, '.cleo')),
     });
   });

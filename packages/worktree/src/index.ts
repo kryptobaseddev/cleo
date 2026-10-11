@@ -93,6 +93,7 @@ export {
   readStableDeviceId,
   readWorktreeTaskLock,
   releaseWorktreeTaskLock,
+  releaseWorktreeTaskLocksForSession,
   resolveWorktreeLockTtlMs,
   WORKTREE_LOCK_TTL_ENV,
   type WorktreeLockAssessment,

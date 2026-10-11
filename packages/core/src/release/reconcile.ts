@@ -831,14 +831,14 @@ function revalidateEvidenceStaleness(
             });
           }
         }
-      } else if (kind === 'test-run') {
+      } else if (kind === 'test-run' || kind === 'qa-run') {
         // Treat the value as a path to a vitest/cargo-test JSON file.
         const abs = resolve(projectRoot, value);
         if (!existsSync(abs)) {
           staleTasks.push({
             taskId: task.id,
             atom,
-            reason: `test-run file ${value} missing post-publish`,
+            reason: `${kind} file ${value} missing post-publish`,
           });
           continue;
         }

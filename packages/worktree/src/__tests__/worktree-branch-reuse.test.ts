@@ -75,6 +75,30 @@ describe('createWorktree — branch provisioning (T1878)', () => {
     expect(existsSync(result.path)).toBe(true);
   });
 
+  it('advertises strict protection and prepends the shim only when the caller installed it (T13522)', async () => {
+    const none = await createWorktree(projectRoot, { taskId: 'T9101', lockWorktree: false });
+    expect(none.envVars['CLEO_BRANCH_PROTECTION']).toBe('unavailable');
+    expect(none.envVars['CLEO_SHIM_MARKER']).toBeUndefined();
+    expect(Object.values(none.envVars).some((v) => v.includes('.cleo/bin/git-shim'))).toBe(false);
+    expect(none.preamble).toContain('NOT enforced');
+
+    const shimDir = join(projectRoot, '.cleo', 'bin', 'git-shim');
+    const strict = await createWorktree(projectRoot, {
+      taskId: 'T9102',
+      lockWorktree: false,
+      gitShim: { dir: shimDir, installed: true },
+    });
+    expect(strict.envVars['CLEO_BRANCH_PROTECTION']).toBe('strict');
+    expect(Object.values(strict.envVars).some((v) => v.startsWith(shimDir))).toBe(true);
+
+    const failed = await createWorktree(projectRoot, {
+      taskId: 'T9103',
+      lockWorktree: false,
+      gitShim: { dir: shimDir, installed: false },
+    });
+    expect(failed.envVars['CLEO_BRANCH_PROTECTION']).toBe('unavailable');
+  });
+
   it('reuses an existing task branch and returns reused=true', async () => {
     // Simulate a prior aborted spawn: create the branch but leave no worktree dir.
     execFileSync('git', ['branch', 'task/T9002', 'HEAD'], { cwd: projectRoot, stdio: 'pipe' });

@@ -43,6 +43,7 @@ installability and every documented `cleo` command honest.
 | **ct-cleo** | CLEO task management protocol - session, task, and workflow guidance. |
 | **ct-dev-workflow** | Development workflow orchestration for task-driven development with atomic commits, conventional commit messag… |
 | **ct-documentor** | Documentation coordinator with CLEO style guide compliance. |
+| **ct-lean** | Lean change discipline for CLEO work: the smallest change that fully solves the task, and a reply a busy … |
 | **ct-lead** | Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. |
 | **ct-orchestrator** | Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. |
 | **ct-task-executor** | General implementation task execution for completing assigned CLEO tasks by following instructions and produci… |

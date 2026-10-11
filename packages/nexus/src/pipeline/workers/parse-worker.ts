@@ -83,6 +83,7 @@ function receive(message: IncomingMessage): void {
           calls: extracted.calls,
           reExports: extracted.reExports ?? [],
           accesses: extracted.accesses ?? [],
+          parseLimitations: extracted.parseLimitations ?? [],
         },
       });
       result.reports.push({ path: file.path, status: 'analyzed' });

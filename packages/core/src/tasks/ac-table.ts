@@ -727,6 +727,67 @@ export function planAcUpdate(
 }
 
 /**
+ * Plan replacing the typed gate at acceptance `index` in place (T12988,
+ * `cleo req replace`): every other row is kept exactly; the target row keeps
+ * its id, ordinal and uid (a REQ-ID row's id derives from the REQ-ID, so its
+ * evidence bindings survive and go stale on the new text) and only its text
+ * changes. The superseded text is kept as one history row, reason `replace`.
+ *
+ * @param taskId - Task whose row is replaced.
+ * @param existing - Current AC rows.
+ * @param index - Zero-based acceptance index of the gate.
+ * @param gate - The replacement gate (same REQ-ID).
+ * @returns A full-set plan for {@link applyAcPlan}.
+ * @throws CleoError when the rows do not project the acceptance array, or the
+ *   replacement would change the row's identity.
+ * @task T12988
+ */
+export function replaceAcRowPlan(
+  taskId: string,
+  existing: readonly AcRow[],
+  index: number,
+  gate: AcceptanceGate,
+): AcUpdatePlan {
+  const sorted = [...existing].sort((a, b) => a.ordinal - b.ordinal);
+  const target = sorted[index];
+  const next = target ? buildInsertRow(taskId, gate, target.ordinal) : undefined;
+  if (!target || !next || next.id !== target.id) {
+    // @sync-invariant none:input-shape a gate whose stored row does not match is refused before any write; nothing is written
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `Acceptance criterion ${index + 1} of ${taskId} does not match its stored row; refusing to replace it`,
+      { fix: `cleo show ${taskId} --full  # check the acceptance array and its AC rows agree` },
+    );
+  }
+  const keep = (row: AcRow): AcInsertRow => ({
+    id: row.id,
+    taskId,
+    ordinal: row.ordinal,
+    text: row.text,
+    kind: row.kind,
+    sourceKey: row.sourceKey,
+    targetTaskId: row.targetTaskId,
+    projection: row.projection,
+    contentHash: row.contentHash,
+    ...carriedIdentity(row),
+  });
+  return {
+    inserts: sorted.map((row) =>
+      row.id === target.id ? { ...next, ...carriedIdentity(row) } : keep(row),
+    ),
+    history: [
+      {
+        acId: target.id,
+        ...(target.uid ? { acUid: target.uid } : {}),
+        previousText: target.text,
+        reason: 'replace',
+      },
+    ],
+    fullDelete: true,
+  };
+}
+
+/**
  * Plan removal of a parent-owned child projection row while preserving the
  * remaining AC UUIDs, ordinals, kind/source metadata, and bindings.
  */

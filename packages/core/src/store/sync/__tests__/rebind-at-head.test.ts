@@ -22,6 +22,7 @@ import type { LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateEd25519 } from '../../../cloud/crypto.js';
+import { serverRetirementsFor } from '../../../cloud/nexus-vault.js';
 import { remintAuthority } from '../../display-id-alias.js';
 import {
   _resetDualScopeDbCache,
@@ -60,7 +61,8 @@ import { recordUndoBudget, UNDO_BUDGET_EXCEEDED_KEY, undoBudget } from '../seque
 import { firstBadTxnSignature, signTxn } from '../txn-signing.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
-const STREAM = 'project:0192ffff-7f00-7000-8000-00000000000f';
+const PROJECT_ID = '0192ffff-7f00-7000-8000-00000000000f';
+const STREAM = `project:${PROJECT_ID}`;
 const DEV_A = 'dev-a';
 const DEV_B = 'dev-b';
 const RETIRED_AT = '2026-10-09T12:00:00.000Z';
@@ -333,13 +335,42 @@ describe('the undo-budget rebind at the next pull to head (T13278, D5)', () => {
     // A late segment of the retired replica lands after the retire.
     stream.append(late.sealed, late.rs, old, DEV_A);
 
-    // The server confirmed the retirement (T13366): the home listing or E31's record.
+    // The server confirmed the retirement (T13366): on a project stream B reads
+    // it from E15's listing, every page (T13391).
+    const e15 = `/v1/projects/${PROJECT_ID}/replicas`;
+    const row = (replicaId: string, retiredAt: string | null, succ: string | null) => ({
+      projectId: PROJECT_ID,
+      replicaId,
+      deviceId: DEV_A,
+      deviceName: 'A',
+      lastSyncAt: null,
+      presence: null,
+      presenceAt: null,
+      retiredAt,
+      successor: succ,
+    });
+    const pages: Record<string, unknown> = {
+      first: { replicas: [row(successor, null, null)], nextCursor: 'p2' },
+      p2: { replicas: [row(old, RETIRED_AT, successor)], nextCursor: null },
+    };
+    const listing = {
+      find: async <T>(
+        path: string,
+        schema: { safeParse(v: unknown): { success: boolean; data?: T } },
+      ): Promise<T | null> => {
+        expect(path.startsWith(`${e15}?`)).toBe(true);
+        const cursor = new URLSearchParams(path.slice(path.indexOf('?') + 1)).get('cursor');
+        const parsed = schema.safeParse(pages[cursor ?? 'first']);
+        if (!parsed.success || parsed.data === undefined)
+          throw new Error('E15 page does not parse');
+        return parsed.data;
+      },
+    };
+    const serverRetirements = await serverRetirementsFor(listing, 'project', PROJECT_ID);
+    expect(serverRetirements).toEqual([{ replicaId: old, successor, retiredAt: RETIRED_AT }]);
     const atB = await pullStream(
       b.db,
-      pullOpts(b, stream, {
-        rebind: undefined,
-        serverRetirements: [{ replicaId: old, successor, retiredAt: RETIRED_AT }],
-      }),
+      pullOpts(b, stream, { rebind: undefined, serverRetirements }),
     );
     expect(atB.refused).toBeNull();
     expect(retiredReplicas(b.db, STREAM).get(old)).toMatchObject({
@@ -494,6 +525,102 @@ describe('the undo-budget rebind at the next pull to head (T13278, D5)', () => {
     expect(n(a.db, "SELECT count(*) AS n FROM _sync_txn WHERE kind = 'retire'")).toBe(0);
     // Its insert is re-emitted under the successor.
     expect(r.rebind?.reconcile).toMatchObject({ inserts: 1 });
+  });
+});
+
+describe('seen-txn pruning never wedges the rebind paths (T13520)', () => {
+  it("a lost-response retry, a rebind after an upload the server stored but the client never recorded, and a retired replica's late segment re-deliver no txn id", async () => {
+    const a = await author();
+    const b = await open('b', DEV_B);
+    const stream = fakeStream();
+    // The server's append is idempotent on (replica, replicaSeq): an identical
+    // retry returns the original seq as a duplicate (cleo-nexus streams.ts).
+    const send = (mode: 'ok' | 'lost' | 'offline') => {
+      const replica = replicaOf(a);
+      return pushStream(a.db, {
+        scope: 'project',
+        stream: STREAM,
+        replica,
+        project: null,
+        sealer: (_seq, plaintext) => Buffer.from(plaintext),
+        signTxn: (st, txn) => signTxn(KEY_A, st, txn),
+        upload: async (seg) => {
+          if (mode === 'offline') throw new Error('offline');
+          const dup = stream.segments.find(
+            (s) => s.replicaId === replica && s.replicaSeq === seg.replicaSeq,
+          );
+          if (dup) return { seq: dup.seq, duplicate: true };
+          const seq = stream.append(seg.sealed, seg.replicaSeq, replica, a.device);
+          if (mode === 'lost') throw new Error('response lost');
+          return { seq, duplicate: false };
+        },
+        serverOffsetMs: 0,
+        serverLastReplicaSeq: null,
+        now: () => ++clock,
+        env: {},
+        allowUnreleased: true,
+      });
+    };
+    const pullB = async () => {
+      const r = await pullStream(b.db, pullOpts(b, stream, { rebind: undefined, pruneSeen: true }));
+      expect(r.refused).toBeNull();
+      return r;
+    };
+    const old = replicaOf(a);
+
+    // Three txns of the old replica land; B prunes their seen rows below its floor.
+    for (const id of ['T1', 'T2', 'T3']) {
+      write(a.db, addTask(id));
+      expect((await send('ok')).pushed).toBe(1);
+    }
+    await pullB();
+    await pullStream(a.db, pullOpts(a, stream));
+    const floor = () =>
+      b.db
+        .prepare('SELECT pruned_upto AS p FROM _sync_seen_floor WHERE stream = ? AND origin = ?')
+        .get(STREAM, old) as { p: number };
+    expect(floor().p).toBeGreaterThan(0);
+
+    // (c) The server stores T4 but the answer is lost; the retry is a duplicate, stored once.
+    write(a.db, addTask('T4'));
+    await expect(send('lost')).rejects.toThrow('response lost');
+    const stored = stream.segments.length;
+    const retry = await send('ok');
+    expect(retry.duplicates).toBe(1);
+    expect(stream.segments.length).toBe(stored);
+    await pullB();
+
+    // (b) T5 lands on the server unrecorded; T6 never leaves (offline).
+    write(a.db, addTask('T5'));
+    await expect(send('lost')).rejects.toThrow('response lost');
+    write(a.db, addTask('T6'));
+    await expect(send('offline')).rejects.toThrow('offline');
+    const late = a.db
+      .prepare(
+        "SELECT sealed, replica_seq AS rs FROM _sync_segment WHERE replica_id = ? AND state = 'sealed' ORDER BY replica_seq DESC LIMIT 1",
+      )
+      .get(old) as { sealed: Uint8Array; rs: number };
+    recordUndoBudget(a.db, new Date(++clock).toISOString(), 1);
+    const r = await pullStream(a.db, pullOpts(a, stream));
+    expect(r.rebind?.previousReplicaId).toBe(old);
+    // Step 1: the segment the server holds is pushed, never inherited or re-sent.
+    expect(r.rebind?.segmentsMarkedPushed).toBe(1);
+    const before = stream.segments.length;
+    expect((await send('ok')).refused).toBeNull();
+    expect(stream.segments.slice(before).every((s) => s.replicaId === replicaOf(a))).toBe(true);
+    await pullB();
+
+    // (a) The retired replica's unsent segment lands late, after the retire.
+    stream.append(late.sealed, late.rs, old, DEV_A);
+    await pullB();
+
+    // No txn id was ever stored twice, so none could be re-delivered after pruning.
+    const ids = stream.segments.flatMap((s) => decode(s.plaintext).map((t) => t.txn));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(n(b.db, 'SELECT count(*) AS n FROM _sync_inbox')).toBe(ids.length);
+    for (const id of ['T1', 'T2', 'T3', 'T4', 'T5', 'T6']) {
+      expect(n(b.db, 'SELECT count(*) AS n FROM tasks_tasks WHERE id = ?', id)).toBe(1);
+    }
   });
 });
 

@@ -126,9 +126,9 @@ describe('cloud status sync clause: the stream position (T13370)', () => {
   });
 
   it('flags a cut whose checkpoint is not yet stored, and says nothing before a cut', () => {
-    expect(
-      syncStreamClause({ ...stream(none), genesisCut: 5, genesisPending: true }),
-    ).toContain('cut at 5 (checkpoint not yet stored)');
+    expect(syncStreamClause({ ...stream(none), genesisCut: 5, genesisPending: true })).toContain(
+      'cut at 5 (checkpoint not yet stored)',
+    );
     const before = syncStreamClause(stream(none));
     expect(before).not.toContain('cut at');
     expect(before).toContain('server fields unknown until T12343/S4');

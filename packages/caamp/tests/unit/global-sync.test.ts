@@ -71,7 +71,7 @@ describe('syncGlobalInstructions (T12377)', () => {
     const claude = join(home, '.claude', 'CLAUDE.md');
     await writeFile(claude, '# My own notes\nKeep me.\n');
 
-    const result = await syncGlobalInstructions({ providers: providers('claude-code', 'codex', 'pi') });
+    const result = await syncGlobalInstructions({ providers: providers('claude-code', 'codex', 'pi'), userRequested: true });
 
     expect(result.status).toBe('synced');
     expect(result.files.map((f) => f.action).sort()).toEqual(['added', 'created', 'created']);
@@ -82,14 +82,14 @@ describe('syncGlobalInstructions (T12377)', () => {
     }
     expect(await readFile(claude, 'utf8')).toContain('# My own notes\nKeep me.');
 
-    const again = await syncGlobalInstructions({ providers: providers('claude-code', 'codex', 'pi') });
+    const again = await syncGlobalInstructions({ providers: providers('claude-code', 'codex', 'pi'), userRequested: true });
     expect(again.files.every((f) => f.action === 'intact')).toBe(true);
   });
 
   it('refreshes a stale embedded delivery after the hub changes', async () => {
     await writeHub();
     const targets = providers('claude-code', 'pi');
-    await syncGlobalInstructions({ providers: targets });
+    await syncGlobalInstructions({ providers: targets, userRequested: true });
 
     await writeHub(`\n# Owner rule\n${OWNER_RULE}\n`);
     const before = await checkGlobalInstructionStaleness({ providers: targets });
@@ -97,17 +97,28 @@ describe('syncGlobalInstructions (T12377)', () => {
       [join(home, '.claude', 'CLAUDE.md'), join(home, '.pi', 'agent', 'AGENTS.md')].sort(),
     );
 
-    const result = await syncGlobalInstructions({ providers: targets });
+    const result = await syncGlobalInstructions({ providers: targets, userRequested: true });
     expect(result.files.every((f) => f.action === 'updated')).toBe(true);
     expect(await readFile(join(home, '.pi', 'agent', 'AGENTS.md'), 'utf8')).toContain(OWNER_RULE);
     expect((await checkGlobalInstructionStaleness({ providers: targets })).needsSync).toEqual([]);
   });
 
   it('writes nothing when the hub cannot be resolved', async () => {
-    const result = await syncGlobalInstructions({ providers: providers('claude-code') });
+    const result = await syncGlobalInstructions({ providers: providers('claude-code'), userRequested: true });
     expect(result.status).toBe('unresolved');
     expect(result.findings[0]?.kind).toBe('missing-reference');
     expect(existsSync(join(home, '.claude', 'CLAUDE.md'))).toBe(false);
+  });
+
+  it('refuses to write without an explicit user request (T13409)', async () => {
+    await writeHub();
+    const claude = join(home, '.claude', 'CLAUDE.md');
+    await writeFile(claude, '# My own notes\n');
+    const result = await syncGlobalInstructions({ providers: providers('claude-code', 'codex') });
+    expect(result.status).toBe('refused');
+    expect(result.files.every((f) => f.action === 'planned')).toBe(true);
+    expect(await readFile(claude, 'utf8')).toBe('# My own notes\n');
+    expect(existsSync(join(home, '.codex', 'AGENTS.md'))).toBe(false);
   });
 
   it('dry run plans without writing', async () => {
@@ -124,7 +135,7 @@ describe('syncGlobalInstructions (T12377)', () => {
 describe('embedded delivery is never downgraded (T12377 regression)', () => {
   it('refuses to replace an embedded block with the generic stub, in inject and injectAll', async () => {
     await writeHub();
-    await syncGlobalInstructions({ providers: providers('pi') });
+    await syncGlobalInstructions({ providers: providers('pi'), userRequested: true });
     const pi = join(home, '.pi', 'agent', 'AGENTS.md');
     const embedded = await readFile(pi, 'utf8');
 
@@ -146,7 +157,7 @@ describe('embedded delivery is never downgraded (T12377 regression)', () => {
     expect((await checkGlobalInstructionStaleness({ providers: targets })).files[0]?.state).toBe(
       'unembedded',
     );
-    const result = await syncGlobalInstructions({ providers: targets });
+    const result = await syncGlobalInstructions({ providers: targets, userRequested: true });
     expect(result.files[0]?.action).toBe('updated');
     expect(await readFile(pi, 'utf8')).not.toContain('CAAMP Managed Configuration');
   });
@@ -156,7 +167,7 @@ describe('checkGlobalInstructionStaleness (T12378)', () => {
   it('reports absent, no-block and current files', async () => {
     await writeHub();
     await writeFile(join(home, '.codex', 'AGENTS.md'), '# user only\n');
-    await syncGlobalInstructions({ providers: providers('claude-code') });
+    await syncGlobalInstructions({ providers: providers('claude-code'), userRequested: true });
 
     const report = await checkGlobalInstructionStaleness({
       providers: providers('claude-code', 'codex', 'pi'),
@@ -170,7 +181,7 @@ describe('checkGlobalInstructionStaleness (T12378)', () => {
     const rule = `# Owner rule\n${OWNER_RULE}\n- Each option carries enough detail to act on and a clear way to select it.\n`;
     await writeHub(`\n${rule}`);
     const claude = join(home, '.claude', 'CLAUDE.md');
-    await syncGlobalInstructions({ providers: providers('claude-code', 'codex') });
+    await syncGlobalInstructions({ providers: providers('claude-code', 'codex'), userRequested: true });
     const synced = await readFile(claude, 'utf8');
     await writeFile(claude, `${synced}\n${rule}`);
 
@@ -181,7 +192,7 @@ describe('checkGlobalInstructionStaleness (T12378)', () => {
     expect(report.files.find((f) => f.path === claude)?.duplicateLines).toBe(2);
 
     // Reported only: a sync never deletes user text outside the block.
-    await syncGlobalInstructions({ providers: providers('claude-code') });
+    await syncGlobalInstructions({ providers: providers('claude-code'), userRequested: true });
     expect(await readFile(claude, 'utf8')).toContain(`${rule}`);
   });
 });

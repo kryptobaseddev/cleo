@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isScopedOnly,
   mergeStateOfChangeSet,
+  scopedRunCarriedAcrossMerge,
   scopedRunSupersededReason,
   taskChangeMergeState,
   testRunTreeMismatchReason,
@@ -591,5 +592,120 @@ describe('hasPatchEquivalent (real git)', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('a tree-pinned scoped run carries across the merge (T13495)', () => {
+  function repo(): { root: string; git: (...a: string[]) => string } {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'scoped-merge-')));
+    const git = (...a: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+        cwd: root,
+        encoding: 'utf-8',
+      }).trim();
+    git('init', '-q', '-b', 'main');
+    writeFileSync(join(root, 'a.ts'), 'export const a = 1;\n');
+    writeFileSync(join(root, 'other.ts'), 'export const o = 1;\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'init');
+    return { root, git };
+  }
+
+  /** Branch change to a.ts, its tree, then a squash merge on main (with another PR's change first). */
+  function mergedChange(alterAtMerge = false) {
+    const { root, git } = repo();
+    git('switch', '-q', '-c', 'task/T1');
+    writeFileSync(join(root, 'a.ts'), 'export const a = 2;\n');
+    git('commit', '-q', '-am', 'T1');
+    const tested = git('rev-parse', 'HEAD^{tree}');
+    git('switch', '-q', 'main');
+    // Another PR lands first, touching a file the change did not.
+    writeFileSync(join(root, 'other.ts'), 'export const o = 2;\n');
+    git('commit', '-q', '-am', 'other PR');
+    git('merge', '-q', '--squash', 'task/T1');
+    if (alterAtMerge) writeFileSync(join(root, 'a.ts'), 'export const a = 3;\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'T1 (#5)');
+    const merge = git('rev-parse', 'HEAD');
+    const changeSet = {
+      mergeCommitSha: merge,
+      files: ['a.ts'],
+      deletedFiles: [],
+      executionRoot: root,
+    };
+    return { root, tested, changeSet };
+  }
+
+  const run = (treeHash?: string): EvidenceAtom => ({
+    kind: 'test-run',
+    path: 'r.json',
+    sha256: 'c'.repeat(64),
+    passCount: 1,
+    failCount: 0,
+    skipCount: 0,
+    ...(treeHash ? { treeHash } : {}),
+  });
+
+  it('carries when the changed files are byte-identical at the merge commit, even with other PRs on main', async () => {
+    const { root, tested, changeSet } = mergedChange();
+    try {
+      expect(scopedRunCarriedAcrossMerge([run(tested)], changeSet)).toEqual({ ok: true });
+      const reason = await testsPassedSupersededReason([run(tested)], {
+        mergeState: () => ({ state: 'merged', changeSet: changeSet as unknown as TaskChangeSet }),
+        currentTree: () => tested,
+      });
+      expect(reason).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not carry when the change differs at the merge commit, and says why with the supported paths', async () => {
+    const { root, tested, changeSet } = mergedChange(true);
+    try {
+      expect(scopedRunCarriedAcrossMerge([run(tested)], changeSet)).toMatchObject({
+        ok: false,
+        why: expect.stringMatching(/differ from the tree the scoped run tested/),
+      });
+      const reason = await testsPassedSupersededReason([run(tested)], {
+        mergeState: () => ({ state: 'merged', changeSet: changeSet as unknown as TaskChangeSet }),
+        currentTree: () => tested,
+      });
+      expect(reason).toMatch(
+        /does not carry across the merge because the change's files at merge commit .* differ.*ci:<pr>, with evidence\.ciSatisfies.*tool:test/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed: no tree pin, no merge commit, or no changed files', () => {
+    const { root, tested, changeSet } = mergedChange();
+    try {
+      expect(scopedRunCarriedAcrossMerge([run()], changeSet)).toMatchObject({
+        ok: false,
+        why: expect.stringMatching(/no recorded tree/),
+      });
+      expect(scopedRunCarriedAcrossMerge([run(tested)], null)).toMatchObject({ ok: false });
+      expect(scopedRunCarriedAcrossMerge([run(tested)], { ...changeSet, files: [] })).toMatchObject(
+        { ok: false, why: expect.stringMatching(/lists no files/) },
+      );
+      expect(scopedRunCarriedAcrossMerge([run('f'.repeat(40))], changeSet)).toMatchObject({
+        ok: false,
+        why: expect.stringMatching(/could not compare/),
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('a merge verdict without a change set keeps the old refusal (nothing to compare)', async () => {
+    const reason = await testsPassedSupersededReason([run('a'.repeat(40))], {
+      mergeState: () => 'merged',
+      currentTree: () => 'a'.repeat(40),
+    });
+    expect(reason).toMatch(
+      /does not carry across the merge because the merge commit is not known here/,
+    );
   });
 });
