@@ -266,13 +266,18 @@ function fullImage(def: CaptureTableDef, row: string, liveIdentity: boolean): st
  * - `update`: a U image of every updatable column, `[null, after]`. The
  *   before slot is JSON null because only the content hash was kept; a
  *   trigger's before is always an `enc()` text, so null marks a repair.
- *   Secret columns are left out (their `shash` is a follow-up).
+ *   Secret columns are left out (their `shash` is a follow-up). With
+ *   `columns`, only those of them (the rebind reconcile's touched fields).
  */
 export function repairImageSql(
   def: CaptureTableDef,
   row: string,
+  columns?: ReadonlySet<string>,
 ): { readonly rk: string; readonly insert: string; readonly update: string } {
-  const updatable = def.columns.filter((c) => !def.identity.includes(c) && !def.secret.has(c));
+  const updatable = def.columns.filter(
+    (c) =>
+      !def.identity.includes(c) && !def.secret.has(c) && (columns === undefined || columns.has(c)),
+  );
   return {
     rk: rkExpr(def, row),
     insert: fullImage(def, row, false),
@@ -523,6 +528,41 @@ export function captureRemints(db: DatabaseSync, scope: TableScope): Record<stri
   return out;
 }
 
+/**
+ * Capture an announcement of a re-key this replica applied from another
+ * replica (T13399, store/sync/collision-settle `announcePlacedRekeys`): a K
+ * `uid: [old, new]`, `birth_fp: [fp, fp]` on the row that already lives at
+ * the new uid. It moves nothing here (the sealer recognises it and leaves
+ * row meta alone) and writes no undo, so a rebase rewind never moves the row
+ * back; receivers record it as this replica's reference boundary. Call inside
+ * a `rekey` frame.
+ *
+ * @param db - The store, inside the caller's transaction.
+ * @param def - The re-keyed row's table.
+ * @param oldUid - The uid before the re-key.
+ * @param newUid - The uid the row lives at.
+ * @param birthFp - The row's birth fingerprint (unchanged by the re-key).
+ * @returns 1 when the capture was written, 0 when no row lives at `newUid`.
+ */
+export function captureRekeyAnnouncement(
+  db: DatabaseSync,
+  def: CaptureTableDef,
+  oldUid: string,
+  newUid: string,
+  birthFp: string,
+): number {
+  if (!hasUid(def) || !hasBirthFp(def)) return 0;
+  const img = `json_object(${lit(UID_COLUMN)}, json_array(quote(?), quote(?)), ${lit(BIRTH_FP_COLUMN)}, json_array(quote(?), quote(?)))`;
+  const out = db
+    .prepare(
+      `INSERT INTO _sync_capture (tbl, op, rk, uid, img, at_ms) ` +
+        `SELECT ${lit(def.table)}, 'K', ${rkExpr(def, 'x')}, ?, ${img}, ${AT_MS_SQL} ` +
+        `FROM ${q(def.table)} x WHERE x.${q(UID_COLUMN)} = ? AND x.${q(BIRTH_FP_COLUMN)} = ?`,
+    )
+    .run(oldUid, oldUid, newUid, birthFp, birthFp, newUid, birthFp);
+  return Number(out.changes);
+}
+
 /** Every capture trigger for the store's sync set. */
 export function generateCaptureTriggers(db: DatabaseSync, scope: TableScope): CaptureTrigger[] {
   const out: CaptureTrigger[] = [];
@@ -672,7 +712,9 @@ export type FrameKind =
   | 'exodus'
   | 'import'
   | 'remint'
-  | 'rekey';
+  | 'rekey'
+  /** The rebind reconcile's re-emitted fields (§1.5 N7): sealed as `repair`, `via: 'rebind'` (T13278). */
+  | 'rebind';
 
 /** Frames whose undo is dropped at once (D1). */
 const NO_UNDO_KINDS: ReadonlySet<string> = new Set(['apply', 'rebase']);

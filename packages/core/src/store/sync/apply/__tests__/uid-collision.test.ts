@@ -198,33 +198,41 @@ async function collide(
   const before = { a: rows(a.db, table, cols), b: rows(b.db, table, cols) };
   publish(a.id, txnOf(a, ta));
   publish(b.id, txnOf(b, tb));
-  for (const [r, other] of [
-    [a, b],
-    [b, a],
-  ] as const) {
-    const rep = sync(r);
-    expect(rep.pending, `${r.id.slice(4, 8)} holds the other row`).toBe(1);
-    expect(rep.void).toBe(0);
-    // Its own row is untouched: never a mix of the two.
-    expect(rows(r.db, table, cols)).toEqual(r === a ? before.a : before.b);
-    // Its own echo applied; the other replica's transaction waits, pending.
-    expect(inboxStatus(r.db, r.id)).toEqual(['applied']);
-    expect(inboxStatus(r.db, other.id)).toEqual(['pending']);
-    const cs = listConflicts(r.db);
-    expect(cs).toHaveLength(1);
-    const localFp = (r === a ? ra : rb)?.birth_fp as string;
-    const incomingFp = (r === a ? rb : ra)?.birth_fp as string;
-    expect(cs[0]).toMatchObject({
-      kind: 'uid-collision',
-      table,
-      uid: ra?.uid,
-      resolution: 'op-held',
-      rule: `loser:${incomingFp > localFp ? 'incoming' : 'local'}`,
-    });
-    // Re-planned on the next apply, the hold is still listed once.
-    expect(sync(r).pending).toBe(1);
-    expect(listConflicts(r.db)).toHaveLength(1);
-  }
+  // The replica holding the winner (the smaller fingerprint) holds the loser.
+  const aWins = (ra?.birth_fp as string) < (rb?.birth_fp as string);
+  const [w, l] = aWins ? [a, b] : [b, a];
+  const rep = sync(w);
+  expect(rep.pending, `${w.id.slice(4, 8)} holds the other row`).toBe(1);
+  expect(rep.void).toBe(0);
+  // Its own row is untouched: never a mix of the two.
+  expect(rows(w.db, table, cols)).toEqual(w === a ? before.a : before.b);
+  // Its own echo applied; the other replica's transaction waits, pending.
+  expect(inboxStatus(w.db, w.id)).toEqual(['applied']);
+  expect(inboxStatus(w.db, l.id)).toEqual(['pending']);
+  const cs = listConflicts(w.db);
+  expect(cs).toHaveLength(1);
+  expect(cs[0]).toMatchObject({
+    kind: 'uid-collision',
+    table,
+    uid: ra?.uid,
+    resolution: 'op-held',
+    rule: 'loser:incoming',
+  });
+  // Re-planned on the next apply, the hold is still listed once.
+  expect(sync(w).pending).toBe(1);
+  expect(listConflicts(w.db)).toHaveLength(1);
+  // The loser's origin records the collision too and keeps its own values
+  // (it settles by re-keying its row, T13397; collision-rekey.test.ts).
+  sync(l);
+  expect(listConflicts(l.db)[0]).toMatchObject({
+    kind: 'uid-collision',
+    table,
+    uid: ra?.uid,
+    rule: 'loser:local',
+  });
+  const own = (l === a ? before.a : before.b)[0] as Record<string, unknown>;
+  const { uid: _uid, ...values } = own;
+  expect(rows(l.db, table, cols)).toContainEqual(expect.objectContaining(values));
   return { a, b };
 }
 
@@ -236,16 +244,16 @@ describe('an incoming row with a known uid and another birth fingerprint is neve
       retrieval('query b'),
       'uid, birth_fp, query',
     );
-    // The held row is not lost: it waits in the inbox with its own values.
-    for (const [r, other] of [
-      [a, b],
-      [b, a],
-    ] as const) {
-      const held = r.db
-        .prepare(`SELECT txn_json FROM _sync_inbox WHERE replica_id = ? AND status = 'pending'`)
-        .get(other.id) as { txn_json: string };
-      expect(held.txn_json).toContain(r === a ? 'query b' : 'query a');
-    }
+    // The held row is not lost: it waits in the winner's inbox with its own values.
+    const holders = [a, b].filter(
+      (r) => r.db.prepare(`SELECT 1 FROM _sync_inbox WHERE status = 'pending'`).get() !== undefined,
+    );
+    expect(holders).toHaveLength(1);
+    const w = holders[0] as Replica;
+    const held = w.db
+      .prepare(`SELECT txn_json FROM _sync_inbox WHERE status = 'pending'`)
+      .get() as { txn_json: string };
+    expect(held.txn_json).toContain(w === a ? 'query b' : 'query a');
   });
 
   it('tasks_tasks: two devices create T1 at the same instant with different titles', async () => {

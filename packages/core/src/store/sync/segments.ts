@@ -32,7 +32,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { deflateRawSync } from 'node:zlib';
 import type { TableScope } from '@cleocode/contracts';
 import type { TableDeltas, TxnDelta } from '@cleocode/contracts/cloud';
-import { LedgerActor, LedgerOp, type LedgerTxn } from '@cleocode/contracts/ledger';
+import { LedgerActor, LedgerOp, type LedgerTxn, LedgerTxnRetire } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import type { SegmentMetaFields } from '../../cloud/signing.js';
 import { ROW_IDENTITY_META_TABLE, ROW_IDENTITY_SYNCED_KEY } from '../row-identity.js';
@@ -89,7 +89,15 @@ const MAX_TXNS_PER_SEGMENT = 10_000;
 /** A sealed local transaction as the wire carries it, before {@link BuildSegmentOptions.signTxn} signs it. */
 function ledgerTxnOf(
   db: DatabaseSync,
-  row: { txn: string; hlc: string; scope: string; via: string; kind: string; actor: string | null },
+  row: {
+    txn: string;
+    hlc: string;
+    scope: string;
+    via: string;
+    kind: string;
+    actor: string | null;
+    retire_json: string | null;
+  },
   project: string | null,
 ): LedgerTxn {
   let actor: LedgerActor | null = null;
@@ -112,6 +120,10 @@ function ledgerTxnOf(
     kind: row.kind as LedgerTxn['kind'],
     actor,
     ops,
+    // A retire control transaction names the replica it retires (§2.6, T13278).
+    ...(row.kind === 'retire' && row.retire_json !== null
+      ? { retire: LedgerTxnRetire.parse(JSON.parse(row.retire_json)) }
+      : {}),
     sig: '',
   };
 }
@@ -212,7 +224,7 @@ export function buildSegment(db: DatabaseSync, o: BuildSegmentOptions): Persiste
     const partial = completeLegacyGroupsBeforePack(db, o.scope, o.nowIso);
     const rows = db
       .prepare(
-        `SELECT txn, hlc, scope, via, kind, actor FROM _sync_txn
+        `SELECT txn, hlc, scope, via, kind, actor, retire_json FROM _sync_txn
           WHERE state = 'sealed' AND replica = ? ORDER BY local_seq LIMIT ?`,
       )
       .all(o.replica, MAX_TXNS_PER_SEGMENT) as Array<{
@@ -222,6 +234,7 @@ export function buildSegment(db: DatabaseSync, o: BuildSegmentOptions): Persiste
       via: string;
       kind: string;
       actor: string | null;
+      retire_json: string | null;
     }>;
     const txns: LedgerTxn[] = [];
     let bytes = 0;

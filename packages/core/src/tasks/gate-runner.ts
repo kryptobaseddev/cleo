@@ -769,8 +769,19 @@ export async function runTaskGates(
       // quote) becomes ITS OWN `error` result. Throwing here rejected the whole
       // batch, and the verify engine turned that into E_GENERAL, discarding
       // every other gate's verdict.
-      const { invocation, refusal } = resolveInvocation(gate, tree, env);
-      const artifacts = await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
+      const { invocation, refusal: invocationRefusal } = resolveInvocation(gate, tree, env);
+      // T13527: an input that cannot be captured (an ambiguous symlink, an
+      // escape) is THIS gate's error, not a rejection of every gate in the
+      // batch. A cancellation still propagates.
+      let artifacts: AcceptanceGateArtifact[] = [];
+      let snapshotRefusal: string | undefined;
+      try {
+        artifacts = await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
+      } catch (error) {
+        execution.assertActive();
+        snapshotRefusal = `Typed gate inputs could not be captured: ${error instanceof Error ? error.message : String(error)}`;
+      }
+      const refusal = invocationRefusal ?? snapshotRefusal;
       const binding: AcceptanceGateBinding = {
         version: 1,
         verificationId,
@@ -803,8 +814,18 @@ export async function runTaskGates(
             })
           )[0]!;
       let result: AcceptanceGateResult = { ...observed, index, binding };
+      // T13525: a cache-only run must not wipe a stored pass that still proves
+      // this exact gate on these exact inputs (a commit moved HEAD, which keys
+      // the cache, but changed nothing the gate reads).
+      if (result.errorMessage?.startsWith(GATE_NOT_CACHED_PREFIX)) {
+        const reused = reusableStoredPass(options.priorResults, index, gate, binding);
+        if (reused) result = reused;
+      }
       try {
-        const after = await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
+        // A gate whose inputs were never captured has nothing to compare.
+        const after = snapshotRefusal
+          ? artifacts
+          : await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
         if (!isDeepStrictEqual(after, artifacts))
           throw new Error('Verification inputs changed during execution');
       } catch (error) {
@@ -818,6 +839,46 @@ export async function runTaskGates(
     }
     return results;
   });
+}
+
+/**
+ * The stored pass for `index`, re-bound to this run, when it proves the same
+ * thing a cache entry would: same gate kind and REQ-ID, criterion id and text
+ * hash, gate definition hash, invocation and input bytes (T13525). Marked
+ * `source: 'cache'` with the original capture time, like a cache hit.
+ */
+function reusableStoredPass(
+  prior: readonly AcceptanceGateResult[] | undefined,
+  index: number,
+  gate: AcceptanceGate,
+  binding: AcceptanceGateBinding,
+): AcceptanceGateResult | null {
+  const stored = prior?.find((r) => r.index === index);
+  const was = stored?.binding;
+  if (
+    !stored ||
+    !was ||
+    stored.result !== 'pass' ||
+    stored.kind !== gate.kind ||
+    stored.req !== gate.req ||
+    was.taskId !== binding.taskId ||
+    was.criterionId !== binding.criterionId ||
+    was.criterionHash !== binding.criterionHash ||
+    was.gateHash !== binding.gateHash ||
+    !isDeepStrictEqual(was.invocation, binding.invocation) ||
+    !isDeepStrictEqual(was.artifacts, binding.artifacts)
+  )
+    return null;
+  const { binding: _old, source: _source, cachedAt: _cachedAt, ...observation } = stored;
+  // Re-dated to now, as a cache hit is: a bound result may not precede its capture.
+  return {
+    ...observation,
+    index,
+    binding,
+    checkedAt: new Date().toISOString(),
+    source: 'cache',
+    cachedAt: was.capturedAt,
+  };
 }
 
 /**
@@ -872,6 +933,51 @@ export function createTaskGateReceipt(
 }
 
 /**
+ * Why a stored typed result no longer stands for `gate` on `task`, or null
+ * when its result, kind, REQ-ID and binding (task, owner, criterion id,
+ * criterion text hash, gate definition hash) all match. The one predicate
+ * `cleo complete`'s revalidation and `cleo done --plan` share (T13502), so
+ * the plan never reads as a pass what completion refuses.
+ *
+ * @param result - The stored typed result for the gate's index.
+ * @param task - The task (its id).
+ * @param gate - The gate at that index now.
+ * @param row - The AC row at that index now.
+ * @param owner - The project identity and root completing; omitted, the owner is not compared.
+ * @param requirePassing - True when only a pass may stand (completion, planning).
+ * @returns The reason, worded to follow "Typed requirement <id> ", or null.
+ * @task T13502
+ */
+export function typedResultStaleReason(
+  result: AcceptanceGateResult,
+  task: Pick<Task, 'id'>,
+  gate: AcceptanceGate,
+  row: Pick<AcRow, 'id' | 'text'>,
+  owner?: { projectId: string; projectRoot: string },
+  requirePassing = true,
+): string | null {
+  const binding = result.binding;
+  if (
+    (requirePassing && result.result !== 'pass') ||
+    !binding ||
+    result.kind !== gate.kind ||
+    result.req !== gate.req
+  )
+    return 'lacks a passing bound result';
+  if (
+    binding.taskId !== task.id ||
+    (owner !== undefined &&
+      (binding.identity.projectId !== owner.projectId ||
+        binding.identity.projectRoot !== owner.projectRoot)) ||
+    binding.criterionId !== row.id ||
+    binding.criterionHash !== acTextHash(row.text) ||
+    binding.gateHash !== createHash('sha256').update(acItemToText(gate)).digest('hex')
+  )
+    return 'binding is stale or belongs to another owner';
+  return null;
+}
+
+/**
  * Revalidate persisted typed results against current canonical task and input state.
  * @param task - Current task read under the caller's transaction ownership.
  * @param criteria - Current normalized AC rows from that transaction.
@@ -913,29 +1019,30 @@ export async function revalidateTaskGateResults(
       if (matches.length !== 1)
         throw new Error(`Typed requirement ${gate.req ?? index} has no unique verified result`);
       const result = acceptanceGateResultSchema.parse(matches[0]);
-      const binding = result.binding;
-      if (
-        (requirePassing && result.result !== 'pass') ||
-        !binding ||
-        result.kind !== gate.kind ||
-        result.req !== gate.req
-      )
-        throw new Error(`Typed requirement ${gate.req ?? index} lacks a passing bound result`);
-      if (
-        binding.taskId !== task.id ||
-        binding.identity.projectId !== execution.identity.projectId ||
-        binding.identity.projectRoot !== root ||
-        binding.criterionId !== rows[index]!.id ||
-        binding.criterionHash !== acTextHash(rows[index]!.text) ||
-        binding.gateHash !== createHash('sha256').update(acItemToText(gate)).digest('hex')
-      )
-        throw new Error(
-          `Typed requirement ${gate.req ?? index} binding is stale or belongs to another owner`,
-        );
+      const stale = typedResultStaleReason(
+        result,
+        task,
+        gate,
+        rows[index]!,
+        { projectId: execution.identity.projectId, projectRoot: root },
+        requirePassing,
+      );
+      if (stale) throw new Error(`Typed requirement ${gate.req ?? index} ${stale}`);
+      const binding = result.binding!;
       // A refused command is bound without an invocation (T12718 review), so it
       // revalidates as the unmet `error` it was recorded as.
       const { invocation } = resolveInvocation(gate, tree, env);
-      const artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
+      // T13527: an unmet result recorded because its inputs could not be
+      // captured has nothing to re-capture; completion (requirePassing) never
+      // reaches here with it, because only a pass stands there.
+      let artifacts: AcceptanceGateArtifact[];
+      try {
+        artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
+      } catch (error) {
+        execution.assertActive();
+        if (!requirePassing && result.result !== 'pass') continue;
+        throw error;
+      }
       const exact =
         isDeepStrictEqual(binding.invocation, invocation) &&
         isDeepStrictEqual(binding.artifacts, artifacts);
@@ -1117,6 +1224,33 @@ function resolveInvocation(
   }
 }
 
+/**
+ * T13527: an interpreter script reached through a package manager's
+ * `node_modules` link (pnpm resolves `node_modules/vitest` to
+ * `node_modules/.pnpm/vitest@x/node_modules/vitest`) is captured at its real
+ * path, so the ambiguous-parent guard below sees a plain path inside the
+ * project. Only a link that resolves into this project's `.pnpm` virtual store
+ * is followed; any other link is left for the guard to refuse.
+ */
+async function packageStoreRealPath(root: string, path: string): Promise<string> {
+  const rel = relative(root, path).split('\\').join('/');
+  if (!/(^|\/)node_modules\//.test(rel)) return path;
+  try {
+    const real = await realpath(path);
+    const realRel = relative(root, real).split('\\').join('/');
+    if (
+      realRel !== '' &&
+      !realRel.startsWith('../') &&
+      !isAbsolute(realRel) &&
+      /(^|\/)node_modules\/\.pnpm\//.test(realRel)
+    )
+      return real;
+  } catch {
+    // absent or unreadable: the guard below decides
+  }
+  return path;
+}
+
 /** Capture declared task inputs and an interpreter's explicit harness argument. */
 async function snapshotGateInputs(
   task: Task,
@@ -1143,15 +1277,17 @@ async function snapshotGateInputs(
     )
   ) {
     if (!invocation.args.some((arg) => ['-e', '--eval', '-c', '--print', '-p'].includes(arg))) {
+      const scripts: string[] = [];
       const script = invocation.args.find((arg) => !arg.startsWith('-'));
-      if (script) paths.add(resolve(invocation.cwd, script));
+      if (script) scripts.push(resolve(invocation.cwd, script));
       for (const arg of invocation.args) {
         if (
           !arg.startsWith('-') &&
           (arg.includes('/') || /\.(?:[cm]?[jt]sx?|py|sh|rb|pl)$/.test(arg))
         )
-          paths.add(resolve(invocation.cwd, arg));
+          scripts.push(resolve(invocation.cwd, arg));
       }
+      for (const path of scripts) paths.add(await packageStoreRealPath(root, path));
     }
   }
   const artifacts: AcceptanceGateArtifact[] = [];
@@ -1428,6 +1564,37 @@ function describeMissingTestCount(gate: TestGate): string {
   );
 }
 
+/**
+ * Zero-count runner summaries that name failure without reporting any: node:test
+ * (`ℹ fail 0`), TAP (`# fail 0`), `0 failed`, `0 failing`, `failures: 0`. They
+ * are removed before the failure pattern looks at the output (T13511).
+ */
+const ZERO_FAILURE_COUNT =
+  /\b0\s+(?:fail(?:ed|ing|ures?)?)\b|\bfail(?:ed|ing|ures?)?\s*[:=]?\s*0(?![\d.])/gi;
+
+/**
+ * Whether a test command's output reports a failure, for `expect: 'pass'`:
+ * a `FAIL`, `failing` or `Error:` token, after removing summaries that report
+ * zero failures (T13511 — `node --test` prints `ℹ fail 0` on success, which
+ * the bare pattern read as a failure). A non-zero count still matches.
+ *
+ * @param stdout - The command's captured stdout.
+ * @returns True when the output reports a failure.
+ * @example
+ * ```ts
+ * outputReportsFailure('ℹ pass 3\nℹ fail 0'); // false
+ * outputReportsFailure('ℹ pass 2\nℹ fail 1'); // true
+ * ```
+ * @task T13511
+ */
+export function outputReportsFailure(stdout: string): boolean {
+  // T13516: a non-zero count (`3 failed`, `1 failure`) is a failure too; the
+  // FAIL token alone needs a word boundary, so `failed` never matched it.
+  return /\bFAIL\b|failing|Error:|\b[1-9]\d*\s+fail(?:ed|ures?)\b/i.test(
+    stdout.replace(ZERO_FAILURE_COUNT, ''),
+  );
+}
+
 async function runTestGate(
   gate: TestGate,
   index: number,
@@ -1445,8 +1612,7 @@ async function runTestGate(
     gate.env,
   );
   const exitOk =
-    captured.exitCode === 0 &&
-    (gate.expect === 'exit0' || !/\bFAIL\b|failing|Error:/i.test(captured.stdout));
+    captured.exitCode === 0 && (gate.expect === 'exit0' || !outputReportsFailure(captured.stdout));
 
   // T12308: `minCount` was declarable, storable and never satisfiable — the
   // runner rejected any positive value outright, so a task could carry a gate

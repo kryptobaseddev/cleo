@@ -190,6 +190,26 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §2.8 Persist before push (T12343)',
     note: "segments this replica built for a stream, at their replicaSeq: the exact sealed bytes a push sends (never re-sealed) and whether the server stored them. This device's outbox only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
   },
+  _sync_uid_alias: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source:
+      'journal spec t12342-t12343-journal-design §2.6 K ops; t12341-uid-scheme §6.4 step 1 (T13397)',
+    note: "uid re-keys this replica applied, by (table, old uid, old birth fingerprint): a held collision loser's ops and its origin's earlier references follow them to the new uid. Derived from applied K ops, this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13397)",
+  },
+  _sync_uid_ref_alias: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source:
+      'journal spec t12342-t12343-journal-design §2.6 K ops; t12341-uid-scheme §6.4 step 1 (T13399)',
+    note: "one reference boundary per (table, old uid, writer): references to a re-keyed uid written by a replica that had placed the row, before that replica's K or announcement, follow it to the new uid. Derived from applied K ops, this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13399)",
+  },
+  _sync_authored: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 't12341-uid-scheme §6.4 / §9.2 origin rule (T13399)',
+    note: "minted rows this replica sealed an insert of, by (table, uid, birth fingerprint): the collision settle path's origin test, kept after the sealed ops are folded. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13399)",
+  },
   _sync_segment_txn: {
     class: 'local-only',
     status: 'optional-transient',
@@ -213,6 +233,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T13318)',
     note: 'per stream and origin replica: the highest local_seq staged, how far its seen-txn rows were pruned, and their row and byte counts. A txn at or below the floor with no seen row is refused. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13318)',
+  },
+  _sync_retired: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.5 Retirement, §3.5 D5 (T13278)',
+    note: "replicas a stream's retire transactions retired: successor, last replicaSeq, and the stream seq of the retire, so a late segment applies as history and the fold horizon and remint authority leave them out. Rebuilt from the stream by every receiver. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13278)",
   },
   _sync_row_meta: {
     class: 'local-only',
@@ -1449,6 +1475,26 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §2.8 Persist before push (T12343)',
     note: "segments this replica built for a stream, at their replicaSeq: the exact sealed bytes a push sends (never re-sealed) and whether the server stored them. This device's outbox only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
   },
+  _sync_uid_alias: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source:
+      'journal spec t12342-t12343-journal-design §2.6 K ops; t12341-uid-scheme §6.4 step 1 (T13397)',
+    note: "uid re-keys this replica applied, by (table, old uid, old birth fingerprint): a held collision loser's ops and its origin's earlier references follow them to the new uid. Derived from applied K ops, this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13397)",
+  },
+  _sync_uid_ref_alias: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source:
+      'journal spec t12342-t12343-journal-design §2.6 K ops; t12341-uid-scheme §6.4 step 1 (T13399)',
+    note: "one reference boundary per (table, old uid, writer): references to a re-keyed uid written by a replica that had placed the row, before that replica's K or announcement, follow it to the new uid. Derived from applied K ops, this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13399)",
+  },
+  _sync_authored: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 't12341-uid-scheme §6.4 / §9.2 origin rule (T13399)',
+    note: "minted rows this replica sealed an insert of, by (table, uid, birth fingerprint): the collision settle path's origin test, kept after the sealed ops are folded. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13399)",
+  },
   _sync_segment_txn: {
     class: 'local-only',
     status: 'optional-transient',
@@ -1472,6 +1518,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T13318)',
     note: 'per stream and origin replica: the highest local_seq staged, how far its seen-txn rows were pruned, and their row and byte counts. A txn at or below the floor with no seen row is refused. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13318)',
+  },
+  _sync_retired: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.5 Retirement, §3.5 D5 (T13278)',
+    note: "replicas a stream's retire transactions retired: successor, last replicaSeq, and the stream seq of the retire, so a late segment applies as history and the fold horizon and remint authority leave them out. Rebuilt from the stream by every receiver. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13278)",
   },
   _sync_row_meta: {
     class: 'local-only',

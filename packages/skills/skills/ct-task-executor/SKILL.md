@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.7.9
+version: 2.8.2
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.7.9
+  version: 2.8.2
   tier: core
   install: harness
   covers:
@@ -25,10 +25,11 @@ metadata:
     - packages/cleo/src/cli/commands/complete.ts
     - packages/cleo/src/cli/commands/start.ts
     - packages/cleo/src/cli/commands/claim.ts
+    - packages/core/src/doctor/container-reaper.ts
     - packages/core/src/validation/protocols/cant/implementation.cant
     - packages/core/src/validation/protocols/protocols-markdown/implementation.md
   loomStage: implementation
-  lastReviewed: 2026-10-03
+  lastReviewed: 2026-10-11
   stability: stable
 ---
 
@@ -124,6 +125,14 @@ Context injection for implementation tasks spawned via cleo-subagent. Provides d
 3. **Document as you go** - Track progress for output file
 4. **Handle blockers** - Report if unable to proceed
 
+### Throwaway Containers
+
+A database or service started for a test run must not outlive it. A `docker run` without `--rm` leaves an anonymous volume behind on every run; on 2026-10-10 that came to 475 volumes and 52 GB.
+
+- One-shot: `docker run --rm --label cleo.task=T#### --label cleo.ttl=4h postgres:17 …`
+- Reused across runs: a named volume (`-v t####-pgdata:/var/lib/postgresql/data`) plus the same two labels, and stop the container when the task ends.
+- `cleo doctor system` reports long-running database containers and dangling volumes. `cleo doctor system --repair` lists, as a dry run, the STOPPED `cleo.ttl` containers that stopped longer ago than their ttl (or were created that long ago and never started), and the anonymous dangling volumes (including ones left by non-CLEO containers). `--repair --apply` removes only those. It never removes a running container: one running past its ttl since its last start is reported for you to stop. It never touches an unlabelled container or a named volume. Removing them is the owner's call, so relay the list through your orchestrator first.
+
 ### Post-Execution
 
 1. **Verify against criteria** - Check each acceptance criterion. `cleo verify <id> --run`
@@ -200,7 +209,7 @@ Record it with `cleo docs add {{TASK_ID}} --content - --type note --slug {{TOPIC
 
 ## Acceptance Criteria Verification
 
-Record each criterion's changed artifacts and actual verification results. A merged PR with green CI provides provenance; it cannot automatically satisfy implementation, testing and review. Use `pr:<number>;files:<changed-path>` for implementation (`pr:<component>@<integration>` when your PR merged into an integration branch) and actual result atoms for test/review gates, with explicit `satisfies:T1234#AC1` links for canonical criteria. The PR must relate to the task; documentation-only changes cannot prove a code fix. Research and documentation tasks may use appropriately scoped documentary evidence. Fetch the merge commit before claiming its artifact bytes were inspected. Criterion edits require fresh evidence. A completed child does not establish that its parent's independent criteria were met.
+Record each criterion's changed artifacts and actual verification results. A merged PR with green CI provides provenance; it cannot automatically satisfy implementation, testing and review. Use `pr:<number>;files:<changed-path>` for implementation (`pr:<component>@<integration>` when your PR merged into an integration branch) and actual result atoms for test/review gates, with explicit `satisfies:T1234#AC1` links for canonical criteria. The PR must relate to the task; documentation-only changes cannot prove a code fix. Research and documentation tasks may use appropriately scoped documentary evidence. Fetch the merge commit before claiming its artifact bytes were inspected. Criterion edits require fresh evidence. A completed child does not establish that its parent's independent criteria were met. `cleo verify <id> --all` sets every required gate at once and still requires `--evidence`; bare `--all` is rejected with `E_EVIDENCE_MISSING`. A failing `tool:<name>` reason names the resolved command and its source, so check that command before retrying.
 
 
 | Criterion | Status | Notes |

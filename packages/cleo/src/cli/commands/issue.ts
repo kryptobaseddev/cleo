@@ -15,7 +15,13 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { type AddIssueResult, addIssue, BUILD_CONFIG } from '@cleocode/core/internal';
+import {
+  type AddIssueResult,
+  addIssue,
+  BUILD_CONFIG,
+  ISSUE_AREAS,
+  ISSUE_SEVERITIES,
+} from '@cleocode/core/internal';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -69,9 +75,9 @@ const bugCommand = defineCommand({
     body: { type: 'string', description: 'Issue description', required: true },
     severity: {
       type: 'string',
-      description: 'Severity level (Blocker, Major, Moderate, Minor)',
+      description: `Severity level (${ISSUE_SEVERITIES.join(', ')})`,
     },
-    area: { type: 'string', description: 'Affected area (cli, dispatch, docs, tests, other)' },
+    area: { type: 'string', description: `Affected area (${ISSUE_AREAS.join(', ')})` },
     open: { type: 'boolean', description: 'Open issue in browser after creation' },
     'dry-run': { type: 'boolean', description: 'Preview without filing' },
   },
@@ -93,7 +99,7 @@ const featureCommand = defineCommand({
   args: {
     title: { type: 'string', description: 'Issue title', required: true },
     body: { type: 'string', description: 'Issue description', required: true },
-    area: { type: 'string', description: 'Affected area' },
+    area: { type: 'string', description: `Affected area (${ISSUE_AREAS.join(', ')})` },
     open: { type: 'boolean', description: 'Open issue in browser after creation' },
     'dry-run': { type: 'boolean', description: 'Preview without filing' },
   },
