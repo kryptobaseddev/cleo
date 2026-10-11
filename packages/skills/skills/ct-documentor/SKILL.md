@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.17.6
+version: 3.17.7
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,7 +16,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.17.6
+  version: 3.17.7
   tier: core
   install: harness
   covers:
@@ -53,7 +53,13 @@ surfaces** — do not present them as the default path to agents.
 `supersede`, `find --similar`, `graph`, `versions`, `sync`, `search`,
 `merge`, `rank`, `generate`, `export`, `schema`, `list-types`,
 `serve`/`open`/`stop`/`viewer-status`, `status`/`gap-check`, `import`,
-`publish-pr`.
+`publish-pr`, `doctor`.
+
+`cleo docs doctor` (T13447) audits the docs store — dangling `local-file`
+pointers, docVersion skew vs the audit log, empty topics/related_tasks,
+`docs_wikilinks` drift, legacy store surfaces, stale drafts — and with
+`--apply` repairs them after creating a backup automatically. Use it for
+store hygiene checks; it never edits doc content.
 
 For discovery (`find`, `search`, `schema`, `list-types`), prefer `cleo docs list`
 first — it returns slug + owner + type without forcing a filesystem walk. Use

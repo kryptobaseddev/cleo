@@ -30,12 +30,14 @@
 
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { BlobAttachment } from '@cleocode/contracts';
 import { DocKindRegistry } from '@cleocode/contracts/docs-taxonomy.js';
 import type {
   DocsAddParams,
   DocsAddResult,
+  DocsDoctorParams,
+  DocsDoctorResult,
   DocsFetchParams,
   DocsFetchResult,
   DocsGenerateParams,
@@ -139,6 +141,12 @@ const resolveAttachmentBackend = lazyOperation(
 );
 const runDocsImport = lazyOperation(
   async () => (await import('@cleocode/core/docs/import/import-orchestrator')).runDocsImport,
+);
+const runDocsDoctor = lazyOperation(
+  async () => (await import('@cleocode/core/docs/doctor')).runDocsDoctor,
+);
+const createSystemBackup = lazyOperation(
+  async () => (await import('@cleocode/core/system/backup')).createBackup,
 );
 const searchAllProjectDocs = lazyOperation(
   async () => (await import('@cleocode/core/docs/docs-ops')).searchAllProjectDocs,
@@ -261,6 +269,7 @@ type DocsTypedOps = {
   readonly remove: readonly [DocsRemoveParams, DocsRemoveResult];
   readonly update: readonly [DocsUpdateParams, DocsUpdateResult];
   readonly supersede: readonly [DocsSupersedeParams, DocsSupersedeResult];
+  readonly doctor: readonly [DocsDoctorParams, DocsDoctorResult];
 };
 
 // ─── Owner type inference ─────────────────────────────────────────────────────
@@ -807,6 +816,46 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       }),
       'fetch',
     );
+  },
+
+  // ── docs.doctor ────────────────────────────────────────────────────────────
+
+  doctor: async (params) => {
+    const apply = params.apply === true;
+    const projectRoot = getProjectRoot();
+
+    // T13447 — an apply run must have a fresh backup. Create it through the
+    // same core function `cleo backup add` dispatches to, then hand the
+    // resulting store snapshot to core as the receipt (existence + mtime is
+    // verified there). When the store file was not captured, refuse to apply.
+    let backupReceiptPath: string | undefined;
+    if (apply) {
+      const backup = await createSystemBackup(projectRoot, {
+        type: 'snapshot',
+        note: 'docs doctor pre-repair (T13447)',
+      });
+      // PROJECT_STORE_BACKUP_FILE in @cleocode/core/system/backup — the
+      // snapshot filename prefix for the project store.
+      const STORE_FILE = 'cleo.db';
+      if (!backup.files.includes(STORE_FILE)) {
+        return lafsError(
+          'E_DOCS_DOCTOR_BACKUP_FAILED', // @sync-invariant none:input-shape a precondition refusal before any repair write; nothing was written
+          'backup did not capture the project store — refusing to apply repairs',
+          'doctor',
+        );
+      }
+      backupReceiptPath = join(backup.path, `${STORE_FILE}.${backup.backupId}`);
+    }
+
+    const result = await runDocsDoctor(projectRoot, {
+      apply,
+      ...(params.olderThanDays !== undefined ? { olderThanDays: params.olderThanDays } : {}),
+      ...(backupReceiptPath !== undefined ? { backupReceiptPath } : {}),
+    });
+    if (!result.ok) {
+      return lafsError(result.error.code, result.error.message, 'doctor');
+    }
+    return lafsSuccess<DocsDoctorResult>(result.report, 'doctor');
   },
 
   // ── docs.add ───────────────────────────────────────────────────────────────
@@ -1991,6 +2040,7 @@ const QUERY_OPS = new Set<string>([
   'versions',
   'status',
   'audit',
+  'doctor',
 ]);
 const MUTATE_OPS = new Set<string>([
   'add',
@@ -2001,6 +2051,7 @@ const MUTATE_OPS = new Set<string>([
   'publish-pr',
   'sync',
   'import',
+  'doctor',
 ]);
 
 async function dispatchDocsLegacyQuery(
@@ -2332,8 +2383,19 @@ export class DocsHandler implements DomainHandler {
         'versions',
         'status',
         'audit',
+        'doctor',
       ],
-      mutate: ['add', 'remove', 'update', 'supersede', 'publish', 'publish-pr', 'sync', 'import'],
+      mutate: [
+        'add',
+        'remove',
+        'update',
+        'supersede',
+        'publish',
+        'publish-pr',
+        'sync',
+        'import',
+        'doctor',
+      ],
     };
   }
 }

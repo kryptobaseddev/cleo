@@ -8578,6 +8578,56 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // ── docs.doctor (T13447 — Epic T13340 / Saga T13339) ──────────────────────
+  {
+    gateway: 'query',
+    domain: 'docs',
+    operation: 'doctor',
+    description:
+      'docs.doctor (query) — docs store health diagnostics (dry-run): dangling local-file ' +
+      'pointers, docVersion skew vs the audit log, empty topics/related_tasks provenance, ' +
+      'docs_wikilinks drift, legacy store surfaces, stale drafts. Reports a repair plan.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'olderThanDays',
+        type: 'number' as const,
+        required: false,
+        description: 'Age threshold in days for the stale-drafts check (default 30)',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'doctor',
+    description:
+      'docs.doctor (mutate) — apply the docs doctor repairs: set docVersion from the audit ' +
+      'log, backfill topics/related_tasks from content, archive dangling local-file rows, ' +
+      'rebuild docs_wikilinks. The dispatch layer creates a fresh backup (cleo backup add ' +
+      'path) and requires its receipt before any write.',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'apply',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Execute repairs (default false — dry-run plan only)',
+      },
+      {
+        name: 'olderThanDays',
+        type: 'number' as const,
+        required: false,
+        description: 'Age threshold in days for the stale-drafts check (default 30)',
+      },
+    ],
+  },
   // ── docs.generate (T798) ─────────────────────────────────────────────────
   {
     gateway: 'query',
