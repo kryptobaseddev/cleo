@@ -2032,6 +2032,7 @@ export type {
   WorktreeHookResult,
   WorktreeIncludePattern,
   WorktreeInfo,
+  WorktreeInstallOutcome,
   WorktreeLifecycleAction,
   WorktreeLifecycleAuditEntry,
   WorktreeListEntry,
