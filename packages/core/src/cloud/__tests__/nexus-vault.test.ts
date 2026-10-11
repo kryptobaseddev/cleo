@@ -50,6 +50,7 @@ import {
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { create as tarCreate, extract as tarExtract } from 'tar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { decryptGlobal, encryptGlobal } from '../../crypto/credentials.js';
 import { _resetDeviceIdCacheForTests } from '../../llm/stable-device-id.js';
 import {
   _resetDualScopeDbCache,
@@ -6153,6 +6154,79 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     const onA = await read(a, observationSql);
     expect(await read(b, observationSql)).toEqual(onA);
     expect(onA).toMatchObject({ title: 'from B' });
+  });
+
+  it('a credential A set before the cut is usable on B after restore + join, and never plaintext in the checkpoint (T13530)', async () => {
+    const SECRET = 'sk-live-T13530-do-not-leak';
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    await onM(a, async () => {
+      const db = await globalStore(a);
+      // Set before the journal starts: it can only reach B through the genesis checkpoint.
+      db.prepare(
+        "INSERT INTO accounts (id, provider, label, auth_type, secret_enc) VALUES (1, 'anthropic', 'work', 'key', ?)",
+      ).run(await encryptGlobal(SECRET, 'account:anthropic:work', { cleoHome: a.home }));
+      setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_JOURNAL });
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+    });
+    const enabled = await onM(a, () =>
+      enableSyncPush(vopts(a, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(enabled.status).toBe('enabled');
+    await onM(a, async () => {
+      setSyncFlag(await globalStore(a), 'sync.pull', true, { allowUnreleased: true });
+    });
+
+    // The genesis checkpoint holds no plaintext secret (nor A's machine-bound ciphertext).
+    const cp = fake.stream(HOME_STREAM).checkpoints.at(-1);
+    if (!cp || !fake.escrow) throw new Error('fixture');
+    const tar = gunzipSync(
+      openAead(
+        nexusHomeDataKey(fake.escrow.mk),
+        fake.blobs.get(cp.blobSha256)?.bytes ?? Buffer.alloc(0),
+        'checkpoint',
+        `checkpoint/v2\n${cp.streamId}\n${cp.checkpointId}\n${cp.coversSeq}`,
+      ),
+    );
+    expect(tar.includes(Buffer.from(SECRET))).toBe(false);
+    const encA = await onM(a, async () =>
+      (await globalStore(a)).prepare('SELECT secret_enc FROM accounts WHERE id = 1').get(),
+    );
+    expect(tar.includes(Buffer.from(String((encA as { secret_enc: string }).secret_enc)))).toBe(
+      false,
+    );
+
+    const restored = await onM(b, () =>
+      restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull', force: true })),
+    );
+    expect(restored.status).toBe('restored');
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    const r = await onM(b, () => cloudSync(vopts(b, { scope: 'global', allowUnreleased: true })));
+    expect(r.streams[0]?.refused ?? null).toBeNull();
+
+    const onB = (await onM(b, async () =>
+      (
+        await globalStore(b)
+      )
+        .prepare("SELECT secret_enc FROM accounts WHERE provider = 'anthropic' AND label = 'work'")
+        .get(),
+    )) as { secret_enc: string | null } | undefined;
+    expect(onB?.secret_enc ?? null).not.toBeNull();
+    // Usable on B: it opens under B's own machine key.
+    expect(
+      await decryptGlobal(onB?.secret_enc ?? '', 'account:anthropic:work', { cleoHome: b.home }),
+    ).toBe(SECRET);
+    // The sealed sidecar never reaches the placed store.
+    expect(
+      await onM(b, async () =>
+        (await globalStore(b))
+          .prepare("SELECT name FROM sqlite_master WHERE name = '_vault_sealed_credentials'")
+          .all(),
+      ),
+    ).toEqual([]);
   });
 });
 
