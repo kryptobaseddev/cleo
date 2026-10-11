@@ -1452,7 +1452,11 @@ const ZERO_FAILURE_COUNT =
  * @task T13511
  */
 export function outputReportsFailure(stdout: string): boolean {
-  return /\bFAIL\b|failing|Error:/i.test(stdout.replace(ZERO_FAILURE_COUNT, ''));
+  // T13516: a non-zero count (`3 failed`, `1 failure`) is a failure too; the
+  // FAIL token alone needs a word boundary, so `failed` never matched it.
+  return /\bFAIL\b|failing|Error:|\b[1-9]\d*\s+fail(?:ed|ures?)\b/i.test(
+    stdout.replace(ZERO_FAILURE_COUNT, ''),
+  );
 }
 
 async function runTestGate(
