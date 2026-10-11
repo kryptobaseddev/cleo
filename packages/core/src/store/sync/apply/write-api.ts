@@ -422,6 +422,48 @@ export function createApplyWriteApi(
     return out;
   };
 
+  /**
+   * Rebuild a received agent's derived junction rows from its own
+   * `capabilities`/`skills` JSON columns (T13519). The accessor's
+   * syncJunctionTables never runs for an applied write. Local `source='cant'`
+   * skill rows (from this device's .cant file) are kept.
+   */
+  const refreshAgentJunctions = (uid: string): void => {
+    const agent = db
+      .prepare(
+        `SELECT id, capabilities, skills FROM main.agent_registry_agents WHERE ${ident(UID_COLUMN)} = ?`,
+      )
+      .get(uid) as { id: string; capabilities: string; skills: string } | undefined;
+    if (!agent) return;
+    const slugs = (json: string): string[] => {
+      try {
+        const v: unknown = JSON.parse(json);
+        return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+      } catch {
+        return [];
+      }
+    };
+    db.prepare('DELETE FROM main.agent_registry_agent_capabilities WHERE agent_id = ?').run(
+      agent.id,
+    );
+    db.prepare(
+      "DELETE FROM main.agent_registry_agent_skills WHERE agent_id = ? AND source <> 'cant'",
+    ).run(agent.id);
+    const cap = db.prepare(
+      `INSERT INTO main.agent_registry_agent_capabilities (agent_id, capability_id)
+       SELECT ?, id FROM main.agent_registry_capabilities WHERE slug = ?
+       ON CONFLICT DO NOTHING`,
+    );
+    for (const c of slugs(agent.capabilities)) cap.run(agent.id, c);
+    const skill = db.prepare(
+      `INSERT INTO main.agent_registry_agent_skills (agent_id, skill_id)
+       SELECT ?, id FROM main.agent_registry_skills WHERE slug = ?
+       ON CONFLICT DO NOTHING`,
+    );
+    for (const k of slugs(agent.skills)) skill.run(agent.id, k);
+  };
+  const AGENT_JUNCTION_COLUMNS = new Set(['capabilities', 'skills']);
+
   return {
     writeFields(table, uid, values) {
       assertActive();
@@ -443,6 +485,9 @@ export function createApplyWriteApi(
       }
       const stored = unpack(row, cols);
       record(cols.map((c) => intentFor(def, uid, c, stored[c] as string)));
+      if (table === 'agent_registry_agents' && cols.some((c) => AGENT_JUNCTION_COLUMNS.has(c))) {
+        refreshAgentJunctions(uid);
+      }
       return stored;
     },
 
@@ -480,6 +525,7 @@ export function createApplyWriteApi(
           .filter((c) => stored[c] !== 'NULL')
           .map((c) => intentFor(def, uid, c, stored[c] as string)),
       ]);
+      if (table === 'agent_registry_agents') refreshAgentJunctions(uid);
       return stored;
     },
 

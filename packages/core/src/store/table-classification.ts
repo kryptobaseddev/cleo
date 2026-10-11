@@ -1548,14 +1548,14 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'derived',
     status: 'resolved',
     source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
-    note: 'rebuilt from agent_registry_agents.capabilities by syncJunctionTables on every agent write',
+    note: 'rebuilt from agent_registry_agents.capabilities: by syncJunctionTables on a local agent write, and by the apply write API (refreshAgentJunctions) on a received agent insert or capabilities change (T13519)',
   },
   agent_registry_agent_connections: { class: 'local-only', status: 'draft', source: 'draft §3' },
   agent_registry_agent_skills: {
     class: 'derived',
     status: 'resolved',
     source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
-    note: 'rebuilt from agent_registry_agents.skills by syncJunctionTables on every agent write',
+    note: "derived from agent_registry_agents.skills plus this device's local source='cant' rows (agent-install, from the local .cant file): syncJunctionTables on a local write; the apply write API (refreshAgentJunctions) on a received insert or skills change rebuilds the non-cant rows and keeps the cant rows (T13519)",
   },
   agent_registry_agents: {
     class: 'portable-personal',

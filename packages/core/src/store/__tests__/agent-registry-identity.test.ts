@@ -3,8 +3,9 @@
  * `t13467-global-secrets-sync-design`): agents are natural on their slug
  * (`agent_id`), and the random text `id` minted per device is a local key that
  * never travels. The junction tables are derived, the legacy catalogs and the
- * better-auth children local-only. A table with secret columns is not captured
- * until T13467 seals its secrets in `cloud sync`.
+ * better-auth children local-only. Secret columns are captured only as
+ * `<changed>` and dropped at seal, so a received agent arrives without them
+ * (the four whole-table secret tables stay exempt until T13467).
  *
  * @task T12915
  */
@@ -14,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getAgentSkills } from '../agent-resolver.js';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../dual-scope-db.js';
 import { missingRowIdentitySchema, naturalRowUid } from '../row-identity.js';
 import { ROW_UID_FILL_FLAG } from '../row-identity-flag.js';
@@ -139,6 +141,44 @@ describe('agent registry identity (T12915)', () => {
     expect(
       db.prepare("SELECT id, uid FROM agent_registry_agents WHERE agent_id = 'cleo-remote'").get(),
     ).toEqual({ id: uid, uid });
+  });
+
+  it('a received agent resolves its skills; a local cant skill survives a received change (T13519)', async () => {
+    const db = await open(join(home, 'cleo.db'));
+    const catalog = (table: string, slug: string): void => {
+      db.prepare(
+        `INSERT INTO ${table} (id, slug, name, description, category, created_at)
+         VALUES (?, ?, ?, '', 'test', '2026-10-01T00:00:00Z')`,
+      ).run(`${table}-${slug}`, slug, slug);
+    };
+    for (const k of ['ct-cleo', 'ct-other', 'ct-local']) catalog('agent_registry_skills', k);
+    catalog('agent_registry_capabilities', 'code');
+    setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_SCHEMA });
+    const uid = naturalRowUid('global', 'agent_registry_agents', ['cleo-remote']);
+    withApplyFrame(db, 'global', null, (api) => {
+      api.insertRow('agent_registry_agents', uid, {
+        agent_id: 'cleo-remote',
+        name: 'remote',
+        capabilities: '["code"]',
+        skills: '["ct-cleo"]',
+        created_at: '2026-10-01T00:00:00Z',
+        updated_at: '2026-10-01T00:00:00Z',
+      });
+    });
+    expect(getAgentSkills(db, 'cleo-remote')).toEqual(['ct-cleo']);
+    expect(
+      db
+        .prepare('SELECT count(*) AS n FROM agent_registry_agent_capabilities WHERE agent_id = ?')
+        .get(uid),
+    ).toEqual({ n: 1 });
+    // This device's own .cant attachment (agent-install) is local, never synced.
+    db.prepare(
+      "INSERT INTO agent_registry_agent_skills (agent_id, skill_id, source) VALUES (?, 'agent_registry_skills-ct-local', 'cant')",
+    ).run(uid);
+    withApplyFrame(db, 'global', null, (api) => {
+      api.writeFields('agent_registry_agents', uid, { skills: '["ct-other"]' });
+    });
+    expect(getAgentSkills(db, 'cleo-remote').sort()).toEqual(['ct-local', 'ct-other']);
   });
 
   it('captures an agent insert once, with no local id, FK into local-only rows or secret value', async () => {
