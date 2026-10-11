@@ -50,7 +50,11 @@ const { DatabaseSync } = _require('node:sqlite') as {
  * copy (review LOW-1): when set, the first remap's new id is taken in the live
  * store right after the remap is planned.
  */
-const { takeRemappedId } = vi.hoisted(() => ({ takeRemappedId: { on: false } }));
+const { takeRemappedId, claimSession } = vi.hoisted(() => ({
+  takeRemappedId: { on: false },
+  // T13384: a live task claims this session id before the copy writes it.
+  claimSession: { id: null as string | null },
+}));
 vi.mock('../exodus/task-id-remap.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../exodus/task-id-remap.js')>();
   return {
@@ -68,6 +72,12 @@ vi.mock('../exodus/task-id-remap.js', async (importOriginal) => {
             "INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES (?, 'raced', 'pending', 'medium', 'saga', '2026-10-04T00:00:00Z')",
           )
           .run(first.newId);
+        if (claimSession.id !== null) {
+          live
+            .prepare("UPDATE tasks_tasks SET claimed_by_session = ? WHERE id = 'T1'")
+            .run(claimSession.id);
+          claimSession.id = null;
+        }
         live.close();
       }
       return result;
@@ -1577,6 +1587,119 @@ describe('bare-strands reconcile: a populated store with stranded bare rows (T13
       scalar(liveDb, "SELECT tasks_completed_json FROM tasks_sessions WHERE id = 'S-old'"),
     ).toBe(listed);
     expect(result.conflicts.map((c) => c.sourceTable)).not.toContain('sessions');
+  });
+
+  /**
+   * A bare session the run copies into tasks_sessions (T13384). The store is
+   * then opened once by the runtime, which backfills the fixture's raw rows
+   * (uid, birth_fp), so an image taken next is what any run starts from.
+   */
+  async function stageBareSession(): Promise<void> {
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      DROP TABLE IF EXISTS sessions;
+      CREATE TABLE sessions (id TEXT PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL,
+        scope_json TEXT NOT NULL, started_at TEXT NOT NULL);
+      INSERT INTO sessions VALUES ('S-old', 'old session', 'ended', '{}', '2026-01-01T00:00:00Z');
+    `);
+    live.close();
+    const { openDualScopeDbAtPath } = await import('../dual-scope-db.js');
+    (await openDualScopeDbAtPath('project', liveDb, undefined, { dedicated: true })).close();
+  }
+
+  /** Every row of the tables a bare-strands run writes, in a stable order. */
+  function liveImage(): Record<string, unknown[]> {
+    const db = new DatabaseSync(liveDb, { readOnly: true });
+    try {
+      return Object.fromEntries(
+        ['tasks_tasks', 'tasks_sessions', 'tasks_task_labels', 'tasks_task_dependencies'].map(
+          (t) => [t, db.prepare(`SELECT * FROM ${t} ORDER BY 1, 2`).all()],
+        ),
+      );
+    } finally {
+      db.close();
+    }
+  }
+
+  it('a refused run that copied a session reverts to the exact prior state (T13384)', async () => {
+    await stageBareSession();
+    const before = liveImage();
+    takeRemappedId.on = true; // a concurrent write takes the recovered task's id
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('refused');
+    expect(result.reason).toContain('a concurrent write took the id of a recovered task');
+    expect(result.rolledBack).toBeGreaterThan(0);
+    // Exactly the prior rows, plus only the row the concurrent write made.
+    const raced = new DatabaseSync(liveDb);
+    raced.exec("DELETE FROM tasks_tasks WHERE title = 'raced'");
+    raced.close();
+    expect(liveImage()).toEqual(before);
+  });
+
+  it('--rollback reverts an applied run that copied a session (T13384)', async () => {
+    await stageBareSession();
+    const { reconcileSupersededStores, rollbackSupersededReconcile } = await import(
+      '../exodus/index.js'
+    );
+    const before = liveImage();
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+    expect(scalar(liveDb, "SELECT name FROM tasks_sessions WHERE id = 'S-old'")).toBe(
+      'old session',
+    );
+    const undone = await rollbackSupersededReconcile(
+      join(root, 'project'),
+      result.stagingDir ?? '',
+    );
+    expect(undone.rowsReverted).toBe(result.rowsCopied);
+    expect(liveImage()).toEqual(before);
+  });
+
+  it('--rollback refuses, reverting nothing, when a live task claims a copied session (T13384)', async () => {
+    await stageBareSession();
+    const { reconcileSupersededStores, rollbackSupersededReconcile } = await import(
+      '../exodus/index.js'
+    );
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+    const live = new DatabaseSync(liveDb);
+    live.exec(
+      "UPDATE tasks_tasks SET claimed_by_session = 'S-old', claimed_by_agent = 'a1' WHERE id = 'T1'",
+    );
+    live.close();
+    const claimed = liveImage();
+    await expect(
+      rollbackSupersededReconcile(join(root, 'project'), result.stagingDir ?? ''),
+    ).rejects.toThrow(/copied session S-old is claimed by T1/);
+    expect(liveImage()).toEqual(claimed);
+  });
+
+  it('a refused run whose revert cannot run keeps a receipt, and --rollback reverts it later (T13384)', async () => {
+    await stageBareSession();
+    const before = liveImage();
+    takeRemappedId.on = true;
+    claimSession.id = 'S-old'; // T1 claims the session the run is about to copy
+    const { reconcileSupersededStores, rollbackSupersededReconcile } = await import(
+      '../exodus/index.js'
+    );
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome).toBe('refused');
+    expect(result.reason).toMatch(/the revert FAILED .*claimed by T1/);
+    expect(result.rolledBack).toBe(0);
+    expect(result.receiptPath && existsSync(result.receiptPath)).toBe(true);
+    // The claim is released, then the run's rows are reverted from its receipt.
+    const live = new DatabaseSync(liveDb);
+    live.exec(
+      "UPDATE tasks_tasks SET claimed_by_session = NULL WHERE id = 'T1'; DELETE FROM tasks_tasks WHERE title = 'raced'",
+    );
+    live.close();
+    const undone = await rollbackSupersededReconcile(
+      join(root, 'project'),
+      result.stagingDir ?? '',
+    );
+    expect(undone.rowsReverted).toBe(result.rowsCopied);
+    expect(liveImage()).toEqual(before);
   });
 
   it('a reconciled run rolls back from its receipt, and the refusal returns', async () => {

@@ -35,7 +35,11 @@ import type { AcceptanceGateResult, Task, ValidateGateParams } from '@cleocode/c
 import { readProjectInfoAtDirectorySync } from '../project-scope.js';
 import { createOperationExecutionContext } from '../store/background-ops.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { readAllowCachedGates } from './gate-result-cache.js';
+import {
+  captureGateCacheState,
+  isCacheableGate,
+  readAllowCachedGates,
+} from './gate-result-cache.js';
 import {
   captureGateInputsHash,
   extractTypedGates,
@@ -63,9 +67,22 @@ export interface TaskGatePreview {
    *
    * The caller is reading gate outcomes outside the attestation path, and the
    * response has to say so in its own data rather than relying on the reader
-   * knowing which verb they used.
+   * knowing which verb they used. It is about VERIFICATION only: a pass is
+   * still cached for the attesting write — see {@link TaskGatePreview.cache}.
    */
   persisted: false;
+  /**
+   * Whether each result was cached for a later `--no-run` or attesting write
+   * (T13512), and why not when it was not. A cached pass is keyed on `head`,
+   * the dirty-tree fingerprint, the cwd and the gate's inputs, so a write after
+   * any of those changes misses it.
+   */
+  cache?: {
+    /** HEAD the passes were cached under, or null outside a git checkout. */
+    head: string | null;
+    /** One entry per result, in `results` order. */
+    entries: Array<{ index: number; req?: string; cached: boolean; reason?: string }>;
+  };
   /** Present when the task carries no typed gates, explaining the empty result. */
   note?: string;
 }
@@ -99,7 +116,26 @@ export async function previewTaskGates(
   const task: Task | null = await accessor.loadSingleTask(taskId);
   if (!task) throw new Error(`Task not found: ${taskId}`);
 
-  const typed = extractTypedGates(task.acceptance ?? []);
+  const allTyped = extractTypedGates(task.acceptance ?? []);
+  // T13486: `--req A,B` runs and caches only those gates. Each cache entry is
+  // keyed on its own gate's definition (gate-result-cache.ts), so the gates
+  // left out keep whatever cached passes they have.
+  const wanted = (params.req ?? '')
+    .split(',')
+    .map((r) => r.trim())
+    .filter(Boolean);
+  if (wanted.length > 0) {
+    const known = allTyped.flatMap(({ gate }) => (gate.req ? [gate.req] : []));
+    const unknown = wanted.filter((r) => !known.includes(r));
+    if (unknown.length > 0)
+      throw new Error(
+        `REQ-ID(s) ${unknown.join(', ')} not found on ${taskId}; its typed gates are ${known.join(', ') || 'unnamed (no REQ-IDs)'}`,
+      );
+  }
+  const typed =
+    wanted.length > 0
+      ? allTyped.filter(({ gate }) => gate.req !== undefined && wanted.includes(gate.req))
+      : allTyped;
   if (typed.length === 0) {
     return {
       taskId,
@@ -136,11 +172,24 @@ export async function previewTaskGates(
     // A gate whose inputs cannot be captured still runs, uncached; the runner
     // reports its own error for it exactly as before.
     const allowCachedGates = readAllowCachedGates(root);
+    const cacheState = await captureGateCacheState(root);
     const observed: AcceptanceGateResult[] = [];
+    const notCachedWhy: Array<string | undefined> = [];
     for (const gate of gates) {
       const cacheInputsHash = allowCachedGates
         ? await captureGateInputsHash(task, gate, execution).catch(() => undefined)
         : undefined;
+      notCachedWhy.push(
+        !allowCachedGates
+          ? 'evidence.allowCachedGates is false'
+          : cacheState === null
+            ? 'the project root is not a git checkout (passes are keyed by HEAD)'
+            : !isCacheableGate(gate)
+              ? `a ${gate.kind} gate is never cached`
+              : cacheInputsHash === undefined
+                ? "the gate's inputs could not be captured"
+                : undefined,
+      );
       observed.push(
         ...(await runGates(
           [gate],
@@ -162,6 +211,22 @@ export async function previewTaskGates(
       results,
       passed: !results.some((r) => r.result === 'fail' || r.result === 'error'),
       persisted: false,
+      cache: {
+        head: cacheState?.head ?? null,
+        entries: results.map((result, i) => {
+          const why =
+            notCachedWhy[i] ??
+            (result.result === 'pass'
+              ? undefined
+              : `the gate's result is ${result.result}; only a pass is cached`);
+          return {
+            index: result.index,
+            ...(result.req ? { req: result.req } : {}),
+            cached: why === undefined,
+            ...(why ? { reason: why } : {}),
+          };
+        }),
+      },
     };
   } finally {
     execution.close();

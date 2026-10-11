@@ -12,7 +12,7 @@
  */
 
 import { existsSync, readdirSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -123,17 +123,30 @@ describe('T12383 — install never deletes the existing copy first', () => {
     expect(readdirSync(skillsRoot)).toEqual(['demo']);
   });
 
-  it('swaps a real directory at a provider link path only after the link is staged', async () => {
+  it('never replaces a real directory at a provider link path (T13409)', async () => {
     const source = await writeSkill(join(testDir, 'src', 'demo'), 'demo', 'new copy');
     const p = provider('p2');
     const userDir = await writeSkill(join(testDir, 'p2-skills', 'demo'), 'demo', 'user copy');
 
     const result = await installSkill(source, 'demo', [p], true);
 
-    // Linking succeeds and the provider entry now resolves to the new copy …
-    expect(result.linkedAgents).toEqual(['p2']);
-    expect(await readFile(join(userDir, 'SKILL.md'), 'utf-8')).toContain('new copy');
-    // … without leaving swap debris beside it.
+    // The user's directory is theirs: left as is, and reported.
+    expect(result.linkedAgents).toEqual([]);
+    expect(result.errors.join('\n')).toContain('not a CLEO skill link');
+    expect(await readFile(join(userDir, 'SKILL.md'), 'utf-8')).toContain('user copy');
     expect(readdirSync(join(testDir, 'p2-skills'))).toEqual(['demo']);
+  });
+
+  it('never replaces a foreign symlink at a provider link path (T13409)', async () => {
+    const source = await writeSkill(join(testDir, 'src', 'demo'), 'demo', 'new copy');
+    const p = provider('p2');
+    const foreign = await writeSkill(join(testDir, 'elsewhere', 'demo'), 'demo', 'foreign copy');
+    await mkdir(join(testDir, 'p2-skills'), { recursive: true });
+    await symlink(foreign, join(testDir, 'p2-skills', 'demo'));
+
+    const result = await installSkill(source, 'demo', [p], true);
+
+    expect(result.linkedAgents).toEqual([]);
+    expect(await readlink(join(testDir, 'p2-skills', 'demo'))).toBe(foreign);
   });
 });

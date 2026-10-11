@@ -10,6 +10,8 @@ export {
   addIssue,
   buildIssueBody,
   checkGhCli,
+  ISSUE_AREAS,
+  ISSUE_SEVERITIES,
 } from './create.js';
 
 export {

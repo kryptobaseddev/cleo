@@ -38,6 +38,8 @@ import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-help
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { validateGateVerify } from '../../validation/engine-ops.js';
+import { acTextHash } from '../ac-identity.js';
+import { acItemToText } from '../ac-table.js';
 import { addTask } from '../add.js';
 import type { ChangeSetDeps } from '../change-set.js';
 import { satisfyGatesFromMergedCi } from '../complete-ci.js';
@@ -49,6 +51,7 @@ import {
   parseEvidence,
   validateAtom,
 } from '../evidence.js';
+import { reqAdd } from '../req.js';
 import { captureTreeHash, runToolCached } from '../tool-cache.js';
 import { resolveToolCommand } from '../tool-resolver.js';
 import { acquireGlobalSlot } from '../tool-semaphore.js';
@@ -359,6 +362,84 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     };
     return { id, prDeps };
   }
+
+  describe('T13495: a tree-pinned scoped testsPassed after the merge', () => {
+    async function record(id: string, treeHash: string | null): Promise<void> {
+      const atom = {
+        kind: 'test-run',
+        path: 'reports/r.json',
+        sha256: 'c'.repeat(64),
+        passCount: 1,
+        failCount: 0,
+        skipCount: 0,
+        ...(treeHash ? { treeHash } : {}),
+      };
+      const verification = {
+        passed: false,
+        round: 1,
+        gates: { testsPassed: true },
+        failureLog: [],
+        lastAgent: null,
+        lastUpdated: null,
+        evidence: {
+          testsPassed: { atoms: [atom], capturedAt: '2026-10-01T00:00:00Z', capturedBy: 'test' },
+        },
+      };
+      await env.accessor.updateTaskFields(id, { verificationJson: JSON.stringify(verification) });
+    }
+
+    it('stands at the recorded tree when the merge carries the change byte for byte', async () => {
+      const { id, prDeps } = await mergedPrSetup(false);
+      git(root, ['switch', '-q', `task/${id}`]);
+      await record(id, await captureTreeHash(root));
+      const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps: prDeps });
+      expect(plan.gates.find((g) => g.gate === 'testsPassed')?.passed).toBe(true);
+      expect(plan.changeSet.warnings.join(' ')).not.toMatch(/scoped run/);
+    });
+
+    it('does not stand when the merge commit changed the file, and the plan says why', async () => {
+      const { id, prDeps } = await mergedPrSetup(false, async () => {});
+      // Re-point the merged PR at a merge that altered the change's file.
+      git(root, ['switch', '-q', 'main']);
+      writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 3;\n');
+      git(root, ['commit', '-q', '--amend', '-am', `${id}: squash, edited (#42)`]);
+      const edited = git(root, ['rev-parse', 'HEAD']);
+      const deps2: ChangeSetDeps = {
+        ...prDeps,
+        viewPr: async (n) => ({
+          number: n,
+          title: '',
+          headRefName: `task/${id}`,
+          baseRefName: 'main',
+          state: 'MERGED',
+          mergedAt: '2026-09-28T00:00:00Z',
+          headRefOid: null,
+          mergeCommitSha: edited,
+        }),
+        resolvePr: async (n) => ({
+          ok: true,
+          prNumber: n,
+          mergeCommitSha: edited,
+          mergedAt: '2026-09-28T00:00:00Z',
+          successCount: 1,
+          totalChecks: 1,
+          cacheHit: false,
+          title: '',
+          body: '',
+          headRefName: `task/${id}`,
+          changedPaths: ['src/a.ts'],
+          changedFileCount: 1,
+        }),
+      };
+      git(root, ['switch', '-q', `task/${id}`]);
+      await record(id, await captureTreeHash(root));
+      const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps: deps2 });
+      expect(plan.gates.find((g) => g.gate === 'testsPassed')?.passed).toBe(false);
+      expect(plan.changeSet.warnings.join(' ')).toMatch(
+        /does not carry across the merge because the change's files at merge commit .* differ/,
+      );
+    });
+  });
 
   /** Component #42 (task/<id>) merged into integration/i, which #41 squash-landed on main. */
   async function integrationSetup() {
@@ -735,7 +816,7 @@ describe('cleo done and cleo complete judge the merge alike (T12656 AC2, T12959 
         throw new Error('must not record ci:42 for a fix #42 never ran');
       },
     });
-    expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null });
+    expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
   });
 });
 
@@ -811,11 +892,160 @@ describe('a worktree-bound test-run is judged in one root (T12965 review M2)', (
         ciSatisfies: () => false,
         merge: { changeSet: deps },
       });
-      expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null });
+      expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
     } finally {
       git(root, ['worktree', 'remove', '--force', wt]);
       rmSync(wt, { recursive: true, force: true });
     }
+  });
+});
+
+describe('a standalone single-package project plans a targeted test-run (T13403)', () => {
+  /** Make the fixture one package: a root package.json, no workspace declared. */
+  function standalone(): void {
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ name: 'solo', scripts: { test: 'vitest run' } }),
+    );
+    writeFileSync(join(root, 'src', 'a.test.ts'), 'export {};\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'solo']);
+    git(root, ['push', '-q', 'origin', 'main']);
+  }
+
+  it('with a changed test file, plans test-run for testsPassed, never a whole-suite tool:test', async () => {
+    standalone();
+    const id = await seedTask(['Change src/a.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+    writeFileSync(join(root, 'src', 'a.test.ts'), 'export const t = 1;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a and its test`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.filter((r) => r.gate === 'testsPassed')).toEqual([]);
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBeNull();
+    const blocker = plan.blockers.find((b) => b.code === 'test-run-needed');
+    expect(blocker?.message).toMatch(/src\/a\.test\.ts.*test-run:/);
+    expect(blocker?.next.command).toBe(
+      `cleo verify ${id} --gate testsPassed --evidence 'test-run:<vitest-json-report>'`,
+    );
+    // T13427: qaPassed is separate. With no recorded lint/typecheck result for
+    // this tree, a single-package project gets a qa-run-needed blocker naming
+    // the changed roots, never a fresh whole-project run.
+    expect(plan.toolRuns.filter((r) => r.gate === 'qaPassed')).toEqual([]);
+    expect(plan.gates.find((g) => g.gate === 'qaPassed')?.evidence).toBeNull();
+    const qa = plan.blockers.find((b) => b.code === 'qa-run-needed');
+    expect(qa?.message).toMatch(/lint or typecheck.*changed roots \(src\)/);
+    expect(qa?.next.command).toBe(
+      `cleo verify ${id} --gate qaPassed --evidence 'qa-run:<lint-receipt.json>;qa-run:<typecheck-receipt.json>'`,
+    );
+  });
+
+  it('T13427: a cached lint result still binds as tool:lint; only typecheck needs a qa-run', async () => {
+    standalone();
+    const id = await seedTask(['Change src/a.ts']);
+    commitOnTaskBranch(id);
+    const lint = resolveToolCommand('lint', root);
+    if (!lint.ok) throw new Error(lint.reason);
+    await runToolCached(lint.command, root, { executionRoot: root, skipGlobalSemaphore: true });
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.filter((r) => r.gate === 'qaPassed')).toMatchObject([
+      { tool: 'lint', cache: 'fresh-pass' },
+    ]);
+    expect(plan.blockers.find((b) => b.code === 'qa-run-needed')?.next.command).toBe(
+      `cleo verify ${id} --gate qaPassed --evidence 'qa-run:<typecheck-receipt.json>'`,
+    );
+  });
+
+  it('qaPassed binds tool receipts only; a test-run report never satisfies it', () => {
+    const run: EvidenceAtom = {
+      kind: 'test-run',
+      path: 'reports/vitest.json',
+      sha256: 'c'.repeat(64),
+    };
+    expect(checkGateEvidenceMinimum('qaPassed', [run])).not.toBeNull();
+    expect(checkGateEvidenceMinimum('testsPassed', [run])).toBeNull();
+  });
+
+  it('a research task in a standalone project plans no test run of any kind', async () => {
+    standalone();
+    const id = await seedTask(['Report the findings'], 'research');
+    const content = '# findings\n';
+    const sha = createHash('sha256').update(content).digest('hex');
+    mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+    // Even with a test file changed on the checkout.
+    writeFileSync(join(root, 'src', 'a.test.ts'), 'export const t = 2;\n');
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+      deps: {
+        ...deps,
+        listTaskDocs: async () => [{ id: 'att', slug: 'findings', sha256: sha }],
+        listTaskDecisions: async () => ['D900'],
+      },
+    });
+    expect(plan.changeSet.source).toBe('docs');
+    expect(plan.toolRuns).toEqual([]);
+    expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
+      `note:decision-only implementation, no code changed;satisfies:${id}#AC1`,
+    );
+  });
+
+  it('with no changed test file, testsPassed keeps its tool run', async () => {
+    standalone();
+    const id = await seedTask(['Change src/a.ts']);
+    commitOnTaskBranch(id);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+  });
+
+  it('a workspace with a changed test file keeps its tool run (monorepo unchanged)', async () => {
+    writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "pkgs/*"\n');
+    mkdirSync(join(root, 'pkgs', 'a'), { recursive: true });
+    writeFileSync(join(root, 'pkgs', 'a', 'package.json'), JSON.stringify({ name: '@w/a' }));
+    writeFileSync(join(root, 'pkgs', 'a', 'a.test.ts'), 'export {};\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'workspace']);
+    git(root, ['push', '-q', 'origin', 'main']);
+    const id = await seedTask(['Change pkgs/a/a.test.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'a', 'a.test.ts'), 'export const t = 1;\n');
+    git(root, ['commit', '-q', '-am', `${id}: a test`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+    // T13427: a workspace keeps planning its lint/typecheck tool runs.
+    expect(plan.blockers.map((b) => b.code)).not.toContain('qa-run-needed');
+    expect(
+      plan.toolRuns
+        .filter((r) => r.gate === 'qaPassed')
+        .map((r) => r.tool)
+        .sort(),
+    ).toEqual(['lint', 'typecheck']);
   });
 });
 
@@ -1147,6 +1377,31 @@ describe('the plan and done share one readiness check (T12672)', () => {
 });
 
 describe('research and no-change-set tasks', () => {
+  it('T13496: a doc in both stores is planned at the attachment path docs fetch resolves', async () => {
+    const id = await seedTask(['Report the findings'], 'research');
+    const content = '# findings\n';
+    const sha = createHash('sha256').update(content).digest('hex');
+    mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+    const attDir = join(root, '.cleo', 'attachments', 'sha256', sha.slice(0, 2));
+    mkdirSync(attDir, { recursive: true });
+    writeFileSync(join(attDir, `${sha.slice(2)}.md`), content);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+      deps: {
+        ...deps,
+        listTaskDocs: async () => [{ id: 'att', slug: 'findings', sha256: sha }],
+        listTaskDecisions: async () => ['D900'],
+      },
+    });
+    const path = join('.cleo', 'attachments', 'sha256', sha.slice(0, 2), `${sha.slice(2)}.md`);
+    expect(plan.changeSet.files).toEqual([path]);
+    expect(plan.gates.find((g) => g.gate === 'implemented')?.evidence).toContain(`files:${path}`);
+  });
+
   it('a research task with a doc and a decision plans decision-only gates with no tool runs', async () => {
     const id = await seedTask(['Report the findings'], 'research');
     const content = '# findings\n';
@@ -1178,6 +1433,69 @@ describe('research and no-change-set tasks', () => {
     expect(plan.blockers).toEqual([]);
   });
 
+  describe('T13428: a research task is judged on its review artifact, never a citing PR', () => {
+    async function researchDoc(): Promise<{ id: string; sha: string }> {
+      const id = await seedTask(['Report the findings'], 'research');
+      const content = '# review\n';
+      const sha = createHash('sha256').update(content).digest('hex');
+      mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+      writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+      return { id, sha };
+    }
+    /** An author code PR that cites the task: it must not be consulted. */
+    const citingPr = (id: string): Partial<ChangeSetDeps> => ({
+      listMergedPrs: async () => ({
+        ok: true,
+        prs: [{ number: 1756, title: `${id}: author code`, body: '', headRefName: 'feat/x' }],
+      }),
+      resolvePr: async () => {
+        throw new Error('a citing PR must not be resolved for a research task with a review doc');
+      },
+    });
+
+    it('with a doc and a decision: docs change set, decision-only gates, no tool runs', async () => {
+      const { id, sha } = await researchDoc();
+      const plan = await deriveTaskEvidence(id, {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        previewEvidence: async () => ({ ok: true }),
+        deps: {
+          ...deps,
+          ...citingPr(id),
+          listTaskDocs: async () => [{ id: 'att', slug: 'review', sha256: sha }],
+          listTaskDecisions: async () => ['D900'],
+        },
+      });
+      expect(plan.changeSet.source).toBe('docs');
+      expect(plan.changeSet.prNumber).toBeUndefined();
+      expect(plan.toolRuns).toEqual([]);
+      expect(plan.gates.find((g) => g.gate === 'implemented')?.evidence).toMatch(
+        /^decision:D900;files:/,
+      );
+    });
+
+    it('with a doc but no decision yet: still no suite or typecheck, only the decision blocker', async () => {
+      const { id, sha } = await researchDoc();
+      const plan = await deriveTaskEvidence(id, {
+        projectRoot: root,
+        cwd: root,
+        satisfies: 'all',
+        previewEvidence: async () => ({ ok: true }),
+        deps: {
+          ...deps,
+          ...citingPr(id),
+          listTaskDocs: async () => [{ id: 'att', slug: 'review', sha256: sha }],
+          listTaskDecisions: async () => [],
+        },
+      });
+      expect(plan.changeSet.source).toBe('docs');
+      expect(plan.toolRuns).toEqual([]);
+      expect(plan.blockers.map((b) => b.code)).toContain('decision-missing');
+      expect(plan.blockers.map((b) => b.code)).not.toContain('tool-unresolved');
+    });
+  });
+
   it('a task with no change set is blocked on it, with no complete command', async () => {
     const id = await seedTask(['Change src/a.ts']);
     const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
@@ -1186,5 +1504,72 @@ describe('research and no-change-set tasks', () => {
     expect(plan.next?.command).toBe(`git switch -c task/${id}`);
     expect(plan.commands.some((c) => c.startsWith('cleo complete'))).toBe(false);
     expect(plan.ready).toBe(false);
+  });
+});
+
+describe('a stored typed pass bound to an older definition is not a pass (T13463 review LOW)', () => {
+  const gate = {
+    kind: 'command' as const,
+    cmd: 'node -e 0',
+    exitCode: 0,
+    description: 'Harness passes',
+    req: 'H-1',
+  };
+
+  async function withStoredPass(
+    bind: (text: string) => { criterionHash: string; gateHash: string },
+  ) {
+    const id = await seedTask(['Change src/a.ts']);
+    commitOnTaskBranch(id);
+    await reqAdd(root, id, gate, env.accessor);
+    const rows = await env.accessor.getAcRows(id);
+    const row = [...rows].sort((a, b) => a.ordinal - b.ordinal)[1];
+    if (!row) throw new Error('typed gate row missing');
+    const verification = {
+      passed: false,
+      round: 1,
+      gates: {},
+      failureLog: [],
+      lastAgent: null,
+      lastUpdated: null,
+      gateResults: [
+        {
+          index: 1,
+          req: 'H-1',
+          kind: 'command',
+          result: 'pass',
+          checkedAt: '2026-10-01T00:00:00Z',
+          checkedBy: 'test',
+          durationMs: 1,
+          binding: bind(row.text),
+        },
+      ],
+    };
+    await env.accessor.updateTaskFields(id, { verificationJson: JSON.stringify(verification) });
+    return deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+  }
+
+  it('a binding to the current criterion and gate reads pass', async () => {
+    const plan = await withStoredPass((text) => ({
+      criterionHash: acTextHash(text),
+      gateHash: createHash('sha256').update(acItemToText(gate)).digest('hex'),
+    }));
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['pass']);
+  });
+
+  it('a binding to an older gate definition reads not-run, as complete refuses it', async () => {
+    const plan = await withStoredPass((text) => ({
+      criterionHash: acTextHash(text),
+      gateHash: createHash('sha256').update('{"old":"definition"}').digest('hex'),
+    }));
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+  });
+
+  it('a binding to an older criterion text reads not-run', async () => {
+    const plan = await withStoredPass(() => ({
+      criterionHash: acTextHash('an older criterion'),
+      gateHash: createHash('sha256').update(acItemToText(gate)).digest('hex'),
+    }));
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
   });
 });

@@ -2312,6 +2312,69 @@ const checkCommand = defineCommand({
   },
 });
 
+// ── cleo docs doctor ──────────────────────────────────────────────────────────
+
+/**
+ * Parse the `--older-than-days` flag for `docs doctor`.
+ *
+ * @param raw - Raw flag value, or undefined when the flag was omitted.
+ * @returns The validated day count, or undefined to use the core default.
+ * @task T13447
+ */
+function parseOlderThanDays(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    cliError(`--older-than-days must be a non-negative number, got '${raw}'`, 6, {
+      name: 'E_VALIDATION',
+    });
+    process.exit(6);
+  }
+  return Math.floor(parsed);
+}
+
+/**
+ * cleo docs doctor — store health diagnostics + safe repairs (T13447).
+ *
+ * Dry-run by default: every diagnostic is reported and every repair listed as
+ * a plan. `--apply` executes the repairs; the dispatch layer creates a fresh
+ * backup (the `cleo backup add` path) first and refuses when it fails.
+ *
+ * @task T13447 (Epic T13340 / Saga T13339)
+ */
+const doctorCommand = defineCommand({
+  meta: {
+    name: 'doctor',
+    description:
+      'Docs store health diagnostics + safe repairs: dangling local-file pointers, ' +
+      'docVersion skew vs the audit log, empty topics/related_tasks provenance, ' +
+      'docs_wikilinks drift, legacy store surfaces, stale drafts. ' +
+      'Dry-run by default; --apply executes repairs (a fresh backup is created automatically first).',
+  },
+  args: {
+    apply: {
+      type: 'boolean',
+      description: 'Execute the repairs (default: dry-run plan only)',
+    },
+    'older-than-days': {
+      type: 'string',
+      description: 'Age threshold in days for the stale-drafts check (default 30)',
+    },
+    ...docsOutputArgs,
+  },
+  async run({ args }) {
+    const apply = args.apply === true;
+    const olderThanDays = parseOlderThanDays(args['older-than-days']);
+    await dispatchFromCli(
+      apply ? 'mutate' : 'query',
+      'docs',
+      'doctor',
+      { apply, ...(olderThanDays !== undefined ? { olderThanDays } : {}) },
+      { command: 'docs doctor' },
+    );
+  },
+});
+
 // ── cleo docs sync ────────────────────────────────────────────────────────────
 
 /**
@@ -2871,6 +2934,8 @@ export const docsCommand = defineCommand({
   subCommands: {
     // T11136 — Unified drift management (consolidates sync/status/gap-check)
     check: checkCommand as ReturnType<typeof defineCommand>, // Canonical six-verb path (add, update, fetch, list, remove, publish)
+    // T13447 — store health diagnostics + safe repairs
+    doctor: doctorCommand,
     add: addCommand,
     update: updateCommand,
     fetch: fetchCommand,
