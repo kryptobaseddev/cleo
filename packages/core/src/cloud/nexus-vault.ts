@@ -1615,7 +1615,7 @@ async function enableSyncPushImpl(
       let cut = 0;
       // Assigned inside the callback: typed so the checks below are not narrowed to null.
       let merged = null as ReconcileCopyReport | null;
-      await withMergedScratch({ conn, key, t }, async (scratch, mergedCursor) => {
+      await withMergedScratch({ conn, key, t }, async (scratch, mergedCursor, baseline) => {
         // A stream row whose key this store's own row holds cannot be
         // settled yet (T13504): refuse before anything changes.
         const collisions = mergeKeyCollisions(db, scratch, tableScopeOf(t));
@@ -1646,6 +1646,7 @@ async function enableSyncPushImpl(
             scope: tableScopeOf(t),
             stream: t.streamId,
             mergedCursor,
+            baseline,
           });
         } catch (err) {
           warnings.push({
@@ -1657,9 +1658,17 @@ async function enableSyncPushImpl(
       if (merged !== null && merged.overwritten.length > 0) {
         warnings.push({
           code: 'W_SYNC_MERGE_OVERWROTE',
-          message: `${merged.overwritten.length} field(s) of this store's own rows held an older value than the stream's and took the stream's: ${merged.overwritten
+          message: `${merged.overwritten.length} field(s) of this store's own rows lost to the stream's value (older here, or written on the stream after its checkpoint): ${merged.overwritten
             .map((f) => `${f.table} ${f.uid} ${f.column}`)
             .join(', ')}; the store as it was is kept at ${safetyBackup}`,
+        });
+      }
+      if (merged !== null && merged.replaced.length > 0) {
+        warnings.push({
+          code: 'W_SYNC_MERGE_REPLACED',
+          message: `${merged.replaced.length} field(s) of the stream took this store's newer value on every replica: ${merged.replaced
+            .map((f) => `${f.table} ${f.uid} ${f.column}`)
+            .join(', ')}`,
         });
       }
       if (merged !== null && merged.unresolved > 0) {
@@ -1687,6 +1696,7 @@ async function enableSyncPushImpl(
                 emitted: merged.frame.inserts,
                 unresolved: merged.unresolved,
                 overwritten: [...merged.overwritten],
+                replaced: [...merged.replaced],
                 safetyBackup,
               },
         warnings,
@@ -2011,12 +2021,13 @@ async function reconcileOwedCopy(
 ): Promise<ReconcileCopyReport | null> {
   if (reconcileDue(db) === null) return null;
   const { t } = session;
-  return withMergedScratch(session, (scratch, mergedCursor) => {
+  return withMergedScratch(session, (scratch, mergedCursor, baseline) => {
     try {
       return reconcileCopy(db, scratch, {
         scope: tableScopeOf(t),
         stream: t.streamId,
         mergedCursor,
+        baseline,
       });
     } catch (err) {
       if (!(err instanceof MergeKeyCollisionError)) throw err;
@@ -2043,7 +2054,7 @@ async function reconcileOwedCopy(
  */
 async function withMergedScratch<T>(
   session: StreamSession,
-  fn: (scratch: DatabaseSync, mergedCursor: StreamCursor) => T | Promise<T>,
+  fn: (scratch: DatabaseSync, mergedCursor: StreamCursor, baseline: DatabaseSync) => T | Promise<T>,
 ): Promise<T> {
   const { conn, key, t } = session;
   const journal = journalFor(conn, t);
@@ -2078,20 +2089,20 @@ async function withMergedScratch<T>(
     const scratchPath = path.join(work, 'scratch', 'cleo.db');
     fs.mkdirSync(path.dirname(scratchPath));
     fs.copyFileSync(path.join(extractDir, entry.bundlePath), scratchPath);
+    // The checkpoint as restored, never pulled: a merge join's baseline (T13507).
+    const baselinePath = path.join(work, 'baseline', 'cleo.db');
+    fs.mkdirSync(path.dirname(baselinePath));
+    fs.copyFileSync(path.join(extractDir, entry.bundlePath), baselinePath);
     const { openDualScopeDbAtPath, getDualScopeNativeDb } = await import(
       '../store/dual-scope-db.js'
     );
     // The reconcile scratch is never bound and runs no open pass (§1.5).
-    const handle =
+    const openScratch = (p: string) =>
       t.scope === 'global'
-        ? await openDualScopeDbAtPath('global', scratchPath, undefined, {
-            dedicated: true,
-            syncMode: 'off',
-          })
-        : await openDualScopeDbAtPath('project', scratchPath, undefined, {
-            dedicated: true,
-            syncMode: 'off',
-          });
+        ? openDualScopeDbAtPath('global', p, undefined, { dedicated: true, syncMode: 'off' })
+        : openDualScopeDbAtPath('project', p, undefined, { dedicated: true, syncMode: 'off' });
+    const handle = await openScratch(scratchPath);
+    const baselineHandle = await openScratch(baselinePath);
     try {
       const scratch = getDualScopeNativeDb(handle);
       // The scratch replays the stream; it never seals or pushes. The store
@@ -2119,9 +2130,11 @@ async function withMergedScratch<T>(
       return await fn(
         scratch,
         readStreamCursor(scratch, t.streamId) ?? cursorFromCheckpoint(latest),
+        getDualScopeNativeDb(baselineHandle),
       );
     } finally {
       handle.close();
+      baselineHandle.close();
     }
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
@@ -2646,16 +2659,19 @@ async function exportSafetyBundle(
     // A local safety copy: it shares nothing (T13250).
     sharesIdentity: false,
   });
-  rotateSafetyBundles(dir);
+  rotateSafetyBundles(dir, kind);
   return out;
 }
 
-/** Keep the newest {@link NEXUS_VAULT_SAFETY_BUNDLES_KEPT} safety bundles in `dir`. */
-function rotateSafetyBundles(dir: string): void {
+/**
+ * Keep the newest {@link NEXUS_VAULT_SAFETY_BUNDLES_KEPT} safety bundles of `kind` in `dir`: each kind
+ * rotates on its own, so repeated merges never evict the last pre-restore bundle.
+ */
+function rotateSafetyBundles(dir: string, kind: 'pre-restore' | 'pre-merge'): void {
   const bundles = fs
     .readdirSync(dir)
-    .filter((name) => SAFETY_BUNDLE.test(name))
-    // Oldest first by the timestamp, whatever kind of safety bundle it is.
+    .filter((name) => SAFETY_BUNDLE.test(name) && name.startsWith(`${kind}-`))
+    // Oldest first by the timestamp.
     .sort((a, b) => a.replace(SAFETY_BUNDLE, '$2').localeCompare(b.replace(SAFETY_BUNDLE, '$2')));
   for (const name of bundles.slice(
     0,

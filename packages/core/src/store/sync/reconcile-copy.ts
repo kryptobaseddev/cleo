@@ -82,6 +82,13 @@ export interface ReconcileCopyOptions {
   readonly mergedCursor: StreamCursor;
   /** Wall clock (ms). @defaultValue Date.now */
   readonly now?: () => number;
+  /**
+   * The checkpoint as restored, before the pull (T13507). A merge join dates a
+   * meta-less local row by its `updated_at`, which cannot show which fields it
+   * touched; a stream field whose HLC moved past this baseline is a real write
+   * since the cut and wins.
+   */
+  readonly baseline?: DatabaseSync;
 }
 
 /** What {@link reconcileCopy} did. */
@@ -100,6 +107,11 @@ export interface ReconcileCopyReport {
    * replaced. Read the store's safety backup to recover one.
    */
   readonly overwritten: ReadonlyArray<{ table: string; uid: string; column: string }>;
+  /**
+   * The other direction (T13507): fields of such a row whose newer local value
+   * replaced the stream's value, so every replica takes the local one.
+   */
+  readonly replaced: ReadonlyArray<{ table: string; uid: string; column: string }>;
   /** The `rebind` frame (rule 1 and rule 3). */
   readonly frame: ReconcileReport;
 }
@@ -175,6 +187,7 @@ export function reconcileCopy(
     let adoptedDeletes = 0;
     let unresolved = 0;
     const overwritten: Array<{ table: string; uid: string; column: string }> = [];
+    const replaced: Array<{ table: string; uid: string; column: string }> = [];
     const collisions: MergeKeyCollision[] = [];
     const tables = syncSetTables(o.scope)
       .map((t) => captureTableDef(db, o.scope, t))
@@ -227,6 +240,12 @@ export function reconcileCopy(
               ? encodeHlc({ phys: genesisPhys(gcol ? local[gcol] : null, atMs), ctr: 0, replica })
               : null;
           const mH = mMeta && !mMeta.deleted ? fieldHlcsOf(def, mMeta) : {};
+          // The checkpoint's own field HLCs (T13507): a merged field past them was written after the cut.
+          const bMeta =
+            genesis !== null && o.baseline
+              ? readRowMetaFull(o.baseline, def.table, uid)
+              : undefined;
+          const bH = bMeta && !bMeta.deleted ? fieldHlcsOf(def, bMeta) : {};
           const adopt: Record<string, LedgerWireValue> = {};
           const adoptH: Record<string, string> = {};
           const pinCols = new Set<string>();
@@ -241,7 +260,14 @@ export function reconcileCopy(
             // differ only in how each store holds them (a timestamp's form).
             if (lH[col] !== undefined && lH[col] === mergedHlc) continue;
             const localHlc = lH[col] ?? genesis;
-            const rule = decideReconcileField({ touchedByInherited: false, localHlc, mergedHlc });
+            const writtenSinceCut =
+              genesis !== null &&
+              o.baseline !== undefined &&
+              mH[col] !== undefined &&
+              bH[col] !== mH[col];
+            const rule = writtenSinceCut
+              ? 'adopt-merged'
+              : decideReconcileField({ touchedByInherited: false, localHlc, mergedHlc });
             if (rule === 'adopt-merged') {
               const v = localValue(col, b);
               if (v === undefined) {
@@ -254,6 +280,7 @@ export function reconcileCopy(
             } else {
               pinCols.add(col);
               pinH[col] = localHlc as string;
+              if (lMeta === undefined) replaced.push({ table: def.table, uid, column: col });
             }
           }
           // A row with no local meta (a never-synced store merging in, T13466)
@@ -376,6 +403,7 @@ export function reconcileCopy(
       pinned: pinned.length,
       unresolved,
       overwritten,
+      replaced,
       frame,
     };
   });

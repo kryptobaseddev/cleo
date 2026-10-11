@@ -3359,7 +3359,12 @@ describe('cloud vault round 3 (#1773)', () => {
       );
     }
     fs.writeFileSync(path.join(dir, 'notes.txt'), 'kept');
+    // Older pre-merge bundles rotate on their own: a restore never evicts them (T13507 LOW).
+    fs.writeFileSync(path.join(dir, 'pre-merge-2025-01-01T00-00-00-000Z.cleobundle.tar.gz'), 'm');
     const forced = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull', force: true })));
+    expect(
+      fs.existsSync(path.join(dir, 'pre-merge-2025-01-01T00-00-00-000Z.cleobundle.tar.gz')),
+    ).toBe(true);
     const left = fs
       .readdirSync(dir)
       .filter((n) => n.startsWith('pre-restore-'))
@@ -6228,6 +6233,46 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     expect(hashA).toHaveLength(6);
     expect(hashA.every((r) => (r as { chash: string | null }).chash !== null)).toBe(true);
     expect(await rowsOf(b, hashSql)).toEqual(hashA);
+  });
+
+  it("a stream field written after the cut beats a never-synced row's later updated_at; each side's losses are reported (T13507)", async () => {
+    const { a, b } = await twoBrains(
+      [obsAt('O-shared03', 'shared three', 'orig', '2026-10-10 08:00:00')],
+      [obsAt('O-shared03', 'shared three', 'orig', '2026-10-10 08:00:00')],
+    );
+    // A edits the narrative after its cut and pushes it.
+    await onM(a, async () => {
+      (await globalStore(a)).exec(
+        "UPDATE brain_observations SET narrative = 'A real edit' WHERE id = 'O-shared03'",
+      );
+    });
+    await syncOk(a);
+    // Later, B (never synced) edits only the subtitle; its updated_at is newer than A's write.
+    await new Promise((r) => setTimeout(r, 1500));
+    await onM(b, async () => {
+      (await globalStore(b)).exec(
+        "UPDATE brain_observations SET subtitle = 'B edit', updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = 'O-shared03'",
+      );
+    });
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    // B's narrative ('orig') lost to A's real edit, and the report names it.
+    expect(joined.merged?.overwritten).toContainEqual({
+      table: 'brain_observations',
+      uid: expect.any(String),
+      column: 'narrative',
+    });
+    // The stream's untouched subtitle took B's newer value.
+    expect((joined.merged?.replaced ?? []).map((f) => f.column)).toContain('subtitle');
+    await syncOk(b);
+    await syncOk(a);
+    await syncOk(b);
+    const sql = "SELECT uid, narrative, subtitle FROM brain_observations WHERE id = 'O-shared03'";
+    const onA = await rowsOf(a, sql);
+    expect(onA).toMatchObject([{ narrative: 'A real edit', subtitle: 'B edit' }]);
+    expect(await rowsOf(b, sql)).toEqual(onA);
   });
 
   it('a merge join whose own row holds a key the stream already has is refused before anything changes, and joins once the key is freed (T13504)', async () => {

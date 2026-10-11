@@ -236,6 +236,8 @@ export interface CloudSyncPushEnableResult {
     emitted: number;
     unresolved: number;
     overwritten: Array<{ table: string; uid: string; column: string }>;
+    /** Fields of the stream's rows that took this store's newer value on every replica (T13507). */
+    replaced: Array<{ table: string; uid: string; column: string }>;
     safetyBackup: string;
   } | null;
   /** The genesis cut: the highest capture seq the checkpoint carries. */
