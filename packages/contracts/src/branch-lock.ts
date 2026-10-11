@@ -193,8 +193,11 @@ export interface GitShimEnv {
   CLEO_ALLOW_BRANCH_OPS?: '1';
   /** Worktree root path — informational for shim error messages. */
   CLEO_WORKTREE_ROOT?: string;
-  /** Branch protection mode. */
-  CLEO_BRANCH_PROTECTION?: 'strict' | 'permissive' | 'off';
+  /**
+   * Branch protection mode. `unavailable`: strict was intended but the git
+   * shim could not be installed, so nothing enforces it (T13522).
+   */
+  CLEO_BRANCH_PROTECTION?: 'strict' | 'permissive' | 'off' | 'unavailable';
 }
 
 /**

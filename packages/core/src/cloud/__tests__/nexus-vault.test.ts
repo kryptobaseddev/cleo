@@ -95,7 +95,7 @@ import {
   uuidv7,
   verifyEd25519,
 } from '../crypto.js';
-import { type FetchLike, Http } from '../http.js';
+import { type FetchLike, Http, NexusError } from '../http.js';
 import {
   cursorFromCheckpoint,
   Journal,
@@ -130,6 +130,7 @@ import { listNexusNamedProjects, resolveNexusProjectRef } from '../nexus-project
 import {
   classifySyncLegs,
   cloudSync,
+  confirmableRetirements,
   enableSyncPush,
   nexusVaultStatus,
   pullSyncStream,
@@ -6051,6 +6052,35 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     });
   });
 
+  it('restore and join keep the checkpoint row meta; a later pull keeps the writer origin and field HLCs (T13462)', async () => {
+    const META =
+      "SELECT tbl, uid, hlc, fhlc, origin, actor, version, deleted, key_json, chash FROM _sync_row_meta WHERE tbl = 'tasks_tasks' ORDER BY uid";
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    const atGenesis = await on(a, async () => (await storeOf(aDb)).prepare(META).all());
+    expect(atGenesis).toHaveLength(2);
+    const { b, bDb } = await restoredJoiner();
+    // The restore keeps the snapshot's merge state, never an empty or local one.
+    expect(await on(b, async () => (await storeOf(bDb)).prepare(META).all())).toEqual(atGenesis);
+    expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'joined',
+    );
+    expect(await on(b, async () => (await storeOf(bDb)).prepare(META).all())).toEqual(atGenesis);
+    // A's later edit reaches B attributed to A, with A's HLCs.
+    await on(a, async () => {
+      (await storeOf(aDb)).exec("UPDATE tasks_tasks SET title = 'from A' WHERE id = 'T1'");
+    });
+    await on(a, () => pushSyncStream(vopts(a, { allowUnreleased: true })));
+    expect((await on(b, () => pullSyncStream(vopts(b)))).refused).toBeNull();
+    // The apply leaves chash for B's sealer to recompute from the applied row.
+    await on(b, () => pushSyncStream(vopts(b, { allowUnreleased: true })));
+    const T1 =
+      "SELECT hlc, fhlc, origin, version, deleted, chash FROM _sync_row_meta WHERE tbl = 'tasks_tasks' AND uid = 'uid-T1'";
+    const onA = await on(a, async () => (await storeOf(aDb)).prepare(T1).get());
+    expect(onA).toMatchObject({ origin: a.replicaId });
+    expect(await on(b, async () => (await storeOf(bDb)).prepare(T1).get())).toEqual(onA);
+  });
+
   it('S4-2: a device clock ahead of the server pauses push', async () => {
     const { m, dbPath } = await journalMachine();
     await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
@@ -6125,6 +6155,151 @@ describe('cloud sync leg classification (T13315)', () => {
   });
 });
 
+describe('the main brain stream through cloud sync (T13370)', () => {
+  const SYNC_JOURNAL = path.resolve(import.meta.dirname, '../../../migrations/sync-journal');
+  const homeDb = (m: Machine) => path.join(m.home, 'cleo.db');
+  const globalStore = async (m: Machine) =>
+    getDualScopeNativeDb(await openDualScopeDbAtPath('global', homeDb(m)));
+  const observationSql = "SELECT uid, title FROM brain_observations WHERE id = 'O-home0001'";
+  /** {@link on}, re-reading the machine's own host device id (`<cleoHome>/device-id`). */
+  const onM = <T>(m: Machine, fn: () => Promise<T>): Promise<T> => {
+    _resetDeviceIdCacheForTests();
+    return on(m, fn);
+  };
+
+  it("A cuts home:<user>, B restores and joins, and cloud sync carries each device's brain writes and converges a concurrent edit", async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    await onM(a, async () => {
+      const db = await globalStore(a);
+      // Written before the journal starts: folded into the genesis checkpoint.
+      db.exec(
+        "INSERT INTO brain_observations (id, type, title, created_at, valid_at) VALUES ('O-home0001', 'discovery', 'before the cut', '2026-10-10T09:00:00.000Z', '2026-10-10 09:00:00')",
+      );
+      setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_JOURNAL });
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+    });
+    const enabled = await onM(a, () =>
+      enableSyncPush(vopts(a, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(enabled.status).toBe('enabled');
+    expect(enabled.streamId).toBe(HOME_STREAM);
+    await onM(a, async () => {
+      setSyncFlag(await globalStore(a), 'sync.pull', true, { allowUnreleased: true });
+    });
+
+    const restored = await onM(b, () =>
+      restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull', force: true })),
+    );
+    expect(restored.status).toBe('restored');
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    const read = async (m: Machine, sql: string) =>
+      onM(m, async () => (await globalStore(m)).prepare(sql).get());
+    const atA0 = await read(a, observationSql);
+    expect(await read(b, observationSql)).toEqual(atA0);
+
+    const sync = async (m: Machine) => {
+      const r = await onM(m, () => cloudSync(vopts(m, { scope: 'global', allowUnreleased: true })));
+      expect(r.streams[0]?.refused ?? null, `${m.name}: ${r.streams[0]?.refused}`).toBeNull();
+      expect(r.streams[0]?.streamId).toBe(HOME_STREAM);
+      return r.streams[0];
+    };
+
+    // A new decision on A reaches B with the same uid.
+    await onM(a, async () => {
+      (await globalStore(a)).exec(
+        "INSERT INTO brain_decisions (id, type, decision, rationale, confidence, created_at, valid_at) VALUES ('D9001', 'architecture', 'Sync the main brain', 'two devices', 'high', '2026-10-10 09:01:00', '2026-10-10 09:01:00')",
+      );
+    });
+    await sync(a);
+    await sync(b);
+    const decisionSql = "SELECT uid, decision FROM brain_decisions WHERE id = 'D9001'";
+    const decisionA = await read(a, decisionSql);
+    expect(decisionA).toMatchObject({ decision: 'Sync the main brain' });
+    expect(await read(b, decisionSql)).toEqual(decisionA);
+
+    // A concurrent retitle of one observation: the later write wins on both.
+    await onM(a, async () => {
+      (await globalStore(a)).exec(
+        "UPDATE brain_observations SET title = 'from A' WHERE id = 'O-home0001'",
+      );
+    });
+    await onM(b, async () => {
+      (await globalStore(b)).exec(
+        "UPDATE brain_observations SET title = 'from B' WHERE id = 'O-home0001'",
+      );
+    });
+    await sync(a);
+    await sync(b);
+    await sync(a);
+    await sync(b);
+    const onA = await read(a, observationSql);
+    expect(await read(b, observationSql)).toEqual(onA);
+    expect(onA).toMatchObject({ title: 'from B' });
+  });
+
+  it("with sync on, two devices see each other's brain writes after a session end, with no manual cloud sync (T13468)", async () => {
+    const { autoCloudSync } = await import('../auto-sync.js');
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    await onM(a, async () => {
+      const db = await globalStore(a);
+      setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_JOURNAL });
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+    });
+    await onM(a, () => enableSyncPush(vopts(a, { scope: 'global', allowUnreleased: true })));
+    await onM(a, async () => {
+      setSyncFlag(await globalStore(a), 'sync.pull', true, { allowUnreleased: true });
+    });
+    await onM(b, () => restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull', force: true })));
+    await onM(b, () => enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })));
+
+    // What the session-end worker runs: the real flag check and lock, this
+    // machine's cloud sync, and each call a minute after the last.
+    let clock = Date.parse('2026-10-10T10:00:00Z');
+    const sessionEnd = (m: Machine) => {
+      clock += 61_000;
+      const now = new Date(clock);
+      return onM(m, () =>
+        autoCloudSync(m.root, 'session-end', {
+          cleoHome: m.home,
+          now,
+          admit: async () => ({ release: async () => {} }),
+          sync: () => cloudSync(vopts(m, { allowUnreleased: true })),
+        }),
+      );
+    };
+    const read = async (m: Machine, sql: string) =>
+      onM(m, async () => (await globalStore(m)).prepare(sql).get());
+
+    await onM(a, async () => {
+      (await globalStore(a)).exec(
+        "INSERT INTO brain_decisions (id, type, decision, rationale, confidence, created_at, valid_at) VALUES ('D9101', 'architecture', 'Auto sync at session end', 'no manual sync', 'high', '2026-10-10 10:01:00', '2026-10-10 10:01:00')",
+      );
+    });
+    await onM(b, async () => {
+      (await globalStore(b)).exec(
+        "INSERT INTO brain_observations (id, type, title, created_at, valid_at) VALUES ('O-home0101', 'discovery', 'written on B', '2026-10-10T10:02:00.000Z', '2026-10-10 10:02:00')",
+      );
+    });
+    expect(await sessionEnd(a)).toBe('synced');
+    expect(await sessionEnd(b)).toBe('synced');
+    expect(await sessionEnd(a)).toBe('synced');
+
+    const decisionSql = "SELECT uid, decision FROM brain_decisions WHERE id = 'D9101'";
+    const obsSql = "SELECT uid, title FROM brain_observations WHERE id = 'O-home0101'";
+    const decisionA = await read(a, decisionSql);
+    expect(decisionA).toMatchObject({ decision: 'Auto sync at session end' });
+    expect(await read(b, decisionSql)).toEqual(decisionA);
+    const obsB = await read(b, obsSql);
+    expect(obsB).toMatchObject({ title: 'written on B' });
+    expect(await read(a, obsSql)).toEqual(obsB);
+  });
+});
+
 describe('the server retirements a receiver confirms a retire by (T13366)', () => {
   const R1 = '0192aaaa-7f00-7000-8000-00000000000a';
   const R2 = '0192bbbb-7f00-7000-8000-00000000000b';
@@ -6154,15 +6329,74 @@ describe('the server retirements a receiver confirms a retire by (T13366)', () =
     ]);
   });
 
-  it('home on a server without the listing: none; a project stream: no source at all', async () => {
+  it('home on a server without the listing: none; a project stream with no server project: no source', async () => {
     expect(await serverRetirementsFor(listed('/v1/account/home/replicas', null), 'global')).toEqual(
       [],
     );
     const never = {
       find: async () => {
-        throw new Error('a project stream has no retirement read');
+        throw new Error('a project stream without a server project has no retirement read');
       },
     };
     expect(await serverRetirementsFor(never, 'project')).toBeUndefined();
+  });
+
+  it('project: retired replicas from E15, a server without it confirms none (T13391)', async () => {
+    const P = '0192ffff-7f00-7000-8000-00000000000f';
+    const row = { projectId: P, deviceId: D1, deviceName: 'd', ...quiet };
+    const e15 = (replicas: unknown[] | null) => ({
+      find: async <T>(
+        p: string,
+        schema: { safeParse(v: unknown): { success: boolean; data?: T } },
+      ): Promise<T | null> => {
+        expect(p.startsWith(`/v1/projects/${P}/replicas?`)).toBe(true);
+        if (replicas === null) return null;
+        const parsed = schema.safeParse({ replicas, nextCursor: null });
+        if (!parsed.success || parsed.data === undefined) throw new Error('E15 does not parse');
+        return parsed.data;
+      },
+    });
+    expect(
+      await serverRetirementsFor(
+        e15([
+          { ...row, replicaId: R1, retiredAt: '2026-10-09T00:00:01.000Z', successor: R2 },
+          { ...row, replicaId: R2 },
+        ]),
+        'project',
+        P,
+      ),
+    ).toEqual([{ replicaId: R1, successor: R2, retiredAt: '2026-10-09T00:00:01.000Z' }]);
+    expect(await serverRetirementsFor(e15(null), 'project', P)).toEqual([]);
+  });
+
+  it('a listing that fails confirms nothing this round and warns, never failing the pull (T13395)', async () => {
+    for (const fail of [
+      new Error('fetch failed'),
+      new NexusError('E_NETWORK', 'server unavailable', 503, null),
+      new NexusError('E_NOT_FOUND', 'no such route', 404, null),
+    ]) {
+      const conn = {
+        warnings: [] as Array<{ code: string; message: string }>,
+        find: async () => {
+          throw fail;
+        },
+      };
+      expect(await confirmableRetirements(conn, 'global')).toEqual([]);
+      expect(conn.warnings).toHaveLength(1);
+      expect(conn.warnings[0]?.code).toBe('W_NEXUS_RETIREMENTS_UNAVAILABLE');
+    }
+    const ok = {
+      ...listed('/v1/account/home/replicas', []),
+      warnings: [] as Array<{ code: string; message: string }>,
+    };
+    expect(await confirmableRetirements(ok, 'global')).toEqual([]);
+    expect(ok.warnings).toHaveLength(0);
+    const project = {
+      find: async () => {
+        throw new Error('never called');
+      },
+      warnings: [],
+    };
+    expect(await confirmableRetirements(project, 'project')).toBeUndefined();
   });
 });

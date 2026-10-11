@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { AcceptanceGate, AcRow, Task } from '@cleocode/contracts';
@@ -382,6 +382,8 @@ describe('typed requirement persistence', () => {
   it('canonical verify runs the real harness and commits exact bound result plus receipt in a fresh process', async () => {
     await verificationFixture('verified.mjs', 'process.exit(0);');
     const result = await validateGateVerify(root, {
+      // T13521: this test exercises typed-gate execution on the write.
+      runTyped: true,
       taskId: 'T121',
       gate: 'cleanupDone',
       value: true,
@@ -426,9 +428,87 @@ describe('typed requirement persistence', () => {
     ).toBe(true);
   });
 
+  describe('pnpm-symlinked interpreter scripts (T13527)', () => {
+    /** node_modules/fakebin -> node_modules/.pnpm/fakebin@1.0.0/node_modules/fakebin, as pnpm links it. */
+    async function pnpmLinkedBin(body: string): Promise<void> {
+      const real = join(root, 'node_modules', '.pnpm', 'fakebin@1.0.0', 'node_modules', 'fakebin');
+      await mkdir(real, { recursive: true });
+      await writeFile(join(real, 'bin.mjs'), body);
+      await symlink(real, join(root, 'node_modules', 'fakebin'), 'dir');
+    }
+    const write = () =>
+      validateGateVerify(root, {
+        taskId: 'T121',
+        gate: 'cleanupDone',
+        value: true,
+        agent: 'implementer',
+        evidence: 'note:explicit synthetic verification',
+        // T13521: these exercise execution, which a write now does only on request.
+        runTyped: true,
+      });
+
+    it("a typed gate running node node_modules/<pkg>/bin through pnpm's link executes and passes", async () => {
+      await verificationFixture('verified.mjs', 'process.exit(0);');
+      await pnpmLinkedBin('process.exit(0);');
+      await reqAdd(
+        root,
+        'T121',
+        {
+          kind: 'test',
+          command: process.execPath,
+          args: ['node_modules/fakebin/bin.mjs'],
+          expect: 'exit0',
+          req: 'PNPM-1',
+          description: 'pnpm-linked harness',
+        },
+        accessor,
+      );
+      const result = await write();
+      expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+      const stored = (await accessor.loadSingleTask('T121'))?.verification?.gateResults ?? [];
+      const pnpm = stored.find((r) => r.req === 'PNPM-1');
+      expect(pnpm?.result, pnpm?.errorMessage).toBe('pass');
+      // Captured at its real path inside the project's virtual store.
+      expect(pnpm?.binding?.artifacts.map((a) => a.path)).toContain(
+        join(root, 'node_modules', '.pnpm', 'fakebin@1.0.0', 'node_modules', 'fakebin', 'bin.mjs'),
+      );
+    });
+
+    it('a genuinely ambiguous symlink parent fails that gate alone; the other gates still run', async () => {
+      await verificationFixture('verified.mjs', 'process.exit(0);');
+      await mkdir(join(root, 'realdir'), { recursive: true });
+      await writeFile(join(root, 'realdir', 'h.mjs'), 'process.exit(0);');
+      await symlink(join(root, 'realdir'), join(root, 'linkdir'), 'dir');
+      await reqAdd(
+        root,
+        'T121',
+        {
+          kind: 'test',
+          command: process.execPath,
+          args: ['linkdir/h.mjs'],
+          expect: 'exit0',
+          req: 'LINK-1',
+          description: 'redirected harness',
+        },
+        accessor,
+      );
+      const result = await write();
+      expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+      const stored = (await accessor.loadSingleTask('T121'))?.verification?.gateResults ?? [];
+      expect(stored.find((r) => r.req === 'VERIFY-121')?.result).toBe('pass');
+      const linked = stored.find((r) => r.req === 'LINK-1');
+      expect(linked?.result).toBe('error');
+      expect(linked?.errorMessage).toMatch(
+        /inputs could not be captured: .*ambiguous symlink parent/,
+      );
+    });
+  });
+
   it('canonical verify records missing harness as unmet instead of green generic evidence', async () => {
     await verificationFixture('not-present.mjs');
     const result = await validateGateVerify(root, {
+      // T13521: this test exercises typed-gate execution on the write.
+      runTyped: true,
       taskId: 'T121',
       gate: 'cleanupDone',
       value: true,
@@ -456,6 +536,8 @@ describe('typed requirement persistence', () => {
       "CREATE TRIGGER reject_typed_receipt BEFORE INSERT ON tasks_audit_log WHEN NEW.action='gate.verify.typed' BEGIN SELECT RAISE(ABORT,'typed receipt fault'); END",
     );
     const result = await validateGateVerify(root, {
+      // T13521: this test exercises typed-gate execution on the write.
+      runTyped: true,
       taskId: 'T121',
       gate: 'cleanupDone',
       agent: 'implementer',
@@ -486,6 +568,8 @@ describe('typed requirement persistence', () => {
     );
     const verify = () =>
       validateGateVerify(root, {
+        // T13521: this test exercises typed-gate execution on the write.
+        runTyped: true,
         taskId: 'T121',
         gate: 'cleanupDone',
         agent: 'implementer',
@@ -543,6 +627,8 @@ describe('typed requirement persistence', () => {
     await slowGateFixture();
     const started = Date.now();
     const result = await validateGateVerify(root, {
+      // T13521: this test exercises typed-gate execution on the write.
+      runTyped: true,
       taskId: 'T121',
       gate: 'cleanupDone',
       value: true,
@@ -599,6 +685,8 @@ describe('typed requirement persistence', () => {
         captureProjectScope(root, { ...captureProjectScope(root, undefined), execution: context }),
         () =>
           validateGateVerify(root, {
+            // T13521: this test exercises typed-gate execution on the write.
+            runTyped: true,
             taskId: 'T121',
             gate: 'cleanupDone',
             agent: 'deadline-test',
@@ -689,7 +777,8 @@ describe('typed requirement persistence', () => {
         value: true,
         agent: 'implementer',
         evidence: `note:explicit synthetic verification${linkTyped ? typed : ''}`,
-        ...(noRun ? { noRun } : {}),
+        // T13521: without --no-run these tests exercise the executing write.
+        ...(noRun ? { noRun } : { runTyped: true }),
       });
     };
 
@@ -794,12 +883,147 @@ describe('typed requirement persistence', () => {
         expect([runs(), count(second)]).toEqual([1, 2]);
       });
 
+      it('T13515: on a COLD cache, --req executes only the selected gate', async () => {
+        await cachedGateFixture('process.exit(0);');
+        const second = await addSecondGate();
+        // Nothing has run and nothing is cached.
+        expect([runs(), count(second)]).toEqual([0, 0]);
+        const only = await previewTaskGates(root, { taskId: 'T121', req: 'COUNTED-B' });
+        expect(only.results.map((r) => r.req)).toEqual(['COUNTED-B']);
+        // The unselected counted gate never executed.
+        expect([runs(), count(second)]).toEqual([0, 1]);
+      });
+
       it("refuses an unknown REQ-ID, naming the task's REQ-IDs", async () => {
         await cachedGateFixture('process.exit(0);');
         await expect(previewTaskGates(root, { taskId: 'T121', req: 'NOPE' })).rejects.toThrow(
           /REQ-ID\(s\) NOPE not found on T121; its typed gates are VERIFY-121, COUNTED-121/,
         );
         expect(runs()).toBe(0);
+      });
+    });
+
+    describe('a cache-only write keeps a stored pass that still proves its gate (T13525)', () => {
+      const commit = () =>
+        expect(
+          spawnSync(
+            'git',
+            [
+              '-c',
+              'user.email=t@t',
+              '-c',
+              'user.name=t',
+              'commit',
+              '-q',
+              '--allow-empty',
+              '-m',
+              'move HEAD',
+            ],
+            { cwd: root },
+          ).status,
+        ).toBe(0);
+
+      it('pass both typed gates, move HEAD, then an unlinked --no-run write: both stay pass', async () => {
+        await cachedGateFixture('process.exit(0);');
+        const recorded = await write();
+        expect(recorded.success, recorded.success ? undefined : recorded.error.message).toBe(true);
+        expect(runs()).toBe(1);
+        commit();
+        const unlinked = await write(true, false);
+        expect(unlinked.success, unlinked.success ? undefined : unlinked.error.message).toBe(true);
+        expect(runs()).toBe(1);
+        const stored = (await accessor.loadSingleTask('T121'))?.verification?.gateResults ?? [];
+        expect(stored.map((r) => [r.req, r.result])).toEqual([
+          ['VERIFY-121', 'pass'],
+          ['COUNTED-121', 'pass'],
+        ]);
+        expect(stored.every((r) => r.source === 'cache')).toBe(true);
+        if (!unlinked.success) throw new Error(unlinked.error.message);
+        expect(unlinked.data.passed).toBe(true);
+      });
+
+      it('a plain write (cache-only by default, T13521) that links no typed gate keeps both passes', async () => {
+        await cachedGateFixture('process.exit(0);');
+        expect((await write()).success).toBe(true);
+        commit();
+        const plain = await validateGateVerify(root, {
+          taskId: 'T121',
+          gate: 'cleanupDone',
+          value: true,
+          agent: 'implementer',
+          evidence: 'note:explicit synthetic verification',
+        });
+        expect(plain.success, plain.success ? undefined : plain.error.message).toBe(true);
+        expect(runs()).toBe(1);
+        const stored = (await accessor.loadSingleTask('T121'))?.verification?.gateResults ?? [];
+        expect(stored.map((r) => [r.req, r.result])).toEqual([
+          ['VERIFY-121', 'pass'],
+          ['COUNTED-121', 'pass'],
+        ]);
+      });
+
+      it('a stored pass whose inputs changed is not reused: the gate is recorded as not run', async () => {
+        await cachedGateFixture('process.exit(0);');
+        expect((await write()).success).toBe(true);
+        commit();
+        await writeFile(join(root, 'counted.mjs'), 'process.exit(0); // edited after the pass\n');
+        const unlinked = await write(true, false);
+        expect(unlinked.success, unlinked.success ? undefined : unlinked.error.message).toBe(true);
+        const stored = (await accessor.loadSingleTask('T121'))?.verification?.gateResults ?? [];
+        expect(stored.find((r) => r.req === 'COUNTED-121')?.result).toBe('error');
+        expect(stored.find((r) => r.req === 'VERIFY-121')?.result).toBe('pass');
+      });
+    });
+
+    describe('evidence writes do not execute typed gates by default (T13521)', () => {
+      const plain = async () => {
+        const typed = (await accessor.getAcRows('T121'))
+          .filter((row) => row.kind === 'evidence_bound')
+          .map((row) => `;satisfies:T121#AC${row.ordinal}`)
+          .join('');
+        return validateGateVerify(root, {
+          taskId: 'T121',
+          gate: 'cleanupDone',
+          value: true,
+          agent: 'implementer',
+          evidence: `note:explicit synthetic verification${typed}`,
+        });
+      };
+
+      it('a cold cache refuses, executes nothing, and names the --run command', async () => {
+        await cachedGateFixture('process.exit(0);');
+        const refused = await plain();
+        expect(refused.success).toBe(false);
+        if (refused.success) throw new Error('expected a refusal');
+        expect(refused.error.code).toBe('E_GATE_NOT_CACHED');
+        expect(refused.error.message).toContain('cleo verify T121 --run --req');
+        expect(refused.error.message).toContain('--run-typed');
+        expect(runs()).toBe(0);
+      });
+
+      it('after cleo verify --run, the plain write records from the cache without executing', async () => {
+        await cachedGateFixture('process.exit(0);');
+        await previewTaskGates(root, { taskId: 'T121' });
+        expect(runs()).toBe(1);
+        const ok = await plain();
+        expect(ok.success, ok.success ? undefined : ok.error.message).toBe(true);
+        expect(runs()).toBe(1);
+      });
+
+      it('--run-typed executes on the write; it contradicts --no-run', async () => {
+        await cachedGateFixture('process.exit(0);');
+        const ran = await write();
+        expect(ran.success, ran.success ? undefined : ran.error.message).toBe(true);
+        expect(runs()).toBe(1);
+        const both = await validateGateVerify(root, {
+          taskId: 'T121',
+          gate: 'cleanupDone',
+          value: true,
+          evidence: 'note:x',
+          noRun: true,
+          runTyped: true,
+        });
+        expect(both.success ? '' : both.error.code).toBe('E_INVALID_INPUT');
       });
     });
 
@@ -1072,6 +1296,15 @@ describe('typed requirement persistence', () => {
       expect(noRun.success).toBe(false);
       if (noRun.success) throw new Error('expected a refusal');
       expect(noRun.error.code).toBe('E_GATE_CACHE_DISABLED');
+      expect(noRun.error.message).toContain('re-run the same command with --run-typed');
+      // The multi-gate form (cleo done, complete-ci) gets the same caller-neutral hint.
+      const done = await validateGateVerify(root, {
+        taskId: 'T121',
+        gateEvidence: { cleanupDone: 'note:explicit synthetic verification' },
+      });
+      expect(done.success ? '' : done.error.message).toContain(
+        're-run the same command with --run-typed',
+      );
       const before = runs();
       const executed = await write();
       expect(executed.success, executed.success ? undefined : executed.error.message).toBe(true);

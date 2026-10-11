@@ -104,7 +104,17 @@ function commitOnTaskBranch(taskId: string): string {
 }
 
 function opts(extra: Partial<RecordTaskDoneOptions> = {}): RecordTaskDoneOptions {
-  return { projectRoot: root, cwd: root, deps, satisfies: 'all', agent: 'test', ...extra };
+  // T13521: these tests were written for `cleo done` executing typed gates;
+  // they opt in. The cache-only default has its own tests below.
+  return {
+    projectRoot: root,
+    cwd: root,
+    deps,
+    satisfies: 'all',
+    agent: 'test',
+    runTyped: true,
+    ...extra,
+  };
 }
 
 function gatesJsonl(): string {
@@ -219,7 +229,9 @@ describe('slow work finishes before the write (AC2)', () => {
             return { gateCount: 1, passed: true, failing: [] };
           },
           write: async (_root, params) => {
-            log.push(`write:${Object.keys(params.gateEvidence).join(',')}:noRun=${params.noRun}`);
+            log.push(
+              `write:${Object.keys(params.gateEvidence).join(',')}:runTyped=${params.runTyped === true}`,
+            );
             return { success: true, data: { passed: true } };
           },
         },
@@ -237,8 +249,60 @@ describe('slow work finishes before the write (AC2)', () => {
       'start:test',
       'end:test',
       'typed',
-      'write:implemented,testsPassed,qaPassed:noRun=true',
+      // The typed gates ran (and cached) above, so the write itself is cache-only.
+      'write:implemented,testsPassed,qaPassed:runTyped=false',
     ]);
+  });
+
+  it('T13521: without --run-typed, cleo done executes no typed gate and names cleo verify --run when one is uncached', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    await reqAdd(
+      root,
+      id,
+      {
+        kind: 'command',
+        cmd: 'node -e 0',
+        exitCode: 0,
+        description: 'Harness passes',
+        req: 'R13521',
+      },
+      env.accessor,
+    );
+    const r = await recordTaskDone(
+      id,
+      opts({
+        runTyped: false,
+        steps: {
+          runTool: async () => ({
+            exitCode: 0,
+            cacheHit: false,
+            durationMs: 0,
+            timedOut: false,
+            tail: '',
+          }),
+          runTypedGates: async () => {
+            throw new Error('cleo done must not execute typed gates without --run-typed');
+          },
+          write: async (_root, params) => {
+            expect(params.runTyped).toBeUndefined();
+            return {
+              success: false,
+              error: {
+                code: 'E_GATE_NOT_CACHED',
+                message: 'typed gate not cached: gate "R13521" has no cached pass',
+                exitCode: 1,
+              },
+            } as never;
+          },
+        },
+      }),
+    );
+    expect(r.success).toBe(false);
+    if (r.success) return;
+    const details = r.error.details as DoneBlockedDetails;
+    expect(details.cause).toBe('E_GATE_NOT_CACHED');
+    expect(details.next.command).toBe(`cleo verify ${id} --run && cleo done ${id}`);
   });
 
   it('a failing tool stops before test and before any write', async () => {
@@ -436,6 +500,83 @@ describe('the tool tree must contain the change (T12625 review HIGH)', () => {
     expect(r.error.message).toMatch(
       /squash- or rebase-merged branch never contains its merge commit/,
     );
+    // T13463: evidence.ciSatisfies is not set here, so ci:<pr> is not offered as ready to use.
+    expect(r.error.message).not.toMatch(/evidence\.ciSatisfies is set/);
+    expect(r.error.message).toMatch(/Setting evidence\.ciSatisfies would let ci:<pr>/);
+    // One PR: the missing commit IS the switch target, so no second commit is named.
+    expect(r.error.message).not.toMatch(/The command switches to/);
+  });
+
+  it('T13463: two PRs, the earlier merge missing: the message names the latest merge it switches to', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    const base = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: one`]);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', `task/${id}`]);
+    git(root, ['commit', '-q', '-m', `${id}: one (#41)`]);
+    const first = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', '-c', `task/${id}-b`]);
+    writeFileSync(join(root, 'src', 'd.ts'), 'export const d = 1;\n');
+    git(root, ['add', 'src/d.ts']);
+    git(root, ['commit', '-q', '-m', `${id}: two`]);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--squash', `task/${id}-b`]);
+    git(root, ['commit', '-q', '-m', `${id}: two (#42)`]);
+    const second = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', '--detach', base]);
+    const resolution = (n: number, sha: string, paths: string[]) => ({
+      ok: true as const,
+      prNumber: n,
+      mergeCommitSha: sha,
+      mergedAt: '2026-09-28T00:00:00Z',
+      successCount: 1,
+      totalChecks: 1,
+      cacheHit: true,
+      title: id,
+      body: '',
+      headRefName: n === 41 ? `task/${id}` : `task/${id}-b`,
+      changedPaths: paths,
+      changedFileCount: paths.length,
+    });
+    const r = await recordTaskDone(
+      id,
+      opts({
+        previewEvidence: async () => ({ ok: true }),
+        deps: {
+          ...deps,
+          listMergedPrs: async () => ({
+            ok: true,
+            prs: [
+              { number: 41, title: `${id}: one`, body: '', headRefName: `task/${id}` },
+              { number: 42, title: `${id}: two`, body: '', headRefName: `task/${id}-b` },
+            ],
+          }),
+          viewPr: async (n) => ({
+            number: n,
+            title: id,
+            headRefName: '',
+            baseRefName: 'main',
+            state: 'MERGED',
+            mergedAt: '2026-09-28T00:00:00Z',
+            headRefOid: null,
+            mergeCommitSha: n === 41 ? first : second,
+          }),
+          findPrByHead: async () => null,
+          resolvePr: async (n) =>
+            n === 41 ? resolution(41, first, ['src/a.ts']) : resolution(42, second, ['src/d.ts']),
+        },
+      }),
+    );
+    expect(r.success).toBe(false);
+    if (r.success) return;
+    const details = r.error.details as DoneBlockedDetails;
+    expect(details.blocker, r.error.message).toBe('checkout-required');
+    expect(r.error.message).toContain(
+      `PR #41's merge commit ${first.slice(0, 12)}. The command switches to PR #42's merge commit ${second.slice(0, 12)}, which contains it`,
+    );
+    expect(details.next.command).toContain(`switch --detach ${second}`);
   });
 
   it('T13429: a merge commit this checkout has not fetched: the remedy fetches first', async () => {
@@ -553,6 +694,8 @@ describe('one write is all-or-nothing across gates (review test gaps)', () => {
   it('a content mismatch on the SECOND gate refuses the write and records no gate', async () => {
     const { id, head } = await setup();
     const r = await validateGateVerify(root, {
+      // T13521: this test exercises typed-gate execution on the write.
+      runTyped: true,
       taskId: id,
       gateEvidence: {
         implemented: `commit:${head};files:src/a.ts;satisfies:${id}#AC1`,
@@ -573,6 +716,8 @@ describe('one write is all-or-nothing across gates (review test gaps)', () => {
   it('a refusal on the THIRD gate leaves the first two unrecorded', async () => {
     const { id, head } = await setup();
     const r = await validateGateVerify(root, {
+      // T13521: this test exercises typed-gate execution on the write.
+      runTyped: true,
       taskId: id,
       gateEvidence: {
         implemented: `commit:${head};files:src/a.ts;satisfies:${id}#AC1`,
@@ -701,6 +846,8 @@ describe('typed results verified in a worktree complete from main after merge (T
     process.chdir(wt);
     try {
       const r = await validateGateVerify(root, {
+        // T13521: this test exercises typed-gate execution on the write.
+        runTyped: true,
         taskId: id,
         gateEvidence: {
           implemented: `commit:${head};files:src/a.ts;satisfies:${id}#AC1;satisfies:${id}#AC2`,
@@ -749,6 +896,8 @@ describe('typed results verified in a worktree complete from main after merge (T
     process.chdir(wt);
     try {
       const r = await validateGateVerify(root, {
+        // T13521: this test exercises typed-gate execution on the write.
+        runTyped: true,
         taskId: id,
         gateEvidence: {
           implemented: `commit:${head};files:src/a.ts;satisfies:${id}#AC1;satisfies:${id}#AC2`,
@@ -1163,6 +1312,8 @@ describe('batch close: several tasks shipped by one PR (T12628)', () => {
     git(root, ['commit', '-q', '-am', `${id}: again`]);
     const c2 = git(root, ['rev-parse', 'HEAD']);
     const r = await validateGateVerify(root, {
+      // T13521: this test exercises typed-gate execution on the write.
+      runTyped: true,
       taskId: id,
       gateEvidence: {
         implemented: [

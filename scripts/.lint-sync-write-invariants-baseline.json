@@ -1425,7 +1425,7 @@
     "packages/core/src/tasks/find.ts :: E_INTERNAL": 1,
     "packages/core/src/tasks/find.ts :: ExitCode.GENERAL_ERROR": 2,
     "packages/core/src/tasks/find.ts :: ExitCode.INVALID_INPUT": 3,
-    "packages/core/src/tasks/gate-runner.ts :: Error": 42,
+    "packages/core/src/tasks/gate-runner.ts :: Error": 41,
     "packages/core/src/tasks/gate-runner.ts :: RangeError": 1,
     "packages/core/src/tasks/gate-runner.ts :: TypedRevalidationError": 7,
     "packages/core/src/tasks/hierarchy-policy.ts :: E_ACTIVE_SIBLING_LIMIT": 1,

@@ -14,6 +14,8 @@ import type {
   CloudActivityResult,
   CloudConflictResolveResult,
   CloudConflictsResult,
+  CloudDeviceOverviewResult,
+  CloudJournalActivityResult,
   CloudLeaseReleaseResult,
   CloudPushResult,
   CloudRestoreResult,
@@ -356,6 +358,14 @@ export async function runCloudLease(args: Args): Promise<void> {
  * @param args - Parsed args.
  */
 export async function runCloudActivity(args: Args): Promise<void> {
+  if (args.devices === true) {
+    await runCloudDeviceOverview(args);
+    return;
+  }
+  if (args.journal === true) {
+    await runCloudJournalActivity(args);
+    return;
+  }
   await runCloudRead<CloudActivityResult>(
     'cloud.activity',
     async () => {
@@ -381,7 +391,94 @@ export async function runCloudActivity(args: Args): Promise<void> {
           (i) =>
             `${i.at} ${who(i.deviceName, i.deviceId ?? 'account')}${i.thisDevice ? ' (this machine)' : ''} ${terminalSafe(i.action)}${i.target ? ` ${terminalSafe(i.target)}` : ''}`,
         )
-        .join('; ')}${r.items.length > 10 ? '; …' : ''}`,
+        .join('; ')}${r.items.length > 10 ? '; …' : ''}\n${ACTIVITY_HINT}`,
+  );
+}
+
+/**
+ * `cleo cloud activity --journal [--device] [--since] [--project] [--limit]
+ * [--before] [--offline] [--scope]`: what each device changed and when, from
+ * this store's sync journal (T13369).
+ *
+ * @param args - Parsed args.
+ */
+async function runCloudJournalActivity(args: Args): Promise<void> {
+  await runCloudRead<CloudJournalActivityResult>(
+    'cloud.activity.journal',
+    async () => {
+      const { nexusJournalActivity } = await import(
+        /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-cloud-journal-activity.js'
+      );
+      const limit = activityLimitArg(args);
+      const before = stringArg(args, 'before');
+      const deviceId = stringArg(args, 'device');
+      const since = stringArg(args, 'since');
+      const projectId = stringArg(args, 'project');
+      return nexusJournalActivity({
+        apiUrl: nexusApiUrlArg(args),
+        scope: scopeArg(args, 'cloud.activity.journal'),
+        offline: args.offline === true,
+        ...(limit !== undefined ? { limit } : {}),
+        ...(before !== undefined ? { before } : {}),
+        ...(deviceId !== undefined ? { deviceId } : {}),
+        ...(since !== undefined ? { since } : {}),
+        ...(projectId !== undefined ? { projectId } : {}),
+      });
+    },
+    (r) =>
+      [
+        `${r.items.length} journal transaction(s) from ${r.devices.length} device(s):`,
+        ...r.devices.map(
+          (d) =>
+            `  ${who(d.deviceName, d.deviceId)}${d.thisDevice ? ' (this machine)' : ''}: ${d.txns} txn(s), last ${d.lastAt}${d.lastSeenAt ? `, seen ${d.lastSeenAt}` : ''}`,
+        ),
+        ...r.items.slice(0, 10).map(
+          (i) =>
+            `  ${i.at} ${who(i.deviceName, i.deviceId)} ${terminalSafe(i.actor?.op ?? i.kind)} ${i.status}${i.history ? ' (history)' : ''}: ${Object.entries(
+              i.tables,
+            )
+              .map(([t, n]) => `${terminalSafe(t)} ${n.I}I/${n.U}U/${n.D}D${n.K ? `/${n.K}K` : ''}`)
+              .join(', ')}`,
+        ),
+        ...(r.items.length > 10 ? ['  …'] : []),
+        ACTIVITY_HINT,
+      ].join('\n'),
+  );
+}
+
+/** Points each activity view at the others (T13482). */
+const ACTIVITY_HINT =
+  'see also: `cleo cloud activity` (server events), `--journal` (journal changes), `--devices` (both, per device)';
+
+/**
+ * `cleo cloud activity --devices [--offline] [--scope]`: one row per device
+ * merging presence, its newest journal change and its newest server event
+ * (T13482).
+ *
+ * @param args - Parsed args.
+ */
+async function runCloudDeviceOverview(args: Args): Promise<void> {
+  await runCloudRead<CloudDeviceOverviewResult>(
+    'cloud.activity.devices',
+    async () => {
+      const { nexusDeviceOverview } = await import(
+        /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-cloud-device-overview.js'
+      );
+      return nexusDeviceOverview({
+        apiUrl: nexusApiUrlArg(args),
+        scope: scopeArg(args, 'cloud.activity.devices'),
+        offline: args.offline === true,
+      });
+    },
+    (r) =>
+      [
+        `${r.devices.length} device(s), newest activity first:`,
+        ...r.devices.map(
+          (d) =>
+            `  ${who(d.deviceName, d.deviceId)}${d.thisDevice ? ' (this machine)' : ''}: ${d.online === null ? 'presence unknown' : d.online ? 'online' : 'offline'}${d.lastSeenAt ? `, seen ${d.lastSeenAt}` : ''}${d.journal ? `; journal ${d.journal.txns} txn(s), last ${d.journal.lastAt}${d.journal.last ? ` ${terminalSafe(d.journal.last.op)} (${d.journal.last.tables.map(terminalSafe).join(', ')})` : ''}` : ''}${d.server ? `; server ${d.server.at} ${terminalSafe(d.server.action)}` : ''}`,
+        ),
+        ACTIVITY_HINT,
+      ].join('\n'),
   );
 }
 

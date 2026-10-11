@@ -118,6 +118,8 @@ describe('completeTask', () => {
 
   async function verifyTypedFixture(): Promise<void> {
     const verified = await validateGateVerify(env.tempDir, {
+      // T13521: this test exercises typed-gate execution on the write.
+      runTyped: true,
       taskId: 'T001',
       gate: 'cleanupDone',
       evidence: 'note:explicit synthetic typed proof',
@@ -368,6 +370,8 @@ describe('completeTask', () => {
     await verifyTypedFixture();
     await writeFile(join(env.tempDir, 'harness.mjs'), 'process.exit(2);');
     const failed = await validateGateVerify(env.tempDir, {
+      // T13521: this test exercises typed-gate execution on the write.
+      runTyped: true,
       taskId: 'T001',
       gate: 'cleanupDone',
       evidence: 'note:actual second execution',

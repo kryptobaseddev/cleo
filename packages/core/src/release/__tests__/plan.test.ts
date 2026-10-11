@@ -273,6 +273,84 @@ describe('releasePlan — happy path', () => {
     expect(plan.previousTag).toBe('v2026.5.97');
   });
 
+  it('derives previousTag from the newest reachable v* tag, even with no releases row (T13536)', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    const git = (...args: string[]) => execFileSync('git', ['-C', testDir, ...args]);
+    const commit = (m: string) => git('commit', '--allow-empty', '-m', m, '--quiet');
+    commit('one');
+    git('tag', 'v2026.5.1');
+    commit('two');
+    git('tag', 'v2026.5.2');
+    // A newer tag on a side branch is not reachable from HEAD.
+    git('checkout', '-q', '-b', 'side');
+    commit('side');
+    git('tag', 'v2026.5.9');
+    git('checkout', '-q', '-');
+    commit('three');
+
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('unreachable');
+    const plan = parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8')));
+    expect(plan.previousTag).toBe('v2026.5.2');
+    expect(plan.previousVersion).toBe('v2026.5.2');
+    expect(plan.meta?.firstEverRelease).toBe(false);
+  });
+
+  it('previousTag skips tags that are not version-shaped or not below the planned version (T13543)', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    const git = (...args: string[]) => execFileSync('git', ['-C', testDir, ...args]);
+    const commit = (m: string) => git('commit', '--allow-empty', '-m', m, '--quiet');
+    commit('one');
+    git('tag', 'v2026.5.2');
+    commit('two');
+    // Stray tags that parse as higher versions, all reachable from HEAD.
+    git('tag', 'vv2026.5.106');
+    git('tag', 'vendor-2026.5.50');
+    git('tag', 'v9.0-test');
+    // A reachable tag newer than the planned version (a back-dated plan).
+    git('tag', 'v2026.7.0');
+
+    for (const channel of ['latest', 'beta'] as const) {
+      const result = await releasePlan({
+        version: 'v2026.6.0',
+        epicId: 'T9999',
+        channel,
+        scheme: 'calver',
+        projectRoot: testDir,
+      });
+      expect(result.success).toBe(true);
+      if (!result.success) throw new Error('unreachable');
+      const plan = parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8')));
+      expect(plan.previousTag, channel).toBe('v2026.5.2');
+    }
+  });
+
+  it('previousTag orders prerelease numbers numerically: beta.9 precedes beta.10 (T13543)', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    const git = (...args: string[]) => execFileSync('git', ['-C', testDir, ...args]);
+    git('commit', '--allow-empty', '-m', 'one', '--quiet');
+    for (const n of [1, 2, 9]) git('tag', `v2026.6.0-beta.${n}`);
+
+    const result = await releasePlan({
+      version: 'v2026.6.0-beta.10',
+      epicId: 'T9999',
+      channel: 'beta',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('unreachable');
+    const plan = parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8')));
+    expect(plan.previousTag).toBe('v2026.6.0-beta.9');
+  });
+
   it('accepts explicit task-list release scope via taskIds (T10088)', async () => {
     const accessor = await createSqliteDataAccessor(testDir);
     try {
