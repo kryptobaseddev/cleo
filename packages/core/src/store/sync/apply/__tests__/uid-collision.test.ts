@@ -231,7 +231,8 @@ async function collide(
     rule: 'loser:local',
   });
   const own = (l === a ? before.a : before.b)[0] as Record<string, unknown>;
-  const { uid: _uid, ...values } = own;
+  // Its counter display id is re-minted with the re-key (T13405), so it is not compared.
+  const { uid: _uid, id: _id, ...values } = own;
   expect(rows(l.db, table, cols)).toContainEqual(expect.objectContaining(values));
   return { a, b };
 }
