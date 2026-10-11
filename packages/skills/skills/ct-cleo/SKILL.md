@@ -2,14 +2,14 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.24.7
+  version: 2.24.9
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/session.ts
     - packages/cleo/src/cli/commands/focus.ts
     - packages/cleo/src/cli/commands/sticky.ts
-  lastReviewed: 2026-10-04
+  lastReviewed: 2026-10-10
   stability: stable
 ---
 
@@ -33,12 +33,13 @@ instruction checks do not establish live Codex, Claude, or Kimi behavior.
 
 ## Asking the owner (HITL ask tool)
 
-Whenever you need the owner to answer, decide, approve or choose ANYTHING, use the
-ask tool (`AskUserQuestion` in Claude Code, or the provider equivalent listed in
-CAAMP's `PROVIDER_ASK_TOOLS`) with concrete, detailed, selectable options. Never
-ask inside a response, and never bury a question or decision in prose. Each option
-states what happens and its trade-offs; put the recommended option first. Do not
-send routine status chatter: report only when done or when a decision is needed.
+Whenever you need the owner to answer, decide, approve or choose ANYTHING, use the ask
+tool (`AskUserQuestion` in Claude Code, or the provider equivalent listed in CAAMP's
+`PROVIDER_ASK_TOOLS`) with 2-4 concrete, selectable options, recommended first, each stating
+what happens and its trade-offs. Never ask inside a response or bury a question in prose.
+Answer first in every reply: the first line is the result, answer or decision; then only the
+evidence the reader needs and what was skipped or unverified. No preamble, recap or routine
+status chatter: report only when done or when a decision is needed.
 
 - **Subagents never ask the human.** Return the question with its options to your
   orchestrator (`blocked` plus `{question, options[{label, description}], recommended}`
@@ -65,8 +66,6 @@ unreachable, or nexus hits `ENOENT` on an old path, run and report:
 6. `cleo doctor global-delivery` — `~/.cleo`, the global hub reference and every
    harness CLEO skill install must resolve (a `~/.cleo` link carried by dotfiles from
    Linux dangles on macOS and silences all of them). `--repair` relinks with a receipt.
-
-Never delete registry rows for projects that may have moved.
 
 ## Guarded knowledge repair
 
@@ -176,9 +175,9 @@ and inspect it before explicit resume. Repeating the add is not a recovery step.
 The original two-second maintenance budget covers preparation through verification;
 timer expiry does not preempt synchronous SQLite work.
 
-Verify storage with `cleo docs fetch <slug>` and its JSON `data.bytesBase64` plus
-`data.metadata.sha256`. Keep canonical storage success, optional projection
-verification, and installed-provider workflow verification as separate evidence.
+Verify storage with `cleo docs fetch <slug>` and its JSON `data.content` (text docs,
+T13352; binary docs carry `data.bytesBase64`) plus `data.metadata.sha256`. Keep
+canonical storage success, optional projection verification, and installed-provider workflow verification as separate evidence.
 
 ## Acceptance input and historical evidence
 

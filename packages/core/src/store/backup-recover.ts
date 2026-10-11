@@ -290,6 +290,18 @@ function computeDataLossWindowHours(timestampMs: number): number | null {
  * @public
  */
 export function runBackupRecover(opts: BackupRecoverOptions): BackupRecoverResult {
+  // The project store's roles resolve to the LIVE `.cleo/cleo.db`: this
+  // pipeline's plain rename and copy would bypass the live-writer check and
+  // the kept pre-restore store, so it never runs on it (T13245).
+  if (PROJECT_STORE_ROLES.has(opts.role) && opts.corruptPath === undefined) {
+    // @sync-invariant none:local-only recovery of a local SQLite file is refused before any write; it never writes a synced row
+    throw new BackupRecoverError(
+      `Role "${opts.role}" is the live project store (.cleo/cleo.db); it is recovered only through the guarded store restore`,
+      6,
+      'E_PROJECT_STORE_RECOVER',
+      `cleo backup recover ${opts.role} --dry-run, then cleo backup recover ${opts.role}`,
+    );
+  }
   const layout = resolveLayout(opts);
 
   const candidates = collectSnapshotCandidatesForRole({
@@ -537,10 +549,10 @@ function runPinnedRestore(args: {
 // ---------------------------------------------------------------------------
 
 /**
- * Roles whose live data is the consolidated project `.cleo/cleo.db`. Their
- * inventory paths (`.cleo/tasks.db`, `.cleo/brain.db`, `.cleo/conduit.db`)
- * name pre-consolidation files nothing reads, so recovering "into" them
- * repaired a decoy and left the live store as it was (T13245).
+ * Roles whose live data is the consolidated project `.cleo/cleo.db` (their
+ * inventory `filePathTemplate`). Their pre-consolidation files
+ * (`legacyFilePathTemplate`: `.cleo/tasks.db`, `.cleo/brain.db`,
+ * `.cleo/conduit.db`) are read by nothing but exodus (T13245).
  */
 export const PROJECT_STORE_ROLES: ReadonlySet<DbRole> = new Set<DbRole>([
   'tasks',

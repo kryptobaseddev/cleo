@@ -200,6 +200,17 @@ export async function supersedeDoc(
       throw txErr;
     }
 
+    // T13357: refresh the wikilinks edge table so the new supersedes pair
+    // shows up as graph edges. Best-effort — the supersede itself committed.
+    try {
+      const { rebuildDocsWikilinks } = await import('./wikilinks.js');
+      await rebuildDocsWikilinks({ projectRoot });
+    } catch (rebuildErr) {
+      process.emitWarning(
+        `docs wikilinks rebuild failed after supersede ${oldSlug} -> ${newSlug}: ${rebuildErr instanceof Error ? rebuildErr.message : String(rebuildErr)}`,
+      );
+    }
+
     const edgeId = makeEdgeId(newRow.id, oldRow.id);
 
     const result: SupersedeDocResult = {

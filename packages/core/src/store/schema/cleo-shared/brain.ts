@@ -723,9 +723,12 @@ export const brainStickyTags = sqliteTable(
       .references(() => brainStickyNotes.id, { onDelete: 'cascade' }),
     /** A single tag string (one row per tag). */
     tag: text('tag').notNull(),
+    /** Row uid (T12895): a UUIDv8 over (note uid, tag), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
     primaryKey({ columns: [table.stickyId, table.tag] }),
+    uniqueIndex('uq_brain_sticky_tags_uid').on(table.uid),
     index('idx_brain_sticky_tags_tag').on(table.tag),
   ],
 );
@@ -827,9 +830,12 @@ export const brainMemoryLinks = sqliteTable(
     linkType: text('link_type', { enum: BRAIN_LINK_TYPES }).notNull(),
     /** ISO-8601 UTC creation instant (canonical TEXT, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T12895): a UUIDv8 over (memory type, memory id, task uid or id, link type), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
     primaryKey({ columns: [table.memoryType, table.memoryId, table.taskId, table.linkType] }),
+    uniqueIndex('uq_brain_memory_links_uid').on(table.uid),
     index('idx_brain_links_task').on(table.taskId),
     index('idx_brain_links_memory').on(table.memoryType, table.memoryId),
   ],
@@ -878,8 +884,18 @@ export const brainUsageLog = sqliteTable(
     outcome: text('outcome').notNull().default('unknown'),
     /** ISO-8601 UTC creation instant. */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Row uid (T12896): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set. The INTEGER id stays
+     * a local key: it never travels.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12896): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_usage_log_uid').on(table.uid),
     index('idx_brain_usage_log_entry_id').on(table.entryId),
     index('idx_brain_usage_log_task_id').on(table.taskId),
   ],
@@ -970,9 +986,12 @@ export const brainPageEdges = sqliteTable(
     depressionCount: integer('depression_count').notNull().default(0),
     /** Stability score 0.0–1.0. */
     stabilityScore: real('stability_score'),
+    /** Row uid (T12895): a UUIDv8 over the raw (from id, to id, edge type), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
     primaryKey({ columns: [table.fromId, table.toId, table.edgeType] }),
+    uniqueIndex('uq_brain_page_edges_uid').on(table.uid),
     index('idx_brain_edges_from').on(table.fromId),
     index('idx_brain_edges_to').on(table.toId),
     index('idx_brain_edges_type').on(table.edgeType),
@@ -1016,8 +1035,18 @@ export const brainRetrievalLog = sqliteTable(
     deltaMs: integer('delta_ms'),
     /** R-STDP reward signal [-1,1]. */
     rewardSignal: real('reward_signal'),
+    /**
+     * Row uid (T12896): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set. The INTEGER id stays
+     * a local key: it never travels.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12896): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_retrieval_log_uid').on(table.uid),
     index('idx_retrieval_log_created').on(table.createdAt),
     index('idx_retrieval_log_source').on(table.source),
     index('idx_retrieval_log_session').on(table.sessionId),
@@ -1060,8 +1089,18 @@ export const brainPlasticityEvents = sqliteTable(
     rewardSignal: real('reward_signal'),
     /** Spike-pair delta in ms. */
     deltaTMs: integer('delta_t_ms'),
+    /**
+     * Row uid (T12896): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set. The INTEGER id stays
+     * a local key: it never travels.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12896): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_plasticity_events_uid').on(table.uid),
     index('idx_plasticity_source').on(table.sourceNode),
     index('idx_plasticity_target').on(table.targetNode),
     index('idx_plasticity_timestamp').on(table.timestamp),
@@ -1104,8 +1143,18 @@ export const brainWeightHistory = sqliteTable(
     rewardSignal: real('reward_signal'),
     /** ISO-8601 UTC change instant (canonical TEXT, §4). */
     changedAt: text('changed_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Row uid (T12896): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set. The INTEGER id stays
+     * a local key: it never travels.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12896): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_weight_history_uid').on(table.uid),
     index('idx_weight_history_edge').on(table.edgeFromId, table.edgeToId, table.edgeType),
     index('idx_weight_history_from').on(table.edgeFromId),
     index('idx_weight_history_to').on(table.edgeToId),
@@ -1139,8 +1188,18 @@ export const brainModulators = sqliteTable(
     description: text('description'),
     /** ISO-8601 UTC creation instant (canonical TEXT, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Row uid (T12896): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set. The INTEGER id stays
+     * a local key: it never travels.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12896): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_modulators_uid').on(table.uid),
     index('idx_modulators_type').on(table.modulatorType),
     index('idx_modulators_session').on(table.sessionId),
     index('idx_modulators_created_at').on(table.createdAt),
@@ -1171,8 +1230,18 @@ export const brainConsolidationEvents = sqliteTable(
     succeeded: integer('succeeded', { mode: 'boolean' }).notNull().default(true),
     /** ISO-8601 UTC start instant (canonical TEXT, §4). */
     startedAt: text('started_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Row uid (T12896): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open
+     * (`store/row-identity.ts`). Never updated once set. The INTEGER id stays
+     * a local key: it never travels.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12896): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
+    uniqueIndex('uq_brain_consolidation_events_uid').on(table.uid),
     index('idx_consolidation_events_started_at').on(table.startedAt),
     index('idx_consolidation_events_trigger').on(table.trigger),
     index('idx_consolidation_events_session').on(table.sessionId),
