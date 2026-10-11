@@ -2014,7 +2014,11 @@ async function pullWithSession(opened: StreamSession): Promise<PullStreamReport>
   // Seen-txn rows below each origin's staged floor are pruned after every
   // pull (T13318): an origin's transactions are first delivered in local_seq
   // order, so one at or below the floor with no seen row is refused loudly
-  // (`below-floor`), never applied twice.
+  // (`below-floor`), never applied twice. No rebind path re-delivers a txn id
+  // (T13520): an identical upload retry is a server duplicate, a rebind marks
+  // server-held old segments pushed and inherits the rest (never uploaded under
+  // the new id; unpushedSegments filters by replica), its re-emits are new ids,
+  // and a retired replica's late segment carries ids never stored before.
   const report = await pullStream(db, {
     scope: tableScopeOf(t),
     stream: t.streamId,

@@ -434,6 +434,102 @@ describe('the undo-budget rebind at the next pull to head (T13278, D5)', () => {
   });
 });
 
+describe('seen-txn pruning never wedges the rebind paths (T13520)', () => {
+  it("a lost-response retry, a rebind after an upload the server stored but the client never recorded, and a retired replica's late segment re-deliver no txn id", async () => {
+    const a = await author();
+    const b = await open('b', DEV_B);
+    const stream = fakeStream();
+    // The server's append is idempotent on (replica, replicaSeq): an identical
+    // retry returns the original seq as a duplicate (cleo-nexus streams.ts).
+    const send = (mode: 'ok' | 'lost' | 'offline') => {
+      const replica = replicaOf(a);
+      return pushStream(a.db, {
+        scope: 'project',
+        stream: STREAM,
+        replica,
+        project: null,
+        sealer: (_seq, plaintext) => Buffer.from(plaintext),
+        signTxn: (st, txn) => signTxn(KEY_A, st, txn),
+        upload: async (seg) => {
+          if (mode === 'offline') throw new Error('offline');
+          const dup = stream.segments.find(
+            (s) => s.replicaId === replica && s.replicaSeq === seg.replicaSeq,
+          );
+          if (dup) return { seq: dup.seq, duplicate: true };
+          const seq = stream.append(seg.sealed, seg.replicaSeq, replica, a.device);
+          if (mode === 'lost') throw new Error('response lost');
+          return { seq, duplicate: false };
+        },
+        serverOffsetMs: 0,
+        serverLastReplicaSeq: null,
+        now: () => ++clock,
+        env: {},
+        allowUnreleased: true,
+      });
+    };
+    const pullB = async () => {
+      const r = await pullStream(b.db, pullOpts(b, stream, { rebind: undefined, pruneSeen: true }));
+      expect(r.refused).toBeNull();
+      return r;
+    };
+    const old = replicaOf(a);
+
+    // Three txns of the old replica land; B prunes their seen rows below its floor.
+    for (const id of ['T1', 'T2', 'T3']) {
+      write(a.db, addTask(id));
+      expect((await send('ok')).pushed).toBe(1);
+    }
+    await pullB();
+    await pullStream(a.db, pullOpts(a, stream));
+    const floor = () =>
+      b.db
+        .prepare('SELECT pruned_upto AS p FROM _sync_seen_floor WHERE stream = ? AND origin = ?')
+        .get(STREAM, old) as { p: number };
+    expect(floor().p).toBeGreaterThan(0);
+
+    // (c) The server stores T4 but the answer is lost; the retry is a duplicate, stored once.
+    write(a.db, addTask('T4'));
+    await expect(send('lost')).rejects.toThrow('response lost');
+    const stored = stream.segments.length;
+    const retry = await send('ok');
+    expect(retry.duplicates).toBe(1);
+    expect(stream.segments.length).toBe(stored);
+    await pullB();
+
+    // (b) T5 lands on the server unrecorded; T6 never leaves (offline).
+    write(a.db, addTask('T5'));
+    await expect(send('lost')).rejects.toThrow('response lost');
+    write(a.db, addTask('T6'));
+    await expect(send('offline')).rejects.toThrow('offline');
+    const late = a.db
+      .prepare(
+        "SELECT sealed, replica_seq AS rs FROM _sync_segment WHERE replica_id = ? AND state = 'sealed' ORDER BY replica_seq DESC LIMIT 1",
+      )
+      .get(old) as { sealed: Uint8Array; rs: number };
+    recordUndoBudget(a.db, new Date(++clock).toISOString(), 1);
+    const r = await pullStream(a.db, pullOpts(a, stream));
+    expect(r.rebind?.previousReplicaId).toBe(old);
+    // Step 1: the segment the server holds is pushed, never inherited or re-sent.
+    expect(r.rebind?.segmentsMarkedPushed).toBe(1);
+    const before = stream.segments.length;
+    expect((await send('ok')).refused).toBeNull();
+    expect(stream.segments.slice(before).every((s) => s.replicaId === replicaOf(a))).toBe(true);
+    await pullB();
+
+    // (a) The retired replica's unsent segment lands late, after the retire.
+    stream.append(late.sealed, late.rs, old, DEV_A);
+    await pullB();
+
+    // No txn id was ever stored twice, so none could be re-delivered after pruning.
+    const ids = stream.segments.flatMap((s) => decode(s.plaintext).map((t) => t.txn));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(n(b.db, 'SELECT count(*) AS n FROM _sync_inbox')).toBe(ids.length);
+    for (const id of ['T1', 'T2', 'T3', 'T4', 'T5', 'T6']) {
+      expect(n(b.db, 'SELECT count(*) AS n FROM tasks_tasks WHERE id = ?', id)).toBe(1);
+    }
+  });
+});
+
 describe('the three-way reconcile rule (T12763, §1.5 N7)', () => {
   it('rule 1: a field an inherited change touched is emitted at tick(at_ms), whatever the HLCs', () => {
     expect(decideReconcileField({ touchedByInherited: true, localHlc: 'b', mergedHlc: 'a' })).toBe(
