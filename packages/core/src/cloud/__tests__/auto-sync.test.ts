@@ -159,6 +159,25 @@ describe('autoCloudSync (T13468)', () => {
     expect(outcomes.sort()).toEqual(['busy', 'synced']);
   });
 
+  it('a lock lost mid-sync is abandoned, never released or thrown (T13468 LOW)', async () => {
+    const release = vi.fn(async () => {});
+    const abandon = vi.fn(async () => {});
+    let lose: ((err: Error) => void) | undefined;
+    const { opts } = seams({
+      lock: async (onCompromised) => {
+        lose = onCompromised;
+        return { release, abandon };
+      },
+      sync: vi.fn(async () => {
+        lose?.(new Error('lock compromised'));
+        return {};
+      }),
+    });
+    expect(await autoCloudSync(project, 'session-end', opts)).toBe('synced');
+    expect(abandon).toHaveBeenCalledTimes(1);
+    expect(release).not.toHaveBeenCalled();
+  });
+
   it('skips quietly when no store has sync on', async () => {
     const { opts, sync } = seams({ syncEnabled: async () => false });
     expect(await autoCloudSync(project, 'session-end', opts)).toBe('skipped');

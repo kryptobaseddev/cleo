@@ -79,8 +79,10 @@ export interface AutoSyncOptions {
   syncEnabled?: (dbPath: string) => Promise<boolean>;
   /** Governor admission; `null` = deferred. */
   admit?: () => Promise<{ release: () => Promise<void> } | null>;
-  /** Single-flight lock; throws when held. */
-  lock?: () => Promise<{ release: () => Promise<void> }>;
+  /** Single-flight lock; throws when held. `onCompromised` fires if the lock is lost while held. */
+  lock?: (
+    onCompromised: (err: Error) => void,
+  ) => Promise<{ release: () => Promise<void>; abandon?: () => Promise<void> }>;
 }
 
 /**
@@ -213,11 +215,18 @@ export async function autoCloudSync(
       (await enabled(join(cleoHome, 'cleo.db')));
     if (!any) return 'skipped';
 
-    let held: { release: () => Promise<void> };
+    let held: { release: () => Promise<void>; abandon?: () => Promise<void> };
+    // A long synchronous SQLite step can starve the lock refresh past `stale`;
+    // proper-lockfile's default onCompromised throws asynchronously and would crash the daemon.
+    let compromised = false;
+    const onCompromised = (err: Error): void => {
+      compromised = true;
+      log.warn({ err, reason }, 'automatic cloud sync lock compromised');
+    };
     try {
       held = await (
         opts.lock ??
-        (async () => {
+        (async (onLost: (err: Error) => void) => {
           const { acquireAbandonableLock } = await import('../store/lock.js');
           mkdirSync(cleoHome, { recursive: true });
           // The lock needs its target to exist; appending nothing creates it.
@@ -225,9 +234,10 @@ export async function autoCloudSync(
           return acquireAbandonableLock(statePath(cleoHome), {
             retries: 0,
             stale: AUTO_SYNC_TIMEOUT_MS * 3,
+            onCompromised: onLost,
           });
         })
-      )();
+      )(onCompromised);
     } catch {
       return 'busy';
     }
@@ -288,7 +298,9 @@ export async function autoCloudSync(
         await admission.release();
       }
     } finally {
-      await held.release();
+      // A compromised lock may now belong to another process: never remove its directory.
+      if (compromised && held.abandon) await held.abandon();
+      else await held.release().catch(() => undefined);
     }
   } catch (err) {
     log.warn({ err, reason }, 'automatic cloud sync skipped');
