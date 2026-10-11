@@ -185,6 +185,7 @@ describe('non-canonical open paths are pinned to sync mode off', () => {
   };
 
   it.each([
+    'packages/core/src/store/exodus/bare-family.ts',
     'packages/core/src/store/exodus/migrate.ts',
     'packages/core/src/store/exodus/on-open.ts',
     'packages/core/src/store/exodus/reconcile.ts',
