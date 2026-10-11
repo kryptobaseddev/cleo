@@ -1005,7 +1005,9 @@ export class NexusHandler implements DomainHandler {
     }
     // T12316: every answer from the published graph says how current it is.
     if (answersFromGraph(operation)) {
-      const assessment = await assessNexusFreshnessForQuery(getProjectRoot());
+      const assessment = await assessNexusFreshnessForQuery(getProjectRoot(), {
+        refresh: params?.['noRefresh'] !== true,
+      });
       return withFreshness(await this.answer(operation, params, startTime), operation, assessment);
     }
     return this.answer(operation, params, startTime);

@@ -317,6 +317,50 @@ export interface CreateWorktreeOptions {
    * @task T12506
    */
   lockTtlMs?: number;
+  /**
+   * The git shim the caller installed for this worktree (T13522). Only when
+   * `installed` is the shim dir prepended to PATH and
+   * `CLEO_BRANCH_PROTECTION=strict` advertised; otherwise the env says
+   * `unavailable`, so nothing claims a fence that is not there.
+   *
+   * @task T13522
+   */
+  gitShim?: { readonly dir: string; readonly installed: boolean };
+  /**
+   * Provision without installing dependencies (`--no-install`, T13524). The
+   * result's `install` says so, with the command the worker runs instead.
+   *
+   * @task T13524
+   */
+  skipInstall?: boolean;
+  /**
+   * Admission for the dependency install (T13524): called before `pnpm install`
+   * runs; resolves to a release function once admitted, or `null` when the
+   * machine budget is busy, in which case the install is deferred to the
+   * worker rather than run outside the heavy-work queue. Absent: install
+   * unadmitted (legacy callers).
+   *
+   * @task T13524
+   */
+  admitInstall?: () => Promise<(() => Promise<void>) | null>;
+}
+
+/**
+ * What happened to a worktree's dependency install (T13524).
+ *
+ * @task T13524
+ */
+export interface WorktreeInstallOutcome {
+  /**
+   * `installed`/`failed`: it ran. `skipped`: `--no-install`. `deferred`: the
+   * machine budget was busy, so the worker installs. `not-needed`: no
+   * lockfile, already installed, or a re-attached worktree.
+   */
+  status: 'installed' | 'failed' | 'skipped' | 'deferred' | 'not-needed';
+  /** Why, for anything but `installed`. */
+  reason?: string;
+  /** The command the worker runs when the install did not happen here. */
+  command?: string;
 }
 
 /**
@@ -379,6 +423,12 @@ export interface CreateWorktreeResult {
     /** Results of post-start hooks. */
     hookResults: WorktreeHookResult[];
   };
+  /**
+   * The dependency install outcome (T13524).
+   *
+   * @task T13524
+   */
+  install?: WorktreeInstallOutcome;
 }
 
 // ---------------------------------------------------------------------------

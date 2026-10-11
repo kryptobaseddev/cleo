@@ -23,6 +23,17 @@ import {
   ensureWorktreeBuildReady,
 } from '../worktree-preflight.js';
 
+// pnpm is stubbed to fail: a real install takes seconds and timed out under
+// parallel load (T13547); git still runs for real.
+vi.mock('node:child_process', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('node:child_process')>();
+  const execFileSync = ((file: string, ...rest: unknown[]) => {
+    if (file === 'pnpm') throw new Error('pnpm stub: install failed');
+    return (mod.execFileSync as (f: string, ...r: unknown[]) => unknown)(file, ...rest);
+  }) as typeof mod.execFileSync;
+  return { ...mod, execFileSync };
+});
+
 /** Create a minimal git repo in a temp dir. */
 function initTempRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), 'cleo-preflight-'));
@@ -170,10 +181,9 @@ describe('ensureWorktreeBuildReady (T11489)', () => {
   it('returns install-failed (gracefully) when pnpm-lock.yaml exists but install fails in non-pnpm dir', () => {
     // Write a minimal pnpm-lock.yaml so the condition triggers.
     writeFileSync(join(worktreeDir, 'pnpm-lock.yaml'), 'lockfileVersion: "6.0"\n');
-    // node_modules absent → will try install → will fail (no package.json, etc.)
+    // node_modules absent → tries the (stubbed, failing) install.
     const result = ensureWorktreeBuildReady(worktreeDir, worktreeDir);
-    // We expect either 'install-failed' or 'installed' (unlikely in a bare dir).
-    expect(['install-failed', 'installed', 'already-ready']).toContain(result.action);
+    expect(result.action).toBe('install-failed');
     expect(result.lockfilePresent).toBe(true);
     // Importantly, no exception should propagate.
   });

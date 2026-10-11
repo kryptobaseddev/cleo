@@ -22,6 +22,7 @@ import type { LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateEd25519 } from '../../../cloud/crypto.js';
+import { serverRetirementsFor } from '../../../cloud/nexus-vault.js';
 import { remintAuthority } from '../../display-id-alias.js';
 import {
   _resetDualScopeDbCache,
@@ -60,7 +61,8 @@ import { recordUndoBudget, UNDO_BUDGET_EXCEEDED_KEY, undoBudget } from '../seque
 import { firstBadTxnSignature, signTxn } from '../txn-signing.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
-const STREAM = 'project:0192ffff-7f00-7000-8000-00000000000f';
+const PROJECT_ID = '0192ffff-7f00-7000-8000-00000000000f';
+const STREAM = `project:${PROJECT_ID}`;
 const DEV_A = 'dev-a';
 const DEV_B = 'dev-b';
 const RETIRED_AT = '2026-10-09T12:00:00.000Z';
@@ -333,13 +335,42 @@ describe('the undo-budget rebind at the next pull to head (T13278, D5)', () => {
     // A late segment of the retired replica lands after the retire.
     stream.append(late.sealed, late.rs, old, DEV_A);
 
-    // The server confirmed the retirement (T13366): the home listing or E31's record.
+    // The server confirmed the retirement (T13366): on a project stream B reads
+    // it from E15's listing, every page (T13391).
+    const e15 = `/v1/projects/${PROJECT_ID}/replicas`;
+    const row = (replicaId: string, retiredAt: string | null, succ: string | null) => ({
+      projectId: PROJECT_ID,
+      replicaId,
+      deviceId: DEV_A,
+      deviceName: 'A',
+      lastSyncAt: null,
+      presence: null,
+      presenceAt: null,
+      retiredAt,
+      successor: succ,
+    });
+    const pages: Record<string, unknown> = {
+      first: { replicas: [row(successor, null, null)], nextCursor: 'p2' },
+      p2: { replicas: [row(old, RETIRED_AT, successor)], nextCursor: null },
+    };
+    const listing = {
+      find: async <T>(
+        path: string,
+        schema: { safeParse(v: unknown): { success: boolean; data?: T } },
+      ): Promise<T | null> => {
+        expect(path.startsWith(`${e15}?`)).toBe(true);
+        const cursor = new URLSearchParams(path.slice(path.indexOf('?') + 1)).get('cursor');
+        const parsed = schema.safeParse(pages[cursor ?? 'first']);
+        if (!parsed.success || parsed.data === undefined)
+          throw new Error('E15 page does not parse');
+        return parsed.data;
+      },
+    };
+    const serverRetirements = await serverRetirementsFor(listing, 'project', PROJECT_ID);
+    expect(serverRetirements).toEqual([{ replicaId: old, successor, retiredAt: RETIRED_AT }]);
     const atB = await pullStream(
       b.db,
-      pullOpts(b, stream, {
-        rebind: undefined,
-        serverRetirements: [{ replicaId: old, successor, retiredAt: RETIRED_AT }],
-      }),
+      pullOpts(b, stream, { rebind: undefined, serverRetirements }),
     );
     expect(atB.refused).toBeNull();
     expect(retiredReplicas(b.db, STREAM).get(old)).toMatchObject({

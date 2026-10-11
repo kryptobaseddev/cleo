@@ -66,6 +66,14 @@ export interface AcceptanceGateRunOptions
    * its cache key. Required, with a one-gate batch, whenever `cache` is not `off`.
    */
   cacheInputsHash?: string;
+  /**
+   * The task's stored typed results before this run (T13525). With
+   * `cache: 'only'`, a gate with no cache entry reuses its stored pass when
+   * that pass is bound to the same criterion, gate definition, invocation and
+   * input bytes — the same proof a cache entry gives — instead of becoming an
+   * `error` that would wipe it.
+   */
+  priorResults?: readonly AcceptanceGateResult[];
 }
 
 // ─── Base ────────────────────────────────────────────────────────────────────
