@@ -291,7 +291,10 @@ async function recordSpawnGrant(
 ): Promise<void> {
   const lease = receipt.claim;
   if (!lease || lease.sessionId !== identity.sessionId) return;
-  if (receipt.previous?.sessionId === lease.sessionId && receipt.previous.claimedAt === lease.claimedAt)
+  if (
+    receipt.previous?.sessionId === lease.sessionId &&
+    receipt.previous.claimedAt === lease.claimedAt
+  )
     return;
   try {
     const acc = await getTaskAccessor(projectRoot);
@@ -315,7 +318,12 @@ async function recordSpawnGrant(
  *
  * @task T13514
  */
-async function grantedExpiryMs(acc: DataAccessor, taskId: string, held: TaskClaim): Promise<number> {
+async function grantedExpiryMs(
+  acc: DataAccessor,
+  taskId: string,
+  held: TaskClaim,
+): Promise<number> {
+  // Newest first (queryAuditLog orders by timestamp DESC), so the current grant is in the page.
   const rows = await acc.queryAuditLog({
     taskIds: [taskId],
     actions: [SPAWN_CLAIM_GRANT_ACTION],
@@ -323,7 +331,12 @@ async function grantedExpiryMs(acc: DataAccessor, taskId: string, held: TaskClai
   });
   for (const row of rows) {
     if (row.sessionId !== held.sessionId || !row.detailsJson) continue;
-    const details: unknown = JSON.parse(row.detailsJson);
+    let details: unknown;
+    try {
+      details = JSON.parse(row.detailsJson);
+    } catch {
+      continue; // a malformed audit row never fails the spawn
+    }
     if (
       typeof details === 'object' &&
       details !== null &&
