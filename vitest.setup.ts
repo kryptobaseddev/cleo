@@ -721,8 +721,28 @@ function registerGuardHooks(): void {
 // green in CI. Give the fork one only when it inherited none, so every run
 // binds the way CI does.
 // ---------------------------------------------------------------------------
-const { TERMINAL_KEY_SOURCES } = await import('./packages/core/src/sessions/terminal-identity.js');
-if (!TERMINAL_KEY_SOURCES.some((source) => process.env[source.envVar]))
+// Plain Node loads this file too (scripts/__tests__), so it cannot import
+// TypeScript sources: the names are listed here, and
+// packages/core/src/sessions/__tests__/vitest-setup-identity.test.ts fails
+// when they drift from TERMINAL_KEY_SOURCES.
+const TERMINAL_KEY_ENV_VARS = [
+  'CLAUDE_CODE_SESSION_ID',
+  'CODEX_THREAD_ID',
+  'GEMINI_SESSION_ID',
+  'TMUX_PANE',
+  'ZELLIJ_PANE_ID',
+  'WEZTERM_PANE',
+  'WT_SESSION',
+  'ITERM_SESSION_ID',
+  'TERM_SESSION_ID',
+  'KITTY_WINDOW_ID',
+  'GNOME_TERMINAL_SCREEN',
+  'KONSOLE_DBUS_SESSION',
+  'GITHUB_RUN_ID',
+  'CI_JOB_ID',
+  'SSH_TTY',
+];
+if (!TERMINAL_KEY_ENV_VARS.some((name) => process.env[name]))
   process.env['TERM_SESSION_ID'] = `cleo-vitest-${process.pid}`;
 
 try {
