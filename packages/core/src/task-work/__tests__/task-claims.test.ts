@@ -351,6 +351,93 @@ describe('leased task claims (T12502)', () => {
     expect(child?.status).toBe('ended');
   });
 
+  describe('re-spawn over a live worker session (T13491, axiom T1544)', () => {
+    /** First spawn: the orchestrator (A) hands T001 to the per-agent session. */
+    const firstSpawn = async () => {
+      await start(SES_A);
+      const first = await as(SES_A, () => requireSpawnSession(env.tempDir, 'T001'));
+      if (!first.ok) throw new Error(`first spawn refused: ${first.message}`);
+      return first.identity.sessionId;
+    };
+    /** The worker running under `sessionId` makes a mutation `afterMs` after the spawn (the dispatch heartbeat renews its lease). */
+    const workerActs = async (sessionId: string, afterMs = 5_000) => {
+      const claimedAt = (await env.accessor.loadSingleTask('T001'))?.claim?.claimedAt ?? '';
+      await renewClaimsForSession(
+        env.accessor,
+        sessionId,
+        new Date(Date.parse(claimedAt) + afterMs).toISOString(),
+      );
+    };
+
+    it('refuses with E_TASK_CLAIMED and a hand-off naming holder, agent and lease expiry', async () => {
+      const worker = await firstSpawn();
+      await workerActs(worker);
+      const again = await as(SES_A, () => requireSpawnSession(env.tempDir, 'T001'));
+      expect(again.ok).toBe(false);
+      if (again.ok) return;
+      expect(again.code).toBe('E_TASK_CLAIMED');
+      expect(again.exitCode).toBe(ExitCode.TASK_CLAIMED);
+      expect(again.details).toMatchObject({
+        holder: { sessionId: worker, agentId: 'agent-t001' },
+        handoff: { holderSessionId: worker, holderAgentId: 'agent-t001' },
+      });
+      expect(again.fix).toContain(`cleo session end --session ${worker}`);
+      // The worker keeps its session and its lease.
+      const row = (await env.accessor.loadSessions()).find((x) => x.id === worker);
+      expect(row?.status).toBe('active');
+      expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(worker);
+    });
+
+    it('a worker active within its first minute is detected (no activity throttle, T13498)', async () => {
+      const worker = await firstSpawn();
+      await workerActs(worker, 2_000);
+      const again = await as(SES_A, () => requireSpawnSession(env.tempDir, 'T001'));
+      expect(again.ok).toBe(false);
+      if (!again.ok) expect(again.code).toBe('E_TASK_CLAIMED');
+    });
+
+    it('a session no worker has used yet is reused without renewing its lease, every time', async () => {
+      const worker = await firstSpawn();
+      const lease = (await env.accessor.loadSingleTask('T001'))?.claim;
+      for (let i = 0; i < 2; i++) {
+        const again = await as(SES_A, () => requireSpawnSession(env.tempDir, 'T001'));
+        expect(again.ok).toBe(true);
+        if (again.ok) expect(again.identity.sessionId).toBe(worker);
+        expect((await env.accessor.loadSingleTask('T001'))?.claim).toEqual(lease);
+      }
+    });
+
+    it('a worker whose lease expired is reclaimed, audited', async () => {
+      const worker = await firstSpawn();
+      await workerActs(worker);
+      await expireLease();
+      const again = await as(SES_A, () => requireSpawnSession(env.tempDir, 'T001'));
+      expect(again.ok).toBe(true);
+      // The re-claim starts a fresh lease, so the old worker's renewals no longer count.
+      const fresh = (await env.accessor.loadSingleTask('T001'))?.claim;
+      expect(Date.parse(fresh?.claimedAt ?? '')).toBeGreaterThan(Date.now() - 60_000);
+      const third = await as(SES_A, () => requireSpawnSession(env.tempDir, 'T001'));
+      expect(third.ok).toBe(true);
+      const audit = await env.accessor.queryAuditLog({
+        taskIds: ['T001'],
+        actions: ['spawn_session_reclaim'],
+      });
+      expect(audit).toHaveLength(1);
+    });
+
+    it('a worker whose session ended is replaced by a fresh session (T13425)', async () => {
+      const worker = await firstSpawn();
+      await workerActs(worker);
+      await endSession(worker, 'worker done', env.tempDir);
+      const again = await as(SES_A, () => requireSpawnSession(env.tempDir, 'T001'));
+      expect(again.ok).toBe(true);
+      if (again.ok) {
+        expect(again.identity.reused).toBe(false);
+        expect(again.identity.sessionId).not.toBe(worker);
+      }
+    });
+  });
+
   it('an unbound --take-over / --force-claim is refused with E_SESSION_UNBOUND and a fix', async () => {
     await start(SES_A);
     for (const mode of ['take-over', 'force'] as const) {

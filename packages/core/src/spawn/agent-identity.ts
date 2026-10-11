@@ -19,7 +19,7 @@
 
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Session } from '@cleocode/contracts';
+import type { Session, TaskClaim } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { getErrorDefinition } from '../error-catalog.js';
 import { CleoError } from '../errors.js';
@@ -27,8 +27,10 @@ import { generateSessionId } from '../sessions/session-id.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { withLock } from '../store/lock.js';
 import { endSession } from '../store/session-store.js';
+import { isClaimExpired, taskClaimedError, taskClaimLeaseMs } from '../store/task-claim.js';
 import {
   claimSpawnedTask,
+  releaseOwnClaim,
   releaseSpawnClaim,
   type SpawnClaimReceipt,
 } from '../task-work/claims.js';
@@ -234,6 +236,15 @@ export async function requireSpawnSession(
       cause,
     };
   }
+  if (identity.reused) {
+    const verdict = await assessReusedSession(projectRoot, taskId, identity);
+    if (verdict.kind === 'refuse') return verdict.refusal;
+    // An unused session keeps its spawn lease untouched: renewing it here would
+    // read as worker activity to the next re-spawn.
+    if (verdict.kind === 'unused') {
+      return { ok: true, identity, claim: { claim: verdict.lease, previous: verdict.lease } };
+    }
+  }
   let claim: SpawnClaimReceipt;
   try {
     claim = await claimSpawnedTask(projectRoot, taskId, {
@@ -259,6 +270,108 @@ export async function requireSpawnSession(
     };
   }
   return { ok: true, identity, claim };
+}
+
+/** What {@link assessReusedSession} found about a reused per-agent session. */
+type ReusedSessionVerdict =
+  | { readonly kind: 'claim' }
+  | { readonly kind: 'unused'; readonly lease: TaskClaim }
+  | { readonly kind: 'refuse'; readonly refusal: Extract<SpawnSessionResolution, { ok: false }> };
+
+/**
+ * Decide what a re-spawn may do with the task's per-agent session (T13491,
+ * axiom T1544). A re-spawn reuses that session; a second agent bound to a
+ * session a live worker is using would bleed into it.
+ *
+ * The worker signal is the lease itself: spawn grants `claimedAt + lease`,
+ * and every mutation the holder makes renews it at once (no throttle, unlike
+ * `lastActivity`). A live lease that runs past what its spawn granted means a
+ * worker has done work under the session: refuse with `E_TASK_CLAIMED` naming
+ * the holder and a hand-off. A live lease still at its spawn value means no
+ * worker has used the session yet (the orchestrator asks for the prompt
+ * again): reuse it without renewing, so the next re-spawn still reads it as
+ * unused.
+ *
+ * The holder stops counting as live through the existing rules only: ending
+ * its session releases the lease and worktree lock (T13425, SQL trigger), and
+ * a lease its worker stopped renewing expires. An expired lease is released
+ * (audited as `spawn_session_reclaim`) so the re-claim starts a fresh lease
+ * with a new `claimedAt`.
+ *
+ * shortcut: the comparison uses the current `CLEO_CLAIM_LEASE_MINUTES`; a
+ * lease length changed between spawn and re-spawn misreads one lease period.
+ *
+ * @param projectRoot - Project root.
+ * @param taskId - The task being spawned.
+ * @param identity - The reused per-agent session.
+ * @returns Claim as usual, reuse the unused lease, or refuse.
+ * @task T13491
+ * @task T13498
+ */
+async function assessReusedSession(
+  projectRoot: string,
+  taskId: string,
+  identity: SpawnAgentIdentity,
+): Promise<ReusedSessionVerdict> {
+  const acc = await getTaskAccessor(projectRoot);
+  const held = (await acc.loadSingleTask(taskId))?.claim;
+  if (!held || held.sessionId !== identity.sessionId) return { kind: 'claim' };
+  const now = new Date().toISOString();
+  if (isClaimExpired(held, now)) {
+    await releaseOwnClaim(acc, taskId, identity.sessionId);
+    await acc.appendLog({
+      action: 'spawn_session_reclaim',
+      taskId,
+      actor: identity.agentId,
+      sessionId: identity.sessionId,
+      timestamp: now,
+      details: { reason: 'lease-expired', leaseExpiresAt: held.leaseExpiresAt },
+      before: held,
+    });
+    return { kind: 'claim' };
+  }
+  const granted = Date.parse(held.claimedAt) + taskClaimLeaseMs();
+  // Spawn writes claimedAt and the expiry from one instant, so an untouched lease is exact.
+  if (Date.parse(held.leaseExpiresAt) <= granted) {
+    return { kind: 'unused', lease: held };
+  }
+  const err = taskClaimedError(
+    taskId,
+    held,
+    { sessionId: null, agentId: null },
+    now,
+    'orchestrate spawn',
+  );
+  const who = held.agentId
+    ? `session ${held.sessionId} (agent ${held.agentId})`
+    : `session ${held.sessionId}`;
+  const message =
+    `Refusing to spawn ${taskId}: a live worker is using ${who}, the session this spawn would hand the child; ` +
+    `it renewed its lease after the spawn (lease now expires ${held.leaseExpiresAt}).`;
+  return {
+    kind: 'refuse',
+    refusal: {
+      ok: false,
+      // @sync-invariant none:local-only refuses before any write; lease liveness is this device's spawn coordination
+      code: 'E_TASK_CLAIMED',
+      exitCode: ExitCode.TASK_CLAIMED,
+      message,
+      fix:
+        `Hand off instead of spawning over it: coordinate with that worker, or once it has stopped end its session ` +
+        `(cleo session end --session ${held.sessionId}), which releases its claim and worktree lock, then spawn again. ` +
+        `A worker that stops renewing loses the lease at ${held.leaseExpiresAt}; the next spawn then reclaims the session (audited).`,
+      cause: message,
+      details: {
+        ...(err.details ?? {}),
+        handoff: {
+          holderSessionId: held.sessionId,
+          holderAgentId: held.agentId,
+          claimedAt: held.claimedAt,
+          leaseExpiresAt: held.leaseExpiresAt,
+        },
+      },
+    },
+  };
 }
 
 /**
