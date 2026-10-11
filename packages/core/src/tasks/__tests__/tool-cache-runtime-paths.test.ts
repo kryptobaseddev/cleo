@@ -103,6 +103,24 @@ describe('evidence.runtimePaths in the tree hash (T13554)', () => {
     expect(declared).not.toBe(before);
   });
 
+  it('never skips an untracked protected input under a declared glob (review of #2129)', async () => {
+    repo(['.opencode/goals/*/*.json', '.opencode/goals/g2/*']);
+    const before = await captureTreeHash(root);
+    put('.opencode/goals/g2/run.json', '{}\n');
+    expect(await captureTreeHash(root)).toBe(before);
+    // An uncommitted goal.yaml, oracle or typed gate input still moves the tree.
+    put('.opencode/goals/g2/goal.yaml', 'goal: new\n');
+    const withGoal = await captureTreeHash(root);
+    expect(withGoal).not.toBe(before);
+    put('.opencode/goals/g2/oracle.json', '{}\n');
+    expect(await captureTreeHash(root)).not.toBe(withGoal);
+    rmSync(join(root, '.opencode/goals/g2/goal.yaml'));
+    rmSync(join(root, '.opencode/goals/g2/oracle.json'));
+    put('.opencode/goals/g2/input.json', '{}\n');
+    expect((await captureTree(root)).tree).toBe(before);
+    expect((await captureTree(root, ['.opencode/goals/g2/input.json'])).tree).not.toBe(before);
+  });
+
   it('refuses a glob covering goal.yaml, and then leaves nothing out', async () => {
     repo(['.opencode/goals/**']);
     const before = await captureTreeHash(root);

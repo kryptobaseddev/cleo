@@ -1533,6 +1533,7 @@ export async function captureTree(
   const realIndex = join(gitDir.stdout.trim(), 'index');
   let tmpDir: string | null = null;
   let runtime: RuntimePaths = { globs: [], files: [] };
+  const protectedSet = new Set(protectedInputs);
   let runtimeExcluded: string[] = [];
   try {
     tmpDir = mkdtempSync(join(tmpdir(), 'cleo-tree-'));
@@ -1578,7 +1579,9 @@ export async function captureTree(
     });
     const untracked = listed.split('\0').filter((p) => {
       if (p === '' || isUntrackedRuntimeOutput(p)) return false;
-      if (runtime.globs.some((glob) => matchesGlob(p, glob))) return false;
+      // A protected input is never runtime, tracked or not (review of #2129).
+      if (runtime.globs.some((glob) => matchesGlob(p, glob)) && !isProtectedInput(p, protectedSet))
+        return false;
       const st = statSync(join(root, p), { throwIfNoEntry: false });
       return st?.isFile() === true && st.size <= MAX_UNTRACKED_HASH_BYTES;
     });
