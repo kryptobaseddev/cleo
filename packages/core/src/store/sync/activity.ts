@@ -46,6 +46,8 @@ export interface JournalActivityOptions {
   readonly project?: string;
   /** Device names by Nexus device id (from the account's device list). */
   readonly deviceNames?: ReadonlyMap<string, string>;
+  /** Last presence by Nexus device id (from the account's device list). */
+  readonly deviceLastSeen?: ReadonlyMap<string, string>;
   /** This machine's stable device id (default: the persisted one). */
   readonly localDeviceId?: string;
 }
@@ -234,6 +236,7 @@ export function journalActivity(
       thisDevice: d.mine,
       txns: d.txns,
       lastAt: hlcTime(d.last),
+      lastSeenAt: opts.deviceLastSeen?.get(deviceId) ?? null,
     }));
 
   const pageWhere = [...where];

@@ -11,7 +11,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { findDeniedOp, RESTRICTED_ROLES } from '../denylist.js';
+import {
+  findDeniedOp,
+  porcelainDestinations,
+  protectedPorcelainDestinations,
+  protectedPushRefspec,
+  RESTRICTED_ROLES,
+  splitGitArgv,
+} from '../denylist.js';
 
 describe('RESTRICTED_ROLES', () => {
   it('includes worker, lead, subagent', () => {
@@ -156,5 +163,97 @@ describe('findDeniedOp', () => {
         expect(findDeniedOp(sub, [...args])).toBeNull();
       });
     }
+  });
+});
+
+describe('push to a protected branch (T13522)', () => {
+  it('denies a push whose destination is main or master, in every refspec spelling', () => {
+    for (const args of [
+      ['origin', 'main'],
+      ['origin', 'HEAD:main'],
+      ['origin', 'task/T1:refs/heads/main'],
+      ['-u', 'origin', '+master'],
+    ]) {
+      expect(findDeniedOp('push', args)?.subcommand).toBe('push');
+    }
+  });
+
+  it('allows pushing a task branch, and names the offending refspec', () => {
+    expect(findDeniedOp('push', ['-u', 'origin', 'task/T13522'])).toBeNull();
+    expect(findDeniedOp('push', ['origin', 'main-fix'])).toBeNull();
+    expect(protectedPushRefspec(['origin', 'HEAD:main'])).toBe('HEAD:main');
+    // the first positional is the remote, never a destination
+    expect(protectedPushRefspec(['main'])).toBeNull();
+  });
+});
+
+describe('every-ref pushes and global options (T13533)', () => {
+  it('denies push --all and --mirror in any position', () => {
+    for (const args of [
+      ['--all'],
+      ['origin', '--all'],
+      ['--mirror', 'origin'],
+      ['-u', '--all', 'origin'],
+    ]) {
+      expect(findDeniedOp('push', args)?.subcommand).toBe('push');
+    }
+  });
+
+  it('finds the subcommand after global options, so they cannot hide a denied push', () => {
+    expect(splitGitArgv(['-C', '.', 'push', 'origin', 'main'])).toEqual({
+      global: ['-C', '.'],
+      subcommand: 'push',
+      args: ['origin', 'main'],
+      unknownGlobal: null,
+    });
+    expect(splitGitArgv(['-c', 'k=v', '--no-pager', 'push', '--all'])).toEqual({
+      global: ['-c', 'k=v', '--no-pager'],
+      subcommand: 'push',
+      args: ['--all'],
+      unknownGlobal: null,
+    });
+    expect(splitGitArgv(['--git-dir', '/x/.git', 'status'])).toEqual({
+      global: ['--git-dir', '/x/.git'],
+      subcommand: 'status',
+      args: [],
+      unknownGlobal: null,
+    });
+    // An option the parser does not know is reported, so the shim can fail closed.
+    expect(splitGitArgv(['--future-opt', 'HEAD', 'push', '--all']).unknownGlobal).toBe(
+      '--future-opt',
+    );
+    expect(splitGitArgv(['--git-dir=/x/.git', 'push']).unknownGlobal).toBeNull();
+    expect(splitGitArgv([])).toEqual({
+      global: [],
+      subcommand: undefined,
+      args: [],
+      unknownGlobal: null,
+    });
+  });
+
+  it('refuses a pattern destination and sees past --attr-source (T13535)', () => {
+    expect(findDeniedOp('push', ['origin', 'refs/heads/*:refs/heads/*'])?.subcommand).toBe('push');
+    expect(splitGitArgv(['--attr-source', 'HEAD', 'push', '--all', 'origin']).subcommand).toBe(
+      'push',
+    );
+  });
+
+  it('reads protected destinations from a porcelain dry run', () => {
+    const out = [
+      'To /tmp/remote.git',
+      '*\trefs/heads/task/T1:refs/heads/task/T1\t[new branch]',
+      '=\trefs/heads/x:refs/heads/main\t[up to date]',
+      '-\t:refs/heads/master\t[deleted]',
+      'Done',
+    ].join('\n');
+    expect(protectedPorcelainDestinations(out)).toEqual(['refs/heads/main', 'refs/heads/master']);
+    expect(porcelainDestinations(out)).toEqual([
+      'refs/heads/task/T1',
+      'refs/heads/main',
+      'refs/heads/master',
+    ]);
+    expect(
+      protectedPorcelainDestinations('To /r\n*\trefs/heads/a:refs/heads/a\t[new branch]\n'),
+    ).toEqual([]);
   });
 });

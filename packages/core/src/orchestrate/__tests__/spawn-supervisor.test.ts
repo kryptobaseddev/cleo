@@ -394,6 +394,17 @@ describe('orchestrateSpawn — supervisor end-to-end (T9545 / Saga T10176)', () 
       appliedExcludePatterns: [],
     });
 
+    // T13510: the pre-provision atomicity check composes first and passes.
+    composeSpawnPayloadMock.mockResolvedValueOnce({
+      atomicity: { allowed: true },
+      prompt: '',
+      agentId: 'cleo-worker',
+      role: 'worker',
+      tier: 0,
+      harnessHint: null,
+      meta: { protocol: 'rcasd', composerVersion: '3.0.0' },
+      taskId: 'T9999',
+    });
     composeSpawnPayloadMock.mockImplementationOnce(() => {
       const err = new Error(
         `E_TIMEOUT: spawn pipeline step 'compose-prompt' aborted (budget ${SPAWN_BUDGET_MS}ms exceeded)`,
@@ -482,6 +493,11 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
     getTaskAccessorMock.mockResolvedValue(stubAccessor());
     getActiveSessionMock.mockResolvedValue({ id: 'sess-1' });
     validateSpawnReadinessMock.mockResolvedValue({ ready: true, issues: [] });
+    // T13510: the atomicity pre-check composes before provisioning; allow it by default.
+    composeSpawnPayloadMock.mockResolvedValue({
+      ...atomicityRefusal,
+      atomicity: { allowed: true },
+    });
   };
   const atomicityRefusal = {
     atomicity: { allowed: false, code: 'E_ATOMICITY_NO_SCOPE', message: 'no scope' },
@@ -574,11 +590,24 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
   it('releases the lock when the spawn fails after provisioning, so a retry is not exit 25 (item 2a)', async () => {
     reset();
     spawnWorktreeMock.mockResolvedValue(wtResult());
-    composeSpawnPayloadMock.mockResolvedValue(atomicityRefusal);
+    // The pre-check passes; the post-provision guard refuses (task edited in between).
+    composeSpawnPayloadMock
+      .mockResolvedValueOnce({ ...atomicityRefusal, atomicity: { allowed: true } })
+      .mockResolvedValueOnce(atomicityRefusal);
     const result = await orchestrateSpawn('T9999');
     expect(result.error?.code).toBe('E_ATOMICITY_NO_SCOPE');
     expect(releaseWorktreeTaskLockMock).toHaveBeenCalledWith('deadbeef', 'T9999', 'tok-1');
     expect(destroyWorktreeMock).not.toHaveBeenCalled();
+  });
+
+  it('T13510 — an atomicity refusal stops the spawn before any worktree or claim', async () => {
+    reset();
+    spawnWorktreeMock.mockResolvedValue(wtResult());
+    composeSpawnPayloadMock.mockResolvedValue(atomicityRefusal);
+    const result = await orchestrateSpawn('T9999');
+    expect(result.error?.code).toBe('E_ATOMICITY_NO_SCOPE');
+    expect(spawnWorktreeMock).not.toHaveBeenCalled();
+    expect(acquireWorktreeTaskLockMock).not.toHaveBeenCalled();
   });
 
   it('keeps the lock with the agent on success', async () => {
@@ -600,6 +629,10 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
       status: 'reentered',
       lockPath: '/x.lock',
       record: { token: 'tok-resume' },
+    });
+    composeSpawnPayloadMock.mockResolvedValueOnce({
+      ...atomicityRefusal,
+      atomicity: { allowed: true },
     });
     composeSpawnPayloadMock.mockImplementationOnce(() => {
       throw Object.assign(new Error(`E_TIMEOUT: step 'compose-prompt' aborted`), {

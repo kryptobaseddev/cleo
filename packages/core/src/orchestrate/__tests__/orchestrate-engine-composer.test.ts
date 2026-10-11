@@ -212,6 +212,19 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     expect(details?.atomicity?.allowed).toBe(false);
   });
 
+  it('T13510 — refuses before any session, claim or worktree when the worker has no file scope', async () => {
+    // With a worktree requested (noWorktree=false). TEST_ROOT's .git is an empty
+    // dir, so reaching provisioning would fail with a worktree error instead.
+    const result = await orchestrateSpawn('T932WX', undefined, TEST_ROOT, undefined, false);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_ATOMICITY_NO_SCOPE');
+    const { getTaskAccessor } = await import('@cleocode/core/internal');
+    const acc = await getTaskAccessor(TEST_ROOT);
+    expect((await acc.loadSingleTask('T932WX'))?.claim).toBeUndefined();
+    const sessions = await acc.loadSessions();
+    expect(sessions.filter((x) => x.agentHandle === 'agent-t932wx')).toHaveLength(0);
+  });
+
   it('T10430 — atomicityScope=orchestrator-defer waives E_ATOMICITY_NO_SCOPE for worker without files', async () => {
     // Re-uses READY_WORKER_NO_SCOPE (T932WX) — a worker task with no AC.files.
     // Without the waiver this spawn returns E_ATOMICITY_NO_SCOPE (verified by
