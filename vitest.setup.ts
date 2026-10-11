@@ -712,6 +712,19 @@ function registerGuardHooks(): void {
   afterAll(failOnRealDataWrites);
 }
 
+// ---------------------------------------------------------------------------
+// T13517: a caller identity for session binding. Session tests bind through
+// the caller's terminal identity (T12500). CI provides one (GITHUB_RUN_ID) and
+// so does an agent harness with a provider env key, but under vitest the
+// ancestor walk stops at the runner process, so a shell with no key (`env -i`,
+// a harness that sets none) ran them unbound: E_SESSION_UNBOUND locally,
+// green in CI. Give the fork one only when it inherited none, so every run
+// binds the way CI does.
+// ---------------------------------------------------------------------------
+const { TERMINAL_KEY_SOURCES } = await import('./packages/core/src/sessions/terminal-identity.js');
+if (!TERMINAL_KEY_SOURCES.some((source) => process.env[source.envVar]))
+  process.env['TERM_SESSION_ID'] = `cleo-vitest-${process.pid}`;
+
 try {
   registerGuardHooks();
 } catch (err) {
