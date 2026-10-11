@@ -426,6 +426,41 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       localKey: 'id',
       task: 'T12915',
     },
+    // T13467 (uid spec D4 amended 2026-10-11): the credential tables are natural
+    // on their non-secret identifiers, so the same credential held on two
+    // devices is one row. Their INTEGER `id` is a local key; every other column
+    // is sealed on the home stream (§2.7), never sent in the clear.
+    {
+      table: 'accounts',
+      kind: 'natural',
+      key: ['provider', 'label'],
+      localKey: 'id',
+      task: 'T13467',
+    },
+    {
+      table: 'service_connections',
+      kind: 'natural',
+      key: ['provider', 'label'],
+      localKey: 'id',
+      task: 'T13467',
+    },
+    {
+      table: 'service_configs',
+      kind: 'natural',
+      key: ['provider'],
+      localKey: 'id',
+      task: 'T13467',
+    },
+    {
+      table: 'agent_service_grants',
+      kind: 'natural',
+      key: ['agent_id', 'service_connection_id'],
+      keyRefs: [
+        { column: 'agent_id', table: 'agent_registry_agents' },
+        { column: 'service_connection_id', table: 'service_connections' },
+      ],
+      task: 'T13467',
+    },
   ],
 };
 
@@ -517,7 +552,6 @@ function cluster(task: string): RowIdentityExemption {
 
 const CONDUIT = cluster('T12913');
 const LIFECYCLE_RELEASE_GIT = cluster('T12914');
-const AGENT_ACCOUNTS_SERVICE = cluster('T12915');
 const NEXUS_REGISTRY = cluster('T12916');
 const SKILLS = cluster('T12917');
 const DOCS = cluster('T12919');
@@ -661,10 +695,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
   global: {
     ...BRAIN_EXEMPT,
     ...exempt(
-      ['accounts', 'agent_service_grants', 'service_configs', 'service_connections'],
-      AGENT_ACCOUNTS_SERVICE,
-    ),
-    ...exempt(
       [
         'nexus_audit_log',
         'nexus_devices',
@@ -693,7 +723,8 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * Since T12894 declared the brain text-keyed tables (11 project, 12 global),
  * T12895 the brain natural-key tables (3 project, 3 global) and T12896 the
  * brain integer-keyed tables (6 project, 6 global), and T12915 declared the
- * agent registry (1 global; 6 more reclassified derived or local-only)
+ * agent registry (1 global; 6 more reclassified derived or local-only), and
+ * T13467 the credential tables (4 global)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
@@ -703,20 +734,19 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned              | T12896 | 2       | 1      |
  * | planned (conduit)    | T12913 | 12      | 0      |
  * | planned (lifecycle…) | T12914 | 16      | 0      |
- * | planned (agents…)    | T12915 | 0       | 4      |
  * | planned (nexus)      | T12916 | 0       | 8      |
  * | planned (skills)     | T12917 | 0       | 4      |
  * | planned (docs)       | T12919 | 3       | 0      |
  * | planned (misc)       | T12920 | 12      | 0      |
  * | twin-collapse        | T12535 | 30      | 0      |
  * | not-row-replicated   | T12918 | 1       | 1      |
- * | total                |        | 76      | 18     |
+ * | total                |        | 76      | 14     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
   project: 76,
-  global: 18,
+  global: 14,
 };
 
 /**
@@ -729,7 +759,7 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
   project: '356d44564d00f5406b0b6abcee631ce20e7363e6420d7bb97d09b8cc8c875d52',
-  global: '6b0e65a89750a84a7b2e0b905d37864ff99a8a7d31e3392c06786c0b843ec925',
+  global: '8e890e1cb9de73e704d56cbdde29a47bc2b7ae483cd66d8ae2f8dcc3562f55e6',
 };
 
 /**

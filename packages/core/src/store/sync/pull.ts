@@ -92,6 +92,12 @@ export interface PullStreamOptions {
   readonly seal: ApplyStagedOptions['seal'];
   /** Applier options passed through (pages, budget). */
   readonly apply?: Partial<Pick<ApplyStagedOptions, 'pageOps' | 'pageMs' | 'undoBudgetBytes'>>;
+  /**
+   * Opens the staged sealed secrets (§2.7, T13467): unseals each and
+   * re-encrypts it under this machine's key, AFTER staging and BEFORE the
+   * apply frame (no crypto inside a frame, H1). Without it, secret ops hold.
+   */
+  readonly openSecrets?: () => Promise<NonNullable<ApplyStagedOptions['secrets']>>;
   /** Environment for the `sync.pull` kill switch. @defaultValue process.env */
   readonly env?: NodeJS.ProcessEnv;
   /**
@@ -384,6 +390,7 @@ export async function pullStream(
     if (refusedSegment !== null) break;
     if (page.segments.length === 0 || cursor.after >= page.head) break;
   }
+  const secrets = o.openSecrets ? await o.openSecrets() : undefined;
   const apply = applyStagedTxns(db, {
     scope: o.scope,
     stream: o.stream,
@@ -391,6 +398,7 @@ export async function pullStream(
     now,
     seal: o.seal,
     ...(o.apply ?? {}),
+    ...(secrets ? { secrets } : {}),
   });
   return {
     stream: o.stream,

@@ -34,7 +34,7 @@ import { genesisCutOf, genesisPending } from './genesis.js';
 import { storeHwm } from './replica.js';
 import type { ReplicaRegistry } from './replica-registry.js';
 import { hasTable } from './schema.js';
-import { sealPending } from './sealer.js';
+import { type SecretSeals, sealPending } from './sealer.js';
 import {
   type BuildSegmentOptions,
   buildSegment,
@@ -86,6 +86,8 @@ export interface PushStreamOptions {
   readonly allowUnreleased?: boolean;
   /** Override {@link MAX_DRIFT_MS} (tests). */
   readonly maxDriftMs?: number;
+  /** Phase A's sealed secrets for the sealer (§2.5, T13467); without them secret groups stay pending. */
+  readonly secrets?: SecretSeals;
 }
 
 /**
@@ -210,6 +212,7 @@ export async function pushStream(
       now,
       env,
       ...(o.allowUnreleased ? { allowUnreleased: true } : {}),
+      ...(o.secrets ? { secrets: o.secrets } : {}),
     });
     sealed += r.txns;
     if (r.refused !== null || r.captures === 0 || r.pending.length > 0) break;

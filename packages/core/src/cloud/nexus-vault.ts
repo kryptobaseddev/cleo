@@ -1841,7 +1841,7 @@ async function pushWithSession(
   session: StreamSession,
   opts: { readonly allowUnreleased?: boolean },
 ): Promise<PushStreamReport> {
-  const { conn, t } = session;
+  const { conn, key, t } = session;
   const replicaId = t.replicaId;
   if (!replicaId) {
     throw vaultError(
@@ -1878,8 +1878,13 @@ async function pushWithSession(
       'nothing was sealed or sent; relink the project (`cleo project link`) so both name one replica',
     );
   }
+  // §2.5 phase A (T13467): seal the secret values the pending captures will
+  // send; only here, where the master key is held, never at store open.
+  const { prepareSecretSeals, secretValuesKey } = await import('./secret-seal.js');
+  const secrets = await prepareSecretSeals(db, tableScopeOf(t), secretValuesKey(key.masterKey));
   try {
     return await pushStream(db, {
+      secrets,
       scope: tableScopeOf(t),
       stream: t.streamId,
       replica: replicaId,
@@ -1981,6 +1986,13 @@ async function pullWithSession(session: StreamSession): Promise<PullStreamReport
     journal.verifyCheckpoint(from, key.signers);
     initialCursor = cursorFromCheckpoint(from);
   }
+  // §2.5 phase A and §2.7 (T13467): the sealer's secrets, and the opened
+  // staged secrets re-encrypted under this machine's key before the frame.
+  const { prepareSecretOpens, prepareSecretSeals, secretValuesKey } = await import(
+    './secret-seal.js'
+  );
+  const secretKey = secretValuesKey(key.masterKey);
+  const secrets = await prepareSecretSeals(db, tableScopeOf(t), secretKey);
   // Seen-txn rows are never pruned here yet: a txn already seen can come
   // back in a NEW segment above any checkpoint (a retired replica's late
   // segment, a rebind re-pushing an upload that was stored but never
@@ -2025,8 +2037,9 @@ async function pullWithSession(session: StreamSession): Promise<PullStreamReport
       return firstBadTxnSignature(first.publicKey, t.streamId, txns);
     },
     seal: () => {
-      sealPending(db, { scope: tableScopeOf(t), replica: replicaId });
+      sealPending(db, { scope: tableScopeOf(t), replica: replicaId, secrets });
     },
+    openSecrets: () => prepareSecretOpens(db, tableScopeOf(t), t.streamId, secretKey),
   });
 }
 

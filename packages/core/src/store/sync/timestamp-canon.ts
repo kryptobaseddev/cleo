@@ -161,6 +161,12 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     brain_consolidation_events: ['started_at'],
     brain_usage_log: ['created_at'],
     brain_sticky_notes: ['created_at', 'updated_at'],
+    agent_registry_agents: ['created_at', 'installed_at', 'updated_at'],
+    // T13467: the credential tables' timestamps are sealed, canonical inside the seal.
+    accounts: ['cooldown_reset_at', 'created_at', 'expires_at', 'updated_at'],
+    service_connections: ['connected_at', 'expires_at', 'updated_at'],
+    service_configs: ['created_at', 'updated_at'],
+    agent_service_grants: ['created_at', 'updated_at'],
   },
 };
 

@@ -132,6 +132,61 @@ export interface ApplyStagedOptions {
   readonly pageMs?: number;
   /** The undo budget in bytes; defaults to 256 MiB (`UNDO_BUDGET_BYTES`). */
   readonly undoBudgetBytes?: number;
+  /**
+   * Secret values the receiver unsealed and re-encrypted under its own machine
+   * key BEFORE the frame (§2.7, H1; T13467), keyed by {@link openedSecretKey}.
+   * An op whose sealed secret has no entry here stays pending.
+   */
+  readonly secrets?: ReadonlyMap<string, LedgerWireValue>;
+}
+
+/**
+ * The key of one opened secret: its table, row uid, column and the sealed
+ * envelope it was opened from (so a later re-seal of the column never reuses
+ * a stale opening).
+ */
+export function openedSecretKey(
+  table: string,
+  uid: string,
+  column: string,
+  sealed: string,
+): string {
+  return `${table}\n${uid}\n${column}\n${sealed}`;
+}
+
+/** Ops whose every sealed secret was replaced by its opened value. */
+const OPENED_SECRETS = new WeakSet<LedgerOp>();
+
+/**
+ * A staged transaction with each sealed secret replaced by the value the
+ * receiver opened for it (§2.7). An op missing any opening is left as is, so
+ * {@link notYet} holds it.
+ */
+function withOpenedSecrets(
+  st: StagedTxn,
+  defs: (table: string) => CaptureTableDef | null,
+  secrets: ReadonlyMap<string, LedgerWireValue> | undefined,
+): StagedTxn {
+  if (secrets === undefined || secrets.size === 0) return st;
+  let changed = false;
+  const ops = st.txn.ops.map((op): LedgerOp => {
+    const def = defs(op.t);
+    if (!def || !op.a) return op;
+    const sealed = Object.entries(op.a).filter(([c, v]) => v !== null && def.secret.has(c));
+    if (sealed.length === 0) return op;
+    const a = { ...op.a };
+    for (const [col, v] of sealed) {
+      const opened =
+        typeof v === 'string' ? secrets.get(openedSecretKey(op.t, op.u, col, v)) : undefined;
+      if (opened === undefined) return op;
+      a[col] = opened;
+    }
+    changed = true;
+    const out: LedgerOp = { ...op, a };
+    OPENED_SECRETS.add(out);
+    return out;
+  });
+  return changed ? { ...st, txn: { ...st.txn, ops } } : st;
 }
 
 /** What one {@link applyStagedTxns} call left in the inbox, per status. */
@@ -237,6 +292,7 @@ function ownEcho(op: LedgerOp, st: StagedTxn, localReplica: string): LedgerOp {
 
 /** Why this slice cannot apply `op` yet, or null. */
 function notYet(op: LedgerOp, def: CaptureTableDef): string | null {
+  if (OPENED_SECRETS.has(op)) return null;
   for (const [col, v] of Object.entries(op.a ?? {})) {
     if (v !== null && def.secret.has(col))
       return `${op.t}/${op.u}: secret ${col} (needs unsealing)`;
@@ -1447,7 +1503,9 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
     passes += 1;
     const heldReplicas = new Set<string>();
     const held = new Set<string>(); // rows written by a pending transaction
-    const staged = stagedTxns(db, opts.stream).map((st) => withoutLocalRowids(st, defs));
+    const staged = stagedTxns(db, opts.stream).map((st) =>
+      withOpenedSecrets(withoutLocalRowids(st, defs), defs, opts.secrets),
+    );
     // Each page is one frame and one scoped rebase (§3.5 Rule 3): rewind the
     // page's scope once, apply its transactions in stream order, replay once.
     for (let at = 0; at < staged.length; ) {
