@@ -23,11 +23,14 @@
  *   from the seen ledger or arrived out of order; the pull stops there, loud,
  *   and never skips it as seen;
  * - stages the rest (`stageTxns`), schema-ahead ones included (the applier
- *   holds them `refused-schema` and replays them after an upgrade);
+ *   holds them `refused-schema` and replays them after an upgrade), and
+ *   records each `retire` at its stream seq (`_sync_retired`, T13278);
  * - advances the cursor.
  *
  * Then the applier applies what is staged, in stream order, own echoes
- * included (they feed the fast path and the scoped rebase, §3.5).
+ * included (they feed the fast path and the scoped rebase, §3.5). A pull
+ * that reached the head runs the rebind the undo budget scheduled (D5,
+ * `rebind.ts`), when the caller passes the store's open options.
  *
  * The page source is a port ({@link SegmentPuller}): the journal client in
  * production (`cloud/nexus-vault.ts`), a fake in tests.
@@ -44,6 +47,9 @@ import { type ApplyReport, type ApplyStagedOptions, applyStagedTxns } from './ap
 import { withImmediateTransaction } from './clock-store.js';
 import { isSyncFlagOn } from './flags.js';
 import { stageTxns } from './inbox.js';
+import { type RebindAtHeadReport, rebindAtHead } from './rebind.js';
+import type { SyncOpenOptions } from './replica.js';
+import { recordRetirement } from './retire.js';
 import { ensureSyncSchema, hasTable, healSyncSchema } from './schema.js';
 
 /** Where a pull stands (the journal client's `PullCursor`). */
@@ -105,6 +111,13 @@ export interface PullStreamOptions {
    * refused (`below-floor`), never applied twice. @defaultValue false
    */
   readonly pruneSeen?: boolean;
+  /**
+   * The canonical store's open options: when given and the undo budget
+   * scheduled a rebind (`sync.undo_budget_exceeded`, D5), a pull that reaches
+   * the stream's head runs it ({@link rebindAtHead}, T13278). A pull that is
+   * refused or stops short never does, so the key stays set.
+   */
+  readonly rebind?: Omit<SyncOpenOptions, 'scope'>;
 }
 
 /**
@@ -141,6 +154,8 @@ export interface PullStreamReport {
   readonly head: number;
   /** What the applier did, or null when the pull was refused. */
   readonly apply: ApplyReport | null;
+  /** The rebind this pull ran at head (T13278), or null. */
+  readonly rebind: RebindAtHeadReport | null;
 }
 
 /** A segment the store refuses to stage (a malformed body or a bad transaction signature). */
@@ -492,6 +507,7 @@ export async function pullStream(
       after: readStreamCursor(db, o.stream)?.after ?? o.initialCursor.after,
       head: 0,
       apply: null,
+      rebind: null,
     };
   }
   ensureSeenFloor(db);
@@ -545,6 +561,11 @@ export async function pullStream(
             for (const t of plan.fresh) {
               seen.run(o.stream, t.txn, seg.seq);
               bytes += seenBytes(o.stream, t.txn);
+              // A retire, emitted by its successor, is recorded at its stream seq:
+              // later transactions of the retired replica are history (T13278).
+              if (t.kind === 'retire' && t.retire && t.retire.successor === seg.replicaId) {
+                recordRetirement(db, o.stream, { ...t.retire, txn: t.txn, hlc: t.hlc, seq: seg.seq });
+              }
             }
             raise.run(o.stream, seg.replicaId, plan.stagedUpto, plan.fresh.length, bytes);
             staged += stageTxns(
@@ -583,6 +604,13 @@ export async function pullStream(
     seal: o.seal,
     ...(o.apply ?? {}),
   });
+  // D5: the rebind the undo budget scheduled runs only once the stream's
+  // head is reached and nothing was refused (T13278).
+  const atHead = refused === null && cursor.after >= head;
+  const rebind =
+    o.rebind !== undefined && atHead
+      ? rebindAtHead(db, { ...o.rebind, scope: o.scope, stream: o.stream, cursor })
+      : null;
   return {
     stream: o.stream,
     refused,
@@ -594,5 +622,6 @@ export async function pullStream(
     after: cursor.after,
     head,
     apply,
+    rebind,
   };
 }

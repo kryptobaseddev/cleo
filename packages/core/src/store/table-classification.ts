@@ -214,6 +214,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T13318)',
     note: 'per stream and origin replica: the highest local_seq staged, how far its seen-txn rows were pruned, and their row and byte counts. A txn at or below the floor with no seen row is refused. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13318)',
   },
+  _sync_retired: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.5 Retirement, §3.5 D5 (T13278)',
+    note: "replicas a stream's retire transactions retired: successor, last replicaSeq, and the stream seq of the retire, so a late segment applies as history and the fold horizon and remint authority leave them out. Rebuilt from the stream by every receiver. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13278)",
+  },
   _sync_row_meta: {
     class: 'local-only',
     status: 'optional-transient',
@@ -1472,6 +1478,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T13318)',
     note: 'per stream and origin replica: the highest local_seq staged, how far its seen-txn rows were pruned, and their row and byte counts. A txn at or below the floor with no seen row is refused. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13318)',
+  },
+  _sync_retired: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.5 Retirement, §3.5 D5 (T13278)',
+    note: "replicas a stream's retire transactions retired: successor, last replicaSeq, and the stream seq of the retire, so a late segment applies as history and the fold horizon and remint authority leave them out. Rebuilt from the stream by every receiver. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13278)",
   },
   _sync_row_meta: {
     class: 'local-only',
