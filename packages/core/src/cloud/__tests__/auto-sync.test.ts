@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AUTO_SYNC_INTERVAL_MS,
+  AUTO_SYNC_TIMEOUT_MS,
   type AutoSyncOptions,
   autoCloudSync,
   autoSyncWarning,
@@ -108,6 +109,41 @@ describe('autoCloudSync (T13468)', () => {
     });
     expect(await autoCloudSync(project, 'session-end', opts)).toBe('busy');
     expect(sync).not.toHaveBeenCalled();
+  });
+
+  it('a sync that outlives its timeout keeps the lock until it settles (T13500)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let held = false;
+      let released = 0;
+      const lock = async () => {
+        if (held) throw new Error('lock held');
+        held = true;
+        return {
+          release: async () => {
+            held = false;
+            released += 1;
+          },
+        };
+      };
+      let finish: () => void = () => {};
+      const sync = vi.fn(() => new Promise<unknown>((resolve) => (finish = () => resolve({}))));
+      const start = new Date('2026-10-11T00:00:00Z');
+      const { opts } = seams({ lock, sync, now: start });
+      const first = autoCloudSync(project, 'session-end', opts);
+      await vi.advanceTimersByTimeAsync(AUTO_SYNC_TIMEOUT_MS + 1);
+      // The race has timed out, but the sync is still running: a second sync is busy.
+      const later = new Date(start.getTime() + AUTO_SYNC_TIMEOUT_MS + 61_000);
+      expect(await autoCloudSync(project, 'session-end', { ...opts, now: later })).toBe('busy');
+      expect(sync).toHaveBeenCalledTimes(1);
+      expect(released).toBe(0);
+      finish();
+      expect(await first).toBe('failed');
+      expect(released).toBe(1);
+      expect(readAutoSyncState(home).lastError?.code).toBe('E_AUTO_SYNC_TIMEOUT');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('two concurrent session ends sync once under the real lock', async () => {

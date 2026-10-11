@@ -18,7 +18,7 @@
  * @task T13468
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CloudWarning } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
@@ -119,7 +119,10 @@ export function readAutoSyncState(cleoHome: string = getCleoHome()): AutoSyncSta
 function writeState(cleoHome: string, state: AutoSyncState): void {
   try {
     mkdirSync(cleoHome, { recursive: true });
-    writeFileSync(statePath(cleoHome), `${JSON.stringify(state)}\n`);
+    // tmp then rename, so a concurrent reader never sees a torn record.
+    const tmp = `${statePath(cleoHome)}.${process.pid}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(state)}\n`);
+    renameSync(tmp, statePath(cleoHome));
   } catch {
     // Best-effort: a lost record only loses the throttle and the warning.
   }
@@ -234,6 +237,8 @@ export async function autoCloudSync(
       if (admission === null) return 'deferred';
       const state = readAutoSyncState(cleoHome);
       writeState(cleoHome, { ...state, lastAttemptAt: now.toISOString() });
+      // The sync itself, kept so the lock and admission outlive a timeout (T13500).
+      let inFlight: Promise<unknown> | undefined;
       try {
         const sync =
           opts.sync ??
@@ -242,8 +247,9 @@ export async function autoCloudSync(
             return cloudSync({ projectRoot: root });
           });
         let timer: ReturnType<typeof setTimeout> | undefined;
+        inFlight = sync(projectRoot);
         await Promise.race([
-          sync(projectRoot),
+          inFlight,
           new Promise((_, reject) => {
             timer = setTimeout(
               () =>
@@ -276,6 +282,9 @@ export async function autoCloudSync(
         log.warn({ reason, code, message }, 'automatic cloud sync failed');
         return 'failed';
       } finally {
+        // A timed-out sync keeps running: hold the lock and admission until it
+        // settles, so no second sync overlaps it and a worker never exits mid-sync.
+        await inFlight?.catch(() => undefined);
         await admission.release();
       }
     } finally {
