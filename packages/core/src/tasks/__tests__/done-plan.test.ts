@@ -1296,6 +1296,31 @@ describe('the plan and done share one readiness check (T12672)', () => {
 });
 
 describe('research and no-change-set tasks', () => {
+  it('T13496: a doc in both stores is planned at the attachment path docs fetch resolves', async () => {
+    const id = await seedTask(['Report the findings'], 'research');
+    const content = '# findings\n';
+    const sha = createHash('sha256').update(content).digest('hex');
+    mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+    const attDir = join(root, '.cleo', 'attachments', 'sha256', sha.slice(0, 2));
+    mkdirSync(attDir, { recursive: true });
+    writeFileSync(join(attDir, `${sha.slice(2)}.md`), content);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+      deps: {
+        ...deps,
+        listTaskDocs: async () => [{ id: 'att', slug: 'findings', sha256: sha }],
+        listTaskDecisions: async () => ['D900'],
+      },
+    });
+    const path = join('.cleo', 'attachments', 'sha256', sha.slice(0, 2), `${sha.slice(2)}.md`);
+    expect(plan.changeSet.files).toEqual([path]);
+    expect(plan.gates.find((g) => g.gate === 'implemented')?.evidence).toContain(`files:${path}`);
+  });
+
   it('a research task with a doc and a decision plans decision-only gates with no tool runs', async () => {
     const id = await seedTask(['Report the findings'], 'research');
     const content = '# findings\n';
