@@ -521,7 +521,7 @@ export interface CloudConflict {
   columns: string[];
   /** The typed rule, guard message or invariant, when there is one. */
   rule: string | null;
-  /** What happened to the incoming op: `incoming-applied`, `incoming-dropped`, `row-deleted`, `op-voided`. */
+  /** What happened to the incoming op: `incoming-applied`, `incoming-dropped`, `row-deleted`, `op-voided`, `op-held`. */
   resolution: string;
   opHlc: string;
   localHlc: string | null;

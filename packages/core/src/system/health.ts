@@ -1453,7 +1453,8 @@ export async function runDoctorFixes(projectRoot: string): Promise<FixResult[]> 
       // alone cannot repair a damaged marker — re-running injection is what
       // produced the duplicate blocks in the first place (T12051).
       const repair = await repairCaampMarkers(projectRoot);
-      const r = await ensureInjection(projectRoot);
+      // T13409: a repair refreshes existing managed blocks only, keeping their form.
+      const r = await ensureInjection(projectRoot, { mode: 'upgrade' });
       const details = r.details ?? r.action;
       return {
         check: 'injection_health',

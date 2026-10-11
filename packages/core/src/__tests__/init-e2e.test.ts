@@ -9,11 +9,13 @@
  * @epic T4663
  */
 
+import { execFileSync } from 'node:child_process';
 import { existsSync, constants as fsConstants } from 'node:fs';
 import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { CLEO_HOOK_NAMES, defaultTemplatesDir } from '../git/hooks-install.js';
 import { initProject } from '../init.js';
 import { showSequence } from '../sequence/index.js';
 
@@ -241,9 +243,8 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     expect(Array.isArray(content.projectTypes)).toBe(true);
   });
 
-  it('installs git hooks when .git/ exists', async () => {
-    // Create a .git directory to simulate a git repo
-    await mkdir(join(testDir, '.git'), { recursive: true });
+  it('installs executable shipped hooks in an actual Git repository', async () => {
+    execFileSync('git', ['init', '-q', testDir]);
 
     const result = await initProject({ name: 'test-project' });
 
@@ -272,7 +273,12 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
       expect(prePushStat.mode & 0o111).toBeGreaterThan(0);
     }
 
-    // Verify reported in created
+    // Installation must deliver the actual shipped policies, not just create files.
+    for (const hook of CLEO_HOOK_NAMES) {
+      expect(await readFile(join(testDir, '.git', 'hooks', hook), 'utf8')).toBe(
+        await readFile(join(defaultTemplatesDir(), hook), 'utf8'),
+      );
+    }
     expect(result.created.join(',')).toContain('git hooks');
   });
 
@@ -281,18 +287,29 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
     const result = await initProject({ name: 'test-project' });
 
     expect(result.initialized).toBe(true);
-    expect(result.warnings.join(',')).toContain('No .git/ directory');
+    expect(result.warnings.join(',')).toContain('No git repository found');
     expect(existsSync(join(testDir, '.git', 'hooks', 'commit-msg'))).toBe(false);
   });
 
-  it('does not overwrite existing hooks without force', async () => {
-    await mkdir(join(testDir, '.git', 'hooks'), { recursive: true });
+  it('refuses an empty .git directory as installation authority', async () => {
+    await mkdir(join(testDir, '.git'));
+    const result = await initProject({ name: 'test-project' });
+    expect(result.initialized).toBe(true);
+    expect(result.warnings.join(',')).toContain('No git repository found');
+    expect(existsSync(join(testDir, '.git', 'hooks'))).toBe(false);
+    expect(existsSync(join(testDir, '.git', 'cleo-git-hooks'))).toBe(false);
+  });
+
+  it('does not overwrite foreign hooks in an actual Git repository', async () => {
+    execFileSync('git', ['init', '-q', testDir]);
     const existingContent = '#!/bin/sh\n# my custom hook\n';
     await writeFile(join(testDir, '.git', 'hooks', 'commit-msg'), existingContent);
 
     await initProject({ name: 'test-project' });
 
-    // Existing hook should be preserved
+    // Foreign hook stays intact while other managed checks are installed.
+    expect(existsSync(join(testDir, '.git', 'hooks', 'pre-commit'))).toBe(true);
+    expect(existsSync(join(testDir, '.git', 'hooks', 'pre-push'))).toBe(true);
     const content = await readFile(join(testDir, '.git', 'hooks', 'commit-msg'), 'utf-8');
     expect(content).toBe(existingContent);
   });

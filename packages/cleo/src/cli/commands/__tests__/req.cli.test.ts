@@ -54,6 +54,26 @@ describe('req argv routing', () => {
     );
   });
 
+  it('routes req replace with the REQ-ID, the gate JSON and an optional reason (T12988)', async () => {
+    const gate = JSON.stringify({
+      kind: 'test',
+      command: 'pnpm',
+      args: ['--filter', 'app', 'exec', 'vitest', 'run'],
+      expect: 'pass',
+      description: 'Tests pass',
+    });
+    await runCommand(reqCommand, {
+      rawArgs: ['replace', 'T121', 'PARTNER-121', '--gate', gate, '--reason', 'moved worktree'],
+    });
+    expect(dispatchFromCli).toHaveBeenCalledExactlyOnceWith(
+      'mutate',
+      'tasks',
+      'req.replace',
+      { taskId: 'T121', req: 'PARTNER-121', gate, reason: 'moved worktree' },
+      { command: 'req replace' },
+    );
+  });
+
   it('lists requirements through the read route', async () => {
     await runCommand(reqCommand, { rawArgs: ['list', 'T121'] });
     expect(dispatchFromCli).toHaveBeenCalledExactlyOnceWith(
