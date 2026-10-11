@@ -2500,7 +2500,8 @@ export function collapseTwinTables(
           (p) => prior.tables.includes(p.table) && (pairs.includes(p) || !byTable.has(p.table)),
         );
         try {
-          if (still.length > 0) shadowPairs(still, { ...failure, tables: still.map((p) => p.table) });
+          if (still.length > 0)
+            shadowPairs(still, { ...failure, tables: still.map((p) => p.table) });
         } catch (shadowError) {
           log.error(
             { err: shadowError },
