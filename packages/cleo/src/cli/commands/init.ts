@@ -110,6 +110,18 @@ export const initCommand = defineCommand({
       type: 'string',
       description: 'Project name',
     },
+    'git-hooks-only': {
+      type: 'boolean',
+      description:
+        'Install only Git hooks without initializing or resetting other project settings',
+      default: false,
+    },
+    'allow-tracked-hooks-path': {
+      type: 'boolean',
+      description:
+        'Explicitly permit managed Git hook installation into an in-worktree core.hooksPath',
+      default: false,
+    },
     force: {
       type: 'boolean',
       description:
@@ -167,6 +179,15 @@ export const initCommand = defineCommand({
   },
   async run({ args }) {
     try {
+      if (args['git-hooks-only']) {
+        const { installCleoHooks } = await import('@cleocode/core/git/hooks-install');
+        const result = await installCleoHooks(process.cwd(), {
+          allowTrackedHooksPath: !!args['allow-tracked-hooks-path'],
+        });
+        cliOutput(result, { command: 'init', operation: 'init.git-hooks' });
+        return;
+      }
+
       // T9888 — `cleo init --workflows` is deprecated. The SSoT install
       // surface is `cleo templates install --kind workflow` (T9886). This
       // branch now (a) emits a deprecation warning to stderr, (b) walks the
@@ -220,6 +241,7 @@ export const initCommand = defineCommand({
       const initOpts: InitOptions = {
         name: args.name || (args.projectName as string | undefined) || undefined,
         force: !!args.force,
+        allowTrackedHooksPath: !!args['allow-tracked-hooks-path'],
         detect: !!args.detect,
         mapCodebase: !!args['map-codebase'],
         installSeedAgents: !!args['install-seed-agents'],

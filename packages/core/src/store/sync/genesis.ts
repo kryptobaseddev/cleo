@@ -234,6 +234,25 @@ export function genesisPreconditions(
   return null;
 }
 
+/** A stream other than `stream` this store has cut, if any (T13303: one cut stream per store). */
+function otherCutStream(db: DatabaseSync, stream: string): string | undefined {
+  const row = db
+    .prepare(
+      'SELECT substr(key, ?) AS stream FROM _sync_meta WHERE substr(key, 1, ?) = ? AND key <> ? LIMIT 1',
+    )
+    .get(
+      GENESIS_CUT_KEY_PREFIX.length + 1,
+      GENESIS_CUT_KEY_PREFIX.length,
+      GENESIS_CUT_KEY_PREFIX,
+      `${GENESIS_CUT_KEY_PREFIX}${stream}`,
+    ) as { stream: string } | undefined;
+  return row?.stream;
+}
+
+/** Why a second stream's cut is refused (T13303). */
+const secondStreamRefusal = (other: string): string =>
+  `this store already pushes ${other}; a second stream needs per-stream routing (T13254)`;
+
 /** Seal until no capture is live; the reason it stopped early, or null. */
 function drain(
   db: DatabaseSync,
@@ -295,6 +314,13 @@ function openCut(db: DatabaseSync, opts: GenesisCutOptions): OpenCut | GenesisCu
   }
   const already = genesisCutOf(db, opts.stream);
   if (already !== undefined) return report(opts.stream, { already: true, cut: already });
+  // T13303: one cut stream per store. Nothing routes a sealed transaction to
+  // a stream yet (T13254), so a second stream's cut would fold the first
+  // stream's sealed, unsent transactions into its own checkpoint, and the
+  // first stream would never push them. The per-cut fold range and the
+  // "no other stream is cut" undo are kept for when routing lands.
+  const other = otherCutStream(db, opts.stream);
+  if (other !== undefined) return report(opts.stream, { refused: secondStreamRefusal(other) });
   const refused = genesisPreconditions(db, opts);
   if (refused) return report(opts.stream, { refused });
   const replica = activeReplica(db, opts.scope)?.replicaId;
@@ -316,6 +342,12 @@ function openCut(db: DatabaseSync, opts: GenesisCutOptions): OpenCut | GenesisCu
       if (raced !== undefined) {
         db.exec('ROLLBACK');
         return report(opts.stream, { already: true, cut: raced, sealed });
+      }
+      // Under the lock: another process may have cut a different stream meanwhile.
+      const racedOther = otherCutStream(db, opts.stream);
+      if (racedOther !== undefined) {
+        db.exec('ROLLBACK');
+        return report(opts.stream, { refused: secondStreamRefusal(racedOther), sealed });
       }
       const cut = Number(
         (
@@ -394,7 +426,15 @@ export function cutGenesis(db: DatabaseSync, opts: GenesisCutOptions): GenesisCu
 
 /** A write reached the store between the cut and the end of its snapshot; the cut was undone. */
 export class GenesisRacedError extends Error {
-  readonly code = 'E_SYNC_GENESIS_RACED';
+  readonly code: string = 'E_SYNC_GENESIS_RACED';
+}
+
+/**
+ * Another process took the genesis marker over during the snapshot: the
+ * pending cut, and any bundle saved for it, are the new holder's (T13390).
+ */
+export class GenesisTakenOverError extends GenesisRacedError {
+  override readonly code = 'E_SYNC_GENESIS_MARKER_LOST';
 }
 
 /**
@@ -502,7 +542,14 @@ export async function cutGenesisWithSnapshot(
       await snapshot(cut);
     } catch (err) {
       // A holder that took the marker over owns the pending cut now: leave it.
-      if (!marker.takenOver()) uncutGenesis(db, opts);
+      if (marker.takenOver()) {
+        // @sync-invariant none:local-only the snapshot failed after another process took the genesis marker over; the pending cut is left to it
+        throw new GenesisTakenOverError(
+          `E_SYNC_GENESIS_MARKER_LOST: another process took over the genesis marker; the snapshot failed: ${err instanceof Error ? err.message : String(err)}`,
+          { cause: err },
+        );
+      }
+      uncutGenesis(db, opts);
       throw err;
     }
     // Our marker went stale and another process took it over (a genesis run
@@ -510,7 +557,7 @@ export async function cutGenesisWithSnapshot(
     // replace. Abort without undoing it, and push nothing from this snapshot.
     if (marker.takenOver()) {
       // @sync-invariant none:local-only another process took the genesis marker over during the snapshot; the pending cut is left to it and nothing is pushed
-      throw new GenesisRacedError(
+      throw new GenesisTakenOverError(
         'E_SYNC_GENESIS_MARKER_LOST: another process took over the genesis marker during the snapshot; the pending cut is left to it and nothing is pushed',
       );
     }

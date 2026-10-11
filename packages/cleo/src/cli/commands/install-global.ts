@@ -91,7 +91,8 @@ export const installGlobalCommand = defineCommand({
     const dryRun = args['dry-run'] === true;
     const isHuman = args.human === true || (!!process.stdout.isTTY && args.json !== true);
 
-    const ctx: BootstrapContext = await bootstrapGlobalCleo({ dryRun });
+    // T13409: the user ran this, so it may refresh the hub block and link skills.
+    const ctx: BootstrapContext = await bootstrapGlobalCleo({ dryRun, userRequested: true });
 
     if (isHuman && args.quiet !== true) {
       renderBootstrapHuman(ctx, dryRun);

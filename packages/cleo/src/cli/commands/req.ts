@@ -3,6 +3,7 @@
  *
  * Subcommands:
  *   cleo req add <taskId> --gate '<json>'   — add a typed AcceptanceGate with a REQ-ID
+ *   cleo req replace <taskId> <REQ-ID> --gate '<json>' [--reason] — replace a gate in place
  *   cleo req list <taskId>                  — list all REQ-ID gates on a task
  *   cleo req migrate <taskId> [--apply]     — heuristic migrator for free-text criteria
  *
@@ -55,6 +56,52 @@ const addCommand = defineCommand({
     }
 
     await dispatchFromCli('mutate', 'tasks', 'req.add', { taskId, gate }, { command: 'req add' });
+  },
+});
+
+/** cleo req replace <task-id> <req-id> — replace a typed gate's definition in place (T12988) */
+const replaceCommand = defineCommand({
+  meta: {
+    name: 'replace',
+    description:
+      "Replace a typed gate's definition (command, args, cwd, …) in place. Keeps its AC row, ordinal and REQ-ID; " +
+      'the superseded gate stays in AC history and the audit log, and the new gate must be verified again. ' +
+      'Prefer a repo-relative command and cwd (no absolute --dir), so the gate runs in whichever checkout verifies.',
+  },
+  args: {
+    'task-id': {
+      type: 'positional',
+      description: 'Task ID that owns the gate',
+      required: true,
+    },
+    'req-id': {
+      type: 'positional',
+      description: 'REQ-ID of the gate to replace',
+      required: true,
+    },
+    gate: {
+      type: 'string',
+      description: 'Replacement AcceptanceGate JSON; "req" must be absent or equal the REQ-ID',
+      required: true,
+    },
+    reason: {
+      type: 'string',
+      description: 'Why the gate changes; required once the task is in a locked pipeline stage',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'tasks',
+      'req.replace',
+      {
+        taskId: args['task-id'],
+        req: args['req-id'],
+        gate: args.gate,
+        ...(args.reason ? { reason: args.reason } : {}),
+      },
+      { command: 'req replace' },
+    );
   },
 });
 
@@ -118,6 +165,9 @@ const migrateCommand = defineCommand({
  * # Add a test gate with REQ-ID TIMER-01
  * cleo req add T42 --gate '{"kind":"test","command":"pnpm test","expect":"pass","description":"Tests pass","req":"TIMER-01"}'
  *
+ * # Replace TIMER-01's command with a repo-relative one
+ * cleo req replace T42 TIMER-01 --gate '{"kind":"test","command":"pnpm","args":["--filter","app","exec","vitest","run"],"expect":"pass","description":"Tests pass"}'
+ *
  * # List all REQ-ID gates on T42
  * cleo req list T42
  *
@@ -136,6 +186,7 @@ export const reqCommand = defineCommand({
   },
   subCommands: {
     add: addCommand,
+    replace: replaceCommand,
     list: listCommand,
     migrate: migrateCommand,
   },

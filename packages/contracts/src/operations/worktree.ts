@@ -195,8 +195,25 @@ export interface WorktreeLockAcquisition {
   /** The previous holder's record when the lock was reclaimed. */
   reclaimedFrom?: WorktreeLockRecord;
   /** Why the previous holder was judged dead (`reclaimed` only). */
-  reclaimReason?: 'pid-gone' | 'pid-recycled' | 'heartbeat-stale' | 'unreadable';
+  reclaimReason?: 'pid-gone' | 'pid-recycled' | 'heartbeat-stale' | 'unreadable' | 'session-ended';
 }
+
+/**
+ * Whether a worktree lock holder's CLEO session is still live (T13425).
+ *
+ * `active` keeps the lock held whatever the owner pid says, `ended` releases it
+ * even while the owner pid (a long-lived harness shared across sessions) is
+ * alive, and `unknown` leaves the verdict to the pid and heartbeat checks.
+ */
+export type WorktreeLockSessionState = 'active' | 'ended' | 'unknown';
+
+/**
+ * Reports a lock holder session's state; supplied by core, which owns the
+ * session store (`@cleocode/worktree` cannot read it).
+ *
+ * @task T13425
+ */
+export type WorktreeLockSessionProbe = (sessionId: string) => WorktreeLockSessionState;
 
 // ---------------------------------------------------------------------------
 // Create operation
@@ -286,6 +303,13 @@ export interface CreateWorktreeOptions {
    * @task T12506
    */
   holder?: WorktreeLockHolder;
+  /**
+   * Reports the existing lock holder's session state: an ended holder session
+   * makes the lock reclaimable even while its owner pid is alive (T13425).
+   *
+   * @task T13425
+   */
+  sessionProbe?: WorktreeLockSessionProbe;
   /**
    * Heartbeat age (ms) beyond which an existing lock is reclaimable even when
    * its owner pid is alive. Defaults to `CLEO_WORKTREE_LOCK_TTL_MS` or 4 hours.
@@ -724,7 +748,9 @@ export type WorktreeLifecycleAction =
   | 'complete-skip'
   | 'complete-manual'
   | 'complete-conflict'
-  | 'adopt';
+  | 'adopt'
+  | 'lock-release'
+  | 'lock-reclaim';
 
 /**
  * One append-only entry written to `.cleo/audit/worktree-lifecycle.jsonl` by
