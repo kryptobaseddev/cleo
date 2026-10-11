@@ -4,6 +4,8 @@
 
 > **Upgrading:** from 2026.10.7 or later, `cleo self-update` is safe. This release contains a breaking change to evidence writes (see BREAKING CHANGES): run typed gates with `cleo verify <id> --run` before recording evidence. Cross-device journal sync, automatic sync and project hooks ship inert: sync stays off until the Stage C exit gate releases its flags, and hooks-v1 stays off on stable builds until its promotion.
 
+> **Note:** T13342, T12915, T13324, T13455, T13543 and T13548 shipped code in this release, but their CLEO tasks stay open: merge-commit CI was red in a flaky-quarantine window, a scheduled run failed, or the PR delivered only part of the task. They are listed here by PR, not in the release plan's task set.
+
 ### Added
 
 - Brain tables keyed by an autoincrement id get row uids; their local id never travels _(provenance: [T12896](https://github.com/kryptobaseddev/cleo/search?q=T12896&type=commits))_
@@ -19,6 +21,9 @@
 - cloud activity --devices shows, per device, its presence, its newest journal change and its newest server event _(provenance: [T13482](https://github.com/kryptobaseddev/cleo/search?q=T13482&type=commits))_
 - Normal commands in a linked project start a detached cloud sync at most once per window, with no daemon _(provenance: [T13553](https://github.com/kryptobaseddev/cleo/search?q=T13553&type=commits))_
 - evidence.runtimePaths: tracked files a harness rewrites during a run stay out of the evidence tree hash, so the run cannot stale its own receipt _(provenance: [T13554](https://github.com/kryptobaseddev/cleo/search?q=T13554&type=commits))_
+
+- Unified opt-in project hooks across Git, coding agents and worktree setup, with explicit activation and ownership diagnostics. Inert on stable builds until the hooks-v1 promotion (T13557) _(provenance: [T13342](https://github.com/kryptobaseddev/cleo/search?q=T13342&type=commits), [#2008](https://github.com/kryptobaseddev/cleo/pull/2008); task still open, see note)_
+- Sync: the global agent registry gets row identity; derived and local-only skill/capability rows are rebuilt from the agent row _(provenance: [T12915](https://github.com/kryptobaseddev/cleo/search?q=T12915&type=commits), [#2092](https://github.com/kryptobaseddev/cleo/pull/2092); task still open, see note)_
 
 ### Changed
 
@@ -36,11 +41,15 @@
 - Read-only nexus impact/context no longer starts an unbounded in-process refresh; --no-refresh and CLEO_NEXUS_AUTO_REFRESH opt out _(provenance: [T13523](https://github.com/kryptobaseddev/cleo/search?q=T13523&type=commits))_
 - Worktree dependency installs go through the machine-wide heavy queue or are deferred to the worker; `orchestrate spawn --no-install` skips them _(provenance: [T13524](https://github.com/kryptobaseddev/cleo/search?q=T13524&type=commits))_
 - cleo release plan records the newest reachable v* tag as previousTag/previousVersion, not a stale releases-table row _(provenance: [T13536](https://github.com/kryptobaseddev/cleo/search?q=T13536&type=commits))_
-- A graph query's inline nexus refresh runs in a heap-limited worker, so it can never abort the CLI at its heap cap _(provenance: [T13537](https://github.com/kryptobaseddev/cleo/search?q=T13537&type=commits))_
+- A graph query's inline nexus refresh runs in an owned, heap-limited child process, so it can never abort the CLI at its heap cap, and stopping it releases every database lock _(provenance: [T13537](https://github.com/kryptobaseddev/cleo/search?q=T13537&type=commits), [T13548](https://github.com/kryptobaseddev/cleo/search?q=T13548&type=commits))_
 - The nexus refresh worker cannot hang a read query: it resolves on its result and a hard timer ends a stall _(provenance: [T13539](https://github.com/kryptobaseddev/cleo/search?q=T13539&type=commits))_
 - Worktree installs always use the worktree's own pnpm store, a tracked .npmrc gets a --store-dir hint, and info/exclude no longer hides .npmrc in the main checkout _(provenance: [T13541](https://github.com/kryptobaseddev/cleo/search?q=T13541&type=commits))_
 - A store open no longer fails with another operation's expired deadline _(provenance: [T13552](https://github.com/kryptobaseddev/cleo/search?q=T13552&type=commits))_
 - Project hooks stay inert on stable builds until the hooks-v1 promotion _(provenance: [T13557](https://github.com/kryptobaseddev/cleo/search?q=T13557&type=commits))_
+
+- A vault restore settles the reconcile record against the restored bare tables (bare accounts carried) _(provenance: [T13324](https://github.com/kryptobaseddev/cleo/search?q=T13324&type=commits), [#1982](https://github.com/kryptobaseddev/cleo/pull/1982); task still open, see note)_
+- A twin-collapse retry that fails again restores the read shadows _(provenance: [T13455](https://github.com/kryptobaseddev/cleo/search?q=T13455&type=commits), [#2070](https://github.com/kryptobaseddev/cleo/pull/2070); task still open, see note)_
+- cleo release plan considers only version-shaped tags below the planned version for previousTag, and compares prerelease numbers numerically _(provenance: [T13543](https://github.com/kryptobaseddev/cleo/search?q=T13543&type=commits), [#2116](https://github.com/kryptobaseddev/cleo/pull/2116); task still open, see note)_
 
 ### BREAKING CHANGES
 
