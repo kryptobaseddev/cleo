@@ -6074,4 +6074,62 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     expect(await read(b, observationSql)).toEqual(onA);
     expect(onA).toMatchObject({ title: 'from B' });
   });
+
+  it("with sync on, two devices see each other's brain writes after a session end, with no manual cloud sync (T13468)", async () => {
+    const { autoCloudSync } = await import('../auto-sync.js');
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    await onM(a, async () => {
+      const db = await globalStore(a);
+      setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_JOURNAL });
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+    });
+    await onM(a, () => enableSyncPush(vopts(a, { scope: 'global', allowUnreleased: true })));
+    await onM(a, async () => {
+      setSyncFlag(await globalStore(a), 'sync.pull', true, { allowUnreleased: true });
+    });
+    await onM(b, () => restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull', force: true })));
+    await onM(b, () => enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })));
+
+    // What the session-end worker runs: the real flag check and lock, this
+    // machine's cloud sync, and each call a minute after the last.
+    let clock = Date.parse('2026-10-10T10:00:00Z');
+    const sessionEnd = (m: Machine) => {
+      clock += 61_000;
+      const now = new Date(clock);
+      return onM(m, () =>
+        autoCloudSync(m.root, 'session-end', {
+          cleoHome: m.home,
+          now,
+          admit: async () => ({ release: async () => {} }),
+          sync: () => cloudSync(vopts(m, { allowUnreleased: true })),
+        }),
+      );
+    };
+    const read = async (m: Machine, sql: string) =>
+      onM(m, async () => (await globalStore(m)).prepare(sql).get());
+
+    await onM(a, async () => {
+      (await globalStore(a)).exec(
+        "INSERT INTO brain_decisions (id, type, decision, rationale, confidence, created_at, valid_at) VALUES ('D9101', 'architecture', 'Auto sync at session end', 'no manual sync', 'high', '2026-10-10 10:01:00', '2026-10-10 10:01:00')",
+      );
+    });
+    await onM(b, async () => {
+      (await globalStore(b)).exec(
+        "INSERT INTO brain_observations (id, type, title, created_at, valid_at) VALUES ('O-home0101', 'discovery', 'written on B', '2026-10-10T10:02:00.000Z', '2026-10-10 10:02:00')",
+      );
+    });
+    expect(await sessionEnd(a)).toBe('synced');
+    expect(await sessionEnd(b)).toBe('synced');
+    expect(await sessionEnd(a)).toBe('synced');
+
+    const decisionSql = "SELECT uid, decision FROM brain_decisions WHERE id = 'D9101'";
+    const obsSql = "SELECT uid, title FROM brain_observations WHERE id = 'O-home0101'";
+    const decisionA = await read(a, decisionSql);
+    expect(decisionA).toMatchObject({ decision: 'Auto sync at session end' });
+    expect(await read(b, decisionSql)).toEqual(decisionA);
+    const obsB = await read(b, obsSql);
+    expect(obsB).toMatchObject({ title: 'written on B' });
+    expect(await read(a, obsSql)).toEqual(obsB);
+  });
 });

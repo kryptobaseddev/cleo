@@ -19,16 +19,20 @@
  * reader, and CLEO keeps stdout for LAFS envelopes).
  *
  * After the snapshot it embeds one bounded batch of observations that one-shot
- * processes stored unembedded (T13126, `memory/embedding-backfill.ts`).
+ * processes stored unembedded (T13126, `memory/embedding-backfill.ts`), then
+ * runs the automatic cloud sync (T13468, `cloud/auto-sync.ts`). Both run only
+ * here, in the detached worker, never in the process that ended the session.
  *
  * argv: `<projectRoot> <markerToken>`
  *
  * @task T12508
  * @task T13126
+ * @task T13468
  */
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { autoCloudSync } from '../cloud/auto-sync.js';
 import { runBoundedEmbeddingBackfill } from '../memory/embedding-backfill.js';
 import { getCleoDir } from '../paths.js';
 import { SNAPSHOT_LOCK_WAIT_RETRIES } from '../store/snapshot-gate.js';
@@ -55,6 +59,10 @@ releaseSessionEndWorkerMarker(projectRoot, markerToken);
 // a no-op when nothing is pending. Best-effort: it never throws.
 const embeddings = await runBoundedEmbeddingBackfill(projectRoot);
 
+// T13468: sync the main brain (and the project) with the cloud. Best-effort,
+// throttled, single-flight and bounded; it never throws.
+const autoSync = await autoCloudSync(projectRoot, 'session-end');
+
 try {
   const logsDir = join(getCleoDir(projectRoot), 'logs');
   mkdirSync(logsDir, { recursive: true });
@@ -67,6 +75,7 @@ try {
       projectRoot,
       result,
       embeddings,
+      autoSync,
     })}\n`,
   );
 } catch {

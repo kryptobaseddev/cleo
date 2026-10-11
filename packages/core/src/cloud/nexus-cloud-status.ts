@@ -332,9 +332,7 @@ function storeStream(
       .prepare(
         'SELECT substr(key, ?) AS stream FROM _sync_meta WHERE substr(key, 1, ?) = ? ORDER BY key LIMIT 1',
       )
-      .get(cutPrefix.length + 1, cutPrefix.length, cutPrefix) as
-      | { stream: string }
-      | undefined;
+      .get(cutPrefix.length + 1, cutPrefix.length, cutPrefix) as { stream: string } | undefined;
     if (cut) return cut.stream;
   }
   if (hasTable(db, '_sync_cursor')) {
@@ -359,12 +357,15 @@ async function streamJournalFacts(
   linked: string | null,
   replica: string | null,
 ): Promise<StreamJournalFacts> {
-  const [{ hasTable, GENESIS_CUT_KEY_PREFIX }, { genesisCutOf, genesisPending }, { readStreamCursor }] =
-    await Promise.all([
-      import('../store/sync/schema.js'),
-      import('../store/sync/genesis.js'),
-      import('../store/sync/pull.js'),
-    ]);
+  const [
+    { hasTable, GENESIS_CUT_KEY_PREFIX },
+    { genesisCutOf, genesisPending },
+    { readStreamCursor },
+  ] = await Promise.all([
+    import('../store/sync/schema.js'),
+    import('../store/sync/genesis.js'),
+    import('../store/sync/pull.js'),
+  ]);
   const stream = linked ?? storeStream(db, hasTable, GENESIS_CUT_KEY_PREFIX);
   const outbox = hasTable(db, '_sync_txn') && hasTable(db, '_sync_segment');
   if (stream === null || !outbox) {
@@ -391,7 +392,9 @@ async function streamJournalFacts(
       .get(replica, stream) as { n: number }
   ).n;
   const pushed = db
-    .prepare("SELECT max(server_seq) AS seq FROM _sync_segment WHERE stream = ? AND state = 'pushed'")
+    .prepare(
+      "SELECT max(server_seq) AS seq FROM _sync_segment WHERE stream = ? AND state = 'pushed'",
+    )
     .get(stream) as { seq: number | null };
   const cursor = readStreamCursor(db, stream);
   const cut = genesisCutOf(db, stream);
@@ -401,9 +404,13 @@ async function streamJournalFacts(
     genesisPending: genesisPending(db, stream),
     unsentOps: { known: true, value: unsent },
     lastPushedSeq:
-      pushed.seq === null ? needsPush('the last pushed sequence') : { known: true, value: pushed.seq },
+      pushed.seq === null
+        ? needsPush('the last pushed sequence')
+        : { known: true, value: pushed.seq },
     lastPulledSeq:
-      cursor === null ? needsPush('the last pulled sequence') : { known: true, value: cursor.after },
+      cursor === null
+        ? needsPush('the last pulled sequence')
+        : { known: true, value: cursor.after },
   };
 }
 
@@ -466,11 +473,7 @@ export async function readStoreSyncStream(
     ) as { seq: number | null } | undefined;
     lastSealedSeq = row?.seq ?? null;
   }
-  const journal = await streamJournalFacts(
-    db,
-    stream,
-    activeReplica(db, scope)?.replicaId ?? null,
-  );
+  const journal = await streamJournalFacts(db, stream, activeReplica(db, scope)?.replicaId ?? null);
   const quarantined: Record<string, number> = {};
   if (hasTable(db, '_sync_quarantine')) {
     for (const r of db
@@ -893,6 +896,10 @@ export async function getNexusCloudStatus(
     warnings,
   );
   const withSync = sync === undefined ? {} : { sync };
+  // T13468: a failed automatic sync shows here once, until one succeeds.
+  const { autoSyncWarning } = await import('./auto-sync.js');
+  const autoSync = autoSyncWarning();
+  if (autoSync) warnings.push(autoSync);
   const local: CloudStatusLocal = {
     apiUrl,
     signedIn: false,
