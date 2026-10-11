@@ -14,7 +14,15 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, openSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 const PNPM_INSTALL_TIMEOUT_MS = 120_000;
@@ -107,13 +115,7 @@ export function installWorktreeDependencies(worktreePath: string, projectRoot: s
 
     // Configure per-worktree pnpm store to isolate from global store.
     // This prevents future races when agents run pnpm operations.
-    const npmrcPath = join(worktreePath, '.npmrc');
-    const storeDir = join(worktreePath, '.pnpm-store');
-    try {
-      writeFileSync(npmrcPath, `store-dir=${storeDir}\n`, 'utf-8');
-    } catch {
-      // Best-effort — pnpm install still works with global store.
-    }
+    configureWorktreePnpmStore(worktreePath);
 
     execFileSync('pnpm', ['install', '--frozen-lockfile', '--prefer-offline'], {
       cwd: worktreePath,
@@ -131,5 +133,33 @@ export function installWorktreeDependencies(worktreePath: string, projectRoot: s
     if (releaseLock) {
       releaseLock();
     }
+  }
+}
+
+/**
+ * Point the worktree's pnpm at its own store (`<worktree>/.pnpm-store`) via
+ * `.npmrc`, keeping every other line of an existing `.npmrc`. Called at
+ * provisioning whether or not the install runs now, so a worker that installs
+ * later (deferred or `--no-install`) never touches the shared global store,
+ * where concurrent installs corrupt `.pnpm/` (T9938, T13538). Best-effort.
+ *
+ * @param worktreePath - The worktree.
+ * @returns The store directory configured, or `null` when `.npmrc` could not be written.
+ * @task T9938
+ * @task T13538
+ */
+export function configureWorktreePnpmStore(worktreePath: string): string | null {
+  const npmrcPath = join(worktreePath, '.npmrc');
+  const storeDir = join(worktreePath, '.pnpm-store');
+  try {
+    const kept = existsSync(npmrcPath)
+      ? readFileSync(npmrcPath, 'utf-8')
+          .split('\n')
+          .filter((line) => line.trim() !== '' && !/^\s*store-dir\s*=/.test(line))
+      : [];
+    writeFileSync(npmrcPath, `${[...kept, `store-dir=${storeDir}`].join('\n')}\n`, 'utf-8');
+    return storeDir;
+  } catch {
+    return null;
   }
 }

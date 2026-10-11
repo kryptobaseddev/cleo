@@ -96,7 +96,7 @@ function assertCanonicalWorktreeLocation(targetPath: string): void {
 
 import { runWorktreeHooks } from './worktree-hooks.js';
 import { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
-import { installWorktreeDependencies } from './worktree-pnpm.js';
+import { configureWorktreePnpmStore, installWorktreeDependencies } from './worktree-pnpm.js';
 
 /**
  * Apply the T9226 spawn-clone-exclude filter to a newly created worktree.
@@ -655,6 +655,7 @@ async function provisionUnderLock(
       reason: 'no pnpm-lock.yaml, or node_modules already present',
     };
   } else if (options.skipInstall) {
+    configureWorktreePnpmStore(worktreePath);
     install = {
       status: 'skipped',
       reason: '--no-install',
@@ -663,6 +664,7 @@ async function provisionUnderLock(
   } else {
     const release = options.admitInstall ? await options.admitInstall() : async () => {};
     if (release === null) {
+      configureWorktreePnpmStore(worktreePath);
       install = {
         status: 'deferred',
         reason: 'the machine-wide heavy-work budget is busy; install deferred to the worker',

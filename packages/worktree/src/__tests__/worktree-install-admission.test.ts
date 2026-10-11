@@ -9,11 +9,12 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createWorktree, workerInstallCommand } from '../worktree-create.js';
+import { configureWorktreePnpmStore } from '../worktree-pnpm.js';
 
 describe('createWorktree dependency install (T13524)', () => {
   let projectRoot: string;
@@ -71,6 +72,9 @@ describe('createWorktree dependency install (T13524)', () => {
     expect(r.preamble).toContain(workerInstallCommand(r.path));
     // The worker installs into the worktree's own store, never the shared one (T13538).
     expect(r.install?.command).toContain(`--store-dir '${join(r.path, '.pnpm-store')}'`);
+    expect(readFileSync(join(r.path, '.npmrc'), 'utf-8')).toContain(
+      `store-dir=${join(r.path, '.pnpm-store')}`,
+    );
   });
 
   it('a busy budget (admitInstall → null) defers the install to the worker', async () => {
@@ -81,6 +85,10 @@ describe('createWorktree dependency install (T13524)', () => {
     });
     expect(existsSync(marker)).toBe(false);
     expect(r.install?.status).toBe('deferred');
+    // The worktree's pnpm already points at its own store, so a later install never shares one (T13538).
+    expect(readFileSync(join(r.path, '.npmrc'), 'utf-8')).toBe(
+      `store-dir=${join(r.path, '.pnpm-store')}\n`,
+    );
     expect(r.install?.command).toBe(workerInstallCommand(r.path));
   });
 
@@ -102,6 +110,19 @@ describe('createWorktree dependency install (T13524)', () => {
     expect(r.install?.status).toBe('installed');
     expect(released).toBe(1);
     expect(order).toEqual(['admit', 'release-after-pnpm']);
+  });
+
+  it('configureWorktreePnpmStore keeps an existing .npmrc and replaces only store-dir', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'npmrc-'));
+    try {
+      writeFileSync(join(dir, '.npmrc'), 'auto-install-peers=true\nstore-dir=/shared/store\n');
+      expect(configureWorktreePnpmStore(dir)).toBe(join(dir, '.pnpm-store'));
+      expect(readFileSync(join(dir, '.npmrc'), 'utf-8')).toBe(
+        `auto-install-peers=true\nstore-dir=${join(dir, '.pnpm-store')}\n`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('the slot is released even when the install throws (guard)', async () => {
