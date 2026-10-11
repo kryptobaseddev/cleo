@@ -9,11 +9,62 @@
  * @task T1161
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import type { WorktreeHook, WorktreeHookResult } from '@cleocode/contracts';
+import type { HookExecutor, HookOutcome } from '@cleocode/contracts/project-hooks.js';
 import { shellInvocation } from '@cleocode/paths';
 
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
+
+/** Run shared post-create/start checks through an injected contracts port. */
+export async function runProjectWorktreeHooks(
+  executor: HookExecutor | undefined,
+  legacyHooks: readonly WorktreeHook[],
+  event: 'post-create' | 'post-start',
+  worktreePath: string,
+  taskId: string,
+): Promise<HookOutcome[]> {
+  if (!executor) return [];
+  if (legacyHooks.some((hook) => hook.event === event && hook.projectHookId)) {
+    throw new Error('HOOK_DUPLICATE_REGISTRATION');
+  }
+  let outcomes: HookOutcome[];
+  try {
+    const projectRoot = execFileSync('git', ['-C', worktreePath, 'rev-parse', '--show-toplevel'], {
+      encoding: 'utf8',
+      timeout: 5000,
+      maxBuffer: 16384,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const gitCommonDir = execFileSync(
+      'git',
+      ['-C', worktreePath, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+      { encoding: 'utf8', timeout: 5000, maxBuffer: 16384, stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim();
+    outcomes = await executor.execute({
+      schemaVersion: 1,
+      projectRoot,
+      gitCommonDir,
+      source: 'worktree',
+      event,
+      worktree: { taskId, path: projectRoot },
+    });
+  } catch {
+    return [
+      {
+        id: 'cleo.project-hooks',
+        status: 'infrastructure-error',
+        blocks: false,
+        code: 'HOOK_INFRASTRUCTURE_ERROR',
+        exitCode: null,
+        signal: null,
+        durationMs: 0,
+      },
+    ];
+  }
+  if (outcomes.some((outcome) => outcome.blocks)) throw new Error('HOOK_PROJECT_BLOCK');
+  return outcomes;
+}
 
 /**
  * Execute a single declarative hook in the given worktree directory.

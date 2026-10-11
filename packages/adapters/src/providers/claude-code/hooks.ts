@@ -20,6 +20,7 @@ import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { updateJsonConfigFile } from '@cleocode/caamp';
+import { PROVIDER_NATIVE_EVENT_MAPS } from '@cleocode/caamp/hooks';
 import type { AdapterHookProvider } from '@cleocode/contracts';
 import { excludeLocalSettingsFromGit } from '../shared/heavy-command-hook-install.js';
 import { appendHookEntry, hookMap, isPlainObject, projectClaudeSettingsPath } from './paths.js';
@@ -114,36 +115,7 @@ const PROVIDER_ID = 'claude-code' as const;
  * Used as fallback when CAAMP runtime is unavailable, and as the synchronous
  * implementation of `mapProviderEvent()`.
  */
-const CLAUDE_CODE_EVENT_MAP: Record<string, string> = {
-  // CAAMP: toNative('SessionStart',      'claude-code') = 'SessionStart'
-  SessionStart: 'SessionStart',
-  // CAAMP: toNative('SessionEnd',        'claude-code') = 'SessionEnd'
-  SessionEnd: 'SessionEnd',
-  // CAAMP: toNative('PromptSubmit',      'claude-code') = 'UserPromptSubmit'
-  UserPromptSubmit: 'PromptSubmit',
-  // CAAMP: toNative('ResponseComplete',  'claude-code') = 'Stop'
-  Stop: 'ResponseComplete',
-  // CAAMP: toNative('PreToolUse',        'claude-code') = 'PreToolUse'
-  PreToolUse: 'PreToolUse',
-  // CAAMP: toNative('PostToolUse',       'claude-code') = 'PostToolUse'
-  PostToolUse: 'PostToolUse',
-  // CAAMP: toNative('PostToolUseFailure','claude-code') = 'PostToolUseFailure'
-  PostToolUseFailure: 'PostToolUseFailure',
-  // CAAMP: toNative('PermissionRequest', 'claude-code') = 'PermissionRequest'
-  PermissionRequest: 'PermissionRequest',
-  // CAAMP: toNative('SubagentStart',     'claude-code') = 'SubagentStart'
-  SubagentStart: 'SubagentStart',
-  // CAAMP: toNative('SubagentStop',      'claude-code') = 'SubagentStop'
-  SubagentStop: 'SubagentStop',
-  // CAAMP: toNative('PreCompact',        'claude-code') = 'PreCompact'
-  PreCompact: 'PreCompact',
-  // CAAMP: toNative('PostCompact',       'claude-code') = 'PostCompact'
-  PostCompact: 'PostCompact',
-  // CAAMP: toNative('Notification',      'claude-code') = 'Notification'
-  Notification: 'Notification',
-  // CAAMP: toNative('ConfigChange',      'claude-code') = 'ConfigChange'
-  ConfigChange: 'ConfigChange',
-};
+const CLAUDE_CODE_EVENT_MAP = PROVIDER_NATIVE_EVENT_MAPS['claude-code'] ?? {};
 
 /**
  * Hook provider for Claude Code.

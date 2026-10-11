@@ -20,7 +20,6 @@ import type {
   CreateWorktreeOptions,
   CreateWorktreeResult,
   WorktreeHook,
-  WorktreeHookResult,
   WorktreeInstallOutcome,
   WorktreeLockAcquisition,
 } from '@cleocode/contracts';
@@ -28,16 +27,10 @@ import type {
 /**
  * Extended result type including the bootstrap field.
  *
- * The contracts package will be updated separately to add this field to
- * {@link CreateWorktreeResult}; this local extension allows the implementation
- * to compile in the interim.
+ * Creation always supplies the canonical bootstrap result.
  */
 interface CreateWorktreeResultWithBootstrap extends CreateWorktreeResult {
-  bootstrap: {
-    copiedPaths: string[];
-    failedPaths: string[];
-    hookResults: WorktreeHookResult[];
-  };
+  bootstrap: NonNullable<CreateWorktreeResult['bootstrap']>;
   /** Glob patterns actually excluded via sparse-checkout (T9226). */
   appliedExcludePatterns: string[];
   /**
@@ -94,7 +87,7 @@ function assertCanonicalWorktreeLocation(targetPath: string): void {
   }
 }
 
-import { runWorktreeHooks } from './worktree-hooks.js';
+import { runProjectWorktreeHooks, runWorktreeHooks } from './worktree-hooks.js';
 import { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
 import {
   configureWorktreePnpmStore,
@@ -551,6 +544,15 @@ async function provisionUnderLock(
       : null;
 
   // Run post-create hooks before returning the handle.
+  const postCreateProjectHookResults = reattached
+    ? []
+    : await runProjectWorktreeHooks(
+        options.projectHookExecutor,
+        hooks,
+        'post-create',
+        worktreePath,
+        taskId,
+      );
   const postCreateHookResults = reattached
     ? []
     : await runWorktreeHooks(hooks, 'post-create', worktreePath);
@@ -693,6 +695,15 @@ async function provisionUnderLock(
   }
 
   // Run post-start hooks after copy-on-write bootstrap.
+  const postStartProjectHookResults = reattached
+    ? []
+    : await runProjectWorktreeHooks(
+        options.projectHookExecutor,
+        hooks,
+        'post-start',
+        worktreePath,
+        taskId,
+      );
   const postStartHookResults = reattached
     ? []
     : await runWorktreeHooks(hooks, 'post-start', worktreePath);
@@ -782,6 +793,7 @@ async function provisionUnderLock(
     envVars,
     preamble,
     hookResults: postCreateHookResults,
+    projectHookResults: postCreateProjectHookResults,
     appliedPatterns,
     appliedExcludePatterns,
     appliedScope,
@@ -789,6 +801,7 @@ async function provisionUnderLock(
       copiedPaths,
       failedPaths,
       hookResults: postStartHookResults,
+      projectHookResults: postStartProjectHookResults,
     },
     install,
   };

@@ -87,6 +87,8 @@ export interface ReadFileInput {
   readonly path: string;
   /** Text encoding. Defaults to `utf8` in the implementation. */
   readonly encoding?: 'utf8' | 'utf-8' | 'ascii' | 'latin1';
+  /** Hard byte limit; when supplied, reject nonregular files and bounded-read overflow. */
+  readonly maxBytes?: number;
 }
 
 /** Result of a text read. */
@@ -96,6 +98,9 @@ export interface ReadFileResult {
   /** File contents as text. */
   readonly content: string;
 }
+
+/** Callable port for the canonical text reader, shared without a runtime dependency. */
+export type ReadFileText = (input: ReadFileInput) => Promise<ReadFileResult>;
 
 /** Input for an atomic (tmp-then-rename) file write. */
 export interface WriteFileInput {
@@ -114,6 +119,9 @@ export interface WriteFileResult {
   /** Number of bytes written. */
   readonly bytesWritten: number;
 }
+
+/** Callable port for the canonical atomic file writer, shared without a runtime dependency. */
+export type WriteFileAtomic = (input: WriteFileInput) => Promise<WriteFileResult>;
 
 /** Input for an existence check. */
 export interface PathExistsInput {
