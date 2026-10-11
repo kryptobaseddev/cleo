@@ -6271,6 +6271,7 @@ describe('the main brain stream through cloud sync (T13370)', () => {
           now,
           admit: async () => ({ release: async () => {} }),
           sync: () => cloudSync(vopts(m, { allowUnreleased: true })),
+          unreleasedFlags: new Set(),
         }),
       );
     };
