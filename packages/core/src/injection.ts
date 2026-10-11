@@ -229,8 +229,8 @@ export async function stripGitNexusBlocks(filePath: string): Promise<boolean> {
  *   AGENTS.md -> @~/.agents/AGENTS.md + @.cleo/project-context.json + @.cleo/memory-bridge.md + @.cleo/nexus-bridge.md
  *
  * In `upgrade` mode (T13409) the files the project owns are refreshed only
- * inside an existing CAAMP block (embedded delivery, opt out with
- * `injection.delivery: "reference"`), a file without markers is left alone, an
+ * inside an existing CAAMP block (references in a git-tracked file, embedded
+ * otherwise; `injection.delivery` overrides), a file without markers is left alone, an
  * absent provider file is not created, the existing `~/.agents/AGENTS.md` hub is
  * never rewritten, and every changed file is backed up through `options.journal`.
  *
@@ -407,6 +407,18 @@ export async function ensureInjection(
       actions,
     });
   }
+  // T13489: in a git checkout the files init writes get committed, so they keep
+  // `@path` references; an embedded delivery would put this machine's absolute
+  // paths into the repository. `injection.delivery` overrides.
+  const optIn = readDeliveryOptIn(projectRoot);
+  if (optIn !== null ? optIn === 'reference' : isInsideGitWorkTree(projectRoot)) {
+    return injectReferences(projectRoot, providers, caamp, {
+      agentsMdPath,
+      agentsReference: agentsMdContent,
+      agentsEmbedded: delivery.content,
+      actions,
+    });
+  }
   const agentsAction = await inject(agentsMdPath, delivery.content);
   actions.push(`AGENTS.md self-contained CLEO content (${agentsAction})`);
   // Other native instruction files embed the complete project rules as well.
@@ -467,6 +479,90 @@ function readDeliveryOptIn(projectRoot: string): 'embedded' | 'reference' | null
   }
 }
 
+/**
+ * Whether `projectRoot` is inside a git work tree. The `.git` may sit above
+ * the CLEO root, so this asks git instead of looking for `.git` (T13499).
+ */
+function isInsideGitWorkTree(projectRoot: string): boolean {
+  try {
+    execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
+      cwd: projectRoot,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether `path` is tracked by the enclosing git repository, or would be: an
+ * absent file in a git work tree counts, since a created AGENTS.md gets
+ * committed. False outside git or for an existing untracked file (T13489).
+ */
+function isGitTracked(projectRoot: string, path: string): boolean {
+  if (!isInsideGitWorkTree(projectRoot)) return false;
+  if (!existsSync(path)) return true;
+  try {
+    execFileSync('git', ['ls-files', '--error-unmatch', '--', path], {
+      cwd: projectRoot,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Init-mode delivery in a git work tree (T13489): AGENTS.md and every provider
+ * file get `@path` references, so no machine path is committed. A file whose
+ * existing block is already embedded refuses the downgrade and is re-embedded
+ * on its own; the other files keep their references (T13499).
+ */
+async function injectReferences(
+  projectRoot: string,
+  providers: Provider[],
+  caamp: typeof import('@cleocode/caamp'),
+  input: Omit<ManagedRefreshInput, 'journal'>,
+): Promise<ScaffoldResult> {
+  const { EmbeddedDeliveryDowngradeError, inject, resolveInstructionDelivery } = caamp;
+  const { actions } = input;
+  const injectOrEmbed = async (
+    path: string,
+    reference: string,
+    embedded: () => Promise<string | null>,
+  ): Promise<void> => {
+    try {
+      actions.push(`${basename(path)} references (${await inject(path, reference)})`);
+    } catch (err) {
+      if (!(err instanceof EmbeddedDeliveryDowngradeError)) throw err;
+      const body = await embedded();
+      if (body === null) {
+        actions.push(`${basename(path)} (embedded delivery unresolved; left unchanged)`);
+        return;
+      }
+      actions.push(`${basename(path)} self-contained CLEO content (${await inject(path, body)})`);
+    }
+  };
+  await injectOrEmbed(input.agentsMdPath, input.agentsReference, async () => input.agentsEmbedded);
+  const embedProjectRules = async (): Promise<string | null> => {
+    const rules = readFileSync(input.agentsMdPath, 'utf-8');
+    const delivery = await resolveInstructionDelivery(rules, projectRoot);
+    return delivery.findings.some((finding) => finding.kind !== 'duplicate')
+      ? null
+      : delivery.content;
+  };
+  // Same project paths as caamp injectAll.
+  const paths = new Set(
+    providers
+      .filter((provider) => provider.instructFile !== 'AGENTS.md')
+      .map((provider) => join(projectRoot, provider.instructFile)),
+  );
+  for (const path of paths) await injectOrEmbed(path, '@AGENTS.md', embedProjectRules);
+  return { action: 'repaired', path: input.agentsMdPath, details: actions.join('; ') };
+}
+
 /** Inputs to {@link refreshManagedProjectFiles}. */
 interface ManagedRefreshInput {
   agentsMdPath: string;
@@ -481,9 +577,10 @@ interface ManagedRefreshInput {
 /**
  * Upgrade-mode refresh of the project's instruction files (T13409).
  *
- * Each existing file is rewritten only inside its CAAMP block, with the
- * self-contained (embedded) delivery unless `.cleo/config.json` sets
- * `injection.delivery: "reference"`. Legacy `CLEO:START` blocks (CLEO-managed)
+ * Each existing file is rewritten only inside its CAAMP block: `@path`
+ * references for a git-tracked file (no machine paths in the repository), the
+ * self-contained (embedded) delivery for an untracked one, unless
+ * `.cleo/config.json` sets `injection.delivery`. Legacy `CLEO:START` blocks (CLEO-managed)
  * are dropped. User text outside the markers, including the user's own `@path`
  * lines, is byte-identical; a file without markers is skipped, an absent
  * provider file is not created, and a changed file is backed up first.
@@ -508,9 +605,10 @@ async function refreshManagedProjectFiles(
     createWhenAbsent: boolean,
   ): Promise<string | null> => {
     const name = basename(path);
+    const useReference = optIn !== null ? optIn === 'reference' : isGitTracked(projectRoot, path);
     if (!existsSync(path)) {
       if (!createWhenAbsent) return null;
-      const body = optIn === 'reference' ? reference : await embedded();
+      const body = useReference ? reference : await embedded();
       if (body === null) return null;
       await writeIfChanged(path, `${caamp.buildBlock(body.trim())}\n`, journal);
       actions.push(`${name} (created)`);
@@ -523,16 +621,23 @@ async function refreshManagedProjectFiles(
       actions.push(`${name} (no CAAMP markers; left unchanged)`);
       return null;
     }
-    // Self-contained delivery is the default (a literal `@path` is not proof the
-    // file loaded); `injection.delivery: "reference"` opts out.
-    const body = optIn === 'reference' ? reference : await embedded();
+    // T13489: a git-tracked file keeps `@path` references — an embedded block
+    // writes this machine's absolute paths into the repository. An untracked
+    // file gets the self-contained delivery. `injection.delivery` overrides both.
+    const body = useReference ? reference : await embedded();
     if (body === null) {
       actions.push(`${name} (embedded delivery unresolved; left unchanged)`);
       return null;
     }
     let next: string;
     try {
-      next = reconcile(stripped, body).content;
+      // reconcile refuses to turn an embedded block back into references; for a
+      // tracked file that is the repair, done in place on its single block.
+      const [only] = blocks;
+      next =
+        useReference && blocks.length === 1 && only
+          ? `${stripped.slice(0, only.startIndex)}${caamp.buildBlock(body.trim())}${stripped.slice(only.endIndex)}`
+          : reconcile(stripped, body).content;
     } catch (err) {
       actions.push(`${name} (left unchanged: ${err instanceof Error ? err.message : String(err)})`);
       return null;
