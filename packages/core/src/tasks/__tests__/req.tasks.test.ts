@@ -674,15 +674,24 @@ describe('typed requirement persistence', () => {
       }
     }
 
-    const write = (noRun?: boolean) =>
-      validateGateVerify(root, {
+    /**
+     * Record cleanupDone. T13512: `--no-run` needs cached passes only for the
+     * typed gates the write links, so by default it links every typed gate.
+     */
+    const write = async (noRun?: boolean, linkTyped = true) => {
+      const typed = (await accessor.getAcRows('T121'))
+        .filter((row) => row.kind === 'evidence_bound')
+        .map((row) => `;satisfies:T121#AC${row.ordinal}`)
+        .join('');
+      return validateGateVerify(root, {
         taskId: 'T121',
         gate: 'cleanupDone',
         value: true,
         agent: 'implementer',
-        evidence: 'note:explicit synthetic verification',
+        evidence: `note:explicit synthetic verification${linkTyped ? typed : ''}`,
         ...(noRun ? { noRun } : {}),
       });
+    };
 
     it('--run then the write executes a slow gate once, and a retry reuses it too', async () => {
       await cachedGateFixture(
@@ -815,6 +824,51 @@ describe('typed requirement persistence', () => {
       expect(result.error.message).toContain('cleo verify T121 --run');
       expect(runs()).toBe(0);
       expect(persisted(root, 'SELECT verification_json,updated_at FROM tasks_tasks')).toBe(before);
+    });
+
+    it('T13512: --no-run records a write that links no typed gate; the unlinked gate stays unmet', async () => {
+      await cachedGateFixture('process.exit(0);');
+      const result = await write(true, false);
+      expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+      if (!result.success) throw new Error(result.error.message);
+      expect(runs()).toBe(0);
+      // Not run, so not passed: completion still requires every typed gate.
+      expect(result.data.passed).toBe(false);
+      const stored = (await accessor.loadSingleTask('T121'))?.verification?.gateResults ?? [];
+      expect(stored.map((r) => [r.req, r.result])).toEqual([
+        ['VERIFY-121', 'error'],
+        ['COUNTED-121', 'error'],
+      ]);
+      expect(stored[1]?.errorMessage).toMatch(/no cached pass/);
+    });
+
+    it('T13512: --run says per gate whether its pass was cached, and under which HEAD', async () => {
+      await cachedGateFixture('process.exit(0);');
+      const preview = await previewTaskGates(root, { taskId: 'T121' });
+      expect(preview.persisted).toBe(false);
+      expect(preview.cache?.head).toMatch(/^[0-9a-f]{40}$/);
+      expect(preview.cache?.entries.map((e) => [e.req, e.cached])).toEqual([
+        ['VERIFY-121', true],
+        ['COUNTED-121', true],
+      ]);
+    });
+
+    it('T13512: a failing gate is reported as not cached, with the reason', async () => {
+      await cachedGateFixture('process.exit(1);');
+      const preview = await previewTaskGates(root, { taskId: 'T121' });
+      const counted = preview.cache?.entries.find((e) => e.req === 'COUNTED-121');
+      expect(counted).toMatchObject({
+        cached: false,
+        reason: expect.stringMatching(/only a pass is cached/),
+      });
+    });
+
+    it('T13512: --no-run still refuses when the write links a typed gate with no cached pass', async () => {
+      await cachedGateFixture('process.exit(0);');
+      const refused = await write(true, true);
+      expect(refused.success).toBe(false);
+      if (refused.success) throw new Error('expected a refusal');
+      expect(refused.error.code).toBe('E_GATE_NOT_CACHED');
     });
 
     it('never caches a failing gate as a pass', async () => {
