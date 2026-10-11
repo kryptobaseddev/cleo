@@ -208,6 +208,13 @@ export const EXEMPT = {
   'packages/core/src/memory/decision-cross-link.ts': {
     _nexus_meta: { count: 1, reason: NEXUS_META },
   },
+  'packages/core/src/memory/surprisal-tree.ts': {
+    brain_memory_trees: {
+      count: 2,
+      reason:
+        'derived (T12896): the surprisal pass truncates and rebuilds the tree each cycle on every device from the synced observations; never captured or replicated',
+    },
+  },
   'packages/core/src/nexus/analyze-orchestrator.ts': {
     _nexus_meta: { count: 4, reason: NEXUS_META },
     _nexus_parse_cache: {
@@ -263,6 +270,18 @@ export const EXEMPT = {
     tasks_schema_meta: { count: 1, reason: SCHEMA_STAMP },
   },
   'packages/core/src/store/sqlite.ts': { tasks_schema_meta: { count: 2, reason: SCHEMA_STAMP } },
+  'packages/core/src/store/sync/apply/write-api.ts': {
+    agent_registry_agent_capabilities: {
+      count: 2,
+      reason:
+        'derived junction (T13519): rebuilt from a received agent_registry_agents.capabilities after apply',
+    },
+    agent_registry_agent_skills: {
+      count: 2,
+      reason:
+        "derived junction (T13519): rebuilt from a received agent_registry_agents.skills after apply; local source='cant' rows kept",
+    },
+  },
   'packages/core/src/store/sync/apply-intent.ts': {
     _sync_apply_intent: {
       count: 1,

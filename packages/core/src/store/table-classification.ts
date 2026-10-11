@@ -426,10 +426,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'named in the ruling',
   },
   brain_memory_trees: {
-    class: 'portable-personal',
-    status: 'needs-owner-call',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then. T12896: the surprisal pass deletes and rebuilds every row each cycle, so synced-vs-derived is decided before it gets a uid (still exempt)',
+    class: 'derived',
+    status: 'resolved',
+    source: 'team-lead decision 2026-10-10 (T12896)',
+    note: 'surprisal clustering output that the surprisal pass deletes and rebuilds every cycle (surprisal-tree.ts), so each device recomputes it from the synced brain_observations; brain_observations.tree_id stays stripped from ops and is recomputed with it. Never captured, never replicated',
   },
   brain_modulators: {
     class: 'portable-personal',
@@ -538,7 +538,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'named in the ruling; INTEGER autoincrement PK needs a uid before merge. T12896: still exempt; not in the consolidated schema (the drizzle-brain reconcile creates it), so it joins that schema first, then is declared natural on (observation_id, task uid)',
+    note: 'named in the ruling. T12896: joins the consolidated project schema (migration 20261010170000_t12896b-brain-task-observations) and is declared natural on (observation_id, task uid); its INTEGER id is a local key that never travels',
   },
   brain_transcript_events: {
     class: 'portable-personal',
@@ -1581,9 +1581,10 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   agent_registry_accounts: {
-    class: 'portable-secret',
-    status: 'draft',
-    source: 'draft §3',
+    class: 'local-only',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'its parent agent_registry_users (dormant better-auth mirror) is local-only, so its rows cannot sync',
     columns: [
       {
         column: 'access_token',
@@ -1608,17 +1609,35 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   agent_registry_agent_capabilities: {
-    class: 'portable-personal',
-    status: 'draft',
-    source: 'draft §3',
+    class: 'derived',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'rebuilt from agent_registry_agents.capabilities: by syncJunctionTables on a local agent write, and by the apply write API (refreshAgentJunctions) on a received agent insert or capabilities change (T13519)',
   },
   agent_registry_agent_connections: { class: 'local-only', status: 'draft', source: 'draft §3' },
-  agent_registry_agent_skills: { class: 'portable-personal', status: 'draft', source: 'draft §3' },
+  agent_registry_agent_skills: {
+    class: 'derived',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: "derived from agent_registry_agents.skills plus this device's local source='cant' rows (agent-install, from the local .cant file): syncJunctionTables on a local write; the apply write API (refreshAgentJunctions) on a received insert or skills change rebuilds the non-cant rows and keeps the cant rows (T13519)",
+  },
   agent_registry_agents: {
     class: 'portable-personal',
     status: 'draft',
     source: 'draft §3',
     columns: [
+      {
+        column: 'owner_id',
+        class: 'local-only',
+        reason:
+          'FK into agent_registry_users, a local-only better-auth mirror (owner decision 2026-10-11, T12915)',
+      },
+      {
+        column: 'organization_id',
+        class: 'local-only',
+        reason:
+          'FK into agent_registry_organization, a local-only better-auth mirror (owner decision 2026-10-11, T12915)',
+      },
       {
         column: 'cant_path',
         class: 'local-only',
@@ -1671,14 +1690,24 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
       },
     ],
   },
-  agent_registry_capabilities: { class: 'portable-personal', status: 'draft', source: 'draft §3' },
+  agent_registry_capabilities: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'frozen legacy catalog carried over from signaldock: no current writer, so nothing to sync',
+  },
   agent_registry_claim_codes: {
     class: 'local-only',
     status: 'draft',
     source: 'draft §3',
     note: 'dormant better-auth mirror; server-authoritative if ever used',
   },
-  agent_registry_org_agent_keys: { class: 'portable-secret', status: 'draft', source: 'draft §3' },
+  agent_registry_org_agent_keys: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'its parent agent_registry_organization (dormant better-auth mirror) is local-only, so its rows cannot sync',
+  },
   agent_registry_organization: {
     class: 'local-only',
     status: 'draft',
@@ -1698,7 +1727,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
       },
     ],
   },
-  agent_registry_skills: { class: 'portable-personal', status: 'draft', source: 'draft §3' },
+  agent_registry_skills: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'frozen legacy catalog carried over from signaldock: no current writer, so nothing to sync',
+  },
   agent_registry_users: {
     class: 'local-only',
     status: 'draft',
@@ -1777,10 +1811,10 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'named in the ruling',
   },
   brain_memory_trees: {
-    class: 'portable-personal',
-    status: 'needs-owner-call',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then. T12896: the surprisal pass deletes and rebuilds every row each cycle, so synced-vs-derived is decided before it gets a uid (still exempt)',
+    class: 'derived',
+    status: 'resolved',
+    source: 'team-lead decision 2026-10-10 (T12896)',
+    note: 'surprisal clustering output that the surprisal pass deletes and rebuilds every cycle (surprisal-tree.ts), so each device recomputes it from the synced brain_observations; brain_observations.tree_id stays stripped from ops and is recomputed with it. Never captured, never replicated',
   },
   brain_modulators: {
     class: 'portable-personal',
@@ -2333,4 +2367,40 @@ export const SCHEMA_STATE_TABLES: Readonly<Record<TableScope, readonly string[]>
  */
 export function isSchemaStateTable(scope: TableScope, name: string): boolean {
   return SCHEMA_STATE_TABLES[scope].includes(name);
+}
+
+/**
+ * The `local-only` tables whose rows record facts about OTHER rows of the same
+ * file, so they are consistent only with the snapshot that holds those rows:
+ * `_exodus_recovery_bare_accounts`, the key digests of the bare legacy tables
+ * a reconcile carried (T13320; `BARE_ACCOUNTS_TABLE` in `store/sync/flags.ts`).
+ *
+ * They never sync, but a snapshot or bundle carries them with the rows they
+ * describe, and a vault restore does not carry this machine's rows whole: it
+ * keeps, per bare table, the record (the snapshot's, else this machine's) that
+ * still matches the bare table as restored. Carrying only this machine's
+ * record would refuse as a strand a restored store whose twins the snapshot's
+ * reconcile settled (T13324).
+ *
+ * Every name here is classified `local-only` in its scope (asserted by the
+ * classification tests).
+ *
+ * @task T13324
+ */
+export const SNAPSHOT_STATE_TABLES: Readonly<Record<TableScope, readonly string[]>> = {
+  project: ['_exodus_recovery_bare_accounts'],
+  global: [],
+};
+
+/**
+ * Whether a table records facts about the rows of its own file
+ * ({@link SNAPSHOT_STATE_TABLES}).
+ *
+ * @param scope - Which `cleo.db` the table lives in.
+ * @param name - The physical name as `sqlite_master` reports it.
+ * @returns `true` for a table a restore keeps as the snapshot has it.
+ * @task T13324
+ */
+export function isSnapshotStateTable(scope: TableScope, name: string): boolean {
+  return SNAPSHOT_STATE_TABLES[scope].includes(name);
 }

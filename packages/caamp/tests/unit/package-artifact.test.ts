@@ -22,6 +22,7 @@ const resources = [
   'dist/cli/index.js',
   'dist/cli/hook-entry.js',
   'dist/cli/update-check-entry.js',
+  'dist/cli/project-hook-entry.js',
   'studio-dist/index.js',
   'studio-dist/handler.js',
   'studio-dist/server/index.js',
@@ -428,6 +429,14 @@ describe('independent real npm-packed fixtures', () => {
 });
 
 describe('published CLI build shape', () => {
+  it('requires the project hook runtime imported directly by bin/cleo.js (T13344)', () => {
+    const files = fixture().files.filter((file) => file.path !== 'dist/cli/project-hook-entry.js');
+    const result = validatePackageArtifact(fixture(files), policy);
+    expect(result.valid).toBe(false);
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ code: 'missing', subject: 'cli-project-hook-entry' }),
+    );
+  });
   it('accepts the declared CLI bundle, hook runtime, update check and Studio resources', () => {
     expect(assertCleoShippedBuildShape(fixture().files)).toEqual([]);
   });

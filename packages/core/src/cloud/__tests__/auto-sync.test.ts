@@ -47,12 +47,31 @@ function seams(over: Partial<AutoSyncOptions> = {}) {
     admit: async () => ({ release: async () => {} }),
     lock: async () => ({ release: async () => {} }),
     sync,
+    // Behave as after T13549 releases sync.push/sync.pull.
+    unreleasedFlags: new Set(),
     ...over,
   };
   return { opts, sync };
 }
 
 describe('autoCloudSync (T13468)', () => {
+  it('is inert while sync.push and sync.pull are unreleased: no state, no sync, no fetch (T13553)', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('no network in this test');
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    const { unreleasedFlags: _released, ...unreleased } = seams().opts;
+    const { opts, sync } = seams();
+    for (const reason of ['session-end', 'tick', 'command'] as const) {
+      expect(await autoCloudSync(project, reason, { ...unreleased, sync })).toBe('disabled');
+    }
+    expect(sync).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(readAutoSyncState(home).lastAttemptAt).toBeUndefined();
+    expect(await autoCloudSync(project, 'session-end', opts)).toBe('synced');
+    vi.unstubAllGlobals();
+  });
+
   it('session end runs one sync and records success', async () => {
     const { opts, sync } = seams();
     expect(await autoCloudSync(project, 'session-end', opts)).toBe('synced');

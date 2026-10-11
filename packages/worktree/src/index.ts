@@ -70,7 +70,7 @@ export {
 } from './worktree-audit.js';
 export { createWorktree } from './worktree-create.js';
 export { destroyWorktree } from './worktree-destroy.js';
-export { runWorktreeHooks } from './worktree-hooks.js';
+export { runProjectWorktreeHooks, runWorktreeHooks } from './worktree-hooks.js';
 export { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
 export {
   listWorktrees,

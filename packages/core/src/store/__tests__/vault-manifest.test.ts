@@ -16,8 +16,18 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts';
 import { VAULT_REMOTE_PATH_PREFIX } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  BARE_ACCOUNTS_TABLE,
+  bareTableDigest,
+  legacyStrands,
+  recordBareAccounts,
+} from '../sync/flags.js';
 import { TRIGGER_SUSPEND_TABLE_DDL } from '../sync/trigger-classes.js';
-import { classifyTable, SCHEMA_STATE_TABLES } from '../table-classification.js';
+import {
+  classifyTable,
+  SCHEMA_STATE_TABLES,
+  SNAPSHOT_STATE_TABLES,
+} from '../table-classification.js';
 import {
   buildVaultManifest,
   carryMachineState,
@@ -1004,6 +1014,101 @@ describe('carry keeps the staged file schema state (T13104)', () => {
       for (const t of SCHEMA_STATE_TABLES[scope]) {
         const c = classifyTable(scope, t);
         expect({ scope, t, class: c.kind === 'entry' ? c.class : c.kind }).toEqual({
+          scope,
+          t,
+          class: 'local-only',
+        });
+        expect(isVaultManifestTable(scope, t)).toBe(false);
+      }
+    }
+  });
+});
+
+describe('carry settles the reconcile record against the bare tables as restored (T13324)', () => {
+  /**
+   * A store whose twin holds T1 and whose bare `tasks` (local-only) holds
+   * `bare`; with `record`, the store recorded a reconcile carrying that bare
+   * table (T13320). A recorded T2 the twin lacks was carried and deleted since.
+   */
+  const store = (name: string, bare: readonly string[], record: boolean) => {
+    const f = path.join(tmp, `${name}.db`);
+    const db = new DatabaseSync(f);
+    db.exec(`CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT);
+      CREATE TABLE tasks_tasks (id TEXT PRIMARY KEY, title TEXT);
+      INSERT INTO tasks_tasks VALUES ('T1', 'legacy');`);
+    const ins = db.prepare("INSERT INTO tasks VALUES (?, 'legacy')");
+    for (const id of bare) ins.run(id);
+    if (record) recordBareAccounts(db, [bareTableDigest(db, 'main', 'tasks')], `run-${name}`);
+    db.close();
+    return f;
+  };
+  const records = (f: string) => {
+    const db = new DatabaseSync(f, { readOnly: true });
+    try {
+      const has = db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get(BARE_ACCOUNTS_TABLE);
+      return has === undefined
+        ? []
+        : db.prepare(`SELECT bare_table, run FROM "${BARE_ACCOUNTS_TABLE}"`).all();
+    } finally {
+      db.close();
+    }
+  };
+  const strands = (f: string) => {
+    const db = new DatabaseSync(f);
+    try {
+      return legacyStrands(db);
+    } finally {
+      db.close();
+    }
+  };
+
+  it("a pull keeps the snapshot's record when this machine's bare table matches it", () => {
+    const staged = store('staged', ['T1', 'T2'], true);
+    const live = store('live', ['T1', 'T2'], false);
+    // Carrying this machine's record (none) would refuse the restored store.
+    expect(strands(live)).toEqual([
+      { bareTable: 'tasks', table: 'tasks_tasks', missing: 1, shadowed: 0 },
+    ]);
+    const out = carryMachineState(staged, live, 'project');
+    expect(records(staged)).toEqual([{ bare_table: 'tasks', run: 'run-staged' }]);
+    expect(out.preserved).not.toContain(BARE_ACCOUNTS_TABLE);
+    expect(out.skipped).not.toContain(BARE_ACCOUNTS_TABLE);
+    expect(strands(staged)).toEqual([]);
+  });
+
+  it("a pull keeps this machine's record when the snapshot has none that matches", () => {
+    const staged = store('staged', ['T1', 'T2'], false);
+    const live = store('live', ['T1', 'T2'], true);
+    carryMachineState(staged, live, 'project');
+    expect(records(staged)).toEqual([{ bare_table: 'tasks', run: 'run-live' }]);
+    expect(strands(staged)).toEqual([]);
+  });
+
+  it('a record whose key digest does not match the bare table as restored is dropped', () => {
+    const staged = store('staged', ['T1', 'T2'], true);
+    const live = store('live', ['T1', 'T2', 'T3'], false);
+    carryMachineState(staged, live, 'project');
+    expect(records(staged)).toEqual([]);
+    expect(strands(staged)).toEqual([
+      { bareTable: 'tasks', table: 'tasks_tasks', missing: 2, shadowed: 0 },
+    ]);
+  });
+
+  it('a new machine has no bare rows, so the record goes and nothing is stranded', () => {
+    const staged = store('staged', ['T1', 'T2'], true);
+    carryMachineState(staged, null, 'project', { snapshotRoot: '/A/root' });
+    expect(records(staged)).toEqual([]);
+    expect(strands(staged)).toEqual([]);
+  });
+
+  it('every snapshot-state table is local-only in its scope (never synced, never in the manifest)', () => {
+    expect(SNAPSHOT_STATE_TABLES.project).toContain(BARE_ACCOUNTS_TABLE);
+    for (const scope of ['project', 'global'] as const) {
+      for (const t of SNAPSHOT_STATE_TABLES[scope]) {
+        const c = classifyTable(scope, t);
+        expect({ scope, t, class: 'class' in c ? c.class : c.kind }).toEqual({
           scope,
           t,
           class: 'local-only',

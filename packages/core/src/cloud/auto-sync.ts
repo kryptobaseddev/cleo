@@ -6,7 +6,9 @@
  *   - session end: the detached session-end worker
  *     (`sessions/session-end-snapshot.ts`), after its snapshot;
  *   - the sentient tick (`sentient/tick.ts`), at most once per
- *     {@link autoSyncIntervalMs}.
+ *     {@link autoSyncIntervalMs};
+ *   - a normal CLI command in a linked project (T13553,
+ *     `cloud/auto-sync-command.ts`): a detached child, same interval.
  *
  * Best-effort and bounded: a store with no sync flag on, a signed-out
  * device or an unlinked project is a quiet skip; any other failure
@@ -23,6 +25,7 @@ import { join } from 'node:path';
 import type { CloudWarning } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
 import { getCleoHome, resolveCleoDir } from '../paths.js';
+import { UNRELEASED_FLAGS } from '../store/sync/flags.js';
 
 /** Default minimum gap between tick-driven syncs. */
 export const AUTO_SYNC_INTERVAL_MS = 15 * 60_000;
@@ -45,7 +48,7 @@ const QUIET_SKIP_CODES = new Set([
 ]);
 
 /** What triggered an automatic sync. */
-export type AutoSyncReason = 'session-end' | 'tick';
+export type AutoSyncReason = 'session-end' | 'tick' | 'command';
 
 /** Persisted state of automatic sync. */
 export interface AutoSyncState {
@@ -83,6 +86,19 @@ export interface AutoSyncOptions {
   lock?: (
     onCompromised: (err: Error) => void,
   ) => Promise<{ release: () => Promise<void>; abandon?: () => Promise<void> }>;
+  /** The unreleased flags; test seam. @defaultValue UNRELEASED_FLAGS */
+  unreleasedFlags?: ReadonlySet<string>;
+}
+
+/**
+ * Whether automatic sync may run: never while both `sync.push` and
+ * `sync.pull` are unreleased (T13553; T13549 releases them).
+ *
+ * @param unreleased - The unreleased set. @defaultValue UNRELEASED_FLAGS
+ * @returns True once either flag ships.
+ */
+export function autoSyncReleased(unreleased: ReadonlySet<string> = UNRELEASED_FLAGS): boolean {
+  return !(unreleased.has('sync.push') && unreleased.has('sync.pull'));
 }
 
 /**
@@ -187,7 +203,7 @@ function errorCode(err: unknown): string {
  * Never throws.
  *
  * @param projectRoot - The project whose session ended or whose tick ran.
- * @param reason - What triggered it; a tick honours {@link autoSyncIntervalMs}.
+ * @param reason - What triggered it; a tick or command honours {@link autoSyncIntervalMs}.
  * @param opts - Test seams.
  * @returns What happened.
  * @task T13468
@@ -201,7 +217,9 @@ export async function autoCloudSync(
   const cleoHome = opts.cleoHome ?? getCleoHome();
   const now = opts.now ?? new Date();
   try {
-    const gap = reason === 'tick' ? autoSyncIntervalMs() : AUTO_SYNC_SESSION_END_MIN_MS;
+    // Inert until T13549 releases sync.push/sync.pull: no state read, no network.
+    if (!autoSyncReleased(opts.unreleasedFlags)) return 'disabled';
+    const gap = reason === 'session-end' ? AUTO_SYNC_SESSION_END_MIN_MS : autoSyncIntervalMs();
     if (gap === null) return 'disabled';
     const due = (): boolean => {
       const last = readAutoSyncState(cleoHome).lastAttemptAt;
