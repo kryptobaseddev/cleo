@@ -342,6 +342,41 @@ describe('runUpgrade in a git checkout (T13489)', () => {
     expect(agents).not.toContain('CAAMP:SOURCE');
   });
 
+  it('treats a CLEO root nested inside a git work tree as git (T13499)', async () => {
+    // The repo's .git sits one level above the CLEO root.
+    const repo = dirname(project);
+    rmSync(join(project, '.git'), { recursive: true, force: true });
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], {
+        cwd: repo,
+        stdio: 'ignore',
+      });
+    git('init', '-q');
+    git('add', 'project');
+    git('commit', '-qm', 'fixture', '--no-verify');
+    const { ensureInjection } = await import('../injection.js');
+    await ensureInjection(project, { mode: 'upgrade' });
+    expect(readFileSync(join(project, 'CLAUDE.md'), 'utf-8')).toBe(CLAUDE_MD);
+    rmSync(join(project, 'AGENTS.md'));
+    await ensureInjection(project);
+    expect(readFileSync(join(project, 'AGENTS.md'), 'utf-8')).not.toContain('CAAMP:SOURCE');
+  });
+
+  it('init re-embeds only the file whose block is already embedded (T13499)', async () => {
+    const stamp = `<!-- CAAMP:SOURCE ${encodeURIComponent(join(home, '.agents', 'AGENTS.md'))} ${'0'.repeat(64)} -->`;
+    writeFileSync(
+      join(project, 'CLAUDE.md'),
+      `<!-- CAAMP:START -->\n${stamp}\nold\n<!-- CAAMP:END -->${CLAUDE_OUTSIDE}`,
+    );
+    commitAll(project);
+    const { ensureInjection } = await import('../injection.js');
+    await ensureInjection(project);
+    expect(readFileSync(join(project, 'AGENTS.md'), 'utf-8')).not.toContain('CAAMP:SOURCE');
+    const claude = readFileSync(join(project, 'CLAUDE.md'), 'utf-8');
+    expect(claude).toContain('CAAMP:SOURCE');
+    expect(claude.endsWith(`<!-- CAAMP:END -->${CLAUDE_OUTSIDE}`)).toBe(true);
+  });
+
   it('leaves an existing project-context.json untouched without --detect', async () => {
     const before = readFileSync(join(project, '.cleo', 'project-context.json'), 'utf-8');
     await runUpgrade({ cwd: project });

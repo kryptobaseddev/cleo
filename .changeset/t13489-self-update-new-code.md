@@ -26,6 +26,10 @@ and `project-context.json`. self-update now spawns the installed CLI
 - Upgrade creates `.cleo/project-context.json` only when it is missing.
   `cleo upgrade --detect` re-detects it, keeping its keys and order.
 
+The new CLI is started from the same script path, which is right for
+`npm install -g`. A pnpm or volta install that keeps each version in its own
+directory could still start the old one; run `cleo upgrade` after updating.
+
 If you are on 2026.10.5 or older, your first self-update to this release still
 runs the old maintenance, because that code is in the binary you run it with.
 Update with `cleo self-update --no-auto-upgrade`, then run `cleo upgrade`.

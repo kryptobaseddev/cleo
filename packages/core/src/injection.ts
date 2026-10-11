@@ -411,22 +411,13 @@ export async function ensureInjection(
   // `@path` references; an embedded delivery would put this machine's absolute
   // paths into the repository. `injection.delivery` overrides.
   const optIn = readDeliveryOptIn(projectRoot);
-  if (optIn !== null ? optIn === 'reference' : existsSync(join(projectRoot, '.git'))) {
-    const { EmbeddedDeliveryDowngradeError } = caamp;
-    try {
-      actions.push(`AGENTS.md references (${await inject(agentsMdPath, agentsMdContent)})`);
-      const results = await injectAll(
-        providers.filter((provider) => provider.instructFile !== 'AGENTS.md'),
-        projectRoot,
-        'project',
-        '@AGENTS.md',
-      );
-      for (const [filePath, action] of results) actions.push(`${basename(filePath)} (${action})`);
-      return { action: 'repaired', path: agentsMdPath, details: actions.join('; ') };
-    } catch (err) {
-      // An existing embedded block is refreshed embedded; `cleo upgrade` converts it.
-      if (!(err instanceof EmbeddedDeliveryDowngradeError)) throw err;
-    }
+  if (optIn !== null ? optIn === 'reference' : isInsideGitWorkTree(projectRoot)) {
+    return injectReferences(projectRoot, providers, caamp, {
+      agentsMdPath,
+      agentsReference: agentsMdContent,
+      agentsEmbedded: delivery.content,
+      actions,
+    });
   }
   const agentsAction = await inject(agentsMdPath, delivery.content);
   actions.push(`AGENTS.md self-contained CLEO content (${agentsAction})`);
@@ -489,12 +480,28 @@ function readDeliveryOptIn(projectRoot: string): 'embedded' | 'reference' | null
 }
 
 /**
- * Whether `path` is tracked by the project's git repository, or would be: an
- * absent file in a git checkout counts, since a created AGENTS.md gets
+ * Whether `projectRoot` is inside a git work tree. The `.git` may sit above
+ * the CLEO root, so this asks git instead of looking for `.git` (T13499).
+ */
+function isInsideGitWorkTree(projectRoot: string): boolean {
+  try {
+    execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
+      cwd: projectRoot,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether `path` is tracked by the enclosing git repository, or would be: an
+ * absent file in a git work tree counts, since a created AGENTS.md gets
  * committed. False outside git or for an existing untracked file (T13489).
  */
 function isGitTracked(projectRoot: string, path: string): boolean {
-  if (!existsSync(join(projectRoot, '.git'))) return false;
+  if (!isInsideGitWorkTree(projectRoot)) return false;
   if (!existsSync(path)) return true;
   try {
     execFileSync('git', ['ls-files', '--error-unmatch', '--', path], {
@@ -505,6 +512,55 @@ function isGitTracked(projectRoot: string, path: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Init-mode delivery in a git work tree (T13489): AGENTS.md and every provider
+ * file get `@path` references, so no machine path is committed. A file whose
+ * existing block is already embedded refuses the downgrade and is re-embedded
+ * on its own; the other files keep their references (T13499).
+ */
+async function injectReferences(
+  projectRoot: string,
+  providers: Provider[],
+  caamp: typeof import('@cleocode/caamp'),
+  input: Omit<ManagedRefreshInput, 'journal'>,
+): Promise<ScaffoldResult> {
+  const { EmbeddedDeliveryDowngradeError, inject, resolveInstructionDelivery } = caamp;
+  const { actions } = input;
+  const injectOrEmbed = async (
+    path: string,
+    reference: string,
+    embedded: () => Promise<string | null>,
+  ): Promise<void> => {
+    try {
+      actions.push(`${basename(path)} references (${await inject(path, reference)})`);
+    } catch (err) {
+      if (!(err instanceof EmbeddedDeliveryDowngradeError)) throw err;
+      const body = await embedded();
+      if (body === null) {
+        actions.push(`${basename(path)} (embedded delivery unresolved; left unchanged)`);
+        return;
+      }
+      actions.push(`${basename(path)} self-contained CLEO content (${await inject(path, body)})`);
+    }
+  };
+  await injectOrEmbed(input.agentsMdPath, input.agentsReference, async () => input.agentsEmbedded);
+  const embedProjectRules = async (): Promise<string | null> => {
+    const rules = readFileSync(input.agentsMdPath, 'utf-8');
+    const delivery = await resolveInstructionDelivery(rules, projectRoot);
+    return delivery.findings.some((finding) => finding.kind !== 'duplicate')
+      ? null
+      : delivery.content;
+  };
+  // Same project paths as caamp injectAll.
+  const paths = new Set(
+    providers
+      .filter((provider) => provider.instructFile !== 'AGENTS.md')
+      .map((provider) => join(projectRoot, provider.instructFile)),
+  );
+  for (const path of paths) await injectOrEmbed(path, '@AGENTS.md', embedProjectRules);
+  return { action: 'repaired', path: input.agentsMdPath, details: actions.join('; ') };
 }
 
 /** Inputs to {@link refreshManagedProjectFiles}. */
