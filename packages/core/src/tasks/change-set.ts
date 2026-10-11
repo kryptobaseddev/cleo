@@ -634,17 +634,21 @@ async function defaultListTaskDecisions(storeRoot: string, taskId: string): Prom
  */
 function locateDocBytes(storeRoot: string, sha256: string): string | null {
   if (!/^[0-9a-f]{64}$/.test(sha256)) return null;
-  const blob = join('.cleo', 'blobs', 'blobs', sha256);
-  if (existsSync(join(storeRoot, blob))) return blob;
+  // T13496: the attachment store first — where `cleo docs fetch` resolves a
+  // task's attached doc — so the planned files: path names the same file the
+  // agent reads. The blob store holds the same bytes for canonical docs and is
+  // the fallback.
   const dir = join('.cleo', 'attachments', 'sha256', sha256.slice(0, 2));
   try {
     const hit = readdirSync(join(storeRoot, dir)).find(
       (name) => name === sha256.slice(2) || name.startsWith(`${sha256.slice(2)}.`),
     );
-    return hit ? join(dir, hit) : null;
+    if (hit) return join(dir, hit);
   } catch {
-    return null;
+    // no attachment store entry for this digest
   }
+  const blob = join('.cleo', 'blobs', 'blobs', sha256);
+  return existsSync(join(storeRoot, blob)) ? blob : null;
 }
 
 function emptyChangeSet(root: string, rootSource: ChangeSetRootSource): TaskChangeSet {
