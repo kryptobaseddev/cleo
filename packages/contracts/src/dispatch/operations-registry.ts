@@ -8600,6 +8600,41 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // ── docs.triage (T13446 — Epic T13340 / Saga T13339) ──────────────────────
+  {
+    gateway: 'query',
+    domain: 'docs',
+    operation: 'triage',
+    description:
+      'docs.triage (query) — batch-triage docs through the docs.triage decision site: ' +
+      'proposed keep/update/supersede/archive verdicts plus staleness scores, oldest first ' +
+      '(default: drafts). Proposals only — never mutates a doc; --record persists each ' +
+      'verdict as a proposed D#### decision.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'limit',
+        type: 'number' as const,
+        required: false,
+        description: 'Maximum docs to scan, oldest first (default 25)',
+      },
+      {
+        name: 'status',
+        type: 'string' as const,
+        required: false,
+        description: 'Lifecycle status to scan (default draft)',
+      },
+      {
+        name: 'record',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Persist every verdict as a proposed D#### decision (default false)',
+      },
+    ],
+  },
   {
     gateway: 'mutate',
     domain: 'docs',
