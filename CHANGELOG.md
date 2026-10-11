@@ -2,7 +2,7 @@
 
 ## [2026.10.7] (2026-10-11)
 
-> **Upgrading from 2026.10.5 or older:** run `cleo self-update --no-auto-upgrade`, then `cleo upgrade`. Older binaries run their own post-update maintenance in-process, which can rewrite tracked project files. From 2026.10.6 on, `cleo self-update` is safe.
+> **Upgrading from 2026.10.6 or older:** run `cleo self-update --no-auto-upgrade`, then `cleo upgrade`. Older binaries run their own post-update maintenance in-process, which can rewrite tracked project files. From 2026.10.7 on, `cleo self-update` is safe.
 
 ### Added
 
