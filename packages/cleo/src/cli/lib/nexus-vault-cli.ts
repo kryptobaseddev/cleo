@@ -14,6 +14,7 @@ import type {
   CloudActivityResult,
   CloudConflictResolveResult,
   CloudConflictsResult,
+  CloudDeviceOverviewResult,
   CloudJournalActivityResult,
   CloudLeaseReleaseResult,
   CloudPushResult,
@@ -357,6 +358,10 @@ export async function runCloudLease(args: Args): Promise<void> {
  * @param args - Parsed args.
  */
 export async function runCloudActivity(args: Args): Promise<void> {
+  if (args.devices === true) {
+    await runCloudDeviceOverview(args);
+    return;
+  }
   if (args.journal === true) {
     await runCloudJournalActivity(args);
     return;
@@ -386,7 +391,7 @@ export async function runCloudActivity(args: Args): Promise<void> {
           (i) =>
             `${i.at} ${who(i.deviceName, i.deviceId ?? 'account')}${i.thisDevice ? ' (this machine)' : ''} ${terminalSafe(i.action)}${i.target ? ` ${terminalSafe(i.target)}` : ''}`,
         )
-        .join('; ')}${r.items.length > 10 ? '; …' : ''}`,
+        .join('; ')}${r.items.length > 10 ? '; …' : ''}\n${ACTIVITY_HINT}`,
   );
 }
 
@@ -436,6 +441,43 @@ async function runCloudJournalActivity(args: Args): Promise<void> {
               .join(', ')}`,
         ),
         ...(r.items.length > 10 ? ['  …'] : []),
+        ACTIVITY_HINT,
+      ].join('\n'),
+  );
+}
+
+/** Points each activity view at the others (T13482). */
+const ACTIVITY_HINT =
+  'see also: `cleo cloud activity` (server events), `--journal` (journal changes), `--devices` (both, per device)';
+
+/**
+ * `cleo cloud activity --devices [--offline] [--scope]`: one row per device
+ * merging presence, its newest journal change and its newest server event
+ * (T13482).
+ *
+ * @param args - Parsed args.
+ */
+async function runCloudDeviceOverview(args: Args): Promise<void> {
+  await runCloudRead<CloudDeviceOverviewResult>(
+    'cloud.activity.devices',
+    async () => {
+      const { nexusDeviceOverview } = await import(
+        /* webpackIgnore: true */ '@cleocode/core/cloud/nexus-cloud-device-overview.js'
+      );
+      return nexusDeviceOverview({
+        apiUrl: nexusApiUrlArg(args),
+        scope: scopeArg(args, 'cloud.activity.devices'),
+        offline: args.offline === true,
+      });
+    },
+    (r) =>
+      [
+        `${r.devices.length} device(s), newest activity first:`,
+        ...r.devices.map(
+          (d) =>
+            `  ${who(d.deviceName, d.deviceId)}${d.thisDevice ? ' (this machine)' : ''}: ${d.online === null ? 'presence unknown' : d.online ? 'online' : 'offline'}${d.lastSeenAt ? `, seen ${d.lastSeenAt}` : ''}${d.journal ? `; journal ${d.journal.txns} txn(s), last ${d.journal.lastAt}${d.journal.last ? ` ${terminalSafe(d.journal.last.op)} (${d.journal.last.tables.map(terminalSafe).join(', ')})` : ''}` : ''}${d.server ? `; server ${d.server.at} ${terminalSafe(d.server.action)}` : ''}`,
+        ),
+        ACTIVITY_HINT,
       ].join('\n'),
   );
 }

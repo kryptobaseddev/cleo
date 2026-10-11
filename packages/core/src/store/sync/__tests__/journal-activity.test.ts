@@ -19,6 +19,7 @@ import type { LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateEd25519 } from '../../../cloud/crypto.js';
+import { mergeDeviceOverview } from '../../../cloud/nexus-cloud-device-overview.js';
 import {
   JournalActivitySinceError,
   nexusJournalActivity,
@@ -414,5 +415,101 @@ describe('journal activity lists what each device changed and when (T13369)', ()
     await expect(nexusJournalActivity({ since: 'yesterday-ish', offline: true })).rejects.toThrow(
       JournalActivitySinceError,
     );
+  });
+});
+
+describe('cloud activity --devices merges presence, journal and server events per device (T13482)', () => {
+  const NOW = Date.parse('2026-10-11T12:00:00.000Z');
+  const device = (
+    deviceId: string,
+    name: string,
+    state: 'active' | 'signed-out' | 'revoked',
+    lastPresenceAt: string | null,
+    current = false,
+  ) => ({ deviceId, name, state, lastPresenceAt, current });
+
+  async function sources() {
+    const { a } = await scenario();
+    const page = journalActivity(a.db, local(a));
+    return {
+      scope: 'project' as const,
+      journal: { scope: 'project' as const, ...page, warnings: [] },
+    };
+  }
+
+  it('gives one row per device, newest activity first, with presence, journal and server columns', async () => {
+    const src = await sources();
+    const r = mergeDeviceOverview({
+      ...src,
+      nowMs: NOW,
+      warnings: [],
+      devices: [
+        device('dev-a', 'desk A', 'active', '2026-10-11T11:00:00.000Z', true),
+        device('dev-b', 'laptop B', 'active', '2026-10-01T00:00:00.000Z'),
+        device('dev-c', 'old C', 'revoked', null),
+      ],
+      server: [
+        {
+          at: '2099-01-01T00:00:00.000Z',
+          action: 'snapshot.push',
+          target: 'project:x',
+          deviceId: 'dev-c',
+          deviceName: null,
+          thisDevice: false,
+        },
+        {
+          at: '2026-10-09T00:00:00.000Z',
+          action: 'lease.take',
+          target: null,
+          deviceId: 'dev-b',
+          deviceName: null,
+          thisDevice: false,
+        },
+      ],
+    });
+    expect(r.warnings).toEqual([]);
+    const order = r.devices.map((d) => d.lastActivityAt ?? '');
+    expect(order).toEqual([...order].sort().reverse());
+    expect(r.devices[0]?.deviceId).toBe('dev-c');
+    const byId = new Map(r.devices.map((d) => [d.deviceId, d]));
+    const b = byId.get('dev-b');
+    expect(b?.deviceName).toBe('laptop B');
+    expect(b?.online).toBe(false);
+    expect(b?.journal?.txns).toBe(2);
+    expect(b?.journal?.last).toEqual({
+      op: 'tasks.update',
+      status: 'applied',
+      tables: ['tasks_tasks'],
+    });
+    expect(b?.server).toEqual({
+      at: '2026-10-09T00:00:00.000Z',
+      action: 'lease.take',
+      target: null,
+    });
+    const a = byId.get('dev-a');
+    expect([a?.thisDevice, a?.online, a?.journal?.txns, a?.server]).toEqual([true, true, 1, null]);
+    const c = byId.get('dev-c');
+    expect([c?.state, c?.online, c?.journal, c?.server?.action]).toEqual([
+      'revoked',
+      null,
+      null,
+      'snapshot.push',
+    ]);
+  });
+
+  it('offline shows the local journal only, with a warning', async () => {
+    const src = await sources();
+    const r = mergeDeviceOverview({
+      ...src,
+      nowMs: NOW,
+      warnings: [],
+      devices: null,
+      server: null,
+    });
+    expect(r.devices.map((d) => [d.deviceId, d.online, d.server, d.journal?.txns])).toEqual([
+      ['dev-b', null, null, 2],
+      ['dev-a', null, null, 1],
+    ]);
+    expect(r.warnings.map((w) => w.code)).toEqual(['W_DEVICE_OVERVIEW_LOCAL_ONLY']);
   });
 });

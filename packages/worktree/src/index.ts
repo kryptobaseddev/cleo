@@ -105,7 +105,7 @@ export {
   migrateAllWorktreeIdentities,
   migrateWorktreeIdentity,
 } from './worktree-migrate.js';
-export { installWorktreeDependencies } from './worktree-pnpm.js';
+export { configureWorktreePnpmStore, installWorktreeDependencies } from './worktree-pnpm.js';
 export type { CoreWorktreeLeakResult, InstallStatus } from './worktree-preflight.js';
 export {
   assertNoWorktreeConfigLeak,
