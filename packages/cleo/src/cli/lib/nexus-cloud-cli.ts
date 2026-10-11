@@ -140,7 +140,9 @@ function syncSummary(r: CloudStatusResult): string {
 
 /**
  * One store's clause of the `cleo cloud status` line: its flags, unsealed
- * and sealed counts, quarantined captures and held writes (§3.5 Rule 5).
+ * and sealed counts, the stream's genesis cut, unsent ops and pull position
+ * (T13370), quarantined captures, the seen-txn ledger's size (T13317) and
+ * held writes (§3.5 Rule 5).
  *
  * @param st - The store's sync block.
  * @returns The clause, with a leading space.
@@ -159,6 +161,11 @@ export function syncStreamClause(st: CloudStatusSyncStream): string {
         : 'all flags off',
     `${st.unsealedOps} unsealed`,
     `last sealed seq ${st.lastSealedSeq ?? 'none'}`,
+    ...(st.genesisCut === null
+      ? []
+      : [`cut at ${st.genesisCut}${st.genesisPending ? ' (checkpoint not yet stored)' : ''}`]),
+    ...(st.unsentOps.known ? [`${st.unsentOps.value} unsent`] : []),
+    ...(st.lastPulledSeq.known ? [`pulled to ${st.lastPulledSeq.value}`] : []),
     ...(quarantined > 0 ? [`${quarantined} quarantined`] : []),
     ...(st.undo.state === 'ok'
       ? []
@@ -167,14 +174,23 @@ export function syncStreamClause(st: CloudStatusSyncStream): string {
             ? `undo at ${Math.round((st.undo.bytes / st.undo.budget) * 100)}% of its budget: pull to drain it`
             : `undo budget exceeded${st.undo.exceededAt ? ` since ${st.undo.exceededAt}` : ''}: a rebind runs at the next pull`,
         ]),
+    ...(st.seenTxns.rows > 0
+      ? [`${st.seenTxns.rows} seen txn(s), about ${formatKiB(st.seenTxns.bytes)}`]
+      : []),
     ...(st.held.count > 0
       ? [
           `${st.held.count} held by a rebase${long > 0 ? ` (${long} older than ${st.held.warnDays} days)` : ''}`,
         ]
       : []),
-    'server fields unknown until T12343/S4',
+    ...(st.unsentOps.known ? [] : ['server fields unknown until T12343/S4']),
   ];
   return ` Sync (${st.scope}${st.stream ? ` ${st.stream}` : ''}): ${parts.join('; ')}.`;
+}
+
+/** Bytes as KiB, one decimal under 10 KiB. */
+function formatKiB(bytes: number): string {
+  const kib = bytes / 1024;
+  return `${kib < 10 ? kib.toFixed(1) : Math.round(kib)} KiB`;
 }
 
 /**

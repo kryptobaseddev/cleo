@@ -72,11 +72,15 @@ function fetchInBackground(slug: string): Promise<FetchOutcome> {
       try {
         const parsed = JSON.parse(stdout) as {
           success: boolean;
-          data?: { metadata?: { sha256?: string }; bytesBase64?: string };
+          data?: { metadata?: { sha256?: string }; content?: string; bytesBase64?: string };
         };
-        if (parsed.success && parsed.data?.bytesBase64) {
-          // Hash the decoded bytes — proves both processes got the SAME
-          // canonical content, not just the same metadata.
+        if (parsed.success && parsed.data?.content) {
+          // Text docs carry decoded content (T13352) — hash its UTF-8 bytes
+          // to prove both processes got the SAME canonical content.
+          const bytes = Buffer.from(parsed.data.content, 'utf-8');
+          sha256 = createHash('sha256').update(bytes).digest('hex');
+        } else if (parsed.success && parsed.data?.bytesBase64) {
+          // Binary docs still carry base64.
           const bytes = Buffer.from(parsed.data.bytesBase64, 'base64');
           sha256 = createHash('sha256').update(bytes).digest('hex');
         } else if (parsed.success && parsed.data?.metadata?.sha256) {

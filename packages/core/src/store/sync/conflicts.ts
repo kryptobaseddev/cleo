@@ -102,6 +102,36 @@ export function recordConflicts(
 }
 
 /**
+ * Record a conflict of one op unless that op already has one of its kind.
+ * For a transaction re-planned on every apply call while it stays pending
+ * (a held uid collision, T13394), so the hold is listed once, not per pass.
+ *
+ * @param db - The store, inside the apply frame's transaction.
+ * @param site - The inbox transaction and op index.
+ * @param conflict - The conflict.
+ * @param origin - The op's origin replica.
+ * @param nowIso - The time.
+ * @returns Whether it was recorded now.
+ */
+export function recordConflictOnce(
+  db: DatabaseSync,
+  site: ConflictSite,
+  conflict: MergeConflict,
+  origin: string,
+  nowIso: string,
+): boolean {
+  const seen = db
+    .prepare(
+      `SELECT 1 FROM _sync_conflict
+        WHERE stream = ? AND seq = ? AND txn_idx = ? AND op_idx = ? AND kind = ?`,
+    )
+    .get(site.stream, site.seq, site.txnIdx, site.opIdx, conflict.kind);
+  if (seen) return false;
+  recordConflicts(db, site, [conflict], origin, nowIso);
+  return true;
+}
+
+/**
  * The recorded conflicts, oldest first.
  *
  * @param db - The store.
@@ -158,6 +188,27 @@ export function resolveConflict(db: DatabaseSync, id: number, nowIso: string): b
     .prepare('UPDATE _sync_conflict SET resolved_at = ? WHERE id = ? AND resolved_at IS NULL')
     .run(nowIso, id);
   return Number(r.changes) > 0;
+}
+
+/**
+ * Mark the held-collision conflicts of one inbox transaction resolved, once
+ * it has gone through (T13397): the uid collision settled by the loser's
+ * re-key, or the local key freed. Other conflicts stay open.
+ *
+ * @param db - The store, inside the apply frame's transaction.
+ * @param key - The inbox transaction.
+ * @param nowIso - The time.
+ * @returns How many were resolved.
+ */
+export function resolveHeldConflicts(db: DatabaseSync, key: InboxKey, nowIso: string): number {
+  const r = db
+    .prepare(
+      `UPDATE _sync_conflict SET resolved_at = ?
+        WHERE stream = ? AND seq = ? AND txn_idx = ? AND resolution = 'op-held'
+          AND kind IN ('uid-collision', 'key-collision') AND resolved_at IS NULL`,
+    )
+    .run(nowIso, key.stream, key.seq, key.txnIdx);
+  return Number(r.changes);
 }
 
 /**

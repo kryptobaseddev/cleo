@@ -97,6 +97,15 @@ export interface ProjectEvidenceContext {
    * CLEO's own installed hook files are always excluded (T13135, gh#1805).
    */
   scopeExcludes?: string[];
+  /**
+   * Globs of TRACKED files a harness rewrites while a run executes (a goal
+   * runtime's `run.json`, its ledger), left out of the evidence tree hash so
+   * the run cannot stale its own receipt; they stay tracked for history
+   * (T13554). Read from the default branch only. A glob that matches the
+   * project context, a `goal.yaml`, an oracle or a typed gate's input is
+   * refused (E_EVIDENCE_RUNTIME_PATH_PROTECTED). Default: none.
+   */
+  runtimePaths?: string[];
 }
 
 /**

@@ -8,7 +8,7 @@
  * which PATHEXT never matches.
  */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
 import type { AgentWorktreeState } from '@cleocode/contracts';
@@ -69,11 +69,14 @@ describe('ensureGitShimDir launcher on win32 (T12605)', () => {
   it('writes a git.cmd launcher, not an extensionless symlink', async () => {
     const { ensureGitShimDir } = await import('../branch-lock.js');
     root = mkdtempSync(join(tmpdir(), 'shim-win32-'));
+    const shimBin = join(root, 'shim.js');
+    writeFileSync(shimBin, '// shim\n');
     setPlatform('win32');
-    const shimDir = ensureGitShimDir(root);
+    const shim = ensureGitShimDir(root, shimBin);
     setPlatform(realPlatform);
-    const cmd = readFileSync(join(shimDir, 'git.cmd'), 'utf-8');
-    expect(cmd).toContain('_shim_bin.cjs');
+    expect(shim.installed).toBe(true);
+    const cmd = readFileSync(join(shim.dir, 'git.cmd'), 'utf-8');
+    expect(cmd).toContain(shimBin);
     expect(cmd).toContain('%*');
   });
 });

@@ -190,11 +190,55 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §2.8 Persist before push (T12343)',
     note: "segments this replica built for a stream, at their replicaSeq: the exact sealed bytes a push sends (never re-sealed) and whether the server stored them. This device's outbox only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
   },
+  _sync_uid_alias: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source:
+      'journal spec t12342-t12343-journal-design §2.6 K ops; t12341-uid-scheme §6.4 step 1 (T13397)',
+    note: "uid re-keys this replica applied, by (table, old uid, old birth fingerprint): a held collision loser's ops and its origin's earlier references follow them to the new uid. Derived from applied K ops, this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13397)",
+  },
+  _sync_uid_ref_alias: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source:
+      'journal spec t12342-t12343-journal-design §2.6 K ops; t12341-uid-scheme §6.4 step 1 (T13399)',
+    note: "one reference boundary per (table, old uid, writer): references to a re-keyed uid written by a replica that had placed the row, before that replica's K or announcement, follow it to the new uid. Derived from applied K ops, this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13399)",
+  },
+  _sync_authored: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 't12341-uid-scheme §6.4 / §9.2 origin rule (T13399)',
+    note: "minted rows this replica sealed an insert of, by (table, uid, birth fingerprint): the collision settle path's origin test, kept after the sealed ops are folded. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13399)",
+  },
   _sync_segment_txn: {
     class: 'local-only',
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §2.8 (T12343)',
     note: 'the transactions each persisted segment carries, in order. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_cursor: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343)',
+    note: "where this store's pull stands per stream: the PullCursor the journal client verifies the next page against, advanced in the transaction that stages what it covers. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
+  },
+  _sync_seen_txn: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343 S5-1)',
+    note: 'every transaction id staged from a stream, so a re-delivered transaction is never staged twice (a counter delta would double). This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_seen_floor: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T13318)',
+    note: 'per stream and origin replica: the highest local_seq staged, how far its seen-txn rows were pruned, and their row and byte counts. A txn at or below the floor with no seen row is refused. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13318)',
+  },
+  _sync_retired: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.5 Retirement, §3.5 D5 (T13278)',
+    note: "replicas a stream's retire transactions retired: successor, last replicaSeq, and the stream seq of the retire, so a late segment applies as history and the fold horizon and remint authority leave them out. Rebuilt from the stream by every receiver. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13278)",
   },
   _sync_row_meta: {
     class: 'local-only',
@@ -330,7 +374,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'sleep-cycle run history',
+    note: 'sleep-cycle run history. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_decisions: {
     class: 'portable-project',
@@ -382,16 +426,16 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'named in the ruling',
   },
   brain_memory_trees: {
-    class: 'portable-personal',
-    status: 'needs-owner-call',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then',
+    class: 'derived',
+    status: 'resolved',
+    source: 'team-lead decision 2026-10-10 (T12896)',
+    note: 'surprisal clustering output that the surprisal pass deletes and rebuilds every cycle (surprisal-tree.ts), so each device recomputes it from the synced brain_observations; brain_observations.tree_id stays stripped from ops and is recomputed with it. Never captured, never replicated',
   },
   brain_modulators: {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs',
+    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_observations: {
     class: 'portable-personal',
@@ -449,7 +493,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
-    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels), integer refs travel as uids",
   },
   brain_promotion_log: {
     class: 'portable-personal',
@@ -468,7 +512,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge',
+    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge. Identity (T12896): minted uid, INTEGER id local (never travels); not append-only, the reward pass labels reward_signal later',
   },
   brain_schema_meta: {
     class: 'local-only',
@@ -494,7 +538,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'named in the ruling; INTEGER autoincrement PK needs a uid before merge',
+    note: 'named in the ruling. T12896: joins the consolidated project schema (migration 20261010170000_t12896b-brain-task-observations) and is declared natural on (observation_id, task uid); its INTEGER id is a local key that never travels',
   },
   brain_transcript_events: {
     class: 'portable-personal',
@@ -506,7 +550,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm',
+    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_v2_candidate: {
     class: 'portable-personal',
@@ -518,7 +562,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
-    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels), integer refs travel as uids",
   },
   cleo_trigger_suspend: {
     class: 'local-only',
@@ -1431,11 +1475,55 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §2.8 Persist before push (T12343)',
     note: "segments this replica built for a stream, at their replicaSeq: the exact sealed bytes a push sends (never re-sealed) and whether the server stored them. This device's outbox only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
   },
+  _sync_uid_alias: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source:
+      'journal spec t12342-t12343-journal-design §2.6 K ops; t12341-uid-scheme §6.4 step 1 (T13397)',
+    note: "uid re-keys this replica applied, by (table, old uid, old birth fingerprint): a held collision loser's ops and its origin's earlier references follow them to the new uid. Derived from applied K ops, this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13397)",
+  },
+  _sync_uid_ref_alias: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source:
+      'journal spec t12342-t12343-journal-design §2.6 K ops; t12341-uid-scheme §6.4 step 1 (T13399)',
+    note: "one reference boundary per (table, old uid, writer): references to a re-keyed uid written by a replica that had placed the row, before that replica's K or announcement, follow it to the new uid. Derived from applied K ops, this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13399)",
+  },
+  _sync_authored: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 't12341-uid-scheme §6.4 / §9.2 origin rule (T13399)',
+    note: "minted rows this replica sealed an insert of, by (table, uid, birth fingerprint): the collision settle path's origin test, kept after the sealed ops are folded. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13399)",
+  },
   _sync_segment_txn: {
     class: 'local-only',
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §2.8 (T12343)',
     note: 'the transactions each persisted segment carries, in order. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_cursor: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343)',
+    note: "where this store's pull stands per stream: the PullCursor the journal client verifies the next page against, advanced in the transaction that stages what it covers. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
+  },
+  _sync_seen_txn: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343 S5-1)',
+    note: 'every transaction id staged from a stream, so a re-delivered transaction is never staged twice (a counter delta would double). This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_seen_floor: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T13318)',
+    note: 'per stream and origin replica: the highest local_seq staged, how far its seen-txn rows were pruned, and their row and byte counts. A txn at or below the floor with no seen row is refused. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13318)',
+  },
+  _sync_retired: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.5 Retirement, §3.5 D5 (T13278)',
+    note: "replicas a stream's retire transactions retired: successor, last replicaSeq, and the stream seq of the retire, so a late segment applies as history and the fold horizon and remint authority leave them out. Rebuilt from the stream by every receiver. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13278)",
   },
   _sync_row_meta: {
     class: 'local-only',
@@ -1493,9 +1581,10 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   agent_registry_accounts: {
-    class: 'portable-secret',
-    status: 'draft',
-    source: 'draft §3',
+    class: 'local-only',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'its parent agent_registry_users (dormant better-auth mirror) is local-only, so its rows cannot sync',
     columns: [
       {
         column: 'access_token',
@@ -1520,17 +1609,35 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   agent_registry_agent_capabilities: {
-    class: 'portable-personal',
-    status: 'draft',
-    source: 'draft §3',
+    class: 'derived',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'rebuilt from agent_registry_agents.capabilities: by syncJunctionTables on a local agent write, and by the apply write API (refreshAgentJunctions) on a received agent insert or capabilities change (T13519)',
   },
   agent_registry_agent_connections: { class: 'local-only', status: 'draft', source: 'draft §3' },
-  agent_registry_agent_skills: { class: 'portable-personal', status: 'draft', source: 'draft §3' },
+  agent_registry_agent_skills: {
+    class: 'derived',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: "derived from agent_registry_agents.skills plus this device's local source='cant' rows (agent-install, from the local .cant file): syncJunctionTables on a local write; the apply write API (refreshAgentJunctions) on a received insert or skills change rebuilds the non-cant rows and keeps the cant rows (T13519)",
+  },
   agent_registry_agents: {
     class: 'portable-personal',
     status: 'draft',
     source: 'draft §3',
     columns: [
+      {
+        column: 'owner_id',
+        class: 'local-only',
+        reason:
+          'FK into agent_registry_users, a local-only better-auth mirror (owner decision 2026-10-11, T12915)',
+      },
+      {
+        column: 'organization_id',
+        class: 'local-only',
+        reason:
+          'FK into agent_registry_organization, a local-only better-auth mirror (owner decision 2026-10-11, T12915)',
+      },
       {
         column: 'cant_path',
         class: 'local-only',
@@ -1583,14 +1690,24 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
       },
     ],
   },
-  agent_registry_capabilities: { class: 'portable-personal', status: 'draft', source: 'draft §3' },
+  agent_registry_capabilities: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'frozen legacy catalog carried over from signaldock: no current writer, so nothing to sync',
+  },
   agent_registry_claim_codes: {
     class: 'local-only',
     status: 'draft',
     source: 'draft §3',
     note: 'dormant better-auth mirror; server-authoritative if ever used',
   },
-  agent_registry_org_agent_keys: { class: 'portable-secret', status: 'draft', source: 'draft §3' },
+  agent_registry_org_agent_keys: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'its parent agent_registry_organization (dormant better-auth mirror) is local-only, so its rows cannot sync',
+  },
   agent_registry_organization: {
     class: 'local-only',
     status: 'draft',
@@ -1610,7 +1727,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
       },
     ],
   },
-  agent_registry_skills: { class: 'portable-personal', status: 'draft', source: 'draft §3' },
+  agent_registry_skills: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'frozen legacy catalog carried over from signaldock: no current writer, so nothing to sync',
+  },
   agent_registry_users: {
     class: 'local-only',
     status: 'draft',
@@ -1647,7 +1769,7 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'sleep-cycle run history',
+    note: 'sleep-cycle run history. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_decisions: {
     class: 'portable-personal',
@@ -1689,16 +1811,16 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'named in the ruling',
   },
   brain_memory_trees: {
-    class: 'portable-personal',
-    status: 'needs-owner-call',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then',
+    class: 'derived',
+    status: 'resolved',
+    source: 'team-lead decision 2026-10-10 (T12896)',
+    note: 'surprisal clustering output that the surprisal pass deletes and rebuilds every cycle (surprisal-tree.ts), so each device recomputes it from the synced brain_observations; brain_observations.tree_id stays stripped from ops and is recomputed with it. Never captured, never replicated',
   },
   brain_modulators: {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs',
+    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_observations: {
     class: 'portable-personal',
@@ -1746,7 +1868,7 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
-    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels), integer refs travel as uids",
   },
   brain_promotion_log: {
     class: 'portable-personal',
@@ -1758,7 +1880,7 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge',
+    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge. Identity (T12896): minted uid, INTEGER id local (never travels); not append-only, the reward pass labels reward_signal later',
   },
   brain_schema_meta: {
     class: 'local-only',
@@ -1790,13 +1912,13 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm',
+    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_weight_history: {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
-    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels), integer refs travel as uids",
   },
   models_catalog: {
     class: 'local-only',
@@ -2245,4 +2367,40 @@ export const SCHEMA_STATE_TABLES: Readonly<Record<TableScope, readonly string[]>
  */
 export function isSchemaStateTable(scope: TableScope, name: string): boolean {
   return SCHEMA_STATE_TABLES[scope].includes(name);
+}
+
+/**
+ * The `local-only` tables whose rows record facts about OTHER rows of the same
+ * file, so they are consistent only with the snapshot that holds those rows:
+ * `_exodus_recovery_bare_accounts`, the key digests of the bare legacy tables
+ * a reconcile carried (T13320; `BARE_ACCOUNTS_TABLE` in `store/sync/flags.ts`).
+ *
+ * They never sync, but a snapshot or bundle carries them with the rows they
+ * describe, and a vault restore does not carry this machine's rows whole: it
+ * keeps, per bare table, the record (the snapshot's, else this machine's) that
+ * still matches the bare table as restored. Carrying only this machine's
+ * record would refuse as a strand a restored store whose twins the snapshot's
+ * reconcile settled (T13324).
+ *
+ * Every name here is classified `local-only` in its scope (asserted by the
+ * classification tests).
+ *
+ * @task T13324
+ */
+export const SNAPSHOT_STATE_TABLES: Readonly<Record<TableScope, readonly string[]>> = {
+  project: ['_exodus_recovery_bare_accounts'],
+  global: [],
+};
+
+/**
+ * Whether a table records facts about the rows of its own file
+ * ({@link SNAPSHOT_STATE_TABLES}).
+ *
+ * @param scope - Which `cleo.db` the table lives in.
+ * @param name - The physical name as `sqlite_master` reports it.
+ * @returns `true` for a table a restore keeps as the snapshot has it.
+ * @task T13324
+ */
+export function isSnapshotStateTable(scope: TableScope, name: string): boolean {
+  return SNAPSHOT_STATE_TABLES[scope].includes(name);
 }

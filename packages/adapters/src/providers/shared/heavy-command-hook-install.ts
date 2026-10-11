@@ -335,20 +335,24 @@ export function isHeavyHookObject(hook: unknown): boolean {
 }
 
 /**
- * Put `desired` in place of CLEO's first heavy-command hook object, drop any
- * other copies, and drop a matcher group only when CLEO's hook was all it
- * held. `desired: null` removes CLEO's hook everywhere.
+ * Put `desired` in place of CLEO's first hook object of one kind under
+ * `hooks.<event>`, drop any other copies, and drop a matcher group only when
+ * CLEO's hook was all it held. `desired: null` removes CLEO's hook everywhere.
  *
+ * @param event - the hook event (`PreToolUse` for heavy-command, `Stop` for ask-enforce).
+ * @param isMine - recognises CLEO's hook object of this kind.
  * @returns whether the groups changed, and whether CLEO's hook was found.
  */
 function placeHeavyHook(
   hooks: Record<string, unknown>,
   desired: Record<string, unknown> | null,
+  event = 'PreToolUse',
+  isMine: (hook: unknown) => boolean = isHeavyHookObject,
 ): { readonly changed: boolean; readonly found: boolean } {
-  const groups = hooks.PreToolUse;
+  const groups = hooks[event];
   if (groups === undefined) return { changed: false, found: false };
   if (!Array.isArray(groups)) {
-    throw new Error('hooks "PreToolUse" is not an array; not modifying it');
+    throw new Error(`hooks "${event}" is not an array; not modifying it`);
   }
   let changed = false;
   let found = false;
@@ -361,7 +365,7 @@ function placeHeavyHook(
     const kept: unknown[] = [];
     let groupChanged = false;
     for (const hook of group.hooks) {
-      if (!isHeavyHookObject(hook)) {
+      if (!isMine(hook)) {
         kept.push(hook);
       } else if (desired !== null && !found) {
         found = true;
@@ -378,7 +382,7 @@ function placeHeavyHook(
     changed = true;
     if (kept.length > 0) next.push({ ...group, hooks: kept });
   }
-  if (changed) hooks.PreToolUse = next;
+  if (changed) hooks[event] = next;
   return { changed, found };
 }
 
@@ -426,6 +430,80 @@ export async function syncJsonHeavyCommandHook(
   return result;
 }
 
+/** The command CLEO's ask-enforce Stop hook runs (T13420); also its marker. */
+export const ASK_ENFORCE_HOOK_ID = 'cleo hook ask-enforce';
+
+/**
+ * CLEO's ask-enforce Stop hook object (T13420). The script prints the hook's
+ * answer only when it is a JSON object and always exits 0, so a machine
+ * without `cleo`, or an older `cleo` that lacks the subcommand, never blocks.
+ *
+ * @param provider - `claude-code` or `codex` (Codex runs hooks through the login shell).
+ */
+export function askEnforceHookObject(provider: 'claude-code' | 'codex'): Record<string, unknown> {
+  const script = `command -v cleo >/dev/null 2>&1 || exit 0; out="$(${ASK_ENFORCE_HOOK_ID} --provider ${provider} 2>/dev/null)"; case "$out" in "{"*) printf '%s\\n' "$out";; esac; exit 0`;
+  const line = provider === 'codex' ? `/bin/sh -c ${shellWord(script)}` : script;
+  return {
+    type: 'command',
+    command: `${line} ${CLEO_HOOK_MARKER}`,
+    timeout: HEAVY_COMMAND_HOOK_TIMEOUT_SEC,
+  };
+}
+
+/** Whether one hook object is CLEO's ask-enforce Stop hook. */
+export function isAskEnforceHookObject(hook: unknown): boolean {
+  return (
+    isPlainObject(hook) &&
+    typeof hook.command === 'string' &&
+    hook.command.includes(CLEO_HOOK_MARKER) &&
+    hook.command.includes(ASK_ENFORCE_HOOK_ID)
+  );
+}
+
+/**
+ * Add, refresh or (`install: false`) remove CLEO's ask-enforce Stop hook in a
+ * JSON hook config (`hooks.Stop`), through CAAMP's locked atomic writer. Only
+ * CLEO's own hook object is touched; a malformed file throws untouched.
+ *
+ * @param configPath - the config file (created when missing, unless removing).
+ * @param provider - `claude-code` or `codex`.
+ * @param install - `false` removes the hook.
+ * @returns what changed.
+ */
+export async function syncJsonAskEnforceHook(
+  configPath: string,
+  provider: 'claude-code' | 'codex',
+  install: boolean,
+): Promise<HeavyHookSyncResult> {
+  const mine = (hook: unknown) => isAskEnforceHookObject(hook);
+  if (!install) {
+    if (!existsSync(configPath)) return 'unchanged';
+    const removed = await updateJsonConfigFile(configPath, (config) => {
+      if (config.hooks === undefined) return false;
+      return placeHeavyHook(hookMap(config), null, 'Stop', mine).changed;
+    });
+    return removed ? 'removed' : 'unchanged';
+  }
+  ensureParentDir(configPath);
+  let result: HeavyHookSyncResult = 'unchanged';
+  await updateJsonConfigFile(configPath, (config) => {
+    const hooks = hookMap(config);
+    const placed = placeHeavyHook(hooks, askEnforceHookObject(provider), 'Stop', mine);
+    if (placed.found) {
+      if (placed.changed) result = 'updated';
+      return placed.changed;
+    }
+    const existing = hooks.Stop;
+    hooks.Stop = [
+      ...(Array.isArray(existing) ? existing : []),
+      { hooks: [askEnforceHookObject(provider)] },
+    ];
+    result = 'installed';
+    return true;
+  });
+  return result;
+}
+
 /** Claude Code's per-machine settings file, relative to the project. */
 export const CLAUDE_LOCAL_SETTINGS = '.claude/settings.local.json';
 
@@ -448,12 +526,17 @@ export const CODEX_HOOKS_FILE = '.codex/hooks.json';
 export const OPENCODE_PLUGIN_FILE = `.opencode/plugins/${OPENCODE_HEAVY_COMMAND_PLUGIN}`;
 
 /** Run git in `projectDir`; its trimmed stdout, or `null` on any failure. */
-function gitOutput(projectDir: string, args: readonly string[]): string | null {
+function gitOutput(
+  projectDir: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
   try {
     return execFileSync('git', ['-C', projectDir, ...args], {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 5000,
+      env,
     }).trim();
   } catch {
     return null;
@@ -461,16 +544,20 @@ function gitOutput(projectDir: string, args: readonly string[]): string | null {
 }
 
 /** The repository's `info/exclude` path for `projectDir`, or `null` outside a work tree. */
-function excludeFile(projectDir: string): string | null {
-  if (gitOutput(projectDir, ['rev-parse', '--is-inside-work-tree']) !== 'true') return null;
-  const path = gitOutput(projectDir, ['rev-parse', '--git-path', 'info/exclude']);
+function excludeFile(projectDir: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  if (gitOutput(projectDir, ['rev-parse', '--is-inside-work-tree'], env) !== 'true') return null;
+  const path = gitOutput(projectDir, ['rev-parse', '--git-path', 'info/exclude'], env);
   if (path === null || path === '') return null;
   return isAbsolute(path) ? path : join(projectDir, path);
 }
 
 /** The `info/exclude` line for a project file (relative to the repo root). */
-function excludeLine(projectDir: string, relPath: string): string {
-  const prefix = gitOutput(projectDir, ['rev-parse', '--show-prefix']) ?? '';
+function excludeLine(
+  projectDir: string,
+  relPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const prefix = gitOutput(projectDir, ['rev-parse', '--show-prefix'], env) ?? '';
   return `/${prefix}${relPath}`;
 }
 
@@ -485,18 +572,20 @@ function excludeLine(projectDir: string, relPath: string): string {
  * @param projectDir - the project root.
  * @param relPath - the file, relative to the project (forward slashes).
  * @param marker - the block's first line.
+ * @param env - Git discovery environment; existing callers retain the process environment.
  * @returns whether a block was added.
  */
 export function excludeHookFileFromGit(
   projectDir: string,
   relPath: string,
   marker: string = HOOK_FILE_EXCLUDE_MARKER,
+  env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  const exclude = excludeFile(projectDir);
+  const exclude = excludeFile(projectDir, env);
   if (exclude === null) return false;
-  if (gitOutput(projectDir, ['check-ignore', relPath]) !== null) return false;
-  if (gitOutput(projectDir, ['ls-files', '--error-unmatch', relPath]) !== null) return false;
-  const line = excludeLine(projectDir, relPath);
+  if (gitOutput(projectDir, ['check-ignore', relPath], env) !== null) return false;
+  if (gitOutput(projectDir, ['ls-files', '--error-unmatch', relPath], env) !== null) return false;
+  const line = excludeLine(projectDir, relPath, env);
   const text = existsSync(exclude) ? readFileSync(exclude, 'utf-8') : '';
   if (text.split('\n').includes(line)) return false;
   const block = `${marker}\n${line}\n`;

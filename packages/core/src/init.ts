@@ -54,6 +54,7 @@ import { platform } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { Provider } from '@cleocode/caamp';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import type { GitHookInstallOptions } from '@cleocode/contracts/git-hooks.js';
 import { isAbsolutePath } from '@cleocode/paths';
 import { classifyProject, type ProjectClassification } from './discovery.js';
 import { CleoError } from './errors.js';
@@ -97,7 +98,7 @@ import { readJson } from './store/json.js';
 // ── Types ────────────────────────────────────────────────────────────
 
 /** Options for the init operation. */
-export interface InitOptions {
+export interface InitOptions extends Pick<GitHookInstallOptions, 'allowTrackedHooksPath'> {
   /** Project name override. */
   name?: string;
   /** Overwrite existing files. */
@@ -626,6 +627,8 @@ export async function initCoreSkills(created: string[], warnings: string[]): Pro
         if (result.success) {
           installed.push(skill.name);
         }
+        // T13409: say which provider entries were left alone (user-owned).
+        for (const error of result.errors) warnings.push(`skill ${skill.name}: ${error}`);
       } catch {
         // Skill may already be installed, continue
       }
@@ -1716,22 +1719,13 @@ async function scaffoldInitTarget(
 
   // Git hooks (commit-msg, pre-commit, pre-push)
   try {
-    const hooksResult = await ensureGitHooks(projRoot, { force });
+    const hooksResult = await ensureGitHooks(projRoot, {
+      force,
+      allowTrackedHooksPath: opts.allowTrackedHooksPath,
+    });
     if (hooksResult.action === 'created') {
       created.push(hooksResult.details ?? 'git hooks installed');
-    } else if (hooksResult.action === 'skipped' && hooksResult.details?.includes('No .git/')) {
-      warnings.push(hooksResult.details);
-    } else if (
-      hooksResult.action === 'skipped' &&
-      hooksResult.details?.includes('not found in package root')
-    ) {
-      warnings.push(hooksResult.details);
-    } else if (hooksResult.action === 'repaired' && hooksResult.details?.includes('error')) {
-      // Hook errors reported via details in 'repaired' action
-      const match = hooksResult.details.match(/Installed (\d+)/);
-      if (match && parseInt(match[1], 10) > 0) {
-        created.push(`git hooks (${match[1]} installed)`);
-      }
+    } else if (hooksResult.details) {
       warnings.push(hooksResult.details);
     }
   } catch (err) {
@@ -2205,8 +2199,10 @@ export async function deployStarterBundle(
   // Copy team.cant
   const teamSrc = join(starterBundleSrc, 'team.cant');
   const teamDst = join(cantDir, 'team.cant');
+  let copied = 0;
   if (existsSync(teamSrc) && !existsSync(teamDst)) {
     await copyFile(teamSrc, teamDst);
+    copied++;
   }
 
   // Copy agent .cant files
@@ -2217,6 +2213,7 @@ export async function deployStarterBundle(
       const dst = join(cantAgentsDir, agentFile);
       if (!existsSync(dst)) {
         await copyFile(join(agentsSrc, agentFile), dst);
+        copied++;
       }
     }
   }
@@ -2237,7 +2234,10 @@ export async function deployStarterBundle(
     warnings.push(`identity deploy failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  created.push(
-    'starter-bundle: team + agent .cant files deployed to .cleo/ (identity at global XDG)',
-  );
+  // T13409: report only a deploy that copied something, so a re-run is quiet.
+  if (copied > 0) {
+    created.push(
+      'starter-bundle: team + agent .cant files deployed to .cleo/ (identity at global XDG)',
+    );
+  }
 }

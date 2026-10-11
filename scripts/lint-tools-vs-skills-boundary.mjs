@@ -27,6 +27,7 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import ts from 'typescript';
 
 /** Packages that MAY define atomic-tool primitives + contracts. */
 export const PRIMITIVE_HOMES = ['packages/core/src/tools', 'packages/contracts/src/tools'];
@@ -74,6 +75,44 @@ function inPrimitiveHome(relPath) {
   return PRIMITIVE_HOMES.some((home) => relPath === home || relPath.startsWith(`${home}/`));
 }
 
+/** Recognize direct, immutable aliases of named imports from the primitive home. */
+function importedPrimitiveAliases(file, text) {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  if (source.parseDiagnostics.length) return new Set();
+  const imports = new Map();
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier))
+      continue;
+    if (!/^@cleocode\/core\/tools(?:\/[^?#]+)?$/.test(statement.moduleSpecifier.text)) continue;
+    const clause = statement.importClause;
+    if (clause?.isTypeOnly || !clause?.namedBindings || !ts.isNamedImports(clause.namedBindings))
+      continue;
+    for (const binding of clause.namedBindings.elements) {
+      if (!binding.isTypeOnly)
+        imports.set(binding.name.text, (binding.propertyName ?? binding.name).text);
+    }
+  }
+  const aliases = new Set();
+  for (const statement of source.statements) {
+    if (
+      !ts.isVariableStatement(statement) ||
+      !(statement.declarationList.flags & ts.NodeFlags.Const) ||
+      !statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    )
+      continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        ts.isIdentifier(declaration.name) &&
+        declaration.initializer &&
+        ts.isIdentifier(declaration.initializer) &&
+        imports.get(declaration.initializer.text) === declaration.name.text
+      )
+        aliases.add(declaration.name.text);
+    }
+  }
+  return aliases;
+}
+
 /**
  * Find out-of-home atomic-primitive redefinitions across `packages/`.
  *
@@ -90,7 +129,10 @@ export function scanToolBoundaryViolations(repoRoot) {
     const rel = relative(repoRoot, file).split('\\').join('/');
     if (inPrimitiveHome(rel)) continue; // primitives legitimately live here
     const text = readFileSync(file, 'utf8');
+    const aliases = re.test(text) ? importedPrimitiveAliases(file, text) : new Set();
+    re.lastIndex = 0;
     for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+      if (aliases.has(m[1])) continue;
       violations.push(`${rel}:${m[1]}`);
     }
   }

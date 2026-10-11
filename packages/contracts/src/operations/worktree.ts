@@ -17,6 +17,7 @@
 // ---------------------------------------------------------------------------
 // Hooks framework
 // ---------------------------------------------------------------------------
+import type { HookExecutor, HookOutcome } from '../project-hooks.js';
 
 /**
  * A declarative lifecycle hook definition for worktree events.
@@ -28,6 +29,8 @@
  * @task T1161
  */
 export interface WorktreeHook {
+  /** Shared hook identity when legacy wiring duplicates a tracked project definition. */
+  projectHookId?: string;
   /** Shell command to run in the worktree dir (`/bin/sh -c` on POSIX, cmd.exe on Windows). */
   command: string;
   /**
@@ -195,8 +198,25 @@ export interface WorktreeLockAcquisition {
   /** The previous holder's record when the lock was reclaimed. */
   reclaimedFrom?: WorktreeLockRecord;
   /** Why the previous holder was judged dead (`reclaimed` only). */
-  reclaimReason?: 'pid-gone' | 'pid-recycled' | 'heartbeat-stale' | 'unreadable';
+  reclaimReason?: 'pid-gone' | 'pid-recycled' | 'heartbeat-stale' | 'unreadable' | 'session-ended';
 }
+
+/**
+ * Whether a worktree lock holder's CLEO session is still live (T13425).
+ *
+ * `active` keeps the lock held whatever the owner pid says, `ended` releases it
+ * even while the owner pid (a long-lived harness shared across sessions) is
+ * alive, and `unknown` leaves the verdict to the pid and heartbeat checks.
+ */
+export type WorktreeLockSessionState = 'active' | 'ended' | 'unknown';
+
+/**
+ * Reports a lock holder session's state; supplied by core, which owns the
+ * session store (`@cleocode/worktree` cannot read it).
+ *
+ * @task T13425
+ */
+export type WorktreeLockSessionProbe = (sessionId: string) => WorktreeLockSessionState;
 
 // ---------------------------------------------------------------------------
 // Create operation
@@ -222,6 +242,8 @@ export interface CreateWorktreeOptions {
   reason?: 'subagent' | 'experiment' | 'parallel-wave';
   /** Declarative hooks to run after creation. */
   hooks?: WorktreeHook[];
+  /** Optional shared project executor injected by CLEO; never imports core into worktree. */
+  projectHookExecutor?: HookExecutor;
   /**
    * When true, read `.cleo/worktree-include` from the project root and apply
    * any declared include patterns to the new worktree.
@@ -287,12 +309,63 @@ export interface CreateWorktreeOptions {
    */
   holder?: WorktreeLockHolder;
   /**
+   * Reports the existing lock holder's session state: an ended holder session
+   * makes the lock reclaimable even while its owner pid is alive (T13425).
+   *
+   * @task T13425
+   */
+  sessionProbe?: WorktreeLockSessionProbe;
+  /**
    * Heartbeat age (ms) beyond which an existing lock is reclaimable even when
    * its owner pid is alive. Defaults to `CLEO_WORKTREE_LOCK_TTL_MS` or 4 hours.
    *
    * @task T12506
    */
   lockTtlMs?: number;
+  /**
+   * The git shim the caller installed for this worktree (T13522). Only when
+   * `installed` is the shim dir prepended to PATH and
+   * `CLEO_BRANCH_PROTECTION=strict` advertised; otherwise the env says
+   * `unavailable`, so nothing claims a fence that is not there.
+   *
+   * @task T13522
+   */
+  gitShim?: { readonly dir: string; readonly installed: boolean };
+  /**
+   * Provision without installing dependencies (`--no-install`, T13524). The
+   * result's `install` says so, with the command the worker runs instead.
+   *
+   * @task T13524
+   */
+  skipInstall?: boolean;
+  /**
+   * Admission for the dependency install (T13524): called before `pnpm install`
+   * runs; resolves to a release function once admitted, or `null` when the
+   * machine budget is busy, in which case the install is deferred to the
+   * worker rather than run outside the heavy-work queue. Absent: install
+   * unadmitted (legacy callers).
+   *
+   * @task T13524
+   */
+  admitInstall?: () => Promise<(() => Promise<void>) | null>;
+}
+
+/**
+ * What happened to a worktree's dependency install (T13524).
+ *
+ * @task T13524
+ */
+export interface WorktreeInstallOutcome {
+  /**
+   * `installed`/`failed`: it ran. `skipped`: `--no-install`. `deferred`: the
+   * machine budget was busy, so the worker installs. `not-needed`: no
+   * lockfile, already installed, or a re-attached worktree.
+   */
+  status: 'installed' | 'failed' | 'skipped' | 'deferred' | 'not-needed';
+  /** Why, for anything but `installed`. */
+  reason?: string;
+  /** The command the worker runs when the install did not happen here. */
+  command?: string;
 }
 
 /**
@@ -341,6 +414,8 @@ export interface CreateWorktreeResult {
   preamble: string;
   /** Results of any post-create hooks that were executed. */
   hookResults: WorktreeHookResult[];
+  /** Results from activated project definitions for post-create. */
+  projectHookResults?: HookOutcome[];
   /** Include patterns that were applied (empty if none). */
   appliedPatterns: WorktreeIncludePattern[];
   /**
@@ -354,7 +429,15 @@ export interface CreateWorktreeResult {
     failedPaths: string[];
     /** Results of post-start hooks. */
     hookResults: WorktreeHookResult[];
+    /** Results from activated project definitions for post-start. */
+    projectHookResults?: HookOutcome[];
   };
+  /**
+   * The dependency install outcome (T13524).
+   *
+   * @task T13524
+   */
+  install?: WorktreeInstallOutcome;
 }
 
 // ---------------------------------------------------------------------------
@@ -724,7 +807,9 @@ export type WorktreeLifecycleAction =
   | 'complete-skip'
   | 'complete-manual'
   | 'complete-conflict'
-  | 'adopt';
+  | 'adopt'
+  | 'lock-release'
+  | 'lock-reclaim';
 
 /**
  * One append-only entry written to `.cleo/audit/worktree-lifecycle.jsonl` by

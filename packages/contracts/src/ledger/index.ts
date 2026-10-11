@@ -107,6 +107,20 @@ export const LedgerTxnKind = z.enum([
 export type LedgerTxnKind = z.infer<typeof LedgerTxnKind>;
 
 /**
+ * The body of a `kind: 'retire'` control transaction (§1.5 "Retirement",
+ * §3.5 D5): the replica it retires, the replica carrying its history on, and
+ * the last `replicaSeq` of the retired replica that may still land.
+ */
+export const LedgerTxnRetire = z
+  .object({
+    replica: z.string(),
+    successor: z.string(),
+    lastReplicaSeq: z.number().int().nonnegative(),
+  })
+  .strict();
+export type LedgerTxnRetire = z.infer<typeof LedgerTxnRetire>;
+
+/**
  * One sealed transaction (§2.6). `v` is checked by the receiver, not by this
  * schema, so a newer format is refused with an explicit error rather than a
  * parse failure.
@@ -126,14 +140,7 @@ export const LedgerTxn = z
     kind: LedgerTxnKind,
     actor: LedgerActor.nullable(),
     ops: z.array(LedgerOp),
-    retire: z
-      .object({
-        replica: z.string(),
-        successor: z.string(),
-        lastReplicaSeq: z.number().int().nonnegative(),
-      })
-      .strict()
-      .optional(),
+    retire: LedgerTxnRetire.optional(),
     /** Ed25519 over the transaction signing message (§2.8). */
     sig: z.string(),
   })

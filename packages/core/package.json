@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/core",
-  "version": "2026.10.5",
+  "version": "2026.10.8",
   "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
@@ -256,6 +256,11 @@
       "import": "./dist/harness/*.js",
       "require": "./dist/harness/*.js"
     },
+    "./harness/*.js": {
+      "types": "./dist/harness/*.d.ts",
+      "import": "./dist/harness/*.js",
+      "require": "./dist/harness/*.js"
+    },
     "./system/*": {
       "types": "./dist/system/*.d.ts",
       "import": "./dist/system/*.js",
@@ -291,6 +296,11 @@
       "import": "./dist/docs/*.js",
       "require": "./dist/docs/*.js"
     },
+    "./tools/fs.js": {
+      "types": "./dist/tools/fs.d.ts",
+      "import": "./dist/tools/fs.js",
+      "require": "./dist/tools/fs.js"
+    },
     "./*": {
       "types": "./dist/*.d.ts",
       "import": "./dist/*.js",
@@ -320,11 +330,6 @@
       "types": "./dist/gc/*.d.ts",
       "import": "./dist/gc/*.js",
       "require": "./dist/gc/*.js"
-    },
-    "./harness/*.js": {
-      "types": "./dist/harness/*.d.ts",
-      "import": "./dist/harness/*.js",
-      "require": "./dist/harness/*.js"
     },
     "./lifecycle/*.js": {
       "types": "./dist/lifecycle/*.d.ts",

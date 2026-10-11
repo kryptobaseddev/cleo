@@ -46,7 +46,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import type { RowIdentityRef, TableScope } from '@cleocode/contracts';
+import type { RowIdentityRef, RowIdentitySpec, TableScope } from '@cleocode/contracts';
 import {
   BIRTH_FP_COLUMN,
   rowIdentityColumns,
@@ -82,6 +82,16 @@ export interface CaptureTableDef {
   readonly refs: ReadonlyMap<string, { table: string; key: string }>;
   /** Rows never change: undo keeps only `rk` and `uid`. */
   readonly appendOnly: boolean;
+  /**
+   * The table's INTEGER PRIMARY KEY (a rowid alias numbered from 1 on every
+   * device, T12896), or its declared TEXT `localKey` (T12915), when it is a
+   * local key: kept out of {@link columns}, so it is never captured, sealed,
+   * hashed or written from the wire, and a received row gets the next local
+   * id. Absent when the table has none, or when it is part of a natural key.
+   */
+  readonly localRowid?: string;
+  /** A TEXT local key: an applied insert sets it to the row's uid (T12915). */
+  readonly localKeyIsUid?: boolean;
 }
 
 /** One generated trigger. */
@@ -127,13 +137,19 @@ export function captureTableDef(
   const spec = rowIdentitySpec(scope, table);
   const cls = classifyTable(scope, table);
   if (!spec || cls.kind !== 'entry' || !hasTable(db, table)) return undefined;
-  const info = db.prepare(`PRAGMA main.table_info(${q(table)})`).all() as Array<{ name: string }>;
+  const info = db.prepare(`PRAGMA main.table_info(${q(table)})`).all() as Array<{
+    name: string;
+    type: string;
+    pk: number;
+  }>;
   const overrides = cls.entry.columns ?? [];
   const localOnly = new Set(overrides.filter((o) => o.class === 'local-only').map((o) => o.column));
+  const localRowid = localRowidColumn(info, spec);
+  if (localRowid) localOnly.add(localRowid);
   const wholeSecret = cls.class === 'portable-secret';
   const secret = new Set(
     wholeSecret
-      ? info.map((c) => c.name).filter((c) => !spec.key.includes(c))
+      ? info.map((c) => c.name).filter((c) => !spec.key.includes(c) && !localOnly.has(c))
       : overrides.filter((o) => o.class === 'portable-secret').map((o) => o.column),
   );
   const identity = rowIdentityColumns(scope, table).filter((c) => info.some((i) => i.name === c));
@@ -145,7 +161,7 @@ export function captureTableDef(
   ];
   for (const r of allRefs) {
     const target = rowIdentitySpec(scope, r.table);
-    refs.set(r.column, { table: r.table, key: target?.key[0] ?? 'id' });
+    refs.set(r.column, { table: r.table, key: target?.localKey ?? target?.key[0] ?? 'id' });
   }
   return {
     table,
@@ -155,7 +171,36 @@ export function captureTableDef(
     secret,
     refs,
     appendOnly: (spec.content?.length ?? 0) > 0,
+    ...(localRowid ? { localRowid } : {}),
+    ...(localRowid && spec.localKey === localRowid && !isIntegerColumn(info, localRowid)
+      ? { localKeyIsUid: true }
+      : {}),
   };
+}
+
+function isIntegerColumn(
+  info: ReadonlyArray<{ name: string; type: string }>,
+  col: string,
+): boolean {
+  return info.find((c) => c.name === col)?.type.toUpperCase() === 'INTEGER';
+}
+
+/**
+ * The table's INTEGER PRIMARY KEY column when it is a local key (T12896): a
+ * single-column primary key declared `INTEGER` (a rowid alias, so AUTOINCREMENT
+ * or not it numbers from 1 on every device), unless a natural key hashes it.
+ */
+function localRowidColumn(
+  info: ReadonlyArray<{ name: string; type: string; pk: number }>,
+  spec: RowIdentitySpec,
+): string | undefined {
+  if (spec.localKey) return info.some((c) => c.name === spec.localKey) ? spec.localKey : undefined;
+  const pk = info.filter((c) => c.pk > 0);
+  if (pk.length !== 1) return undefined;
+  const col = pk[0] as { name: string; type: string };
+  if (col.type.toUpperCase() !== 'INTEGER') return undefined;
+  if (spec.kind === 'natural' && spec.key.includes(col.name)) return undefined;
+  return col.name;
 }
 
 /**
@@ -234,13 +279,18 @@ function fullImage(def: CaptureTableDef, row: string, liveIdentity: boolean): st
  * - `update`: a U image of every updatable column, `[null, after]`. The
  *   before slot is JSON null because only the content hash was kept; a
  *   trigger's before is always an `enc()` text, so null marks a repair.
- *   Secret columns are left out (their `shash` is a follow-up).
+ *   Secret columns are left out (their `shash` is a follow-up). With
+ *   `columns`, only those of them (the rebind reconcile's touched fields).
  */
 export function repairImageSql(
   def: CaptureTableDef,
   row: string,
+  columns?: ReadonlySet<string>,
 ): { readonly rk: string; readonly insert: string; readonly update: string } {
-  const updatable = def.columns.filter((c) => !def.identity.includes(c) && !def.secret.has(c));
+  const updatable = def.columns.filter(
+    (c) =>
+      !def.identity.includes(c) && !def.secret.has(c) && (columns === undefined || columns.has(c)),
+  );
   return {
     rk: rkExpr(def, row),
     insert: fullImage(def, row, false),
@@ -491,6 +541,41 @@ export function captureRemints(db: DatabaseSync, scope: TableScope): Record<stri
   return out;
 }
 
+/**
+ * Capture an announcement of a re-key this replica applied from another
+ * replica (T13399, store/sync/collision-settle `announcePlacedRekeys`): a K
+ * `uid: [old, new]`, `birth_fp: [fp, fp]` on the row that already lives at
+ * the new uid. It moves nothing here (the sealer recognises it and leaves
+ * row meta alone) and writes no undo, so a rebase rewind never moves the row
+ * back; receivers record it as this replica's reference boundary. Call inside
+ * a `rekey` frame.
+ *
+ * @param db - The store, inside the caller's transaction.
+ * @param def - The re-keyed row's table.
+ * @param oldUid - The uid before the re-key.
+ * @param newUid - The uid the row lives at.
+ * @param birthFp - The row's birth fingerprint (unchanged by the re-key).
+ * @returns 1 when the capture was written, 0 when no row lives at `newUid`.
+ */
+export function captureRekeyAnnouncement(
+  db: DatabaseSync,
+  def: CaptureTableDef,
+  oldUid: string,
+  newUid: string,
+  birthFp: string,
+): number {
+  if (!hasUid(def) || !hasBirthFp(def)) return 0;
+  const img = `json_object(${lit(UID_COLUMN)}, json_array(quote(?), quote(?)), ${lit(BIRTH_FP_COLUMN)}, json_array(quote(?), quote(?)))`;
+  const out = db
+    .prepare(
+      `INSERT INTO _sync_capture (tbl, op, rk, uid, img, at_ms) ` +
+        `SELECT ${lit(def.table)}, 'K', ${rkExpr(def, 'x')}, ?, ${img}, ${AT_MS_SQL} ` +
+        `FROM ${q(def.table)} x WHERE x.${q(UID_COLUMN)} = ? AND x.${q(BIRTH_FP_COLUMN)} = ?`,
+    )
+    .run(oldUid, oldUid, newUid, birthFp, birthFp, newUid, birthFp);
+  return Number(out.changes);
+}
+
 /** Every capture trigger for the store's sync set. */
 export function generateCaptureTriggers(db: DatabaseSync, scope: TableScope): CaptureTrigger[] {
   const out: CaptureTrigger[] = [];
@@ -640,7 +725,9 @@ export type FrameKind =
   | 'exodus'
   | 'import'
   | 'remint'
-  | 'rekey';
+  | 'rekey'
+  /** The rebind reconcile's re-emitted fields (§1.5 N7): sealed as `repair`, `via: 'rebind'` (T13278). */
+  | 'rebind';
 
 /** Frames whose undo is dropped at once (D1). */
 const NO_UNDO_KINDS: ReadonlySet<string> = new Set(['apply', 'rebase']);
@@ -801,12 +888,15 @@ export function captureBracketHooks(
   scope: TableScope,
 ): { suspendCapture?(db: DatabaseSync): void; reinstallCapture?(db: DatabaseSync): void } {
   if (!readSyncFlags(db)['sync.capture']) return {};
+  // Regenerate only what the bracket dropped: a sync-off open (T13336) whose
+  // store has no capture triggers must not gain them from a migration.
+  const dropped = new WeakSet<DatabaseSync>();
   return {
     suspendCapture: (d) => {
-      dropCaptureTriggers(d);
+      if (dropCaptureTriggers(d).length > 0) dropped.add(d);
     },
     reinstallCapture: (d) => {
-      if (hasTable(d, '_sync_capture')) installCaptureTriggers(d, scope);
+      if (dropped.delete(d) && hasTable(d, '_sync_capture')) installCaptureTriggers(d, scope);
     },
   };
 }

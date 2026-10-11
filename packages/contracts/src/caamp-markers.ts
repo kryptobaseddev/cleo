@@ -191,6 +191,16 @@ export const CAAMP_SOURCE_STAMP_PATTERN_SOURCE = '^<!-- CAAMP:SOURCE (\\S+) ([a-
 export const GLOBAL_INSTRUCTION_HUB_REFERENCE = '@~/.agents/AGENTS.md';
 
 /**
+ * The command an owner runs to regenerate their user-global provider
+ * instruction files. CLEO itself never writes those files (T13409): its
+ * bootstrap, upgrade and session-start refresh only report them as stale and
+ * name this command.
+ *
+ * @task T13409
+ */
+export const GLOBAL_INSTRUCTION_REFRESH_COMMAND = 'caamp instructions update --global';
+
+/**
  * Delivery state of one global provider instruction file.
  *
  * - `current` — an embedded block whose every stamped source still hashes the same.
@@ -246,10 +256,17 @@ export interface GlobalInstructionStalenessReport {
  * - `unresolved` — the hub could not be resolved into a complete delivery; nothing was written.
  * - `no-providers` — no provider installation was detected.
  * - `dry-run` — the planned targets were computed without writing.
+ * - `refused` — the caller is not a user-run command; nothing was written (T13409).
  *
  * @task T12377
+ * @task T13409
  */
-export type GlobalInstructionSyncStatus = 'synced' | 'unresolved' | 'no-providers' | 'dry-run';
+export type GlobalInstructionSyncStatus =
+  | 'synced'
+  | 'unresolved'
+  | 'no-providers'
+  | 'dry-run'
+  | 'refused';
 
 /**
  * One provider instruction file targeted by a global regeneration.

@@ -83,7 +83,13 @@ export type RebindReason =
    * rules 1 and 3). The old replica is retired at the same path, so it is a
    * retire candidate for S4, unlike a copy (T13109).
    */
-  | 'vault-restore';
+  | 'vault-restore'
+  /**
+   * Undo reached its budget while the replica could not reach the stream
+   * (§3.5 Rule 2, D5): the next pull to head rebinds, reconciles and retires
+   * the old id (T13278).
+   */
+  | 'undo-budget';
 
 /** What `stat` reports about a store file, in nanoseconds. */
 export interface FileStat {
@@ -209,6 +215,110 @@ export async function readActiveReplicaId(
   } finally {
     db.close();
   }
+}
+
+/**
+ * `_sync_meta` key of a retirement the open pass owes the stream (T13337): a
+ * rollback or cross-filesystem-move rebind recorded it in the rebind's own
+ * transaction, and `settleRetireDue` (store/sync/rebind.ts) turns it into the
+ * signed `retire` transaction and the pending server rebind.
+ */
+export const RETIRE_DUE_KEY = 'sync.retire_due';
+
+/** The value of {@link RETIRE_DUE_KEY}. */
+export interface RetireDue {
+  /** The retired replica. */
+  readonly from: string;
+  /** Its successor. */
+  readonly to: string;
+  readonly scope: ReplicaScope;
+  readonly reasons: readonly RebindReason[];
+  /**
+   * The highest replicaSeq of `from` persisted per stream, by the store or
+   * the device registry (which outlives a rollback): every segment of it the
+   * server can hold is at or below this.
+   */
+  readonly hwm: Readonly<Record<string, number>>;
+  /** When the store rebound. */
+  readonly at: string;
+}
+
+/**
+ * `_sync_meta` key of the copy reconcile an open-pass rebind owes (§1.5 N7,
+ * T13335): every rebind the open pass makes (a copy, a move, a rollback,
+ * another device's store) records `{from, to, at}` here in the rebind's own
+ * transaction, discards the inherited pull cursor, and pauses push. The
+ * reconcile against a restored checkpoint pulled to head
+ * (`store/sync/reconcile-copy.ts`) clears it.
+ */
+export const RECONCILE_DUE_KEY = 'sync.reconcile_due';
+
+/** The value of {@link RECONCILE_DUE_KEY}. */
+export interface ReconcileDue {
+  /** The retired replica, whose unsent changes are inherited. */
+  readonly from: string;
+  /** The replica the store is bound to now. */
+  readonly to: string;
+  readonly scope: ReplicaScope;
+  /** When the store rebound. */
+  readonly at: string;
+}
+
+/**
+ * The copy reconcile the store still owes, or null. Read-only.
+ *
+ * @param db - The store.
+ * @returns The due reconcile, or null.
+ */
+export function reconcileDue(db: DatabaseSync): ReconcileDue | null {
+  if (!hasTable(db, '_sync_meta')) return null;
+  const row = db.prepare('SELECT value FROM _sync_meta WHERE key = ?').get(RECONCILE_DUE_KEY) as
+    | { value: string }
+    | undefined;
+  return row ? (JSON.parse(row.value) as ReconcileDue) : null;
+}
+
+/**
+ * Whether an open-pass rebind retires the old replica (§1.5 "Retirement",
+ * T13337): a rollback of the same file (rule 3), or a cross-filesystem move
+ * (rule 1 with the registry's old path gone). A copy (its original still at
+ * the registry's path), a nonce mismatch or another device's store retires
+ * nothing: the original replica is still live.
+ *
+ * @param reasons - Why the store rebinds.
+ * @param entry - The device registry's entry for the old replica, if any.
+ * @param realpath - The store file's real path now.
+ * @param exists - Whether a path exists (injectable for tests).
+ * @returns True when the rebind must retire the old replica.
+ */
+export function rebindRetires(
+  reasons: readonly RebindReason[],
+  entry: ReplicaRegistryEntry | undefined,
+  realpath: string,
+  exists: (path: string) => boolean = existsSync,
+): boolean {
+  if (reasons.includes('foreign-device') || reasons.includes('nonce-mismatch')) return false;
+  if (reasons.includes('rollback')) return true;
+  return (
+    reasons.includes('file-identity') &&
+    entry !== undefined &&
+    entry.dbRealpath !== realpath &&
+    !exists(entry.dbRealpath)
+  );
+}
+
+/**
+ * The retirement the open pass still owes, or null. Read-only.
+ *
+ * @param db - The store.
+ * @returns The due retirement, or null.
+ */
+export function retireDue(db: DatabaseSync): RetireDue | null {
+  if (!hasTable(db, '_sync_meta')) return null;
+  const row = db.prepare('SELECT value FROM _sync_meta WHERE key = ?').get(RETIRE_DUE_KEY) as
+    | { value: string }
+    | undefined;
+  return row ? (JSON.parse(row.value) as RetireDue) : null;
 }
 
 /** Every replica row of a store, oldest first. Read-only. */
@@ -391,6 +501,8 @@ export type SyncOpenResult =
       readonly reasons: readonly RebindReason[];
       /** Whether the device registry file was written. */
       readonly registryWritten: boolean;
+      /** Whether the rebind retires the old replica ({@link RETIRE_DUE_KEY}, T13337). */
+      readonly retires?: boolean;
     };
 
 function resolveContext(opts: SyncOpenOptions): { deviceId: string; registry: ReplicaRegistry } {
@@ -430,7 +542,7 @@ function register(
  * or a foreign store, and heals the clock. Then it brings the device registry
  * up to date (re-registering a store the registry lost, recording a rename).
  *
- * Not yet called by `openDualScopeDb`: the capture slice (S2) wires it in.
+ * Called by every canonical `live` chokepoint open (`openDualScopeDbAtPath`, T13336).
  */
 export function syncOpenPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenResult {
   if (opts.mode === 'off') return { status: 'off' };
@@ -520,21 +632,58 @@ function bindPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenResult {
       return { row: minted, previous: undefined, reasons: [] as RebindReason[] };
     }
     const entry = Object.hasOwn(known, row.replicaId) ? known[row.replicaId] : undefined;
-    const reasons = rebindReasons(row, identity, deviceId, entry, storeHwm(db, row.replicaId));
+    const persisted = storeHwm(db, row.replicaId);
+    const reasons = rebindReasons(row, identity, deviceId, entry, persisted);
     if (reasons.length === 0) {
       healClock(db, row.replicaId);
-      return { row, previous: undefined, reasons };
+      return { row, previous: undefined, reasons, retires: false };
     }
     const current = rebindInTransaction(db, row, identity, deviceId, reasons, now);
-    return { row: current, previous: row, reasons };
+    // §1.5 (T13335): the new replica reconciles against the stream before it
+    // pushes. The inherited pull position is the old replica's: discarded.
+    const due: ReconcileDue = {
+      from: row.replicaId,
+      to: current.replicaId,
+      scope: opts.scope,
+      at: now.toISOString(),
+    };
+    db.prepare(
+      'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+    ).run(RECONCILE_DUE_KEY, JSON.stringify(due), due.at);
+    if (hasTable(db, '_sync_cursor')) db.prepare('DELETE FROM _sync_cursor').run();
+    // T13337: a rollback or a cross-filesystem move retires the old id. What
+    // it owes the stream commits with the rebind; the retire transaction
+    // itself is queued by settleRetireDue.
+    const retires = rebindRetires(reasons, entry, realpath);
+    if (retires) {
+      const hwm: Record<string, number> = { ...persisted };
+      for (const [stream, seq] of Object.entries(entry?.hwm ?? {})) {
+        hwm[stream] = Math.max(hwm[stream] ?? 0, seq);
+      }
+      const due: RetireDue = {
+        from: row.replicaId,
+        to: current.replicaId,
+        scope: opts.scope,
+        reasons,
+        hwm,
+        at: now.toISOString(),
+      };
+      db.prepare(
+        'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
+          'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+      ).run(RETIRE_DUE_KEY, JSON.stringify(due), due.at);
+    }
+    return { row: current, previous: row, reasons, retires };
   });
 
   let registryWritten = false;
   if (outcome.previous && Object.hasOwn(known, outcome.previous.replicaId)) {
     const prev = known[outcome.previous.replicaId] as ReplicaRegistryEntry;
     // Only the device's own registration of the retired replica is marked; a
-    // copy's original keeps its entry untouched when it lives elsewhere.
-    if (prev.dbRealpath === realpath) {
+    // copy's original keeps its entry untouched when it lives elsewhere. A
+    // moved store's old path is gone, so its entry is this file's (T13337).
+    if (prev.dbRealpath === realpath || outcome.retires) {
       registryWritten =
         registry.upsert(
           outcome.previous.replicaId,
@@ -556,6 +705,7 @@ function bindPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenResult {
     ...(outcome.previous ? { previousReplicaId: outcome.previous.replicaId } : {}),
     reasons: outcome.reasons,
     registryWritten,
+    ...(outcome.retires ? { retires: true } : {}),
   };
 }
 
@@ -578,6 +728,16 @@ export interface RebindReplicaOptions {
 }
 
 /**
+ * Work that must commit with the rebind itself: it runs inside the rebind's
+ * `BEGIN IMMEDIATE`, after the new replica is bound and the old outbox is
+ * marked inherited, and a throw rolls the whole rebind back.
+ */
+export type RebindWithin<T> = (
+  db: DatabaseSync,
+  ctx: { readonly previous: ReplicaRow; readonly current: ReplicaRow },
+) => T;
+
+/**
  * Force a rebind of a bound store: the hook S4 uses when the server answers a
  * push with "seq exists, hash differs" (N6: the server hwm is authoritative).
  *
@@ -589,19 +749,40 @@ export function rebindReplica(
   reason: RebindReason = 'server-seq-conflict',
   rebindOpts: RebindReplicaOptions = {},
 ): { replicaId: string; previousReplicaId: string } {
+  const out = rebindReplicaWith(db, opts, reason, rebindOpts, () => undefined);
+  return { replicaId: out.replicaId, previousReplicaId: out.previousReplicaId };
+}
+
+/**
+ * {@link rebindReplica}, with `within` run inside the rebind transaction
+ * (the T13278 rebind at the next pull to head: its reconcile and retire
+ * commit with the rebind, or none of it does).
+ *
+ * @throws {Error} When the store has no active replica.
+ */
+export function rebindReplicaWith<T>(
+  db: DatabaseSync,
+  opts: SyncOpenOptions,
+  reason: RebindReason,
+  rebindOpts: RebindReplicaOptions,
+  within: RebindWithin<T>,
+): { replicaId: string; previousReplicaId: string; result: T } {
   const now = opts.now?.() ?? new Date();
   const { deviceId, registry } = resolveContext(opts);
   const identity = fileIdentity(opts.dbPath, opts.stat);
   const realpath = realpathSync(opts.dbPath);
-  const { previous, current, hwm } = withImmediateTransaction(db, () => {
+  const { previous, current, hwm, result } = withImmediateTransaction(db, () => {
     const row = activeReplica(db, opts.scope);
     // @sync-invariant none:local-only no active replica to rebind; machine-local bookkeeping
     if (!row) throw new Error(`no active ${opts.scope} replica to rebind`);
     const persisted = storeHwm(db, row.replicaId);
+    const next = rebindInTransaction(db, row, identity, deviceId, [reason], now);
+    const retired: ReplicaRow = { ...row, retiredAt: now.toISOString(), successor: next.replicaId };
     return {
       previous: row,
       hwm: persisted,
-      current: rebindInTransaction(db, row, identity, deviceId, [reason], now),
+      current: next,
+      result: within(db, { previous: retired, current: next }),
     };
   });
   // The retired replica is a retire candidate (§1.5 "Retirement"; T13109) only
@@ -627,7 +808,7 @@ export function rebindReplica(
     );
   }
   register(registry, db, current, realpath, now);
-  return { replicaId: current.replicaId, previousReplicaId: previous.replicaId };
+  return { replicaId: current.replicaId, previousReplicaId: previous.replicaId, result };
 }
 
 /** What {@link rebindAfterVaultRestore} did. */

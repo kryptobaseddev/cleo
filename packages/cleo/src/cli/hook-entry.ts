@@ -1042,26 +1042,60 @@ export function claudePreApprovalVerdict(
 }
 
 const USAGE =
-  'usage: cleo hook heavy-command [--provider claude-code|codex|kimi|opencode] < hook-input.json\n';
+  'usage: cleo hook heavy-command [--provider claude-code|codex|kimi|opencode] < hook-input.json\n' +
+  '       cleo hook ask-enforce [--provider claude-code|codex|copilot-cli|gemini-cli|cursor|opencode|kimi] < stop-input.json\n';
+
+/** The `--provider` value from a hook's arguments (default `claude-code`). */
+function providerArg(rest: readonly string[]): string | undefined {
+  const flag = rest.findIndex((a) => a === '--provider' || a.startsWith('--provider='));
+  return flag === -1 ? 'claude-code' : (rest[flag]?.split('=')[1] ?? rest[flag + 1]);
+}
+
+/**
+ * `cleo hook ask-enforce` (T13420): the Stop hook in `./ask-enforce-entry.ts`.
+ * Fail-open like every hook: any error exits 0 with nothing on stdout.
+ */
+async function runAskEnforce(rest: readonly string[], io: HookIo): Promise<number> {
+  const entry = await import('./ask-enforce-entry.js');
+  const value = providerArg(rest);
+  const provider = entry.ASK_ENFORCE_PROVIDERS.find((p) => p === value);
+  if (provider === undefined) {
+    io.writeStderr(USAGE);
+    return 1;
+  }
+  try {
+    const lookup = await entry.caampAskToolLookup();
+    const answer = await entry.askEnforceHook(provider, await io.readStdin(), io.env, lookup);
+    if (answer.stdout !== '') io.writeStdout(answer.stdout);
+    if (answer.stderr !== '') io.writeStderr(answer.stderr);
+    return answer.exitCode;
+  } catch (err) {
+    io.writeStderr(
+      `[cleo hook] ask-enforce skipped: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    return 0;
+  }
+}
 
 /**
  * Entry point for `cleo hook …` (from `bin/cleo.js` or the `hook` command).
  *
  * @param argv - the arguments after `hook`, e.g. `['heavy-command', '--provider', 'codex']`.
  * @param io - process streams (injectable for tests).
- * @returns the exit code: 0 always for a known hook (fail-open), 1 on a usage error.
+ * @returns the exit code: 0 for a known hook (fail-open; `ask-enforce` under Kimi exits 2 to
+ *   block), 1 on a usage error.
  */
 export async function runHookCli(
   argv: readonly string[],
   io: HookIo = processHookIo(),
 ): Promise<number> {
   const [name, ...rest] = argv;
+  if (name === 'ask-enforce') return runAskEnforce(rest, io);
   if (name !== 'heavy-command') {
     io.writeStderr(USAGE);
     return 1;
   }
-  const flag = rest.findIndex((a) => a === '--provider' || a.startsWith('--provider='));
-  const value = flag === -1 ? 'claude-code' : (rest[flag]?.split('=')[1] ?? rest[flag + 1]);
+  const value = providerArg(rest);
   const provider = HEAVY_HOOK_PROVIDERS.find((p) => p === value);
   if (provider === undefined) {
     io.writeStderr(USAGE);
