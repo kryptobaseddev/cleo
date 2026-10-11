@@ -48,7 +48,7 @@ interface TmpEnv {
   dbPath: string;
   globalCantDir: string;
   openDb: () => DatabaseSync;
-  cleanup: () => void;
+  cleanup: () => Promise<void>;
 }
 
 async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
@@ -77,6 +77,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
     '../../store/agent-registry-store.js'
   );
+  const { awaitBackgroundOps } = await import('../../store/background-ops.js');
   _resetGlobalAgentRegistryDb_TESTING_ONLY();
   await ensureGlobalAgentRegistryDb();
 
@@ -103,7 +104,12 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     d.exec('PRAGMA journal_mode = WAL');
     return d;
   };
-  const cleanup = (): void => {
+  // Drain this registry's background work (the resolver's dispatch trace
+  // opens the project store) before the next test's vi.resetModules: a
+  // straggler crossing it loads a second dual-scope-db into the fresh registry
+  // mid-import and the next test sees it uninitialised (T13313).
+  const cleanup = async (): Promise<void> => {
+    await awaitBackgroundOps();
     _resetGlobalAgentRegistryDb_TESTING_ONLY();
     removeTempDirSync(base);
   };
@@ -186,13 +192,13 @@ describe('M1 spawn-retrieval-parity — E3 GREEN (T1260)', () => {
     db = env.openDb();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     try {
       db.close();
     } catch {
       // already closed
     }
-    env.cleanup();
+    await env.cleanup();
     vi.restoreAllMocks();
   });
 

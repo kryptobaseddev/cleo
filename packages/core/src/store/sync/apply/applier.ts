@@ -818,6 +818,38 @@ function adoptNaturalRows(
   }
 }
 
+/**
+ * A staged transaction with every op's local INTEGER PRIMARY KEY removed
+ * (T12896). That id is numbered on each device, so this build never sends it;
+ * an older build's op still may, and the receiver drops it rather than refuse
+ * the column or collide with its own row of that id.
+ */
+function withoutLocalRowids(
+  st: StagedTxn,
+  defs: (table: string) => CaptureTableDef | null,
+): StagedTxn {
+  let changed = false;
+  const ops = st.txn.ops.map((op): LedgerOp => {
+    const col = defs(op.t)?.localRowid;
+    if (!col || ![op.a, op.b, op.fh].some((v) => v !== undefined && col in v)) return op;
+    changed = true;
+    return {
+      ...op,
+      ...(op.a ? { a: omitKey(op.a, col) } : {}),
+      ...(op.b ? { b: omitKey(op.b, col) } : {}),
+      ...(op.fh ? { fh: omitKey(op.fh, col) } : {}),
+    };
+  });
+  return changed ? { ...st, txn: { ...st.txn, ops } } : st;
+}
+
+/** `record` without `key`. */
+function omitKey<V>(record: Readonly<Record<string, V>>, key: string): Record<string, V> {
+  const out: Record<string, V> = {};
+  for (const [k, v] of Object.entries(record)) if (k !== key) out[k] = v;
+  return out;
+}
+
 /** Whether `op` writes an append-only table (insert-only rows, never rewound). */
 function isAppendOnly(defs: (table: string) => CaptureTableDef | null, op: LedgerOp): boolean {
   return defs(op.t)?.appendOnly === true;
@@ -1415,7 +1447,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
     passes += 1;
     const heldReplicas = new Set<string>();
     const held = new Set<string>(); // rows written by a pending transaction
-    const staged = [...stagedTxns(db, opts.stream)];
+    const staged = stagedTxns(db, opts.stream).map((st) => withoutLocalRowids(st, defs));
     // Each page is one frame and one scoped rebase (§3.5 Rule 3): rewind the
     // page's scope once, apply its transactions in stream order, replay once.
     for (let at = 0; at < staged.length; ) {

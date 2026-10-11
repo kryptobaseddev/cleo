@@ -546,6 +546,40 @@ describe('living-brain SDK', () => {
       expect(coverage.limitations).toContain('SQL extraction has not been implemented.');
     });
 
+    // T13380: an oversized file is reported with path-based provenance, so a
+    // fresh index no longer counts it as a legacy report.
+    it('counts an oversized file with provenance as incomplete, never as legacy', async () => {
+      const fixture = await seedCompleteInventory(1);
+      await replaceReports([
+        {
+          ...fixture.files[0]!,
+          status: 'oversized',
+          reason: 'Exceeds 512 KB scan limit',
+          capabilities: {
+            ...completeCodeCapabilities(),
+            classification: {
+              basis: 'path',
+              reason: 'Recognized executable language; content not read',
+            },
+            completed: [],
+            limitations: [
+              'Exceeds the 512 KB scan limit and was not read; none of its capabilities were assessed.',
+            ],
+          },
+        },
+      ]);
+      const coverage = await assessKnowledgeCoverage(projectRoot, undefined, 10000);
+      expect(coverage.status).toBe('partial');
+      expect(coverage.capabilities).toMatchObject({
+        legacyFiles: 0,
+        incompleteFiles: 1,
+        byRole: { executable: 1 },
+      });
+      expect(coverage.limitations).toContain(
+        'Exceeds the 512 KB scan limit and was not read; none of its capabilities were assessed.',
+      );
+    });
+
     it('keeps untyped historical reports conservative instead of inferring complete extraction', async () => {
       const fixture = await seedCompleteInventory(1);
       const { capabilities: _capabilities, ...legacy } = fixture.files[0]!;

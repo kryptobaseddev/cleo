@@ -704,6 +704,8 @@ function serializeAtom(atom: EvidenceAtom): string | null {
     }
     case 'test-run':
       return `test-run:${atom.path}`;
+    case 'qa-run':
+      return `qa-run:${atom.path}`;
     case 'tool':
       return `tool:${atom.tool}`;
     case 'url':

@@ -227,6 +227,9 @@ describe('CLEO-INJECTION CLI-only template', () => {
     it.each([
       /\*\*Ask the owner\.\*\*/,
       /Never ask in prose or bury a question in a response/,
+      // T13421: the answer-first reply rule governs every reply.
+      /\*\*Reply lean\.\*\* Answer first: line one is the result, answer or decision/,
+      /No preamble, recap or routine status chatter/,
       /Recency or similarity alone does not establish authority/,
       /Automatic repairs must be bounded and reversible/,
       /Never retry a killed mutation blindly/,
@@ -275,16 +278,18 @@ describe('CLEO-INJECTION CLI-only template', () => {
   });
 
   describe('Template size', () => {
-    it('core stays under 14,000 characters (~3,600 cl100k tokens — T12580)', () => {
+    it('core stays under 14,600 characters (~3,750 cl100k tokens — T12580, T13421)', () => {
       expect(
         content.length,
-        `CLEO-INJECTION.md is ${content.length} characters against a cap of 14,000. It is ` +
+        `CLEO-INJECTION.md is ${content.length} characters against a cap of 14,600. It is ` +
           'loaded into EVERY session and embedded into every tier-1 spawn prompt; T12580 cut it ' +
           'from 9,045 to ~3,360 cl100k tokens by moving reference material to ' +
           'CLEO-REFERENCE.md. New reference material belongs there, behind a section in the ' +
           "core's On-demand reference table — not here. If you raise the cap, say so " +
-          'explicitly in the commit message.',
-      ).toBeLessThanOrEqual(14000);
+          'explicitly in the commit message. T13421 raised it from 14,000 for the always-loaded ' +
+          'answer-first reply rule and the ct-lean pointer (T13422): both govern every reply, so ' +
+          'neither can be an on-demand section.',
+      ).toBeLessThanOrEqual(14600);
     });
 
     it('is at least 50 lines (not accidentally empty)', () => {
