@@ -143,14 +143,20 @@ export function installWorktreeDependencies(worktreePath: string, projectRoot: s
  * later (deferred or `--no-install`) never touches the shared global store,
  * where concurrent installs corrupt `.pnpm/` (T9938, T13538). Best-effort.
  *
+ * A TRACKED `.npmrc` is left alone: editing it would leave a dirty tracked
+ * file the worker might commit. The worker's install command carries
+ * `--store-dir` for that case.
+ *
  * @param worktreePath - The worktree.
- * @returns The store directory configured, or `null` when `.npmrc` could not be written.
+ * @returns The store directory configured, or `null` when `.npmrc` is tracked
+ *   or could not be written.
  * @task T9938
  * @task T13538
  */
 export function configureWorktreePnpmStore(worktreePath: string): string | null {
   const npmrcPath = join(worktreePath, '.npmrc');
   const storeDir = join(worktreePath, '.pnpm-store');
+  if (isTrackedFile(worktreePath, '.npmrc')) return null;
   try {
     const kept = existsSync(npmrcPath)
       ? readFileSync(npmrcPath, 'utf-8')
@@ -161,5 +167,15 @@ export function configureWorktreePnpmStore(worktreePath: string): string | null 
     return storeDir;
   } catch {
     return null;
+  }
+}
+
+/** Whether `file` is tracked by git in `cwd` (`git ls-files --error-unmatch`). */
+function isTrackedFile(cwd: string, file: string): boolean {
+  try {
+    execFileSync('git', ['ls-files', '--error-unmatch', file], { cwd, stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
   }
 }

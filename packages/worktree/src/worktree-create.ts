@@ -729,6 +729,7 @@ async function provisionUnderLock(
       ? [
           `Dependencies were NOT installed (${install.status}: ${install.reason ?? ''}).`,
           `Before building or testing, run: ${install.command}`,
+          `Pass the same --store-dir to any other pnpm install/add here (this worktree has its own pnpm store).`,
           '',
         ]
       : []),

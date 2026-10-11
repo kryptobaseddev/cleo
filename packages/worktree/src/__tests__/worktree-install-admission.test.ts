@@ -125,6 +125,24 @@ describe('createWorktree dependency install (T13524)', () => {
     }
   });
 
+  it('a tracked .npmrc is never edited: the worktree stays clean, the command carries --store-dir', async () => {
+    writeFileSync(join(projectRoot, '.npmrc'), 'auto-install-peers=true\n');
+    execFileSync('git', ['add', '.npmrc'], { cwd: projectRoot, stdio: 'pipe' });
+    execFileSync('git', ['commit', '-qm', 'track npmrc'], { cwd: projectRoot, stdio: 'pipe' });
+    const r = await createWorktree(projectRoot, {
+      taskId: 'T9206',
+      lockWorktree: false,
+      admitInstall: async () => null,
+    });
+    expect(readFileSync(join(r.path, '.npmrc'), 'utf-8')).toBe('auto-install-peers=true\n');
+    const dirty = execFileSync('git', ['status', '--porcelain', '--', '.npmrc'], {
+      cwd: r.path,
+      encoding: 'utf-8',
+    });
+    expect(dirty).toBe('');
+    expect(r.install?.command).toContain('--store-dir');
+  });
+
   it('the slot is released even when the install throws (guard)', async () => {
     // A pnpm that fails: the install reports failure, and the slot still comes back.
     writeFileSync(join(binDir, 'pnpm'), '#!/bin/sh\nexit 1\n');
