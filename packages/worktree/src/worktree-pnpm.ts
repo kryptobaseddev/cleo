@@ -23,7 +23,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 
 const PNPM_INSTALL_TIMEOUT_MS = 120_000;
 const LOCK_RETRY_INTERVAL_MS = 500;
@@ -156,7 +156,10 @@ export function installWorktreeDependencies(worktreePath: string, projectRoot: s
 export function configureWorktreePnpmStore(worktreePath: string): string | null {
   const npmrcPath = join(worktreePath, '.npmrc');
   const storeDir = join(worktreePath, '.pnpm-store');
-  if (isTrackedFile(worktreePath, '.npmrc')) return null;
+  const tracked = isTrackedFile(worktreePath, '.npmrc');
+  // Keep the store (and an untracked .npmrc with its absolute path) out of `git add -A`.
+  excludeFromGit(worktreePath, tracked ? ['/.pnpm-store/'] : ['/.pnpm-store/', '/.npmrc']);
+  if (tracked) return null;
   try {
     const kept = existsSync(npmrcPath)
       ? readFileSync(npmrcPath, 'utf-8')
@@ -177,5 +180,34 @@ function isTrackedFile(cwd: string, file: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Append patterns to the repository's `info/exclude` (from `git rev-parse
+ * --git-path info/exclude`), never to a tracked `.gitignore`. Idempotent and
+ * best-effort.
+ *
+ * @param cwd - A directory inside the worktree.
+ * @param patterns - Root-anchored patterns to exclude.
+ * @task T13538
+ */
+export function excludeFromGit(cwd: string, patterns: readonly string[]): void {
+  try {
+    const rel = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    const excludePath = isAbsolute(rel) ? rel : join(cwd, rel);
+    const current = existsSync(excludePath) ? readFileSync(excludePath, 'utf-8') : '';
+    const have = new Set(current.split('\n').map((l) => l.trim()));
+    const missing = patterns.filter((p) => !have.has(p));
+    if (missing.length === 0) return;
+    mkdirSync(dirname(excludePath), { recursive: true });
+    const sep = current === '' || current.endsWith('\n') ? '' : '\n';
+    writeFileSync(excludePath, `${current}${sep}${missing.join('\n')}\n`, 'utf-8');
+  } catch {
+    // Best-effort: an unexcluded store is visible, not harmful.
   }
 }

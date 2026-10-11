@@ -9,7 +9,15 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -89,6 +97,15 @@ describe('createWorktree dependency install (T13524)', () => {
     expect(readFileSync(join(r.path, '.npmrc'), 'utf-8')).toBe(
       `store-dir=${join(r.path, '.pnpm-store')}\n`,
     );
+    // `git add -A` in the worktree picks up neither the .npmrc nor the store.
+    mkdirSync(join(r.path, '.pnpm-store'), { recursive: true });
+    writeFileSync(join(r.path, '.pnpm-store', 'x'), 'x');
+    const untracked = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+      cwd: r.path,
+      encoding: 'utf-8',
+    });
+    expect(untracked).not.toContain('.npmrc');
+    expect(untracked).not.toContain('.pnpm-store');
     expect(r.install?.command).toBe(workerInstallCommand(r.path));
   });
 
@@ -141,6 +158,15 @@ describe('createWorktree dependency install (T13524)', () => {
     });
     expect(dirty).toBe('');
     expect(r.install?.command).toContain('--store-dir');
+    // The store is excluded; a tracked .gitignore is never touched.
+    mkdirSync(join(r.path, '.pnpm-store'), { recursive: true });
+    writeFileSync(join(r.path, '.pnpm-store', 'x'), 'x');
+    expect(
+      execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+        cwd: r.path,
+        encoding: 'utf-8',
+      }),
+    ).toBe('');
   });
 
   it('the slot is released even when the install throws (guard)', async () => {
