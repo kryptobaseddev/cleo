@@ -1,7 +1,7 @@
 {
   "$schema": "./hook-mappings.schema.json",
   "version": "2.0.0",
-  "lastUpdated": "2026-04-06",
+  "lastUpdated": "2026-10-10",
   "description": "CAAMP canonical hook event mappings to provider-native event names. The top-level `canonicalEvents` block is the CAAMP taxonomy that all providers translate to/from. The sibling `piEventCatalog` block is Pi's native lifecycle catalog, consulted when a provider's `capabilities.hooks.nativeEventCatalog` is `\"pi\"`.",
   "canonicalEvents": {
     "SessionStart": {
@@ -222,6 +222,7 @@
       "hookFormat": "json",
       "handlerTypes": ["command", "http", "prompt", "agent"],
       "experimental": false,
+      "projectDelivery": {"configPath": ".claude/settings.local.json", "timeoutUnit": "seconds", "documentedVersions": ["2.1.296"], "verifiedVersions": [], "documentation": "https://code.claude.com/docs/en/hooks", "reviewedAt": "2026-10-10", "trust": "native-unverified"},
       "mappings": {
         "SessionStart": { "nativeName": "SessionStart", "supported": true },
         "SessionEnd": { "nativeName": "SessionEnd", "supported": true },
@@ -322,12 +323,13 @@
       "hookFormat": "json",
       "handlerTypes": ["command"],
       "experimental": true,
+      "projectDelivery": {"configPath": ".codex/hooks.json", "timeoutUnit": "seconds", "documentedVersions": ["0.162.1"], "verifiedVersions": [], "documentation": "https://developers.openai.com/codex/hooks", "reviewedAt": "2026-10-10", "trust": "native-unverified"},
       "mappings": {
         "SessionStart": { "nativeName": "SessionStart", "supported": true },
         "SessionEnd": { "nativeName": null, "supported": false },
         "PromptSubmit": { "nativeName": "UserPromptSubmit", "supported": true },
         "ResponseComplete": { "nativeName": "Stop", "supported": true },
-        "PreToolUse": { "nativeName": null, "supported": false },
+        "PreToolUse": { "nativeName": "PreToolUse", "supported": true, "notes": "Documented by OpenAI; live version certification is separate from installation." },
         "PostToolUse": { "nativeName": null, "supported": false },
         "PostToolUseFailure": { "nativeName": null, "supported": false },
         "PermissionRequest": { "nativeName": null, "supported": false },
@@ -348,6 +350,7 @@
       "hookFormat": "javascript",
       "handlerTypes": ["plugin"],
       "experimental": false,
+      "projectDelivery": {"configPath": ".opencode/plugins/cleo-project-hooks.js", "timeoutUnit": "milliseconds", "documentedVersions": ["2.0.26"], "verifiedVersions": [], "documentation": "https://opencode.ai/docs/plugins/", "reviewedAt": "2026-10-10", "trust": "native-unverified"},
       "mappings": {
         "SessionStart": { "nativeName": "event:session.created", "supported": true, "notes": "Via bus event subscriber" },
         "SessionEnd": { "nativeName": "event:session.deleted", "supported": true, "notes": "Via bus event subscriber" },
@@ -382,6 +385,7 @@
       "hookFormat": null,
       "handlerTypes": [],
       "experimental": false,
+      "projectDelivery": {"configPath": null, "documentedVersions": [], "verifiedVersions": [], "documentation": "https://kimi-cli.com/en/customization/hooks.html", "reviewedAt": "2026-10-10", "trust": "native-unverified"},
       "mappings": {
         "SessionStart": { "nativeName": null, "supported": false },
         "SessionEnd": { "nativeName": null, "supported": false },

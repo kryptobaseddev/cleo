@@ -244,6 +244,41 @@ export interface RetireDue {
 }
 
 /**
+ * `_sync_meta` key of the copy reconcile an open-pass rebind owes (§1.5 N7,
+ * T13335): every rebind the open pass makes (a copy, a move, a rollback,
+ * another device's store) records `{from, to, at}` here in the rebind's own
+ * transaction, discards the inherited pull cursor, and pauses push. The
+ * reconcile against a restored checkpoint pulled to head
+ * (`store/sync/reconcile-copy.ts`) clears it.
+ */
+export const RECONCILE_DUE_KEY = 'sync.reconcile_due';
+
+/** The value of {@link RECONCILE_DUE_KEY}. */
+export interface ReconcileDue {
+  /** The retired replica, whose unsent changes are inherited. */
+  readonly from: string;
+  /** The replica the store is bound to now. */
+  readonly to: string;
+  readonly scope: ReplicaScope;
+  /** When the store rebound. */
+  readonly at: string;
+}
+
+/**
+ * The copy reconcile the store still owes, or null. Read-only.
+ *
+ * @param db - The store.
+ * @returns The due reconcile, or null.
+ */
+export function reconcileDue(db: DatabaseSync): ReconcileDue | null {
+  if (!hasTable(db, '_sync_meta')) return null;
+  const row = db.prepare('SELECT value FROM _sync_meta WHERE key = ?').get(RECONCILE_DUE_KEY) as
+    | { value: string }
+    | undefined;
+  return row ? (JSON.parse(row.value) as ReconcileDue) : null;
+}
+
+/**
  * Whether an open-pass rebind retires the old replica (§1.5 "Retirement",
  * T13337): a rollback of the same file (rule 3), or a cross-filesystem move
  * (rule 1 with the registry's old path gone). A copy (its original still at
@@ -604,6 +639,19 @@ function bindPass(db: DatabaseSync, opts: SyncOpenOptions): SyncOpenResult {
       return { row, previous: undefined, reasons, retires: false };
     }
     const current = rebindInTransaction(db, row, identity, deviceId, reasons, now);
+    // §1.5 (T13335): the new replica reconciles against the stream before it
+    // pushes. The inherited pull position is the old replica's: discarded.
+    const due: ReconcileDue = {
+      from: row.replicaId,
+      to: current.replicaId,
+      scope: opts.scope,
+      at: now.toISOString(),
+    };
+    db.prepare(
+      'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+    ).run(RECONCILE_DUE_KEY, JSON.stringify(due), due.at);
+    if (hasTable(db, '_sync_cursor')) db.prepare('DELETE FROM _sync_cursor').run();
     // T13337: a rollback or a cross-filesystem move retires the old id. What
     // it owes the stream commits with the rebind; the retire transaction
     // itself is queued by settleRetireDue.

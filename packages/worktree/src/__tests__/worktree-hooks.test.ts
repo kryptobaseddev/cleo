@@ -4,12 +4,18 @@
  * @task T1161
  */
 
-import { mkdirSync, realpathSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WorktreeHook } from '@cleocode/contracts';
+import type {
+  HookExecutor,
+  HookInvocation,
+  HookOutcome,
+} from '@cleocode/contracts/project-hooks.js';
 import { describe, expect, it } from 'vitest';
-import { runWorktreeHooks } from '../worktree-hooks.js';
+import { runProjectWorktreeHooks, runWorktreeHooks } from '../worktree-hooks.js';
 
 describe('runWorktreeHooks', () => {
   it('returns empty array when no matching hooks exist', async () => {
@@ -73,5 +79,83 @@ describe('runWorktreeHooks', () => {
     const hooks: WorktreeHook[] = [{ command: 'pwd', event: 'post-create' }];
     const results = await runWorktreeHooks(hooks, 'post-create', dir);
     expect(realpathSync(results[0].stdout)).toBe(realpathSync(dir));
+  });
+});
+
+describe('shared project worktree executor port', () => {
+  it('passes the actual checkout and lifecycle context without a core dependency', async () => {
+    const path = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-port-')));
+    execFileSync('git', ['init', '-q', path]);
+    const requests: HookInvocation[] = [];
+    const executor: HookExecutor = {
+      execute: async (invocation) => {
+        requests.push(invocation);
+        return [];
+      },
+    };
+    try {
+      await runProjectWorktreeHooks(executor, [], 'post-create', path, 'T13345');
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({
+        projectRoot: path,
+        source: 'worktree',
+        event: 'post-create',
+        worktree: { taskId: 'T13345', path },
+      });
+      expect(requests[0].gitCommonDir).toBe(join(path, '.git'));
+    } finally {
+      rmSync(path, { recursive: true, force: true });
+    }
+  });
+  it('rejects explicit duplicate registration before running either check', async () => {
+    let called = false;
+    const executor: HookExecutor = {
+      execute: async () => {
+        called = true;
+        return [];
+      },
+    };
+    await expect(
+      runProjectWorktreeHooks(
+        executor,
+        [{ command: 'echo no', event: 'post-start', projectHookId: 'setup' }],
+        'post-start',
+        tmpdir(),
+        'T13345',
+      ),
+    ).rejects.toThrow('HOOK_DUPLICATE_REGISTRATION');
+    expect(called).toBe(false);
+  });
+  it('honors project blocks and allows executor infrastructure faults', async () => {
+    const path = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-port-')));
+    execFileSync('git', ['init', '-q', path]);
+    const block: HookOutcome = {
+      id: 'setup',
+      status: 'block',
+      blocks: true,
+      code: 'HOOK_BLOCK',
+      exitCode: 0,
+      signal: null,
+      durationMs: 0,
+    };
+    try {
+      await expect(
+        runProjectWorktreeHooks({ execute: async () => [block] }, [], 'post-start', path, 'T13345'),
+      ).rejects.toThrow('HOOK_PROJECT_BLOCK');
+      const result = await runProjectWorktreeHooks(
+        {
+          execute: async () => {
+            throw new Error('failure');
+          },
+        },
+        [],
+        'post-start',
+        path,
+        'T13345',
+      );
+      expect(result[0]).toMatchObject({ status: 'infrastructure-error', blocks: false });
+    } finally {
+      rmSync(path, { recursive: true, force: true });
+    }
   });
 });

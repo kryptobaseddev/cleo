@@ -675,15 +675,19 @@ describe('Git-native installation and recovery (T13349)', () => {
     expect(fs.readFileSync(path.join(hooks, 'pre-push'), 'utf8')).toBe(original);
   });
 
-  it('standalone pre-push never invokes a project runner', async () => {
+  it('an incompatible CLI is probed but never runs project checks or blocks a push', async () => {
     const repo = gitInit(path.join(tmpRoot, 'standalone'));
     await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR });
     const bin = path.join(tmpRoot, 'bin');
     fs.mkdirSync(bin);
     const marker = path.join(tmpRoot, 'called');
-    fs.writeFileSync(path.join(bin, 'cleo'), '#!/bin/sh\necho called > "$CALLED"\nexit 1\n', {
-      mode: 0o755,
-    });
+    fs.writeFileSync(
+      path.join(bin, 'cleo'),
+      '#!/bin/sh\nprintf "%s\\n" "$*" > "$CALLED"\nexit 1\n',
+      {
+        mode: 0o755,
+      },
+    );
     const zero = '0'.repeat(40);
     const result = spawnSync(posixShell(), [path.join(repo, '.git', 'hooks', 'pre-push')], {
       cwd: repo,
@@ -692,6 +696,7 @@ describe('Git-native installation and recovery (T13349)', () => {
       encoding: 'utf8',
     });
     expect(result.status).toBe(0);
-    expect(fs.existsSync(marker)).toBe(false);
+    expect(fs.readFileSync(marker, 'utf8')).toBe('hook run --probe\n');
+    expect(result.stderr).toContain('project runner unavailable');
   });
 });
