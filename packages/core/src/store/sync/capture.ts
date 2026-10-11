@@ -840,12 +840,15 @@ export function captureBracketHooks(
   scope: TableScope,
 ): { suspendCapture?(db: DatabaseSync): void; reinstallCapture?(db: DatabaseSync): void } {
   if (!readSyncFlags(db)['sync.capture']) return {};
+  // Regenerate only what the bracket dropped: a sync-off open (T13336) whose
+  // store has no capture triggers must not gain them from a migration.
+  const dropped = new WeakSet<DatabaseSync>();
   return {
     suspendCapture: (d) => {
-      dropCaptureTriggers(d);
+      if (dropCaptureTriggers(d).length > 0) dropped.add(d);
     },
     reinstallCapture: (d) => {
-      if (hasTable(d, '_sync_capture')) installCaptureTriggers(d, scope);
+      if (dropped.delete(d) && hasTable(d, '_sync_capture')) installCaptureTriggers(d, scope);
     },
   };
 }
