@@ -396,6 +396,28 @@ describe('leased task claims (T12502)', () => {
       if (!again.ok) expect(again.code).toBe('E_TASK_CLAIMED');
     });
 
+    it('a lease length raised between spawn and re-spawn still refuses a renewed lease (T13514)', async () => {
+      const worker = await firstSpawn();
+      await workerActs(worker);
+      // Configured lease doubled after the spawn: claimedAt + 60 min would cover the renewal.
+      process.env['CLEO_CLAIM_LEASE_MINUTES'] = '60';
+      const again = await as(SES_A, () => requireSpawnSession(env.tempDir, 'T001'));
+      expect(again.ok).toBe(false);
+      if (!again.ok) expect(again.code).toBe('E_TASK_CLAIMED');
+      const grants = await env.accessor.queryAuditLog({
+        taskIds: ['T001'],
+        actions: ['spawn_claim_grant'],
+      });
+      expect(grants).toHaveLength(1);
+    });
+
+    it('an unused session still reads unused after the lease length changes', async () => {
+      await firstSpawn();
+      process.env['CLEO_CLAIM_LEASE_MINUTES'] = '5';
+      const again = await as(SES_A, () => requireSpawnSession(env.tempDir, 'T001'));
+      expect(again.ok).toBe(true);
+    });
+
     it('a session no worker has used yet is reused without renewing its lease, every time', async () => {
       const worker = await firstSpawn();
       const lease = (await env.accessor.loadSingleTask('T001'))?.claim;

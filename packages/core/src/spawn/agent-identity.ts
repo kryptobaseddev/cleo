@@ -24,7 +24,7 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { getErrorDefinition } from '../error-catalog.js';
 import { CleoError } from '../errors.js';
 import { generateSessionId } from '../sessions/session-id.js';
-import { getTaskAccessor } from '../store/data-accessor.js';
+import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
 import { withLock } from '../store/lock.js';
 import { endSession } from '../store/session-store.js';
 import { isClaimExpired, taskClaimedError, taskClaimLeaseMs } from '../store/task-claim.js';
@@ -269,7 +269,73 @@ export async function requireSpawnSession(
       ...(cleo?.details ? { details: cleo.details } : {}),
     };
   }
+  await recordSpawnGrant(projectRoot, taskId, identity, claim);
   return { ok: true, identity, claim };
+}
+
+/** Audit action recording the lease a spawn granted (T13514). */
+export const SPAWN_CLAIM_GRANT_ACTION = 'spawn_claim_grant';
+
+/**
+ * Record the lease this spawn granted, so a later re-spawn compares the
+ * current lease against what was actually granted rather than against the
+ * lease length configured now (T13514). Only a fresh grant is recorded (a
+ * renewal keeps its `claimedAt`). Best-effort: a failed audit write leaves the
+ * re-spawn check on its fallback.
+ */
+async function recordSpawnGrant(
+  projectRoot: string,
+  taskId: string,
+  identity: SpawnAgentIdentity,
+  receipt: SpawnClaimReceipt,
+): Promise<void> {
+  const lease = receipt.claim;
+  if (!lease || lease.sessionId !== identity.sessionId) return;
+  if (receipt.previous?.sessionId === lease.sessionId && receipt.previous.claimedAt === lease.claimedAt)
+    return;
+  try {
+    const acc = await getTaskAccessor(projectRoot);
+    await acc.appendLog({
+      action: SPAWN_CLAIM_GRANT_ACTION,
+      taskId,
+      actor: identity.agentId,
+      sessionId: identity.sessionId,
+      details: { claimedAt: lease.claimedAt, leaseExpiresAt: lease.leaseExpiresAt },
+    });
+  } catch {
+    // the re-spawn check falls back to the configured lease length
+  }
+}
+
+/**
+ * The expiry the spawn that took `held` granted: the recorded
+ * {@link SPAWN_CLAIM_GRANT_ACTION} for this session and `claimedAt`, or, for a
+ * lease granted before grants were recorded, `claimedAt` plus the configured
+ * lease length.
+ *
+ * @task T13514
+ */
+async function grantedExpiryMs(acc: DataAccessor, taskId: string, held: TaskClaim): Promise<number> {
+  const rows = await acc.queryAuditLog({
+    taskIds: [taskId],
+    actions: [SPAWN_CLAIM_GRANT_ACTION],
+    limit: 20,
+  });
+  for (const row of rows) {
+    if (row.sessionId !== held.sessionId || !row.detailsJson) continue;
+    const details: unknown = JSON.parse(row.detailsJson);
+    if (
+      typeof details === 'object' &&
+      details !== null &&
+      'claimedAt' in details &&
+      'leaseExpiresAt' in details &&
+      details.claimedAt === held.claimedAt &&
+      typeof details.leaseExpiresAt === 'string'
+    ) {
+      return Date.parse(details.leaseExpiresAt);
+    }
+  }
+  return Date.parse(held.claimedAt) + taskClaimLeaseMs();
 }
 
 /** What {@link assessReusedSession} found about a reused per-agent session. */
@@ -298,8 +364,8 @@ type ReusedSessionVerdict =
  * (audited as `spawn_session_reclaim`) so the re-claim starts a fresh lease
  * with a new `claimedAt`.
  *
- * shortcut: the comparison uses the current `CLEO_CLAIM_LEASE_MINUTES`; a
- * lease length changed between spawn and re-spawn misreads one lease period.
+ * The grant is read from the audit row the spawn wrote (T13514); a lease
+ * granted before grants were recorded falls back to the configured length.
  *
  * @param projectRoot - Project root.
  * @param taskId - The task being spawned.
@@ -330,8 +396,9 @@ async function assessReusedSession(
     });
     return { kind: 'claim' };
   }
-  const granted = Date.parse(held.claimedAt) + taskClaimLeaseMs();
-  // Spawn writes claimedAt and the expiry from one instant, so an untouched lease is exact.
+  // The grant is recorded at spawn (T13514), so changing the lease length later cannot
+  // make a renewed lease look untouched; an untouched lease equals its grant exactly.
+  const granted = await grantedExpiryMs(acc, taskId, held);
   if (Date.parse(held.leaseExpiresAt) <= granted) {
     return { kind: 'unused', lease: held };
   }
