@@ -40,11 +40,18 @@ describe('project hook delivery', () => {
     vi.stubEnv('GIT_DIR', '/nonexistent/foreign-repository');
     vi.stubEnv('GIT_WORK_TREE', '/nonexistent/foreign-checkout');
     try {
+      const services = createProjectHookDeliveryServices();
       const result = await syncProjectHookProviders({
         ...opts,
-        services: createProjectHookDeliveryServices(),
+        services,
       });
       expect(result[0]?.state).toBe('installed');
+      expect(
+        execFileSync('git', ['-C', opts.projectRoot, 'check-ignore', '.codex/hooks.json'], {
+          encoding: 'utf8',
+          env: services.gitEnvironment,
+        }).trim(),
+      ).toBe('.codex/hooks.json');
       expect(process.env.GIT_DIR).toBe('/nonexistent/foreign-repository');
     } finally {
       vi.unstubAllEnvs();

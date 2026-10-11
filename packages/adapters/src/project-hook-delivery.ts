@@ -366,7 +366,12 @@ async function deliverProvider(
     result.state = existing === body ? 'current' : 'planned';
     if (!options.dryRun && existing !== body) {
       if (existing === undefined)
-        excludeHookFileFromGit(options.projectRoot, capability.configPath);
+        excludeHookFileFromGit(
+          options.projectRoot,
+          capability.configPath,
+          undefined,
+          options.services.gitEnvironment,
+        );
       await withFileLock(target, async () => {
         await localTarget(options.projectRoot, configPath);
         const current = existsSync(target)
@@ -396,7 +401,13 @@ async function deliverProvider(
   const edits = configEdits(config, prior, desired);
   result.state = edits.length ? 'planned' : 'current';
   if (!options.dryRun) {
-    if (!existsSync(target)) excludeHookFileFromGit(options.projectRoot, capability.configPath);
+    if (!existsSync(target))
+      excludeHookFileFromGit(
+        options.projectRoot,
+        capability.configPath,
+        undefined,
+        options.services.gitEnvironment,
+      );
     await editJsonConfigFile(target, (current) => configEdits(current, prior, desired));
     await writeFileAtomic({
       path: receiptPath,
