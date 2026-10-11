@@ -26,10 +26,23 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type {
+  HookExecutor,
+  HookInvocation,
+  ProjectHooksManifest,
+} from '@cleocode/contracts/project-hooks.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { activateProjectHooks } from '../hooks/project-state.js';
+
+// hooks-v1 is unreleased in source (T13557); this test exercises the released path.
+vi.mock('../hooks/release-gate.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../hooks/release-gate.js')>();
+  return { ...mod, hooksV1Released: () => true };
+});
 
 import { spawnWorktree, teardownWorktree } from '../sentient/worktree-dispatch.js';
 
@@ -134,6 +147,109 @@ describe('spawn pipeline → @cleocode/worktree integration (T9984)', () => {
     expect(result.path.startsWith(fixture.projectRoot + sep)).toBe(false);
 
     await teardownWorktree(fixture.projectRoot, { taskId });
+  });
+
+  it('runs activated project hooks with an explicit Git shim and deferred install', async () => {
+    if (!fixture) throw new Error('fixture not initialised');
+    const root = fixture.projectRoot;
+    mkdirSync(join(root, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(root, 'lifecycle.mjs'),
+      `import { appendFileSync } from 'node:fs';
+let input = ''; for await (const chunk of process.stdin) input += chunk;
+appendFileSync('lifecycle.txt', JSON.parse(input).event + '\\n');
+process.stdout.write(JSON.stringify({status: 'pass'}));`,
+    );
+    const manifest: ProjectHooksManifest = {
+      schemaVersion: 1,
+      hooks: [
+        {
+          id: 'lifecycle',
+          owner: 'project',
+          executable: 'node',
+          handler: 'lifecycle.mjs',
+          args: [],
+          dependencies: [],
+          timeoutMs: 10000,
+          checkerErrorPolicy: 'warn',
+          bindings: [
+            { source: 'worktree', event: 'post-create' },
+            { source: 'worktree', event: 'post-start' },
+          ],
+        },
+      ],
+    };
+    writeFileSync(join(root, '.cleo/hooks.json'), JSON.stringify(manifest));
+    writeFileSync(join(root, 'package.json'), '{"name":"lifecycle-fixture","version":"1.0.0"}\n');
+    writeFileSync(join(root, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+    execFileSync(
+      'git',
+      ['add', '.cleo/hooks.json', 'lifecycle.mjs', 'package.json', 'pnpm-lock.yaml'],
+      { cwd: root },
+    );
+    execFileSync('git', ['commit', '-qm', 'test(T13345): lifecycle fixture'], { cwd: root });
+    await activateProjectHooks(root);
+
+    const taskId = 'T13345-explicit-shim';
+    let admissions = 0;
+    const created = await spawnWorktree(root, {
+      taskId,
+      gitShim: { dir: join(root, 'explicit-shim'), installed: false },
+      admitInstall: async () => {
+        admissions++;
+        return null;
+      },
+    });
+    try {
+      expect(readFileSync(join(created.path, 'lifecycle.txt'), 'utf8')).toBe(
+        'post-create\npost-start\n',
+      );
+      expect(created.projectHookResults).toMatchObject([{ id: 'lifecycle', status: 'pass' }]);
+      expect(created.bootstrap?.projectHookResults).toMatchObject([
+        { id: 'lifecycle', status: 'pass' },
+      ]);
+      expect(created.envVars['CLEO_BRANCH_PROTECTION']).toBe('unavailable');
+      expect(admissions).toBe(1);
+      expect(created.install?.status).toBe('deferred');
+    } finally {
+      await teardownWorktree(root, { taskId, force: true });
+    }
+  });
+
+  it('preserves a caller executor when installing the default Git shim', async () => {
+    if (!fixture) throw new Error('fixture not initialised');
+    writeFileSync(
+      join(fixture.projectRoot, 'package.json'),
+      '{"name":"executor-fixture","version":"1.0.0"}\n',
+    );
+    writeFileSync(join(fixture.projectRoot, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+    execFileSync('git', ['add', 'package.json', 'pnpm-lock.yaml'], { cwd: fixture.projectRoot });
+    execFileSync('git', ['commit', '-qm', 'test(T13345): skipped install fixture'], {
+      cwd: fixture.projectRoot,
+    });
+    const requests: HookInvocation[] = [];
+    const executor: HookExecutor = {
+      execute: async (request) => {
+        requests.push(request);
+        return [];
+      },
+    };
+    const taskId = 'T13345-executor-override';
+    const created = await spawnWorktree(fixture.projectRoot, {
+      taskId,
+      projectHookExecutor: executor,
+      skipInstall: true,
+    });
+    try {
+      expect(requests.map((request) => request.event)).toEqual(['post-create', 'post-start']);
+      expect(requests.every((request) => request.projectRoot === realpathSync(created.path))).toBe(
+        true,
+      );
+      expect(requests.every((request) => request.worktree?.taskId === taskId)).toBe(true);
+      expect(created.install?.status).toBe('skipped');
+    } finally {
+      await teardownWorktree(fixture.projectRoot, { taskId, force: true });
+    }
   });
 
   it('destroys the worktree cleanly via the SDK', async () => {

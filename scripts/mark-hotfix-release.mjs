@@ -21,9 +21,17 @@
  *   notice. An unreadable or malformed plan fails: release metadata must not be
  *   guessed.
  *
+ * It also stamps the features a stable promotion releases (T13557): a plan
+ * made with `--hooks-v1-promotion` (and not a hotfix) sets
+ * `cleo.releasedFeatures: ["hooks-v1"]` in `packages/core/package.json`, which
+ * opens the hooks-v1 runtime gate (`core/src/hooks/release-gate.ts`) without a
+ * source change; any other release removes a stale stamp. The pilot's source
+ * digest normalizes the stamp out (scripts/hook-pilot-evidence.mjs).
+ *
  * Usage: `node scripts/mark-hotfix-release.mjs <version>` (no leading `v`).
  *
  * @task T13184
+ * @task T13557
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -33,23 +41,50 @@ import { isMain } from './lib/is-main.mjs';
 /** Manifest the flag is written into. */
 export const CLEO_MANIFEST = 'packages/cleo/package.json';
 
+/** Manifest the released features are stamped into: the runtime gate reads core's own (T13557). */
+export const CORE_MANIFEST = 'packages/core/package.json';
+
 /**
  * Read the plan's release kind.
  *
  * @param {string} root - Repository root.
  * @param {string} version - Release version without a leading `v`.
- * @returns {{ kind: string, planPath: string } | { kind: null, planPath: string }}
- *   The kind, or `null` when there is no plan file.
+ * @returns {{ kind: string, hooksV1Promotion: boolean, planPath: string } | { kind: null, hooksV1Promotion: false, planPath: string }}
+ *   The kind (`null` when there is no plan file) and whether it is the hooks-v1 promotion.
  * @throws {Error} When the plan exists but is not valid JSON or has no `releaseKind`.
  */
 export function readReleaseKind(root, version) {
   const planPath = join(root, '.cleo', 'release', `v${version}.plan.json`);
-  if (!existsSync(planPath)) return { kind: null, planPath };
+  if (!existsSync(planPath)) return { kind: null, hooksV1Promotion: false, planPath };
   const plan = JSON.parse(readFileSync(planPath, 'utf8'));
   if (typeof plan?.releaseKind !== 'string') {
     throw new Error(`${planPath} has no releaseKind`);
   }
-  return { kind: plan.releaseKind, planPath };
+  return { kind: plan.releaseKind, hooksV1Promotion: plan.hooksV1Promotion === true, planPath };
+}
+
+/**
+ * Stamp or clear the features this release promotes in core's manifest (T13557).
+ *
+ * @param {string} root - Repository root.
+ * @param {string} version - Release version without a leading `v`.
+ * @returns {{ features: string[], changed: boolean }} The stamped features and whether the file changed.
+ * @throws {Error} When the plan exists but is malformed.
+ */
+export function markReleasedFeatures(root, version) {
+  const { kind, hooksV1Promotion } = readReleaseKind(root, version);
+  const manifestPath = join(root, CORE_MANIFEST);
+  const before = readFileSync(manifestPath, 'utf8');
+  const manifest = JSON.parse(before);
+  const meta = typeof manifest.cleo === 'object' && manifest.cleo !== null ? manifest.cleo : {};
+  const features = hooksV1Promotion && kind !== 'hotfix' ? ['hooks-v1'] : [];
+  const { releasedFeatures: _stale, ...rest } = meta;
+  if (features.length > 0) manifest.cleo = { ...rest, releasedFeatures: features };
+  else if (Object.keys(rest).length > 0) manifest.cleo = rest;
+  else delete manifest.cleo;
+  const changed = JSON.stringify(JSON.parse(before)) !== JSON.stringify(manifest);
+  if (changed) writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  return { features, changed };
 }
 
 /**
@@ -66,11 +101,19 @@ export function markHotfixRelease(root, version) {
   const manifest = JSON.parse(before);
   const meta = typeof manifest.cleo === 'object' && manifest.cleo !== null ? manifest.cleo : {};
   const hotfix = kind === 'hotfix';
+  const canary = /-canary\.\d+$/.test(version);
 
   if (hotfix) {
     manifest.cleo = { ...meta, hotfix: true };
   } else if ('hotfix' in meta) {
     const { hotfix: _stale, ...rest } = meta;
+    if (Object.keys(rest).length > 0) manifest.cleo = rest;
+    else delete manifest.cleo;
+  }
+  if (canary) {
+    manifest.cleo = { ...(manifest.cleo ?? {}), channel: 'canary' };
+  } else if (manifest.cleo?.channel === 'canary') {
+    const { channel: _canary, ...rest } = manifest.cleo;
     if (Object.keys(rest).length > 0) manifest.cleo = rest;
     else delete manifest.cleo;
   }
@@ -98,6 +141,11 @@ if (isMain(import.meta.url)) {
     process.stdout.write(
       `${prefix}${result.reason}: @cleocode/cleo ${result.hotfix ? 'IS' : 'is not'} flagged as a hotfix` +
         `${result.changed ? ' (manifest updated)' : ''}\n`,
+    );
+    const released = markReleasedFeatures(resolve('.'), version);
+    process.stdout.write(
+      `@cleocode/core released features: ${released.features.join(', ') || 'none'}` +
+        `${released.changed ? ' (manifest updated)' : ''}\n`,
     );
   } catch (err) {
     process.stderr.write(

@@ -11,7 +11,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CLEO_MANIFEST, markHotfixRelease } from '../mark-hotfix-release.mjs';
+import {
+  CLEO_MANIFEST,
+  CORE_MANIFEST,
+  markHotfixRelease,
+  markReleasedFeatures,
+} from '../mark-hotfix-release.mjs';
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'mark-hotfix-release.mjs');
 
@@ -22,6 +27,8 @@ describe('mark-hotfix-release (T13184)', () => {
   function seed(manifest, plan, version = '2026.10.5') {
     mkdirSync(join(root, 'packages', 'cleo'), { recursive: true });
     writeFileSync(join(root, CLEO_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);
+    mkdirSync(join(root, 'packages', 'core'), { recursive: true });
+    writeFileSync(join(root, CORE_MANIFEST), '{"name":"@cleocode/core"}\n');
     if (plan !== undefined) {
       mkdirSync(join(root, '.cleo', 'release'), { recursive: true });
       writeFileSync(
@@ -99,6 +106,29 @@ describe('mark-hotfix-release (T13184)', () => {
       encoding: 'utf8',
     });
     expect(usage.status).toBe(2);
+  });
+
+  it('stamps hooks-v1 into core for the promotion plan only, and clears a stale stamp (T13557)', () => {
+    const core = () => JSON.parse(readFileSync(join(root, CORE_MANIFEST), 'utf8'));
+    seed({ name: '@cleocode/cleo' }, { releaseKind: 'regular', hooksV1Promotion: true });
+    expect(markReleasedFeatures(root, '2026.10.5')).toEqual({
+      features: ['hooks-v1'],
+      changed: true,
+    });
+    expect(core()).toEqual({ name: '@cleocode/core', cleo: { releasedFeatures: ['hooks-v1'] } });
+    // A later ordinary release, a hotfix, or no plan never carries the stamp.
+    for (const plan of [
+      { releaseKind: 'regular' },
+      { releaseKind: 'hotfix', hooksV1Promotion: true },
+    ]) {
+      writeFileSync(
+        join(root, CORE_MANIFEST),
+        '{"name":"@cleocode/core","cleo":{"releasedFeatures":["hooks-v1"]}}\n',
+      );
+      writeFileSync(join(root, '.cleo', 'release', 'v2026.10.5.plan.json'), JSON.stringify(plan));
+      expect(markReleasedFeatures(root, '2026.10.5')).toEqual({ features: [], changed: true });
+      expect(core()).toEqual({ name: '@cleocode/core' });
+    }
   });
 
   it('release.yml runs it after the version sync and before the cleo tarball gates', () => {

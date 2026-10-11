@@ -332,7 +332,11 @@ const planCommand = defineCommand({
     },
     channel: {
       type: 'string',
-      description: 'Release channel: latest | beta | alpha | rc',
+      description: 'Release channel: latest | beta | alpha | rc | canary',
+    },
+    'hooks-v1-promotion': {
+      type: 'boolean',
+      description: 'Require the unified-hooks pilot for this stable promotion',
     },
     hotfix: {
       type: 'boolean',
@@ -415,6 +419,7 @@ const planCommand = defineCommand({
         scheme: args.scheme as string | undefined,
         channel: args.channel as string | undefined,
         hotfix: args.hotfix === true,
+        hooksV1Promotion: args['hooks-v1-promotion'] === true,
         dryRun: args['dry-run'] === true,
         writeChangelog: !negatedFlag(args, 'changelog'),
       },

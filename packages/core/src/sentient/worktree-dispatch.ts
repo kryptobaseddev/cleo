@@ -85,12 +85,17 @@ export async function spawnWorktree(
   options: CreateWorktreeOptions,
 ): Promise<CreateWorktreeResult> {
   const { createWorktree } = await backend();
+  const { createProjectHookExecutor } = await import('../hooks/project-runner.js');
+  const hookOptions = {
+    ...options,
+    projectHookExecutor: options.projectHookExecutor ?? createProjectHookExecutor(projectRoot),
+  };
   // T13522: install the git shim before the worktree advertises strict protection.
-  let withShim = options;
+  let withShim: CreateWorktreeOptions = hookOptions;
   if (!options.gitShim) {
     const { ensureGitShimDir } = await import('../spawn/branch-lock.js');
     const shim = ensureGitShimDir(projectRoot);
-    withShim = { ...options, gitShim: { dir: shim.dir, installed: shim.installed } };
+    withShim = { ...hookOptions, gitShim: { dir: shim.dir, installed: shim.installed } };
   }
   // T13524: admit the dependency install through the machine-wide heavy queue
   // (the same `scoped-build` class as `cleo run --class build`); a busy budget

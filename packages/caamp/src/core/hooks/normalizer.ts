@@ -14,6 +14,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveRegistryTemplatePath } from '../paths/standard.js';
+import {
+  EVENT_METADATA,
+  GENERATED_PROVIDER_HOOK_PROFILES,
+  HOOK_REGISTRY_EVIDENCE,
+} from './generated.js';
 import type {
   CanonicalEventDefinition,
   CanonicalHookEvent,
@@ -43,15 +48,15 @@ function loadMappings(): HookMappingsFile {
   if (_mappings) return _mappings;
   const mappingsPath = findMappingsPath();
   if (!existsSync(mappingsPath)) {
-    // Return an empty but structurally valid mappings object when the file is missing.
-    // This avoids ENOENT crashes in installed environments where the providers/
-    // directory may not be bundled (e.g. global npm installs with hoisted deps).
+    // Use the generated registry snapshot when bundling relocates this module.
+    // Installed delivery must not silently lose capabilities because a relative
+    // source-tree path differs from the package's bundled layout.
     const empty: HookMappingsFile = {
-      version: '0.0.0',
-      lastUpdated: new Date().toISOString(),
-      description: 'Empty fallback — hook-mappings.json not found',
-      canonicalEvents: {} as HookMappingsFile['canonicalEvents'],
-      providerMappings: {},
+      version: HOOK_REGISTRY_EVIDENCE.version,
+      lastUpdated: HOOK_REGISTRY_EVIDENCE.lastUpdated,
+      description: 'Generated registry fallback — runtime JSON path unavailable',
+      canonicalEvents: EVENT_METADATA,
+      providerMappings: GENERATED_PROVIDER_HOOK_PROFILES,
     };
     _mappings = empty;
     return empty;
@@ -280,7 +285,7 @@ export function toCanonical(nativeName: string, providerId: string): CanonicalHo
   if (!profile) return null;
 
   for (const [canonical, mapping] of Object.entries(profile.mappings)) {
-    if (mapping.supported && mapping.nativeName === nativeName) {
+    if (mapping?.supported && mapping.nativeName === nativeName) {
       return canonical as CanonicalHookEvent;
     }
   }
@@ -764,7 +769,7 @@ export function resolveNativeEvent(nativeName: string): Array<{
 
   for (const [providerId, profile] of Object.entries(data.providerMappings)) {
     for (const [canonical, mapping] of Object.entries(profile.mappings)) {
-      if (mapping.supported && mapping.nativeName === nativeName) {
+      if (mapping?.supported && mapping.nativeName === nativeName) {
         results.push({ providerId, canonical: canonical as CanonicalHookEvent });
       }
     }
