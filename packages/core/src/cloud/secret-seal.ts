@@ -252,6 +252,9 @@ export async function sealSnapshotCredentials(
  * the cells still NULL after the machine state was carried (a local value
  * wins). The sealed-credentials table is dropped either way. A cell that does
  * not open (another account's key) or names no credential column stays NULL.
+ * Any path that places a vault checkpoint's store calls this on its staged
+ * copy first: the vault restore does, and so must the merge join's scratch
+ * restore (#2080, `reconcileOwedCopy`).
  *
  * @param stagedDbPath - The restore's staged snapshot of the global store.
  * @param secretKey - {@link secretValuesKey} of the account master key.
