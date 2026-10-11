@@ -6534,7 +6534,6 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     expect(await rowsOf(a, d1)).toEqual(both);
     expect(await rowsOf(b, d1)).toEqual(both);
   });
-  });
 });
 
 describe('the server retirements a receiver confirms a retire by (T13366)', () => {
