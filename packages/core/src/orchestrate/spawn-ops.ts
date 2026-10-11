@@ -751,6 +751,26 @@ export async function composeSpawnForTask(
 // ---------------------------------------------------------------------------
 
 /**
+ * The `E_ATOMICITY_*` envelope for a spawn the worker file-scope gate refused,
+ * with the full verdict in `error.details.atomicity`.
+ *
+ * @param taskId - The refused task.
+ * @param payload - The composed payload carrying the verdict.
+ * @returns The error envelope.
+ * @task T13510
+ */
+function atomicityRefusal(taskId: string, payload: SpawnPayload): EngineResult {
+  return engineError(
+    payload.atomicity.code ?? 'E_ATOMICITY_VIOLATION',
+    payload.atomicity.message ?? 'Atomicity gate rejected spawn',
+    {
+      details: { taskId, atomicity: payload.atomicity, meta: payload.meta },
+      fix: payload.atomicity.fixHint,
+    },
+  );
+}
+
+/**
  * orchestrate.spawn.select - Select best provider for spawn based on required capabilities
  *
  * @param capabilities - Required harness capabilities to filter providers.
@@ -1452,6 +1472,22 @@ export async function orchestrateSpawn(
       });
     }
 
+    // T13510 — refuse a task the atomicity gate rejects BEFORE allocating a
+    // session, claiming it, provisioning a worktree or running pnpm install:
+    // a refused spawn leaves nothing behind. The verdict needs the composer's
+    // role resolution, so this composes once without session or worktree
+    // (no memory retrieval); the real prompt is composed after provisioning.
+    const precheck = await raceAgainstAbort(
+      composeSpawnForTask(taskId, root, {
+        tier,
+        protocol: protocolType,
+        ...(atomicityScope ? { atomicityScope } : {}),
+      }),
+      budgetCtrl.signal,
+      'validate-readiness',
+    );
+    if (!precheck.atomicity.allowed) return atomicityRefusal(taskId, precheck);
+
     // T10448 — Pre-spawn hygiene gate: validate changesets before composing
     // the prompt. Fail fast so malformed entries are caught before any
     // worktree is provisioned or an agent is dispatched.
@@ -1776,21 +1812,9 @@ export async function orchestrateSpawn(
 
     // Surface atomicity violations as a first-class error envelope so callers
     // can react programmatically. The full verdict is attached to
-    // `error.details.atomicity` so diagnostics are preserved.
-    if (!payload.atomicity.allowed) {
-      return engineError(
-        payload.atomicity.code ?? 'E_ATOMICITY_VIOLATION',
-        payload.atomicity.message ?? 'Atomicity gate rejected spawn',
-        {
-          details: {
-            taskId,
-            atomicity: payload.atomicity,
-            meta: payload.meta,
-          },
-          fix: payload.atomicity.fixHint,
-        },
-      );
-    }
+    // `error.details.atomicity` so diagnostics are preserved. The pre-check
+    // above already refused these; this guards a task edited in between.
+    if (!payload.atomicity.allowed) return atomicityRefusal(taskId, payload);
 
     // T1140: The worktree section is now emitted by buildSpawnPrompt (inside
     // composeSpawnForTask above) as `## Worktree Setup (REQUIRED)`. The prompt
