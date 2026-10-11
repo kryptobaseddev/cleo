@@ -66,9 +66,17 @@
 
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  accessSync,
+  constants as fsConstants,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { hostname, totalmem } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import type {
   HeavyToolResourcePlan,
   MemoryPressureReading,
@@ -97,7 +105,7 @@ import {
   type MemoryGateReporter,
 } from './pressure-gate.js';
 import { processAncestors, processGroupOf } from './run-admission.js';
-import { canonicalForClass, namedTestFileCount, runFootprint } from './run-class.js';
+import { canonicalForClass, gitHookFor, namedTestFileCount, runFootprint } from './run-class.js';
 import { ownProcessStartedAt, type PidProbe, systemPidProbe } from './slot-holder.js';
 import { followToolGroups, isProbeableId } from './tool-groups.js';
 
@@ -257,6 +265,37 @@ export function planFootprintBytes(
   return processes * (Math.max(0, plan.heapMb) + PROCESS_OVERHEAD_MB) * 1024 * 1024;
 }
 
+/**
+ * Whether a git client hook is installed for the repository at `cwd`
+ * (T13452): `git rev-parse --git-path hooks/<name>` honours `core.hooksPath`,
+ * and the file must exist and be executable. Any failure reads as installed,
+ * which keeps the heavier charge.
+ *
+ * @param cwd - Where the command runs.
+ * @param hook - Hook name (`pre-push`, `pre-commit`).
+ * @param globals - The command's git global options (`-C`, `-c`), passed through.
+ */
+export function gitHookInstalled(
+  cwd: string,
+  hook: string,
+  globals: readonly string[] = [],
+): boolean {
+  try {
+    // The command's own global options (`-C <dir>`, `-c core.hooksPath=…`)
+    // pick the repository and hooks directory it will use (T13458).
+    const path = execFileSync(
+      'git',
+      [...globals, 'rev-parse', '--path-format=absolute', '--git-path', `hooks/${hook}`],
+      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5_000 },
+    ).trim();
+    accessSync(isAbsolute(path) ? path : join(cwd, path), fsConstants.X_OK);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code !== 'ENOENT' && code !== 'EACCES';
+  }
+}
+
 /** What a `cleo run` job is planned with and charged (T13367). */
 export interface RunFootprintPlan {
   /** Env overlay for the child (heap ceiling, workers); empty for a light run. */
@@ -295,8 +334,17 @@ export function planRunFootprint(
   argv: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
   totalRamGib: number = totalmem() / GIB,
+  hookInstalled: (hook: string, globals: readonly string[]) => boolean = (hook, globals) =>
+    gitHookInstalled(process.cwd(), hook, globals), // CWD-OK: cleo run runs the command in its own cwd
 ): RunFootprintPlan {
-  const scope = cls === 'full-build' ? null : runFootprint(argv);
+  let scope = cls === 'full-build' ? null : runFootprint(argv);
+  // T13452: a hooked git push/commit keeps the class plan, because whatever
+  // the hook runs (tests, a build) rides this admission.
+  const probe = scope?.size === 'light' ? gitHookFor(argv) : null;
+  const hook = probe?.hooks.find((h) => hookInstalled(h, probe.globals));
+  if (hook !== undefined) {
+    scope = { size: 'class', reason: `runs the ${hook} hook` };
+  }
   if (scope?.size === 'light') {
     return {
       overlay: {},
@@ -330,7 +378,9 @@ export function planRunFootprint(
     footprintReason:
       namedFiles !== null
         ? `${namedFiles} named test file${namedFiles === 1 ? '' : 's'}`
-        : `${cls} plan`,
+        : scope?.size === 'class' && scope.reason !== 'sized by its class'
+          ? `${cls} plan: ${scope.reason}`
+          : `${cls} plan`,
     namedFiles,
   };
 }

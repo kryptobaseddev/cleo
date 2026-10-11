@@ -8,9 +8,14 @@ import { worktreeScope } from '../paths.js';
 import { getProjectInfo, getProjectInfoSync, updateProjectName } from '../project-info.js';
 
 // Explicit cwd identifies each fixture; retain only the global sandbox bindings.
+// A fixture with a projectId resolves as a project, and getCleoDirAbsolute then
+// schedules a detached encounter registration that writes a checkout nonce into
+// .cleo/project-info.json (tmp file + rename). That writer raced afterEach's rm
+// (ENOTEMPTY, gh#1961); these tests read metadata and never need registration.
 beforeEach(() => {
   vi.stubEnv('CLEO_ROOT', undefined);
   vi.stubEnv('CLEO_DIR', undefined);
+  vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');
 });
 
 afterEach(() => {

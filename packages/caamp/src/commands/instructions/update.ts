@@ -41,7 +41,8 @@ interface UpdateFailure {
 async function updateGlobal(format: 'json' | 'human'): Promise<void> {
   const operation = 'instructions.update';
   const mvi: import('../../core/lafs.js').MVILevel = 'standard';
-  const result = await syncGlobalInstructions();
+  // The user ran this command to write their global files (T13409 opt-in).
+  const result = await syncGlobalInstructions({ userRequested: true });
 
   const updated = result.files
     .filter((file) => file.action !== 'intact' && file.action !== 'failed')

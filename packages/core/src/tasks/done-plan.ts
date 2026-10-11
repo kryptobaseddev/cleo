@@ -47,8 +47,14 @@ import { getProjectRoot } from '../paths.js';
 import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-evidence.js';
 
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { planScopedTestRun } from './affected-packages.js';
 import {
+  changedPathsSinceDefault,
+  planScopedTestRun,
+  standalonePackage,
+} from './affected-packages.js';
+import {
+  hasTreeBoundQaRun,
+  qaRunTreeMismatchReason,
   type TaskMergeInfo,
   taskChangeMergeState,
   testsPassedSupersededReason,
@@ -60,6 +66,7 @@ import {
   extractTaskAcFilesWithProvenance,
 } from './evidence.js';
 import { extractTypedGates } from './gate-runner.js';
+import { changedTestFiles } from './test-run-binding.js';
 import { captureTreeHash, computeCacheKey, readCacheEntry } from './tool-cache.js';
 import { captureEnvFingerprint, captureResourceEnv } from './tool-cache-env.js';
 import { type ResolvedToolCommand, resolveToolCommand } from './tool-resolver.js';
@@ -107,6 +114,8 @@ const DONE_PLAN_BLOCKER_ORDER: readonly DonePlanBlockerCode[] = [
   'tool-unresolved',
   'tool-failed',
   'typed-gate-failed',
+  'test-run-needed',
+  'qa-run-needed',
   'ac-mapping-needed',
   'manual-gate',
   'epic-rollup',
@@ -214,11 +223,21 @@ function checkoutBlocker(taskId: string, cs: TaskChangeSet): DonePlanBlocker | n
         head === null || gitRead(root, ['merge-base', '--is-ancestor', m.sha, 'HEAD']) === null,
     );
     if (!missing) return null;
+    // T13429: intended, not a bug — the tools must measure the MERGED tree
+    // (the default branch with the change). A squash- or rebase-merged task
+    // branch never contains the merge commit even when its diff is the same,
+    // and a checkout that has not fetched since the merge does not have it at
+    // all; the remedy says which, so `switch` never fails on a missing commit.
+    const local = gitRead(root, ['cat-file', '-e', `${cs.mergeCommitSha}^{commit}`]) !== null;
+    const fetch = local ? '' : `git -C ${shellQuote(root)} fetch origin && `;
     return {
       code: 'checkout-required',
-      message: `${root} has ${short(head)} checked out, which does not contain PR #${missing.pr}'s merge commit ${short(missing.sha)}.`,
+      message:
+        `${root} has ${short(head)} checked out, which does not contain PR #${missing.pr}'s merge commit ${short(missing.sha)}` +
+        `${local ? '' : ' (not fetched into this checkout yet)'}. A squash- or rebase-merged branch never contains ` +
+        'its merge commit, so the tools must run on the merged tree; with evidence.ciSatisfies, ci:<pr> needs no local run.',
       next: {
-        command: `git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && cleo done ${taskId}`,
+        command: `${fetch}git -C ${shellQuote(root)} switch --detach ${cs.mergeCommitSha} && cleo done ${taskId}`,
         why: 'Tests, lint, typecheck and typed gates must run on a tree containing the merged change.',
       },
     };
@@ -515,6 +534,70 @@ function toolAndTypedGateBlockers(
   return out;
 }
 
+/**
+ * The changed test files of a standalone (non-workspace) project, or none in
+ * a workspace, outside git, or with no test file changed (T13403).
+ */
+function standaloneChangedTests(root: string): string[] {
+  if (standalonePackage(root) === null) return [];
+  return changedTestFiles(root, changedPathsSinceDefault(root) ?? []);
+}
+
+/** The step that binds a targeted run of a standalone project's changed tests (T13403). */
+function testRunNeededBlocker(
+  taskId: string,
+  gate: VerificationGate,
+  files: readonly string[],
+): DonePlanBlocker {
+  const named = `${files.slice(0, 5).join(' ')}${files.length > 5 ? ` … (${files.length} files)` : ''}`;
+  return {
+    code: 'test-run-needed',
+    message:
+      `${gate}: this single-package project's tool:test would run the whole suite. Run the ` +
+      `changed test file(s) ${named} with a JSON reporter and record the report as test-run:.`,
+    next: step(
+      `cleo verify ${taskId} --gate ${gate} --evidence 'test-run:<vitest-json-report>'`,
+      'Write the report to a gitignored path (vitest run <files> --reporter=json ' +
+        '--outputFile=<path>; jest <files> --json --outputFile=<path>); it must pass every ' +
+        'changed test file. tool:test (the whole suite) also satisfies the gate.',
+    ),
+  };
+}
+
+/**
+ * The step that binds qa-run receipts of a standalone project's changed roots
+ * instead of a fresh whole-project lint/typecheck (T13427).
+ */
+function qaRunNeededBlocker(
+  taskId: string,
+  root: string,
+  checks: readonly string[],
+): DonePlanBlocker {
+  const dirs = [
+    ...new Set(
+      (changedPathsSinceDefault(root) ?? [])
+        .filter((p) => !isCiDocumentPath(p))
+        .map((p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '.')),
+    ),
+  ].sort();
+  const roots = `${dirs.slice(0, 5).join(' ')}${dirs.length > 5 ? ` … (${dirs.length} dirs)` : ''}`;
+  const atoms = checks.map((c) => `qa-run:<${c}-receipt.json>`).join(';');
+  return {
+    code: 'qa-run-needed',
+    message:
+      `qaPassed: this single-package project has no recorded ${checks.join(' or ')} result for ` +
+      `the current tree, and tool:${checks[0]} would check the whole project. Run ` +
+      `${checks.join(' and ')} over the changed roots (${roots || 'none'}) and record a qa-run receipt for each.`,
+    next: step(
+      `cleo verify ${taskId} --gate qaPassed --evidence '${atoms}'`,
+      'Each receipt is JSON: {"kind":"typecheck"|"lint","command":[…],"exitCode":0,' +
+        '"diagnostics":{"errors":0},"roots":[…],"startTime":<epoch ms>}; its roots must hold every ' +
+        'changed code file. A check with a fresh cached result binds as tool:<check> alongside. ' +
+        'tool:lint;tool:typecheck (the whole project) also satisfies the gate.',
+    ),
+  };
+}
+
 /** The AC blocker: criteria nobody linked, or a gate left with no linkage at all. */
 function acMappingBlocker(
   taskId: string,
@@ -690,8 +773,16 @@ export async function deriveTaskEvidence(
   );
   const superseded = supersededReason !== null;
   if (supersededReason) changeSet.warnings.push(supersededReason);
+  // T13427: a qa-run receipt stands only while its tree does.
+  const qaAtoms = task.verification?.evidence?.qaPassed?.atoms ?? [];
+  const qaSupersededReason = hasTreeBoundQaRun(qaAtoms)
+    ? qaRunTreeMismatchReason(qaAtoms, await captureTreeHash(root))
+    : null;
+  if (qaSupersededReason) changeSet.warnings.push(qaSupersededReason);
   const passed = (gate: VerificationGate): boolean =>
-    task.verification?.gates?.[gate] === true && !(gate === 'testsPassed' && superseded);
+    task.verification?.gates?.[gate] === true &&
+    !(gate === 'testsPassed' && superseded) &&
+    !(gate === 'qaPassed' && qaSupersededReason !== null);
   const pending = policy.requiredGates.filter((g) => !passed(g));
   const decisionOnly =
     changeSet.source === 'docs' && (changeSet.implementedEvidence ?? '').startsWith('decision:');
@@ -712,9 +803,24 @@ export async function deriveTaskEvidence(
     ? await mergeInfo().then((info) => (info.state === 'merged' ? info.prRef : null))
     : null;
   const toolRuns: DonePlanToolRun[] = [];
-  if (!decisionOnly && ciPr === null) {
+  const testRunBlockers: DonePlanBlocker[] = [];
+  const qaRunChecks: string[] = [];
+  const standalone = standalonePackage(root) !== null;
+  // T13428: a docs change set (a research or documentation deliverable) has
+  // no code to test or typecheck, decision recorded yet or not: never plan a
+  // whole suite or a typecheck for it.
+  if (!decisionOnly && changeSet.source !== 'docs' && ciPr === null) {
     for (const gate of pending) {
       for (const tool of GATE_TOOLS[gate] ?? []) {
+        // T13403: a standalone project is one package, the whole project, so
+        // tool:test and tool:test-affected both run its whole suite. When the
+        // change adds or edits test files, plan the targeted test-run the
+        // binding accepts (it must run every one of them) instead.
+        const targeted = tool === 'test' ? standaloneChangedTests(root) : [];
+        if (targeted.length > 0) {
+          testRunBlockers.push(testRunNeededBlocker(taskId, gate, targeted));
+          continue;
+        }
         // T12635: before merge, test only the affected packages when declared.
         // T12959 review: the plan asks the one planner a scope-aware tool:test
         // asks (`testing.preferAffected`, the merge state — an unknown one
@@ -739,7 +845,7 @@ export async function deriveTaskEvidence(
                 : '; evidence.ciSatisfies is set, so ci:<pr> once the PR merges is the preferred evidence and needs no local run'),
           );
         }
-        toolRuns.push(
+        const run: DonePlanToolRun =
           scoped?.scope === 'affected'
             ? await planToolRun('test-affected', gate, storeRoot, root, scoped.run.command)
             : scoped?.scope === 'pending'
@@ -751,10 +857,20 @@ export async function deriveTaskEvidence(
                   cache: 'miss',
                   reason: scoped.reason,
                 }
-              : await planToolRun(tool, gate, storeRoot, root),
-        );
+              : await planToolRun(tool, gate, storeRoot, root);
+        // T13427: in a standalone project a missing lint/typecheck result
+        // would be a fresh whole-project run; plan a qa-run receipt of the
+        // changed roots instead. A cached result still binds as tool:.
+        if (standalone && gate === 'qaPassed' && run.cache === 'miss') {
+          qaRunChecks.push(tool);
+          continue;
+        }
+        toolRuns.push(run);
       }
     }
+  }
+  if (qaRunChecks.length > 0) {
+    testRunBlockers.push(qaRunNeededBlocker(taskId, root, qaRunChecks));
   }
   const typedGates = planTypedGates(task, rows);
   const acMapping = mapCriteria(task, rows, typedGates, changeSet, pending, satisfies);
@@ -779,6 +895,7 @@ export async function deriveTaskEvidence(
   const derivedBlockers = orderBlockers([
     ...changeSet.blockers,
     ...toolAndTypedGateBlockers(taskId, isCode, toolRuns, typedGates, root),
+    ...testRunBlockers,
     ...(acBlocker ? [acBlocker] : []),
     ...manualGateBlockers(taskId, gates),
   ]);

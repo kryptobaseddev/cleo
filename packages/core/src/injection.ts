@@ -22,6 +22,7 @@ import { basename, delimiter, join } from 'node:path';
 import type { Provider } from '@cleocode/caamp';
 import { findOnPath } from '@cleocode/paths';
 import { getAgentsHome, getCleoHome } from './paths.js';
+import type { UpgradeFileJournal } from './scaffold/upgrade-file-journal.js';
 import { getPackageRoot, stripCLEOBlocks } from './scaffold.js';
 import { resolveBridgeMode } from './system/bridge-mode.js';
 import { resolveGlobalHubContent } from './system/cleo-link.js';
@@ -40,6 +41,7 @@ import { resolveGlobalHubContent } from './system/cleo-link.js';
 import {
   CAAMP_DAMAGED_END_PATTERN_SOURCE,
   CAAMP_DAMAGED_START_PATTERN_SOURCE,
+  GLOBAL_INSTRUCTION_REFRESH_COMMAND,
   type GlobalInstructionRefreshReport,
   type GlobalInstructionStalenessReport,
 } from '@cleocode/contracts/caamp-markers';
@@ -226,9 +228,24 @@ export async function stripGitNexusBlocks(filePath: string): Promise<boolean> {
  *   CLAUDE.md/GEMINI.md -> @AGENTS.md (via injectAll)
  *   AGENTS.md -> @~/.agents/AGENTS.md + @.cleo/project-context.json + @.cleo/memory-bridge.md + @.cleo/nexus-bridge.md
  *
+ * In `upgrade` mode (T13409) the files the project owns are refreshed only
+ * inside an existing CAAMP block (embedded delivery, opt out with
+ * `injection.delivery: "reference"`), a file without markers is left alone, an
+ * absent provider file is not created, the existing `~/.agents/AGENTS.md` hub is
+ * never rewritten, and every changed file is backed up through `options.journal`.
+ *
+ * @param projectRoot - Absolute project root.
+ * @param options - Mode and backup journal.
+ * @returns What was refreshed, created or skipped.
+ *
  * @task T4682
+ * @task T13409
  */
-export async function ensureInjection(projectRoot: string): Promise<ScaffoldResult> {
+export async function ensureInjection(
+  projectRoot: string,
+  options: EnsureInjectionOptions = {},
+): Promise<ScaffoldResult> {
+  const upgrade = options.mode === 'upgrade';
   // Dynamic import — @cleocode/caamp may not be installed
   let caamp: typeof import('@cleocode/caamp');
   try {
@@ -261,8 +278,9 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
   const actions: string[] = [];
 
   if (providers.length === 0) {
-    actions.push('No providers detected (AGENTS.md created without provider injection)');
-  } else {
+    if (!upgrade)
+      actions.push('No providers detected (AGENTS.md created without provider injection)');
+  } else if (!upgrade) {
     // Step 0: Strip legacy CLEO blocks and remove deprecated AGENT-INJECTION.md
     for (const provider of providers) {
       const instructFile = join(projectRoot, provider.pathProject, provider.instructFile);
@@ -359,9 +377,12 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     const globalHubContent = resolveGlobalHubContent(
       existsSync(installedTemplate) ? readFileSync(installedTemplate, 'utf-8') : content,
     ).content;
-    await mkdir(globalAgentsDir, { recursive: true });
-    // Direct call — CAAMP 1.8.0 handles idempotency
-    await inject(globalAgentsMd, globalHubContent);
+    // T13409: upgrade creates a missing hub but never rewrites an existing one.
+    if (!upgrade || !existsSync(globalAgentsMd)) {
+      await mkdir(globalAgentsDir, { recursive: true });
+      // Direct call — CAAMP 1.8.0 handles idempotency
+      await inject(globalAgentsMd, globalHubContent);
+    }
   } catch {
     // Best-effort — don't fail if global hub creation fails
   }
@@ -376,6 +397,15 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
       path: agentsMdPath,
       details: `Instruction delivery failed: ${failures.map((finding) => `${finding.kind}: ${finding.path}`).join('; ')}`,
     };
+  }
+  if (upgrade) {
+    return refreshManagedProjectFiles(projectRoot, providers, caamp, {
+      agentsMdPath,
+      agentsReference: agentsMdContent,
+      agentsEmbedded: delivery.content,
+      journal: options.journal,
+      actions,
+    });
   }
   const agentsAction = await inject(agentsMdPath, delivery.content);
   actions.push(`AGENTS.md self-contained CLEO content (${agentsAction})`);
@@ -403,6 +433,144 @@ export async function ensureInjection(projectRoot: string): Promise<ScaffoldResu
     action: actions.length > 0 ? 'repaired' : 'created',
     path: agentsMdPath,
     details: actions.join('; '),
+  };
+}
+
+/** Options for {@link ensureInjection}. */
+export interface EnsureInjectionOptions {
+  /**
+   * `init` writes every provider file and the hub; `upgrade` refreshes only
+   * existing CLEO-managed blocks and backs up what it changes (T13409).
+   * @defaultValue 'init'
+   */
+  mode?: 'init' | 'upgrade';
+  /** Journal receiving backups of the files an upgrade changes. */
+  journal?: UpgradeFileJournal;
+}
+
+/** Legacy pre-CAAMP block, bare or versioned (`<!-- CLEO:START v0.53.4 -->`). */
+const LEGACY_CLEO_BLOCK = /\n?<!-- CLEO:START[^>]*-->[\s\S]*?<!-- CLEO:END -->\n?/g;
+
+/**
+ * Delivery form the project opted into in `.cleo/config.json`
+ * (`injection.delivery`), or null when it chose none.
+ */
+function readDeliveryOptIn(projectRoot: string): 'embedded' | 'reference' | null {
+  try {
+    const config = JSON.parse(readFileSync(join(projectRoot, '.cleo', 'config.json'), 'utf-8')) as {
+      injection?: { delivery?: string };
+    };
+    const delivery = config.injection?.delivery;
+    return delivery === 'embedded' || delivery === 'reference' ? delivery : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Inputs to {@link refreshManagedProjectFiles}. */
+interface ManagedRefreshInput {
+  agentsMdPath: string;
+  /** AGENTS.md block body in reference form (`@path` lines). */
+  agentsReference: string;
+  /** AGENTS.md block body with every reference embedded. */
+  agentsEmbedded: string;
+  journal?: UpgradeFileJournal;
+  actions: string[];
+}
+
+/**
+ * Upgrade-mode refresh of the project's instruction files (T13409).
+ *
+ * Each existing file is rewritten only inside its CAAMP block, with the
+ * self-contained (embedded) delivery unless `.cleo/config.json` sets
+ * `injection.delivery: "reference"`. Legacy `CLEO:START` blocks (CLEO-managed)
+ * are dropped. User text outside the markers, including the user's own `@path`
+ * lines, is byte-identical; a file without markers is skipped, an absent
+ * provider file is not created, and a changed file is backed up first.
+ */
+async function refreshManagedProjectFiles(
+  projectRoot: string,
+  providers: Provider[],
+  caamp: typeof import('@cleocode/caamp'),
+  input: ManagedRefreshInput,
+): Promise<ScaffoldResult> {
+  const { parseCaampBlocks, reconcile, resolveInstructionDelivery } = caamp;
+  // Loaded lazily: injection.ts is on the startup path of read commands (gate 39).
+  const { writeIfChanged } = await import('./scaffold/upgrade-file-journal.js');
+  const optIn = readDeliveryOptIn(projectRoot);
+  const { actions, journal } = input;
+
+  /** Block body for an existing file, or null when the file is left alone. */
+  const refreshed = async (
+    path: string,
+    reference: string,
+    embedded: () => Promise<string | null>,
+    createWhenAbsent: boolean,
+  ): Promise<string | null> => {
+    const name = basename(path);
+    if (!existsSync(path)) {
+      if (!createWhenAbsent) return null;
+      const body = optIn === 'reference' ? reference : await embedded();
+      if (body === null) return null;
+      await writeIfChanged(path, `${caamp.buildBlock(body.trim())}\n`, journal);
+      actions.push(`${name} (created)`);
+      return body;
+    }
+    const existing = readFileSync(path, 'utf-8');
+    const stripped = existing.replace(LEGACY_CLEO_BLOCK, '');
+    const blocks = parseCaampBlocks(stripped);
+    if (blocks.length === 0) {
+      actions.push(`${name} (no CAAMP markers; left unchanged)`);
+      return null;
+    }
+    // Self-contained delivery is the default (a literal `@path` is not proof the
+    // file loaded); `injection.delivery: "reference"` opts out.
+    const body = optIn === 'reference' ? reference : await embedded();
+    if (body === null) {
+      actions.push(`${name} (embedded delivery unresolved; left unchanged)`);
+      return null;
+    }
+    let next: string;
+    try {
+      next = reconcile(stripped, body).content;
+    } catch (err) {
+      actions.push(`${name} (left unchanged: ${err instanceof Error ? err.message : String(err)})`);
+      return null;
+    }
+    if (await writeIfChanged(path, next, journal)) actions.push(`${name} (updated)`);
+    return body;
+  };
+
+  await refreshed(
+    input.agentsMdPath,
+    input.agentsReference,
+    async () => input.agentsEmbedded,
+    true,
+  );
+
+  // Each provider file gets its own block embedding AGENTS.md, resolved once.
+  let providerEmbedded: string | null | undefined;
+  const embedProjectRules = async (): Promise<string | null> => {
+    if (providerEmbedded !== undefined) return providerEmbedded;
+    const rules = existsSync(input.agentsMdPath) ? readFileSync(input.agentsMdPath, 'utf-8') : '';
+    const delivery = await resolveInstructionDelivery(rules, projectRoot);
+    const failures = delivery.findings.filter((finding) => finding.kind !== 'duplicate');
+    providerEmbedded = failures.length > 0 ? null : delivery.content;
+    return providerEmbedded;
+  };
+  const seen = new Set<string>([input.agentsMdPath]);
+  for (const provider of providers) {
+    // Same project path as caamp injectAll: the instruction file at the project root.
+    const path = join(projectRoot, provider.instructFile);
+    if (seen.has(path)) continue;
+    seen.add(path);
+    await refreshed(path, '@AGENTS.md', embedProjectRules, false);
+  }
+
+  return {
+    action: actions.length > 0 ? 'repaired' : 'skipped',
+    path: input.agentsMdPath,
+    details: actions.length > 0 ? actions.join('; ') : 'Project instruction blocks current',
   };
 }
 
@@ -663,8 +831,11 @@ export function checkInjection(projectRoot: string): InjectionCheckResult {
 
 // ── Global provider instruction freshness (T12378) ───────────────────
 
-/** Exact command that regenerates every global provider instruction file. */
-export const GLOBAL_INSTRUCTION_REMEDY = 'cleo install-global';
+/**
+ * Exact command that regenerates every global provider instruction file. It is
+ * the owner's to run: CLEO never writes those files itself (T13409).
+ */
+export const GLOBAL_INSTRUCTION_REMEDY = GLOBAL_INSTRUCTION_REFRESH_COMMAND;
 
 /** Exact command that restores a missing or dead `caamp` binary. */
 export const CAAMP_BINARY_REMEDY = 'npm install -g @cleocode/caamp';
@@ -701,11 +872,14 @@ function failedRefresh(reason: string): GlobalInstructionRefreshReport {
   };
 }
 
-/** Scan, then regenerate only when a file is stale or unembedded. */
+/**
+ * Scan the global provider instruction files and report the stale ones.
+ *
+ * Never writes (T13409): those files are the owner's, so a stale one is
+ * reported as `skipped` with the command that refreshes it.
+ */
 async function runGlobalRefresh(providers?: Provider[]): Promise<GlobalInstructionRefreshReport> {
-  const { checkGlobalInstructionStaleness, syncGlobalInstructions } = await import(
-    '@cleocode/caamp'
-  );
+  const { checkGlobalInstructionStaleness } = await import('@cleocode/caamp');
   const scan = await checkGlobalInstructionStaleness({ providers });
   const report: GlobalInstructionRefreshReport = {
     status: 'current',
@@ -715,39 +889,23 @@ async function runGlobalRefresh(providers?: Provider[]): Promise<GlobalInstructi
     ...(scan.duplicates.length > 0 ? { remedy: duplicateRemedy(scan.duplicates) } : {}),
   };
   if (scan.needsSync.length === 0) return report;
-
-  const result = await syncGlobalInstructions({ providers });
-  report.updated = result.files
-    .filter((file) => file.action !== 'intact' && file.action !== 'failed')
-    .map((file) => file.path);
-  const failed = result.files.filter((file) => file.action === 'failed');
-  if (result.status === 'synced' && failed.length === 0) {
-    report.status = 'refreshed';
-    return report;
-  }
-  report.status = 'failed';
+  report.status = 'skipped';
   report.reason =
-    result.status === 'unresolved'
-      ? `delivery unresolved: ${result.findings.map((f) => `${f.kind}: ${f.path}`).join('; ')}`
-      : failed.length > 0
-        ? failed.map((file) => `${file.path}: ${file.error ?? 'write failed'}`).join('; ')
-        : `sync status ${result.status}`;
+    'CLEO does not write user-global instruction files; refresh the stale ones yourself';
   report.remedy = GLOBAL_INSTRUCTION_REMEDY;
   return report;
 }
 
 /**
- * Regenerate the global provider instruction files when a stamped source has
- * changed since delivery — the automatic path behind `cleo session start` and
- * `cleo briefing`.
+ * Report global provider instruction files whose stamped source changed since
+ * delivery — the automatic check behind `cleo session start` and `cleo briefing`.
  *
  * @remarks
- * Before T12378 nothing regenerated those files when `~/.agents/AGENTS.md` or
- * `CLEO-INJECTION.md` changed: an owner rule added to the hub never reached the
- * 22 provider files that embed it. This runs the cheap scan
- * (`checkGlobalInstructionStaleness` — one read per provider file, one hash per
- * stamped source, no reference expansion) and, only when a file is stale or
- * unembedded, the single shared regenerator `syncGlobalInstructions`.
+ * This runs the cheap scan (`checkGlobalInstructionStaleness` — one read per
+ * provider file, one hash per stamped source, no reference expansion). Until
+ * T13409 it then regenerated the stale files, which rewrote the owner's
+ * `~/.claude/CLAUDE.md`; CLEO never writes user-global instruction files, so a
+ * stale file is now reported as `skipped` with {@link GLOBAL_INSTRUCTION_REMEDY}.
  *
  * It is bounded (`timeoutMs`), never throws, and writes nothing to stdout: the
  * outcome is returned for the caller to place in its envelope. Set
@@ -764,6 +922,7 @@ async function runGlobalRefresh(providers?: Provider[]): Promise<GlobalInstructi
  * ```
  *
  * @task T12378
+ * @task T13409
  */
 export async function refreshStaleGlobalInstructions(
   options: RefreshStaleGlobalInstructionsOptions = {},

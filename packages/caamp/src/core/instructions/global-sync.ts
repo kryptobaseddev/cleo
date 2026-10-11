@@ -73,6 +73,14 @@ export interface GlobalInstructionOptions {
 export interface SyncGlobalInstructionsOptions extends GlobalInstructionOptions {
   /** Plan the targets without writing. @defaultValue false */
   dryRun?: boolean;
+  /**
+   * The user ran a command whose whole purpose is to write these files
+   * (`caamp instructions update --global`). Without it nothing is written and
+   * the result is `refused`: the files are the owner's, and automatic paths
+   * (npm postinstall, `cleo upgrade`, session start) must never rewrite them
+   * (T13409). @defaultValue false
+   */
+  userRequested?: boolean;
 }
 
 /**
@@ -113,9 +121,10 @@ async function stripLegacyCleoBlock(path: string): Promise<boolean> {
  * Regenerate every global provider instruction file from its sources.
  *
  * @remarks
- * The single global regenerator (T12377), shared by `cleo install-global`, the
- * npm postinstall, `caamp instructions update --global`, and the automatic
- * refresh at `cleo session start` / `cleo briefing`.
+ * The single global regenerator (T12377). It writes only for a user-run
+ * command that passes `userRequested: true` — today `caamp instructions update
+ * --global`. Every other caller gets `refused` with the planned targets: CLEO's
+ * install, upgrade and session paths never write user-global files (T13409).
  *
  * 1. Resolves {@link GLOBAL_INSTRUCTION_HUB_REFERENCE} into a self-contained,
  *    source-stamped delivery. Any defect other than a benign duplicate stops
@@ -134,7 +143,7 @@ async function stripLegacyCleoBlock(path: string): Promise<boolean> {
  *
  * @example
  * ```typescript
- * const result = await syncGlobalInstructions();
+ * const result = await syncGlobalInstructions({ userRequested: true });
  * if (result.status === 'unresolved') console.error(result.findings);
  * ```
  *
@@ -158,8 +167,9 @@ export async function syncGlobalInstructions(
     return result;
   }
 
-  if (options.dryRun) {
-    result.status = 'dry-run';
+  if (options.dryRun || options.userRequested !== true) {
+    // T13409: the chokepoint. Only an explicit user command writes user-global files.
+    result.status = options.dryRun ? 'dry-run' : 'refused';
     for (const [path, ids] of targets) {
       result.files.push({ path, providers: ids, action: 'planned' });
     }
