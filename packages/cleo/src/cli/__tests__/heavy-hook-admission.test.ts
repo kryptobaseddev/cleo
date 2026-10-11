@@ -17,8 +17,12 @@
  *    `pnpm`, `vitest` and `tsc` are fake tools on PATH that record how many
  *    of their class are running at once.
  *
- * The bound is the governor's own budget for each class, computed before and
- * after the runs (it depends on free memory). Each class gets one more
+ * The bound is admission's own byte rule: the machine budget over the
+ * smallest charge among a class's command lines (`planRunFootprint`). A
+ * named-file `vitest` or a `tsc -p` is charged far less than its class plan on
+ * a large-RAM host, so the class budget alone was too low there (T13517). Host
+ * pressure is off (`CLEO_ADMISSION_PRESSURE=off`, as for the rest of the
+ * suite): sampled live, it moved the budget mid-run. Each class gets one more
  * concurrent run than its budget (at least three), so admission has to hold
  * some back; a `cleo run` that admitted everything fails the test.
  *
@@ -42,9 +46,10 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { computeClassBudget } from '@cleocode/core/resources/governor.js';
+import type { ResourceClass } from '@cleocode/contracts';
+import { footprintForClass, planRunFootprint } from '@cleocode/core/resources/admission-ledger.js';
 import { deliverHeavyCommandHooks } from '@cleocode/core/resources/heavy-command-hook-delivery.js';
-import { defaultResourceBackend } from '@cleocode/core/resources/monitor.js';
+import { admissionCapacityBytes } from '@cleocode/core/tasks/heavy-tool-env.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -112,6 +117,9 @@ function env(): NodeJS.ProcessEnv {
     CLEO_HOME: join(dir, 'cleo-home'),
     TMPDIR: dir,
     CLAUDE_PROJECT_DIR: project,
+    // T13517: admission must not follow the host's load (vitest.setup.ts sets
+    // this for the test process; these children get a fresh env).
+    CLEO_ADMISSION_PRESSURE: 'off',
     RUNNING_TEST: join(dir, 'running-test'),
     RUNNING_BUILD: join(dir, 'running-build'),
   };
@@ -165,12 +173,17 @@ function observed(running: string): { readonly max: number; readonly runs: numbe
   return { max: Math.max(0, ...counts), runs: counts.length };
 }
 
-async function budgets(): Promise<{ readonly test: number; readonly build: number }> {
-  const sample = await defaultResourceBackend().sample();
-  return {
-    test: computeClassBudget('test-run', sample),
-    build: computeClassBudget('scoped-build', sample),
-  };
+/** The most runs of one class admission can hold at once (T13517). */
+function byteBound(cls: ResourceClass, argvs: readonly (readonly string[])[]): number {
+  const capacity = admissionCapacityBytes();
+  const smallest = Math.min(
+    ...argvs.map(
+      (argv) =>
+        planRunFootprint(cls, argv, env(), undefined, () => false).footprintBytes ??
+        footprintForClass(cls),
+    ),
+  );
+  return Math.max(1, Math.floor(capacity / Math.min(smallest, capacity)));
 }
 
 describe('heavy-command hook admission end to end (T13124 AC1)', () => {
@@ -219,15 +232,20 @@ describe('heavy-command hook admission end to end (T13124 AC1)', () => {
 
       // 3. One more concurrent run per class than its budget allows (at least
       // three), all at once: admission must hold each class to its budget.
-      const before = await budgets();
-      const runs = Math.min(8, Math.max(3, before.test + 1, before.build + 1));
+      const bound = {
+        test: byteBound('test-run', [
+          ['pnpm', 'test'],
+          ['vitest', 'run', 'a.test.ts'],
+        ]),
+        build: byteBound('scoped-build', [['tsc', '--noEmit', '-p', 'a']]),
+      };
+      const runs = Math.min(8, Math.max(3, bound.test + 1, bound.build + 1));
       const lines = [
         pnpmTest,
         ...Array.from({ length: runs - 1 }, () => vitest),
         ...Array.from({ length: runs }, () => tsc),
       ];
       const codes = await Promise.all(lines.map(runLine));
-      const after = await budgets();
       expect(codes).toEqual(lines.map(() => 0));
 
       const test = observed('running-test');
@@ -235,8 +253,8 @@ describe('heavy-command hook admission end to end (T13124 AC1)', () => {
       expect(test.runs).toBe(runs);
       expect(build.runs).toBe(runs);
       expect(test.max).toBeGreaterThanOrEqual(1);
-      expect(test.max).toBeLessThanOrEqual(Math.max(before.test, after.test));
-      expect(build.max).toBeLessThanOrEqual(Math.max(before.build, after.build));
+      expect(test.max).toBeLessThanOrEqual(bound.test);
+      expect(build.max).toBeLessThanOrEqual(bound.build);
       // Every slot was released.
       expect(readdirSync(join(dir, 'running-test'))).toEqual([]);
       expect(readdirSync(join(dir, 'running-build'))).toEqual([]);
