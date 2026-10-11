@@ -43,6 +43,7 @@ import * as orchestration from '@cleocode/core/orchestration/index';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**
@@ -455,6 +456,12 @@ const spawnCommand = defineCommand({
       description:
         'Skip worktree provisioning for this spawn. The opt-out is logged to the audit log (T1140).',
     },
+    'no-install': {
+      type: 'boolean',
+      description:
+        'T13524: provision the worktree without running pnpm install. The envelope reports install.status=skipped ' +
+        'with the command the worker runs instead.',
+    },
     scope: {
       type: 'string',
       description:
@@ -511,6 +518,7 @@ const spawnCommand = defineCommand({
         ...(args.scope ? { spawnScope: args.scope } : {}),
         ...(atomicityScope ? { atomicityScope } : {}),
         resume: args.resume === true,
+        ...(negatedFlag(args, 'install') ? { noInstall: true } : {}),
       },
       { command: 'orchestrate' },
     );

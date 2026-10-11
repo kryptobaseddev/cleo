@@ -117,7 +117,7 @@ describe('cloud status sync block (T12998)', () => {
     expect(project?.lastSealedSeq).toBeNull();
   });
 
-  it('ahead: sealed ops report the last sealed seq; unsent stays unknown until the outbox', async () => {
+  it('ahead: sealed ops report the last sealed seq and count as unsent; nothing pushed or pulled yet (T13370)', async () => {
     const db = await store(true);
     addTask(db, 'T1');
     seal(db);
@@ -126,11 +126,9 @@ describe('cloud status sync block (T12998)', () => {
     const { project } = await projectBlock();
     expect(project?.unsealedOps).toBe(0);
     expect(project?.lastSealedSeq).toBeGreaterThanOrEqual(1);
-    expect(project?.unsentOps).toEqual({
-      known: false,
-      needs: 'T12343',
-      reason: expect.stringContaining('outbox'),
-    });
+    // The outbox (T12343) exists: both sealed inserts wait to be sent.
+    expect(project?.unsentOps).toEqual({ known: true, value: 2 });
+    expect(project?.genesisCut).toBeNull();
     for (const field of [
       'lastPushedSeq',
       'lastPulledSeq',

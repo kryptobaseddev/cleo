@@ -83,7 +83,11 @@ import {
   ReplayPin,
 } from '@cleocode/contracts/cloud';
 import {
+  NEXUS_CLOUD_MAX_PAGES,
+  NEXUS_PAGE_LIMIT_MAX,
+  type NexusCloudReplica,
   nexusCloudDevicePageSchema,
+  nexusCloudReplicaPageSchema,
   nexusCloudStatusSchema,
 } from '@cleocode/contracts/nexus-cloud.js';
 import {
@@ -1945,26 +1949,82 @@ async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<
 /**
  * The server's retirements a receiver of `scope`'s stream confirms a `retire`
  * by (T13366). The home stream: `retiredAt` and `successor` on
- * `GET /v1/account/home/replicas` (none from a server without the listing).
- * A project stream: undefined, as the server has no read of them yet, so its
- * receivers keep every retire unconfirmed and record its late conflicts.
+ * `GET /v1/account/home/replicas`. A project stream: the same fields on E15
+ * `GET /v1/projects/:projectId/replicas`, every page (T13391). A server
+ * without the listing (404), or one older than retirement, confirms none.
  *
  * @param conn - The vault connection.
  * @param scope - The store's scope.
- * @returns The retirements, or undefined for a project stream.
+ * @param projectId - The server project of a project stream.
+ * @returns The retirements, or undefined for a project stream with no server project.
  */
 export async function serverRetirementsFor(
   conn: Pick<NexusVaultConnection, 'find'>,
   scope: CloudVaultScope,
+  projectId: string | null = null,
 ): Promise<ServerRetirement[] | undefined> {
-  if (scope !== 'global') return undefined;
-  const list = await conn.find('/v1/account/home/replicas', ListHomeReplicasResult);
-  if (list === null) return [];
-  return list.replicas.flatMap((r) =>
-    r.retiredAt
-      ? [{ replicaId: r.replicaId, successor: r.successor ?? null, retiredAt: r.retiredAt }]
-      : [],
-  );
+  const retired = (
+    rows: ReadonlyArray<{
+      replicaId: string;
+      retiredAt?: string | null;
+      successor?: string | null;
+    }>,
+  ) =>
+    rows.flatMap((r) =>
+      r.retiredAt
+        ? [{ replicaId: r.replicaId, successor: r.successor ?? null, retiredAt: r.retiredAt }]
+        : [],
+    );
+  if (scope === 'global') {
+    const list = await conn.find('/v1/account/home/replicas', ListHomeReplicasResult);
+    return list === null ? [] : retired(list.replicas);
+  }
+  if (projectId === null) return undefined;
+  const out: ServerRetirement[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < NEXUS_CLOUD_MAX_PAGES; page++) {
+    const res: { replicas: NexusCloudReplica[]; nextCursor: string | null } | null =
+      await conn.find(
+        nexusQueryPath(`/v1/projects/${encodeURIComponent(projectId)}/replicas`, {
+          limit: NEXUS_PAGE_LIMIT_MAX,
+          cursor: cursor ?? undefined,
+        }),
+        nexusCloudReplicaPageSchema,
+      );
+    if (res === null) return out;
+    out.push(...retired(res.replicas));
+    cursor = res.nextCursor;
+    if (cursor === null) return out;
+  }
+  return out;
+}
+
+/**
+ * {@link serverRetirementsFor}, soft (T13395): a listing that fails (network,
+ * 5xx, a 404) confirms nothing this round instead of failing the pull. The
+ * pull still stages and applies; retires it records stay unconfirmed until a
+ * later pull reads the listing. The failure is a `W_NEXUS_RETIREMENTS_UNAVAILABLE`
+ * warning on the connection.
+ *
+ * @param conn - The vault connection (its warnings collect the failure).
+ * @param scope - The store's scope.
+ * @param projectId - The server project of a project stream.
+ * @returns The retirements, `[]` when the listing failed, or undefined for a project stream with no server project.
+ */
+export async function confirmableRetirements(
+  conn: Pick<NexusVaultConnection, 'find' | 'warnings'>,
+  scope: CloudVaultScope,
+  projectId: string | null = null,
+): Promise<ServerRetirement[] | undefined> {
+  try {
+    return await serverRetirementsFor(conn, scope, projectId);
+  } catch (err) {
+    conn.warnings.push({
+      code: 'W_NEXUS_RETIREMENTS_UNAVAILABLE',
+      message: `the replica listing could not be read (${err instanceof Error ? err.message : String(err)}); no replica retire is confirmed this round`,
+    });
+    return [];
+  }
 }
 
 async function pullWithSession(opened: StreamSession): Promise<PullStreamReport> {
@@ -2047,7 +2107,7 @@ async function pullWithSession(opened: StreamSession): Promise<PullStreamReport>
   // server-held old segments pushed and inherits the rest (never uploaded under
   // the new id; unpushedSegments filters by replica), its re-emits are new ids,
   // and a retired replica's late segment carries ids never stored before.
-  const serverRetirements = await serverRetirementsFor(conn, t.scope);
+  const serverRetirements = await confirmableRetirements(conn, t.scope, t.projectId);
   const report = await pullStream(db, {
     scope: tableScopeOf(t),
     stream: t.streamId,

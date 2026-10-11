@@ -197,6 +197,17 @@ export const GIT_OP_DENYLIST: ReadonlyArray<DeniedGitOp> = [
     flag: '--force-with-lease',
     reason: 'agents MUST NOT force-push — the orchestrator manages push lifecycle',
   },
+  // Every-ref pushes: worktrees share refs, so --all pushes main and --mirror force-updates and deletes (T13533).
+  {
+    subcommand: 'push',
+    flag: '--all',
+    reason: 'agents MUST NOT push every branch — push your task branch only',
+  },
+  {
+    subcommand: 'push',
+    flag: '--mirror',
+    reason: 'agents MUST NOT mirror-push — it force-updates and deletes remote refs',
+  },
 ];
 
 /**
@@ -207,6 +218,17 @@ export const GIT_OP_DENYLIST: ReadonlyArray<DeniedGitOp> = [
  * @returns The matching {@link DeniedGitOp} if denied, or null if allowed.
  */
 export function findDeniedOp(subcommand: string, args: string[]): DeniedGitOp | null {
+  if (subcommand === 'push') {
+    const spec = protectedPushRefspec(args);
+    if (spec !== null) {
+      return {
+        subcommand: 'push',
+        flag: spec,
+        reason:
+          'agents MUST NOT push to a protected branch (main/master) — push your task branch; the orchestrator merges through a PR',
+      };
+    }
+  }
   for (const entry of GIT_OP_DENYLIST) {
     if (entry.subcommand !== subcommand) continue;
 
@@ -221,4 +243,141 @@ export function findDeniedOp(subcommand: string, args: string[]): DeniedGitOp | 
     }
   }
   return null;
+}
+
+/** Branches a restricted role may never push to (T13522). */
+export const PROTECTED_PUSH_BRANCHES: ReadonlySet<string> = new Set(['main', 'master']);
+
+/**
+ * The refspec of a `git push` that targets a protected branch, or `null`.
+ * The first positional argument is the remote; each later one is a refspec
+ * whose destination (`src:dst`, or the name itself) is checked, ignoring a
+ * leading `+` and `refs/heads/`.
+ *
+ * @param args - The arguments after `push`.
+ * @returns The offending refspec, or `null` when none targets a protected branch.
+ * @example
+ * ```ts
+ * protectedPushRefspec(['origin', 'HEAD:main']); // 'HEAD:main'
+ * protectedPushRefspec(['origin', 'task/T1']);   // null
+ * ```
+ * @task T13522
+ */
+export function protectedPushRefspec(args: readonly string[]): string | null {
+  const positional = args.filter((a) => !a.startsWith('-'));
+  for (const spec of positional.slice(1)) {
+    const dst = spec.includes(':') ? spec.slice(spec.lastIndexOf(':') + 1) : spec;
+    const branch = dst.replace(/^\+/, '').replace(/^refs\/heads\//, '');
+    // A pattern destination (`refs/heads/*`) can match main: refuse it outright (T13535).
+    if (PROTECTED_PUSH_BRANCHES.has(branch) || branch.includes('*')) return spec;
+  }
+  return null;
+}
+
+/** Git global options that take their value as the next argument. */
+const GLOBAL_OPTIONS_WITH_VALUE = new Set([
+  '-C',
+  '-c',
+  '--git-dir',
+  '--work-tree',
+  '--namespace',
+  '--super-prefix',
+  '--config-env',
+  '--exec-path',
+  '--list-cmds',
+  '--attr-source',
+]);
+
+/**
+ * Split a git argv into its subcommand and the arguments after it, skipping
+ * the global options before the subcommand (`git -C dir -c k=v push …`), so
+ * no global option hides a denied subcommand from the shim (T13533).
+ *
+ * @param argv - Arguments after `git`.
+ * @returns The subcommand (or `undefined`) and its arguments.
+ * @example
+ * ```ts
+ * splitGitArgv(['-C', '.', 'push', 'origin', 'main']); // { subcommand: 'push', args: ['origin', 'main'] }
+ * ```
+ * @task T13533
+ */
+export function splitGitArgv(argv: readonly string[]): {
+  global: string[];
+  subcommand: string | undefined;
+  args: string[];
+  /** A leading option this parser does not know: it may take a value, so the subcommand is uncertain. */
+  unknownGlobal: string | null;
+} {
+  let i = 0;
+  let unknownGlobal: string | null = null;
+  while (i < argv.length) {
+    const a = argv[i] as string;
+    if (!a.startsWith('-')) break;
+    if (!GLOBAL_OPTIONS_WITH_VALUE.has(a) && !GLOBAL_FLAGS.has(a) && !a.includes('=')) {
+      unknownGlobal ??= a;
+    }
+    i += GLOBAL_OPTIONS_WITH_VALUE.has(a) ? 2 : 1;
+  }
+  return { global: argv.slice(0, i), subcommand: argv[i], args: argv.slice(i + 1), unknownGlobal };
+}
+
+/** Git global options that take no value. */
+const GLOBAL_FLAGS = new Set([
+  '-p',
+  '-P',
+  '--paginate',
+  '--no-pager',
+  '--bare',
+  '--no-replace-objects',
+  '--no-lazy-fetch',
+  '--no-optional-locks',
+  '--no-advice',
+  '--literal-pathspecs',
+  '--glob-pathspecs',
+  '--noglob-pathspecs',
+  '--icase-pathspecs',
+  '-v',
+  '--version',
+  '-h',
+  '--help',
+  '--html-path',
+  '--man-path',
+  '--info-path',
+]);
+
+/**
+ * The protected branches a `git push --dry-run --porcelain` would update.
+ * Porcelain lines are `<flag>\t<from>:<to>\t<summary>`; a deletion has an
+ * empty `<from>`. Up-to-date refs count too: the push named them.
+ *
+ * @param porcelain - The dry run's stdout.
+ * @returns The protected destination refs found (e.g. `refs/heads/main`).
+ * @example
+ * ```ts
+ * protectedPorcelainDestinations('To /r\n*\trefs/heads/x:refs/heads/main\t[new branch]\nDone\n');
+ * // ['refs/heads/main']
+ * ```
+ * @task T13535
+ */
+export function protectedPorcelainDestinations(porcelain: string): string[] {
+  return porcelainDestinations(porcelain).filter((dst) =>
+    PROTECTED_PUSH_BRANCHES.has(dst.replace(/^refs\/heads\//, '')),
+  );
+}
+
+/**
+ * Every destination ref in `git push --porcelain` output.
+ *
+ * @param porcelain - The dry run's stdout.
+ * @returns The destination refs, in order.
+ * @task T13535
+ */
+export function porcelainDestinations(porcelain: string): string[] {
+  const out: string[] = [];
+  for (const line of porcelain.split('\n')) {
+    const ref = line.split('\t')[1];
+    if (ref === undefined || !ref.includes(':')) continue;
+    out.push(ref.slice(ref.lastIndexOf(':') + 1));
+  }
+  return out;
 }

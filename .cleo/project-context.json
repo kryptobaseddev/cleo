@@ -62,6 +62,7 @@
   },
   "evidence": {
     "ciSatisfies": true,
+    "scopeExcludes": [".opencode/**", ".wrangler/**"],
     "ciChecks": {
       "tests": ["CI"],
       "qa": ["CI", "Contracts Dep Lint"],

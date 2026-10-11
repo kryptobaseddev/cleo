@@ -196,8 +196,10 @@ export function typedGateAdmissionMs(
 }
 
 /**
- * Actionable refusal for `cache: 'only'` (`cleo verify --no-run`) when a gate
- * would have to execute. Names the gate and the command that fills the cache.
+ * Actionable refusal for `cache: 'only'` — every evidence write by default
+ * (T13521, owner decision: writes read the cache, `cleo verify --run` executes)
+ * and `--no-run` — when a gate would have to execute. Names the gate and the
+ * command that fills the cache.
  */
 function gateNotCachedMessage(
   gate: AcceptanceGate,
@@ -205,25 +207,30 @@ function gateNotCachedMessage(
   keyAvailable: boolean,
 ): string {
   const name = gate.req ?? gate.description;
+  const run = gate.req
+    ? `cleo verify <taskId> --run --req ${gate.req}`
+    : 'cleo verify <taskId> --run';
   if (gate.kind === 'http')
-    return `${GATE_NOT_CACHED_PREFIX} http gate "${name}" observes a live service and is never cached; drop --no-run to execute it`;
+    return `${GATE_NOT_CACHED_PREFIX} http gate "${name}" observes a live service and is never cached; pass --run-typed to execute it on this write`;
   if (!cacheable)
-    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached result because the project root is not a git checkout (results are keyed by HEAD + dirty-tree fingerprint); drop --no-run to execute it`;
+    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached result because the project root is not a git checkout (results are keyed by HEAD + dirty-tree fingerprint); pass --run-typed to execute it on this write`;
   if (!keyAvailable)
-    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" cannot use the cache because the machine key ${evidenceCacheKeyPath()} is unreadable; drop --no-run to execute it`;
+    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" cannot use the cache because the machine key ${evidenceCacheKeyPath()} is unreadable; pass --run-typed to execute it on this write`;
   return (
     `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached pass for the current HEAD, working tree and inputs. ` +
-    'Run `cleo verify <taskId> --run` first (it caches passing results), or drop --no-run to execute it now'
+    `Evidence writes do not execute typed gates: run \`${run}\` first (it caches passing results), ` +
+    'or pass --run-typed to execute it on this write'
   );
 }
 
 /**
  * Prefix of the `errorMessage` a gate carries when `cache: 'only'` refused to
- * execute it. The verifier matches it to refuse the whole write with
- * `E_GATE_NOT_CACHED` instead of recording an `error` result.
+ * execute it. The verifier matches it to refuse the write with
+ * `E_GATE_NOT_CACHED` (a gate the write links) or to record it as not run.
  * @task T12621
+ * @task T13521
  */
-export const GATE_NOT_CACHED_PREFIX = '--no-run:';
+export const GATE_NOT_CACHED_PREFIX = 'typed gate not cached:';
 
 /**
  * Prefix of the `errorMessage` a gate carries when `cache: 'only'` found an
@@ -231,7 +238,7 @@ export const GATE_NOT_CACHED_PREFIX = '--no-run:';
  * `E_GATE_CACHE_INVALID`: a forged or tampered pass is never recorded.
  * @task T12621
  */
-export const GATE_CACHE_INVALID_PREFIX = '--no-run [invalid cache entry]:';
+export const GATE_CACHE_INVALID_PREFIX = 'typed gate cache entry invalid:';
 
 /**
  * Load (creating on first use, mode 0600) the per-machine key that seals
@@ -490,7 +497,7 @@ export async function runGates(
             if (lookup.status === 'invalid' && cacheMode === 'only')
               throw new Error(
                 `${GATE_CACHE_INVALID_PREFIX} gate "${parsed.req ?? parsed.description}": ${lookup.reason}. ` +
-                  'It was not used. Drop --no-run to execute the gate (a pass replaces the entry)',
+                  'It was not used. Run `cleo verify <taskId> --run` (a pass replaces the entry), or pass --run-typed on this write',
               );
           }
           if (cacheMode === 'only' && TOOL_GATE_KINDS.has(parsed.kind))
@@ -769,8 +776,19 @@ export async function runTaskGates(
       // quote) becomes ITS OWN `error` result. Throwing here rejected the whole
       // batch, and the verify engine turned that into E_GENERAL, discarding
       // every other gate's verdict.
-      const { invocation, refusal } = resolveInvocation(gate, tree, env);
-      const artifacts = await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
+      const { invocation, refusal: invocationRefusal } = resolveInvocation(gate, tree, env);
+      // T13527: an input that cannot be captured (an ambiguous symlink, an
+      // escape) is THIS gate's error, not a rejection of every gate in the
+      // batch. A cancellation still propagates.
+      let artifacts: AcceptanceGateArtifact[] = [];
+      let snapshotRefusal: string | undefined;
+      try {
+        artifacts = await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
+      } catch (error) {
+        execution.assertActive();
+        snapshotRefusal = `Typed gate inputs could not be captured: ${error instanceof Error ? error.message : String(error)}`;
+      }
+      const refusal = invocationRefusal ?? snapshotRefusal;
       const binding: AcceptanceGateBinding = {
         version: 1,
         verificationId,
@@ -803,8 +821,18 @@ export async function runTaskGates(
             })
           )[0]!;
       let result: AcceptanceGateResult = { ...observed, index, binding };
+      // T13525: a cache-only run must not wipe a stored pass that still proves
+      // this exact gate on these exact inputs (a commit moved HEAD, which keys
+      // the cache, but changed nothing the gate reads).
+      if (result.errorMessage?.startsWith(GATE_NOT_CACHED_PREFIX)) {
+        const reused = reusableStoredPass(options.priorResults, index, gate, binding);
+        if (reused) result = reused;
+      }
       try {
-        const after = await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
+        // A gate whose inputs were never captured has nothing to compare.
+        const after = snapshotRefusal
+          ? artifacts
+          : await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
         if (!isDeepStrictEqual(after, artifacts))
           throw new Error('Verification inputs changed during execution');
       } catch (error) {
@@ -818,6 +846,46 @@ export async function runTaskGates(
     }
     return results;
   });
+}
+
+/**
+ * The stored pass for `index`, re-bound to this run, when it proves the same
+ * thing a cache entry would: same gate kind and REQ-ID, criterion id and text
+ * hash, gate definition hash, invocation and input bytes (T13525). Marked
+ * `source: 'cache'` with the original capture time, like a cache hit.
+ */
+function reusableStoredPass(
+  prior: readonly AcceptanceGateResult[] | undefined,
+  index: number,
+  gate: AcceptanceGate,
+  binding: AcceptanceGateBinding,
+): AcceptanceGateResult | null {
+  const stored = prior?.find((r) => r.index === index);
+  const was = stored?.binding;
+  if (
+    !stored ||
+    !was ||
+    stored.result !== 'pass' ||
+    stored.kind !== gate.kind ||
+    stored.req !== gate.req ||
+    was.taskId !== binding.taskId ||
+    was.criterionId !== binding.criterionId ||
+    was.criterionHash !== binding.criterionHash ||
+    was.gateHash !== binding.gateHash ||
+    !isDeepStrictEqual(was.invocation, binding.invocation) ||
+    !isDeepStrictEqual(was.artifacts, binding.artifacts)
+  )
+    return null;
+  const { binding: _old, source: _source, cachedAt: _cachedAt, ...observation } = stored;
+  // Re-dated to now, as a cache hit is: a bound result may not precede its capture.
+  return {
+    ...observation,
+    index,
+    binding,
+    checkedAt: new Date().toISOString(),
+    source: 'cache',
+    cachedAt: was.capturedAt,
+  };
 }
 
 /**
@@ -872,6 +940,51 @@ export function createTaskGateReceipt(
 }
 
 /**
+ * Why a stored typed result no longer stands for `gate` on `task`, or null
+ * when its result, kind, REQ-ID and binding (task, owner, criterion id,
+ * criterion text hash, gate definition hash) all match. The one predicate
+ * `cleo complete`'s revalidation and `cleo done --plan` share (T13502), so
+ * the plan never reads as a pass what completion refuses.
+ *
+ * @param result - The stored typed result for the gate's index.
+ * @param task - The task (its id).
+ * @param gate - The gate at that index now.
+ * @param row - The AC row at that index now.
+ * @param owner - The project identity and root completing; omitted, the owner is not compared.
+ * @param requirePassing - True when only a pass may stand (completion, planning).
+ * @returns The reason, worded to follow "Typed requirement <id> ", or null.
+ * @task T13502
+ */
+export function typedResultStaleReason(
+  result: AcceptanceGateResult,
+  task: Pick<Task, 'id'>,
+  gate: AcceptanceGate,
+  row: Pick<AcRow, 'id' | 'text'>,
+  owner?: { projectId: string; projectRoot: string },
+  requirePassing = true,
+): string | null {
+  const binding = result.binding;
+  if (
+    (requirePassing && result.result !== 'pass') ||
+    !binding ||
+    result.kind !== gate.kind ||
+    result.req !== gate.req
+  )
+    return 'lacks a passing bound result';
+  if (
+    binding.taskId !== task.id ||
+    (owner !== undefined &&
+      (binding.identity.projectId !== owner.projectId ||
+        binding.identity.projectRoot !== owner.projectRoot)) ||
+    binding.criterionId !== row.id ||
+    binding.criterionHash !== acTextHash(row.text) ||
+    binding.gateHash !== createHash('sha256').update(acItemToText(gate)).digest('hex')
+  )
+    return 'binding is stale or belongs to another owner';
+  return null;
+}
+
+/**
  * Revalidate persisted typed results against current canonical task and input state.
  * @param task - Current task read under the caller's transaction ownership.
  * @param criteria - Current normalized AC rows from that transaction.
@@ -913,29 +1026,30 @@ export async function revalidateTaskGateResults(
       if (matches.length !== 1)
         throw new Error(`Typed requirement ${gate.req ?? index} has no unique verified result`);
       const result = acceptanceGateResultSchema.parse(matches[0]);
-      const binding = result.binding;
-      if (
-        (requirePassing && result.result !== 'pass') ||
-        !binding ||
-        result.kind !== gate.kind ||
-        result.req !== gate.req
-      )
-        throw new Error(`Typed requirement ${gate.req ?? index} lacks a passing bound result`);
-      if (
-        binding.taskId !== task.id ||
-        binding.identity.projectId !== execution.identity.projectId ||
-        binding.identity.projectRoot !== root ||
-        binding.criterionId !== rows[index]!.id ||
-        binding.criterionHash !== acTextHash(rows[index]!.text) ||
-        binding.gateHash !== createHash('sha256').update(acItemToText(gate)).digest('hex')
-      )
-        throw new Error(
-          `Typed requirement ${gate.req ?? index} binding is stale or belongs to another owner`,
-        );
+      const stale = typedResultStaleReason(
+        result,
+        task,
+        gate,
+        rows[index]!,
+        { projectId: execution.identity.projectId, projectRoot: root },
+        requirePassing,
+      );
+      if (stale) throw new Error(`Typed requirement ${gate.req ?? index} ${stale}`);
+      const binding = result.binding!;
       // A refused command is bound without an invocation (T12718 review), so it
       // revalidates as the unmet `error` it was recorded as.
       const { invocation } = resolveInvocation(gate, tree, env);
-      const artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
+      // T13527: an unmet result recorded because its inputs could not be
+      // captured has nothing to re-capture; completion (requirePassing) never
+      // reaches here with it, because only a pass stands there.
+      let artifacts: AcceptanceGateArtifact[];
+      try {
+        artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
+      } catch (error) {
+        execution.assertActive();
+        if (!requirePassing && result.result !== 'pass') continue;
+        throw error;
+      }
       const exact =
         isDeepStrictEqual(binding.invocation, invocation) &&
         isDeepStrictEqual(binding.artifacts, artifacts);
@@ -1117,6 +1231,33 @@ function resolveInvocation(
   }
 }
 
+/**
+ * T13527: an interpreter script reached through a package manager's
+ * `node_modules` link (pnpm resolves `node_modules/vitest` to
+ * `node_modules/.pnpm/vitest@x/node_modules/vitest`) is captured at its real
+ * path, so the ambiguous-parent guard below sees a plain path inside the
+ * project. Only a link that resolves into this project's `.pnpm` virtual store
+ * is followed; any other link is left for the guard to refuse.
+ */
+async function packageStoreRealPath(root: string, path: string): Promise<string> {
+  const rel = relative(root, path).split('\\').join('/');
+  if (!/(^|\/)node_modules\//.test(rel)) return path;
+  try {
+    const real = await realpath(path);
+    const realRel = relative(root, real).split('\\').join('/');
+    if (
+      realRel !== '' &&
+      !realRel.startsWith('../') &&
+      !isAbsolute(realRel) &&
+      /(^|\/)node_modules\/\.pnpm\//.test(realRel)
+    )
+      return real;
+  } catch {
+    // absent or unreadable: the guard below decides
+  }
+  return path;
+}
+
 /** Capture declared task inputs and an interpreter's explicit harness argument. */
 async function snapshotGateInputs(
   task: Task,
@@ -1143,15 +1284,17 @@ async function snapshotGateInputs(
     )
   ) {
     if (!invocation.args.some((arg) => ['-e', '--eval', '-c', '--print', '-p'].includes(arg))) {
+      const scripts: string[] = [];
       const script = invocation.args.find((arg) => !arg.startsWith('-'));
-      if (script) paths.add(resolve(invocation.cwd, script));
+      if (script) scripts.push(resolve(invocation.cwd, script));
       for (const arg of invocation.args) {
         if (
           !arg.startsWith('-') &&
           (arg.includes('/') || /\.(?:[cm]?[jt]sx?|py|sh|rb|pl)$/.test(arg))
         )
-          paths.add(resolve(invocation.cwd, arg));
+          scripts.push(resolve(invocation.cwd, arg));
       }
+      for (const path of scripts) paths.add(await packageStoreRealPath(root, path));
     }
   }
   const artifacts: AcceptanceGateArtifact[] = [];
@@ -1452,7 +1595,11 @@ const ZERO_FAILURE_COUNT =
  * @task T13511
  */
 export function outputReportsFailure(stdout: string): boolean {
-  return /\bFAIL\b|failing|Error:/i.test(stdout.replace(ZERO_FAILURE_COUNT, ''));
+  // T13516: a non-zero count (`3 failed`, `1 failure`) is a failure too; the
+  // FAIL token alone needs a word boundary, so `failed` never matched it.
+  return /\bFAIL\b|failing|Error:|\b[1-9]\d*\s+fail(?:ed|ures?)\b/i.test(
+    stdout.replace(ZERO_FAILURE_COUNT, ''),
+  );
 }
 
 async function runTestGate(

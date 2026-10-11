@@ -189,3 +189,27 @@ describe('--run --req selects typed gates (T13486)', () => {
     }
   });
 });
+
+describe('--run-typed opts a write into executing typed gates (T13521)', () => {
+  it('passes runTyped on a write', async () => {
+    const captured = await runVerifyCommand({
+      taskId: 'T489',
+      gate: 'implemented',
+      evidence: 'note:x',
+      'run-typed': true,
+      value: 'true',
+    });
+    expect(captured?.operation).toBe('gate.set');
+    expect(captured?.params.runTyped).toBe(true);
+  });
+
+  it('a plain write carries no runTyped (cache-only)', async () => {
+    const captured = await runVerifyCommand({
+      taskId: 'T489',
+      gate: 'implemented',
+      evidence: 'note:x',
+      value: 'true',
+    });
+    expect(captured?.params.runTyped).toBeUndefined();
+  });
+});
