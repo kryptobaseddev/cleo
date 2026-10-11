@@ -304,6 +304,7 @@ describe("catalog - the real manifest-only @cleocode/skills package", () => {
       "ct-dev-workflow",
       "ct-documentor",
       "ct-lead",
+      "ct-lean", // T13422
       "ct-orchestrator",
       "ct-task-executor",
     ]);

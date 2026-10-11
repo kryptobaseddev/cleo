@@ -607,6 +607,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-sync-triggers.js')).doctorSyncTriggersCommand as CommandDef,
   },
   {
+    exportName: 'doctorSystemCommand',
+    name: 'system',
+    description:
+      'Assess machine + project health (memory/swap, MCP fan-out, heavy jobs outside cleo run, ',
+    load: async () =>
+      (await import('../commands/doctor-system.js')).doctorSystemCommand as CommandDef,
+  },
+  {
     exportName: 'doctorToolLocksCommand',
     name: 'tool-locks',
     description:
@@ -761,7 +769,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'hookCommand',
     name: 'hook',
     description:
-      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command --provider claude-code|codex|kimi|opencode',
+      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command|ask-enforce --provider <harness>',
     load: async () => (await import('../commands/hook.js')).hookCommand as CommandDef,
   },
   {

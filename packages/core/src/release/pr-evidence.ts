@@ -930,6 +930,49 @@ export async function resolveRequiredWorkflowsDetailed(
 // ---------------------------------------------------------------------------
 
 /**
+ * Collapse re-runs of one check to the run that decides it (T13506).
+ *
+ * The rollup lists every run of a check on the PR's head, so a check that
+ * failed and was re-run green appears twice. Counting both let the stale
+ * FAILURE veto the green re-run. Runs are grouped by workflow and job name;
+ * the latest COMPLETED run (by `completedAt`, else `startedAt`) decides, and
+ * pending runs count only when the check has no completed run. Entries without
+ * a name or any timestamp are kept as-is, which is the behaviour before T13506.
+ *
+ * @param rollup - The PR's `statusCheckRollup`.
+ * @returns The rollup with each re-run check reduced to its deciding run.
+ * @task T13506
+ */
+export function latestCompletedRuns(
+  rollup: GhPrViewPayload['statusCheckRollup'],
+): GhPrViewPayload['statusCheckRollup'] {
+  type Entry = GhPrViewPayload['statusCheckRollup'][number];
+  const keep: Entry[] = [];
+  const groups = new Map<string, Entry[]>();
+  for (const check of rollup) {
+    const at = check.completedAt ?? check.startedAt;
+    if (!check.name || !at) {
+      keep.push(check);
+      continue;
+    }
+    const key = `${check.workflowName ?? ''}\u0000${check.name}`;
+    const group = groups.get(key);
+    if (group) group.push(check);
+    else groups.set(key, [check]);
+  }
+  for (const group of groups.values()) {
+    const completed = group.filter((c) => c.status === undefined || c.status === 'COMPLETED');
+    if (completed.length === 0) {
+      keep.push(...group);
+      continue;
+    }
+    const time = (c: Entry): number => Date.parse(c.completedAt ?? c.startedAt ?? '') || 0;
+    keep.push(completed.reduce((a, b) => (time(b) >= time(a) ? b : a)));
+  }
+  return keep;
+}
+
+/**
  * Inspect the `statusCheckRollup` and decide whether the required checks
  * are green.
  *
@@ -997,7 +1040,7 @@ export function evaluateRollup(
     ]),
   );
 
-  for (const check of rollup) {
+  for (const check of latestCompletedRuns(rollup)) {
     if (check.conclusion === 'SUCCESS') successCount++;
     const workflow = check.workflowName ?? '';
     const name = check.name ?? '';

@@ -759,6 +759,81 @@ describe('evaluateRollup', () => {
     expect(r.ok).toBe(true);
   });
 
+  // T13506 — a check that failed and was re-run green on the same head.
+  it('accepts a required check whose latest run passed after an earlier failure', () => {
+    const r = evaluateRollup(
+      [
+        {
+          name: 'CI',
+          workflowName: 'CI',
+          conclusion: 'FAILURE',
+          status: 'COMPLETED',
+          startedAt: '2026-10-10T23:42:54Z',
+          completedAt: '2026-10-10T23:42:56Z',
+        },
+        {
+          name: 'CI',
+          workflowName: 'CI',
+          conclusion: 'SUCCESS',
+          status: 'COMPLETED',
+          startedAt: '2026-10-11T00:52:51Z',
+          completedAt: '2026-10-11T00:52:54Z',
+        },
+      ],
+      ['CI'],
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it('still rejects a required check whose latest run failed', () => {
+    const r = evaluateRollup(
+      [
+        {
+          name: 'CI',
+          workflowName: 'CI',
+          conclusion: 'SUCCESS',
+          status: 'COMPLETED',
+          startedAt: '2026-10-10T23:42:54Z',
+          completedAt: '2026-10-10T23:42:56Z',
+        },
+        {
+          name: 'CI',
+          workflowName: 'CI',
+          conclusion: 'FAILURE',
+          status: 'COMPLETED',
+          startedAt: '2026-10-11T00:52:51Z',
+          completedAt: '2026-10-11T00:52:54Z',
+        },
+      ],
+      ['CI'],
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it('lets a completed run decide over a newer pending re-run of the same check', () => {
+    const r = evaluateRollup(
+      [
+        {
+          name: 'CI',
+          workflowName: 'CI',
+          conclusion: 'SUCCESS',
+          status: 'COMPLETED',
+          startedAt: '2026-10-10T23:42:54Z',
+          completedAt: '2026-10-10T23:42:56Z',
+        },
+        {
+          name: 'CI',
+          workflowName: 'CI',
+          conclusion: null,
+          status: 'IN_PROGRESS',
+          startedAt: '2026-10-11T00:52:51Z',
+        },
+      ],
+      ['CI'],
+    );
+    expect(r.ok).toBe(true);
+  });
+
   // gh#1104 / T12014 — empty required list is the lever: any MERGED PR passes.
   it('accepts an empty rollup when there are no required workflows', () => {
     const r = evaluateRollup([], []);

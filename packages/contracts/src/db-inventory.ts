@@ -156,6 +156,14 @@ export interface DbInventoryEntry {
    */
   readonly filePathTemplate: string;
   /**
+   * The role's pre-consolidation file (same tokens as `filePathTemplate`),
+   * when the role now lives in a consolidated store: `tasks`, `brain` and
+   * `conduit` live in `<projectRoot>/.cleo/cleo.db`, and their old
+   * `tasks.db` / `brain.db` / `conduit.db` are read only by exodus. Never a
+   * live store (T13245).
+   */
+  readonly legacyFilePathTemplate?: string;
+  /**
    * Repo-relative path to the Drizzle schema TypeScript file. `null` when
    * the schema is owned by an upstream library or the role is reserved.
    */

@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.24.7 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.24.10 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -11,7 +11,8 @@ Version: 2.24.7 | CLI-only dispatch | `cleo <command> [args]`
 4. **Act.** Use the repair matrix: scope, evidence, repair class, proposed operation, prerequisites, verification, and recovery. Automatic repairs must be bounded and reversible. The calling agent supplies sourced resolutions for ambiguous findings; owner decisions stay explicit. No background LLM is required for repair.
 5. **Verify.** Run relevant checks, record validated evidence, then complete. Report unresolved and failed findings and missing coverage rather than claiming success.
 6. **Learn.** Record actionable incident knowledge with source, project, revision, observation, correction, and verification through `cleo memory observe`. Preserve historical handoffs; present corrections separately. Avoid empty completion traces.
-7. **Ask the owner.** Every owner answer, decision, approval or choice goes through the ask tool (`AskUserQuestion` or the provider equivalent) with concrete selectable options, recommended first, each stating what happens and its trade-offs. Never ask in prose or bury a question in a response. No routine status chatter: report when done or when a decision is needed. Subagents never ask the human; they return the question and options to their orchestrator, which asks. No ask tool: emit one LAFS `hitl.request` envelope `{question, options[{label, description}], recommended}` and stop.
+7. **Ask the owner.** Every owner answer, decision, approval or choice goes through the ask tool (`AskUserQuestion` or the provider equivalent) with concrete selectable options, recommended first, each stating what happens and its trade-offs. Never ask in prose or bury a question in a response. Subagents never ask the human; they return the question and options to their orchestrator, which asks. No ask tool: emit one LAFS `hitl.request` envelope `{question, options[{label, description}], recommended}` and stop.
+8. **Reply lean.** Answer first: line one is the result, answer or decision; then only the evidence the reader needs and what was skipped or unverified. No preamble, recap or routine status chatter: report when done or when a decision is needed. Owner questions go only through the ask tool (step 7), with 2-4 populated options.
 
 Use `cleo <command> --help` (no top-level help) and the `ct-cleo` skill for command details. Bare `cleo show <id>` withholds description and verification and lists them in `_withheld`; use `cleo show <id> --full`. A record without `_withheld` is complete; absence is not emptiness.
 <!-- /CLEO-INJECTION:section=session-start -->
@@ -127,7 +128,7 @@ Before `cleo complete <id>`, every gate requires programmatic evidence validated
 |------|----------------------------|
 | `implemented` | `commit:<sha>;files:path/a.ts,path/b.ts` — or `pr:<number>` with `files:<changed-paths>`, or `decision:<id>` for decision-only tasks |
 | `testsPassed` | `ci:<pr>` if merged and `evidence.ciSatisfies`; else `tool:test-affected` (needs `testing.affectedCommand`), changed-file `test-run:<json>`, or `tool:test` |
-| `qaPassed` | `ci:<pr>` likewise, else `tool:lint;tool:typecheck` |
+| `qaPassed` | `ci:<pr>` likewise, else `tool:lint;tool:typecheck` or a `qa-run:<json>` per check |
 | `documented` | `files:docs/spec.md` |
 | `securityPassed` | `tool:security-scan` |
 | `cleanupDone` | `note:removed dead branches` |
@@ -142,6 +143,7 @@ Anti-patterns: completing without running tests · self-attesting without progra
 
 - No time estimates — use `small`, `medium`, `large` sizing
 - Heavy work (tests, typechecks, builds): one at a time via `cleo run --wait --class <test|build|full-build> -- <cmd>` (exit 75: wait, retry). Never wrap `cleo run`/`cleo verify` in another queue or raise heap/workers (`NODE_OPTIONS`, `--maxWorkers`). Prove with single files, `tool:test-affected` or `ci:<pr>`, never a whole suite
+- **Lean change (`ct-lean`).** Smallest complete change: reuse before writing, nothing unrequested, fix roots once, finish every caller and test it breaks. Never cut validation, data safety, security, evidence or the package boundary. Load `ct-lean` before coding
 - Do not read full task details for tasks you won't work on
 - Never read `.cleo/*.db` directly — the store is `.cleo/cleo.db` (prefixed tables); `tasks.db` and `tasks-*.db` snapshots are decoys. Ask the CLI (`cleo doctor superseded-store`)
 <!-- /CLEO-INJECTION:section=rules -->

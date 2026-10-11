@@ -4,13 +4,13 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ProjectContext } from '@cleocode/contracts';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
 import { pushWarning } from '../output.js';
 import { resolveScaffoldCleoDir } from './ensure-config.js';
+import type { UpgradeFileJournal } from './upgrade-file-journal.js';
 
 /**
  * Detect and write project-context.json.
@@ -20,11 +20,19 @@ import { resolveScaffoldCleoDir } from './ensure-config.js';
  * @param opts - Optional configuration
  * @param opts.force - When true, regenerate even if the file is fresh
  * @param opts.staleDays - Age threshold in days before regeneration (default: 30)
+ * @param opts.journal - Backs the file up before it changes and lists it (upgrade, T13409)
  * @returns Scaffold result indicating the action taken
+ *
+ * @remarks
+ * Regenerating an existing file keeps every key it has, in its order: detected
+ * values are updated in place, keys detection does not produce are kept, and
+ * new keys are appended (T13409: a refresh once dropped `build.outputDir` and
+ * reordered the tracked file). When nothing but `detectedAt` would change, the
+ * file is left byte-identical.
  */
 export async function ensureProjectContext(
   projectRoot: string,
-  opts?: { force?: boolean; staleDays?: number },
+  opts?: { force?: boolean; staleDays?: number; journal?: UpgradeFileJournal },
 ): Promise<ScaffoldResult> {
   const cleoDir = resolveScaffoldCleoDir(projectRoot);
   const contextPath = join(cleoDir, 'project-context.json');
@@ -54,6 +62,7 @@ export async function ensureProjectContext(
   const context = detectProjectType(projectRoot);
   // Blocks only the user writes (`release`, `evidence`), carried over verbatim.
   let declared: Record<string, unknown> = {};
+  let previous: Record<string, unknown> | null = null;
 
   // Preserve user-supplied command overrides from existing file so
   // regeneration does not silently clobber them (T12027 / #1122 / #1129).
@@ -62,11 +71,21 @@ export async function ensureProjectContext(
       const existing = JSON.parse(readFileSync(contextPath, 'utf-8')) as Record<string, unknown>;
       preserveUserOverrides(existing, context);
       declared = declaredBlocks(existing);
+      previous = asRecord(existing);
     } catch {
       // If we can't parse existing, proceed with freshly-detected context
     }
   }
-  const output: Record<string, unknown> = { ...context, ...declared };
+  const detected: Record<string, unknown> = { ...context, ...declared };
+  const output = previous ? mergeKeepingExisting(previous, detected) : detected;
+  if (previous && sameIgnoringDetectedAt(previous, output)) {
+    return {
+      action: 'skipped',
+      path: contextPath,
+      details: 'Re-detection found nothing new; project-context.json left unchanged',
+    };
+  }
+  if (previous && 'detectedAt' in previous) output.detectedAt = detected.detectedAt;
 
   try {
     const schemaPath = join(
@@ -105,7 +124,8 @@ export async function ensureProjectContext(
     // Schema validation is best-effort — never block the write
   }
 
-  await writeFile(contextPath, JSON.stringify(output, null, 2));
+  const { writeIfChanged } = await import('./upgrade-file-journal.js');
+  await writeIfChanged(contextPath, JSON.stringify(output, null, 2), opts?.journal);
 
   // T13125: propose, never persist, the affected-scope command. A written
   // template would read as declared, outlive an edit to testing.command and
@@ -186,6 +206,34 @@ function preserveUserOverrides(existing: Record<string, unknown>, context: Proje
   if (secscanCmd) {
     context['security-scan'] = { command: secscanCmd };
   }
+}
+
+/**
+ * Merge freshly detected context into an existing file's object (T13409):
+ * every existing key keeps its position, a detected value replaces the old one,
+ * a key detection does not produce (such as `build.outputDir`) is kept as is,
+ * and keys new to the file are appended.
+ */
+function mergeKeepingExisting(
+  existing: Record<string, unknown>,
+  detected: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(existing)) {
+    const ours = asRecord(value);
+    const theirs = asRecord(detected[key]);
+    merged[key] = ours && theirs ? mergeKeepingExisting(ours, theirs) : (detected[key] ?? value);
+  }
+  for (const [key, value] of Object.entries(detected)) {
+    if (!(key in merged) && value !== undefined) merged[key] = value;
+  }
+  return merged;
+}
+
+/** Whether two context objects serialize identically once `detectedAt` is ignored. */
+function sameIgnoringDetectedAt(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const strip = ({ detectedAt: _ignored, ...rest }: Record<string, unknown>) => rest;
+  return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
 }
 
 /** A parsed JSON value as an object, or `null` when it is not a plain object. */

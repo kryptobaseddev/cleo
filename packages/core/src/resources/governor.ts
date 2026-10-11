@@ -61,6 +61,7 @@ import {
   readLedger,
 } from './admission-ledger.js';
 import type { ResourceSample } from './backend.js';
+import { renewInvokingSessionClaims } from './claim-keepalive.js';
 import { pressureScore, ResourceMonitor } from './monitor.js';
 import {
   _resetMemoryGateForTest,
@@ -412,6 +413,8 @@ async function admitThroughLedger(
           ? { sample: () => monitor.sample() }
           : {}),
       ...(opts.memoryPressure ? { memoryPressure: opts.memoryPressure } : {}),
+      // T13492: a queued `cleo run --wait` keeps its own session's claims alive.
+      keepAlive: () => renewInvokingSessionClaims(),
     },
   );
   if (!out.admitted) {
