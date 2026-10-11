@@ -104,8 +104,19 @@ describe('createWorktree dependency install (T13524)', () => {
       cwd: r.path,
       encoding: 'utf-8',
     });
-    expect(untracked).not.toContain('.npmrc');
     expect(untracked).not.toContain('.pnpm-store');
+    // `.npmrc` is NOT excluded: info/exclude is the common .git's, and would hide
+    // a new .npmrc in the main checkout too (T13541).
+    const excludePath = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
+      cwd: r.path,
+      encoding: 'utf-8',
+    }).trim();
+    const exclude = readFileSync(
+      excludePath.startsWith('/') ? excludePath : join(r.path, excludePath),
+      'utf-8',
+    );
+    expect(exclude).toContain('/.pnpm-store/');
+    expect(exclude).not.toContain('/.npmrc');
     expect(r.install?.command).toBe(workerInstallCommand(r.path));
   });
 
@@ -167,6 +178,23 @@ describe('createWorktree dependency install (T13524)', () => {
         encoding: 'utf-8',
       }),
     ).toBe('');
+  });
+
+  it('a tracked .npmrc: the admitted install uses --store-dir and the preamble says so (T13541)', async () => {
+    writeFileSync(join(projectRoot, '.npmrc'), 'auto-install-peers=true\n');
+    execFileSync('git', ['add', '.npmrc'], { cwd: projectRoot, stdio: 'pipe' });
+    execFileSync('git', ['commit', '-qm', 'track npmrc'], { cwd: projectRoot, stdio: 'pipe' });
+    const r = await createWorktree(projectRoot, {
+      taskId: 'T9207',
+      lockWorktree: false,
+      admitInstall: async () => async () => {},
+    });
+    expect(r.install?.status).toBe('installed');
+    const store = join(r.path, '.pnpm-store');
+    // The fake pnpm logged its argv: the install went to the worktree's own store.
+    expect(readFileSync(marker, 'utf-8')).toContain(`--store-dir ${store}`);
+    expect(r.preamble).toContain(`pass --store-dir '${store}'`);
+    expect(readFileSync(join(r.path, '.npmrc'), 'utf-8')).toBe('auto-install-peers=true\n');
   });
 
   it('the slot is released even when the install throws (guard)', async () => {

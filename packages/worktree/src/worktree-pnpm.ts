@@ -117,12 +117,18 @@ export function installWorktreeDependencies(worktreePath: string, projectRoot: s
     // This prevents future races when agents run pnpm operations.
     configureWorktreePnpmStore(worktreePath);
 
-    execFileSync('pnpm', ['install', '--frozen-lockfile', '--prefer-offline'], {
-      cwd: worktreePath,
-      encoding: 'utf-8',
-      timeout: PNPM_INSTALL_TIMEOUT_MS,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    // --store-dir too: a tracked .npmrc cannot carry it (T13541).
+    const storeDir = join(worktreePath, '.pnpm-store');
+    execFileSync(
+      'pnpm',
+      ['install', '--frozen-lockfile', '--prefer-offline', '--store-dir', storeDir],
+      {
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        timeout: PNPM_INSTALL_TIMEOUT_MS,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
 
     return true;
   } catch (err) {
@@ -156,9 +162,11 @@ export function installWorktreeDependencies(worktreePath: string, projectRoot: s
 export function configureWorktreePnpmStore(worktreePath: string): string | null {
   const npmrcPath = join(worktreePath, '.npmrc');
   const storeDir = join(worktreePath, '.pnpm-store');
-  const tracked = isTrackedFile(worktreePath, '.npmrc');
-  // Keep the store (and an untracked .npmrc with its absolute path) out of `git add -A`.
-  excludeFromGit(worktreePath, tracked ? ['/.pnpm-store/'] : ['/.pnpm-store/', '/.npmrc']);
+  const tracked = isNpmrcTracked(worktreePath);
+  // Keep the store out of `git add -A`. Not `.npmrc`: info/exclude lives in the
+  // COMMON .git, so excluding it would hide a new .npmrc in the main checkout
+  // too (T13541); the tracked guard plus explicit staging cover it.
+  excludeFromGit(worktreePath, ['/.pnpm-store/']);
   if (tracked) return null;
   try {
     const kept = existsSync(npmrcPath)
@@ -173,10 +181,21 @@ export function configureWorktreePnpmStore(worktreePath: string): string | null 
   }
 }
 
-/** Whether `file` is tracked by git in `cwd` (`git ls-files --error-unmatch`). */
-function isTrackedFile(cwd: string, file: string): boolean {
+/**
+ * Whether the worktree's `.npmrc` is tracked by git (`git ls-files
+ * --error-unmatch`): then it cannot carry the worktree's `store-dir`.
+ *
+ * @param worktreePath - The worktree.
+ * @returns `true` when tracked; `false` when untracked, absent, or git fails.
+ * @task T13538
+ * @task T13541
+ */
+export function isNpmrcTracked(worktreePath: string): boolean {
   try {
-    execFileSync('git', ['ls-files', '--error-unmatch', file], { cwd, stdio: 'pipe' });
+    execFileSync('git', ['ls-files', '--error-unmatch', '.npmrc'], {
+      cwd: worktreePath,
+      stdio: 'pipe',
+    });
     return true;
   } catch {
     return false;
