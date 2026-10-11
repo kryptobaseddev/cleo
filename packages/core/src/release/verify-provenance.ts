@@ -208,13 +208,13 @@ function checkEvidenceStaleness(
           const problem = filesAtomPathProblem(projectRoot, relPath, version, existsSync(abs));
           if (problem) stale.push({ taskId, atom, reason: problem });
         }
-      } else if (kind === 'test-run') {
+      } else if (kind === 'test-run' || kind === 'qa-run') {
         const abs = resolve(projectRoot, value);
         if (!existsSync(abs)) {
           stale.push({
             taskId,
             atom,
-            reason: `test-run file ${value} missing post-publish`,
+            reason: `${kind} file ${value} missing post-publish`,
           });
         }
       }

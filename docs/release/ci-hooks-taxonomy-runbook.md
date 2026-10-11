@@ -22,7 +22,7 @@ The source matrix is `docs/release/ci-hooks-parity-matrix.md`. The branch-protec
 
 ## Trigger policy
 
-1. PR and merge-queue gates are the normal quality path for changes targeting `main`.
+1. PR gates are the normal quality path for changes targeting `main` (no merge queue is configured; `merge_group` triggers are inert).
 2. Push-to-`main` workflows are repository backstops for merged changes and owner emergency paths; they are not a substitute for PR review/gates.
 3. No current workflow targets a `dev` branch. Adding one requires explicit workflow filters and branch-protection updates.
 4. Tag-triggered workflows are limited to release and prebuild publication paths.

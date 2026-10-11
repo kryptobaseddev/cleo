@@ -614,6 +614,17 @@ export function createAttachmentStore(): AttachmentStore {
       attachmentSchema.parse(fullAttachment);
       const slug = extras?.slug;
       const type = extras?.type;
+      // T13357: derive topics/related_tasks provenance at the write chokepoint
+      // so every writer (add, llm-output --attach, import) populates the link
+      // columns the wikilinks graph reads. Text blobs only.
+      // Loaded on demand: readers (`cleo show`) never pay for it (gate 39).
+      const { deriveDocLinks, isScannableTextMime, linksJsonOrNull } = await import(
+        '../docs/derive-links.js'
+      );
+      const attachmentMime = 'mime' in fullAttachment ? fullAttachment.mime : undefined;
+      const derivedLinks = isScannableTextMime(attachmentMime)
+        ? deriveDocLinks(buf.toString('utf-8'), fullAttachment.labels)
+        : undefined;
 
       return withWriteLock(async () => {
         const db = await getDb(cwd);
@@ -698,6 +709,12 @@ export function createAttachmentStore(): AttachmentStore {
                 refCount: 0,
                 ...(slug !== undefined ? { slug } : {}),
                 ...(type !== undefined ? { type } : {}),
+                ...(derivedLinks !== undefined
+                  ? {
+                      topics: linksJsonOrNull(derivedLinks.topics),
+                      relatedTasks: linksJsonOrNull(derivedLinks.relatedTasks),
+                    }
+                  : {}),
               })
               .run();
           }
@@ -708,10 +725,22 @@ export function createAttachmentStore(): AttachmentStore {
           // INDEX semantics. Use raw SQL via drizzle update to avoid clobbering
           // existing values when extras is undefined.
           if (existing && (slug !== undefined || type !== undefined)) {
-            const updates: Record<string, string> = {};
+            const updates: Record<string, string | null> = {};
             if (slug !== undefined) updates.slug = slug;
             if (type !== undefined) updates.type = type;
             await db.update(attachments).set(updates).where(eq(attachments.id, attachmentId)).run();
+          }
+          // T13357: refresh derived provenance on an existing row whose bytes
+          // are already stored (a re-put is the only time we see its content).
+          if (existing && derivedLinks !== undefined) {
+            await db
+              .update(attachments)
+              .set({
+                topics: linksJsonOrNull(derivedLinks.topics),
+                relatedTasks: linksJsonOrNull(derivedLinks.relatedTasks),
+              })
+              .where(eq(attachments.id, attachmentId))
+              .run();
           }
 
           // Insert ref. The (attachment_id, owner_type, owner_id) tuple is the
@@ -786,6 +815,20 @@ export function createAttachmentStore(): AttachmentStore {
           nativeDb.prepare('COMMIT').run();
           // T12535: keep a hard link so an older build's unlink cannot lose the bytes.
           pinBlob(resolveCleoDir(cwd), hash, filePath);
+
+          // T13357: refresh the wikilinks edge table after a slugged write.
+          // Post-commit and best-effort: a graph rebuild failure must not fail
+          // the completed write — `cleo docs doctor` can re-derive it.
+          if (slug !== undefined) {
+            try {
+              const { rebuildDocsWikilinks } = await import('../docs/wikilinks.js');
+              await rebuildDocsWikilinks({ projectRoot: cwd });
+            } catch (rebuildErr) {
+              process.emitWarning(
+                `docs wikilinks rebuild failed after put of slug '${slug}': ${rebuildErr instanceof Error ? rebuildErr.message : String(rebuildErr)}`,
+              );
+            }
+          }
 
           const finalRow = await db
             .select()

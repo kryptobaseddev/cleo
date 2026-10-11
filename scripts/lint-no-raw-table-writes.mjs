@@ -597,6 +597,27 @@ const REGEX_AFTER_WORD = new Set([
 ]);
 
 /**
+ * `[A-Za-z_$]` by char code: the lexer tests every character, and a regex per
+ * character dominated its run time.
+ *
+ * @param {number} code - `charCodeAt` result.
+ * @returns {boolean}
+ */
+function isWordStart(code) {
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 95 || code === 36;
+}
+
+/**
+ * `[\w$]` by char code (see {@link isWordStart}).
+ *
+ * @param {number} code - `charCodeAt` result.
+ * @returns {boolean}
+ */
+function isWordChar(code) {
+  return isWordStart(code) || (code >= 48 && code <= 57);
+}
+
+/**
  * Blank comments with spaces, keeping newlines, so line numbers survive.
  *
  * A small lexer, not a regex: it skips string, template and regex literals
@@ -747,9 +768,9 @@ export function stripComments(src, lang = 'js') {
         depth--;
       }
     }
-    if (/[A-Za-z_$]/.test(c)) {
+    if (isWordStart(src.charCodeAt(i))) {
       let j = i;
-      while (j < n && /[\w$]/.test(src[j])) j++;
+      while (j < n && isWordChar(src.charCodeAt(j))) j++;
       prevWord = src.slice(i, j);
       prev = 'a';
       i = j;
@@ -762,6 +783,39 @@ export function stripComments(src, lang = 'js') {
     i++;
   }
   return out.join('');
+}
+
+/**
+ * Every pattern read from comment-stripped code (`WRITE_RE`, `REPLACE_RE`,
+ * `DDL_REPLACE_RE`, the Drizzle `.insert(`/`.update(`/`.delete(` report) needs
+ * one of these words, and every staged-snapshot marker needs `gate-28`.
+ * Stripping only blanks characters, so a file without any of them has no hit
+ * either way.
+ */
+const LEX_NEEDED_RE = /insert|replace|update|delete|gate-28/i;
+
+/** Comment-stripped code per file, shared by {@link scan} and {@link scanReplace}. */
+const lexed = new Map();
+
+/**
+ * {@link stripComments}, skipped when no pattern could match and run once per
+ * file per process: the lexer is most of this gate's run time, and its
+ * real-repository test timed out under CI load (#1919). A skipped file returns
+ * `src` unchanged, which yields no write site, REPLACE site, marker or Drizzle
+ * write.
+ *
+ * @param {string} file - Repo-relative path (the cache key).
+ * @param {string} src - File contents.
+ * @returns {string} Comment-stripped code, or `src` when nothing can match.
+ */
+function codeForScan(file, src) {
+  const hit = lexed.get(file);
+  if (hit?.src === src) return hit.code;
+  const code = LEX_NEEDED_RE.test(src)
+    ? stripComments(src, file.endsWith('.rs') ? 'rs' : 'js')
+    : src;
+  lexed.set(file, { src, code });
+  return code;
 }
 
 function sourceFiles({ includeSanctioned = false } = {}) {
@@ -1073,7 +1127,7 @@ export function scanReplace() {
   const parents = repoFkActionParents([...raw.values()]);
   const violations = [];
   for (const [file, src] of raw) {
-    const code = stripComments(src, file.endsWith('.rs') ? 'rs' : 'js');
+    const code = codeForScan(file, src);
     const rawLines = src.split('\n');
     for (const site of replaceSites(code)) {
       if (!replaceAllowed(rawLines, site.line)) {
@@ -1123,9 +1177,8 @@ function scan() {
   const stray = [];
   const sources = [];
   for (const file of sourceFiles()) {
-    const lang = file.endsWith('.rs') ? 'rs' : 'js';
     const src = readFileSync(resolve(REPO_ROOT, file), 'utf-8');
-    const code = stripComments(src, lang);
+    const code = codeForScan(file, src);
     sources.push({ file, code });
     const bound = bindMarkers(writeSites(code, tables), stagedMarkers(src, code), code);
     for (const hit of bound.sites) findings.push({ file, ...hit });
