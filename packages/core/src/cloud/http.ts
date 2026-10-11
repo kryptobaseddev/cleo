@@ -67,6 +67,14 @@ export function isSecureUrl(url: string): boolean {
 export class Http {
   private readonly fetch: FetchLike;
   private readonly sleep: (ms: number) => Promise<void>;
+  /**
+   * The server's clock relative to this device's, from the `Date` header of
+   * its latest response: `serverDate − receivedAt` in ms (negative when this
+   * device runs ahead), or null before one arrived (or when it sent none).
+   * Measured at receipt, so time spent after the response never counts as
+   * drift. Push pauses when this device runs ahead (journal spec §1.3).
+   */
+  lastServerOffsetMs: number | null = null;
 
   constructor(private readonly o: HttpOptions) {
     if (!isSecureUrl(o.baseUrl)) {
@@ -133,6 +141,8 @@ export class Http {
           }
         | null;
       const requestId = res.headers.get('x-request-id');
+      const served = Date.parse(res.headers.get('date') ?? '');
+      if (Number.isFinite(served)) this.lastServerOffsetMs = served - Date.now();
       if (json?.success === true) {
         const parsed = schema.safeParse(json.data);
         if (!parsed.success) {

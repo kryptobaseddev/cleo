@@ -541,6 +541,19 @@ export type EvidenceAtom =
        */
       descendantPrHeadSha?: string;
       /**
+       * The merge commit's own run FAILED, but every failing job had already
+       * failed on its nearest decided first-parent ancestor: the PR inherited
+       * main's breakage and introduced none (T13453). `descendantSha` is then
+       * the later green main run standing in. Each job records the failing
+       * merge-commit run and the base run it inherited from.
+       */
+      inheritedFailures?: Array<{
+        name: string;
+        mergeRunId: number;
+        baseSha: string;
+        baseRunId: number;
+      }>;
+      /**
        * The PR edited a pinned workflow, so only default-branch `push` runs
        * attested it; its own `pull_request` runs (which ran the edited
        * workflow) were never consulted, and none is re-checked (T13174).

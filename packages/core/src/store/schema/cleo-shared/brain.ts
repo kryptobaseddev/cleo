@@ -723,9 +723,12 @@ export const brainStickyTags = sqliteTable(
       .references(() => brainStickyNotes.id, { onDelete: 'cascade' }),
     /** A single tag string (one row per tag). */
     tag: text('tag').notNull(),
+    /** Row uid (T12895): a UUIDv8 over (note uid, tag), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
     primaryKey({ columns: [table.stickyId, table.tag] }),
+    uniqueIndex('uq_brain_sticky_tags_uid').on(table.uid),
     index('idx_brain_sticky_tags_tag').on(table.tag),
   ],
 );
@@ -827,9 +830,12 @@ export const brainMemoryLinks = sqliteTable(
     linkType: text('link_type', { enum: BRAIN_LINK_TYPES }).notNull(),
     /** ISO-8601 UTC creation instant (canonical TEXT, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T12895): a UUIDv8 over (memory type, memory id, task uid or id, link type), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
     primaryKey({ columns: [table.memoryType, table.memoryId, table.taskId, table.linkType] }),
+    uniqueIndex('uq_brain_memory_links_uid').on(table.uid),
     index('idx_brain_links_task').on(table.taskId),
     index('idx_brain_links_memory').on(table.memoryType, table.memoryId),
   ],
@@ -970,9 +976,12 @@ export const brainPageEdges = sqliteTable(
     depressionCount: integer('depression_count').notNull().default(0),
     /** Stability score 0.0–1.0. */
     stabilityScore: real('stability_score'),
+    /** Row uid (T12895): a UUIDv8 over the raw (from id, to id, edge type), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
     primaryKey({ columns: [table.fromId, table.toId, table.edgeType] }),
+    uniqueIndex('uq_brain_page_edges_uid').on(table.uid),
     index('idx_brain_edges_from').on(table.fromId),
     index('idx_brain_edges_to').on(table.toId),
     index('idx_brain_edges_type').on(table.edgeType),

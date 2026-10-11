@@ -533,6 +533,26 @@ const EXECUTABLE_LANGUAGES = new Set([
   'shell',
   'cobol',
 ]);
+/** Executable source extensions without a language detector entry. */
+const EXECUTABLE_EXTENSIONS = new Set([
+  '.svelte',
+  '.mdx',
+  '.lua',
+  '.pl',
+  '.r',
+  '.ps1',
+  '.bat',
+  '.cmd',
+]);
+
+/** Whether a path names executable source by its language, extension or filename. */
+function isExecutablePath(path: string): boolean {
+  return (
+    EXECUTABLE_LANGUAGES.has(detectLanguageFromPath(path) ?? '') ||
+    EXECUTABLE_EXTENSIONS.has(extname(path).toLowerCase()) ||
+    /^(?:Makefile|Dockerfile)$/.test(basename(path))
+  );
+}
 
 /** Build a role observation from independently stated requested capabilities. */
 function roleCoverage(
@@ -583,11 +603,7 @@ export const OVERSIZED_FILE_LIMITATION =
  */
 export function oversizedFileCoverage(path: string): GraphFileCapabilityCoverage {
   const extension = extname(path).toLowerCase();
-  const executable =
-    EXECUTABLE_LANGUAGES.has(detectLanguageFromPath(path) ?? '') ||
-    ['.svelte', '.mdx', '.lua', '.pl', '.r', '.ps1', '.bat', '.cmd'].includes(extension) ||
-    /^(?:Makefile|Dockerfile)$/.test(basename(path));
-  const coverage = executable
+  const coverage = isExecutablePath(path)
     ? roleCoverage('executable', {
         basis: 'path',
         reason: `Recognized executable language or filename: ${path}; content not read`,
@@ -713,7 +729,6 @@ async function classifyFileCapabilities(
 ): Promise<GraphIndexFileReport> {
   const path = file.path;
   const extension = extname(path).toLowerCase();
-  const language = detectLanguageFromPath(path);
   const bytes = await fs.readFile(path.startsWith('/') ? path : `${repoPath}/${path}`, { signal });
   if (file.contentHash && createHash('sha256').update(bytes).digest('hex') !== file.contentHash)
     throw new Error('Source changed between scanning and capability classification');
@@ -753,11 +768,7 @@ async function classifyFileCapabilities(
         reason: 'Observed executable shebang; an asset extension cannot override it',
       }),
     );
-  if (
-    EXECUTABLE_LANGUAGES.has(language ?? '') ||
-    ['.svelte', '.mdx', '.lua', '.pl', '.r', '.ps1', '.bat', '.cmd'].includes(extension) ||
-    /^(?:Makefile|Dockerfile)$/.test(basename(path))
-  )
+  if (isExecutablePath(path))
     return report(
       roleCoverage('executable', {
         basis: 'path',
