@@ -561,8 +561,22 @@ export interface OrchestrateSpawnResult {
    * @task T963
    */
   prompt: string;
-  /** Agent id the spawn is routed to. @task T963 */
+  /**
+   * The spawned agent's identity: the same id as `worktreeEnv.CLEO_AGENT_ID`,
+   * its per-agent session's handle (`agent-<task>`) and the worktree lock
+   * holder. Before T13494 this field carried the classifier's persona.
+   * @task T963
+   * @task T13494
+   */
   agentId: string;
+  /**
+   * The agent profile the classifier routed the task to (e.g.
+   * `project-security-worker`, `cleo-subagent`); mirrors
+   * `meta.classify.agentId`. It names what the prompt is written for, not who
+   * runs it.
+   * @task T13494
+   */
+  persona: string;
   /** Role the agent will execute as (`orchestrator` | `lead` | `worker`). @task T963 */
   role: string;
   /** Tier of the rendered prompt (0/1/2). @task T963 */

@@ -492,6 +492,12 @@ export interface ProviderAskTool {
   status: AskToolStatus;
   /** Exact tool name the model calls, or `null` when none is known. */
   toolName: string | null;
+  /**
+   * Other names the same harness may expose for a structured question (an
+   * async variant, a legacy build), so a transcript scan recognises every one.
+   * Omitted when the harness has only `toolName`.
+   */
+  additionalToolNames?: readonly string[];
   /** Availability limits, or `null` when none are known. */
   caveat: string | null;
   /** Where the fact was verified (doc URL, source path, or binary inspected). */

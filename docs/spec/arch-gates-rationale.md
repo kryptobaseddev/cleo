@@ -172,6 +172,8 @@ Ratchet, not zero-tolerance: the count of static `@cleocode/core` barrel imports
 
 **The gate on the gates.** The gate list bundled into `cleo check arch` and THIS table MUST name the same set of scripts. Measured 2026-09-12: the runner bundled 10 while this table documented 15, drifting in both directions — so every agent told to run `cleo check arch` before pushing got a green covering two-thirds of the documented gates. Joins on script PATH, never gate number (the two numbering schemes already collide: runner `gate-6` is row 16's gate, not row 6's).
 
+**Parity is not execution.** Agreement between the runner and this table proves only that `cleo check arch` runs what is documented; it never proved that CI runs anything. gh#1354/gh#1394 found three gates bundled AND documented but run by no workflow (gate 19 was breached 109 vs 106 with nothing failing), and on 2026-09-28 four more had drifted the same way. Since T12658 gate 20 therefore checks a third list: every bundled script must appear as `node scripts/<gate>.mjs` on a non-comment line of some `.github/workflows/*.yml` step. Even that is presence, not enforcement — it does not prove the step is in a required job, is not `continue-on-error`, or scans anything.
+
 ## Gate 21 — Dual-scope unqualified reads (T12156) — `scripts/lint-dual-scope-unqualified-reads.mjs`
 
 - **Script:** `scripts/lint-dual-scope-unqualified-reads.mjs`
@@ -325,7 +327,7 @@ metadata:
 
 ### Release & Branching (ADR-065 · SPEC-T9345 · ADR-087)
 
-PR-gated pipeline. **NO direct pushes to `main`.** All PRs target `main` through GitHub Merge Queue.
+PR-gated pipeline. **NO direct pushes to `main`.** All PRs target `main` and merge serially once their own required `CI` is green; there is no GitHub Merge Queue (personal-account repo, GraphQL `repository.mergeQueue` is `null`).
 
 > **One deliberate exception, stated so nobody later "discovers" it as a vulnerability.** Branch
 > protection runs with `enforce_admins: false` — the setting the snippet further down this section

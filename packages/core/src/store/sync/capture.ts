@@ -46,7 +46,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import type { RowIdentityRef, TableScope } from '@cleocode/contracts';
+import type { RowIdentityRef, RowIdentitySpec, TableScope } from '@cleocode/contracts';
 import {
   BIRTH_FP_COLUMN,
   rowIdentityColumns,
@@ -82,6 +82,14 @@ export interface CaptureTableDef {
   readonly refs: ReadonlyMap<string, { table: string; key: string }>;
   /** Rows never change: undo keeps only `rk` and `uid`. */
   readonly appendOnly: boolean;
+  /**
+   * The table's INTEGER PRIMARY KEY (a rowid alias numbered from 1 on every
+   * device, T12896), when it is a local key: kept out of {@link columns}, so
+   * it is never captured, sealed, hashed or written from the wire, and a
+   * received row gets the next local id. Absent when the table has none, or
+   * when it is part of a natural key.
+   */
+  readonly localRowid?: string;
 }
 
 /** One generated trigger. */
@@ -127,9 +135,15 @@ export function captureTableDef(
   const spec = rowIdentitySpec(scope, table);
   const cls = classifyTable(scope, table);
   if (!spec || cls.kind !== 'entry' || !hasTable(db, table)) return undefined;
-  const info = db.prepare(`PRAGMA main.table_info(${q(table)})`).all() as Array<{ name: string }>;
+  const info = db.prepare(`PRAGMA main.table_info(${q(table)})`).all() as Array<{
+    name: string;
+    type: string;
+    pk: number;
+  }>;
   const overrides = cls.entry.columns ?? [];
   const localOnly = new Set(overrides.filter((o) => o.class === 'local-only').map((o) => o.column));
+  const localRowid = localRowidColumn(info, spec);
+  if (localRowid) localOnly.add(localRowid);
   const wholeSecret = cls.class === 'portable-secret';
   const secret = new Set(
     wholeSecret
@@ -155,7 +169,25 @@ export function captureTableDef(
     secret,
     refs,
     appendOnly: (spec.content?.length ?? 0) > 0,
+    ...(localRowid ? { localRowid } : {}),
   };
+}
+
+/**
+ * The table's INTEGER PRIMARY KEY column when it is a local key (T12896): a
+ * single-column primary key declared `INTEGER` (a rowid alias, so AUTOINCREMENT
+ * or not it numbers from 1 on every device), unless a natural key hashes it.
+ */
+function localRowidColumn(
+  info: ReadonlyArray<{ name: string; type: string; pk: number }>,
+  spec: RowIdentitySpec,
+): string | undefined {
+  const pk = info.filter((c) => c.pk > 0);
+  if (pk.length !== 1) return undefined;
+  const col = pk[0] as { name: string; type: string };
+  if (col.type.toUpperCase() !== 'INTEGER') return undefined;
+  if (spec.kind === 'natural' && spec.key.includes(col.name)) return undefined;
+  return col.name;
 }
 
 /**

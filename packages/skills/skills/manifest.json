@@ -62,7 +62,7 @@
   "_meta": {
     "schemaVersion": "2.7.0",
     "lastUpdated": "2026-05-19",
-    "totalSkills": 21,
+    "totalSkills": 22,
     "generatedFrom": "T260 — lifecycle pipeline rework: dedicated skills for ADR, IVT loop, consensus, release, artifact-publish, provenance. T9664/T9665/T9672 (epic T9568) — adds loomStage + adrRefs fields on every LOOM-stage skill entry (underscored canonical form matching `cleo lifecycle` stage names; ADR refs point at .cleo/adrs/). T9672 reconciled dispatch_matrix.by_protocol key 'architecture-decision' → 'architecture_decision' matching the lifecycle CLI source of truth; the dashed form is retained as a keyword alias.",
     "architectureNote": "Universal Subagent Architecture: All spawns use provider-neutral delegation with skill/protocol injection. Pipeline stages and cross-cutting protocols each have a dedicated skill — no overloading.",
     "loomStageContract": "Each of the 10 LOOM lifecycle stages (research, consensus, architecture_decision, specification, decomposition, implementation, validation, testing, release, contribution) MUST have a bound skill whose manifest entry declares loomStage matching the lifecycle CLI stage name. The legacy `protocol` field is retained as an alias; dispatch_matrix.by_protocol is the authoritative routing table. See docs/skills/loom-coverage-matrix.md.",
@@ -226,7 +226,7 @@
     },
     {
       "name": "ct-cleo",
-      "version": "2.24.8",
+      "version": "2.24.9",
       "description": "CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.",
       "path": "skills/ct-cleo",
       "tier": 0,
@@ -566,7 +566,7 @@
     },
     {
       "name": "ct-dev-workflow",
-      "version": "3.1.7",
+      "version": "3.1.9",
       "description": "Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.",
       "path": "skills/ct-dev-workflow",
       "tier": 0,
@@ -982,8 +982,26 @@
       "license": "MIT"
     },
     {
+      "name": "ct-lean",
+      "version": "1.0.0",
+      "description": "Lean change discipline for CLEO work: the smallest change that fully solves the task, and a reply a busy owner understands in one read. Use on every coding task (writing, fixing, refactoring, reviewing, choosing dependencies) and when the owner asks for the simplest solution, YAGNI, or complains about over-engineering or bloat. Never trades away evidence gates, package boundaries, validation, data safety or anything the task asked for.",
+      "path": "skills/ct-lean",
+      "tier": 0,
+      "deliveryTier": "core",
+      "install": "harness",
+      "status": "active",
+      "core": true,
+      "category": "core",
+      "dependencies": [],
+      "references": [],
+      "protocol": null,
+      "sharedResources": [],
+      "compatibility": [],
+      "license": "MIT"
+    },
+    {
       "name": "ct-orchestrator",
-      "version": "4.0.10",
+      "version": "4.0.12",
       "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \\\"orchestrate\\\", \\\"orchestrator mode\\\", \\\"run as orchestrator\\\", \\\"delegate to subagents\\\", \\\"coordinate agents\\\", \\\"spawn subagents\\\", \\\"multi-agent workflow\\\", \\\"context-protected workflow\\\", \\\"agent farm\\\", \\\"HITL orchestration\\\", \\\"pipeline management\\\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime.",
       "path": "skills/ct-orchestrator",
       "tier": 0,
@@ -1472,7 +1490,7 @@
     },
     {
       "name": "ct-task-executor",
-      "version": "2.7.8",
+      "version": "2.7.9",
       "description": "General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.",
       "path": "skills/ct-task-executor",
       "tier": 0,

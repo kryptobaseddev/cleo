@@ -25,7 +25,7 @@ import {
   sealGateCacheEntry,
 } from '../gate-result-cache.js';
 import { captureGateInputsHash, validateTaskGateCompletion } from '../gate-runner.js';
-import { parseGateJson, reqAdd, reqList, reqMigrate } from '../req.js';
+import { parseGateJson, reqAdd, reqList, reqMigrate, reqReplace } from '../req.js';
 
 function gate(req = 'PARTNER-121'): AcceptanceGate {
   return {
@@ -150,6 +150,115 @@ describe('typed requirement persistence', () => {
     expect(() => parseGateJson(JSON.stringify(input))).toThrow();
     expect(persisted(root, 'SELECT acceptance_json,updated_at FROM tasks_tasks')).toBe(before);
     expect(persisted(root, 'SELECT * FROM tasks_task_acceptance_criteria')).toBe(beforeRows);
+  });
+
+  describe('req replace (T12988)', () => {
+    const relative = (req = 'PARTNER-121'): AcceptanceGate => ({
+      kind: 'test',
+      command: 'pnpm',
+      args: ['--filter', 'app', 'exec', 'vitest', 'run', 'src/a.test.ts'],
+      expect: 'pass',
+      req,
+      description: 'Task tests pass (repo-relative)',
+      cwd: 'packages/app',
+    });
+    const rows = (): Array<Pick<AcRow, 'id' | 'ordinal' | 'text'>> =>
+      JSON.parse(
+        persisted(
+          root,
+          "SELECT id,ordinal,text FROM tasks_task_acceptance_criteria WHERE task_id='T121' ORDER BY ordinal",
+        ),
+      );
+
+    it('replaces in place: same index, AC row id, ordinal and REQ-ID; history keeps the superseded gate', async () => {
+      const old = gate();
+      await reqAdd(root, 'T121', old, accessor);
+      await reqAdd(root, 'T121', gate('OTHER-1'), accessor);
+      const before = rows();
+      const { req: _req, ...withoutReq } = relative();
+      const out = await reqReplace(root, 'T121', 'PARTNER-121', withoutReq, { accessor });
+      expect(out).toMatchObject({ req: 'PARTNER-121', index: 2, changed: true, superseded: old });
+      const after = rows();
+      expect(after.map((r) => [r.id, r.ordinal])).toEqual(before.map((r) => [r.id, r.ordinal]));
+      expect(JSON.parse(after[2]!.text)).toEqual(relative());
+      expect(after[3]!.text).toBe(before[3]!.text);
+      const acceptance = JSON.parse(
+        JSON.parse(persisted(root, "SELECT acceptance_json FROM tasks_tasks WHERE id='T121'"))[0]
+          .acceptance_json,
+      );
+      expect(acceptance[2]).toEqual(relative());
+      expect(acceptance[3]).toEqual(gate('OTHER-1'));
+      const history: Array<{ ac_id: string; reason: string; previous_text: string }> = JSON.parse(
+        persisted(
+          root,
+          'SELECT ac_id,reason,previous_text FROM tasks_task_acceptance_criteria_history',
+        ),
+      );
+      expect(history).toEqual([
+        { ac_id: before[2]!.id, reason: 'replace', previous_text: before[2]!.text },
+      ]);
+      const audit: Array<{ action: string; before_json: string }> = JSON.parse(
+        persisted(
+          root,
+          "SELECT action,before_json FROM tasks_audit_log WHERE task_id='T121' AND action='req_replaced'",
+        ),
+      );
+      expect(audit).toHaveLength(1);
+      expect(JSON.parse(audit[0]!.before_json).gate).toEqual(old);
+    });
+
+    it('is a no-op for an identical gate', async () => {
+      await reqAdd(root, 'T121', gate(), accessor);
+      const before = persisted(root, 'SELECT acceptance_json,updated_at FROM tasks_tasks');
+      const out = await reqReplace(root, 'T121', 'PARTNER-121', gate(), { accessor });
+      expect(out.changed).toBe(false);
+      expect(persisted(root, 'SELECT acceptance_json,updated_at FROM tasks_tasks')).toBe(before);
+    });
+
+    it('refuses an unknown REQ-ID naming the known ones, and a gate naming another REQ-ID', async () => {
+      await reqAdd(root, 'T121', gate(), accessor);
+      const before = persisted(root, 'SELECT acceptance_json,updated_at FROM tasks_tasks');
+      await expect(
+        reqReplace(root, 'T121', 'NOPE-1', relative('NOPE-1'), { accessor }),
+      ).rejects.toThrow(/REQ-ID "NOPE-1" is not a gate on task T121/);
+      await expect(
+        reqReplace(root, 'T121', 'PARTNER-121', relative('OTHER-9'), { accessor }),
+      ).rejects.toThrow(/names REQ-ID "OTHER-9", but it replaces "PARTNER-121"/);
+      await expect(
+        reqReplace(root, 'T121', 'PARTNER-121', { ...relative(), kind: 'nope' } as never, {
+          accessor,
+        }),
+      ).rejects.toThrow(/schema validation/);
+      expect(persisted(root, 'SELECT acceptance_json,updated_at FROM tasks_tasks')).toBe(before);
+    });
+
+    it('in a locked pipeline stage, refuses without --reason and records the reason with one', async () => {
+      await reqAdd(root, 'T121', gate(), accessor);
+      const task = await accessor.loadSingleTask('T121');
+      if (!task) throw new Error('fixture task vanished');
+      await accessor.transaction(async (tx) => {
+        await tx.upsertSingleTask({ ...task, pipelineStage: 'implementation' });
+      });
+      const before = persisted(root, 'SELECT acceptance_json FROM tasks_tasks');
+      await expect(
+        reqReplace(root, 'T121', 'PARTNER-121', relative(), { accessor }),
+      ).rejects.toThrow(/Acceptance criteria locked at stage implementation/);
+      expect(persisted(root, 'SELECT acceptance_json FROM tasks_tasks')).toBe(before);
+      const out = await reqReplace(root, 'T121', 'PARTNER-121', relative(), {
+        accessor,
+        reason: 'gate pointed at a removed worktree',
+      });
+      expect(out.changed).toBe(true);
+      const audit: Array<{ details_json: string }> = JSON.parse(
+        persisted(
+          root,
+          "SELECT details_json FROM tasks_audit_log WHERE task_id='T121' AND action='req_replaced'",
+        ),
+      );
+      expect(JSON.parse(audit[0]!.details_json)).toMatchObject({
+        reason: 'gate pointed at a removed worktree',
+      });
+    });
   });
 
   it('retains concurrent distinct appends and rejects a concurrent duplicate identity', async () => {
@@ -598,6 +707,92 @@ describe('typed requirement persistence', () => {
       // A reused observation is still re-bound to this write's own receipt.
       expect(new Set(gateResults.map((entry) => entry.binding?.verificationId)).size).toBe(1);
     }, 30_000);
+
+    describe('--run --req (T13486)', () => {
+      /** A second counted gate, writing to its own counter. */
+      async function addSecondGate(): Promise<string> {
+        const second = join(dirname(counter), 'runs-b');
+        await writeFile(
+          join(root, 'counted-b.mjs'),
+          `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(second)}, 'x');\nprocess.exit(0);`,
+        );
+        await reqAdd(
+          root,
+          'T121',
+          {
+            kind: 'test',
+            command: process.execPath,
+            args: ['counted-b.mjs'],
+            expect: 'exit0',
+            req: 'COUNTED-B',
+            description: 'Second counted harness',
+          },
+          accessor,
+        );
+        return second;
+      }
+      const count = (path: string): number => {
+        try {
+          return readFileSync(path, 'utf8').length;
+        } catch {
+          return 0;
+        }
+      };
+
+      it('runs and caches only the selected gates; the others keep their cached pass', async () => {
+        await cachedGateFixture('process.exit(0);');
+        const second = await addSecondGate();
+        // Cache every gate once.
+        expect((await previewTaskGates(root, { taskId: 'T121' })).passed).toBe(true);
+        expect([runs(), count(second)]).toEqual([1, 1]);
+        // Re-run only COUNTED-B: COUNTED-121 is not executed.
+        const only = await previewTaskGates(root, { taskId: 'T121', req: 'COUNTED-B' });
+        expect(only.results.map((r) => r.req)).toEqual(['COUNTED-B']);
+        expect([runs(), count(second)]).toEqual([1, 2]);
+        // The attesting write reuses both cached passes: nothing executes.
+        const result = await write(true);
+        expect(result.success, result.success ? undefined : result.error.message).toBe(true);
+        expect([runs(), count(second)]).toEqual([1, 2]);
+      });
+
+      it('replacing one gate leaves the other gates cached; --req re-runs just the replaced one', async () => {
+        await cachedGateFixture('process.exit(0);');
+        const second = await addSecondGate();
+        await previewTaskGates(root, { taskId: 'T121' });
+        await reqReplace(
+          root,
+          'T121',
+          'COUNTED-B',
+          {
+            kind: 'test',
+            command: process.execPath,
+            args: ['counted-b.mjs', '--replaced'],
+            expect: 'exit0',
+            description: 'Second counted harness, replaced',
+          },
+          { accessor },
+        );
+        // The replaced gate has no cached pass; the untouched ones still do.
+        const refused = await write(true);
+        expect(refused.success).toBe(false);
+        expect(refused.success ? '' : refused.error.message).toMatch(
+          /COUNTED-B|not cached|E_GATE_NOT_CACHED/,
+        );
+        await previewTaskGates(root, { taskId: 'T121', req: 'COUNTED-B' });
+        expect([runs(), count(second)]).toEqual([1, 2]);
+        const ok = await write(true);
+        expect(ok.success, ok.success ? undefined : ok.error.message).toBe(true);
+        expect([runs(), count(second)]).toEqual([1, 2]);
+      });
+
+      it("refuses an unknown REQ-ID, naming the task's REQ-IDs", async () => {
+        await cachedGateFixture('process.exit(0);');
+        await expect(previewTaskGates(root, { taskId: 'T121', req: 'NOPE' })).rejects.toThrow(
+          /REQ-ID\(s\) NOPE not found on T121; its typed gates are VERIFY-121, COUNTED-121/,
+        );
+        expect(runs()).toBe(0);
+      });
+    });
 
     it('--no-run records from a cached pass without executing', async () => {
       await cachedGateFixture('process.exit(0);');

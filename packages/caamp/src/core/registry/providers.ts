@@ -878,7 +878,9 @@ const UNKNOWN_ASK_TOOL: ProviderAskTool = {
  * DATA, keyed by the canonical id in `providers/registry.json`; every registry
  * provider has an entry (a test enforces it). Only verified names are
  * recorded — anything not found in docs or source is `unknown`, never
- * invented. Researched 2026-09-27 for T12482.
+ * invented. Researched 2026-09-27 for T12482; re-audited 2026-10-10 for T13419
+ * against current docs and the installed binaries (codex-cli 0.162.1, opencode
+ * v2.0.26, kimi 2.1.1, Claude Code 2.1.296).
  *
  * @public
  */
@@ -886,16 +888,19 @@ export const PROVIDER_ASK_TOOLS: Readonly<Record<string, ProviderAskTool>> = {
   'claude-code': {
     status: 'native',
     toolName: 'AskUserQuestion',
-    caveat: 'Main session only; subagents cannot call it',
-    source: 'https://code.claude.com/docs/en/settings#tools-available-to-claude',
+    caveat:
+      'Main session only; subagents cannot call it. A `-p` run offers it only with a permission host (`--permission-prompt-tool`)',
+    source:
+      'https://code.claude.com/docs/en/settings#tools-available-to-claude; https://code.claude.com/docs/en/hooks',
   },
   codex: {
     status: 'native',
     toolName: 'request_user_input',
+    additionalToolNames: ['request_user_input_async'],
     caveat:
-      'Plan mode by default; default mode needs [features] default_mode_request_user_input = true; unsupported in `codex exec`',
+      'Root thread only. Plan mode by default; default mode needs [features] default_mode_request_user_input = true (still "under development" in 0.162.1); unsupported in `codex exec`. The non-blocking request_user_input_async is registered when the model catalog offers it',
     source:
-      'codex-cli 0.157.1 binary (core/src/tools/handlers/request_user_input.rs); openai/codex#10384, #15293',
+      'codex-cli 0.162.1 binary + `codex features list`; openai/codex#10384, #15293, #23480, #24750',
   },
   'gemini-cli': {
     status: 'native',
@@ -913,8 +918,9 @@ export const PROVIDER_ASK_TOOLS: Readonly<Record<string, ProviderAskTool>> = {
   opencode: {
     status: 'native',
     toolName: 'question',
-    caveat: 'Gated by permission.question',
-    source: 'https://opencode.ai/docs/tools; opencode v2.0.15 binary (QuestionTool)',
+    caveat: 'Gated by permission.question; ACP clients (e.g. Zed) do not render the call',
+    source:
+      'https://opencode.ai/docs/tools; opencode v2.0.26 binary (QuestionTool); zed-industries/zed#48038',
   },
   kimi: {
     status: 'native',
@@ -925,9 +931,8 @@ export const PROVIDER_ASK_TOOLS: Readonly<Record<string, ProviderAskTool>> = {
   cursor: {
     status: 'native',
     toolName: 'AskQuestion',
-    caveat: 'Plan mode only; not offered under `agent acp`',
-    source:
-      'https://forum.cursor.com/t/allow-askquestion-tool-calls-in-agent-mode-or-any-mode/152517',
+    caveat: 'Any mode since 2026-02-12; not offered under `agent acp`',
+    source: 'https://cursor.com/changelog (2026-02-12); pingdotgg/t3code#13632',
   },
   cline: {
     status: 'native',
@@ -943,9 +948,12 @@ export const PROVIDER_ASK_TOOLS: Readonly<Record<string, ProviderAskTool>> = {
   },
   'kilo-code': {
     status: 'native',
-    toolName: 'ask_followup_question',
-    caveat: 'Verified for the legacy IDE extension only',
-    source: 'Kilo-Org/kilocode-legacy docs/legacy-ides/automate/tools/ask-followup-question.md',
+    toolName: 'question',
+    additionalToolNames: ['ask_followup_question'],
+    caveat:
+      'Current Kilo is built on opencode; ask_followup_question is the legacy IDE extension only',
+    source:
+      'https://kilo.ai/docs/automate/tools; Kilo-Org/kilocode packages/opencode/src/tool/question.ts',
   },
   pi: {
     status: 'none',
@@ -960,14 +968,46 @@ export const PROVIDER_ASK_TOOLS: Readonly<Record<string, ProviderAskTool>> = {
     caveat: 'Library, not a harness: the host application defines every tool',
     source: 'providers/registry.json (spawnMechanism: sdk)',
   },
+  'github-copilot': {
+    status: 'native',
+    toolName: 'vscode_askQuestions',
+    caveat:
+      'VS Code agent mode; referenced as `vscode/askQuestions` in tool pickers and agent `tools:`',
+    source: 'microsoft/vscode-copilot-chat src/extension/tools/common/toolNames.ts',
+  },
+  vscode: {
+    status: 'native',
+    toolName: 'vscode_askQuestions',
+    caveat: 'Agent mode; referenced as `vscode/askQuestions` in tool pickers and agent `tools:`',
+    source: 'microsoft/vscode-copilot-chat src/extension/tools/common/toolNames.ts',
+  },
+  'qwen-code': {
+    status: 'native',
+    toolName: 'ask_user_question',
+    caveat: null,
+    source: 'QwenLM/qwen-code v0.18.3 release notes (PR #5218); PR #9414',
+  },
+  continue: {
+    status: 'native',
+    toolName: 'AskQuestion',
+    caveat: 'Continue CLI; not offered in headless mode',
+    source: 'https://docs.continue.dev/cli/tool-permissions',
+  },
+  antigravity: {
+    status: 'native',
+    toolName: 'ask_question',
+    caveat: null,
+    source: 'https://antigravity.google/docs/hooks (tool list); SDK BuiltinTools.ASK_QUESTION',
+  },
+  zed: {
+    status: 'none',
+    toolName: null,
+    caveat: 'No question tool in the built-in agent tool list',
+    source: 'https://zed.dev/docs/ai/tools',
+  },
   windsurf: UNKNOWN_ASK_TOOL,
-  'github-copilot': UNKNOWN_ASK_TOOL,
-  vscode: UNKNOWN_ASK_TOOL,
-  zed: UNKNOWN_ASK_TOOL,
   'claude-desktop': UNKNOWN_ASK_TOOL,
-  continue: UNKNOWN_ASK_TOOL,
   goose: UNKNOWN_ASK_TOOL,
-  antigravity: UNKNOWN_ASK_TOOL,
   'kiro-cli': UNKNOWN_ASK_TOOL,
   amp: UNKNOWN_ASK_TOOL,
   trae: UNKNOWN_ASK_TOOL,
@@ -975,7 +1015,6 @@ export const PROVIDER_ASK_TOOLS: Readonly<Record<string, ProviderAskTool>> = {
   'pear-ai': UNKNOWN_ASK_TOOL,
   'void-ai': UNKNOWN_ASK_TOOL,
   cody: UNKNOWN_ASK_TOOL,
-  'qwen-code': UNKNOWN_ASK_TOOL,
   openhands: UNKNOWN_ASK_TOOL,
   codebuddy: UNKNOWN_ASK_TOOL,
   codestory: UNKNOWN_ASK_TOOL,
