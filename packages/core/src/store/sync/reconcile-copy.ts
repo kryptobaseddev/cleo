@@ -14,7 +14,9 @@
  *   at `tick(at_ms)` of that change.
  * - Every other field is compared per (table, uid, column) with the merged
  *   state; a differing field is decided by {@link decideReconcileField}:
- *   - **rule 2**, the local field HLC is below the merged one (or unknown):
+ *   - **rule 2**, the local field HLC is below the merged one (a row with
+ *     no row meta, as a never-synced store merging in holds, is dated by its
+ *     genesis HLC, §1.2; a local value it loses is reported in `overwritten`):
  *     the merged value is written locally in the apply frame, its intents
  *     recorded so the sealer never sends it, and the merged field HLC stored
  *     in the row meta. Nothing is emitted;
@@ -37,7 +39,9 @@
  * Reference columns are compared by the uid of the row they point at, and an
  * adopted reference is resolved to this store's local key ({@link resolveRef}).
  * A merged row whose reference does not resolve here, or whose insert hits a
- * local constraint, is left out and counted in `unresolved`.
+ * local constraint, is left out and counted in `unresolved`. In a merge join
+ * (T13466) a local constraint refuses the whole reconcile instead
+ * ({@link MergeKeyCollisionError}, T13504).
  *
  * @task T13335
  * @module store/sync/reconcile-copy
@@ -52,6 +56,7 @@ import { resolveRef, uidOfKey } from './apply/refs.js';
 import { type ApplyWriteApi, createApplyWriteApi } from './apply/write-api.js';
 import { type CaptureTableDef, captureTableDef, hasCaptureStamp } from './capture.js';
 import { readSyncFlags, syncSetTables } from './flags.js';
+import { encodeHlc } from './hlc.js';
 import { type StreamCursor, writeStreamCursor } from './pull.js';
 import {
   decideReconcileField,
@@ -62,6 +67,7 @@ import {
   type TouchedRow,
   touchedRowKey,
 } from './reconcile.js';
+import { genesisColumn, genesisPhys } from './repair.js';
 import { activeReplica, RECONCILE_DUE_KEY, reconcileDue } from './replica.js';
 import { fieldHlcsOf, type RowMetaFull, type RowMetaRow, readRowMetaFull } from './row-meta.js';
 import { hasTable } from './schema.js';
@@ -88,11 +94,42 @@ export interface ReconcileCopyReport {
   readonly pinned: number;
   /** Merged rows left out: a reference that does not resolve here, or a local constraint. */
   readonly unresolved: number;
+  /**
+   * Fields of a row this store held with no row meta (a merge join, T13466)
+   * whose local value lost to a newer merged one: the local value was
+   * replaced. Read the store's safety backup to recover one.
+   */
+  readonly overwritten: ReadonlyArray<{ table: string; uid: string; column: string }>;
   /** The `rebind` frame (rule 1 and rule 3). */
   readonly frame: ReconcileReport;
 }
 
 const UNKNOWN_HLC = '';
+
+/** A merged row a merge join cannot place: a row this store holds already has its local key (T13504). */
+export interface MergeKeyCollision {
+  readonly table: string;
+  readonly uid: string;
+  /** The merged row's local key values. */
+  readonly key: readonly LedgerWireValue[];
+}
+
+/**
+ * A merge join refused: a merged row's local key is held by this store's own
+ * row, and nothing yet settles such a collision across devices, so emitting
+ * this store's row would leave it held on every peer (T13504). The apply
+ * frame rolls back: nothing is adopted or emitted, and the reconcile stays due.
+ */
+export class MergeKeyCollisionError extends Error {
+  constructor(readonly collisions: readonly MergeKeyCollision[]) {
+    super(
+      `a merge join cannot place ${collisions.length} stream row(s) whose key this store's own row holds: ${collisions
+        .map((c) => `${c.table} ${c.key.map((v) => String(v)).join('/')}`)
+        .join(', ')}`,
+    );
+    this.name = 'MergeKeyCollisionError';
+  }
+}
 
 /** The row-level HLC of a row meta: a tombstone's, or the newest field's. */
 const rowHlc = (meta: RowMetaRow | undefined): string | null => meta?.hlc ?? null;
@@ -112,7 +149,10 @@ export function reconcileCopy(
   merged: DatabaseSync,
   o: ReconcileCopyOptions,
 ): ReconcileCopyReport | null {
-  if (reconcileDue(db) === null) return null;
+  const due = reconcileDue(db);
+  if (due === null) return null;
+  // A merge join (T13466) records a due with no rebind: the same replica on both sides.
+  const merge = due.from === due.to;
   if (readSyncFlags(db)['sync.capture'] && !hasCaptureStamp(db)) {
     // @sync-invariant none:local-only programming-error guard: without the stamp the apply frame's writes would seal as local writes
     throw new Error(
@@ -134,6 +174,8 @@ export function reconcileCopy(
     let adoptedInserts = 0;
     let adoptedDeletes = 0;
     let unresolved = 0;
+    const overwritten: Array<{ table: string; uid: string; column: string }> = [];
+    const collisions: MergeKeyCollision[] = [];
     const tables = syncSetTables(o.scope)
       .map((t) => captureTableDef(db, o.scope, t))
       .filter(
@@ -176,6 +218,14 @@ export function reconcileCopy(
 
         if (local !== null && theirs !== null) {
           const lH = lMeta && !lMeta.deleted ? fieldHlcsOf(def, lMeta) : {};
+          // A row with no meta (a never-synced store merging in, T13503) is
+          // dated as genesis dates an existing row (§1.2): its modification
+          // column, counter 0, this replica. Never adopted blindly.
+          const gcol = lMeta === undefined ? genesisColumn(o.scope, def.table) : null;
+          const genesis =
+            lMeta === undefined && replica !== undefined
+              ? encodeHlc({ phys: genesisPhys(gcol ? local[gcol] : null, atMs), ctr: 0, replica })
+              : null;
           const mH = mMeta && !mMeta.deleted ? fieldHlcsOf(def, mMeta) : {};
           const adopt: Record<string, LedgerWireValue> = {};
           const adoptH: Record<string, string> = {};
@@ -190,11 +240,8 @@ export function reconcileCopy(
             // One HLC names one write (it carries the replica): the values
             // differ only in how each store holds them (a timestamp's form).
             if (lH[col] !== undefined && lH[col] === mergedHlc) continue;
-            const rule = decideReconcileField({
-              touchedByInherited: false,
-              localHlc: lH[col] ?? null,
-              mergedHlc,
-            });
+            const localHlc = lH[col] ?? genesis;
+            const rule = decideReconcileField({ touchedByInherited: false, localHlc, mergedHlc });
             if (rule === 'adopt-merged') {
               const v = localValue(col, b);
               if (v === undefined) {
@@ -203,9 +250,10 @@ export function reconcileCopy(
               }
               adopt[col] = v;
               adoptH[col] = mergedHlc;
+              if (lMeta === undefined) overwritten.push({ table: def.table, uid, column: col });
             } else {
               pinCols.add(col);
-              pinH[col] = lH[col] as string;
+              pinH[col] = localHlc as string;
             }
           }
           // A row with no local meta (a never-synced store merging in, T13466)
@@ -214,12 +262,14 @@ export function reconcileCopy(
             if (Object.keys(adopt).length > 0) api.writeFields(def.table, uid, adopt);
             if (mMeta) {
               api.setMergedRowMeta(def.table, uid, {
-                fieldHlc: lMeta && !lMeta.deleted ? adoptH : { ...lH, ...mH, ...adoptH },
+                fieldHlc: lMeta && !lMeta.deleted ? adoptH : { ...mH, ...adoptH, ...pinH },
                 tombstone: null,
                 origin: mMeta.origin,
                 actor: mMeta.actor,
                 // Values already equal the merged row's: so does its content hash.
-                ...(Object.keys(adopt).length === 0 ? { chash: mMeta.chash } : {}),
+                ...(Object.keys(adopt).length === 0 && pinCols.size === 0
+                  ? { chash: mMeta.chash }
+                  : {}),
               });
             }
             adoptedFields += Object.keys(adopt).length;
@@ -282,13 +332,27 @@ export function reconcileCopy(
             }
             values[col] = v;
           }
-          if (!resolvable || !insertAdopted(api, def, uid, values, mMeta)) {
+          if (!resolvable) {
+            unresolved += 1;
+            continue;
+          }
+          if (!insertAdopted(api, def, uid, values, mMeta)) {
+            if (merge)
+              collisions.push({
+                table: def.table,
+                uid,
+                key: def.key.map((k) => theirs[k] ?? null),
+              });
             unresolved += 1;
             continue;
           }
           adoptedInserts += 1;
         }
       }
+    }
+    if (collisions.length > 0) {
+      // @sync-invariant none:local-only a merge join is refused locally before anything is adopted or emitted; the frame rolls back
+      throw new MergeKeyCollisionError(collisions);
     }
     // Deletes after every insert and update, children first.
     for (const d of deletes.reverse()) {
@@ -311,9 +375,50 @@ export function reconcileCopy(
       adoptedDeletes,
       pinned: pinned.length,
       unresolved,
+      overwritten,
       frame,
     };
   });
+}
+
+const qid = (id: string): string => `"${id.replaceAll('"', '""')}"`;
+
+/**
+ * The merged rows a merge join (T13466) could not place: a live merged row
+ * this store has no row for, whose local key a different row here already
+ * holds. Read-only; run it before the join so a refusal changes nothing
+ * (T13504). Tables whose key holds a reference are left to the reconcile's
+ * own check, which refuses the same way.
+ *
+ * @param db - The store about to merge in.
+ * @param merged - The merged state (checkpoint pulled to head).
+ * @param scope - The store's scope.
+ * @returns The colliding merged rows, in table order.
+ */
+export function mergeKeyCollisions(
+  db: DatabaseSync,
+  merged: DatabaseSync,
+  scope: TableScope,
+): MergeKeyCollision[] {
+  const out: MergeKeyCollision[] = [];
+  for (const table of syncSetTables(scope)) {
+    const def = captureTableDef(db, scope, table);
+    if (!def?.identity.includes(UID_COLUMN) || !hasTable(merged, table)) continue;
+    if (def.key.length === 0 || def.key.some((k) => def.refs.has(k))) continue;
+    const cols = [UID_COLUMN, ...def.key].map(qid).join(', ');
+    const where = def.key.map((k) => `${qid(k)} IS ?`).join(' AND ');
+    const holder = db.prepare(`SELECT ${qid(UID_COLUMN)} AS uid FROM ${qid(table)} WHERE ${where}`);
+    for (const row of merged
+      .prepare(`SELECT ${cols} FROM ${qid(table)} WHERE ${qid(UID_COLUMN)} IS NOT NULL`)
+      .all() as Array<Record<string, string | number | null>>) {
+      const key = def.key.map((k) => row[k] ?? null);
+      const here = holder.get(...key) as { uid: string | null } | undefined;
+      if (here !== undefined && here.uid !== row[UID_COLUMN]) {
+        out.push({ table, uid: String(row[UID_COLUMN]), key });
+      }
+    }
+  }
+  return out;
 }
 
 /**

@@ -226,10 +226,18 @@ export interface CloudSyncPushEnableResult {
   status: 'enabled' | 'resumed' | 'already' | 'joined';
   /**
    * A merge join (T13466): stream rows adopted here, this store's own rows emitted as its first
-   * transactions, and stream rows not placed (a local key or an unresolved reference). Null when the
-   * reconcile is still due (`cleo cloud sync` finishes it); absent on any other status.
+   * transactions, and stream rows not placed (an unresolved reference). `overwritten` lists fields of
+   * this store's own rows whose older value took the stream's newer one (T13503); `safetyBackup` is
+   * the bundle of the store as it was before the merge. Null when the reconcile is still due
+   * (`cleo cloud sync` finishes it); absent on any other status.
    */
-  merged?: { adopted: number; emitted: number; unresolved: number } | null;
+  merged?: {
+    adopted: number;
+    emitted: number;
+    unresolved: number;
+    overwritten: Array<{ table: string; uid: string; column: string }>;
+    safetyBackup: string;
+  } | null;
   /** The genesis cut: the highest capture seq the checkpoint carries. */
   cut: number;
   /** Transactions sealed before the cut, folded into the checkpoint, and rows given genesis row meta. */

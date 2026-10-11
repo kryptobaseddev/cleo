@@ -124,10 +124,16 @@ import {
   pullStream,
   readStreamCursor,
   type SegmentPuller,
+  type StreamCursor,
   type TxnVerifier,
 } from '../store/sync/pull.js';
 import { type PushRefusal, type PushStreamReport, pushStream } from '../store/sync/push.js';
-import { type ReconcileCopyReport, reconcileCopy } from '../store/sync/reconcile-copy.js';
+import {
+  MergeKeyCollisionError,
+  mergeKeyCollisions,
+  type ReconcileCopyReport,
+  reconcileCopy,
+} from '../store/sync/reconcile-copy.js';
 import { replayPinOf } from '../store/sync/replay-pin.js';
 import {
   activeReplica,
@@ -1605,24 +1611,55 @@ async function enableSyncPushImpl(
     // it joins, then reconciles against the checkpoint pulled to head, which
     // adopts the stream's rows and emits its own as its first transactions.
     if (synced === null) {
-      const joined = joinStream(db, {
-        scope: tableScopeOf(t),
-        stream: t.streamId,
-        cursor: cursorFromCheckpoint(parent),
-        merge: true,
-        ...(opts.allowUnreleased ? { allowUnreleased: true } : {}),
+      let safetyBackup = '';
+      let cut = 0;
+      // Assigned inside the callback: typed so the checks below are not narrowed to null.
+      let merged = null as ReconcileCopyReport | null;
+      await withMergedScratch({ conn, key, t }, async (scratch, mergedCursor) => {
+        // A stream row whose key this store's own row holds cannot be
+        // settled yet (T13504): refuse before anything changes.
+        const collisions = mergeKeyCollisions(db, scratch, tableScopeOf(t));
+        if (collisions.length > 0) {
+          throw vaultError(
+            'E_NEXUS_SYNC_REFUSED',
+            new MergeKeyCollisionError(collisions).message,
+            "nothing was joined or changed; give this store's row a key the stream does not hold, then run `cleo sync enable push` again",
+          );
+        }
+        // The merge decides field by field which side's value stays: keep the
+        // store as it is now first, so a value it replaces can be recovered.
+        safetyBackup = await exportSafetyBundle(t, 'pre-merge', 'cloud-sync-pre-merge');
+        const joined = joinStream(db, {
+          scope: tableScopeOf(t),
+          stream: t.streamId,
+          cursor: cursorFromCheckpoint(parent),
+          merge: true,
+          ...(opts.allowUnreleased ? { allowUnreleased: true } : {}),
+        });
+        if (joined.refused !== null) {
+          throw vaultError('E_NEXUS_SYNC_REFUSED', `the join was refused: ${joined.refused}`);
+        }
+        cut = joined.cut ?? 0;
+        // A failure leaves the reconcile due and push paused; `cleo cloud sync` finishes it.
+        try {
+          merged = reconcileCopy(db, scratch, {
+            scope: tableScopeOf(t),
+            stream: t.streamId,
+            mergedCursor,
+          });
+        } catch (err) {
+          warnings.push({
+            code: 'W_SYNC_MERGE_PENDING',
+            message: `joined ${t.streamId}, but merging this store's rows did not finish (${err instanceof Error ? err.message : String(err)}); push stays paused until \`cleo cloud sync\` finishes it`,
+          });
+        }
       });
-      if (joined.refused !== null) {
-        throw vaultError('E_NEXUS_SYNC_REFUSED', `the join was refused: ${joined.refused}`);
-      }
-      // A failure leaves the reconcile due and push paused; `cleo cloud sync` finishes it.
-      let merged: ReconcileCopyReport | null = null;
-      try {
-        merged = await reconcileOwedCopy({ conn, key, t }, db);
-      } catch (err) {
+      if (merged !== null && merged.overwritten.length > 0) {
         warnings.push({
-          code: 'W_SYNC_MERGE_PENDING',
-          message: `joined ${t.streamId}, but merging this store's rows did not finish (${err instanceof Error ? err.message : String(err)}); push stays paused until \`cleo cloud sync\` finishes it`,
+          code: 'W_SYNC_MERGE_OVERWROTE',
+          message: `${merged.overwritten.length} field(s) of this store's own rows held an older value than the stream's and took the stream's: ${merged.overwritten
+            .map((f) => `${f.table} ${f.uid} ${f.column}`)
+            .join(', ')}; the store as it was is kept at ${safetyBackup}`,
         });
       }
       if (merged !== null && merged.unresolved > 0) {
@@ -1635,7 +1672,7 @@ async function enableSyncPushImpl(
       return {
         ...base,
         status: 'joined',
-        cut: joined.cut ?? 0,
+        cut,
         sealed: 0,
         folded: 0,
         baselined: {},
@@ -1649,6 +1686,8 @@ async function enableSyncPushImpl(
                 adopted: merged.adoptedInserts,
                 emitted: merged.frame.inserts,
                 unresolved: merged.unresolved,
+                overwritten: [...merged.overwritten],
+                safetyBackup,
               },
         warnings,
       };
@@ -1971,6 +2010,41 @@ async function reconcileOwedCopy(
   db: DatabaseSync,
 ): Promise<ReconcileCopyReport | null> {
   if (reconcileDue(db) === null) return null;
+  const { t } = session;
+  return withMergedScratch(session, (scratch, mergedCursor) => {
+    try {
+      return reconcileCopy(db, scratch, {
+        scope: tableScopeOf(t),
+        stream: t.streamId,
+        mergedCursor,
+      });
+    } catch (err) {
+      if (!(err instanceof MergeKeyCollisionError)) throw err;
+      throw vaultError(
+        'E_NEXUS_SYNC_REFUSED',
+        err.message,
+        "nothing was merged or pushed, and push stays paused; give this store's row a key the stream does not hold, then run `cleo cloud sync`",
+      );
+    }
+  });
+}
+
+/**
+ * Run `fn` against the stream's merged state: its latest verified journal
+ * checkpoint restored into a scratch store (`sync: 'off'`, a dedicated
+ * handle) and pulled to head there with the merge engine (§1.5 N7). The
+ * scratch is removed whatever happens.
+ *
+ * @param session - The stream session.
+ * @param fn - Gets the scratch (read it only) and its pull position at head.
+ * @returns What `fn` returns.
+ * @throws {NexusAccountError} `E_NEXUS_SYNC_REFUSED` when the stream has no
+ *   verified journal checkpoint, or the scratch pull stopped short.
+ */
+async function withMergedScratch<T>(
+  session: StreamSession,
+  fn: (scratch: DatabaseSync, mergedCursor: StreamCursor) => T | Promise<T>,
+): Promise<T> {
   const { conn, key, t } = session;
   const journal = journalFor(conn, t);
   const latest = trustedCheckpoints(
@@ -1984,7 +2058,7 @@ async function reconcileOwedCopy(
   if (latest === undefined) {
     throw vaultError(
       'E_NEXUS_SYNC_REFUSED',
-      `this store rebound to a new replica, and ${t.streamId} has no verified journal checkpoint to reconcile it against`,
+      `${t.streamId} has no verified journal checkpoint to reconcile this store against`,
       'nothing was pushed or pulled; restore the stream (`cleo cloud restore`) instead',
     );
   }
@@ -2038,15 +2112,14 @@ async function reconcileOwedCopy(
       if (merged.refused !== null) {
         throw vaultError(
           'E_NEXUS_SYNC_REFUSED',
-          `the merged state this rebound store reconciles against stopped short of ${t.streamId}'s head: ${merged.refused}`,
+          `the merged state this store reconciles against stopped short of ${t.streamId}'s head: ${merged.refused}`,
           'nothing was pushed or pulled; run `cleo cloud sync` again',
         );
       }
-      return reconcileCopy(db, scratch, {
-        scope: tableScopeOf(t),
-        stream: t.streamId,
-        mergedCursor: readStreamCursor(scratch, t.streamId) ?? cursorFromCheckpoint(latest),
-      });
+      return await fn(
+        scratch,
+        readStreamCursor(scratch, t.streamId) ?? cursorFromCheckpoint(latest),
+      );
     } finally {
       handle.close();
     }
@@ -2542,12 +2615,48 @@ async function assertStoreQuiescent(t: VaultTarget): Promise<void> {
 /** Safety bundles kept per store under `backups/vault`; older ones are removed (T13007). */
 export const NEXUS_VAULT_SAFETY_BUNDLES_KEPT = 10;
 
+/** A safety bundle's file name: its kind, then its timestamp. */
+const SAFETY_BUNDLE = /^pre-(restore|merge)-(.+)\.cleobundle\.tar\.gz$/;
+
+/**
+ * Export the store as it is now to a safety bundle under `backups/vault`,
+ * keeping the newest {@link NEXUS_VAULT_SAFETY_BUNDLES_KEPT}.
+ *
+ * @returns The bundle's path.
+ */
+async function exportSafetyBundle(
+  t: VaultTarget,
+  kind: 'pre-restore' | 'pre-merge',
+  label: string,
+): Promise<string> {
+  const dir =
+    t.scope === 'global'
+      ? path.join(t.storeRoot, 'backups', 'vault')
+      : path.join(t.storeRoot, '.cleo', 'backups', 'vault');
+  fs.mkdirSync(dir, { recursive: true });
+  const out = path.join(
+    dir,
+    `${kind}-${new Date().toISOString().replace(/[:.]/g, '-')}.cleobundle.tar.gz`,
+  );
+  await exportPortableBundle({
+    scope: t.scope === 'global' ? 'global' : 'project',
+    ...(t.scope === 'project' ? { projectRoot: t.storeRoot } : {}),
+    outputPath: out,
+    label,
+    // A local safety copy: it shares nothing (T13250).
+    sharesIdentity: false,
+  });
+  rotateSafetyBundles(dir);
+  return out;
+}
+
 /** Keep the newest {@link NEXUS_VAULT_SAFETY_BUNDLES_KEPT} safety bundles in `dir`. */
 function rotateSafetyBundles(dir: string): void {
   const bundles = fs
     .readdirSync(dir)
-    .filter((name) => /^pre-restore-.+\.cleobundle\.tar\.gz$/.test(name))
-    .sort();
+    .filter((name) => SAFETY_BUNDLE.test(name))
+    // Oldest first by the timestamp, whatever kind of safety bundle it is.
+    .sort((a, b) => a.replace(SAFETY_BUNDLE, '$2').localeCompare(b.replace(SAFETY_BUNDLE, '$2')));
   for (const name of bundles.slice(
     0,
     Math.max(0, bundles.length - NEXUS_VAULT_SAFETY_BUNDLES_KEPT),
@@ -2826,25 +2935,8 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
     let safetyBackup: string | null = null;
     let safety: ReadonlyMap<string, string | null> = new Map();
     if (hasLocal) {
-      const dir =
-        t.scope === 'global'
-          ? path.join(t.storeRoot, 'backups', 'vault')
-          : path.join(t.storeRoot, '.cleo', 'backups', 'vault');
-      fs.mkdirSync(dir, { recursive: true });
-      safetyBackup = path.join(
-        dir,
-        `pre-restore-${new Date().toISOString().replace(/[:.]/g, '-')}.cleobundle.tar.gz`,
-      );
-      await exportPortableBundle({
-        scope: t.scope === 'global' ? 'global' : 'project',
-        ...(t.scope === 'project' ? { projectRoot: t.storeRoot } : {}),
-        outputPath: safetyBackup,
-        label: 'cloud-vault-pre-restore',
-        // A local safety copy: it shares nothing (T13250).
-        sharesIdentity: false,
-      });
+      safetyBackup = await exportSafetyBundle(t, 'pre-restore', 'cloud-vault-pre-restore');
       safety = await safetyInventory(safetyBackup, t);
-      rotateSafetyBundles(dir);
     }
     let tables = 0;
     // Every path the snapshot lists in its section; the rest of the inventory is removed.
