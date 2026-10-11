@@ -890,7 +890,6 @@
     "packages/core/src/memory/retrieval/search.ts :: Error": 2,
     "packages/core/src/memory/session-narrative.ts :: Error": 1,
     "packages/core/src/memory/sleep-consolidation.ts :: silent:cascade": 3,
-    "packages/core/src/memory/surprisal-tree.ts :: silent:cascade": 1,
     "packages/core/src/memory/temporal-supersession.ts :: Error": 8,
     "packages/core/src/memory/transcript-ingestor.ts :: Error": 1,
     "packages/core/src/migration/index.ts :: ExitCode.INVALID_INPUT": 1,

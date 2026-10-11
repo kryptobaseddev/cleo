@@ -208,6 +208,13 @@ export const EXEMPT = {
   'packages/core/src/memory/decision-cross-link.ts': {
     _nexus_meta: { count: 1, reason: NEXUS_META },
   },
+  'packages/core/src/memory/surprisal-tree.ts': {
+    brain_memory_trees: {
+      count: 2,
+      reason:
+        'derived (T12896): the surprisal pass truncates and rebuilds the tree each cycle on every device from the synced observations; never captured or replicated',
+    },
+  },
   'packages/core/src/nexus/analyze-orchestrator.ts': {
     _nexus_meta: { count: 4, reason: NEXUS_META },
     _nexus_parse_cache: {

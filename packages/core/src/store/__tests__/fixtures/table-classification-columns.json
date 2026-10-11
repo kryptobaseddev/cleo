@@ -590,7 +590,8 @@
       "id",
       "link_type",
       "observation_id",
-      "task_id"
+      "task_id",
+      "uid"
     ],
     "brain_transcript_events": [
       "birth_fp",
