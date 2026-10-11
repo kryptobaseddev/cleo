@@ -17,6 +17,27 @@ import { getTemplateForSubcommand } from './template-parser.js';
 
 const CLEO_REPO = BUILD_CONFIG.repository.fullName;
 
+/** Allowed `--severity` values for `cleo issue bug` (T13478, gh#1383). */
+export const ISSUE_SEVERITIES = ['Blocker', 'Major', 'Moderate', 'Minor'] as const;
+
+/** Allowed `--area` values for `cleo issue bug|feature` (T13478, gh#1383). */
+export const ISSUE_AREAS = ['cli', 'dispatch', 'docs', 'tests', 'other'] as const;
+
+/** Reject a value outside its declared enum, naming the allowed values. */
+function assertIssueEnum(
+  flag: string,
+  value: string | undefined,
+  allowed: readonly string[],
+  hint = '',
+): void {
+  if (value === undefined || allowed.includes(value)) return;
+  throw new CleoError(
+    ExitCode.VALIDATION_ERROR,
+    `Invalid --${flag} '${value}': expected one of ${allowed.join(', ')}${hint}`,
+    { fix: `Pass --${flag} ${allowed[0]}` },
+  );
+}
+
 /**
  * Build structured issue body with template sections.
  */
@@ -127,6 +148,14 @@ export interface AddIssueResult {
  */
 export function addIssue(params: AddIssueParams): AddIssueResult {
   const { issueType, title, body, severity, area, dryRun } = params;
+
+  assertIssueEnum(
+    'severity',
+    severity,
+    ISSUE_SEVERITIES,
+    " (P0-P3 is the 'cleo add --severity' vocabulary, not 'cleo issue')",
+  );
+  assertIssueEnum('area', area, ISSUE_AREAS);
 
   // Get template-driven label and title prefix
   const template = getTemplateForSubcommand(issueType);

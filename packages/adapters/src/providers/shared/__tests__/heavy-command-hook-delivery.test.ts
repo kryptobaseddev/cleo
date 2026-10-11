@@ -96,6 +96,22 @@ describe('syncProjectHeavyCommandHooks', () => {
     });
   });
 
+  it('installs the ask-enforce Stop hook beside it for Claude Code and Codex (T13420)', async () => {
+    useAll();
+    await syncProjectHeavyCommandHooks(project, 'rewrite', { env });
+    const stop = (file: string) =>
+      JSON.stringify(JSON.parse(readFileSync(file, 'utf-8')).hooks.Stop ?? []);
+    const claude = join(project, '.claude', 'settings.local.json');
+    const codex = join(project, '.codex', 'hooks.json');
+    expect(stop(claude)).toContain('cleo hook ask-enforce --provider claude-code');
+    expect(stop(codex)).toContain('cleo hook ask-enforce --provider codex');
+    await syncProjectHeavyCommandHooks(project, 'rewrite', {
+      env: { ...env, CLEO_ASK_ENFORCE: 'off' },
+    });
+    expect(stop(claude)).not.toContain('ask-enforce');
+    expect(stop(codex)).not.toContain('ask-enforce');
+  });
+
   it('a .codex FILE blocks only Codex, with the reason and remedy; the others install', async () => {
     useAll();
     writeFileSync(join(project, '.codex'), '');

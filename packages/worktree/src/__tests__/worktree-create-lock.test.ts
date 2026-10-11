@@ -31,6 +31,7 @@ import {
   readProcessStartTime,
   readWorktreeTaskLock,
   releaseWorktreeTaskLock,
+  releaseWorktreeTaskLocksForSession,
 } from '../worktree-lock.js';
 
 function git(args: string[], cwd: string): string {
@@ -453,6 +454,70 @@ describe('acquireWorktreeTaskLock — holder liveness (T12506)', () => {
         holder: { sessionId: 'ses_other', agentId: 'agent-t9' },
       }),
     ).toThrow(/E_WORKTREE_LOCKED/);
+  });
+
+  it('an ENDED holder session releases the lock even while its harness pid is alive (T13425)', () => {
+    // The worker's lock records the long-lived harness (this live process,
+    // verified start time) as owner. Its session ended; a successor resumes.
+    acquireWorktreeTaskLock({
+      projectHash: hash,
+      taskId: 'T20',
+      holder: { sessionId: 'ses_worker', agentId: 'agent-w' },
+    });
+    const probe = (sid: string) =>
+      sid === 'ses_worker' ? ('ended' as const) : ('unknown' as const);
+    const r = acquireWorktreeTaskLock({
+      projectHash: hash,
+      taskId: 'T20',
+      holder: { sessionId: 'ses_successor', agentId: 'agent-s' },
+      sessionProbe: probe,
+    });
+    expect(r.status).toBe('reclaimed');
+    expect(r.reclaimReason).toBe('session-ended');
+    expect(r.reclaimedFrom?.sessionId).toBe('ses_worker');
+    expect(readWorktreeTaskLock(hash, 'T20')?.sessionId).toBe('ses_successor');
+  });
+
+  it('an ACTIVE or unknown holder session with a live pid still refuses E_WORKTREE_LOCKED (T13425)', () => {
+    acquireWorktreeTaskLock({
+      projectHash: hash,
+      taskId: 'T21',
+      holder: { sessionId: 'ses_live', agentId: 'agent-l' },
+    });
+    for (const state of ['active', 'unknown'] as const) {
+      expect(() =>
+        acquireWorktreeTaskLock({
+          projectHash: hash,
+          taskId: 'T21',
+          holder: { sessionId: 'ses_other', agentId: 'agent-o' },
+          sessionProbe: () => state,
+        }),
+      ).toThrow(/E_WORKTREE_LOCKED/);
+    }
+  });
+
+  it('an ended session on ANOTHER device does not release the lock early (T13425)', () => {
+    plantRaw(hash, 'T22', { sessionId: 'ses_remote', deviceId: 'other-device' });
+    expect(() =>
+      acquireWorktreeTaskLock({
+        projectHash: hash,
+        taskId: 'T22',
+        deviceId: 'this-device',
+        sessionProbe: () => 'ended',
+      }),
+    ).toThrow(/E_WORKTREE_LOCKED/);
+  });
+
+  it("releaseWorktreeTaskLocksForSession frees only that session's locks (T13425)", () => {
+    acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T30', holder: { sessionId: 'ses_a' } });
+    acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T31', holder: { sessionId: 'ses_a' } });
+    acquireWorktreeTaskLock({ projectHash: hash, taskId: 'T32', holder: { sessionId: 'ses_b' } });
+    const released = releaseWorktreeTaskLocksForSession(hash, 'ses_a');
+    expect(released.map((r) => r.taskId).sort()).toEqual(['T30', 'T31']);
+    expect(readWorktreeTaskLock(hash, 'T30')).toBeNull();
+    expect(readWorktreeTaskLock(hash, 'T31')).toBeNull();
+    expect(readWorktreeTaskLock(hash, 'T32')?.sessionId).toBe('ses_b');
+    expect(releaseWorktreeTaskLocksForSession('no-such-hash', 'ses_a')).toEqual([]);
   });
 
   it('never reclaims a live, fresh holder', () => {

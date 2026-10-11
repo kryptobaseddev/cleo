@@ -25,6 +25,7 @@ import {
   PortableBundleError,
 } from '../portable-bundle.js';
 import { importPortableBundle } from '../portable-bundle-import.js';
+import { LEGACY_STORE_BASENAMES, PRIMARY_STORE_BASENAME } from '../portable-bundle-scan.js';
 import {
   bareTableDigest,
   LegacyOnlyStoreError,
@@ -126,6 +127,16 @@ async function archiveEntries(bundle: string): Promise<string[]> {
   await tarList({ file: bundle, onReadEntry: (e) => entries.push(e.path) });
   return entries;
 }
+
+describe('legacy store basenames (T13245)', () => {
+  it('come from the inventory legacy files and never name the live store', () => {
+    for (const name of ['tasks.db', 'brain.db', 'conduit.db']) {
+      expect(LEGACY_STORE_BASENAMES.project.has(name), name).toBe(true);
+    }
+    expect(LEGACY_STORE_BASENAMES.project.has(PRIMARY_STORE_BASENAME)).toBe(false);
+    expect(LEGACY_STORE_BASENAMES.global.has(PRIMARY_STORE_BASENAME)).toBe(false);
+  });
+});
 
 describe('portable bundle v2 (T12318)', () => {
   let tmp: string;
