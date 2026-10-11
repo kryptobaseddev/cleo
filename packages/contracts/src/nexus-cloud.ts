@@ -631,7 +631,11 @@ export interface CloudStatusSeenTxns {
 export interface CloudStatusSyncStream {
   /** Which store. */
   readonly scope: 'project' | 'global';
-  /** Its stream (`project:<id>`, `home:<userId>`) when known locally, else `null`. */
+  /**
+   * Its stream (`project:<id>`, `home:<userId>`) when known locally: from the
+   * project link, else from the store's own genesis cut or pull position
+   * (T13370); `null` before either exists.
+   */
   readonly stream: string | null;
   /** The store file. */
   readonly dbPath: string;
@@ -645,6 +649,10 @@ export interface CloudStatusSyncStream {
   readonly oldestUnsealedAtMs: number | null;
   /** The highest sealed local sequence (`_sync_txn.local_seq`), or `null` before the first seal. */
   readonly lastSealedSeq: number | null;
+  /** The local sequence of this stream's genesis cut, or `null` before the store cut or joined it (T13370). */
+  readonly genesisCut: number | null;
+  /** The cut's genesis checkpoint is not yet confirmed stored; no segment is sent until it is (T13370). */
+  readonly genesisPending: boolean;
   /** Captures the sealer could not read and holds aside (`_sync_quarantine`), per table. */
   readonly quarantined: Readonly<Record<string, number>>;
   /** Tables marked suspect until a repair re-emits them. */
