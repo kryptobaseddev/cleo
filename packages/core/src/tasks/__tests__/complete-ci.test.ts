@@ -213,6 +213,8 @@ describe('satisfyGatesFromMergedCi', () => {
     expect(out).toEqual({ kind: 'recorded', pr: '42', gates: ['testsPassed', 'qaPassed'] });
     expect(w.calls).toHaveLength(1);
     expect(w.calls[0]?.agent).toBe('cleo-complete');
+    // T13515: complete's write never executes typed gate commands.
+    expect(w.calls[0]?.noRun).toBe(true);
     for (const gate of ['testsPassed', 'qaPassed'] as const) {
       const ev = w.calls[0]?.gateEvidence?.[gate];
       expect(ev).toMatch(/^ci:42;note:recorded by cleo complete .*PR #42.*;satisfies:T9001#AC1$/);
