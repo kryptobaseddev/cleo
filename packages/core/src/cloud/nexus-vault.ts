@@ -177,7 +177,7 @@ import {
   unlockNexusAccountKey,
 } from './nexus-vault-keys.js';
 import type { VaultStreamState } from './nexus-vault-state.js';
-import { completeServerRebind } from './replica-rebind.js';
+import { completeOwedRebinds } from './replica-rebind.js';
 import { homeStream, projectStream } from './streams.js';
 
 /** Default lease length of a push: long enough for a large upload, short enough to hand off. */
@@ -1841,7 +1841,8 @@ async function openStreamSession(opts: NexusVaultCommandOptions): Promise<Stream
 
 /**
  * Complete a rebind's server half the store still owes (T13278): a crash, or
- * a refused call, after the store rebound at a pull's head. Until it is done
+ * a refused call, after the store rebound at a pull's head, or the retire a
+ * rollback or move rebind at open recorded (T13337). Until it is done
  * the stream does not know the store's replica, so nothing is pushed or
  * pulled first. Returns the session with the replica the store is bound to.
  */
@@ -1854,7 +1855,7 @@ async function withCompletedRebind(session: StreamSession): Promise<StreamSessio
       ? await openDualScopeDbAtPath('global', t.dbPath)
       : await openDualScopeDbAtPath('project', t.dbPath),
   );
-  const done = await completeServerRebind(conn, t, db);
+  const done = await completeOwedRebinds(conn, t, db);
   return done === null ? session : { ...session, t: { ...t, replicaId: done.to } };
 }
 
@@ -2090,7 +2091,7 @@ async function pullWithSession(opened: StreamSession): Promise<PullStreamReport>
     ...(serverRetirements !== undefined ? { serverRetirements } : {}),
   });
   // Its server half at once, so this run's next push announces the retire.
-  if (report.rebind !== null) await completeServerRebind(conn, t, db);
+  if (report.rebind !== null) await completeOwedRebinds(conn, t, db);
   return report;
 }
 

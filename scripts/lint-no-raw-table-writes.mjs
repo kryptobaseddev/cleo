@@ -329,8 +329,8 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/rebind.ts': {
     _sync_meta: {
-      count: 4,
-      reason: `${SYNC_BOOKKEEPING}; the rebind at head clears sync.undo_budget_exceeded, records and clears its pending server half, and resets the foreign-touch keys (§3.5 D5, T13278)`,
+      count: 5,
+      reason: `${SYNC_BOOKKEEPING}; the rebind at head clears sync.undo_budget_exceeded, records and clears its pending server half, and resets the foreign-touch keys (§3.5 D5, T13278); settleRetireDue consumes the open pass's sync.retire_due (§1.5, T13337)`,
     },
     _sync_segment: {
       count: 1,
@@ -396,7 +396,10 @@ export const EXEMPT = {
     _sync_op: { count: 1, reason: SEALER },
   },
   'packages/core/src/store/sync/replica.ts': {
-    _sync_meta: { count: 2, reason: SYNC_BOOKKEEPING },
+    _sync_meta: {
+      count: 3,
+      reason: `${SYNC_BOOKKEEPING}; a rollback or move rebind records the retirement it owes, sync.retire_due (§1.5, T13337)`,
+    },
     _sync_replica: { count: 2, reason: SYNC_BOOKKEEPING },
   },
   'packages/core/src/store/sync/schema.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
