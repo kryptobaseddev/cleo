@@ -508,6 +508,40 @@ export interface CloudJournalActivityResult {
   warnings: CloudWarning[];
 }
 
+/**
+ * One device in `cleo cloud activity --devices` (T13482): its presence, its
+ * newest journal change this store received, and its newest server event.
+ */
+export interface CloudDeviceOverviewRow {
+  deviceId: string;
+  /** From the account's device list; `null` offline or when unknown. */
+  deviceName: string | null;
+  thisDevice: boolean;
+  /** `active`, `signed-out` or `revoked`; `null` when not in the device list. */
+  state: string | null;
+  /** Presence reported within the freshness window; `null` offline or when unknown. */
+  online: boolean | null;
+  lastSeenAt: string | null;
+  /** Its journal transactions in this store, and the newest one; `null` when none. */
+  journal: {
+    txns: number;
+    lastAt: string;
+    /** Command (or txn kind), inbox status and tables of the newest transaction on the page read. */
+    last: { op: string; status: string; tables: string[] } | null;
+  } | null;
+  /** Its newest server event (snapshot, lease, enrolment …); `null` offline or when none. */
+  server: { at: string; action: string; target: string | null } | null;
+  /** The newest of its journal change, server event and presence. */
+  lastActivityAt: string | null;
+}
+
+/** `cleo cloud activity --devices`: one row per device, newest activity first (T13482). */
+export interface CloudDeviceOverviewResult {
+  scope: CloudVaultScope;
+  devices: CloudDeviceOverviewRow[];
+  warnings: CloudWarning[];
+}
+
 /** One conflict an apply recorded (`cleo cloud conflicts`, T12344 PR-6). */
 export interface CloudConflict {
   id: number;
