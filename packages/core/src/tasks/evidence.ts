@@ -25,7 +25,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve as resolvePath, sep } from 'node:path';
 
 import type {
   EvidenceAtom,
@@ -74,7 +74,7 @@ import {
 } from './test-run-binding.js';
 import {
   captureHead,
-  captureTreeHash,
+  captureTree,
   resolveSpawnTimeoutMs,
   runToolCached,
   type ToolRunResult,
@@ -2049,7 +2049,10 @@ async function validateTestRun(
   const testFiles = coveredTestFiles(parsed, bindRoot);
   // The tree hash is the tool cache's (T12958), so a bound test-run and a
   // cached tool run of the same content agree.
-  const treeHash = await captureTreeHash(bindRoot);
+  const capture = await captureTree(bindRoot, await typedGateInputs(projectRoot, taskId, bindRoot));
+  // @sync-invariant none:input-shape a runtime-path declaration covering a protected input is refused before anything is written
+  if (capture.refusal) return { ok: false, ...capture.refusal };
+  const treeHash = capture.tree;
   const headSha = treeHash ? await captureHead(bindRoot) : null;
   const identity = treeHash && headSha ? { treeHash, headSha } : null;
   let untestedPackages: string[] = [];
@@ -2079,6 +2082,9 @@ async function validateTestRun(
           }
         : {}),
       ...(untestedPackages.length > 0 ? { untestedPackages } : {}),
+      ...(capture.runtimeExcluded.length > 0
+        ? { runtimeExcluded: [...capture.runtimeExcluded] }
+        : {}),
     },
   };
 }
@@ -2132,7 +2138,10 @@ async function validateQaRun(
   const bindRoot = taskId
     ? (await import('./change-set.js')).resolveChangeSetRoot(projectRoot, taskId).root
     : executionRoot;
-  const treeHash = await captureTreeHash(bindRoot);
+  const capture = await captureTree(bindRoot, await typedGateInputs(projectRoot, taskId, bindRoot));
+  // @sync-invariant none:input-shape a runtime-path declaration covering a protected input is refused before anything is written
+  if (capture.refusal) return { ok: false, ...capture.refusal };
+  const treeHash = capture.tree;
   const headSha = treeHash ? await captureHead(bindRoot) : null;
   if (treeHash && headSha) {
     const binding = bindQaRunReceipt(receipt, abs, bindRoot);
@@ -2151,8 +2160,41 @@ async function validateQaRun(
       ...(receipt.toolName ? { toolName: receipt.toolName } : {}),
       ...(receipt.toolVersion ? { toolVersion: receipt.toolVersion } : {}),
       ...(treeHash && headSha ? { headSha, treeHash } : {}),
+      ...(capture.runtimeExcluded.length > 0
+        ? { runtimeExcluded: [...capture.runtimeExcluded] }
+        : {}),
     },
   };
+}
+
+/**
+ * Files the task's typed gates captured as inputs, relative to the bound
+ * checkout (T13554): `evidence.runtimePaths` may never cover one. Best-effort;
+ * an unreadable store yields none (the fixed protected inputs still apply).
+ */
+async function typedGateInputs(
+  storeRoot: string,
+  taskId: string | undefined,
+  bindRoot: string,
+): Promise<string[]> {
+  if (!taskId) return [];
+  try {
+    const canonicalRoot = resolveCanonicalProjectRoot(storeRoot);
+    const { getTaskAccessor } = await import('../store/data-accessor.js');
+    const task = await (await getTaskAccessor(canonicalRoot)).loadSingleTask(taskId);
+    const inside = (root: string, path: string): string | null => {
+      const rel = relative(root, path);
+      return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+        ? rel.split(sep).join('/')
+        : null;
+    };
+    return (task?.verification?.gateResults ?? [])
+      .flatMap((result) => result.binding?.artifacts ?? [])
+      .map((artifact) => inside(bindRoot, artifact.path) ?? inside(canonicalRoot, artifact.path))
+      .filter((rel): rel is string => rel !== null);
+  } catch {
+    return [];
+  }
 }
 
 async function validateTool(

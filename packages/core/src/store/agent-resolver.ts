@@ -165,6 +165,12 @@ export interface ResolveAgentOptions {
    */
   skipAliasCheck?: boolean;
   /**
+   * When `true`, record no dispatch trace for this resolution. For a
+   * validation-only resolve (spawn's atomicity pre-check, T13510) whose
+   * routing decision is traced by the real compose that follows.
+   */
+  skipDispatchTrace?: boolean;
+  /**
    * Absolute path to the bundled `templates/` directory used by the
    * `fallback` tier. When unset the resolver derives a default that climbs
    * out of `packages/core/dist` into `packages/agents/templates/`. Tests
@@ -289,6 +295,7 @@ export function resolveAgent(
         resolved.aliasTarget = aliasTarget;
       }
 
+      if (options.skipDispatchTrace) return resolved;
       // Optional telemetry belongs to the resolver caller's original lifetime.
       // Track the import itself so completion cannot outrun a delayed writer.
       const inherited = worktreeScope.getStore();

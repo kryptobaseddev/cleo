@@ -313,6 +313,11 @@ export type EvidenceAtom =
        * `tool:test-affected`'s `untestedPackages` (T12965 review).
        */
       untestedPackages?: string[];
+      /**
+       * Tracked files matching `evidence.runtimePaths` whose working-tree
+       * edits the tree hash left out (T13554).
+       */
+      runtimeExcluded?: string[];
     }
   | {
       /**
@@ -337,6 +342,8 @@ export type EvidenceAtom =
       headSha?: string;
       /** Tool-cache tree hash at verify time; `cleo complete` refuses the atom once it moves. */
       treeHash?: string;
+      /** Tracked `evidence.runtimePaths` files the tree hash left out (T13554). */
+      runtimeExcluded?: string[];
     }
   | {
       kind: 'tool';

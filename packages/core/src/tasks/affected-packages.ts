@@ -597,11 +597,36 @@ export const CLEO_MANAGED_SCOPE_EXCLUDES: readonly string[] = Object.freeze([
 ]);
 
 /**
- * The project's declared `evidence.scopeExcludes`, read from the MERGE-BASE
- * version of `.cleo/project-context.json` (`git show <mergeBase>:…`) — never
- * the working copy. A change could otherwise declare its own excludes and
- * drop its own code from evidence scope (review of #1823); an exclude counts
- * only once it is on the default branch.
+ * A string-list key of the project's `evidence` block, read from the
+ * MERGE-BASE version of `.cleo/project-context.json` (`git show
+ * <mergeBase>:…`) — never the working copy. A change could otherwise declare
+ * its own patterns and drop its own code from evidence (review of #1823); a
+ * pattern counts only once it is on the default branch.
+ *
+ * @param root - Execution root (the CLEO root of the checkout).
+ * @param mergeBase - `merge-base(origin/<default>, HEAD)`.
+ * @param key - `scopeExcludes` (T13135) or `runtimePaths` (T13554).
+ * @returns The declared patterns; none when the file or key is absent there.
+ * @task T13554
+ */
+export function declaredEvidencePatterns(
+  root: string,
+  mergeBase: string,
+  key: 'scopeExcludes' | 'runtimePaths',
+): string[] {
+  const raw = git(root, ['show', `${mergeBase}:./.cleo/project-context.json`]);
+  const evidence = raw === null ? null : parseRawProjectContext(raw)?.['evidence'];
+  const declared =
+    evidence !== null && typeof evidence === 'object' && !Array.isArray(evidence)
+      ? (evidence as Record<string, unknown>)[key]
+      : undefined;
+  return Array.isArray(declared)
+    ? declared.filter((p): p is string => typeof p === 'string' && p.trim() !== '')
+    : [];
+}
+
+/**
+ * The project's declared `evidence.scopeExcludes` ({@link declaredEvidencePatterns}).
  *
  * @param root - Execution root (the CLEO root of the checkout).
  * @param mergeBase - `merge-base(origin/<default>, HEAD)`.
@@ -609,15 +634,7 @@ export const CLEO_MANAGED_SCOPE_EXCLUDES: readonly string[] = Object.freeze([
  * @task T13135
  */
 export function declaredScopeExcludes(root: string, mergeBase: string): string[] {
-  const raw = git(root, ['show', `${mergeBase}:./.cleo/project-context.json`]);
-  const evidence = raw === null ? null : parseRawProjectContext(raw)?.['evidence'];
-  const declared =
-    evidence !== null && typeof evidence === 'object' && !Array.isArray(evidence)
-      ? (evidence as { scopeExcludes?: unknown }).scopeExcludes
-      : undefined;
-  return Array.isArray(declared)
-    ? declared.filter((p): p is string => typeof p === 'string' && p.trim() !== '')
-    : [];
+  return declaredEvidencePatterns(root, mergeBase, 'scopeExcludes');
 }
 
 /** The project context file: a declared exclude never removes it from scope. */

@@ -944,6 +944,28 @@ describe('captured canonical opener lifetime', () => {
     );
   }
 
+  it("a runtime open joining an expired operation's in-flight open gets its own attempt (T13552)", async () => {
+    const runtime = createCleoRuntime();
+    const expired = context('joined-expired', 0);
+    const target = join(cleoDirProject, 'cleo.db');
+    try {
+      // The first open runs under an operation whose deadline has passed; the
+      // second joins its in-flight open from outside that operation.
+      const first = worktreeScope.run(
+        { worktreeRoot: projectDir, projectHash: 'cold-open-fixture', execution: expired },
+        () => runtime.openProject(target),
+      );
+      const joiner = runtime.openProject(target);
+      await expect(first).rejects.toThrow();
+      const store = await joiner;
+      expect(store.scope).toBe('project');
+      expect(store.db).toBeDefined();
+    } finally {
+      expired.close();
+      runtime.closeAll();
+    }
+  }, 30_000);
+
   it('rejects cancellation before directory creation, including dedicated opens', async () => {
     const execution = context('expired', 0);
     const target = join(testRoot, 'never-created', 'cleo.db');

@@ -526,12 +526,17 @@ export const CODEX_HOOKS_FILE = '.codex/hooks.json';
 export const OPENCODE_PLUGIN_FILE = `.opencode/plugins/${OPENCODE_HEAVY_COMMAND_PLUGIN}`;
 
 /** Run git in `projectDir`; its trimmed stdout, or `null` on any failure. */
-function gitOutput(projectDir: string, args: readonly string[]): string | null {
+function gitOutput(
+  projectDir: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
   try {
     return execFileSync('git', ['-C', projectDir, ...args], {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 5000,
+      env,
     }).trim();
   } catch {
     return null;
@@ -539,16 +544,20 @@ function gitOutput(projectDir: string, args: readonly string[]): string | null {
 }
 
 /** The repository's `info/exclude` path for `projectDir`, or `null` outside a work tree. */
-function excludeFile(projectDir: string): string | null {
-  if (gitOutput(projectDir, ['rev-parse', '--is-inside-work-tree']) !== 'true') return null;
-  const path = gitOutput(projectDir, ['rev-parse', '--git-path', 'info/exclude']);
+function excludeFile(projectDir: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  if (gitOutput(projectDir, ['rev-parse', '--is-inside-work-tree'], env) !== 'true') return null;
+  const path = gitOutput(projectDir, ['rev-parse', '--git-path', 'info/exclude'], env);
   if (path === null || path === '') return null;
   return isAbsolute(path) ? path : join(projectDir, path);
 }
 
 /** The `info/exclude` line for a project file (relative to the repo root). */
-function excludeLine(projectDir: string, relPath: string): string {
-  const prefix = gitOutput(projectDir, ['rev-parse', '--show-prefix']) ?? '';
+function excludeLine(
+  projectDir: string,
+  relPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const prefix = gitOutput(projectDir, ['rev-parse', '--show-prefix'], env) ?? '';
   return `/${prefix}${relPath}`;
 }
 
@@ -563,18 +572,20 @@ function excludeLine(projectDir: string, relPath: string): string {
  * @param projectDir - the project root.
  * @param relPath - the file, relative to the project (forward slashes).
  * @param marker - the block's first line.
+ * @param env - Git discovery environment; existing callers retain the process environment.
  * @returns whether a block was added.
  */
 export function excludeHookFileFromGit(
   projectDir: string,
   relPath: string,
   marker: string = HOOK_FILE_EXCLUDE_MARKER,
+  env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  const exclude = excludeFile(projectDir);
+  const exclude = excludeFile(projectDir, env);
   if (exclude === null) return false;
-  if (gitOutput(projectDir, ['check-ignore', relPath]) !== null) return false;
-  if (gitOutput(projectDir, ['ls-files', '--error-unmatch', relPath]) !== null) return false;
-  const line = excludeLine(projectDir, relPath);
+  if (gitOutput(projectDir, ['check-ignore', relPath], env) !== null) return false;
+  if (gitOutput(projectDir, ['ls-files', '--error-unmatch', relPath], env) !== null) return false;
+  const line = excludeLine(projectDir, relPath, env);
   const text = existsSync(exclude) ? readFileSync(exclude, 'utf-8') : '';
   if (text.split('\n').includes(line)) return false;
   const block = `${marker}\n${line}\n`;

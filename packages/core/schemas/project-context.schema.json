@@ -278,6 +278,11 @@
           "items": { "type": "string", "minLength": 1 },
           "description": "Repo-relative paths or globs that never count as part of a change when evidence decides its scope (runtime state, e.g. .opencode/goals/**). CLEO's own installed hook files are always excluded (T13135)."
         },
+        "runtimePaths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Globs of tracked files a harness rewrites during a run (e.g. .opencode/goals/*/run.json), left out of the evidence tree hash and kept tracked (T13554). Read from the default branch only; a glob matching the project context, a goal.yaml, an oracle or a typed gate input is refused."
+        },
         "ciChecks": {
           "type": "object",
           "additionalProperties": false,
