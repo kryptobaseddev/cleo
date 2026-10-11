@@ -21,6 +21,7 @@ import type {
   CreateWorktreeResult,
   WorktreeHook,
   WorktreeHookResult,
+  WorktreeInstallOutcome,
   WorktreeLockAcquisition,
 } from '@cleocode/contracts';
 
@@ -233,6 +234,46 @@ function discardBranchName(gitRoot: string, branch: string, fallbackRef: string)
   process.stderr.write(
     `[worktree] preserved unmerged history of ${branch} as ${preserved} (never deleted)\n`,
   );
+}
+
+/** What a worker runs when provisioning did not install dependencies (T13524). */
+export const WORKER_INSTALL_COMMAND =
+  'cleo run --wait --class build -- pnpm install --frozen-lockfile --prefer-offline';
+
+/**
+ * Run the dependency install for a fresh worktree (T9938 / T11489), recording
+ * the paths in `copiedPaths` / `failedPaths` for the bootstrap envelope.
+ */
+function runWorktreeInstall(
+  worktreePath: string,
+  gitRoot: string,
+  appliedPatterns: readonly { pattern: string }[],
+  copiedPaths: string[],
+  failedPaths: string[],
+): WorktreeInstallOutcome {
+  if (appliedPatterns.some((p) => p.pattern === 'pnpm-lock.yaml')) {
+    if (installWorktreeDependencies(worktreePath, gitRoot)) {
+      copiedPaths.push('node_modules/ (pnpm install)');
+      return { status: 'installed' };
+    }
+    failedPaths.push('pnpm install');
+    return { status: 'failed', reason: 'pnpm install failed', command: WORKER_INSTALL_COMMAND };
+  }
+  // T11489 — DHQ-019: guarantee build-ready even when .worktreeinclude does not list pnpm-lock.yaml.
+  const status = ensureWorktreeBuildReady(worktreePath, gitRoot);
+  if (status.action === 'installed') {
+    copiedPaths.push('node_modules/ (pnpm install — auto build-ready)');
+    return { status: 'installed' };
+  }
+  if (status.action === 'install-failed') {
+    failedPaths.push(`pnpm install (auto build-ready): ${status.error ?? 'unknown'}`);
+    return {
+      status: 'failed',
+      reason: status.error ?? 'pnpm install failed',
+      command: WORKER_INSTALL_COMMAND,
+    };
+  }
+  return { status: 'not-needed', reason: status.action };
 }
 
 /**
@@ -576,31 +617,47 @@ async function provisionUnderLock(
 
   // T9938 — Install dependencies with serialized pnpm lock to prevent
   // @@-prefixed doubled-directory corruption in .pnpm/ when multiple
-  // worktrees are provisioned concurrently. Only runs when pnpm-lock.yaml
-  // was included via .worktreeinclude (i.e. the project uses pnpm).
-  // Uses per-worktree pnpm store (.pnpm-store/) for full isolation.
+  // worktrees are provisioned concurrently. Uses per-worktree pnpm store
+  // (.pnpm-store/) for full isolation.
+  //
+  // T13524 — the install is heavy work: it runs only once the caller's
+  // `admitInstall` grants a slot in the machine-wide queue, is deferred to the
+  // worker when the budget is busy, and is skipped under `skipInstall`.
+  let install: WorktreeInstallOutcome;
   if (reattached) {
     // T12506: never install into (or otherwise mutate) a re-attached worktree.
-  } else if (appliedPatterns.some((p) => p.pattern === 'pnpm-lock.yaml')) {
-    const installed = installWorktreeDependencies(worktreePath, gitRoot);
-    if (installed) {
-      copiedPaths.push('node_modules/ (pnpm install)');
-    } else {
-      failedPaths.push('pnpm install');
-    }
+    install = { status: 'not-needed', reason: 're-attached worktree' };
+  } else if (
+    !existsSync(join(worktreePath, 'pnpm-lock.yaml')) ||
+    existsSync(join(worktreePath, 'node_modules'))
+  ) {
+    install = {
+      status: 'not-needed',
+      reason: 'no pnpm-lock.yaml, or node_modules already present',
+    };
+  } else if (options.skipInstall) {
+    install = { status: 'skipped', reason: '--no-install', command: WORKER_INSTALL_COMMAND };
   } else {
-    // T11489 — DHQ-019: guarantee build-ready even when .worktreeinclude does
-    // not list pnpm-lock.yaml. ensureWorktreeBuildReady is a best-effort pass
-    // that detects pnpm-lock.yaml in the worktree and auto-installs rather than
-    // leaving the worktree non-functional. The structured InstallStatus is
-    // captured in copiedPaths/failedPaths for the spawn envelope.
-    const installStatus = ensureWorktreeBuildReady(worktreePath, gitRoot);
-    if (installStatus.action === 'installed') {
-      copiedPaths.push('node_modules/ (pnpm install — auto build-ready)');
-    } else if (installStatus.action === 'install-failed') {
-      failedPaths.push(`pnpm install (auto build-ready): ${installStatus.error ?? 'unknown'}`);
+    const release = options.admitInstall ? await options.admitInstall() : async () => {};
+    if (release === null) {
+      install = {
+        status: 'deferred',
+        reason: 'the machine-wide heavy-work budget is busy; install deferred to the worker',
+        command: WORKER_INSTALL_COMMAND,
+      };
+    } else {
+      try {
+        install = runWorktreeInstall(
+          worktreePath,
+          gitRoot,
+          appliedPatterns,
+          copiedPaths,
+          failedPaths,
+        );
+      } finally {
+        await release();
+      }
     }
-    // 'already-ready' and 'no-lockfile' require no action on copiedPaths/failedPaths.
   }
 
   // Run post-start hooks after copy-on-write bootstrap.
@@ -642,6 +699,14 @@ async function provisionUnderLock(
     `You are authorized only within \`${worktreePath}\``,
     'All your commits must land on YOUR branch only.',
     '',
+    // T13524: tell the worker to install when provisioning did not.
+    ...(install.command
+      ? [
+          `Dependencies were NOT installed (${install.status}: ${install.reason ?? ''}).`,
+          `Before building or testing, run: ${install.command}`,
+          '',
+        ]
+      : []),
   ].join('\n');
 
   // T9805 AC3: Append audit log entry for every worktree creation.
@@ -678,5 +743,6 @@ async function provisionUnderLock(
       failedPaths,
       hookResults: postStartHookResults,
     },
+    install,
   };
 }
