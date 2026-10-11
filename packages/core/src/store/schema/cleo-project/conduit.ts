@@ -384,19 +384,19 @@ export const conduitAttachmentVersions = sqliteTable(
       { onDelete: 'no action' },
     ),
     /**
-     * FK → the parent version's `uid` (NULL for a root). NO cascade delete:
-     * history survives the parent.
+     * Soft self-reference to the parent version's `uid` (NULL for a root),
+     * indexed; NOT a hard FK: the rebuild idiom cannot carry a self-FK (at the
+     * INSERT the old table still occupies the name, so `uid` is not yet a
+     * unique parent key — "foreign key mismatch" when legacy rows exist). No
+     * cascade by construction: history survives the parent.
      */
-    parentVersionUid: text('parent_version_uid').references(
-      (): AnySQLiteColumn => conduitAttachmentVersions.uid,
-      { onDelete: 'no action' },
-    ),
-    /**
-     * Pre-rekey slug (T13354 legacy carry / display alias). No longer a key,
+    parentVersionUid: text('parent_version_uid'),
+    /** Pre-rekey slug (T13354 legacy carry / display alias). No longer a key,
      * no longer an FK: the canonical old-slug lookup is
      * `conduit_doc_slug_aliases`. Kept under its original name so the
      * signaldock→conduit exodus column-intersection copy still carries it.
-     */
+     * The index survives the re-key: the t11363 consolidation's apply-probe
+     * looks for it on journal-rebuilt stores. */
     slug: text('slug'),
     /** Display ordinal minted locally; collides across devices — never a key. */
     versionNumber: integer('version_number').notNull(),
@@ -432,6 +432,8 @@ export const conduitAttachmentVersions = sqliteTable(
     index('idx_conduit_attachment_versions_attachment').on(table.attachmentUid),
     index('idx_conduit_attachment_versions_parent').on(table.parentVersionUid),
     index('idx_conduit_attachment_versions_author').on(table.authorAgentId),
+    // Survives the re-key: the t11363 consolidation's apply-probe looks for it.
+    index('idx_conduit_attachment_versions_slug').on(table.slug),
   ],
 );
 
@@ -502,6 +504,8 @@ export const conduitAttachmentApprovals = sqliteTable(
     uniqueIndex('uq_conduit_attachment_approvals_uid').on(table.uid),
     index('idx_conduit_attachment_approvals_attachment').on(table.attachmentUid),
     index('idx_conduit_attachment_approvals_version').on(table.versionUid),
+    // Survives the re-key: the t11363 consolidation's apply-probe looks for it.
+    index('idx_conduit_attachment_approvals_slug').on(table.slug),
   ],
 );
 

@@ -19,9 +19,12 @@
 --      - the `slug` FK (ON DELETE CASCADE) is gone; `slug` survives as a
 --        nullable display/legacy column (no key, no FK) so the
 --        signaldock→conduit column-intersection copy still carries it;
---      - `attachment_uid` REFERENCES `conduit_attachments(uid)` and
---        `parent_version_uid` REFERENCES the table's own `uid`, both with
---        NO cascade — history survives the parent;
+--      - `attachment_uid` REFERENCES `conduit_attachments(uid)` with NO
+--        cascade — history survives the parent. `parent_version_uid` is a
+--        SOFT self-reference (indexed, accessor-enforced): the rebuild idiom
+--        cannot carry a self-FK — at the INSERT the old table still occupies
+--        the name, so its `uid` is not yet a unique parent key ("foreign key
+--        mismatch" when legacy rows exist);
 --      - the UNIQUE(slug, version_number) constraint is dropped:
 --        `version_number` is a locally minted display ordinal that collides
 --        across devices, never a key (identity = uid + parent_version_uid
@@ -104,7 +107,6 @@ CREATE TABLE `__new_conduit_attachment_versions` (
 	`tokens_removed` integer DEFAULT 0 NOT NULL,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
 	CONSTRAINT `fk_conduit_attachment_versions_attachment_uid` FOREIGN KEY (`attachment_uid`) REFERENCES `conduit_attachments`(`uid`) ON DELETE NO ACTION,
-	CONSTRAINT `fk_conduit_attachment_versions_parent_version_uid` FOREIGN KEY (`parent_version_uid`) REFERENCES `conduit_attachment_versions`(`uid`) ON DELETE NO ACTION,
 	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
 );
 --> statement-breakpoint
@@ -132,6 +134,12 @@ CREATE INDEX `idx_conduit_attachment_versions_attachment` ON `conduit_attachment
 CREATE INDEX `idx_conduit_attachment_versions_parent` ON `conduit_attachment_versions` (`parent_version_uid`);
 --> statement-breakpoint
 CREATE INDEX `idx_conduit_attachment_versions_author` ON `conduit_attachment_versions` (`author_agent_id`);
+--> statement-breakpoint
+-- Rebuilt tables must recreate EVERY index the consolidation migration
+-- created: its apply-probe looks for them on journal-rebuilt stores, and a
+-- missing one re-runs the consolidation. The slug index now covers a legacy
+-- display column, but it must exist.
+CREATE INDEX `idx_conduit_attachment_versions_slug` ON `conduit_attachment_versions` (`slug`);
 --> statement-breakpoint
 
 -- --------------------------------------------------------------------------
@@ -178,6 +186,8 @@ CREATE UNIQUE INDEX `uq_conduit_attachment_approvals_uid` ON `conduit_attachment
 CREATE INDEX `idx_conduit_attachment_approvals_attachment` ON `conduit_attachment_approvals` (`attachment_uid`);
 --> statement-breakpoint
 CREATE INDEX `idx_conduit_attachment_approvals_version` ON `conduit_attachment_approvals` (`version_uid`);
+--> statement-breakpoint
+CREATE INDEX `idx_conduit_attachment_approvals_slug` ON `conduit_attachment_approvals` (`slug`);
 --> statement-breakpoint
 
 -- --------------------------------------------------------------------------
