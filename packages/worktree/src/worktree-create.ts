@@ -236,9 +236,24 @@ function discardBranchName(gitRoot: string, branch: string, fallbackRef: string)
   );
 }
 
-/** What a worker runs when provisioning did not install dependencies (T13524). */
-export const WORKER_INSTALL_COMMAND =
-  'cleo run --wait --class build -- pnpm install --frozen-lockfile --prefer-offline';
+/**
+ * What a worker runs when provisioning did not install dependencies (T13524).
+ * It goes through the heavy queue and installs into the worktree's own store:
+ * concurrent installs into the shared global store corrupt `.pnpm/` with
+ * `@@`-prefixed directories (T9938, T13538), and deferral happens exactly when
+ * many spawns are in flight.
+ *
+ * @param worktreePath - The worktree the command installs into.
+ * @returns The shell command.
+ * @task T13524
+ * @task T13538
+ */
+export function workerInstallCommand(worktreePath: string): string {
+  return (
+    'cleo run --wait --class build -- pnpm install --frozen-lockfile --prefer-offline ' +
+    `--store-dir ${shellQuote(join(worktreePath, '.pnpm-store'))}`
+  );
+}
 
 /**
  * Run the dependency install for a fresh worktree (T9938 / T11489), recording
@@ -257,7 +272,11 @@ function runWorktreeInstall(
       return { status: 'installed' };
     }
     failedPaths.push('pnpm install');
-    return { status: 'failed', reason: 'pnpm install failed', command: WORKER_INSTALL_COMMAND };
+    return {
+      status: 'failed',
+      reason: 'pnpm install failed',
+      command: workerInstallCommand(worktreePath),
+    };
   }
   // T11489 — DHQ-019: guarantee build-ready even when .worktreeinclude does not list pnpm-lock.yaml.
   const status = ensureWorktreeBuildReady(worktreePath, gitRoot);
@@ -270,7 +289,7 @@ function runWorktreeInstall(
     return {
       status: 'failed',
       reason: status.error ?? 'pnpm install failed',
-      command: WORKER_INSTALL_COMMAND,
+      command: workerInstallCommand(worktreePath),
     };
   }
   return { status: 'not-needed', reason: status.action };
@@ -636,14 +655,18 @@ async function provisionUnderLock(
       reason: 'no pnpm-lock.yaml, or node_modules already present',
     };
   } else if (options.skipInstall) {
-    install = { status: 'skipped', reason: '--no-install', command: WORKER_INSTALL_COMMAND };
+    install = {
+      status: 'skipped',
+      reason: '--no-install',
+      command: workerInstallCommand(worktreePath),
+    };
   } else {
     const release = options.admitInstall ? await options.admitInstall() : async () => {};
     if (release === null) {
       install = {
         status: 'deferred',
         reason: 'the machine-wide heavy-work budget is busy; install deferred to the worker',
-        command: WORKER_INSTALL_COMMAND,
+        command: workerInstallCommand(worktreePath),
       };
     } else {
       try {

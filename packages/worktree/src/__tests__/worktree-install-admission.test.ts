@@ -13,7 +13,7 @@ import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createWorktree, WORKER_INSTALL_COMMAND } from '../worktree-create.js';
+import { createWorktree, workerInstallCommand } from '../worktree-create.js';
 
 describe('createWorktree dependency install (T13524)', () => {
   let projectRoot: string;
@@ -66,9 +66,11 @@ describe('createWorktree dependency install (T13524)', () => {
     expect(r.install).toEqual({
       status: 'skipped',
       reason: '--no-install',
-      command: WORKER_INSTALL_COMMAND,
+      command: workerInstallCommand(r.path),
     });
-    expect(r.preamble).toContain(WORKER_INSTALL_COMMAND);
+    expect(r.preamble).toContain(workerInstallCommand(r.path));
+    // The worker installs into the worktree's own store, never the shared one (T13538).
+    expect(r.install?.command).toContain(`--store-dir '${join(r.path, '.pnpm-store')}'`);
   });
 
   it('a busy budget (admitInstall → null) defers the install to the worker', async () => {
@@ -79,7 +81,7 @@ describe('createWorktree dependency install (T13524)', () => {
     });
     expect(existsSync(marker)).toBe(false);
     expect(r.install?.status).toBe('deferred');
-    expect(r.install?.command).toBe(WORKER_INSTALL_COMMAND);
+    expect(r.install?.command).toBe(workerInstallCommand(r.path));
   });
 
   it('an admitted install runs pnpm, then releases the slot', async () => {
@@ -100,6 +102,22 @@ describe('createWorktree dependency install (T13524)', () => {
     expect(r.install?.status).toBe('installed');
     expect(released).toBe(1);
     expect(order).toEqual(['admit', 'release-after-pnpm']);
+  });
+
+  it('the slot is released even when the install throws (guard)', async () => {
+    // A pnpm that fails: the install reports failure, and the slot still comes back.
+    writeFileSync(join(binDir, 'pnpm'), '#!/bin/sh\nexit 1\n');
+    let released = 0;
+    const r = await createWorktree(projectRoot, {
+      taskId: 'T9205',
+      lockWorktree: false,
+      admitInstall: async () => async () => {
+        released++;
+      },
+    });
+    expect(r.install?.status).toBe('failed');
+    expect(r.install?.command).toBe(workerInstallCommand(r.path));
+    expect(released).toBe(1);
   });
 
   it('a worktree that needs no install never asks for admission', async () => {
