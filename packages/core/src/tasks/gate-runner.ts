@@ -814,6 +814,13 @@ export async function runTaskGates(
             })
           )[0]!;
       let result: AcceptanceGateResult = { ...observed, index, binding };
+      // T13525: a cache-only run must not wipe a stored pass that still proves
+      // this exact gate on these exact inputs (a commit moved HEAD, which keys
+      // the cache, but changed nothing the gate reads).
+      if (result.errorMessage?.startsWith(GATE_NOT_CACHED_PREFIX)) {
+        const reused = reusableStoredPass(options.priorResults, index, gate, binding);
+        if (reused) result = reused;
+      }
       try {
         // A gate whose inputs were never captured has nothing to compare.
         const after = snapshotRefusal
@@ -832,6 +839,46 @@ export async function runTaskGates(
     }
     return results;
   });
+}
+
+/**
+ * The stored pass for `index`, re-bound to this run, when it proves the same
+ * thing a cache entry would: same gate kind and REQ-ID, criterion id and text
+ * hash, gate definition hash, invocation and input bytes (T13525). Marked
+ * `source: 'cache'` with the original capture time, like a cache hit.
+ */
+function reusableStoredPass(
+  prior: readonly AcceptanceGateResult[] | undefined,
+  index: number,
+  gate: AcceptanceGate,
+  binding: AcceptanceGateBinding,
+): AcceptanceGateResult | null {
+  const stored = prior?.find((r) => r.index === index);
+  const was = stored?.binding;
+  if (
+    !stored ||
+    !was ||
+    stored.result !== 'pass' ||
+    stored.kind !== gate.kind ||
+    stored.req !== gate.req ||
+    was.taskId !== binding.taskId ||
+    was.criterionId !== binding.criterionId ||
+    was.criterionHash !== binding.criterionHash ||
+    was.gateHash !== binding.gateHash ||
+    !isDeepStrictEqual(was.invocation, binding.invocation) ||
+    !isDeepStrictEqual(was.artifacts, binding.artifacts)
+  )
+    return null;
+  const { binding: _old, source: _source, cachedAt: _cachedAt, ...observation } = stored;
+  // Re-dated to now, as a cache hit is: a bound result may not precede its capture.
+  return {
+    ...observation,
+    index,
+    binding,
+    checkedAt: new Date().toISOString(),
+    source: 'cache',
+    cachedAt: was.capturedAt,
+  };
 }
 
 /**

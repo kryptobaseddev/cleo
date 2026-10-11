@@ -191,6 +191,27 @@ export function resolveConflict(db: DatabaseSync, id: number, nowIso: string): b
 }
 
 /**
+ * Mark the held-collision conflicts of one inbox transaction resolved, once
+ * it has gone through (T13397): the uid collision settled by the loser's
+ * re-key, or the local key freed. Other conflicts stay open.
+ *
+ * @param db - The store, inside the apply frame's transaction.
+ * @param key - The inbox transaction.
+ * @param nowIso - The time.
+ * @returns How many were resolved.
+ */
+export function resolveHeldConflicts(db: DatabaseSync, key: InboxKey, nowIso: string): number {
+  const r = db
+    .prepare(
+      `UPDATE _sync_conflict SET resolved_at = ?
+        WHERE stream = ? AND seq = ? AND txn_idx = ? AND resolution = 'op-held'
+          AND kind IN ('uid-collision', 'key-collision') AND resolved_at IS NULL`,
+    )
+    .run(nowIso, key.stream, key.seq, key.txnIdx);
+  return Number(r.changes);
+}
+
+/**
  * How many conflicts the store holds, or one stream of it.
  *
  * @param db - The store.

@@ -917,6 +917,10 @@ describe('PR-4: references, guards, parent deletes and re-keys (§3.2)', () => {
     expect(readFieldLeaves(db, 'tasks_tasks', 'k1')).toEqual({});
     expect(readFieldLeaves(db, 'tasks_tasks', 'k2')).toEqual({ status: h(1) });
     expect(seal(db).txns, 'the applied re-key was echoed').toBe(0);
+    // A re-key that settles no collision here is never announced (T13399).
+    expect(db.prepare(`SELECT count(*) AS n FROM _sync_txn WHERE kind = 'rekey'`).get()).toEqual({
+      n: 0,
+    });
     stage(db, segment(R2, [txn('R2:1', [update('k2', h(5, R2), { title: 'after rekey' })])]));
     apply(db);
     expect(task(db, 'k2')?.title).toBe('after rekey');

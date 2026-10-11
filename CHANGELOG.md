@@ -1,5 +1,23 @@
 # Changelog
 
+## [2026.10.8] (2026-10-11)
+
+> **Upgrading:** from 2026.10.6 or older, run `cleo self-update --no-auto-upgrade`, then `cleo upgrade`. From 2026.10.7, `cleo self-update` is safe. 2026.10.8 fixes a 2026.10.7 bug where `cleo complete` could wipe a task's cached typed-gate passes and then refuse them.
+
+### Added
+
+- Sync: the undo-budget rebind runs at the next pull to head - reconcile, signed retire of the old replica, late old segments as history _(provenance: [T13278](https://github.com/kryptobaseddev/cleo/search?q=T13278&type=commits); groundwork for T12763 and T12753)_
+- Throwaway containers: a `--rm` / `cleo.task` + `cleo.ttl` label convention, and a bounded reaper behind `cleo doctor system --repair` (dry run first) _(provenance: [T13436](https://github.com/kryptobaseddev/cleo/search?q=T13436&type=commits))_
+
+### Fixed
+
+- Sync: a replica retire counts only once the server confirms it _(provenance: [T13366](https://github.com/kryptobaseddev/cleo/search?q=T13366&type=commits))_
+- a research or spike task's own-branch PR still implements it ahead of its review doc, and checkout-required names the merge it switches to and offers ci:<pr> only when evidence.ciSatisfies is set _(provenance: [T13463](https://github.com/kryptobaseddev/cleo/search?q=T13463&type=commits))_
+- cleo done --plan and cleo complete judge a stored typed result as stale with one shared predicate, so the plan never reads as a pass a result completion refuses _(provenance: [T13502](https://github.com/kryptobaseddev/cleo/search?q=T13502&type=commits))_
+- a typed test gate fails on a non-zero failed count even with exit 0, and cleo complete names cleo verify --run (not --no-run) when typed gates have no cached pass _(provenance: [T13516](https://github.com/kryptobaseddev/cleo/search?q=T13516&type=commits))_
+- a cache-only gate write (--no-run, or cleo complete's merged-CI record) no longer wipes a typed gate's stored pass after HEAD moves; a pass that still proves the gate on the same inputs is kept. A `--no-run` write that links a typed gate now also succeeds when that gate's stored pass still holds _(provenance: [T13525](https://github.com/kryptobaseddev/cleo/search?q=T13525&type=commits))_
+- typed gates that run a script through pnpm's node_modules link no longer fail verify, and a gate whose inputs cannot be captured fails alone instead of aborting every gate _(provenance: [T13527](https://github.com/kryptobaseddev/cleo/search?q=T13527&type=commits))_
+
 ## [2026.10.7] (2026-10-11)
 
 > **Upgrading from 2026.10.6 or older:** run `cleo self-update --no-auto-upgrade`, then `cleo upgrade`. Older binaries run their own post-update maintenance in-process, which can rewrite tracked project files. From 2026.10.7 on, `cleo self-update` is safe.

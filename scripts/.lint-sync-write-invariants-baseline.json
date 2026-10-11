@@ -1210,7 +1210,7 @@
     "packages/core/src/store/agent-install.ts :: Error": 7,
     "packages/core/src/store/agent-install.ts :: silent:cascade": 1,
     "packages/core/src/store/agent-registry-accessor.ts :: Error": 10,
-    "packages/core/src/store/agent-registry-accessor.ts :: silent:cascade": 7,
+    "packages/core/src/store/agent-registry-accessor.ts :: silent:cascade": 6,
     "packages/core/src/store/agent-registry-store.ts :: Error": 4,
     "packages/core/src/store/agent-resolver.ts :: AgentNotFoundError": 1,
     "packages/core/src/store/atomic.ts :: Error": 2,

@@ -999,6 +999,8 @@ export async function validateGateVerify(
       verification.gateResults = await runTaskGates(task, initialAcRows, {
         projectRoot,
         execution: typedExecution,
+        // T13525: a cache-only run keeps a stored pass that still proves its gate.
+        priorResults: verification.gateResults ?? [],
         // T12621: reuse a pass cached by `cleo verify --run` or an earlier
         // attempt; `--no-run` executes nothing.
         cache: allowCachedGates ? (params.noRun ? 'only' : 'use') : 'off',

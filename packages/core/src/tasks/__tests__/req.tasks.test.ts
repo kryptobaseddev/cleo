@@ -888,6 +888,58 @@ describe('typed requirement persistence', () => {
       });
     });
 
+    describe('a cache-only write keeps a stored pass that still proves its gate (T13525)', () => {
+      const commit = () =>
+        expect(
+          spawnSync(
+            'git',
+            [
+              '-c',
+              'user.email=t@t',
+              '-c',
+              'user.name=t',
+              'commit',
+              '-q',
+              '--allow-empty',
+              '-m',
+              'move HEAD',
+            ],
+            { cwd: root },
+          ).status,
+        ).toBe(0);
+
+      it('pass both typed gates, move HEAD, then an unlinked --no-run write: both stay pass', async () => {
+        await cachedGateFixture('process.exit(0);');
+        const recorded = await write();
+        expect(recorded.success, recorded.success ? undefined : recorded.error.message).toBe(true);
+        expect(runs()).toBe(1);
+        commit();
+        const unlinked = await write(true, false);
+        expect(unlinked.success, unlinked.success ? undefined : unlinked.error.message).toBe(true);
+        expect(runs()).toBe(1);
+        const stored = (await accessor.loadSingleTask('T121'))?.verification?.gateResults ?? [];
+        expect(stored.map((r) => [r.req, r.result])).toEqual([
+          ['VERIFY-121', 'pass'],
+          ['COUNTED-121', 'pass'],
+        ]);
+        expect(stored.every((r) => r.source === 'cache')).toBe(true);
+        if (!unlinked.success) throw new Error(unlinked.error.message);
+        expect(unlinked.data.passed).toBe(true);
+      });
+
+      it('a stored pass whose inputs changed is not reused: the gate is recorded as not run', async () => {
+        await cachedGateFixture('process.exit(0);');
+        expect((await write()).success).toBe(true);
+        commit();
+        await writeFile(join(root, 'counted.mjs'), 'process.exit(0); // edited after the pass\n');
+        const unlinked = await write(true, false);
+        expect(unlinked.success, unlinked.success ? undefined : unlinked.error.message).toBe(true);
+        const stored = (await accessor.loadSingleTask('T121'))?.verification?.gateResults ?? [];
+        expect(stored.find((r) => r.req === 'COUNTED-121')?.result).toBe('error');
+        expect(stored.find((r) => r.req === 'VERIFY-121')?.result).toBe('pass');
+      });
+    });
+
     it('--no-run records from a cached pass without executing', async () => {
       await cachedGateFixture('process.exit(0);');
       await previewTaskGates(root, { taskId: 'T121' });

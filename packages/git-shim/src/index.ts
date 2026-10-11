@@ -14,6 +14,8 @@
  * @packageDocumentation
  */
 
+import { fileURLToPath } from 'node:url';
+
 export type { AuditOutcome, AuditRecord } from './audit-log.js';
 export { resolveAuditLogPath, writeAuditRecord } from './audit-log.js';
 export type { BoundaryViolation } from './boundary.js';
@@ -25,7 +27,16 @@ export {
   validateCommitSubject,
   validateMergeAllowed,
 } from './boundary.js';
-export { findDeniedOp, GIT_OP_DENYLIST, RESTRICTED_ROLES } from './denylist.js';
+export {
+  findDeniedOp,
+  GIT_OP_DENYLIST,
+  PROTECTED_PUSH_BRANCHES,
+  porcelainDestinations,
+  protectedPorcelainDestinations,
+  protectedPushRefspec,
+  RESTRICTED_ROLES,
+  splitGitArgv,
+} from './denylist.js';
 export {
   enforceAbsolutePathBoundary,
   evaluateIsolationBoundary,
@@ -67,4 +78,16 @@ export async function installShimSymlink(shimDir: string, shimBinPath: string): 
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to install git shim launcher in ${shimDir}: ${message}`);
   }
+}
+
+/**
+ * Absolute path of this package's shim entry point (`dist/shim.js`), resolved
+ * from wherever the package is installed, so a globally installed CLI finds
+ * its own shim rather than looking in the project's node_modules (T13522).
+ *
+ * @returns The path, whether or not the file exists (callers check).
+ * @task T13522
+ */
+export function resolveShimBinPath(): string {
+  return fileURLToPath(new URL('./shim.js', import.meta.url));
 }

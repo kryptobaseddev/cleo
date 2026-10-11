@@ -974,12 +974,70 @@ interface PreviousReleaseInfo {
 }
 
 /**
- * Query the `releases` table for the most recent shipped row on the same
- * channel. Returns `{ firstEverRelease: true }` when no row matches (R-023).
+ * The previous release for a plan (R-023). The newest `v*` tag reachable from
+ * HEAD wins (T13536): the releases table can lag the tags (a release not yet
+ * reconciled), which left plans recording v2026.10.4 for 10.6, 10.7 and 10.8.
+ * Without a reachable tag, the most recent shipped row on the same channel is
+ * used; `{ firstEverRelease: true }` when neither exists.
  *
  * @internal
  */
 async function resolvePreviousVersion(
+  channel: 'latest' | 'beta' | 'dev' | 'hotfix',
+  projectRoot: string,
+  plannedVersion: string,
+): Promise<PreviousReleaseInfo> {
+  const fromTags = newestReachableReleaseTag(projectRoot, plannedVersion, channel);
+  const fromDb = await resolvePreviousVersionFromDb(channel, projectRoot);
+  if (fromTags === null) return fromDb;
+  return {
+    previousVersion: fromTags,
+    previousTag: fromTags,
+    previousShippedAt: fromDb.previousVersion === fromTags ? fromDb.previousShippedAt : null,
+    firstEverRelease: false,
+  };
+}
+
+/**
+ * The newest `v*` tag reachable from HEAD (`git tag --merged HEAD`), by
+ * version, excluding the version being planned; on the `latest` channel,
+ * prerelease tags (`-beta.1`) are skipped. Ties on one commit resolve to the
+ * highest version, which `git describe` would leave ambiguous. `null` when
+ * there is none or git fails.
+ *
+ * @task T13536
+ */
+function newestReachableReleaseTag(
+  projectRoot: string,
+  plannedVersion: string,
+  channel: string,
+): string | null {
+  let raw: string;
+  try {
+    raw = runGitWithLockRetry(['tag', '--merged', 'HEAD', '--list', 'v*'], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 60_000,
+    });
+  } catch {
+    return null;
+  }
+  const tags = raw
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((t) => t !== '' && t !== plannedVersion)
+    .filter((t) => channel !== 'latest' || !t.includes('-'));
+  tags.sort((a, b) => compareVersionStrings(b, a));
+  return tags[0] ?? null;
+}
+
+/**
+ * The most recent shipped `releases` row on the same channel (R-023).
+ *
+ * @internal
+ */
+async function resolvePreviousVersionFromDb(
   channel: 'latest' | 'beta' | 'dev' | 'hotfix',
   projectRoot: string,
 ): Promise<PreviousReleaseInfo> {
@@ -1770,7 +1828,7 @@ export async function releasePlan(
 
   // ── R-023: previous-version resolution ────────────────────────────────
   const dbChannel = mapPlanChannelToDbChannel(channel, releaseKind);
-  const prior = await resolvePreviousVersion(dbChannel, projectRoot);
+  const prior = await resolvePreviousVersion(dbChannel, projectRoot, normalizedVersion);
 
   // ── R-024 / R-311: gate resolution via ADR-061 ────────────────────────
   const createdAt = new Date().toISOString();
