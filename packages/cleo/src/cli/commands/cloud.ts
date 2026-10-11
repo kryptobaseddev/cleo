@@ -277,7 +277,7 @@ const activitySubCommand = defineCommand({
   meta: {
     name: 'activity',
     description:
-      "What this account's devices did on Cleo Nexus and when (snapshots pushed or refused, leases taken, forced or released, projects linked, devices enrolled), newest first. --journal: what each device changed and when, from this store's sync journal (transactions received, with device, write time, status, command and per-table ops).",
+      "What this account's devices did on Cleo Nexus and when (snapshots pushed or refused, leases taken, forced or released, projects linked, devices enrolled), newest first. --journal: what each device changed and when, from this store's sync journal (transactions received, with device, write time, status, command and per-table ops). --devices: one row per device merging its presence, its newest journal change and its newest server event.",
   },
   args: {
     limit: { type: 'string', description: 'Events to show (1-200, default 50).' },
@@ -291,13 +291,18 @@ const activitySubCommand = defineCommand({
       type: 'boolean',
       description: "List the sync journal's transactions per device instead of server events.",
     },
+    devices: {
+      type: 'boolean',
+      description:
+        'One row per device: name, online and last seen, newest journal change, newest server event.',
+    },
     since: {
       type: 'string',
       description: '--journal: only transactions written at or after this ISO-8601 date or time.',
     },
     offline: {
       type: 'boolean',
-      description: '--journal: skip the device-name lookup (no request leaves the machine).',
+      description: '--journal and --devices: skip the network (no request leaves the machine).',
     },
     scope: SCOPE_ARG,
     'api-url': NEXUS_API_URL_ARG,
