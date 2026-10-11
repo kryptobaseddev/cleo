@@ -2,13 +2,13 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.0.12
+  version: 4.0.13
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-10-10
+  lastReviewed: 2026-10-11
   stability: stable
 ---
 
@@ -147,6 +147,8 @@ cleo orchestrate spawn T1586 --json
 ```
 
 Returns: resolved prompt with base protocol + conditional protocol + task context + all `{{TOKEN}}` placeholders filled.
+
+The spawn provisions the worker's worktree, and its `pnpm install` is admitted through the heavy queue or deferred to the worker; the envelope's `install.status` says which. `cleo orchestrate spawn T1586 --no-install` provisions without installing, and the envelope names the command the worker runs instead (T13524).
 
 ### Step 2: Execute (Provider-Specific)
 
