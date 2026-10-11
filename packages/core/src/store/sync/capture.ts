@@ -266,13 +266,18 @@ function fullImage(def: CaptureTableDef, row: string, liveIdentity: boolean): st
  * - `update`: a U image of every updatable column, `[null, after]`. The
  *   before slot is JSON null because only the content hash was kept; a
  *   trigger's before is always an `enc()` text, so null marks a repair.
- *   Secret columns are left out (their `shash` is a follow-up).
+ *   Secret columns are left out (their `shash` is a follow-up). With
+ *   `columns`, only those of them (the rebind reconcile's touched fields).
  */
 export function repairImageSql(
   def: CaptureTableDef,
   row: string,
+  columns?: ReadonlySet<string>,
 ): { readonly rk: string; readonly insert: string; readonly update: string } {
-  const updatable = def.columns.filter((c) => !def.identity.includes(c) && !def.secret.has(c));
+  const updatable = def.columns.filter(
+    (c) =>
+      !def.identity.includes(c) && !def.secret.has(c) && (columns === undefined || columns.has(c)),
+  );
   return {
     rk: rkExpr(def, row),
     insert: fullImage(def, row, false),
@@ -672,7 +677,9 @@ export type FrameKind =
   | 'exodus'
   | 'import'
   | 'remint'
-  | 'rekey';
+  | 'rekey'
+  /** The rebind reconcile's re-emitted fields (§1.5 N7): sealed as `repair`, `via: 'rebind'` (T13278). */
+  | 'rebind';
 
 /** Frames whose undo is dropped at once (D1). */
 const NO_UNDO_KINDS: ReadonlySet<string> = new Set(['apply', 'rebase']);
@@ -833,12 +840,15 @@ export function captureBracketHooks(
   scope: TableScope,
 ): { suspendCapture?(db: DatabaseSync): void; reinstallCapture?(db: DatabaseSync): void } {
   if (!readSyncFlags(db)['sync.capture']) return {};
+  // Regenerate only what the bracket dropped: a sync-off open (T13336) whose
+  // store has no capture triggers must not gain them from a migration.
+  const dropped = new WeakSet<DatabaseSync>();
   return {
     suspendCapture: (d) => {
-      dropCaptureTriggers(d);
+      if (dropCaptureTriggers(d).length > 0) dropped.add(d);
     },
     reinstallCapture: (d) => {
-      if (hasTable(d, '_sync_capture')) installCaptureTriggers(d, scope);
+      if (dropped.delete(d) && hasTable(d, '_sync_capture')) installCaptureTriggers(d, scope);
     },
   };
 }

@@ -365,6 +365,7 @@ async function recordCarriedBareTables(
   const { getDualScopeNativeDb, openDualScopeDbAtPath } = await import('../dual-scope-db.js');
   const handle = await openDualScopeDbAtPath('project', liveStorePath, undefined, {
     dedicated: true,
+    syncMode: 'off',
   });
   try {
     recordBareAccounts(getDualScopeNativeDb(handle), accounts, run);
@@ -378,6 +379,7 @@ async function revertReconcile(liveStorePath: string, stagingDir: string): Promi
   const { getDualScopeNativeDb, openDualScopeDbAtPath } = await import('../dual-scope-db.js');
   const handle = await openDualScopeDbAtPath('project', liveStorePath, undefined, {
     dedicated: true,
+    syncMode: 'off',
   });
   try {
     const native = getDualScopeNativeDb(handle);

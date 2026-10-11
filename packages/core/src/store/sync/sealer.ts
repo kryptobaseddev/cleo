@@ -79,7 +79,7 @@ import { mergeGroupsOf } from './merge/rules.js';
 import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './netting.js';
 import { encText, remapCapture, remapPending } from './remap.js';
 import { activeReplica } from './replica.js';
-import { nextFhlc, type RowMetaRow, upsertRowMeta } from './row-meta.js';
+import { compressFieldHlcs, nextFhlc, type RowMetaRow, upsertRowMeta } from './row-meta.js';
 import { hasTable } from './schema.js';
 import { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
 import { snapshotRowUndo, undoEnabled } from './sequencing.js';
@@ -106,6 +106,8 @@ export interface SealedOp {
   readonly k?: Record<string, WireValue>;
   readonly a?: Record<string, WireValue>;
   readonly b?: Record<string, WireValue>;
+  /** Field HLCs other than `h`: only a copy reconcile's rule-3 op pins them (§1.5 N7, T13335). */
+  readonly fh?: Record<string, string>;
 }
 
 /** What one `sealPending` call did. */
@@ -148,6 +150,8 @@ interface CaptureRow {
   readonly img: string;
   readonly at_ms: number;
   readonly frame: string | null;
+  /** A rule-3 copy-reconcile capture's pinned HLCs (`{h?, fh?}`), or null (T13335). */
+  readonly pin_json?: string | null;
 }
 
 interface Group {
@@ -773,6 +777,27 @@ export function sealPreconditions(
 export const SEAL_COUNTER_KEY = 'sealer.local_seq';
 
 /**
+ * Take the next transaction counter for a transaction written outside a
+ * sealing pass (a `retire` control transaction, T13278), in the caller's
+ * transaction. The counter only rises, so the sealer continues past it.
+ *
+ * @param db - The store, inside a transaction.
+ * @param atIso - Now (ISO-8601), recorded with the counter.
+ * @returns The reserved `local_seq`.
+ */
+export function reserveLocalSeq(db: DatabaseSync, atIso: string): number {
+  const stored = db.prepare('SELECT value FROM _sync_meta WHERE key = ?').get(SEAL_COUNTER_KEY) as
+    | { value: string }
+    | undefined;
+  const maxRow = (
+    db.prepare('SELECT coalesce(max(local_seq), 0) AS n FROM _sync_txn').get() as { n: number }
+  ).n;
+  const next = Math.max(Number(stored?.value ?? 0) || 0, maxRow) + 1;
+  setSealMeta(db, SEAL_COUNTER_KEY, String(next), atIso);
+  return next;
+}
+
+/**
  * Seal up to `budget` live captures (ending on a group boundary) into
  * transactions, in one synchronous `BEGIN IMMEDIATE` transaction.
  *
@@ -795,7 +820,7 @@ export function sealPending(db: DatabaseSync, opts: SealOptions): SealReport {
   );
 }
 
-const CAPTURE_COLS = 'seq, tbl, op, rk, uid, img, at_ms, frame';
+const CAPTURE_COLS = 'seq, tbl, op, rk, uid, img, at_ms, frame, pin_json';
 
 /** The uid pair a K capture's image records, decoded; null when unreadable. */
 function kUids(img: string): [string | null, string | null] | null {
@@ -1097,6 +1122,29 @@ export function completeLegacyGroupsBeforePack(
   return completeLegacySealedGroups(new TableContext(db, scope), atIso);
 }
 
+/**
+ * The pinned HLCs of a copy-reconcile capture (§1.5 N7 rule 3, T13335),
+ * kept to the fields the op carries: an insert's every field, an update's
+ * changed ones. Null when the capture carries no pin.
+ */
+function capturePin(
+  raw: string | null | undefined,
+  op: { readonly o: string; readonly a?: Readonly<Record<string, unknown>> },
+): { h?: string; fh?: Record<string, string> } | null {
+  if (raw === null || raw === undefined) return null;
+  const pin = JSON.parse(raw) as { h?: string; fh?: Record<string, string> };
+  const fields = op.o === 'I' || op.o === 'U' ? Object.keys(op.a ?? {}) : [];
+  const fh: Record<string, string> = {};
+  for (const col of fields) {
+    const at = pin.fh?.[col];
+    if (at !== undefined) fh[col] = at;
+  }
+  return {
+    ...(pin.h !== undefined ? { h: pin.h } : {}),
+    ...(Object.keys(fh).length > 0 ? { fh } : {}),
+  };
+}
+
 function sealInTransaction(
   db: DatabaseSync,
   opts: SealOptions & { readonly replica: string },
@@ -1269,7 +1317,7 @@ function sealInTransaction(
     let partial = false;
     for (const c of captures) {
       try {
-        drafts.push(buildDraft(ctx, c, births, g.kind === 'repair'));
+        drafts.push(buildDraft(ctx, c, births, g.kind === 'repair' || g.kind === 'rebind'));
       } catch (err) {
         if (!(err instanceof SealInputError)) throw err;
         // T13036: an unreadable capture never stalls the outbox. It moves to
@@ -1360,23 +1408,39 @@ function sealInTransaction(
     const sealedOps: Array<SealedOp & { readonly seq: number; readonly last: number }> = txnOps.map(
       (op) => {
         const { seq, last, ...rest } = op;
+        // §1.5 N7 rule 3 (T13335): a copy reconcile's pinned HLCs are
+        // published unchanged; this breaks per-replica HLC order on purpose.
+        const pin = g.kind === 'rebind' ? capturePin(at(op)?.pin_json, rest) : null;
         return {
           ...(rest as Omit<SealedOp, 'h'>),
+          ...(pin?.fh ? { fh: pin.fh } : {}),
           seq,
           last,
-          h: tickClock(db, replica, at(op)?.at_ms ?? now()),
+          h: pin?.h ?? tickClock(db, replica, at(op)?.at_ms ?? now()),
         };
       },
     );
     const txnHlc = sealedOps.reduce((m, o) => (o.h > m ? o.h : m), sealedOps[0]?.h ?? '');
-    const kind = g.frame !== null && TXN_KINDS.has(g.kind) ? g.kind : 'write';
+    // A rebind frame is the reconcile's repair, under the new replica (§1.5 N7, T13278).
+    const kind =
+      g.frame !== null && g.kind === 'rebind'
+        ? 'repair'
+        : g.frame !== null && TXN_KINDS.has(g.kind)
+          ? g.kind
+          : 'write';
     insTxn.run(
       txn,
       localSeq,
       replica,
       txnHlc,
       opts.scope,
-      g.frame === null ? 'foreign' : g.kind === 'repair' ? 'repair' : 'accessor',
+      g.frame === null
+        ? 'foreign'
+        : g.kind === 'repair'
+          ? 'repair'
+          : g.kind === 'rebind'
+            ? 'rebind'
+            : 'accessor',
       kind,
       g.actor,
       g.frame,
@@ -1425,7 +1489,12 @@ function sealInTransaction(
         return;
       }
       const changed = op.o === 'U' ? Object.keys(op.a ?? {}) : [];
-      const fhlc = op.o === 'U' ? nextFhlc(prev, def, changed, op.h) : null;
+      const fhlc =
+        op.o === 'U'
+          ? nextFhlc(prev, def, changed, op.h, op.fh)
+          : op.o === 'I' && op.fh
+            ? compressFieldHlcs(def, op.fh, op.h)
+            : null;
       upsertRowMeta(db, {
         tbl: op.t,
         uid: op.u,

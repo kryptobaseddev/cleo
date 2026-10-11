@@ -189,16 +189,33 @@ describe('a rebind marks the old replica outbox inherited (T12753)', () => {
     expect(() => insCapture.run('sealed')).toThrow(/CHECK constraint/);
   });
 
-  it('marks nothing on a store without the outbox tables, and leaves segmented transactions to S4', async () => {
+  it('marks nothing on a store without the outbox tables; a segmented transaction is inherited only with its unpushed segment (T13278)', async () => {
     const db = await store(dbPath);
-    bind(db, dbPath);
+    const replica = bind(db, dbPath);
     addTask(db, 'T1');
     seal(db);
+    addTask(db, 'T2');
+    seal(db);
+    const [t1, t2] = txnIds(db);
     db.exec("UPDATE _sync_txn SET state = 'segmented'");
-    expect(markInheritedRows(db)).toEqual({ captures: 0, txns: 0 });
-    expect(states(db, '_sync_txn')).toEqual({ segmented: 1 });
+    const segment = db.prepare(
+      `INSERT INTO _sync_segment (stream, replica_id, replica_seq, meta_json, sealed, segment_hash, state, created_at)
+       VALUES ('s', ?, ?, '{}', x'00', 'h', ?, 'now')`,
+    );
+    const carries = db.prepare(
+      "INSERT INTO _sync_segment_txn (stream, replica_id, replica_seq, idx, txn) VALUES ('s', ?, ?, 0, ?)",
+    );
+    segment.run(replica, 0, 'pushed');
+    carries.run(replica, 0, t1 ?? '');
+    segment.run(replica, 1, 'sealed');
+    carries.run(replica, 1, t2 ?? '');
+    expect(markInheritedRows(db)).toEqual({ captures: 0, txns: 1, segments: 1 });
+    expect(states(db, '_sync_txn')).toEqual({ inherited: 1, segmented: 1 });
+    expect(db.prepare('SELECT state FROM _sync_txn WHERE txn = ?').get(t1 ?? '')).toEqual({
+      state: 'segmented',
+    });
     db.exec('DROP TABLE _sync_txn');
     db.exec('DROP TABLE _sync_capture');
-    expect(markInheritedRows(db)).toEqual({ captures: 0, txns: 0 });
+    expect(markInheritedRows(db)).toEqual({ captures: 0, txns: 0, segments: 0 });
   });
 });
