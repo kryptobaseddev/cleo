@@ -25,6 +25,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import type {
   AcRow,
   DoneNextStep,
@@ -47,6 +48,8 @@ import { getProjectRoot } from '../paths.js';
 import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-evidence.js';
 
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { acTextHash } from './ac-identity.js';
+import { acItemToText } from './ac-table.js';
 import {
   changedPathsSinceDefault,
   planScopedTestRun,
@@ -387,13 +390,22 @@ function planTypedGates(task: Task, rows: readonly AcRow[]): DonePlanTypedGate[]
   const results = task.verification?.gateResults ?? [];
   return extractTypedGates(task.acceptance ?? []).map(({ gate, originalIndex }) => {
     const stored = results.find((r) => r.index === originalIndex);
+    const row = rows[originalIndex];
+    // A pass bound to an older criterion or gate definition (`cleo req
+    // replace`, `update --acceptance`) is refused by `cleo complete` as stale
+    // (gate-runner revalidation), so the plan must not read it as a pass.
+    const stale =
+      stored?.result === 'pass' &&
+      (!stored.binding ||
+        row === undefined ||
+        stored.binding.criterionHash !== acTextHash(row.text) ||
+        stored.binding.gateHash !== createHash('sha256').update(acItemToText(gate)).digest('hex'));
     const status: DonePlanTypedGate['status'] =
-      stored === undefined || stored.result === 'skipped'
+      stored === undefined || stored.result === 'skipped' || stale
         ? 'not-run'
         : stored.result === 'pass'
           ? 'pass'
           : 'fail';
-    const row = rows[originalIndex];
     return {
       alias: `AC${row?.ordinal ?? originalIndex + 1}`,
       kind: gate.kind,
