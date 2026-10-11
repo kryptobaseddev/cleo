@@ -82,6 +82,7 @@ import {
 import {
   CANONICAL_TOOLS,
   type CanonicalTool,
+  canonicalToolName,
   listValidToolNames,
   resolveToolCommand,
 } from './tool-resolver.js';
@@ -196,6 +197,7 @@ export type ParsedAtom =
   | { kind: 'commit'; sha: string }
   | { kind: 'files'; paths: string[] }
   | { kind: 'test-run'; path: string }
+  | { kind: 'qa-run'; path: string }
   | { kind: 'tool'; tool: string }
   | { kind: 'url'; url: string }
   | { kind: 'note'; note: string }
@@ -442,6 +444,8 @@ export async function validateAtom(
       );
     case 'test-run':
       return validateTestRun(parsed.path, roots, taskId ?? context?.task.id);
+    case 'qa-run':
+      return validateQaRun(parsed.path, roots, taskId ?? context?.task.id);
     case 'tool':
       return validateTool(parsed.tool, roots, context);
     case 'url':
@@ -2079,6 +2083,78 @@ async function validateTestRun(
   };
 }
 
+/**
+ * Validate a `qa-run:` receipt (T13427): exit 0 and no errors, then bound to
+ * the change in the task's change-set root — see `qa-run-binding.ts` for
+ * exactly what that guarantees. A non-git root records no binding.
+ */
+async function validateQaRun(
+  path: string,
+  roots: EvidenceRoots,
+  taskId?: string,
+): Promise<AtomValidation> {
+  const { storeRoot: projectRoot, executionRoot } = roots;
+  // Resolved as a test-run path is (gh#1226): the caller's tree first.
+  const abs = isAbsolute(path)
+    ? path
+    : existsSync(resolvePath(executionRoot, path))
+      ? resolvePath(executionRoot, path)
+      : resolvePath(projectRoot, path);
+  let content: Buffer;
+  try {
+    content = await readFile(abs);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: existsSync(abs)
+        ? `Cannot read qa-run receipt: ${err instanceof Error ? err.message : String(err)}`
+        : `qa-run receipt does not exist: ${path} (looked in ${executionRoot}${executionRoot === projectRoot ? '' : ` and ${projectRoot}`})`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  const sha256 = createHash('sha256').update(content).digest('hex');
+  const { bindQaRunReceipt, parseQaRunReceipt, QA_RUN_SHAPE_HINT } = await import(
+    './qa-run-binding.js'
+  );
+  let raw: unknown;
+  try {
+    raw = JSON.parse(content.toString('utf-8'));
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `qa-run receipt is not valid JSON (${err instanceof Error ? err.message : String(err)}). Expected: ${QA_RUN_SHAPE_HINT}`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  }
+  const parsed = parseQaRunReceipt(raw);
+  if (!parsed.ok) return { ok: false, reason: parsed.reason, codeName: parsed.codeName };
+  const { receipt } = parsed;
+  const bindRoot = taskId
+    ? (await import('./change-set.js')).resolveChangeSetRoot(projectRoot, taskId).root
+    : executionRoot;
+  const treeHash = await captureTreeHash(bindRoot);
+  const headSha = treeHash ? await captureHead(bindRoot) : null;
+  if (treeHash && headSha) {
+    const binding = bindQaRunReceipt(receipt, abs, bindRoot);
+    if (!binding.ok) return { ok: false, reason: binding.reason, codeName: binding.codeName };
+  }
+  return {
+    ok: true,
+    atom: {
+      kind: 'qa-run',
+      path,
+      resolvedPath: abs,
+      sha256,
+      check: receipt.kind,
+      command: receipt.command,
+      roots: receipt.roots,
+      ...(receipt.toolName ? { toolName: receipt.toolName } : {}),
+      ...(receipt.toolVersion ? { toolVersion: receipt.toolVersion } : {}),
+      ...(treeHash && headSha ? { headSha, treeHash } : {}),
+    },
+  };
+}
+
 async function validateTool(
   tool: string,
   roots: EvidenceRoots,
@@ -3079,11 +3155,31 @@ export function checkTaskEvidenceContext(
     !atoms.some(
       (atom) =>
         atom.kind === 'test-run' ||
+        atom.kind === 'qa-run' ||
         atom.kind === 'ci' ||
         (atom.kind === 'tool' && !atom.notApplicable),
     )
   ) {
     return `Code task ${context.task.id} requires an actual verification result for ${gate}; absence of a toolchain is not a passing result.`;
+  }
+  // T13427: qa-run receipts stand for qaPassed only as a pair — a typecheck
+  // and a lint, each by receipt or by a tool: atom (a not-applicable tool:
+  // records a toolchain the project lacks). Merged CI stands alone.
+  if (
+    gate === 'qaPassed' &&
+    atoms.some((atom) => atom.kind === 'qa-run') &&
+    !atoms.some((atom) => atom.kind === 'ci')
+  ) {
+    const missing = (['typecheck', 'lint'] as const).filter(
+      (check) =>
+        !atoms.some(
+          (atom) =>
+            (atom.kind === 'qa-run' && atom.check === check) ||
+            (atom.kind === 'tool' && canonicalToolName(atom.tool) === check),
+        ),
+    );
+    if (missing.length > 0)
+      return `qaPassed with qa-run receipts needs a typecheck and a lint result; missing ${missing.join(' and ')}: add qa-run:<${missing[0]}-receipt.json> or tool:${missing[0]}.`;
   }
   const linked = atoms.filter(
     (atom): atom is Extract<EvidenceAtom, { kind: 'satisfies' }> =>
@@ -3320,7 +3416,12 @@ export function composeGateEvidence(
         return atom.kind === 'commit' || atom.kind === 'pr' || atom.kind === 'decision'
           ? [index]
           : [];
-      return atom.kind === 'tool' || atom.kind === 'test-run' || atom.kind === 'ci' ? [index] : [];
+      return atom.kind === 'tool' ||
+        atom.kind === 'test-run' ||
+        atom.kind === 'qa-run' ||
+        atom.kind === 'ci'
+        ? [index]
+        : [];
     });
     result.scope = {
       taskId: context.task.id,
@@ -3707,6 +3808,27 @@ export async function revalidateEvidence(
         options?.onProgress?.(
           `test-run:${atom.path} ${sha256 === atom.sha256 ? 'ok' : 'FAILED'} ${Date.now() - startedAt}ms`,
         );
+        break;
+      }
+      case 'qa-run': {
+        // As for test-run: the receipt's content hash is the staleness guarantee.
+        const abs = await resolveAttestedPath(
+          atom.resolvedPath,
+          isAbsolute(atom.path) ? atom.path : resolvePath(projectRoot, atom.path),
+          resolveEvidenceExecutionRoot(projectRoot),
+          projectRoot,
+        );
+        if (!existsSync(abs)) {
+          failed.push({ atom, reason: `qa-run receipt removed since verify: ${atom.path}` });
+          break;
+        }
+        const sha256 = createHash('sha256')
+          .update(await readFile(abs))
+          .digest('hex');
+        if (sha256 !== atom.sha256) {
+          failed.push({ atom, reason: `qa-run receipt modified since verify: ${atom.path}` });
+        }
+        options?.onProgress?.(`qa-run:${atom.path} ${sha256 === atom.sha256 ? 'ok' : 'FAILED'}`);
         break;
       }
       case 'tool': {

@@ -15,7 +15,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, lstatSync, readlinkSync } from 'node:fs';
 import { cp, mkdir, rename, rm, symlink } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { resolveSkillsRoot } from '@cleocode/core/skills/skill-root.js';
 import type { Provider } from '../../types.js';
 import { resolveProviderSkillsDirs } from '../paths/standard.js';
@@ -348,6 +348,25 @@ export function skillInstallResolves(path: string): boolean {
   return existsSync(join(path, 'SKILL.md')) || existsSync(path);
 }
 
+/**
+ * Whether linking may replace `linkPath`: nothing is there, or it is a symlink
+ * into CLEO's canonical skill store (stale or dangling). A real file or
+ * directory, or a link pointing anywhere else, is the user's (T13409).
+ */
+function isReplaceableEntry(linkPath: string): boolean {
+  let stat: ReturnType<typeof lstatSync>;
+  try {
+    stat = lstatSync(linkPath);
+  } catch {
+    return true; // absent
+  }
+  if (!stat.isSymbolicLink()) return false;
+  const target = resolve(dirname(linkPath), readlinkSync(linkPath));
+  const root = resolveSkillsRoot();
+  // `~/.cleo/skills/...` is the same store through the ~/.cleo route (T12598).
+  return target.startsWith(`${root}${sep}`) || target.includes(`${sep}.cleo${sep}skills${sep}`);
+}
+
 /** Whether `linkPath` is already a resolving symlink pointing at `canonicalPath`. */
 function isLinkTo(linkPath: string, canonicalPath: string): boolean {
   try {
@@ -388,6 +407,12 @@ async function linkToAgent(
       const linkPath = join(targetSkillsDir, skillName);
       if (isLinkTo(linkPath, canonicalPath)) {
         anySuccess = true;
+        continue;
+      }
+      // T13409: provider skill dirs (~/.claude/skills, ...) belong to the user.
+      // Only an absent entry or a link CLEO made into its own store is replaced.
+      if (!isReplaceableEntry(linkPath)) {
+        errors.push(`${linkPath} exists and is not a CLEO skill link; left unchanged`);
         continue;
       }
 

@@ -6,6 +6,7 @@
  * @task T13133
  */
 
+import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,6 +26,7 @@ import {
   entryLiveness,
   footprintForTool,
   GIB,
+  gitHookInstalled,
   HEAVY_FOOTPRINT_BYTES,
   LEDGER_HEARTBEAT_STALE_MS,
   LEDGER_ORPHAN_MS,
@@ -1208,6 +1210,30 @@ describe('cleo run is charged by its real scope (T13367)', () => {
     }
   });
 
+  it('a bare tsc --noEmit under --class build: one heap, no worker slots; two fit where two heavy plans do not (T13440)', () => {
+    const single = planRunFootprint('scoped-build', ['pnpm', 'exec', 'tsc', '--noEmit'], {}, RAM);
+    const heavy = planRunFootprint('scoped-build', ['pnpm', 'run', 'lint'], {}, RAM);
+    expect(single.resources?.workers).toBe(1);
+    expect(single.resources?.workspaceConcurrency ?? 1).toBe(1);
+    expect(single.footprintBytes).toBeLessThanOrEqual(HEAVY_FOOTPRINT_BYTES);
+    expect(single.footprintReason).toBe('tsc without -b (one process)');
+    expect(heavy.footprintBytes).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);
+    const capacity = 36 * GIB;
+    const two = (bytes: number) =>
+      admittedIds(
+        schedulePass(
+          [
+            entry({ id: 'a', enqueuedAtMs: 1, footprintBytes: bytes }),
+            entry({ id: 'b', enqueuedAtMs: 2, footprintBytes: bytes }),
+            entry({ id: 'p0', enqueuedAtMs: 3, footprintBytes: bytes }),
+          ],
+          { capacityBytes: capacity, share: 'full', nowMs: 1_000 },
+        ),
+      );
+    expect(two(single.footprintBytes ?? 0)).toEqual(['a', 'b', 'p0']);
+    expect(two(heavy.footprintBytes ?? 0)).not.toContain('p0');
+  });
+
   it('a two-file biome check is admitted while a full build holds the budget', () => {
     const capacity = 36 * GIB;
     const build = planRunFootprint('full-build', ['pnpm', 'run', 'build'], {}, RAM);
@@ -1248,5 +1274,69 @@ describe('cleo run is charged by its real scope (T13367)', () => {
       1_000,
     )[0];
     expect(line).toContain('(biome check on 2 named paths)');
+  });
+});
+
+describe('a git push is charged by what actually runs (T13452)', () => {
+  const RAM = 48;
+
+  it('without a hook: the light footprint, with the reason', () => {
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['git', 'push', '-u', 'origin', 'x'],
+      {},
+      RAM,
+      () => false,
+    );
+    expect(plan.footprintBytes).toBe(GIB);
+    expect(plan.resources).toBeNull();
+    expect(plan.footprintReason).toBe('git push runs no heavy tool');
+  });
+
+  it('git -C <worktree> push probes the hook with the -C directory (T13458)', () => {
+    const calls: Array<[string, readonly string[]]> = [];
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['git', '-C', '/wt', 'push'],
+      {},
+      RAM,
+      (hook, globals) => {
+        calls.push([hook, globals]);
+        return true;
+      },
+    );
+    expect(calls).toEqual([['pre-push', ['-C', '/wt']]]);
+    expect(plan.footprintReason).toBe('scoped-build plan: runs the pre-push hook');
+  });
+
+  it('with an installed pre-push hook: the class plan, naming the hook', () => {
+    const seen: string[] = [];
+    const plan = planRunFootprint('scoped-build', ['git', 'push'], {}, RAM, (hook) => {
+      seen.push(hook);
+      return true;
+    });
+    expect(seen).toEqual(['pre-push']);
+    expect(plan.footprintBytes).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);
+    expect(plan.footprintReason).toBe('scoped-build plan: runs the pre-push hook');
+  });
+
+  it('gitHookInstalled reads core.hooksPath and requires an executable file', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cleo-t13452-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      expect(gitHookInstalled(repo, 'pre-push')).toBe(false);
+      writeFileSync(join(repo, '.git', 'hooks', 'pre-push'), '#!/bin/sh\nexit 0\n');
+      expect(gitHookInstalled(repo, 'pre-push')).toBe(false); // not executable
+      chmodSync(join(repo, '.git', 'hooks', 'pre-push'), 0o755);
+      expect(gitHookInstalled(repo, 'pre-push')).toBe(true);
+      // T13458: probed in the -C directory, from anywhere.
+      expect(gitHookInstalled(tmpdir(), 'pre-push', ['-C', repo])).toBe(true);
+      // An inline -c core.hooksPath on the command is honoured.
+      expect(gitHookInstalled(repo, 'pre-push', ['-c', 'core.hooksPath=nowhere'])).toBe(false);
+      execFileSync('git', ['config', 'core.hooksPath', 'hooks-elsewhere'], { cwd: repo });
+      expect(gitHookInstalled(repo, 'pre-push')).toBe(false);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });

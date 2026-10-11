@@ -1183,8 +1183,9 @@ export function isPausable(cls: ResourceClass, argv: readonly string[]): boolean
  * - `light`: a native formatter/linter on named paths (`biome check a.ts b.ts`).
  *   It needs well under a gigabyte, so it is charged the light footprint.
  * - `single-process`: one Node process on named paths (`eslint a.ts`,
- *   `prettier --check a.ts`) or a one-project `tsc -p <dir|tsconfig>`. It is
- *   charged one process's heap plus overhead.
+ *   `prettier --check a.ts`) or any `tsc` without `-b` (`tsc --noEmit`,
+ *   `tsc -p <dir>`; T13440). It is charged one process's heap plus overhead,
+ *   with no worker slots.
  * - `class`: everything else, sized by the class's heavy-run plan as before.
  *   That includes a root `pnpm run build`, `tsc -b`, and a linter on the whole
  *   tree. A test run that names its files keeps its per-file worker cap
@@ -1267,6 +1268,17 @@ function files(n: number): string {
  */
 export function runFootprint(argv: readonly string[]): RunFootprint {
   const t = commandTarget(argv);
+  // T13452: git runs no heavy tool itself (a `git push` was charged 24 GiB).
+  // Its hooks may, and the caller decides that (see gitHookFor). gc, repack,
+  // fsck and clone can use gigabytes across threads, and a command line whose
+  // subcommand cannot be found keeps the class plan.
+  if (t.tool === 'git' && t.pm === null) {
+    const git = parseGitInvocation(argv);
+    if (git?.sub && !HEAVY_GIT_SUBCOMMANDS.has(git.sub)) {
+      return { size: 'light', reason: `git ${git.sub} runs no heavy tool` };
+    }
+    return { size: 'class', reason: git?.sub ? `git ${git.sub} is heavy` : 'sized by its class' };
+  }
   // `pnpm prettier --check a.ts`: a package manager running a bin that is not
   // in BUILD_TOOLS reads as a script; treat a file tool's name as the tool.
   const tool =
@@ -1286,15 +1298,123 @@ export function runFootprint(argv: readonly string[]): RunFootprint {
     if (paths.length > 0 && !paths.some(isWholeTree)) {
       return { size: 'single-process', reason: `${tool} on ${files(paths.length)}` };
     }
-  } else if (tool === 'tsc' && t.script === null) {
+  } else if (tool === 'tsc' && t.script === null && !t.recursive && !t.scoped) {
+    // T13440: tsc without -b is always ONE process, whatever project it checks
+    // (`tsc --noEmit` was charged heap x 4 workers). Only `tsc -b` builds
+    // project references, and it stays sized by its class, as does any
+    // workspace fan-out (`pnpm -r` / `--filter` / `--dir` exec, T13459).
     const build = t.rest.some((w) => w === '-b' || w === '--build');
-    const p = t.rest.findIndex((w) => w === '-p' || w === '--project');
-    const eq = t.rest.find((w) => w.startsWith('--project='));
-    const project =
-      eq !== undefined ? eq.slice('--project='.length) : p >= 0 ? t.rest[p + 1] : undefined;
-    if (!build && project !== undefined && !isWholeTree(project) && project !== 'tsconfig.json') {
-      return { size: 'single-process', reason: `tsc -p ${project} (one project)` };
+    if (!build) {
+      const p = t.rest.findIndex((w) => w === '-p' || w === '--project');
+      const eq = t.rest.find((w) => w.startsWith('--project='));
+      const project =
+        eq !== undefined ? eq.slice('--project='.length) : p >= 0 ? t.rest[p + 1] : undefined;
+      return {
+        size: 'single-process',
+        reason: `tsc${project !== undefined ? ` -p ${project}` : ''} without -b (one process)`,
+      };
     }
   }
   return { size: 'class', reason: 'sized by its class' };
+}
+
+/** git subcommands that can use gigabytes across threads (T13458): never light. */
+const HEAVY_GIT_SUBCOMMANDS: ReadonlySet<string> = new Set(['gc', 'repack', 'fsck', 'clone']);
+
+/** git global options whose value is the NEXT word (`-C <dir>`, `-c <name>=<value>`). */
+const GIT_VALUE_GLOBALS: ReadonlySet<string> = new Set([
+  '-C',
+  '-c',
+  '--git-dir',
+  '--work-tree',
+  '--namespace',
+  '--super-prefix',
+  '--config-env',
+]);
+
+/** A git command line split into global options, subcommand and its arguments. */
+export interface GitInvocation {
+  /** Global options before the subcommand, values included (`-C`, `dir`, `-c`, `k=v`). */
+  readonly globals: readonly string[];
+  /** The subcommand, or `null` when none could be found. */
+  readonly sub: string | null;
+  /** Arguments after the subcommand. */
+  readonly args: readonly string[];
+}
+
+/**
+ * Split a git command line (T13458): `git -C /repo -c core.hooksPath=.h push`
+ * has the subcommand `push`, not `/repo`. Value-taking global options consume
+ * their next word.
+ *
+ * @param argv - The command.
+ * @returns The split, or `null` when argv is not git.
+ */
+export function parseGitInvocation(argv: readonly string[]): GitInvocation | null {
+  const t = commandTarget(argv);
+  if (t.tool !== 'git' || t.pm !== null) return null;
+  const globals: string[] = [];
+  for (let x = 0; x < t.rest.length; x++) {
+    const w = t.rest[x] as string;
+    if (!w.startsWith('-')) return { globals, sub: w, args: t.rest.slice(x + 1) };
+    globals.push(w);
+    if (GIT_VALUE_GLOBALS.has(w)) {
+      const value = t.rest[x + 1];
+      if (value === undefined) break;
+      globals.push(value);
+      x++;
+    }
+  }
+  return { globals, sub: null, args: [] };
+}
+
+/** Client-side hooks a git subcommand runs that may do heavy work (T13452, T13458). */
+const GIT_HOOKS: Readonly<Record<string, readonly string[]>> = {
+  push: ['pre-push'],
+  commit: ['pre-commit', 'prepare-commit-msg', 'commit-msg', 'post-commit'],
+  merge: ['pre-merge-commit', 'post-merge'],
+  pull: ['post-merge', 'post-rewrite'],
+  checkout: ['post-checkout'],
+  switch: ['post-checkout'],
+  rebase: ['pre-rebase', 'post-rewrite'],
+  am: ['applypatch-msg', 'pre-applypatch', 'post-applypatch'],
+};
+
+/** Hooks `--no-verify` skips. */
+const SKIPPED_BY_NO_VERIFY: ReadonlySet<string> = new Set([
+  'pre-push',
+  'pre-commit',
+  'commit-msg',
+  'pre-merge-commit',
+  'pre-rebase',
+  'applypatch-msg',
+  'pre-applypatch',
+]);
+
+/**
+ * The hooks a git command may run that could do heavy work (T13452, T13458),
+ * and the global options to probe them with (`-C`, `-c core.hooksPath=…`).
+ * Whether a hook is installed is the caller's question.
+ *
+ * @param argv - The command.
+ * @returns The hooks and probe options, or `null` when it runs none.
+ *
+ * @example
+ * ```ts
+ * gitHookFor(['git', '-C', '/repo', 'push']); // { hooks: ['pre-push'], globals: ['-C', '/repo'] }
+ * gitHookFor(['git', 'push', '--no-verify']); // null
+ * gitHookFor(['git', 'status']);              // null
+ * ```
+ */
+export function gitHookFor(
+  argv: readonly string[],
+): { hooks: readonly string[]; globals: readonly string[] } | null {
+  const git = parseGitInvocation(argv);
+  if (!git?.sub) return null;
+  const all = GIT_HOOKS[git.sub];
+  if (all === undefined) return null;
+  const noVerify =
+    git.args.includes('--no-verify') || (git.sub === 'commit' && git.args.includes('-n'));
+  const hooks = noVerify ? all.filter((h) => !SKIPPED_BY_NO_VERIFY.has(h)) : all;
+  return hooks.length > 0 ? { hooks, globals: git.globals } : null;
 }

@@ -30,12 +30,14 @@ import type { VerificationGate } from '../task.js';
 describe('EvidenceAtomSchema (T10337)', () => {
   it('EVIDENCE_ATOM_KINDS covers every discriminated union member (T12030)', () => {
     // Verify the shared constant is in sync with the zod discriminated union.
-    // The discriminated union keys are 'commit','files','test-run','tool','url',
-    // 'note','decision','pr','ci','loc-drop','callsite-coverage','satisfies'.
+    // The discriminated union keys are 'commit','files','test-run','qa-run',
+    // 'tool','url','note','decision','pr','ci','loc-drop','callsite-coverage',
+    // 'satisfies' ('qa-run': T13427).
     const expected = [
       'commit',
       'files',
       'test-run',
+      'qa-run',
       'tool',
       'url',
       'note',
