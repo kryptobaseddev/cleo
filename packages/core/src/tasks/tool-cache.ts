@@ -59,7 +59,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { constants as osConstants, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, matchesGlob, resolve } from 'node:path';
 
 import type { HeavyToolResourcePlan } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
@@ -67,6 +67,7 @@ import { CleoError } from '../errors.js';
 import { ADMISSION_ENV, planFootprintBytes } from '../resources/admission-ledger.js';
 import { activeToolGroups, trackToolGroup } from '../resources/tool-groups.js';
 import { isLocked, withLock } from '../store/lock.js';
+import { declaredEvidencePatterns, originDefaultMergeBase } from './affected-packages.js';
 import {
   type HeavyToolSpawnPlan,
   planHeavyToolEnv,
@@ -88,7 +89,7 @@ import {
   reportsNoTestFiles,
   writeFailedFirstPointer,
 } from './tool-cache-failed-first.js';
-import type { ResolvedToolCommand } from './tool-resolver.js';
+import { parseRawProjectContext, type ResolvedToolCommand } from './tool-resolver.js';
 import { resolveToolProcessRunner, type ToolProcessResult } from './tool-runner-guard.js';
 import { type AcquireSlotOptions, acquireGlobalSlot } from './tool-semaphore.js';
 
@@ -1361,6 +1362,89 @@ function isUntrackedRuntimeOutput(path: string): boolean {
     .some((seg) => ['coverage', '.vitest', '.nyc_output', '.turbo', 'test-results'].includes(seg));
 }
 
+/** Code of the refusal when `evidence.runtimePaths` covers a protected input (T13554). */
+export const E_EVIDENCE_RUNTIME_PATH_PROTECTED = 'E_EVIDENCE_RUNTIME_PATH_PROTECTED';
+
+/**
+ * A file no `evidence.runtimePaths` glob may cover, because its edits must
+ * invalidate evidence (T13554): the project context itself, a goal
+ * definition (`goal.yaml`), an oracle (any path segment naming one), or a
+ * file a typed gate captured as an input.
+ */
+function isProtectedInput(rel: string, inputs: ReadonlySet<string>): boolean {
+  if (rel === '.cleo/project-context.json' || inputs.has(rel)) return true;
+  const segments = rel.split('/');
+  return segments.at(-1) === 'goal.yaml' || segments.some((seg) => /oracle/i.test(seg));
+}
+
+/** Whether the working copy's project context declares any `evidence.runtimePaths`. */
+function declaresRuntimePaths(root: string): boolean {
+  const path = join(root, '.cleo', 'project-context.json');
+  if (!existsSync(path)) return false;
+  const evidence = parseRawProjectContext(readFileSync(path, 'utf-8'))?.['evidence'];
+  const declared =
+    evidence !== null && typeof evidence === 'object' && !Array.isArray(evidence)
+      ? (evidence as Record<string, unknown>)['runtimePaths']
+      : undefined;
+  return Array.isArray(declared) && declared.length > 0;
+}
+
+/** Declared runtime paths resolved against the tracked files of a root (T13554). */
+interface RuntimePaths {
+  /** Declared globs (empty when none apply). */
+  readonly globs: readonly string[];
+  /** Tracked files the globs match. */
+  readonly files: readonly string[];
+  /** Set when a glob covers a protected input; the declaration is then not applied. */
+  readonly refusal?: { readonly codeName: string; readonly reason: string };
+}
+
+/**
+ * `evidence.runtimePaths` (T13554): tracked files a harness rewrites while a
+ * run executes (a goal runtime's `run.json`, its ledger), kept tracked for
+ * history but left out of the tree hash so the run cannot stale its own
+ * receipt. Read from the default branch only ({@link declaredEvidencePatterns}),
+ * so a change cannot declare its own source as runtime; nothing applies when
+ * nothing is declared (the working copy is checked first, so that costs one
+ * file read). A glob that matches a protected input ({@link isProtectedInput})
+ * is refused and the declaration is not applied.
+ */
+function resolveRuntimePaths(root: string, protectedInputs: readonly string[]): RuntimePaths {
+  if (!declaresRuntimePaths(root)) return { globs: [], files: [] };
+  const mergeBase = originDefaultMergeBase(root);
+  const globs = mergeBase ? declaredEvidencePatterns(root, mergeBase, 'runtimePaths') : [];
+  if (globs.length === 0) return { globs: [], files: [] };
+  const files = execFileSync('git', ['ls-files', '-z', '--', ...globs.map((g) => `:(glob)${g}`)], {
+    cwd: root,
+    encoding: 'utf-8',
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+    .split('\0')
+    .filter((p) => p !== '');
+  const inputs = new Set(protectedInputs);
+  const hit = files.find((file) => isProtectedInput(file, inputs));
+  if (hit === undefined) return { globs, files };
+  return {
+    globs: [],
+    files: [],
+    refusal: {
+      codeName: E_EVIDENCE_RUNTIME_PATH_PROTECTED,
+      reason: `evidence.runtimePaths covers ${hit}, a protected input (the project context, a goal.yaml, an oracle or a typed gate input) whose edits must invalidate evidence; narrow the declared glob in .cleo/project-context.json`,
+    },
+  };
+}
+
+/** A tree hash and what declared runtime paths left out of it (T13554). */
+export interface TreeHashCapture {
+  /** {@link captureTreeHash}'s tree, or `null` (non-git root, git failure). */
+  readonly tree: string | null;
+  /** Tracked files matching `evidence.runtimePaths` whose working-tree edits the tree leaves out. */
+  readonly runtimeExcluded: readonly string[];
+  /** Set when a declared runtime path covers a protected input; nothing was left out. */
+  readonly refusal?: { readonly codeName: string; readonly reason: string };
+}
+
 /**
  * Untracked files larger than this are left out of {@link captureTreeHash}
  * rather than hashed into the object database on every call. Such files are
@@ -1418,13 +1502,38 @@ export const MAX_UNTRACKED_HASH_BYTES = 5 * 1024 * 1024;
  * @task T12958
  */
 export async function captureTreeHash(root: string): Promise<string | null> {
+  return (await captureTree(root)).tree;
+}
+
+/**
+ * {@link captureTreeHash} with what declared runtime paths left out of it
+ * (T13554): tracked files matching `evidence.runtimePaths` keep their HEAD
+ * content in the tree, and untracked ones are skipped.
+ *
+ * @param root - Directory to fingerprint (the execution root).
+ * @param protectedInputs - Root-relative files a typed gate captured as
+ *   inputs; a declared runtime path covering one is refused.
+ * @returns The tree, the files left out, and any refusal.
+ * @task T13554
+ */
+export async function captureTree(
+  root: string,
+  protectedInputs: readonly string[] = [],
+): Promise<TreeHashCapture> {
+  const none = (refusal?: TreeHashCapture['refusal']): TreeHashCapture => ({
+    tree: null,
+    runtimeExcluded: [],
+    ...(refusal ? { refusal } : {}),
+  });
   // `--absolute-git-dir`, not `--git-path index`: the latter answers with an
   // inherited `GIT_INDEX_FILE` (e.g. inside a git hook), which is not this
   // checkout's index.
   const gitDir = await spawnCmd('git', ['rev-parse', '--absolute-git-dir'], root);
-  if (gitDir.exitCode !== 0) return null;
+  if (gitDir.exitCode !== 0) return none();
   const realIndex = join(gitDir.stdout.trim(), 'index');
   let tmpDir: string | null = null;
+  let runtime: RuntimePaths = { globs: [], files: [] };
+  let runtimeExcluded: string[] = [];
   try {
     tmpDir = mkdtempSync(join(tmpdir(), 'cleo-tree-'));
     const indexFile = join(tmpDir, 'index');
@@ -1439,7 +1548,26 @@ export async function captureTreeHash(root: string): Promise<string | null> {
       await spawnCmd('git', ['read-tree', 'HEAD'], root, undefined, env);
     }
     const tracked = await spawnCmd('git', ['add', '-u', '--', '.'], root, undefined, env);
-    if (tracked.exitCode !== 0) return null;
+    if (tracked.exitCode !== 0) return none();
+    // T13554: declared runtime files keep their HEAD content.
+    runtime = resolveRuntimePaths(root, protectedInputs);
+    if (runtime.files.length > 0) {
+      const dirty = await spawnCmd(
+        'git',
+        ['diff', '--name-only', '-z', 'HEAD', '--', ...runtime.files],
+        root,
+      );
+      runtimeExcluded =
+        dirty.exitCode === 0 ? dirty.stdout.split('\0').filter((p) => p !== '') : [];
+      const reset = await spawnCmd(
+        'git',
+        ['reset', '-q', 'HEAD', '--', ...runtime.files],
+        root,
+        undefined,
+        env,
+      );
+      if (reset.exitCode !== 0) return none(runtime.refusal);
+    }
 
     const listed = execFileSync('git', ['ls-files', '-o', '--exclude-standard', '-z', '--', '.'], {
       cwd: root,
@@ -1450,6 +1578,7 @@ export async function captureTreeHash(root: string): Promise<string | null> {
     });
     const untracked = listed.split('\0').filter((p) => {
       if (p === '' || isUntrackedRuntimeOutput(p)) return false;
+      if (runtime.globs.some((glob) => matchesGlob(p, glob))) return false;
       const st = statSync(join(root, p), { throwIfNoEntry: false });
       return st?.isFile() === true && st.size <= MAX_UNTRACKED_HASH_BYTES;
     });
@@ -1463,10 +1592,14 @@ export async function captureTreeHash(root: string): Promise<string | null> {
     }
 
     const tree = await spawnCmd('git', ['write-tree'], root, undefined, env);
-    if (tree.exitCode !== 0) return null;
-    return tree.stdout.trim() || null;
+    if (tree.exitCode !== 0) return none(runtime.refusal);
+    return {
+      tree: tree.stdout.trim() || null,
+      runtimeExcluded,
+      ...(runtime.refusal ? { refusal: runtime.refusal } : {}),
+    };
   } catch {
-    return null;
+    return none(runtime.refusal);
   } finally {
     if (tmpDir !== null) rmSync(tmpDir, { recursive: true, force: true });
   }
