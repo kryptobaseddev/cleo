@@ -18,7 +18,8 @@ import { existsSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { getHeapStatistics } from 'node:v8';
-import type { GraphIndexFreshness } from '@cleocode/contracts';
+import type { GraphIndexFreshness, ParserExecutionPort } from '@cleocode/contracts';
+import { PARSER_WORKER_HEAP_MAX_MB } from '@cleocode/contracts/code-symbol.js';
 import type { KnownFileFingerprint } from '@cleocode/nexus/pipeline';
 import { getConfigValue } from '../config/registry.js';
 import { readEnvOverride } from '../config.js';
@@ -297,7 +298,7 @@ function policyFrom(
   };
 }
 
-/** What an inline refresh is asked to do (structured-cloned into its worker). */
+/** What an inline refresh is asked to do (sent to its child process). */
 export interface NexusRefreshInput {
   /** Project whose graph is refreshed. */
   projectRoot: string;
@@ -317,12 +318,12 @@ export interface NexusRefreshSummary {
   reason: string;
 }
 
-/** Runs one inline refresh; {@link runRefreshInWorker} unless a caller supplies another. */
+/** Runs one inline refresh; {@link runRefreshInChild} unless a caller supplies another. */
 export type NexusRefreshRunner = (input: NexusRefreshInput) => Promise<NexusRefreshSummary>;
 
 /**
  * Run a refresh in this thread, incrementally or not at all. Unbounded in
- * memory: {@link runRefreshInWorker} runs it inside a heap-limited worker.
+ * memory: {@link runRefreshInChild} runs it inside a heap-limited child process.
  *
  * @param input - The refresh to run.
  * @returns The refresh summary.
@@ -338,77 +339,80 @@ export async function runRefreshInProcess(input: NexusRefreshInput): Promise<Nex
   return { mode: summary.mode, reason: summary.reason };
 }
 
+/** What the refresh child sends back: its summary, or why it failed. */
+export type NexusRefreshReply =
+  | { ok: true; summary: NexusRefreshSummary }
+  | { ok: false; message: string };
+
 /**
- * Run an inline refresh in a worker thread with its own heap limit (T13537).
+ * Run an inline refresh in a child process with its own heap limit (T13537 ·
+ * T13548).
  *
- * A refresh that outgrows the limit ends the worker with
- * `ERR_WORKER_OUT_OF_MEMORY` and this rejects; the CLI's own heap is never
- * touched, so a read query cannot abort at the CLI heap cap. Even an
- * incremental run re-resolves the whole graph (Leiden included), so the bound
- * matters whatever the stale-file count.
+ * Even an incremental run re-resolves the whole graph (Leiden included), so
+ * the CLI's own heap is never used: a refresh that outgrows its limit kills
+ * only the child. The child is the runtime's owned parser process (process
+ * group, teardown, cgroup sizing), so ending it — on its result, its budget
+ * plus a margin, or a crash — releases every SQLite handle and lock it held.
  *
  * @param input - The refresh to run.
- * @param options - Worker entry and heap limit; default to `refresh-worker.js`
- *   beside this module and this process's own V8 heap limit, so a refresh that
- *   fit in-process still fits.
+ * @param options - Child entry, heap limit and process port; default to
+ *   `refresh-child.js` beside this module, this process's own V8 heap limit (so
+ *   a refresh that fit in-process still fits) and the runtime's parser port.
  * @returns The refresh summary.
  */
-export async function runRefreshInWorker(
+export async function runRefreshInChild(
   input: NexusRefreshInput,
-  options: { entry?: URL; heapMb?: number } = {},
+  options: { entry?: URL; heapMb?: number; port?: ParserExecutionPort } = {},
 ): Promise<NexusRefreshSummary> {
-  const entry = options.entry ?? new URL('./refresh-worker.js', import.meta.url);
-  // Running from TypeScript source (no built worker beside it) has no bounded
+  const entry = fileURLToPath(options.entry ?? new URL('./refresh-child.js', import.meta.url));
+  // Running from TypeScript source (no built child beside it) has no bounded
   // runner; refreshing in-process would reintroduce the heap-cap abort.
-  if (!existsSync(fileURLToPath(entry)))
-    throw new Error(`no bounded refresh worker at ${fileURLToPath(entry)}`);
+  if (!existsSync(entry)) throw new Error(`no bounded refresh process at ${entry}`);
   const heapMb =
-    options.heapMb ?? Math.max(64, Math.floor(getHeapStatistics().heap_size_limit / 2 ** 20));
-  const { Worker } = await import('node:worker_threads');
-  // T13539: ends a stall the phase-boundary abort cannot reach (a synchronous
-  // loop, a hung native call). shortcut: a worker killed mid-publish leaves its
-  // SQLite handle open until this process exits; a long-lived host would need
-  // the refresh in a child process instead.
-  const killAfterMs = input.budgetMs + Math.max(1_000, input.budgetMs / 10);
-  return new Promise<NexusRefreshSummary>((resolve, reject) => {
-    const worker = new Worker(entry, {
-      workerData: input,
-      resourceLimits: { maxOldGenerationSizeMb: heapMb },
-    });
-    const timer = setTimeout(() => {
-      reject(
-        new Error(
-          `the refresh did not finish within ${Math.round(killAfterMs)} ms; run ${NEXUS_REFRESH_COMMAND}`,
-        ),
-      );
-      void worker.terminate();
-    }, killAfterMs);
-    const settle = (): void => {
-      clearTimeout(timer);
-      void worker.terminate();
-    };
-    // T13539: the result is published once posted; a handle left open in the
-    // worker must not hold the query.
-    worker.on('message', (message: NexusRefreshSummary) => {
-      settle();
-      resolve(message);
-    });
-    worker.on('error', (error: Error & { code?: string }) => {
-      settle();
-      reject(
-        error.code === 'ERR_WORKER_OUT_OF_MEMORY'
-          ? new Error(
-              `the refresh exceeded its ${heapMb} MB heap bound; run ${NEXUS_REFRESH_COMMAND}`,
-            )
-          : error,
-      );
-    });
-    // A no-op once settled; otherwise the worker ended without a result.
-    worker.on('exit', (code) => {
-      clearTimeout(timer);
-      reject(new Error(`the refresh worker exited with code ${code} and no result`));
-    });
+    options.heapMb ??
+    Math.min(
+      PARSER_WORKER_HEAP_MAX_MB,
+      Math.max(64, Math.floor(getHeapStatistics().heap_size_limit / 2 ** 20)),
+    );
+  // T13539: ends a stall the phase-boundary abort cannot reach.
+  const killAfterMs = Math.round(input.budgetMs + Math.max(1_000, input.budgetMs / 10));
+  const deadline = AbortSignal.timeout(killAfterMs);
+  const port =
+    options.port ?? (await import('../resources/spawn-wrapper.js')).createParserExecutionPort();
+  const handle = port.spawn(entry, { workerHeapMb: heapMb, signal: deadline });
+  // V8's out-of-memory banner precedes ~9 KB of native stack, past the port's
+  // bounded stderr tail, so watch for it as it streams (carrying a chunk seam).
+  let outOfMemory = false;
+  let seam = '';
+  handle.child.stderr?.on('data', (chunk: Buffer | string) => {
+    const text = seam + String(chunk);
+    if (/heap out of memory/i.test(text)) outOfMemory = true;
+    seam = text.slice(-32);
   });
+  try {
+    return await new Promise<NexusRefreshSummary>((resolve, reject) => {
+      handle.child.once('message', (reply: NexusRefreshReply) => {
+        if (reply.ok) resolve(reply.summary);
+        else reject(new Error(reply.message));
+      });
+      // 'close', not 'exit': stderr has been read to its end by then.
+      handle.child.once('close', (code, signal) => {
+        reject(
+          new Error(
+            deadline.aborted
+              ? `the refresh did not finish within ${killAfterMs} ms; run ${NEXUS_REFRESH_COMMAND}`
+              : outOfMemory
+                ? `the refresh exceeded its ${heapMb} MB heap bound; run ${NEXUS_REFRESH_COMMAND}`
+                : `the refresh process exited with ${signal ?? `code ${code}`} and no result`,
+          ),
+        );
+      });
+      handle.child.send(input);
+    });
+  } finally {
+    // T13539: the result is published once sent; nothing the child left open holds the query.
+    await handle.stop();
+  }
 }
 
 /**
@@ -430,7 +434,7 @@ export async function runRefreshInWorker(
 export async function ensureNexusIndexFresh(
   projectRoot: string,
   policy?: NexusAutoRefreshPolicy,
-  runRefresh: NexusRefreshRunner = runRefreshInWorker,
+  runRefresh: NexusRefreshRunner = runRefreshInChild,
 ): Promise<NexusFreshnessAssessment> {
   const initial = await assessWithStaleSet(projectRoot);
   const before = initial.freshness;
