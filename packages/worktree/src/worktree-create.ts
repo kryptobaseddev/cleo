@@ -96,7 +96,11 @@ function assertCanonicalWorktreeLocation(targetPath: string): void {
 
 import { runWorktreeHooks } from './worktree-hooks.js';
 import { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
-import { configureWorktreePnpmStore, installWorktreeDependencies } from './worktree-pnpm.js';
+import {
+  configureWorktreePnpmStore,
+  installWorktreeDependencies,
+  isNpmrcTracked,
+} from './worktree-pnpm.js';
 
 /**
  * Apply the T9226 spawn-clone-exclude filter to a newly created worktree.
@@ -266,6 +270,9 @@ function runWorktreeInstall(
   copiedPaths: string[],
   failedPaths: string[],
 ): WorktreeInstallOutcome {
+  // Both install paths use the worktree's own store: point its .npmrc there and
+  // exclude the store from git before pnpm creates it (T13542).
+  configureWorktreePnpmStore(worktreePath);
   if (appliedPatterns.some((p) => p.pattern === 'pnpm-lock.yaml')) {
     if (installWorktreeDependencies(worktreePath, gitRoot)) {
       copiedPaths.push('node_modules/ (pnpm install)');
@@ -712,6 +719,7 @@ async function provisionUnderLock(
   };
 
   // Build the preamble text for agent context isolation (per acceptance criterion).
+  const npmrcTracked = install.status === 'installed' && isNpmrcTracked(worktreePath);
   const preamble = [
     '## BRANCH ISOLATION PROTOCOL (MANDATORY)',
     '',
@@ -739,7 +747,13 @@ async function provisionUnderLock(
           `Pass the same --store-dir to any other pnpm install/add here (this worktree has its own pnpm store).`,
           '',
         ]
-      : []),
+      : npmrcTracked && install.status === 'installed'
+        ? [
+            // T13541: a tracked .npmrc cannot name this worktree's store.
+            `This repo tracks .npmrc, so it cannot name this worktree's pnpm store: pass --store-dir ${shellQuote(join(worktreePath, '.pnpm-store'))} to any later pnpm install/add.`,
+            '',
+          ]
+        : []),
   ].join('\n');
 
   // T9805 AC3: Append audit log entry for every worktree creation.
