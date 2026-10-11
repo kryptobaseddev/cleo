@@ -161,6 +161,7 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     brain_consolidation_events: ['started_at'],
     brain_usage_log: ['created_at'],
     brain_sticky_notes: ['created_at', 'updated_at'],
+    agent_registry_agents: ['created_at', 'updated_at', 'installed_at'],
   },
 };
 
