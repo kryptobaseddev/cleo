@@ -29,7 +29,18 @@ export async function readProjectHookRecord(path: string, maxBytes: number): Pro
   return (await readFileText({ path, maxBytes })).content;
 }
 
-/** Supply canonical cold-path utilities through the provider delivery contracts port. */
+/**
+ * Supply canonical cold-path utilities through the provider delivery contracts port.
+ * @remarks
+ * This keeps provider delivery independent of the SDK at runtime while reusing its bounded reader.
+ * Git receives a snapshot without ambient repository overrides; the process environment is unchanged.
+ * @returns The bounded reader and sanitized Git discovery environment for one delivery invocation.
+ * @example
+ * ```typescript
+ * const services = createProjectHookDeliveryServices();
+ * const canReadConfiguration = typeof services.readTextFile === 'function';
+ * ```
+ */
 export function createProjectHookDeliveryServices(): ProjectHookDeliveryServices {
   return { readTextFile: readProjectHookRecord, gitEnvironment: discoveryEnv() };
 }

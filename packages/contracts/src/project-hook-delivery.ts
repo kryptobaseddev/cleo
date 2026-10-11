@@ -76,9 +76,24 @@ export interface ProjectHookDeliveryResult {
 }
 /** SDK-owned utilities injected into provider delivery without a runtime SDK dependency. */
 export interface ProjectHookDeliveryServices {
-  /** Read bounded regular files through the canonical filesystem primitive. */
+  /**
+   * Read bounded regular files through the canonical filesystem primitive.
+   * @remarks
+   * The caller supplies the SDK implementation, preserving special-file and racing-growth checks.
+   * @param path - Resolved file path selected by the delivery adapter.
+   * @param maxBytes - Maximum UTF-8 input size in bytes.
+   * @returns The file's text after its descriptor and allocation limit have been checked.
+   * @example
+   * ```typescript
+   * const readConfiguration = (services: ProjectHookDeliveryServices) =>
+   *   services.readTextFile('/repo/.codex/hooks.json', 262144);
+   * ```
+   */
   readTextFile(path: string, maxBytes: number): Promise<string>;
-  /** Git discovery environment with ambient repository overrides removed. */
+  /**
+   * Git discovery environment with ambient repository overrides removed.
+   * @defaultValue No implicit default; the caller supplies the snapshot.
+   */
   gitEnvironment: Readonly<Record<string, string | undefined>>;
 }
 /** Explicit cold-path provider sync inputs. */
@@ -95,9 +110,15 @@ export interface ProjectHookDeliveryOptions {
   enabled: boolean;
   /** No files (including lock files) may be written in dry-run mode. */
   dryRun: boolean;
-  /** Explicit provider selection; otherwise detect project-local configuration. */
+  /**
+   * Explicit provider selection; otherwise detect project-local configuration.
+   * @defaultValue Providers detected from local configuration and installed harness binaries.
+   */
   providers?: string[];
-  /** Remove only receipt-owned, unmodified additions instead of synchronizing. */
+  /**
+   * Remove only receipt-owned, unmodified additions instead of synchronizing.
+   * @defaultValue false
+   */
   rollback?: boolean;
 }
 
