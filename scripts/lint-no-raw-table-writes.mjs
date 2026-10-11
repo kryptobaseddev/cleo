@@ -263,6 +263,18 @@ export const EXEMPT = {
     tasks_schema_meta: { count: 1, reason: SCHEMA_STAMP },
   },
   'packages/core/src/store/sqlite.ts': { tasks_schema_meta: { count: 2, reason: SCHEMA_STAMP } },
+  'packages/core/src/store/sync/apply/write-api.ts': {
+    agent_registry_agent_capabilities: {
+      count: 2,
+      reason:
+        'derived junction (T13519): rebuilt from a received agent_registry_agents.capabilities after apply',
+    },
+    agent_registry_agent_skills: {
+      count: 2,
+      reason:
+        "derived junction (T13519): rebuilt from a received agent_registry_agents.skills after apply; local source='cant' rows kept",
+    },
+  },
   'packages/core/src/store/sync/apply-intent.ts': {
     _sync_apply_intent: {
       count: 1,

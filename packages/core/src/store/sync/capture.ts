@@ -84,12 +84,14 @@ export interface CaptureTableDef {
   readonly appendOnly: boolean;
   /**
    * The table's INTEGER PRIMARY KEY (a rowid alias numbered from 1 on every
-   * device, T12896), when it is a local key: kept out of {@link columns}, so
-   * it is never captured, sealed, hashed or written from the wire, and a
-   * received row gets the next local id. Absent when the table has none, or
-   * when it is part of a natural key.
+   * device, T12896), or its declared TEXT `localKey` (T12915), when it is a
+   * local key: kept out of {@link columns}, so it is never captured, sealed,
+   * hashed or written from the wire, and a received row gets the next local
+   * id. Absent when the table has none, or when it is part of a natural key.
    */
   readonly localRowid?: string;
+  /** A TEXT local key: an applied insert sets it to the row's uid (T12915). */
+  readonly localKeyIsUid?: boolean;
 }
 
 /** One generated trigger. */
@@ -147,7 +149,7 @@ export function captureTableDef(
   const wholeSecret = cls.class === 'portable-secret';
   const secret = new Set(
     wholeSecret
-      ? info.map((c) => c.name).filter((c) => !spec.key.includes(c))
+      ? info.map((c) => c.name).filter((c) => !spec.key.includes(c) && !localOnly.has(c))
       : overrides.filter((o) => o.class === 'portable-secret').map((o) => o.column),
   );
   const identity = rowIdentityColumns(scope, table).filter((c) => info.some((i) => i.name === c));
@@ -159,7 +161,7 @@ export function captureTableDef(
   ];
   for (const r of allRefs) {
     const target = rowIdentitySpec(scope, r.table);
-    refs.set(r.column, { table: r.table, key: target?.key[0] ?? 'id' });
+    refs.set(r.column, { table: r.table, key: target?.localKey ?? target?.key[0] ?? 'id' });
   }
   return {
     table,
@@ -170,7 +172,17 @@ export function captureTableDef(
     refs,
     appendOnly: (spec.content?.length ?? 0) > 0,
     ...(localRowid ? { localRowid } : {}),
+    ...(localRowid && spec.localKey === localRowid && !isIntegerColumn(info, localRowid)
+      ? { localKeyIsUid: true }
+      : {}),
   };
+}
+
+function isIntegerColumn(
+  info: ReadonlyArray<{ name: string; type: string }>,
+  col: string,
+): boolean {
+  return info.find((c) => c.name === col)?.type.toUpperCase() === 'INTEGER';
 }
 
 /**
@@ -182,6 +194,7 @@ function localRowidColumn(
   info: ReadonlyArray<{ name: string; type: string; pk: number }>,
   spec: RowIdentitySpec,
 ): string | undefined {
+  if (spec.localKey) return info.some((c) => c.name === spec.localKey) ? spec.localKey : undefined;
   const pk = info.filter((c) => c.pk > 0);
   if (pk.length !== 1) return undefined;
   const col = pk[0] as { name: string; type: string };
