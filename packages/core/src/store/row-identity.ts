@@ -464,9 +464,13 @@ function q(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
 }
 
-/** The local key column of a referenced table (its declared single-column key). */
+/**
+ * The local key column references into `table` point at: its declared
+ * `localKey` (T12915), else its single-column key.
+ */
 function targetKey(scope: TableScope, table: string): string {
   const target = rowIdentitySpec(scope, table);
+  if (target?.localKey) return target.localKey;
   if (!target || target.key.length !== 1) {
     throw new Error(`row identity: ${table} is not a declared single-key table`);
   }

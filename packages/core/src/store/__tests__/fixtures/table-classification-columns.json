@@ -2281,6 +2281,7 @@
       "tier",
       "transport_config",
       "transport_type",
+      "uid",
       "updated_at",
       "webhook_secret"
     ],

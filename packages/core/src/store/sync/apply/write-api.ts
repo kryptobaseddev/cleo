@@ -461,15 +461,18 @@ export function createApplyWriteApi(
         throw new ApplyWriteError(`${table}: insert of ${uid} lacks ${noIdentity.join(', ')}`);
       }
       const all = def.columns;
+      // A TEXT local key never travels: the received row takes its uid (T12915).
+      const local = def.localKeyIsUid && def.localRowid ? [def.localRowid] : [];
       const row = db
         .prepare(
-          `INSERT INTO main.${ident(table)} (${[UID_COLUMN, ...cols].map(ident).join(', ')}) ` +
-            `VALUES (${['?', ...cols.map(() => '?')].join(', ')}) RETURNING ${returning(all)}`,
+          `INSERT INTO main.${ident(table)} (${[UID_COLUMN, ...local, ...cols].map(ident).join(', ')}) ` +
+            `VALUES (${['?', ...local.map(() => '?'), ...cols.map(() => '?')].join(', ')}) RETURNING ${returning(all)}`,
         )
-        .get(uid, ...cols.map((c) => wireToSql(values[c] as LedgerWireValue))) as Record<
-        string,
-        unknown
-      >;
+        .get(
+          uid,
+          ...local.map(() => uid),
+          ...cols.map((c) => wireToSql(values[c] as LedgerWireValue)),
+        ) as Record<string, unknown>;
       const stored = unpack(row, all);
       record([
         { tbl: table, uid, col: INTENT_INSERT, enc: '' },

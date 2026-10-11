@@ -1517,9 +1517,10 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   agent_registry_accounts: {
-    class: 'portable-secret',
-    status: 'draft',
-    source: 'draft §3',
+    class: 'local-only',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'its parent agent_registry_users (dormant better-auth mirror) is local-only, so its rows cannot sync',
     columns: [
       {
         column: 'access_token',
@@ -1544,17 +1545,35 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   agent_registry_agent_capabilities: {
-    class: 'portable-personal',
-    status: 'draft',
-    source: 'draft §3',
+    class: 'derived',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'rebuilt from agent_registry_agents.capabilities by syncJunctionTables on every agent write',
   },
   agent_registry_agent_connections: { class: 'local-only', status: 'draft', source: 'draft §3' },
-  agent_registry_agent_skills: { class: 'portable-personal', status: 'draft', source: 'draft §3' },
+  agent_registry_agent_skills: {
+    class: 'derived',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'rebuilt from agent_registry_agents.skills by syncJunctionTables on every agent write',
+  },
   agent_registry_agents: {
     class: 'portable-personal',
     status: 'draft',
     source: 'draft §3',
     columns: [
+      {
+        column: 'owner_id',
+        class: 'local-only',
+        reason:
+          'FK into agent_registry_users, a local-only better-auth mirror (owner decision 2026-10-11, T12915)',
+      },
+      {
+        column: 'organization_id',
+        class: 'local-only',
+        reason:
+          'FK into agent_registry_organization, a local-only better-auth mirror (owner decision 2026-10-11, T12915)',
+      },
       {
         column: 'cant_path',
         class: 'local-only',
@@ -1607,14 +1626,24 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
       },
     ],
   },
-  agent_registry_capabilities: { class: 'portable-personal', status: 'draft', source: 'draft §3' },
+  agent_registry_capabilities: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'frozen legacy catalog carried over from signaldock: no current writer, so nothing to sync',
+  },
   agent_registry_claim_codes: {
     class: 'local-only',
     status: 'draft',
     source: 'draft §3',
     note: 'dormant better-auth mirror; server-authoritative if ever used',
   },
-  agent_registry_org_agent_keys: { class: 'portable-secret', status: 'draft', source: 'draft §3' },
+  agent_registry_org_agent_keys: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'its parent agent_registry_organization (dormant better-auth mirror) is local-only, so its rows cannot sync',
+  },
   agent_registry_organization: {
     class: 'local-only',
     status: 'draft',
@@ -1634,7 +1663,12 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
       },
     ],
   },
-  agent_registry_skills: { class: 'portable-personal', status: 'draft', source: 'draft §3' },
+  agent_registry_skills: {
+    class: 'local-only',
+    status: 'resolved',
+    source: 'owner decision 2026-10-11 (T12915, cleo docs fetch t13467-global-secrets-sync-design)',
+    note: 'frozen legacy catalog carried over from signaldock: no current writer, so nothing to sync',
+  },
   agent_registry_users: {
     class: 'local-only',
     status: 'draft',
