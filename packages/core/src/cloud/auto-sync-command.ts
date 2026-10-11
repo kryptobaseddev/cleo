@@ -24,7 +24,12 @@ import { mkdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { getCleoHome } from '../paths.js';
-import { type AutoSyncOutcome, autoCloudSync, autoSyncIntervalMs } from './auto-sync.js';
+import {
+  type AutoSyncOutcome,
+  autoCloudSync,
+  autoSyncIntervalMs,
+  autoSyncReleased,
+} from './auto-sync.js';
 
 /** Environment switch that turns the command piggyback off (`1`). */
 export const AUTO_SYNC_DISABLE_ENV = 'CLEO_DISABLE_AUTO_SYNC';
@@ -51,6 +56,8 @@ export interface CommandAutoSyncOptions {
   now?: () => Date;
   /** Starts the detached child; defaults to spawning the worker entry. */
   spawnWorker?: (projectRoot: string) => void;
+  /** The unreleased flags; test seam. @defaultValue UNRELEASED_FLAGS */
+  unreleasedFlags?: ReadonlySet<string>;
 }
 
 function spawnDetachedWorker(projectRoot: string): void {
@@ -77,6 +84,8 @@ export function startCommandAutoSync(opts: CommandAutoSyncOptions): CommandAutoS
   try {
     const env = opts.env ?? process.env;
     if (env[AUTO_SYNC_DISABLE_ENV] === '1') return 'disabled';
+    // Inert until T13549 releases sync.push/sync.pull: no stamp, no spawn.
+    if (!autoSyncReleased(opts.unreleasedFlags)) return 'disabled';
     if (env['CLEO_RUN_CLASS'] !== undefined) return 'skipped';
     if (opts.verb !== undefined && SKIP_VERBS.has(opts.verb)) return 'skipped';
     const gap = autoSyncIntervalMs();

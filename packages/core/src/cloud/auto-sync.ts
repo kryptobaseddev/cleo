@@ -25,6 +25,7 @@ import { join } from 'node:path';
 import type { CloudWarning } from '@cleocode/contracts';
 import { getLogger } from '../logger.js';
 import { getCleoHome, resolveCleoDir } from '../paths.js';
+import { UNRELEASED_FLAGS } from '../store/sync/flags.js';
 
 /** Default minimum gap between tick-driven syncs. */
 export const AUTO_SYNC_INTERVAL_MS = 15 * 60_000;
@@ -85,6 +86,19 @@ export interface AutoSyncOptions {
   lock?: (
     onCompromised: (err: Error) => void,
   ) => Promise<{ release: () => Promise<void>; abandon?: () => Promise<void> }>;
+  /** The unreleased flags; test seam. @defaultValue UNRELEASED_FLAGS */
+  unreleasedFlags?: ReadonlySet<string>;
+}
+
+/**
+ * Whether automatic sync may run: never while both `sync.push` and
+ * `sync.pull` are unreleased (T13553; T13549 releases them).
+ *
+ * @param unreleased - The unreleased set. @defaultValue UNRELEASED_FLAGS
+ * @returns True once either flag ships.
+ */
+export function autoSyncReleased(unreleased: ReadonlySet<string> = UNRELEASED_FLAGS): boolean {
+  return !(unreleased.has('sync.push') && unreleased.has('sync.pull'));
 }
 
 /**
@@ -203,6 +217,8 @@ export async function autoCloudSync(
   const cleoHome = opts.cleoHome ?? getCleoHome();
   const now = opts.now ?? new Date();
   try {
+    // Inert until T13549 releases sync.push/sync.pull: no state read, no network.
+    if (!autoSyncReleased(opts.unreleasedFlags)) return 'disabled';
     const gap = reason === 'session-end' ? AUTO_SYNC_SESSION_END_MIN_MS : autoSyncIntervalMs();
     if (gap === null) return 'disabled';
     const due = (): boolean => {
