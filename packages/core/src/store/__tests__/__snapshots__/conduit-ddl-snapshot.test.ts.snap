@@ -39,12 +39,12 @@ exports[`T11578 AC4 — conduit DDL snapshot (post-cutover prefixed shape + FTS5
   },
   {
     "name": "conduit_doc_heads",
-    "sql": "CREATE TABLE \`conduit_doc_heads\` ( \`attachment_uid\` text PRIMARY KEY, \`uid\` text, \`head_version_uid\` text NOT NULL, \`head_hlc\` text NOT NULL, \`conflict_count\` integer DEFAULT 0 NOT NULL, \`last_conflict_json\` text, \`updated_at\` text DEFAULT (datetime('now')) NOT NULL, CONSTRAINT \`fk_conduit_doc_heads_attachment_uid\` FOREIGN KEY (\`attachment_uid\`) REFERENCES \`conduit_attachments\`(\`uid\`) ON DELETE NO ACTION, CONSTRAINT \`fk_conduit_doc_heads_head_version_uid\` FOREIGN KEY (\`head_version_uid\`) REFERENCES \`conduit_attachment_versions\`(\`uid\`) ON DELETE NO ACTION, CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "sql": "CREATE TABLE \`conduit_doc_heads\` ( \`attachment_uid\` text PRIMARY KEY, \`head_version_uid\` text NOT NULL, \`head_hlc\` text NOT NULL, \`conflict_count\` integer DEFAULT 0 NOT NULL, \`last_conflict_json\` text, \`updated_at\` text DEFAULT (datetime('now')) NOT NULL, \`uid\` text, CONSTRAINT \`fk_conduit_doc_heads_attachment_uid\` FOREIGN KEY (\`attachment_uid\`) REFERENCES \`conduit_attachments\`(\`uid\`) ON DELETE NO ACTION, CONSTRAINT \`fk_conduit_doc_heads_head_version_uid\` FOREIGN KEY (\`head_version_uid\`) REFERENCES \`conduit_attachment_versions\`(\`uid\`) ON DELETE NO ACTION, CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
     "type": "table",
   },
   {
     "name": "conduit_doc_slug_aliases",
-    "sql": "CREATE TABLE \`conduit_doc_slug_aliases\` ( \`uid\` text PRIMARY KEY, \`slug\` text NOT NULL, \`doc_uid\` text NOT NULL, \`reason\` text DEFAULT 'rename' NOT NULL, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, CONSTRAINT \`fk_conduit_doc_slug_aliases_doc_uid\` FOREIGN KEY (\`doc_uid\`) REFERENCES \`conduit_attachments\`(\`uid\`) ON DELETE NO ACTION, CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "sql": "CREATE TABLE \`conduit_doc_slug_aliases\` ( \`slug\` text NOT NULL, \`doc_uid\` text NOT NULL, \`reason\` text DEFAULT 'rename' NOT NULL, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, \`uid\` text, CONSTRAINT \`conduit_doc_slug_aliases_pk\` PRIMARY KEY(\`slug\`, \`doc_uid\`), CONSTRAINT \`fk_conduit_doc_slug_aliases_doc_uid\` FOREIGN KEY (\`doc_uid\`) REFERENCES \`conduit_attachments\`(\`uid\`) ON DELETE NO ACTION, CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
     "type": "table",
   },
   {

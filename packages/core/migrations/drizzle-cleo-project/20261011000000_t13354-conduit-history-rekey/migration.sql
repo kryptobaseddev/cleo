@@ -217,11 +217,12 @@ ALTER TABLE `__new_conduit_attachment_contributors` RENAME TO `conduit_attachmen
 -- Step 5 — new tables: slug aliases, head projection, local CRDT state
 -- --------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `conduit_doc_slug_aliases` (
-	`uid` text PRIMARY KEY,
 	`slug` text NOT NULL,
 	`doc_uid` text NOT NULL,
 	`reason` text DEFAULT 'rename' NOT NULL,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`uid` text,
+	CONSTRAINT `conduit_doc_slug_aliases_pk` PRIMARY KEY(`slug`, `doc_uid`),
 	CONSTRAINT `fk_conduit_doc_slug_aliases_doc_uid` FOREIGN KEY (`doc_uid`) REFERENCES `conduit_attachments`(`uid`) ON DELETE NO ACTION,
 	CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
 );
@@ -230,18 +231,16 @@ CREATE INDEX IF NOT EXISTS `idx_conduit_doc_slug_aliases_slug` ON `conduit_doc_s
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `conduit_doc_heads` (
 	`attachment_uid` text PRIMARY KEY,
-	`uid` text,
 	`head_version_uid` text NOT NULL,
 	`head_hlc` text NOT NULL,
 	`conflict_count` integer DEFAULT 0 NOT NULL,
 	`last_conflict_json` text,
 	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
+	`uid` text,
 	CONSTRAINT `fk_conduit_doc_heads_attachment_uid` FOREIGN KEY (`attachment_uid`) REFERENCES `conduit_attachments`(`uid`) ON DELETE NO ACTION,
 	CONSTRAINT `fk_conduit_doc_heads_head_version_uid` FOREIGN KEY (`head_version_uid`) REFERENCES `conduit_attachment_versions`(`uid`) ON DELETE NO ACTION,
 	CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
 );
---> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS `uq_conduit_doc_heads_uid` ON `conduit_doc_heads` (`uid`);
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `section_crdt_states` (
 	`attachment_uid` text NOT NULL,
@@ -253,5 +252,13 @@ CREATE TABLE IF NOT EXISTS `section_crdt_states` (
 	CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
 );
 --> statement-breakpoint
+
+-- Note: the uid unique indexes on the two new tables are deliberately NOT
+-- created here. The open-time identity heal (store/row-identity.ts,
+-- ensureRowIdentitySchema) owns them: in the Gate B replay a pre-identity
+-- copy drops the uid columns, and a migration-time CREATE INDEX would run
+-- before the heal re-adds them ("no such column"). The heal creates
+-- `uq_<table>_uid` for every declared table at every open, on every store,
+-- so fresh and existing stores alike get the index.
 
 PRAGMA foreign_keys = ON;

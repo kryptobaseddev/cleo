@@ -560,15 +560,14 @@ export const conduitAttachmentContributors = sqliteTable(
  * an alias row records the old slug so pre-rename references keep resolving.
  * Append-only syncing table; identity is NATURAL over (slug, doc_uid) so two
  * devices that record the same alias derive the same uid and merge to one
- * row. The uid IS the primary key (the `tasks_display_id_aliases` pattern).
+ * row. The composite primary key is the natural key itself (the
+ * `tasks_task_dependencies` pattern).
  *
  * @task T13354
  */
 export const conduitDocSlugAliases = sqliteTable(
   'conduit_doc_slug_aliases',
   {
-    /** Natural row uid over (slug, doc_uid); the primary key. */
-    uid: text('uid').primaryKey(),
     /** The old slug (several aliases may point at one doc over time). */
     slug: text('slug').notNull(),
     /** FK → `conduit_attachments.uid` (immutable doc id). NO cascade delete. */
@@ -579,8 +578,18 @@ export const conduitDocSlugAliases = sqliteTable(
     reason: text('reason').notNull().default('rename'),
     /** ISO-8601 UTC creation instant. */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Natural row uid over (slug, doc_uid). Declared LAST on purpose: the
+     * row-identity heal appends a missing uid column at the end, and Gate B's
+     * replay compares column order between a rebuilt store and a written one.
+     */
+    uid: text('uid'),
   },
-  (table) => [index('idx_conduit_doc_slug_aliases_slug').on(table.slug)],
+  (table) => [
+    primaryKey({ columns: [table.slug, table.docUid] }),
+    index('idx_conduit_doc_slug_aliases_slug').on(table.slug),
+    uniqueIndex('uq_conduit_doc_slug_aliases_uid').on(table.uid),
+  ],
 );
 
 /**
@@ -590,7 +599,8 @@ export const conduitDocSlugAliases = sqliteTable(
  * the head with the MAX HLC; a losing concurrent head is never silently
  * shadowed — `conflict_count` increments and `last_conflict_json` records the
  * loser (it survives in `conduit_attachment_versions`). Identity is NATURAL
- * over `attachment_uid`, so every device addresses the same row for a doc.
+ * over `attachment_uid` (the primary key), so every device addresses the same
+ * row for a doc.
  *
  * @task T13354
  */
@@ -601,8 +611,6 @@ export const conduitDocHeads = sqliteTable(
     attachmentUid: text('attachment_uid')
       .primaryKey()
       .references((): AnySQLiteColumn => conduitAttachments.uid, { onDelete: 'no action' }),
-    /** Natural row uid over `attachment_uid` (T12341), filled at open/insert. */
-    uid: text('uid'),
     /** FK → the head version's `uid`. NO cascade delete. */
     headVersionUid: text('head_version_uid')
       .notNull()
@@ -618,6 +626,13 @@ export const conduitDocHeads = sqliteTable(
     lastConflictJson: text('last_conflict_json'),
     /** ISO-8601 UTC instant the projection last moved. */
     updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Natural row uid over `attachment_uid` (T12341). Declared LAST on
+     * purpose: the row-identity heal appends a missing uid column at the
+     * end, and Gate B's replay compares column order between a rebuilt
+     * store and a written one.
+     */
+    uid: text('uid'),
   },
   (table) => [uniqueIndex('uq_conduit_doc_heads_uid').on(table.uid)],
 );
