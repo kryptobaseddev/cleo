@@ -1,5 +1,6 @@
 /**
  * T12482 — provider ask-tool map (human-in-the-loop structured questions).
+ * T13419 — re-audited against current harness docs and binaries.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -29,6 +30,7 @@ describe('PROVIDER_ASK_TOOLS (T12482)', () => {
         expect(entry.toolName, id).toBeTruthy();
       } else {
         expect(entry.toolName, id).toBeNull();
+        expect(entry.additionalToolNames, id).toBeUndefined();
       }
     }
   });
@@ -43,8 +45,21 @@ describe('PROVIDER_ASK_TOOLS (T12482)', () => {
     ['cursor', 'AskQuestion'],
     ['cline', 'ask_followup_question'],
     ['roo', 'ask_followup_question'],
+    // T13419 re-audit (2026-10-10)
+    ['kilo-code', 'question'],
+    ['vscode', 'vscode_askQuestions'],
+    ['github-copilot', 'vscode_askQuestions'],
+    ['qwen-code', 'ask_user_question'],
+    ['continue', 'AskQuestion'],
+    ['antigravity', 'ask_question'],
   ])('%s -> %s', (id, tool) => {
     expect(getProviderAskTool(id).toolName).toBe(tool);
+  });
+
+  it('records alternate names a transcript scan must also recognise (T13419)', () => {
+    expect(getProviderAskTool('codex').additionalToolNames).toEqual(['request_user_input_async']);
+    expect(getProviderAskTool('kilo-code').additionalToolNames).toEqual(['ask_followup_question']);
+    expect(getProviderAskTool('zed').status).toBe('none');
   });
 
   it('resolves aliases to the canonical provider', () => {

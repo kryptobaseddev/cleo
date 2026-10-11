@@ -468,3 +468,99 @@ describe('a report must be fresher than the change and cover it (T12965 review)'
     });
   });
 });
+
+describe('relevance in a standalone single-package project (T13403)', () => {
+  const file = (rel: string): string => join(root, rel);
+
+  beforeEach(() => {
+    // No pnpm-workspace.yaml and no package.json#workspaces: one package.
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ name: 'solo', scripts: { test: 'vitest run' } }),
+    );
+    writeFileSync(file('src/a.test.ts'), 'export {};\n');
+    writeFileSync(file('src/b.test.ts'), 'export {};\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'solo']);
+    const origin = `${root}-origin.git`;
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
+    git(root, ['remote', 'add', 'origin', origin]);
+    git(root, ['push', '-q', '-u', 'origin', 'main']);
+    git(root, ['remote', 'set-head', 'origin', 'main']);
+    git(root, ['switch', '-q', '-c', 'task/T1']);
+    writeFileSync(file('src/a.ts'), 'export const a = 2;\n');
+    writeFileSync(file('src/a.test.ts'), 'export const t = 1;\n');
+    git(root, ['commit', '-q', '-am', 'T1: change a and its test']);
+  });
+  afterEach(() => rmSync(`${root}-origin.git`, { recursive: true, force: true }));
+
+  it('green: a targeted report that runs the changed test file stands', async () => {
+    const path = report([file('src/a.test.ts')], Date.now() + 5_000);
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ testFiles: ['src/a.test.ts'] });
+    expect(r.ok && r.atom.kind === 'test-run' && r.atom.untestedPackages).toBeFalsy();
+  });
+
+  it('red: an unrelated report (another test file of the package) is refused', async () => {
+    const path = report([file('src/b.test.ts')], Date.now() + 5_000);
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_INSUFFICIENT');
+    expect(!r.ok && r.reason).toMatch(
+      /does not run the changed test file\(s\) src\/a\.test\.ts.*single-package project/,
+    );
+  });
+
+  it('red: a partial report missing one of two changed test files is refused', async () => {
+    writeFileSync(file('src/c.test.ts'), 'export {};\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'T1: add c test']);
+    const path = report([file('src/a.test.ts'), file('src/b.test.ts')], Date.now() + 5_000);
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+      /does not run the changed test file\(s\) src\/c\.test\.ts\./,
+    );
+  });
+
+  it('red: a changed test file whose every test a -t filter skipped is not run', async () => {
+    const path = reportOf(
+      { [file('src/a.test.ts')]: ['skipped'], [file('src/b.test.ts')]: ['passed'] },
+      Date.now() + 5_000,
+    );
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/does not run the changed test file/);
+  });
+
+  it('red: a report older than the change is still refused as stale', async () => {
+    const path = report([file('src/a.test.ts')], Date.now() - 60_000);
+    touch(file('src/a.test.ts'), Date.now());
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_STALE');
+  });
+
+  it('red: once a workspace is declared, root paths are workspace-wide again (no fallback)', async () => {
+    writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'T1: declare a workspace']);
+    const path = report([file('src/a.test.ts')], Date.now() + 5_000);
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/workspace-wide.*Record tool:test/);
+  });
+
+  it('a source-only change needs a test file of the package, as a workspace package does', async () => {
+    git(root, ['switch', '-q', '-c', 'task/T2', 'main']);
+    writeFileSync(file('src/a.ts'), 'export const a = 3;\n');
+    git(root, ['commit', '-q', '-am', 'T2: change a only']);
+    const ok = await validateAtom(
+      { kind: 'test-run', path: report([file('src/b.test.ts')], Date.now() + 5_000) },
+      root,
+    );
+    expect(ok.ok, JSON.stringify(ok)).toBe(true);
+    const none = await validateAtom(
+      { kind: 'test-run', path: report(['/elsewhere/x.test.ts'], Date.now() + 5_000) },
+      root,
+    );
+    expect(!none.ok && none.reason, JSON.stringify(none)).toMatch(
+      /covers no test file of solo \(changed\)/,
+    );
+  });
+});

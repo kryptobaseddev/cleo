@@ -98,6 +98,9 @@ const SUBPATH_DIRS = [
   // T11993 — packages/core/src/resources/ hosts spawn-wrapper.ts (and future
   // monitor/backend files from T11994). Exposed as @cleocode/core/resources/*.
   'resources',
+  // T13420 — the ask-enforce Stop-hook classifier, loaded by `cleo hook
+  // ask-enforce` through @cleocode/core/harness/ask-enforce.js.
+  'harness',
 ];
 
 
@@ -528,12 +531,14 @@ const cleoBuildOptions = {
 // ---------------------------------------------------------------------------
 /** @type {esbuild.BuildOptions} */
 const adaptersBuildOptions = {
-  entryPoints: ['packages/adapters/src/index.ts'],
+  // One entry per `exports` subpath in packages/adapters/package.json; each one
+  // must ship a .js or its import fails at run time (T13490, checked below).
+  entryPoints: ['packages/adapters/src/index.ts', 'packages/adapters/src/heavy-command-hook.ts'],
   bundle: true,
   platform: 'node',
   target: 'node24',
   format: 'esm',
-  outfile: 'packages/adapters/dist/index.js',
+  outdir: 'packages/adapters/dist',
   sourcemap: 'linked',
   sourcesContent: false,
   sourceRoot: '', // T9184
@@ -543,6 +548,31 @@ const adaptersBuildOptions = {
     }),
   ],
 };
+
+/**
+ * Fail the build when a package `exports` entry names a file the build did not
+ * emit. A subpath with only its .d.ts shipped typechecks everywhere and throws
+ * ERR_MODULE_NOT_FOUND at run time: `@cleocode/adapters/heavy-command-hook`
+ * shipped that way in 2026.10.4 to 2026.10.6, so no harness got the
+ * heavy-command hook (T13490).
+ *
+ * @param {string} pkgDir - Package directory relative to the repo root.
+ */
+function assertExportsBuilt(pkgDir) {
+  const pkg = JSON.parse(readFileSync(resolve(__dirname, pkgDir, 'package.json'), 'utf8'));
+  const missing = [];
+  for (const [subpath, target] of Object.entries(pkg.exports ?? {})) {
+    const targets = typeof target === 'string' ? [target] : Object.values(target);
+    for (const file of targets) {
+      if (typeof file === 'string' && !file.includes('*') && !existsSync(resolve(__dirname, pkgDir, file))) {
+        missing.push(`${subpath} -> ${file}`);
+      }
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(`${pkgDir}: exports name files the build did not emit: ${missing.join(', ')}`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Auto-sync guard: assert every concrete non-wildcard subpath export in
@@ -955,7 +985,7 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
       assertDepsReady('packages/adapters/dist/');
       await esbuild.build(adaptersBuildOptions);
       await sanitizeSourcemaps('packages/adapters/dist'); // T9184
-      console.log('  -> packages/adapters/dist/index.js (esbuild)');
+      console.log('  -> packages/adapters/dist/{index,heavy-command-hook}.js (esbuild)');
       await rm(resolve(__dirname, 'packages/adapters/tsconfig.tsbuildinfo'), { force: true });
       await new Promise((res, rej) => {
         const proc = spawnPnpm(
@@ -968,6 +998,7 @@ export declare function is_canonical(skillPath: string, options?: IsCanonicalOpt
         );
       });
       console.log('  -> packages/adapters/dist/*.d.ts');
+      assertExportsBuilt('packages/adapters');
     })(),
   ]);
 

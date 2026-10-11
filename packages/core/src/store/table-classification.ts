@@ -216,6 +216,18 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §2.8 (T12343)',
     note: 'the transactions each persisted segment carries, in order. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
   },
+  _sync_cursor: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343)',
+    note: "where this store's pull stands per stream: the PullCursor the journal client verifies the next page against, advanced in the transaction that stages what it covers. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
+  },
+  _sync_seen_txn: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343 S5-1)',
+    note: 'every transaction id staged from a stream, so a re-delivered transaction is never staged twice (a counter delta would double). This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
   _sync_row_meta: {
     class: 'local-only',
     status: 'optional-transient',
@@ -1366,6 +1378,13 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   __drizzle_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_meta: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
+  cleo_trigger_suspend: {
+    class: 'local-only',
+    status: 'resolved',
+    source:
+      'journal spec t12342-t12343-journal-design §3.5 Rule 4, C2 (T12819); global scope T13398',
+    note: 'trigger-suspension flag rows, present only inside a suspension frame transaction on this device; read by every global capture trigger; schema-owned and never dropped',
+  },
   _sync_capture: {
     class: 'local-only',
     status: 'optional-transient',
@@ -1469,6 +1488,18 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §2.8 (T12343)',
     note: 'the transactions each persisted segment carries, in order. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_cursor: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343)',
+    note: "where this store's pull stands per stream: the PullCursor the journal client verifies the next page against, advanced in the transaction that stages what it covers. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
+  },
+  _sync_seen_txn: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343 S5-1)',
+    note: 'every transaction id staged from a stream, so a re-delivered transaction is never staged twice (a counter delta would double). This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
   },
   _sync_row_meta: {
     class: 'local-only',

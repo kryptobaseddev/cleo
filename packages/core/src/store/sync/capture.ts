@@ -63,6 +63,7 @@ import {
   CAPTURE_TRIGGER_PREFIX,
   normalizeSql,
   suspendClause,
+  TRIGGER_SUSPEND_TABLE_DDL,
 } from './trigger-classes.js';
 import { raiseMinWriterVersion } from './writer-version.js';
 
@@ -587,6 +588,32 @@ function liveCaptureTriggers(db: DatabaseSync): Map<string, string> {
   );
 }
 
+/** How the live capture triggers differ from the text generated for the current schema. */
+export interface CaptureTriggerDrift {
+  readonly missing: string[];
+  readonly differing: string[];
+  readonly extra: string[];
+}
+
+/**
+ * Live capture triggers against the text generated for the current schema
+ * (`cleo doctor`'s sync-trigger check, and the genesis preconditions).
+ * Read-only.
+ */
+export function captureTriggerDrift(db: DatabaseSync, scope: TableScope): CaptureTriggerDrift {
+  const want = new Map(generateCaptureTriggers(db, scope).map((t) => [t.name, t.sql]));
+  const live = liveCaptureTriggers(db);
+  return {
+    missing: [...want.keys()].filter((n) => !live.has(n)),
+    differing: [...want]
+      .filter(
+        ([n, sql]) => live.has(n) && normalizeSql(live.get(n) as string) !== normalizeSql(sql),
+      )
+      .map(([n]) => n),
+    extra: [...live.keys()].filter((n) => !want.has(n)),
+  };
+}
+
 /** What {@link installCaptureTriggers} changed. */
 export interface CaptureInstallReport {
   readonly installed: string[];
@@ -612,6 +639,10 @@ export function installCaptureTriggers(db: DatabaseSync, scope: TableScope): Cap
     return true;
   });
   if (report.dropped.length + changes.length === 0) return report;
+  // Every capture trigger reads cleo_trigger_suspend (T13398): a store that
+  // never ran the open pass's step 0 (a raw handle, or a global store from
+  // before step 0 covered that scope) gets it before the triggers go in.
+  if (changes.length > 0) db.exec(TRIGGER_SUSPEND_TABLE_DDL);
   // One unit (T13024 MED-2): a failed CREATE never leaves a dropped trigger committed.
   atomicDdl(db, () => {
     for (const name of report.dropped) db.exec(`DROP TRIGGER IF EXISTS ${q(name)}`);
