@@ -291,13 +291,28 @@ jobs:
   biome:
     name: Lint & Format
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
       - uses: biomejs/setup-biome@v2
         with:
           version: '2.4.11'
       - run: biome ci .
+      # T13279: biome ignores .cleo/, so the tracked project context (it
+      # drives evidence, release and testing rules) is validated against its
+      # schema here; evidence.ciChecks.covering credits this job for it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - name: Validate .cleo/project-context.json against its schema
+        run: >-
+          pnpm --package=ajv-cli@5.0.0 --package=ajv-formats@2.1.1 dlx
+          ajv validate --spec=draft7 --strict=false -c ajv-formats
+          -s packages/core/schemas/project-context.schema.json
+          -d .cleo/project-context.json
 
   adr-index-jsonl-frozen-lint:
     # T10165 / Saga T9855 SG-TEMPLATE-CONFIG-SSOT — the `.cleo/adrs/adr-index.jsonl`

@@ -67,7 +67,14 @@ export async function spawnWorktree(
   options: CreateWorktreeOptions,
 ): Promise<CreateWorktreeResult> {
   const { createWorktree } = await backend();
-  return createWorktree(projectRoot, options);
+  // T13522: install the git shim before the worktree advertises strict protection.
+  if (options.gitShim) return createWorktree(projectRoot, options);
+  const { ensureGitShimDir } = await import('../spawn/branch-lock.js');
+  const shim = ensureGitShimDir(projectRoot);
+  return createWorktree(projectRoot, {
+    ...options,
+    gitShim: { dir: shim.dir, installed: shim.installed },
+  });
 }
 
 /**

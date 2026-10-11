@@ -704,6 +704,8 @@ function serializeAtom(atom: EvidenceAtom): string | null {
     }
     case 'test-run':
       return `test-run:${atom.path}`;
+    case 'qa-run':
+      return `qa-run:${atom.path}`;
     case 'tool':
       return `tool:${atom.tool}`;
     case 'url':
@@ -972,12 +974,70 @@ interface PreviousReleaseInfo {
 }
 
 /**
- * Query the `releases` table for the most recent shipped row on the same
- * channel. Returns `{ firstEverRelease: true }` when no row matches (R-023).
+ * The previous release for a plan (R-023). The newest `v*` tag reachable from
+ * HEAD wins (T13536): the releases table can lag the tags (a release not yet
+ * reconciled), which left plans recording v2026.10.4 for 10.6, 10.7 and 10.8.
+ * Without a reachable tag, the most recent shipped row on the same channel is
+ * used; `{ firstEverRelease: true }` when neither exists.
  *
  * @internal
  */
 async function resolvePreviousVersion(
+  channel: 'latest' | 'beta' | 'dev' | 'hotfix',
+  projectRoot: string,
+  plannedVersion: string,
+): Promise<PreviousReleaseInfo> {
+  const fromTags = newestReachableReleaseTag(projectRoot, plannedVersion, channel);
+  const fromDb = await resolvePreviousVersionFromDb(channel, projectRoot);
+  if (fromTags === null) return fromDb;
+  return {
+    previousVersion: fromTags,
+    previousTag: fromTags,
+    previousShippedAt: fromDb.previousVersion === fromTags ? fromDb.previousShippedAt : null,
+    firstEverRelease: false,
+  };
+}
+
+/**
+ * The newest `v*` tag reachable from HEAD (`git tag --merged HEAD`), by
+ * version, excluding the version being planned; on the `latest` channel,
+ * prerelease tags (`-beta.1`) are skipped. Ties on one commit resolve to the
+ * highest version, which `git describe` would leave ambiguous. `null` when
+ * there is none or git fails.
+ *
+ * @task T13536
+ */
+function newestReachableReleaseTag(
+  projectRoot: string,
+  plannedVersion: string,
+  channel: string,
+): string | null {
+  let raw: string;
+  try {
+    raw = runGitWithLockRetry(['tag', '--merged', 'HEAD', '--list', 'v*'], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 60_000,
+    });
+  } catch {
+    return null;
+  }
+  const tags = raw
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((t) => t !== '' && t !== plannedVersion)
+    .filter((t) => channel !== 'latest' || !t.includes('-'));
+  tags.sort((a, b) => compareVersionStrings(b, a));
+  return tags[0] ?? null;
+}
+
+/**
+ * The most recent shipped `releases` row on the same channel (R-023).
+ *
+ * @internal
+ */
+async function resolvePreviousVersionFromDb(
   channel: 'latest' | 'beta' | 'dev' | 'hotfix',
   projectRoot: string,
 ): Promise<PreviousReleaseInfo> {
@@ -1598,12 +1658,19 @@ export async function releasePlan(
   if (opts.taskIds?.length) {
     const taskRes = await resolveExplicitTasks(opts.taskIds, projectRoot);
     if (taskRes.missing.length > 0) {
+      // #1475: every id missing usually means no task store at all (a CI runner:
+      // .cleo/cleo.db is untracked), so point at the committed-plan path instead.
+      const allMissing = taskRes.tasks.length === 0 && taskRes.excluded.length === 0;
       return engineError<ReleasePlanResult>(
         'E_NOT_FOUND',
-        'One or more --tasks IDs were not found',
+        allMissing
+          ? 'None of the --tasks IDs exist in this task store. Task-scoped planning is local-only: a CI runner has no task store (.cleo/cleo.db is untracked)'
+          : 'One or more --tasks IDs were not found',
         {
           exitCode: ExitCode.NOT_FOUND,
-          fix: `cleo exists ${taskRes.missing[0]}`,
+          fix: allMissing
+            ? `run 'cleo release plan' and 'cleo release open <version>' locally; CI must dispatch release-prepare with the committed plan's plan-blob-sha256. If this checkout has a task store, check the ids with 'cleo exists ${taskRes.missing[0]}'`
+            : `cleo exists ${taskRes.missing[0]}`,
           details: { missing: taskRes.missing },
         },
       );
@@ -1761,7 +1828,7 @@ export async function releasePlan(
 
   // ── R-023: previous-version resolution ────────────────────────────────
   const dbChannel = mapPlanChannelToDbChannel(channel, releaseKind);
-  const prior = await resolvePreviousVersion(dbChannel, projectRoot);
+  const prior = await resolvePreviousVersion(dbChannel, projectRoot, normalizedVersion);
 
   // ── R-024 / R-311: gate resolution via ADR-061 ────────────────────────
   const createdAt = new Date().toISOString();

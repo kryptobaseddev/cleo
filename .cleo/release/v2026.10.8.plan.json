@@ -1,0 +1,232 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.8",
+  "resolvedVersion": "v2026.10.8",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "createdAt": "2026-10-11T09:18:25.348Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.7",
+  "previousTag": "v2026.10.7",
+  "previousShippedAt": "2026-10-10T03:47:36.423Z",
+  "tasks": [
+    {
+      "id": "T13525",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Cache-only gate writes overwrite stored typed-gate passes with not-cached errors (live in v2026.10.7 complete path; default in #2096)",
+      "evidenceAtoms": [
+        "pr:2103",
+        "files:.changeset/t13525-keep-stored-typed-pass.md,packages/contracts/src/acceptance-gate.ts,packages/core/src/tasks/__tests__/req.tasks.test.ts,packages/core/src/tasks/gate-runner.ts,packages/core/src/validation/engine-ops.ts",
+        "ci:2103"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13527",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Typed gate snapshot refuses pnpm's symlinked interpreter script (ambiguous symlink parent) and kills the whole verify",
+      "evidenceAtoms": [
+        "pr:2101",
+        "files:.changeset/t13527-pnpm-symlink-snapshot.md,packages/core/src/tasks/__tests__/gate-runner.test.ts,packages/core/src/tasks/__tests__/req.tasks.test.ts,packages/core/src/tasks/gate-runner.ts",
+        "ci:2101"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13516",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Gate LOWs: exit-0 'N failed' output passes expect:pass; complete shows --no-run wording for E_GATE_CACHE_DISABLED",
+      "evidenceAtoms": [
+        "pr:2097",
+        "files:.changeset/t13516-gate-lows.md,packages/core/src/tasks/__tests__/complete-ci.test.ts,packages/core/src/tasks/__tests__/gate-runner.test.ts,packages/core/src/tasks/complete-ci.ts,packages/core/src/tasks/gate-runner.ts",
+        "ci:2097"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13502",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Extract one isTypedResultStale predicate shared by gate-runner revalidation and done --plan",
+      "evidenceAtoms": [
+        "pr:2099",
+        "files:.changeset/t13502-stale-predicate.md,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/gate-runner.ts,scripts/.lint-sync-write-invariants-baseline.json",
+        "ci:2099"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13436",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Throwaway containers: --rm/label convention in skills + cleo doctor system --repair reaper",
+      "evidenceAtoms": [
+        "pr:2043",
+        "files:.changeset/t13436-container-reaper.md,packages/cleo/src/cli/commands/doctor-system.ts,packages/core/src/doctor/__tests__/container-reaper.test.ts,packages/core/src/doctor/container-reaper.ts,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2043"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13463",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence: review LOWs from #2051/#2052 (research PR vs doc, checkout-required message)",
+      "evidenceAtoms": [
+        "pr:2064",
+        "files:.changeset/t13463-review-lows.md,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/done-record.test.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/done-plan.ts",
+        "ci:2064"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13278",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Undo budget part B: rebind and retire at the next pull to head (spec §3.5 Rule 2, D5; needs S4 pull)",
+      "evidenceAtoms": [
+        "pr:1985",
+        "files:.changeset/t13278-rebind-retire.md,packages/contracts/src/ledger/index.ts,packages/core/migrations/sync-journal/20261009130000_t13278-replica-retire/migration.sql,packages/core/src/cloud/__tests__/nexus-attach.test.ts,packages/core/src/cloud/__tests__/replica-rebind.test.ts,packages/core/src/cloud/nexus-link.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/cloud/replica-rebind.ts,packages/core/src/store/__tests__/table-classification-gate.test.ts,packages/core/src/store/sync/__tests__/inherit.test.ts,packages/core/src/store/sync/__tests__/rebind-at-head.test.ts,packages/core/src/store/sync/apply/applier.ts,packages/core/src/store/sync/capture.ts,packages/core/src/store/sync/inherit.ts,packages/core/src/store/sync/pull.ts,packages/core/src/store/sync/rebind.ts,packages/core/src/store/sync/reconcile.ts,packages/core/src/store/sync/repair.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/sync/retire.ts,packages/core/src/store/sync/sealer.ts,packages/core/src/store/sync/segments.ts,packages/core/src/store/table-classification.ts,scripts/lint-no-raw-table-writes.mjs",
+        "ci:1985"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13366",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Receivers honour a replica retire only when the server confirms it",
+      "evidenceAtoms": [
+        "pr:2007",
+        "files:.changeset/t13366-retire-confirm.md,packages/core/migrations/sync-journal/20261009140000_t13366-retire-confirm/migration.sql,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/__tests__/replica-rebind.test.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/cloud/replica-rebind.ts,packages/core/src/store/sync/__tests__/rebind-at-head.test.ts,packages/core/src/store/sync/pull.ts,packages/core/src/store/sync/retire.ts,scripts/lint-no-raw-table-writes.mjs",
+        "ci:2007"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13525",
+      "T13527",
+      "T13516",
+      "T13502",
+      "T13436",
+      "T13463",
+      "T13278",
+      "T13366"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T09:18:25.348Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T09:18:25.348Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T09:18:25.348Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T09:18:25.348Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T09:18:25.348Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T09:18:25.348Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 656 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.8 — 2026-10-11\n\n### Added\n\n- Sync: the undo-budget rebind runs at the next pull to head - reconcile, signed retire of the old replica, late old segments as history _(provenance: [T13278](https://github.com/kryptobaseddev/cleo/search?q=T13278&type=commits), [T12763](https://github.com/kryptobaseddev/cleo/search?q=T12763&type=commits), [T12753](https://github.com/kryptobaseddev/cleo/search?q=T12753&type=commits))_\n- Throwaway containers: a `--rm` / `cleo.task` + `cleo.ttl` label convention, and a bounded reaper behind `cleo doctor system --repair` (dry run first) _(provenance: [T13436](https://github.com/kryptobaseddev/cleo/search?q=T13436&type=commits))_\n\n### Fixed\n\n- Sync: a replica retire counts only once the server confirms it _(provenance: [T13366](https://github.com/kryptobaseddev/cleo/search?q=T13366&type=commits))_\n- a research or spike task's own-branch PR still implements it ahead of its review doc, and checkout-required names the merge it switches to and offers ci:<pr> only when evidence.ciSatisfies is set _(provenance: [T13463](https://github.com/kryptobaseddev/cleo/search?q=T13463&type=commits))_\n- cleo done --plan and cleo complete judge a stored typed result as stale with one shared predicate, so the plan never reads as a pass a result completion refuses _(provenance: [T13502](https://github.com/kryptobaseddev/cleo/search?q=T13502&type=commits))_\n- a typed test gate fails on a non-zero failed count even with exit 0, and cleo complete names cleo verify --run (not --no-run) when typed gates have no cached pass _(provenance: [T13516](https://github.com/kryptobaseddev/cleo/search?q=T13516&type=commits))_\n- a cache-only gate write (--no-run, or cleo complete's merged-CI record) no longer wipes a typed gate's stored pass after HEAD moves; a pass that still proves the gate on the same inputs is kept _(provenance: [T13525](https://github.com/kryptobaseddev/cleo/search?q=T13525&type=commits))_\n- typed gates that run a script through pnpm's node_modules link no longer fail verify, and a gate whose inputs cannot be captured fails alone instead of aborting every gate _(provenance: [T13527](https://github.com/kryptobaseddev/cleo/search?q=T13527&type=commits))_\n",
+    "changesetEntryCount": 8,
+    "changesetIds": [
+      "t13278-rebind-retire",
+      "t13366-retire-confirm",
+      "t13436-container-reaper",
+      "t13463-review-lows",
+      "t13502-stale-predicate",
+      "t13516-gate-lows",
+      "t13525-keep-stored-typed-pass",
+      "t13527-pnpm-symlink-snapshot"
+    ],
+    "taskIds": [
+      "T13525",
+      "T13527",
+      "T13516",
+      "T13502",
+      "T13436",
+      "T13463",
+      "T13278",
+      "T13366"
+    ]
+  }
+}

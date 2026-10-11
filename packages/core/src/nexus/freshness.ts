@@ -14,10 +14,14 @@
  * @module nexus/freshness
  */
 
+import { existsSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
+import { fileURLToPath } from 'node:url';
+import { getHeapStatistics } from 'node:v8';
 import type { GraphIndexFreshness } from '@cleocode/contracts';
 import type { KnownFileFingerprint } from '@cleocode/nexus/pipeline';
 import { getConfigValue } from '../config/registry.js';
+import { readEnvOverride } from '../config.js';
 import { pushWarning } from '../output.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
 import { runNexusAnalysis } from './analyze-orchestrator.js';
@@ -82,6 +86,8 @@ export interface NexusAutoRefreshPolicy {
   maxFiles: number;
   /** Wall-clock budget; a refresh estimated to exceed it is not started. @defaultValue 60000 */
   budgetMs: number;
+  /** What turned refresh off, when not the config key (`--no-refresh`, `CLEO_NEXUS_AUTO_REFRESH`). */
+  disabledBy?: string;
 }
 
 /** Estimate a refresh from the last recorded run, or `null` when nothing is recorded. */
@@ -256,6 +262,28 @@ export async function readNexusAutoRefreshPolicy(
     read('maxFiles'),
     read('budgetMs'),
   ]);
+  // T13523: the env var wins over config, as ENV_MAP does for loadConfig.
+  const env = envSwitch(readEnvOverride('nexus.autoRefresh.enabled'));
+  if (env === true) return policyFrom(true, maxFiles, budgetMs);
+  if (env === false)
+    return { ...policyFrom(false, maxFiles, budgetMs), disabledBy: 'CLEO_NEXUS_AUTO_REFRESH' };
+  return policyFrom(enabled, maxFiles, budgetMs);
+}
+
+/** Read an on/off env value (`true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`); `undefined` otherwise. */
+function envSwitch(value: unknown): boolean | undefined {
+  const text = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes', 'on'].includes(text)) return true;
+  if (['false', '0', 'no', 'off'].includes(text)) return false;
+  return undefined;
+}
+
+/** Apply defaults to raw `nexus.autoRefresh.*` values. */
+function policyFrom(
+  enabled: unknown,
+  maxFiles: unknown,
+  budgetMs: unknown,
+): NexusAutoRefreshPolicy {
   return {
     enabled: typeof enabled === 'boolean' ? enabled : true,
     maxFiles:
@@ -267,6 +295,99 @@ export async function readNexusAutoRefreshPolicy(
         ? budgetMs
         : DEFAULT_AUTO_REFRESH_BUDGET_MS,
   };
+}
+
+/** What an inline refresh is asked to do (structured-cloned into its worker). */
+export interface NexusRefreshInput {
+  /** Project whose graph is refreshed. */
+  projectRoot: string;
+  /** Source root the previous generation was built from. */
+  repoPath: string;
+  /** Included nested repositories carried over from the previous generation. */
+  includedRepositories?: readonly string[];
+  /** Wall-clock budget; cancels the run at its next phase boundary. */
+  budgetMs: number;
+}
+
+/** What an inline refresh reports back. */
+export interface NexusRefreshSummary {
+  /** Analysis mode the refresh ran in. */
+  mode: GraphRunCost['summary']['mode'];
+  /** Why that mode was chosen. */
+  reason: string;
+}
+
+/** Runs one inline refresh; {@link runRefreshInWorker} unless a caller supplies another. */
+export type NexusRefreshRunner = (input: NexusRefreshInput) => Promise<NexusRefreshSummary>;
+
+/**
+ * Run a refresh in this thread, incrementally or not at all. Unbounded in
+ * memory: {@link runRefreshInWorker} runs it inside a heap-limited worker.
+ *
+ * @param input - The refresh to run.
+ * @returns The refresh summary.
+ */
+export async function runRefreshInProcess(input: NexusRefreshInput): Promise<NexusRefreshSummary> {
+  const { summary } = await runNexusAnalysis({
+    projectRoot: input.projectRoot,
+    repoPath: input.repoPath,
+    ...(input.includedRepositories ? { includedRepositories: input.includedRepositories } : {}),
+    parserLimits: { signal: AbortSignal.timeout(input.budgetMs) },
+    requireIncremental: true,
+  });
+  return { mode: summary.mode, reason: summary.reason };
+}
+
+/**
+ * Run an inline refresh in a worker thread with its own heap limit (T13537).
+ *
+ * A refresh that outgrows the limit ends the worker with
+ * `ERR_WORKER_OUT_OF_MEMORY` and this rejects; the CLI's own heap is never
+ * touched, so a read query cannot abort at the CLI heap cap. Even an
+ * incremental run re-resolves the whole graph (Leiden included), so the bound
+ * matters whatever the stale-file count.
+ *
+ * @param input - The refresh to run.
+ * @param options - Worker entry and heap limit; default to `refresh-worker.js`
+ *   beside this module and this process's own V8 heap limit, so a refresh that
+ *   fit in-process still fits.
+ * @returns The refresh summary.
+ */
+export async function runRefreshInWorker(
+  input: NexusRefreshInput,
+  options: { entry?: URL; heapMb?: number } = {},
+): Promise<NexusRefreshSummary> {
+  const entry = options.entry ?? new URL('./refresh-worker.js', import.meta.url);
+  // Running from TypeScript source (no built worker beside it) has no bounded
+  // runner; refreshing in-process would reintroduce the heap-cap abort.
+  if (!existsSync(fileURLToPath(entry)))
+    throw new Error(`no bounded refresh worker at ${fileURLToPath(entry)}`);
+  const heapMb =
+    options.heapMb ?? Math.max(64, Math.floor(getHeapStatistics().heap_size_limit / 2 ** 20));
+  const { Worker } = await import('node:worker_threads');
+  return new Promise<NexusRefreshSummary>((resolve, reject) => {
+    let summary: NexusRefreshSummary | undefined;
+    const worker = new Worker(entry, {
+      workerData: input,
+      resourceLimits: { maxOldGenerationSizeMb: heapMb },
+    });
+    worker.on('message', (message: NexusRefreshSummary) => {
+      summary = message;
+    });
+    worker.on('error', (error: Error & { code?: string }) => {
+      reject(
+        error.code === 'ERR_WORKER_OUT_OF_MEMORY'
+          ? new Error(
+              `the refresh exceeded its ${heapMb} MB heap bound; run ${NEXUS_REFRESH_COMMAND}`,
+            )
+          : error,
+      );
+    });
+    worker.on('exit', (code) => {
+      if (summary) resolve(summary);
+      else reject(new Error(`the refresh worker exited with code ${code} and no result`));
+    });
+  });
 }
 
 /**
@@ -282,11 +403,13 @@ export async function readNexusAutoRefreshPolicy(
  *
  * @param projectRoot - Project whose graph is about to be queried.
  * @param policy - Explicit policy; read from config when omitted.
+ * @param runRefresh - Runs the refresh; a heap-bounded worker unless supplied (T13537).
  * @returns Freshness of the index as it stands after any refresh, with its stale set.
  */
 export async function ensureNexusIndexFresh(
   projectRoot: string,
   policy?: NexusAutoRefreshPolicy,
+  runRefresh: NexusRefreshRunner = runRefreshInWorker,
 ): Promise<NexusFreshnessAssessment> {
   const initial = await assessWithStaleSet(projectRoot);
   const before = initial.freshness;
@@ -300,15 +423,29 @@ export async function ensureNexusIndexFresh(
     },
   });
   if (!effective.enabled)
-    return skip('auto-refresh is disabled (nexus.autoRefresh.enabled = false)');
+    return skip(
+      `auto-refresh is disabled (${effective.disabledBy ?? 'nexus.autoRefresh.enabled = false'}); answered from the stale index`,
+    );
   if (before.staleFileCount > effective.maxFiles)
     return skip(
       `${before.staleFileCount} stale files exceed nexus.autoRefresh.maxFiles = ${effective.maxFiles}; ` +
         'answered from the stale index',
     );
+  // T13523: a read query never runs a full rebuild inline; the pipeline also
+  // refuses one it would fall back to (requireIncremental below).
+  if (before.fileCount > 0 && before.staleFileCount / before.fileCount > FULL_REBUILD_RATIO)
+    return skip(
+      `${before.staleFileCount} of ${before.fileCount} files are stale, which needs a full rebuild; answered from the stale index (run ${NEXUS_REFRESH_COMMAND})`,
+    );
   const db = await getNexusDb(projectRoot);
   const estimate = estimateRefreshMs(readRunCost(db), before.staleFileCount, before.fileCount);
-  if (estimate !== null && estimate > effective.budgetMs)
+  // T13523: with no recorded cost there is no bound on the run (a full
+  // analysis, Leiden included, can exhaust the CLI heap), so do not start one.
+  if (estimate === null)
+    return skip(
+      `no previous analysis cost recorded, so the refresh cannot be bounded; answered from the stale index (run ${NEXUS_REFRESH_COMMAND} to refresh and record one)`,
+    );
+  if (estimate > effective.budgetMs)
     return skip(
       `estimated refresh ${Math.round(estimate / 1000)}s exceeds nexus.autoRefresh.budgetMs = ` +
         `${effective.budgetMs}; answered from the stale index`,
@@ -317,11 +454,11 @@ export async function ensureNexusIndexFresh(
   const manifest = readFileManifest(db, projectRoot);
   const started = performance.now();
   try {
-    const result = await runNexusAnalysis({
+    const summary = await runRefresh({
       projectRoot,
       repoPath: manifest?.sourceRoot ?? projectRoot,
       ...(manifest ? { includedRepositories: manifest.includedRepositories } : {}),
-      parserLimits: { signal: AbortSignal.timeout(effective.budgetMs) },
+      budgetMs: effective.budgetMs,
     });
     const after = await assessWithStaleSet(projectRoot);
     return {
@@ -329,10 +466,10 @@ export async function ensureNexusIndexFresh(
       freshness: {
         ...after.freshness,
         autoRefresh: {
-          refreshed: result.summary.mode !== 'unchanged',
+          refreshed: summary.mode !== 'unchanged',
           staleFiles: before.staleFileCount,
           durationMs: Math.round(performance.now() - started),
-          reason: `${result.summary.mode}: ${result.summary.reason}`,
+          reason: `${summary.mode}: ${summary.reason}`,
         },
       },
     };
@@ -390,6 +527,14 @@ export function querySymbolFiles(data: unknown): string[] {
   return [...files];
 }
 
+/** `--no-refresh` (T13523): answer from the index as it stands. */
+const NO_REFRESH_POLICY: NexusAutoRefreshPolicy = {
+  enabled: false,
+  maxFiles: 0,
+  budgetMs: DEFAULT_AUTO_REFRESH_BUDGET_MS,
+  disabledBy: '--no-refresh',
+};
+
 /**
  * Assess (and when small, repair) index freshness before a graph query.
  *
@@ -397,13 +542,18 @@ export function querySymbolFiles(data: unknown): string[] {
  * reason, so it neither blocks the query nor is ever mistaken for fresh.
  *
  * @param projectRoot - Project whose graph is about to be queried.
+ * @param options - `refresh: false` (`--no-refresh`) skips any inline refresh.
  * @returns The assessment to judge the answer against.
  */
 export async function assessNexusFreshnessForQuery(
   projectRoot: string,
+  options: { refresh?: boolean } = {},
 ): Promise<NexusFreshnessAssessment> {
   try {
-    return await ensureNexusIndexFresh(projectRoot);
+    return await ensureNexusIndexFresh(
+      projectRoot,
+      options.refresh === false ? NO_REFRESH_POLICY : undefined,
+    );
   } catch (error) {
     return {
       staleFiles: new Set(),

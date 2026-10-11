@@ -615,9 +615,9 @@ export interface CloudStatusUndoBudget {
 }
 
 /**
- * The pull's seen-transaction ledger (`_sync_seen_txn`, T13317). Nothing
- * prunes it yet: a seen txn can return in a new segment above any checkpoint,
- * so pruning waits for a proven refusal floor (T13318).
+ * The pull's seen-transaction ledger (`_sync_seen_txn`, T13317). The cloud
+ * pull prunes each origin's rows below its staged `local_seq` floor (T13318);
+ * a pruned transaction delivered again is refused, never applied twice.
  */
 export interface CloudStatusSeenTxns {
   /** Rows held, every stream. */

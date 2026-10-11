@@ -284,9 +284,9 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/conflicts.ts': {
     _sync_conflict: {
-      count: 2,
+      count: 3,
       reason:
-        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction, and marked resolved by `cleo cloud conflicts resolve` (T12344)",
+        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction, and marked resolved by `cleo cloud conflicts resolve` (T12344) or when the held collision it records settles (T13397)",
     },
   },
   'packages/core/src/store/sync/field-leave.ts': {
@@ -316,7 +316,7 @@ export const EXEMPT = {
     },
   },
   'packages/core/src/store/sync/capture.ts': {
-    _sync_capture: { count: 4, reason: CAPTURE_MACHINERY },
+    _sync_capture: { count: 5, reason: CAPTURE_MACHINERY }, // +1 T13399 re-key announcement capture
     _sync_frame: { count: 2, reason: CAPTURE_MACHINERY },
     _sync_undo: { count: 4, reason: CAPTURE_MACHINERY },
   },
@@ -329,7 +329,79 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/inherit.ts': {
     _sync_capture: { count: 1, reason: SEALER },
-    _sync_txn: { count: 1, reason: SEALER },
+    _sync_txn: {
+      count: 2,
+      reason: `${SEALER}; a rebind also inherits the transactions of segments it never pushed (T13278)`,
+    },
+    _sync_segment: {
+      count: 1,
+      reason:
+        'segment outbox (local-only): a rebind marks the segments the old replica never pushed inherited (§1.5 H3, T13278)',
+    },
+  },
+  'packages/core/src/store/sync/rebind.ts': {
+    _sync_meta: {
+      count: 4,
+      reason: `${SYNC_BOOKKEEPING}; the rebind at head clears sync.undo_budget_exceeded, records and clears its pending server half, and resets the foreign-touch keys (§3.5 D5, T13278)`,
+    },
+    _sync_segment: {
+      count: 1,
+      reason:
+        'segment outbox (local-only): segments the server holds (per the pull cursor) are marked pushed before a rebind, never inherited (T13278)',
+    },
+    _sync_txn: {
+      count: 1,
+      reason: `${SEALER}; a rebind inherits every transaction of the old replica the stream has not sequenced (T13278)`,
+    },
+    _sync_undo: {
+      count: 1,
+      reason:
+        'capture undo (local-only): the rebind at head empties the undo log (§3.5 D5, T13278)',
+    },
+    _sync_row_undo: {
+      count: 1,
+      reason: 'row undo (local-only): the rebind at head empties the undo log (§3.5 D5, T13278)',
+    },
+    _sync_foreign_touch: {
+      count: 1,
+      reason:
+        'foreign-touch index (local-only): reset once the rebind left nothing to rewind (§3.5 Rule 3, T13278)',
+    },
+  },
+  'packages/core/src/store/sync/reconcile.ts': {
+    _sync_capture: {
+      count: 3,
+      reason: `${SEALER}; the rebind reconcile consumes the inherited captures and writes the re-emitted rows as captures of one rebind frame (§1.5 N7, T12763)`,
+    },
+    _sync_frame: {
+      count: 1,
+      reason: `${SEALER}; the rebind reconcile opens its rebind frame (§1.5 N7, T12763)`,
+    },
+    _sync_undo: {
+      count: 1,
+      reason:
+        'capture undo (local-only): a rebind reconcile repair keeps its undo until its echo (§3.5 D1, T12763)',
+    },
+    _sync_ledger: {
+      count: 1,
+      reason: `${SEALER}; the ledger forgets the row counts of inherited sealed transactions, which the rebind frame recounts (T12763)`,
+    },
+    _sync_row_meta: {
+      count: 1,
+      reason:
+        'row meta (local-only): a row the stream never saw loses the meta an inherited seal wrote, so its re-emitted insert seals as an I (T12763)',
+    },
+  },
+  'packages/core/src/store/sync/retire.ts': {
+    _sync_txn: {
+      count: 1,
+      reason: `${SEALER}; the retire control transaction is written as a sealed transaction of the successor (§1.5, T13278)`,
+    },
+    _sync_retired: {
+      count: 2,
+      reason:
+        'retired replicas (local-only): every retire a stream carries is recorded at its seq, rebuilt from the stream by each receiver (T13278), and confirmed from the server record (T13366)',
+    },
   },
   'packages/core/src/store/sync/remap.ts': {
     _sync_capture: { count: 1, reason: SEALER },
@@ -375,6 +447,10 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/sealer.ts': {
     _sync_apply_intent: { count: 1, reason: SEALER },
+    _sync_authored: {
+      count: 1,
+      reason: `${SEALER}; records each minted row this replica sealed an insert of, the collision settle path's origin test (T13399)`,
+    },
     _sync_capture: { count: 2, reason: SEALER },
     _sync_frame: { count: 1, reason: SEALER },
     _sync_ledger: { count: 1, reason: SEALER },
@@ -417,7 +493,12 @@ export const EXEMPT = {
     _sync_seen_txn: {
       count: 2,
       reason:
-        'staged transaction ids (local-only): a re-delivered transaction is never staged twice, and rows past the latest verified checkpoint are pruned (§3.1, T12343 S5-1)',
+        "staged transaction ids (local-only): a re-delivered transaction is never staged twice, and rows below their origin's staged floor are pruned (§3.1, T12343 S5-1, T13318)",
+    },
+    _sync_seen_floor: {
+      count: 2,
+      reason:
+        'per-origin staged local_seq floor and seen-ledger counts (local-only): raised with every staged txn, marked with every prune (§3.1, T13318)',
     },
   },
   'packages/core/src/store/sync/push.ts': {
@@ -609,6 +690,27 @@ const REGEX_AFTER_WORD = new Set([
 ]);
 
 /**
+ * `[A-Za-z_$]` by char code: the lexer tests every character, and a regex per
+ * character dominated its run time.
+ *
+ * @param {number} code - `charCodeAt` result.
+ * @returns {boolean}
+ */
+function isWordStart(code) {
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 95 || code === 36;
+}
+
+/**
+ * `[\w$]` by char code (see {@link isWordStart}).
+ *
+ * @param {number} code - `charCodeAt` result.
+ * @returns {boolean}
+ */
+function isWordChar(code) {
+  return isWordStart(code) || (code >= 48 && code <= 57);
+}
+
+/**
  * Blank comments with spaces, keeping newlines, so line numbers survive.
  *
  * A small lexer, not a regex: it skips string, template and regex literals
@@ -759,9 +861,9 @@ export function stripComments(src, lang = 'js') {
         depth--;
       }
     }
-    if (/[A-Za-z_$]/.test(c)) {
+    if (isWordStart(src.charCodeAt(i))) {
       let j = i;
-      while (j < n && /[\w$]/.test(src[j])) j++;
+      while (j < n && isWordChar(src.charCodeAt(j))) j++;
       prevWord = src.slice(i, j);
       prev = 'a';
       i = j;
@@ -774,6 +876,39 @@ export function stripComments(src, lang = 'js') {
     i++;
   }
   return out.join('');
+}
+
+/**
+ * Every pattern read from comment-stripped code (`WRITE_RE`, `REPLACE_RE`,
+ * `DDL_REPLACE_RE`, the Drizzle `.insert(`/`.update(`/`.delete(` report) needs
+ * one of these words, and every staged-snapshot marker needs `gate-28`.
+ * Stripping only blanks characters, so a file without any of them has no hit
+ * either way.
+ */
+const LEX_NEEDED_RE = /insert|replace|update|delete|gate-28/i;
+
+/** Comment-stripped code per file, shared by {@link scan} and {@link scanReplace}. */
+const lexed = new Map();
+
+/**
+ * {@link stripComments}, skipped when no pattern could match and run once per
+ * file per process: the lexer is most of this gate's run time, and its
+ * real-repository test timed out under CI load (#1919). A skipped file returns
+ * `src` unchanged, which yields no write site, REPLACE site, marker or Drizzle
+ * write.
+ *
+ * @param {string} file - Repo-relative path (the cache key).
+ * @param {string} src - File contents.
+ * @returns {string} Comment-stripped code, or `src` when nothing can match.
+ */
+function codeForScan(file, src) {
+  const hit = lexed.get(file);
+  if (hit?.src === src) return hit.code;
+  const code = LEX_NEEDED_RE.test(src)
+    ? stripComments(src, file.endsWith('.rs') ? 'rs' : 'js')
+    : src;
+  lexed.set(file, { src, code });
+  return code;
 }
 
 function sourceFiles({ includeSanctioned = false } = {}) {
@@ -1085,7 +1220,7 @@ export function scanReplace() {
   const parents = repoFkActionParents([...raw.values()]);
   const violations = [];
   for (const [file, src] of raw) {
-    const code = stripComments(src, file.endsWith('.rs') ? 'rs' : 'js');
+    const code = codeForScan(file, src);
     const rawLines = src.split('\n');
     for (const site of replaceSites(code)) {
       if (!replaceAllowed(rawLines, site.line)) {
@@ -1135,9 +1270,8 @@ function scan() {
   const stray = [];
   const sources = [];
   for (const file of sourceFiles()) {
-    const lang = file.endsWith('.rs') ? 'rs' : 'js';
     const src = readFileSync(resolve(REPO_ROOT, file), 'utf-8');
-    const code = stripComments(src, lang);
+    const code = codeForScan(file, src);
     sources.push({ file, code });
     const bound = bindMarkers(writeSites(code, tables), stagedMarkers(src, code), code);
     for (const hit of bound.sites) findings.push({ file, ...hit });

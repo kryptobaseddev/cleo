@@ -34,6 +34,7 @@ import { getCleoDirAbsolute } from '../paths.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { attachmentRefs, attachments } from '../store/tasks-schema.js';
 import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
+import { deriveDocLinks, linksJsonOrNull } from './derive-links.js';
 import { validateDocBody } from './validate-body.js';
 import { getCanonicalCleoVersion } from './version-ssot.js';
 
@@ -477,7 +478,7 @@ export async function updateDocBySlug(
         squashed: false,
         summary,
         ownerVersion: getCanonicalCleoVersion(projectRoot),
-        docVersion: (oldRow as unknown as { doc_version?: number }).doc_version ?? 1,
+        docVersion: oldRow.docVersion,
         dryRun: true,
         wouldWrite: false,
         wouldChange,
@@ -532,7 +533,7 @@ export async function updateDocBySlug(
             ? `slug '${slug}' was left untouched (bytes and lifecycle status unchanged)`
             : `slug '${slug}' bytes unchanged but lifecycle status changed from '${oldRow.lifecycleStatus}' to '${status}'`,
         ownerVersion: getCanonicalCleoVersion(projectRoot),
-        docVersion: (oldRow as unknown as { doc_version?: number }).doc_version ?? 1,
+        docVersion: oldRow.docVersion,
       },
     };
   }
@@ -543,6 +544,12 @@ export async function updateDocBySlug(
   // future put of the same content will reuse the file rather than
   // creating a duplicate.
   const mime = hasContent ? 'text/plain' : 'application/octet-stream';
+  // T13357: re-derive mention links from the new body; topics carry over
+  // from the old row (labels do not flow through the update path).
+  const derivedRelatedTasks =
+    buf !== null && hasContent
+      ? linksJsonOrNull(deriveDocLinks(buf.toString('utf-8')).relatedTasks)
+      : (oldRow.relatedTasks ?? null);
   // Contract-compliant BlobAttachment shape (T11262). Historic rows used
   // {name, blobId} which violated the canonical {sha256, storageKey} shape
   // defined in `@cleocode/contracts/attachment.ts` and broke read paths that
@@ -644,6 +651,9 @@ export async function updateDocBySlug(
           slug,
           type: oldRow.type ?? null,
           lifecycleStatus: status,
+          docVersion: oldRow.docVersion + 1,
+          topics: oldRow.topics ?? null,
+          relatedTasks: derivedRelatedTasks,
         })
         .where(eq(attachments.id, existingNewRow.id))
         .run();
@@ -661,7 +671,9 @@ export async function updateDocBySlug(
           ...(oldRow.type ? { type: oldRow.type } : {}),
           lifecycleStatus: status,
           ownerVersion: getCanonicalCleoVersion(projectRoot),
-          docVersion: ((oldRow as unknown as { doc_version?: number }).doc_version ?? 0) + 1,
+          docVersion: oldRow.docVersion + 1,
+          topics: oldRow.topics ?? null,
+          relatedTasks: derivedRelatedTasks,
         })
         .run();
     }
@@ -732,6 +744,17 @@ export async function updateDocBySlug(
     },
   });
 
+  // T13357: refresh the wikilinks edge table after the write. Best-effort —
+  // a graph rebuild failure must not fail the completed update.
+  try {
+    const { rebuildDocsWikilinks } = await import('./wikilinks.js');
+    await rebuildDocsWikilinks({ projectRoot });
+  } catch (rebuildErr) {
+    process.emitWarning(
+      `docs wikilinks rebuild failed after update of slug '${slug}': ${rebuildErr instanceof Error ? rebuildErr.message : String(rebuildErr)}`,
+    );
+  }
+
   return {
     ok: true,
     result: {
@@ -748,7 +771,7 @@ export async function updateDocBySlug(
       squashed,
       summary: `slug '${slug}' was changed — content replaced${params.message ? ` ("${params.message}")` : ''}`,
       ownerVersion: getCanonicalCleoVersion(projectRoot),
-      docVersion: ((oldRow as unknown as { doc_version?: number }).doc_version ?? 1) + 1,
+      docVersion: oldRow.docVersion + 1,
     },
   };
 }

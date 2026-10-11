@@ -2,6 +2,20 @@
 import { createHash } from 'node:crypto';
 import ts from 'typescript';
 
+/**
+ * Cheap text pre-check: `false` proves `source` holds no `process.stdout.write`
+ * call, so a repo scan can skip the TypeScript parse (most of its cost; the
+ * stdout lint tests timed out under CI load, #1904/#1905). Any such call spells
+ * `stdout` in the text unless the identifier uses a unicode escape, so `\u`
+ * also forces the parse.
+ *
+ * @param {string} source - File contents.
+ * @returns {boolean} Whether {@link stdoutCallIdentities} could find a call.
+ */
+export function mayContainStdoutCall(source) {
+  return source.includes('stdout') || source.includes('\\u');
+}
+
 /** Return direct process.stdout.write calls with formatting-independent, literal-preserving identities. */
 export function stdoutCallIdentities(source, file) {
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);

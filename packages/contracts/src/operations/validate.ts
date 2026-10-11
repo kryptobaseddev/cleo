@@ -228,6 +228,11 @@ export interface ValidateGateParams {
    * none; a gate without a fresh cached pass refuses with `E_GATE_NOT_CACHED`.
    */
   noRun?: boolean;
+  /**
+   * `cleo verify --run --req A,B` (T13486): run and cache only the typed gates
+   * with these REQ-IDs (comma-separated); the others are not run.
+   */
+  req?: string;
 }
 export interface ValidateGateResult {
   taskId: string;

@@ -56,6 +56,7 @@ import {
   opencodeHeavyCommandPluginSource,
   syncClaudeCodeHeavyCommandHook,
   syncCodexHeavyCommandHook,
+  syncJsonAskEnforceHook,
   syncOpencodeHeavyCommandPlugin,
   trackedFileModified,
 } from './heavy-command-hook-install.js';
@@ -191,6 +192,27 @@ function errorText(err: unknown): string {
 }
 
 /** Sync one provider; never throws. */
+/**
+ * Install (or remove) CLEO's ask-enforce Stop hook (T13420) in the same JSON
+ * config as the heavy-command hook, after that hook synced. It rides the
+ * heavy-command delivery: removed when that hook's mode is `off` or when
+ * `CLEO_ASK_ENFORCE=off`. Never fails the heavy-command outcome.
+ * shortcut: no separate outcome or doctor row yet; add one when a config key replaces the env switch.
+ */
+async function syncAskEnforceHook(
+  provider: 'claude-code' | 'codex',
+  target: string,
+  mode: HeavyCommandHookMode,
+  env: Env,
+): Promise<void> {
+  const install = mode !== 'off' && env.CLEO_ASK_ENFORCE?.trim().toLowerCase() !== 'off';
+  try {
+    await syncJsonAskEnforceHook(target, provider, install);
+  } catch {
+    // Fail open: a config the Stop hook cannot be written to keeps the heavy-command result.
+  }
+}
+
 async function syncProvider(
   provider: HeavyCommandHookProvider,
   projectDir: string,
@@ -210,6 +232,7 @@ async function syncProvider(
         : provider === 'codex'
           ? await syncCodexHeavyCommandHook(projectDir, mode)
           : syncOpencodeHeavyCommandPlugin(projectDir, mode);
+    if (provider !== 'opencode') await syncAskEnforceHook(provider, target, mode, env);
     return { provider, status: result, target };
   } catch (err) {
     if (err instanceof HeavyHookSharedConfigError) {
@@ -602,11 +625,19 @@ export function probeHeavyHookCli(
     return { state: 'current', path, detail: `${path} answers \`cleo hook heavy-command\`` };
   }
   if (probe.status === 127 && /Unknown command/.test(probe.stderr ?? '')) return older;
+  // A child that exits without reading stdin can close the pipe before the
+  // payload is written: spawnSync then reports EPIPE alongside the real exit
+  // status. The exit status is the answer; the error only explains a child
+  // that never exited (not found, timed out, killed).
+  const outcome =
+    probe.status !== null
+      ? `exit ${probe.status}`
+      : (probe.error?.message ?? `signal ${probe.signal ?? 'none'}`);
   return {
     state: 'unknown',
     path,
     detail:
-      `${path} did not answer \`cleo hook heavy-command\` (${probe.error?.message ?? `exit ${probe.status ?? 'none'}`}); ` +
+      `${path} did not answer \`cleo hook heavy-command\` (${outcome}); ` +
       'the hook fails open, so heavy commands run ungoverned while it does not',
     remedy: `run \`${path} hook heavy-command < /dev/null\` in ${projectDir} to see why it fails (a broken version-manager shim, say)`,
   };
