@@ -260,7 +260,7 @@ export function createDefaultConfig(): Record<string, unknown> {
     brain: {
       autoCapture: true,
       memoryBridge: {
-        mode: 'file',
+        mode: 'cli',
         autoRefresh: true,
         contextAware: true,
       },

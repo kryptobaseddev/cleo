@@ -272,9 +272,9 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/conflicts.ts': {
     _sync_conflict: {
-      count: 2,
+      count: 3,
       reason:
-        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction, and marked resolved by `cleo cloud conflicts resolve` (T12344)",
+        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction, and marked resolved by `cleo cloud conflicts resolve` (T12344) or when the held collision it records settles (T13397)",
     },
   },
   'packages/core/src/store/sync/field-leave.ts': {
@@ -304,7 +304,7 @@ export const EXEMPT = {
     },
   },
   'packages/core/src/store/sync/capture.ts': {
-    _sync_capture: { count: 4, reason: CAPTURE_MACHINERY },
+    _sync_capture: { count: 5, reason: CAPTURE_MACHINERY }, // +1 T13399 re-key announcement capture
     _sync_frame: { count: 2, reason: CAPTURE_MACHINERY },
     _sync_undo: { count: 4, reason: CAPTURE_MACHINERY },
   },
@@ -317,7 +317,79 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/inherit.ts': {
     _sync_capture: { count: 1, reason: SEALER },
-    _sync_txn: { count: 1, reason: SEALER },
+    _sync_txn: {
+      count: 2,
+      reason: `${SEALER}; a rebind also inherits the transactions of segments it never pushed (T13278)`,
+    },
+    _sync_segment: {
+      count: 1,
+      reason:
+        'segment outbox (local-only): a rebind marks the segments the old replica never pushed inherited (§1.5 H3, T13278)',
+    },
+  },
+  'packages/core/src/store/sync/rebind.ts': {
+    _sync_meta: {
+      count: 4,
+      reason: `${SYNC_BOOKKEEPING}; the rebind at head clears sync.undo_budget_exceeded, records and clears its pending server half, and resets the foreign-touch keys (§3.5 D5, T13278)`,
+    },
+    _sync_segment: {
+      count: 1,
+      reason:
+        'segment outbox (local-only): segments the server holds (per the pull cursor) are marked pushed before a rebind, never inherited (T13278)',
+    },
+    _sync_txn: {
+      count: 1,
+      reason: `${SEALER}; a rebind inherits every transaction of the old replica the stream has not sequenced (T13278)`,
+    },
+    _sync_undo: {
+      count: 1,
+      reason:
+        'capture undo (local-only): the rebind at head empties the undo log (§3.5 D5, T13278)',
+    },
+    _sync_row_undo: {
+      count: 1,
+      reason: 'row undo (local-only): the rebind at head empties the undo log (§3.5 D5, T13278)',
+    },
+    _sync_foreign_touch: {
+      count: 1,
+      reason:
+        'foreign-touch index (local-only): reset once the rebind left nothing to rewind (§3.5 Rule 3, T13278)',
+    },
+  },
+  'packages/core/src/store/sync/reconcile.ts': {
+    _sync_capture: {
+      count: 3,
+      reason: `${SEALER}; the rebind reconcile consumes the inherited captures and writes the re-emitted rows as captures of one rebind frame (§1.5 N7, T12763)`,
+    },
+    _sync_frame: {
+      count: 1,
+      reason: `${SEALER}; the rebind reconcile opens its rebind frame (§1.5 N7, T12763)`,
+    },
+    _sync_undo: {
+      count: 1,
+      reason:
+        'capture undo (local-only): a rebind reconcile repair keeps its undo until its echo (§3.5 D1, T12763)',
+    },
+    _sync_ledger: {
+      count: 1,
+      reason: `${SEALER}; the ledger forgets the row counts of inherited sealed transactions, which the rebind frame recounts (T12763)`,
+    },
+    _sync_row_meta: {
+      count: 1,
+      reason:
+        'row meta (local-only): a row the stream never saw loses the meta an inherited seal wrote, so its re-emitted insert seals as an I (T12763)',
+    },
+  },
+  'packages/core/src/store/sync/retire.ts': {
+    _sync_txn: {
+      count: 1,
+      reason: `${SEALER}; the retire control transaction is written as a sealed transaction of the successor (§1.5, T13278)`,
+    },
+    _sync_retired: {
+      count: 2,
+      reason:
+        'retired replicas (local-only): every retire a stream carries is recorded at its seq, rebuilt from the stream by each receiver (T13278), and confirmed from the server record (T13366)',
+    },
   },
   'packages/core/src/store/sync/remap.ts': {
     _sync_capture: { count: 1, reason: SEALER },
@@ -363,6 +435,10 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/sealer.ts': {
     _sync_apply_intent: { count: 1, reason: SEALER },
+    _sync_authored: {
+      count: 1,
+      reason: `${SEALER}; records each minted row this replica sealed an insert of, the collision settle path's origin test (T13399)`,
+    },
     _sync_capture: { count: 2, reason: SEALER },
     _sync_frame: { count: 1, reason: SEALER },
     _sync_ledger: { count: 1, reason: SEALER },
@@ -405,7 +481,12 @@ export const EXEMPT = {
     _sync_seen_txn: {
       count: 2,
       reason:
-        'staged transaction ids (local-only): a re-delivered transaction is never staged twice, and rows past the latest verified checkpoint are pruned (§3.1, T12343 S5-1)',
+        "staged transaction ids (local-only): a re-delivered transaction is never staged twice, and rows below their origin's staged floor are pruned (§3.1, T12343 S5-1, T13318)",
+    },
+    _sync_seen_floor: {
+      count: 2,
+      reason:
+        'per-origin staged local_seq floor and seen-ledger counts (local-only): raised with every staged txn, marked with every prune (§3.1, T13318)',
     },
   },
   'packages/core/src/store/sync/push.ts': {

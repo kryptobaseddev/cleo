@@ -854,6 +854,8 @@ export interface NexusImpactParams {
   why?: boolean;
   /** Maximum reverse traversal depth (default 3, capped at 5). */
   depth?: number;
+  /** `--no-refresh` (T13523): answer from the index as it stands. */
+  noRefresh?: boolean;
 }
 /** Affected symbol in impact result. */
 export interface NexusImpactAffectedNode {
@@ -1203,6 +1205,8 @@ export interface NexusContextParams {
   limit?: number;
   /** When true, fetch source code content. */
   content?: boolean;
+  /** `--no-refresh` (T13523): answer from the index as it stands. */
+  noRefresh?: boolean;
 }
 /** A single caller or callee relationship from `nexus.context`. */
 export interface NexusContextRelation {

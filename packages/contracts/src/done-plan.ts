@@ -67,6 +67,7 @@ export type DonePlanBlockerCode =
   | 'tool-failed'
   | 'typed-gate-failed'
   | 'test-run-needed'
+  | 'qa-run-needed'
   | 'ac-mapping-needed'
   | 'manual-gate'
   | 'epic-rollup'

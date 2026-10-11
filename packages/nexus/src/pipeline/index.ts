@@ -222,6 +222,13 @@ export interface PipelineOptions {
   /** Owner-supplied reason reported when `incremental` is false (e.g. `--full`). */
   fullReason?: string;
   /**
+   * Refuse, before anything is built, a run that would be a full rebuild
+   * (T13523: a read query's inline refresh never parses the whole repository).
+   *
+   * @default false
+   */
+  requireIncremental?: boolean;
+  /**
    * Share of files that may change before an incremental run falls back to a
    * full rebuild. Above it, reuse saves little and a clean rebuild also sheds
    * cache entries for files that no longer exist.
@@ -748,6 +755,8 @@ export async function runPipeline(
     );
     endPhase('compare');
   }
+  if (options?.requireIncremental && mode === 'full')
+    throw new Error(`a full rebuild is required (${reason}); run cleo nexus analyze`);
 
   // Phase 2: Build File + Folder nodes with CONTAINS edges
   // Include all files so the replacement graph has complete structure.

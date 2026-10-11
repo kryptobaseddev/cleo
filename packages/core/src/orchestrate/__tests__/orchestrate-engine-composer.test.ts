@@ -181,6 +181,25 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     expect(typeof data.tier).toBe('number');
   });
 
+  it('T13494 — names the agent identity, persona and role separately and consistently', async () => {
+    const result = await orchestrateSpawn('T932W', undefined, TEST_ROOT, undefined, true);
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      agentId: string;
+      persona: string;
+      role: string;
+      sessionId: string | null;
+      worktreeEnv: Record<string, string> | null;
+      meta: { classify: { agentId: string } };
+    };
+    // The identity is the per-agent session's handle, the same id the worktree env exports.
+    expect(data.agentId).toBe('agent-t932w');
+    if (data.worktreeEnv) expect(data.worktreeEnv.CLEO_AGENT_ID).toBe(data.agentId);
+    // The persona is the classifier's routing decision, reported once, consistently.
+    expect(data.persona).toBe(data.meta.classify.agentId);
+    expect(['orchestrator', 'lead', 'worker']).toContain(data.role);
+  });
+
   it('rejects worker spawn when AC.files is missing (E_ATOMICITY_NO_SCOPE)', async () => {
     const result = await orchestrateSpawn('T932WX', undefined, TEST_ROOT, undefined, true);
 
@@ -191,6 +210,19 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
 
     const details = result.error?.details as { atomicity?: { allowed: boolean } } | undefined;
     expect(details?.atomicity?.allowed).toBe(false);
+  });
+
+  it('T13510 — refuses before any session, claim or worktree when the worker has no file scope', async () => {
+    // With a worktree requested (noWorktree=false). TEST_ROOT's .git is an empty
+    // dir, so reaching provisioning would fail with a worktree error instead.
+    const result = await orchestrateSpawn('T932WX', undefined, TEST_ROOT, undefined, false);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_ATOMICITY_NO_SCOPE');
+    const { getTaskAccessor } = await import('@cleocode/core/internal');
+    const acc = await getTaskAccessor(TEST_ROOT);
+    expect((await acc.loadSingleTask('T932WX'))?.claim).toBeUndefined();
+    const sessions = await acc.loadSessions();
+    expect(sessions.filter((x) => x.agentHandle === 'agent-t932wx')).toHaveLength(0);
   });
 
   it('T10430 — atomicityScope=orchestrator-defer waives E_ATOMICITY_NO_SCOPE for worker without files', async () => {

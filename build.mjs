@@ -536,7 +536,8 @@ const cleoBuildOptions = {
 // ---------------------------------------------------------------------------
 /** @type {esbuild.BuildOptions} */
 const adaptersBuildOptions = {
-  entryPoints: ['packages/adapters/src/index.ts', 'packages/adapters/src/project-hook-delivery.ts', 'packages/adapters/src/project-hook-native.ts'],
+  // Every public adapters export must have a built runtime entry (T13490).
+  entryPoints: ['packages/adapters/src/index.ts', 'packages/adapters/src/heavy-command-hook.ts', 'packages/adapters/src/project-hook-delivery.ts', 'packages/adapters/src/project-hook-native.ts'],
   bundle: true,
   platform: 'node',
   target: 'node24',
@@ -551,6 +552,31 @@ const adaptersBuildOptions = {
     }),
   ],
 };
+
+/**
+ * Fail the build when a package `exports` entry names a file the build did not
+ * emit. A subpath with only its .d.ts shipped typechecks everywhere and throws
+ * ERR_MODULE_NOT_FOUND at run time: `@cleocode/adapters/heavy-command-hook`
+ * shipped that way in 2026.10.4 to 2026.10.6, so no harness got the
+ * heavy-command hook (T13490).
+ *
+ * @param {string} pkgDir - Package directory relative to the repo root.
+ */
+function assertExportsBuilt(pkgDir) {
+  const pkg = JSON.parse(readFileSync(resolve(__dirname, pkgDir, 'package.json'), 'utf8'));
+  const missing = [];
+  for (const [subpath, target] of Object.entries(pkg.exports ?? {})) {
+    const targets = typeof target === 'string' ? [target] : Object.values(target);
+    for (const file of targets) {
+      if (typeof file === 'string' && !file.includes('*') && !existsSync(resolve(__dirname, pkgDir, file))) {
+        missing.push(`${subpath} -> ${file}`);
+      }
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(`${pkgDir}: exports name files the build did not emit: ${missing.join(', ')}`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Auto-sync guard: assert every concrete non-wildcard subpath export in
@@ -955,7 +981,7 @@ async function build() {
       assertDepsReady('packages/adapters/dist/');
       await esbuild.build(adaptersBuildOptions);
       await sanitizeSourcemaps('packages/adapters/dist'); // T9184
-      console.log('  -> packages/adapters/dist/index.js (esbuild)');
+      console.log('  -> packages/adapters/dist/{index,heavy-command-hook}.js (esbuild)');
       await rm(resolve(__dirname, 'packages/adapters/tsconfig.tsbuildinfo'), { force: true });
       await new Promise((res, rej) => {
         const proc = spawnPnpm(
@@ -968,6 +994,7 @@ async function build() {
         );
       });
       console.log('  -> packages/adapters/dist/*.d.ts');
+      assertExportsBuilt('packages/adapters');
     })(),
   ]);
 

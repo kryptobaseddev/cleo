@@ -68,9 +68,17 @@ export async function spawnWorktree(
 ): Promise<CreateWorktreeResult> {
   const { createWorktree } = await backend();
   const { createProjectHookExecutor } = await import('../hooks/project-runner.js');
-  return createWorktree(projectRoot, {
+  const hookOptions = {
     ...options,
     projectHookExecutor: options.projectHookExecutor ?? createProjectHookExecutor(projectRoot),
+  };
+  // Preserve explicit shim configuration while always injecting project hook execution.
+  if (options.gitShim) return createWorktree(projectRoot, hookOptions);
+  const { ensureGitShimDir } = await import('../spawn/branch-lock.js');
+  const shim = ensureGitShimDir(projectRoot);
+  return createWorktree(projectRoot, {
+    ...hookOptions,
+    gitShim: { dir: shim.dir, installed: shim.installed },
   });
 }
 

@@ -279,6 +279,44 @@ export function readNexusProjectLink(projectRoot: string, apiUrl: string): Nexus
 }
 
 /**
+ * Record the replica this device attached for a linked project (a rebind's
+ * successor, T13278), in the binding file under its lock: only the replica
+ * fields of that origin's entry change.
+ *
+ * @param projectRoot - Project root.
+ * @param apiUrl - API URL (any URL on the origin).
+ * @param replica - The attached replica, this Nexus device, and when.
+ * @throws {NexusAccountError} `E_NEXUS_VAULT_NOT_LINKED` when the origin has no readable entry.
+ */
+export async function recordNexusProjectReplica(
+  projectRoot: string,
+  apiUrl: string,
+  replica: {
+    readonly replicaId: string;
+    readonly nexusDeviceId: string;
+    readonly attachedAt: string;
+  },
+): Promise<void> {
+  const linkPath = nexusLinkPath(projectRoot);
+  const origin = new URL(apiUrl).origin;
+  await withLock<NexusLinkFile>(linkPath, (current) => {
+    const parsed = linkFileSchema.safeParse(current);
+    const entry = parsed.success ? parsed.data.links[origin] : undefined;
+    if (!parsed.success || entry === undefined) {
+      throw new NexusAccountError(
+        'E_NEXUS_VAULT_NOT_LINKED',
+        `${linkPath} holds no link to ${origin} this CLEO can update`,
+        'run `cleo project link`',
+      );
+    }
+    return {
+      ...parsed.data,
+      links: { ...parsed.data.links, [origin]: { ...entry, ...replica } },
+    };
+  });
+}
+
+/**
  * Every stored binding of a project, one per origin (T13231). An entry this
  * version cannot read is listed in `unreadable` by origin, never dropped
  * silently.
