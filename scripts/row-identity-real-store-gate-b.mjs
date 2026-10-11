@@ -145,7 +145,8 @@ const [coreDist, projectDir, out] = process.argv.slice(1);
 const { openDualScopeDb } = await import(new URL('store/dual-scope-db.js', coreDist).href);
 const { getDb } = await import(new URL('store/sqlite.js', coreDist).href);
 const started = performance.now();
-const handle = await openDualScopeDb('project', projectDir);
+// Gate B copies open with sync off (§1.5, T13336): never bound, no capture pass.
+const handle = await openDualScopeDb('project', projectDir, { syncMode: 'off' });
 await getDb(projectDir);
 const openMs = Math.round(performance.now() - started);
 handle.db.$client.exec("VACUUM INTO '" + out.replaceAll("'", "''") + "'");
