@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/core",
-  "version": "2026.10.6",
+  "version": "2026.10.7",
   "description": "CLEO core business logic kernel — tasks, sessions, memory, orchestration, lifecycle, with bundled SQLite store",
   "type": "module",
   "main": "./dist/index.js",
@@ -325,11 +325,6 @@
       "types": "./dist/gc/*.d.ts",
       "import": "./dist/gc/*.js",
       "require": "./dist/gc/*.js"
-    },
-    "./harness/*.js": {
-      "types": "./dist/harness/*.d.ts",
-      "import": "./dist/harness/*.js",
-      "require": "./dist/harness/*.js"
     },
     "./lifecycle/*.js": {
       "types": "./dist/lifecycle/*.d.ts",
