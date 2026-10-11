@@ -563,6 +563,20 @@ interface ResolveOptions {
 }
 
 /**
+ * The canonical tool a `tool:` name means: itself, or the canonical tool a
+ * legacy alias maps to (`tsc` → `typecheck`).
+ *
+ * @param toolName - Canonical name or legacy alias.
+ * @returns The canonical tool, or null for an unknown name.
+ * @task T13427
+ */
+export function canonicalToolName(toolName: string): CanonicalTool | null {
+  return (CANONICAL_TOOLS as readonly string[]).includes(toolName)
+    ? (toolName as CanonicalTool)
+    : (LEGACY_TOOL_ALIASES[toolName] ?? null);
+}
+
+/**
  * Resolve a `tool:<name>` evidence atom to a runnable command.
  *
  * Resolution order:
@@ -609,9 +623,7 @@ export function resolveToolCommand(
   opts: ResolveOptions = {},
 ): ResolveToolResult {
   // Step 1 — alias → canonical
-  const canonical: CanonicalTool | null = (CANONICAL_TOOLS as readonly string[]).includes(toolName)
-    ? (toolName as CanonicalTool)
-    : (LEGACY_TOOL_ALIASES[toolName] ?? null);
+  const canonical = canonicalToolName(toolName);
 
   if (!canonical) {
     return {

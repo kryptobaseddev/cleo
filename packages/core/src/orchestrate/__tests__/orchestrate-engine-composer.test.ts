@@ -181,6 +181,25 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     expect(typeof data.tier).toBe('number');
   });
 
+  it('T13494 — names the agent identity, persona and role separately and consistently', async () => {
+    const result = await orchestrateSpawn('T932W', undefined, TEST_ROOT, undefined, true);
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      agentId: string;
+      persona: string;
+      role: string;
+      sessionId: string | null;
+      worktreeEnv: Record<string, string> | null;
+      meta: { classify: { agentId: string } };
+    };
+    // The identity is the per-agent session's handle, the same id the worktree env exports.
+    expect(data.agentId).toBe('agent-t932w');
+    if (data.worktreeEnv) expect(data.worktreeEnv.CLEO_AGENT_ID).toBe(data.agentId);
+    // The persona is the classifier's routing decision, reported once, consistently.
+    expect(data.persona).toBe(data.meta.classify.agentId);
+    expect(['orchestrator', 'lead', 'worker']).toContain(data.role);
+  });
+
   it('rejects worker spawn when AC.files is missing (E_ATOMICITY_NO_SCOPE)', async () => {
     const result = await orchestrateSpawn('T932WX', undefined, TEST_ROOT, undefined, true);
 

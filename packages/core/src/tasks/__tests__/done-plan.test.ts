@@ -38,6 +38,8 @@ import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-help
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { validateGateVerify } from '../../validation/engine-ops.js';
+import { acTextHash } from '../ac-identity.js';
+import { acItemToText } from '../ac-table.js';
 import { addTask } from '../add.js';
 import type { ChangeSetDeps } from '../change-set.js';
 import { satisfyGatesFromMergedCi } from '../complete-ci.js';
@@ -49,6 +51,7 @@ import {
   parseEvidence,
   validateAtom,
 } from '../evidence.js';
+import { reqAdd } from '../req.js';
 import { captureTreeHash, runToolCached } from '../tool-cache.js';
 import { resolveToolCommand } from '../tool-resolver.js';
 import { acquireGlobalSlot } from '../tool-semaphore.js';
@@ -735,7 +738,7 @@ describe('cleo done and cleo complete judge the merge alike (T12656 AC2, T12959 
         throw new Error('must not record ci:42 for a fix #42 never ran');
       },
     });
-    expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null });
+    expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
   });
 });
 
@@ -811,7 +814,7 @@ describe('a worktree-bound test-run is judged in one root (T12965 review M2)', (
         ciSatisfies: () => false,
         merge: { changeSet: deps },
       });
-      expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null });
+      expect(ci).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
     } finally {
       git(root, ['worktree', 'remove', '--force', wt]);
       rmSync(wt, { recursive: true, force: true });
@@ -852,15 +855,36 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
     expect(blocker?.next.command).toBe(
       `cleo verify ${id} --gate testsPassed --evidence 'test-run:<vitest-json-report>'`,
     );
-    // qaPassed is separate: it still binds lint and typecheck tool receipts.
-    expect(
-      plan.toolRuns
-        .filter((r) => r.gate === 'qaPassed')
-        .map((r) => r.tool)
-        .sort(),
-    ).toEqual(['lint', 'typecheck']);
-    expect(plan.gates.find((g) => g.gate === 'qaPassed')?.evidence).toMatch(
-      /^tool:(lint|typecheck);tool:(lint|typecheck);satisfies:/,
+    // T13427: qaPassed is separate. With no recorded lint/typecheck result for
+    // this tree, a single-package project gets a qa-run-needed blocker naming
+    // the changed roots, never a fresh whole-project run.
+    expect(plan.toolRuns.filter((r) => r.gate === 'qaPassed')).toEqual([]);
+    expect(plan.gates.find((g) => g.gate === 'qaPassed')?.evidence).toBeNull();
+    const qa = plan.blockers.find((b) => b.code === 'qa-run-needed');
+    expect(qa?.message).toMatch(/lint or typecheck.*changed roots \(src\)/);
+    expect(qa?.next.command).toBe(
+      `cleo verify ${id} --gate qaPassed --evidence 'qa-run:<lint-receipt.json>;qa-run:<typecheck-receipt.json>'`,
+    );
+  });
+
+  it('T13427: a cached lint result still binds as tool:lint; only typecheck needs a qa-run', async () => {
+    standalone();
+    const id = await seedTask(['Change src/a.ts']);
+    commitOnTaskBranch(id);
+    const lint = resolveToolCommand('lint', root);
+    if (!lint.ok) throw new Error(lint.reason);
+    await runToolCached(lint.command, root, { executionRoot: root, skipGlobalSemaphore: true });
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.filter((r) => r.gate === 'qaPassed')).toMatchObject([
+      { tool: 'lint', cache: 'fresh-pass' },
+    ]);
+    expect(plan.blockers.find((b) => b.code === 'qa-run-needed')?.next.command).toBe(
+      `cleo verify ${id} --gate qaPassed --evidence 'qa-run:<typecheck-receipt.json>'`,
     );
   });
 
@@ -936,6 +960,14 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
     });
     expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
     expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+    // T13427: a workspace keeps planning its lint/typecheck tool runs.
+    expect(plan.blockers.map((b) => b.code)).not.toContain('qa-run-needed');
+    expect(
+      plan.toolRuns
+        .filter((r) => r.gate === 'qaPassed')
+        .map((r) => r.tool)
+        .sort(),
+    ).toEqual(['lint', 'typecheck']);
   });
 });
 
@@ -1267,6 +1299,31 @@ describe('the plan and done share one readiness check (T12672)', () => {
 });
 
 describe('research and no-change-set tasks', () => {
+  it('T13496: a doc in both stores is planned at the attachment path docs fetch resolves', async () => {
+    const id = await seedTask(['Report the findings'], 'research');
+    const content = '# findings\n';
+    const sha = createHash('sha256').update(content).digest('hex');
+    mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+    const attDir = join(root, '.cleo', 'attachments', 'sha256', sha.slice(0, 2));
+    mkdirSync(attDir, { recursive: true });
+    writeFileSync(join(attDir, `${sha.slice(2)}.md`), content);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+      deps: {
+        ...deps,
+        listTaskDocs: async () => [{ id: 'att', slug: 'findings', sha256: sha }],
+        listTaskDecisions: async () => ['D900'],
+      },
+    });
+    const path = join('.cleo', 'attachments', 'sha256', sha.slice(0, 2), `${sha.slice(2)}.md`);
+    expect(plan.changeSet.files).toEqual([path]);
+    expect(plan.gates.find((g) => g.gate === 'implemented')?.evidence).toContain(`files:${path}`);
+  });
+
   it('a research task with a doc and a decision plans decision-only gates with no tool runs', async () => {
     const id = await seedTask(['Report the findings'], 'research');
     const content = '# findings\n';
@@ -1369,5 +1426,72 @@ describe('research and no-change-set tasks', () => {
     expect(plan.next?.command).toBe(`git switch -c task/${id}`);
     expect(plan.commands.some((c) => c.startsWith('cleo complete'))).toBe(false);
     expect(plan.ready).toBe(false);
+  });
+});
+
+describe('a stored typed pass bound to an older definition is not a pass (T13463 review LOW)', () => {
+  const gate = {
+    kind: 'command' as const,
+    cmd: 'node -e 0',
+    exitCode: 0,
+    description: 'Harness passes',
+    req: 'H-1',
+  };
+
+  async function withStoredPass(
+    bind: (text: string) => { criterionHash: string; gateHash: string },
+  ) {
+    const id = await seedTask(['Change src/a.ts']);
+    commitOnTaskBranch(id);
+    await reqAdd(root, id, gate, env.accessor);
+    const rows = await env.accessor.getAcRows(id);
+    const row = [...rows].sort((a, b) => a.ordinal - b.ordinal)[1];
+    if (!row) throw new Error('typed gate row missing');
+    const verification = {
+      passed: false,
+      round: 1,
+      gates: {},
+      failureLog: [],
+      lastAgent: null,
+      lastUpdated: null,
+      gateResults: [
+        {
+          index: 1,
+          req: 'H-1',
+          kind: 'command',
+          result: 'pass',
+          checkedAt: '2026-10-01T00:00:00Z',
+          checkedBy: 'test',
+          durationMs: 1,
+          binding: bind(row.text),
+        },
+      ],
+    };
+    await env.accessor.updateTaskFields(id, { verificationJson: JSON.stringify(verification) });
+    return deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+  }
+
+  it('a binding to the current criterion and gate reads pass', async () => {
+    const plan = await withStoredPass((text) => ({
+      criterionHash: acTextHash(text),
+      gateHash: createHash('sha256').update(acItemToText(gate)).digest('hex'),
+    }));
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['pass']);
+  });
+
+  it('a binding to an older gate definition reads not-run, as complete refuses it', async () => {
+    const plan = await withStoredPass((text) => ({
+      criterionHash: acTextHash(text),
+      gateHash: createHash('sha256').update('{"old":"definition"}').digest('hex'),
+    }));
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+  });
+
+  it('a binding to an older criterion text reads not-run', async () => {
+    const plan = await withStoredPass(() => ({
+      criterionHash: acTextHash('an older criterion'),
+      gateHash: createHash('sha256').update(acItemToText(gate)).digest('hex'),
+    }));
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
   });
 });

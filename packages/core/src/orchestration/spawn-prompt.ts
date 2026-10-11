@@ -46,6 +46,7 @@ import type { Task } from '@cleocode/contracts';
 import { normalizeSlug } from '../docs/slug-normalize.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { resolveSkillLocation, resolveSkillPath } from '../skills/skill-paths.js';
+import { buildLeanChangeBlock } from './lean-change.js';
 import {
   buildBudgetedPsycheMemoryBlock,
   relevanceContextFromTask,
@@ -1770,6 +1771,7 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // implemented/exported. Restored as a follow-up; for now skip cleanly so the
   // tsc build does not block releases. Tracked: T10448.
   authoredSections.push(buildQualityGateBlock());
+  authoredSections.push(buildLeanChangeBlock());
 
   // Tier-specific content — tier 0 pointer is authored; tier 1/2 embeds
   // are verbatim and therefore land in `embeddedSections`.

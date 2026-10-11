@@ -965,6 +965,40 @@ describe('admit (one ledger, real critical section)', () => {
     await a.grant.release();
   });
 
+  it('a queued run calls keepAlive on entering the wait and every interval after, ignoring failures (T13492)', async () => {
+    const a = await admit(
+      { label: 'tool:test', footprintBytes: 10 * GIB },
+      { ...base, dir, wait: false },
+    );
+    if (!a.admitted) throw new Error('expected an admission');
+    let t = Date.now();
+    const t0 = t;
+    const calls: number[] = [];
+    const out = await admit(
+      { label: 'tool:build', footprintBytes: 10 * GIB },
+      {
+        ...base,
+        dir,
+        wait: true,
+        timeoutMs: 12 * 60_000,
+        now: () => t,
+        sleep: async (ms) => {
+          t += Math.max(ms, 1_000);
+        },
+        keepAlive: async () => {
+          calls.push(t - t0);
+          throw new Error('store busy');
+        },
+      },
+    );
+    expect(out.admitted).toBe(false);
+    expect(calls).toHaveLength(3);
+    expect(calls[0]).toBe(0);
+    expect(calls[1]).toBeGreaterThanOrEqual(5 * 60_000);
+    expect(calls[2]).toBeGreaterThanOrEqual(10 * 60_000);
+    await a.grant.release();
+  });
+
   const ledgerPath = (): string => join(dir, 'ledger.json');
 
   it('entries of an unknown format are kept verbatim and charged until provably gone (MED-2)', async () => {
