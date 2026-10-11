@@ -9,6 +9,9 @@
  * - Pool size: `os.cpus().length - 1` (leave 1 core for main thread), max 8
  * - Files sent one at a time per worker to bound IPC
  *   memory per message (structured clone is O(data))
+ * - Results stream back one sub-batch at a time and are handed to the caller
+ *   as they arrive, so no message — and no worker — ever holds a whole chunk
+ *   (T13325)
  * - Per-file wall deadline terminates a stuck worker
  * - Falls back to sequential if worker script is not found (e.g. running
  *   from source without a build)
@@ -37,6 +40,37 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
+ * How a caller receives the work of one {@link WorkerPool.dispatch}.
+ *
+ * @typeParam TItem - What the caller distributes.
+ * @typeParam TInput - What a worker receives for one item.
+ * @typeParam TResult - What a worker returns for one sub-batch.
+ */
+export interface WorkerPoolHandlers<TItem, TInput, TResult> {
+  /**
+   * Receives each sub-batch's result the moment it arrives, in no particular
+   * order across workers.
+   *
+   * The pool keeps nothing: what this callback does not retain is garbage. It
+   * replaced one accumulated result per worker, which made the parent parse a
+   * single message proportional to the repository — 68-119 MB of JSON per
+   * worker on a 5 357-file project, which killed the 1 536 MB CLI process
+   * inside `JSON.parse` (T13325). A throw aborts the whole dispatch and is
+   * never retried.
+   */
+  onResult: (result: TResult) => void;
+  /**
+   * Builds a worker's input for one item just before it is sent, so the parent
+   * holds the input of the in-flight sub-batches only, not of the repository.
+   * A throw aborts the whole dispatch and is never retried. Defaults to sending
+   * the item itself.
+   */
+  prepare?: (item: TItem) => TInput | Promise<TInput>;
+  /** Optional progress callback with total files processed. */
+  onProgress?: (filesProcessed: number) => void;
+}
+
+/**
  * Interface for a worker pool that dispatches items across worker threads.
  */
 export interface WorkerPool {
@@ -44,16 +78,17 @@ export interface WorkerPool {
    * Dispatch items across workers.
    *
    * Items are split into chunks (one chunk per worker), each worker processes
-   * its chunk via sub-batches to limit peak IPC memory, and results are
-   * concatenated back in original order.
+   * its chunk one sub-batch at a time, and each sub-batch's result is handed
+   * to {@link WorkerPoolHandlers.onResult} as it arrives. Peak memory in the
+   * caller is therefore bounded by a sub-batch, not by the chunk.
    *
    * @param items - The input items to distribute
-   * @param onProgress - Optional progress callback with total files processed
+   * @param handlers - Result sink, optional input builder and progress callback
    */
-  dispatch<TInput, TResult>(
-    items: TInput[],
-    onProgress?: (filesProcessed: number) => void,
-  ): Promise<TResult[]>;
+  dispatch<TItem, TResult, TInput = TItem>(
+    items: TItem[],
+    handlers: WorkerPoolHandlers<TItem, TInput, TResult>,
+  ): Promise<void>;
 
   /** Terminate all workers. Must be called after dispatch completes. */
   terminate(): Promise<void>;
@@ -70,9 +105,8 @@ export interface WorkerPool {
 type WorkerOutgoingMessage =
   | { type: 'ready'; heapBytes: number }
   | { type: 'progress'; filesProcessed: number }
-  | { type: 'sub-batch-done' }
-  | { type: 'error'; error: string }
-  | { type: 'result'; data: unknown };
+  | { type: 'sub-batch-done'; data?: unknown }
+  | { type: 'error'; error: string };
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -291,18 +325,25 @@ export function createWorkerPool(
   }
 
   /**
-   * Dispatch `items` to worker `workers[workerIndex]`, streaming sub-batches
-   * of `SUB_BATCH_SIZE` files and collecting the final accumulated result.
+   * Dispatch `chunk` to worker `workers[workerIndex]`, one sub-batch of
+   * `SUB_BATCH_SIZE` items at a time, handing each sub-batch's result to the
+   * caller before the next is sent.
+   *
+   * `cursor.delivered` counts the items whose results the caller has already
+   * received; a retry resumes after them instead of delivering them twice.
    */
-  function dispatchToWorker<TInput, TResult>(
-    chunk: TInput[],
+  function dispatchToWorker<TItem, TResult, TInput>(
+    chunk: TItem[],
     workerIndex: number,
+    cursor: { delivered: number },
     workerProgress: number[],
-    onProgress?: (filesProcessed: number) => void,
-  ): Promise<TResult> {
+    handlers: WorkerPoolHandlers<TItem, TInput, TResult>,
+    abortDispatch: (error: Error) => void,
+  ): Promise<void> {
     const owned = workers[workerIndex];
     const worker = owned instanceof Worker ? owned : owned.child;
-    return new Promise<TResult>((resolve, reject) => {
+    const resumedAt = cursor.delivered;
+    return new Promise<void>((resolve, reject) => {
       const send = (message: object) => {
         if (owned instanceof Worker) owned.postMessage(message);
         else
@@ -332,7 +373,8 @@ export function createWorkerPool(
       let settled = false;
       let ready = owned instanceof Worker;
       let subBatchTimer: ReturnType<typeof setTimeout> | null = null;
-      let subBatchIdx = 0;
+      // Items handed to the worker but not yet delivered back.
+      let inFlightCount = 0;
       // Retained for diagnostics: a timeout that cannot name the file it was
       // parsing sends the reader looking through 4 498 of them.
       let inFlightDescription = '<not yet dispatched>';
@@ -370,19 +412,40 @@ export function createWorkerPool(
         }, timeoutMs);
       };
 
-      const sendNextSubBatch = () => {
-        const start = subBatchIdx * SUB_BATCH_SIZE;
+      /**
+       * A failure of the CALLER's own code (building an input, or receiving a
+       * result) — not of the worker. Retrying it on a fresh worker would fail
+       * the same way, so it ends the whole dispatch.
+       */
+      const callerFailed = (error: unknown) => {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        abortDispatch(failure);
+        errorHandler(failure);
+      };
+
+      const sendNextSubBatch = async () => {
+        const start = cursor.delivered;
         if (start >= chunk.length) {
-          // All sub-batches sent — flush to collect accumulated result
-          send({ type: 'flush' });
+          settled = true;
+          cleanup();
+          resolve();
           return;
         }
         const subBatch = chunk.slice(start, start + SUB_BATCH_SIZE);
         previousDescription = inFlightDescription;
         inFlightDescription = subBatch.map(describeWorkItem).join(', ');
-        subBatchIdx++;
+        inFlightCount = subBatch.length;
+        const prepare = handlers.prepare;
+        let files: ReadonlyArray<TInput | TItem>;
+        try {
+          files = prepare ? await Promise.all(subBatch.map((item) => prepare(item))) : subBatch;
+        } catch (error) {
+          callerFailed(error);
+          return;
+        }
+        if (settled) return;
         resetSubBatchTimer();
-        send({ type: 'sub-batch', files: subBatch });
+        send({ type: 'sub-batch', files });
       };
 
       const handler = (msg: WorkerOutgoingMessage) => {
@@ -398,25 +461,32 @@ export function createWorkerPool(
             );
           }
         } else if (msg.type === 'progress') {
-          workerProgress[workerIndex] = msg.filesProcessed;
-          if (onProgress) {
+          // A retried chunk runs on a fresh worker whose count starts again at 0.
+          workerProgress[workerIndex] = resumedAt + msg.filesProcessed;
+          if (handlers.onProgress) {
             const total = workerProgress.reduce((a, b) => a + b, 0);
-            onProgress(total);
+            handlers.onProgress(total);
           }
         } else if (msg.type === 'sub-batch-done') {
-          sendNextSubBatch();
-        } else if (msg.type === 'error') {
-          settled = true;
-          cleanup();
-          reject(new Error(`Worker ${workerIndex} error: ${msg.error}`));
-        } else if (msg.type === 'result') {
           if (!ready) {
             errorHandler(new Error('Parser did not verify its effective heap limit'));
             return;
           }
+          if (msg.data !== undefined) {
+            try {
+              handlers.onResult(msg.data as TResult);
+            } catch (error) {
+              callerFailed(error);
+              return;
+            }
+          }
+          cursor.delivered += inFlightCount;
+          inFlightCount = 0;
+          void sendNextSubBatch();
+        } else if (msg.type === 'error') {
           settled = true;
           cleanup();
-          resolve(msg.data as TResult);
+          reject(new Error(`Worker ${workerIndex} error: ${msg.error}`));
         }
       };
 
@@ -468,18 +538,18 @@ export function createWorkerPool(
       worker.once('error', errorHandler);
       worker.once('exit', exitHandler);
 
-      sendNextSubBatch();
+      void sendNextSubBatch();
     });
   }
 
-  const dispatch = async <TInput, TResult>(
-    items: TInput[],
-    onProgress?: (filesProcessed: number) => void,
-  ): Promise<TResult[]> => {
+  const dispatch = async <TItem, TResult, TInput = TItem>(
+    items: TItem[],
+    handlers: WorkerPoolHandlers<TItem, TInput, TResult>,
+  ): Promise<void> => {
     limits.signal?.throwIfAborted();
     if (terminated) throw new Error('Parser worker pool is terminated');
     if (active) throw new Error('Parser worker pool already has an active dispatch');
-    if (items.length === 0) return [];
+    if (items.length === 0) return;
     active = true;
     try {
       for (let i = workers.length; i < Math.min(size, items.length); i++) {
@@ -503,51 +573,75 @@ export function createWorkerPool(
 
     // Distribute items evenly across workers
     const chunkSize = Math.ceil(items.length / size);
-    const chunks: TInput[][] = [];
+    const chunks: TItem[][] = [];
     for (let i = 0; i < items.length; i += chunkSize) {
       chunks.push(items.slice(i, i + chunkSize));
     }
 
     const workerProgress = new Array<number>(chunks.length).fill(0);
+    const jobs = chunks.map((chunk) => ({ chunk, cursor: { delivered: 0 } }));
+    // The first failure of the caller's own code. It stops every worker at
+    // once — the others would only keep allocating results nobody will use —
+    // and it is never retried.
+    let callerFailure: Error | undefined;
+    const abortDispatch = (error: Error) => {
+      callerFailure ??= error;
+      void terminate();
+    };
+    const guardedHandlers: WorkerPoolHandlers<TItem, TInput, TResult> = {
+      ...handlers,
+      onResult: (result) => {
+        if (callerFailure === undefined) handlers.onResult(result);
+      },
+    };
 
-    const promises = chunks.map((chunk, i) =>
-      dispatchToWorker<TInput, TResult>(chunk, i, workerProgress, onProgress),
+    const promises = jobs.map((job, i) =>
+      dispatchToWorker<TItem, TResult, TInput>(
+        job.chunk,
+        i,
+        job.cursor,
+        workerProgress,
+        guardedHandlers,
+        abortDispatch,
+      ),
     );
 
     try {
       // T12313: one worker dying used to discard EVERY file the others had
       // already parsed — 3 499 of them in a measured run — because
       // `Promise.all` rejects on the first failure and the generation is then
-      // never published. A worker that dies before it has processed anything
-      // is not evidence that the work is unparseable, so its chunk is retried
-      // once on a fresh worker before the run is abandoned.
+      // never published. A worker that dies is not by itself evidence that the
+      // work is unparseable, so its chunk is resumed once on a fresh worker,
+      // after the items it already delivered (T13325), before the run is
+      // abandoned.
       const settled = await Promise.allSettled(promises);
-      const results: TResult[] = [];
+      if (callerFailure !== undefined) throw callerFailure;
       const failures: Array<{ index: number; outcome: PromiseRejectedResult }> = [];
       settled.forEach((outcome, index) => {
-        if (outcome.status === 'fulfilled') results[index] = outcome.value;
-        else failures.push({ index, outcome });
+        if (outcome.status === 'rejected') failures.push({ index, outcome });
       });
 
       for (const failure of failures) {
-        const chunk = chunks[failure.index];
+        const job = jobs[failure.index];
         // Cancellation is the caller's decision, not a transient fault: a retry
         // would re-enter an aborted signal and surface a bare AbortError in
         // place of the E_PARSE_CANCELLED the caller is owed.
-        if (chunk === undefined || limits.signal?.aborted) throw failure.outcome.reason;
+        if (job === undefined || limits.signal?.aborted) throw failure.outcome.reason;
         // Replace the dead slot; reusing it would fail the same way.
         await replaceWorker(failure.index);
         // A second death is a real defect, not a transient one — let it throw
         // with its own diagnostic rather than silently publishing a partial
         // index that reads as complete.
-        results[failure.index] = await dispatchToWorker<TInput, TResult>(
-          chunk,
+        await dispatchToWorker<TItem, TResult, TInput>(
+          job.chunk,
           failure.index,
+          job.cursor,
           workerProgress,
-          onProgress,
+          guardedHandlers,
+          abortDispatch,
         );
+        if (callerFailure !== undefined) throw callerFailure;
       }
-      return results;
     } catch (error) {
       // Do not return while another worker can still mutate or allocate.
       await terminate();

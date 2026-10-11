@@ -35,7 +35,14 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 
 // ---------------------------------------------------------------------------
 // Enum constants
@@ -158,9 +165,12 @@ export const tasksBrainReleaseLinks = sqliteTable(
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     /** Identity of the agent or user that created this link. */
     createdBy: text('created_by'),
+    /** Row uid (T12895): a UUIDv8 over (brain entry id, release id, link type), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
     primaryKey({ columns: [table.brainEntryId, table.releaseId, table.linkType] }),
+    uniqueIndex('uq_tasks_brain_release_links_uid').on(table.uid),
     index('idx_tasks_brain_rel_links_brain_entry_id').on(table.brainEntryId),
     index('idx_tasks_brain_rel_links_release_id').on(table.releaseId),
     index('idx_tasks_brain_rel_links_link_type').on(table.linkType),

@@ -12,12 +12,15 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   commandTarget,
+  gitHookFor,
   isPausable,
   isWatchCommand,
   isWholeSuiteTestRun,
   looksHeavy,
   namedTestFileCount,
+  parseGitInvocation,
   resolveRunClass,
+  runFootprint,
 } from '../run-class.js';
 
 let dir: string;
@@ -691,5 +694,113 @@ describe('isWholeSuiteTestRun across a workspace (T13277)', () => {
   it('a malformed package.json is skipped, not trusted', () => {
     write('packages/a/package.json', '{ not json');
     expect(isWholeSuiteTestRun(['pnpm', '--filter', '@x/a', 'test'], ws)).toBe(false);
+  });
+});
+
+describe('runFootprint sizes by real scope (T13367)', () => {
+  const size = (...argv: string[]) => runFootprint(argv).size;
+
+  it('a native formatter on named paths is light', () => {
+    expect(size('pnpm', 'biome', 'check', 'a.ts', 'b.ts')).toBe('light');
+    expect(size('pnpm', 'exec', 'biome', 'format', '--write', 'a.ts')).toBe('light');
+    expect(size('npx', 'biome', 'lint', '--max-diagnostics', '50', 'src/a.ts')).toBe('light');
+  });
+
+  it('a formatter on the whole tree or with no paths keeps its class', () => {
+    expect(size('pnpm', 'biome', 'check', '.')).toBe('class');
+    expect(size('pnpm', 'biome', 'check')).toBe('class');
+    expect(size('pnpm', 'biome', 'check', '--write')).toBe('class');
+  });
+
+  it('eslint and prettier on named files are one process', () => {
+    expect(size('pnpm', 'exec', 'eslint', 'src/a.ts')).toBe('single-process');
+    expect(size('pnpm', 'prettier', '--check', 'a.md')).toBe('single-process');
+    expect(size('eslint', '-c', 'cfg.js', '.')).toBe('class');
+  });
+
+  it('tsc without -b is one process (T13440); tsc -b and a workspace fan-out keep their class', () => {
+    expect(size('pnpm', 'exec', 'tsc', '--noEmit', '-p', 'packages/core')).toBe('single-process');
+    expect(size('tsc', '--project=packages/cleo/tsconfig.json')).toBe('single-process');
+    expect(size('tsc', '-b')).toBe('class');
+    expect(size('tsc', '-b', '-p', 'packages/core')).toBe('class');
+    // T13440: tsc without -b is one process whatever it checks.
+    expect(size('tsc', '-p', '.')).toBe('single-process');
+    expect(size('tsc', '-p', 'tsconfig.json')).toBe('single-process');
+    expect(size('tsc', '--noEmit')).toBe('single-process');
+    expect(size('pnpm', 'exec', 'tsc', '--noEmit')).toBe('single-process');
+    expect(size('npx', 'tsc')).toBe('single-process');
+    expect(size('tsc', '--build')).toBe('class');
+    expect(size('pnpm', '-r', 'exec', 'tsc', '--noEmit')).toBe('class');
+    // T13459: --filter / -F / --dir exec fans out per package too.
+    expect(size('pnpm', '--filter', './packages/**', 'exec', 'tsc', '--noEmit')).toBe('class');
+    expect(size('pnpm', '-F', 'core', 'exec', 'tsc', '--noEmit')).toBe('class');
+  });
+
+  it('builds and test runs keep their class', () => {
+    expect(size('pnpm', 'run', 'build')).toBe('class');
+    expect(size('pnpm', 'run', 'typecheck')).toBe('class');
+    expect(size('pnpm', 'exec', 'vitest', 'run', 'a.test.ts')).toBe('class');
+  });
+
+  it('names the reason', () => {
+    expect(runFootprint(['biome', 'check', 'a.ts']).reason).toBe('biome check on 1 named path');
+  });
+});
+
+describe('git is charged light; its hook decides (T13452)', () => {
+  it('git commands run no heavy tool', () => {
+    expect(runFootprint(['git', 'push', '-u', 'origin', 'x'])).toEqual({
+      size: 'light',
+      reason: 'git push runs no heavy tool',
+    });
+    expect(runFootprint(['git', 'status']).size).toBe('light');
+  });
+
+  it('names the hooks a git command may run, unless --no-verify skips them', () => {
+    expect(gitHookFor(['git', 'push', '-u', 'origin', 'x'])).toEqual({
+      hooks: ['pre-push'],
+      globals: [],
+    });
+    expect(gitHookFor(['git', 'commit', '-m', 'x'])?.hooks).toEqual([
+      'pre-commit',
+      'prepare-commit-msg',
+      'commit-msg',
+      'post-commit',
+    ]);
+    // --no-verify skips pre-commit and commit-msg, not prepare-commit-msg or post-commit.
+    expect(gitHookFor(['git', 'commit', '-n', '-m', 'x'])?.hooks).toEqual([
+      'prepare-commit-msg',
+      'post-commit',
+    ]);
+    expect(gitHookFor(['git', 'push', '--no-verify'])).toBeNull();
+    expect(gitHookFor(['git', 'pull'])?.hooks).toContain('post-merge');
+    expect(gitHookFor(['git', 'switch', 'main'])?.hooks).toEqual(['post-checkout']);
+    expect(gitHookFor(['git', 'status'])).toBeNull();
+    expect(gitHookFor(['pnpm', 'run', 'push'])).toBeNull();
+  });
+
+  it('skips value-taking global options to find the subcommand, and passes them to the probe (T13458)', () => {
+    expect(gitHookFor(['git', '-C', '/repo', 'push'])).toEqual({
+      hooks: ['pre-push'],
+      globals: ['-C', '/repo'],
+    });
+    expect(gitHookFor(['git', '-c', 'core.hooksPath=.h', '--no-pager', 'push'])).toEqual({
+      hooks: ['pre-push'],
+      globals: ['-c', 'core.hooksPath=.h', '--no-pager'],
+    });
+    expect(parseGitInvocation(['git', '-C'])).toEqual({ globals: ['-C'], sub: null, args: [] });
+  });
+
+  it('gc, repack, fsck, clone and an unparseable git command keep their class (T13458)', () => {
+    for (const argv of [
+      ['git', 'gc', '--aggressive'],
+      ['git', 'repack', '-a', '-d'],
+      ['git', '-C', '/r', 'fsck'],
+      ['git', 'clone', 'u'],
+      ['git', '-C'],
+    ]) {
+      expect(runFootprint(argv).size, argv.join(' ')).toBe('class');
+    }
+    expect(runFootprint(['git', '-C', '/repo', 'push']).reason).toBe('git push runs no heavy tool');
   });
 });

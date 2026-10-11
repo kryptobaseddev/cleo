@@ -258,8 +258,8 @@ function computeContentHash(content: string): string {
     .slice(0, 16);
 }
 
-/** Validate only fields projected by the canonical reader; retain other provenance. */
-const manifestMetadataSchema = z.looseObject({
+/** The stored metadata field contract, as a writer must produce it. */
+const manifestMetadataFields = {
   file: z.string().optional(),
   title: z.string().optional(),
   topics: z.array(z.string()).optional(),
@@ -270,7 +270,27 @@ const manifestMetadataSchema = z.looseObject({
   confidence: z.number().optional(),
   file_checksum: z.string().optional(),
   duration_seconds: z.number().optional(),
+};
+
+/** What a legacy `needs_followup: true` reads as: follow-up needed, none named (T13338). */
+export const LEGACY_NEEDS_FOLLOWUP = 'follow-up needed (no task named)';
+
+/**
+ * Validate only fields projected by the canonical reader; retain other
+ * provenance. A legacy boolean `needs_followup` (entries appended before the
+ * writer checked field types) reads as `[]` when false and as
+ * {@link LEGACY_NEEDS_FOLLOWUP} when true, never as a contract violation (T13338).
+ */
+const manifestMetadataSchema = z.looseObject({
+  ...manifestMetadataFields,
+  needs_followup: z.preprocess(
+    (value) => (typeof value === 'boolean' ? (value ? [LEGACY_NEEDS_FOLLOWUP] : []) : value),
+    z.array(z.string()).optional(),
+  ),
 });
+
+/** The write-side contract: no legacy shape is accepted from a new entry (T13338). */
+const manifestEntryFieldsSchema = z.looseObject(manifestMetadataFields);
 
 function readRowMetadata(row: ManifestWithProvenance<typeof pipelineManifest.$inferSelect>) {
   const details = {
@@ -389,14 +409,41 @@ export async function readManifestEntriesSkippingMalformed(projectRoot?: string)
   entries: Array<ManifestWithProvenance<ExtendedManifestEntry>>;
   malformed: MalformedManifestRow[];
 }> {
+  return splitReadable(await readRows(projectRoot));
+}
+
+/**
+ * Convert rows to entries, setting aside each row whose metadata no reader
+ * accepts, so one bad entry is reported on its own and never fails a whole
+ * list (T12686, T13338).
+ */
+function splitReadable(
+  rows: ReadonlyArray<ManifestWithProvenance<typeof pipelineManifest.$inferSelect>>,
+): {
+  entries: Array<ManifestWithProvenance<ExtendedManifestEntry>>;
+  malformed: MalformedManifestRow[];
+} {
   const entries: Array<ManifestWithProvenance<ExtendedManifestEntry>> = [];
   const malformed: MalformedManifestRow[] = [];
-  for (const row of await readRows(projectRoot)) {
+  for (const row of rows) {
     const problem = metadataProblem(row);
     if (problem) malformed.push(problem);
     else entries.push(rowToEntry(row));
   }
   return { entries, malformed };
+}
+
+/**
+ * The per-entry report of rows a read set aside, merged into its result data:
+ * nothing when every row read (T13338).
+ */
+function malformedReport(malformed: readonly MalformedManifestRow[]): {
+  malformed?: MalformedManifestRow[];
+  malformedRemedy?: string;
+} {
+  return malformed.length === 0
+    ? {}
+    : { malformed: [...malformed], malformedRemedy: MANIFEST_ROW_REPAIR_COMMAND };
 }
 
 /**
@@ -909,7 +956,7 @@ export async function pipelineManifestList(
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const entries = (await readRows(projectRoot)).map(rowToEntry);
+    const { entries, malformed } = splitReadable(await readRows(projectRoot));
     const limit = normalizeLimit(params.limit);
     const offset = normalizeOffset(params.offset);
     const pageLimit = effectivePageLimit(limit, offset);
@@ -926,6 +973,7 @@ export async function pipelineManifestList(
         entries: filtered.slice(start, pageLimit === undefined ? undefined : start + pageLimit),
         total: entries.length,
         filtered: filtered.length,
+        ...malformedReport(malformed),
       },
       page: createPage({ total: filtered.length, limit: pageLimit, offset }),
     };
@@ -979,7 +1027,7 @@ export async function pipelineManifestFind(
     });
 
     const queryLower = query.toLowerCase();
-    const entries = rows.map(rowToEntry);
+    const { entries, malformed } = splitReadable(rows);
 
     const scored = entries.map((entry) => {
       let score = 0;
@@ -1006,6 +1054,7 @@ export async function pipelineManifestFind(
           relevanceScore: Math.round(r.score * 100) / 100,
         })),
         total: results.length,
+        ...malformedReport(malformed),
       },
     };
   } catch (error) {
@@ -1022,9 +1071,7 @@ export async function pipelineManifestPending(
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const rows = await readRows(projectRoot);
-
-    const entries = rows.map(rowToEntry);
+    const { entries, malformed } = splitReadable(await readRows(projectRoot));
 
     let pending = entries.filter(
       (e) =>
@@ -1048,6 +1095,7 @@ export async function pipelineManifestPending(
           needsFollowup: pending.filter((e) => e.needs_followup && e.needs_followup.length > 0)
             .length,
         },
+        ...malformedReport(malformed),
       },
     };
   } catch (error) {
@@ -1064,9 +1112,7 @@ export async function pipelineManifestStats(
   projectRoot?: string,
 ): Promise<EngineResult> {
   try {
-    const rows = await readRows(projectRoot);
-
-    const entries = rows.map(rowToEntry);
+    const { entries, malformed } = splitReadable(await readRows(projectRoot));
 
     let filtered = entries;
     if (epicId) {
@@ -1097,6 +1143,7 @@ export async function pipelineManifestStats(
         needsFollowup,
         averageFindings:
           filtered.length > 0 ? Math.round((totalFindings / filtered.length) * 10) / 10 : 0,
+        ...malformedReport(malformed),
       },
     };
   } catch (error) {
@@ -1181,6 +1228,15 @@ export async function pipelineManifestAppend(
   if (!entry.agent_type) errors.push('agent_type is required');
   if (!entry.topics) errors.push('topics is required');
   if (entry.actionable === undefined) errors.push('actionable is required');
+  // Field types as the reader's contract states them: a boolean
+  // `needs_followup` from an agent's --entry JSON was stored as is and later
+  // failed every manifest list (T13338).
+  const typed = manifestEntryFieldsSchema.safeParse(entry);
+  if (!typed.success) {
+    for (const issue of typed.error.issues) {
+      errors.push(`${issue.path.join('.') || 'entry'}: ${issue.message}`);
+    }
+  }
 
   if (errors.length > 0) {
     return {

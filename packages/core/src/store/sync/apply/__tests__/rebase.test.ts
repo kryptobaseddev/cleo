@@ -34,12 +34,14 @@ import {
 import { setSyncFlag } from '../../flags.js';
 import { HELD_WARN_DAYS, listHeldOps, SyncHeldError } from '../../held.js';
 import { stageTxns } from '../../inbox.js';
-import { planRepair } from '../../repair.js';
+import { planRepair, repairSuspectTables } from '../../repair.js';
 import { sealPending } from '../../sealer.js';
+import { buildSegment } from '../../segments.js';
 import {
   FOREIGN_TOUCH_COUNT_KEY,
   FOREIGN_TOUCH_INCOMPLETE_KEY,
   FOREIGN_TOUCH_MAX,
+  undoBudget,
 } from '../../sequencing.js';
 import { type ApplyReport, type ApplyStagedOptions, applyStagedTxns } from '../applier.js';
 
@@ -157,7 +159,7 @@ function publish(r: Replica, ...ids: string[]): void {
 function sync(
   r: Replica,
   upTo = published.length,
-  extra: Partial<Pick<ApplyStagedOptions, 'pageOps' | 'pageMs' | 'now'>> = {},
+  extra: Partial<Pick<ApplyStagedOptions, 'pageOps' | 'pageMs' | 'now' | 'undoBudgetBytes'>> = {},
 ): ApplyReport {
   for (; r.cursor < upTo; r.cursor++) {
     const s = published[r.cursor] as { replicaId: string; txns: LedgerTxn[] };
@@ -990,6 +992,82 @@ describe('pages (§3.5 Rule 3)', () => {
   });
 });
 
+describe('undo budget (§3.5 Rule 2, D5)', () => {
+  it('warns from 80%, then persists the exceeded warning and keeps writing undo', async () => {
+    const [a] = await threeReplicas();
+    write(a, "UPDATE tasks_tasks SET priority = 'high' WHERE uid = 'x'");
+    const held = undoBudget(a.db).bytes;
+    const imagesOnly = n(
+      a.db,
+      'SELECT sum(octet_length(tbl) + octet_length(rk) + coalesce(octet_length(uid), 0) + coalesce(octet_length(before_full), 0) + coalesce(octet_length(after_full), 0)) AS n FROM _sync_undo',
+    );
+    expect(held, 'the row undo snapshots count too').toBeGreaterThan(imagesOnly);
+    // Under the budget, past 80%: a warning, nothing persisted.
+    expect(
+      sync(a, published.length, { undoBudgetBytes: Math.ceil(held / 0.85) }).undoBudget,
+    ).toMatchObject({ state: 'warn', exceededAt: null });
+    // Past the budget: the persistent warning every later pull carries.
+    const over = sync(a, published.length, { undoBudgetBytes: held });
+    expect(over.undoBudget).toMatchObject({ state: 'exceeded' });
+    expect(over.undoBudget?.exceededAt).not.toBeNull();
+    expect(sync(a).undoBudget, 'the warning is persistent until a rebind').toMatchObject({
+      state: 'exceeded',
+      exceededAt: over.undoBudget?.exceededAt,
+    });
+    // Undo is never stopped, and it is counted in UTF-8 bytes, not characters.
+    write(a, "UPDATE tasks_tasks SET title = 'ééééé' WHERE uid = 'y'");
+    const utf8 = (v: unknown) => (typeof v === 'string' ? Buffer.byteLength(v, 'utf8') : 0);
+    let expected = 0;
+    for (const r of a.db
+      .prepare('SELECT tbl, rk, uid, before_full, after_full FROM _sync_undo')
+      .all() as Array<Record<string, unknown>>) {
+      for (const v of Object.values(r)) expected += utf8(v);
+    }
+    for (const r of a.db
+      .prepare('SELECT tbl, uid, meta_json, leave_json, values_json, kept_json FROM _sync_row_undo')
+      .all() as Array<Record<string, unknown>>) {
+      for (const v of Object.values(r)) expected += utf8(v);
+    }
+    expect(undoBudget(a.db).bytes).toBe(expected);
+    expect(expected).toBeGreaterThan(held);
+    // Status and the doctor report the same.
+    expect((await readStoreSyncStream(a.db, 'project', null, 'cleo.db')).undo.state).toBe(
+      'exceeded',
+    );
+    expect((await runSyncRepair(join(dir, 'aaaa'))).undo.state).toBe('exceeded');
+    expect((await runSyncRepair(join(dir, 'aaaa'), { repair: true })).undo.state).toBe('exceeded');
+  });
+});
+
+describe('segmented transactions (T12343 O-1)', () => {
+  it('a local txn already packed into a segment is still rewound and replayed by a rebase', async () => {
+    const [a, b, c] = await threeReplicas();
+    const la = write(a, "UPDATE tasks_tasks SET priority = 'high' WHERE uid = 'x'");
+    const seg = buildSegment(a.db, {
+      stream: STREAM,
+      replica: a.id,
+      scope: 'project',
+      project: null,
+      sealer: (_seq, plaintext) => Buffer.from(plaintext),
+      signTxn: (_stream, txn) => txn,
+      nowIso: new Date().toISOString(),
+    });
+    // The test stream bypassed segments for the base txn, so it is packed too.
+    expect(seg?.txns).toContain(la);
+    publish(b, write(b, "UPDATE tasks_tasks SET title = 'from B' WHERE uid = 'x'"));
+    expect(sync(a), 'the segmented txn fell out of the rebase').toMatchObject({ rebased: 1 });
+    expect(
+      n(a.db, "SELECT count(*) AS n FROM _sync_foreign_touch WHERE uid = 'x'"),
+      'a segmented txn no longer counts as unsequenced for the touch index',
+    ).toBe(1);
+    expect(row(a, 'x')).toMatchObject({ title: 'from B', priority: 'high' });
+    publish(a, la);
+    for (const r of [a, b, c]) sync(r);
+    expect(outcome(a, la)).toBe('applied');
+    converged([a, b, c]);
+  });
+});
+
 describe('foreign-touch index bounds (#1912 follow-ups)', () => {
   it('a restarted capture counter marks the index incomplete, so the fast path declines', async () => {
     const a = await replica(RA);
@@ -1074,5 +1152,85 @@ describe('foreign-touch index bounds (#1912 follow-ups)', () => {
     expect(
       n(a.db, 'SELECT count(*) AS n FROM _sync_meta WHERE key = ?', FOREIGN_TOUCH_INCOMPLETE_KEY),
     ).toBe(1);
+  });
+});
+
+describe('repair under undo (T13212; §3.5 Rule 2, D1)', () => {
+  /** A write the capture triggers never saw, and the suspect mark that sends the repair diff to it. */
+  function uncaptured(r: Replica, sql: string): void {
+    r.db.exec('BEGIN IMMEDIATE');
+    r.db.exec("INSERT INTO cleo_trigger_suspend VALUES ('capture')");
+    r.db.exec(sql);
+    r.db.exec('DELETE FROM cleo_trigger_suspend');
+    r.db.exec(
+      "INSERT INTO _sync_meta (key, value, updated_at) VALUES ('suspect:tasks_tasks', 'm', 'm') ON CONFLICT (key) DO NOTHING",
+    );
+    r.db.exec('COMMIT');
+  }
+
+  const repair = (r: Replica) =>
+    repairSuspectTables(r.db, {
+      scope: 'project',
+      replica: r.id,
+      env: {},
+      allowUnreleased: true,
+      now: () => ++clock,
+    });
+
+  it('a repair runs while undo is on, keeps undo for its transaction, and is rewound and replayed by a rebase', async () => {
+    const [a, b, c] = await threeReplicas();
+    uncaptured(a, "UPDATE tasks_tasks SET priority = 'high' WHERE uid = 'x'");
+    const report = repair(a);
+    expect(report.refused, 'the repair was refused under undo').toBeNull();
+    expect(report.tables).toMatchObject([{ table: 'tasks_tasks', cleared: true }]);
+    const rtx = (
+      a.db
+        .prepare("SELECT txn FROM _sync_txn WHERE kind = 'repair' ORDER BY local_seq DESC")
+        .get() as { txn: string }
+    ).txn;
+    // Its undo: one U, flagged by a NULL before-image (the value before the uncaptured write is lost).
+    expect(undoOf(a, rtx)).toBe(1);
+    expect(
+      a.db
+        .prepare(
+          'SELECT op, kind, before_full IS NULL AS lost, after_full IS NOT NULL AS now FROM _sync_undo WHERE txn_local = (SELECT frame FROM _sync_txn WHERE txn = ?)',
+        )
+        .get(rtx),
+    ).toEqual({ op: 'U', kind: 'repair', lost: 1, now: 1 });
+
+    // A foreign edit of the same row is sequenced first: the repair is rewound and replayed.
+    const fb = write(b, "UPDATE tasks_tasks SET title = 'from B' WHERE uid = 'x'");
+    publish(b, fb);
+    publish(a, rtx);
+    expect(sync(a), 'the repair transaction fell out of the rebase').toMatchObject({ rebased: 2 });
+    expect(outcome(a, rtx)).toBe('applied');
+    expect(undoOf(a, rtx), 'the echo drops the repair undo').toBe(0);
+    sync(b);
+    sync(c);
+    converged([a, b, c]);
+    expect(row(c, 'x')).toMatchObject({ title: 'from B', priority: 'high' });
+  });
+
+  it('an orphan delete records what row meta knows', async () => {
+    const [a] = await threeReplicas();
+    uncaptured(a, "DELETE FROM tasks_tasks WHERE uid = 'y'");
+    expect(repair(a).refused).toBeNull();
+    expect(
+      a.db
+        .prepare(
+          "SELECT op, before_full, after_full FROM _sync_undo WHERE kind = 'repair' AND uid = 'y'",
+        )
+        .get(),
+    ).toEqual({
+      op: 'D',
+      before_full: (
+        a.db
+          .prepare("SELECT key_json FROM _sync_row_meta WHERE tbl = 'tasks_tasks' AND uid = 'y'")
+          .get() as {
+          key_json: string | null;
+        }
+      ).key_json,
+      after_full: null,
+    });
   });
 });

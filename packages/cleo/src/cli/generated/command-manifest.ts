@@ -607,6 +607,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-sync-triggers.js')).doctorSyncTriggersCommand as CommandDef,
   },
   {
+    exportName: 'doctorSystemCommand',
+    name: 'system',
+    description:
+      'Assess machine + project health (memory/swap, MCP fan-out, heavy jobs outside cleo run, ',
+    load: async () =>
+      (await import('../commands/doctor-system.js')).doctorSystemCommand as CommandDef,
+  },
+  {
     exportName: 'doctorToolLocksCommand',
     name: 'tool-locks',
     description:
@@ -761,7 +769,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'hookCommand',
     name: 'hook',
     description:
-      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command --provider claude-code|codex|kimi|opencode',
+      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command|ask-enforce --provider <harness>',
     load: async () => (await import('../commands/hook.js')).hookCommand as CommandDef,
   },
   {
@@ -869,7 +877,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'loginCommand',
     name: 'login',
     description:
-      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. Without a terminal and no target, cleo login signs in to Cleo Nexus (an agent needs no extra word). After a Cleo Nexus sign-in inside an unlinked CLEO project it links the project and backs it up: a terminal is asked, --yes or a non-interactive run (an agent) does it, a restore over this copy is never done unasked, and CI only prints the next command; outside a project it lists your projects with the cleo cloud restore command for each. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
+      'Log in to a Cleo Nexus account (cleo login nexus: device code, --api-url, --no-browser) or to an LLM provider, binding a usable profile in one step. The picker lists the Cleo Nexus account first, then the providers. Without a terminal and no target, cleo login signs in to Cleo Nexus (an agent needs no extra word); the picker and every prompt need stdin and stderr on a terminal; with stdin on a terminal but stderr redirected (cleo login 2>log) a person may be there who cannot see the question, so the run links nothing and only prints the next commands. After a Cleo Nexus sign-in inside an unlinked CLEO project it links the project and backs it up: a terminal is asked, --yes or a non-interactive run (an agent) does it, a restore over this copy is never done unasked, and CI only prints the next command; outside a project it lists your projects with the cleo cloud restore command for each. For a provider it picks an auth method (browser OAuth or API key), selects a model, binds it, and validates the binding. cleo auth login and cleo llm login resolve to this same flow. Prompts/URLs go to stderr; the result is a human line on a terminal or a JSON envelope when piped / --json.',
     load: async () => (await import('../commands/login.js')).loginCommand as CommandDef,
   },
   {

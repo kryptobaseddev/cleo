@@ -46,6 +46,7 @@ import {
 import { GENESIS_CUT_KEY_PREFIX } from '../schema.js';
 import { rowChash, sealPending } from '../sealer.js';
 import { markSuspect } from '../structural.js';
+import { asOlderBuild } from './older-build.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
 const REPLICA = '01929a3e-7f00-7000-8000-000000000001';
@@ -301,10 +302,12 @@ describe('repair diff re-checks every row of a suspect table (T12987)', () => {
 describe('the suspect key clears only after verification (T12987)', () => {
   it('a row without uid keeps the table suspect, with the reason', async () => {
     const db = await baselinedStore();
-    uncaptured(
-      db,
-      `INSERT INTO tasks_tasks (id, title, type, status, priority)
-       VALUES ('T7', 'no uid', 'task', 'pending', 'medium')`,
+    asOlderBuild(db, 'project', () =>
+      uncaptured(
+        db,
+        `INSERT INTO tasks_tasks (id, title, type, status, priority)
+         VALUES ('T7', 'no uid', 'task', 'pending', 'medium')`,
+      ),
     );
     markSuspect(db, 'project', ['tasks_tasks']);
     const r = repair(db);

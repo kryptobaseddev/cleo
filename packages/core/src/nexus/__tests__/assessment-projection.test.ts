@@ -9,8 +9,12 @@ import type { GraphIndexAssessment, GraphIndexFileReport } from '@cleocode/contr
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_ASSESSMENT_FILE_PAGE_SIZE,
+  DEFAULT_REFERENCE_PAGE_SIZE,
+  MAX_REFERENCE_PAGE_SIZE,
   parseAssessmentFilesRequest,
+  parseReferencePageRequest,
   projectAssessmentFiles,
+  withReferencePage,
 } from '../assessment-projection.js';
 
 function assessment(count: number): GraphIndexAssessment {
@@ -87,5 +91,53 @@ describe('parseAssessmentFilesRequest', () => {
     { fileStatus: 'stale' },
   ])('rejects %o', (flags) => {
     expect(() => parseAssessmentFilesRequest(flags)).toThrow(/must be/);
+  });
+});
+
+// T13330: references are only ever returned a page at a time.
+describe('parseReferencePageRequest', () => {
+  it('defaults to the first 20 references and accepts a kind filter', () => {
+    expect(parseReferencePageRequest({})).toEqual({
+      limit: DEFAULT_REFERENCE_PAGE_SIZE,
+      offset: 0,
+    });
+    expect(parseReferencePageRequest({ limit: '500', offset: '1000', kind: 'unresolved' })).toEqual(
+      { limit: 500, offset: 1000, kind: 'unresolved' },
+    );
+  });
+
+  it.each([
+    { limit: '0' },
+    { limit: String(MAX_REFERENCE_PAGE_SIZE + 1) },
+    { limit: '10x' },
+    { offset: '-1' },
+    { kind: 'missing' },
+  ])('rejects %o, never returning the whole list', (flags) => {
+    expect(() => parseReferencePageRequest(flags)).toThrow(/must be/);
+  });
+});
+
+describe('withReferencePage', () => {
+  it('names references in _withheld and never places the list in the projection', () => {
+    const projected = withReferencePage(
+      { ...projectAssessmentFiles(assessment(3)), references: [] },
+      {
+        bytes: 1234,
+        byKind: {
+          'unmodeled-source': 0,
+          ambiguous: 0,
+          external: 1,
+          dynamic: 0,
+          shadowed: 0,
+          unresolved: 2,
+        },
+        page: { offset: 0, limit: 20, total: 3, returned: 0, nextOffset: null, rows: [] },
+      },
+    );
+    expect(projected.references).toBeUndefined();
+    expect(projected._withheld).toMatchObject({ references: 1234 });
+    expect(projected._withheld?.['files']).toBeTypeOf('number');
+    expect(projected.referencesByKind?.unresolved).toBe(2);
+    expect(projected.referencesPage?.total).toBe(3);
   });
 });

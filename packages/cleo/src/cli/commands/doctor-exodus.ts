@@ -52,6 +52,8 @@ export const doctorExodusCommand = defineCommand({
           }${s.large ? '  ⚠ LARGE' : ''}`,
         );
       }
+      // A verify the continuity gate tolerated is named, never silent (T12711).
+      for (const issue of sc.verifyIssues) humanInfo(`      ⚠ verify: ${issue}`);
     }
     humanInfo(
       `  disk: ${fmtBytes(health.availableBytes)} free / ${fmtBytes(health.requiredBytes)} required — ${health.diskHeadroomOk ? 'OK' : 'LOW'}`,

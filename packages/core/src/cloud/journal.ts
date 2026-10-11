@@ -504,6 +504,12 @@ export class Journal {
     manifest: Manifest;
     cursor: PullCursor;
     parentCheckpointId: string | null;
+    /**
+     * The id to register it under, minted by the caller so it can be recorded
+     * before the upload (a genesis push adopts its own stored checkpoint after
+     * a crash by this id, T13302). A fresh uuidv7 when absent.
+     */
+    checkpointId?: string;
   }): Promise<Checkpoint> {
     const { streamId, replicaId, deviceId } = this.o;
     if (!args.cursor.knowsAllReplicas)
@@ -517,7 +523,7 @@ export class Journal {
       replicas[id] = { deviceId: r.deviceId, lastReplicaSeq: r.replicaSeq };
     }
     const coversSeq = args.cursor.after;
-    const checkpointId = uuidv7();
+    const checkpointId = args.checkpointId ?? uuidv7();
     const ciphertext = seal(
       this.o.key,
       args.bundle,

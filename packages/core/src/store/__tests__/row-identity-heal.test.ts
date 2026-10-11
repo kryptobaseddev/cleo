@@ -52,7 +52,8 @@ let testDir: string;
 let dbPath: string;
 
 beforeEach(() => {
-  delete process.env.CLEO_ROW_UID_FILL;
+  // Row uids off (the kill switch; on by default since T13305): the heal runs anyway.
+  process.env.CLEO_ROW_UID_FILL = '0';
   testDir = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-row-identity-heal-T12878-')));
   dbPath = join(testDir, '.cleo', 'cleo.db');
 });

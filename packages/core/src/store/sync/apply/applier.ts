@@ -39,6 +39,9 @@
  *    so the sealer echoes nothing; row meta is set to the engine's state,
  *    conflicts are recorded, and the transaction is marked `applied`,
  *    `conflict` (something recorded) or `void` (every op refused).
+ *    A late transaction of a replica retired earlier in the stream is
+ *    inherited history (§3.5 D5, T13278): applied the same way, but its merge
+ *    conflicts are not recorded against the successor's reconcile.
  *
  * Passes repeat while a pass applies something, so a transaction pending on
  * a row a later transaction inserts applies in the same call.
@@ -62,7 +65,18 @@ import type { TableScope } from '@cleocode/contracts';
 import type { LedgerActor, LedgerOp, LedgerWireValue } from '@cleocode/contracts/ledger';
 import { BIRTH_FP_COLUMN, UID_COLUMN } from '../../row-identity-registry.js';
 import { type CaptureTableDef, captureTableDef } from '../capture.js';
-import { recordConflicts } from '../conflicts.js';
+import {
+  announcePlacedRekeys,
+  type DecisionKeyMove,
+  displayKeyColumn,
+  displayKeyReferrers,
+  foldDisplayRemints,
+  followLocalTaskRefs,
+  remintLostKeyCollisions,
+  repointOwnDecisionText,
+  settleLostUidCollisions,
+} from '../collision-settle.js';
+import { recordConflictOnce, recordConflicts, resolveHeldConflicts } from '../conflicts.js';
 import {
   clearFieldLeaves,
   type FieldFrontier,
@@ -86,6 +100,7 @@ import {
   UNSEEN_ROW,
 } from '../merge/types.js';
 import { remapPending } from '../remap.js';
+import { isInheritedHistory } from '../retire.js';
 import { fieldHlcsOf, type RowMetaFull, readRowMetaFull, restoreRowMeta } from '../row-meta.js';
 import { hasTable } from '../schema.js';
 import { canonicalJson } from '../sealer-values.js';
@@ -96,18 +111,22 @@ import {
   ownEchoFastPath,
   readRowUndo,
   recordForeignTouches,
+  recordUndoBudget,
   resnapshotRowUndo,
   type TouchedRow,
+  type UndoBudget,
   type UnsequencedTxn,
   unsequencedLocalTxn,
   unsequencedLocalTxns,
 } from '../sequencing.js';
 import { withTriggersSuspended } from '../trigger-classes.js';
+import { followUidAliases, markAliasPlaced, recordUidAlias } from '../uid-alias.js';
 import { widenFootprint } from './footprints.js';
 import { type ApplyApi, withApplyFrame } from './frame.js';
 import { parentDeletePolicy } from './parent-delete.js';
 import { checkApplyPreconditions, checkTaskTreeShape, type PageRow } from './post-apply.js';
 import { resolveRef, uidOfKey } from './refs.js';
+import { wireToSql } from './write-api.js';
 
 /** How {@link applyStagedTxns} runs. */
 export interface ApplyStagedOptions {
@@ -128,6 +147,8 @@ export interface ApplyStagedOptions {
   readonly pageOps?: number;
   /** A page stops taking transactions after this many ms; defaults to {@link REBASE_PAGE_MS}. */
   readonly pageMs?: number;
+  /** The undo budget in bytes; defaults to 256 MiB (`UNDO_BUDGET_BYTES`). */
+  readonly undoBudgetBytes?: number;
 }
 
 /** What one {@link applyStagedTxns} call left in the inbox, per status. */
@@ -145,6 +166,8 @@ export interface ApplyReport {
   readonly rebased: number;
   /** Local transactions this call left held: a replay the stream refused (§3.5 Rule 5). */
   readonly held: readonly string[];
+  /** Undo against its budget; `exceeded` is the persistent warning every pull carries (D5). */
+  readonly undoBudget: UndoBudget | null;
   /** Why nothing was applied (PAC-15 apply preconditions), when so. */
   readonly blocked?: string;
 }
@@ -170,6 +193,8 @@ type TxnPlan =
       readonly reason: string;
       /** Rows later transactions must not write before this one applies. */
       readonly holds: readonly string[];
+      /** A held uid or key collision (T12341 §6.4 steps 3 and 7), recorded once as a conflict. */
+      readonly collision?: { readonly opIdx: number; readonly conflict: MergeConflict };
     }
   | { readonly kind: 'refused-schema'; readonly reason: string };
 
@@ -244,6 +269,113 @@ function rowExists(api: ApplyApi, table: string, uid: string): boolean {
 }
 
 /**
+ * The uid collision `op` would merge into, or null (T12341 §6.4 step 3,
+ * T13394): a minted row op whose birth fingerprint differs from the live row
+ * holding its uid here. Two different rows that minted one uid are never
+ * merged. The conflict names the loser, the greater fingerprint (§6.4), in
+ * its `rule`. A row without a stored fingerprint (not filled yet) or an op
+ * without `bfp` (an older build) is not classified.
+ */
+function uidCollision(
+  db: DatabaseSync,
+  def: CaptureTableDef,
+  op: LedgerOp,
+  resolution: MergeConflict['resolution'],
+): MergeConflict | null {
+  if (op.o === 'K' || !op.bfp || !def.identity.includes(BIRTH_FP_COLUMN)) return null;
+  const row = db
+    .prepare(
+      `SELECT "${BIRTH_FP_COLUMN}" AS bfp FROM main."${def.table.replaceAll('"', '""')}" WHERE "${UID_COLUMN}" = ?`,
+    )
+    .get(op.u) as { bfp: string | null } | undefined;
+  if (!row || row.bfp === null || row.bfp === op.bfp) return null;
+  return {
+    kind: 'uid-collision',
+    table: op.t,
+    uid: op.u,
+    columns: [UID_COLUMN, BIRTH_FP_COLUMN],
+    rule: `loser:${op.bfp > row.bfp ? 'incoming' : 'local'}`,
+    resolution,
+    opHlc: op.h,
+  };
+}
+
+/**
+ * The local-key collision an insert would hit, or null (T12341 §6.4 step 7,
+ * T13397): a minted row whose local key (a display id, never the uid or a
+ * device-local rowid) a live row of another uid holds here. The insert is
+ * held, never voided by the UNIQUE constraint: a re-mint of the key settles
+ * it (§9.2).
+ */
+function keyCollision(
+  db: DatabaseSync,
+  def: CaptureTableDef,
+  op: LedgerOp,
+  goneInTxn: (uid: string) => boolean,
+): MergeConflict | null {
+  if (op.o !== 'I' || !op.a || !def.identity.includes(BIRTH_FP_COLUMN)) return null;
+  const cols = def.key.filter((k) => k !== UID_COLUMN && k !== def.localRowid);
+  if (cols.length === 0 || cols.some((k) => op.a?.[k] === undefined || op.a?.[k] === null)) {
+    return null;
+  }
+  const row = db
+    .prepare(
+      `SELECT "${UID_COLUMN}" AS uid FROM main."${def.table.replaceAll('"', '""')}" WHERE ${cols
+        .map((k) => `"${k.replaceAll('"', '""')}" = ?`)
+        .join(' AND ')}`,
+    )
+    .get(...cols.map((k) => wireToSql(op.a?.[k] as LedgerWireValue))) as
+    | { uid: string | null }
+    | undefined;
+  // The holder is this row, or a row the transaction deletes first (a key re-used).
+  if (!row || row.uid === op.u || (row.uid !== null && goneInTxn(row.uid))) return null;
+  return {
+    kind: 'key-collision',
+    table: op.t,
+    uid: op.u,
+    columns: cols,
+    resolution: 'op-held',
+    opHlc: op.h,
+  };
+}
+
+/**
+ * A reference of `op` to a uid in an open uid collision here, or null
+ * (T13397). Until the collision settles the uid names two rows, so the
+ * reference waits rather than bind to the wrong one; after the loser's K its
+ * origin's earlier references are read through the alias.
+ */
+function collidingRef(
+  db: DatabaseSync,
+  op: LedgerOp,
+  def: CaptureTableDef,
+  inTxn: ReadonlySet<string>,
+): { col: string; uid: string } | null {
+  if (!op.a || !hasTable(db, '_sync_conflict')) return null;
+  const open = db.prepare(
+    `SELECT 1 FROM _sync_conflict WHERE kind = 'uid-collision' AND tbl = ? AND uid = ? AND resolved_at IS NULL LIMIT 1`,
+  );
+  for (const [col, v] of Object.entries(op.a)) {
+    const target = def.refs.get(col);
+    if (!target || typeof v !== 'string' || inTxn.has(rowKey(target.table, v))) continue;
+    if (open.get(target.table, v) !== undefined) return { col, uid: v };
+  }
+  return null;
+}
+
+/** Whether a uid collision on (table, uid) was ever recorded here (T13399). */
+function hadUidCollision(db: DatabaseSync, table: string, uid: string): boolean {
+  return (
+    hasTable(db, '_sync_conflict') &&
+    db
+      .prepare(
+        `SELECT 1 FROM _sync_conflict WHERE kind = 'uid-collision' AND tbl = ? AND uid = ? LIMIT 1`,
+      )
+      .get(table, uid) !== undefined
+  );
+}
+
+/**
  * A missing reference of `op` (a target never seen), or null. A target the
  * transaction itself inserts or re-keys to counts as present wherever its op
  * sits: netting keeps an op at its FIRST capture, so a row may reference a
@@ -285,7 +417,7 @@ function planTxn(
   const holds = (except?: string): string[] => [
     ...new Set(st.txn.ops.map((o) => rowKey(o.t, o.u)).filter((k) => k !== except)),
   ];
-  for (const op of st.txn.ops) {
+  for (const [opIdx, op] of st.txn.ops.entries()) {
     const def = defs(op.t);
     if (!def) return { kind: 'refused-schema', reason: `unknown table ${op.t}` };
     const blocked = notYet(op, def);
@@ -306,6 +438,18 @@ function planTxn(
       }
       continue;
     }
+    // A uid this transaction placed earlier is its own row, not a collision.
+    const collision = states.has(k) ? null : uidCollision(db, def, op, 'op-held');
+    if (collision !== null) {
+      return {
+        kind: 'pending',
+        reason: `${op.t}/${op.u}: uid collision with a local row of another birth fingerprint (${collision.rule})`,
+        // The local row holding the uid is a different row: writes to it
+        // (its own echo, later edits) are not held behind this one.
+        holds: holds(k),
+        collision: { opIdx, conflict: collision },
+      };
+    }
     const missing = missingRef(db, op, def, txnRows);
     if (missing === 'malformed') {
       return { kind: 'refused-schema', reason: `${op.t}/${op.u}: a reference that is not a uid` };
@@ -315,6 +459,25 @@ function planTxn(
         kind: 'pending',
         reason: `${op.t}/${op.u}: reference ${missing.col} to ${missing.uid} not seen yet`,
         holds: holds(),
+      };
+    }
+    const ambiguous = collidingRef(db, op, def, txnRows);
+    if (ambiguous !== null) {
+      return {
+        kind: 'pending',
+        reason: `${op.t}/${op.u}: reference ${ambiguous.col} to ${ambiguous.uid}, a uid in an open collision`,
+        holds: holds(),
+      };
+    }
+    const keyClash = states.has(k)
+      ? null
+      : keyCollision(db, def, op, (uid) => states.get(rowKey(op.t, uid))?.live === false);
+    if (keyClash !== null) {
+      return {
+        kind: 'pending',
+        reason: `${op.t}/${op.u}: local key ${keyClash.columns.join(', ')} is held by another row`,
+        holds: holds(),
+        collision: { opIdx, conflict: keyClash },
       };
     }
     const before = states.get(k) ?? loadRowState(db, api, def, op.u, localReplica);
@@ -560,6 +723,13 @@ interface OpContext {
     /** Told why an op the replay refuses stays rewound (its hold reason, Rule 5). */
     readonly onVoid?: (conflicts: readonly MergeConflict[]) => void;
   };
+  /**
+   * The transaction is inherited history: a late transaction of a replica
+   * retired earlier in the stream (§3.5 D5, T13278). It applies as an
+   * ordinary op, but its merge conflicts are not recorded against the
+   * successor's reconcile; a void (the op refused) is still recorded.
+   */
+  readonly history?: boolean;
 }
 
 const voidWith = (
@@ -584,7 +754,25 @@ function applyRekey(
   const nu = op.nu ?? op.u;
   const oldLive = rowExists(c.api, op.t, op.u);
   const newLive = nu !== op.u && rowExists(c.api, op.t, nu);
-  if (!oldLive) return { result: 'skipped', conflicts: 0 }; // already re-keyed, or deleted
+  // The re-keyed row's later ops, and its origin's earlier references, follow
+  // it (T12341 §6.4 step 1, T13397).
+  const oldFp = op.obfp ?? op.bfp;
+  if (oldFp && nu !== op.u) {
+    recordUidAlias(
+      c.db,
+      { table: op.t, oldUid: op.u, oldBfp: oldFp, newUid: nu, origin: c.st.replicaId, hlc: op.h },
+      c.nowIso,
+    );
+  }
+  // Already re-keyed, deleted, or never placed here (a held loser): the alias is all.
+  if (!oldLive) return { result: 'skipped', conflicts: 0 };
+  // A K names the row it moves by (uid, old fingerprint): a live row holding
+  // that uid with another fingerprint is the collision's winner, and a re-key
+  // of the other row never touches it (T12341 §6.4, T13394).
+  const def = c.defs(op.t);
+  if (def && op.obfp && uidCollision(c.db, def, { ...op, o: 'U', bfp: op.obfp }, 'op-voided')) {
+    return { result: 'skipped', conflicts: 0 };
+  }
   if (newLive || (nu !== op.u && c.api.rowMeta(op.t, nu) !== undefined)) {
     return voidWith(c, opIdx, {
       kind: 'uid-collision',
@@ -600,6 +788,12 @@ function applyRekey(
   // and it would no longer match its `*K` intent.
   remapPending(c.db, { table: op.t, oldUid: op.u, newUid: nu, newBfp: op.bfp ?? null });
   c.api.rekeyRow(op.t, op.u, nu, op.bfp ?? null);
+  // Another replica settled a uid collision by re-keying a loser this replica
+  // had placed: its own earlier references to the old uid meant this row, so
+  // it owes the re-key's announcement (T13399).
+  if (op.obfp && nu !== op.u && c.st.replicaId !== c.replica && hadUidCollision(c.db, op.t, op.u)) {
+    markAliasPlaced(c.db, op.t, op.u, op.obfp);
+  }
   return { result: 'applied', conflicts: 0 };
 }
 
@@ -670,6 +864,9 @@ function applyOne(
   const def = c.defs(op.t);
   // @sync-invariant none:input-shape planning refused-schema'd every op on an unknown table
   if (!def) throw new Error(`apply: ${op.t} is not a sync-set table`);
+  // Planning holds a collision; a replay or a row placed since is refused here.
+  const collision = uidCollision(c.db, def, op, 'op-voided');
+  if (collision !== null) return voidWith(c, opIdx, collision);
   const refKeys = new Map<string, LedgerWireValue>();
   for (const [col, v] of Object.entries(op.a ?? {})) {
     const target = def.refs.get(col);
@@ -710,24 +907,30 @@ function applyOne(
       });
     }
   }
+  const keyMove = displayKeyMove(def, before, out);
   const sp = `apply_op_${opIdx}`;
   c.db.exec(`SAVEPOINT ${sp}`);
   try {
+    // A display key that moves leaves its referrers behind until they follow.
+    if (keyMove) c.db.exec('PRAGMA defer_foreign_keys = ON');
     // cascade-with-ops: the remaining children go first, with ops' tombstones.
     const actor = c.st.txn.actor ? JSON.stringify(c.st.txn.actor) : null;
     for (const x of live) cascadeDelete(c, x.key.child, x.uid, op.h, actor);
     const st: StagedTxn = c.replay
       ? { ...c.st, replicaId: c.replica, txn: { ...c.st.txn, actor: c.replay.actor } }
       : c.st;
-    const n = effect(
+    const history = c.history === true && out.status !== 'void';
+    const recorded = effect(
       c.db,
       c.api,
       st,
       opIdx,
       { op, def, before, out, refKeys },
       c.nowIso,
-      c.replay !== undefined,
+      c.replay !== undefined || history,
     );
+    if (keyMove) followDisplayKey(c, op.t, op.u, keyMove);
+    const n = history ? 0 : recorded;
     c.db.exec(`RELEASE ${sp}`);
     const result: OpResult =
       out.status === 'applied' || out.status === 'partial'
@@ -751,6 +954,53 @@ function applyOne(
       opHlc: op.h,
     });
   }
+}
+
+/** Decision key moves applied in the current apply call, by store (T13433). */
+const decisionMoves = new WeakMap<DatabaseSync, DecisionKeyMove[]>();
+
+/** A counter display key an applied update moves (T13405), or null. */
+function displayKeyMove(
+  def: CaptureTableDef,
+  before: RowState,
+  out: { readonly effect: string; readonly next: RowState },
+): { readonly column: string; readonly from: string; readonly to: string } | null {
+  const column = displayKeyColumn(def.table);
+  if (!column || out.effect !== 'update' || !before.live) return null;
+  const from = before.fields[column]?.value;
+  const to = out.next.fields[column]?.value;
+  return typeof from === 'string' && typeof to === 'string' && from !== to
+    ? { column, from, to }
+    : null;
+}
+
+/**
+ * Point the local rows that reference a moved display key at the new key
+ * (T13405): a replica that had placed a re-minted loser keeps its own
+ * children on it, never on the winner that takes the old key. Writes go
+ * through the write API, so each is an apply intent, not a local change.
+ */
+function followDisplayKey(
+  c: OpContext,
+  table: string,
+  uid: string,
+  move: { readonly column: string; readonly from: string; readonly to: string },
+): void {
+  // Its own text references re-point after the passes, in a local frame (T13433).
+  if (table === 'brain_decisions' && !c.replay) {
+    const moves = decisionMoves.get(c.db) ?? [];
+    moves.push({ uid, from: move.from, to: move.to });
+    decisionMoves.set(c.db, moves);
+  }
+  for (const ref of displayKeyReferrers(c.db, c.defs, table, move.column)) {
+    const rows = c.db
+      .prepare(
+        `SELECT "${UID_COLUMN}" AS uid FROM main."${ref.table.replaceAll('"', '""')}" WHERE "${ref.column.replaceAll('"', '""')}" = ? AND "${UID_COLUMN}" IS NOT NULL`,
+      )
+      .all(move.from) as Array<{ uid: string }>;
+    for (const r of rows) c.api.writeFields(ref.table, r.uid, { [ref.column]: move.to });
+  }
+  if (table === 'tasks_tasks') followLocalTaskRefs(c.db, c.defs, move.from, move.to);
 }
 
 /** What a scoped rebase does around one incoming transaction (§3.5 Rule 3). */
@@ -810,6 +1060,38 @@ function adoptNaturalRows(
     }
     if (resolved) api.adoptNaturalRow(op.t, op.u, local);
   }
+}
+
+/**
+ * A staged transaction with every op's local INTEGER PRIMARY KEY removed
+ * (T12896). That id is numbered on each device, so this build never sends it;
+ * an older build's op still may, and the receiver drops it rather than refuse
+ * the column or collide with its own row of that id.
+ */
+function withoutLocalRowids(
+  st: StagedTxn,
+  defs: (table: string) => CaptureTableDef | null,
+): StagedTxn {
+  let changed = false;
+  const ops = st.txn.ops.map((op): LedgerOp => {
+    const col = defs(op.t)?.localRowid;
+    if (!col || ![op.a, op.b, op.fh].some((v) => v !== undefined && col in v)) return op;
+    changed = true;
+    return {
+      ...op,
+      ...(op.a ? { a: omitKey(op.a, col) } : {}),
+      ...(op.b ? { b: omitKey(op.b, col) } : {}),
+      ...(op.fh ? { fh: omitKey(op.fh, col) } : {}),
+    };
+  });
+  return changed ? { ...st, txn: { ...st.txn, ops } } : st;
+}
+
+/** `record` without `key`. */
+function omitKey<V>(record: Readonly<Record<string, V>>, key: string): Record<string, V> {
+  const out: Record<string, V> = {};
+  for (const [k, v] of Object.entries(record)) if (k !== key) out[k] = v;
+  return out;
 }
 
 /** Whether `op` writes an append-only table (insert-only rows, never rewound). */
@@ -1258,6 +1540,15 @@ function applyInPage(x: PageContext, st: StagedTxn): InPageResult {
   }
   const plan = planTxn(db, api, st, defs, opts.replica);
   if (plan.kind !== 'apply') {
+    if (plan.kind === 'pending' && plan.collision) {
+      recordConflictOnce(
+        db,
+        { ...st.key, opIdx: plan.collision.opIdx },
+        plan.collision.conflict,
+        st.replicaId,
+        nowIso,
+      );
+    }
     return stop(plan.kind, plan.reason, plan.kind === 'pending' ? plan.holds : []);
   }
   if (api.clockReceive(opts.replica, st.txn.hlc, x.nowMs).held) {
@@ -1269,7 +1560,15 @@ function applyInPage(x: PageContext, st: StagedTxn): InPageResult {
     x.sequencingOn && st.replicaId === opts.replica ? unsequencedLocalTxn(db, st.txn.txn) : null;
   // An own echo whose transaction the page rewound applies it at its stream position.
   const rewoundEcho = local !== null && x.rewound.has(local.txn);
-  const c: OpContext = { db, api, st, defs, replica: opts.replica, nowIso };
+  const c: OpContext = {
+    db,
+    api,
+    st,
+    defs,
+    replica: opts.replica,
+    nowIso,
+    history: isInheritedHistory(db, opts.stream, st.replicaId, st.key.seq),
+  };
   let n = 0;
   // Gate C (§3.6): the whole transaction is one savepoint, so a broken
   // multi-row invariant rolls all of it back (the page's rewind stays).
@@ -1353,6 +1652,8 @@ function applyInPage(x: PageContext, st: StagedTxn): InPageResult {
     reason: n > 0 ? `${n} conflict(s) recorded` : null,
     nowIso,
   });
+  // A collision it was held on has settled: it went through (T13397).
+  resolveHeldConflicts(db, st.key, nowIso);
   return { status, holds: [], n, applied: true, decided: rewoundEcho && local ? local.txn : null };
 }
 
@@ -1388,6 +1689,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
       passes: 0,
       rebased: 0,
       held: [],
+      undoBudget: null,
       blocked,
     };
   }
@@ -1403,95 +1705,128 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
   let passes = 0;
   let rebased = 0;
   const heldTxns = new Set<string>();
-  for (let progress = true; progress && passes < maxPasses; ) {
-    progress = false;
-    passes += 1;
-    const heldReplicas = new Set<string>();
-    const held = new Set<string>(); // rows written by a pending transaction
-    const staged = [...stagedTxns(db, opts.stream)];
-    // Each page is one frame and one scoped rebase (§3.5 Rule 3): rewind the
-    // page's scope once, apply its transactions in stream order, replay once.
-    for (let at = 0; at < staged.length; ) {
-      const page = takePage(staged, at, opts.pageOps ?? REBASE_PAGE_OPS);
-      const pageStart = now();
-      const done = withApplyFrame(db, opts.scope, page[0]?.actor ?? null, (api) => {
-        const pageIso = new Date(pageStart).toISOString();
-        for (const p of page) adoptNaturalRows(db, api, defs, p.st.txn.ops);
-        const planned = sequencingOn
-          ? planPageRebase(
-              db,
-              page.map((p) => p.st),
-              defs,
-              opts.replica,
-            )
-          : { plan: null, inPlace: new Set<string>() };
-        const rebase = planned.plan;
-        const c0: OpContext = {
-          db,
-          api,
-          st: (page[0] as PageTxn).st,
-          defs,
-          replica: opts.replica,
-          nowIso: pageIso,
-        };
-        const rw: Rewound = rebase ? rewindTxns(c0, rebase) : { kept: new Map(), after: new Map() };
-        const rewound = new Set(rebase?.rewind.map((l) => l.txn) ?? []);
-        const decided = new Set<string>(); // rewound locals whose echo this page applied
-        // The time bound covers applying, not the rewind: a large scope must
-        // not shrink every page to one transaction that rewinds it again.
-        const applyStart = now();
-        let taken = 0;
-        for (const { st } of page) {
-          // The time bound cuts a page between transactions (never inside one).
-          if (taken > 0 && now() - applyStart > (opts.pageMs ?? REBASE_PAGE_MS)) break;
-          taken += 1;
-          const nowMs = now();
-          const nowIso = new Date(nowMs).toISOString();
-          const id = keyText(st.key);
-          const result = applyInPage(
-            {
-              db,
-              api,
-              defs,
-              opts,
-              sequencingOn,
-              rewound,
-              inPlace: planned.inPlace,
-              rw,
-              nowMs,
-              nowIso,
-              held,
-              heldReplicas,
-            },
-            st,
-          );
-          if (result.decided) decided.add(result.decided);
-          for (const t of result.heldTxns ?? []) heldTxns.add(t);
-          if (result.status !== null) last.set(id, result.status);
-          conflicts += result.n;
-          if (rebase && result.applied) rebased += 1;
-          if (result.status === 'held-skew') heldReplicas.add(st.replicaId);
-          if (result.status === 'pending') for (const k of result.holds) held.add(k);
-          if (
-            result.status === 'applied' ||
-            result.status === 'conflict' ||
-            result.status === 'void'
-          ) {
-            progress = true;
+  const runPasses = (): void => {
+    for (let progress = true; progress && passes < maxPasses; ) {
+      progress = false;
+      passes += 1;
+      const heldReplicas = new Set<string>();
+      const held = new Set<string>(); // rows written by a pending transaction
+      // An origin's display-key re-mint folds into the insert it held (T13405).
+      const staged = foldDisplayRemints(
+        db,
+        stagedTxns(db, opts.stream).map((st) =>
+          followUidAliases(db, withoutLocalRowids(st, defs), defs),
+        ),
+        defs,
+      );
+      // Each page is one frame and one scoped rebase (§3.5 Rule 3): rewind the
+      // page's scope once, apply its transactions in stream order, replay once.
+      for (let at = 0; at < staged.length; ) {
+        const page = takePage(staged, at, opts.pageOps ?? REBASE_PAGE_OPS);
+        const pageStart = now();
+        const done = withApplyFrame(db, opts.scope, page[0]?.actor ?? null, (api) => {
+          const pageIso = new Date(pageStart).toISOString();
+          for (const p of page) adoptNaturalRows(db, api, defs, p.st.txn.ops);
+          const planned = sequencingOn
+            ? planPageRebase(
+                db,
+                page.map((p) => p.st),
+                defs,
+                opts.replica,
+              )
+            : { plan: null, inPlace: new Set<string>() };
+          const rebase = planned.plan;
+          const c0: OpContext = {
+            db,
+            api,
+            st: (page[0] as PageTxn).st,
+            defs,
+            replica: opts.replica,
+            nowIso: pageIso,
+          };
+          const rw: Rewound = rebase
+            ? rewindTxns(c0, rebase)
+            : { kept: new Map(), after: new Map() };
+          const rewound = new Set(rebase?.rewind.map((l) => l.txn) ?? []);
+          const decided = new Set<string>(); // rewound locals whose echo this page applied
+          // The time bound covers applying, not the rewind: a large scope must
+          // not shrink every page to one transaction that rewinds it again.
+          const applyStart = now();
+          let taken = 0;
+          for (const { st } of page) {
+            // The time bound cuts a page between transactions (never inside one).
+            if (taken > 0 && now() - applyStart > (opts.pageMs ?? REBASE_PAGE_MS)) break;
+            taken += 1;
+            const nowMs = now();
+            const nowIso = new Date(nowMs).toISOString();
+            const id = keyText(st.key);
+            const result = applyInPage(
+              {
+                db,
+                api,
+                defs,
+                opts,
+                sequencingOn,
+                rewound,
+                inPlace: planned.inPlace,
+                rw,
+                nowMs,
+                nowIso,
+                held,
+                heldReplicas,
+              },
+              st,
+            );
+            if (result.decided) decided.add(result.decided);
+            for (const t of result.heldTxns ?? []) heldTxns.add(t);
+            if (result.status !== null) last.set(id, result.status);
+            conflicts += result.n;
+            if (rebase && result.applied) rebased += 1;
+            if (result.status === 'held-skew') heldReplicas.add(st.replicaId);
+            if (result.status === 'pending') for (const k of result.holds) held.add(k);
+            if (
+              result.status === 'applied' ||
+              result.status === 'conflict' ||
+              result.status === 'void'
+            ) {
+              progress = true;
+            }
           }
-        }
-        // Replay what the page rewound and did not decide by its echo.
-        if (rebase) {
-          const replay = rebase.rewind.filter((l) => !decided.has(l.txn));
-          for (const t of replayTxns(c0, { rewind: rebase.rewind, replay, own: null }, rw)) {
-            heldTxns.add(t);
+          // Replay what the page rewound and did not decide by its echo.
+          if (rebase) {
+            const replay = rebase.rewind.filter((l) => !decided.has(l.txn));
+            for (const t of replayTxns(c0, { rewind: rebase.rewind, replay, own: null }, rw)) {
+              heldTxns.add(t);
+            }
           }
-        }
-        return taken;
-      });
-      at += done;
+          return taken;
+        });
+        at += done;
+      }
     }
+  };
+  runPasses();
+  // The origin of a lost uid collision re-keys its row, then the held winner
+  // places under the freed uid (T12341 §6.4, T13397).
+  if (settleLostUidCollisions(db, opts).length > 0) {
+    opts.seal?.();
+    runPasses();
   }
+  // The origin of a row that lost a key collision re-mints its key, then the
+  // held insert places (T13405). Driven by the open conflicts, so a failed
+  // re-mint is retried by the next apply (T13431).
+  if (remintLostKeyCollisions(db, opts).length > 0) {
+    opts.seal?.();
+    runPasses();
+  }
+  // Forget the moves only once their frames committed: a busy or failed frame
+  // keeps them for the next apply on this handle (re-pointing is idempotent).
+  const moves = decisionMoves.get(db) ?? [];
+  if (repointOwnDecisionText(db, opts, moves) > 0) opts.seal?.();
+  decisionMoves.delete(db);
+  // Every other replica that had placed a re-keyed loser announces the
+  // re-key, so its earlier references follow the loser too (T13399).
+  if (announcePlacedRekeys(db, opts, new Date(now()).toISOString()) > 0) opts.seal?.();
   const count = (s: InboxStatus): number => [...last.values()].filter((v) => v === s).length;
   return {
     applied: count('applied'),
@@ -1505,5 +1840,8 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
     rebased,
     // Still held when the call ends (a later page of it may have applied one).
     held: [...heldTxns].filter((t) => txnHasHold(db, t)),
+    undoBudget: sequencingOn
+      ? recordUndoBudget(db, new Date(now()).toISOString(), opts.undoBudgetBytes)
+      : null,
   };
 }

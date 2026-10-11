@@ -227,4 +227,6 @@ export interface RowIdentityRefillReport {
   readonly snapshot: string | null;
   /** `--apply`: how to undo the refill. */
   readonly undo: string | null;
+  /** Whether this run cleared a recorded refusal, so the next open re-evaluates (T13305). */
+  readonly refusalCleared: boolean;
 }

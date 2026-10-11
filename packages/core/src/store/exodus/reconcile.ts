@@ -626,14 +626,18 @@ export async function rollbackSupersededReconcile(
     // @sync-invariant none:local-only rolling back a local reconcile run is refused before any write; never replicated
     throw new Error(`no reconcile receipt at ${receiptPath}`);
   }
-  const outcome =
-    typeof receipt === 'object' && receipt !== null && 'outcome' in receipt
-      ? receipt.outcome
-      : undefined;
-  if (outcome !== 'reconciled') {
+  const fields = new Map<string, unknown>(
+    typeof receipt === 'object' && receipt !== null ? Object.entries(receipt) : [],
+  );
+  const outcome = fields.get('outcome');
+  // A refused run whose own revert failed left rows behind (T13384).
+  const unreverted =
+    outcome === 'refused' &&
+    Number(fields.get('rowsCopied') ?? 0) > Number(fields.get('rolledBack') ?? 0);
+  if (outcome !== 'reconciled' && !unreverted) {
     // @sync-invariant none:local-only rolling back a local reconcile run is refused before any write; never replicated
     throw new Error(
-      `${receiptPath} records outcome ${String(outcome)}; only a reconciled run can be rolled back`,
+      `${receiptPath} records outcome ${String(outcome)}; only a reconciled run, or a refused run whose revert failed, can be rolled back`,
     );
   }
   const liveStorePath = resolveDualScopeDbPath('project', projectRoot);
@@ -1164,7 +1168,15 @@ async function reconcileWithScratch(
                 : `copied ${rowsCopied} row(s); every legacy row is now present in cleo.db${remapNote}`,
         };
       }
-      const rolledBack = await revertReconcile(liveStorePath, stagingDir);
+      // A revert that cannot run still leaves a refused receipt naming the
+      // rows it left, which --rollback reverts once the conflict is gone (T13384).
+      let rolledBack = 0;
+      let revertError: string | null = null;
+      try {
+        rolledBack = await revertReconcile(liveStorePath, stagingDir);
+      } catch (error) {
+        revertError = error instanceof Error ? error.message : String(error);
+      }
       const cause = !migrated.ok
         ? `copy failed: ${migrated.error ?? `the copy engine gave no message — inspect the journal in ${stagingDir}`}`
         : lost.length > 0
@@ -1188,7 +1200,10 @@ async function reconcileWithScratch(
         rowsCopied,
         rolledBack,
         stagingDir,
-        reason: `${cause} — reverted the ${rolledBack} row(s) this run inserted; legacy files untouched`,
+        reason:
+          revertError === null
+            ? `${cause} — reverted the ${rolledBack} row(s) this run inserted; legacy files untouched`
+            : `${cause} — the revert FAILED (${revertError}): the ${rowsCopied} row(s) this run inserted are still in cleo.db; once that is resolved, \`cleo doctor superseded-store --rollback ${basename(stagingDir)}\` reverts them; legacy files untouched`,
       };
     }),
     { stale: EXODUS_LOCK_STALE_MS, retries: 30, onCompromised: lock.onCompromised },

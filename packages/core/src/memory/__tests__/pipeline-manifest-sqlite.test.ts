@@ -28,6 +28,7 @@ import type { ExtendedManifestEntry } from '../index.js';
 import { buildManifestEntryFromShorthand } from '../manifest-builder.js';
 import {
   distillManifestEntry,
+  LEGACY_NEEDS_FOLLOWUP,
   listManifestIdentityProblems,
   migrateManifestJsonlToSqlite,
   pipelineManifestAppend,
@@ -286,6 +287,101 @@ describe('pipeline-manifest-sqlite', () => {
           .prepare('SELECT metadata_json,task_id FROM docs_pipeline_manifest WHERE id=?')
           .get('invalid-links'),
       ).toEqual({ metadata_json: '{"linked_tasks":null}', task_id: null });
+    });
+  });
+
+  describe('needs_followup stored as a boolean, and one bad entry in a list (T13338)', () => {
+    /** Store a row as an older writer left it, bypassing append's checks. */
+    const storeRaw = async (id: string, metadata: Record<string, unknown>) => {
+      const { bindTasksDomain } = await import('../../store/sqlite.js');
+      const { native } = await bindTasksDomain(testRoot);
+      native
+        .prepare(
+          'INSERT INTO docs_pipeline_manifest(id,type,content,status,metadata_json,created_at) VALUES (?,?,?,?,?,?)',
+        )
+        .run(id, 'research', 'payload', 'active', JSON.stringify(metadata), '2026-10-10');
+      return native;
+    };
+    const base = { title: 'Legacy', topics: ['t'], actionable: true, linked_tasks: [] };
+
+    it('append rejects a boolean needs_followup, so new entries store an array', async () => {
+      const result = await pipelineManifestAppend(
+        { ...ENTRY_A, needs_followup: true } as unknown as ExtendedManifestEntry,
+        testRoot,
+      );
+      expect(result).toMatchObject({ success: false, error: { code: 'E_VALIDATION_FAILED' } });
+      expect(result.error?.message).toContain('needs_followup');
+      expect((await pipelineManifestList({}, testRoot)).data).toMatchObject({ total: 0 });
+      // The array form appends and reads back as an array.
+      expect(
+        await pipelineManifestAppend({ ...ENTRY_A, needs_followup: ['T002'] }, testRoot),
+      ).toMatchObject({ success: true });
+      expect((await pipelineManifestShow(ENTRY_A.id, testRoot)).data).toMatchObject({
+        needs_followup: ['T002'],
+      });
+    });
+
+    it('a legacy boolean reads as an array everywhere: true names a follow-up, false none', async () => {
+      await storeRaw('legacy-true', { ...base, needs_followup: true });
+      await storeRaw('legacy-false', { ...base, needs_followup: false });
+      const listed = await pipelineManifestList({}, testRoot);
+      expect(listed.success).toBe(true);
+      const byId = Object.fromEntries(
+        (listed.data as { entries: ExtendedManifestEntry[] }).entries.map((e) => [
+          e.id,
+          e.needs_followup,
+        ]),
+      );
+      expect(byId).toEqual({ 'legacy-true': [LEGACY_NEEDS_FOLLOWUP], 'legacy-false': [] });
+      expect(listed.data).not.toHaveProperty('malformed');
+      expect((await pipelineManifestShow('legacy-true', testRoot)).success).toBe(true);
+      expect(await readManifestEntries(testRoot)).toHaveLength(2);
+      expect((await pipelineManifestStats(undefined, testRoot)).data).toMatchObject({
+        total: 2,
+        needsFollowup: 1,
+      });
+      expect((await pipelineManifestPending(undefined, testRoot)).data).toMatchObject({
+        total: 1,
+        byStatus: { needsFollowup: 1 },
+      });
+    });
+
+    it('one bad entry is reported on its own; list, find, pending and stats still return the rest', async () => {
+      expect(await pipelineManifestAppend(ENTRY_A, testRoot)).toMatchObject({ success: true });
+      const native = await storeRaw('bad-topics', { ...base, topics: 'not-an-array' });
+      const report = {
+        malformed: [
+          expect.objectContaining({
+            entryId: 'bad-topics',
+            reason: 'field-contract',
+            fields: ['topics'],
+          }),
+        ],
+        malformedRemedy: 'cleo doctor manifest-rows --repair',
+      };
+      const listed = await pipelineManifestList({}, testRoot);
+      expect(listed).toMatchObject({ success: true, data: { total: 1, ...report } });
+      expect(
+        (listed.data as { entries: ExtendedManifestEntry[] }).entries.map((e) => e.id),
+      ).toEqual([ENTRY_A.id]);
+      expect(await pipelineManifestFind('research', undefined, testRoot)).toMatchObject({
+        success: true,
+        data: report,
+      });
+      expect(await pipelineManifestPending(undefined, testRoot)).toMatchObject({
+        success: true,
+        data: report,
+      });
+      expect(await pipelineManifestStats(undefined, testRoot)).toMatchObject({
+        success: true,
+        data: { total: 1, ...report },
+      });
+      // Reported, never rewritten.
+      expect(
+        native
+          .prepare('SELECT metadata_json FROM docs_pipeline_manifest WHERE id=?')
+          .get('bad-topics'),
+      ).toEqual({ metadata_json: JSON.stringify({ ...base, topics: 'not-an-array' }) });
     });
   });
 

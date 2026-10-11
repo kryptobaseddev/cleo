@@ -9,7 +9,8 @@
  *
  *   - a `child_task` acceptance criterion whose table sorts before `tasks`
  *     (FK-order: E_CHILD_TASK_TARGET_CONTAINMENT under alphabetical copy);
- *   - a pre-T1408 `archive_reason = 'deleted'` (silently dropped by the CHECK);
+ *   - a pre-T1408 `archive_reason = 'deleted'` (silently dropped by the CHECK;
+ *     mapped to `cancelled` since T12711);
  *   - a pre-T877 `done` task with no terminal `pipeline_stage` (trigger abort);
  *   - a task→task parent edge and a relation duplicating a parent edge
  *     (T10572 guards were created without a backfill — grandfathered);
@@ -35,6 +36,9 @@ import { join } from 'node:path';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ResourceSample } from '../../resources/backend.js';
+import { _resetGovernorStateForTest } from '../../resources/governor.js';
+import { ResourceMonitor } from '../../resources/monitor.js';
 
 const _require = createRequire(import.meta.url);
 const { DatabaseSync } = _require('node:sqlite') as {
@@ -46,7 +50,11 @@ const { DatabaseSync } = _require('node:sqlite') as {
  * copy (review LOW-1): when set, the first remap's new id is taken in the live
  * store right after the remap is planned.
  */
-const { takeRemappedId } = vi.hoisted(() => ({ takeRemappedId: { on: false } }));
+const { takeRemappedId, claimSession } = vi.hoisted(() => ({
+  takeRemappedId: { on: false },
+  // T13384: a live task claims this session id before the copy writes it.
+  claimSession: { id: null as string | null },
+}));
 vi.mock('../exodus/task-id-remap.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../exodus/task-id-remap.js')>();
   return {
@@ -64,6 +72,12 @@ vi.mock('../exodus/task-id-remap.js', async (importOriginal) => {
             "INSERT INTO tasks_tasks (id, title, status, priority, type, created_at) VALUES (?, 'raced', 'pending', 'medium', 'saga', '2026-10-04T00:00:00Z')",
           )
           .run(first.newId);
+        if (claimSession.id !== null) {
+          live
+            .prepare("UPDATE tasks_tasks SET claimed_by_session = ? WHERE id = 'T1'")
+            .run(claimSession.id);
+          claimSession.id = null;
+        }
         live.close();
       }
       return result;
@@ -158,6 +172,20 @@ const KILL_SWITCH_MODES = [
   ['set', '1'],
 ] as const;
 
+/** A host with memory to spare: the governor admits a `db-heavy` migration (T13368). */
+const CALM_HOST: ResourceSample = {
+  sampledAtMs: Date.now(),
+  pressureAvailable: true,
+  memAvailableBytes: 32 * 1024 * 1024 * 1024,
+  globalPressure: {
+    some: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+    full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+  },
+  slicePressure: null,
+  cpuPressure: null,
+  walObservations: [],
+};
+
 describe.each(
   KILL_SWITCH_MODES,
 )('reconcileSupersededStores (T12319) — CLEO_DISABLE_EXODUS_ON_OPEN %s', (_mode, killSwitch) => {
@@ -186,6 +214,8 @@ describe.each(
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
+    _resetGovernorStateForTest();
     takeRemappedId.on = false;
     if (savedKillSwitch === undefined) delete process.env.CLEO_DISABLE_EXODUS_ON_OPEN;
     else process.env.CLEO_DISABLE_EXODUS_ON_OPEN = savedKillSwitch;
@@ -236,11 +266,18 @@ describe.each(
     // The legacy dependency cycle is copied verbatim (T12886).
     expect(scalar(liveDb, 'SELECT COUNT(*) FROM tasks_task_dependencies')).toBe(2);
     expect(scalar(liveDb, 'SELECT COUNT(*) FROM brain_observations')).toBe(2);
-    // Normalizations mirror the legacy backfills (T1408, T877) and never stamp
-    // migration time onto history.
+    // Normalizations mirror the legacy backfills (T877) and never stamp
+    // migration time onto history; a deleted task is cancelled, its legacy
+    // reason kept in the value map (T12711).
     expect(scalar(liveDb, "SELECT archive_reason FROM tasks_tasks WHERE id='T5'")).toBe(
-      'completed-unverified',
+      'cancelled',
     );
+    expect(
+      scalar(
+        liveDb,
+        "SELECT legacy_value FROM _exodus_recovery_value_map WHERE target_table='tasks_tasks' AND column_name='archive_reason' AND identity_json='[\"T5\"]'",
+      ),
+    ).toBe('deleted');
     expect(scalar(liveDb, "SELECT pipeline_stage FROM tasks_tasks WHERE id='T4'")).toBe(
       'contribution',
     );
@@ -657,6 +694,12 @@ describe.each(
   it.skipIf(killSwitch !== undefined)(
     'converges with exodus-on-open whichever runs first (on-open first → reconcile has nothing to do)',
     async () => {
+      // The open admits its migration through the governor's machine-wide
+      // `db-heavy` class, which defers at once under memory pressure: on a
+      // loaded host the open skipped the migration and this test failed (T13368).
+      // The host is pinned calm; admission is exodus-write-guard's subject.
+      _resetGovernorStateForTest();
+      vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(CALM_HOST);
       const { openDualScopeDb, _resetDualScopeDbCache } = await import('../dual-scope-db.js');
       // An ARMED open with the kill switch unset migrates and archives the legacy files.
       await openDualScopeDb('project', join(root, 'project'));
@@ -1521,6 +1564,142 @@ describe('bare-strands reconcile: a populated store with stranded bare rows (T13
         'SELECT COUNT(*) FROM tasks_tasks WHERE parent_id IS NOT NULL AND parent_id NOT IN (SELECT id FROM tasks_tasks)',
       ),
     ).toBe(0);
+  });
+
+  it('a copied session listing a task that is gone is copied, and the run reconciles (T13377)', async () => {
+    // T7 was deleted live and T404 exists nowhere: session history, as the
+    // runtime keeps it and the sync wire tolerates it (T12798).
+    const listed = '["T1","T7","T404"]';
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      DROP TABLE IF EXISTS sessions;
+      CREATE TABLE sessions (id TEXT PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL,
+        scope_json TEXT NOT NULL, started_at TEXT NOT NULL, tasks_completed_json TEXT,
+        tasks_created_json TEXT);
+      INSERT INTO sessions VALUES ('S-old', 'old session', 'ended', '{}',
+        '2026-01-01T00:00:00Z', '${listed}', '["T404"]');
+    `);
+    live.close();
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+    expect(
+      scalar(liveDb, "SELECT tasks_completed_json FROM tasks_sessions WHERE id = 'S-old'"),
+    ).toBe(listed);
+    expect(result.conflicts.map((c) => c.sourceTable)).not.toContain('sessions');
+  });
+
+  /**
+   * A bare session the run copies into tasks_sessions (T13384). The store is
+   * then opened once by the runtime, which backfills the fixture's raw rows
+   * (uid, birth_fp), so an image taken next is what any run starts from.
+   */
+  async function stageBareSession(): Promise<void> {
+    const live = new DatabaseSync(liveDb);
+    live.exec(`
+      DROP TABLE IF EXISTS sessions;
+      CREATE TABLE sessions (id TEXT PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL,
+        scope_json TEXT NOT NULL, started_at TEXT NOT NULL);
+      INSERT INTO sessions VALUES ('S-old', 'old session', 'ended', '{}', '2026-01-01T00:00:00Z');
+    `);
+    live.close();
+    const { openDualScopeDbAtPath } = await import('../dual-scope-db.js');
+    (await openDualScopeDbAtPath('project', liveDb, undefined, { dedicated: true })).close();
+  }
+
+  /** Every row of the tables a bare-strands run writes, in a stable order. */
+  function liveImage(): Record<string, unknown[]> {
+    const db = new DatabaseSync(liveDb, { readOnly: true });
+    try {
+      return Object.fromEntries(
+        ['tasks_tasks', 'tasks_sessions', 'tasks_task_labels', 'tasks_task_dependencies'].map(
+          (t) => [t, db.prepare(`SELECT * FROM ${t} ORDER BY 1, 2`).all()],
+        ),
+      );
+    } finally {
+      db.close();
+    }
+  }
+
+  it('a refused run that copied a session reverts to the exact prior state (T13384)', async () => {
+    await stageBareSession();
+    const before = liveImage();
+    takeRemappedId.on = true; // a concurrent write takes the recovered task's id
+    const { reconcileSupersededStores } = await import('../exodus/index.js');
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('refused');
+    expect(result.reason).toContain('a concurrent write took the id of a recovered task');
+    expect(result.rolledBack).toBeGreaterThan(0);
+    // Exactly the prior rows, plus only the row the concurrent write made.
+    const raced = new DatabaseSync(liveDb);
+    raced.exec("DELETE FROM tasks_tasks WHERE title = 'raced'");
+    raced.close();
+    expect(liveImage()).toEqual(before);
+  });
+
+  it('--rollback reverts an applied run that copied a session (T13384)', async () => {
+    await stageBareSession();
+    const { reconcileSupersededStores, rollbackSupersededReconcile } = await import(
+      '../exodus/index.js'
+    );
+    const before = liveImage();
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+    expect(scalar(liveDb, "SELECT name FROM tasks_sessions WHERE id = 'S-old'")).toBe(
+      'old session',
+    );
+    const undone = await rollbackSupersededReconcile(
+      join(root, 'project'),
+      result.stagingDir ?? '',
+    );
+    expect(undone.rowsReverted).toBe(result.rowsCopied);
+    expect(liveImage()).toEqual(before);
+  });
+
+  it('--rollback refuses, reverting nothing, when a live task claims a copied session (T13384)', async () => {
+    await stageBareSession();
+    const { reconcileSupersededStores, rollbackSupersededReconcile } = await import(
+      '../exodus/index.js'
+    );
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome, result.reason).toBe('reconciled');
+    const live = new DatabaseSync(liveDb);
+    live.exec(
+      "UPDATE tasks_tasks SET claimed_by_session = 'S-old', claimed_by_agent = 'a1' WHERE id = 'T1'",
+    );
+    live.close();
+    const claimed = liveImage();
+    await expect(
+      rollbackSupersededReconcile(join(root, 'project'), result.stagingDir ?? ''),
+    ).rejects.toThrow(/copied session S-old is claimed by T1/);
+    expect(liveImage()).toEqual(claimed);
+  });
+
+  it('a refused run whose revert cannot run keeps a receipt, and --rollback reverts it later (T13384)', async () => {
+    await stageBareSession();
+    const before = liveImage();
+    takeRemappedId.on = true;
+    claimSession.id = 'S-old'; // T1 claims the session the run is about to copy
+    const { reconcileSupersededStores, rollbackSupersededReconcile } = await import(
+      '../exodus/index.js'
+    );
+    const result = await reconcileSupersededStores(join(root, 'project'), { bareStrands: true });
+    expect(result.outcome).toBe('refused');
+    expect(result.reason).toMatch(/the revert FAILED .*claimed by T1/);
+    expect(result.rolledBack).toBe(0);
+    expect(result.receiptPath && existsSync(result.receiptPath)).toBe(true);
+    // The claim is released, then the run's rows are reverted from its receipt.
+    const live = new DatabaseSync(liveDb);
+    live.exec(
+      "UPDATE tasks_tasks SET claimed_by_session = NULL WHERE id = 'T1'; DELETE FROM tasks_tasks WHERE title = 'raced'",
+    );
+    live.close();
+    const undone = await rollbackSupersededReconcile(
+      join(root, 'project'),
+      result.stagingDir ?? '',
+    );
+    expect(undone.rowsReverted).toBe(result.rowsCopied);
+    expect(liveImage()).toEqual(before);
   });
 
   it('a reconciled run rolls back from its receipt, and the refusal returns', async () => {

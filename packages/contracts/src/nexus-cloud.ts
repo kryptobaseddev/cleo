@@ -145,6 +145,10 @@ export const nexusCloudReplicaSchema = z.object({
   lastSyncAt: isoTime.nullable(),
   presence: nexusCloudPresenceSchema.nullable(),
   presenceAt: isoTime.nullable(),
+  /** When the replica was retired (cleo-nexus T123), else null. Absent from servers older than retirement. */
+  retiredAt: isoTime.nullable().optional(),
+  /** The retired replica's named successor, else null (not retired, or retired with none). */
+  successor: z.string().nullable().optional(),
 });
 
 /** `DeviceCounts` (§4.1): distinct devices holding a replica. */
@@ -602,10 +606,40 @@ export interface CloudStatusHeld {
   readonly warnDays: number;
 }
 
+/** `CloudStatusSyncStream.undo`: the store's undo against its budget (journal spec §3.5 Rule 2, D5). */
+export interface CloudStatusUndoBudget {
+  /** Undo payload bytes held for unsequenced local transactions. */
+  readonly bytes: number;
+  /** The budget in bytes (256 MiB by default). */
+  readonly budget: number;
+  /** `warn` from 80% (pull to drain it); `exceeded` at 100%, which persists until a rebind. */
+  readonly state: 'ok' | 'warn' | 'exceeded';
+  /** When undo first reached the budget (a rebind is scheduled for the next pull), or `null`. */
+  readonly exceededAt: string | null;
+}
+
+/**
+ * The pull's seen-transaction ledger (`_sync_seen_txn`, T13317). The cloud
+ * pull prunes each origin's rows below its staged `local_seq` floor (T13318);
+ * a pruned transaction delivered again is refused, never applied twice.
+ */
+export interface CloudStatusSeenTxns {
+  /** Rows held, every stream. */
+  readonly rows: number;
+  /** Estimated bytes: the stored text and integer payload, without SQLite page overhead. */
+  readonly bytes: number;
+  /** Rows per stream. */
+  readonly byStream: Readonly<Record<string, number>>;
+}
+
 export interface CloudStatusSyncStream {
   /** Which store. */
   readonly scope: 'project' | 'global';
-  /** Its stream (`project:<id>`, `home:<userId>`) when known locally, else `null`. */
+  /**
+   * Its stream (`project:<id>`, `home:<userId>`) when known locally: from the
+   * project link, else from the store's own genesis cut or pull position
+   * (T13370); `null` before either exists.
+   */
   readonly stream: string | null;
   /** The store file. */
   readonly dbPath: string;
@@ -619,12 +653,20 @@ export interface CloudStatusSyncStream {
   readonly oldestUnsealedAtMs: number | null;
   /** The highest sealed local sequence (`_sync_txn.local_seq`), or `null` before the first seal. */
   readonly lastSealedSeq: number | null;
+  /** The local sequence of this stream's genesis cut, or `null` before the store cut or joined it (T13370). */
+  readonly genesisCut: number | null;
+  /** The cut's genesis checkpoint is not yet confirmed stored; no segment is sent until it is (T13370). */
+  readonly genesisPending: boolean;
   /** Captures the sealer could not read and holds aside (`_sync_quarantine`), per table. */
   readonly quarantined: Readonly<Record<string, number>>;
   /** Tables marked suspect until a repair re-emits them. */
   readonly suspectTables: readonly string[];
   /** Local writes a sync rebase holds, until their echo is decided (§3.5 Rule 5). */
   readonly held: CloudStatusHeld;
+  /** Undo held against its budget (§3.5 Rule 2, D5). */
+  readonly undo: CloudStatusUndoBudget;
+  /** The seen-transaction ledger's size; it grows until pruning has a proven floor (T13317). */
+  readonly seenTxns: CloudStatusSeenTxns;
   /** Sealed ops not yet handed to the outbox for sending. */
   readonly unsentOps: CloudSyncFact<number>;
   /** The last sequence this store pushed to the server. */

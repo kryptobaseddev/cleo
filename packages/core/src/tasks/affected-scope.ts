@@ -4,7 +4,9 @@
  * A scoped run (`tool:test-affected`, a scope-aware `tool:test` that chose the
  * affected packages, or a targeted `test-run:` report) proves what it ran
  * before merge. Once the change has merged, only merged CI (`ci:<pr>`) or a
- * full `tool:test` proves `testsPassed`. A tree-bound `test-run:` also stops
+ * full `tool:test` proves `testsPassed` — unless the scoped result is pinned
+ * to a tree whose copy of every file the change touched equals the merge
+ * commit's, so the merged change is the one it tested (T13495). A tree-bound `test-run:` also stops
  * counting as soon as the tree it ran on moves (T12965). This module
  * is the single place both rules live: `cleo done` planning and
  * `cleo complete` ask {@link testsPassedSupersededReason}, and they and a
@@ -17,6 +19,7 @@
  * @task T12965
  */
 
+import { execFileSync } from 'node:child_process';
 import type { ChangeSetMergeState, EvidenceAtom, TaskChangeSet } from '@cleocode/contracts';
 import type {
   ChangeSetDeps,
@@ -103,10 +106,11 @@ export function scopedRunSupersededReason(
   atoms: ReadonlyArray<EvidenceAtom>,
   state: ChangeMergeState,
   lookupFailed?: string,
+  notCarried?: string,
 ): string | null {
   if (state === 'unmerged' || !isScopedOnly(atoms)) return null;
   return state === 'merged'
-    ? 'testsPassed was recorded from a scoped run (affected packages or a targeted test-run); the merged change needs merged CI (ci:<pr>) or a full run (tool:test).'
+    ? `testsPassed was recorded from a scoped run (affected packages or a targeted test-run), and it does not carry across the merge${notCarried ? ` because ${notCarried}` : ''}; the merged change needs merged CI (ci:<pr>, with evidence.ciSatisfies) or a full run (tool:test).`
     : `testsPassed was recorded from a scoped run (affected packages or a targeted test-run), which counts before merge only, and whether the change has merged cannot be determined (${lookupFailed ?? GH_UNREACHABLE}); retry, or record tool:test (or ci:<pr>).`;
 }
 
@@ -141,6 +145,44 @@ export function testRunTreeMismatchReason(
 }
 
 /**
+ * Why a recorded `qaPassed` resting on a tree-bound `qa-run:` receipt no
+ * longer stands, or null when it does (T13427): a receipt proves the tree it
+ * ran on. A `ci:<pr>` in the gate carries it on its own; atoms with no
+ * `treeHash` (no git checkout at verify time) are not judged.
+ *
+ * @param atoms - Recorded `qaPassed` atoms.
+ * @param current - The current tree hash, or null when it cannot be computed.
+ * @returns The reason, or null.
+ * @task T13427
+ */
+export function qaRunTreeMismatchReason(
+  atoms: ReadonlyArray<EvidenceAtom>,
+  current: string | null,
+): string | null {
+  if (atoms.some((a) => a.kind === 'ci')) return null;
+  const first = atoms.find(
+    (a): a is Extract<EvidenceAtom, { kind: 'qa-run' }> =>
+      a.kind === 'qa-run' && typeof a.treeHash === 'string' && a.treeHash !== current,
+  );
+  if (!first?.treeHash) return null;
+  return current === null
+    ? `qaPassed rests on qa-run:${first.path}, bound to tree ${first.treeHash.slice(0, 12)}, and the current tree cannot be computed here (not a git checkout?); complete from the checkout the check ran in, or record ci:<pr> once the PR merges.`
+    : `qaPassed rests on qa-run:${first.path}, recorded on tree ${first.treeHash.slice(0, 12)}, but the tree is now ${current.slice(0, 12)}; the receipt no longer describes this code. Re-run the check and record a fresh qa-run, or record ci:<pr> once the PR merges.`;
+}
+
+/**
+ * Whether recorded `qaPassed` atoms carry a tree-bound `qa-run:`, so callers
+ * compute the current tree hash only when it matters.
+ *
+ * @param atoms - Recorded `qaPassed` atoms.
+ * @returns True when a tree-bound qa-run is present.
+ * @task T13427
+ */
+export function hasTreeBoundQaRun(atoms: ReadonlyArray<EvidenceAtom>): boolean {
+  return atoms.some((a) => a.kind === 'qa-run' && typeof a.treeHash === 'string');
+}
+
+/**
  * Whether the recorded `testsPassed` atoms carry a tree-bound `test-run:`
  * that {@link testRunTreeMismatchReason} would judge, so callers compute the
  * current tree hash only when it matters.
@@ -170,7 +212,7 @@ export function hasTreeBoundTestRun(atoms: ReadonlyArray<EvidenceAtom>): boolean
 export async function testsPassedSupersededReason(
   atoms: ReadonlyArray<EvidenceAtom>,
   probe: {
-    mergeState: () => Promise<ChangeMergeState | MergeVerdict> | ChangeMergeState | MergeVerdict;
+    mergeState: () => Promise<ChangeMergeState | MergedVerdict> | ChangeMergeState | MergedVerdict;
     currentTree: () => Promise<string | null> | string | null;
   },
 ): Promise<string | null> {
@@ -181,8 +223,76 @@ export async function testsPassedSupersededReason(
   if (!isScopedOnly(atoms)) return null;
   const merge = await probe.mergeState();
   const verdict = typeof merge === 'string' ? { state: merge } : merge;
+  // T13495: a tree-pinned scoped result carries across the merge when the
+  // change it tested reached the default branch byte for byte.
+  if (verdict.state === 'merged') {
+    const carried = scopedRunCarriedAcrossMerge(atoms, verdict.changeSet ?? null);
+    if (carried.ok) return null;
+    return scopedRunSupersededReason(atoms, verdict.state, verdict.lookupFailed, carried.why);
+  }
   return scopedRunSupersededReason(atoms, verdict.state, verdict.lookupFailed);
 }
+
+/**
+ * Whether every scoped result in `atoms` was recorded on a tree whose copy of
+ * every file the change touched equals the merge commit's (T13495): the merged
+ * change is the change the scoped run tested, so its result still stands. Fails
+ * closed — no merge commit, no changed paths, a result with no tree pin, or a
+ * git failure each say why the result does not carry.
+ *
+ * @param atoms - Recorded `testsPassed` atoms.
+ * @param changeSet - The merged change set (its merge commit, files and root).
+ * @returns `ok`, or why the scoped result does not carry across the merge.
+ * @task T13495
+ */
+export function scopedRunCarriedAcrossMerge(
+  atoms: ReadonlyArray<EvidenceAtom>,
+  changeSet: Pick<
+    TaskChangeSet,
+    'mergeCommitSha' | 'files' | 'deletedFiles' | 'executionRoot'
+  > | null,
+): { ok: true } | { ok: false; why: string } {
+  const merge = changeSet?.mergeCommitSha;
+  if (!changeSet || !merge) return { ok: false, why: 'the merge commit is not known here' };
+  const paths = [...new Set([...changeSet.files, ...changeSet.deletedFiles])];
+  if (paths.length === 0) return { ok: false, why: 'the merged change lists no files to compare' };
+  const scoped = atoms.filter(
+    (a) => a.kind === 'test-run' || (a.kind === 'tool' && a.scope === 'affected'),
+  );
+  for (const atom of scoped) {
+    const tree = 'treeHash' in atom && typeof atom.treeHash === 'string' ? atom.treeHash : null;
+    if (tree === null)
+      return { ok: false, why: 'the scoped result has no recorded tree to compare with the merge' };
+    let identical: boolean;
+    try {
+      execFileSync('git', ['diff', '--quiet', '--no-renames', tree, merge, '--', ...paths], {
+        cwd: changeSet.executionRoot,
+        stdio: 'ignore',
+      });
+      identical = true;
+    } catch (err) {
+      if ((err as { status?: number }).status !== 1)
+        return {
+          ok: false,
+          why: `git could not compare the recorded tree ${tree.slice(0, 12)} with merge commit ${merge.slice(0, 12)}`,
+        };
+      identical = false;
+    }
+    if (!identical)
+      return {
+        ok: false,
+        why: `the change's files at merge commit ${merge.slice(0, 12)} differ from the tree the scoped run tested (${tree.slice(0, 12)})`,
+      };
+  }
+  return { ok: true };
+}
+
+/**
+ * A merge verdict, with the merged change set when the caller derived one
+ * ({@link TaskMergeInfo} carries it), so a scoped result can be compared with
+ * the merge commit (T13495).
+ */
+export type MergedVerdict = MergeVerdict & { changeSet?: TaskChangeSet | null };
 
 /** Git and `gh` probes {@link taskChangeMergeState} uses; injectable for tests. */
 export interface MergeProbeDeps {

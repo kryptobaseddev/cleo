@@ -168,6 +168,8 @@ packages/*/.cleo/*.db
 packages/*/.cleo/*.db-wal
 packages/*/.cleo/*.db-shm
 packages/*/.cleo/*.db-journal
+# Generated fixture stores produced by test runs (T13518)
+packages/*/src/**/__tests__/fixtures/.cleo/
 .gitnexus
 
 # Claude Code worktrees — transient per-agent clones

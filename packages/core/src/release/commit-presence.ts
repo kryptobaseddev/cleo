@@ -208,3 +208,38 @@ export function resolveCommitPresenceInTag(
     fix: `This change is not in ${tag}. Re-plan the release to exclude the task, or tag a commit that contains the work; re-verifying is refused once a task is done (ADR-051 §11.1), so the release — not the evidence — is what needs correcting.`,
   };
 }
+
+/**
+ * Whether a path recorded in a `files:` atom belongs to a release, judged
+ * against the tag rather than the working tree (T13364).
+ *
+ * A `files:` atom names the files a task's change touched. A later change in
+ * the same release may legitimately delete one (T13167 removed two files that
+ * T13158's atom names, before the v2026.10.5 tag). The working tree then lacks
+ * the path forever, and a working-tree existence check rejects a shipped
+ * release with a defect that re-verifying cannot repair: reconcile reads the
+ * atoms from the committed plan.
+ *
+ * A path is accounted for when it exists in the working tree, or when some
+ * commit reachable from `tag` touched it (`git rev-list -1 <tag> -- <path>`),
+ * meaning it existed and a recorded commit in the release history removed it.
+ * A path with no history up to the tag was never part of the release, and that
+ * evidence stays stale.
+ *
+ * @param projectRoot - Repository root.
+ * @param relPath - Path from the atom, relative to `projectRoot`.
+ * @param tag - The release tag.
+ * @param existsInTree - Whether the path exists in the working tree.
+ * @returns `null` when the path is accounted for, else the stale reason.
+ */
+export function filesAtomPathProblem(
+  projectRoot: string,
+  relPath: string,
+  tag: string,
+  existsInTree: boolean,
+): string | null {
+  if (existsInTree) return null;
+  const last = git(projectRoot, ['rev-list', '-1', tag, '--', relPath]);
+  if (last !== null && last.trim().length > 0) return null;
+  return `file ${relPath} missing post-publish and has no history up to ${tag}`;
+}

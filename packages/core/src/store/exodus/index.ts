@@ -27,6 +27,7 @@ export {
   exodusArchiveDir,
   exodusMarkerPath,
   hasExodusCompleteMarker,
+  readExodusVerifyIssues,
   type StrandedResidueEntry,
   writeExodusCompleteMarker,
 } from './archive.js';

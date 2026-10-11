@@ -7,7 +7,7 @@
  * @task T13104
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -19,6 +19,13 @@ import { inspectJournal } from '../migrations.js';
 
 const MIGRATIONS = resolve(import.meta.dirname, '../../../migrations');
 const folderOf = (l: string) => join(MIGRATIONS, l);
+/** The newest migration folder of a lineage: the head a fully migrated store reports. */
+const newestFolder = (l: string) =>
+  readdirSync(folderOf(l), { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort()
+    .at(-1);
 
 let dir: string;
 beforeEach(() => {
@@ -42,7 +49,8 @@ describe('inspectJournal', () => {
     db.close();
     const r = inspectJournal('project', path, ['drizzle-cleo-project', 'drizzle-tasks'], folderOf);
     expect(r.journalRows).toBe(rows);
-    expect(r.head?.name).toBe('20260930170000_t12819-trigger-suspend-clause');
+    expect(r.head?.name).toBe(newestFolder('drizzle-cleo-project'));
+    expect(r.head?.name).toBeDefined();
     expect(r.lineages).toEqual([
       expect.objectContaining({ lineage: 'drizzle-cleo-project', applied: rows, pending: [] }),
     ]);

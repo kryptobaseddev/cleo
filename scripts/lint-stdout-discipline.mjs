@@ -69,6 +69,7 @@ import { extname, join, posix, relative, sep } from 'node:path';
 import {
   compareStdoutBaseline,
   createStdoutBaseline,
+  mayContainStdoutCall,
   stdoutCallIdentities,
 } from './stdout-baseline-identity.mjs';
 
@@ -182,6 +183,7 @@ function scanFile(absPath) {
   if (isTestFile(relPath)) return;
 
   const src = readFileSync(absPath, 'utf-8');
+  if (!mayContainStdoutCall(src)) return;
   const lines = src.split('\n');
 
   for (const call of stdoutCallIdentities(src, relPath)) {

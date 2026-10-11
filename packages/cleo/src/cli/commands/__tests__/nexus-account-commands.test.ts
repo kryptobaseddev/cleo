@@ -215,6 +215,14 @@ function capture() {
 }
 
 const savedTTY = process.stdin.isTTY;
+const savedStderrTTY = process.stderr.isTTY;
+const savedCi = process.env['CI'];
+
+/** Put stdin and stderr on a terminal, the picker's precondition (promptAllowed, T13308). */
+function onTerminal(): void {
+  Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+  Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+}
 
 // These tests cover the 9.24 session path: pin device credentials off and
 // sandbox CLEO_HOME so no test reads the real nexus-device.json (T12904).
@@ -252,12 +260,19 @@ beforeEach(() => {
   process.env['CLEO_NEXUS_API_URL'] = API;
   rmSync(nexusCredentialsPath(), { force: true });
   Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+  Object.defineProperty(process.stderr, 'isTTY', { value: false, configurable: true });
+  // promptAllowed never prompts under CI: clear it so the run's own CI=true
+  // cannot decide a picker test (T13308).
+  delete process.env['CI'];
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env['CLEO_NEXUS_API_URL'];
   Object.defineProperty(process.stdin, 'isTTY', { value: savedTTY, configurable: true });
+  Object.defineProperty(process.stderr, 'isTTY', { value: savedStderrTTY, configurable: true });
+  if (savedCi === undefined) delete process.env['CI'];
+  else process.env['CI'] = savedCi;
 });
 
 // ---------------------------------------------------------------------------
@@ -379,7 +394,7 @@ describe('login picker', () => {
   });
 
   it('on a terminal with no target, offers Nexus first and runs it when picked', async () => {
-    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    onTerminal();
     const cap = capture();
     try {
       await run(loginCommand, { browser: false });
@@ -392,7 +407,7 @@ describe('login picker', () => {
   });
 
   it('picking a provider hands it to the LLM front door', async () => {
-    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    onTerminal();
     mockSelect.mockImplementationOnce(async () => 'openai');
     const cap = capture();
     try {
@@ -400,8 +415,23 @@ describe('login picker', () => {
     } finally {
       cap.restore();
     }
+    expect(mockSelect).toHaveBeenCalledTimes(1);
     expect(mockRunFrontDoorLogin.mock.calls[0]?.[0]).toBe('openai');
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('under CI, a terminal still gets no picker', async () => {
+    onTerminal();
+    process.env['CI'] = 'true';
+    const cap = capture();
+    try {
+      await run(loginCommand, { browser: false });
+    } catch {
+      // the non-interactive path may refuse without a target; only the picker matters here
+    } finally {
+      cap.restore();
+    }
+    expect(mockSelect).not.toHaveBeenCalled();
   });
 });
 

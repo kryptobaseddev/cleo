@@ -917,6 +917,10 @@ describe('PR-4: references, guards, parent deletes and re-keys (§3.2)', () => {
     expect(readFieldLeaves(db, 'tasks_tasks', 'k1')).toEqual({});
     expect(readFieldLeaves(db, 'tasks_tasks', 'k2')).toEqual({ status: h(1) });
     expect(seal(db).txns, 'the applied re-key was echoed').toBe(0);
+    // A re-key that settles no collision here is never announced (T13399).
+    expect(db.prepare(`SELECT count(*) AS n FROM _sync_txn WHERE kind = 'rekey'`).get()).toEqual({
+      n: 0,
+    });
     stage(db, segment(R2, [txn('R2:1', [update('k2', h(5, R2), { title: 'after rekey' })])]));
     apply(db);
     expect(task(db, 'k2')?.title).toBe('after rekey');
@@ -940,6 +944,17 @@ describe('PR-4: references, guards, parent deletes and re-keys (§3.2)', () => {
   it('every sync-set FK parent declares its remote-delete policy', async () => {
     const db = await store();
     const parents = [...syncSetChildKeys(db, 'project').keys()].sort();
+    expect(parents.length).toBeGreaterThan(0);
+    for (const t of parents) {
+      expect(ON_REMOTE_PARENT_DELETE, `${t} has no onRemoteParentDelete policy`).toHaveProperty(t);
+    }
+  });
+
+  it('every global sync-set FK parent declares its remote-delete policy', async () => {
+    const db = getDualScopeNativeDb(
+      await openDualScopeDbAtPath('global', join(dir, 'cleo', 'cleo.db')),
+    );
+    const parents = [...syncSetChildKeys(db, 'global').keys()].sort();
     expect(parents.length).toBeGreaterThan(0);
     for (const t of parents) {
       expect(ON_REMOTE_PARENT_DELETE, `${t} has no onRemoteParentDelete policy`).toHaveProperty(t);

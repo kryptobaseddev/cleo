@@ -312,6 +312,64 @@ export async function checkPackage(pkg, ver, fetchImpl = fetch, distTag) {
   };
 }
 
+/** Default total propagation budget (POSTDEPLOY_TIMEOUT_MS). */
+export const DEFAULT_TIMEOUT_MS = 900_000;
+
+/** Default poll interval (POSTDEPLOY_INTERVAL_MS). */
+export const DEFAULT_INTERVAL_MS = 15_000;
+
+/**
+ * The convergence loop every wait on npm propagation shares (gh#1377, T13328).
+ *
+ * `attempt` is retried while it reports `settled: false` (the soft `pending`
+ * state) until the budget is spent. A terminal answer, good or bad, ends the
+ * loop at once: only the caller knows which failures are propagation and which
+ * are defects, and it says so by settling the defects.
+ *
+ * The wait between attempts starts at `intervalMs` and is multiplied by
+ * `backoff` after each one, capped at `maxIntervalMs`. The last wait is cut
+ * short so the loop never sleeps past the deadline.
+ *
+ * @template T
+ * @param {() => Promise<{ settled: boolean, value: T }>} attempt - One try.
+ * @param {object} [opts]
+ * @param {number} [opts.timeoutMs] - Total budget, measured from the first attempt.
+ * @param {number} [opts.intervalMs] - First wait between attempts.
+ * @param {number} [opts.backoff] - Factor applied to the wait after each attempt (1 = fixed).
+ * @param {number} [opts.maxIntervalMs] - Cap on the wait.
+ * @param {(ms: number) => Promise<unknown>} [opts.sleepImpl] - Injected for tests.
+ * @param {() => number} [opts.now] - Clock, injected for tests.
+ * @param {(state: { elapsedMs: number, attempts: number, waitMs: number }) => void} [opts.onWait] -
+ *   Called before each wait.
+ * @returns {Promise<{ settled: boolean, value: T, timedOut: boolean, attempts: number, elapsedMs: number }>}
+ */
+export async function converge(attempt, opts = {}) {
+  const {
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    intervalMs = DEFAULT_INTERVAL_MS,
+    backoff = 1,
+    maxIntervalMs = Number.POSITIVE_INFINITY,
+    sleepImpl = sleep,
+    now = Date.now,
+    onWait = () => {},
+  } = opts;
+  const started = now();
+  let waitMs = intervalMs;
+  let attempts = 0;
+  for (;;) {
+    const r = await attempt();
+    attempts++;
+    const elapsedMs = now() - started;
+    if (r.settled) return { settled: true, value: r.value, timedOut: false, attempts, elapsedMs };
+    if (elapsedMs >= timeoutMs)
+      return { settled: false, value: r.value, timedOut: true, attempts, elapsedMs };
+    const wait = Math.min(waitMs, maxIntervalMs, timeoutMs - elapsedMs);
+    onWait({ elapsedMs, attempts, waitMs: wait });
+    await sleepImpl(wait);
+    waitMs = Math.min(waitMs * backoff, maxIntervalMs);
+  }
+}
+
 /**
  * Poll every package until each reaches a terminal state or the budget expires.
  *
@@ -328,8 +386,8 @@ export async function checkPackage(pkg, ver, fetchImpl = fetch, distTag) {
  */
 export async function verifyAll(packages, ver, opts = {}) {
   const {
-    timeoutMs = 900_000,
-    intervalMs = 15_000,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    intervalMs = DEFAULT_INTERVAL_MS,
     fetchImpl = fetch,
     log = () => {},
     sleepImpl = sleep,
@@ -341,7 +399,7 @@ export async function verifyAll(packages, ver, opts = {}) {
   const started = Date.now();
   let pending = [...packages];
 
-  while (pending.length > 0) {
+  const round = async () => {
     const results = await Promise.all(
       pending.map(async (pkg) => ({ pkg, ...(await checkPackage(pkg, ver, fetchImpl, distTag)) })),
     );
@@ -377,27 +435,30 @@ export async function verifyAll(packages, ver, opts = {}) {
     }
 
     pending = stillPending;
-    if (pending.length === 0) break;
+    return { settled: pending.length === 0, value: undefined };
+  };
 
-    const elapsed = Date.now() - started;
-    if (elapsed >= timeoutMs) {
-      for (const pkg of pending) {
-        const last = await checkPackage(pkg, ver, fetchImpl, distTag);
-        settled.set(pkg, {
-          state: 'timeout',
-          detail: last.detail ?? 'still not installable at deadline',
-          elapsedMs: elapsed,
-          rung: last.rung,
-        });
-        log(`  [FAIL] @cleocode/${pkg}@${ver}  ${last.detail ?? 'not installable'}`);
-      }
-      break;
+  const outcome = await converge(round, {
+    timeoutMs,
+    intervalMs,
+    sleepImpl,
+    onWait: ({ elapsedMs }) =>
+      log(
+        `  ... ${pending.length} not yet installable at +${Math.round(elapsedMs / 1000)}s: ${pending.join(', ')}`,
+      ),
+  });
+
+  if (outcome.timedOut) {
+    for (const pkg of pending) {
+      const last = await checkPackage(pkg, ver, fetchImpl, distTag);
+      settled.set(pkg, {
+        state: 'timeout',
+        detail: last.detail ?? 'still not installable at deadline',
+        elapsedMs: outcome.elapsedMs,
+        rung: last.rung,
+      });
+      log(`  [FAIL] @cleocode/${pkg}@${ver}  ${last.detail ?? 'not installable'}`);
     }
-
-    log(
-      `  ... ${pending.length} not yet installable at +${Math.round(elapsed / 1000)}s: ${pending.join(', ')}`,
-    );
-    await sleepImpl(intervalMs);
   }
 
   return packages.map((pkg) => {
@@ -462,8 +523,8 @@ export async function main() {
     return 2;
   }
 
-  const timeoutMs = Number(process.env.POSTDEPLOY_TIMEOUT_MS ?? 900_000);
-  const intervalMs = Number(process.env.POSTDEPLOY_INTERVAL_MS ?? 15_000);
+  const timeoutMs = Number(process.env.POSTDEPLOY_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
+  const intervalMs = Number(process.env.POSTDEPLOY_INTERVAL_MS ?? DEFAULT_INTERVAL_MS);
 
   /** @type {string[]} */
   let packages;

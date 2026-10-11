@@ -107,7 +107,7 @@ interface TmpEnv {
   dbPath: string;
   projectCantDir: string;
   openDb: () => DatabaseSync;
-  cleanup: () => void;
+  cleanup: () => Promise<void>;
 }
 
 /**
@@ -139,6 +139,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   });
 
   const signaldockMod = await import('../store/agent-registry-store.js');
+  const { awaitBackgroundOps } = await import('../store/background-ops.js');
   signaldockMod._resetGlobalAgentRegistryDb_TESTING_ONLY();
   await signaldockMod.ensureGlobalAgentRegistryDb();
 
@@ -151,7 +152,12 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     return d;
   };
 
-  const cleanup = (): void => {
+  // Drain this registry's background work (the resolver's dispatch trace
+  // opens the project store) before the next test's vi.resetModules: a
+  // straggler crossing it loads a second dual-scope-db into the fresh registry
+  // mid-import and the next test sees it uninitialised (T13313).
+  const cleanup = async (): Promise<void> => {
+    await awaitBackgroundOps();
     signaldockMod._resetGlobalAgentRegistryDb_TESTING_ONLY();
     rmSync(base, { recursive: true, force: true });
   };
@@ -171,8 +177,8 @@ describe('Pipeline E2E — all 5 worker role templates', () => {
     env = await makeTmpEnv(Math.random().toString(36).slice(2));
   });
 
-  afterEach(() => {
-    env.cleanup();
+  afterEach(async () => {
+    await env.cleanup();
     vi.doUnmock('../paths.js');
     vi.restoreAllMocks();
   });
@@ -255,8 +261,8 @@ describe('Pipeline E2E — universal-tier fallback', () => {
     env = await makeTmpEnv(Math.random().toString(36).slice(2));
   });
 
-  afterEach(() => {
-    env.cleanup();
+  afterEach(async () => {
+    await env.cleanup();
     vi.doUnmock('../paths.js');
     vi.restoreAllMocks();
   });

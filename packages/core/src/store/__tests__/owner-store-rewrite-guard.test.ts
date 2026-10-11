@@ -23,7 +23,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { DB_INVENTORY } from '@cleocode/contracts';
+import { DB_INVENTORY, type DbRole } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { inspectDbFile } from '../../doctor/db-substrate.js';
 import {
@@ -32,6 +32,7 @@ import {
   resolveStoreOwnerRoot,
 } from '../../project-scope.js';
 import { restoreBackup } from '../../system/backup.js';
+import { runBackupRecover } from '../backup-recover.js';
 import { getTaskAccessor } from '../data-accessor.js';
 import { repairMalformedDbs } from '../repair-malformed-dbs.js';
 import { autoRecoverFromBackup, resetDbState } from '../sqlite.js';
@@ -162,16 +163,20 @@ describe('T12708 — one guard, one message, for every whole-store rewrite', () 
   });
 
   it('doctor repair / backup recover: refused without confirmation, audited with it', () => {
-    const live = join(main, '.cleo', 'tasks.db');
+    // A role repaired by the generic pipeline (its own file, no legacy twin).
+    const live = join(main, '.cleo', 'signaldock.db');
     writeFileSync(live, 'not a sqlite file at all, corrupt');
     const vacuumDir = join(main, '.cleo', 'backups', 'sqlite');
     mkdirSync(vacuumDir, { recursive: true });
-    writeDb(join(vacuumDir, 'tasks-20260101-120000.db'), 'tasks', 5);
+    writeDb(join(vacuumDir, 'signaldock-project-20260101-120000.db'), 'agents', 5);
 
-    const refused = repairMalformedDbs({ projectRoot: main, cwd: wt, roles: ['tasks'], logger });
-    const row = refused.roles.find((r) => r.role === 'tasks');
+    const roles: DbRole[] = ['signaldock-project'];
+    const refused = repairMalformedDbs({ projectRoot: main, cwd: wt, roles, logger });
+    const row = refused.roles.find((r) => r.role === 'signaldock-project');
     expect(row?.action).toBe('failed');
-    expect(row?.detail).toContain('E_WT_STORE_REWRITE_CONFIRM_REQUIRED: backup recover tasks');
+    expect(row?.detail).toContain(
+      'E_WT_STORE_REWRITE_CONFIRM_REQUIRED: backup recover signaldock-project',
+    );
     expect(readFileSync(live, 'utf8')).toBe('not a sqlite file at all, corrupt');
     expect(auditRows(main)).toEqual([]);
 
@@ -179,30 +184,59 @@ describe('T12708 — one guard, one message, for every whole-store rewrite', () 
       projectRoot: main,
       cwd: wt,
       confirmOwnerStore: true,
-      roles: ['tasks'],
+      roles,
       logger,
     });
     expect(repaired.repairedCount).toBe(1);
     const audit = auditRows(main);
     expect(audit).toHaveLength(1);
     expect(audit[0]).toMatchObject({
-      operation: 'backup recover tasks',
+      operation: 'backup recover signaldock-project',
       worktree: wt,
       store: live,
       cwd: wt,
     });
   });
 
+  it('doctor repair never rewrites the live project store: probed once, pointed at the guarded restore (T13245)', () => {
+    const store = join(main, '.cleo', 'cleo.db');
+    writeFileSync(store, 'not a sqlite file at all, corrupt');
+    const report = repairMalformedDbs({ projectRoot: main, cwd: main, logger });
+    const rows = report.roles.filter((r) => ['tasks', 'brain', 'conduit'].includes(r.role));
+    expect(rows.map((r) => r.role).sort()).toEqual(['brain', 'conduit', 'tasks']);
+    for (const r of rows) {
+      expect(r).toMatchObject({ dbPath: store, healthy: false, action: 'failed' });
+      // One probe of the shared file; any of the three recover verbs restores it.
+      expect(r.detail).toContain('cleo backup recover tasks');
+    }
+    expect(report.failedCount).toBe(1); // one file, not three
+    expect(readFileSync(store, 'utf8')).toBe('not a sqlite file at all, corrupt');
+    for (const role of ['tasks', 'brain', 'conduit'] as const) {
+      let refusal: unknown = null;
+      try {
+        runBackupRecover({ role, projectRoot: main, cwd: main, logger, dryRun: false });
+      } catch (e) {
+        refusal = e;
+      }
+      expect(refusal).toMatchObject({
+        codeName: 'E_PROJECT_STORE_RECOVER',
+        fix: `cleo backup recover ${role} --dry-run, then cleo backup recover ${role}`,
+      });
+      expect(String(refusal)).toMatch(/live project store/);
+    }
+    expect(readFileSync(store, 'utf8')).toBe('not a sqlite file at all, corrupt');
+  });
+
   it('doctor db-substrate: quarantine of the owner store needs confirmation from the worktree', () => {
-    const entry = DB_INVENTORY.find((e) => e.role === 'tasks');
-    if (entry === undefined) throw new Error('tasks role missing from DB_INVENTORY');
-    const live = join(main, '.cleo', 'tasks.db');
+    const entry = DB_INVENTORY.find((e) => e.role === 'signaldock-project');
+    if (entry === undefined) throw new Error('signaldock-project role missing from DB_INVENTORY');
+    const live = join(main, '.cleo', 'signaldock.db');
     writeFileSync(live, 'not a sqlite file at all, corrupt');
 
     const skipped = inspectDbFile(entry, live, { cwd: wt });
     expect(skipped.quarantinedTo).toBeNull();
     expect(skipped.error).toContain(
-      'E_WT_STORE_REWRITE_CONFIRM_REQUIRED: doctor db-substrate quarantine tasks',
+      'E_WT_STORE_REWRITE_CONFIRM_REQUIRED: doctor db-substrate quarantine signaldock-project',
     );
     expect(existsSync(live)).toBe(true);
 
@@ -211,7 +245,7 @@ describe('T12708 — one guard, one message, for every whole-store rewrite', () 
     expect(existsSync(live)).toBe(false);
     expect(auditRows(main)).toEqual([
       expect.objectContaining({
-        operation: 'doctor db-substrate quarantine tasks',
+        operation: 'doctor db-substrate quarantine signaldock-project',
         trigger: 'confirmed',
         worktree: wt,
         store: live,

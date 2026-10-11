@@ -11,7 +11,7 @@
  * | `_sync_cap_<t>_i` | INSERT | full image; identity read from the LIVE row (N4) |
  * | `_sync_cap_<t>_u` | UPDATE OF captured columns, when one changed | changed columns `[old, new]` |
  * | `_sync_cap_<t>_d` | DELETE | full before-image |
- * | `_sync_cap_<t>_k` | UPDATE OF uid / birth_fp of a keyed row | the re-key (H5) |
+ * | `_sync_cap_<t>_k` | UPDATE OF uid / birth_fp of a keyed row, not a fill | the re-key (H5) |
  * | `_sync_cap_<t>_f` | UPDATE OF uid / birth_fp from NULL | patches the latest live I capture (N4, N11) |
  *
  * - Values are `enc()`-encoded before any JSON function sees them (`quote()`,
@@ -46,7 +46,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import type { RowIdentityRef, TableScope } from '@cleocode/contracts';
+import type { RowIdentityRef, RowIdentitySpec, TableScope } from '@cleocode/contracts';
 import {
   BIRTH_FP_COLUMN,
   rowIdentityColumns,
@@ -63,6 +63,7 @@ import {
   CAPTURE_TRIGGER_PREFIX,
   normalizeSql,
   suspendClause,
+  TRIGGER_SUSPEND_TABLE_DDL,
 } from './trigger-classes.js';
 import { raiseMinWriterVersion } from './writer-version.js';
 
@@ -81,6 +82,14 @@ export interface CaptureTableDef {
   readonly refs: ReadonlyMap<string, { table: string; key: string }>;
   /** Rows never change: undo keeps only `rk` and `uid`. */
   readonly appendOnly: boolean;
+  /**
+   * The table's INTEGER PRIMARY KEY (a rowid alias numbered from 1 on every
+   * device, T12896), when it is a local key: kept out of {@link columns}, so
+   * it is never captured, sealed, hashed or written from the wire, and a
+   * received row gets the next local id. Absent when the table has none, or
+   * when it is part of a natural key.
+   */
+  readonly localRowid?: string;
 }
 
 /** One generated trigger. */
@@ -126,9 +135,15 @@ export function captureTableDef(
   const spec = rowIdentitySpec(scope, table);
   const cls = classifyTable(scope, table);
   if (!spec || cls.kind !== 'entry' || !hasTable(db, table)) return undefined;
-  const info = db.prepare(`PRAGMA main.table_info(${q(table)})`).all() as Array<{ name: string }>;
+  const info = db.prepare(`PRAGMA main.table_info(${q(table)})`).all() as Array<{
+    name: string;
+    type: string;
+    pk: number;
+  }>;
   const overrides = cls.entry.columns ?? [];
   const localOnly = new Set(overrides.filter((o) => o.class === 'local-only').map((o) => o.column));
+  const localRowid = localRowidColumn(info, spec);
+  if (localRowid) localOnly.add(localRowid);
   const wholeSecret = cls.class === 'portable-secret';
   const secret = new Set(
     wholeSecret
@@ -154,7 +169,25 @@ export function captureTableDef(
     secret,
     refs,
     appendOnly: (spec.content?.length ?? 0) > 0,
+    ...(localRowid ? { localRowid } : {}),
   };
+}
+
+/**
+ * The table's INTEGER PRIMARY KEY column when it is a local key (T12896): a
+ * single-column primary key declared `INTEGER` (a rowid alias, so AUTOINCREMENT
+ * or not it numbers from 1 on every device), unless a natural key hashes it.
+ */
+function localRowidColumn(
+  info: ReadonlyArray<{ name: string; type: string; pk: number }>,
+  spec: RowIdentitySpec,
+): string | undefined {
+  const pk = info.filter((c) => c.pk > 0);
+  if (pk.length !== 1) return undefined;
+  const col = pk[0] as { name: string; type: string };
+  if (col.type.toUpperCase() !== 'INTEGER') return undefined;
+  if (spec.kind === 'natural' && spec.key.includes(col.name)) return undefined;
+  return col.name;
 }
 
 /**
@@ -233,13 +266,18 @@ function fullImage(def: CaptureTableDef, row: string, liveIdentity: boolean): st
  * - `update`: a U image of every updatable column, `[null, after]`. The
  *   before slot is JSON null because only the content hash was kept; a
  *   trigger's before is always an `enc()` text, so null marks a repair.
- *   Secret columns are left out (their `shash` is a follow-up).
+ *   Secret columns are left out (their `shash` is a follow-up). With
+ *   `columns`, only those of them (the rebind reconcile's touched fields).
  */
 export function repairImageSql(
   def: CaptureTableDef,
   row: string,
+  columns?: ReadonlySet<string>,
 ): { readonly rk: string; readonly insert: string; readonly update: string } {
-  const updatable = def.columns.filter((c) => !def.identity.includes(c) && !def.secret.has(c));
+  const updatable = def.columns.filter(
+    (c) =>
+      !def.identity.includes(c) && !def.secret.has(c) && (columns === undefined || columns.has(c)),
+  );
   return {
     rk: rkExpr(def, row),
     insert: fullImage(def, row, false),
@@ -396,7 +434,16 @@ export function captureTriggers(def: CaptureTableDef): CaptureTrigger[] {
     const kImg = chunkedObject(
       idCols.map((c) => [c, `json_array(${enc(`OLD.${q(c)}`)}, ${enc(`NEW.${q(c)}`)})`] as const),
     );
-    const rekeyed = idCols.map((c) => `OLD.${q(c)} IS NOT NEW.${q(c)}`).join(' OR ');
+    // A birth_fp going NULL -> value is a fill (`_f` patches it), never a
+    // re-key: the TEMP fill sets uid then birth_fp in separate UPDATEs, so a
+    // bare `IS NOT` captured a stray K on every insert (T13311).
+    const rekeyed = idCols
+      .map((c) =>
+        c === UID_COLUMN
+          ? `OLD.${q(c)} IS NOT NEW.${q(c)}`
+          : `(OLD.${q(c)} IS NOT NULL AND OLD.${q(c)} IS NOT NEW.${q(c)})`,
+      )
+      .join(' OR ');
     out.push({
       name: name('k'),
       table: def.table,
@@ -481,6 +528,41 @@ export function captureRemints(db: DatabaseSync, scope: TableScope): Record<stri
   return out;
 }
 
+/**
+ * Capture an announcement of a re-key this replica applied from another
+ * replica (T13399, store/sync/collision-settle `announcePlacedRekeys`): a K
+ * `uid: [old, new]`, `birth_fp: [fp, fp]` on the row that already lives at
+ * the new uid. It moves nothing here (the sealer recognises it and leaves
+ * row meta alone) and writes no undo, so a rebase rewind never moves the row
+ * back; receivers record it as this replica's reference boundary. Call inside
+ * a `rekey` frame.
+ *
+ * @param db - The store, inside the caller's transaction.
+ * @param def - The re-keyed row's table.
+ * @param oldUid - The uid before the re-key.
+ * @param newUid - The uid the row lives at.
+ * @param birthFp - The row's birth fingerprint (unchanged by the re-key).
+ * @returns 1 when the capture was written, 0 when no row lives at `newUid`.
+ */
+export function captureRekeyAnnouncement(
+  db: DatabaseSync,
+  def: CaptureTableDef,
+  oldUid: string,
+  newUid: string,
+  birthFp: string,
+): number {
+  if (!hasUid(def) || !hasBirthFp(def)) return 0;
+  const img = `json_object(${lit(UID_COLUMN)}, json_array(quote(?), quote(?)), ${lit(BIRTH_FP_COLUMN)}, json_array(quote(?), quote(?)))`;
+  const out = db
+    .prepare(
+      `INSERT INTO _sync_capture (tbl, op, rk, uid, img, at_ms) ` +
+        `SELECT ${lit(def.table)}, 'K', ${rkExpr(def, 'x')}, ?, ${img}, ${AT_MS_SQL} ` +
+        `FROM ${q(def.table)} x WHERE x.${q(UID_COLUMN)} = ? AND x.${q(BIRTH_FP_COLUMN)} = ?`,
+    )
+    .run(oldUid, oldUid, newUid, birthFp, birthFp, newUid, birthFp);
+  return Number(out.changes);
+}
+
 /** Every capture trigger for the store's sync set. */
 export function generateCaptureTriggers(db: DatabaseSync, scope: TableScope): CaptureTrigger[] {
   const out: CaptureTrigger[] = [];
@@ -511,6 +593,32 @@ function liveCaptureTriggers(db: DatabaseSync): Map<string, string> {
   );
 }
 
+/** How the live capture triggers differ from the text generated for the current schema. */
+export interface CaptureTriggerDrift {
+  readonly missing: string[];
+  readonly differing: string[];
+  readonly extra: string[];
+}
+
+/**
+ * Live capture triggers against the text generated for the current schema
+ * (`cleo doctor`'s sync-trigger check, and the genesis preconditions).
+ * Read-only.
+ */
+export function captureTriggerDrift(db: DatabaseSync, scope: TableScope): CaptureTriggerDrift {
+  const want = new Map(generateCaptureTriggers(db, scope).map((t) => [t.name, t.sql]));
+  const live = liveCaptureTriggers(db);
+  return {
+    missing: [...want.keys()].filter((n) => !live.has(n)),
+    differing: [...want]
+      .filter(
+        ([n, sql]) => live.has(n) && normalizeSql(live.get(n) as string) !== normalizeSql(sql),
+      )
+      .map(([n]) => n),
+    extra: [...live.keys()].filter((n) => !want.has(n)),
+  };
+}
+
 /** What {@link installCaptureTriggers} changed. */
 export interface CaptureInstallReport {
   readonly installed: string[];
@@ -536,6 +644,10 @@ export function installCaptureTriggers(db: DatabaseSync, scope: TableScope): Cap
     return true;
   });
   if (report.dropped.length + changes.length === 0) return report;
+  // Every capture trigger reads cleo_trigger_suspend (T13398): a store that
+  // never ran the open pass's step 0 (a raw handle, or a global store from
+  // before step 0 covered that scope) gets it before the triggers go in.
+  if (changes.length > 0) db.exec(TRIGGER_SUSPEND_TABLE_DDL);
   // One unit (T13024 MED-2): a failed CREATE never leaves a dropped trigger committed.
   atomicDdl(db, () => {
     for (const name of report.dropped) db.exec(`DROP TRIGGER IF EXISTS ${q(name)}`);
@@ -600,7 +712,9 @@ export type FrameKind =
   | 'exodus'
   | 'import'
   | 'remint'
-  | 'rekey';
+  | 'rekey'
+  /** The rebind reconcile's re-emitted fields (§1.5 N7): sealed as `repair`, `via: 'rebind'` (T13278). */
+  | 'rebind';
 
 /** Frames whose undo is dropped at once (D1). */
 const NO_UNDO_KINDS: ReadonlySet<string> = new Set(['apply', 'rebase']);

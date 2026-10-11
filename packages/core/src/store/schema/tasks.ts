@@ -629,7 +629,15 @@ export const taskWorkHistory = sqliteTable(
  * @see {@link taskAcceptanceCriteriaHistory}
  * @task T10504
  */
-export const AC_HISTORY_REASONS = ['drift', 'edit', 'backfill', 'cancel', 'restore'] as const;
+export const AC_HISTORY_REASONS = [
+  'drift',
+  'edit',
+  'backfill',
+  'cancel',
+  'restore',
+  /** `cleo req replace` superseded a typed gate in place (T12988). */
+  'replace',
+] as const;
 
 /** Union type for {@link AC_HISTORY_REASONS}. */
 export type AcHistoryReason = (typeof AC_HISTORY_REASONS)[number];

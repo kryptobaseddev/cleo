@@ -27,6 +27,7 @@ import {
   nexusLoginSummary,
   runNexusLogin,
 } from './nexus-account-cli.js';
+import { isCiEnv, promptAllowed } from './prompt-allowed.js';
 import { ReadlineWizardIO } from './readline-wizard-io.js';
 import { terminalSafe } from './terminal-safe.js';
 
@@ -42,26 +43,32 @@ const STEP_LINES = {
 } as const;
 
 /**
- * How the run may act: `--yes`, a terminal prompt, unattended, or never. A
- * prompt needs both stdin and stderr on a terminal (a prompt written to a
- * redirected stderr is invisible and would wait on stdin), and never runs
- * under CI (review LOW-3). Without a terminal and outside CI the run is
- * unattended (T13288): `cleo login nexus` alone then completes the link.
+ * How the run may act: `--yes`, a terminal prompt, unattended, or never.
+ * - `--yes` acts without asking.
+ * - CI never acts (review LOW-3).
+ * - stdin and stderr on a terminal: prompt.
+ * - stdin on a terminal but stderr redirected (`cleo login 2>log`): never. A
+ *   person may be at the keyboard who cannot see the question, so nothing is
+ *   linked or uploaded unasked; the next commands are printed (T13321).
+ * - No terminal at all (an agent): unattended (T13288), so `cleo login` alone
+ *   completes the link and the first backup.
  *
  * @param args - Parsed citty args (`--yes`).
  * @param env - The environment. @defaultValue process.env
- * @param tty - Whether stdin and stderr are terminals. @defaultValue both `isTTY`
+ * @param stdinTty - Whether stdin is a terminal. @defaultValue `process.stdin.isTTY`
+ * @param stderrTty - Whether stderr is a terminal. @defaultValue `process.stderr.isTTY`
  * @returns The consent mode.
  */
 export function consentOf(
   args: Args,
   env: NodeJS.ProcessEnv = process.env,
-  tty: boolean = process.stdin.isTTY === true && process.stderr.isTTY === true,
+  stdinTty: boolean = process.stdin.isTTY === true,
+  stderrTty: boolean = process.stderr.isTTY === true,
 ): 'yes' | 'prompt' | 'unattended' | 'never' {
   if (args['yes'] === true) return 'yes';
-  const ci = (env['CI'] ?? '') !== '' && env['CI'] !== 'false';
-  if (ci) return 'never';
-  return tty ? 'prompt' : 'unattended';
+  if (isCiEnv(env)) return 'never';
+  if (promptAllowed(env, stdinTty && stderrTty)) return 'prompt';
+  return stdinTty ? 'never' : 'unattended';
 }
 
 /**
@@ -110,7 +117,11 @@ export async function runNexusFirstRunCli(
   }
 }
 
-/** One line per project: name, sync state and its restore command. */
+/**
+ * One line per project: name, sync state and its restore command. The name
+ * and the command (which embeds the label) are server-supplied, so they are
+ * folded to one line each: a label cannot forge another row (#1958 LOW-1).
+ */
 function projectLine(p: NexusNamedProject): string {
   const where = p.onThisDevice
     ? 'already on this machine'
@@ -120,7 +131,7 @@ function projectLine(p: NexusNamedProject): string {
         ? `last sync ${p.lastSyncAt}`
         : 'backed up';
   const command = p.restoreByNameCommand ?? p.restoreCommand;
-  return `  ${p.name} (${where})${command ? `: ${command}` : ''}`;
+  return `  ${terminalSafe(p.name)} (${where})${command ? `: ${terminalSafe(command)}` : ''}`;
 }
 
 /** The project list block of the human summary. */
@@ -145,7 +156,7 @@ function projectsBlock(r: NexusFirstRunResult): string {
  */
 export function nexusFirstRunSummary(login: NexusLoginResult, r: NexusFirstRunResult): string {
   const signedIn = nexusLoginSummary(login);
-  const name = r.link?.label ? `"${r.link.label}"` : 'this project';
+  const name = r.link?.label ? `"${terminalSafe(r.link.label)}"` : 'this project';
   switch (r.state) {
     case 'backed-up': {
       const snap = r.backup?.snapshot;
@@ -209,8 +220,9 @@ export async function runNexusLoginCommand(
   for (const w of firstRun.warnings)
     process.stderr.write(`warning: ${terminalSafe(w.message)} (${w.code})\n`);
   if (!isHumanOutput()) {
-    if (firstRun.nextCommand) process.stderr.write(`next: ${firstRun.nextCommand}\n`);
-    for (const c of firstRun.choices) process.stderr.write(`choice: ${c.command}  (${c.effect})\n`);
+    if (firstRun.nextCommand) process.stderr.write(`next: ${terminalSafe(firstRun.nextCommand)}\n`);
+    for (const c of firstRun.choices)
+      process.stderr.write(`choice: ${terminalSafe(c.command)}  (${terminalSafe(c.effect)})\n`);
   }
   emitNexusResult(
     { ...login, firstRun },

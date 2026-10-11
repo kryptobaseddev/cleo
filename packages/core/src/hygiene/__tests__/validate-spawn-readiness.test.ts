@@ -17,7 +17,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CHANGESET_LINT_TIMEOUT_ENV,
   DEFAULT_CHANGESET_LINT_TIMEOUT_MS,
@@ -268,6 +268,31 @@ describe('SpawnReadinessResult — blocking semantics (gh#1366)', () => {
     expect(result.checkedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     process.exitCode = previousExitCode;
+  });
+
+  it('writes the whole report to the given sink and nothing to stdout, pass or fail (T13322)', async () => {
+    // `cleo release plan` prints its LAFS envelope on stdout; the readiness
+    // report above it made stdout unparseable (ADR-086).
+    const passing = makeProjectWithLintScript('process.exit(0);\n');
+    const failing = mkdtempSync(join(tmpdir(), 'hygiene-gate-'));
+    created.push(passing, failing);
+    const previousExitCode = process.exitCode;
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const lines: string[] = [];
+    try {
+      const ok = await runSpawnReadinessHygieneCli(passing, undefined, (l) => lines.push(l));
+      const bad = await runSpawnReadinessHygieneCli(failing, undefined, (l) => lines.push(l));
+      expect(ok.hasBlockingFailure).toBe(false);
+      expect(bad.hasBlockingFailure).toBe(true);
+      expect(stdout).not.toHaveBeenCalled();
+    } finally {
+      stdout.mockRestore();
+      stderr.mockRestore();
+      process.exitCode = previousExitCode;
+    }
+    expect(lines.filter((l) => l.startsWith('Spawn Readiness Check'))).toHaveLength(2);
+    expect(lines).toContain('All gates passed — spawn readiness confirmed.');
   });
 
   it('does not clobber an existing exitCode on success', async () => {

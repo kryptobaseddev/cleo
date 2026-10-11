@@ -369,6 +369,7 @@ export async function bareStrandSource(
     };
 
     const localName = localNameOf(db);
+    // A JSON array of task ids is history, never a dangling reference (T13377).
     const refs = taskReferenceColumns(db, localName).filter((r) => !r.jsonArray);
     const drop = (
       table: string,
@@ -533,6 +534,12 @@ export async function bareStrandSource(
  * Task references in the copied strands source that the live store cannot
  * resolve after the copy: `table.column -> id` for each (T13334). Empty when
  * every reference a copied row carries names a live task.
+ *
+ * Only scalar references are judged. A JSON array of task ids (a session's
+ * `tasks_completed_json`, `tasks_created_json`) is history: an id in it whose
+ * task is gone is valid, as the runtime keeps it (deleting a task leaves it
+ * listed) and the sync wire drops it rather than rejecting the row (T12798).
+ * A copied session listing a deleted task is therefore copied (T13377).
  *
  * @param liveStorePath - The live project `cleo.db` (read only).
  * @param sourcePath - The strands source the run copied from.

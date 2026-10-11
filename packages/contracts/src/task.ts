@@ -315,6 +315,30 @@ export type EvidenceAtom =
       untestedPackages?: string[];
     }
   | {
+      /**
+       * A native typecheck or lint run's receipt (T13427), bound like
+       * `test-run:` — fresh, covering every changed code path, tree-pinned.
+       */
+      kind: 'qa-run';
+      path: string;
+      sha256: string;
+      /** Absolute path of the receipt hashed at verify time. DEVICE-LOCAL, as for `test-run`. */
+      resolvedPath?: string;
+      /** Which check the receipt records. */
+      check: 'typecheck' | 'lint';
+      /** The argv that ran. */
+      command: string[];
+      /** Root-relative paths the run covered (`''` = the whole root). */
+      roots: string[];
+      /** Tool name and version, when the receipt states them. */
+      toolName?: string;
+      toolVersion?: string;
+      /** HEAD of the bound checkout at verify time (as for `test-run`). */
+      headSha?: string;
+      /** Tool-cache tree hash at verify time; `cleo complete` refuses the atom once it moves. */
+      treeHash?: string;
+    }
+  | {
       kind: 'tool';
       tool: string;
       exitCode: number;
@@ -540,6 +564,19 @@ export type EvidenceAtom =
        * vouches for a PR that was not itself green.
        */
       descendantPrHeadSha?: string;
+      /**
+       * The merge commit's own run FAILED, but every failing job had already
+       * failed on its nearest decided first-parent ancestor: the PR inherited
+       * main's breakage and introduced none (T13453). `descendantSha` is then
+       * the later green main run standing in. Each job records the failing
+       * merge-commit run and the base run it inherited from.
+       */
+      inheritedFailures?: Array<{
+        name: string;
+        mergeRunId: number;
+        baseSha: string;
+        baseRunId: number;
+      }>;
       /**
        * The PR edited a pinned workflow, so only default-branch `push` runs
        * attested it; its own `pull_request` runs (which ran the edited

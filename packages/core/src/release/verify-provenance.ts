@@ -34,7 +34,7 @@ import { type EngineResult, engineError, engineSuccess } from '../engine-result.
 import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
 import { getDb } from '../store/sqlite.js';
-import { resolveCommitPresenceInTag } from './commit-presence.js';
+import { filesAtomPathProblem, resolveCommitPresenceInTag } from './commit-presence.js';
 
 const log = getLogger('release:verify-provenance');
 
@@ -203,21 +203,18 @@ function checkEvidenceStaleness(
           .filter(Boolean);
         for (const relPath of paths) {
           const abs = resolve(projectRoot, relPath);
-          if (!existsSync(abs)) {
-            stale.push({
-              taskId,
-              atom,
-              reason: `file ${relPath} missing post-publish`,
-            });
-          }
+          // Judged against the tag: a file deleted later in the release
+          // history is accounted for (T13364).
+          const problem = filesAtomPathProblem(projectRoot, relPath, version, existsSync(abs));
+          if (problem) stale.push({ taskId, atom, reason: problem });
         }
-      } else if (kind === 'test-run') {
+      } else if (kind === 'test-run' || kind === 'qa-run') {
         const abs = resolve(projectRoot, value);
         if (!existsSync(abs)) {
           stale.push({
             taskId,
             atom,
-            reason: `test-run file ${value} missing post-publish`,
+            reason: `${kind} file ${value} missing post-publish`,
           });
         }
       }

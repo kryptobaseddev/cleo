@@ -50,8 +50,9 @@
  *
  * A row an older build inserts keeps NULL values until the next open by this
  * build: there is no persistent trigger that computes them (see the
- * migration's header). Row uids are OPT-IN: nothing here runs unless
- * `CLEO_ROW_UID_FILL=1` ({@link rowUidFillEnabled}).
+ * migration's header). Row uids are on by default (T13305); nothing here
+ * runs when the kill switch `CLEO_ROW_UID_FILL=0` is set
+ * ({@link rowUidFillEnabled}).
  *
  * A failure never fails the open: it is logged, and the rows keep NULL values
  * until a later open succeeds. A uid's timestamp is ordering sugar only: HLC
@@ -242,6 +243,20 @@ export function parseStoreTimestamp(value: UidInput | undefined): number | null 
   return utc - sign * offset;
 }
 
+/**
+ * A stored birth as epoch ms: a timestamp text ({@link parseStoreTimestamp}),
+ * or an INTEGER epoch-ms birth column as is (`brain_attention.created_at`,
+ * T12894). A TEXT-affinity column never hands over a number, so the birth of
+ * every table declared before T12894 reads exactly as before.
+ */
+function birthEpochMs(birth: UidInput): number | null {
+  if (typeof birth === 'number' && Number.isSafeInteger(birth)) return birth;
+  if (typeof birth === 'bigint') {
+    return birth >= 0n && birth <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(birth) : null;
+  }
+  return parseStoreTimestamp(birth);
+}
+
 /** Largest value a UUIDv7 timestamp field holds. */
 const MAX_UUID_MS = 2 ** 48 - 1;
 
@@ -285,7 +300,7 @@ export function mintedRowUid(
   ownerUids: readonly UidInput[] = [],
   content: readonly UidInput[] = [],
 ): string {
-  const birthMs = parseStoreTimestamp(birth);
+  const birthMs = birthEpochMs(birth);
   const canonicalBirth: UidInput = birthMs ?? birth;
   const h = createHash('sha256')
     .update(
@@ -378,7 +393,7 @@ export function naturalRowUid(
  */
 function birthToken(birth: UidInput): string {
   if (birth === null) return 'birth:unknown';
-  const ms = parseStoreTimestamp(birth);
+  const ms = birthEpochMs(birth);
   if (ms !== null) return `ms:${ms}`;
   return `birth:unparseable:${canonicalText(String(birth))}`;
 }
@@ -657,6 +672,27 @@ function birthFpCallSql(scope: TableScope, spec: RowIdentitySpec, row: string): 
   const birth = spec.birth ? `${row}.${q(spec.birth)}` : 'NULL';
   const facts = (spec.birthFacts ?? []).map((f) => birthFactSql(scope, spec, f, row));
   return `${ROW_BIRTH_FP_SQL_FUNCTION}(${[`'${spec.table}'`, birth, ...facts].join(', ')})`;
+}
+
+/**
+ * SQL that is true exactly when {@link storedRefSql} would be NOT NULL for
+ * `row`, without calling a JS function: the AC text hash is non-NULL iff the
+ * referenced row's text is a string, which SQLite says as `typeof = 'text'`.
+ * The pending probe uses it, so a store with many legitimately dangling refs
+ * opens without one JS hash per dangling row (T13261).
+ */
+function storedRefPresentSql(
+  scope: TableScope,
+  ref: NonNullable<RowIdentitySpec['storedRefUids']>[number],
+  row: string,
+): string {
+  if (ref.source === 'text_hash') {
+    return (
+      `(SELECT typeof(_r.${q('text')}) FROM main.${q(ref.table)} AS _r ` +
+      `WHERE _r.${q(targetKey(scope, ref.table))} = ${row}.${q(ref.from)}) = 'text'`
+    );
+  }
+  return `${refUidSql(scope, { column: ref.from, table: ref.table }, row)} IS NOT NULL`;
 }
 
 /** SQL for a stored reference fact (`ac_uid`, `ac_text_hash`) read from `row`. */
@@ -1354,6 +1390,22 @@ function readMeta(db: DatabaseSync, key: string): string | undefined {
   return row?.value;
 }
 
+/**
+ * Whether the store's identity values follow the current
+ * {@link ROW_IDENTITY_RECIPE} (its marker, which the fill writes): no refill
+ * is due. The recipe applies to project stores only; a global store is
+ * always current. Read-only (a read-only handle is fine).
+ *
+ * @param db - Connection on a `cleo.db`.
+ * @param scope - The store's scope. @defaultValue 'project'
+ * @returns True when no recipe refill is owed.
+ * @task T13231
+ */
+export function rowIdentityRecipeCurrent(db: DatabaseSync, scope: TableScope = 'project'): boolean {
+  if (scope !== 'project') return true;
+  return readMeta(db, ROW_IDENTITY_RECIPE_KEY) === ROW_IDENTITY_RECIPE;
+}
+
 /** The pre-release (v4/v5 build) parse of a birth: a zoneless SQLite value as UTC, else `Date.parse`. */
 function preReleaseParses(value: UidInput): boolean {
   if (typeof value !== 'string' || value.length === 0) return false;
@@ -1669,21 +1721,6 @@ export function snapshotIfFullRefillDue(
 }
 
 /**
- * Whether the store's identity follows the current recipe (its marker is
- * {@link ROW_IDENTITY_RECIPE}): no refill is due. Read-only.
- *
- * @param db - Connection on a project `cleo.db` (read-only is fine).
- * @returns `true` when the marker is current.
- * @task T13231
- */
-export function rowIdentityRecipeCurrent(db: DatabaseSync): boolean {
-  return (
-    hasTable(db, ROW_IDENTITY_META_TABLE) &&
-    readMeta(db, ROW_IDENTITY_RECIPE_KEY) === ROW_IDENTITY_RECIPE
-  );
-}
-
-/**
  * What a full from-scratch refill clears: per declared table (alias tables
  * excluded), the rows carrying any identity value, plus the AC uid graveyard
  * rows under its table name. Read-only.
@@ -1815,14 +1852,124 @@ function resetStaleIdentity(
     );
     return 'cleared';
   }
-  getLogger('row-identity').error(
-    { scope, state: share.state, reasons: share.reasons },
-    share.state === 'shared'
-      ? 'identity values predate the current recipe but may have left this store; kept as they are'
-      : 'identity values predate the current recipe and the store cannot be proven unshared; kept as they are. ' +
-          'Remedy: `cleo doctor row-identity --refill` asks Cleo Nexus and shows the plan',
-  );
+  // T13305: the refusal is recorded, so later opens take the fast path while
+  // nothing changed, and it is said at most once a day (a doctor finding
+  // carries it in between).
+  const key = shareKeyOf(share);
+  const prior = readRowIdentityRefusal(db);
+  const now = Date.now();
+  const sameRefusal =
+    prior?.state === 'refused' && prior.recipe === ROW_IDENTITY_RECIPE && prior.shareKey === key;
+  const warnDue =
+    !sameRefusal || prior === null || now - Date.parse(prior.warnedAt) >= REFUSAL_WARN_INTERVAL_MS;
+  if (warnDue) {
+    getLogger('row-identity').warn(
+      { scope, state: share.state, reasons: share.reasons },
+      share.state === 'shared'
+        ? 'identity values predate the current recipe but may have left this store; kept as they are'
+        : 'identity values predate the current recipe and the store cannot be proven unshared; kept as they are. ' +
+            'Remedy: `cleo doctor row-identity --refill` asks Cleo Nexus and shows the plan',
+    );
+  }
+  if (!sameRefusal || warnDue) {
+    const marker: RowIdentityRefusal = {
+      state: 'refused',
+      recipe: ROW_IDENTITY_RECIPE,
+      shareKey: key,
+      shareState: share.state,
+      reasons: [...share.reasons],
+      at: sameRefusal && prior ? prior.at : new Date(now).toISOString(),
+      warnedAt: warnDue
+        ? new Date(now).toISOString()
+        : (prior?.warnedAt ?? new Date(now).toISOString()),
+    };
+    writers.writeRowIdentityMetaNative(db, ROW_IDENTITY_REFUSED_KEY, JSON.stringify(marker));
+  }
   return 'refused';
+}
+
+/** Meta key recording a refused full refill (T13305). */
+export const ROW_IDENTITY_REFUSED_KEY = 'row_identity_refused';
+
+/** How often a standing refusal is logged again (the doctor reports it in between). */
+export const REFUSAL_WARN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A recorded refusal of the full identity refill (T13305). While `state` is
+ * `refused` for the current recipe and the store's share signals are
+ * unchanged (`shareKey`), opens skip the refill pass. `cleared` means it was
+ * reset (`cleo doctor row-identity --refill`, or a refill that ran).
+ */
+export interface RowIdentityRefusal {
+  readonly state: 'refused' | 'cleared';
+  readonly recipe: string;
+  /** Digest of the share verdict and its signals when refused. */
+  readonly shareKey: string;
+  readonly shareState: 'shared' | 'unknown' | 'unshared';
+  readonly reasons: readonly string[];
+  /** When the refusal was first recorded. */
+  readonly at: string;
+  /** When it was last logged. */
+  readonly warnedAt: string;
+}
+
+/** Digest of a share verdict: a change of state or of any signal re-evaluates a refusal. */
+function shareKeyOf(share: RowIdentityShareState): string {
+  return createHash('sha256')
+    .update(`${share.state}\n${share.signals.map((s) => `${s.code}:${s.detail}`).join('\n')}`)
+    .digest('hex')
+    .slice(0, 32);
+}
+
+/**
+ * The store's recorded refusal of the full identity refill, if any.
+ *
+ * @param db - Connection on a project `cleo.db` (read-only is fine).
+ * @returns The refusal record, or `null`.
+ * @task T13305
+ */
+export function readRowIdentityRefusal(db: DatabaseSync): RowIdentityRefusal | null {
+  if (!hasTable(db, ROW_IDENTITY_META_TABLE)) return null;
+  const raw = readMeta(db, ROW_IDENTITY_REFUSED_KEY);
+  if (raw === undefined) return null;
+  try {
+    return JSON.parse(raw) as RowIdentityRefusal;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a recorded refusal still holds: refused for the current recipe, and
+ * the share verdict unchanged. Then the stale marker is not open-time work.
+ */
+function refusalHolds(db: DatabaseSync): boolean {
+  const prior = readRowIdentityRefusal(db);
+  if (prior?.state !== 'refused' || prior.recipe !== ROW_IDENTITY_RECIPE) return false;
+  return prior.shareKey === shareKeyOf(rowIdentityShareState(db));
+}
+
+/**
+ * Clear a recorded refusal, so the next open (or this caller) re-evaluates
+ * the full refill (`cleo doctor row-identity --refill`, T13305).
+ *
+ * @param db - Connection on a project `cleo.db`.
+ * @param writers - The chokepoint writers.
+ * @returns Whether a standing refusal was cleared.
+ * @task T13305
+ */
+export function clearRowIdentityRefusal(
+  db: DatabaseSync,
+  writers: RowIdentityWriters = requireWriters(),
+): boolean {
+  const prior = readRowIdentityRefusal(db);
+  if (prior?.state !== 'refused') return false;
+  writers.writeRowIdentityMetaNative(
+    db,
+    ROW_IDENTITY_REFUSED_KEY,
+    JSON.stringify({ ...prior, state: 'cleared' } satisfies RowIdentityRefusal),
+  );
+  return true;
 }
 
 /**
@@ -1887,7 +2034,7 @@ export function markRowIdentityShared(
  * their indexes. No row value is read or written. A store whose uid migration
  * was journaled without running its statements (journal Scenario 3 Case A:
  * live cleocode under 9.25, spec §12.2) gets the full schema here; the fill,
- * refill and TEMP triggers stay opt-in ({@link prepareRowIdentity}).
+ * refill and TEMP triggers follow the fill flag ({@link prepareRowIdentity}).
  *
  * Never throws: a failure is logged and the open continues.
  *
@@ -2030,11 +2177,20 @@ export function readRowIdentityHealHistory(db: DatabaseSync): RowIdentityHealRec
  * the graveyard trigger, and the alias / graveyard columns an early table
  * lacks (T12878; the open heals them).
  *
- * @param db - Connection on a project `cleo.db` (read-only is fine).
+ * The global store has no identity tables: only its declared uid columns
+ * and indexes are checked (T12894).
+ *
+ * @param db - Connection on a `cleo.db` (read-only is fine).
+ * @param scope - The store's scope (default `project`).
  * @returns What is missing (empty when complete).
  * @task T12878
+ * @task T12894
  */
-export function missingRowIdentitySchema(db: DatabaseSync): string[] {
+export function missingRowIdentitySchema(
+  db: DatabaseSync,
+  scope: TableScope = 'project',
+): string[] {
+  if (scope === 'global') return missingDeclaredSchema(db, scope);
   if (!hasTable(db, 'tasks_task_acceptance_criteria')) return [];
   const missing: string[] = [];
   for (const table of Object.keys(IDENTITY_TABLE_DDL)) {
@@ -2052,11 +2208,17 @@ export function missingRowIdentitySchema(db: DatabaseSync): string[] {
   if (!hasObject(db, 'trigger', 'trg_tasks_ac_uid_graveyard')) {
     missing.push('trigger trg_tasks_ac_uid_graveyard');
   }
-  // The uid columns and indexes ensureRowIdentitySchema heals.
-  for (const spec of ROW_IDENTITY.project) {
+  missing.push(...missingDeclaredSchema(db, scope));
+  return missing;
+}
+
+/** The uid columns and indexes {@link ensureRowIdentitySchema} heals, missing from a store. */
+function missingDeclaredSchema(db: DatabaseSync, scope: TableScope): string[] {
+  const missing: string[] = [];
+  for (const spec of ROW_IDENTITY[scope]) {
     if (!hasTable(db, spec.table)) continue;
     const cols = columnsOf(db, spec.table);
-    for (const column of rowIdentityColumns('project', spec.table)) {
+    for (const column of rowIdentityColumns(scope, spec.table)) {
       if (!cols.has(column)) missing.push(`column ${spec.table}.${column}`);
     }
     if (!uidIsPrimaryKey(db, spec.table) && !hasObject(db, 'index', `uq_${spec.table}_uid`)) {
@@ -2141,17 +2303,20 @@ export function rowIdentityFillPending(db: DatabaseSync, scope: TableScope): str
   if (ROW_IDENTITY[scope].length === 0) return [];
   // The probes name identity columns: a store missing any of its identity
   // schema is pending the full pass, which heals it first.
-  if (
-    scope === 'project' &&
-    (missingRowIdentitySchema(db).length > 0 || !fillIndexesPresent(db, scope))
-  ) {
+  if (missingRowIdentitySchema(db, scope).length > 0 || !fillIndexesPresent(db, scope)) {
     return ['schema'];
   }
   const pending: string[] = [];
   // A stale marker is work even when the identity has synced: the pass then
-  // refuses the refill and says so (refill 'refused'), every open, until the
-  // store is repaired — that anomaly must stay loud, not become a fast path.
-  if (scope === 'project' && readMeta(db, ROW_IDENTITY_RECIPE_KEY) !== ROW_IDENTITY_RECIPE) {
+  // refuses the refill and records it; the record keeps later opens fast and
+  // quiet until the recipe or the share verdict changes (T13305).
+  // T13305: a refusal recorded for this recipe, with the share verdict
+  // unchanged, is settled: the pass would only refuse again.
+  if (
+    scope === 'project' &&
+    readMeta(db, ROW_IDENTITY_RECIPE_KEY) !== ROW_IDENTITY_RECIPE &&
+    !refusalHolds(db)
+  ) {
     pending.push('recipe');
   }
   if (
@@ -2171,12 +2336,7 @@ export function rowIdentityFillPending(db: DatabaseSync, scope: TableScope): str
     }
     const row = `main.${q(spec.table)}`;
     for (const ref of spec.storedRefUids ?? []) {
-      if (
-        any(
-          spec.table,
-          `${q(ref.column)} IS NULL AND (${storedRefSql(scope, ref, row)}) IS NOT NULL`,
-        )
-      ) {
+      if (any(spec.table, `${q(ref.column)} IS NULL AND ${storedRefPresentSql(scope, ref, row)}`)) {
         pending.push(`ref:${spec.table}.${ref.column}`);
       }
     }
@@ -2251,4 +2411,84 @@ export function prepareRowIdentity(
     log.error({ scope, error }, 'row uid fill failed; rows keep a NULL uid until a later open');
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Brain FTS5 update triggers vs the identity fill (T12894)
+// ---------------------------------------------------------------------------
+//
+// The brain FTS5 tables are external-content (`content=brain_<x>`), so their
+// AFTER UPDATE trigger replays a `'delete'` of the old row before indexing the
+// new one. A delete of a row the index does not hold corrupts the index
+// ("database disk image is malformed"). The uid fill is a per-connection TEMP
+// AFTER INSERT trigger that UPDATEs the row, and TEMP triggers fire before
+// main ones, so an unscoped update trigger deleted the new row from the index
+// before the insert trigger had added it; the open-time fill hits the same
+// path for any row the index is missing. Scoping each trigger to its indexed
+// columns (`AFTER UPDATE OF …`) keeps every write that leaves the indexed text
+// alone, the fill included, off the index. Kept here, not in its own module,
+// so the CLI's store-opening graph loads no extra module (gate 39).
+
+/** Each brain FTS5 table's content table and its indexed columns (in FTS order). */
+const BRAIN_FTS: ReadonlyArray<{ readonly table: string; readonly columns: readonly string[] }> = [
+  { table: 'brain_decisions', columns: ['id', 'decision', 'rationale'] },
+  { table: 'brain_patterns', columns: ['id', 'pattern', 'context'] },
+  { table: 'brain_learnings', columns: ['id', 'insight', 'source'] },
+  { table: 'brain_observations', columns: ['id', 'title', 'narrative'] },
+];
+
+/**
+ * The AFTER UPDATE content-sync trigger for one brain FTS5 table, fired only
+ * when an indexed column changes.
+ *
+ * @param table - The content table, e.g. `brain_observations`.
+ * @returns The `CREATE TRIGGER IF NOT EXISTS` statement.
+ */
+export function brainFtsUpdateTriggerSql(table: string): string {
+  const spec = BRAIN_FTS.find((f) => f.table === table);
+  // @sync-invariant none:input-shape programming error: a caller named a table with no brain FTS index
+  if (!spec) throw new Error(`no brain FTS table for ${table}`);
+  const cols = spec.columns.join(', ');
+  const oldCols = spec.columns.map((c) => `old.${c}`).join(', ');
+  const newCols = spec.columns.map((c) => `new.${c}`).join(', ');
+  return `CREATE TRIGGER IF NOT EXISTS ${table}_au AFTER UPDATE OF ${cols} ON ${table} BEGIN
+      INSERT INTO ${table}_fts(${table}_fts, rowid, ${cols})
+      VALUES('delete', old.rowid, ${oldCols});
+      INSERT INTO ${table}_fts(rowid, ${cols})
+      VALUES (new.rowid, ${newCols});
+    END`;
+}
+
+/**
+ * Rewrite every existing unscoped brain FTS update trigger to its scoped form.
+ * A store without the trigger is left alone (the FTS tables are created
+ * lazily by `ensureFts5Tables`). Idempotent; one `sqlite_master` read when
+ * there is nothing to do.
+ *
+ * @param db - The store handle.
+ * @returns The triggers rewritten.
+ */
+export function upgradeBrainFtsUpdateTriggers(db: DatabaseSync): string[] {
+  const live = db
+    .prepare(
+      "SELECT name, sql FROM main.sqlite_master WHERE type = 'trigger' AND name IN (?, ?, ?, ?)",
+    )
+    .all(...BRAIN_FTS.map((f) => `${f.table}_au`)) as Array<{ name: string; sql: string }>;
+  const rewritten: string[] = [];
+  for (const { name, sql } of live) {
+    if (/\bAFTER\s+UPDATE\s+OF\b/i.test(sql)) continue;
+    const table = name.slice(0, -'_au'.length);
+    db.exec('SAVEPOINT brain_fts_au');
+    try {
+      db.exec(`DROP TRIGGER ${name}`);
+      db.exec(brainFtsUpdateTriggerSql(table));
+      db.exec('RELEASE brain_fts_au');
+    } catch (err) {
+      db.exec('ROLLBACK TO brain_fts_au');
+      db.exec('RELEASE brain_fts_au');
+      throw err;
+    }
+    rewritten.push(name);
+  }
+  return rewritten;
 }

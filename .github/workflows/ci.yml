@@ -291,13 +291,28 @@ jobs:
   biome:
     name: Lint & Format
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
       - uses: biomejs/setup-biome@v2
         with:
           version: '2.4.11'
       - run: biome ci .
+      # T13279: biome ignores .cleo/, so the tracked project context (it
+      # drives evidence, release and testing rules) is validated against its
+      # schema here; evidence.ciChecks.covering credits this job for it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - name: Validate .cleo/project-context.json against its schema
+        run: >-
+          pnpm --package=ajv-cli@5.0.0 --package=ajv-formats@2.1.1 dlx
+          ajv validate --spec=draft7 --strict=false -c ajv-formats
+          -s packages/core/schemas/project-context.schema.json
+          -d .cleo/project-context.json
 
   adr-index-jsonl-frozen-lint:
     # T10165 / Saga T9855 SG-TEMPLATE-CONFIG-SSOT — the `.cleo/adrs/adr-index.jsonl`
@@ -2252,9 +2267,11 @@ jobs:
     needs: [biome, changes]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
-    # Runtime is ~4-5 min on a warm runner; the previous 5-minute budget was
-    # routinely hit on slower runners, and a TIMEOUT concludes the job as
-    # `cancelled` — which `continue-on-error` does NOT mask (T11967).
+    # A TIMEOUT concludes the job as `cancelled`, which `continue-on-error`
+    # does NOT mask (T11967), and a cancelled job blocks the merge. The job
+    # used to also run `forge-ts build` (160-525 s, its output discarded: no
+    # artifact, `|| true`), which hit this limit on #1966 and #1973 (T13381).
+    # Only the coverage check runs now (10-23 s plus install).
     timeout-minutes: 10
     continue-on-error: true
     steps:
@@ -2279,8 +2296,6 @@ jobs:
         uses: ./.github/actions/install-ripgrep
       - name: Check TSDoc coverage
         run: pnpm exec forge-ts check --human || true
-      - name: Build documentation
-        run: pnpm exec forge-ts build || true
 
   # ──────────────────────────────────────────────────────────────────────────
   # gh#1403: the scripts/ test project, which nothing used to run on a

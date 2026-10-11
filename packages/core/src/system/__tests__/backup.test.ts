@@ -27,7 +27,14 @@
  * @task T10315
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -411,6 +418,52 @@ describe('system/backup — rotation (T9194)', () => {
       (f) => !f.endsWith('.meta.json') && !f.endsWith('.tmp'),
     );
     expect(nonMetaFiles.length).toBeLessThanOrEqual(3);
+  });
+
+  it('createBackup rotation removes the rotated backup sidecar, so backup list stops listing it (T12729)', async () => {
+    vi.doMock('../../store/sqlite.js', () => ({
+      getDb: vi.fn().mockResolvedValue({}),
+      getNativeDb: () => null,
+    }));
+    vi.doMock('../../store/memory-sqlite.js', () => ({
+      getBrainDb: vi.fn().mockResolvedValue({}),
+      getBrainNativeDb: () => null,
+    }));
+
+    const { createBackup, listSystemBackups } = await import('../backup.js');
+    const cleoDir = join(testDir, '.cleo');
+    writeFileSync(join(cleoDir, 'config.json'), JSON.stringify({ test: true }));
+    const canonicalDir = join(cleoDir, 'backups', 'sqlite');
+    mkdirSync(canonicalDir, { recursive: true });
+    const old = [
+      'snapshot-20250101-000001',
+      'snapshot-20250101-000002',
+      'snapshot-20250101-000003',
+    ];
+    for (const [i, id] of old.entries()) {
+      const file = join(canonicalDir, `config.json.${id}`);
+      writeFileSync(file, `old-${i}`);
+      const at = new Date(Date.UTC(2025, 0, 1, 0, 0, i + 1));
+      utimesSync(file, at, at);
+      writeFileSync(
+        join(canonicalDir, `${id}.meta.json`),
+        JSON.stringify({
+          backupId: id,
+          type: 'snapshot',
+          timestamp: at.toISOString(),
+          files: ['config.json'],
+        }),
+      );
+    }
+
+    await createBackup(testDir, { maxSnapshots: 3 });
+
+    expect(existsSync(join(canonicalDir, `config.json.${old[0]}`))).toBe(false);
+    expect(existsSync(join(canonicalDir, `${old[0]}.meta.json`))).toBe(false);
+    expect(existsSync(join(canonicalDir, `${old[1]}.meta.json`))).toBe(true);
+    const listed = listSystemBackups(testDir).map((b) => b.backupId);
+    expect(listed).not.toContain(old[0]);
+    expect(listed).toEqual(expect.arrayContaining([old[1], old[2]]));
   });
 
   it('createBackup does NOT rotate when count is within cap', async () => {

@@ -256,6 +256,18 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     expect(err[0]).toMatch(/^\[cleo run\] planned resources: heap \d+ MiB \(CLEO default\)/);
   });
 
+  it('T13367: a two-file biome check, even under --class build, asks the ledger for 1 GiB and says why', async () => {
+    runGoverned.mockResolvedValue(exited());
+    await invoke({ class: 'build' }, ['pnpm', 'biome', 'check', 'a.ts', 'b.ts']);
+    expect(opts()).toMatchObject({
+      cls: 'scoped-build',
+      footprintBytes: 1024 ** 3,
+      footprintReason: 'biome check on 2 named paths',
+    });
+    expect(opts().env.NODE_OPTIONS).toBe(process.env.NODE_OPTIONS);
+    expect(err).toContain('[cleo run] charged footprint: biome check on 2 named paths\n');
+  });
+
   it('without --passthrough every notice is printed', async () => {
     runGoverned.mockResolvedValue(exited());
     await invoke({}, argv);

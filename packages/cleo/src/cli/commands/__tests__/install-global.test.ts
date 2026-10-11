@@ -95,7 +95,7 @@ describe('cleo install-global command (T929)', () => {
       await invokeInstallGlobal({ dryRun: true, quiet: true });
 
       expect(mockBootstrap).toHaveBeenCalledOnce();
-      expect(mockBootstrap).toHaveBeenCalledWith({ dryRun: true });
+      expect(mockBootstrap).toHaveBeenCalledWith({ dryRun: true, userRequested: true });
     });
 
     it('does not throw when bootstrapGlobalCleo resolves', async () => {
@@ -199,7 +199,7 @@ describe('cleo install-global command (T929)', () => {
     it('calls bootstrapGlobalCleo with dryRun:false by default', async () => {
       await invokeInstallGlobal({ quiet: true });
 
-      expect(mockBootstrap).toHaveBeenCalledWith({ dryRun: false });
+      expect(mockBootstrap).toHaveBeenCalledWith({ dryRun: false, userRequested: true });
     });
 
     it('message reflects action count', async () => {

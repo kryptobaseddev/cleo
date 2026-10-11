@@ -144,6 +144,8 @@ function writePlan(
     previousVersion?: string | null;
     previousTag?: string | null;
     changesetIds?: string[];
+    /** Evidence atoms for every task (T13364). */
+    evidenceAtoms?: string[];
   } = {},
 ): void {
   const nowIso = new Date().toISOString();
@@ -166,7 +168,7 @@ function writePlan(
       kind: 'feat' as const,
       impact: 'minor' as const,
       userFacingSummary: `Ship ${id}`,
-      evidenceAtoms: [],
+      evidenceAtoms: opts.evidenceAtoms ?? [],
       epicAncestor: 'T9999',
     })),
     changelog: { features: taskIds, fixes: [], chores: [], breaking: [] },
@@ -554,6 +556,33 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
       expect(result.error.code).toBe('E_EVIDENCE_STALE');
       const details = result.error.details as { staleTasks?: Array<{ taskId: string }> };
       expect(details.staleTasks?.[0]?.taskId).toBe(taskWithBadCommit);
+    }
+  });
+
+  it('a files: path a later commit in the release deleted is not stale (T13364)', async () => {
+    // T13158's atom named exodus/deferred-guard.ts; T13167 deleted it before the
+    // v2026.10.5 tag, and reconcile rejected the shipped release.
+    gitCommit(projectRoot, 'guard.ts', 'export const guard = 1;\n', `feat(${TASK_IDS[0]}): guard`);
+    execFileSync('git', ['rm', '-q', 'guard.ts'], { cwd: projectRoot });
+    execFileSync('git', ['commit', '-q', '-m', 'refactor: retire the guard'], { cwd: projectRoot });
+    gitTag(projectRoot, VERSION);
+    writePlan(projectRoot, VERSION, [TASK_IDS[0]], { evidenceAtoms: ['files:guard.ts'] });
+
+    const result = await releaseReconcileV2(VERSION, { projectRoot });
+    if (!result.success) expect(result.error.code).not.toBe('E_EVIDENCE_STALE');
+  });
+
+  it('a files: path with no history up to the tag is still stale (T13364)', async () => {
+    gitCommit(projectRoot, 'a.txt', '1', `feat(${TASK_IDS[0]}): ship a`);
+    gitTag(projectRoot, VERSION);
+    writePlan(projectRoot, VERSION, [TASK_IDS[0]], { evidenceAtoms: ['files:never-existed.ts'] });
+
+    const result = await releaseReconcileV2(VERSION, { projectRoot });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('E_EVIDENCE_STALE');
+      const details = result.error.details as { staleTasks?: Array<{ reason: string }> };
+      expect(details.staleTasks?.[0]?.reason).toContain('no history up to');
     }
   });
 

@@ -21,6 +21,7 @@ import {
   checkMetadata,
   checkPackage,
   checkTarball,
+  converge,
   parseArgs,
   readCreatedAt,
   readPublishedPackages,
@@ -147,6 +148,59 @@ describe('gh#1377 — three states, not two', () => {
     });
     expect(results[0].ok).toBe(false);
     expect(results[0].reason).toContain('tarball');
+  });
+});
+
+describe('converge — the shared propagation loop (T13328)', () => {
+  /** A fake clock that each sleep advances. */
+  function fakeClock() {
+    let t = 0;
+    const waits = [];
+    return {
+      now: () => t,
+      sleepImpl: async (ms) => {
+        waits.push(ms);
+        t += ms;
+      },
+      waits,
+    };
+  }
+
+  it('retries a pending attempt and returns the settled value', async () => {
+    const clock = fakeClock();
+    let n = 0;
+    const out = await converge(async () => ({ settled: ++n === 3, value: n }), {
+      timeoutMs: 60_000,
+      intervalMs: 10,
+      ...clock,
+    });
+    expect(out).toMatchObject({ settled: true, timedOut: false, attempts: 3, value: 3 });
+    expect(clock.waits).toEqual([10, 10]);
+  });
+
+  it('backs off geometrically up to the cap, and never waits past the deadline', async () => {
+    const clock = fakeClock();
+    const out = await converge(async () => ({ settled: false, value: 'still 404' }), {
+      timeoutMs: 1_000,
+      intervalMs: 100,
+      backoff: 2,
+      maxIntervalMs: 300,
+      ...clock,
+    });
+    expect(clock.waits).toEqual([100, 200, 300, 300, 100]);
+    expect(out).toMatchObject({
+      settled: false,
+      timedOut: true,
+      value: 'still 404',
+      elapsedMs: 1_000,
+    });
+  });
+
+  it('a settled first attempt never waits', async () => {
+    const clock = fakeClock();
+    const out = await converge(async () => ({ settled: true, value: 'ok' }), clock);
+    expect(out.attempts).toBe(1);
+    expect(clock.waits).toEqual([]);
   });
 });
 

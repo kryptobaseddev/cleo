@@ -183,7 +183,7 @@ describe('publishNexusGraph', () => {
     const storedReferences = native
       .prepare("SELECT value FROM _nexus_meta WHERE key='graph_assessment_references'")
       .get();
-    expect(decodeStoredReferences(storedReferences?.value)).toEqual(JSON.stringify(references));
+    expect(JSON.parse(decodeStoredReferences(storedReferences?.value))).toEqual(references);
     expect(native.prepare('SELECT meta_json FROM nexus_nodes').get()).toEqual({
       meta_json: rows.nodes[0]!.metaJson,
     });

@@ -13,6 +13,13 @@ name: cleo-supervisor prebuild
 # addon, so the build step is `cargo build --release --target` (with `cross`
 # for the Linux arm64 cross-compile) rather than `napi build`. The matrix,
 # runners, and cross handling mirror worktree-napi-prebuild.yml exactly.
+#
+# Deliberately a standalone `pull_request` workflow, not a job called from
+# ci.yml (T13279): it needs `contents: write` to attach release assets on a
+# tag push, and a workflow called from ci.yml cannot hold more than ci.yml
+# grants (its default token is read-only). Its build is covered on PRs by
+# cleo-supervisor smoke, which IS called from ci.yml. The exception is listed
+# in ADVISORY_WORKFLOWS in scripts/lint-merge-bar-aggregate.mjs.
 
 on:
   push:

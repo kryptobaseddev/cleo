@@ -36,9 +36,11 @@ import {
 } from '../store/dual-scope-db.js';
 import { openCleoDbSnapshot } from '../store/open-cleo-db.js';
 import {
+  clearRowIdentityRefusal,
   fullRefillPlan,
   ROW_IDENTITY_META_TABLE,
   ROW_IDENTITY_REFILL_SNAPSHOT_KEY,
+  readRowIdentityRefusal,
   rowIdentityRecipeCurrent,
   rowIdentityShareState,
   shareStateOf,
@@ -109,14 +111,18 @@ function remedyOf(verdict: RowIdentityShareState, fillEnabled: boolean): string[
   return out;
 }
 
-/** The undo instruction for a refill snapshot. */
-function undoOf(projectRoot: string, snapshot: string): string {
-  const db = resolveDualScopeDbPath('project', projectRoot);
+/**
+ * The undo instruction for a refill snapshot: the guarded store restore
+ * (T13240), which verifies the snapshot, refuses while a writer holds the
+ * store, handles the WAL sidecars and keeps the replaced store as a
+ * pre-restore backup. Never a raw file copy.
+ */
+function undoOf(snapshot: string): string {
+  const quoted = `'${snapshot.replace(/'/g, `'\\''`)}'`;
   return (
-    'STOP EVERY cleo PROCESS FIRST (agents, daemons, open terminals): a running writer would ' +
-    'overwrite or corrupt the restored file. No `cleo restore` verb restores cleo.db from a named ' +
-    'snapshot yet (T13240), so the undo is a file copy: ' +
-    `cp '${snapshot}' '${db}' && rm -f '${db}-wal' '${db}-shm'`
+    'Stop every cleo process first (agents, daemons, open terminals); the restore refuses while ' +
+    `one holds the store. Preview: cleo restore backup --snapshot ${quoted} --dry-run, then ` +
+    `undo: cleo restore backup --snapshot ${quoted}`
   );
 }
 
@@ -135,6 +141,7 @@ function readLocal(dbPath: string): {
   recipeCurrent: boolean;
   planned: Record<string, number>;
   priorSnapshot: string | null;
+  refused: boolean;
 } {
   const snap = openCleoDbSnapshot(dbPath, { readOnly: true });
   try {
@@ -143,6 +150,7 @@ function readLocal(dbPath: string): {
       recipeCurrent: rowIdentityRecipeCurrent(snap.db),
       planned: fullRefillPlan(snap.db),
       priorSnapshot: lastRefillSnapshot(snap.db),
+      refused: readRowIdentityRefusal(snap.db)?.state === 'refused',
     };
   } finally {
     snap.close();
@@ -179,9 +187,18 @@ export async function rowIdentityRefill(
       applied: false,
       snapshot: null,
       undo: null,
+      refusalCleared: false,
     };
   }
-  const { local, recipeCurrent, planned, priorSnapshot } = readLocal(dbPath);
+  const { local, recipeCurrent, planned, priorSnapshot, refused } = readLocal(dbPath);
+  // T13305: an explicit --refill re-evaluates: a recorded refusal is cleared,
+  // so the next open (or the --apply below) decides afresh.
+  let refusalCleared = false;
+  if (refused) {
+    const handle = getDualScopeNativeDb(await openDualScopeDb('project', projectRoot));
+    await import('../store/sqlite-data-accessor.js');
+    refusalCleared = clearRowIdentityRefusal(handle);
+  }
   const probe =
     options.probe ??
     (async (root: string) =>
@@ -203,6 +220,7 @@ export async function rowIdentityRefill(
     applied: false,
     snapshot: null,
     undo: null,
+    refusalCleared,
   };
   if (options.apply !== true || action !== 'refill' || !fillEnabled) return base;
   const nexusCheckedNone = nexus.length > 0 && nexus.every((a) => a.answer === 'none');
@@ -232,6 +250,6 @@ export async function rowIdentityRefill(
     applied: true,
     remedy: [],
     snapshot,
-    undo: snapshot ? undoOf(projectRoot, snapshot) : null,
+    undo: snapshot ? undoOf(snapshot) : null,
   };
 }

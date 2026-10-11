@@ -11,16 +11,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const runNexusLoginCommand = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('../../lib/nexus-first-run-cli.js', () => ({ runNexusLoginCommand }));
+/** The target picker: it must not open without a terminal on stdin AND stderr (T13308). */
+const pickerSelect = vi.hoisted(() => vi.fn(async () => 'Cleo Nexus account'));
+vi.mock('../../lib/readline-wizard-io.js', () => ({
+  ReadlineWizardIO: class {
+    select = pickerSelect;
+    close(): void {}
+  },
+}));
 
 import { nonInteractiveLoginTarget, runLoginCommand } from '../login.js';
 
 const savedTTY = process.stdin.isTTY;
+const savedErrTTY = process.stderr.isTTY;
+const savedCI = process.env['CI'];
+const setTTY = (stdin: boolean, stderr: boolean) => {
+  Object.defineProperty(process.stdin, 'isTTY', { value: stdin, configurable: true });
+  Object.defineProperty(process.stderr, 'isTTY', { value: stderr, configurable: true });
+};
 beforeEach(() => {
-  Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+  setTTY(false, false);
+  delete process.env['CI'];
 });
 afterEach(() => {
   Object.defineProperty(process.stdin, 'isTTY', { value: savedTTY, configurable: true });
+  Object.defineProperty(process.stderr, 'isTTY', { value: savedErrTTY, configurable: true });
+  if (savedCI === undefined) delete process.env['CI'];
+  else process.env['CI'] = savedCI;
   runNexusLoginCommand.mockClear();
+  pickerSelect.mockClear();
   vi.restoreAllMocks();
 });
 
@@ -58,6 +77,31 @@ describe('runLoginCommand with no terminal (T13288)', () => {
 
   it('an explicit provider is honoured as before', async () => {
     await runLoginCommand({ provider: 'nexus' }, 'login.run');
+    expect(runNexusLoginCommand).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the target picker needs stdin AND stderr on a terminal, outside CI (T13308)', () => {
+  it('stdin on a terminal but stderr redirected: no picker, the Cleo Nexus sign-in', async () => {
+    setTTY(true, false);
+    await runLoginCommand({}, 'login.run');
+    expect(pickerSelect).not.toHaveBeenCalled();
+    expect(runNexusLoginCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it('both on a terminal under CI: no picker either', async () => {
+    setTTY(true, true);
+    process.env['CI'] = 'true';
+    await runLoginCommand({}, 'login.run');
+    expect(pickerSelect).not.toHaveBeenCalled();
+    expect(runNexusLoginCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it('both on a terminal outside CI: the picker asks', async () => {
+    setTTY(true, true);
+    process.env['CI'] = 'false';
+    await runLoginCommand({}, 'login.run');
+    expect(pickerSelect).toHaveBeenCalledTimes(1);
     expect(runNexusLoginCommand).toHaveBeenCalledTimes(1);
   });
 });

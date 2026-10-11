@@ -24,6 +24,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { ExitCode, type Session, type TaskClaimedDetails } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CleoError } from '../../errors.js';
+import { renewInvokingSessionClaims } from '../../resources/claim-keepalive.js';
 import { readFocusState } from '../../sessions/focus-state-store.js';
 import { gcSessions } from '../../sessions/index.js';
 import { abandonSpawnSession, requireSpawnSession } from '../../spawn/agent-identity.js';
@@ -349,6 +350,25 @@ describe('leased task claims (T12502)', () => {
     expect((await env.accessor.loadSingleTask('T001'))?.claim?.sessionId).toBe(SES_A);
     const child = (await env.accessor.loadSessions()).find((x) => x.id === childId);
     expect(child?.status).toBe('ended');
+  });
+
+  it("a governed wait renews only the invoking session's own leases (T13492)", async () => {
+    await start(SES_A);
+    await start(SES_B, 'T002');
+    // Both leases are about to lapse while their holders sit in the queue.
+    const soon = new Date(Date.now() + 60_000).toISOString();
+    for (const id of ['T001', 'T002']) {
+      await env.accessor.updateTaskFields(id, { leaseExpiresAt: soon }, { keepVersion: true });
+    }
+    const renewed = await as(SES_A, () => renewInvokingSessionClaims(env.tempDir));
+    expect(renewed).toBe(1);
+    const mine = (await env.accessor.loadSingleTask('T001'))?.claim;
+    const foreign = (await env.accessor.loadSingleTask('T002'))?.claim;
+    expect(mine?.sessionId).toBe(SES_A);
+    expect(Date.parse(mine?.leaseExpiresAt ?? '')).toBeGreaterThan(Date.now() + 20 * 60_000);
+    expect(foreign?.leaseExpiresAt).toBe(soon);
+    // An unbound waiter renews nothing.
+    expect(await as(null, () => renewInvokingSessionClaims(env.tempDir))).toBe(0);
   });
 
   it('an unbound --take-over / --force-claim is refused with E_SESSION_UNBOUND and a fix', async () => {

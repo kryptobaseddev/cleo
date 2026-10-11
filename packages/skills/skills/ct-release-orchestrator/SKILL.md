@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.2.0
+  version: 3.2.1
   tier: on-demand
   install: harness
   covers:
@@ -15,7 +15,7 @@ metadata:
     - packages/core/src/validation/protocols/protocols-markdown/release.md
     - packages/cleo/src/cli/commands/release.ts
   loomStage: release
-  lastReviewed: 2026-10-04
+  lastReviewed: 2026-10-09
   stability: stable
 ---
 
@@ -33,7 +33,7 @@ Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalis
 
 | Step | Verb / Workflow | Owns transition | Notes |
 |-----:|------------------|------------------|-------|
-| 1 | `cleo release plan <ver> --epic <id>` | _(none)_ → `planned` | Builds the Release Plan envelope; auto-writes `CHANGELOG.md` (T10105 closes the silent-skip gap) |
+| 1 | `cleo release plan <ver> --epic <id>` | _(none)_ → `planned` | Builds the Release Plan envelope; auto-writes `CHANGELOG.md` (T10105 closes the silent-skip gap). stdout is the one envelope, and the readiness report goes to stderr (T13322). A `--tasks` plan records `epicId: null`, and each task keeps its own `epicAncestor` (T13323) |
 | 2 | `cleo release open <ver>` | `planned` → `pr-opened` | Dispatches `release-prepare.yml` with the plan's sha256 once the plan is verified on the default branch, plus the verified preflight skips; the workflow cuts the branch + opens the PR |
 | 3 | _(GHA)_ `release-prepare.yml` → PR merge | `pr-opened` → `pr-merged` | Owned by CI; verify via `cleo release pr-status <ver>` |
 | 4 | `git tag -a v<ver> -m "Release v<ver>" && git push origin v<ver>` | `pr-merged` → `tag-pushed` | Explicit tag after the release PR merges — `auto-tag-on-release-merge.yml` is retired (T10434, ADR-087); the tag push triggers `release.yml` |

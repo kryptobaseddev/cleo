@@ -139,6 +139,17 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('cleo release plan — blocked by readiness
     expect(r.status).toBe(6);
   });
 
+  it('stdout is exactly one JSON envelope; the readiness report is on stderr (T13322)', () => {
+    const r = runCli(['release', 'plan', 'v2026.9.99', '--epic', 'T1'], projectRoot);
+    // ADR-086: a caller parses all of stdout as one envelope. The readiness
+    // report used to sit above it and made that parse throw.
+    const parsed = JSON.parse(r.stdout.trim()) as Envelope;
+    expect(parsed.success).toBe(false);
+    expect(r.stdout.trim().split('\n')).toHaveLength(1);
+    expect(r.stdout).not.toContain('Spawn Readiness Check');
+    expect(r.stderr).toContain('Spawn Readiness Check');
+  });
+
   it('does not write a plan file when the gate blocks', () => {
     runCli(['release', 'plan', 'v2026.9.99', '--epic', 'T1'], projectRoot);
     // The original defect planned the release anyway; the envelope's claim that

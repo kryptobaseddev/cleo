@@ -66,9 +66,17 @@
 
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  accessSync,
+  constants as fsConstants,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { hostname, totalmem } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import type {
   HeavyToolResourcePlan,
   MemoryPressureReading,
@@ -86,6 +94,7 @@ import {
   heavyToolWorkers,
   isHeavyTool,
   isMemoryBoundTool,
+  planHeavyToolEnv,
 } from '../tasks/heavy-tool-env.js';
 import type { CanonicalTool } from '../tasks/tool-resolver.js';
 import type { ResourceSample } from './backend.js';
@@ -96,6 +105,7 @@ import {
   type MemoryGateReporter,
 } from './pressure-gate.js';
 import { processAncestors, processGroupOf } from './run-admission.js';
+import { canonicalForClass, gitHookFor, namedTestFileCount, runFootprint } from './run-class.js';
 import { ownProcessStartedAt, type PidProbe, systemPidProbe } from './slot-holder.js';
 import { followToolGroups, isProbeableId } from './tool-groups.js';
 
@@ -255,6 +265,126 @@ export function planFootprintBytes(
   return processes * (Math.max(0, plan.heapMb) + PROCESS_OVERHEAD_MB) * 1024 * 1024;
 }
 
+/**
+ * Whether a git client hook is installed for the repository at `cwd`
+ * (T13452): `git rev-parse --git-path hooks/<name>` honours `core.hooksPath`,
+ * and the file must exist and be executable. Any failure reads as installed,
+ * which keeps the heavier charge.
+ *
+ * @param cwd - Where the command runs.
+ * @param hook - Hook name (`pre-push`, `pre-commit`).
+ * @param globals - The command's git global options (`-C`, `-c`), passed through.
+ */
+export function gitHookInstalled(
+  cwd: string,
+  hook: string,
+  globals: readonly string[] = [],
+): boolean {
+  try {
+    // The command's own global options (`-C <dir>`, `-c core.hooksPath=…`)
+    // pick the repository and hooks directory it will use (T13458).
+    const path = execFileSync(
+      'git',
+      [...globals, 'rev-parse', '--path-format=absolute', '--git-path', `hooks/${hook}`],
+      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5_000 },
+    ).trim();
+    accessSync(isAbsolute(path) ? path : join(cwd, path), fsConstants.X_OK);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code !== 'ENOENT' && code !== 'EACCES';
+  }
+}
+
+/** What a `cleo run` job is planned with and charged (T13367). */
+export interface RunFootprintPlan {
+  /** Env overlay for the child (heap ceiling, workers); empty for a light run. */
+  readonly overlay: Readonly<Record<string, string>>;
+  /** The heap and worker plan, or `null` for a light run. */
+  readonly resources: HeavyToolResourcePlan | null;
+  /** Bytes to ask the ledger for; absent means the class default. */
+  readonly footprintBytes?: number;
+  /** Why, for the ledger entry and `doctor tool-locks`. */
+  readonly footprintReason: string;
+  /** Test files the run names, when it names them (T13132). */
+  readonly namedFiles: number | null;
+}
+
+/**
+ * Plan and charge a `cleo run` job by its real scope (T13367).
+ *
+ * A formatter on named files is charged {@link LIGHT_FOOTPRINT_BYTES} with no
+ * heap plan. A single Node linter on files, or a one-project `tsc -p`, is
+ * charged one process. Anything else gets the class's heavy-run plan, with a
+ * named-file test run capped at one worker per file (T13132). An explicit
+ * `full-build` is never shrunk.
+ *
+ * @param cls - the resolved class.
+ * @param argv - the command.
+ * @param env - the environment the child would inherit. @defaultValue process.env
+ * @param totalRamGib - total RAM in GiB, for tests. @defaultValue os.totalmem()
+ *
+ * @example
+ * ```ts
+ * planRunFootprint('scoped-build', ['pnpm', 'biome', 'check', 'a.ts', 'b.ts']).footprintBytes; // 1 GiB
+ * ```
+ */
+export function planRunFootprint(
+  cls: ResourceClass,
+  argv: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+  totalRamGib: number = totalmem() / GIB,
+  hookInstalled: (hook: string, globals: readonly string[]) => boolean = (hook, globals) =>
+    gitHookInstalled(process.cwd(), hook, globals), // CWD-OK: cleo run runs the command in its own cwd
+): RunFootprintPlan {
+  let scope = cls === 'full-build' ? null : runFootprint(argv);
+  // T13452: a hooked git push/commit keeps the class plan, because whatever
+  // the hook runs (tests, a build) rides this admission.
+  const probe = scope?.size === 'light' ? gitHookFor(argv) : null;
+  const hook = probe?.hooks.find((h) => hookInstalled(h, probe.globals));
+  if (hook !== undefined) {
+    scope = { size: 'class', reason: `runs the ${hook} hook` };
+  }
+  if (scope?.size === 'light') {
+    return {
+      overlay: {},
+      resources: null,
+      footprintBytes: LIGHT_FOOTPRINT_BYTES,
+      footprintReason: scope.reason,
+      namedFiles: null,
+    };
+  }
+  if (scope?.size === 'single-process') {
+    const { overlay, resources } = planHeavyToolEnv('typecheck', env, totalRamGib);
+    return {
+      overlay,
+      resources,
+      ...(resources !== null ? { footprintBytes: planFootprintBytes(resources) } : {}),
+      footprintReason: scope.reason,
+      namedFiles: null,
+    };
+  }
+  const namedFiles = namedTestFileCount(cls, argv);
+  const { overlay, resources } = planHeavyToolEnv(
+    canonicalForClass(cls),
+    env,
+    totalRamGib,
+    namedFiles ?? undefined,
+  );
+  return {
+    overlay,
+    resources,
+    ...(resources !== null ? { footprintBytes: planFootprintBytes(resources) } : {}),
+    footprintReason:
+      namedFiles !== null
+        ? `${namedFiles} named test file${namedFiles === 1 ? '' : 's'}`
+        : scope?.size === 'class' && scope.reason !== 'sized by its class'
+          ? `${cls} plan: ${scope.reason}`
+          : `${cls} plan`,
+    namedFiles,
+  };
+}
+
 /** Governor classes whose admission is the ledger's. */
 export const LEDGER_CLASSES: ReadonlySet<ResourceClass> = new Set<ResourceClass>([
   'test-run',
@@ -319,6 +449,8 @@ export interface LedgerEntry {
   readonly scope?: AdmissionScope;
   /** The CLEO task the run is evidence for, when known (T13132). */
   readonly task?: string;
+  /** Why the run is charged `footprintBytes` (`biome check on 2 named paths`), when known (T13367). */
+  readonly footprintReason?: string;
   /**
    * Holds the machine-wide exclusive slot: no other exclusive entry is
    * admitted while it is (T13237). Set for the `full-build` class.
@@ -737,6 +869,11 @@ function charged(entry: LedgerEntry, capacityBytes: number): number {
  *   saturated). Light runs take `lightShare` (memory alone), so CPU saturation
  *   never serialises them behind a heavy run (T13132). Either still admits the
  *   oldest waiting entry when nothing is admitted; `none` admits nothing.
+ * - A head blocked by bytes past its reservation stops everything behind it,
+ *   except up to {@link TINY_LANE_SLOTS} tiny runs ({@link LIGHT_FOOTPRINT_BYTES}
+ *   or less) that fit the memory budget (T13367). The lane is open only until
+ *   the head has waited {@link TINY_LANE_WINDOWS} reservation windows, and
+ *   never for a head that needs the whole budget (T13389).
  *
  * @param entries - the ledger.
  * @param ctx - capacity, pressure share and clock.
@@ -767,12 +904,15 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   let heavyRunning = ctx.foreign?.count ?? 0;
   // T13237: admitted exclusive runs (a full-build holds the machine-wide slot).
   let exclusiveRunning = 0;
+  // T13367: admitted tiny runs, for the tiny lane past a blocked head.
+  let tinyRunning = 0;
   for (const e of entries) {
     if (e.state === 'admitted') {
       used += charged(e, ctx.capacityBytes);
       running++;
       if (isHeavy(e)) heavyRunning++;
       if (e.exclusive === true) exclusiveRunning++;
+      if (isTiny(e)) tinyRunning++;
     }
   }
   const fits = (w: LedgerEntry, cost: number): boolean => {
@@ -790,6 +930,9 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   // Bytes held for a reserved heavy head that only the `one` rule blocks: light
   // runs may still pass it, but only within what is left after its share.
   let reservedForHead: number | null = null;
+  // A head blocked by bytes past its reservation stops every run behind it
+  // except the tiny lane (T13367).
+  let headBlocked = false;
   /** Admit `w` (every admission goes through here, so the counters stay true). */
   const take = (w: LedgerEntry, cost: number): void => {
     admit.add(w.id);
@@ -797,9 +940,24 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
     running++;
     if (isHeavy(w)) heavyRunning++;
     if (w.exclusive === true) exclusiveRunning++;
+    if (isTiny(w)) tinyRunning++;
   };
   for (const w of waiting) {
     const cost = charged(w, ctx.capacityBytes);
+    if (headBlocked) {
+      // Only the tiny lane passes a byte-blocked head: a formatter on two
+      // files, within the memory budget, at most TINY_LANE_SLOTS at once.
+      if (
+        isTiny(w) &&
+        tinyRunning < TINY_LANE_SLOTS &&
+        w.exclusive !== true &&
+        lightShare !== 'none' &&
+        used + cost <= lightBudget
+      ) {
+        take(w, cost);
+      }
+      continue;
+    }
     if (reservedForHead !== null) {
       // Only light runs pass a reserved head, within what its share leaves —
       // and never a second exclusive run (T13237, #1899 review HIGH: a full
@@ -837,7 +995,18 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
           w.exclusive === true &&
           exclusiveRunning > 0 &&
           used + cost <= (isHeavy(w) ? heavyBudget : lightBudget);
-        if (!cpuOnly && !exclusiveOnly) break;
+        if (!cpuOnly && !exclusiveOnly) {
+          // T13367, #2005 review HIGH (T13389): the tiny lane may pass a
+          // byte-blocked head only for a bounded window, and never a head that
+          // needs the whole budget (it starts only once nothing runs). Then
+          // the lane closes, running work drains and the head starts: steady
+          // small arrivals cannot starve it.
+          const laneOpen =
+            cost < lightBudget && ctx.nowMs - w.enqueuedAtMs < reservationMs * TINY_LANE_WINDOWS;
+          if (!laneOpen) break;
+          headBlocked = true;
+          continue;
+        }
         reservedForHead = cost;
       }
     }
@@ -847,6 +1016,26 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
       ? { ...e, state: 'admitted', admittedAtMs: ctx.nowMs, heartbeatAtMs: ctx.nowMs }
       : e,
   );
+}
+
+/**
+ * At most this many tiny runs ({@link LIGHT_FOOTPRINT_BYTES} or less) may pass
+ * a queue head that has been reserved (T13367). A two-file formatter run then
+ * never waits minutes behind a blocked heavy build, and the head is delayed by
+ * at most this many gigabytes of short runs.
+ */
+export const TINY_LANE_SLOTS = 3;
+
+/**
+ * The tiny lane stays open until the blocked head has waited this many
+ * reservation windows ({@link LEDGER_RESERVATION_MS} each; 6 minutes), then
+ * closes so the head cannot be starved (T13389).
+ */
+export const TINY_LANE_WINDOWS = 3;
+
+/** Whether an entry is a tiny run (a formatter on named files): {@link LIGHT_FOOTPRINT_BYTES} or less. */
+function isTiny(e: Pick<LedgerEntry, 'footprintBytes'>): boolean {
+  return e.footprintBytes <= LIGHT_FOOTPRINT_BYTES;
 }
 
 /** Whether an entry is a heavy (multi-process) run: above {@link HEAVY_FOOTPRINT_BYTES}. */
@@ -992,7 +1181,7 @@ export function describeHolders(entries: readonly LedgerEntry[], nowMs: number):
     .filter((e) => e.state === 'admitted')
     .map(
       (e) =>
-        `${e.label}${describeScope(e)} pid ${e.pid} (${e.command})${e.cwd ? ` in ${e.cwd}` : ''}, ${gib(e.footprintBytes)}, for ${age(nowMs - (e.admittedAtMs ?? e.enqueuedAtMs))}`,
+        `${e.label}${describeScope(e)} pid ${e.pid} (${e.command})${e.cwd ? ` in ${e.cwd}` : ''}, ${gib(e.footprintBytes)}${e.footprintReason ? ` (${e.footprintReason})` : ''}, for ${age(nowMs - (e.admittedAtMs ?? e.enqueuedAtMs))}`,
     );
 }
 
@@ -1121,6 +1310,8 @@ export interface AdmissionRequest {
   readonly scope?: AdmissionScope;
   /** The CLEO task it is evidence for, for status (T13132). */
   readonly task?: string;
+  /** Why it is charged `footprintBytes`, for status (T13367). */
+  readonly footprintReason?: string;
   /** Take the machine-wide exclusive slot (T13237: a `full-build`). */
   readonly exclusive?: boolean;
 }
@@ -1160,6 +1351,14 @@ export interface AdmitOptions {
   readonly now?: () => number;
   /** Wait (tests). @defaultValue setTimeout */
   readonly sleep?: (ms: number) => Promise<void>;
+  /**
+   * Called on entering the wait and every {@link AdmitOptions.keepAliveMs}
+   * while queued: callers renew the invoking session's claim leases so a long
+   * wait does not let them expire (T13492). Failures are ignored.
+   */
+  readonly keepAlive?: () => Promise<unknown>;
+  /** Interval for {@link AdmitOptions.keepAlive}. @defaultValue 5 minutes */
+  readonly keepAliveMs?: number;
 }
 
 /** An admission: the share is held until `release`. */
@@ -1450,6 +1649,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     toolGroups: [],
     ...(req.scope !== undefined ? { scope: req.scope } : {}),
     ...(req.task !== undefined ? { task: req.task } : {}),
+    ...(req.footprintReason !== undefined ? { footprintReason: req.footprintReason } : {}),
     ...(req.exclusive === true ? { exclusive: true } : {}),
   };
 
@@ -1535,8 +1735,13 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
 
   let lastPassAt = now();
   let lastReportAt = t0;
+  let lastKeepAliveAt = Number.NEGATIVE_INFINITY;
   let reading = first.reading;
   for (;;) {
+    if (opts.keepAlive && now() - lastKeepAliveAt >= (opts.keepAliveMs ?? 300_000)) {
+      lastKeepAliveAt = now();
+      await opts.keepAlive().catch(() => undefined);
+    }
     if (reading !== null) opts.memoryPressure?.waiting(reading, now() - t0);
     if (now() - lastReportAt >= LEDGER_HOLDER_REPORT_MS && opts.notice) {
       lastReportAt = now();
