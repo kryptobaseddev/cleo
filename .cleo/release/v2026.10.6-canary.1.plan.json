@@ -1,0 +1,166 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.6-canary.1",
+  "resolvedVersion": "v2026.10.6-canary.1",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "canary",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-11T19:16:59.747Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.6",
+  "previousTag": "v2026.10.6",
+  "previousShippedAt": null,
+  "tasks": [
+    {
+      "id": "T13343",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Project hook contracts, hash activation and bounded executor",
+      "evidenceAtoms": [
+        "pr:2008",
+        "files:packages/contracts/src/project-hooks.ts,packages/core/src/hooks/project-state.ts,packages/core/src/hooks/project-runner.ts",
+        "ci:2008"
+      ],
+      "epicAncestor": "T13342",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13344",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Capability-driven managed project hook delivery and thin CLI adapters",
+      "evidenceAtoms": [
+        "pr:2008",
+        "files:packages/caamp/providers/hook-mappings.json,packages/caamp/src/core/hooks/generated.ts,packages/caamp/src/core/hooks/types.ts,packages/caamp/src/core/hooks/normalizer.ts,packages/caamp/src/core/fs/atomic.ts,packages/adapters/src/project-hook-delivery.ts,packages/adapters/src/project-hook-native.ts,packages/contracts/src/project-hook-delivery.ts,packages/cleo/src/cli/commands/hook.ts,packages/cleo/src/cli/project-hook-entry.ts,packages/cleo/bin/cleo.js,build.mjs,scripts/build-deps.mjs",
+        "ci:2008"
+      ],
+      "epicAncestor": "T13342",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13345",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Shared worktree hook executor port and lifecycle integration",
+      "evidenceAtoms": [
+        "pr:2008",
+        "files:packages/contracts/src/operations/worktree.ts,packages/worktree/src/worktree-hooks.ts,packages/worktree/src/worktree-create.ts,packages/core/src/sentient/worktree-dispatch.ts",
+        "ci:2008"
+      ],
+      "epicAncestor": "T13342",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13346",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Hook provenance, activation drift and execution diagnostics",
+      "evidenceAtoms": [
+        "pr:2008",
+        "files:packages/core/src/hooks/project-state.ts,packages/core/src/hooks/project-runner.ts,packages/cleo/src/cli/commands/doctor-hooks.ts,packages/cleo/src/cli/commands/doctor.ts",
+        "ci:2008"
+      ],
+      "epicAncestor": "T13342",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13343",
+      "T13344",
+      "T13345",
+      "T13346"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T19:16:59.747Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T19:16:59.747Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T19:16:59.747Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T19:16:59.747Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T19:16:59.747Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T19:16:59.747Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 680 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.6-canary.1 — 2026-10-11\n\n### Added\n\n- Share project hook rules across Git, coding agents and worktree setup with explicit activation and ownership diagnostics. _(provenance: [T13342](https://github.com/kryptobaseddev/cleo/search?q=T13342&type=commits), [T13343](https://github.com/kryptobaseddev/cleo/search?q=T13343&type=commits), [T13344](https://github.com/kryptobaseddev/cleo/search?q=T13344&type=commits), [T13345](https://github.com/kryptobaseddev/cleo/search?q=T13345&type=commits), [T13346](https://github.com/kryptobaseddev/cleo/search?q=T13346&type=commits))_\n",
+    "changesetEntryCount": 1,
+    "changesetIds": [
+      "t13342-shared-project-hooks"
+    ],
+    "taskIds": [
+      "T13343",
+      "T13344",
+      "T13345",
+      "T13346"
+    ]
+  }
+}

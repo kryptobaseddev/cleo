@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.10.6-canary.1] (2026-10-11)
+
+### Added
+
+- Share project hook rules across Git, coding agents and worktree setup with explicit activation and ownership diagnostics. _(provenance: [T13342](https://github.com/kryptobaseddev/cleo/search?q=T13342&type=commits), [T13343](https://github.com/kryptobaseddev/cleo/search?q=T13343&type=commits), [T13344](https://github.com/kryptobaseddev/cleo/search?q=T13344&type=commits), [T13345](https://github.com/kryptobaseddev/cleo/search?q=T13345&type=commits), [T13346](https://github.com/kryptobaseddev/cleo/search?q=T13346&type=commits))_
+
 ## [2026.10.8] (2026-10-11)
 
 > **Upgrading:** from 2026.10.6 or older, run `cleo self-update --no-auto-upgrade`, then `cleo upgrade`. From 2026.10.7, `cleo self-update` is safe. 2026.10.8 fixes a 2026.10.7 bug where `cleo complete` could wipe a task's cached typed-gate passes and then refuse them.
