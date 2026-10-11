@@ -6,7 +6,9 @@
  *   - session end: the detached session-end worker
  *     (`sessions/session-end-snapshot.ts`), after its snapshot;
  *   - the sentient tick (`sentient/tick.ts`), at most once per
- *     {@link autoSyncIntervalMs}.
+ *     {@link autoSyncIntervalMs};
+ *   - a normal CLI command in a linked project (T13553,
+ *     `cloud/auto-sync-command.ts`): a detached child, same interval.
  *
  * Best-effort and bounded: a store with no sync flag on, a signed-out
  * device or an unlinked project is a quiet skip; any other failure
@@ -45,7 +47,7 @@ const QUIET_SKIP_CODES = new Set([
 ]);
 
 /** What triggered an automatic sync. */
-export type AutoSyncReason = 'session-end' | 'tick';
+export type AutoSyncReason = 'session-end' | 'tick' | 'command';
 
 /** Persisted state of automatic sync. */
 export interface AutoSyncState {
@@ -187,7 +189,7 @@ function errorCode(err: unknown): string {
  * Never throws.
  *
  * @param projectRoot - The project whose session ended or whose tick ran.
- * @param reason - What triggered it; a tick honours {@link autoSyncIntervalMs}.
+ * @param reason - What triggered it; a tick or command honours {@link autoSyncIntervalMs}.
  * @param opts - Test seams.
  * @returns What happened.
  * @task T13468
@@ -201,7 +203,7 @@ export async function autoCloudSync(
   const cleoHome = opts.cleoHome ?? getCleoHome();
   const now = opts.now ?? new Date();
   try {
-    const gap = reason === 'tick' ? autoSyncIntervalMs() : AUTO_SYNC_SESSION_END_MIN_MS;
+    const gap = reason === 'session-end' ? AUTO_SYNC_SESSION_END_MIN_MS : autoSyncIntervalMs();
     if (gap === null) return 'disabled';
     const due = (): boolean => {
       const last = readAutoSyncState(cleoHome).lastAttemptAt;
