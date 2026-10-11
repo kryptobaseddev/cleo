@@ -236,8 +236,13 @@ export interface CloudSyncPushEnableResult {
     emitted: number;
     unresolved: number;
     overwritten: Array<{ table: string; uid: string; column: string }>;
-    /** Fields of the stream's rows that took this store's newer value on every replica (T13507). */
+    /**
+     * Fields of the stream's rows that took this store's newer value on every replica (T13507);
+     * column `*` is a whole row this store's newer edit restored over a stream delete (T13508).
+     */
     replaced: Array<{ table: string; uid: string; column: string }>;
+    /** This store's own rows a newer stream delete removed; the safety bundle holds them (T13508). */
+    deleted: Array<{ table: string; uid: string }>;
     safetyBackup: string;
   } | null;
   /** The genesis cut: the highest capture seq the checkpoint carries. */

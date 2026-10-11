@@ -1,6 +1,6 @@
 ---
 id: t13466-merge-join
-tasks: [T13466, T13503, T13504]
+tasks: [T13466, T13503, T13504, T13507, T13508]
 kind: feat
 summary: "Sync: a store that never synced with a journal stream joins it and keeps its own rows"
 ---
@@ -17,6 +17,12 @@ cut it) no longer refuses with `E_NEXUS_SYNC_STREAM_JOURNALED`. It joins the str
   with that HLC pinned, so every device takes it; an older one takes the stream's value and is listed in
   `merged.overwritten` with `W_SYNC_MERGE_OVERWROTE`. The store is first exported to a `pre-merge-*` safety bundle
   (`merged.safetyBackup`).
+- **A stream delete** of a row this store also holds (T13508) follows the same dating: a newer local edit keeps the
+  row and re-inserts it above the tombstone on every device (`merged.replaced`, column `*`); an older copy is removed
+  and listed in `merged.deleted` with `W_SYNC_MERGE_DELETED` naming the safety bundle.
+- **The baseline** for "written on the stream after the cut" is the stream's cut (oldest journal) checkpoint. A stream
+  field edited after the cut and later reverted still counts as written, so the stream's value wins; this store's
+  value is recoverable from the safety bundle.
 - **A stream row whose key this store's own row holds** (both devices minted `D0001`) refuses the join before
   anything changes (T13504): nothing settles such a collision across devices yet. Give the local row a free key and
   run `cleo sync enable push` again.

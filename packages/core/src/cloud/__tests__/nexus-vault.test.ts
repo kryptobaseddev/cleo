@@ -6275,6 +6275,59 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     expect(await rowsOf(b, sql)).toEqual(onA);
   });
 
+  it('a never-synced row edited after the stream deleted it survives the delete on every device; an older one is removed and reported (T13508)', async () => {
+    const { a, b } = await twoBrains(
+      [
+        obsAt('O-shared05', 'shared five', 'orig', '2026-10-10 08:00:00'),
+        obsAt('O-shared06', 'shared six', 'orig', '2026-10-10 08:00:00'),
+      ],
+      [
+        obsAt('O-shared05', 'shared five', 'orig', '2026-10-10 08:00:00'),
+        // B's copy is untouched since before A's delete: the delete wins.
+        obsAt('O-shared06', 'shared six', 'orig', '2026-10-10 08:00:00'),
+      ],
+    );
+    // A deletes both rows after its cut and pushes.
+    await onM(a, async () => {
+      (await globalStore(a)).exec(
+        "DELETE FROM brain_observations WHERE id IN ('O-shared05', 'O-shared06')",
+      );
+    });
+    await syncOk(a);
+    // Later, B (never synced) edits O-shared05; its updated_at is newer than A's delete.
+    await new Promise((r) => setTimeout(r, 1500));
+    await onM(b, async () => {
+      (await globalStore(b)).exec(
+        "UPDATE brain_observations SET narrative = 'B edit', updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = 'O-shared05'",
+      );
+    });
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    // The older copy lost to the delete, and the report and warning name it.
+    expect(joined.merged?.deleted).toEqual([
+      { table: 'brain_observations', uid: expect.any(String) },
+    ]);
+    expect(joined.warnings.find((w) => w.code === 'W_SYNC_MERGE_DELETED')?.message).toContain(
+      joined.merged?.safetyBackup ?? '?',
+    );
+    // The newer edit restored its row over the delete, and the report names it.
+    expect(joined.merged?.replaced).toContainEqual({
+      table: 'brain_observations',
+      uid: expect.any(String),
+      column: '*',
+    });
+    await syncOk(b);
+    await syncOk(a);
+    await syncOk(b);
+    const sql =
+      "SELECT uid, id, narrative FROM brain_observations WHERE id IN ('O-shared05', 'O-shared06') ORDER BY id";
+    const onA = await rowsOf(a, sql);
+    expect(onA).toMatchObject([{ id: 'O-shared05', narrative: 'B edit' }]);
+    expect(await rowsOf(b, sql)).toEqual(onA);
+  });
+
   it('a merge join whose own row holds a key the stream already has is refused before anything changes, and joins once the key is freed (T13504)', async () => {
     const { a, b } = await twoBrains(
       [decAt('D0001', 'A decides', '2026-10-10 08:00:00')],

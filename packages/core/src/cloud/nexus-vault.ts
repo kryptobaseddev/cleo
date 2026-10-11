@@ -1671,6 +1671,14 @@ async function enableSyncPushImpl(
             .join(', ')}`,
         });
       }
+      if (merged !== null && merged.deleted.length > 0) {
+        warnings.push({
+          code: 'W_SYNC_MERGE_DELETED',
+          message: `${merged.deleted.length} of this store's own row(s) were removed by a newer delete on the stream: ${merged.deleted
+            .map((r) => `${r.table} ${r.uid}`)
+            .join(', ')}; the store as it was is kept at ${safetyBackup}`,
+        });
+      }
       if (merged !== null && merged.unresolved > 0) {
         warnings.push({
           code: 'W_SYNC_MERGE_UNRESOLVED',
@@ -1697,6 +1705,7 @@ async function enableSyncPushImpl(
                 unresolved: merged.unresolved,
                 overwritten: [...merged.overwritten],
                 replaced: [...merged.replaced],
+                deleted: [...merged.deleted],
                 safetyBackup,
               },
         warnings,
@@ -2058,14 +2067,18 @@ async function withMergedScratch<T>(
 ): Promise<T> {
   const { conn, key, t } = session;
   const journal = journalFor(conn, t);
-  const latest = trustedCheckpoints(
+  const journalCheckpoints = trustedCheckpoints(
     journal,
     await listCheckpoints(conn, t.streamId),
     key.signers,
     null,
   )
     .filter(isJournalSnapshot)
-    .sort((a, b) => b.coversSeq - a.coversSeq)[0];
+    .sort((a, b) => b.coversSeq - a.coversSeq);
+  const latest = journalCheckpoints[0];
+  // The merge join's baseline is the cut (the oldest journal checkpoint, T13508 LOW): a
+  // later checkpoint would hide stream edits made between the cut and it.
+  const cutCheckpoint = journalCheckpoints[journalCheckpoints.length - 1];
   if (latest === undefined) {
     throw vaultError(
       'E_NEXUS_SYNC_REFUSED',
@@ -2092,7 +2105,28 @@ async function withMergedScratch<T>(
     // The checkpoint as restored, never pulled: a merge join's baseline (T13507).
     const baselinePath = path.join(work, 'baseline', 'cleo.db');
     fs.mkdirSync(path.dirname(baselinePath));
-    fs.copyFileSync(path.join(extractDir, entry.bundlePath), baselinePath);
+    if (cutCheckpoint === undefined || cutCheckpoint.checkpointId === latest.checkpointId) {
+      fs.copyFileSync(path.join(extractDir, entry.bundlePath), baselinePath);
+    } else {
+      const cutRestored = await journal.restoreCheckpoint(cutCheckpoint.checkpointId, key.signers);
+      const cutBundle = path.join(work, 'cut.cleobundle.tar.gz');
+      fs.writeFileSync(cutBundle, cutRestored.bundle);
+      const cutStaging = path.join(work, 'cut-staging');
+      fs.mkdirSync(cutStaging);
+      const cut = await extractPortableBundle(cutBundle, cutStaging);
+      const cutSection =
+        t.scope === 'global' ? cut.manifest.global?.home : cut.manifest.projects[0];
+      const cutEntry = cutSection?.databases.find(
+        (d) => d.role === 'primary' && d.relPath === 'cleo.db',
+      );
+      if (!cutEntry) {
+        throw vaultError(
+          'E_NEXUS_VAULT_VERIFY_FAILED',
+          'the cut checkpoint holds no primary cleo.db',
+        );
+      }
+      fs.copyFileSync(path.join(cut.extractDir, cutEntry.bundlePath), baselinePath);
+    }
     const { openDualScopeDbAtPath, getDualScopeNativeDb } = await import(
       '../store/dual-scope-db.js'
     );

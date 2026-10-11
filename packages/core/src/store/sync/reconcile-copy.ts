@@ -112,6 +112,11 @@ export interface ReconcileCopyReport {
    * replaced the stream's value, so every replica takes the local one.
    */
   readonly replaced: ReadonlyArray<{ table: string; uid: string; column: string }>;
+  /**
+   * Rows of a never-synced store that a newer stream delete removed (T13508). The store's
+   * safety backup holds them.
+   */
+  readonly deleted: ReadonlyArray<{ table: string; uid: string }>;
   /** The `rebind` frame (rule 1 and rule 3). */
   readonly frame: ReconcileReport;
 }
@@ -188,6 +193,7 @@ export function reconcileCopy(
     let unresolved = 0;
     const overwritten: Array<{ table: string; uid: string; column: string }> = [];
     const replaced: Array<{ table: string; uid: string; column: string }> = [];
+    const deleted: Array<{ table: string; uid: string }> = [];
     const collisions: MergeKeyCollision[] = [];
     const tables = syncSetTables(o.scope)
       .map((t) => captureTableDef(db, o.scope, t))
@@ -220,6 +226,15 @@ export function reconcileCopy(
         return here.kind === 'row' ? here.key : undefined;
       };
 
+      /** A never-synced row's genesis HLC (§1.2): its modification column, counter 0, this replica. */
+      const genesisOf = (
+        lMeta: RowMetaRow | undefined,
+        local: Record<string, LedgerWireValue>,
+      ): string | null => {
+        if (lMeta !== undefined || replica === undefined) return null;
+        const gcol = genesisColumn(o.scope, def.table);
+        return encodeHlc({ phys: genesisPhys(gcol ? local[gcol] : null, atMs), ctr: 0, replica });
+      };
       for (const uid of uidsOf(db, merged, def.table)) {
         const touched = touchedOf(def.table, uid);
         // Rule 1 owns a row an inherited change inserted or deleted.
@@ -234,11 +249,7 @@ export function reconcileCopy(
           // A row with no meta (a never-synced store merging in, T13503) is
           // dated as genesis dates an existing row (§1.2): its modification
           // column, counter 0, this replica. Never adopted blindly.
-          const gcol = lMeta === undefined ? genesisColumn(o.scope, def.table) : null;
-          const genesis =
-            lMeta === undefined && replica !== undefined
-              ? encodeHlc({ phys: genesisPhys(gcol ? local[gcol] : null, atMs), ctr: 0, replica })
-              : null;
+          const genesis = genesisOf(lMeta, local);
           const mH = mMeta && !mMeta.deleted ? fieldHlcsOf(def, mMeta) : {};
           // The checkpoint's own field HLCs (T13507): a merged field past them was written after the cut.
           const bMeta =
@@ -310,7 +321,9 @@ export function reconcileCopy(
         if (local !== null) {
           // The merged state has no live row.
           if (mMeta?.deleted) {
-            const localH = rowHlc(lMeta);
+            // A never-synced row is dated at genesis too (T13508): a newer local edit survives the delete.
+            const genesis = genesisOf(lMeta, local);
+            const localH = rowHlc(lMeta) ?? genesis;
             // The re-insert's op HLC must be above the tombstone: a clock
             // that merged it issues one. A tombstone beyond the skew bound
             // cannot be passed, so the delete is adopted.
@@ -320,14 +333,14 @@ export function reconcileCopy(
                 : api.clockReceive(replica, mMeta.hlc, atMs);
             if (above === null || above.held) {
               deletes.push({ def, uid, tombstone: mMeta.hlc, meta: mMeta });
+              if (lMeta === undefined) deleted.push({ table: def.table, uid });
             } else {
-              pinned.push({
-                tbl: def.table,
-                uid,
-                op: 'I',
-                pin: { h: above.clock, fh: fieldHlcsOf(def, lMeta as RowMetaRow) },
-                atMs,
-              });
+              const fh =
+                lMeta !== undefined
+                  ? fieldHlcsOf(def, lMeta)
+                  : Object.fromEntries(fields.map((c) => [c, genesis as string]));
+              pinned.push({ tbl: def.table, uid, op: 'I', pin: { h: above.clock, fh }, atMs });
+              if (lMeta === undefined) replaced.push({ table: def.table, uid, column: '*' });
             }
             continue;
           }
@@ -404,6 +417,7 @@ export function reconcileCopy(
       unresolved,
       overwritten,
       replaced,
+      deleted,
       frame,
     };
   });
