@@ -315,6 +315,30 @@ export type EvidenceAtom =
       untestedPackages?: string[];
     }
   | {
+      /**
+       * A native typecheck or lint run's receipt (T13427), bound like
+       * `test-run:` — fresh, covering every changed code path, tree-pinned.
+       */
+      kind: 'qa-run';
+      path: string;
+      sha256: string;
+      /** Absolute path of the receipt hashed at verify time. DEVICE-LOCAL, as for `test-run`. */
+      resolvedPath?: string;
+      /** Which check the receipt records. */
+      check: 'typecheck' | 'lint';
+      /** The argv that ran. */
+      command: string[];
+      /** Root-relative paths the run covered (`''` = the whole root). */
+      roots: string[];
+      /** Tool name and version, when the receipt states them. */
+      toolName?: string;
+      toolVersion?: string;
+      /** HEAD of the bound checkout at verify time (as for `test-run`). */
+      headSha?: string;
+      /** Tool-cache tree hash at verify time; `cleo complete` refuses the atom once it moves. */
+      treeHash?: string;
+    }
+  | {
       kind: 'tool';
       tool: string;
       exitCode: number;

@@ -620,6 +620,7 @@ export {
   noteAtomSchema,
   parseEvidenceString,
   prAtomSchema,
+  qaRunAtomSchema,
   SATISFIES_TASK_ID_REGEX,
   SATISFIES_VERSION_PIN_REGEX,
   satisfiesAtomSchema,
