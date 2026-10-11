@@ -132,7 +132,7 @@ export interface HookPilotValidationOptions {
   root: string;
   /** Retained evidence index; its directory contains all proof files. */
   evidencePath: string;
-  /** Stable version receiving promotion; must match the canary's base. */
+  /** Stable version receiving promotion; cannot precede the canary base. Source proof must match. */
   stableVersion: string;
   /** Trusted release-side pilot repository; evidence cannot redirect authority. */
   vidaRepository: string;

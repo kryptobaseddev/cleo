@@ -15,6 +15,7 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compareVersions } from './release-installability-watch.mjs';
 
 const MAX_RECORD_BYTES = 256 * 1024;
 const MAX_API_BYTES = 1024 * 1024;
@@ -222,8 +223,10 @@ export async function validateHookPilotEvidence(options) {
   const evidence = HookPilotEvidenceSchema.parse(boundedJson(options.evidencePath));
   if (evidence.vidaRepository.toLowerCase() !== options.vidaRepository.toLowerCase())
     throw new Error('Promotion held: evidence redirects the pilot repository.');
-  if (evidence.canaryVersion.split('-canary.')[0] !== options.stableVersion.replace(/^v/, ''))
-    throw new Error('Promotion held: canary belongs to a different stable release.');
+  const stableVersion = options.stableVersion.replace(/^v/, '');
+  const canaryBase = evidence.canaryVersion.split('-canary.')[0];
+  if (!/^\d{4}\.\d+\.\d+$/.test(stableVersion) || compareVersions(stableVersion, canaryBase) < 0)
+    throw new Error('Promotion held: target must be a stable version at or after the canary base.');
   const source = implementationSourceDigest(options.root);
   if (source.digest !== evidence.sourceDigest)
     throw new Error('Promotion held: implementation changed since pilot.');

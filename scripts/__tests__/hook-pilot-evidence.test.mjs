@@ -273,6 +273,16 @@ describe('normalized implementation digest', () => {
 });
 
 describe('stable promotion evidence', () => {
+  it('accepts a later stable release only when every exact source-bound proof still validates', async () => {
+    bundle();
+    expect(
+      (await validateHookPilotEvidence({ ...options(), stableVersion: 'v2026.10.9' })).checks,
+    ).toEqual(CHECKS);
+    write('packages/core/src/hooks.ts', 'changed implementation');
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.9' }),
+    ).rejects.toThrow(/implementation changed/);
+  });
   it('validates all exact bound receipts and independently queries hosted run and jobs', async () => {
     bundle();
     expect((await validateHookPilotEvidence(options())).checks).toEqual(CHECKS);
@@ -285,11 +295,20 @@ describe('stable promotion evidence', () => {
     write('packages/core/src/hooks.ts', 'changed implementation');
     await expect(validateHookPilotEvidence(options())).rejects.toThrow(/implementation changed/);
   });
-  it('holds on mismatched stable base, redirected repository and stale proof identity', async () => {
+  it.each([
+    '2026.10.5',
+    '2026.10.9-canary.1',
+    '2026.10.9-rc.1',
+    'latest',
+    '2026.10',
+  ])('holds on invalid or backward stable target %s', async (stableVersion) => {
+    bundle();
+    await expect(validateHookPilotEvidence({ ...options(), stableVersion })).rejects.toThrow(
+      /stable version at or after/,
+    );
+  });
+  it('holds on redirected repository and stale proof identity', async () => {
     const index = bundle();
-    await expect(
-      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.7' }),
-    ).rejects.toThrow(/different stable/);
     await expect(
       validateHookPilotEvidence({ ...options(), vidaRepository: 'another/repo' }),
     ).rejects.toThrow(/redirects/);

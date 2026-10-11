@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.14
+version: 3.1.15
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.14
+  version: 3.1.15
   tier: core
   install: harness
   covers:
@@ -38,6 +38,9 @@ workflow accepts this channel explicitly; publication stays on `canary` and does
 not advance to `latest`. Preserve registry retries and installed-package soak
 checks. Stable promotion needs the separately retained, source-bound live harness
 and hosted VidaPeps pilot evidence; missing or unavailable verification holds it.
+The stable target may follow the canary base when npm has already advanced, but
+every receipt must still bind to the exact canary and implementation digest.
+Reject backward targets and prerelease targets; use the normal stable pipeline.
 
 Before editing, inspect focus/briefing authority and coverage. Missing evidence
 means UNKNOWN impact; current static coverage does not prove every runtime caller.
