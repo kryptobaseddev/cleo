@@ -304,6 +304,7 @@ describe('presence and binding hold their guarantees (review M3)', () => {
       // this-device-only; capture triggers come only with a sync.* flag.
       expect(tables).toEqual([
         '_sync_apply_intent',
+        '_sync_authored',
         '_sync_capture',
         '_sync_clock',
         '_sync_conflict',
@@ -324,6 +325,8 @@ describe('presence and binding hold their guarantees (review M3)', () => {
         '_sync_segment_txn',
         '_sync_sequenced',
         '_sync_txn',
+        '_sync_uid_alias',
+        '_sync_uid_ref_alias',
         '_sync_undo',
       ]);
       for (const name of tables) expect(classifyTable('project', name).class).toBe('local-only');

@@ -272,9 +272,9 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/conflicts.ts': {
     _sync_conflict: {
-      count: 2,
+      count: 3,
       reason:
-        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction, and marked resolved by `cleo cloud conflicts resolve` (T12344)",
+        "conflict log (local-only): one row per conflict an apply recorded, written in the apply frame's transaction, and marked resolved by `cleo cloud conflicts resolve` (T12344) or when the held collision it records settles (T13397)",
     },
   },
   'packages/core/src/store/sync/field-leave.ts': {
@@ -304,7 +304,7 @@ export const EXEMPT = {
     },
   },
   'packages/core/src/store/sync/capture.ts': {
-    _sync_capture: { count: 4, reason: CAPTURE_MACHINERY },
+    _sync_capture: { count: 5, reason: CAPTURE_MACHINERY }, // +1 T13399 re-key announcement capture
     _sync_frame: { count: 2, reason: CAPTURE_MACHINERY },
     _sync_undo: { count: 4, reason: CAPTURE_MACHINERY },
   },
@@ -363,6 +363,10 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/sealer.ts': {
     _sync_apply_intent: { count: 1, reason: SEALER },
+    _sync_authored: {
+      count: 1,
+      reason: `${SEALER}; records each minted row this replica sealed an insert of, the collision settle path's origin test (T13399)`,
+    },
     _sync_capture: { count: 2, reason: SEALER },
     _sync_frame: { count: 1, reason: SEALER },
     _sync_ledger: { count: 1, reason: SEALER },

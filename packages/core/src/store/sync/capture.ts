@@ -523,6 +523,41 @@ export function captureRemints(db: DatabaseSync, scope: TableScope): Record<stri
   return out;
 }
 
+/**
+ * Capture an announcement of a re-key this replica applied from another
+ * replica (T13399, store/sync/collision-settle `announcePlacedRekeys`): a K
+ * `uid: [old, new]`, `birth_fp: [fp, fp]` on the row that already lives at
+ * the new uid. It moves nothing here (the sealer recognises it and leaves
+ * row meta alone) and writes no undo, so a rebase rewind never moves the row
+ * back; receivers record it as this replica's reference boundary. Call inside
+ * a `rekey` frame.
+ *
+ * @param db - The store, inside the caller's transaction.
+ * @param def - The re-keyed row's table.
+ * @param oldUid - The uid before the re-key.
+ * @param newUid - The uid the row lives at.
+ * @param birthFp - The row's birth fingerprint (unchanged by the re-key).
+ * @returns 1 when the capture was written, 0 when no row lives at `newUid`.
+ */
+export function captureRekeyAnnouncement(
+  db: DatabaseSync,
+  def: CaptureTableDef,
+  oldUid: string,
+  newUid: string,
+  birthFp: string,
+): number {
+  if (!hasUid(def) || !hasBirthFp(def)) return 0;
+  const img = `json_object(${lit(UID_COLUMN)}, json_array(quote(?), quote(?)), ${lit(BIRTH_FP_COLUMN)}, json_array(quote(?), quote(?)))`;
+  const out = db
+    .prepare(
+      `INSERT INTO _sync_capture (tbl, op, rk, uid, img, at_ms) ` +
+        `SELECT ${lit(def.table)}, 'K', ${rkExpr(def, 'x')}, ?, ${img}, ${AT_MS_SQL} ` +
+        `FROM ${q(def.table)} x WHERE x.${q(UID_COLUMN)} = ? AND x.${q(BIRTH_FP_COLUMN)} = ?`,
+    )
+    .run(oldUid, oldUid, newUid, birthFp, birthFp, newUid, birthFp);
+  return Number(out.changes);
+}
+
 /** Every capture trigger for the store's sync set. */
 export function generateCaptureTriggers(db: DatabaseSync, scope: TableScope): CaptureTrigger[] {
   const out: CaptureTrigger[] = [];
