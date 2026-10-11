@@ -127,6 +127,13 @@ export interface RowIdentitySpec {
   readonly storedRefUids?: readonly StoredRefUid[];
   /** The key is a user-facing display id that a collision re-mints. */
   readonly displayId?: boolean;
+  /**
+   * A LOCAL key column, other than {@link key}, that never travels (T12915):
+   * each device assigns its own value, references from other tables point at
+   * it, and on the wire they carry the row's uid instead. A received row gets
+   * a fresh local value (the next INTEGER id, or its uid for a TEXT column).
+   */
+  readonly localKey?: string;
   /** Task that declared the table. */
   readonly task: string;
 }

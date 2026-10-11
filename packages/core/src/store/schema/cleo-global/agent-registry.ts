@@ -71,7 +71,15 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  unique,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 
 // ---------------------------------------------------------------------------
 // E10 §5b — enum const arrays minted in-module (cloud-sync writer conventions)
@@ -292,8 +300,11 @@ export const agentRegistryAgents = sqliteTable(
     installedFrom: text('installed_from'),
     /** ISO-8601 UTC install instant (already canonical TEXT, §4). */
     installedAt: text('installed_at'),
+    /** Row uid (T12915): a UUIDv8 over the slug (`agent_id`), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_agent_registry_agents_uid').on(table.uid),
     index('idx_agent_registry_agents_owner').on(table.ownerId),
     index('idx_agent_registry_agents_class').on(table.class),
     index('idx_agent_registry_agents_privacy').on(table.privacyTier),

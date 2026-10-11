@@ -639,10 +639,18 @@ describe('Gate A: two-tier policy', () => {
     'nexus_contracts',
     'nexus_code_index',
   ]);
+  /** Rebuilt from the agent's own columns on every agent write (owner decision 2026-10-11, T12915). */
+  const AGENT_REGISTRY_JUNCTIONS = new Set([
+    'agent_registry_agent_capabilities',
+    'agent_registry_agent_skills',
+  ]);
   const FTS_SHADOW = /^[a-z_]+_fts(_(config|data|docsize|idx|content))?$/;
   const VEC_SHADOW = /^brain_embeddings_(chunks|info|rowids|vector_chunks[0-9]{2})$/;
   const derivedAllowed = (t: string) =>
-    NEXUS_CODE_GRAPH.has(t) || FTS_SHADOW.test(t) || VEC_SHADOW.test(t);
+    NEXUS_CODE_GRAPH.has(t) ||
+    AGENT_REGISTRY_JUNCTIONS.has(t) ||
+    FTS_SHADOW.test(t) ||
+    VEC_SHADOW.test(t);
 
   it.each([
     'project',
