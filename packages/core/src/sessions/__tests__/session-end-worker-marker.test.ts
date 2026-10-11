@@ -63,6 +63,8 @@ const ENV_KEYS = [
 interface WorkerLine {
   pid: number;
   result: { snapshotted: string[]; skipped: string | null } | null;
+  /** The automatic cloud sync outcome (T13468). */
+  autoSync?: string;
 }
 
 /** Poll until `done()` or the deadline. */
@@ -230,6 +232,14 @@ describe.skipIf(DIST_MISSING)('session-end worker marker (T12508)', { timeout: 1
       expect(rows.map((r) => r.x)).toContain('C-final-write');
     });
   }
+
+  it('the worker runs the automatic cloud sync after its snapshot; no store syncs, so it skips (T13468)', async () => {
+    const { requestSessionEndSnapshot } = await import('../session-end-snapshot.js');
+    const req = await requestSessionEndSnapshot(projectRoot);
+    expect(req.mode).toBe('detached');
+    expect(await waitFor(() => workerLines().length > 0, 60_000)).toBe(true);
+    expect(workerLines()[0]?.autoSync).toBe('skipped');
+  });
 
   it('a marker naming a live pid that is a DIFFERENT process (pid 1) does not block', async () => {
     const { requestSessionEndSnapshot } = await import('../session-end-snapshot.js');
