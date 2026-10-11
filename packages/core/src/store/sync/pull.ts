@@ -570,7 +570,12 @@ export async function pullStream(
               // A retire, emitted by its successor, is recorded at its stream seq:
               // later transactions of the retired replica are history (T13278).
               if (t.kind === 'retire' && t.retire && t.retire.successor === seg.replicaId) {
-                recordRetirement(db, o.stream, { ...t.retire, txn: t.txn, hlc: t.hlc, seq: seg.seq });
+                recordRetirement(db, o.stream, {
+                  ...t.retire,
+                  txn: t.txn,
+                  hlc: t.hlc,
+                  seq: seg.seq,
+                });
               }
             }
             raise.run(o.stream, seg.replicaId, plan.stagedUpto, plan.fresh.length, bytes);
