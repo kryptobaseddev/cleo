@@ -232,9 +232,7 @@ describe('conduit doc history accessors (T13354)', () => {
     const uid = await seedDoc('doc-six');
     const v1 = await seedVersion(uid, 'agent-a');
     // A real sibling version (same DAG parent) — the head FK requires it.
-    const { appendConduitAttachmentVersion } = await import(
-      '../../store/conduit-doc-history.js'
-    );
+    const { appendConduitAttachmentVersion } = await import('../../store/conduit-doc-history.js');
     const v2 = (
       await appendConduitAttachmentVersion(tempDir, {
         attachmentUid: uid,
