@@ -67,7 +67,15 @@ import {
   ROW_IDENTITY_RECIPE_KEY,
 } from '../../store/row-identity.js';
 import { setCaptureEnabled } from '../../store/sync/capture.js';
-import { isSyncFlagOn, setSyncFlag } from '../../store/sync/flags.js';
+import {
+  BARE_ACCOUNTS_TABLE,
+  bareTableDigest,
+  isSyncFlagOn,
+  LegacyOnlyStoreError,
+  legacyStrands,
+  recordBareAccounts,
+  setSyncFlag,
+} from '../../store/sync/flags.js';
 import { cutGenesis, genesisCutOf, genesisPending } from '../../store/sync/genesis.js';
 import { readStreamCursor } from '../../store/sync/pull.js';
 import { ensureProjectReplica, storeHwm } from '../../store/sync/replica.js';
@@ -3284,6 +3292,56 @@ describe('cloud vault round 3 (#1773)', () => {
     ).toEqual([
       { id: 'A1', claimed_by_session: null, lease_expires_at: null },
       { id: 'T1', claimed_by_session: 'sess-b', lease_expires_at: null },
+    ]);
+  });
+
+  it("device B pulls device A's reconciled store and enables sync without being refused (T13324)", async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    // Both machines hold the project's bare legacy rows (local-only, never in a snapshot).
+    const legacy = `CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT);
+      INSERT INTO tasks VALUES ('T0', 'task 0'), ('T8', 'legacy'), ('T9', 'legacy');`;
+    exec(b, legacy);
+    const enable = (m: Machine) => {
+      const db = new DatabaseSync(path.join(m.root, '.cleo', 'cleo.db'));
+      try {
+        // The fixture's two-column _sync_replica predates the journal schema.
+        db.exec('DROP TABLE IF EXISTS _sync_replica');
+        return setSyncFlag(db, 'sync.capture', true);
+      } finally {
+        db.close();
+      }
+    };
+    expect(() => enable(b)).toThrow(LegacyOnlyStoreError);
+    // A reconciles: T8 and T9 are carried, T9 is deleted since, and the store
+    // records the run (T13320).
+    exec(a, `${legacy} INSERT INTO tasks_tasks (id, title) VALUES ('T8', 'legacy');`);
+    const da = new DatabaseSync(path.join(a.root, '.cleo', 'cleo.db'));
+    try {
+      recordBareAccounts(da, [bareTableDigest(da, 'main', 'tasks')], 'exodus-reconcile-a');
+      expect(legacyStrands(da)).toEqual([]);
+    } finally {
+      da.close();
+    }
+    await on(a, () => pushNexusVault(vopts(a)));
+
+    const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    // B keeps its own bare rows and takes A's record, which describes them.
+    expect(sql(b, 'SELECT id FROM tasks ORDER BY id')).toEqual([
+      { id: 'T0' },
+      { id: 'T8' },
+      { id: 'T9' },
+    ]);
+    expect(sql(b, "SELECT id FROM tasks_tasks WHERE id IN ('T8', 'T9')")).toEqual([{ id: 'T8' }]);
+    expect(sql(b, `SELECT bare_table, run FROM "${BARE_ACCOUNTS_TABLE}"`)).toEqual([
+      { bare_table: 'tasks', run: 'exodus-reconcile-a' },
+    ]);
+    expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+    expect(enable(b)).toBe(true);
+    expect(sql(b, "SELECT value FROM _sync_meta WHERE key = 'sync.capture'")).toEqual([
+      { value: '1' },
     ]);
   });
 
