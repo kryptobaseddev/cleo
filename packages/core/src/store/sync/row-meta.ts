@@ -133,17 +133,20 @@ export function fieldHlcsOf(def: FieldColumns, prev: RowMetaRow): Record<string,
 /**
  * The `fhlc` after a local op at HLC `h` changed `changed` (the sealer's
  * rule): changed columns move to `h`, the rest keep theirs. A row with no
- * meta yet has every field at `h`, so none is stored.
+ * meta yet has every field at `h`, so none is stored. A changed column in
+ * `pins` moves to its pinned HLC instead (a copy reconcile's rule-3 op,
+ * §1.5 N7, T13335).
  */
 export function nextFhlc(
   prev: RowMetaRow | undefined,
   def: FieldColumns,
   changed: readonly string[],
   h: string,
+  pins?: Readonly<Record<string, string>>,
 ): string | null {
-  if (!prev) return null;
+  if (!prev) return pins ? compressFieldHlcs(def, pins, h) : null;
   const fields = fieldHlcsOf(def, prev);
-  for (const col of changed) fields[col] = h;
+  for (const col of changed) fields[col] = pins?.[col] ?? h;
   return compressFieldHlcs(def, fields, h);
 }
 

@@ -46,6 +46,7 @@ import { pendingRebind, settleRetireDue } from '../rebind.js';
 import {
   activeReplica,
   ensureProjectReplica,
+  RECONCILE_DUE_KEY,
   RETIRE_DUE_KEY,
   rebindRetires,
   retireDue,
@@ -277,6 +278,10 @@ describe('open-pass rebinds and retirement (T13337)', () => {
       lastReplicaSeq: 1,
     });
 
+    // Push waits for the copy reconcile (T13335; reconcile-copy.test.ts covers
+    // it). Here the record is cleared as the reconcile would clear it.
+    expect((await push(db, uploaded)).refusedKind).toBe('reconcile-pending');
+    db.prepare('DELETE FROM _sync_meta WHERE key = ?').run(RECONCILE_DUE_KEY);
     // The retire travels signed under the successor, first.
     expect((await push(db, uploaded)).pushed).toBeGreaterThan(0);
     const mine = uploaded.filter((u) => u.replicaId === successor);

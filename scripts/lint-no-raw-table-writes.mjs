@@ -358,8 +358,8 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/reconcile.ts': {
     _sync_capture: {
-      count: 3,
-      reason: `${SEALER}; the rebind reconcile consumes the inherited captures and writes the re-emitted rows as captures of one rebind frame (§1.5 N7, T12763)`,
+      count: 4,
+      reason: `${SEALER}; the rebind reconcile consumes the inherited captures and writes the re-emitted rows as captures of one rebind frame (§1.5 N7, T12763), and pins the HLCs of the copy reconcile's rule-3 captures (T13335)`,
     },
     _sync_frame: {
       count: 1,
@@ -380,6 +380,12 @@ export const EXEMPT = {
         'row meta (local-only): a row the stream never saw loses the meta an inherited seal wrote, so its re-emitted insert seals as an I (T12763)',
     },
   },
+  'packages/core/src/store/sync/reconcile-copy.ts': {
+    _sync_meta: {
+      count: 1,
+      reason: `${SYNC_BOOKKEEPING}; the copy reconcile clears sync.reconcile_due once it commits, which lets push resume (§1.5 N7, T13335)`,
+    },
+  },
   'packages/core/src/store/sync/retire.ts': {
     _sync_txn: {
       count: 1,
@@ -397,10 +403,14 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/replica.ts': {
     _sync_meta: {
-      count: 3,
-      reason: `${SYNC_BOOKKEEPING}; a rollback or move rebind records the retirement it owes, sync.retire_due (§1.5, T13337)`,
+      count: 4,
+      reason: `${SYNC_BOOKKEEPING}; a rollback or move rebind records the retirement it owes, sync.retire_due (§1.5, T13337); every open-pass rebind records the copy reconcile it owes, sync.reconcile_due (§1.5 N7, T13335)`,
     },
     _sync_replica: { count: 2, reason: SYNC_BOOKKEEPING },
+    _sync_cursor: {
+      count: 1,
+      reason: `${SYNC_BOOKKEEPING}; an open-pass rebind discards the inherited pull cursor (§1.5, T13335)`,
+    },
   },
   'packages/core/src/store/sync/schema.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
   'packages/core/src/store/sync/repair.ts': {

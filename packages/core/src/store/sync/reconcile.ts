@@ -45,6 +45,7 @@ import { type CaptureTableDef, captureTableDef, repairImageSql } from './capture
 import { parseHlc } from './hlc.js';
 import { keyValues, keyWhere } from './repair.js';
 import { hasTable } from './schema.js';
+import { canonicalJson } from './sealer-values.js';
 import { undoEnabled } from './sequencing.js';
 
 /** What the three-way rule does with one differing field (§1.5 N7). */
@@ -74,7 +75,7 @@ export function decideReconcileField(f: ReconcileField): ReconcileRule {
 }
 
 /** One row an inherited change touched, under its current uid. */
-interface TouchedRow {
+export interface TouchedRow {
   readonly tbl: string;
   uid: string;
   /** The stream never saw the row: an inherited change inserted it. */
@@ -88,7 +89,7 @@ interface TouchedRow {
 }
 
 /** A re-key the stream never saw, re-emitted ahead of the row changes. */
-interface Rekey {
+export interface Rekey {
   readonly tbl: string;
   readonly rk: string;
   readonly oldUid: string;
@@ -149,6 +150,43 @@ export function reconcileInPlace(
 ): ReconcileReport {
   // @sync-invariant none:local-only programming-error guard: the reconcile commits with its rebind
   if (!db.isTransaction) throw new Error('reconcileInPlace must run inside the rebind transaction');
+  return emitRebindFrame(db, o.scope, gatherInherited(db, o.scope, o.previousReplica), []);
+}
+
+/** What the previous replica changed and the stream never saw ({@link gatherInherited}). */
+export interface InheritedChanges {
+  /** Touched rows, keyed by {@link touchedRowKey}. */
+  readonly rows: ReadonlyMap<string, TouchedRow>;
+  readonly rekeys: readonly Rekey[];
+  /** Row-count effect of the inherited sealed transactions, per table. */
+  readonly ledger: ReadonlyMap<string, number>;
+  /** Inherited captures read. */
+  readonly captures: number;
+  /** Inherited transactions whose ops were read. */
+  readonly txns: number;
+}
+
+/** The key of a touched row in {@link InheritedChanges.rows}. */
+export const touchedRowKey = (tbl: string, uid: string): string => rowKey(tbl, uid);
+
+/**
+ * Read what the previous replica changed and the stream never saw (rule 1
+ * of §1.5 N7): its inherited sealed transactions, in commit order, then the
+ * inherited captures, in capture order. Read-only.
+ *
+ * @param db - The store.
+ * @param scope - The store's scope.
+ * @param previousReplica - The retired replica whose inherited transactions
+ *   count, or null for every replica's (a store rebound more than once
+ *   before it reconciled).
+ * @returns The touched rows, the re-keys and the inherited row counts.
+ */
+export function gatherInherited(
+  db: DatabaseSync,
+  scope: TableScope,
+  previousReplica: string | null,
+): InheritedChanges {
+  const o = { scope, previousReplica };
   const defs = new Map<string, CaptureTableDef | null>();
   const defOf = (t: string): CaptureTableDef | null => {
     if (!defs.has(t)) defs.set(t, captureTableDef(db, o.scope, t) ?? null);
@@ -197,11 +235,19 @@ export function reconcileInPlace(
   //    order: what they changed, and the row counts they already moved.
   let txns = 0;
   if (hasTable(db, '_sync_txn')) {
-    const txnRows = db
-      .prepare(
-        "SELECT txn FROM _sync_txn WHERE state = 'inherited' AND replica = ? ORDER BY local_seq",
-      )
-      .all(o.previousReplica) as Array<{ txn: string }>;
+    const txnRows = (
+      o.previousReplica === null
+        ? db
+            .prepare(
+              "SELECT txn FROM _sync_txn WHERE state = 'inherited' AND kind != 'retire' ORDER BY local_seq",
+            )
+            .all()
+        : db
+            .prepare(
+              "SELECT txn FROM _sync_txn WHERE state = 'inherited' AND replica = ? ORDER BY local_seq",
+            )
+            .all(o.previousReplica)
+    ) as Array<{ txn: string }>;
     const ops = db.prepare('SELECT body FROM _sync_op WHERE txn = ? ORDER BY idx');
     for (const t of txnRows) {
       txns += 1;
@@ -287,6 +333,52 @@ export function reconcileInPlace(
         }
       }
     }
+  }
+  return { rows, rekeys, ledger, captures, txns };
+}
+
+/**
+ * A field the copy reconcile publishes with the HLC the original replica
+ * issued (rule 3 of §1.5 N7): the capture carries `pin_json` and the sealer
+ * uses `h` as the op's HLC and `fh` as its field HLCs instead of ticking.
+ */
+export interface PinnedEmit {
+  readonly tbl: string;
+  readonly uid: string;
+  /** `I` the whole live row, `U` the `cols` of the live row, `D` a row gone here. */
+  readonly op: 'I' | 'U' | 'D';
+  readonly cols?: ReadonlySet<string>;
+  readonly pin: { readonly h?: string; readonly fh?: Readonly<Record<string, string>> };
+  /** The capture time (ms). */
+  readonly atMs: number;
+}
+
+/**
+ * Write one `rebind` frame (module docs): the inherited re-keys, every
+ * touched row from its live state (rule 1), then the `pinned` emits (rule 3,
+ * the copy reconcile), and consume what was gathered: the inherited
+ * captures are deleted and the ledger forgets the inherited sealed row
+ * counts. In the caller's transaction.
+ *
+ * @param db - The store, inside a transaction.
+ * @param scope - The store's scope.
+ * @param gathered - {@link gatherInherited}'s result.
+ * @param pinned - Rule-3 emits; empty for the rebind at head.
+ * @returns What was re-emitted.
+ */
+export function emitRebindFrame(
+  db: DatabaseSync,
+  scope: TableScope,
+  gathered: InheritedChanges,
+  pinned: readonly PinnedEmit[],
+): ReconcileReport {
+  const { rows, rekeys, ledger, captures, txns } = gathered;
+  const defs = new Map<string, CaptureTableDef | null>();
+  const defOf = (t: string): CaptureTableDef | null => {
+    if (!defs.has(t)) defs.set(t, captureTableDef(db, scope, t) ?? null);
+    return defs.get(t) ?? null;
+  };
+  if (hasTable(db, '_sync_capture')) {
     db.prepare("DELETE FROM _sync_capture WHERE state = 'inherited'").run();
   }
 
@@ -296,7 +388,7 @@ export function reconcileInPlace(
     for (const [tbl, delta] of ledger) if (delta !== 0) move.run(delta, tbl);
   }
 
-  if (rows.size === 0 && rekeys.length === 0) {
+  if (rows.size === 0 && rekeys.length === 0 && pinned.length === 0) {
     return { frame: null, inserts: 0, updates: 0, deletes: 0, rekeys: 0, captures, txns };
   }
 
@@ -345,7 +437,7 @@ export function reconcileInPlace(
     if (r.inserted) {
       // The stream never saw this row: the meta an inherited seal wrote must
       // not make the sealer read the re-emitted insert as a REPLACE (a U).
-      db.prepare('DELETE FROM _sync_row_meta WHERE tbl = ? AND uid = ?').run(r.tbl, r.uid);
+      dropRowMeta(db, r.tbl, r.uid);
       captureFromLive(db, def, img.insert, 'I', rk, r.uid, r.atMs, frame);
       if (undoOn) undo.run(frame, null);
       inserts += 1;
@@ -368,7 +460,57 @@ export function reconcileInPlace(
     if (undoOn) undo.run(frame, null);
     updates += 1;
   }
+  // Rule 3 (the copy reconcile): the original replica's values, HLCs pinned.
+  const pinLast = db.prepare(
+    'UPDATE _sync_capture SET pin_json = ? WHERE seq = last_insert_rowid()',
+  );
+  for (const p of pinned) {
+    const def = defOf(p.tbl);
+    if (!def) continue;
+    const pin = canonicalJson(p.pin);
+    if (p.op === 'D') {
+      insRaw.run(p.tbl, 'D', JSON.stringify(['<orphan>', p.uid]), p.uid, '{}', p.atMs, frame);
+      pinLast.run(pin);
+      if (undoOn) undo.run(frame, metaKey(db, p.tbl, p.uid));
+      deletes += 1;
+      continue;
+    }
+    const rk = liveRk(db, def, p.uid);
+    if (rk === null) continue;
+    if (p.op === 'I') {
+      // A pinned insert (a row the stream never saw, or one it deleted that
+      // is newer here, T13392): the meta of the original replica's seal must
+      // not make the sealer read it as a REPLACE (a U, which a receiver
+      // without the row, or with its tombstone, never applies). The pin
+      // carries the field HLCs.
+      dropRowMeta(db, p.tbl, p.uid);
+    }
+    const img = repairImageSql(def, 'x', p.op === 'U' ? new Set(p.cols ?? []) : undefined);
+    captureFromLive(
+      db,
+      def,
+      p.op === 'I' ? img.insert : img.update,
+      p.op,
+      rk,
+      p.uid,
+      p.atMs,
+      frame,
+    );
+    pinLast.run(pin);
+    if (undoOn) undo.run(frame, null);
+    if (p.op === 'I') inserts += 1;
+    else updates += 1;
+  }
   return { frame, inserts, updates, deletes, rekeys: rekeys.length, captures, txns };
+}
+
+/**
+ * Forget a row's meta so the sealer reads a re-emitted insert as an insert,
+ * never as a REPLACE (a U). The emit carries its own HLCs (rule 1's tick, or
+ * rule 3's pin).
+ */
+function dropRowMeta(db: DatabaseSync, tbl: string, uid: string): void {
+  db.prepare('DELETE FROM _sync_row_meta WHERE tbl = ? AND uid = ?').run(tbl, uid);
 }
 
 /** The text an `enc()` string value decodes to, or null. */

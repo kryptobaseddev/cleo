@@ -53,10 +53,11 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import type {
   CloudLeaseReleaseResult,
   CloudPushResult,
@@ -98,7 +99,7 @@ import { z } from 'zod';
 import { getCleoHome, resolveOrCwd } from '../paths.js';
 import { withLock } from '../store/lock.js';
 import { exportPortableBundle, globalHomeRules } from '../store/portable-bundle.js';
-import { importPortableBundle } from '../store/portable-bundle-import.js';
+import { extractPortableBundle, importPortableBundle } from '../store/portable-bundle-import.js';
 import {
   integrityCheck,
   PROJECT_SECTION_RULES,
@@ -108,7 +109,7 @@ import {
 } from '../store/portable-bundle-scan.js';
 import { writeRestoreMarker } from '../store/restore-marker.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
-import { isSyncFlagOn, UNRELEASED_FLAGS } from '../store/sync/flags.js';
+import { isSyncFlagOn, setSyncFlag, UNRELEASED_FLAGS } from '../store/sync/flags.js';
 import {
   completeGenesis,
   cutGenesisWithSnapshot,
@@ -119,14 +120,22 @@ import {
   joinStream,
   readGenesisCut,
 } from '../store/sync/genesis.js';
-import { type PullStreamReport, pullStream, readStreamCursor } from '../store/sync/pull.js';
+import {
+  type PullStreamReport,
+  pullStream,
+  readStreamCursor,
+  type SegmentPuller,
+  type TxnVerifier,
+} from '../store/sync/pull.js';
 import { type PushRefusal, type PushStreamReport, pushStream } from '../store/sync/push.js';
+import { type ReconcileCopyReport, reconcileCopy } from '../store/sync/reconcile-copy.js';
 import { replayPinOf } from '../store/sync/replay-pin.js';
 import {
   activeReplica,
   fileIdentity,
   readActiveReplicaId,
   rebindAfterVaultRestore,
+  reconcileDue,
 } from '../store/sync/replica.js';
 import { ReplicaRegistry } from '../store/sync/replica-registry.js';
 import type { ServerRetirement } from '../store/sync/retire.js';
@@ -1856,7 +1865,150 @@ async function withCompletedRebind(session: StreamSession): Promise<StreamSessio
       : await openDualScopeDbAtPath('project', t.dbPath),
   );
   const done = await completeOwedRebinds(conn, t, db);
+  // §1.5 N7 (T13335): a store the open pass rebound reconciles before it
+  // pushes or pulls; push stays refused until this commits.
+  await reconcileOwedCopy(session, db);
   return done === null ? session : { ...session, t: { ...t, replicaId: done.to } };
+}
+
+/** Pages the stream's verified segments for {@link pullStream}. */
+function journalPuller(journal: Journal, key: NexusAccountKey): SegmentPuller {
+  return async (cursor) => {
+    const page = await journal.pull(
+      {
+        after: cursor.after,
+        knowsAllReplicas: cursor.knowsAllReplicas,
+        replicas: { ...cursor.replicas },
+      },
+      key.signers,
+    );
+    return {
+      segments: page.segments.map((s) => ({
+        seq: s.seq,
+        replicaId: s.replicaId,
+        replicaSeq: s.replicaSeq,
+        deviceId: s.deviceId,
+        plaintext: s.plaintext,
+        schemaVersion: s.meta.schemaVersion,
+      })),
+      cursor: page.cursor,
+      head: page.head,
+    };
+  };
+}
+
+/** Checks each pulled transaction's device signature for {@link pullStream}. */
+function txnVerifier(key: NexusAccountKey, streamId: string): TxnVerifier {
+  return (deviceId, txns) => {
+    const keys = signerKeys(key.signers, deviceId);
+    const first = keys[0];
+    if (first === undefined) return 0;
+    for (const k of keys) {
+      if (firstBadTxnSignature(k.publicKey, streamId, txns) === null) return null;
+    }
+    return firstBadTxnSignature(first.publicKey, streamId, txns);
+  };
+}
+
+/**
+ * The copy reconcile a store the open pass rebound owes (§1.5 N7, T13335):
+ * restore the stream's latest verified journal checkpoint into a scratch
+ * store (`sync: 'off'`, a dedicated handle), pull the stream to head there
+ * with the merge engine, and reconcile the store against that merged state
+ * ({@link reconcileCopy}). The scratch is removed whatever happens. Nothing
+ * is done when no reconcile is due.
+ *
+ * @throws {NexusAccountError} `E_NEXUS_SYNC_REFUSED` when the stream has no
+ *   verified journal checkpoint, or the scratch pull stopped short; the
+ *   reconcile stays due and push stays refused.
+ */
+async function reconcileOwedCopy(
+  session: StreamSession,
+  db: DatabaseSync,
+): Promise<ReconcileCopyReport | null> {
+  if (reconcileDue(db) === null) return null;
+  const { conn, key, t } = session;
+  const journal = journalFor(conn, t);
+  const latest = trustedCheckpoints(
+    journal,
+    await listCheckpoints(conn, t.streamId),
+    key.signers,
+    null,
+  )
+    .filter(isJournalSnapshot)
+    .sort((a, b) => b.coversSeq - a.coversSeq)[0];
+  if (latest === undefined) {
+    throw vaultError(
+      'E_NEXUS_SYNC_REFUSED',
+      `this store rebound to a new replica, and ${t.streamId} has no verified journal checkpoint to reconcile it against`,
+      'nothing was pushed or pulled; restore the stream (`cleo cloud restore`) instead',
+    );
+  }
+  const restored = await journal.restoreCheckpoint(latest.checkpointId, key.signers);
+  const work = tempDir('cleo-reconcile-');
+  try {
+    const bundlePath = path.join(work, 'checkpoint.cleobundle.tar.gz');
+    fs.writeFileSync(bundlePath, restored.bundle);
+    const staging = path.join(work, 'staging');
+    fs.mkdirSync(staging);
+    const { extractDir, manifest } = await extractPortableBundle(bundlePath, staging);
+    const section = t.scope === 'global' ? manifest.global?.home : manifest.projects[0];
+    const entry = section?.databases.find((d) => d.role === 'primary' && d.relPath === 'cleo.db');
+    if (!entry) {
+      throw vaultError('E_NEXUS_VAULT_VERIFY_FAILED', 'the checkpoint holds no primary cleo.db');
+    }
+    const scratchPath = path.join(work, 'scratch', 'cleo.db');
+    fs.mkdirSync(path.dirname(scratchPath));
+    fs.copyFileSync(path.join(extractDir, entry.bundlePath), scratchPath);
+    const { openDualScopeDbAtPath, getDualScopeNativeDb } = await import(
+      '../store/dual-scope-db.js'
+    );
+    // The reconcile scratch is never bound and runs no open pass (§1.5).
+    const handle =
+      t.scope === 'global'
+        ? await openDualScopeDbAtPath('global', scratchPath, undefined, {
+            dedicated: true,
+            syncMode: 'off',
+          })
+        : await openDualScopeDbAtPath('project', scratchPath, undefined, {
+            dedicated: true,
+            syncMode: 'off',
+          });
+    try {
+      const scratch = getDualScopeNativeDb(handle);
+      // The scratch replays the stream; it never seals or pushes. The store
+      // it reconciles already has its sync flags, so the release gate holds.
+      setSyncFlag(scratch, 'sync.pull', true, { allowUnreleased: true });
+      const serverRetirements = await serverRetirementsFor(conn, t.scope);
+      const merged = await pullStream(scratch, {
+        scope: tableScopeOf(t),
+        stream: t.streamId,
+        // No own echoes: the scratch is no replica.
+        replica: randomUUID(),
+        initialCursor: cursorFromCheckpoint(latest),
+        pull: journalPuller(journal, key),
+        verify: txnVerifier(key, t.streamId),
+        seal: () => {},
+        ...(serverRetirements !== undefined ? { serverRetirements } : {}),
+      });
+      if (merged.refused !== null) {
+        throw vaultError(
+          'E_NEXUS_SYNC_REFUSED',
+          `the merged state this rebound store reconciles against stopped short of ${t.streamId}'s head: ${merged.refused}`,
+          'nothing was pushed or pulled; run `cleo cloud sync` again',
+        );
+      }
+      return reconcileCopy(db, scratch, {
+        scope: tableScopeOf(t),
+        stream: t.streamId,
+        mergedCursor: readStreamCursor(scratch, t.streamId) ?? cursorFromCheckpoint(latest),
+      });
+    } finally {
+      handle.close();
+    }
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
 }
 
 async function pushSyncStreamImpl(
@@ -2050,37 +2202,8 @@ async function pullWithSession(opened: StreamSession): Promise<PullStreamReport>
     replica: replicaId,
     initialCursor,
     pruneSeen: true,
-    pull: async (cursor) => {
-      const page = await journal.pull(
-        {
-          after: cursor.after,
-          knowsAllReplicas: cursor.knowsAllReplicas,
-          replicas: { ...cursor.replicas },
-        },
-        key.signers,
-      );
-      return {
-        segments: page.segments.map((s) => ({
-          seq: s.seq,
-          replicaId: s.replicaId,
-          replicaSeq: s.replicaSeq,
-          deviceId: s.deviceId,
-          plaintext: s.plaintext,
-          schemaVersion: s.meta.schemaVersion,
-        })),
-        cursor: page.cursor,
-        head: page.head,
-      };
-    },
-    verify: (deviceId, txns) => {
-      const keys = signerKeys(key.signers, deviceId);
-      const first = keys[0];
-      if (first === undefined) return 0;
-      for (const k of keys) {
-        if (firstBadTxnSignature(k.publicKey, t.streamId, txns) === null) return null;
-      }
-      return firstBadTxnSignature(first.publicKey, t.streamId, txns);
-    },
+    pull: journalPuller(journal, key),
+    verify: txnVerifier(key, t.streamId),
     seal: () => {
       sealPending(db, { scope: tableScopeOf(t), replica: replicaId });
     },
