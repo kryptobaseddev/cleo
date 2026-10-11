@@ -26,11 +26,17 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
+import type {
+  HookExecutor,
+  HookInvocation,
+  ProjectHooksManifest,
+} from '@cleocode/contracts/project-hooks.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { activateProjectHooks } from '../hooks/project-state.js';
 import { spawnWorktree, teardownWorktree } from '../sentient/worktree-dispatch.js';
 
 // ---------------------------------------------------------------------------
@@ -134,6 +140,85 @@ describe('spawn pipeline → @cleocode/worktree integration (T9984)', () => {
     expect(result.path.startsWith(fixture.projectRoot + sep)).toBe(false);
 
     await teardownWorktree(fixture.projectRoot, { taskId });
+  });
+
+  it('runs activated project hooks when an explicit Git shim is supplied', async () => {
+    if (!fixture) throw new Error('fixture not initialised');
+    const root = fixture.projectRoot;
+    mkdirSync(join(root, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(root, 'lifecycle.mjs'),
+      `import { appendFileSync } from 'node:fs';
+let input = ''; for await (const chunk of process.stdin) input += chunk;
+appendFileSync('lifecycle.txt', JSON.parse(input).event + '\\n');
+process.stdout.write(JSON.stringify({status: 'pass'}));`,
+    );
+    const manifest: ProjectHooksManifest = {
+      schemaVersion: 1,
+      hooks: [
+        {
+          id: 'lifecycle',
+          owner: 'project',
+          executable: 'node',
+          handler: 'lifecycle.mjs',
+          args: [],
+          dependencies: [],
+          timeoutMs: 10000,
+          checkerErrorPolicy: 'warn',
+          bindings: [
+            { source: 'worktree', event: 'post-create' },
+            { source: 'worktree', event: 'post-start' },
+          ],
+        },
+      ],
+    };
+    writeFileSync(join(root, '.cleo/hooks.json'), JSON.stringify(manifest));
+    execFileSync('git', ['add', '.cleo/hooks.json', 'lifecycle.mjs'], { cwd: root });
+    execFileSync('git', ['commit', '-qm', 'test(T13345): lifecycle fixture'], { cwd: root });
+    await activateProjectHooks(root);
+
+    const taskId = 'T13345-explicit-shim';
+    const created = await spawnWorktree(root, {
+      taskId,
+      gitShim: { dir: join(root, 'explicit-shim'), installed: false },
+    });
+    try {
+      expect(readFileSync(join(created.path, 'lifecycle.txt'), 'utf8')).toBe(
+        'post-create\npost-start\n',
+      );
+      expect(created.projectHookResults).toMatchObject([{ id: 'lifecycle', status: 'pass' }]);
+      expect(created.bootstrap?.projectHookResults).toMatchObject([
+        { id: 'lifecycle', status: 'pass' },
+      ]);
+      expect(created.envVars['CLEO_BRANCH_PROTECTION']).toBe('unavailable');
+    } finally {
+      await teardownWorktree(root, { taskId, force: true });
+    }
+  });
+
+  it('preserves a caller executor when installing the default Git shim', async () => {
+    if (!fixture) throw new Error('fixture not initialised');
+    const requests: HookInvocation[] = [];
+    const executor: HookExecutor = {
+      execute: async (request) => {
+        requests.push(request);
+        return [];
+      },
+    };
+    const taskId = 'T13345-executor-override';
+    const created = await spawnWorktree(fixture.projectRoot, {
+      taskId,
+      projectHookExecutor: executor,
+    });
+    try {
+      expect(requests.map((request) => request.event)).toEqual(['post-create', 'post-start']);
+      expect(requests.every((request) => request.projectRoot === realpathSync(created.path))).toBe(
+        true,
+      );
+      expect(requests.every((request) => request.worktree?.taskId === taskId)).toBe(true);
+    } finally {
+      await teardownWorktree(fixture.projectRoot, { taskId, force: true });
+    }
   });
 
   it('destroys the worktree cleanly via the SDK', async () => {
