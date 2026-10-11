@@ -16,7 +16,8 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { applyAcPlan, planAcUpdate } from './ac-table.js';
+import { enforceAcceptanceImmutability } from './ac-immutability.js';
+import { acItemToText, applyAcPlan, planAcUpdate, replaceAcRowPlan } from './ac-table.js';
 
 // ─── Heuristic regex patterns ─────────────────────────────────────────────────
 
@@ -237,6 +238,132 @@ export async function reqAdd(
     await persistAcceptanceProjection(tx, taskId, updated, new Date().toISOString());
 
     return { task: { id: taskId, acceptance: updated } };
+  });
+}
+
+/** Result of {@link reqReplace}. */
+export interface ReqReplaceResult {
+  /** The task and its committed acceptance array. */
+  task: { id: string; acceptance: AcceptanceItem[] };
+  /** The replaced REQ-ID. */
+  req: string;
+  /** Zero-based index of the gate in the acceptance array (unchanged). */
+  index: number;
+  /** The gate that was superseded, kept in the AC history and the audit row. */
+  superseded: AcceptanceGate;
+  /** False when the new gate equals the current one (nothing was written). */
+  changed: boolean;
+}
+
+/**
+ * Replace the typed gate that carries `req` with `gate`, in place (T12988).
+ *
+ * @remarks
+ * The gate keeps its index, its AC row (id and ordinal: a REQ-ID row's id
+ * derives from the REQ-ID, `evidenceBoundSourceKey`) and therefore its
+ * evidence bindings, which go stale rather than being re-pointed: typed results
+ * and criterion links are pinned to the criterion text hash, so the replaced
+ * gate must be verified again. The superseded gate is kept as an AC history row
+ * (reason `replace`) and in the task audit row, with its last typed result. In
+ * a locked pipeline stage the change needs `reason`, exactly as `cleo update
+ * --acceptance` does.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param taskId - Target task ID.
+ * @param req - REQ-ID of the gate to replace.
+ * @param gate - The new gate. Its `req` must be absent or equal `req`.
+ * @param options - `reason` for a locked stage; `accessor` for tests.
+ * @returns The committed acceptance array and the superseded gate.
+ * @throws CleoError E_NOT_FOUND for an unknown task or REQ-ID, E_VALIDATION for
+ *   an invalid gate or a REQ-ID mismatch, AC_LOCKED in a locked stage without `reason`.
+ * @example
+ * ```typescript
+ * await reqReplace(root, 'T42', 'TIMER-01', {
+ *   kind: 'test', command: 'pnpm', args: ['--filter', 'app', 'exec', 'vitest', 'run'],
+ *   expect: 'pass', description: 'Timer tests pass', req: 'TIMER-01',
+ * });
+ * ```
+ * @task T12988
+ */
+export async function reqReplace(
+  projectRoot: string,
+  taskId: string,
+  req: string,
+  gate: AcceptanceGate,
+  options: { reason?: string; accessor?: DataAccessor } = {},
+): Promise<ReqReplaceResult> {
+  const reqId = req.trim();
+  if (gate.req !== undefined && gate.req !== reqId) {
+    // @sync-invariant none:input-shape a gate naming another REQ-ID is refused before any read; nothing is written
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `Gate JSON names REQ-ID "${gate.req}", but it replaces "${reqId}"`,
+      { fix: `Set "req":"${reqId}" in the gate JSON, or omit it` },
+    );
+  }
+  const validated = validateGate({ ...gate, req: reqId });
+  const acc = options.accessor ?? (await getTaskAccessor(projectRoot));
+  return acc.transaction(async (tx) => {
+    const task = await loadTask(acc, taskId);
+    const existing = (task.acceptance ?? []) as AcceptanceItem[];
+    const index = existing.findIndex(
+      (item): item is AcceptanceGate => typeof item === 'object' && item.req === reqId,
+    );
+    if (index < 0) {
+      const known = existing.flatMap((item) =>
+        typeof item === 'object' && item.req ? [item.req] : [],
+      );
+      // @sync-invariant none:input-shape an unknown REQ-ID is refused before any write; nothing is written
+      throw new CleoError(ExitCode.NOT_FOUND, `REQ-ID "${reqId}" is not a gate on task ${taskId}`, {
+        fix: known.length
+          ? `REQ-IDs on ${taskId}: ${known.join(', ')} (cleo req list ${taskId})`
+          : `${taskId} has no REQ-ID gates; add one with cleo req add ${taskId} --gate '<json>'`,
+      });
+    }
+    const superseded = existing[index] as AcceptanceGate;
+    if (acItemToText(superseded) === acItemToText(validated)) {
+      return {
+        task: { id: taskId, acceptance: existing },
+        req: reqId,
+        index,
+        superseded,
+        changed: false,
+      };
+    }
+    const updated: AcceptanceItem[] = existing.map((item, i) => (i === index ? validated : item));
+    // Same guard as `cleo update --acceptance`: a locked stage needs a reason.
+    const authorization = enforceAcceptanceImmutability({
+      task,
+      newAcceptance: updated,
+      reason: options.reason,
+      projectRoot,
+    });
+    const now = new Date().toISOString();
+    await tx.updateTaskFields(taskId, { acceptanceJson: JSON.stringify(updated), updatedAt: now });
+    const rows = await tx.getAcRows(taskId);
+    await applyAcPlan(tx, taskId, replaceAcRowPlan(taskId, rows, index, validated));
+    const lastResult = task.verification?.gateResults?.find((r) => r.index === index);
+    await tx.appendLog({
+      timestamp: now,
+      action: 'req_replaced',
+      taskId,
+      actor: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+      details: {
+        req: reqId,
+        index,
+        ...(options.reason?.trim() ? { reason: options.reason.trim() } : {}),
+        ...(authorization ? { acceptanceOverride: { ...authorization, status: 'committed' } } : {}),
+      },
+      before: { gate: superseded, ...(lastResult ? { lastResult } : {}) },
+      after: { gate: validated },
+    });
+    return {
+      task: { id: taskId, acceptance: updated },
+      req: reqId,
+      index,
+      superseded,
+      changed: true,
+    };
   });
 }
 

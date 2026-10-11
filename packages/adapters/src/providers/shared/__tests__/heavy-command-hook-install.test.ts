@@ -46,6 +46,8 @@ import { CodexInstallProvider } from '../../codex/install.js';
 import { CursorInstallProvider } from '../../cursor/install.js';
 import { OpenCodeInstallProvider } from '../../opencode/install.js';
 import {
+  ASK_ENFORCE_HOOK_ID,
+  askEnforceHookObject,
   clearOlderCleoMarkers,
   excludeLocalSettingsFromGit,
   HEAVY_COMMAND_HOOK_TIMEOUT_SEC,
@@ -57,6 +59,7 @@ import {
   OLDER_CLEO_HOOK_ANSWER,
   OLDER_CLEO_MARKER_PREFIX,
   OPENCODE_HEAVY_COMMAND_PLUGIN,
+  syncJsonAskEnforceHook,
   syncJsonHeavyCommandHook,
   syncOpencodeHeavyCommandPlugin,
 } from '../heavy-command-hook-install.js';
@@ -324,6 +327,43 @@ describe.each(SHELLS)('heavyCommandHookCommand under %s', (shell) => {
     expect(heavyCommandHookCommand('codex')).toMatch(
       /^\/bin\/sh -c 'command -v cleo .*' # cleo-hook$/,
     );
+  });
+});
+
+describe('syncJsonAskEnforceHook (T13420)', () => {
+  const read = (p: string) => JSON.parse(readFileSync(p, 'utf-8'));
+
+  it('adds one Stop entry beside the heavy-command hook, then is idempotent', async () => {
+    const path = join(dir, 'project', '.claude', 'settings.local.json');
+    await syncJsonHeavyCommandHook(path, 'claude-code', 'rewrite');
+    expect(await syncJsonAskEnforceHook(path, 'claude-code', true)).toBe('installed');
+    expect(read(path).hooks).toEqual({
+      PreToolUse: [heavyCommandHookEntry('claude-code')],
+      Stop: [{ hooks: [askEnforceHookObject('claude-code')] }],
+    });
+    expect(await syncJsonAskEnforceHook(path, 'claude-code', true)).toBe('unchanged');
+  });
+
+  it('keeps user Stop hooks, refreshes a stale CLEO one, and removes only its own', async () => {
+    const path = join(dir, 'hooks.json');
+    const user = { hooks: [{ type: 'command', command: './notify.sh' }] };
+    const stale = { hooks: [{ type: 'command', command: `${ASK_ENFORCE_HOOK_ID} # cleo-hook` }] };
+    writeFileSync(path, JSON.stringify({ hooks: { Stop: [user, stale] } }));
+    expect(await syncJsonAskEnforceHook(path, 'codex', true)).toBe('updated');
+    expect(read(path).hooks.Stop).toEqual([user, { hooks: [askEnforceHookObject('codex')] }]);
+    expect(await syncJsonAskEnforceHook(path, 'codex', false)).toBe('removed');
+    expect(read(path).hooks.Stop).toEqual([user]);
+    expect(await syncJsonAskEnforceHook(join(dir, 'missing.json'), 'codex', false)).toBe(
+      'unchanged',
+    );
+  });
+
+  it('runs a fail-open script: exits 0 and prints only a JSON answer', () => {
+    const claude = String(askEnforceHookObject('claude-code').command);
+    expect(claude).toContain('command -v cleo >/dev/null 2>&1 || exit 0');
+    expect(claude).toContain(`${ASK_ENFORCE_HOOK_ID} --provider claude-code 2>/dev/null`);
+    expect(claude.endsWith('exit 0 # cleo-hook')).toBe(true);
+    expect(String(askEnforceHookObject('codex').command)).toMatch(/^\/bin\/sh -c '/);
   });
 });
 

@@ -82,7 +82,7 @@ import {
   resolveConsolidatedJournalSiblings,
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
-import { openUnlessRestoring } from './restore-marker.js';
+import { awaitStoreWritable, openUnlessRestoring } from './restore-marker.js';
 import {
   healRowIdentitySchema,
   missingRowIdentitySchema,
@@ -303,6 +303,8 @@ async function assertNoExodusRefusal(db: NodeSQLiteDatabase<any>): Promise<void>
  * never refuses another. Once the scope's anchor table has rows (the migration
  * or a reconcile ran, in this process or another) the guard lifts and writes
  * proceed. The temp triggers remain the backstop for every other write path.
+ * It first waits out another process's genesis or restore marker
+ * ({@link awaitStoreWritable}, T12343).
  *
  * @param nativeDb - The connection about to be written.
  * @throws {ExodusAbortWriteUnsafeError} When that store still owes its migration.
@@ -314,6 +316,10 @@ async function assertNoExodusRefusal(db: NodeSQLiteDatabase<any>): Promise<void>
  * @task T13167
  */
 export async function assertExodusWriteSafe(nativeDb: DatabaseSync): Promise<void> {
+  // T12343: a sync genesis cut (or a restore) in another process holds the
+  // store; wait for it, or refuse with its remedy, instead of failing with
+  // SQLITE_BUSY mid-write.
+  await awaitStoreWritable(nativeDb.location());
   const { activeExodusWriteGuard } = await import('./exodus/write-guard.js');
   const guard = activeExodusWriteGuard(nativeDb);
   if (guard !== undefined) {
@@ -769,10 +775,10 @@ export function assertHandleForeignKeys(nativeDb: DatabaseSync): void {
  * The cold-open schema pass of a consolidated store, under the cold-open
  * lease (journal spec §2.3a, §3.5 Rule 4; T12796, T12809, T12819):
  *
- * 1. **Step 0 (project):** `cleo_trigger_suspend` exists and is empty, BEFORE
- *    migrations. The owned guard and side-effect triggers read it, so a store
- *    without it cannot write tasks, sessions or acceptance criteria, and any
- *    `ALTER … RENAME` fails.
+ * 1. **Step 0 (both scopes):** `cleo_trigger_suspend` exists and is empty,
+ *    BEFORE migrations. The owned guard and side-effect triggers (project) and
+ *    every capture trigger (both scopes) read it, so a store without it cannot
+ *    write a captured table, and any `ALTER … RENAME` fails (T13398).
  * 2. `reconcileJournal` and every pending migration, one bracket per file,
  *    with the journal drizzle's `migrateSync` would write
  *    ({@link migrateBracketed}).
@@ -795,16 +801,15 @@ async function migrateScopeSchema(
   // S2 ruling (c): before any write, refuse a store that requires a newer
   // writer (sync capture on under a newer build).
   assertWriterVersion(nativeDb);
-  if (scope === 'project') {
-    const step0 = ensureTriggerSuspendTable(nativeDb);
-    if (step0.created)
-      log.warn({ scope }, 'cleo_trigger_suspend was missing; recreated before migrations (T12819)');
-    if (step0.cleared > 0) {
-      log.error(
-        { scope, rows: step0.cleared },
-        'cleo_trigger_suspend held committed suspension rows; cleared (T12819)',
-      );
-    }
+  // Both scopes (T13398): global capture triggers read the table too.
+  const step0 = ensureTriggerSuspendTable(nativeDb);
+  if (step0.created && scope === 'project')
+    log.warn({ scope }, 'cleo_trigger_suspend was missing; recreated before migrations (T12819)');
+  if (step0.cleared > 0) {
+    log.error(
+      { scope, rows: step0.cleared },
+      'cleo_trigger_suspend held committed suspension rows; cleared (T12819)',
+    );
   }
   execution?.assertActive();
   migrateBracketed(

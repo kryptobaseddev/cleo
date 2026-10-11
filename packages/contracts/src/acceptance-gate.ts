@@ -66,6 +66,14 @@ export interface AcceptanceGateRunOptions
    * its cache key. Required, with a one-gate batch, whenever `cache` is not `off`.
    */
   cacheInputsHash?: string;
+  /**
+   * The task's stored typed results before this run (T13525). With
+   * `cache: 'only'`, a gate with no cache entry reuses its stored pass when
+   * that pass is bound to the same criterion, gate definition, invocation and
+   * input bytes — the same proof a cache entry gives — instead of becoming an
+   * `error` that would wipe it.
+   */
+  priorResults?: readonly AcceptanceGateResult[];
 }
 
 // ─── Base ────────────────────────────────────────────────────────────────────
@@ -124,7 +132,8 @@ export interface TestGate extends GateBase {
   /** Arguments split explicitly (avoids shell-injection). */
   args?: string[];
   /**
-   * - `"pass"`: exit code 0 AND stdout contains no `FAIL|failing|Error:` pattern.
+   * - `"pass"`: exit code 0 AND stdout contains no `FAIL|failing|Error:` pattern, ignoring
+   *   summaries that report zero failures (`ℹ fail 0`, `# fail 0`, `0 failed`; T13511).
    * - `"exit0"`: exit code 0 only (permissive mode).
    */
   expect: 'pass' | 'exit0';

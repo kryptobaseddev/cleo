@@ -55,7 +55,7 @@ import type {
 import { confidenceLabelFromNumeric } from '@cleocode/contracts/graph.js';
 import { type ParseError, parseTree, printParseErrorCode } from 'jsonc-parser';
 import type Parser from 'tree-sitter';
-import { parseOriginalSource } from '../code/parser.js';
+import { parseOriginalSourceWithRecovery } from '../code/parser.js';
 import { extractGo } from './extractors/go-extractor.js';
 import { extractPython } from './extractors/python-extractor.js';
 import { extractRust } from './extractors/rust-extractor.js';
@@ -233,6 +233,11 @@ export interface CommonExtractionResult {
   reExports?: ExtractedReExport[];
   /** Optional property access evidence. */
   accesses?: ExtractedAccess[];
+  /**
+   * Limitations of how the file was parsed, recorded on its report — for
+   * example a `typeof import("…")` query masked around a grammar defect (T13379).
+   */
+  parseLimitations?: string[];
 }
 
 /**
@@ -325,14 +330,17 @@ export function extractOriginalSource(
   if (!language || !grammarKey) throw new Error('Unsupported source language');
   if (!parser || !grammar) throw new Error(`Parser or grammar unavailable: ${grammarKey}`);
   parser.setLanguage(grammar);
-  const tree = parseOriginalSource(parser, source, limits);
-  return runExtractor(
-    language,
-    tree.rootNode,
-    filePath,
-    createHash('sha256').update(source).digest('hex'),
-    publicationGeneration,
-  );
+  const { tree, limitations } = parseOriginalSourceWithRecovery(parser, source, limits);
+  return {
+    ...runExtractor(
+      language,
+      tree.rootNode,
+      filePath,
+      createHash('sha256').update(source).digest('hex'),
+      publicationGeneration,
+    ),
+    parseLimitations: limitations,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -525,6 +533,26 @@ const EXECUTABLE_LANGUAGES = new Set([
   'shell',
   'cobol',
 ]);
+/** Executable source extensions without a language detector entry. */
+const EXECUTABLE_EXTENSIONS = new Set([
+  '.svelte',
+  '.mdx',
+  '.lua',
+  '.pl',
+  '.r',
+  '.ps1',
+  '.bat',
+  '.cmd',
+]);
+
+/** Whether a path names executable source by its language, extension or filename. */
+function isExecutablePath(path: string): boolean {
+  return (
+    EXECUTABLE_LANGUAGES.has(detectLanguageFromPath(path) ?? '') ||
+    EXECUTABLE_EXTENSIONS.has(extname(path).toLowerCase()) ||
+    /^(?:Makefile|Dockerfile)$/.test(basename(path))
+  );
+}
 
 /** Build a role observation from independently stated requested capabilities. */
 function roleCoverage(
@@ -551,6 +579,45 @@ function roleCoverage(
         : role === 'executable' || role === 'unknown'
           ? ['Static extraction cannot establish complete runtime-call discovery.']
           : [],
+  };
+}
+
+/** Limitation recorded on a file too large to read (T13380). */
+export const OVERSIZED_FILE_LIMITATION =
+  'Exceeds the 512 KB scan limit and was not read; none of its capabilities were assessed.';
+
+/**
+ * Capability provenance for a file the walker refused to read as oversized (T13380).
+ *
+ * Without it the report carried no `capabilities`, and knowledge coverage
+ * counted every such file of a fresh index as a "legacy report lacking role
+ * and capability provenance" — 189 on a 5 357-file repository. The role comes
+ * from the path alone, because the bytes were never read; nothing is completed.
+ *
+ * @param path - Repository-relative path of the oversized file.
+ * @returns Path-based role, the capabilities that role requests, none completed.
+ * @example
+ * ```ts
+ * const coverage = oversizedFileCoverage('src/generated/schema.ts');
+ * ```
+ */
+export function oversizedFileCoverage(path: string): GraphFileCapabilityCoverage {
+  const extension = extname(path).toLowerCase();
+  const coverage = isExecutablePath(path)
+    ? roleCoverage('executable', {
+        basis: 'path',
+        reason: `Recognized executable language or filename: ${path}; content not read`,
+      })
+    : extension === '.sql'
+      ? roleCoverage('sql', { basis: 'path', reason: 'SQL source extension; content not read' })
+      : roleCoverage('unknown', {
+          basis: 'unknown',
+          reason: 'Oversized file was not read, so its role is unobserved',
+        });
+  return {
+    ...coverage,
+    completed: [],
+    limitations: [OVERSIZED_FILE_LIMITATION, ...coverage.limitations],
   };
 }
 
@@ -662,7 +729,6 @@ async function classifyFileCapabilities(
 ): Promise<GraphIndexFileReport> {
   const path = file.path;
   const extension = extname(path).toLowerCase();
-  const language = detectLanguageFromPath(path);
   const bytes = await fs.readFile(path.startsWith('/') ? path : `${repoPath}/${path}`, { signal });
   if (file.contentHash && createHash('sha256').update(bytes).digest('hex') !== file.contentHash)
     throw new Error('Source changed between scanning and capability classification');
@@ -702,11 +768,7 @@ async function classifyFileCapabilities(
         reason: 'Observed executable shebang; an asset extension cannot override it',
       }),
     );
-  if (
-    EXECUTABLE_LANGUAGES.has(language ?? '') ||
-    ['.svelte', '.mdx', '.lua', '.pl', '.r', '.ps1', '.bat', '.cmd'].includes(extension) ||
-    /^(?:Makefile|Dockerfile)$/.test(basename(path))
-  )
+  if (isExecutablePath(path))
     return report(
       roleCoverage('executable', {
         basis: 'path',
@@ -898,6 +960,7 @@ function completeExtraction(result: CommonExtractionResult): Required<CommonExtr
     calls: result.calls,
     reExports: result.reExports ?? [],
     accesses: result.accesses ?? [],
+    parseLimitations: result.parseLimitations ?? [],
   };
 }
 
@@ -1198,9 +1261,12 @@ async function extractSequentially(
     }
 
     let rootNode: Parser.SyntaxNode;
+    let parseLimitations: string[];
     try {
       parser.setLanguage(grammar);
-      rootNode = parseOriginalSource(parser, source, options.parserLimits).rootNode;
+      const parsed = parseOriginalSourceWithRecovery(parser, source, options.parserLimits);
+      rootNode = parsed.tree.rootNode;
+      parseLimitations = parsed.limitations;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       fail(file.path, `parse: ${msg}`);
@@ -1219,7 +1285,7 @@ async function extractSequentially(
       );
       pass.extracted.set(file.path, {
         path: file.path,
-        extraction: completeExtraction(extracted),
+        extraction: completeExtraction({ ...extracted, parseLimitations }),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1279,7 +1345,10 @@ export async function runParseLoop(
   // Attach one capability contract to sequential and worker-returned reports.
   const callerReports = options.onFileReport;
   const classifications = new Map<string, GraphFileCapabilityCoverage>();
-  const emitReport = (report: GraphIndexFileReport): void => {
+  const emitReport = (
+    report: GraphIndexFileReport,
+    parseLimitations: readonly string[] = [],
+  ): void => {
     const coverage = classifications.get(report.path);
     if (!coverage) throw new Error(`Missing file capability classification: ${report.path}`);
     callerReports?.({
@@ -1291,7 +1360,7 @@ export async function runParseLoop(
           report.status === 'analyzed' && coverage.role === 'executable'
             ? [...coverage.requested]
             : [...coverage.completed],
-        limitations: [...coverage.limitations],
+        limitations: [...coverage.limitations, ...parseLimitations],
       },
     });
   };
@@ -1373,8 +1442,8 @@ export async function runParseLoop(
     }
     // Capture the cache entry before any later phase mutates these nodes.
     if (fresh) options.onFileExtracted?.(fresh);
-    emitReport({ path: file.path, status: 'analyzed' });
     const extracted = fileExtraction.extraction;
+    emitReport({ path: file.path, status: 'analyzed' }, extracted.parseLimitations);
     registerInSymbolTable(extracted.definitions, symbolTable);
     for (const node of extracted.definitions) graph.addNode(node);
     emitDefinesEdges(file.path, extracted.definitions, graph);

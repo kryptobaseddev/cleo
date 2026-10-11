@@ -1,4 +1,5 @@
 #!/bin/sh
+# CLEO_MANAGED_HOOK v1
 # Pre-commit guardrails:
 #   1. Reject SQLite WAL/SHM files (data corruption risk).
 #   2. Block commits when core CLEO files are gitignored (data integrity).

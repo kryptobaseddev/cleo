@@ -48,6 +48,7 @@ import {
   footprintForTool,
 } from '../resources/admission-ledger.js';
 import type { ResourceSample } from '../resources/backend.js';
+import { renewInvokingSessionClaims } from '../resources/claim-keepalive.js';
 import { memoryGateReporter } from '../resources/pressure-gate.js';
 import type { CanonicalTool } from './tool-resolver.js';
 
@@ -279,6 +280,8 @@ export async function acquireGlobalSlot(
           }),
       memoryPressure: memoryGateReporter(notice, `'${canonical}' run`),
       notice,
+      // T13492: a queued evidence run keeps its own session's claims alive.
+      keepAlive: () => renewInvokingSessionClaims(),
     },
   );
   if (!outcome.admitted) {

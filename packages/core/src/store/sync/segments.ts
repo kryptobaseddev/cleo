@@ -32,7 +32,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { deflateRawSync } from 'node:zlib';
 import type { TableScope } from '@cleocode/contracts';
 import type { TableDeltas, TxnDelta } from '@cleocode/contracts/cloud';
-import { LedgerActor, LedgerOp, type LedgerTxn } from '@cleocode/contracts/ledger';
+import { LedgerActor, LedgerOp, type LedgerTxn, LedgerTxnRetire } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import type { SegmentMetaFields } from '../../cloud/signing.js';
 import { ROW_IDENTITY_META_TABLE, ROW_IDENTITY_SYNCED_KEY } from '../row-identity.js';
@@ -59,6 +59,8 @@ export interface BuildSegmentOptions {
   /** The merge key's project, or null on a home stream. */
   readonly project: string | null;
   readonly sealer: SegmentSealer;
+  /** Signs each packed transaction for the stream (§2.8: `signTxn` of txn-signing.ts, with the device key). */
+  readonly signTxn: (stream: string, txn: LedgerTxn) => LedgerTxn;
   readonly nowIso: string;
   /** Stop packing once the canonical JSON passes this many bytes (one txn always goes in). */
   readonly maxPlaintextBytes?: number;
@@ -84,10 +86,18 @@ export const SEGMENT_PLAINTEXT_BUDGET = 512 * 1024;
 /** The server's cap on transactions per segment (`MAX_TXNS_PER_SEGMENT`). */
 const MAX_TXNS_PER_SEGMENT = 10_000;
 
-/** A sealed local transaction as the wire carries it (unsigned until O-2 signs it). */
+/** A sealed local transaction as the wire carries it, before {@link BuildSegmentOptions.signTxn} signs it. */
 function ledgerTxnOf(
   db: DatabaseSync,
-  row: { txn: string; hlc: string; scope: string; via: string; kind: string; actor: string | null },
+  row: {
+    txn: string;
+    hlc: string;
+    scope: string;
+    via: string;
+    kind: string;
+    actor: string | null;
+    retire_json: string | null;
+  },
   project: string | null,
 ): LedgerTxn {
   let actor: LedgerActor | null = null;
@@ -110,6 +120,10 @@ function ledgerTxnOf(
     kind: row.kind as LedgerTxn['kind'],
     actor,
     ops,
+    // A retire control transaction names the replica it retires (§2.6, T13278).
+    ...(row.kind === 'retire' && row.retire_json !== null
+      ? { retire: LedgerTxnRetire.parse(JSON.parse(row.retire_json)) }
+      : {}),
     sig: '',
   };
 }
@@ -210,7 +224,7 @@ export function buildSegment(db: DatabaseSync, o: BuildSegmentOptions): Persiste
     const partial = completeLegacyGroupsBeforePack(db, o.scope, o.nowIso);
     const rows = db
       .prepare(
-        `SELECT txn, hlc, scope, via, kind, actor FROM _sync_txn
+        `SELECT txn, hlc, scope, via, kind, actor, retire_json FROM _sync_txn
           WHERE state = 'sealed' AND replica = ? ORDER BY local_seq LIMIT ?`,
       )
       .all(o.replica, MAX_TXNS_PER_SEGMENT) as Array<{
@@ -220,13 +234,14 @@ export function buildSegment(db: DatabaseSync, o: BuildSegmentOptions): Persiste
       via: string;
       kind: string;
       actor: string | null;
+      retire_json: string | null;
     }>;
     const txns: LedgerTxn[] = [];
     let bytes = 0;
     for (const r of rows) {
       // Commit order is kept: nothing after a still-partial txn goes either.
       if (partial.has(r.txn)) break;
-      const t = ledgerTxnOf(db, r, o.project);
+      const t = o.signTxn(o.stream, ledgerTxnOf(db, r, o.project));
       const size = Buffer.byteLength(canonicalJson(t), 'utf8');
       if (txns.length > 0 && bytes + size > budget) break;
       txns.push(t);

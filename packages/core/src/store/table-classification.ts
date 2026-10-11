@@ -190,11 +190,55 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §2.8 Persist before push (T12343)',
     note: "segments this replica built for a stream, at their replicaSeq: the exact sealed bytes a push sends (never re-sealed) and whether the server stored them. This device's outbox only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
   },
+  _sync_uid_alias: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source:
+      'journal spec t12342-t12343-journal-design §2.6 K ops; t12341-uid-scheme §6.4 step 1 (T13397)',
+    note: "uid re-keys this replica applied, by (table, old uid, old birth fingerprint): a held collision loser's ops and its origin's earlier references follow them to the new uid. Derived from applied K ops, this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13397)",
+  },
+  _sync_uid_ref_alias: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source:
+      'journal spec t12342-t12343-journal-design §2.6 K ops; t12341-uid-scheme §6.4 step 1 (T13399)',
+    note: "one reference boundary per (table, old uid, writer): references to a re-keyed uid written by a replica that had placed the row, before that replica's K or announcement, follow it to the new uid. Derived from applied K ops, this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13399)",
+  },
+  _sync_authored: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 't12341-uid-scheme §6.4 / §9.2 origin rule (T13399)',
+    note: "minted rows this replica sealed an insert of, by (table, uid, birth fingerprint): the collision settle path's origin test, kept after the sealed ops are folded. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13399)",
+  },
   _sync_segment_txn: {
     class: 'local-only',
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §2.8 (T12343)',
     note: 'the transactions each persisted segment carries, in order. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_cursor: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343)',
+    note: "where this store's pull stands per stream: the PullCursor the journal client verifies the next page against, advanced in the transaction that stages what it covers. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
+  },
+  _sync_seen_txn: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343 S5-1)',
+    note: 'every transaction id staged from a stream, so a re-delivered transaction is never staged twice (a counter delta would double). This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_seen_floor: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T13318)',
+    note: 'per stream and origin replica: the highest local_seq staged, how far its seen-txn rows were pruned, and their row and byte counts. A txn at or below the floor with no seen row is refused. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13318)',
+  },
+  _sync_retired: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.5 Retirement, §3.5 D5 (T13278)',
+    note: "replicas a stream's retire transactions retired: successor, last replicaSeq, and the stream seq of the retire, so a late segment applies as history and the fold horizon and remint authority leave them out. Rebuilt from the stream by every receiver. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13278)",
   },
   _sync_row_meta: {
     class: 'local-only',
@@ -330,7 +374,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'sleep-cycle run history',
+    note: 'sleep-cycle run history. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_decisions: {
     class: 'portable-project',
@@ -385,13 +429,13 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then',
+    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then. T12896: the surprisal pass deletes and rebuilds every row each cycle, so synced-vs-derived is decided before it gets a uid (still exempt)',
   },
   brain_modulators: {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs',
+    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_observations: {
     class: 'portable-personal',
@@ -449,7 +493,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
-    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels), integer refs travel as uids",
   },
   brain_promotion_log: {
     class: 'portable-personal',
@@ -468,7 +512,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge',
+    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge. Identity (T12896): minted uid, INTEGER id local (never travels); not append-only, the reward pass labels reward_signal later',
   },
   brain_schema_meta: {
     class: 'local-only',
@@ -494,7 +538,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'named in the ruling; INTEGER autoincrement PK needs a uid before merge',
+    note: 'named in the ruling; INTEGER autoincrement PK needs a uid before merge. T12896: still exempt; not in the consolidated schema (the drizzle-brain reconcile creates it), so it joins that schema first, then is declared natural on (observation_id, task uid)',
   },
   brain_transcript_events: {
     class: 'portable-personal',
@@ -506,7 +550,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm',
+    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_v2_candidate: {
     class: 'portable-personal',
@@ -518,7 +562,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
-    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels), integer refs travel as uids",
   },
   cleo_trigger_suspend: {
     class: 'local-only',
@@ -1346,6 +1390,13 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   __drizzle_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_meta: { class: 'local-only', status: 'draft', source: 'draft §3' },
   _agent_registry_migrations: { class: 'local-only', status: 'draft', source: 'draft §3' },
+  cleo_trigger_suspend: {
+    class: 'local-only',
+    status: 'resolved',
+    source:
+      'journal spec t12342-t12343-journal-design §3.5 Rule 4, C2 (T12819); global scope T13398',
+    note: 'trigger-suspension flag rows, present only inside a suspension frame transaction on this device; read by every global capture trigger; schema-owned and never dropped',
+  },
   _sync_capture: {
     class: 'local-only',
     status: 'optional-transient',
@@ -1424,11 +1475,55 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'journal spec t12342-t12343-journal-design §2.8 Persist before push (T12343)',
     note: "segments this replica built for a stream, at their replicaSeq: the exact sealed bytes a push sends (never re-sealed) and whether the server stored them. This device's outbox only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
   },
+  _sync_uid_alias: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source:
+      'journal spec t12342-t12343-journal-design §2.6 K ops; t12341-uid-scheme §6.4 step 1 (T13397)',
+    note: "uid re-keys this replica applied, by (table, old uid, old birth fingerprint): a held collision loser's ops and its origin's earlier references follow them to the new uid. Derived from applied K ops, this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13397)",
+  },
+  _sync_uid_ref_alias: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source:
+      'journal spec t12342-t12343-journal-design §2.6 K ops; t12341-uid-scheme §6.4 step 1 (T13399)',
+    note: "one reference boundary per (table, old uid, writer): references to a re-keyed uid written by a replica that had placed the row, before that replica's K or announcement, follow it to the new uid. Derived from applied K ops, this device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13399)",
+  },
+  _sync_authored: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 't12341-uid-scheme §6.4 / §9.2 origin rule (T13399)',
+    note: "minted rows this replica sealed an insert of, by (table, uid, birth fingerprint): the collision settle path's origin test, kept after the sealed ops are folded. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13399)",
+  },
   _sync_segment_txn: {
     class: 'local-only',
     status: 'optional-transient',
     source: 'journal spec t12342-t12343-journal-design §2.8 (T12343)',
     note: 'the transactions each persisted segment carries, in order. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_cursor: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343)',
+    note: "where this store's pull stands per stream: the PullCursor the journal client verifies the next page against, advanced in the transaction that stages what it covers. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)",
+  },
+  _sync_seen_txn: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T12343 S5-1)',
+    note: 'every transaction id staged from a stream, so a re-delivered transaction is never staged twice (a counter delta would double). This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T12343)',
+  },
+  _sync_seen_floor: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §3.1 Receive (T13318)',
+    note: 'per stream and origin replica: the highest local_seq staged, how far its seen-txn rows were pruned, and their row and byte counts. A txn at or below the floor with no seen row is refused. This device only. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13318)',
+  },
+  _sync_retired: {
+    class: 'local-only',
+    status: 'optional-transient',
+    source: 'journal spec t12342-t12343-journal-design §1.5 Retirement, §3.5 D5 (T13278)',
+    note: "replicas a stream's retire transactions retired: successor, last replicaSeq, and the stream seq of the retire, so a late segment applies as history and the fold horizon and remint authority leave them out. Rebuilt from the stream by every receiver. Created lazily by store/sync/schema.ts when a sync.* flag is first enabled (T13278)",
   },
   _sync_row_meta: {
     class: 'local-only',
@@ -1640,7 +1735,7 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'sleep-cycle run history',
+    note: 'sleep-cycle run history. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_decisions: {
     class: 'portable-personal',
@@ -1685,13 +1780,13 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then',
+    note: 'surprisal clustering output, so not derived under the ruling. Its id is an INTEGER autoincrement, so rows need a uid before they can merge; brain_observations.tree_id keeps its strip override until then. T12896: the surprisal pass deletes and rebuilds every row each cycle, so synced-vs-derived is decided before it gets a uid (still exempt)',
   },
   brain_modulators: {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs',
+    note: 'cleo-dev ruling (final, 2026-09-28): learned modulator state syncs. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_observations: {
     class: 'portable-personal',
@@ -1739,7 +1834,7 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
-    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels), integer refs travel as uids",
   },
   brain_promotion_log: {
     class: 'portable-personal',
@@ -1751,7 +1846,7 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge',
+    note: '"all brain_*" per the ruling, but it is retrieval telemetry (2,030 rows); confirm it carries knowledge. Identity (T12896): minted uid, INTEGER id local (never travels); not append-only, the reward pass labels reward_signal later',
   },
   brain_schema_meta: {
     class: 'local-only',
@@ -1783,13 +1878,13 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm',
+    note: '"all brain_*" per the ruling, but it is feedback telemetry (10,152 rows) that drives quality scores; confirm. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels)',
   },
   brain_weight_history: {
     class: 'portable-personal',
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-29 (journal spec review, Q11)',
-    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15",
+    note: "supersedes the 2026-09-28 local-only ruling under the owner's direction that the cloud backs up everything: STDP event history is learned state a new device would otherwise lose. Append-only with 14M+ lifetime inserts, so it sets the journal's op-rate ceiling; retention is journal spec Q15. Identity (T12896): minted append-only uid over frozen content, INTEGER id local (never travels), integer refs travel as uids",
   },
   models_catalog: {
     class: 'local-only',

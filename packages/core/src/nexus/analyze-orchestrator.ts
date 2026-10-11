@@ -485,6 +485,8 @@ export interface NexusAnalysisParams {
   incremental?: boolean;
   /** Explicit relative paths of nested repositories authorized for source inclusion. */
   includedRepositories?: readonly string[];
+  /** Refuse a run that would be a full rebuild (T13523: inline refresh from a read query). */
+  requireIncremental?: boolean;
   /**
    * Drop included repositories (explicit or carried over) that are missing on
    * disk instead of refusing. Off by default: a missing inclusion refuses and
@@ -727,6 +729,7 @@ async function runScopedNexusAnalysis(
     parserLimits: { ...params.parserLimits, signal },
     incremental: useIncremental,
     ...(fullReason ? { fullReason } : {}),
+    ...(params.requireIncremental ? { requireIncremental: true } : {}),
     loadParseCache: () => readNexusParseCache(db),
     publishedFingerprint: publishedExtractorFingerprint(db),
     assessedRevision,

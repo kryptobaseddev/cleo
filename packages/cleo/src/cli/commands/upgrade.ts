@@ -269,6 +269,8 @@ export const upgradeCommand = defineCommand({
           errors: result.errors.length > 0 ? result.errors : undefined,
           summary: result.summary,
           storageMigration: result.storageMigration,
+          // T13409: every changed project file with the backup of its previous bytes.
+          fileChanges: result.fileChanges,
         },
         { command: 'upgrade' },
       );

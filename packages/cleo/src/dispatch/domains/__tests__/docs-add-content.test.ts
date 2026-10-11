@@ -287,7 +287,7 @@ describe('docs.add --content inline authoring (T10965)', () => {
     const fetched = await query;
     expect(fetched.success).toBe(true);
     const data = fetched.data as DocsFetchResult;
-    expect(Buffer.from(data.bytesBase64!, 'base64').toString('utf8')).toBe('Updated A π\n');
+    expect(data.content).toBe('Updated A π\n');
     await expect(access(other)).rejects.toThrow();
   });
 });
