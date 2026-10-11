@@ -1623,6 +1623,8 @@ async function enableSyncPushImpl(
       let cut = 0;
       // Assigned inside the callback: typed so the checks below are not narrowed to null.
       let merged = null as ReconcileCopyReport | null;
+      // `warnings` copied conn.warnings at the start; the scratch pull adds more (T13551).
+      const connWarned = conn.warnings.length;
       await withMergedScratch({ conn, key, t }, async (scratch, mergedCursor, baseline) => {
         // A stream row whose key this store's own row holds cannot be
         // settled yet (T13504): refuse before anything changes.
@@ -1663,6 +1665,7 @@ async function enableSyncPushImpl(
           });
         }
       });
+      warnings.push(...conn.warnings.slice(connWarned));
       if (merged !== null && merged.overwritten.length > 0) {
         warnings.push({
           code: 'W_SYNC_MERGE_OVERWROTE',
@@ -2154,7 +2157,8 @@ async function withMergedScratch<T>(
       // The scratch replays the stream; it never seals or pushes. The store
       // it reconciles already has its sync flags, so the release gate holds.
       setSyncFlag(scratch, 'sync.pull', true, { allowUnreleased: true });
-      const serverRetirements = await serverRetirementsFor(conn, t.scope);
+      // Soft and project-aware like the live pull (T13551): a failed listing confirms none, never aborts.
+      const serverRetirements = await confirmableRetirements(conn, t.scope, t.projectId);
       const merged = await pullStream(scratch, {
         scope: tableScopeOf(t),
         stream: t.streamId,

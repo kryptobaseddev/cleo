@@ -386,6 +386,8 @@ class FakeNexus {
   beforeProjectPost: (() => void) | null = null;
   /** Every API request (method and path, reads included), in order (T13101). */
   calls: string[] = [];
+  /** `true` fails the replica listings (E15, E27) with a 503, as an unreachable server would (T13551). */
+  replicaListingsFail = false;
   /** projectId -> replicaId -> deviceId. */
   replicas = new Map<string, Map<string, string>>();
   streams = new Map<string, FakeStream>();
@@ -756,6 +758,13 @@ class FakeNexus {
     const route = `${method} ${p}`;
     let m: RegExpMatchArray | null;
 
+    if (
+      this.replicaListingsFail &&
+      (route === 'GET /v1/account/home/replicas' ||
+        /^GET \/v1\/projects\/[^/]+\/replicas$/.test(route))
+    ) {
+      throw new ApiFail(503, 'E_UNAVAILABLE');
+    }
     if (route === 'GET /v1/devices') {
       return this.ok({
         devices: [...this.devices.values()].map((d) => ({
@@ -5962,7 +5971,11 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     fake.replicas.get(REMOTE_PROJECT)?.set(c.replicaId, DEVICE_B);
     link(c);
     const before = fake.stream(STREAM).segments.length;
+    const e15 = `GET /v1/projects/${REMOTE_PROJECT}/replicas`;
+    const listedBefore = fake.calls.filter((x) => x === e15).length;
     const r = await sync(c);
+    // The reconcile scratch confirms retires through E15 like the live pull (T13551).
+    expect(fake.calls.filter((x) => x === e15).length - listedBefore).toBe(2);
     expect(r?.status, r?.refused ?? '').toBe('synced');
     // It adopted A's later write, and sent nothing: no change of its own, none re-sent.
     expect(
@@ -6337,6 +6350,22 @@ describe('the main brain stream through cloud sync (T13370)', () => {
   };
   const rowsOf = (m: Machine, sql: string) =>
     onM(m, async () => (await globalStore(m)).prepare(sql).all());
+
+  it('a merge join whose replica listing fails still reconciles and warns, never pausing push (T13551)', async () => {
+    const { b } = await twoBrains(
+      [obsAt('O-a0000001', 'A before the cut', 'a', '2026-10-10 08:00:00')],
+      [obsAt('O-b0000001', 'B on its own', 'b', '2026-10-10 08:00:00')],
+    );
+    fake.replicaListingsFail = true;
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    expect(joined.merged).toMatchObject({ adopted: 1, emitted: 1, unresolved: 0 });
+    const codes = joined.warnings.map((w) => w.code);
+    expect(codes).toContain('W_NEXUS_RETIREMENTS_UNAVAILABLE');
+    expect(codes).not.toContain('W_SYNC_MERGE_PENDING');
+  });
 
   it('B with its own main brain joins without a restore: both end with the union, same uids and hashes, and no local edit is lost silently (T13466, T13503)', async () => {
     const { a, b } = await twoBrains(
