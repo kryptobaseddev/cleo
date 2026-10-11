@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { constants, createReadStream } from 'node:fs';
 import { access, lstat, realpath, stat } from 'node:fs/promises';
 import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import type { ProjectHookDeliveryServices } from '@cleocode/contracts/project-hook-delivery.js';
 import {
   type HookActivation,
   type ProjectHookContext,
@@ -26,6 +27,11 @@ const LOCKFILES = ['pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock
 /** Read a hook definition or private record with a hard allocation bound, including racing growth. */
 export async function readProjectHookRecord(path: string, maxBytes: number): Promise<string> {
   return (await readFileText({ path, maxBytes })).content;
+}
+
+/** Supply canonical cold-path utilities through the provider delivery contracts port. */
+export function createProjectHookDeliveryServices(): ProjectHookDeliveryServices {
+  return { readTextFile: readProjectHookRecord, gitEnvironment: discoveryEnv() };
 }
 
 /** Resolve checkout and hook paths through Git without reading CLEO stores. */

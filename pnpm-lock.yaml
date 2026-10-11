@@ -119,9 +119,6 @@ importers:
       '@cleocode/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@cleocode/core':
-        specifier: workspace:*
-        version: link:../core
       '@cleocode/paths':
         specifier: workspace:*
         version: link:../paths
@@ -129,6 +126,9 @@ importers:
         specifier: ^6.0.168
         version: 6.0.168(zod@4.3.6)
     devDependencies:
+      '@cleocode/core':
+        specifier: workspace:*
+        version: link:../core
       '@cleocode/playbooks':
         specifier: workspace:*
         version: link:../playbooks

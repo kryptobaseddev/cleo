@@ -70,6 +70,7 @@ const syncSubcommand = defineCommand({
     );
     const providers = await syncProjectHookProviders({
       ...inspection.context,
+      services: state.createProjectHookDeliveryServices(),
       events: inspection.manifest.hooks.flatMap((hook) =>
         hook.bindings
           .filter((binding) => binding.source === 'agent')

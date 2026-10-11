@@ -14,7 +14,9 @@ export const doctorHooksCommand = defineCommand({
     providers: { type: 'string', description: 'Comma-separated harness IDs to inspect' },
   },
   async run({ args }) {
-    const { inspectProjectHooks } = await import('@cleocode/core/hooks/project-state');
+    const { inspectProjectHooks, createProjectHookDeliveryServices } = await import(
+      '@cleocode/core/hooks/project-state'
+    );
     const { readLastProjectHookExecution } = await import('@cleocode/core/hooks/project-runner');
     const inspection = await inspectProjectHooks(process.cwd());
     const { syncProjectHookProviders, hasUnsupportedProjectHookDelivery } = await import(
@@ -22,6 +24,7 @@ export const doctorHooksCommand = defineCommand({
     );
     const providers = await syncProjectHookProviders({
       ...inspection.context,
+      services: createProjectHookDeliveryServices(),
       enabled: inspection.activation === 'active',
       events: inspection.manifest.hooks.flatMap((hook) =>
         hook.bindings

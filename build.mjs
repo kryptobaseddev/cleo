@@ -970,7 +970,7 @@ async function build() {
   console.log('  -> packages/core/dist/build-provenance.json');
 
   // ---------------------------------------------------------------------------
-  // Wave 6: runtime + adapters (both dep core — independent of each other)
+  // Wave 6: runtime (dep core) + adapters (SDK utilities arrive through a contracts port)
   // ---------------------------------------------------------------------------
   console.log('\n[build] Wave 6: runtime + adapters (parallel)');
   await Promise.all([

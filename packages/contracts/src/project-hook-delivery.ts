@@ -74,8 +74,17 @@ export interface ProjectHookDeliveryResult {
   /** Per-entry attribution, deliberately excluding raw config command strings. */
   entries?: ProjectHookEntryInspection[];
 }
+/** SDK-owned utilities injected into provider delivery without a runtime SDK dependency. */
+export interface ProjectHookDeliveryServices {
+  /** Read bounded regular files through the canonical filesystem primitive. */
+  readTextFile(path: string, maxBytes: number): Promise<string>;
+  /** Git discovery environment with ambient repository overrides removed. */
+  gitEnvironment: Readonly<Record<string, string | undefined>>;
+}
 /** Explicit cold-path provider sync inputs. */
 export interface ProjectHookDeliveryOptions {
+  /** Canonical SDK utilities supplied by the caller through the contracts port. */
+  services: ProjectHookDeliveryServices;
   /** Checkout root validated by the core context resolver. */
   projectRoot: string;
   /** Per-checkout Git-private receipt directory. */

@@ -8,6 +8,7 @@ import {
   type ProjectHookDeliveryOptions,
   ProjectHookDeliveryReceiptSchema,
 } from '@cleocode/contracts/project-hook-delivery.js';
+import { createProjectHookDeliveryServices } from '@cleocode/core/hooks/project-state';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   hasUnsupportedProjectHookDelivery,
@@ -24,6 +25,7 @@ async function options(): Promise<ProjectHookDeliveryOptions> {
   execFileSync('git', ['init', '--quiet', root]);
   await mkdir(join(root, '.codex'));
   return {
+    services: createProjectHookDeliveryServices(),
     projectRoot: root,
     stateDir: join(root, '.git/cleo-project-hooks'),
     providers: ['codex'],
@@ -33,6 +35,21 @@ async function options(): Promise<ProjectHookDeliveryOptions> {
   };
 }
 describe('project hook delivery', () => {
+  it('discovers the checkout through injected SDK services despite ambient Git overrides', async () => {
+    const opts = await options();
+    vi.stubEnv('GIT_DIR', '/nonexistent/foreign-repository');
+    vi.stubEnv('GIT_WORK_TREE', '/nonexistent/foreign-checkout');
+    try {
+      const result = await syncProjectHookProviders({
+        ...opts,
+        services: createProjectHookDeliveryServices(),
+      });
+      expect(result[0]?.state).toBe('installed');
+      expect(process.env.GIT_DIR).toBe('/nonexistent/foreign-repository');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('does nothing while disabled and dry-run creates no config or receipt', async () => {
     const opts = await options();
     expect((await syncProjectHookProviders({ ...opts, enabled: false }))[0]?.state).toBe(
@@ -228,24 +245,22 @@ describe('project hook delivery', () => {
     await syncProjectHookProviders(openCode);
     const file = join(opts.projectRoot, '.opencode/plugins/cleo-project-hooks.js');
     const foreign = '// developer changed this plugin during inspection\n';
-    const tools = await import('@cleocode/core/tools/fs');
-    const originalRead = tools.readFileText;
+    const originalRead = opts.services.readTextFile;
     let changed = false;
-    const read = vi.spyOn(tools, 'readFileText').mockImplementation(async (input) => {
-      const result = await originalRead(input);
-      if (input.path === file && !changed) {
-        changed = true;
-        await writeFile(file, foreign);
-      }
-      return result;
-    });
-    try {
-      const result = (await syncProjectHookProviders({ ...openCode, rollback: true }))[0];
-      expect(result?.diagnostics).toContain('HOOK_CONFIG_CONCURRENT_EDIT');
-      expect(await readFile(file, 'utf8')).toBe(foreign);
-    } finally {
-      read.mockRestore();
-    }
+    const services = {
+      ...opts.services,
+      async readTextFile(path: string, maxBytes: number): Promise<string> {
+        const result = await originalRead(path, maxBytes);
+        if (path === file && !changed) {
+          changed = true;
+          await writeFile(file, foreign);
+        }
+        return result;
+      },
+    };
+    const result = (await syncProjectHookProviders({ ...openCode, services, rollback: true }))[0];
+    expect(result?.diagnostics).toContain('HOOK_CONFIG_CONCURRENT_EDIT');
+    expect(await readFile(file, 'utf8')).toBe(foreign);
   });
   it('refuses a corrupt receipt rather than resetting management authority', async () => {
     const opts = await options();

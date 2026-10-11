@@ -20,10 +20,9 @@ import {
   type ProjectHookDeliveryReceipt,
   ProjectHookDeliveryReceiptSchema,
   type ProjectHookDeliveryResult,
+  type ProjectHookDeliveryServices,
   type ProjectHookEntryInspection,
 } from '@cleocode/contracts/project-hook-delivery.js';
-import { discoveryEnv } from '@cleocode/core/git/work-tree';
-import { readFileText } from '@cleocode/core/tools/fs';
 import { excludeHookFileFromGit } from './providers/shared/heavy-command-hook-install.js';
 
 const MARKER = '# cleo-project-hook:v1';
@@ -107,13 +106,16 @@ function entry(cmd: string, timeout: number | null = 130): HookJsonValue {
   };
 }
 
-async function receiptAt(path: string): Promise<ProjectHookDeliveryReceipt | undefined> {
+async function receiptAt(
+  path: string,
+  services: ProjectHookDeliveryServices,
+): Promise<ProjectHookDeliveryReceipt | undefined> {
   try {
     const info = await lstat(path);
     if (!info.isFile() || info.isSymbolicLink() || info.size > 262144)
       throw new Error('HOOK_RECEIPT_UNSAFE');
     return ProjectHookDeliveryReceiptSchema.parse(
-      JSON.parse((await readFileText({ path, maxBytes: 262144 })).content),
+      JSON.parse(await services.readTextFile(path, 262144)),
     );
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
@@ -259,7 +261,7 @@ async function deliverProvider(
   const target = await localTarget(options.projectRoot, configPath);
   result.configPath = target;
   const receiptPath = join(options.stateDir, 'provider-' + provider + '.json');
-  const prior = await receiptAt(receiptPath);
+  const prior = await receiptAt(receiptPath, options.services);
   if (prior && (prior.provider !== provider || prior.configPath !== target))
     throw new Error('HOOK_RECEIPT_PATH_MISMATCH');
   if (prior) {
@@ -314,7 +316,7 @@ async function deliverProvider(
   const tracking = spawnSync(
     'git',
     ['-C', options.projectRoot, 'ls-files', '--error-unmatch', '--', capability.configPath],
-    { timeout: 2000, stdio: 'ignore', env: discoveryEnv() },
+    { timeout: 2000, stdio: 'ignore', env: options.services.gitEnvironment },
   );
   if (tracking.status === 0) {
     result.state = 'conflict';
@@ -341,7 +343,7 @@ async function deliverProvider(
     }
     const body = pluginSource(options.events);
     const existing = existsSync(target)
-      ? (await readFileText({ path: target, maxBytes: 262144 })).content
+      ? await options.services.readTextFile(target, 262144)
       : undefined;
     if (existing !== undefined && (!prior || prior.entries[0]?.hash !== hash(existing))) {
       result.state = 'conflict';
@@ -353,7 +355,7 @@ async function deliverProvider(
         await withFileLock(target, async () => {
           await localTarget(options.projectRoot, configPath);
           const current = existsSync(target)
-            ? (await readFileText({ path: target, maxBytes: 262144 })).content
+            ? await options.services.readTextFile(target, 262144)
             : undefined;
           if (current !== existing) throw new Error('HOOK_CONFIG_CONCURRENT_EDIT');
           await unlink(target);
@@ -368,7 +370,7 @@ async function deliverProvider(
       await withFileLock(target, async () => {
         await localTarget(options.projectRoot, configPath);
         const current = existsSync(target)
-          ? (await readFileText({ path: target, maxBytes: 262144 })).content
+          ? await options.services.readTextFile(target, 262144)
           : undefined;
         if (current !== existing) throw new Error('HOOK_CONFIG_CONCURRENT_EDIT');
         await writeFileAtomic({ path: target, content: body });
@@ -411,7 +413,7 @@ async function deliverProvider(
     result.provenance = 'cleo-receipt';
     result.entries = inspectEntries(
       await readManagedJsonConfigFile(target),
-      await receiptAt(receiptPath),
+      await receiptAt(receiptPath, options.services),
     );
   }
   return result;
@@ -450,7 +452,7 @@ async function validateStateDirectory(options: ProjectHookDeliveryOptions): Prom
         timeout: 2000,
         maxBuffer: 16384,
         stdio: ['ignore', 'pipe', 'ignore'],
-        env: discoveryEnv(),
+        env: options.services.gitEnvironment,
       },
     ).trim(),
   );

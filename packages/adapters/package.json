@@ -33,7 +33,6 @@
     "@ai-sdk/openai": "^2.0.53",
     "@cleocode/caamp": "workspace:*",
     "@cleocode/contracts": "workspace:*",
-    "@cleocode/core": "workspace:*",
     "@cleocode/paths": "workspace:*",
     "ai": "^6.0.168"
   },
@@ -46,6 +45,7 @@
     "src"
   ],
   "devDependencies": {
+    "@cleocode/core": "workspace:*",
     "@cleocode/playbooks": "workspace:*",
     "@types/node": "^24.3.0",
     "vitest": "^4.1.4"
