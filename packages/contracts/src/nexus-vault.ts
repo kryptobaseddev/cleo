@@ -218,9 +218,11 @@ export interface CloudSyncPushEnableResult {
   streamId: string;
   /**
    * `enabled`: the cut was recorded and its genesis checkpoint stored; `resumed`: a cut recorded
-   * by an earlier run whose checkpoint push failed was pushed now; `already`: push was already on.
+   * by an earlier run whose checkpoint push failed was pushed now; `already`: push was already on;
+   * `joined`: this store holds the stream's journal checkpoint another device cut, and now pushes its
+   * own writes and pulls the stream's after it, with no genesis of its own (T13312).
    */
-  status: 'enabled' | 'resumed' | 'already';
+  status: 'enabled' | 'resumed' | 'already' | 'joined';
   /** The genesis cut: the highest capture seq the checkpoint carries. */
   cut: number;
   /** Transactions sealed before the cut, folded into the checkpoint, and rows given genesis row meta. */
@@ -233,6 +235,49 @@ export interface CloudSyncPushEnableResult {
   deltaSegmentSeq: number | null;
   /** The replicaSeq this replica's first journal segment follows (null: it starts at 0). */
   replicaSeqFloor: number | null;
+  warnings: CloudWarning[];
+}
+
+/** One stream of `cleo cloud sync` (T12996). */
+export interface CloudSyncStreamResult {
+  scope: CloudVaultScope;
+  streamId: string | null;
+  /**
+   * `synced`: pushed and pulled what was enabled; `disabled`: neither `sync.push` nor `sync.pull` is on;
+   * `paused`: push paused for a device clock ahead of the server's; `not-attached`: this machine has no
+   * store on that stream; `refused`: a precondition or the server refused (see `refused`); `failed`: an
+   * error stopped this stream (see `refused`); the other streams still synced.
+   */
+  status: 'synced' | 'disabled' | 'paused' | 'not-attached' | 'refused' | 'failed';
+  /** Why this stream did not sync fully, or null. */
+  refused: string | null;
+  /**
+   * Legs with nothing to do, not failures: a flag off, or push before this store has its own genesis
+   * (a store that only pulls).
+   */
+  skipped: string[];
+  /** Transactions sealed, segments persisted, segments the server stored (`duplicates` of them retries). */
+  sealed: number;
+  built: number;
+  sent: number;
+  duplicates: number;
+  /** Segments received, transactions staged, re-deliveries skipped. */
+  received: number;
+  staged: number;
+  redelivered: number;
+  /** Transactions applied; still held (pending, clock skew, or a newer schema); in conflict. */
+  applied: number;
+  held: number;
+  conflicts: number;
+  /** The stream position this store has staged up to, and the server's head (null when not pulled). */
+  after: number | null;
+  head: number | null;
+}
+
+/** `cleo cloud sync` (T12996): seal, push, pull and apply each attached stream. */
+export interface CloudSyncResult {
+  apiUrl: string;
+  streams: CloudSyncStreamResult[];
   warnings: CloudWarning[];
 }
 

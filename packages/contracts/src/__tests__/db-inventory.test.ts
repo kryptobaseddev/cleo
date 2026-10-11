@@ -181,4 +181,28 @@ describe('CLEO database inventory (T10305 SSoT)', () => {
       }
     }
   });
+
+  it('names no pre-consolidation file as a live store (T13245)', () => {
+    // tasks, brain and conduit live in the consolidated project cleo.db.
+    for (const role of ['tasks', 'brain', 'conduit']) {
+      const entry = DB_INVENTORY.find((e) => e.role === role);
+      expect(entry?.filePathTemplate, role).toBe('<projectRoot>/.cleo/cleo.db');
+      expect(entry?.legacyFilePathTemplate, role).toBe(`<projectRoot>/.cleo/${role}.db`);
+      expect(entry?.migrationsDir, role).toBe('packages/core/migrations/drizzle-cleo-project/');
+    }
+    // No role's live path is another role's legacy file.
+    const legacy = new Set(
+      DB_INVENTORY.map((e) => e.legacyFilePathTemplate).filter((t): t is string => t !== undefined),
+    );
+    for (const entry of DB_INVENTORY) {
+      expect(legacy.has(entry.filePathTemplate), `${entry.role} names a legacy file as live`).toBe(
+        false,
+      );
+      if (entry.legacyFilePathTemplate !== undefined) {
+        expect(entry.legacyFilePathTemplate.startsWith('<projectRoot>/')).toBe(
+          entry.tier === 'project',
+        );
+      }
+    }
+  });
 });

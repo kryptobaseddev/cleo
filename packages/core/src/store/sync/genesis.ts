@@ -36,12 +36,13 @@ import {
   rowIdentityRecipeCurrent,
   UID_COLUMN,
 } from '../row-identity.js';
-import { captureTriggerDrift, syncSetTables } from './capture.js';
-import { isSyncFlagOn, setSyncFlag } from './flags.js';
-import { baselineRowMeta } from './repair.js';
+import { captureTriggerDrift, setCaptureEnabled, syncSetTables } from './capture.js';
+import { isSyncFlagOn, readSyncFlags, setSyncFlag } from './flags.js';
+import { type StreamCursor, writeStreamCursor } from './pull.js';
+import { baselineRowMeta, planRepair } from './repair.js';
 import { activeReplica, persistStoreSeq } from './replica.js';
 import { hasTable } from './schema.js';
-import { sealPending, sealPreconditions } from './sealer.js';
+import { sealerRowView, sealPending, sealPreconditions } from './sealer.js';
 import { capturePosition } from './sequencing.js';
 import { hasTriggerSuspendTable, verifyOwnedTriggers } from './trigger-classes.js';
 import { raiseMinWriterVersion } from './writer-version.js';
@@ -587,5 +588,127 @@ export async function readGenesisCut(dbPath: string, stream: string): Promise<nu
     return genesisCutOf(db, stream);
   } finally {
     db.close();
+  }
+}
+
+/** What {@link joinStream} did. */
+export interface JoinStreamReport {
+  readonly stream: string;
+  /** Why the store did not join, or null. */
+  readonly refused: string | null;
+  /** The join point: the capture position this store's pushed history starts after. */
+  readonly cut: number | null;
+}
+
+/**
+ * The row-check skips that leave nothing unchecked: a table this store lacks,
+ * or one outside the sync set. Any other skip refuses the join.
+ */
+const JOIN_BENIGN_SKIPS: ReadonlySet<string> = new Set([
+  'table does not exist',
+  'not in the sync set',
+  'table has no uid column',
+]);
+
+/**
+ * Join a stream another device already started (T13312; journal spec
+ * §2.11 §10, §3.5 Rule 2): the store holds exactly the journal checkpoint it
+ * restored, with that checkpoint's row meta, and from here on pushes its own
+ * writes and pulls the stream's after it. No genesis, no fold: the checkpoint
+ * is the store's base.
+ *
+ * Every sync-set row must carry meta that matches it (the restore carried
+ * the checkpoint's merge state, and nothing changed since); a row without
+ * meta, or one whose content left its meta behind, refuses the join, and so
+ * does a write captured after the check (seen inside the cut's transaction).
+ * A refusal leaves capture as it found it. Then, in ONE `BEGIN IMMEDIATE`
+ * that also turns sealing on: the restore's
+ * suspect marks are cleared (the check just proved the rows clean), the
+ * ledgers set, `genesis_cut:<stream>` records the join point (the stream has
+ * started here: T13217's meta-less-row rule applies from now), `undo_enabled`,
+ * `sync.push` and `sync.pull` are set, and the pull position is seeded from
+ * the checkpoint.
+ *
+ * @param db - The store, outside a transaction, bound to its own replica.
+ * @param o - Scope, stream, the checkpoint's pull position, and the unreleased opt-in.
+ * @returns The join point, or why not.
+ */
+export function joinStream(
+  db: DatabaseSync,
+  o: {
+    readonly scope: TableScope;
+    readonly stream: string;
+    readonly cursor: StreamCursor;
+    readonly now?: () => number;
+    readonly allowUnreleased?: boolean;
+  },
+): JoinStreamReport {
+  if (db.isTransaction) {
+    // @sync-invariant none:local-only programming-error guard: the join opens its own transaction
+    throw new Error('joinStream must run outside a transaction');
+  }
+  const already = genesisCutOf(db, o.stream);
+  if (already !== undefined) return { stream: o.stream, refused: null, cut: already };
+  const replica = activeReplica(db, o.scope)?.replicaId;
+  if (!replica) return { stream: o.stream, refused: 'no bound replica', cut: null };
+  const now = o.now ?? Date.now;
+  // Capture installs the triggers the row check needs, and from then on
+  // every write is a live capture, which the cut below checks for. A refusal
+  // puts capture back as it was, so a store that had it off does not pile up
+  // captures that would refuse every retry.
+  const captureWasOn = readSyncFlags(db)['sync.capture'];
+  setCaptureEnabled(db, o.scope, true);
+  const refuse = (why: string): JoinStreamReport => {
+    if (!captureWasOn) setCaptureEnabled(db, o.scope, false);
+    return { stream: o.stream, refused: why, cut: null };
+  };
+  // Every row must still match the meta the checkpoint carried.
+  const view = sealerRowView(db, o.scope);
+  for (const table of syncSetTables(o.scope)) {
+    const plan = planRepair(db, o.scope, table, view);
+    if (plan.skipped !== null && !JOIN_BENIGN_SKIPS.has(plan.skipped)) {
+      return refuse(`${table}: ${plan.skipped}`);
+    }
+    if (plan.skipped !== null) continue;
+    const off =
+      plan.inserts.length + plan.updates.length + plan.deletes.length + plan.unbaselined.length;
+    if (off > 0) {
+      return refuse(
+        `${table}: ${off} row(s) without matching row meta; the store is not the journal checkpoint it restored (restore it again)`,
+      );
+    }
+  }
+  const at = now();
+  const atIso = new Date(at).toISOString();
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    // The check ran outside this transaction: a write since then (another
+    // process, or this one) is a live capture, and the cut would baseline its
+    // row as the checkpoint's. The store changed since its restore: refuse.
+    if (db.prepare("SELECT 1 FROM _sync_capture WHERE state = 'live' LIMIT 1").get()) {
+      db.exec('ROLLBACK');
+      return refuse(
+        'a write landed while the join checked the store; it is no longer the journal checkpoint it restored (restore it again)',
+      );
+    }
+    // Sealing starts with the join, never before the check.
+    setSyncFlag(db, 'sync.seal', true, o.allowUnreleased ? { allowUnreleased: true } : {});
+    db.prepare("DELETE FROM _sync_meta WHERE key LIKE 'suspect:%'").run();
+    // Ledgers (count + held) and baseline keys; every row already has meta.
+    for (const table of syncSetTables(o.scope)) baselineRowMeta(db, o.scope, table, replica, at);
+    const cut = capturePosition(db);
+    setMeta(db, `${GENESIS_CUT_KEY_PREFIX}${o.stream}`, String(cut), atIso);
+    setMeta(db, `${GENESIS_SOURCE_SEQ_KEY_PREFIX}${o.stream}`, String(cut), atIso);
+    setMeta(db, UNDO_ENABLED_KEY, '1', atIso);
+    raiseMinWriterVersion(db);
+    const flag = { now: new Date(at), ...(o.allowUnreleased ? { allowUnreleased: true } : {}) };
+    setSyncFlag(db, 'sync.push', true, flag);
+    setSyncFlag(db, 'sync.pull', true, flag);
+    writeStreamCursor(db, o.stream, o.cursor, atIso);
+    db.exec('COMMIT');
+    return { stream: o.stream, refused: null, cut };
+  } catch (err) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    throw err;
   }
 }

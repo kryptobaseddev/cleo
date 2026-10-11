@@ -68,6 +68,7 @@ import {
 import { setCaptureEnabled } from '../../store/sync/capture.js';
 import { isSyncFlagOn, setSyncFlag } from '../../store/sync/flags.js';
 import { cutGenesis, genesisCutOf, genesisPending } from '../../store/sync/genesis.js';
+import { readStreamCursor } from '../../store/sync/pull.js';
 import { ensureProjectReplica, storeHwm } from '../../store/sync/replica.js';
 import { readDeviceRegistry } from '../../store/sync/replica-registry.js';
 import { ensureSyncSchema } from '../../store/sync/schema.js';
@@ -121,8 +122,11 @@ import { hasUnsyncedNexusBackup, runNexusFirstRun } from '../nexus-first-run.js'
 import { linkProjectToNexus } from '../nexus-link.js';
 import { listNexusNamedProjects, resolveNexusProjectRef } from '../nexus-project-names.js';
 import {
+  classifySyncLegs,
+  cloudSync,
   enableSyncPush,
   nexusVaultStatus,
+  pullSyncStream,
   pushNexusVault,
   pushSyncStream,
   releaseNexusVaultLease,
@@ -5239,9 +5243,15 @@ describe('cloud project link stores a new project key with its registration (onb
 describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
   const SYNC_JOURNAL = path.resolve(import.meta.dirname, '../../../migrations/sync-journal');
 
-  /** A machine whose project store is a real cleo.db with capture and seal on, bound and linked. */
-  async function journalMachine(): Promise<{ m: Machine; dbPath: string }> {
-    const m = await machine('a', DEVICE_A, REPLICA_A);
+  /**
+   * A machine whose project store is a real cleo.db with capture and seal on, bound and linked.
+   * Device A by default; device B attaches to the project A registered.
+   */
+  async function journalMachine(device: 'a' | 'b' = 'a'): Promise<{ m: Machine; dbPath: string }> {
+    const m =
+      device === 'a'
+        ? await machine('a', DEVICE_A, REPLICA_A)
+        : await machine('b', DEVICE_B, REPLICA_B);
     const cleo = path.join(m.root, '.cleo');
     fs.mkdirSync(cleo, { recursive: true });
     fs.writeFileSync(path.join(cleo, 'project-id'), `${LOCAL_PROJECT}\n`);
@@ -5265,13 +5275,33 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       return ensureProjectReplica(db, { dbPath, mode: 'live' }).replicaId;
     });
     m.replicaId = replicaId;
-    fake.addProject(REMOTE_PROJECT, { [replicaId]: DEVICE_A });
+    if (device === 'a') fake.addProject(REMOTE_PROJECT, { [replicaId]: DEVICE_A });
+    else fake.replicas.get(REMOTE_PROJECT)?.set(replicaId, DEVICE_B);
     link(m);
     return { m, dbPath };
   }
 
   const storeOf = async (dbPath: string) =>
     getDualScopeNativeDb(await openDualScopeDbAtPath('project', dbPath));
+
+  /**
+   * Device B with A's journal checkpoint restored, attached under its own bound
+   * replica, and not yet joined.
+   */
+  async function restoredJoiner(): Promise<{ b: Machine; bDb: string }> {
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.replicas.get(REMOTE_PROJECT)?.set(REPLICA_B, DEVICE_B);
+    await restoreOntoB(b);
+    const bDb = path.join(b.root, '.cleo', 'cleo.db');
+    const bound = await on(
+      b,
+      async () => ensureProjectReplica(await storeOf(bDb), { dbPath: bDb, mode: 'live' }).replicaId,
+    );
+    b.replicaId = bound;
+    fake.replicas.get(REMOTE_PROJECT)?.set(bound, DEVICE_B);
+    link(b);
+    return { b, bDb };
+  }
 
   it('cuts the store and pushes a checkpoint/v3 genesis the server accepts; push turns on and the vault steps aside', async () => {
     const { m, dbPath } = await journalMachine();
@@ -5303,13 +5333,22 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     const vault = await failure(on(m, () => pushNexusVault(vopts(m))));
     expect(vault.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
     expect(s.checkpoints).toHaveLength(1);
-    // A store that never cut this stream (its cut forgotten) meets a journal head: it joins by
-    // pulling, never with a second genesis.
+    // A store that holds the journal checkpoint but forgot its cut joins it, never with a
+    // second genesis (T13312).
     await on(m, async () => {
       (await storeOf(dbPath)).exec("DELETE FROM _sync_meta WHERE key LIKE 'genesis_%'");
     });
-    const second = await failure(on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true }))));
+    expect((await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })))).status).toBe(
+      'joined',
+    );
+    expect(s.checkpoints).toHaveLength(1);
+    // A store that never restored that checkpoint is told to restore it, then join.
+    const { m: other } = await journalMachine('b');
+    const second = await failure(
+      on(other, () => enableSyncPush(vopts(other, { allowUnreleased: true }))),
+    );
     expect(second.code).toBe('E_NEXUS_SYNC_STREAM_JOURNALED');
+    expect(second.fix).toContain('cleo cloud restore');
     expect(s.checkpoints).toHaveLength(1);
   });
 
@@ -5507,6 +5546,375 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     });
   });
 
+  it('S5-1: pull starts after the genesis checkpoint, verifies and stages the own echo, and sequences it', async () => {
+    const { m, dbPath } = await journalMachine();
+    await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    await on(m, async () => {
+      (await storeOf(dbPath)).exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('T8', 'title T8', 'task', 'pending', 'medium', 'uid-T8', 'fp-T8')",
+      );
+    });
+    const pushed = await on(m, () => pushSyncStream(vopts(m, { allowUnreleased: true })));
+    expect(pushed.pushed).toBe(1);
+    await on(m, async () => {
+      setSyncFlag(await storeOf(dbPath), 'sync.pull', true, { allowUnreleased: true });
+    });
+    const pulled = await on(m, () => pullSyncStream(vopts(m)));
+    expect(pulled).toMatchObject({ segments: 1, staged: 1, redelivered: 0, vaultDeltas: 0 });
+    expect(pulled.after).toBe(pushed.lastServerSeq);
+    expect(pulled.apply?.applied).toBe(1);
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      // The own echo was sequenced (§3.5): its transaction is no longer unsequenced.
+      expect(
+        (db.prepare('SELECT count(*) AS n FROM _sync_sequenced').get() as { n: number }).n,
+      ).toBe(1);
+    });
+    const again = await on(m, () => pullSyncStream(vopts(m)));
+    expect(again).toMatchObject({ segments: 0, staged: 0 });
+  });
+
+  it('C-1: cloud sync seals, pushes, pulls and applies the stream in one call; a rerun does nothing', async () => {
+    const { m, dbPath } = await journalMachine();
+    await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      setSyncFlag(db, 'sync.pull', true, { allowUnreleased: true });
+      db.exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('C1', 'title C1', 'task', 'pending', 'medium', 'uid-C1', 'fp-C1')",
+      );
+    });
+    const r = await on(m, () => cloudSync(vopts(m, { scope: 'project', allowUnreleased: true })));
+    expect(r.streams).toHaveLength(1);
+    expect(r.streams[0]).toMatchObject({
+      scope: 'project',
+      streamId: STREAM,
+      status: 'synced',
+      refused: null,
+      sealed: 1,
+      sent: 1,
+      received: 1,
+      staged: 1,
+      applied: 1,
+      held: 0,
+      conflicts: 0,
+    });
+    expect(r.streams[0]?.after).toBe(r.streams[0]?.head);
+    const again = await on(m, () =>
+      cloudSync(vopts(m, { scope: 'project', allowUnreleased: true })),
+    );
+    expect(again.streams[0]).toMatchObject({ status: 'synced', sealed: 0, sent: 0, received: 0 });
+  });
+
+  it('C-1: an interrupted sync resumes on the next run with nothing sent or applied twice', async () => {
+    const { m, dbPath } = await journalMachine();
+    await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      setSyncFlag(db, 'sync.pull', true, { allowUnreleased: true });
+      db.exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('C2', 'title C2', 'task', 'pending', 'medium', 'uid-C2', 'fp-C2')",
+      );
+    });
+    fake.beforeSegment = {
+      deviceId: DEVICE_A,
+      run: async () => {
+        throw new ApiFail(403, 'E_FORBIDDEN');
+      },
+    };
+    // The failure is this stream's, reported, never thrown: every other stream still syncs.
+    const failed = await on(m, () => cloudSync(vopts(m, { allowUnreleased: true })));
+    expect(failed.streams.map((x) => x.scope)).toEqual(['project', 'global']);
+    expect(failed.streams[0]).toMatchObject({ status: 'failed', sent: 0 });
+    expect(failed.streams[0]?.refused).toMatch(/E_FORBIDDEN/);
+    const before = fake.stream(STREAM).segments.length;
+    const r = await on(m, () => cloudSync(vopts(m, { scope: 'project', allowUnreleased: true })));
+    expect(r.streams[0]).toMatchObject({
+      status: 'synced',
+      built: 0,
+      sent: 1,
+      received: 1,
+      applied: 1,
+    });
+    expect(fake.stream(STREAM).segments).toHaveLength(before + 1);
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      expect((db.prepare('SELECT count(*) AS n FROM _sync_inbox').get() as { n: number }).n).toBe(
+        1,
+      );
+      expect(
+        (db.prepare("SELECT count(*) AS n FROM tasks_tasks WHERE id = 'C2'").get() as { n: number })
+          .n,
+      ).toBe(1);
+    });
+  });
+
+  it('C-1: with the journal flags off, cloud sync refuses with E_SYNC_DISABLED naming the remedy', async () => {
+    const { m } = await journalMachine();
+    const refused = await failure(on(m, () => cloudSync(vopts(m, { scope: 'project' }))));
+    expect(refused.code).toBe('E_SYNC_DISABLED');
+    expect(refused.fix).toContain('cleo sync enable push');
+  });
+
+  it('S5-1: a store that synced a vault snapshot from before the journal genesis refuses to pull across it (T13306)', async () => {
+    const { m: a, dbPath } = await journalMachine();
+    await on(a, () => pushNexusVault(vopts(a))); // a vault snapshot, before any journal
+    // B restores that vault snapshot and is attached under its own bound replica.
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    fake.replicas.get(REMOTE_PROJECT)?.set(REPLICA_B, DEVICE_B);
+    await restoreOntoB(b);
+    const bDb = path.join(b.root, '.cleo', 'cleo.db');
+    const bound = await on(b, async () => {
+      const db = await storeOf(bDb);
+      setSyncFlag(db, 'sync.pull', true, { allowUnreleased: true });
+      return ensureProjectReplica(db, { dbPath: bDb, mode: 'live' }).replicaId;
+    });
+    b.replicaId = bound;
+    fake.replicas.get(REMOTE_PROJECT)?.set(bound, DEVICE_B);
+    link(b);
+    // A changes the store, then starts the journal: that change is folded into the genesis, never a segment.
+    await on(a, async () => {
+      (await storeOf(dbPath)).exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('G1', 'title G1', 'task', 'pending', 'medium', 'uid-G1', 'fp-G1')",
+      );
+    });
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    const refused = await failure(on(b, () => pullSyncStream(vopts(b))));
+    expect(refused.code).toBe('E_NEXUS_SYNC_REFUSED');
+    expect(refused.message).toMatch(/started its change journal .* would silently diverge/);
+    expect(refused.fix).toMatch(/restore the journal checkpoint first .*cleo sync enable push/);
+    await on(b, async () => {
+      const db = await storeOf(bDb);
+      expect((db.prepare('SELECT count(*) AS n FROM _sync_inbox').get() as { n: number }).n).toBe(
+        0,
+      );
+    });
+    // The remedy works: B restores the journal checkpoint, joins, and holds A's folded change.
+    const restored = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull', force: true })));
+    expect(restored.status).toBe('restored');
+    // The placed store is a new instance bound to a new replica (T13109); `cleo cloud pull`
+    // relinks it (the CLI's relink), which this machine helper does by hand.
+    const rebound = restored.replica?.current;
+    expect(rebound).toBeDefined();
+    b.replicaId = rebound ?? '';
+    fake.replicas.get(REMOTE_PROJECT)?.set(b.replicaId, DEVICE_B);
+    link(b);
+    expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'joined',
+    );
+    expect(
+      await on(b, async () =>
+        (await storeOf(bDb)).prepare("SELECT title FROM tasks_tasks WHERE id = 'G1'").get(),
+      ),
+    ).toEqual({ title: 'title G1' });
+    expect((await on(b, () => pullSyncStream(vopts(b)))).refused).toBeNull();
+  });
+
+  it("two devices (T13312, T12996): B restores A's genesis and joins; cloud sync carries each device's writes to the other and converges a concurrent status change", async () => {
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    await on(a, async () => {
+      setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+    });
+    const { b, bDb } = await restoredJoiner();
+    const joined = await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })));
+    expect(joined.status).toBe('joined');
+    const journalCps = fake
+      .stream(STREAM)
+      .checkpoints.filter((c) => manifestVersion(c.manifest) === 3);
+    expect(journalCps).toHaveLength(1);
+    // B pulls on from the checkpoint it restored.
+    const genesisCp = journalCps[0];
+    if (!genesisCp) throw new Error('no journal checkpoint');
+    expect(await on(b, async () => readStreamCursor(await storeOf(bDb), STREAM))).toEqual(
+      cursorFromCheckpoint(genesisCp),
+    );
+
+    const sync = async (m: Machine) => {
+      const r = await on(m, () => cloudSync(vopts(m, { scope: 'project', allowUnreleased: true })));
+      expect(r.streams[0]?.refused ?? null, `${m.name}: ${r.streams[0]?.refused}`).toBeNull();
+      return r.streams[0];
+    };
+    const value = async (m: Machine, dbFile: string, sql: string) =>
+      on(m, async () => (await storeOf(dbFile)).prepare(sql).get());
+
+    // Each device edits; both sync; each sees the other's write.
+    await on(a, async () => {
+      (await storeOf(aDb)).exec("UPDATE tasks_tasks SET title = 'from A' WHERE id = 'T1'");
+    });
+    await on(b, async () => {
+      (await storeOf(bDb)).exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp) VALUES ('T9', 'from B', 'task', 'pending', 'medium', 'uid-T9', 'fp-T9')",
+      );
+    });
+    await sync(a);
+    await sync(b);
+    await sync(a);
+    expect(await value(b, bDb, "SELECT title FROM tasks_tasks WHERE id = 'T1'")).toEqual({
+      title: 'from A',
+    });
+    expect(await value(a, aDb, "SELECT title FROM tasks_tasks WHERE id = 'T9'")).toEqual({
+      title: 'from B',
+    });
+
+    // A concurrent status change of one task: the typed rules decide it the same way on both.
+    await on(a, async () => {
+      (await storeOf(aDb)).exec(
+        "UPDATE tasks_tasks SET status = 'done', pipeline_stage = 'contribution', completed_at = '2026-10-07T00:00:00.000Z' WHERE id = 'T2'",
+      );
+    });
+    await on(b, async () => {
+      (await storeOf(bDb)).exec(
+        "UPDATE tasks_tasks SET status = 'cancelled', pipeline_stage = 'cancelled', cancelled_at = '2026-10-07T00:00:01.000Z', cancellation_reason = 'dup' WHERE id = 'T2'",
+      );
+    });
+    await sync(a);
+    await sync(b);
+    await sync(a);
+    await sync(b);
+    const statusSql =
+      "SELECT status, pipeline_stage, completed_at, cancelled_at, cancellation_reason FROM tasks_tasks WHERE id = 'T2'";
+    const onA = await value(a, aDb, statusSql);
+    const onB = await value(b, bDb, statusSql);
+    expect(onB).toEqual(onA);
+    // Both are absorbing, so the later write (B's cancel) wins its LWW; the
+    // stamps move with it as one group and the stage follows the status.
+    expect(onA).toEqual({
+      status: 'cancelled',
+      pipeline_stage: 'cancelled',
+      completed_at: null,
+      cancelled_at: '2026-10-07T00:00:01.000Z',
+      cancellation_reason: 'dup',
+    });
+  });
+
+  it('two idle replicas syncing in a loop exchange no segments after the first round (T13256, §3.5 R7-7)', async () => {
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    await on(a, async () => {
+      setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+    });
+    const { b, bDb } = await restoredJoiner();
+    expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'joined',
+    );
+    const sync = async (m: Machine) => {
+      const r = await on(m, () => cloudSync(vopts(m, { scope: 'project', allowUnreleased: true })));
+      expect(r.streams[0]?.status, `${m.name}: ${r.streams[0]?.refused}`).toBe('synced');
+      return r.streams[0];
+    };
+    // One real write each, then a first round carries them both ways.
+    await on(a, async () => {
+      (await storeOf(aDb)).exec("UPDATE tasks_tasks SET title = 'from A' WHERE id = 'T1'");
+    });
+    await on(b, async () => {
+      (await storeOf(bDb)).exec("UPDATE tasks_tasks SET title = 'from B' WHERE id = 'T2'");
+    });
+    await sync(a);
+    await sync(b);
+    await sync(a);
+    const settled = fake.stream(STREAM).segments.length;
+    expect(settled).toBe(2);
+    // Idle from here on: applying the other's segment never makes either side send one back.
+    for (let round = 0; round < 4; round++) {
+      const ra = await sync(a);
+      const rb = await sync(b);
+      // Nothing sealed (no echo re-sealed and netted away), sent or received.
+      for (const [who, r] of [
+        ['A', ra],
+        ['B', rb],
+      ] as const) {
+        expect(r?.sealed, `round ${round}: ${who} sealed`).toBe(0);
+        expect(r?.sent, `round ${round}: ${who} sent`).toBe(0);
+        expect(r?.received, `round ${round}: ${who} received`).toBe(0);
+      }
+    }
+    expect(fake.stream(STREAM).segments).toHaveLength(settled);
+    const titles = "SELECT id, title FROM tasks_tasks WHERE id IN ('T1', 'T2') ORDER BY id";
+    const onA = await on(a, async () => (await storeOf(aDb)).prepare(titles).all());
+    expect(await on(b, async () => (await storeOf(bDb)).prepare(titles).all())).toEqual(onA);
+    expect(onA).toEqual([
+      { id: 'T1', title: 'from A' },
+      { id: 'T2', title: 'from B' },
+    ]);
+  });
+
+  it('a joined store with push off syncs pull-only: synced, the push leg skipped (T13312)', async () => {
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    const { b, bDb } = await restoredJoiner();
+    expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'joined',
+    );
+    await on(b, async () => {
+      setSyncFlag(await storeOf(bDb), 'sync.push', false, { allowUnreleased: true });
+    });
+    await on(a, async () => {
+      (await storeOf(aDb)).exec("UPDATE tasks_tasks SET title = 'from A' WHERE id = 'T1'");
+    });
+    await on(a, () => pushSyncStream(vopts(a, { allowUnreleased: true })));
+    const r = await on(b, () => cloudSync(vopts(b, { scope: 'project', allowUnreleased: true })));
+    expect(r.streams[0]).toMatchObject({ status: 'synced', skipped: ['sync.push is off'] });
+    expect(
+      await on(b, async () =>
+        (await storeOf(bDb)).prepare("SELECT title FROM tasks_tasks WHERE id = 'T1'").get(),
+      ),
+    ).toEqual({ title: 'from A' });
+  });
+
+  it('a join is refused, never folded, when the store changed since its restore (T13312)', async () => {
+    const { m: a } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    const { b, bDb } = await restoredJoiner();
+    await on(b, async () => {
+      (await storeOf(bDb)).exec("UPDATE tasks_tasks SET title = 'edited on B' WHERE id = 'T1'");
+    });
+    const err = await failure(on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true }))));
+    expect(err.code).toBe('E_NEXUS_SYNC_REFUSED');
+    expect(err.message).toContain('tasks_tasks');
+    expect(err.fix).toContain('cleo cloud restore --force');
+    await on(b, async () => {
+      const db = await storeOf(bDb);
+      expect(genesisCutOf(db, STREAM)).toBeUndefined();
+      expect(isSyncFlagOn(db, 'sync.push', {})).toBe(false);
+    });
+    expect(fake.stream(STREAM).segments).toHaveLength(0);
+  });
+
+  it('a join is refused, never sealed past, while a capture waits to seal (T13312)', async () => {
+    const { m: a } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    const { b, bDb } = await restoredJoiner();
+    // A write captured but not sealed: joining would seal it as if the checkpoint authored it.
+    await on(b, async () => {
+      (await storeOf(bDb)).exec(
+        "INSERT INTO _sync_capture (tbl, op, rk, uid, img, at_ms) VALUES ('tasks_tasks', 'U', 'T1', 'uid-T1', '{}', 0)",
+      );
+    });
+    const err = await failure(on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true }))));
+    expect(err.code).toBe('E_NEXUS_SYNC_REFUSED');
+    expect(err.message).toContain('captures still waiting to seal');
+  });
+
+  it('a join is refused when the restored row meta does not match the rows (T13312)', async () => {
+    const { m: a } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    const { b, bDb } = await restoredJoiner();
+    await on(b, async () => {
+      (await storeOf(bDb)).exec(
+        "DELETE FROM _sync_row_meta WHERE tbl = 'tasks_tasks' AND uid = (SELECT uid FROM _sync_row_meta WHERE tbl = 'tasks_tasks' ORDER BY uid LIMIT 1)",
+      );
+    });
+    const err = await failure(on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true }))));
+    expect(err.code).toBe('E_NEXUS_SYNC_REFUSED');
+    expect(err.message).toContain('tasks_tasks');
+    await on(b, async () => {
+      const db = await storeOf(bDb);
+      expect(genesisCutOf(db, STREAM)).toBeUndefined();
+      expect(isSyncFlagOn(db, 'sync.seal', {})).toBe(false);
+    });
+  });
+
   it('S4-2: a device clock ahead of the server pauses push', async () => {
     const { m, dbPath } = await journalMachine();
     await on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true })));
@@ -5541,5 +5949,42 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     expect(mismatch.code).toBe('E_NEXUS_SYNC_REFUSED');
     expect(mismatch.message).toContain(realReplica);
     expect(fake.stream(STREAM).checkpoints).toHaveLength(0);
+  });
+});
+
+describe('cloud sync leg classification (T13315)', () => {
+  const none = { refused: null, refusedKind: null } as const;
+
+  it('classifies by refusal kind, so a reworded skip message is still a skip', () => {
+    const r = classifySyncLegs(
+      { refused: 'push is switched off for this store', refusedKind: 'push-off' },
+      { refused: 'pulling is disabled', refusedKind: 'pull-off' },
+    );
+    expect(r).toEqual({
+      skipped: ['push is switched off for this store', 'pulling is disabled'],
+      refused: [],
+      disabled: true,
+      pullSkipped: true,
+    });
+  });
+
+  it('push before genesis is skipped; a store behind the server and a refused segment are refusals', () => {
+    expect(
+      classifySyncLegs({ refused: 'no cut yet', refusedKind: 'no-genesis' }, none),
+    ).toMatchObject({ skipped: ['no cut yet'], refused: [], disabled: false, pullSkipped: false });
+    expect(
+      classifySyncLegs({ refused: 'not stored', refusedKind: 'genesis-pending' }, none).skipped,
+    ).toEqual(['not stored']);
+    expect(
+      classifySyncLegs(
+        { refused: 'behind', refusedKind: 'store-behind' },
+        { refused: 'bad segment', refusedKind: 'segment' },
+      ),
+    ).toMatchObject({ skipped: [], refused: ['behind', 'bad segment'], disabled: false });
+    // A message that reads like a skip but carries no skip kind is a refusal.
+    expect(
+      classifySyncLegs({ refused: 'sync.push is off', refusedKind: 'schema-missing' }, none)
+        .refused,
+    ).toEqual(['sync.push is off']);
   });
 });

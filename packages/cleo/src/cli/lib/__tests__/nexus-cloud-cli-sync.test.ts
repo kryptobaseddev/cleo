@@ -18,9 +18,12 @@ const noUndo: CloudStatusSyncStream['undo'] = {
   exceededAt: null,
 };
 
+const noSeen: CloudStatusSyncStream['seenTxns'] = { rows: 0, bytes: 0, byStream: {} };
+
 const stream = (
   held: CloudStatusSyncStream['held'],
   undo: CloudStatusSyncStream['undo'] = noUndo,
+  seenTxns: CloudStatusSyncStream['seenTxns'] = noSeen,
 ): CloudStatusSyncStream => ({
   scope: 'project',
   stream: null,
@@ -34,6 +37,7 @@ const stream = (
   suspectTables: [],
   held,
   undo,
+  seenTxns,
   unsentOps: { known: false, needs: 'T12343', reason: 'not yet' },
   lastPushedSeq: unknown,
   lastPulledSeq: unknown,
@@ -84,5 +88,18 @@ describe('cloud status sync clause (T13271)', () => {
       'undo budget exceeded since 2026-10-05T00:00:00.000Z: a rebind runs at the next pull',
     );
     expect(syncStreamClause(stream(none))).not.toContain('undo');
+  });
+});
+
+describe('cloud status sync clause: the seen-txn ledger (T13317)', () => {
+  const none = { count: 0, oldestAt: null, long: [], warnDays: 7 };
+  it('names the seen-txn rows and their size, and says nothing while empty', () => {
+    expect(
+      syncStreamClause(stream(none, noUndo, { rows: 1200, bytes: 30_720, byStream: { s: 1200 } })),
+    ).toContain('1200 seen txn(s), about 30 KiB');
+    expect(
+      syncStreamClause(stream(none, noUndo, { rows: 3, bytes: 90, byStream: { s: 3 } })),
+    ).toContain('3 seen txn(s), about 0.1 KiB');
+    expect(syncStreamClause(stream(none))).not.toContain('seen txn');
   });
 });

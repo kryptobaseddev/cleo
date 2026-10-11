@@ -62,6 +62,8 @@ import type {
   CloudPushResult,
   CloudRestoreResult,
   CloudSyncPushEnableResult,
+  CloudSyncResult,
+  CloudSyncStreamResult,
   CloudVaultLease,
   CloudVaultScope,
   CloudVaultSnapshot,
@@ -105,16 +107,18 @@ import {
 } from '../store/portable-bundle-scan.js';
 import { writeRestoreMarker } from '../store/restore-marker.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
-import { UNRELEASED_FLAGS } from '../store/sync/flags.js';
+import { isSyncFlagOn, UNRELEASED_FLAGS } from '../store/sync/flags.js';
 import {
   completeGenesis,
   cutGenesisWithSnapshot,
   GenesisRacedError,
   genesisCutOf,
   genesisPending,
+  joinStream,
   readGenesisCut,
 } from '../store/sync/genesis.js';
-import { type PushStreamReport, pushStream } from '../store/sync/push.js';
+import { type PullStreamReport, pullStream, readStreamCursor } from '../store/sync/pull.js';
+import { type PushRefusal, type PushStreamReport, pushStream } from '../store/sync/push.js';
 import { replayPinOf } from '../store/sync/replay-pin.js';
 import {
   activeReplica,
@@ -123,7 +127,8 @@ import {
   rebindAfterVaultRestore,
 } from '../store/sync/replica.js';
 import { ReplicaRegistry } from '../store/sync/replica-registry.js';
-import { signTxn } from '../store/sync/txn-signing.js';
+import { sealPending } from '../store/sync/sealer.js';
+import { firstBadTxnSignature, signTxn } from '../store/sync/txn-signing.js';
 import {
   buildVaultManifest,
   type CarriedMachineState,
@@ -152,7 +157,7 @@ import { foreignWriterLeases, storeOpenElsewhere } from '../store/writer-lease.j
 import { deriveKey, uuidv7 } from './crypto.js';
 import { NexusError } from './http.js';
 import { cursorFromCheckpoint, initialPullCursor, Journal, type PullCursor } from './journal.js';
-import type { TrustedSigners } from './keys.js';
+import { signerKeys, type TrustedSigners } from './keys.js';
 import { manifestVersion } from './manifest-check.js';
 import { canonicalGlobalReplicaBinder } from './nexus-attach.js';
 import { NexusAccountError } from './nexus-auth.js';
@@ -161,6 +166,7 @@ import { nexusApiErrorToAccountError } from './nexus-enrol.js';
 import { readNexusProjectLink } from './nexus-link.js';
 import {
   connectNexusVault,
+  type NexusAccountKey,
   type NexusVaultConnection,
   type NexusVaultOptions,
   nexusHomeDataKey,
@@ -799,12 +805,27 @@ function compareWithSynced(
  * hold values the snapshot strips, and a restore takes these tables from the
  * live store anyway.
  */
+/**
+ * The merge state a journal checkpoint carries for the rows it holds (journal
+ * spec §2.10: row meta travels inside checkpoint bundles): a restore keeps
+ * the snapshot's, never this machine's, so the restored rows keep their HLCs
+ * and a JOIN can push and pull them (T13312).
+ */
+const JOURNAL_SNAPSHOT_CARRIED: ReadonlySet<string> = new Set([
+  '_sync_row_meta',
+  '_sync_field_leave',
+]);
+
 const VAULT_CLEARED_JOURNAL_TABLES = [
   '_sync_capture',
   '_sync_undo',
   '_sync_frame',
   '_sync_quarantine',
   '_sync_apply_intent',
+  // Where this device's pull stands (T12343 S5-1): a restored store resumes
+  // from the checkpoint it restored, never from another device's position.
+  '_sync_cursor',
+  '_sync_seen_txn',
 ] as const;
 
 /**
@@ -1563,16 +1584,60 @@ async function enableSyncPushImpl(
       };
     }
   }
-  // Another device already started this stream's journal: this store joins it
-  // by pulling (S5), never with a second genesis.
-  if (isJournalSnapshot(parent)) {
-    throw vaultError(
-      'E_NEXUS_SYNC_STREAM_JOURNALED',
-      `${t.streamId} already carries the change journal: its head snapshot ${parent?.checkpointId} is a journal checkpoint`,
-      'nothing was cut; this store joins the journal by pulling it (`cleo cloud sync`, once pull ships)',
-    );
-  }
   const { state: synced } = syncedState(conn, t, parent ? [parent] : [], head.headCheckpointId);
+  // Another device already started this stream's journal: never a second
+  // genesis. A store that holds exactly that journal checkpoint JOINS it
+  // (T13312); any other store restores it first.
+  if (parent !== null && isJournalSnapshot(parent)) {
+    if (synced?.lastCheckpointId !== parent.checkpointId) {
+      throw vaultError(
+        'E_NEXUS_SYNC_STREAM_JOURNALED',
+        `${t.streamId} already carries the change journal: its head snapshot ${parent.checkpointId} is a journal checkpoint this store has not restored`,
+        'nothing was cut; restore the journal checkpoint (`cleo cloud restore`), then join the stream with `cleo sync enable push`',
+      );
+    }
+    // Unchanged since the restore: the rows match the checkpoint's manifest
+    // (row data) here, and joinStream checks every row against its meta.
+    const git = gitTracking(t);
+    const local = await localManifest(t, git, untrackedComparison(t, git, synced));
+    const changed =
+      local === null
+        ? ['(no store)']
+        : compareVaultManifests(local.manifest, comparable(parent.manifest, git))
+            .filter(
+              (r) => r.table !== VAULT_FILES_KEY && !isVaultAnnotationKey(r.table) && !r.match,
+            )
+            .map((r) => r.table);
+    if (changed.length > 0) {
+      throw vaultError(
+        'E_NEXUS_SYNC_REFUSED',
+        `this store changed since it restored ${parent.checkpointId} (${changed.slice(0, 8).join(', ')}); joining would lose those changes`,
+        'nothing was joined; restore the journal checkpoint again (`cleo cloud restore --force`, a safety backup is taken first), then `cleo sync enable push`',
+      );
+    }
+    const joined = joinStream(db, {
+      scope: tableScopeOf(t),
+      stream: t.streamId,
+      cursor: cursorFromCheckpoint(parent),
+      ...(opts.allowUnreleased ? { allowUnreleased: true } : {}),
+    });
+    if (joined.refused !== null) {
+      throw vaultError('E_NEXUS_SYNC_REFUSED', `the join was refused: ${joined.refused}`);
+    }
+    warnings.push(...conn.state.drainWarnings());
+    return {
+      ...base,
+      status: 'joined',
+      cut: joined.cut ?? 0,
+      sealed: 0,
+      folded: 0,
+      baselined: {},
+      snapshot: snapshotOf(parent, await deviceNames(conn)),
+      deltaSegmentSeq: null,
+      replicaSeqFloor: null,
+      warnings,
+    };
+  }
   if (head.headCheckpointId !== null && head.headCheckpointId !== synced?.lastCheckpointId) {
     throw vaultError(
       'E_NEXUS_VAULT_BEHIND',
@@ -1748,15 +1813,35 @@ async function enableSyncPushImpl(
   }
 }
 
+/** One connection, the account key and one scope's store, shared by a stream's push and pull (T12996). */
+interface StreamSession {
+  readonly conn: NexusVaultConnection;
+  readonly key: NexusAccountKey;
+  readonly t: VaultTarget;
+}
+
+/** Connect, unlock the account key and resolve the scope's store, once. */
+async function openStreamSession(opts: NexusVaultCommandOptions): Promise<StreamSession> {
+  const conn = await connectNexusVault(opts);
+  const key = await unlockNexusAccountKey(conn);
+  const t = await resolveTarget(conn, key.masterKey, opts, 'push');
+  return { conn, key, t };
+}
+
 async function pushSyncStreamImpl(
   opts: NexusVaultCommandOptions & {
     /** Push although `sync.push` is unreleased (tests and staging only). Never set from user input. */
     allowUnreleased?: boolean;
   } = {},
 ): Promise<PushStreamReport> {
-  const conn = await connectNexusVault(opts);
-  const key = await unlockNexusAccountKey(conn);
-  const t = await resolveTarget(conn, key.masterKey, opts, 'push');
+  return pushWithSession(await openStreamSession(opts), opts);
+}
+
+async function pushWithSession(
+  session: StreamSession,
+  opts: { readonly allowUnreleased?: boolean },
+): Promise<PushStreamReport> {
+  const { conn, t } = session;
   const replicaId = t.replicaId;
   if (!replicaId) {
     throw vaultError(
@@ -1819,6 +1904,314 @@ async function pushSyncStreamImpl(
     }
     throw err;
   }
+}
+
+async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<PullStreamReport> {
+  return pullWithSession(await openStreamSession(opts));
+}
+
+async function pullWithSession(session: StreamSession): Promise<PullStreamReport> {
+  const { conn, key, t } = session;
+  const replicaId = t.replicaId;
+  if (!replicaId) {
+    throw vaultError(
+      'E_NEXUS_VAULT_NOT_LINKED',
+      'this copy of the project is not attached from this device',
+      'run `cleo project link`',
+    );
+  }
+  const journal = journalFor(conn, t);
+  const { openDualScopeDbAtPath, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
+  const db = getDualScopeNativeDb(
+    t.scope === 'global'
+      ? await openDualScopeDbAtPath('global', t.dbPath)
+      : await openDualScopeDbAtPath('project', t.dbPath),
+  );
+  // Own echoes are recognised by the bound replica: it must be the stream's (T13304).
+  const bound = activeReplica(db, tableScopeOf(t))?.replicaId ?? null;
+  if (bound !== replicaId) {
+    throw vaultError(
+      'E_NEXUS_SYNC_REFUSED',
+      `this store is bound to replica ${bound ?? '(none)'}, but ${t.streamId} knows it as ${replicaId}`,
+      'nothing was pulled; relink the project (`cleo project link`) so both name one replica',
+    );
+  }
+  // With sync.pull off, pullStream refuses at once: no network round trip.
+  if (!isSyncFlagOn(db, 'sync.pull')) {
+    return pullStream(db, {
+      scope: tableScopeOf(t),
+      stream: t.streamId,
+      replica: replicaId,
+      initialCursor: initialPullCursor(),
+      pull: async () => ({ segments: [], cursor: initialPullCursor(), head: 0 }),
+      verify: () => 0,
+      seal: () => {},
+    });
+  }
+  const head = await streamHead(conn, t.streamId);
+  const checkpoints = head.headCheckpointId ? await listCheckpoints(conn, t.streamId) : [];
+  // A store with no pull position starts after the checkpoint it last synced
+  // (the genesis it cut, or the snapshot it restored), seeded from its signed
+  // replica map.
+  let initialCursor = readStreamCursor(db, t.streamId);
+  if (initialCursor === null) {
+    const { state: synced } = syncedState(conn, t, checkpoints, head.headCheckpointId);
+    const from = checkpoints.find((c) => c.checkpointId === synced?.lastCheckpointId) ?? null;
+    if (from === null) {
+      throw vaultError(
+        'E_NEXUS_SYNC_REFUSED',
+        `this store has synced no checkpoint of ${t.streamId}, so it has no position to pull from`,
+        'restore the stream (`cleo cloud restore`), or enable push (`cleo sync enable push`), first',
+      );
+    }
+    // T13306: a vault snapshot from before the stream's journal genesis. What
+    // the genesis device changed between that snapshot and its cut was folded
+    // into the genesis checkpoint, never sent as segments: pulling across it
+    // would silently diverge.
+    const genesis = isJournalSnapshot(from)
+      ? undefined
+      : checkpoints.find((c) => isJournalSnapshot(c) && c.coversSeq >= from.coversSeq);
+    if (genesis) {
+      throw vaultError(
+        'E_NEXUS_SYNC_REFUSED',
+        `${t.streamId} started its change journal at checkpoint ${genesis.checkpointId}, after the vault snapshot ${from.checkpointId} this store last synced: the changes folded into that journal checkpoint never travel as segments, so pulling from here would silently diverge`,
+        'nothing was pulled; restore the journal checkpoint first (`cleo cloud restore`), then join the stream with `cleo sync enable push` (T12999)',
+      );
+    }
+    journal.verifyCheckpoint(from, key.signers);
+    initialCursor = cursorFromCheckpoint(from);
+  }
+  // Seen-txn rows are never pruned here yet: a txn already seen can come
+  // back in a NEW segment above any checkpoint (a retired replica's late
+  // segment, a rebind re-pushing an upload that was stored but never
+  // recorded), and with its first-delivery row gone it would apply twice.
+  // Pruning waits for a floor the applier refuses below anyway, such as the
+  // receive watermark (T13256), and then prunes by that floor, not by
+  // stream seq.
+  return pullStream(db, {
+    scope: tableScopeOf(t),
+    stream: t.streamId,
+    replica: replicaId,
+    initialCursor,
+    pull: async (cursor) => {
+      const page = await journal.pull(
+        {
+          after: cursor.after,
+          knowsAllReplicas: cursor.knowsAllReplicas,
+          replicas: { ...cursor.replicas },
+        },
+        key.signers,
+      );
+      return {
+        segments: page.segments.map((s) => ({
+          seq: s.seq,
+          replicaId: s.replicaId,
+          replicaSeq: s.replicaSeq,
+          deviceId: s.deviceId,
+          plaintext: s.plaintext,
+          schemaVersion: s.meta.schemaVersion,
+        })),
+        cursor: page.cursor,
+        head: page.head,
+      };
+    },
+    verify: (deviceId, txns) => {
+      const keys = signerKeys(key.signers, deviceId);
+      const first = keys[0];
+      if (first === undefined) return 0;
+      for (const k of keys) {
+        if (firstBadTxnSignature(k.publicKey, t.streamId, txns) === null) return null;
+      }
+      return firstBadTxnSignature(first.publicKey, t.streamId, txns);
+    },
+    seal: () => {
+      sealPending(db, { scope: tableScopeOf(t), replica: replicaId });
+    },
+  });
+}
+
+/** A `cleo cloud sync` stream result with nothing done yet. */
+const syncStreamResult = (
+  scope: CloudVaultScope,
+  fields: Partial<CloudSyncStreamResult>,
+): CloudSyncStreamResult => ({
+  scope,
+  streamId: null,
+  status: 'synced',
+  refused: null,
+  skipped: [],
+  sealed: 0,
+  built: 0,
+  sent: 0,
+  duplicates: 0,
+  received: 0,
+  staged: 0,
+  redelivered: 0,
+  applied: 0,
+  held: 0,
+  conflicts: 0,
+  after: null,
+  head: null,
+  ...fields,
+});
+
+/** Codes meaning this machine has no store on the stream of a scope. */
+const NOT_ATTACHED_CODES: ReadonlySet<string> = new Set([
+  'E_NEXUS_VAULT_NOT_LINKED',
+  'E_NEXUS_NOT_A_PROJECT',
+]);
+
+/** Push refusals that mean "nothing to do here", not a failure (LOW-3 on #1962). */
+const PUSH_SKIPS: ReadonlySet<PushRefusal> = new Set(['push-off', 'no-genesis', 'genesis-pending']);
+
+/** How one stream's push and pull legs ended, classified by refusal kind (T13315). */
+export interface SyncLegOutcome {
+  /** Refusals that mean "nothing to do here": a flag off, or push before this store's genesis. */
+  readonly skipped: string[];
+  /** Every other refusal. */
+  readonly refused: string[];
+  /** Both flags off: the stream is disabled. */
+  readonly disabled: boolean;
+  /** The pull leg was skipped, so its position says nothing. */
+  readonly pullSkipped: boolean;
+}
+
+/**
+ * Classify a stream's push and pull results (T13315). Classification uses
+ * each report's typed `refusedKind`, never its message, so rewording a
+ * refusal never turns a skip into a refusal.
+ *
+ * @param push - The push leg's `refused` and `refusedKind`.
+ * @param pull - The pull leg's `refused` and `refusedKind`.
+ * @returns Skipped and refused messages, and whether the stream is disabled.
+ */
+export function classifySyncLegs(
+  push: Pick<PushStreamReport, 'refused' | 'refusedKind'>,
+  pull: Pick<PullStreamReport, 'refused' | 'refusedKind'>,
+): SyncLegOutcome {
+  const pushSkipped = push.refusedKind !== null && PUSH_SKIPS.has(push.refusedKind);
+  const pullSkipped = pull.refusedKind === 'pull-off';
+  const skipped: string[] = [];
+  const refused: string[] = [];
+  for (const [msg, skip] of [
+    [push.refused, pushSkipped],
+    [pull.refused, pullSkipped],
+  ] as const) {
+    if (msg === null) continue;
+    (skip ? skipped : refused).push(msg);
+  }
+  return {
+    skipped,
+    refused,
+    disabled: push.refusedKind === 'push-off' && pullSkipped,
+    pullSkipped,
+  };
+}
+
+/** The code and message of a failure, for a stream result. */
+function failureText(err: unknown): string {
+  if (err instanceof NexusAccountError || err instanceof NexusError)
+    return `${err.code}: ${err.message}`;
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Seal, push, pull and apply one scope's stream (T12996). The run's one
+ * connection and account key serve both legs. A failure is reported on this stream
+ * (`failed`), never thrown, so the next stream still syncs.
+ */
+async function syncOneStream(
+  shared: { readonly conn: NexusVaultConnection; readonly key: NexusAccountKey },
+  opts: NexusVaultCommandOptions & { allowUnreleased?: boolean },
+  scope: CloudVaultScope,
+): Promise<CloudSyncStreamResult> {
+  let session: StreamSession;
+  try {
+    session = {
+      ...shared,
+      t: await resolveTarget(shared.conn, shared.key.masterKey, { ...opts, scope }, 'push'),
+    };
+  } catch (err) {
+    if (err instanceof NexusAccountError && NOT_ATTACHED_CODES.has(err.code)) {
+      return syncStreamResult(scope, { status: 'not-attached', refused: err.message });
+    }
+    return syncStreamResult(scope, { status: 'failed', refused: failureText(err) });
+  }
+  const streamId = session.t.streamId;
+  if (!session.t.replicaId) {
+    return syncStreamResult(scope, {
+      streamId,
+      status: 'not-attached',
+      refused: 'this copy of the project is not attached from this device',
+    });
+  }
+  let push: PushStreamReport;
+  try {
+    push = await pushWithSession(session, opts);
+  } catch (err) {
+    return syncStreamResult(scope, { streamId, status: 'failed', refused: failureText(err) });
+  }
+  let pull: PullStreamReport;
+  try {
+    pull = await pullWithSession(session);
+  } catch (err) {
+    return syncStreamResult(scope, {
+      streamId,
+      status: 'failed',
+      refused: failureText(err),
+      sealed: push.sealed,
+      built: push.built,
+      sent: push.pushed,
+      duplicates: push.duplicates,
+    });
+  }
+  const legs = classifySyncLegs(push, pull);
+  const { skipped, refused } = legs;
+  const apply = pull.apply;
+  return syncStreamResult(scope, {
+    streamId,
+    status: legs.disabled
+      ? 'disabled'
+      : refused.length > 0
+        ? 'refused'
+        : push.clockAhead
+          ? 'paused'
+          : 'synced',
+    refused: refused.length > 0 ? refused.join('; ') : null,
+    skipped,
+    sealed: push.sealed,
+    built: push.built,
+    sent: push.pushed,
+    duplicates: push.duplicates,
+    received: pull.segments,
+    staged: pull.staged,
+    redelivered: pull.redelivered,
+    applied: apply?.applied ?? 0,
+    held: (apply?.pending ?? 0) + (apply?.heldSkew ?? 0) + (apply?.refusedSchema ?? 0),
+    conflicts: apply?.conflict ?? 0,
+    after: legs.pullSkipped ? null : pull.after,
+    head: legs.pullSkipped ? null : pull.head,
+  });
+}
+
+async function cloudSyncImpl(
+  opts: NexusVaultCommandOptions & { allowUnreleased?: boolean } = {},
+): Promise<CloudSyncResult> {
+  // One connection and one account-key unlock for every stream (LOW-2 on #1962).
+  const conn = await connectNexusVault(opts);
+  const key = await unlockNexusAccountKey(conn);
+  const scopes: CloudVaultScope[] = opts.scope ? [opts.scope] : ['project', 'global'];
+  const streams: CloudSyncStreamResult[] = [];
+  for (const scope of scopes) streams.push(await syncOneStream({ conn, key }, opts, scope));
+  const worked = streams.filter((r) => r.status !== 'disabled' && r.status !== 'not-attached');
+  if (worked.length === 0 && streams.some((r) => r.status === 'disabled')) {
+    throw vaultError(
+      'E_SYNC_DISABLED',
+      'no attached stream has sync.push or sync.pull on',
+      'turn the change journal on first: `cleo sync enable push`',
+    );
+  }
+  return { apiUrl: conn.apiUrl, streams, warnings: [...conn.warnings] };
 }
 
 /** The keyed hash of an empty table (a table the parent lists that this store no longer has). */
@@ -2308,6 +2701,10 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
               carryMachineState(staged.dbPath, hasLocal ? t.dbPath : null, tableScopeOf(t), {
                 snapshotRoot:
                   t.scope === 'global' ? null : (manifest.projects[0]?.originalPath ?? null),
+                // A journal checkpoint carries its rows' merge state (T13312).
+                ...(isJournalSnapshot(targetCp)
+                  ? { snapshotCarried: JOURNAL_SNAPSHOT_CARRIED }
+                  : {}),
               }),
             ),
           );
@@ -2810,6 +3207,41 @@ export function pushSyncStream(
   opts: NexusVaultCommandOptions & { allowUnreleased?: boolean } = {},
 ): Promise<PushStreamReport> {
   return mapped(() => pushSyncStreamImpl(opts));
+}
+
+/**
+ * Pull this store's stream journal (journal spec §3.1; T12343 S5-1): verified
+ * segments after the store's cursor are decoded, signature-checked, staged
+ * (a re-delivered transaction never twice, a vault delta passed over) and
+ * applied. A store with no pull position starts after the checkpoint it last
+ * synced. `cleo cloud sync` (T12996) runs it with push.
+ *
+ * @param opts - Scope and overrides.
+ * @returns What was received, staged and applied.
+ * @throws {NexusAccountError} `E_NEXUS_SYNC_REFUSED` (replica mismatch, no position),
+ *   `E_NEXUS_VAULT_NOT_LINKED`, or a mapped API error.
+ */
+export function pullSyncStream(opts: NexusVaultCommandOptions = {}): Promise<PullStreamReport> {
+  return mapped(() => pullSyncStreamImpl(opts));
+}
+
+/**
+ * `cleo cloud sync`: seal, push, pull and apply the change journal of each
+ * attached stream (the project's `project:<id>`, the account's `home:<user>`;
+ * T12996). One result per stream: sealed, persisted, sent, received, staged,
+ * applied, held and in conflict, and how far the store has staged against
+ * the server's head. An interrupted run resumes on the next: a segment is
+ * resent with the same bytes, and a transaction is never staged twice.
+ *
+ * @param opts - `scope` (one stream; default every attached one), overrides;
+ *   `allowUnreleased` for tests and staging only.
+ * @returns Every stream's result.
+ * @throws {NexusAccountError} `E_SYNC_DISABLED` when no attached stream has a journal flag on.
+ */
+export function cloudSync(
+  opts: NexusVaultCommandOptions & { allowUnreleased?: boolean } = {},
+): Promise<CloudSyncResult> {
+  return mapped(() => cloudSyncImpl(opts));
 }
 
 /**

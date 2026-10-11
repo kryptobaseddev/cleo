@@ -10,8 +10,11 @@
  *   T691 — novelty boost k=1.5 on first co-retrieval (INSERT path only)
  *
  * Strategy: each `it()` gets its own `mkdtemp` temp dir so tests are
- * fully isolated. Rows are inserted with `datetime('now', '-Ns')` so
- * timestamps are real SQLite expressions. No sleep(), no time mocks.
+ * fully isolated. Rows are inserted with `datetime(<anchor>, '-Ns')` so
+ * timestamps are real SQLite expressions. No sleep(), no time mocks. The
+ * anchor is one instant captured per test: `datetime('now')` is read per
+ * statement at one-second resolution, so two inserts that straddle a second
+ * boundary were 11 s apart instead of 10 (gh#1887).
  *
  * @task T688
  * @task T689
@@ -37,6 +40,9 @@ import { vi } from 'vitest';
 
 let tempDir: string;
 
+/** This test's single "now", as a SQLite datetime (UTC, second resolution). */
+let nowAnchor: string;
+
 async function setupDb(dir: string) {
   const { closeBrainDb, getBrainDb, getBrainNativeDb } = await import(
     '../../store/memory-sqlite.js'
@@ -52,7 +58,7 @@ function insertRetrievalRow(
   opts: {
     entryIds: string[];
     sessionId: string;
-    /** Positive number of seconds ago, e.g. 30 → datetime('now', '-30 seconds') */
+    /** Positive number of seconds ago, e.g. 30 → datetime(nowAnchor, '-30 seconds') */
     secondsAgo: number;
     rewardSignal?: number | null;
   },
@@ -62,13 +68,14 @@ function insertRetrievalRow(
     .prepare(
       `INSERT INTO brain_retrieval_log
          (query, entry_ids, entry_count, source, session_id, reward_signal, created_at)
-       VALUES ('q', ?, ?, 'test', ?, ?, datetime('now', ?))`,
+       VALUES ('q', ?, ?, 'test', ?, ?, datetime(?, ?))`,
     )
     .run(
       entryIdsJson,
       opts.entryIds.length,
       opts.sessionId,
       opts.rewardSignal ?? null,
+      nowAnchor,
       `-${opts.secondsAgo} seconds`,
     );
   return Number(result.lastInsertRowid);
@@ -90,13 +97,14 @@ function insertRetrievalRowDaysAgo(
     .prepare(
       `INSERT INTO brain_retrieval_log
          (query, entry_ids, entry_count, source, session_id, reward_signal, created_at)
-       VALUES ('q', ?, ?, 'test', ?, ?, datetime('now', ?))`,
+       VALUES ('q', ?, ?, 'test', ?, ?, datetime(?, ?))`,
     )
     .run(
       entryIdsJson,
       opts.entryIds.length,
       opts.sessionId,
       opts.rewardSignal ?? null,
+      nowAnchor,
       `-${secondsAgo} seconds`,
     );
   return Number(result.lastInsertRowid);
@@ -105,6 +113,7 @@ function insertRetrievalRowDaysAgo(
 describe('STDP Wave 2 — T688/T689/T692/T691 (real SQLite, no mocks)', () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cleo-stdp-wave2-'));
+    nowAnchor = new Date().toISOString().slice(0, 19).replace('T', ' ');
     process.env['CLEO_DIR'] = join(tempDir, '.cleo');
   });
 
@@ -746,9 +755,9 @@ describe('STDP Wave 2 — T688/T689/T692/T691 (real SQLite, no mocks)', () => {
         .prepare(
           `INSERT INTO brain_retrieval_log
              (query, entry_ids, entry_count, source, session_id, reward_signal, created_at)
-           VALUES ('q', ?, 1, 'test', 'ses_t691_rc_2', NULL, datetime('now'))`,
+           VALUES ('q', ?, 1, 'test', 'ses_t691_rc_2', NULL, datetime(?))`,
         )
-        .run(JSON.stringify(['obs:t691-rc-B']));
+        .run(JSON.stringify(['obs:t691-rc-B']), nowAnchor);
 
       // Re-run plasticity: existing edge should get reinforcement_count incremented.
       // Must re-open DB after applyStdpPlasticity since it manages its own connection.
