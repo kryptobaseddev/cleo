@@ -310,11 +310,18 @@ export interface GateVerifyParams {
    */
   sharedEvidence?: boolean;
   /**
-   * `--no-run` (T12621): serve every process-executing typed gate from the
-   * ADR-061 result cache and execute none. A gate without a fresh cached pass
-   * refuses the write, before anything is recorded, with `E_GATE_NOT_CACHED`.
+   * `--no-run` (T12621). Since T13521 (owner decision) every write is
+   * cache-only unless {@link GateVerifyParams.runTyped} is set, so this flag
+   * only states that default explicitly; it refuses alongside `runTyped`.
    */
   noRun?: boolean;
+  /**
+   * `--run-typed` (T13521): execute the task's uncached typed gates during
+   * this write, the pre-T13521 behaviour. Without it a write executes no typed
+   * gate command: it reads cached passes (from `cleo verify --run`), refuses
+   * a gate the write links that has none, and records the others as not run.
+   */
+  runTyped?: boolean;
   /**
    * Per-gate evidence for ONE write (T12625 · `cleo done`): each gate's own
    * atom string goes through the same parse → `validateAtom` → gate minimum →
@@ -465,13 +472,23 @@ export async function validateGateVerify(
       value !== false &&
       Boolean(gate || all || params.gateEvidence) &&
       originalAcceptance.some((item) => typeof item !== 'string');
-    // T12621: `evidence.allowCachedGates: false` disables reuse, so `--no-run`
-    // has nothing it may record from.
+    // T13521 (owner decision): an evidence write executes typed gates only
+    // with `--run-typed`; otherwise it reads the T12621 result cache.
+    if (params.noRun && params.runTyped)
+      // @sync-invariant none:input-shape contradictory flags are refused before any read; nothing is written
+      return engineError(
+        // @sync-invariant none:input-shape contradictory flags are refused before any read; nothing is written
+        'E_INVALID_INPUT',
+        '--no-run and --run-typed contradict each other: --run-typed executes typed gates on this write, --no-run forbids it',
+      );
+    const executeTyped = params.runTyped === true;
+    // T12621: `evidence.allowCachedGates: false` disables reuse, so a
+    // cache-only write has nothing it may record from.
     const allowCachedGates = readAllowCachedGates(projectRoot);
-    if (typedWrite && params.noRun && !allowCachedGates)
+    if (typedWrite && !executeTyped && !allowCachedGates)
       return engineError(
         'E_GATE_CACHE_DISABLED',
-        `--no-run: this project sets evidence.allowCachedGates to false, so typed gates must execute; drop --no-run to verify ${taskId}`,
+        `this project sets evidence.allowCachedGates to false, so typed gates cannot be read from the cache; pass --run-typed to execute them on this write (cleo verify ${taskId} --gate <g> --evidence <atoms> --run-typed)`,
       );
     const initialAcRows = typedWrite ? await accessor.getAcRows(taskId) : [];
     let typedExecution: OperationExecutionContext | undefined;
@@ -999,9 +1016,9 @@ export async function validateGateVerify(
       verification.gateResults = await runTaskGates(task, initialAcRows, {
         projectRoot,
         execution: typedExecution,
-        // T12621: reuse a pass cached by `cleo verify --run` or an earlier
-        // attempt; `--no-run` executes nothing.
-        cache: allowCachedGates ? (params.noRun ? 'only' : 'use') : 'off',
+        // T12621 + T13521: a write reads passes cached by `cleo verify --run`
+        // and executes nothing, unless `--run-typed` asks it to execute.
+        cache: !executeTyped ? 'only' : allowCachedGates ? 'use' : 'off',
       });
       // `--no-run` refuses the whole write rather than recording a gate this
       // write links but declined to execute (T13512 narrows it to linked gates).
@@ -1012,7 +1029,8 @@ export async function validateGateVerify(
           .map((result) => result.errorMessage!.replace('<taskId>', taskId));
       const invalid = refusedFrom(GATE_CACHE_INVALID_PREFIX);
       if (invalid.length > 0) return engineError('E_GATE_CACHE_INVALID', invalid.join('\n'));
-      // T13512: `--no-run` needs a cached pass only for the typed gates whose
+      // T13512: a cache-only write (the default since T13521) needs a cached
+      // pass only for the typed gates whose
       // criteria this write links (`satisfies:`). A gate it does not link is
       // recorded as not run — an unmet result that `cleo complete` still
       // refuses — instead of blocking an unrelated gate write.

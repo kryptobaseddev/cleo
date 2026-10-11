@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.24.10 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.24.11 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -133,7 +133,7 @@ Before `cleo complete <id>`, every gate requires programmatic evidence validated
 | `securityPassed` | `tool:security-scan` |
 | `cleanupDone` | `note:removed dead branches` |
 
-Name the acceptance criteria each result proves: `cleo verify T1234 --gate implemented --evidence "commit:abc123;files:src/fix.ts;satisfies:T1234#AC1"`. Record `testsPassed` and `qaPassed` separately with actual verification results and explicit criterion links. Documentation-only PRs cannot implement a code-fix task; changed criteria require fresh evidence, and a child waiver does not waive parent criteria. Then `cleo complete T###` re-validates every hard atom (commit reachable, file sha256, test-run hash); tampering → `E_EVIDENCE_STALE`. Typed gates, `pr:` rules, tool timeouts and the audited owner override: `cleo briefing inject --section evidence`.
+Name the acceptance criteria each result proves: `cleo verify T1234 --gate implemented --evidence "commit:abc123;files:src/fix.ts;satisfies:T1234#AC1"`. Record `testsPassed` and `qaPassed` separately with actual verification results and explicit criterion links. Documentation-only PRs cannot implement a code-fix task; changed criteria require fresh evidence, and a child waiver does not waive parent criteria. Then `cleo complete T###` re-validates every hard atom (commit reachable, file sha256, test-run hash); tampering → `E_EVIDENCE_STALE`. Typed gates, `pr:` rules, tool timeouts and the audited owner override: `cleo briefing inject --section evidence`. Typed gates execute only via `cleo verify --run`.
 
 Anti-patterns: completing without running tests · self-attesting without programmatic proof · running tests by hand, then again via `tool:test` · modifying files between `cleo verify` and `cleo complete`.
 <!-- /CLEO-INJECTION:section=pre-complete-gate -->

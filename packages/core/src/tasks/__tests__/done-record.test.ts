@@ -104,7 +104,17 @@ function commitOnTaskBranch(taskId: string): string {
 }
 
 function opts(extra: Partial<RecordTaskDoneOptions> = {}): RecordTaskDoneOptions {
-  return { projectRoot: root, cwd: root, deps, satisfies: 'all', agent: 'test', ...extra };
+  // T13521: these tests were written for `cleo done` executing typed gates;
+  // they opt in. The cache-only default has its own tests below.
+  return {
+    projectRoot: root,
+    cwd: root,
+    deps,
+    satisfies: 'all',
+    agent: 'test',
+    runTyped: true,
+    ...extra,
+  };
 }
 
 function gatesJsonl(): string {
@@ -219,7 +229,9 @@ describe('slow work finishes before the write (AC2)', () => {
             return { gateCount: 1, passed: true, failing: [] };
           },
           write: async (_root, params) => {
-            log.push(`write:${Object.keys(params.gateEvidence).join(',')}:noRun=${params.noRun}`);
+            log.push(
+              `write:${Object.keys(params.gateEvidence).join(',')}:runTyped=${params.runTyped === true}`,
+            );
             return { success: true, data: { passed: true } };
           },
         },
@@ -237,8 +249,60 @@ describe('slow work finishes before the write (AC2)', () => {
       'start:test',
       'end:test',
       'typed',
-      'write:implemented,testsPassed,qaPassed:noRun=true',
+      // The typed gates ran (and cached) above, so the write itself is cache-only.
+      'write:implemented,testsPassed,qaPassed:runTyped=false',
     ]);
+  });
+
+  it('T13521: without --run-typed, cleo done executes no typed gate and names cleo verify --run when one is uncached', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    await reqAdd(
+      root,
+      id,
+      {
+        kind: 'command',
+        cmd: 'node -e 0',
+        exitCode: 0,
+        description: 'Harness passes',
+        req: 'R13521',
+      },
+      env.accessor,
+    );
+    const r = await recordTaskDone(
+      id,
+      opts({
+        runTyped: false,
+        steps: {
+          runTool: async () => ({
+            exitCode: 0,
+            cacheHit: false,
+            durationMs: 0,
+            timedOut: false,
+            tail: '',
+          }),
+          runTypedGates: async () => {
+            throw new Error('cleo done must not execute typed gates without --run-typed');
+          },
+          write: async (_root, params) => {
+            expect(params.runTyped).toBeUndefined();
+            return {
+              success: false,
+              error: {
+                code: 'E_GATE_NOT_CACHED',
+                message: 'typed gate not cached: gate "R13521" has no cached pass',
+                exitCode: 1,
+              },
+            } as never;
+          },
+        },
+      }),
+    );
+    expect(r.success).toBe(false);
+    if (r.success) return;
+    const details = r.error.details as DoneBlockedDetails;
+    expect(details.cause).toBe('E_GATE_NOT_CACHED');
+    expect(details.next.command).toBe(`cleo verify ${id} --run && cleo done ${id}`);
   });
 
   it('a failing tool stops before test and before any write', async () => {
@@ -553,6 +617,8 @@ describe('one write is all-or-nothing across gates (review test gaps)', () => {
   it('a content mismatch on the SECOND gate refuses the write and records no gate', async () => {
     const { id, head } = await setup();
     const r = await validateGateVerify(root, {
+      // T13521: this test exercises typed-gate execution on the write.
+      runTyped: true,
       taskId: id,
       gateEvidence: {
         implemented: `commit:${head};files:src/a.ts;satisfies:${id}#AC1`,
@@ -573,6 +639,8 @@ describe('one write is all-or-nothing across gates (review test gaps)', () => {
   it('a refusal on the THIRD gate leaves the first two unrecorded', async () => {
     const { id, head } = await setup();
     const r = await validateGateVerify(root, {
+      // T13521: this test exercises typed-gate execution on the write.
+      runTyped: true,
       taskId: id,
       gateEvidence: {
         implemented: `commit:${head};files:src/a.ts;satisfies:${id}#AC1`,
@@ -701,6 +769,8 @@ describe('typed results verified in a worktree complete from main after merge (T
     process.chdir(wt);
     try {
       const r = await validateGateVerify(root, {
+        // T13521: this test exercises typed-gate execution on the write.
+        runTyped: true,
         taskId: id,
         gateEvidence: {
           implemented: `commit:${head};files:src/a.ts;satisfies:${id}#AC1;satisfies:${id}#AC2`,
@@ -749,6 +819,8 @@ describe('typed results verified in a worktree complete from main after merge (T
     process.chdir(wt);
     try {
       const r = await validateGateVerify(root, {
+        // T13521: this test exercises typed-gate execution on the write.
+        runTyped: true,
         taskId: id,
         gateEvidence: {
           implemented: `commit:${head};files:src/a.ts;satisfies:${id}#AC1;satisfies:${id}#AC2`,
@@ -1163,6 +1235,8 @@ describe('batch close: several tasks shipped by one PR (T12628)', () => {
     git(root, ['commit', '-q', '-am', `${id}: again`]);
     const c2 = git(root, ['rev-parse', 'HEAD']);
     const r = await validateGateVerify(root, {
+      // T13521: this test exercises typed-gate execution on the write.
+      runTyped: true,
       taskId: id,
       gateEvidence: {
         implemented: [

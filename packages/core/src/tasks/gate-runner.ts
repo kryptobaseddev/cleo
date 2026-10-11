@@ -196,8 +196,10 @@ export function typedGateAdmissionMs(
 }
 
 /**
- * Actionable refusal for `cache: 'only'` (`cleo verify --no-run`) when a gate
- * would have to execute. Names the gate and the command that fills the cache.
+ * Actionable refusal for `cache: 'only'` — every evidence write by default
+ * (T13521, owner decision: writes read the cache, `cleo verify --run` executes)
+ * and `--no-run` — when a gate would have to execute. Names the gate and the
+ * command that fills the cache.
  */
 function gateNotCachedMessage(
   gate: AcceptanceGate,
@@ -205,25 +207,30 @@ function gateNotCachedMessage(
   keyAvailable: boolean,
 ): string {
   const name = gate.req ?? gate.description;
+  const run = gate.req
+    ? `cleo verify <taskId> --run --req ${gate.req}`
+    : 'cleo verify <taskId> --run';
   if (gate.kind === 'http')
-    return `${GATE_NOT_CACHED_PREFIX} http gate "${name}" observes a live service and is never cached; drop --no-run to execute it`;
+    return `${GATE_NOT_CACHED_PREFIX} http gate "${name}" observes a live service and is never cached; pass --run-typed to execute it on this write`;
   if (!cacheable)
-    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached result because the project root is not a git checkout (results are keyed by HEAD + dirty-tree fingerprint); drop --no-run to execute it`;
+    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached result because the project root is not a git checkout (results are keyed by HEAD + dirty-tree fingerprint); pass --run-typed to execute it on this write`;
   if (!keyAvailable)
-    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" cannot use the cache because the machine key ${evidenceCacheKeyPath()} is unreadable; drop --no-run to execute it`;
+    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" cannot use the cache because the machine key ${evidenceCacheKeyPath()} is unreadable; pass --run-typed to execute it on this write`;
   return (
     `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached pass for the current HEAD, working tree and inputs. ` +
-    'Run `cleo verify <taskId> --run` first (it caches passing results), or drop --no-run to execute it now'
+    `Evidence writes do not execute typed gates: run \`${run}\` first (it caches passing results), ` +
+    'or pass --run-typed to execute it on this write'
   );
 }
 
 /**
  * Prefix of the `errorMessage` a gate carries when `cache: 'only'` refused to
- * execute it. The verifier matches it to refuse the whole write with
- * `E_GATE_NOT_CACHED` instead of recording an `error` result.
+ * execute it. The verifier matches it to refuse the write with
+ * `E_GATE_NOT_CACHED` (a gate the write links) or to record it as not run.
  * @task T12621
+ * @task T13521
  */
-export const GATE_NOT_CACHED_PREFIX = '--no-run:';
+export const GATE_NOT_CACHED_PREFIX = 'typed gate not cached:';
 
 /**
  * Prefix of the `errorMessage` a gate carries when `cache: 'only'` found an
@@ -231,7 +238,7 @@ export const GATE_NOT_CACHED_PREFIX = '--no-run:';
  * `E_GATE_CACHE_INVALID`: a forged or tampered pass is never recorded.
  * @task T12621
  */
-export const GATE_CACHE_INVALID_PREFIX = '--no-run [invalid cache entry]:';
+export const GATE_CACHE_INVALID_PREFIX = 'typed gate cache entry invalid:';
 
 /**
  * Load (creating on first use, mode 0600) the per-machine key that seals
@@ -490,7 +497,7 @@ export async function runGates(
             if (lookup.status === 'invalid' && cacheMode === 'only')
               throw new Error(
                 `${GATE_CACHE_INVALID_PREFIX} gate "${parsed.req ?? parsed.description}": ${lookup.reason}. ` +
-                  'It was not used. Drop --no-run to execute the gate (a pass replaces the entry)',
+                  'It was not used. Run `cleo verify <taskId> --run` (a pass replaces the entry), or pass --run-typed on this write',
               );
           }
           if (cacheMode === 'only' && TOOL_GATE_KINDS.has(parsed.kind))
