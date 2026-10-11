@@ -38,6 +38,8 @@ import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-help
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { validateGateVerify } from '../../validation/engine-ops.js';
+import { acTextHash } from '../ac-identity.js';
+import { acItemToText } from '../ac-table.js';
 import { addTask } from '../add.js';
 import type { ChangeSetDeps } from '../change-set.js';
 import { satisfyGatesFromMergedCi } from '../complete-ci.js';
@@ -49,6 +51,7 @@ import {
   parseEvidence,
   validateAtom,
 } from '../evidence.js';
+import { reqAdd } from '../req.js';
 import { captureTreeHash, runToolCached } from '../tool-cache.js';
 import { resolveToolCommand } from '../tool-resolver.js';
 import { acquireGlobalSlot } from '../tool-semaphore.js';
@@ -1423,5 +1426,72 @@ describe('research and no-change-set tasks', () => {
     expect(plan.next?.command).toBe(`git switch -c task/${id}`);
     expect(plan.commands.some((c) => c.startsWith('cleo complete'))).toBe(false);
     expect(plan.ready).toBe(false);
+  });
+});
+
+describe('a stored typed pass bound to an older definition is not a pass (T13463 review LOW)', () => {
+  const gate = {
+    kind: 'command' as const,
+    cmd: 'node -e 0',
+    exitCode: 0,
+    description: 'Harness passes',
+    req: 'H-1',
+  };
+
+  async function withStoredPass(
+    bind: (text: string) => { criterionHash: string; gateHash: string },
+  ) {
+    const id = await seedTask(['Change src/a.ts']);
+    commitOnTaskBranch(id);
+    await reqAdd(root, id, gate, env.accessor);
+    const rows = await env.accessor.getAcRows(id);
+    const row = [...rows].sort((a, b) => a.ordinal - b.ordinal)[1];
+    if (!row) throw new Error('typed gate row missing');
+    const verification = {
+      passed: false,
+      round: 1,
+      gates: {},
+      failureLog: [],
+      lastAgent: null,
+      lastUpdated: null,
+      gateResults: [
+        {
+          index: 1,
+          req: 'H-1',
+          kind: 'command',
+          result: 'pass',
+          checkedAt: '2026-10-01T00:00:00Z',
+          checkedBy: 'test',
+          durationMs: 1,
+          binding: bind(row.text),
+        },
+      ],
+    };
+    await env.accessor.updateTaskFields(id, { verificationJson: JSON.stringify(verification) });
+    return deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+  }
+
+  it('a binding to the current criterion and gate reads pass', async () => {
+    const plan = await withStoredPass((text) => ({
+      criterionHash: acTextHash(text),
+      gateHash: createHash('sha256').update(acItemToText(gate)).digest('hex'),
+    }));
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['pass']);
+  });
+
+  it('a binding to an older gate definition reads not-run, as complete refuses it', async () => {
+    const plan = await withStoredPass((text) => ({
+      criterionHash: acTextHash(text),
+      gateHash: createHash('sha256').update('{"old":"definition"}').digest('hex'),
+    }));
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+  });
+
+  it('a binding to an older criterion text reads not-run', async () => {
+    const plan = await withStoredPass(() => ({
+      criterionHash: acTextHash('an older criterion'),
+      gateHash: createHash('sha256').update(acItemToText(gate)).digest('hex'),
+    }));
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
   });
 });
