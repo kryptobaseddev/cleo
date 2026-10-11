@@ -37,9 +37,15 @@ import type { TableScope } from '@cleocode/contracts';
 import { withImmediateTransaction } from './clock-store.js';
 import type { StreamCursor } from './pull.js';
 import { type ReconcileReport, reconcileInPlace } from './reconcile.js';
-import { activeReplica, rebindReplicaWith, type SyncOpenOptions } from './replica.js';
+import {
+  activeReplica,
+  RETIRE_DUE_KEY,
+  rebindReplicaWith,
+  retireDue,
+  type SyncOpenOptions,
+} from './replica.js';
 import { queueRetireTxn } from './retire.js';
-import { hasTable } from './schema.js';
+import { GENESIS_CUT_KEY_PREFIX, hasTable } from './schema.js';
 import {
   FOREIGN_TOUCH_COUNT_KEY,
   FOREIGN_TOUCH_INCOMPLETE_KEY,
@@ -209,10 +215,7 @@ export function rebindAtHead(db: DatabaseSync, o: RebindAtHeadOptions): RebindAt
       at: nowIso,
     };
     tx.prepare('DELETE FROM _sync_meta WHERE key = ?').run(UNDO_BUDGET_EXCEEDED_KEY);
-    tx.prepare(
-      'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
-        'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-    ).run(REBIND_PENDING_KEY, JSON.stringify(pending), nowIso);
+    writePendingRebind(tx, pending);
     return { undoDropped, reconcile, pending };
   });
   return {
@@ -223,6 +226,105 @@ export function rebindAtHead(db: DatabaseSync, o: RebindAtHeadOptions): RebindAt
     undoDropped: out.result.undoDropped,
     reconcile: out.result.reconcile,
   };
+}
+
+/** Record the server half of a committed rebind, in the caller's transaction. */
+function writePendingRebind(db: DatabaseSync, pending: PendingRebind): void {
+  db.prepare(
+    'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ' +
+      'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+  ).run(REBIND_PENDING_KEY, JSON.stringify(pending), pending.at);
+}
+
+/**
+ * The stream a store announces a retirement on: the one it holds a pushed
+ * high-water, a genesis cut or a pull position for. A store has one stream
+ * (T13303); with several, its genesis cut's stream wins, then the first by
+ * name. Null when the store never joined a stream.
+ */
+function retireStream(db: DatabaseSync, hwm: Readonly<Record<string, number>>): string | null {
+  const cut = (
+    db
+      .prepare('SELECT key FROM _sync_meta WHERE key >= ? AND key < ? ORDER BY key')
+      .all(GENESIS_CUT_KEY_PREFIX, `${GENESIS_CUT_KEY_PREFIX}\uffff`) as Array<{ key: string }>
+  ).map((r) => r.key.slice(GENESIS_CUT_KEY_PREFIX.length));
+  if (cut.length > 0) return cut[0] as string;
+  const cursors = hasTable(db, '_sync_cursor')
+    ? (
+        db.prepare('SELECT stream FROM _sync_cursor ORDER BY stream').all() as Array<{
+          stream: string;
+        }>
+      ).map((r) => r.stream)
+    : [];
+  const all = [...new Set([...Object.keys(hwm), ...cursors])].sort();
+  return all[0] ?? null;
+}
+
+/**
+ * Turn the retirement an open-pass rebind owes (a rollback or a
+ * cross-filesystem move, {@link RETIRE_DUE_KEY}; T13337) into the signed
+ * `retire` transaction and the pending server rebind, in one transaction.
+ * `cloud sync` then completes the server half (`completeServerRebind`)
+ * before it pushes or pulls, as after a rebind at head.
+ *
+ * The retire names the highest replicaSeq of the old replica persisted on
+ * the stream, by the store or the device registry; a replica that persisted
+ * nothing retires with no journal transaction. A store that never joined a
+ * stream owes nothing, and the record is dropped. While another rebind's
+ * server half is still pending, nothing is done: that one completes first.
+ *
+ * @param db - The store, outside a transaction.
+ * @param opts - Clock override (tests).
+ * @returns The pending rebind it recorded, or null.
+ */
+export function settleRetireDue(
+  db: DatabaseSync,
+  opts: { readonly now?: () => Date } = {},
+): PendingRebind | null {
+  if (retireDue(db) === null || pendingRebind(db) !== null) return null;
+  return withImmediateTransaction(db, () => {
+    const due = retireDue(db);
+    if (due === null || pendingRebind(db) !== null) return null;
+    db.prepare('DELETE FROM _sync_meta WHERE key = ?').run(RETIRE_DUE_KEY);
+    // A later rebind superseded this one: the store no longer is `to`.
+    if (activeReplica(db, due.scope)?.replicaId !== due.to) return null;
+    const stream = retireStream(db, due.hwm);
+    if (stream === null) return null;
+    const now = opts.now?.() ?? new Date();
+    const segmented = hasTable(db, '_sync_segment')
+      ? (
+          db
+            .prepare(
+              'SELECT max(replica_seq) AS s FROM _sync_segment WHERE stream = ? AND replica_id = ?',
+            )
+            .get(stream, due.from) as { s: number | null }
+        ).s
+      : null;
+    const candidates = [due.hwm[stream], segmented === null ? undefined : Number(segmented)].filter(
+      (v): v is number => v !== undefined,
+    );
+    const lastReplicaSeq = candidates.length > 0 ? Math.max(...candidates) : null;
+    const retireTxn =
+      lastReplicaSeq === null
+        ? null
+        : queueRetireTxn(db, {
+            scope: due.scope,
+            stream,
+            retire: { replica: due.from, successor: due.to, lastReplicaSeq },
+            nowMs: now.getTime(),
+          });
+    const pending: PendingRebind = {
+      stream,
+      scope: due.scope,
+      from: due.from,
+      to: due.to,
+      lastReplicaSeq,
+      retireTxn,
+      at: now.toISOString(),
+    };
+    writePendingRebind(db, pending);
+    return pending;
+  });
 }
 
 /**
