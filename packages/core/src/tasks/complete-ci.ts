@@ -273,6 +273,10 @@ export async function satisfyGatesFromMergedCi(
     taskId: task.id,
     gateEvidence,
     agent: 'cleo-complete',
+    // T13515: `cleo complete` never executes a typed gate command. A gate
+    // write runs uncached typed gates unless `noRun` is set; here only cached
+    // passes may be used, and a missing one leaves merged CI unable to stand in.
+    noRun: true,
   });
   if (written.success) return { kind: 'recorded', pr: prRef, gates: needs };
   const code = written.error?.code ?? 'E_INTERNAL';

@@ -794,6 +794,17 @@ describe('typed requirement persistence', () => {
         expect([runs(), count(second)]).toEqual([1, 2]);
       });
 
+      it('T13515: on a COLD cache, --req executes only the selected gate', async () => {
+        await cachedGateFixture('process.exit(0);');
+        const second = await addSecondGate();
+        // Nothing has run and nothing is cached.
+        expect([runs(), count(second)]).toEqual([0, 0]);
+        const only = await previewTaskGates(root, { taskId: 'T121', req: 'COUNTED-B' });
+        expect(only.results.map((r) => r.req)).toEqual(['COUNTED-B']);
+        // The unselected counted gate never executed.
+        expect([runs(), count(second)]).toEqual([0, 1]);
+      });
+
       it("refuses an unknown REQ-ID, naming the task's REQ-IDs", async () => {
         await cachedGateFixture('process.exit(0);');
         await expect(previewTaskGates(root, { taskId: 'T121', req: 'NOPE' })).rejects.toThrow(
