@@ -541,7 +541,13 @@ export type {
   RiskFactor,
   ValidationPrediction,
 } from './intelligence/types.js';
-export { type AddIssueParams, type AddIssueResult, addIssue } from './issue/create.js';
+export {
+  type AddIssueParams,
+  type AddIssueResult,
+  addIssue,
+  ISSUE_AREAS,
+  ISSUE_SEVERITIES,
+} from './issue/create.js';
 // Issue
 export { collectDiagnostics } from './issue/diagnostics.js';
 // Lib — shared primitives

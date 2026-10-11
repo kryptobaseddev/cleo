@@ -120,6 +120,10 @@ export const ghPrViewSchema = z
             workflowName: z.string().optional(),
             conclusion: z.string().nullable().optional(),
             status: z.string().optional(),
+            /** ISO start time of a CheckRun; orders re-runs of one check (T13506). */
+            startedAt: z.string().nullable().optional(),
+            /** ISO completion time of a CheckRun; orders re-runs of one check (T13506). */
+            completedAt: z.string().nullable().optional(),
           })
           .passthrough(),
       )

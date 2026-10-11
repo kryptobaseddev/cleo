@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.7
+version: 3.1.9
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,12 +14,18 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.7
+  version: 3.1.9
   tier: core
   install: harness
   covers:
     - .github/workflows/release-prepare.yml
-  lastReviewed: 2026-10-04
+    - packages/core/src/init.ts
+    - packages/cleo/src/cli/commands/init.ts
+    - packages/core/src/hooks.ts
+    - packages/core/src/git/hooks-install.ts
+    - packages/core/templates/git-hooks/**
+    - packages/contracts/src/git-hooks.ts
+  lastReviewed: 2026-10-10
   stability: stable
 ---
 
@@ -65,6 +71,29 @@ Every commit MUST be traceable to a CLEO task. This ensures:
 | WF-003 | Atomic commits | ONE logical change per commit |
 | WF-004 | Conventional format | `<type>(<scope>): <description>` |
 | WF-005 | Tests before push | Relevant tests MUST pass |
+
+---
+
+## Git Hook Delivery (T13349)
+
+Init, upgrade and explicit Git hook installation share the ownership-aware installer.
+Resolve the effective hook directory through Git, including `core.hooksPath` and
+linked worktrees. Preserve foreign hooks and customized managed hooks; a CLEO
+marker alone never authorizes replacement. Refresh only exact shipped legacy
+bodies or receipt-owned content, using locked atomic writes and hash-guarded
+rollback. Report conflicts with the suggested integration snippet.
+
+Receipts and locks stay in Git-private common metadata, including when
+`core.hooksPath` selects tracked files. Default installation preserves hook
+paths inside the checkout. Use `cleo init --git-hooks-only --allow-tracked-hooks-path` only after
+reviewing the tracked destination; this opt-in still preserves foreign and
+customized hooks. Init warnings carry the exact opt-in command.
+
+The standalone pre-push template enforces task IDs from Git ref-update stdin.
+Shared project-runner integration belongs to the unified hooks feature and must
+ship with its implemented CLI verb. Verify nested checkout paths, linked
+worktrees, custom hook paths, historical release bodies and corrupt receipts
+with focused Git fixtures before changing this delivery path.
 
 ---
 

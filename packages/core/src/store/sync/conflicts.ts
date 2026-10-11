@@ -102,6 +102,36 @@ export function recordConflicts(
 }
 
 /**
+ * Record a conflict of one op unless that op already has one of its kind.
+ * For a transaction re-planned on every apply call while it stays pending
+ * (a held uid collision, T13394), so the hold is listed once, not per pass.
+ *
+ * @param db - The store, inside the apply frame's transaction.
+ * @param site - The inbox transaction and op index.
+ * @param conflict - The conflict.
+ * @param origin - The op's origin replica.
+ * @param nowIso - The time.
+ * @returns Whether it was recorded now.
+ */
+export function recordConflictOnce(
+  db: DatabaseSync,
+  site: ConflictSite,
+  conflict: MergeConflict,
+  origin: string,
+  nowIso: string,
+): boolean {
+  const seen = db
+    .prepare(
+      `SELECT 1 FROM _sync_conflict
+        WHERE stream = ? AND seq = ? AND txn_idx = ? AND op_idx = ? AND kind = ?`,
+    )
+    .get(site.stream, site.seq, site.txnIdx, site.opIdx, conflict.kind);
+  if (seen) return false;
+  recordConflicts(db, site, [conflict], origin, nowIso);
+  return true;
+}
+
+/**
  * The recorded conflicts, oldest first.
  *
  * @param db - The store.

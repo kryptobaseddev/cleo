@@ -1003,8 +1003,8 @@ export async function validateGateVerify(
         // attempt; `--no-run` executes nothing.
         cache: allowCachedGates ? (params.noRun ? 'only' : 'use') : 'off',
       });
-      // `--no-run` refuses the whole write rather than recording a gate it
-      // declined to execute as an `error` result.
+      // `--no-run` refuses the whole write rather than recording a gate this
+      // write links but declined to execute (T13512 narrows it to linked gates).
       const results = verification.gateResults;
       const refusedFrom = (prefix: string) =>
         results
@@ -1012,7 +1012,25 @@ export async function validateGateVerify(
           .map((result) => result.errorMessage!.replace('<taskId>', taskId));
       const invalid = refusedFrom(GATE_CACHE_INVALID_PREFIX);
       if (invalid.length > 0) return engineError('E_GATE_CACHE_INVALID', invalid.join('\n'));
-      const notCached = refusedFrom(GATE_NOT_CACHED_PREFIX);
+      // T13512: `--no-run` needs a cached pass only for the typed gates whose
+      // criteria this write links (`satisfies:`). A gate it does not link is
+      // recorded as not run — an unmet result that `cleo complete` still
+      // refuses — instead of blocking an unrelated gate write.
+      const linked = new Set(
+        evidenceStored.flatMap((atom) =>
+          atom.kind === 'satisfies' && atom.targetTaskId === taskId && atom.resolvedAcUuid
+            ? [atom.resolvedAcUuid]
+            : [],
+        ),
+      );
+      const notCached = results
+        .filter(
+          (result) =>
+            result.errorMessage?.startsWith(GATE_NOT_CACHED_PREFIX) &&
+            result.binding !== undefined &&
+            linked.has(result.binding.criterionId),
+        )
+        .map((result) => result.errorMessage!.replace('<taskId>', taskId));
       if (notCached.length > 0) return engineError('E_GATE_NOT_CACHED', notCached.join('\n'));
       typedExecution.assertActive();
       typedPhase = 'persisting the verification';

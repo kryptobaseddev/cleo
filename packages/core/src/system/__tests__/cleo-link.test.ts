@@ -205,7 +205,12 @@ describe('repairCleoLink', () => {
 describe('global hub delivery after install (AC: the delivered reference exists on disk)', () => {
   it('bootstrap step 0.5 repairs a dangling link and the hub reference then delivers the protocol', async () => {
     symlinkSync('/home/nobody/.local/share/cleo', link);
-    const ctx: BootstrapContext = { created: [], warnings: [], isDryRun: false };
+    const ctx: BootstrapContext = {
+      created: [],
+      warnings: [],
+      isDryRun: false,
+      userRequested: false,
+    };
     await ensureCleoSymlink(ctx);
     expect(ctx.warnings).toEqual([]);
     expect(ctx.created.join('\n')).toContain('relinked');
