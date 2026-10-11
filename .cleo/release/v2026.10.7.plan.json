@@ -1,0 +1,313 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.7",
+  "resolvedVersion": "v2026.10.7",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "createdAt": "2026-10-11T04:31:21.602Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.4",
+  "previousTag": "v2026.10.4",
+  "previousShippedAt": "2026-10-10T03:47:36.423Z",
+  "tasks": [
+    {
+      "id": "T13490",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "@cleocode/adapters publishes without dist/heavy-command-hook.js; heavy-command hook cannot be installed on 10.6",
+      "evidenceAtoms": [
+        "pr:2068",
+        "files:.changeset/t13490-adapters-hook-dist.md,build.mjs",
+        "ci:2068"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13489",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "self-update runs post-update upgrade with the OLD version's code; tracked files rewritten on 10.5->10.6, and embedded delivery writes absolute paths into tracked files",
+      "evidenceAtoms": [
+        "pr:2072",
+        "files:.changeset/t13489-self-update-new-code.md,packages/cleo/src/cli/commands/__tests__/self-update-post-update-child.test.ts,packages/cleo/src/cli/commands/self-update.ts,packages/core/src/__tests__/upgrade-no-user-global-writes.test.ts,packages/core/src/injection.ts,packages/core/src/scaffold/ensure-config.ts,packages/core/src/upgrade.ts",
+        "ci:2072"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13427",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence: standalone qaPassed plans a whole-project typecheck and cannot bind existing lint/typecheck/covering-compiler receipts",
+      "evidenceAtoms": [
+        "pr:2047",
+        "files:.changeset/t13427-qa-run-receipts.md,packages/contracts/src/__tests__/evidence-atom-schema.test.ts,packages/contracts/src/done-plan.ts,packages/contracts/src/evidence-atom-schema.ts,packages/contracts/src/index.ts,packages/contracts/src/task.ts,packages/core/src/release/plan.ts,packages/core/src/release/reconcile.ts,packages/core/src/release/verify-provenance.ts,packages/core/src/tasks/__tests__/complete-ci.test.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/qa-run-binding.test.ts,packages/core/src/tasks/affected-scope.ts,packages/core/src/tasks/complete-ci.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/qa-run-binding.ts,packages/core/src/tasks/test-run-binding.ts,packages/core/src/tasks/tool-resolver.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2047"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12988",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo req replace: supersede a typed acceptance gate's command without touching the AC or waiver (axiom T389 field report)",
+      "evidenceAtoms": [
+        "pr:2076",
+        "files:.changeset/t12988-req-replace.md,packages/cleo/src/cli/commands/__tests__/req.cli.test.ts,packages/cleo/src/cli/commands/__tests__/verify-run.test.ts,packages/cleo/src/cli/commands/req.ts,packages/cleo/src/cli/commands/verify.ts,packages/cleo/src/dispatch/domains/__tests__/tasks.test.ts,packages/cleo/src/dispatch/domains/tasks.ts,packages/contracts/src/__tests__/__snapshots__/operations-registry.test.ts.snap,packages/contracts/src/dispatch/operations-registry.ts,packages/contracts/src/operations/validate.ts,packages/core/src/admin/__tests__/__snapshots__/help-tier-snapshot.test.ts.snap,packages/core/src/admin/__tests__/help-tier-snapshot.test.ts,packages/core/src/store/schema/tasks.ts,packages/core/src/tasks/__tests__/req.tasks.test.ts,packages/core/src/tasks/ac-table.ts,packages/core/src/tasks/gate-preview.ts,packages/core/src/tasks/req.ts,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2076"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13495",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence: after merge, done --plan drops a tree-pinned scoped testsPassed at the identical tree and proposes a whole suite",
+      "evidenceAtoms": [
+        "pr:2071",
+        "files:.changeset/t13495-scoped-run-carries-merge.md,packages/core/src/tasks/__tests__/affected-scope.test.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/affected-scope.ts",
+        "ci:2071"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13496",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence: research done --plan lists doc files as .cleo/blobs/blobs/<sha> while docs fetch resolves .cleo/attachments/sha256/...",
+      "evidenceAtoms": [
+        "pr:2078",
+        "files:.changeset/t13496-doc-path.md,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/change-set.ts",
+        "ci:2078"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13492",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Governed heavy-lane waits let the waiter's own task claim lease expire; no renew surface (axiom T1796)",
+      "evidenceAtoms": [
+        "pr:2074",
+        "files:.changeset/t13492-wait-renews-claim.md,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/claim-keepalive.ts,packages/core/src/resources/governor.ts,packages/core/src/task-work/__tests__/task-claims.test.ts,packages/core/src/tasks/tool-semaphore.ts",
+        "ci:2074"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13494",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "spawn classifier data.agentId (e.g. project-security-worker) differs from session and worktree agent id (axiom T1797)",
+      "evidenceAtoms": [
+        "pr:2077",
+        "files:.changeset/t13494-spawn-agent-id.md,packages/contracts/src/operations/orchestrate.ts,packages/core/src/orchestrate/__tests__/orchestrate-engine-composer.test.ts,packages/core/src/orchestrate/spawn-ops.ts",
+        "ci:2077"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13501",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "done --plan reads a typed pass bound to an older criterion or gate definition as pass",
+      "evidenceAtoms": [
+        "pr:2079",
+        "files:.changeset/t13501-typed-gate-stale-plan.md,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/done-plan.ts",
+        "ci:2079"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13515",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo complete can execute uncached typed gates through the merged-CI auto-record write",
+      "evidenceAtoms": [
+        "pr:2090",
+        "files:.changeset/t13515-complete-never-executes.md,packages/core/src/tasks/__tests__/complete-ci.test.ts,packages/core/src/tasks/__tests__/req.tasks.test.ts,packages/core/src/tasks/complete-ci.ts",
+        "ci:2090"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13506",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "pr: and ci: evidence count a superseded FAILED check run, so a PR re-run to green can never be proven",
+      "evidenceAtoms": [
+        "pr:2083",
+        "files:.changeset/t13506-latest-check-run.md,packages/contracts/src/release/evidence-atoms.ts,packages/core/src/release/__tests__/evidence-pr-atom.test.ts,packages/core/src/release/pr-evidence.ts",
+        "ci:2083"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13511",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Typed test gate default failure pattern fails a passing node --test run on its 'fail 0' summary",
+      "evidenceAtoms": [
+        "pr:2084",
+        "files:.changeset/t13511-node-test-fail-zero.md,packages/contracts/src/acceptance-gate.ts,packages/core/src/tasks/__tests__/gate-runner.test.ts,packages/core/src/tasks/gate-runner.ts",
+        "ci:2084"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13512",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "verify --no-run demands cached passes for typed gates the write does not link; a typed --run reported persisted:false and cached nothing",
+      "evidenceAtoms": [
+        "pr:2088",
+        "files:.changeset/t13512-no-run-linked.md,packages/core/src/tasks/__tests__/req.tasks.test.ts,packages/core/src/tasks/gate-preview.ts,packages/core/src/validation/engine-ops.ts",
+        "ci:2088"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "implementation"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13490",
+      "T13489",
+      "T13427",
+      "T12988",
+      "T13495",
+      "T13496",
+      "T13492",
+      "T13494",
+      "T13501",
+      "T13515",
+      "T13511",
+      "T13512"
+    ],
+    "fixes": [
+      "T13506"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T04:31:21.602Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T04:31:21.602Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T04:31:21.602Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T04:31:21.602Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T04:31:21.602Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T04:31:21.602Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 643 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.7 — 2026-10-11\n\n### Added\n\n- cleo req replace swaps a typed gate's definition in place (same AC row, ordinal and REQ-ID, superseded gate kept in history), and cleo verify --run --req runs and caches only the selected gates _(provenance: [T12988](https://github.com/kryptobaseddev/cleo/search?q=T12988&type=commits), [T13486](https://github.com/kryptobaseddev/cleo/search?q=T13486&type=commits))_\n- qaPassed accepts qa-run receipts (a native typecheck or lint run, bound to the change like test-run), and a single-package project's done --plan asks for them instead of a fresh whole-project typecheck _(provenance: [T13427](https://github.com/kryptobaseddev/cleo/search?q=T13427&type=commits))_\n\n### Fixed\n\n- self-update runs post-update maintenance in the new CLI; upgrade never writes machine paths into tracked files or re-detects project-context.json _(provenance: [T13489](https://github.com/kryptobaseddev/cleo/search?q=T13489&type=commits))_\n- @cleocode/adapters ships dist/heavy-command-hook.js again, so the heavy-command hook installs _(provenance: [T13490](https://github.com/kryptobaseddev/cleo/search?q=T13490&type=commits))_\n- A queued cleo run --wait or cleo verify keeps its own session's task claims alive _(provenance: [T13492](https://github.com/kryptobaseddev/cleo/search?q=T13492&type=commits))_\n- orchestrate spawn names the agent identity, persona and role separately: data.agentId now matches the session and worktree agent id _(provenance: [T13494](https://github.com/kryptobaseddev/cleo/search?q=T13494&type=commits))_\n- a tree-pinned scoped testsPassed (targeted test-run or affected tool run) still stands after the merge when the change's files are byte-identical at the merge commit; otherwise done --plan and complete say why it does not carry _(provenance: [T13495](https://github.com/kryptobaseddev/cleo/search?q=T13495&type=commits))_\n- a research task's planned files atom now names the attachment-store file that cleo docs fetch resolves, falling back to the blob store _(provenance: [T13496](https://github.com/kryptobaseddev/cleo/search?q=T13496&type=commits))_\n- cleo done --plan no longer reads a typed gate pass bound to an older criterion or gate definition as a pass; it reads not-run, as cleo complete refuses it _(provenance: [T13501](https://github.com/kryptobaseddev/cleo/search?q=T13501&type=commits))_\n- pr: evidence lets the latest run of a re-run check decide, so a PR re-run to green can be proven _(provenance: [T13506](https://github.com/kryptobaseddev/cleo/search?q=T13506&type=commits))_\n- a typed test gate with expect pass no longer fails a passing node --test run on its own fail 0 summary line _(provenance: [T13511](https://github.com/kryptobaseddev/cleo/search?q=T13511&type=commits))_\n- cleo verify --no-run needs cached passes only for the typed gates the write links, and cleo verify --run reports per gate whether its pass was cached and under which HEAD _(provenance: [T13512](https://github.com/kryptobaseddev/cleo/search?q=T13512&type=commits))_\n- cleo complete never executes a typed gate command: its merged-CI auto-record write is cache-only (noRun) _(provenance: [T13515](https://github.com/kryptobaseddev/cleo/search?q=T13515&type=commits))_\n",
+    "changesetEntryCount": 13,
+    "changesetIds": [
+      "t12988-req-replace",
+      "t13427-qa-run-receipts",
+      "t13489-self-update-new-code",
+      "t13490-adapters-hook-dist",
+      "t13492-wait-renews-claim",
+      "t13494-spawn-agent-id",
+      "t13495-scoped-run-carries-merge",
+      "t13496-doc-path",
+      "t13501-typed-gate-stale-plan",
+      "t13506-latest-check-run",
+      "t13511-node-test-fail-zero",
+      "t13512-no-run-linked",
+      "t13515-complete-never-executes"
+    ],
+    "taskIds": [
+      "T13490",
+      "T13489",
+      "T13427",
+      "T12988",
+      "T13495",
+      "T13496",
+      "T13492",
+      "T13494",
+      "T13501",
+      "T13515",
+      "T13506",
+      "T13511",
+      "T13512"
+    ]
+  }
+}

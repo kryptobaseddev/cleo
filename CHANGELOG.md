@@ -1,5 +1,28 @@
 # Changelog
 
+## [2026.10.7] (2026-10-11)
+
+> **Upgrading from 2026.10.5 or older:** run `cleo self-update --no-auto-upgrade`, then `cleo upgrade`. Older binaries run their own post-update maintenance in-process, which can rewrite tracked project files. From 2026.10.6 on, `cleo self-update` is safe.
+
+### Added
+
+- cleo req replace swaps a typed gate's definition in place (same AC row, ordinal and REQ-ID, superseded gate kept in history), and cleo verify --run --req runs and caches only the selected gates _(provenance: [T12988](https://github.com/kryptobaseddev/cleo/search?q=T12988&type=commits), [T13486](https://github.com/kryptobaseddev/cleo/search?q=T13486&type=commits))_
+- qaPassed accepts qa-run receipts (a native typecheck or lint run, bound to the change like test-run), and a single-package project's done --plan asks for them instead of a fresh whole-project typecheck _(provenance: [T13427](https://github.com/kryptobaseddev/cleo/search?q=T13427&type=commits))_
+
+### Fixed
+
+- self-update runs post-update maintenance in the new CLI; upgrade never writes machine paths into tracked files or re-detects project-context.json _(provenance: [T13489](https://github.com/kryptobaseddev/cleo/search?q=T13489&type=commits))_
+- @cleocode/adapters ships dist/heavy-command-hook.js again, so the heavy-command hook installs _(provenance: [T13490](https://github.com/kryptobaseddev/cleo/search?q=T13490&type=commits))_
+- A queued cleo run --wait or cleo verify keeps its own session's task claims alive _(provenance: [T13492](https://github.com/kryptobaseddev/cleo/search?q=T13492&type=commits))_
+- orchestrate spawn names the agent identity, persona and role separately: data.agentId now matches the session and worktree agent id _(provenance: [T13494](https://github.com/kryptobaseddev/cleo/search?q=T13494&type=commits))_
+- a tree-pinned scoped testsPassed (targeted test-run or affected tool run) still stands after the merge when the change's files are byte-identical at the merge commit; otherwise done --plan and complete say why it does not carry _(provenance: [T13495](https://github.com/kryptobaseddev/cleo/search?q=T13495&type=commits))_
+- a research task's planned files atom now names the attachment-store file that cleo docs fetch resolves, falling back to the blob store _(provenance: [T13496](https://github.com/kryptobaseddev/cleo/search?q=T13496&type=commits))_
+- cleo done --plan no longer reads a typed gate pass bound to an older criterion or gate definition as a pass; it reads not-run, as cleo complete refuses it _(provenance: [T13501](https://github.com/kryptobaseddev/cleo/search?q=T13501&type=commits))_
+- pr: evidence lets the latest run of a re-run check decide, so a PR re-run to green can be proven _(provenance: [T13506](https://github.com/kryptobaseddev/cleo/search?q=T13506&type=commits))_
+- a typed test gate with expect pass no longer fails a passing node --test run on its own fail 0 summary line _(provenance: [T13511](https://github.com/kryptobaseddev/cleo/search?q=T13511&type=commits))_
+- cleo verify --no-run needs cached passes only for the typed gates the write links, and cleo verify --run reports per gate whether its pass was cached and under which HEAD _(provenance: [T13512](https://github.com/kryptobaseddev/cleo/search?q=T13512&type=commits))_
+- cleo complete never executes a typed gate command: its merged-CI auto-record write is cache-only (noRun) _(provenance: [T13515](https://github.com/kryptobaseddev/cleo/search?q=T13515&type=commits))_
+
 ## [2026.10.6] (2026-10-10)
 
 ### Fixed
