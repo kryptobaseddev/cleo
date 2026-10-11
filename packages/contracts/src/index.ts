@@ -3163,6 +3163,8 @@ export {
   type CloudConflict,
   type CloudConflictResolveResult,
   type CloudConflictsResult,
+  type CloudDeviceOverviewResult,
+  type CloudDeviceOverviewRow,
   type CloudJournalActivityDevice,
   type CloudJournalActivityItem,
   type CloudJournalActivityResult,
