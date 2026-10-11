@@ -634,17 +634,21 @@ async function defaultListTaskDecisions(storeRoot: string, taskId: string): Prom
  */
 function locateDocBytes(storeRoot: string, sha256: string): string | null {
   if (!/^[0-9a-f]{64}$/.test(sha256)) return null;
-  const blob = join('.cleo', 'blobs', 'blobs', sha256);
-  if (existsSync(join(storeRoot, blob))) return blob;
+  // T13496: the attachment store first — where `cleo docs fetch` resolves a
+  // task's attached doc — so the planned files: path names the same file the
+  // agent reads. The blob store holds the same bytes for canonical docs and is
+  // the fallback.
   const dir = join('.cleo', 'attachments', 'sha256', sha256.slice(0, 2));
   try {
     const hit = readdirSync(join(storeRoot, dir)).find(
       (name) => name === sha256.slice(2) || name.startsWith(`${sha256.slice(2)}.`),
     );
-    return hit ? join(dir, hit) : null;
+    if (hit) return join(dir, hit);
   } catch {
-    return null;
+    // no attachment store entry for this digest
   }
+  const blob = join('.cleo', 'blobs', 'blobs', sha256);
+  return existsSync(join(storeRoot, blob)) ? blob : null;
 }
 
 function emptyChangeSet(root: string, rootSource: ChangeSetRootSource): TaskChangeSet {
@@ -1334,6 +1338,22 @@ export async function deriveTaskChangeSet(
   );
   const cs = emptyChangeSet(root, source);
   const roots: EvidenceRoots = { storeRoot: input.storeRoot, executionRoot: root };
+  const docsDeps = {
+    listTaskDocs: deps.listTaskDocs ?? defaultListTaskDocs,
+    listTaskDecisions: deps.listTaskDecisions ?? defaultListTaskDecisions,
+  };
+
+  // T13428: a research or spike task's canonical artifact is its review
+  // document and decision. A merged PR that merely cites it (often the
+  // author's own code PR) must not turn it into a code change set that plans
+  // a whole suite and a typecheck. An explicit --pr still wins.
+  const researchKind = input.task.kind === 'research' || input.task.kind === 'spike';
+  if (
+    researchKind &&
+    input.prNumber === undefined &&
+    (await deriveDocsChangeSet(cs, input, docsDeps))
+  )
+    return cs;
 
   if (
     await derivePrChangeSet(cs, input, roots, {
@@ -1360,13 +1380,7 @@ export async function deriveTaskChangeSet(
     return cs;
   }
   if (refused.length > 0) return cs;
-  if (
-    await deriveDocsChangeSet(cs, input, {
-      listTaskDocs: deps.listTaskDocs ?? defaultListTaskDocs,
-      listTaskDecisions: deps.listTaskDecisions ?? defaultListTaskDecisions,
-    })
-  )
-    return cs;
+  if (!researchKind && (await deriveDocsChangeSet(cs, input, docsDeps))) return cs;
 
   const id = input.task.id;
   cs.blockers.push(

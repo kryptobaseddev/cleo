@@ -172,6 +172,35 @@ export function prepareExodusRecovery(db: DatabaseSync, operation: string, schem
   ).run(operation, target);
 }
 
+/** The trigger that releases a deleted session's task claims (T12502, T12819). */
+const SESSION_CLAIM_RELEASE_TRIGGER = 'tasks_sessions_release_claims_on_delete';
+
+/** The `tasks_tasks` columns {@link SESSION_CLAIM_RELEASE_TRIGGER} clears. */
+const TASK_CLAIM_COLUMNS: ReadonlySet<string> = new Set([
+  'claimed_by_session',
+  'claimed_by_agent',
+  'claimed_at',
+  'lease_expires_at',
+]);
+
+/**
+ * Tasks that claim a session recovery is about to delete. Deleting it would
+ * release their claims (an effect no receipt owns), so recovery refuses
+ * instead. Empty when the store has no claim column.
+ */
+function tasksClaimingSession(db: DatabaseSync, sessionId: SQLInputValue): string[] {
+  const claims = db
+    .prepare(
+      "SELECT 1 FROM pragma_table_info('tasks_tasks', 'main') WHERE name = 'claimed_by_session'",
+    )
+    .get();
+  if (!claims) return [];
+  return db
+    .prepare('SELECT id FROM main.tasks_tasks WHERE claimed_by_session IS ? ORDER BY id')
+    .all(sessionId)
+    .map((row) => String(row.id));
+}
+
 /**
  * Compile on the dedicated migration handle under SQLite's effect authorizer.
  * Guard triggers are read-only. The supported extra mutations are the
@@ -234,6 +263,21 @@ function inspectEffects(
         dbName === schema &&
         typeof name === 'string' &&
         (name === `${table}_fts` || name.startsWith(`${table}_fts_`))
+      )
+        return constants.SQLITE_OK;
+      // T13384: deleting a session fires `tasks_sessions_release_claims_on_delete`,
+      // which clears the claim columns of tasks that session holds. Recovery
+      // deletes only a session it copied, and refuses first when any task now
+      // claims it (rollbackExodusReceipts), so the trigger matches no row.
+      if (
+        trigger === SESSION_CLAIM_RELEASE_TRIGGER &&
+        action === constants.SQLITE_DELETE &&
+        code === constants.SQLITE_UPDATE &&
+        dbName === schema &&
+        table === 'tasks_sessions' &&
+        name === 'tasks_tasks' &&
+        typeof column === 'string' &&
+        TASK_CLAIM_COLUMNS.has(column)
       )
         return constants.SQLITE_OK;
       // T12341: deleting an acceptance criterion records its uid in the
@@ -502,8 +546,18 @@ export function rollbackExodusReceipts(db: DatabaseSync, operation: string): num
         )
           throw new ExodusRecoveryError('Invalid handoff recovery receipt');
         simulated.set(key, receipt.before_row_json);
-      } else if (receipt.kind === 'insert') simulated.set(key, null);
-      else throw new ExodusRecoveryError('Unsupported Exodus recovery effect');
+      } else if (receipt.kind === 'insert') {
+        // A copied session a live task has claimed since is in use (T13384).
+        if (receipt.target_table === 'tasks_sessions') {
+          const claimants = tasksClaimingSession(db, values[0] ?? null);
+          if (claimants.length > 0)
+            // @sync-invariant none:local-only a local reconcile revert refuses before any write when a copied session is in use; never replicated
+            throw new ExodusRecoveryError(
+              `Exodus recovery refused: copied session ${String(values[0])} is claimed by ${claimants.join(', ')}`,
+            );
+        }
+        simulated.set(key, null);
+      } else throw new ExodusRecoveryError('Unsupported Exodus recovery effect');
       return { receipt, predicate, values };
     });
     for (const { receipt, predicate, values } of guarded) {

@@ -40,9 +40,11 @@ describe('spawn prompt HITL line (T12482)', () => {
     expect(line).toContain('never ask the human');
     expect(line).toContain('`Implementation blocked. manifest:<entryId>` + blocker:');
     expect(line).toContain('{question, options[{label,description}], recommended}');
-    // 220, not 200: T12521 F2 names the entry id and the blocker line in the
-    // HITL return (`<Type> blocked. manifest:<entryId>` + blocker:).
-    expect(line.length).toBeLessThan(220);
+    // T13421: the options must be populated, not bare labels.
+    expect(line).toContain('(2-4, each: what happens and its trade-off)');
+    // 290, not 220: T12521 F2 names the entry id and the blocker line, and
+    // T13421 adds the populated-options rule.
+    expect(line.length).toBeLessThan(290);
   });
 
   it.each([

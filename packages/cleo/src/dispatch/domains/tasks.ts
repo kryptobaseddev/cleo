@@ -77,6 +77,7 @@ const taskWorkHistory = lazyOperation(
   async () => (await import('@cleocode/core/session/engine-ops')).taskWorkHistory,
 );
 const reqAdd = lazyOperation(async () => (await import('@cleocode/core/tasks/req')).reqAdd);
+const reqReplace = lazyOperation(async () => (await import('@cleocode/core/tasks/req')).reqReplace);
 const reqList = lazyOperation(async () => (await import('@cleocode/core/tasks/req')).reqList);
 const reqMigrate = lazyOperation(async () => (await import('@cleocode/core/tasks/req')).reqMigrate);
 const tasksAddBatchOp = lazyOperation(
@@ -841,6 +842,7 @@ const MUTATE_OPS = new Set<string>([
   // T10121 — idempotent cron-safe auto-close repair (supersedes T10098 scope).
   'saga.reconcile',
   'req.add',
+  'req.replace',
   'req.migrate',
 ]);
 
@@ -1153,7 +1155,7 @@ export class TasksHandler implements DomainHandler {
 
     // Saga sub-domain mutate ops (ADR-073) — handled outside typed handler.
     try {
-      if (operation === 'req.add' || operation === 'req.migrate') {
+      if (operation === 'req.add' || operation === 'req.replace' || operation === 'req.migrate') {
         if (typeof params?.taskId !== 'string' || !params.taskId.trim()) {
           return errorResult(
             'mutate',
@@ -1178,6 +1180,29 @@ export class TasksHandler implements DomainHandler {
           const { parseGateJson } = await import('@cleocode/core/tasks/req');
           const gate = parseGateJson(params.gate);
           const data = await reqAdd(getProjectRoot(), params.taskId, gate);
+          return wrapResult({ success: true, data }, 'mutate', 'tasks', operation, startTime);
+        }
+        if (operation === 'req.replace') {
+          if (
+            typeof params.req !== 'string' ||
+            !params.req.trim() ||
+            typeof params.gate !== 'string'
+          ) {
+            return errorResult(
+              'mutate',
+              'tasks',
+              operation,
+              // @sync-invariant none:input-shape a missing REQ-ID or gate is refused before any read; nothing is written
+              'E_INVALID_INPUT',
+              'req (REQ-ID) and gate (AcceptanceGate JSON text) are required; use req replace <task> <REQ-ID> --gate',
+              startTime,
+            );
+          }
+          const { parseGateJson } = await import('@cleocode/core/tasks/req');
+          const gate = parseGateJson(params.gate);
+          const data = await reqReplace(getProjectRoot(), params.taskId, params.req, gate, {
+            ...(typeof params.reason === 'string' ? { reason: params.reason } : {}),
+          });
           return wrapResult({ success: true, data }, 'mutate', 'tasks', operation, startTime);
         }
         if (params.apply !== true) {
@@ -1346,6 +1371,7 @@ export class TasksHandler implements DomainHandler {
         // T10121 — idempotent cron-safe auto-close repair.
         'saga.reconcile',
         'req.add',
+        'req.replace',
         'req.migrate',
       ],
     };

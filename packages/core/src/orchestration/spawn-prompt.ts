@@ -46,6 +46,7 @@ import type { Task } from '@cleocode/contracts';
 import { normalizeSlug } from '../docs/slug-normalize.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { resolveSkillLocation, resolveSkillPath } from '../skills/skill-paths.js';
+import { buildLeanChangeBlock } from './lean-change.js';
 import {
   buildBudgetedPsycheMemoryBlock,
   relevanceContextFromTask,
@@ -1152,7 +1153,7 @@ function buildQualityGateBlock(): string {
 function buildHitlLine(type: string, askProviderId: string | undefined): string {
   const tool = askProviderId ? getProviderAskTool(askProviderId).toolName : null;
   const how = tool ? `asks via \`${tool}\`` : 'emits one `hitl.request` LAFS envelope';
-  return `HITL: never ask the human. Return \`${type} blocked. manifest:<entryId>\` + blocker: with {question, options[{label,description}], recommended} in the manifest; the orchestrator ${how}.`;
+  return `HITL: never ask the human. Return \`${type} blocked. manifest:<entryId>\` + blocker: with {question, options[{label,description}], recommended} (2-4, each: what happens and its trade-off) in the manifest; the orchestrator ${how}.`;
 }
 
 /**
@@ -1215,7 +1216,7 @@ function buildReturnFormatBlock(protocol: string, askProviderId?: string): strin
   return [
     '## Return Format Contract (MANDATORY)',
     '',
-    'Return EXACTLY this block, nothing else. No findings, no diffs, no prose.',
+    'Return EXACTLY this block. No findings, no diffs, no prose.',
     '',
     '```',
     `${type} <complete|partial|blocked>. manifest:<entryId>`,
@@ -1224,7 +1225,7 @@ function buildReturnFormatBlock(protocol: string, askProviderId?: string): strin
     'blocker: <≤12 words|none>',
     '```',
     '',
-    'blocker: none when complete; required when partial/blocked. Findings → manifest, task record (gates, notes), branch commits.',
+    'blocker: none when complete; required when partial/blocked. Findings → manifest, task record, commits.',
     buildHitlLine(type, askProviderId),
   ].join('\n');
 }
@@ -1248,7 +1249,7 @@ function buildManifestProtocolBlock(taskId: string, protocol: SpawnProtocolPhase
   return [
     '## Manifest Protocol (MANDATORY · ADR-027)',
     '',
-    'Append ONCE to SQLite `pipeline_manifest`; never write `.cleo/agent-outputs/*.jsonl`. `--status`: completed|partial|blocked (actual progress).',
+    'Append ONCE to SQLite `pipeline_manifest`; never write `.cleo/agent-outputs/*.jsonl`. `--status`: completed|partial|blocked.',
     '',
     '```bash',
     `ENTRY_ID=$(cleo manifest append --task ${taskId} --type ${manifestType} \\`,
@@ -1770,6 +1771,7 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // implemented/exported. Restored as a follow-up; for now skip cleanly so the
   // tsc build does not block releases. Tracked: T10448.
   authoredSections.push(buildQualityGateBlock());
+  authoredSections.push(buildLeanChangeBlock());
 
   // Tier-specific content — tier 0 pointer is authored; tier 1/2 embeds
   // are verbatim and therefore land in `embeddedSections`.

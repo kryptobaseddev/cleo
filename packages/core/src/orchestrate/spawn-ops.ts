@@ -102,7 +102,11 @@ import {
 /** A successful spawn-session resolution (session allocated, task claimed). */
 type SpawnSessionClaimed = Extract<SpawnSessionResolution, { ok: true }>;
 
-import { resolveSpawnLockHolder } from '../spawn/worktree-lock-holder.js';
+import {
+  auditWorktreeLockReclaim,
+  resolveLockSessionProbe,
+  resolveSpawnLockHolder,
+} from '../spawn/worktree-lock-holder.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { openAgentRegistryDbForComposer } from './plan.js';
 
@@ -993,7 +997,10 @@ export async function orchestrateSpawnExecute(
       const worktreeResult = await spawnWorktree(cwd, {
         taskId,
         holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
+        // T13425 — an ended holder session releases the lock.
+        sessionProbe: await resolveLockSessionProbe(cwd, taskId),
       });
+      auditWorktreeLockReclaim(cwd, taskId, worktreeResult.path, worktreeResult.lock);
       // T11343 — bind the spawned agent's OWN session + identity into the
       // isolation shell so `resolveSessionIdFromEnv()` returns the agent's
       // session, never the orchestrator's most-recent active row.
@@ -1223,7 +1230,11 @@ export async function orchestrateSpawnExecute(
           // T9548 — auto-complete diagnostics surfaced for orchestrator visibility.
           autoComplete: autoCompleteOutcome,
         },
-        agentId: payload.agentId,
+        // T13494: `agentId` is the spawned agent's identity (CLEO_AGENT_ID, its
+        // session's handle, the worktree lock holder); `persona` is the agent
+        // profile the classifier routed to; `role` is what it runs as.
+        agentId: spawnAgentId,
+        persona: payload.agentId,
         role: payload.role,
         harnessHint: payload.harnessHint,
       },
@@ -1562,11 +1573,16 @@ export async function orchestrateSpawn(
       // and never registers the worktree for timeout cleanup: a resumed
       // worktree holds a previous agent's work and is never destroyed.
       try {
+        // T13425 — a successor session resumes the task: an ended holder
+        // session's lock is reclaimed (audited), even while the harness pid
+        // recorded as its owner is alive.
         const resumeLock = acquireWorktreeTaskLock({
           projectHash: projectHashForResume,
           taskId,
           holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
+          sessionProbe: await resolveLockSessionProbe(root, taskId),
         });
+        auditWorktreeLockReclaim(root, taskId, worktreePath, resumeLock);
         spawnLock = { projectHash: projectHashForResume, token: resumeLock.record.token };
       } catch (lockErr) {
         if (isWorktreeLockedError(lockErr)) {
@@ -1638,10 +1654,13 @@ export async function orchestrateSpawn(
             ...(spawnScope ? { spawnScope } : {}),
             // T12506 — recorded in the per-task worktree lock.
             holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
+            // T13425 — an ended holder session releases the lock.
+            sessionProbe: await resolveLockSessionProbe(root, taskId),
           }),
           budgetCtrl.signal,
           'provision-worktree',
         );
+        auditWorktreeLockReclaim(root, taskId, sdkWorktreeResult.path, sdkWorktreeResult.lock);
         worktreePath = sdkWorktreeResult.path;
         worktreeBranch = sdkWorktreeResult.branch;
         // T9545 — record for the timeout supervisor so auto-cleanup can target
@@ -1823,7 +1842,9 @@ export async function orchestrateSpawn(
       data: {
         taskId,
         prompt: finalPrompt,
-        agentId: payload.agentId,
+        // T13494: identity, persona and role named separately (see OrchestrateSpawnResult).
+        agentId: spawnAgentId,
+        persona: payload.agentId,
         role: payload.role,
         tier: payload.tier,
         harnessHint: payload.harnessHint,

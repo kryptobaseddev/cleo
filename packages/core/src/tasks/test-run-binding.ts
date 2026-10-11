@@ -40,6 +40,10 @@
  *     (test configs exclude tracked test files, so per-package file counts
  *     prove nothing) — `tool:test` runs it. A report with no passed test at
  *     all is refused before any of this.
+ *     A standalone project (no workspace declared, T13403) is one package,
+ *     its root: a change inside the root is that package's, never
+ *     workspace-wide, and since that package is the whole project the report
+ *     must also have passed every test file the change adds or edits.
  *     Docs-only changes, and checkouts with no origin to diff against, are
  *     not judged.
  *  3. **Identity.** HEAD and the tool cache's tree hash (T12958) at verify time are
@@ -59,8 +63,10 @@ import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { discoveryEnv } from '../git/work-tree.js';
 import {
   deriveAffectedPackages,
+  inPackageDir,
   listWorkspacePackages,
   originDefaultMergeBase,
+  type ScopedChangedPaths,
   scopedChangedPaths,
   type WorkspacePackage,
 } from './affected-packages.js';
@@ -312,7 +318,23 @@ function ownerOf(
   path: string,
   packages: readonly WorkspacePackage[],
 ): WorkspacePackage | undefined {
-  return packages.find((p) => path === p.dir || path.startsWith(`${p.dir}/`));
+  return packages.find((p) => inPackageDir(path, p.dir));
+}
+
+/**
+ * The changed paths that are test files still on disk (vitest and jest
+ * naming), sorted: the tests a change adds or edits (T13403).
+ *
+ * @param root - Execution root.
+ * @param changed - Root-relative changed paths.
+ * @returns The changed test files that exist.
+ * @task T13403
+ */
+export function changedTestFiles(root: string, changed: readonly string[]): string[] {
+  return changed
+    .filter((f) => TEST_FILE.test(f) && mtimeOf(resolve(root, f)) !== null)
+    .map((f) => f.split('\\').join('/'))
+    .sort();
 }
 
 /**
@@ -368,6 +390,98 @@ export type TestRunBinding =
       untestedPackages: string[];
     };
 
+/** What the freshness check of a report or receipt decided. */
+export type ReportFreshness =
+  | {
+      /** Older than the change. */
+      ok: false;
+      codeName: 'E_EVIDENCE_STALE';
+      reason: string;
+    }
+  | {
+      ok: true;
+      /** False when the report has no run time at all, so nothing is judged. */
+      judged: boolean;
+      /** The change's scoped paths, or null outside git / with no origin. */
+      changes: ScopedChangedPaths | null;
+    };
+
+/**
+ * Whether a report (or receipt) ran after every part of the change it claims
+ * to speak for — point 1 of the module doc, shared by `test-run:` and
+ * `qa-run:` (T13427).
+ *
+ * @param startTime - The run's own start time (epoch ms), if it states one;
+ *   else the file's mtime is the run time.
+ * @param reportPath - Absolute path of the report file.
+ * @param root - The task's checkout.
+ * @param atom - The atom kind, named in the remedy.
+ * @returns The stale refusal, or the change's scoped paths for the relevance check.
+ * @task T12965
+ * @task T13427
+ */
+export function reportFreshness(
+  startTime: unknown,
+  reportPath: string,
+  root: string,
+  atom: 'test-run' | 'qa-run',
+): ReportFreshness {
+  const ranAt =
+    typeof startTime === 'number' && Number.isFinite(startTime) ? startTime : mtimeOf(reportPath);
+  if (ranAt === null) return { ok: true, judged: false, changes: null };
+  const clock: RunClock = {
+    ranAt,
+    after: (at) => at > ranAt + MTIME_SLACK_MS,
+    reportPath: realpathOr(reportPath),
+    reportRel: relative(realpathOr(root), realpathOr(reportPath)).split('\\').join('/'),
+  };
+  const stale = (reason: string): ReportFreshness => ({
+    ok: false,
+    codeName: 'E_EVIDENCE_STALE',
+    reason,
+  });
+  const rerun =
+    atom === 'test-run'
+      ? RERUN
+      : 'Re-run the check and record the fresh receipt (write receipts to a gitignored path or outside the checkout).';
+
+  const commit = newestChangeCommit(root);
+  if (commit !== null && clock.after(commit.at)) {
+    const unseen = committedAfterRunUnseen(root, clock);
+    if (unseen !== null) {
+      return stale(
+        staleRefusal(
+          ranAt,
+          `commit ${commit.sha.slice(0, 12)} of the change was made`,
+          commit.at,
+          `It may hold content the run did not see: ${unseen}. Bind ${atom} before committing ` +
+            `(cleo verify right after the run), or ${atom === 'test-run' ? 're-run the tests and record the fresh report' : 're-run the check and record the fresh receipt'}.`,
+        ),
+      );
+    }
+  }
+  const changes = scopedChangedPaths(root);
+  const newest = newestModified(
+    root,
+    (changes?.paths ?? dirtyTracked(root)).filter((p) => p !== clock.reportRel),
+  );
+  if (newest !== null && clock.after(newest.at)) {
+    return stale(staleRefusal(ranAt, `${newest.path} was modified`, newest.at, rerun));
+  }
+  const removed = deletedAfterRun(root, 'HEAD', clock);
+  if (removed) {
+    return stale(
+      staleRefusal(
+        ranAt,
+        `${removed.path} was deleted or moved (its directory changed)`,
+        removed.at,
+        rerun,
+      ),
+    );
+  }
+  return { ok: true, judged: true, changes };
+}
+
 /**
  * Bind a report to the change it claims to test, or refuse it when it is
  * older than the change or does not cover it (see the module doc for exactly
@@ -386,63 +500,16 @@ export function bindTestRunReport(
   root: string,
   testFiles: readonly string[],
 ): TestRunBinding {
-  const ranAt =
-    typeof report.startTime === 'number' && Number.isFinite(report.startTime)
-      ? report.startTime
-      : mtimeOf(reportPath);
-  if (ranAt === null) return { ok: true, untestedPackages: [] };
-  const clock: RunClock = {
-    ranAt,
-    after: (at) => at > ranAt + MTIME_SLACK_MS,
-    reportPath: realpathOr(reportPath),
-    reportRel: relative(realpathOr(root), realpathOr(reportPath)).split('\\').join('/'),
-  };
-  const stale = (reason: string): TestRunBinding => ({
-    ok: false,
-    codeName: 'E_EVIDENCE_STALE',
-    reason,
-  });
+  const fresh = reportFreshness(report.startTime, reportPath, root, 'test-run');
+  if (!fresh.ok) return fresh;
+  if (!fresh.judged) return { ok: true, untestedPackages: [] };
+  const changes = fresh.changes;
+  const changed = changes?.paths ?? null;
   const refuse = (reason: string): TestRunBinding => ({
     ok: false,
     codeName: 'E_EVIDENCE_INSUFFICIENT',
     reason,
   });
-
-  const commit = newestChangeCommit(root);
-  if (commit !== null && clock.after(commit.at)) {
-    const unseen = committedAfterRunUnseen(root, clock);
-    if (unseen !== null) {
-      return stale(
-        staleRefusal(
-          ranAt,
-          `commit ${commit.sha.slice(0, 12)} of the change was made`,
-          commit.at,
-          `It may hold content the run did not see: ${unseen}. Bind test-run before committing ` +
-            '(cleo verify right after the run), or re-run the tests and record the fresh report.',
-        ),
-      );
-    }
-  }
-  const changes = scopedChangedPaths(root);
-  const changed = changes?.paths ?? null;
-  const newest = newestModified(
-    root,
-    (changed ?? dirtyTracked(root)).filter((p) => p !== clock.reportRel),
-  );
-  if (newest !== null && clock.after(newest.at)) {
-    return stale(staleRefusal(ranAt, `${newest.path} was modified`, newest.at, RERUN));
-  }
-  const removed = deletedAfterRun(root, 'HEAD', clock);
-  if (removed) {
-    return stale(
-      staleRefusal(
-        ranAt,
-        `${removed.path} was deleted or moved (its directory changed)`,
-        removed.at,
-        RERUN,
-      ),
-    );
-  }
 
   // T13135: a change whose every path was set aside as out of scope has
   // nothing a targeted report can speak for; it must not pass vacuously.
@@ -478,7 +545,21 @@ export function bindTestRunReport(
   }
   const covered = new Set(testFiles.flatMap((f) => ownerOf(f, workspace)?.name ?? []));
   const missing = required.filter((name) => !covered.has(name));
-  if (missing.length === 0) return { ok: true, untestedPackages };
+  if (missing.length === 0) {
+    // T13403: in a standalone project the one package is the whole project,
+    // so one test file of it says nothing about the change. The report must
+    // also run every test file the change adds or edits.
+    const standalone = workspace.length === 1 && workspace[0]?.dir === '';
+    const ran = new Set(testFiles);
+    const unrun = standalone ? changedTestFiles(root, changed).filter((f) => !ran.has(f)) : [];
+    if (unrun.length === 0) return { ok: true, untestedPackages };
+    return refuse(
+      `test-run report does not run the changed test file(s) ${unrun.slice(0, 5).join(', ')}` +
+        `${unrun.length > 5 ? `, … (${unrun.length} files)` : ''}. In a single-package project ` +
+        'the package is the whole project, so a targeted report must run every test file the ' +
+        'change adds or edits (passing). Run them and record the report, or record tool:test.',
+    );
+  }
   const labelled = missing.map((name) =>
     scope.direct.includes(name) ? `${name} (changed)` : `${name} (depends on a changed package)`,
   );

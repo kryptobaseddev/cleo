@@ -60,7 +60,7 @@ import {
   SECRET_MARKER,
   syncSetTables,
 } from './capture.js';
-import { tickClock, withImmediateTransaction } from './clock-store.js';
+import { sealWallCeiling, tickClock, withImmediateTransaction } from './clock-store.js';
 import {
   actorOpOf,
   clearFieldLeaves,
@@ -932,6 +932,27 @@ export function sealPreconditions(
 export const SEAL_COUNTER_KEY = 'sealer.local_seq';
 
 /**
+ * Take the next transaction counter for a transaction written outside a
+ * sealing pass (a `retire` control transaction, T13278), in the caller's
+ * transaction. The counter only rises, so the sealer continues past it.
+ *
+ * @param db - The store, inside a transaction.
+ * @param atIso - Now (ISO-8601), recorded with the counter.
+ * @returns The reserved `local_seq`.
+ */
+export function reserveLocalSeq(db: DatabaseSync, atIso: string): number {
+  const stored = db.prepare('SELECT value FROM _sync_meta WHERE key = ?').get(SEAL_COUNTER_KEY) as
+    | { value: string }
+    | undefined;
+  const maxRow = (
+    db.prepare('SELECT coalesce(max(local_seq), 0) AS n FROM _sync_txn').get() as { n: number }
+  ).n;
+  const next = Math.max(Number(stored?.value ?? 0) || 0, maxRow) + 1;
+  setSealMeta(db, SEAL_COUNTER_KEY, String(next), atIso);
+  return next;
+}
+
+/**
  * Seal up to `budget` live captures (ending on a group boundary) into
  * transactions, in one synchronous `BEGIN IMMEDIATE` transaction.
  *
@@ -1266,6 +1287,10 @@ function sealInTransaction(
   const started = performance.now();
   const maxMs = opts.maxMs ?? 200;
   const replica = opts.replica;
+  // §1.3: a capture stamped while this clock ran ahead seals no later than
+  // the server's date plus MAX_DRIFT, once a recent server date is known.
+  const ceiling = sealWallCeiling(db, now());
+  const wall = (ms: number): number => (ceiling === null ? ms : Math.min(ms, ceiling));
 
   // 1. Read a batch. A frame cut by the budget is completed only when it is
   //    the batch's first group (it must seal whole); otherwise it is left for
@@ -1428,7 +1453,7 @@ function sealInTransaction(
     let partial = false;
     for (const c of captures) {
       try {
-        drafts.push(buildDraft(ctx, c, births, g.kind === 'repair'));
+        drafts.push(buildDraft(ctx, c, births, g.kind === 'repair' || g.kind === 'rebind'));
       } catch (err) {
         if (!(err instanceof SealInputError)) throw err;
         // T13036: an unreadable capture never stalls the outbox. It moves to
@@ -1528,19 +1553,31 @@ function sealInTransaction(
           ...(rest as Omit<SealedOp, 'h'>),
           seq,
           last,
-          h: tickClock(db, replica, at(op)?.at_ms ?? now()),
+          h: tickClock(db, replica, wall(at(op)?.at_ms ?? now())),
         };
       },
     );
     const txnHlc = sealedOps.reduce((m, o) => (o.h > m ? o.h : m), sealedOps[0]?.h ?? '');
-    const kind = g.frame !== null && TXN_KINDS.has(g.kind) ? g.kind : 'write';
+    // A rebind frame is the reconcile's repair, under the new replica (§1.5 N7, T13278).
+    const kind =
+      g.frame !== null && g.kind === 'rebind'
+        ? 'repair'
+        : g.frame !== null && TXN_KINDS.has(g.kind)
+          ? g.kind
+          : 'write';
     insTxn.run(
       txn,
       localSeq,
       replica,
       txnHlc,
       opts.scope,
-      g.frame === null ? 'foreign' : g.kind === 'repair' ? 'repair' : 'accessor',
+      g.frame === null
+        ? 'foreign'
+        : g.kind === 'repair'
+          ? 'repair'
+          : g.kind === 'rebind'
+            ? 'rebind'
+            : 'accessor',
       kind,
       g.actor,
       g.frame,

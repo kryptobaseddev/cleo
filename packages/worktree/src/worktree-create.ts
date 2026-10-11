@@ -306,6 +306,7 @@ export async function createWorktree(
     projectHash,
     taskId,
     ...(options.holder ? { holder: options.holder } : {}),
+    ...(options.sessionProbe ? { sessionProbe: options.sessionProbe } : {}),
     ...(options.lockTtlMs !== undefined ? { ttlMs: options.lockTtlMs } : {}),
   });
   const ctx: ProvisionContext = {

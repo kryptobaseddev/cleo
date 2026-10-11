@@ -98,6 +98,11 @@ export const verifyCommand = defineCommand({
       description:
         "Execute the task's typed acceptance gates and report the results. Records no verification, so use `--evidence` to attest (T12308); passing results are cached so the attesting write reuses them instead of re-running (T12621). With a write, `--no-run` executes no typed gate and uses only cached passes, refusing with E_GATE_NOT_CACHED when one is missing.",
     },
+    req: {
+      type: 'string',
+      description:
+        'With --run: run and cache only the typed gates with these REQ-IDs (comma-separated, e.g. "REQ-A,REQ-B"); the other gates are not run and their cached passes are left as they are (T13486).',
+    },
     auto: {
       type: 'boolean',
       description:
@@ -199,6 +204,21 @@ export const verifyCommand = defineCommand({
         return;
       }
 
+      // T13486: --req selects typed gates for --run only.
+      if (typeof args.req === 'string' && args.run !== true) {
+        cliError(
+          '--req selects which typed gates --run executes; it needs --run',
+          ExitCode.VALIDATION_ERROR,
+          {
+            name: 'E_VALIDATION',
+            fix: `cleo verify ${String(args.taskId ?? '<id>')} --run --req ${args.req}`,
+          },
+          { operation: 'check.gate.run' },
+        );
+        process.exitCode = ExitCode.VALIDATION_ERROR;
+        return;
+      }
+
       // --explain is a read-only enrichment; writes ignore it and keep prior behavior.
       const useExplain = !isWrite && args.explain === true;
 
@@ -222,6 +242,7 @@ export const verifyCommand = defineCommand({
           all: args.all as boolean | undefined,
           reset: args.reset as boolean | undefined,
           evidence: args.evidence as string | undefined,
+          ...(typeof args.req === 'string' ? { req: args.req } : {}),
           sharedEvidence: (args['shared-evidence'] as boolean | undefined) ?? false,
           // T12621: citty turns `--no-run` into `run: false`; read it through the helper.
           ...(isWrite && negatedFlag(args, 'run') ? { noRun: true } : {}),

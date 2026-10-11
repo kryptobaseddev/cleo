@@ -25,7 +25,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
@@ -60,6 +60,7 @@ import {
 import { runBracketedMigrations } from '../../store/migration-runner.js';
 import { computeManifestHash, exportPortableBundle } from '../../store/portable-bundle.js';
 import { resolveCorePackageMigrationsFolder } from '../../store/resolve-migrations-folder.js';
+import { holdRestoreMarker, RESTORE_MARKER_MAX_AGE_MS } from '../../store/restore-marker.js';
 import {
   ROW_IDENTITY_META_TABLE,
   ROW_IDENTITY_RECIPE,
@@ -131,6 +132,7 @@ import {
   pushSyncStream,
   releaseNexusVaultLease,
   restoreNexusVault,
+  serverRetirementsFor,
   verifyNexusVault,
 } from '../nexus-vault.js';
 import {
@@ -157,6 +159,22 @@ vi.mock('../../store/restore-marker.js', async (importOriginal) => {
     writeRestoreMarker: (dbPath: string, kind: 'restore' | 'vault') => {
       markerCalls.push({ dbPath, kind });
       return mod.writeRestoreMarker(dbPath, kind);
+    },
+  };
+});
+
+/** Runs right after the vault exports a bundle (inside a genesis snapshot, T13390). */
+const exportHooks = vi.hoisted(() => ({
+  afterExport: null as ((outputPath: string) => void) | null,
+}));
+vi.mock('../../store/portable-bundle.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../store/portable-bundle.js')>();
+  return {
+    ...mod,
+    exportPortableBundle: async (input: Parameters<typeof mod.exportPortableBundle>[0]) => {
+      const out = await mod.exportPortableBundle(input);
+      exportHooks.afterExport?.(input.outputPath);
+      return out;
     },
   };
 });
@@ -5378,6 +5396,68 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     });
   });
 
+  /** Where a cut saves its bundle and record for `STREAM` (mirrors genesisBundlePaths). */
+  function savedGenesisPaths(dbPath: string): { dir: string; bundle: string; meta: string } {
+    const dir = path.join(path.dirname(dbPath), 'sync-genesis');
+    const name = createHash('sha256').update(STREAM).digest('hex').slice(0, 16);
+    return {
+      dir,
+      bundle: path.join(dir, `${name}.cleobundle.tar.gz`),
+      meta: path.join(dir, `${name}.json`),
+    };
+  }
+
+  it("a takeover abort leaves the new holder's saved bundle and record in place (T13390)", async () => {
+    const { m, dbPath } = await journalMachine();
+    const saved = savedGenesisPaths(dbPath);
+    let holder: ReturnType<typeof holdRestoreMarker> | undefined;
+    exportHooks.afterExport = (out) => {
+      if (!out.includes('sync-genesis')) return;
+      exportHooks.afterExport = null;
+      // A second genesis run takes the marker over and saves its own bundle at the same paths.
+      holder = holdRestoreMarker(dbPath, 'genesis');
+      fs.mkdirSync(saved.dir, { recursive: true });
+      fs.writeFileSync(saved.bundle, 'holder bundle');
+      fs.writeFileSync(saved.meta, 'holder record');
+    };
+    try {
+      const err = await failure(on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true }))));
+      expect(err.message).toMatch(/E_SYNC_GENESIS_MARKER_LOST: another process took over/);
+      expect(fs.readFileSync(saved.bundle, 'utf8')).toBe('holder bundle');
+      expect(fs.readFileSync(saved.meta, 'utf8')).toBe('holder record');
+      await on(m, async () => {
+        expect(genesisPending(await storeOf(dbPath), STREAM)).toBe(true);
+      });
+    } finally {
+      exportHooks.afterExport = null;
+      holder?.release();
+    }
+  });
+
+  it('an abort on our own expired marker still removes what it saved (T13390)', async () => {
+    const { m, dbPath } = await journalMachine();
+    const saved = savedGenesisPaths(dbPath);
+    const realNow = Date.now;
+    exportHooks.afterExport = (out) => {
+      if (!out.includes('sync-genesis')) return;
+      exportHooks.afterExport = null;
+      fs.mkdirSync(saved.dir, { recursive: true });
+      fs.writeFileSync(saved.bundle, 'stale bundle');
+      fs.writeFileSync(saved.meta, 'stale record');
+      const late = realNow() + RESTORE_MARKER_MAX_AGE_MS + 1_000;
+      vi.spyOn(Date, 'now').mockImplementation(() => late);
+    };
+    try {
+      const err = await failure(on(m, () => enableSyncPush(vopts(m, { allowUnreleased: true }))));
+      expect(err.message).toMatch(/E_SYNC_GENESIS_MARKER_LOST: the genesis marker went stale/);
+    } finally {
+      exportHooks.afterExport = null;
+      vi.restoreAllMocks();
+    }
+    expect(fs.existsSync(saved.bundle)).toBe(false);
+    expect(fs.existsSync(saved.meta)).toBe(false);
+  });
+
   it('a checkpoint push that fails after the cut keeps the bundle and resumes without a second cut', async () => {
     const { m, dbPath } = await journalMachine();
     fake.beforeCheckpoint = {
@@ -6073,5 +6153,47 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     const onA = await read(a, observationSql);
     expect(await read(b, observationSql)).toEqual(onA);
     expect(onA).toMatchObject({ title: 'from B' });
+  });
+});
+
+describe('the server retirements a receiver confirms a retire by (T13366)', () => {
+  const R1 = '0192aaaa-7f00-7000-8000-00000000000a';
+  const R2 = '0192bbbb-7f00-7000-8000-00000000000b';
+  const D1 = '0192dddd-7f00-7000-8000-00000000000d';
+  const listed = (path: string, replicas: unknown[] | null) => ({
+    find: async <T>(
+      p: string,
+      schema: { safeParse(v: unknown): { success: boolean; data?: T } },
+    ): Promise<T | null> => {
+      expect(p).toBe(path);
+      if (replicas === null) return null;
+      const parsed = schema.safeParse({ replicas });
+      if (!parsed.success || parsed.data === undefined) throw new Error('listing does not parse');
+      return parsed.data;
+    },
+  });
+  const base = { deviceId: D1, deviceState: 'active', attachedAt: '2026-10-01T00:00:00.000Z' };
+  const quiet = { lastSyncAt: null, presence: null, presenceAt: null };
+
+  it('home: every retired replica on the listing with its successor; live ones confirm nothing', async () => {
+    const conn = listed('/v1/account/home/replicas', [
+      { ...base, ...quiet, replicaId: R1, retiredAt: '2026-10-09T00:00:01.000Z', successor: R2 },
+      { ...base, ...quiet, replicaId: R2, retiredAt: null, successor: null },
+    ]);
+    expect(await serverRetirementsFor(conn, 'global')).toEqual([
+      { replicaId: R1, successor: R2, retiredAt: '2026-10-09T00:00:01.000Z' },
+    ]);
+  });
+
+  it('home on a server without the listing: none; a project stream: no source at all', async () => {
+    expect(await serverRetirementsFor(listed('/v1/account/home/replicas', null), 'global')).toEqual(
+      [],
+    );
+    const never = {
+      find: async () => {
+        throw new Error('a project stream has no retirement read');
+      },
+    };
+    expect(await serverRetirementsFor(never, 'project')).toBeUndefined();
   });
 });
