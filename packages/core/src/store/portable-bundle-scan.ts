@@ -42,8 +42,9 @@ export const PRIMARY_STORE_BASENAME = path.basename(
 
 /**
  * Pre-E6 per-domain database basenames that sit directly in a root, by tier.
- * Derived from `DB_INVENTORY` (whose templates still describe the pre-E6
- * layout): any inventory file at the top of `.cleo/` or `<cleoHome>/`.
+ * Derived from `DB_INVENTORY`: each role's pre-consolidation file
+ * (`legacyFilePathTemplate`, else `filePathTemplate`) at the top of `.cleo/`
+ * or `<cleoHome>/`. The live store (`cleo.db`) is never one of them (T13245).
  */
 export const LEGACY_STORE_BASENAMES: Readonly<Record<'project' | 'global', ReadonlySet<string>>> = {
   project: legacyBasenames('<projectRoot>/.cleo/'),
@@ -53,9 +54,10 @@ export const LEGACY_STORE_BASENAMES: Readonly<Record<'project' | 'global', Reado
 function legacyBasenames(prefix: string): ReadonlySet<string> {
   const names = new Set<string>();
   for (const entry of DB_INVENTORY) {
-    if (!entry.filePathTemplate.startsWith(prefix)) continue;
-    const rest = entry.filePathTemplate.slice(prefix.length);
-    if (!rest.includes('/')) names.add(rest);
+    const template = entry.legacyFilePathTemplate ?? entry.filePathTemplate;
+    if (!template.startsWith(prefix)) continue;
+    const rest = template.slice(prefix.length);
+    if (!rest.includes('/') && rest !== PRIMARY_STORE_BASENAME) names.add(rest);
   }
   return names;
 }

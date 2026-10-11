@@ -237,13 +237,15 @@
       "uid"
     ],
     "brain_consolidation_events": [
+      "birth_fp",
       "duration_ms",
       "id",
       "session_id",
       "started_at",
       "step_results_json",
       "succeeded",
-      "trigger"
+      "trigger",
+      "uid"
     ],
     "brain_decisions": [
       "adr_number",
@@ -356,7 +358,8 @@
       "link_type",
       "memory_id",
       "memory_type",
-      "task_id"
+      "task_id",
+      "uid"
     ],
     "brain_memory_trees": [
       "centroid",
@@ -368,6 +371,7 @@
       "updated_at"
     ],
     "brain_modulators": [
+      "birth_fp",
       "created_at",
       "description",
       "id",
@@ -375,6 +379,7 @@
       "modulator_type",
       "session_id",
       "source_event_id",
+      "uid",
       "valence"
     ],
     "brain_observations": [
@@ -449,6 +454,7 @@
       "reinforcement_count",
       "stability_score",
       "to_id",
+      "uid",
       "weight"
     ],
     "brain_page_nodes": [
@@ -499,6 +505,7 @@
       "verified"
     ],
     "brain_plasticity_events": [
+      "birth_fp",
       "delta_t_ms",
       "delta_w",
       "id",
@@ -509,6 +516,7 @@
       "source_node",
       "target_node",
       "timestamp",
+      "uid",
       "weight_after",
       "weight_before"
     ],
@@ -532,6 +540,7 @@
       "release_id"
     ],
     "brain_retrieval_log": [
+      "birth_fp",
       "created_at",
       "delta_ms",
       "entry_count",
@@ -542,7 +551,8 @@
       "reward_signal",
       "session_id",
       "source",
-      "tokens_used"
+      "tokens_used",
+      "uid"
     ],
     "brain_schema_meta": [
       "key",
@@ -572,7 +582,8 @@
     ],
     "brain_sticky_tags": [
       "sticky_id",
-      "tag"
+      "tag",
+      "uid"
     ],
     "brain_task_observations": [
       "created_at",
@@ -595,11 +606,13 @@
       "uid"
     ],
     "brain_usage_log": [
+      "birth_fp",
       "created_at",
       "entry_id",
       "id",
       "outcome",
       "task_id",
+      "uid",
       "used"
     ],
     "brain_v2_candidate": [
@@ -615,6 +628,7 @@
       "validation_status"
     ],
     "brain_weight_history": [
+      "birth_fp",
       "changed_at",
       "delta_weight",
       "edge_from_id",
@@ -625,6 +639,7 @@
       "retrieval_log_id",
       "reward_signal",
       "source_plasticity_event_id",
+      "uid",
       "weight_after",
       "weight_before"
     ],
@@ -1582,7 +1597,8 @@
       "created_at",
       "created_by",
       "link_type",
-      "release_id"
+      "release_id",
+      "uid"
     ],
     "tasks_commit_files": [
       "change_type",
@@ -2388,13 +2404,15 @@
       "uid"
     ],
     "brain_consolidation_events": [
+      "birth_fp",
       "duration_ms",
       "id",
       "session_id",
       "started_at",
       "step_results_json",
       "succeeded",
-      "trigger"
+      "trigger",
+      "uid"
     ],
     "brain_decisions": [
       "adr_number",
@@ -2479,7 +2497,8 @@
       "link_type",
       "memory_id",
       "memory_type",
-      "task_id"
+      "task_id",
+      "uid"
     ],
     "brain_memory_trees": [
       "centroid",
@@ -2491,6 +2510,7 @@
       "updated_at"
     ],
     "brain_modulators": [
+      "birth_fp",
       "created_at",
       "description",
       "id",
@@ -2498,6 +2518,7 @@
       "modulator_type",
       "session_id",
       "source_event_id",
+      "uid",
       "valence"
     ],
     "brain_observations": [
@@ -2570,6 +2591,7 @@
       "reinforcement_count",
       "stability_score",
       "to_id",
+      "uid",
       "weight"
     ],
     "brain_page_nodes": [
@@ -2618,6 +2640,7 @@
       "verified"
     ],
     "brain_plasticity_events": [
+      "birth_fp",
       "delta_t_ms",
       "delta_w",
       "id",
@@ -2628,6 +2651,7 @@
       "source_node",
       "target_node",
       "timestamp",
+      "uid",
       "weight_after",
       "weight_before"
     ],
@@ -2644,6 +2668,7 @@
       "uid"
     ],
     "brain_retrieval_log": [
+      "birth_fp",
       "created_at",
       "delta_ms",
       "entry_count",
@@ -2654,7 +2679,8 @@
       "reward_signal",
       "session_id",
       "source",
-      "tokens_used"
+      "tokens_used",
+      "uid"
     ],
     "brain_schema_meta": [
       "key",
@@ -2684,7 +2710,8 @@
     ],
     "brain_sticky_tags": [
       "sticky_id",
-      "tag"
+      "tag",
+      "uid"
     ],
     "brain_transcript_events": [
       "birth_fp",
@@ -2700,14 +2727,17 @@
       "uid"
     ],
     "brain_usage_log": [
+      "birth_fp",
       "created_at",
       "entry_id",
       "id",
       "outcome",
       "task_id",
+      "uid",
       "used"
     ],
     "brain_weight_history": [
+      "birth_fp",
       "changed_at",
       "delta_weight",
       "edge_from_id",
@@ -2718,6 +2748,7 @@
       "retrieval_log_id",
       "reward_signal",
       "source_plasticity_event_id",
+      "uid",
       "weight_after",
       "weight_before"
     ],

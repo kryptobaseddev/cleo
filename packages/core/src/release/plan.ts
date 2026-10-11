@@ -704,6 +704,8 @@ function serializeAtom(atom: EvidenceAtom): string | null {
     }
     case 'test-run':
       return `test-run:${atom.path}`;
+    case 'qa-run':
+      return `qa-run:${atom.path}`;
     case 'tool':
       return `tool:${atom.tool}`;
     case 'url':
@@ -1598,12 +1600,19 @@ export async function releasePlan(
   if (opts.taskIds?.length) {
     const taskRes = await resolveExplicitTasks(opts.taskIds, projectRoot);
     if (taskRes.missing.length > 0) {
+      // #1475: every id missing usually means no task store at all (a CI runner:
+      // .cleo/cleo.db is untracked), so point at the committed-plan path instead.
+      const allMissing = taskRes.tasks.length === 0 && taskRes.excluded.length === 0;
       return engineError<ReleasePlanResult>(
         'E_NOT_FOUND',
-        'One or more --tasks IDs were not found',
+        allMissing
+          ? 'None of the --tasks IDs exist in this task store. Task-scoped planning is local-only: a CI runner has no task store (.cleo/cleo.db is untracked)'
+          : 'One or more --tasks IDs were not found',
         {
           exitCode: ExitCode.NOT_FOUND,
-          fix: `cleo exists ${taskRes.missing[0]}`,
+          fix: allMissing
+            ? `run 'cleo release plan' and 'cleo release open <version>' locally; CI must dispatch release-prepare with the committed plan's plan-blob-sha256. If this checkout has a task store, check the ids with 'cleo exists ${taskRes.missing[0]}'`
+            : `cleo exists ${taskRes.missing[0]}`,
           details: { missing: taskRes.missing },
         },
       );

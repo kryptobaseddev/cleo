@@ -407,12 +407,14 @@ describe('M3 — brain_page_edges plasticity columns', () => {
     expect(names).toContain('idx_brain_edges_stability');
   });
 
-  it('M3-7: total column count is 12 (6 original + 6 new)', async () => {
+  it('M3-7: total column count is 13 (6 original + 6 new + row uid)', async () => {
     await openDb();
     const cols = await getTableColumns('brain_page_edges');
     // Original 6: from_id, to_id, edge_type, weight, provenance, created_at
     // New 6: last_reinforced_at, reinforcement_count, plasticity_class,
     //         last_depressed_at, depression_count, stability_score
-    expect(cols.size).toBe(12);
+    // Row identity (T12895): uid
+    expect(cols.has('uid')).toBe(true);
+    expect(cols.size).toBe(13);
   });
 });

@@ -1428,6 +1428,33 @@ function describeMissingTestCount(gate: TestGate): string {
   );
 }
 
+/**
+ * Zero-count runner summaries that name failure without reporting any: node:test
+ * (`ℹ fail 0`), TAP (`# fail 0`), `0 failed`, `0 failing`, `failures: 0`. They
+ * are removed before the failure pattern looks at the output (T13511).
+ */
+const ZERO_FAILURE_COUNT =
+  /\b0\s+(?:fail(?:ed|ing|ures?)?)\b|\bfail(?:ed|ing|ures?)?\s*[:=]?\s*0(?![\d.])/gi;
+
+/**
+ * Whether a test command's output reports a failure, for `expect: 'pass'`:
+ * a `FAIL`, `failing` or `Error:` token, after removing summaries that report
+ * zero failures (T13511 — `node --test` prints `ℹ fail 0` on success, which
+ * the bare pattern read as a failure). A non-zero count still matches.
+ *
+ * @param stdout - The command's captured stdout.
+ * @returns True when the output reports a failure.
+ * @example
+ * ```ts
+ * outputReportsFailure('ℹ pass 3\nℹ fail 0'); // false
+ * outputReportsFailure('ℹ pass 2\nℹ fail 1'); // true
+ * ```
+ * @task T13511
+ */
+export function outputReportsFailure(stdout: string): boolean {
+  return /\bFAIL\b|failing|Error:/i.test(stdout.replace(ZERO_FAILURE_COUNT, ''));
+}
+
 async function runTestGate(
   gate: TestGate,
   index: number,
@@ -1445,8 +1472,7 @@ async function runTestGate(
     gate.env,
   );
   const exitOk =
-    captured.exitCode === 0 &&
-    (gate.expect === 'exit0' || !/\bFAIL\b|failing|Error:/i.test(captured.stdout));
+    captured.exitCode === 0 && (gate.expect === 'exit0' || !outputReportsFailure(captured.stdout));
 
   // T12308: `minCount` was declarable, storable and never satisfiable — the
   // runner rejected any positive value outright, so a task could carry a gate

@@ -431,6 +431,76 @@ describe('the tool tree must contain the change (T12625 review HIGH)', () => {
     const details = r.error.details as DoneBlockedDetails;
     expect(details.blocker).toBe('checkout-required');
     expect(details.next.command).toContain(`switch --detach ${merge}`);
+    // T13429: the commit is local, so no fetch; the message says why a merged branch is refused.
+    expect(details.next.command).not.toContain('fetch origin');
+    expect(r.error.message).toMatch(
+      /squash- or rebase-merged branch never contains its merge commit/,
+    );
+  });
+
+  it('T13429: a merge commit this checkout has not fetched: the remedy fetches first', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    git(root, ['push', '-q', 'origin', `task/${id}`]);
+    // The squash merge lands on origin from another clone; this checkout never fetched it.
+    const other = `${root}-other`;
+    execFileSync('git', ['clone', '-q', `${root}-origin.git`, other]);
+    try {
+      git(other, ['config', 'user.name', 'T']);
+      git(other, ['config', 'user.email', 't@e.x']);
+      git(other, ['fetch', '-q', 'origin', `task/${id}`]);
+      git(other, ['merge', '-q', '--squash', 'FETCH_HEAD']);
+      git(other, ['commit', '-q', '-m', `${id} (#42)`]);
+      git(other, ['push', '-q', 'origin', 'main']);
+      const merge = git(other, ['rev-parse', 'HEAD']);
+      const r = await recordTaskDone(
+        id,
+        opts({
+          deps: {
+            ...deps,
+            listMergedPrs: async () => ({
+              ok: true,
+              prs: [{ number: 42, title: id, body: '', headRefName: `task/${id}` }],
+            }),
+            viewPr: async (n) => ({
+              number: n,
+              title: id,
+              headRefName: `task/${id}`,
+              baseRefName: 'main',
+              state: 'MERGED',
+              mergedAt: '2026-09-28T00:00:00Z',
+              headRefOid: null,
+              mergeCommitSha: merge,
+            }),
+            findPrByHead: async () => null,
+            resolvePr: async (n) => ({
+              ok: true,
+              prNumber: n,
+              mergeCommitSha: merge,
+              mergedAt: '2026-09-28T00:00:00Z',
+              successCount: 1,
+              totalChecks: 1,
+              cacheHit: false,
+              title: id,
+              body: '',
+              headRefName: `task/${id}`,
+              changedPaths: ['src/a.ts'],
+              changedFileCount: 1,
+            }),
+          },
+        }),
+      );
+      expect(r.success).toBe(false);
+      if (r.success) return;
+      const details = r.error.details as DoneBlockedDetails;
+      expect(details.blocker, r.error.message).toBe('checkout-required');
+      expect(details.next.command).toMatch(
+        new RegExp(`fetch origin && git -C .* switch --detach ${merge} && cleo done ${id}`),
+      );
+      expect(r.error.message).toMatch(/not fetched into this checkout yet/);
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
   });
 });
 

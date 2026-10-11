@@ -348,6 +348,7 @@ export async function generateDocsLlmsTxt(
   // Infer owner type from ID prefix (mirrors docs.ts inferOwnerType)
   let ownerType = 'task';
   if (/^T\d+$/i.test(ownerId)) ownerType = 'task';
+  else if (/^D\d+$/.test(ownerId)) ownerType = 'decision';
   else if (ownerId.startsWith('ses_')) ownerType = 'session';
   else if (ownerId.startsWith('O-')) ownerType = 'observation';
   else if (ownerId.startsWith('D-') || ownerId.startsWith('dec_')) ownerType = 'decision';

@@ -124,7 +124,8 @@ export interface TestGate extends GateBase {
   /** Arguments split explicitly (avoids shell-injection). */
   args?: string[];
   /**
-   * - `"pass"`: exit code 0 AND stdout contains no `FAIL|failing|Error:` pattern.
+   * - `"pass"`: exit code 0 AND stdout contains no `FAIL|failing|Error:` pattern, ignoring
+   *   summaries that report zero failures (`ℹ fail 0`, `# fail 0`, `0 failed`; T13511).
    * - `"exit0"`: exit code 0 only (permissive mode).
    */
   expect: 'pass' | 'exit0';

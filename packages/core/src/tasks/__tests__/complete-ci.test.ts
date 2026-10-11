@@ -91,7 +91,11 @@ const affected: EvidenceAtom = {
   affectedPackages: ['@x/a'],
 };
 
-function task(opts: { implemented?: EvidenceAtom[]; tests?: EvidenceAtom[]; qa?: boolean }): Task {
+function task(opts: {
+  implemented?: EvidenceAtom[];
+  tests?: EvidenceAtom[];
+  qa?: boolean | EvidenceAtom[];
+}): Task {
   const scope = (gate: VerificationGate): GateEvidence['scope'] => ({
     taskId: 'T9001',
     gate,
@@ -137,6 +141,16 @@ function task(opts: { implemented?: EvidenceAtom[]; tests?: EvidenceAtom[]; qa?:
                 capturedAt: now,
                 capturedBy: 'test',
                 scope: scope('testsPassed'),
+              },
+            }
+          : {}),
+        ...(Array.isArray(opts.qa)
+          ? {
+              qaPassed: {
+                atoms: opts.qa,
+                capturedAt: now,
+                capturedBy: 'test',
+                scope: scope('qaPassed'),
               },
             }
           : {}),
@@ -412,7 +426,7 @@ describe('satisfyGatesFromMergedCi', () => {
       REQUIRED,
       deps({ recordGates: w.recordGates }),
     );
-    expect(out).toEqual({ kind: 'skipped', testsPassedReason: null });
+    expect(out).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
     expect(w.calls).toHaveLength(0);
   });
 
@@ -449,6 +463,59 @@ describe('satisfyGatesFromMergedCi', () => {
     expect(w.calls).toHaveLength(0);
   });
 
+  describe('a qa-run receipt whose tree moved (T13427)', () => {
+    const qa = (treeHash: string): EvidenceAtom[] => [
+      {
+        kind: 'qa-run',
+        path: 'r/typecheck.json',
+        sha256: 'c'.repeat(64),
+        check: 'typecheck',
+        command: ['tsc'],
+        roots: ['src'],
+        treeHash,
+      },
+      { kind: 'tool', tool: 'lint', exitCode: 0 },
+    ];
+    const full: EvidenceAtom = { kind: 'tool', tool: 'test', exitCode: 0, scope: 'full' };
+
+    it('is superseded by merged CI', async () => {
+      const w = recorder(ok);
+      const out = await satisfyGatesFromMergedCi(
+        task({ tests: [full], qa: qa('e'.repeat(40)) }),
+        '/nonexistent',
+        REQUIRED,
+        deps({ recordGates: w.recordGates }),
+      );
+      expect(out).toEqual({ kind: 'recorded', pr: '42', gates: ['qaPassed'] });
+    });
+
+    it('without ciSatisfies, is reported for the ordinary refusal', async () => {
+      const out = await satisfyGatesFromMergedCi(
+        task({ tests: [full], qa: qa('e'.repeat(40)) }),
+        '/nonexistent',
+        REQUIRED,
+        deps({ ciSatisfies: () => false }),
+      );
+      expect(out.kind === 'skipped' && out.qaPassedReason).toMatch(
+        /qaPassed rests on qa-run:r\/typecheck\.json.*no longer describes this code/,
+      );
+    });
+
+    it('stands while its tree matches', async () => {
+      const out = await satisfyGatesFromMergedCi(
+        task({ tests: [full], qa: qa('f'.repeat(40)) }),
+        '/nonexistent',
+        REQUIRED,
+        deps({
+          recordGates: async () => {
+            throw new Error('must not write');
+          },
+        }),
+      );
+      expect(out).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
+    });
+  });
+
   it('standing gates pay nothing', async () => {
     const full: EvidenceAtom = { kind: 'tool', tool: 'test', exitCode: 0, scope: 'full' };
     const out = await satisfyGatesFromMergedCi(
@@ -464,6 +531,6 @@ describe('satisfyGatesFromMergedCi', () => {
         },
       }),
     );
-    expect(out).toEqual({ kind: 'skipped', testsPassedReason: null });
+    expect(out).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
   });
 });

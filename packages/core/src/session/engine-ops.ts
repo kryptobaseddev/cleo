@@ -890,6 +890,13 @@ export async function sessionEnd(
       // Best-effort — resolution ignores bindings to non-active sessions anyway.
     }
 
+    // T13425: free the worktree locks this session holds, so a successor's
+    // `--resume` is not refused while the harness pid that spawned it lives on.
+    if (sessionId !== 'default') {
+      const { releaseSessionWorktreeLocks } = await import('../spawn/worktree-lock-holder.js');
+      releaseSessionWorktreeLocks(projectRoot, sessionId);
+    }
+
     // T140: Build summarization prompt and ingest structured summary if provided
     let memoryPrompt: string | undefined;
     try {
@@ -1489,7 +1496,7 @@ export async function sessionComputeHandoff(
 }
 
 /**
- * Regenerate stale global provider instruction files (T12378).
+ * Report stale global provider instruction files (T12378); never writes them (T13409).
  *
  * Bounded and non-fatal: a failure — including failing to load the module —
  * becomes a `failed` report in the envelope instead of failing the command.
@@ -1501,13 +1508,17 @@ async function refreshGlobalInstructionDelivery(): Promise<GlobalInstructionRefr
     const { refreshStaleGlobalInstructions } = await import('../injection.js');
     return await refreshStaleGlobalInstructions();
   } catch (err) {
+    // Loaded lazily: this module is on the startup path of `cleo show` (gate 39).
+    const { GLOBAL_INSTRUCTION_REFRESH_COMMAND } = await import(
+      '@cleocode/contracts/caamp-markers.js'
+    );
     return {
       status: 'failed',
       stale: [],
       duplicates: [],
       updated: [],
       reason: err instanceof Error ? err.message : String(err),
-      remedy: 'cleo install-global',
+      remedy: GLOBAL_INSTRUCTION_REFRESH_COMMAND,
     };
   }
 }

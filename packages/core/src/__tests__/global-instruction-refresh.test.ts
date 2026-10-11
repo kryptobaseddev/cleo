@@ -1,6 +1,7 @@
 /**
- * Automatic refresh of stale global provider instructions and the doctor's
- * `caamp` binary check (T12378).
+ * Automatic staleness check of global provider instructions and the doctor's
+ * `caamp` binary check (T12378). Since T13409 the check only reports: CLEO
+ * never rewrites a user-global instruction file.
  *
  * Runs against a temp HOME with explicit providers; `force` opts in past the
  * Vitest guard that otherwise keeps the refresh away from real provider files.
@@ -61,35 +62,41 @@ describe('refreshStaleGlobalInstructions', () => {
     expect(report.reason).toContain('CLEO_INSTRUCTION_AUTOREFRESH=0');
   });
 
-  it('regenerates a stale embedded source and then reports current', async () => {
+  it('reports a stale embedded source and never rewrites the file (T13409)', async () => {
     const providers = await targets();
     await writeHub('');
     const { syncGlobalInstructions } = await import('@cleocode/caamp');
-    await syncGlobalInstructions({ providers });
+    // Seed the delivery the way the owner would: an explicit user command.
+    await syncGlobalInstructions({ providers, userRequested: true });
+    const delivered = await readFile(join(home, '.claude', 'CLAUDE.md'), 'utf8');
 
     await writeHub('\n- A new owner rule that every provider must receive at once.\n');
-    const refreshed = await refreshStaleGlobalInstructions({ force: true, providers });
-    expect(refreshed.status).toBe('refreshed');
-    expect(refreshed.stale).toHaveLength(2);
-    expect(refreshed.updated).toHaveLength(2);
-    expect(await readFile(join(home, '.claude', 'CLAUDE.md'), 'utf8')).toContain(
-      'A new owner rule that every provider must receive at once.',
-    );
-
-    const again = await refreshStaleGlobalInstructions({ force: true, providers });
-    expect(again.status).toBe('current');
-    expect(again.updated).toEqual([]);
+    const report = await refreshStaleGlobalInstructions({ force: true, providers });
+    expect(report.status).toBe('skipped');
+    expect(report.stale).toHaveLength(2);
+    expect(report.updated).toEqual([]);
+    expect(report.remedy).toBe('caamp instructions update --global');
+    expect(await readFile(join(home, '.claude', 'CLAUDE.md'), 'utf8')).toBe(delivered);
   });
 
-  it('reports failure with the exact remedy when the hub cannot be resolved', async () => {
+  it('reports current when nothing is stale', async () => {
     const providers = await targets();
-    await writeFile(
-      join(home, '.claude', 'CLAUDE.md'),
-      `<!-- CAAMP:START -->\n<!-- CAAMP:SOURCE ${encodeURIComponent(join(home, 'gone.md'))} ${'0'.repeat(64)} -->\nold\n<!-- CAAMP:END -->\n`,
-    );
+    await writeHub('');
+    const { syncGlobalInstructions } = await import('@cleocode/caamp');
+    await syncGlobalInstructions({ providers, userRequested: true });
     const report = await refreshStaleGlobalInstructions({ force: true, providers });
-    expect(report.status).toBe('failed');
-    expect(report.remedy).toBe('cleo install-global');
+    expect(report.status).toBe('current');
+    expect(report.updated).toEqual([]);
+  });
+
+  it('leaves an unresolvable delivery untouched and names the owner command', async () => {
+    const providers = await targets();
+    const stale = `<!-- CAAMP:START -->\n<!-- CAAMP:SOURCE ${encodeURIComponent(join(home, 'gone.md'))} ${'0'.repeat(64)} -->\nold\n<!-- CAAMP:END -->\n`;
+    await writeFile(join(home, '.claude', 'CLAUDE.md'), stale);
+    const report = await refreshStaleGlobalInstructions({ force: true, providers });
+    expect(report.status).toBe('skipped');
+    expect(report.remedy).toBe('caamp instructions update --global');
+    expect(await readFile(join(home, '.claude', 'CLAUDE.md'), 'utf8')).toBe(stale);
   });
 });
 

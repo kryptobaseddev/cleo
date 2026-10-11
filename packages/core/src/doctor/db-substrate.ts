@@ -542,7 +542,11 @@ export function inspectDbFile(
   options: DbSubstrateSurveyOptions = {},
 ): DbSubstrateEntry {
   const timeoutMs = options.integrityCheckTimeoutMs ?? DEFAULT_INTEGRITY_CHECK_TIMEOUT_MS;
-  const autoQuarantine = options.autoQuarantine ?? true;
+  // A role living in a consolidated store (it has a legacy file) resolves to
+  // the LIVE store: doctor never moves it (a slow integrity_check alone would),
+  // and suggests the guarded `cleo backup recover <role>` instead (T13245).
+  const autoQuarantine =
+    (options.autoQuarantine ?? true) && entry.legacyFilePathTemplate === undefined;
 
   if (!existsSync(filePath)) {
     return {
@@ -813,6 +817,24 @@ function buildSkippedReport(
 }
 
 /**
+ * The table holding a tasks-domain concept in a snapshot: the consolidated
+ * prefixed name (`tasks_tasks`, `tasks_sessions`) in the live `cleo.db`,
+ * else the bare name of a pre-consolidation `tasks.db` (T13245). `null`
+ * when neither exists.
+ *
+ * @param snapshot - Open snapshot.
+ * @param bare - The pre-consolidation table name (`tasks`, `sessions`).
+ */
+function tasksDomainTable(
+  snapshot: ReturnType<typeof openCleoDbSnapshot>,
+  bare: 'tasks' | 'sessions',
+): string | null {
+  const prefixed = `tasks_${bare}`;
+  if (snapshotHasTable(snapshot, prefixed)) return prefixed;
+  return snapshotHasTable(snapshot, bare) ? bare : null;
+}
+
+/**
  * Helper: check whether a SQLite snapshot has a given table.
  *
  * @param snapshot - The open snapshot handle (NOT null — caller checks).
@@ -886,7 +908,12 @@ export function checkInvariantI1(
     return buildSkippedReport('I1', description, I1_FIX, 'brain.db missing or unreadable');
   }
   if (tasksSnap === null) {
-    return buildSkippedReport('I1', description, I1_FIX, 'tasks.db missing or unreadable');
+    return buildSkippedReport(
+      'I1',
+      description,
+      I1_FIX,
+      'the project store is missing or unreadable',
+    );
   }
   if (!snapshotHasTable(brainSnap, 'brain_memory_links')) {
     return buildSkippedReport(
@@ -896,8 +923,9 @@ export function checkInvariantI1(
       'brain.db has no brain_memory_links table',
     );
   }
-  if (!snapshotHasTable(tasksSnap, 'tasks')) {
-    return buildSkippedReport('I1', description, I1_FIX, 'tasks.db has no tasks table');
+  const i1Tasks = tasksDomainTable(tasksSnap, 'tasks');
+  if (i1Tasks === null) {
+    return buildSkippedReport('I1', description, I1_FIX, 'the project store has no tasks table');
   }
 
   type LinkRow = { task_id: string };
@@ -919,7 +947,7 @@ export function checkInvariantI1(
   }
 
   const orphans: string[] = [];
-  const lookup = tasksSnap.db.prepare('SELECT id FROM tasks WHERE id = ? LIMIT 1');
+  const lookup = tasksSnap.db.prepare(`SELECT id FROM "${i1Tasks}" WHERE id = ? LIMIT 1`);
   for (const taskId of candidateIds) {
     try {
       const row = lookup.get(taskId) as { id: string } | undefined;
@@ -968,7 +996,12 @@ export function checkInvariantI2(
     return buildSkippedReport('I2', description, I2_FIX, 'manifest.db missing or unreadable');
   }
   if (tasksSnap === null) {
-    return buildSkippedReport('I2', description, I2_FIX, 'tasks.db missing or unreadable');
+    return buildSkippedReport(
+      'I2',
+      description,
+      I2_FIX,
+      'the project store is missing or unreadable',
+    );
   }
   if (!snapshotHasTable(manifestSnap, 'blob_attachments')) {
     return buildSkippedReport(
@@ -978,8 +1011,9 @@ export function checkInvariantI2(
       'manifest.db has no blob_attachments table',
     );
   }
-  if (!snapshotHasTable(tasksSnap, 'tasks')) {
-    return buildSkippedReport('I2', description, I2_FIX, 'tasks.db has no tasks table');
+  const i2Tasks = tasksDomainTable(tasksSnap, 'tasks');
+  if (i2Tasks === null) {
+    return buildSkippedReport('I2', description, I2_FIX, 'the project store has no tasks table');
   }
 
   type SlugRow = { doc_slug: string };
@@ -1002,7 +1036,7 @@ export function checkInvariantI2(
   }
 
   const orphans: string[] = [];
-  const lookup = tasksSnap.db.prepare('SELECT id FROM tasks WHERE id = ? LIMIT 1');
+  const lookup = tasksSnap.db.prepare(`SELECT id FROM "${i2Tasks}" WHERE id = ? LIMIT 1`);
   for (const slug of candidates) {
     try {
       const row = lookup.get(slug) as { id: string } | undefined;
@@ -1145,10 +1179,16 @@ export function checkInvariantI4(
     return buildSkippedReport('I4', description, I4_FIX, 'llmtxt.db missing or unreadable');
   }
   if (tasksSnap === null) {
-    return buildSkippedReport('I4', description, I4_FIX, 'tasks.db missing or unreadable');
+    return buildSkippedReport(
+      'I4',
+      description,
+      I4_FIX,
+      'the project store is missing or unreadable',
+    );
   }
-  if (!snapshotHasTable(tasksSnap, 'sessions')) {
-    return buildSkippedReport('I4', description, I4_FIX, 'tasks.db has no sessions table');
+  const i4Sessions = tasksDomainTable(tasksSnap, 'sessions');
+  if (i4Sessions === null) {
+    return buildSkippedReport('I4', description, I4_FIX, 'the project store has no sessions table');
   }
 
   // Find any user table in llmtxt.db that has a `session_id` column.
@@ -1215,7 +1255,7 @@ export function checkInvariantI4(
   }
 
   const orphans: string[] = [];
-  const lookup = tasksSnap.db.prepare('SELECT id FROM sessions WHERE id = ? LIMIT 1');
+  const lookup = tasksSnap.db.prepare(`SELECT id FROM "${i4Sessions}" WHERE id = ? LIMIT 1`);
   for (const sessionId of allCandidates) {
     try {
       const row = lookup.get(sessionId) as { id: string } | undefined;
@@ -1300,9 +1340,10 @@ export function checkInvariantI5(
     );
   }
 
+  const i5Tasks = tasksSnap !== null ? tasksDomainTable(tasksSnap, 'tasks') : null;
   const tasksLookup =
-    tasksSnap !== null && snapshotHasTable(tasksSnap, 'tasks')
-      ? tasksSnap.db.prepare('SELECT id FROM tasks WHERE id = ? LIMIT 1')
+    tasksSnap !== null && i5Tasks !== null
+      ? tasksSnap.db.prepare(`SELECT id FROM "${i5Tasks}" WHERE id = ? LIMIT 1`)
       : null;
   const brainPageLookup =
     brainSnap !== null && snapshotHasTable(brainSnap, 'brain_page_nodes')
@@ -1400,12 +1441,19 @@ export function walkCrossDbInvariants(projectRoot: string): DbCrossDbOrphanRepor
   const llmtxtPath = resolveByRole('llmtxt');
   const nexusPath = resolveByRole('nexus');
 
-  const tasksSnap = tasksPath ? tryOpenSnapshot(tasksPath) : null;
-  const brainSnap = brainPath ? tryOpenSnapshot(brainPath) : null;
-  const conduitSnap = conduitPath ? tryOpenSnapshot(conduitPath) : null;
-  const manifestSnap = manifestPath ? tryOpenSnapshot(manifestPath) : null;
-  const llmtxtSnap = llmtxtPath ? tryOpenSnapshot(llmtxtPath) : null;
-  const nexusSnap = nexusPath ? tryOpenSnapshot(nexusPath) : null;
+  // One snapshot per file: tasks, brain and conduit share the project cleo.db (T13245).
+  const opened = new Map<string, ReturnType<typeof tryOpenSnapshot>>();
+  const snapOf = (path: string | null): ReturnType<typeof tryOpenSnapshot> => {
+    if (path === null) return null;
+    if (!opened.has(path)) opened.set(path, tryOpenSnapshot(path));
+    return opened.get(path) ?? null;
+  };
+  const tasksSnap = snapOf(tasksPath);
+  const brainSnap = snapOf(brainPath);
+  const conduitSnap = snapOf(conduitPath);
+  const manifestSnap = snapOf(manifestPath);
+  const llmtxtSnap = snapOf(llmtxtPath);
+  const nexusSnap = snapOf(nexusPath);
 
   try {
     const reports: DbCrossDbOrphanReport[] = [
@@ -1418,12 +1466,7 @@ export function walkCrossDbInvariants(projectRoot: string): DbCrossDbOrphanRepor
     return reports;
   } finally {
     // Close every snapshot we opened, regardless of which checks ran.
-    tasksSnap?.close();
-    brainSnap?.close();
-    conduitSnap?.close();
-    manifestSnap?.close();
-    llmtxtSnap?.close();
-    nexusSnap?.close();
+    for (const snap of opened.values()) snap?.close();
   }
 }
 
@@ -1446,9 +1489,15 @@ export function surveyProjectDbSubstrate(
   options: DbSubstrateSurveyOptions = {},
 ): DbSubstrateProjectSurvey {
   const dbs: Record<string, DbSubstrateEntry> = {};
+  // Roles sharing a file (tasks, brain and conduit: the project cleo.db) are
+  // inspected once (T13245).
+  const byPath = new Map<string, DbSubstrateEntry>();
   for (const entry of DB_INVENTORY) {
     const filePath = resolveInventoryFilePath(entry, projectRoot);
-    dbs[entry.role] = inspectDbFile(entry, filePath, options);
+    const seen = byPath.get(filePath);
+    const inspected = seen ?? inspectDbFile(entry, filePath, options);
+    byPath.set(filePath, inspected);
+    dbs[entry.role] = inspected;
   }
   return {
     projectRoot,
@@ -1482,7 +1531,9 @@ export function surveyProjectDbSubstrate(
  */
 export function isLegitimateCleoProjectRoot(cleoDirPath: string): boolean {
   return (
-    existsSync(join(cleoDirPath, 'project-info.json')) && existsSync(join(cleoDirPath, 'tasks.db'))
+    existsSync(join(cleoDirPath, 'project-info.json')) &&
+    // The consolidated store, or a pre-consolidation one (T13245).
+    (existsSync(join(cleoDirPath, 'cleo.db')) || existsSync(join(cleoDirPath, 'tasks.db')))
   );
 }
 

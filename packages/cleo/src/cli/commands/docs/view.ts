@@ -7,7 +7,7 @@
  * Supports three render modes:
  *   --render terminal  (default) — ANSI-formatted terminal output
  *   --render markdown  — raw markdown content
- *   --render json      — LAFS JSON envelope with metadata + base64 content
+ *   --render json      — LAFS JSON envelope with metadata + decoded text (base64 for binary)
  *
  * Honors user preferences for color, width, and pagination.
  *
@@ -16,9 +16,10 @@
  * @saga T10516
  */
 
-import { Buffer } from 'node:buffer';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { createDocsReadModel } from '@cleocode/core/docs/docs-read-model';
+import { buildDocsFetchResult } from '@cleocode/core/docs/fetch-result';
+import { getProjectRoot } from '@cleocode/core/paths.js';
 import { type DocsViewOptions, renderDocsView } from '@cleocode/core/render/docs/view';
 import { defineCommand } from '../../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../../renderers/index.js';
@@ -127,36 +128,15 @@ const viewCommand = defineCommand({
       return;
     }
 
-    const contentBytes = Buffer.from(content, 'utf-8');
-
     if (renderMode === 'json') {
-      const bytesBase64 =
-        contentBytes.length <= 1024 * 1024 ? contentBytes.toString('base64') : undefined;
-      cliOutput(
-        {
-          metadata: {
-            id: doc.id,
-            sha256: doc.sha256,
-            kind: 'blob',
-            mime: doc.mimeType ?? 'text/plain',
-            size: doc.sizeBytes,
-            description: doc.summary ?? undefined,
-            createdAt: doc.createdAt,
-            ...(doc.slug ? { slug: doc.slug } : {}),
-            ...(doc.kind ? { type: doc.kind } : {}),
-            ...(doc.title ? { title: doc.title } : {}),
-            ...(doc.blobName ? { blobName: doc.blobName } : {}),
-          },
-          sizeBytes: contentBytes.length,
-          ...(bytesBase64 !== undefined ? { bytesBase64 } : {}),
-          inlined: bytesBase64 !== undefined,
-        },
-        {
-          command: 'docs view',
-          operation: 'docs.view',
-          message: `doc ${doc.slug ?? doc.id} (${contentBytes.length} bytes)`,
-        },
-      );
+      // T13352 — same shared builder as docs.fetch: decoded text by default,
+      // real refCount, storage path against the doc's actual store.
+      const result = buildDocsFetchResult({ doc, content, projectRoot: getProjectRoot() });
+      cliOutput(result, {
+        command: 'docs view',
+        operation: 'docs.view',
+        message: `doc ${doc.slug ?? doc.id} (${result.sizeBytes} bytes)`,
+      });
       return;
     }
 

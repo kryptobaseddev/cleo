@@ -35,6 +35,10 @@ export const ON_REMOTE_PARENT_DELETE: Readonly<Record<string, ParentDeletePolicy
   // Those FKs are NO ACTION, so no child ever cascades; a purge deletes
   // decisions through its own ops.
   brain_decisions: 'conflict',
+  // Global sticky notes own their tags (ON DELETE CASCADE, T12895). A note is
+  // only ever hard-deleted by the sticky purge, which deletes its tags first:
+  // a purge, so every replica drops a concurrently added tag with ops.
+  brain_sticky_notes: 'cascade-with-ops',
 };
 
 /**

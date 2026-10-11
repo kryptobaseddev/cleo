@@ -39,6 +39,7 @@ import {
   listVitestProjects,
   listWorkspacePackages,
   planAffectedTestRun,
+  planScopedTestRun,
   scopedChangedPaths,
 } from '../affected-packages.js';
 import { validateAtom } from '../evidence.js';
@@ -148,6 +149,81 @@ describe('deriveAffectedPackages', () => {
       scope: 'affected',
       direct: [],
       packages: [],
+    });
+  });
+});
+
+describe('a standalone single-package project is one package (T13403)', () => {
+  /** Turn the fixture into a project that declares no workspace. */
+  function standalone(manifest: Record<string, unknown> = {}): void {
+    rmSync(join(root, 'pnpm-workspace.yaml'));
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ name: 'solo', scripts: { test: 'vitest run' }, ...manifest }),
+    );
+  }
+
+  it('the root package.json is the one package, with directory ""', () => {
+    standalone();
+    expect(listWorkspacePackages(root)).toEqual([
+      { name: 'solo', dir: '', deps: [], hasTestScript: true },
+    ]);
+  });
+
+  it('every changed path inside the root maps to it: scope is the package, not full', () => {
+    standalone();
+    const r = deriveAffectedPackages(root, [
+      'src/x.ts',
+      'src/x.test.ts',
+      'package.json',
+      'vitest.config.ts',
+    ]);
+    expect(r).toEqual({ scope: 'affected', direct: ['solo'], packages: ['solo'] });
+  });
+
+  it('documentation stays ignored, as outside the packages of a workspace', () => {
+    standalone();
+    expect(deriveAffectedPackages(root, ['README.md'])).toEqual({
+      scope: 'affected',
+      direct: [],
+      packages: [],
+    });
+  });
+
+  it('a path outside the root is outside the package: scope stays full', () => {
+    standalone();
+    const r = deriveAffectedPackages(root, ['../elsewhere/x.ts']);
+    expect(r.scope).toBe('full');
+  });
+
+  it('a declared workspace, even an empty one, is not standalone: its root paths stay full', () => {
+    standalone({ workspaces: [] });
+    expect(listWorkspacePackages(root)).toEqual([]);
+    expect(deriveAffectedPackages(root, ['src/x.ts']).scope).toBe('full');
+  });
+
+  it('a root package.json without a name is no package: scope stays full', () => {
+    rmSync(join(root, 'pnpm-workspace.yaml'));
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ private: true }));
+    expect(listWorkspacePackages(root)).toEqual([]);
+    expect(deriveAffectedPackages(root, ['src/x.ts']).scope).toBe('full');
+  });
+
+  it('a root in a subdirectory of its git checkout keeps no package: paths there stay full', () => {
+    // Changed paths are spelled relative to the git top level, so the root
+    // package cannot tell its own paths from the rest of the checkout.
+    git(root, ['init', '-q', '-b', 'main']);
+    const sub = join(root, 'app');
+    mkdirSync(sub, { recursive: true });
+    writeFileSync(join(sub, 'package.json'), JSON.stringify({ name: 'nested' }));
+    expect(listWorkspacePackages(sub)).toEqual([]);
+    expect(deriveAffectedPackages(sub, ['other/x.ts']).scope).toBe('full');
+  });
+
+  it('a monorepo path outside every package is still full', () => {
+    expect(deriveAffectedPackages(root, ['packages/a/src/index.ts', 'pnpm-lock.yaml'])).toEqual({
+      scope: 'full',
+      reason: expect.stringContaining('pnpm-lock.yaml'),
     });
   });
 });
@@ -758,6 +834,21 @@ describe('tool:test-affected evidence', () => {
       expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TOOL_FAILED');
       expect(!r.ok && r.reason).toMatch(/tool:test \(affected:/);
     });
+  });
+
+  it('T13403: a standalone project plans no affected run; tool:test keeps testing.command', async () => {
+    rmSync(join(root, 'pnpm-workspace.yaml'));
+    rmSync(join(root, 'packages'), { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'solo' }));
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'src', 'x.ts'), 'export {};\n');
+    initRepo('pnpm exec vitest run {projects}');
+    writeFileSync(join(root, 'src', 'x.ts'), 'export const x = 1;\n');
+    git(root, ['commit', '-q', '-am', 'T1: change x']);
+    const r = await planAffectedTestRun(root, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/single-package project.*tool:test/);
+    const scoped = await planScopedTestRun(root, root);
+    expect(scoped).toMatchObject({ scope: 'full' });
   });
 
   it('refuses when testing.affectedCommand is not configured', async () => {

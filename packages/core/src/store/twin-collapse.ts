@@ -2514,6 +2514,10 @@ export function collapseTwinTables(
   });
   let snapshotPath: string | null = null;
   if (needSnapshot.length > 0) {
+    // A TEMP shadow named like its main twin captures unqualified names inside
+    // VACUUM INTO, so an index on a main-only column (uid) fails the snapshot.
+    // A failure below rebuilds the shadows.
+    if (degraded.has(nativeDb)) clearShadows(nativeDb);
     const plan = planMigrationSnapshot(nativeDb, dbPath);
     try {
       snapshotPath = writeMigrationSnapshot(

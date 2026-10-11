@@ -131,7 +131,7 @@ interface TmpEnv {
   /** ADR-068: `templates/` directory — replaces `seed-agents/` for fallback resolution. */
   templatesDir: string;
   openDb: () => DatabaseSync;
-  cleanup: () => void;
+  cleanup: () => Promise<void>;
 }
 
 async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
@@ -164,6 +164,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   const { ensureGlobalAgentRegistryDb, _resetGlobalAgentRegistryDb_TESTING_ONLY } = await import(
     '../agent-registry-store.js'
   );
+  const { awaitBackgroundOps } = await import('../background-ops.js');
   _resetGlobalAgentRegistryDb_TESTING_ONLY();
   await ensureGlobalAgentRegistryDb();
 
@@ -193,7 +194,12 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     d.exec('PRAGMA journal_mode = WAL');
     return d;
   };
-  const cleanup = (): void => {
+  // Drain this registry's background work (the resolver's dispatch trace
+  // opens the project store) before the next test's vi.resetModules: a
+  // straggler crossing it loads a second dual-scope-db into the fresh registry
+  // mid-import and the next test sees it uninitialised (T13313).
+  const cleanup = async (): Promise<void> => {
+    await awaitBackgroundOps();
     _resetGlobalAgentRegistryDb_TESTING_ONLY();
     rmSync(base, { recursive: true, force: true });
   };
@@ -221,17 +227,6 @@ function writeSource(dir: string, filename: string, body: string): string {
 // Suite
 // ---------------------------------------------------------------------------
 
-// T12894 gave the global store row-identity fill work at open; under this
-// vi.resetModules + vi.doMock harness that hits the TDZ on dual-scope-db's
-// cache (T13313), as spawn.test.ts and pipeline-e2e.test.ts do. The built CLI
-// is unaffected. Pinned off until T13313 lands.
-beforeEach(() => {
-  vi.stubEnv('CLEO_ROW_UID_FILL', '0');
-});
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
-
 describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
   let env: TmpEnv;
 
@@ -240,8 +235,8 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
     env = await makeTmpEnv(Math.random().toString(36).slice(2));
   });
 
-  afterEach(() => {
-    env.cleanup();
+  afterEach(async () => {
+    await env.cleanup();
     vi.restoreAllMocks();
   });
 

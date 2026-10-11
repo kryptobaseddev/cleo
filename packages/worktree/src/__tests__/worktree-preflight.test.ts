@@ -6,6 +6,8 @@
  *   leak-detected+heal-failed, non-git-dir.
  * - assertNoWorktreeConfigLeak: throws E_WT_CONFIG_LEAK on unhealed leak.
  * - ensureWorktreeBuildReady: already-ready, no-lockfile, installed (mock).
+ * - stdout guard: preflight progress goes to stderr only, so a spawn's stdout
+ *   stays exactly one LAFS envelope (ADR-086, T13493).
  *
  * @task T11489
  */
@@ -14,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   assertNoWorktreeConfigLeak,
   detectAndHealCoreWorktreeLeak,
@@ -174,5 +176,68 @@ describe('ensureWorktreeBuildReady (T11489)', () => {
     expect(['install-failed', 'installed', 'already-ready']).toContain(result.action);
     expect(result.lockfilePresent).toBe(true);
     // Importantly, no exception should propagate.
+  });
+});
+
+describe('preflight progress never reaches stdout (T13493 · ADR-086)', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'cleo-preflight-stdout-'));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Run `fn` and return what it wrote to stdout and stderr. */
+  function capture(fn: () => void): { stdout: string; stderr: string } {
+    let stdout = '';
+    let stderr = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      stdout += String(chunk);
+      return true;
+    });
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderr += String(chunk);
+      return true;
+    });
+    try {
+      fn();
+    } finally {
+      vi.restoreAllMocks();
+    }
+    return { stdout, stderr };
+  }
+
+  it('the node_modules install path writes its notices to stderr and nothing to stdout', () => {
+    writeFileSync(join(dir, 'package.json'), '{"name":"p","version":"1.0.0"}\n');
+    writeFileSync(join(dir, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n");
+    const out = capture(() => {
+      ensureWorktreeBuildReady(dir, dir);
+    });
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain('[worktree-preflight] node_modules absent');
+  });
+
+  it('the core.worktree leak heal writes to stderr and nothing to stdout', () => {
+    const repo = initTempRepo();
+    try {
+      execFileSync(
+        'git',
+        ['config', '--file', join(repo, '.git', 'config'), 'core.worktree', '/tmp/leaked'],
+        {
+          stdio: 'pipe',
+        },
+      );
+      const out = capture(() => {
+        detectAndHealCoreWorktreeLeak(repo);
+      });
+      expect(out.stdout).toBe('');
+      expect(out.stderr).toContain('[worktree-preflight] E_WT_CONFIG_LEAK');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });

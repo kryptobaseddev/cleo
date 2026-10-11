@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.10.6] (2026-10-10)
+
+### Fixed
+
+- a reconcile that copied a session reverts cleanly, and --rollback works on it _(provenance: [T13384](https://github.com/kryptobaseddev/cleo/search?q=T13384&type=commits))_
+- a single-package project (no workspace declared) is one package, so a targeted test-run of the changed test files satisfies testsPassed and `cleo done --plan` proposes it instead of a whole-suite tool:test _(provenance: [T13403](https://github.com/kryptobaseddev/cleo/search?q=T13403&type=commits))_
+- self-update and upgrade no longer write user-global instruction files or rewrite the project's own text; upgrade is idempotent and backs up what it changes _(provenance: [T13409](https://github.com/kryptobaseddev/cleo/search?q=T13409&type=commits))_
+
 ## [2026.10.5] (2026-10-07)
 
 > **Update now: run `cleo self-update`.** This release ships releases through a canary first, makes `cleo login` the one setup step on a new machine, and fixes a regression that let a second full build run beside the first.

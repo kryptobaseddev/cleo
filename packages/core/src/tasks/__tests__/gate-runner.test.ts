@@ -30,6 +30,7 @@ import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { acItemToText, acTextHash, buildFreshAcRows } from '../ac-table.js';
 import {
   createTaskGateReceipt,
+  outputReportsFailure,
   resolveGateTimeoutMs,
   revalidateTaskGateResults,
   runGates,
@@ -1374,4 +1375,71 @@ describe('typed gate tool deadlines (T12516 · ADR-061)', () => {
       _forceSystemdRunAvailable(undefined);
     }
   }, 30_000);
+});
+
+describe('expect pass reads runner summaries, not the word "fail" (T13511)', () => {
+  it.each([
+    ['node:test passing', 'ℹ tests 3\nℹ suites 0\nℹ pass 3\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0'],
+    ['TAP passing', '# tests 3\n# pass 3\n# fail 0'],
+    ['vitest passing', ' Test Files  2 passed (2)\n      Tests  12 passed (12)'],
+    ['jest passing', 'Tests:       12 passed, 12 total\nSnapshots:   0 total'],
+    ['mocha style zero', '  3 passing (20ms)\n  0 failing'],
+    ['failures: 0', 'Ran 3 tests\nfailures: 0'],
+  ])('%s does not report a failure', (_label, out) => {
+    expect(outputReportsFailure(out)).toBe(false);
+  });
+
+  it.each([
+    ['node:test failing', 'ℹ tests 3\nℹ pass 2\nℹ fail 1'],
+    ['TAP failing', '# pass 2\n# fail 1'],
+    ['vitest failing', ' FAIL  src/a.test.ts > adds\n      Tests  1 failed | 11 passed (12)'],
+    ['jest failing', 'FAIL src/a.test.ts\nTests:       1 failed, 11 passed, 12 total'],
+    ['mocha failing', '  2 passing\n  1 failing'],
+    ['an Error: line', 'Error: boom'],
+    ['fail 10 is not fail 0', 'ℹ fail 10'],
+  ])('%s reports a failure', (_label, out) => {
+    expect(outputReportsFailure(out)).toBe(true);
+  });
+
+  it('a real passing node --test run passes a typed test gate with expect pass', async () => {
+    const file = join(projectRoot, 't13511.test.mjs');
+    await writeFile(
+      file,
+      "import { test } from 'node:test';\nimport assert from 'node:assert';\ntest('adds', () => assert.equal(1 + 1, 2));\n",
+    );
+    const [result] = await runGates(
+      [
+        {
+          kind: 'test',
+          description: 'node --test passes',
+          command: process.execPath,
+          args: ['--test', file],
+          expect: 'pass',
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result, result?.errorMessage).toBe('pass');
+  });
+
+  it('a real failing node --test run fails it', async () => {
+    const file = join(projectRoot, 't13511-fail.test.mjs');
+    await writeFile(
+      file,
+      "import { test } from 'node:test';\nimport assert from 'node:assert';\ntest('adds', () => assert.equal(1 + 1, 3));\n",
+    );
+    const [result] = await runGates(
+      [
+        {
+          kind: 'test',
+          description: 'node --test fails',
+          command: process.execPath,
+          args: ['--test', file],
+          expect: 'pass',
+        },
+      ],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('fail');
+  });
 });

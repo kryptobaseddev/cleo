@@ -693,6 +693,20 @@ export async function completeTask(
         },
       );
     }
+    // T13427: a qa-run receipt counts only while its tree stands; merged CI
+    // already replaced it above when it could.
+    if (mergedCi.kind === 'skipped' && mergedCi.qaPassedReason) {
+      // @sync-invariant none:local-only completion-time evidence gate on the local verification record; nothing is written
+      throw new CleoError(
+        enforcement.lifecycleMode === 'strict'
+          ? ExitCode.LIFECYCLE_GATE_FAILED
+          : ExitCode.GATE_DEPENDENCY,
+        `Task ${options.taskId} failed verification gates: qaPassed (${mergedCi.qaPassedReason}${mergedCi.ciUnavailable ? ` Merged CI could not stand in: ${mergedCi.ciUnavailable}` : ''})`,
+        {
+          fix: `cleo done ${options.taskId} --plan  # plans a fresh qa-run, tool:lint;tool:typecheck, or ci:<pr> for qaPassed`,
+        },
+      );
+    }
   }
 
   // ---- T1404 / P1-4: Epic closure requires direct evidence or verified children ----
