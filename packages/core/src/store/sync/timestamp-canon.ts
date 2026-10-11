@@ -122,6 +122,11 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     brain_transcript_events: ['created_at', 'redacted_at'],
     brain_page_edges: ['created_at', 'last_reinforced_at', 'last_depressed_at'],
     brain_memory_links: ['created_at'],
+    brain_retrieval_log: ['created_at'],
+    brain_weight_history: ['changed_at'],
+    brain_modulators: ['created_at'],
+    brain_consolidation_events: ['started_at'],
+    brain_usage_log: ['created_at'],
     tasks_brain_release_links: ['created_at'],
   },
   global: {
@@ -150,6 +155,11 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     brain_transcript_events: ['created_at', 'redacted_at'],
     brain_page_edges: ['created_at', 'last_reinforced_at', 'last_depressed_at'],
     brain_memory_links: ['created_at'],
+    brain_retrieval_log: ['created_at'],
+    brain_weight_history: ['changed_at'],
+    brain_modulators: ['created_at'],
+    brain_consolidation_events: ['started_at'],
+    brain_usage_log: ['created_at'],
     brain_sticky_notes: ['created_at', 'updated_at'],
   },
 };
