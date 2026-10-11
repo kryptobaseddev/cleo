@@ -1,5 +1,5 @@
 /**
- * Project-scope `cleo.db` — **orphan provenance tables** (2 tables).
+ * Project-scope `cleo.db` — **orphan provenance tables** (3 tables).
  *
  * These tables existed in the legacy brain.db but had no consolidated target
  * in the initial E2 schema authoring, causing their rows to be skipped during
@@ -29,7 +29,18 @@
  * The `tasks_` prefix matches the provenance domain of the parent
  * `tasks_releases` table.
  *
+ * ## brain_task_observations
+ *
+ * The join between `brain_observations` and task ids that `cleo memory find`
+ * session-context lookups read (writer: `sessions/session-memory-bridge.ts`).
+ * It was created only by the standalone `drizzle-brain` migration, which the
+ * consolidated store's brain reconcile runs after the open-time identity heal,
+ * so a fresh store lacked it during that heal. T12896 adds it to the
+ * consolidated project schema (same shape, `IF NOT EXISTS`) so every store has
+ * it before the heal, and declares it natural on (observation id, task uid).
+ *
  * @task T11549 (P0 zero-loss final mile)
+ * @task T12896
  * @epic T11245
  * @saga T11242
  */
@@ -181,3 +192,43 @@ export const tasksBrainReleaseLinks = sqliteTable(
 export type TasksBrainReleaseLinkRow = typeof tasksBrainReleaseLinks.$inferSelect;
 /** Insert type for `tasks_brain_release_links`. */
 export type NewTasksBrainReleaseLinkRow = typeof tasksBrainReleaseLinks.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// brain_task_observations
+// ---------------------------------------------------------------------------
+
+/**
+ * Join table linking a brain observation to a task id (T1615). Its INTEGER id
+ * is a local key that never travels; row identity is natural on
+ * (`observation_id`, task uid) (T12896).
+ *
+ * @task T12896
+ */
+export const brainTaskObservations = sqliteTable(
+  'brain_task_observations',
+  {
+    /** Local autoincrement key; never sent on the wire. */
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** Soft FK to `brain_observations.id`. */
+    observationId: text('observation_id').notNull(),
+    /** Soft FK to `tasks_tasks.id`. */
+    taskId: text('task_id').notNull(),
+    /** How the observation relates to the task. */
+    linkType: text('link_type').notNull().default('session-completed'),
+    /** Timestamp the link was written. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T12896): a UUIDv8 over (observation id, task uid), filled at open or by the uid trigger. */
+    uid: text('uid'),
+  },
+  (table) => [
+    uniqueIndex('idx_brain_task_obs_unique').on(table.observationId, table.taskId),
+    index('idx_brain_task_obs_observation').on(table.observationId),
+    index('idx_brain_task_obs_task').on(table.taskId),
+    uniqueIndex('uq_brain_task_observations_uid').on(table.uid),
+  ],
+);
+
+/** Row type for `brain_task_observations`. */
+export type BrainTaskObservationRow = typeof brainTaskObservations.$inferSelect;
+/** Insert type for `brain_task_observations`. */
+export type NewBrainTaskObservationRow = typeof brainTaskObservations.$inferInsert;

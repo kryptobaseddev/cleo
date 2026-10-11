@@ -701,6 +701,8 @@ export async function composeSpawnForTask(
      * @task T10430
      */
     atomicityScope?: 'orchestrator-defer';
+    /** Record no dispatch trace (a validation-only compose, T13510). */
+    skipDispatchTrace?: boolean;
   } = {},
 ): Promise<SpawnPayload> {
   const accessor = await getTaskAccessor(root);
@@ -740,6 +742,7 @@ export async function composeSpawnForTask(
       // 'orchestrator-defer', checkAtomicity grants the spawn for a worker
       // without declared files and stamps atomicity_waiver in the result.
       ...(options.atomicityScope ? { scope: options.atomicityScope } : {}),
+      ...(options.skipDispatchTrace ? { skipDispatchTrace: true } : {}),
     });
   } finally {
     db.close();
@@ -1344,6 +1347,11 @@ export async function orchestrateSpawn(
    * the expected path, returns E_RESUME_WORKTREE_MISSING.
    */
   resume?: boolean,
+  /**
+   * T13524 — provision the worktree without installing dependencies; the
+   * envelope's `install` says so and gives the worker the command to run.
+   */
+  noInstall?: boolean,
 ): Promise<EngineResult> {
   if (!taskId) {
     return engineError('E_INVALID_INPUT', 'taskId is required');
@@ -1481,6 +1489,7 @@ export async function orchestrateSpawn(
       composeSpawnForTask(taskId, root, {
         tier,
         protocol: protocolType,
+        skipDispatchTrace: true,
         ...(atomicityScope ? { atomicityScope } : {}),
       }),
       budgetCtrl.signal,
@@ -1692,6 +1701,7 @@ export async function orchestrateSpawn(
             holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
             // T13425 — an ended holder session releases the lock.
             sessionProbe: await resolveLockSessionProbe(root, taskId),
+            ...(noInstall ? { skipInstall: true } : {}),
           }),
           budgetCtrl.signal,
           'provision-worktree',
@@ -1878,6 +1888,8 @@ export async function orchestrateSpawn(
         worktree: worktreeAdapterResult?.worktree ?? null,
         worktreeEnv: worktreeAdapterResult?.envVars ?? null,
         worktreeCwd: worktreeAdapterResult?.cwd ?? null,
+        // T13524 — whether dependencies were installed, and what to run if not.
+        install: sdkWorktreeResult?.install ?? null,
         spawnContext: {
           taskId: payload.taskId,
           protocol: payload.meta.protocol,

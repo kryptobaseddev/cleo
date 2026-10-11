@@ -592,6 +592,9 @@ async function runMainWithLafsEnvelope(
           '@cleocode/core/cloud/nexus-presence-refresh.js'
         );
         startProjectPresenceRefresh({ projectRoot, cliVersion: CLI_VERSION });
+        // T13553 — piggyback sync: a detached push/pull at most once per window.
+        const { startCommandAutoSync } = await import('@cleocode/core/cloud/auto-sync-command.js');
+        startCommandAutoSync({ projectRoot, verb: rawArgs.find((a) => !a.startsWith('-')) });
       }
     } catch (error) {
       if (process.env['CLEO_DEBUG'])

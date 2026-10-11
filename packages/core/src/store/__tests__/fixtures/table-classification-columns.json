@@ -590,7 +590,8 @@
       "id",
       "link_type",
       "observation_id",
-      "task_id"
+      "task_id",
+      "uid"
     ],
     "brain_transcript_events": [
       "birth_fp",
@@ -2316,6 +2317,7 @@
       "tier",
       "transport_config",
       "transport_type",
+      "uid",
       "updated_at",
       "webhook_secret"
     ],

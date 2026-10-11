@@ -652,10 +652,23 @@ describe('Gate A: two-tier policy', () => {
     'nexus_contracts',
     'nexus_code_index',
   ]);
+  /** Rebuilt from the agent's own columns on every agent write (owner decision 2026-10-11, T12915). */
+  const AGENT_REGISTRY_JUNCTIONS = new Set([
+    'agent_registry_agent_capabilities',
+    'agent_registry_agent_skills',
+  ]);
   const FTS_SHADOW = /^[a-z_]+_fts(_(config|data|docsize|idx|content))?$/;
   const VEC_SHADOW = /^brain_embeddings_(chunks|info|rowids|vector_chunks[0-9]{2})$/;
+  /**
+   * Recomputed brain state (team-lead decision 2026-10-10, T12896): the
+   * surprisal pass truncates and rebuilds the tree every cycle on each device
+   * from the synced observations, so syncing it would only churn.
+   */
+  const RECOMPUTED_BRAIN = new Set(['brain_memory_trees']);
   const derivedAllowed = (t: string) =>
     NEXUS_CODE_GRAPH.has(t) ||
+    RECOMPUTED_BRAIN.has(t) ||
+    AGENT_REGISTRY_JUNCTIONS.has(t) ||
     FTS_SHADOW.test(t) ||
     VEC_SHADOW.test(t) ||
     // T13354 (team-sync verdict, D11165): the contributor rollup is rebuilt
@@ -683,12 +696,8 @@ describe('Gate A: two-tier policy', () => {
     'project',
     'global',
   ] as const)('%s: embeddings and LLM/sleep output are not derived', (scope) => {
-    for (const t of [
-      'brain_embeddings',
-      'brain_patterns',
-      'brain_page_edges',
-      'brain_memory_trees',
-    ]) {
+    // brain_memory_trees left this list on purpose (RECOMPUTED_BRAIN above).
+    for (const t of ['brain_embeddings', 'brain_patterns', 'brain_page_edges']) {
       const r = classifyTable(scope, t);
       expect(r.kind === 'entry' && r.class !== 'derived', `${scope}.${t}`).toBe(true);
     }

@@ -166,6 +166,20 @@ function brainNaturalKeyed(scope: TableScope): RowIdentitySpec[] {
       ...(scope === 'project' ? { keyRefs: [{ column: 'task_id', table: TASKS }] } : {}),
       task: 'T12895',
     },
+    // Project only: the join exists in the project store alone. Its INTEGER id
+    // is a local key (captureTableDef keeps it off the wire); observation ids
+    // are random, so the observation side stays raw (T12896).
+    ...(scope === 'project'
+      ? [
+          {
+            table: 'brain_task_observations',
+            kind: 'natural' as const,
+            key: ['observation_id', 'task_id'],
+            keyRefs: [{ column: 'task_id', table: TASKS }],
+            task: 'T12896',
+          },
+        ]
+      : []),
   ];
 }
 
@@ -187,9 +201,10 @@ const PLASTICITY_EVENTS: RowIdentityRef['table'] = 'brain_plasticity_events';
  * - `brain_retrieval_log` is minted but NOT append-only: the session reward
  *   pass labels `reward_signal` after the insert (`brain-stdp.ts`), and an
  *   append-only row keeps no undo image for an update.
- * - `brain_memory_trees` stays exempt: the surprisal pass deletes and rebuilds
- *   the whole tree every cycle, so its class (synced or derived) is decided
- *   apart from its identity.
+ * - `brain_memory_trees` is not here: it is derived (team-lead decision
+ *   2026-10-10). The surprisal pass deletes and rebuilds the whole tree every
+ *   cycle, so each device recomputes it from the synced observations, as
+ *   `brain_observations.tree_id` already is (ops strip it).
  *
  * `content` and `birthFacts` are FROZEN for recipe v2 like every other entry.
  */
@@ -467,6 +482,16 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       keyRefs: [{ column: 'sticky_id', table: 'brain_sticky_notes' }],
       task: 'T12895',
     },
+    {
+      // T12915: one agent per slug (`agent_id`, UNIQUE), and seed-install creates
+      // the same slug on every machine, so the slug is the natural key. The
+      // random text `id` is minted per device: a local key that never travels.
+      table: 'agent_registry_agents',
+      kind: 'natural',
+      key: ['agent_id'],
+      localKey: 'id',
+      task: 'T12915',
+    },
   ],
 };
 
@@ -515,20 +540,6 @@ export interface RowIdentityExemption {
   readonly task: string;
 }
 
-const BRAIN_TASK_OBSERVATIONS: RowIdentityExemption = {
-  category: 'planned',
-  reason:
-    'not in the consolidated schema: the drizzle-brain reconcile creates it after the open-time identity heal (a runtime cache exodus never copies), so a store without it would break every declared-table walk; it joins the consolidated project schema, then is declared natural on (observation_id, task uid) with its INTEGER id local',
-  task: 'T12896',
-};
-
-const BRAIN_MEMORY_TREES: RowIdentityExemption = {
-  category: 'planned',
-  reason:
-    'the surprisal pass deletes and rebuilds every tree row each cycle (surprisal-tree.ts), so whether the table syncs at all or is derived (recomputed per device, like brain_observations.tree_id, which ops already strip) is decided before it gets a uid',
-  task: 'T12896',
-};
-
 /** Kept from the T12341 pending reasons: the sticky tables go together. */
 const STICKY_REASON =
   'the degraded-mode TEMP shadow tables in store/twin-collapse.ts declare its columns and must carry uid first; that file is being edited by twin-collapse slice 2 (T12535)';
@@ -573,7 +584,6 @@ function exempt(
 
 /** Brain tables of both scopes, by the task that gives them a uid. */
 const BRAIN_EXEMPT: Readonly<Record<string, RowIdentityExemption>> = {
-  brain_memory_trees: BRAIN_MEMORY_TREES,
   brain_embeddings: {
     category: 'not-row-replicated',
     reason:
@@ -598,7 +608,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
 > = {
   project: {
     ...BRAIN_EXEMPT,
-    brain_task_observations: BRAIN_TASK_OBSERVATIONS,
     // Both twins of each pair. brain_session_narrative (twin of
     // session_narrative) and brain_observations_staging already have a uid
     // plan (T12894), so only their bare sides wait on the collapse.
@@ -698,19 +707,7 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
   global: {
     ...BRAIN_EXEMPT,
     ...exempt(
-      [
-        'accounts',
-        'agent_registry_accounts',
-        'agent_registry_agent_capabilities',
-        'agent_registry_agent_skills',
-        'agent_registry_agents',
-        'agent_registry_capabilities',
-        'agent_registry_org_agent_keys',
-        'agent_registry_skills',
-        'agent_service_grants',
-        'service_configs',
-        'service_connections',
-      ],
+      ['accounts', 'agent_service_grants', 'service_configs', 'service_connections'],
       AGENT_ACCOUNTS_SERVICE,
     ),
     ...exempt(
@@ -741,9 +738,10 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  *
  * Since T12894 declared the brain text-keyed tables (11 project, 12 global),
  * T12895 the brain natural-key tables (3 project, 3 global) and T12896 the
- * brain integer-keyed tables (6 project, 6 global), and T13354 declared the
- * re-keyed conduit doc family (3 project, dropping contributors, which became
- * derived and not syncing)
+ * brain integer-keyed tables (6 project, 6 global), T12915 declared the
+ * agent registry (1 global; 6 more reclassified derived or local-only), and
+ * T13354 declared the re-keyed conduit doc family (5 project, dropping 4
+ * exemptions — contributors became derived and not syncing)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
@@ -753,20 +751,20 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned              | T12896 | 2       | 1      |
  * | planned (conduit)    | T12913 | 8       | 0      |
  * | planned (lifecycle…) | T12914 | 16      | 0      |
- * | planned (agents…)    | T12915 | 0       | 11     |
+ * | planned (agents…)    | T12915 | 0       | 4      |
  * | planned (nexus)      | T12916 | 0       | 8      |
  * | planned (skills)     | T12917 | 0       | 4      |
  * | planned (docs)       | T12919 | 3       | 0      |
  * | planned (misc)       | T12920 | 12      | 0      |
  * | twin-collapse        | T12535 | 30      | 0      |
  * | not-row-replicated   | T12918 | 1       | 1      |
- * | total                |        | 72      | 25     |
+ * | total                |        | 70      | 17     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 72,
-  global: 25,
+  project: 70,
+  global: 17,
 };
 
 /**
@@ -778,8 +776,8 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: 'ac3e3a4953bc57adae286858f55dde9ead72805f31e84567954ead97f3f12100',
-  global: '14d1f14e5770bb1c0d3ed9c4dc92677bbbe36ae4443a8d4ffc83e1b6c3b606e8',
+  project: '03413c00c1a3a2be35c1b1c8729ceb8c89f28624e7919e6e12e2f06b5fba5ef6',
+  global: '60877c1f83b6b1e87bbce6f6e911720853337aa2b10eed7404c06a47e9bffd5c',
 };
 
 /**

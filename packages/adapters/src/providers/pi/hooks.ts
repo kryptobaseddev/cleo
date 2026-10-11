@@ -32,6 +32,7 @@
  * @task T553
  */
 
+import { PROVIDER_NATIVE_EVENT_MAPS } from '@cleocode/caamp/hooks';
 import type { AdapterHookProvider } from '@cleocode/contracts';
 
 /** CAAMP provider identifier for Pi. */
@@ -48,32 +49,7 @@ const PROVIDER_ID = 'pi' as const;
  * Used as fallback when CAAMP runtime is unavailable, and as the
  * synchronous implementation of `mapProviderEvent()`.
  */
-const PI_EVENT_MAP: Record<string, string> = {
-  // piEventCatalog: session_start → SessionStart
-  session_start: 'SessionStart',
-  // piEventCatalog: session_shutdown → SessionEnd
-  session_shutdown: 'SessionEnd',
-  // piEventCatalog: input → PromptSubmit
-  input: 'PromptSubmit',
-  // piEventCatalog: turn_end → Notification (assistant turn complete)
-  turn_end: 'Notification',
-  // piEventCatalog: tool_call → PreToolUse
-  tool_call: 'PreToolUse',
-  // piEventCatalog: tool_execution_start → PreToolUse (duplicate path)
-  tool_execution_start: 'PreToolUse',
-  // piEventCatalog: tool_result → PostToolUse
-  tool_result: 'PostToolUse',
-  // piEventCatalog: tool_execution_end → PostToolUse (duplicate path)
-  tool_execution_end: 'PostToolUse',
-  // piEventCatalog: before_agent_start → SubagentStart
-  before_agent_start: 'SubagentStart',
-  // piEventCatalog: agent_end → SubagentStop
-  agent_end: 'SubagentStop',
-  // piEventCatalog: before_provider_request → PreModel
-  before_provider_request: 'PreModel',
-  // piEventCatalog: context → PreCompact (context assembly is the pre-compaction proxy for Pi)
-  context: 'PreCompact',
-};
+const PI_EVENT_MAP = PROVIDER_NATIVE_EVENT_MAPS['pi'] ?? {};
 
 /**
  * Hook provider for Pi coding agent.
