@@ -5348,13 +5348,12 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       'joined',
     );
     expect(s.checkpoints).toHaveLength(1);
-    // A store that never restored that checkpoint is told to restore it, then join.
+    // A store that never synced with the stream joins it too, keeping its own
+    // rows (T13466): a merge join, never a second genesis.
     const { m: other } = await journalMachine('b');
-    const second = await failure(
-      on(other, () => enableSyncPush(vopts(other, { allowUnreleased: true }))),
-    );
-    expect(second.code).toBe('E_NEXUS_SYNC_STREAM_JOURNALED');
-    expect(second.fix).toContain('cleo cloud restore');
+    const second = await on(other, () => enableSyncPush(vopts(other, { allowUnreleased: true })));
+    expect(second.status).toBe('joined');
+    expect(second.merged).not.toBeNull();
     expect(s.checkpoints).toHaveLength(1);
   });
 
@@ -6130,6 +6129,85 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     const onA = await read(a, observationSql);
     expect(await read(b, observationSql)).toEqual(onA);
     expect(onA).toMatchObject({ title: 'from B' });
+  });
+
+  it('B with its own main brain joins without a restore: both end with the union, same uids and hashes (T13466)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    const obs = (id: string, title: string) =>
+      `INSERT INTO brain_observations (id, type, title, created_at, valid_at) VALUES ('${id}', 'discovery', '${title}', '2026-10-10T08:00:00.000Z', '2026-10-10 08:00:00')`;
+    const dec = (id: string, decision: string, at: string) =>
+      `INSERT INTO brain_decisions (id, type, decision, rationale, confidence, created_at, valid_at) VALUES ('${id}', 'architecture', '${decision}', 'r', 'high', '${at}', '${at}')`;
+    await onM(a, async () => {
+      const db = await globalStore(a);
+      db.exec(obs('O-a0000001', 'A before the cut'));
+      db.exec(obs('O-shared01', 'the same row on both'));
+      db.exec(dec('D0001', 'A decides', '2026-10-10 08:00:00'));
+      setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_JOURNAL });
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+    });
+    expect(
+      (await onM(a, () => enableSyncPush(vopts(a, { scope: 'global', allowUnreleased: true }))))
+        .status,
+    ).toBe('enabled');
+    await onM(a, async () => {
+      setSyncFlag(await globalStore(a), 'sync.pull', true, { allowUnreleased: true });
+    });
+    // B's own main brain, never synced: an observation and a decision of its own,
+    // plus D0001 minted on B too (a key A's stream already holds).
+    await onM(b, async () => {
+      const db = await globalStore(b);
+      db.exec(obs('O-b0000001', 'B on its own'));
+      // The same birth on both devices: one uid, nothing to merge but A's row meta.
+      db.exec(obs('O-shared01', 'the same row on both'));
+      db.exec(dec('D0002', 'B decides', '2026-10-10 08:05:00'));
+      db.exec(dec('D0001', 'B also numbered it D0001', '2026-10-10 08:06:00'));
+    });
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    // A's observation adopted; B's three rows emitted; A's D0001 not placed (B holds the key).
+    expect(joined.merged).toEqual({ adopted: 1, emitted: 3, unresolved: 1 });
+    expect(joined.warnings.map((w) => w.code)).toContain('W_SYNC_MERGE_UNRESOLVED');
+
+    const sync = async (m: Machine) => {
+      const r = await onM(m, () => cloudSync(vopts(m, { scope: 'global', allowUnreleased: true })));
+      expect(r.streams[0]?.refused ?? null, `${m.name}: ${r.streams[0]?.refused}`).toBeNull();
+    };
+    await sync(b);
+    await sync(a);
+    await sync(b);
+    // A received B's rows on its last pull; its next seal fills their content hashes.
+    await sync(a);
+    const rows = (m: Machine, sql: string) =>
+      onM(m, async () => (await globalStore(m)).prepare(sql).all());
+    const obsSql = 'SELECT uid, id, title FROM brain_observations ORDER BY uid';
+    const onA = await rows(a, obsSql);
+    expect(onA.map((r) => (r as { id: string }).id).sort()).toEqual([
+      'O-a0000001',
+      'O-b0000001',
+      'O-shared01',
+    ]);
+    expect(await rows(b, obsSql)).toEqual(onA);
+    const decSql = "SELECT uid, id, decision FROM brain_decisions WHERE id = 'D0002'";
+    const decA = await rows(a, decSql);
+    expect(decA).toHaveLength(1);
+    expect(await rows(b, decSql)).toEqual(decA);
+    const hashSql =
+      "SELECT tbl, uid, chash FROM _sync_row_meta WHERE tbl IN ('brain_observations', 'brain_decisions') AND uid IN (SELECT uid FROM brain_observations UNION SELECT uid FROM brain_decisions WHERE id = 'D0002') ORDER BY tbl, uid";
+    const hashA = await rows(a, hashSql);
+    expect(hashA).toHaveLength(4);
+    // The shared row took the stream's meta on B: A wrote it, B never re-sent it.
+    const sharedMeta =
+      "SELECT origin, hlc FROM _sync_row_meta WHERE tbl = 'brain_observations' AND uid = (SELECT uid FROM brain_observations WHERE id = 'O-shared01')";
+    expect(await rows(b, sharedMeta)).toEqual(await rows(a, sharedMeta));
+    expect(hashA.every((r) => (r as { chash: string | null }).chash !== null)).toBe(true);
+    expect(await rows(b, hashSql)).toEqual(hashA);
+    // The D0001 collision is held, never merged: each device keeps its own row.
+    const d1 = "SELECT decision FROM brain_decisions WHERE id = 'D0001'";
+    expect(await rows(a, d1)).toEqual([{ decision: 'A decides' }]);
+    expect(await rows(b, d1)).toEqual([{ decision: 'B also numbered it D0001' }]);
   });
 });
 

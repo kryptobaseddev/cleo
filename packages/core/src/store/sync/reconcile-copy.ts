@@ -208,14 +208,18 @@ export function reconcileCopy(
               pinH[col] = lH[col] as string;
             }
           }
-          if (Object.keys(adopt).length > 0) {
-            api.writeFields(def.table, uid, adopt);
+          // A row with no local meta (a never-synced store merging in, T13466)
+          // takes the merged meta even when its values already match.
+          if (Object.keys(adopt).length > 0 || (lMeta === undefined && mMeta && !mMeta.deleted)) {
+            if (Object.keys(adopt).length > 0) api.writeFields(def.table, uid, adopt);
             if (mMeta) {
               api.setMergedRowMeta(def.table, uid, {
                 fieldHlc: lMeta && !lMeta.deleted ? adoptH : { ...lH, ...mH, ...adoptH },
                 tombstone: null,
                 origin: mMeta.origin,
                 actor: mMeta.actor,
+                // Values already equal the merged row's: so does its content hash.
+                ...(Object.keys(adopt).length === 0 ? { chash: mMeta.chash } : {}),
               });
             }
             adoptedFields += Object.keys(adopt).length;

@@ -220,9 +220,16 @@ export interface CloudSyncPushEnableResult {
    * `enabled`: the cut was recorded and its genesis checkpoint stored; `resumed`: a cut recorded
    * by an earlier run whose checkpoint push failed was pushed now; `already`: push was already on;
    * `joined`: this store holds the stream's journal checkpoint another device cut, and now pushes its
-   * own writes and pulls the stream's after it, with no genesis of its own (T13312).
+   * own writes and pulls the stream's after it, with no genesis of its own (T13312). A store that
+   * never synced with the stream joins too, keeping its own rows (see `merged`, T13466).
    */
   status: 'enabled' | 'resumed' | 'already' | 'joined';
+  /**
+   * A merge join (T13466): stream rows adopted here, this store's own rows emitted as its first
+   * transactions, and stream rows not placed (a local key or an unresolved reference). Null when the
+   * reconcile is still due (`cleo cloud sync` finishes it); absent on any other status.
+   */
+  merged?: { adopted: number; emitted: number; unresolved: number } | null;
   /** The genesis cut: the highest capture seq the checkpoint carries. */
   cut: number;
   /** Transactions sealed before the cut, folded into the checkpoint, and rows given genesis row meta. */

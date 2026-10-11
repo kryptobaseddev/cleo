@@ -550,7 +550,7 @@ async function replaySegments(
  * checkpoint/v3), for every message that would otherwise say "push" (T13034).
  */
 const JOURNAL_STREAM_REMEDY =
-  'on this stream local changes travel through the change journal (`sync.push`), not vault snapshots (vault snapshots of journal streams are tracked in T12999); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
+  'on this stream local changes travel through the change journal (`sync.push`), not vault snapshots (vault snapshots of journal streams are tracked in T12999); a store that has not joined it joins with `cleo sync enable push`, which keeps its own rows and merges them into the stream (T13466); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
 
 /** Whether a snapshot is checkpoint/v3: the change journal writes its stream (T13034). */
 function isJournalSnapshot(cp: Checkpoint | null | undefined): boolean {
@@ -1601,6 +1601,58 @@ async function enableSyncPushImpl(
   // genesis. A store that holds exactly that journal checkpoint JOINS it
   // (T13312); any other store restores it first.
   if (parent !== null && isJournalSnapshot(parent)) {
+    // A store that never synced with this stream keeps its own rows (T13466):
+    // it joins, then reconciles against the checkpoint pulled to head, which
+    // adopts the stream's rows and emits its own as its first transactions.
+    if (synced === null) {
+      const joined = joinStream(db, {
+        scope: tableScopeOf(t),
+        stream: t.streamId,
+        cursor: cursorFromCheckpoint(parent),
+        merge: true,
+        ...(opts.allowUnreleased ? { allowUnreleased: true } : {}),
+      });
+      if (joined.refused !== null) {
+        throw vaultError('E_NEXUS_SYNC_REFUSED', `the join was refused: ${joined.refused}`);
+      }
+      // A failure leaves the reconcile due and push paused; `cleo cloud sync` finishes it.
+      let merged: ReconcileCopyReport | null = null;
+      try {
+        merged = await reconcileOwedCopy({ conn, key, t }, db);
+      } catch (err) {
+        warnings.push({
+          code: 'W_SYNC_MERGE_PENDING',
+          message: `joined ${t.streamId}, but merging this store's rows did not finish (${err instanceof Error ? err.message : String(err)}); push stays paused until \`cleo cloud sync\` finishes it`,
+        });
+      }
+      if (merged !== null && merged.unresolved > 0) {
+        warnings.push({
+          code: 'W_SYNC_MERGE_UNRESOLVED',
+          message: `${merged.unresolved} stream row(s) were not placed here (a key this store's own row already holds, or a reference that does not resolve); this store kept its own`,
+        });
+      }
+      warnings.push(...conn.state.drainWarnings());
+      return {
+        ...base,
+        status: 'joined',
+        cut: joined.cut ?? 0,
+        sealed: 0,
+        folded: 0,
+        baselined: {},
+        snapshot: snapshotOf(parent, await deviceNames(conn)),
+        deltaSegmentSeq: null,
+        replicaSeqFloor: null,
+        merged:
+          merged === null
+            ? null
+            : {
+                adopted: merged.adoptedInserts,
+                emitted: merged.frame.inserts,
+                unresolved: merged.unresolved,
+              },
+        warnings,
+      };
+    }
     if (synced?.lastCheckpointId !== parent.checkpointId) {
       throw vaultError(
         'E_NEXUS_SYNC_STREAM_JOURNALED',
