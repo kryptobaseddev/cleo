@@ -101,6 +101,7 @@ describe('cloud status sync block (T12998)', () => {
       unsealedOps: 0,
       lastSealedSeq: null,
       quarantined: {},
+      seenTxns: { rows: 0, bytes: 0, byStream: {} },
     });
   });
 
@@ -167,6 +168,32 @@ describe('cloud status sync block (T12998)', () => {
     ).run();
     const { project } = await projectBlock();
     expect(project?.quarantined).toEqual({ tasks_tasks: 1 });
+  });
+
+  it('reports the seen-txn ledger per stream from the per-origin counts the pull keeps (T13317, T13318)', async () => {
+    const db = await store(true);
+    // stream + txn text + an 8-byte seq per row, as the pull counts them.
+    const row = (stream: string, txn: string) => stream.length + txn.length + 8;
+    const floor = db.prepare(
+      'INSERT INTO _sync_seen_floor (stream, origin, staged_upto, seen_rows, seen_bytes) VALUES (?, ?, ?, ?, ?)',
+    );
+    floor.run('project:p1', 'r1', 2, 2, row('project:p1', 'r1:1') + row('project:p1', 'r1:2'));
+    floor.run('project:p1', 'r3', 7, 0, 0); // fully pruned: no rows, no stream entry of its own
+    floor.run('home:u1', 'r2', 1, 1, row('home:u1', 'r2:1'));
+    // The ledger itself is never walked: a stray row with no count is not reported.
+    db.prepare('INSERT INTO _sync_seen_txn (stream, txn, seq) VALUES (?, ?, ?)').run(
+      'project:p9',
+      'r9:1',
+      1,
+    );
+    const { project } = await projectBlock();
+    expect(project?.seenTxns).toEqual({
+      rows: 3,
+      bytes: 2 * row('project:p1', 'r1:1') + row('home:u1', 'r2:1'),
+      byStream: { 'home:u1': 1, 'project:p1': 2 },
+    });
+    // A read never prunes: the next read sees the same rows.
+    expect((await projectBlock()).project?.seenTxns.rows).toBe(3);
   });
 
   it('is read-only: the store file is unchanged by a read', async () => {

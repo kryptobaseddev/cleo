@@ -376,11 +376,47 @@ export const EXEMPT = {
     _sync_txn: { count: 1, reason: SEALER },
   },
   'packages/core/src/store/sync/genesis.ts': {
-    _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING },
+    _sync_meta: {
+      count: 4,
+      reason: `${SYNC_BOOKKEEPING}; plus dropping a stream's genesis keys when a failed or raced cut is undone (T13296), clearing genesis_pending once the genesis checkpoint is stored (T13300), and clearing the restored suspect marks when a store joins a journal it restored (T13312)`,
+    },
     _sync_txn: {
+      count: 2,
+      reason:
+        'sealed transactions (local-only): folds every pre-cut transaction into the genesis checkpoint, and returns them to sealed when a failed or raced cut is undone (§2.11 §10, T12343, T13296)',
+    },
+    _sync_row_undo: {
       count: 1,
       reason:
-        'sealed transactions (local-only): folds every pre-cut transaction into the genesis checkpoint (§2.11 §10, T12343)',
+        'row undo (local-only): dropped when a failed or raced genesis cut is undone and no stream is cut, so undo is off again (T13296)',
+    },
+    _sync_undo: {
+      count: 1,
+      reason:
+        'capture undo (local-only): dropped when a failed or raced genesis cut is undone and no stream is cut, so undo is off again (T13296)',
+    },
+  },
+  'packages/core/src/store/sync/pull.ts': {
+    _sync_cursor: {
+      count: 1,
+      reason:
+        'pull cursor (local-only): advanced in the transaction that stages the segments it covers (§3.1 step 3, T12343)',
+    },
+    _sync_seen_txn: {
+      count: 2,
+      reason:
+        "staged transaction ids (local-only): a re-delivered transaction is never staged twice, and rows below their origin's staged floor are pruned (§3.1, T12343 S5-1, T13318)",
+    },
+    _sync_seen_floor: {
+      count: 2,
+      reason:
+        'per-origin staged local_seq floor and seen-ledger counts (local-only): raised with every staged txn, marked with every prune (§3.1, T13318)',
+    },
+  },
+  'packages/core/src/store/sync/push.ts': {
+    _sync_meta: {
+      count: 2,
+      reason: `${SYNC_BOOKKEEPING}; sets and clears sync.clock_ahead while push pauses for a clock ahead of the server's (§1.3, T12343)`,
     },
   },
   'packages/core/src/store/sync/segments.ts': {

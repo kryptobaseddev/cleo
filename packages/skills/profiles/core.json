@@ -1,12 +1,13 @@
 {
   "name": "core",
-  "description": "The six core skills (D11157): CLEO protocol, orchestration, phase leads, task execution, dev workflow and documentation",
+  "description": "The seven core skills (D11157, T13422): CLEO protocol, orchestration, phase leads, task execution, dev workflow, documentation and lean change",
   "extends": "minimal",
   "skills": [
     "ct-orchestrator",
     "ct-lead",
     "ct-dev-workflow",
-    "ct-documentor"
+    "ct-documentor",
+    "ct-lean"
   ],
   "includeProtocols": [
     "agent-protocol"

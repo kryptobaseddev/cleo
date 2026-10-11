@@ -17,6 +17,8 @@ import type {
   CloudLeaseReleaseResult,
   CloudPushResult,
   CloudRestoreResult,
+  CloudSyncPushEnableResult,
+  CloudSyncResult,
   CloudVaultScope,
   CloudVaultStatusResult,
   CloudVerifyResult,
@@ -86,6 +88,50 @@ export async function runCloudPush(args: Args): Promise<void> {
       r.status === 'up-to-date'
         ? `Up to date: ${r.streamId} already holds this ${r.scope} store (snapshot ${r.snapshot?.checkpointId ?? 'none'}).`
         : `Pushed ${r.scope} snapshot ${r.snapshot?.checkpointId} to ${r.streamId} (${r.snapshot?.rows ?? 0} rows${r.parentCheckpointId ? `, parent ${r.parentCheckpointId}` : ', first snapshot'}${r.forked ? ', FORK: lease taken by force' : ''}).`,
+  );
+}
+
+/**
+ * `cleo sync enable push [--scope]`: record the store's genesis cut and push
+ * its genesis checkpoint (T12343 S4-1b). Refused while `sync.push` is
+ * unreleased: this CLI never opts in.
+ *
+ * @param args - Parsed args.
+ */
+export async function runSyncEnablePush(args: Args): Promise<void> {
+  await runCloudRead<CloudSyncPushEnableResult>(
+    'sync.enable.push',
+    async () => (await vaultModule()).enableSyncPush(common(args, 'sync.enable.push')),
+    (r) =>
+      r.status === 'already'
+        ? `Push is already on for ${r.streamId} (genesis cut at capture ${r.cut}).`
+        : `Push is on for ${r.streamId}: genesis cut at capture ${r.cut}, checkpoint ${r.snapshot?.checkpointId}${r.status === 'resumed' ? ' (resumed)' : ''}.`,
+  );
+}
+
+/**
+ * `cleo cloud sync [--scope]`: seal, push, pull and apply each attached
+ * stream (T12996). Without `--scope`, every attached stream.
+ *
+ * @param args - Parsed args.
+ */
+export async function runCloudSync(args: Args): Promise<void> {
+  const scope = stringArg(args, 'scope') === undefined ? undefined : scopeArg(args, 'cloud.sync');
+  await runCloudRead<CloudSyncResult>(
+    'cloud.sync',
+    async () =>
+      (await vaultModule()).cloudSync({
+        apiUrl: nexusApiUrlArg(args),
+        ...(scope !== undefined ? { scope } : {}),
+      }),
+    (r) =>
+      r.streams
+        .map((st) =>
+          st.status === 'synced'
+            ? `${st.streamId}: sent ${st.sent} segment(s), received ${st.received}, applied ${st.applied}${st.held > 0 ? `, ${st.held} held` : ''}${st.conflicts > 0 ? `, ${st.conflicts} in conflict` : ''} (at ${st.after} of ${st.head}).`
+            : `${st.streamId ?? st.scope}: ${st.status}${st.refused ? ` (${st.refused})` : ''}.`,
+        )
+        .join('\n'),
   );
 }
 

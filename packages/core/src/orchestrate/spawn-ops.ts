@@ -1230,7 +1230,11 @@ export async function orchestrateSpawnExecute(
           // T9548 — auto-complete diagnostics surfaced for orchestrator visibility.
           autoComplete: autoCompleteOutcome,
         },
-        agentId: payload.agentId,
+        // T13494: `agentId` is the spawned agent's identity (CLEO_AGENT_ID, its
+        // session's handle, the worktree lock holder); `persona` is the agent
+        // profile the classifier routed to; `role` is what it runs as.
+        agentId: spawnAgentId,
+        persona: payload.agentId,
         role: payload.role,
         harnessHint: payload.harnessHint,
       },
@@ -1838,7 +1842,9 @@ export async function orchestrateSpawn(
       data: {
         taskId,
         prompt: finalPrompt,
-        agentId: payload.agentId,
+        // T13494: identity, persona and role named separately (see OrchestrateSpawnResult).
+        agentId: spawnAgentId,
+        persona: payload.agentId,
         role: payload.role,
         tier: payload.tier,
         harnessHint: payload.harnessHint,

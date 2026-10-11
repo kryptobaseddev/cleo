@@ -85,6 +85,13 @@ export type {
   CycleTimeDistribution,
   CycleTimePercentiles,
 } from './archive.js';
+// === Ask-enforce Stop hook (T13420 / Epic T13418) ===
+export type {
+  AskEnforceInput,
+  AskEnforceMode,
+  AskEnforceSignal,
+  AskEnforceVerdict,
+} from './ask-enforce-hook.js';
 // === Attachment Types ===
 export type {
   Attachment,
@@ -613,6 +620,7 @@ export {
   noteAtomSchema,
   parseEvidenceString,
   prAtomSchema,
+  qaRunAtomSchema,
   SATISFIES_TASK_ID_REGEX,
   SATISFIES_VERSION_PIN_REGEX,
   satisfiesAtomSchema,
@@ -3158,6 +3166,9 @@ export {
   type CloudLeaseReleaseResult,
   type CloudPushResult,
   type CloudRestoreResult,
+  type CloudSyncPushEnableResult,
+  type CloudSyncResult,
+  type CloudSyncStreamResult,
   type CloudVaultLease,
   type CloudVaultScope,
   type CloudVaultSnapshot,
