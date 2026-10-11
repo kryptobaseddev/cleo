@@ -2,7 +2,7 @@
 id: t13506-latest-check-run
 tasks: [T13506]
 kind: fix
-summary: pr: evidence lets the latest run of a re-run check decide, so a PR re-run to green can be proven
+summary: "pr: evidence lets the latest run of a re-run check decide, so a PR re-run to green can be proven"
 ---
 
 A PR's `statusCheckRollup` lists every run of a check on its head. When a
