@@ -212,6 +212,7 @@ jobs:
               - 'scripts/lint-row-identity-coverage.mjs'
               - 'scripts/lint-sync-write-invariants.mjs'
               - 'scripts/migrate-nested-nexus.mjs'
+              - 'scripts/row-identity-real-store-gate-b.mjs'
               - 'scripts/sweep-manual-doc-writes.mjs'
             # gh#1403: `scripts/**` is deliberately NOT in `code` above. The
             # scripts tests are a real vitest project (`scripts/vitest.config.ts`,
