@@ -77,12 +77,17 @@ import type {
 import {
   type Checkpoint,
   ListCheckpointsResult,
+  ListHomeReplicasResult,
   ListLeasesResult,
   type Manifest,
   ReplayPin,
 } from '@cleocode/contracts/cloud';
 import {
+  NEXUS_CLOUD_MAX_PAGES,
+  NEXUS_PAGE_LIMIT_MAX,
+  type NexusCloudReplica,
   nexusCloudDevicePageSchema,
+  nexusCloudReplicaPageSchema,
   nexusCloudStatusSchema,
 } from '@cleocode/contracts/nexus-cloud.js';
 import {
@@ -112,6 +117,7 @@ import {
   completeGenesis,
   cutGenesisWithSnapshot,
   GenesisRacedError,
+  GenesisTakenOverError,
   genesisCutOf,
   genesisPending,
   joinStream,
@@ -127,6 +133,7 @@ import {
   rebindAfterVaultRestore,
 } from '../store/sync/replica.js';
 import { ReplicaRegistry } from '../store/sync/replica-registry.js';
+import type { ServerRetirement } from '../store/sync/retire.js';
 import { sealPending } from '../store/sync/sealer.js';
 import { firstBadTxnSignature, signTxn } from '../store/sync/txn-signing.js';
 import {
@@ -174,6 +181,7 @@ import {
   unlockNexusAccountKey,
 } from './nexus-vault-keys.js';
 import type { VaultStreamState } from './nexus-vault-state.js';
+import { completeServerRebind } from './replica-rebind.js';
 import { homeStream, projectStream } from './streams.js';
 
 /** Default lease length of a push: long enough for a large upload, short enough to hand off. */
@@ -826,6 +834,9 @@ const VAULT_CLEARED_JOURNAL_TABLES = [
   // from the checkpoint it restored, never from another device's position.
   '_sync_cursor',
   '_sync_seen_txn',
+  // Its floor goes with it: a floor without its seen rows would refuse
+  // every transaction below it (T13318).
+  '_sync_seen_floor',
 ] as const;
 
 /**
@@ -1718,8 +1729,12 @@ async function enableSyncPushImpl(
         baselined = { ...report.baselined };
       } catch (err) {
         // The cut was undone (a failed export, or a write raced it): nothing is saved or pushed.
-        fs.rmSync(saved.bundle, { force: true });
-        fs.rmSync(saved.meta, { force: true });
+        // After a takeover the pending cut, and any bundle saved at these paths, belong
+        // to the new holder: leave them (T13390).
+        if (!(err instanceof GenesisTakenOverError)) {
+          fs.rmSync(saved.bundle, { force: true });
+          fs.rmSync(saved.meta, { force: true });
+        }
         if (err instanceof GenesisRacedError) {
           throw vaultError('E_NEXUS_SYNC_REFUSED', err.message, 'nothing was pushed; run it again');
         }
@@ -1828,6 +1843,25 @@ async function openStreamSession(opts: NexusVaultCommandOptions): Promise<Stream
   return { conn, key, t };
 }
 
+/**
+ * Complete a rebind's server half the store still owes (T13278): a crash, or
+ * a refused call, after the store rebound at a pull's head. Until it is done
+ * the stream does not know the store's replica, so nothing is pushed or
+ * pulled first. Returns the session with the replica the store is bound to.
+ */
+async function withCompletedRebind(session: StreamSession): Promise<StreamSession> {
+  const { conn, t } = session;
+  if (!t.replicaId) return session;
+  const { openDualScopeDbAtPath, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
+  const db = getDualScopeNativeDb(
+    t.scope === 'global'
+      ? await openDualScopeDbAtPath('global', t.dbPath)
+      : await openDualScopeDbAtPath('project', t.dbPath),
+  );
+  const done = await completeServerRebind(conn, t, db);
+  return done === null ? session : { ...session, t: { ...t, replicaId: done.to } };
+}
+
 async function pushSyncStreamImpl(
   opts: NexusVaultCommandOptions & {
     /** Push although `sync.push` is unreleased (tests and staging only). Never set from user input. */
@@ -1838,9 +1872,10 @@ async function pushSyncStreamImpl(
 }
 
 async function pushWithSession(
-  session: StreamSession,
+  opened: StreamSession,
   opts: { readonly allowUnreleased?: boolean },
 ): Promise<PushStreamReport> {
+  const session = await withCompletedRebind(opened);
   const { conn, t } = session;
   const replicaId = t.replicaId;
   if (!replicaId) {
@@ -1910,7 +1945,89 @@ async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<
   return pullWithSession(await openStreamSession(opts));
 }
 
-async function pullWithSession(session: StreamSession): Promise<PullStreamReport> {
+/**
+ * The server's retirements a receiver of `scope`'s stream confirms a `retire`
+ * by (T13366). The home stream: `retiredAt` and `successor` on
+ * `GET /v1/account/home/replicas`. A project stream: the same fields on E15
+ * `GET /v1/projects/:projectId/replicas`, every page (T13391). A server
+ * without the listing (404), or one older than retirement, confirms none.
+ *
+ * @param conn - The vault connection.
+ * @param scope - The store's scope.
+ * @param projectId - The server project of a project stream.
+ * @returns The retirements, or undefined for a project stream with no server project.
+ */
+export async function serverRetirementsFor(
+  conn: Pick<NexusVaultConnection, 'find'>,
+  scope: CloudVaultScope,
+  projectId: string | null = null,
+): Promise<ServerRetirement[] | undefined> {
+  const retired = (
+    rows: ReadonlyArray<{
+      replicaId: string;
+      retiredAt?: string | null;
+      successor?: string | null;
+    }>,
+  ) =>
+    rows.flatMap((r) =>
+      r.retiredAt
+        ? [{ replicaId: r.replicaId, successor: r.successor ?? null, retiredAt: r.retiredAt }]
+        : [],
+    );
+  if (scope === 'global') {
+    const list = await conn.find('/v1/account/home/replicas', ListHomeReplicasResult);
+    return list === null ? [] : retired(list.replicas);
+  }
+  if (projectId === null) return undefined;
+  const out: ServerRetirement[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < NEXUS_CLOUD_MAX_PAGES; page++) {
+    const res: { replicas: NexusCloudReplica[]; nextCursor: string | null } | null =
+      await conn.find(
+        nexusQueryPath(`/v1/projects/${encodeURIComponent(projectId)}/replicas`, {
+          limit: NEXUS_PAGE_LIMIT_MAX,
+          cursor: cursor ?? undefined,
+        }),
+        nexusCloudReplicaPageSchema,
+      );
+    if (res === null) return out;
+    out.push(...retired(res.replicas));
+    cursor = res.nextCursor;
+    if (cursor === null) return out;
+  }
+  return out;
+}
+
+/**
+ * {@link serverRetirementsFor}, soft (T13395): a listing that fails (network,
+ * 5xx, a 404) confirms nothing this round instead of failing the pull. The
+ * pull still stages and applies; retires it records stay unconfirmed until a
+ * later pull reads the listing. The failure is a `W_NEXUS_RETIREMENTS_UNAVAILABLE`
+ * warning on the connection.
+ *
+ * @param conn - The vault connection (its warnings collect the failure).
+ * @param scope - The store's scope.
+ * @param projectId - The server project of a project stream.
+ * @returns The retirements, `[]` when the listing failed, or undefined for a project stream with no server project.
+ */
+export async function confirmableRetirements(
+  conn: Pick<NexusVaultConnection, 'find' | 'warnings'>,
+  scope: CloudVaultScope,
+  projectId: string | null = null,
+): Promise<ServerRetirement[] | undefined> {
+  try {
+    return await serverRetirementsFor(conn, scope, projectId);
+  } catch (err) {
+    conn.warnings.push({
+      code: 'W_NEXUS_RETIREMENTS_UNAVAILABLE',
+      message: `the replica listing could not be read (${err instanceof Error ? err.message : String(err)}); no replica retire is confirmed this round`,
+    });
+    return [];
+  }
+}
+
+async function pullWithSession(opened: StreamSession): Promise<PullStreamReport> {
+  const session = await withCompletedRebind(opened);
   const { conn, key, t } = session;
   const replicaId = t.replicaId;
   if (!replicaId) {
@@ -1981,18 +2098,21 @@ async function pullWithSession(session: StreamSession): Promise<PullStreamReport
     journal.verifyCheckpoint(from, key.signers);
     initialCursor = cursorFromCheckpoint(from);
   }
-  // Seen-txn rows are never pruned here yet: a txn already seen can come
-  // back in a NEW segment above any checkpoint (a retired replica's late
-  // segment, a rebind re-pushing an upload that was stored but never
-  // recorded), and with its first-delivery row gone it would apply twice.
-  // Pruning waits for a floor the applier refuses below anyway, such as the
-  // receive watermark (T13256), and then prunes by that floor, not by
-  // stream seq.
-  return pullStream(db, {
+  // Seen-txn rows below each origin's staged floor are pruned after every
+  // pull (T13318): an origin's transactions are first delivered in local_seq
+  // order, so one at or below the floor with no seen row is refused loudly
+  // (`below-floor`), never applied twice. No rebind path re-delivers a txn id
+  // (T13520): an identical upload retry is a server duplicate, a rebind marks
+  // server-held old segments pushed and inherits the rest (never uploaded under
+  // the new id; unpushedSegments filters by replica), its re-emits are new ids,
+  // and a retired replica's late segment carries ids never stored before.
+  const serverRetirements = await confirmableRetirements(conn, t.scope, t.projectId);
+  const report = await pullStream(db, {
     scope: tableScopeOf(t),
     stream: t.streamId,
     replica: replicaId,
     initialCursor,
+    pruneSeen: true,
     pull: async (cursor) => {
       const page = await journal.pull(
         {
@@ -2027,7 +2147,15 @@ async function pullWithSession(session: StreamSession): Promise<PullStreamReport
     seal: () => {
       sealPending(db, { scope: tableScopeOf(t), replica: replicaId });
     },
+    // D5: a pull that reaches head runs the rebind the undo budget scheduled
+    // (T13278). The canonical store's own binding: the stable device id.
+    rebind: { dbPath: t.dbPath, mode: 'live' },
+    // T13366: a retire counts only once the server confirms it.
+    ...(serverRetirements !== undefined ? { serverRetirements } : {}),
   });
+  // Its server half at once, so this run's next push announces the retire.
+  if (report.rebind !== null) await completeServerRebind(conn, t, db);
+  return report;
 }
 
 /** A `cleo cloud sync` stream result with nothing done yet. */
@@ -2154,6 +2282,21 @@ async function syncOneStream(
   let pull: PullStreamReport;
   try {
     pull = await pullWithSession(session);
+    // A pull that rebound at head (T13278): push again as the successor, so
+    // the retire and the reconcile leave in this run.
+    if (pull.rebind !== null) {
+      const again = await pushWithSession(
+        { ...session, t: { ...session.t, replicaId: pull.rebind.replicaId } },
+        opts,
+      );
+      push = {
+        ...again,
+        sealed: push.sealed + again.sealed,
+        built: push.built + again.built,
+        pushed: push.pushed + again.pushed,
+        duplicates: push.duplicates + again.duplicates,
+      };
+    }
   } catch (err) {
     return syncStreamResult(scope, {
       streamId,

@@ -1351,6 +1351,14 @@ export interface AdmitOptions {
   readonly now?: () => number;
   /** Wait (tests). @defaultValue setTimeout */
   readonly sleep?: (ms: number) => Promise<void>;
+  /**
+   * Called on entering the wait and every {@link AdmitOptions.keepAliveMs}
+   * while queued: callers renew the invoking session's claim leases so a long
+   * wait does not let them expire (T13492). Failures are ignored.
+   */
+  readonly keepAlive?: () => Promise<unknown>;
+  /** Interval for {@link AdmitOptions.keepAlive}. @defaultValue 5 minutes */
+  readonly keepAliveMs?: number;
 }
 
 /** An admission: the share is held until `release`. */
@@ -1727,8 +1735,13 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
 
   let lastPassAt = now();
   let lastReportAt = t0;
+  let lastKeepAliveAt = Number.NEGATIVE_INFINITY;
   let reading = first.reading;
   for (;;) {
+    if (opts.keepAlive && now() - lastKeepAliveAt >= (opts.keepAliveMs ?? 300_000)) {
+      lastKeepAliveAt = now();
+      await opts.keepAlive().catch(() => undefined);
+    }
     if (reading !== null) opts.memoryPressure?.waiting(reading, now() - t0);
     if (now() - lastReportAt >= LEDGER_HOLDER_REPORT_MS && opts.notice) {
       lastReportAt = now();

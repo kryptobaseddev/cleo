@@ -899,6 +899,90 @@ export interface DocsSupersedeResult {
   reason?: string;
 }
 
+// --------------------------------------------------------------------------
+// docs.doctor — store health diagnostics + safe repairs (T13447)
+// --------------------------------------------------------------------------
+
+/**
+ * Parameters for `docs.doctor`.
+ *
+ * Dry-run by default; `apply: true` executes the repairs (the dispatch layer
+ * creates a fresh backup first and hands the receipt to core — callers never
+ * pass one).
+ *
+ * @task T13447 (Epic T13340 / Saga T13339)
+ */
+export interface DocsDoctorParams {
+  /** Execute repairs instead of producing a dry-run plan. Default false. */
+  apply?: boolean;
+  /** Age threshold (days) for the `stale-drafts` diagnostic. Default 30. */
+  olderThanDays?: number;
+}
+
+/**
+ * One `docs.doctor` diagnostic class in the report.
+ *
+ * @task T13447
+ */
+export interface DocsDoctorDiagnostic {
+  /** Which check produced this entry. */
+  kind:
+    | 'dangling-pointers'
+    | 'doc-version-skew'
+    | 'empty-provenance'
+    | 'wikilinks-drift'
+    | 'legacy-store-present'
+    | 'stale-drafts';
+  /** `error` should be fixed promptly; `info` is observational. */
+  severity: 'info' | 'warn' | 'error';
+  /** Total offenders found (may exceed `items.length`). */
+  count: number;
+  /** Capped per-item detail. */
+  items: ReadonlyArray<Record<string, unknown>>;
+  /** True when `count` exceeded the detail cap. */
+  truncated: boolean;
+}
+
+/**
+ * One planned or executed `docs.doctor` repair step.
+ *
+ * @task T13447
+ */
+export interface DocsDoctorRepairAction {
+  /** Diagnostic class this repair addresses. */
+  kind: DocsDoctorDiagnostic['kind'];
+  /** Machine-readable action verb (e.g. `set-doc-version`). */
+  action: string;
+  /** False on a dry run (the action is a plan, not a write). */
+  applied: boolean;
+  /** Doc slug the action touched, when row-scoped. */
+  slug?: string;
+  /** Attachment id the action touched, when row-scoped. */
+  attachmentId?: string;
+  /** Human-readable detail (old→new values, derived counts, …). */
+  detail: string;
+}
+
+/**
+ * Result of `docs.doctor`.
+ *
+ * @task T13447
+ */
+export interface DocsDoctorResult {
+  /** True when repairs were written (`apply: true`). */
+  applied: boolean;
+  /** Age threshold used for the `stale-drafts` check. */
+  olderThanDays: number;
+  /** Backup receipt that authorised this run (null on dry runs). */
+  backupReceiptPath: string | null;
+  /** All six diagnostics, in declaration order. */
+  diagnostics: readonly DocsDoctorDiagnostic[];
+  /** Repair plan (dry run) or executed repairs (apply). */
+  repairs: readonly DocsDoctorRepairAction[];
+  /** One-line human summary. */
+  summary: string;
+}
+
 // ============================================================================
 // Discriminated Union (DocsOps)
 // ============================================================================
@@ -921,7 +1005,8 @@ export type DocsOps =
   | { op: 'docs.add'; params: DocsAddParams; result: DocsAddResult }
   | { op: 'docs.remove'; params: DocsRemoveParams; result: DocsRemoveResult }
   | { op: 'docs.update'; params: DocsUpdateParams; result: DocsUpdateResult }
-  | { op: 'docs.supersede'; params: DocsSupersedeParams; result: DocsSupersedeResult };
+  | { op: 'docs.supersede'; params: DocsSupersedeParams; result: DocsSupersedeResult }
+  | { op: 'docs.doctor'; params: DocsDoctorParams; result: DocsDoctorResult };
 
 /**
  * Enumeration of all docs domain operation names.
@@ -938,4 +1023,5 @@ export type DocsOp =
   | 'docs.add'
   | 'docs.remove'
   | 'docs.update'
-  | 'docs.supersede';
+  | 'docs.supersede'
+  | 'docs.doctor';

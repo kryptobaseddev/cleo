@@ -156,7 +156,26 @@ const ENV_MAP: Record<string, string> = {
   CLEO_AUDIT_RETENTION_DAYS: 'logging.auditRetentionDays',
   CLEO_SIGNALDOCK_ENABLED: 'signaldock.enabled',
   CLEO_SIGNALDOCK_ENDPOINT: 'signaldock.endpoint',
+  // T13523: `false` stops read-only graph queries from refreshing the index inline.
+  CLEO_NEXUS_AUTO_REFRESH: 'nexus.autoRefresh.enabled',
 };
+
+/**
+ * Read the environment override for a config path, if one is set.
+ *
+ * For readers that resolve config through the registry, which does not apply
+ * {@link ENV_MAP} itself.
+ *
+ * @param path - Dotted config path, e.g. `nexus.autoRefresh.enabled`.
+ * @returns The parsed env value, or `undefined` when no mapped variable is set.
+ */
+export function readEnvOverride(path: string): unknown {
+  for (const [envKey, configPath] of Object.entries(ENV_MAP)) {
+    const value = process.env[envKey];
+    if (configPath === path && value !== undefined) return parseEnvValue(value);
+  }
+  return undefined;
+}
 
 /**
  * Get a value at a dotted path from an object.
