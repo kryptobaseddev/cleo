@@ -273,6 +273,31 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
     }
   });
 
+  it('skipDispatchTrace records no dispatch trace; the default records one (T13510)', async () => {
+    const emitDispatchTrace = vi.fn(async () => undefined);
+    vi.doMock('../../memory/dispatch-trace.js', () => ({ emitDispatchTrace }));
+    try {
+      const { resolveAgent } = await import('../agent-resolver.js');
+      const { awaitBackgroundOps } = await import('../background-ops.js');
+      const db = env.openDb();
+      try {
+        resolveAgent(db, 'cleo-subagent', {
+          projectRoot: env.projectRoot,
+          skipDispatchTrace: true,
+        });
+        await awaitBackgroundOps();
+        expect(emitDispatchTrace).not.toHaveBeenCalled();
+        resolveAgent(db, 'cleo-subagent', { projectRoot: env.projectRoot });
+        await awaitBackgroundOps();
+        expect(emitDispatchTrace).toHaveBeenCalledTimes(1);
+      } finally {
+        db.close();
+      }
+    } finally {
+      vi.doUnmock('../../memory/dispatch-trace.js');
+    }
+  });
+
   it('falls through to global tier when project row absent', async () => {
     const { installAgentFromCant } = await import('../agent-install.js');
     const { resolveAgent } = await import('../agent-resolver.js');
