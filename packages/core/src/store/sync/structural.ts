@@ -156,7 +156,9 @@ function bracket<T>(
       capture = readSyncFlags(db)['sync.capture'] && hasTable(db, '_sync_capture');
       const before =
         rebuilds.length > 0 ? foreignKeyViolations(db, foreignKeyScope(db, rebuilds)) : null;
-      if (capture) dropCaptureTriggers(db);
+      // Restore only what was dropped: a sync-off open (T13336) whose store has
+      // no capture triggers must not gain them from a structural change.
+      if (capture) capture = dropCaptureTriggers(db).length > 0;
       const out = fn();
       if (!db.isTransaction) {
         // @sync-invariant none:local-only programming-error guard on the local suspension bracket

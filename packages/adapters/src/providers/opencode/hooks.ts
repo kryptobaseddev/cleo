@@ -19,6 +19,7 @@
  * @epic T134
  */
 
+import { PROVIDER_NATIVE_EVENT_MAPS } from '@cleocode/caamp/hooks';
 import type { AdapterHookProvider } from '@cleocode/contracts';
 
 /** CAAMP provider identifier for OpenCode. */
@@ -35,28 +36,7 @@ const PROVIDER_ID = 'opencode' as const;
  * OpenCode uses dot-delimited and event-prefixed names (e.g. "event:session.created")
  * while CAAMP canonical names are PascalCase (e.g. "SessionStart").
  */
-const OPENCODE_EVENT_MAP: Record<string, string> = {
-  // CAAMP: toNative('SessionStart',       'opencode') = 'event:session.created'
-  'event:session.created': 'SessionStart',
-  // CAAMP: toNative('SessionEnd',         'opencode') = 'event:session.deleted'
-  'event:session.deleted': 'SessionEnd',
-  // CAAMP: toNative('PromptSubmit',       'opencode') = 'chat.message'
-  'chat.message': 'PromptSubmit',
-  // CAAMP: toNative('ResponseComplete',   'opencode') = 'event:session.idle'
-  'event:session.idle': 'ResponseComplete',
-  // CAAMP: toNative('PreToolUse',         'opencode') = 'tool.execute.before'
-  'tool.execute.before': 'PreToolUse',
-  // CAAMP: toNative('PostToolUse',        'opencode') = 'tool.execute.after'
-  'tool.execute.after': 'PostToolUse',
-  // CAAMP: toNative('PermissionRequest',  'opencode') = 'permission.ask'
-  'permission.ask': 'PermissionRequest',
-  // CAAMP: toNative('PreModel',           'opencode') = 'chat.params'
-  'chat.params': 'PreModel',
-  // CAAMP: toNative('PreCompact',         'opencode') = 'experimental.session.compacting'
-  'experimental.session.compacting': 'PreCompact',
-  // CAAMP: toNative('PostCompact',        'opencode') = 'event:session.compacted'
-  'event:session.compacted': 'PostCompact',
-};
+const OPENCODE_EVENT_MAP = PROVIDER_NATIVE_EVENT_MAPS['opencode'] ?? {};
 
 /**
  * Hook provider for OpenCode.
