@@ -69,7 +69,12 @@ import { setCaptureEnabled } from '../../store/sync/capture.js';
 import { isSyncFlagOn, setSyncFlag } from '../../store/sync/flags.js';
 import { cutGenesis, genesisCutOf, genesisPending } from '../../store/sync/genesis.js';
 import { readStreamCursor } from '../../store/sync/pull.js';
-import { ensureProjectReplica, storeHwm } from '../../store/sync/replica.js';
+import {
+  activeReplica,
+  ensureProjectReplica,
+  reconcileDue,
+  storeHwm,
+} from '../../store/sync/replica.js';
 import { readDeviceRegistry } from '../../store/sync/replica-registry.js';
 import { ensureSyncSchema } from '../../store/sync/schema.js';
 import {
@@ -131,6 +136,7 @@ import {
   pushSyncStream,
   releaseNexusVaultLease,
   restoreNexusVault,
+  serverRetirementsFor,
   verifyNexusVault,
 } from '../nexus-vault.js';
 import {
@@ -3353,7 +3359,12 @@ describe('cloud vault round 3 (#1773)', () => {
       );
     }
     fs.writeFileSync(path.join(dir, 'notes.txt'), 'kept');
+    // Older pre-merge bundles rotate on their own: a restore never evicts them (T13507 LOW).
+    fs.writeFileSync(path.join(dir, 'pre-merge-2025-01-01T00-00-00-000Z.cleobundle.tar.gz'), 'm');
     const forced = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull', force: true })));
+    expect(
+      fs.existsSync(path.join(dir, 'pre-merge-2025-01-01T00-00-00-000Z.cleobundle.tar.gz')),
+    ).toBe(true);
     const left = fs
       .readdirSync(dir)
       .filter((n) => n.startsWith('pre-restore-'))
@@ -5342,13 +5353,12 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       'joined',
     );
     expect(s.checkpoints).toHaveLength(1);
-    // A store that never restored that checkpoint is told to restore it, then join.
+    // A store that never synced with the stream joins it too, keeping its own
+    // rows (T13466): a merge join, never a second genesis.
     const { m: other } = await journalMachine('b');
-    const second = await failure(
-      on(other, () => enableSyncPush(vopts(other, { allowUnreleased: true }))),
-    );
-    expect(second.code).toBe('E_NEXUS_SYNC_STREAM_JOURNALED');
-    expect(second.fix).toContain('cleo cloud restore');
+    const second = await on(other, () => enableSyncPush(vopts(other, { allowUnreleased: true })));
+    expect(second.status).toBe('joined');
+    expect(second.merged).not.toBeNull();
     expect(s.checkpoints).toHaveLength(1);
   });
 
@@ -5839,6 +5849,57 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     ]);
   });
 
+  it('a copied store reconciles against the restored checkpoint pulled to head before it syncs (T13335, §1.5 N7)', async () => {
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    await on(a, async () => {
+      setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+    });
+    const sync = async (m: Machine) =>
+      (await on(m, () => cloudSync(vopts(m, { scope: 'project', allowUnreleased: true }))))
+        .streams[0];
+    await on(a, async () => {
+      (await storeOf(aDb)).exec("UPDATE tasks_tasks SET title = 'from A' WHERE id = 'T1'");
+    });
+    expect((await sync(a))?.status).toBe('synced');
+    // The whole project is copied to another machine.
+    const c = await machine('c', DEVICE_B, REPLICA_B);
+    fs.cpSync(path.join(a.root, '.cleo'), path.join(c.root, '.cleo'), { recursive: true });
+    const cDb = path.join(c.root, '.cleo', 'cleo.db');
+    // A goes on.
+    await on(a, async () => {
+      (await storeOf(aDb)).exec("UPDATE tasks_tasks SET title = 'later from A' WHERE id = 'T2'");
+    });
+    expect((await sync(a))?.status).toBe('synced');
+    // The copy's first canonical open rebinds it: it owes a reconcile, and has no cursor.
+    const copied = await on(c, async () => {
+      const db = await storeOf(cDb);
+      return { replica: activeReplica(db, 'project')?.replicaId, due: reconcileDue(db) };
+    });
+    expect(copied.due).toMatchObject({ to: copied.replica });
+    expect(copied.replica).not.toBe(a.replicaId);
+    c.replicaId = copied.replica ?? '';
+    fake.replicas.get(REMOTE_PROJECT)?.set(c.replicaId, DEVICE_B);
+    link(c);
+    const before = fake.stream(STREAM).segments.length;
+    const r = await sync(c);
+    expect(r?.status, r?.refused ?? '').toBe('synced');
+    // It adopted A's later write, and sent nothing: no change of its own, none re-sent.
+    expect(
+      await on(c, async () =>
+        (await storeOf(cDb))
+          .prepare("SELECT id, title FROM tasks_tasks WHERE id IN ('T1', 'T2') ORDER BY id")
+          .all(),
+      ),
+    ).toEqual([
+      { id: 'T1', title: 'from A' },
+      { id: 'T2', title: 'later from A' },
+    ]);
+    expect(r?.sent).toBe(0);
+    expect(fake.stream(STREAM).segments).toHaveLength(before);
+    expect(await on(c, async () => reconcileDue(await storeOf(cDb)))).toBeNull();
+  });
+
   it('a joined store with push off syncs pull-only: synced, the push leg skipped (T13312)', async () => {
     const { m: a, dbPath: aDb } = await journalMachine();
     await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
@@ -6073,5 +6134,279 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     const onA = await read(a, observationSql);
     expect(await read(b, observationSql)).toEqual(onA);
     expect(onA).toMatchObject({ title: 'from B' });
+  });
+
+  /** An observation row with its own modification time and narrative. */
+  const obsAt = (id: string, title: string, narrative: string, at: string) =>
+    `INSERT INTO brain_observations (id, type, title, narrative, created_at, updated_at, valid_at) VALUES ('${id}', 'discovery', '${title}', '${narrative}', '2026-10-10T08:00:00.000Z', '${at}', '2026-10-10 08:00:00')`;
+  const decAt = (id: string, decision: string, at: string) =>
+    `INSERT INTO brain_decisions (id, type, decision, rationale, confidence, created_at, valid_at) VALUES ('${id}', 'architecture', '${decision}', 'r', 'high', '${at}', '${at}')`;
+  /** A cuts home:<user> over `seedA`; B (never synced) holds `seedB`. */
+  const twoBrains = async (seedA: string[], seedB: string[]) => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    await onM(a, async () => {
+      const db = await globalStore(a);
+      for (const sql of seedA) db.exec(sql);
+      setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_JOURNAL });
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+    });
+    expect(
+      (await onM(a, () => enableSyncPush(vopts(a, { scope: 'global', allowUnreleased: true }))))
+        .status,
+    ).toBe('enabled');
+    await onM(a, async () => {
+      setSyncFlag(await globalStore(a), 'sync.pull', true, { allowUnreleased: true });
+    });
+    await onM(b, async () => {
+      const db = await globalStore(b);
+      for (const sql of seedB) db.exec(sql);
+    });
+    return { a, b };
+  };
+  const syncOk = async (m: Machine) => {
+    const r = await onM(m, () => cloudSync(vopts(m, { scope: 'global', allowUnreleased: true })));
+    expect(r.streams[0]?.refused ?? null, `${m.name}: ${r.streams[0]?.refused}`).toBeNull();
+  };
+  const rowsOf = (m: Machine, sql: string) =>
+    onM(m, async () => (await globalStore(m)).prepare(sql).all());
+
+  it('B with its own main brain joins without a restore: both end with the union, same uids and hashes, and no local edit is lost silently (T13466, T13503)', async () => {
+    const { a, b } = await twoBrains(
+      [
+        obsAt('O-a0000001', 'A before the cut', 'a', '2026-10-10 08:00:00'),
+        // One row on both devices (same birth, one uid), edited on each.
+        obsAt('O-shared01', 'shared one', 'A detail', '2026-10-10 08:00:00'),
+        obsAt('O-shared02', 'shared two', 'A newer', '2026-10-10 09:30:00'),
+        decAt('D0001', 'A decides', '2026-10-10 08:00:00'),
+      ],
+      [
+        obsAt('O-b0000001', 'B on its own', 'b', '2026-10-10 08:00:00'),
+        // B's edit is newer than A's: B keeps it and the stream takes it.
+        obsAt('O-shared01', 'shared one', 'B detail', '2026-10-10 09:00:00'),
+        // B's edit is older than A's: the stream's value wins, and the report names it.
+        obsAt('O-shared02', 'shared two', 'B older', '2026-10-10 08:30:00'),
+        decAt('D0002', 'B decides', '2026-10-10 08:05:00'),
+      ],
+    );
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    // A's observation and decision adopted; B's own observation and decision emitted.
+    expect(joined.merged).toMatchObject({ adopted: 2, emitted: 2, unresolved: 0 });
+    const lost = (joined.merged?.overwritten ?? []).map((f) => f.column).sort();
+    expect(lost).toEqual(['narrative', 'updated_at']);
+    expect(joined.merged?.overwritten.every((f) => f.table === 'brain_observations')).toBe(true);
+    expect(joined.warnings.find((w) => w.code === 'W_SYNC_MERGE_OVERWROTE')?.message).toContain(
+      'narrative',
+    );
+    // The store as it was before the merge is kept.
+    expect(fs.existsSync(joined.merged?.safetyBackup ?? '')).toBe(true);
+
+    await syncOk(b);
+    await syncOk(a);
+    await syncOk(b);
+    // A received B's rows on its last pull; its next seal fills their content hashes.
+    await syncOk(a);
+    const obsSql = 'SELECT uid, id, title, narrative FROM brain_observations ORDER BY uid';
+    const onA = await rowsOf(a, obsSql);
+    expect(onA.map((r) => (r as { id: string }).id).sort()).toEqual([
+      'O-a0000001',
+      'O-b0000001',
+      'O-shared01',
+      'O-shared02',
+    ]);
+    expect(await rowsOf(b, obsSql)).toEqual(onA);
+    const narrative = (rows: unknown[], id: string) =>
+      (rows as Array<{ id: string; narrative: string }>).find((r) => r.id === id)?.narrative;
+    // The newer write wins on both devices, whichever side made it.
+    expect(narrative(onA, 'O-shared01')).toBe('B detail');
+    expect(narrative(onA, 'O-shared02')).toBe('A newer');
+    const decSql = 'SELECT uid, id, decision FROM brain_decisions ORDER BY id';
+    const decA = await rowsOf(a, decSql);
+    expect(decA.map((r) => (r as { id: string }).id)).toEqual(['D0001', 'D0002']);
+    expect(await rowsOf(b, decSql)).toEqual(decA);
+    const hashSql =
+      "SELECT tbl, uid, chash FROM _sync_row_meta WHERE tbl IN ('brain_observations', 'brain_decisions') ORDER BY tbl, uid";
+    const hashA = await rowsOf(a, hashSql);
+    expect(hashA).toHaveLength(6);
+    expect(hashA.every((r) => (r as { chash: string | null }).chash !== null)).toBe(true);
+    expect(await rowsOf(b, hashSql)).toEqual(hashA);
+  });
+
+  it("a stream field written after the cut beats a never-synced row's later updated_at; each side's losses are reported (T13507)", async () => {
+    const { a, b } = await twoBrains(
+      [obsAt('O-shared03', 'shared three', 'orig', '2026-10-10 08:00:00')],
+      [obsAt('O-shared03', 'shared three', 'orig', '2026-10-10 08:00:00')],
+    );
+    // A edits the narrative after its cut and pushes it.
+    await onM(a, async () => {
+      (await globalStore(a)).exec(
+        "UPDATE brain_observations SET narrative = 'A real edit' WHERE id = 'O-shared03'",
+      );
+    });
+    await syncOk(a);
+    // Later, B (never synced) edits only the subtitle; its updated_at is newer than A's write.
+    await new Promise((r) => setTimeout(r, 1500));
+    await onM(b, async () => {
+      (await globalStore(b)).exec(
+        "UPDATE brain_observations SET subtitle = 'B edit', updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = 'O-shared03'",
+      );
+    });
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    // B's narrative ('orig') lost to A's real edit, and the report names it.
+    expect(joined.merged?.overwritten).toContainEqual({
+      table: 'brain_observations',
+      uid: expect.any(String),
+      column: 'narrative',
+    });
+    // The stream's untouched subtitle took B's newer value.
+    expect((joined.merged?.replaced ?? []).map((f) => f.column)).toContain('subtitle');
+    await syncOk(b);
+    await syncOk(a);
+    await syncOk(b);
+    const sql = "SELECT uid, narrative, subtitle FROM brain_observations WHERE id = 'O-shared03'";
+    const onA = await rowsOf(a, sql);
+    expect(onA).toMatchObject([{ narrative: 'A real edit', subtitle: 'B edit' }]);
+    expect(await rowsOf(b, sql)).toEqual(onA);
+  });
+
+  it('a never-synced row edited after the stream deleted it survives the delete on every device; an older one is removed and reported (T13508)', async () => {
+    const { a, b } = await twoBrains(
+      [
+        obsAt('O-shared05', 'shared five', 'orig', '2026-10-10 08:00:00'),
+        obsAt('O-shared06', 'shared six', 'orig', '2026-10-10 08:00:00'),
+      ],
+      [
+        obsAt('O-shared05', 'shared five', 'orig', '2026-10-10 08:00:00'),
+        // B's copy is untouched since before A's delete: the delete wins.
+        obsAt('O-shared06', 'shared six', 'orig', '2026-10-10 08:00:00'),
+      ],
+    );
+    // A deletes both rows after its cut and pushes.
+    await onM(a, async () => {
+      (await globalStore(a)).exec(
+        "DELETE FROM brain_observations WHERE id IN ('O-shared05', 'O-shared06')",
+      );
+    });
+    await syncOk(a);
+    // Later, B (never synced) edits O-shared05; its updated_at is newer than A's delete.
+    await new Promise((r) => setTimeout(r, 1500));
+    await onM(b, async () => {
+      (await globalStore(b)).exec(
+        "UPDATE brain_observations SET narrative = 'B edit', updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = 'O-shared05'",
+      );
+    });
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    // The older copy lost to the delete, and the report and warning name it.
+    expect(joined.merged?.deleted).toEqual([
+      { table: 'brain_observations', uid: expect.any(String) },
+    ]);
+    expect(joined.warnings.find((w) => w.code === 'W_SYNC_MERGE_DELETED')?.message).toContain(
+      joined.merged?.safetyBackup ?? '?',
+    );
+    // The newer edit restored its row over the delete, and the report names it.
+    expect(joined.merged?.replaced).toContainEqual({
+      table: 'brain_observations',
+      uid: expect.any(String),
+      column: '*',
+    });
+    await syncOk(b);
+    await syncOk(a);
+    await syncOk(b);
+    const sql =
+      "SELECT uid, id, narrative FROM brain_observations WHERE id IN ('O-shared05', 'O-shared06') ORDER BY id";
+    const onA = await rowsOf(a, sql);
+    expect(onA).toMatchObject([{ id: 'O-shared05', narrative: 'B edit' }]);
+    expect(await rowsOf(b, sql)).toEqual(onA);
+  });
+
+  it('a merge join whose own row holds a key the stream already has is refused before anything changes, and joins once the key is freed (T13504)', async () => {
+    const { a, b } = await twoBrains(
+      [decAt('D0001', 'A decides', '2026-10-10 08:00:00')],
+      [decAt('D0001', 'B also numbered it D0001', '2026-10-10 08:06:00')],
+    );
+    const refused = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    ).catch((err: unknown) => err);
+    expect(refused).toBeInstanceOf(Error);
+    expect((refused as Error).message).toContain('brain_decisions D0001');
+    // Nothing changed: B holds only its own row, never joined, and took no backup.
+    const d1 = 'SELECT id, decision FROM brain_decisions ORDER BY id';
+    expect(await rowsOf(b, d1)).toEqual([{ id: 'D0001', decision: 'B also numbered it D0001' }]);
+    expect(
+      await rowsOf(
+        b,
+        "SELECT key FROM _sync_meta WHERE key LIKE 'genesis%' OR key = 'sync.reconcile_due'",
+      ),
+    ).toEqual([]);
+
+    // B gives its row a free key; the join now merges.
+    await onM(b, async () => {
+      (await globalStore(b)).exec("UPDATE brain_decisions SET id = 'D0003' WHERE id = 'D0001'");
+    });
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    expect(joined.merged).toMatchObject({ adopted: 1, emitted: 1, unresolved: 0, overwritten: [] });
+    await syncOk(b);
+    await syncOk(a);
+    await syncOk(b);
+    const both = [
+      { id: 'D0001', decision: 'A decides' },
+      { id: 'D0003', decision: 'B also numbered it D0001' },
+    ];
+    expect(await rowsOf(a, d1)).toEqual(both);
+    expect(await rowsOf(b, d1)).toEqual(both);
+  });
+});
+
+describe('the server retirements a receiver confirms a retire by (T13366)', () => {
+  const R1 = '0192aaaa-7f00-7000-8000-00000000000a';
+  const R2 = '0192bbbb-7f00-7000-8000-00000000000b';
+  const D1 = '0192dddd-7f00-7000-8000-00000000000d';
+  const listed = (path: string, replicas: unknown[] | null) => ({
+    find: async <T>(
+      p: string,
+      schema: { safeParse(v: unknown): { success: boolean; data?: T } },
+    ): Promise<T | null> => {
+      expect(p).toBe(path);
+      if (replicas === null) return null;
+      const parsed = schema.safeParse({ replicas });
+      if (!parsed.success || parsed.data === undefined) throw new Error('listing does not parse');
+      return parsed.data;
+    },
+  });
+  const base = { deviceId: D1, deviceState: 'active', attachedAt: '2026-10-01T00:00:00.000Z' };
+  const quiet = { lastSyncAt: null, presence: null, presenceAt: null };
+
+  it('home: every retired replica on the listing with its successor; live ones confirm nothing', async () => {
+    const conn = listed('/v1/account/home/replicas', [
+      { ...base, ...quiet, replicaId: R1, retiredAt: '2026-10-09T00:00:01.000Z', successor: R2 },
+      { ...base, ...quiet, replicaId: R2, retiredAt: null, successor: null },
+    ]);
+    expect(await serverRetirementsFor(conn, 'global')).toEqual([
+      { replicaId: R1, successor: R2, retiredAt: '2026-10-09T00:00:01.000Z' },
+    ]);
+  });
+
+  it('home on a server without the listing: none; a project stream: no source at all', async () => {
+    expect(await serverRetirementsFor(listed('/v1/account/home/replicas', null), 'global')).toEqual(
+      [],
+    );
+    const never = {
+      find: async () => {
+        throw new Error('a project stream has no retirement read');
+      },
+    };
+    expect(await serverRetirementsFor(never, 'project')).toBeUndefined();
   });
 });

@@ -31,7 +31,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import { isSyncFlagOn } from './flags.js';
 import { genesisCutOf, genesisPending } from './genesis.js';
-import { storeHwm } from './replica.js';
+import { reconcileDue, storeHwm } from './replica.js';
 import type { ReplicaRegistry } from './replica-registry.js';
 import { hasTable } from './schema.js';
 import { sealPending } from './sealer.js';
@@ -95,14 +95,17 @@ export interface PushStreamOptions {
  * - `push-off`: `sync.push` is off;
  * - `no-genesis`: this store has no genesis cut on the stream;
  * - `genesis-pending`: the genesis checkpoint is not stored yet;
- * - `store-behind`: the server holds a later segment of this replica.
+ * - `store-behind`: the server holds a later segment of this replica;
+ * - `reconcile-pending`: the store rebound at open and has not reconciled
+ *   against the stream yet (§1.5 N7, T13335).
  */
 export type PushRefusal =
   | 'schema-missing'
   | 'push-off'
   | 'no-genesis'
   | 'genesis-pending'
-  | 'store-behind';
+  | 'store-behind'
+  | 'reconcile-pending';
 
 /** What {@link pushStream} did. */
 export interface PushStreamReport {
@@ -180,6 +183,15 @@ export async function pushStream(
     return empty(o.stream, {
       refused: `${o.stream}'s genesis checkpoint is not stored yet: run \`cleo sync enable push\` again`,
       refusedKind: 'genesis-pending',
+    });
+  }
+  // §1.5 (T13335): a store that rebound pushes nothing until its copy
+  // reconcile has run against the stream.
+  const due = reconcileDue(db);
+  if (due !== null) {
+    return empty(o.stream, {
+      refused: `this store rebound from replica ${due.from} to ${due.to} and has not reconciled against ${o.stream} yet: \`cleo cloud sync\` reconciles it first`,
+      refusedKind: 'reconcile-pending',
     });
   }
   const atIso = new Date(now()).toISOString();

@@ -288,7 +288,7 @@ export function planRepair(
 }
 
 /** `x`'s local key matches the bound key values ({@link keyValues}). */
-function keyWhere(def: CaptureTableDef): string {
+export function keyWhere(def: CaptureTableDef): string {
   return def.key.map((k) => `x.${q(k)} IS ?`).join(' AND ');
 }
 
@@ -301,7 +301,7 @@ function bindable(v: WireValue): string | number | bigint | Uint8Array | null {
 }
 
 /** The key values a row's `rk` encodes, in key-column order. */
-function keyValues(rk: string): Array<string | number | bigint | Uint8Array | null> {
+export function keyValues(rk: string): Array<string | number | bigint | Uint8Array | null> {
   return (JSON.parse(rk) as string[]).map((p) => bindable(decodeEnc(p)));
 }
 
@@ -403,12 +403,25 @@ function repairUndo(
 }
 
 /** The column a pre-sync row's genesis HLC is read from (§1.2), or null. */
-function genesisColumn(scope: TableScope, table: string): string | null {
+export function genesisColumn(scope: TableScope, table: string): string | null {
   const stamps = timestampColumns(scope, table);
   for (const c of ['updated_at', 'created_at', 'recorded_at', 'started_at']) {
     if (stamps.has(c)) return c;
   }
   return null;
+}
+
+/**
+ * A pre-sync row's genesis physical time (§1.2): its {@link genesisColumn}
+ * value clamped to `[0, now]`, else 0.
+ *
+ * @param at - The row's genesis column value.
+ * @param now - Wall clock (ms).
+ * @returns The physical time (ms).
+ */
+export function genesisPhys(at: unknown, now: number): number {
+  const canon = typeof at === 'string' ? canonicalStoreTimestamp(at) : null;
+  return canon ? Math.min(Math.max(Date.parse(canon), 0), now, MAX_PHYS) : 0;
 }
 
 /**
@@ -433,8 +446,7 @@ function baselineRows(
   for (const r of rows) {
     const row = read.get(...keyValues(r.rk)) as { at: string | number | null } | undefined;
     if (!row) continue;
-    const canon = typeof row.at === 'string' ? canonicalStoreTimestamp(row.at) : null;
-    const phys = canon ? Math.min(Math.max(Date.parse(canon), 0), now, MAX_PHYS) : 0;
+    const phys = genesisPhys(row.at, now);
     const uid = r.uid;
     upsertRowMeta(db, {
       tbl: def.table,

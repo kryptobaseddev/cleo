@@ -53,10 +53,11 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import type {
   CloudLeaseReleaseResult,
   CloudPushResult,
@@ -77,6 +78,7 @@ import type {
 import {
   type Checkpoint,
   ListCheckpointsResult,
+  ListHomeReplicasResult,
   ListLeasesResult,
   type Manifest,
   ReplayPin,
@@ -97,7 +99,7 @@ import { z } from 'zod';
 import { getCleoHome, resolveOrCwd } from '../paths.js';
 import { withLock } from '../store/lock.js';
 import { exportPortableBundle, globalHomeRules } from '../store/portable-bundle.js';
-import { importPortableBundle } from '../store/portable-bundle-import.js';
+import { extractPortableBundle, importPortableBundle } from '../store/portable-bundle-import.js';
 import {
   integrityCheck,
   PROJECT_SECTION_RULES,
@@ -107,7 +109,7 @@ import {
 } from '../store/portable-bundle-scan.js';
 import { writeRestoreMarker } from '../store/restore-marker.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
-import { isSyncFlagOn, UNRELEASED_FLAGS } from '../store/sync/flags.js';
+import { isSyncFlagOn, setSyncFlag, UNRELEASED_FLAGS } from '../store/sync/flags.js';
 import {
   completeGenesis,
   cutGenesisWithSnapshot,
@@ -117,16 +119,31 @@ import {
   joinStream,
   readGenesisCut,
 } from '../store/sync/genesis.js';
-import { type PullStreamReport, pullStream, readStreamCursor } from '../store/sync/pull.js';
+import {
+  type PullStreamReport,
+  pullStream,
+  readStreamCursor,
+  type SegmentPuller,
+  type StreamCursor,
+  type TxnVerifier,
+} from '../store/sync/pull.js';
 import { type PushRefusal, type PushStreamReport, pushStream } from '../store/sync/push.js';
+import {
+  MergeKeyCollisionError,
+  mergeKeyCollisions,
+  type ReconcileCopyReport,
+  reconcileCopy,
+} from '../store/sync/reconcile-copy.js';
 import { replayPinOf } from '../store/sync/replay-pin.js';
 import {
   activeReplica,
   fileIdentity,
   readActiveReplicaId,
   rebindAfterVaultRestore,
+  reconcileDue,
 } from '../store/sync/replica.js';
 import { ReplicaRegistry } from '../store/sync/replica-registry.js';
+import type { ServerRetirement } from '../store/sync/retire.js';
 import { sealPending } from '../store/sync/sealer.js';
 import { firstBadTxnSignature, signTxn } from '../store/sync/txn-signing.js';
 import {
@@ -174,6 +191,7 @@ import {
   unlockNexusAccountKey,
 } from './nexus-vault-keys.js';
 import type { VaultStreamState } from './nexus-vault-state.js';
+import { completeOwedRebinds } from './replica-rebind.js';
 import { homeStream, projectStream } from './streams.js';
 
 /** Default lease length of a push: long enough for a large upload, short enough to hand off. */
@@ -538,7 +556,7 @@ async function replaySegments(
  * checkpoint/v3), for every message that would otherwise say "push" (T13034).
  */
 const JOURNAL_STREAM_REMEDY =
-  'on this stream local changes travel through the change journal (`sync.push`), not vault snapshots (vault snapshots of journal streams are tracked in T12999); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
+  'on this stream local changes travel through the change journal (`sync.push`), not vault snapshots (vault snapshots of journal streams are tracked in T12999); a store that has not joined it joins with `cleo sync enable push`, which keeps its own rows and merges them into the stream (T13466); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
 
 /** Whether a snapshot is checkpoint/v3: the change journal writes its stream (T13034). */
 function isJournalSnapshot(cp: Checkpoint | null | undefined): boolean {
@@ -1589,6 +1607,110 @@ async function enableSyncPushImpl(
   // genesis. A store that holds exactly that journal checkpoint JOINS it
   // (T13312); any other store restores it first.
   if (parent !== null && isJournalSnapshot(parent)) {
+    // A store that never synced with this stream keeps its own rows (T13466):
+    // it joins, then reconciles against the checkpoint pulled to head, which
+    // adopts the stream's rows and emits its own as its first transactions.
+    if (synced === null) {
+      let safetyBackup = '';
+      let cut = 0;
+      // Assigned inside the callback: typed so the checks below are not narrowed to null.
+      let merged = null as ReconcileCopyReport | null;
+      await withMergedScratch({ conn, key, t }, async (scratch, mergedCursor, baseline) => {
+        // A stream row whose key this store's own row holds cannot be
+        // settled yet (T13504): refuse before anything changes.
+        const collisions = mergeKeyCollisions(db, scratch, tableScopeOf(t));
+        if (collisions.length > 0) {
+          throw vaultError(
+            'E_NEXUS_SYNC_REFUSED',
+            new MergeKeyCollisionError(collisions).message,
+            "nothing was joined or changed; give this store's row a key the stream does not hold, then run `cleo sync enable push` again",
+          );
+        }
+        // The merge decides field by field which side's value stays: keep the
+        // store as it is now first, so a value it replaces can be recovered.
+        safetyBackup = await exportSafetyBundle(t, 'pre-merge', 'cloud-sync-pre-merge');
+        const joined = joinStream(db, {
+          scope: tableScopeOf(t),
+          stream: t.streamId,
+          cursor: cursorFromCheckpoint(parent),
+          merge: true,
+          ...(opts.allowUnreleased ? { allowUnreleased: true } : {}),
+        });
+        if (joined.refused !== null) {
+          throw vaultError('E_NEXUS_SYNC_REFUSED', `the join was refused: ${joined.refused}`);
+        }
+        cut = joined.cut ?? 0;
+        // A failure leaves the reconcile due and push paused; `cleo cloud sync` finishes it.
+        try {
+          merged = reconcileCopy(db, scratch, {
+            scope: tableScopeOf(t),
+            stream: t.streamId,
+            mergedCursor,
+            baseline,
+          });
+        } catch (err) {
+          warnings.push({
+            code: 'W_SYNC_MERGE_PENDING',
+            message: `joined ${t.streamId}, but merging this store's rows did not finish (${err instanceof Error ? err.message : String(err)}); push stays paused until \`cleo cloud sync\` finishes it`,
+          });
+        }
+      });
+      if (merged !== null && merged.overwritten.length > 0) {
+        warnings.push({
+          code: 'W_SYNC_MERGE_OVERWROTE',
+          message: `${merged.overwritten.length} field(s) of this store's own rows lost to the stream's value (older here, or written on the stream after its checkpoint): ${merged.overwritten
+            .map((f) => `${f.table} ${f.uid} ${f.column}`)
+            .join(', ')}; the store as it was is kept at ${safetyBackup}`,
+        });
+      }
+      if (merged !== null && merged.replaced.length > 0) {
+        warnings.push({
+          code: 'W_SYNC_MERGE_REPLACED',
+          message: `${merged.replaced.length} field(s) of the stream took this store's newer value on every replica: ${merged.replaced
+            .map((f) => `${f.table} ${f.uid} ${f.column}`)
+            .join(', ')}`,
+        });
+      }
+      if (merged !== null && merged.deleted.length > 0) {
+        warnings.push({
+          code: 'W_SYNC_MERGE_DELETED',
+          message: `${merged.deleted.length} of this store's own row(s) were removed by a newer delete on the stream: ${merged.deleted
+            .map((r) => `${r.table} ${r.uid}`)
+            .join(', ')}; the store as it was is kept at ${safetyBackup}`,
+        });
+      }
+      if (merged !== null && merged.unresolved > 0) {
+        warnings.push({
+          code: 'W_SYNC_MERGE_UNRESOLVED',
+          message: `${merged.unresolved} stream row(s) were not placed here (a key this store's own row already holds, or a reference that does not resolve); this store kept its own`,
+        });
+      }
+      warnings.push(...conn.state.drainWarnings());
+      return {
+        ...base,
+        status: 'joined',
+        cut,
+        sealed: 0,
+        folded: 0,
+        baselined: {},
+        snapshot: snapshotOf(parent, await deviceNames(conn)),
+        deltaSegmentSeq: null,
+        replicaSeqFloor: null,
+        merged:
+          merged === null
+            ? null
+            : {
+                adopted: merged.adoptedInserts,
+                emitted: merged.frame.inserts,
+                unresolved: merged.unresolved,
+                overwritten: [...merged.overwritten],
+                replaced: [...merged.replaced],
+                deleted: [...merged.deleted],
+                safetyBackup,
+              },
+        warnings,
+      };
+    }
     if (synced?.lastCheckpointId !== parent.checkpointId) {
       throw vaultError(
         'E_NEXUS_SYNC_STREAM_JOURNALED',
@@ -1828,6 +1950,231 @@ async function openStreamSession(opts: NexusVaultCommandOptions): Promise<Stream
   return { conn, key, t };
 }
 
+/**
+ * Complete a rebind's server half the store still owes (T13278): a crash, or
+ * a refused call, after the store rebound at a pull's head, or the retire a
+ * rollback or move rebind at open recorded (T13337). Until it is done
+ * the stream does not know the store's replica, so nothing is pushed or
+ * pulled first. Returns the session with the replica the store is bound to.
+ */
+async function withCompletedRebind(session: StreamSession): Promise<StreamSession> {
+  const { conn, t } = session;
+  if (!t.replicaId) return session;
+  const { openDualScopeDbAtPath, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
+  const db = getDualScopeNativeDb(
+    t.scope === 'global'
+      ? await openDualScopeDbAtPath('global', t.dbPath)
+      : await openDualScopeDbAtPath('project', t.dbPath),
+  );
+  const done = await completeOwedRebinds(conn, t, db);
+  // §1.5 N7 (T13335): a store the open pass rebound reconciles before it
+  // pushes or pulls; push stays refused until this commits.
+  await reconcileOwedCopy(session, db);
+  return done === null ? session : { ...session, t: { ...t, replicaId: done.to } };
+}
+
+/** Pages the stream's verified segments for {@link pullStream}. */
+function journalPuller(journal: Journal, key: NexusAccountKey): SegmentPuller {
+  return async (cursor) => {
+    const page = await journal.pull(
+      {
+        after: cursor.after,
+        knowsAllReplicas: cursor.knowsAllReplicas,
+        replicas: { ...cursor.replicas },
+      },
+      key.signers,
+    );
+    return {
+      segments: page.segments.map((s) => ({
+        seq: s.seq,
+        replicaId: s.replicaId,
+        replicaSeq: s.replicaSeq,
+        deviceId: s.deviceId,
+        plaintext: s.plaintext,
+        schemaVersion: s.meta.schemaVersion,
+      })),
+      cursor: page.cursor,
+      head: page.head,
+    };
+  };
+}
+
+/** Checks each pulled transaction's device signature for {@link pullStream}. */
+function txnVerifier(key: NexusAccountKey, streamId: string): TxnVerifier {
+  return (deviceId, txns) => {
+    const keys = signerKeys(key.signers, deviceId);
+    const first = keys[0];
+    if (first === undefined) return 0;
+    for (const k of keys) {
+      if (firstBadTxnSignature(k.publicKey, streamId, txns) === null) return null;
+    }
+    return firstBadTxnSignature(first.publicKey, streamId, txns);
+  };
+}
+
+/**
+ * The copy reconcile a store the open pass rebound owes (§1.5 N7, T13335):
+ * restore the stream's latest verified journal checkpoint into a scratch
+ * store (`sync: 'off'`, a dedicated handle), pull the stream to head there
+ * with the merge engine, and reconcile the store against that merged state
+ * ({@link reconcileCopy}). The scratch is removed whatever happens. Nothing
+ * is done when no reconcile is due.
+ *
+ * @throws {NexusAccountError} `E_NEXUS_SYNC_REFUSED` when the stream has no
+ *   verified journal checkpoint, or the scratch pull stopped short; the
+ *   reconcile stays due and push stays refused.
+ */
+async function reconcileOwedCopy(
+  session: StreamSession,
+  db: DatabaseSync,
+): Promise<ReconcileCopyReport | null> {
+  if (reconcileDue(db) === null) return null;
+  const { t } = session;
+  return withMergedScratch(session, (scratch, mergedCursor, baseline) => {
+    try {
+      return reconcileCopy(db, scratch, {
+        scope: tableScopeOf(t),
+        stream: t.streamId,
+        mergedCursor,
+        baseline,
+      });
+    } catch (err) {
+      if (!(err instanceof MergeKeyCollisionError)) throw err;
+      throw vaultError(
+        'E_NEXUS_SYNC_REFUSED',
+        err.message,
+        "nothing was merged or pushed, and push stays paused; give this store's row a key the stream does not hold, then run `cleo cloud sync`",
+      );
+    }
+  });
+}
+
+/**
+ * Run `fn` against the stream's merged state: its latest verified journal
+ * checkpoint restored into a scratch store (`sync: 'off'`, a dedicated
+ * handle) and pulled to head there with the merge engine (§1.5 N7). The
+ * scratch is removed whatever happens.
+ *
+ * @param session - The stream session.
+ * @param fn - Gets the scratch (read it only) and its pull position at head.
+ * @returns What `fn` returns.
+ * @throws {NexusAccountError} `E_NEXUS_SYNC_REFUSED` when the stream has no
+ *   verified journal checkpoint, or the scratch pull stopped short.
+ */
+async function withMergedScratch<T>(
+  session: StreamSession,
+  fn: (scratch: DatabaseSync, mergedCursor: StreamCursor, baseline: DatabaseSync) => T | Promise<T>,
+): Promise<T> {
+  const { conn, key, t } = session;
+  const journal = journalFor(conn, t);
+  const journalCheckpoints = trustedCheckpoints(
+    journal,
+    await listCheckpoints(conn, t.streamId),
+    key.signers,
+    null,
+  )
+    .filter(isJournalSnapshot)
+    .sort((a, b) => b.coversSeq - a.coversSeq);
+  const latest = journalCheckpoints[0];
+  // The merge join's baseline is the cut (the oldest journal checkpoint, T13508 LOW): a
+  // later checkpoint would hide stream edits made between the cut and it.
+  const cutCheckpoint = journalCheckpoints[journalCheckpoints.length - 1];
+  if (latest === undefined) {
+    throw vaultError(
+      'E_NEXUS_SYNC_REFUSED',
+      `${t.streamId} has no verified journal checkpoint to reconcile this store against`,
+      'nothing was pushed or pulled; restore the stream (`cleo cloud restore`) instead',
+    );
+  }
+  const restored = await journal.restoreCheckpoint(latest.checkpointId, key.signers);
+  const work = tempDir('cleo-reconcile-');
+  try {
+    const bundlePath = path.join(work, 'checkpoint.cleobundle.tar.gz');
+    fs.writeFileSync(bundlePath, restored.bundle);
+    const staging = path.join(work, 'staging');
+    fs.mkdirSync(staging);
+    const { extractDir, manifest } = await extractPortableBundle(bundlePath, staging);
+    const section = t.scope === 'global' ? manifest.global?.home : manifest.projects[0];
+    const entry = section?.databases.find((d) => d.role === 'primary' && d.relPath === 'cleo.db');
+    if (!entry) {
+      throw vaultError('E_NEXUS_VAULT_VERIFY_FAILED', 'the checkpoint holds no primary cleo.db');
+    }
+    const scratchPath = path.join(work, 'scratch', 'cleo.db');
+    fs.mkdirSync(path.dirname(scratchPath));
+    fs.copyFileSync(path.join(extractDir, entry.bundlePath), scratchPath);
+    // The checkpoint as restored, never pulled: a merge join's baseline (T13507).
+    const baselinePath = path.join(work, 'baseline', 'cleo.db');
+    fs.mkdirSync(path.dirname(baselinePath));
+    if (cutCheckpoint === undefined || cutCheckpoint.checkpointId === latest.checkpointId) {
+      fs.copyFileSync(path.join(extractDir, entry.bundlePath), baselinePath);
+    } else {
+      const cutRestored = await journal.restoreCheckpoint(cutCheckpoint.checkpointId, key.signers);
+      const cutBundle = path.join(work, 'cut.cleobundle.tar.gz');
+      fs.writeFileSync(cutBundle, cutRestored.bundle);
+      const cutStaging = path.join(work, 'cut-staging');
+      fs.mkdirSync(cutStaging);
+      const cut = await extractPortableBundle(cutBundle, cutStaging);
+      const cutSection =
+        t.scope === 'global' ? cut.manifest.global?.home : cut.manifest.projects[0];
+      const cutEntry = cutSection?.databases.find(
+        (d) => d.role === 'primary' && d.relPath === 'cleo.db',
+      );
+      if (!cutEntry) {
+        throw vaultError(
+          'E_NEXUS_VAULT_VERIFY_FAILED',
+          'the cut checkpoint holds no primary cleo.db',
+        );
+      }
+      fs.copyFileSync(path.join(cut.extractDir, cutEntry.bundlePath), baselinePath);
+    }
+    const { openDualScopeDbAtPath, getDualScopeNativeDb } = await import(
+      '../store/dual-scope-db.js'
+    );
+    // The reconcile scratch is never bound and runs no open pass (§1.5).
+    const openScratch = (p: string) =>
+      t.scope === 'global'
+        ? openDualScopeDbAtPath('global', p, undefined, { dedicated: true, syncMode: 'off' })
+        : openDualScopeDbAtPath('project', p, undefined, { dedicated: true, syncMode: 'off' });
+    const handle = await openScratch(scratchPath);
+    const baselineHandle = await openScratch(baselinePath);
+    try {
+      const scratch = getDualScopeNativeDb(handle);
+      // The scratch replays the stream; it never seals or pushes. The store
+      // it reconciles already has its sync flags, so the release gate holds.
+      setSyncFlag(scratch, 'sync.pull', true, { allowUnreleased: true });
+      const serverRetirements = await serverRetirementsFor(conn, t.scope);
+      const merged = await pullStream(scratch, {
+        scope: tableScopeOf(t),
+        stream: t.streamId,
+        // No own echoes: the scratch is no replica.
+        replica: randomUUID(),
+        initialCursor: cursorFromCheckpoint(latest),
+        pull: journalPuller(journal, key),
+        verify: txnVerifier(key, t.streamId),
+        seal: () => {},
+        ...(serverRetirements !== undefined ? { serverRetirements } : {}),
+      });
+      if (merged.refused !== null) {
+        throw vaultError(
+          'E_NEXUS_SYNC_REFUSED',
+          `the merged state this store reconciles against stopped short of ${t.streamId}'s head: ${merged.refused}`,
+          'nothing was pushed or pulled; run `cleo cloud sync` again',
+        );
+      }
+      return await fn(
+        scratch,
+        readStreamCursor(scratch, t.streamId) ?? cursorFromCheckpoint(latest),
+        getDualScopeNativeDb(baselineHandle),
+      );
+    } finally {
+      handle.close();
+      baselineHandle.close();
+    }
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+}
+
 async function pushSyncStreamImpl(
   opts: NexusVaultCommandOptions & {
     /** Push although `sync.push` is unreleased (tests and staging only). Never set from user input. */
@@ -1838,9 +2185,10 @@ async function pushSyncStreamImpl(
 }
 
 async function pushWithSession(
-  session: StreamSession,
+  opened: StreamSession,
   opts: { readonly allowUnreleased?: boolean },
 ): Promise<PushStreamReport> {
+  const session = await withCompletedRebind(opened);
   const { conn, t } = session;
   const replicaId = t.replicaId;
   if (!replicaId) {
@@ -1910,7 +2258,33 @@ async function pullSyncStreamImpl(opts: NexusVaultCommandOptions = {}): Promise<
   return pullWithSession(await openStreamSession(opts));
 }
 
-async function pullWithSession(session: StreamSession): Promise<PullStreamReport> {
+/**
+ * The server's retirements a receiver of `scope`'s stream confirms a `retire`
+ * by (T13366). The home stream: `retiredAt` and `successor` on
+ * `GET /v1/account/home/replicas` (none from a server without the listing).
+ * A project stream: undefined, as the server has no read of them yet, so its
+ * receivers keep every retire unconfirmed and record its late conflicts.
+ *
+ * @param conn - The vault connection.
+ * @param scope - The store's scope.
+ * @returns The retirements, or undefined for a project stream.
+ */
+export async function serverRetirementsFor(
+  conn: Pick<NexusVaultConnection, 'find'>,
+  scope: CloudVaultScope,
+): Promise<ServerRetirement[] | undefined> {
+  if (scope !== 'global') return undefined;
+  const list = await conn.find('/v1/account/home/replicas', ListHomeReplicasResult);
+  if (list === null) return [];
+  return list.replicas.flatMap((r) =>
+    r.retiredAt
+      ? [{ replicaId: r.replicaId, successor: r.successor ?? null, retiredAt: r.retiredAt }]
+      : [],
+  );
+}
+
+async function pullWithSession(opened: StreamSession): Promise<PullStreamReport> {
+  const session = await withCompletedRebind(opened);
   const { conn, key, t } = session;
   const replicaId = t.replicaId;
   if (!replicaId) {
@@ -1988,46 +2362,26 @@ async function pullWithSession(session: StreamSession): Promise<PullStreamReport
   // Pruning waits for a floor the applier refuses below anyway, such as the
   // receive watermark (T13256), and then prunes by that floor, not by
   // stream seq.
-  return pullStream(db, {
+  const serverRetirements = await serverRetirementsFor(conn, t.scope);
+  const report = await pullStream(db, {
     scope: tableScopeOf(t),
     stream: t.streamId,
     replica: replicaId,
     initialCursor,
-    pull: async (cursor) => {
-      const page = await journal.pull(
-        {
-          after: cursor.after,
-          knowsAllReplicas: cursor.knowsAllReplicas,
-          replicas: { ...cursor.replicas },
-        },
-        key.signers,
-      );
-      return {
-        segments: page.segments.map((s) => ({
-          seq: s.seq,
-          replicaId: s.replicaId,
-          replicaSeq: s.replicaSeq,
-          deviceId: s.deviceId,
-          plaintext: s.plaintext,
-          schemaVersion: s.meta.schemaVersion,
-        })),
-        cursor: page.cursor,
-        head: page.head,
-      };
-    },
-    verify: (deviceId, txns) => {
-      const keys = signerKeys(key.signers, deviceId);
-      const first = keys[0];
-      if (first === undefined) return 0;
-      for (const k of keys) {
-        if (firstBadTxnSignature(k.publicKey, t.streamId, txns) === null) return null;
-      }
-      return firstBadTxnSignature(first.publicKey, t.streamId, txns);
-    },
+    pull: journalPuller(journal, key),
+    verify: txnVerifier(key, t.streamId),
     seal: () => {
       sealPending(db, { scope: tableScopeOf(t), replica: replicaId });
     },
+    // D5: a pull that reaches head runs the rebind the undo budget scheduled
+    // (T13278). The canonical store's own binding: the stable device id.
+    rebind: { dbPath: t.dbPath, mode: 'live' },
+    // T13366: a retire counts only once the server confirms it.
+    ...(serverRetirements !== undefined ? { serverRetirements } : {}),
   });
+  // Its server half at once, so this run's next push announces the retire.
+  if (report.rebind !== null) await completeOwedRebinds(conn, t, db);
+  return report;
 }
 
 /** A `cleo cloud sync` stream result with nothing done yet. */
@@ -2154,6 +2508,21 @@ async function syncOneStream(
   let pull: PullStreamReport;
   try {
     pull = await pullWithSession(session);
+    // A pull that rebound at head (T13278): push again as the successor, so
+    // the retire and the reconcile leave in this run.
+    if (pull.rebind !== null) {
+      const again = await pushWithSession(
+        { ...session, t: { ...session.t, replicaId: pull.rebind.replicaId } },
+        opts,
+      );
+      push = {
+        ...again,
+        sealed: push.sealed + again.sealed,
+        built: push.built + again.built,
+        pushed: push.pushed + again.pushed,
+        duplicates: push.duplicates + again.duplicates,
+      };
+    }
   } catch (err) {
     return syncStreamResult(scope, {
       streamId,
@@ -2293,12 +2662,51 @@ async function assertStoreQuiescent(t: VaultTarget): Promise<void> {
 /** Safety bundles kept per store under `backups/vault`; older ones are removed (T13007). */
 export const NEXUS_VAULT_SAFETY_BUNDLES_KEPT = 10;
 
-/** Keep the newest {@link NEXUS_VAULT_SAFETY_BUNDLES_KEPT} safety bundles in `dir`. */
-function rotateSafetyBundles(dir: string): void {
+/** A safety bundle's file name: its kind, then its timestamp. */
+const SAFETY_BUNDLE = /^pre-(restore|merge)-(.+)\.cleobundle\.tar\.gz$/;
+
+/**
+ * Export the store as it is now to a safety bundle under `backups/vault`,
+ * keeping the newest {@link NEXUS_VAULT_SAFETY_BUNDLES_KEPT}.
+ *
+ * @returns The bundle's path.
+ */
+async function exportSafetyBundle(
+  t: VaultTarget,
+  kind: 'pre-restore' | 'pre-merge',
+  label: string,
+): Promise<string> {
+  const dir =
+    t.scope === 'global'
+      ? path.join(t.storeRoot, 'backups', 'vault')
+      : path.join(t.storeRoot, '.cleo', 'backups', 'vault');
+  fs.mkdirSync(dir, { recursive: true });
+  const out = path.join(
+    dir,
+    `${kind}-${new Date().toISOString().replace(/[:.]/g, '-')}.cleobundle.tar.gz`,
+  );
+  await exportPortableBundle({
+    scope: t.scope === 'global' ? 'global' : 'project',
+    ...(t.scope === 'project' ? { projectRoot: t.storeRoot } : {}),
+    outputPath: out,
+    label,
+    // A local safety copy: it shares nothing (T13250).
+    sharesIdentity: false,
+  });
+  rotateSafetyBundles(dir, kind);
+  return out;
+}
+
+/**
+ * Keep the newest {@link NEXUS_VAULT_SAFETY_BUNDLES_KEPT} safety bundles of `kind` in `dir`: each kind
+ * rotates on its own, so repeated merges never evict the last pre-restore bundle.
+ */
+function rotateSafetyBundles(dir: string, kind: 'pre-restore' | 'pre-merge'): void {
   const bundles = fs
     .readdirSync(dir)
-    .filter((name) => /^pre-restore-.+\.cleobundle\.tar\.gz$/.test(name))
-    .sort();
+    .filter((name) => SAFETY_BUNDLE.test(name) && name.startsWith(`${kind}-`))
+    // Oldest first by the timestamp.
+    .sort((a, b) => a.replace(SAFETY_BUNDLE, '$2').localeCompare(b.replace(SAFETY_BUNDLE, '$2')));
   for (const name of bundles.slice(
     0,
     Math.max(0, bundles.length - NEXUS_VAULT_SAFETY_BUNDLES_KEPT),
@@ -2577,25 +2985,8 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
     let safetyBackup: string | null = null;
     let safety: ReadonlyMap<string, string | null> = new Map();
     if (hasLocal) {
-      const dir =
-        t.scope === 'global'
-          ? path.join(t.storeRoot, 'backups', 'vault')
-          : path.join(t.storeRoot, '.cleo', 'backups', 'vault');
-      fs.mkdirSync(dir, { recursive: true });
-      safetyBackup = path.join(
-        dir,
-        `pre-restore-${new Date().toISOString().replace(/[:.]/g, '-')}.cleobundle.tar.gz`,
-      );
-      await exportPortableBundle({
-        scope: t.scope === 'global' ? 'global' : 'project',
-        ...(t.scope === 'project' ? { projectRoot: t.storeRoot } : {}),
-        outputPath: safetyBackup,
-        label: 'cloud-vault-pre-restore',
-        // A local safety copy: it shares nothing (T13250).
-        sharesIdentity: false,
-      });
+      safetyBackup = await exportSafetyBundle(t, 'pre-restore', 'cloud-vault-pre-restore');
       safety = await safetyInventory(safetyBackup, t);
-      rotateSafetyBundles(dir);
     }
     let tables = 0;
     // Every path the snapshot lists in its section; the rest of the inventory is removed.

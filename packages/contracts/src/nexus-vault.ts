@@ -220,9 +220,31 @@ export interface CloudSyncPushEnableResult {
    * `enabled`: the cut was recorded and its genesis checkpoint stored; `resumed`: a cut recorded
    * by an earlier run whose checkpoint push failed was pushed now; `already`: push was already on;
    * `joined`: this store holds the stream's journal checkpoint another device cut, and now pushes its
-   * own writes and pulls the stream's after it, with no genesis of its own (T13312).
+   * own writes and pulls the stream's after it, with no genesis of its own (T13312). A store that
+   * never synced with the stream joins too, keeping its own rows (see `merged`, T13466).
    */
   status: 'enabled' | 'resumed' | 'already' | 'joined';
+  /**
+   * A merge join (T13466): stream rows adopted here, this store's own rows emitted as its first
+   * transactions, and stream rows not placed (an unresolved reference). `overwritten` lists fields of
+   * this store's own rows whose older value took the stream's newer one (T13503); `safetyBackup` is
+   * the bundle of the store as it was before the merge. Null when the reconcile is still due
+   * (`cleo cloud sync` finishes it); absent on any other status.
+   */
+  merged?: {
+    adopted: number;
+    emitted: number;
+    unresolved: number;
+    overwritten: Array<{ table: string; uid: string; column: string }>;
+    /**
+     * Fields of the stream's rows that took this store's newer value on every replica (T13507);
+     * column `*` is a whole row this store's newer edit restored over a stream delete (T13508).
+     */
+    replaced: Array<{ table: string; uid: string; column: string }>;
+    /** This store's own rows a newer stream delete removed; the safety bundle holds them (T13508). */
+    deleted: Array<{ table: string; uid: string }>;
+    safetyBackup: string;
+  } | null;
   /** The genesis cut: the highest capture seq the checkpoint carries. */
   cut: number;
   /** Transactions sealed before the cut, folded into the checkpoint, and rows given genesis row meta. */

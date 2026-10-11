@@ -39,6 +39,9 @@
  *    so the sealer echoes nothing; row meta is set to the engine's state,
  *    conflicts are recorded, and the transaction is marked `applied`,
  *    `conflict` (something recorded) or `void` (every op refused).
+ *    A late transaction of a replica retired earlier in the stream is
+ *    inherited history (§3.5 D5, T13278): applied the same way, but its merge
+ *    conflicts are not recorded against the successor's reconcile.
  *
  * Passes repeat while a pass applies something, so a transaction pending on
  * a row a later transaction inserts applies in the same call.
@@ -86,6 +89,7 @@ import {
   UNSEEN_ROW,
 } from '../merge/types.js';
 import { remapPending } from '../remap.js';
+import { isInheritedHistory } from '../retire.js';
 import { fieldHlcsOf, type RowMetaFull, readRowMetaFull, restoreRowMeta } from '../row-meta.js';
 import { hasTable } from '../schema.js';
 import { canonicalJson } from '../sealer-values.js';
@@ -566,6 +570,13 @@ interface OpContext {
     /** Told why an op the replay refuses stays rewound (its hold reason, Rule 5). */
     readonly onVoid?: (conflicts: readonly MergeConflict[]) => void;
   };
+  /**
+   * The transaction is inherited history: a late transaction of a replica
+   * retired earlier in the stream (§3.5 D5, T13278). It applies as an
+   * ordinary op, but its merge conflicts are not recorded against the
+   * successor's reconcile; a void (the op refused) is still recorded.
+   */
+  readonly history?: boolean;
 }
 
 const voidWith = (
@@ -725,15 +736,17 @@ function applyOne(
     const st: StagedTxn = c.replay
       ? { ...c.st, replicaId: c.replica, txn: { ...c.st.txn, actor: c.replay.actor } }
       : c.st;
-    const n = effect(
+    const history = c.history === true && out.status !== 'void';
+    const recorded = effect(
       c.db,
       c.api,
       st,
       opIdx,
       { op, def, before, out, refKeys },
       c.nowIso,
-      c.replay !== undefined,
+      c.replay !== undefined || history,
     );
+    const n = history ? 0 : recorded;
     c.db.exec(`RELEASE ${sp}`);
     const result: OpResult =
       out.status === 'applied' || out.status === 'partial'
@@ -1307,7 +1320,15 @@ function applyInPage(x: PageContext, st: StagedTxn): InPageResult {
     x.sequencingOn && st.replicaId === opts.replica ? unsequencedLocalTxn(db, st.txn.txn) : null;
   // An own echo whose transaction the page rewound applies it at its stream position.
   const rewoundEcho = local !== null && x.rewound.has(local.txn);
-  const c: OpContext = { db, api, st, defs, replica: opts.replica, nowIso };
+  const c: OpContext = {
+    db,
+    api,
+    st,
+    defs,
+    replica: opts.replica,
+    nowIso,
+    history: isInheritedHistory(db, opts.stream, st.replicaId, st.key.seq),
+  };
   let n = 0;
   // Gate C (§3.6): the whole transaction is one savepoint, so a broken
   // multi-row invariant rolls all of it back (the page's rewind stays).

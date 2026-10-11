@@ -40,7 +40,7 @@ import { captureTriggerDrift, setCaptureEnabled, syncSetTables } from './capture
 import { isSyncFlagOn, readSyncFlags, setSyncFlag } from './flags.js';
 import { type StreamCursor, writeStreamCursor } from './pull.js';
 import { baselineRowMeta, planRepair } from './repair.js';
-import { activeReplica, persistStoreSeq } from './replica.js';
+import { activeReplica, persistStoreSeq, RECONCILE_DUE_KEY, type ReconcileDue } from './replica.js';
 import { hasTable } from './schema.js';
 import { sealerRowView, sealPending, sealPreconditions } from './sealer.js';
 import { capturePosition } from './sequencing.js';
@@ -629,6 +629,12 @@ const JOIN_BENIGN_SKIPS: ReadonlySet<string> = new Set([
  * `sync.push` and `sync.pull` are set, and the pull position is seeded from
  * the checkpoint.
  *
+ * `merge` (T13466): a store that never synced with the stream keeps its own
+ * rows. The row check and the baseline are skipped, and the join records a
+ * copy reconcile due instead (`sync.reconcile_due`, push paused): the
+ * reconcile against the checkpoint pulled to head adopts the stream's rows
+ * and emits the store's own as its first transactions (`reconcile-copy.ts`).
+ *
  * @param db - The store, outside a transaction, bound to its own replica.
  * @param o - Scope, stream, the checkpoint's pull position, and the unreleased opt-in.
  * @returns The join point, or why not.
@@ -641,6 +647,8 @@ export function joinStream(
     readonly cursor: StreamCursor;
     readonly now?: () => number;
     readonly allowUnreleased?: boolean;
+    /** Keep this never-synced store's own rows: reconcile them in instead of refusing (T13466). */
+    readonly merge?: boolean;
   },
 ): JoinStreamReport {
   if (db.isTransaction) {
@@ -664,7 +672,7 @@ export function joinStream(
   };
   // Every row must still match the meta the checkpoint carried.
   const view = sealerRowView(db, o.scope);
-  for (const table of syncSetTables(o.scope)) {
+  for (const table of o.merge ? [] : syncSetTables(o.scope)) {
     const plan = planRepair(db, o.scope, table, view);
     if (plan.skipped !== null && !JOIN_BENIGN_SKIPS.has(plan.skipped)) {
       return refuse(`${table}: ${plan.skipped}`);
@@ -685,7 +693,7 @@ export function joinStream(
     // The check ran outside this transaction: a write since then (another
     // process, or this one) is a live capture, and the cut would baseline its
     // row as the checkpoint's. The store changed since its restore: refuse.
-    if (db.prepare("SELECT 1 FROM _sync_capture WHERE state = 'live' LIMIT 1").get()) {
+    if (!o.merge && db.prepare("SELECT 1 FROM _sync_capture WHERE state = 'live' LIMIT 1").get()) {
       db.exec('ROLLBACK');
       return refuse(
         'a write landed while the join checked the store; it is no longer the journal checkpoint it restored (restore it again)',
@@ -695,7 +703,13 @@ export function joinStream(
     setSyncFlag(db, 'sync.seal', true, o.allowUnreleased ? { allowUnreleased: true } : {});
     db.prepare("DELETE FROM _sync_meta WHERE key LIKE 'suspect:%'").run();
     // Ledgers (count + held) and baseline keys; every row already has meta.
-    for (const table of syncSetTables(o.scope)) baselineRowMeta(db, o.scope, table, replica, at);
+    // A merge leaves its rows meta-less: the reconcile adopts or emits each.
+    if (o.merge) {
+      const due: ReconcileDue = { from: replica, to: replica, scope: o.scope, at: atIso };
+      setMeta(db, RECONCILE_DUE_KEY, JSON.stringify(due), atIso);
+    } else {
+      for (const table of syncSetTables(o.scope)) baselineRowMeta(db, o.scope, table, replica, at);
+    }
     const cut = capturePosition(db);
     setMeta(db, `${GENESIS_CUT_KEY_PREFIX}${o.stream}`, String(cut), atIso);
     setMeta(db, `${GENESIS_SOURCE_SEQ_KEY_PREFIX}${o.stream}`, String(cut), atIso);
