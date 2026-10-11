@@ -167,6 +167,9 @@ describe('runDocsDoctor — diagnostics (T13447)', () => {
 
   it('flags empty-provenance on slugged text docs with retrievable content', async () => {
     await seedSlug('prov-doc', '# Note\n\nSee T12345 for the details.\n');
+    // Simulate a pre-T13357 legacy row: the write path now derives provenance
+    // on put, so NULL the columns back out to get the historical shape.
+    await patchRow('prov-doc', { topics: null, relatedTasks: null });
 
     const res = await doctor();
     expect(res.ok).toBe(true);
@@ -221,6 +224,8 @@ describe('runDocsDoctor — diagnostics (T13447)', () => {
 describe('runDocsDoctor — dry-run purity (T13447)', () => {
   it('reports the repair plan but writes nothing', async () => {
     await seedSlug('dry-doc', '# Doc\n\nReferences T54321.\n');
+    // Legacy-row shape (pre-T13357): the write path derived these on put.
+    await patchRow('dry-doc', { topics: null, relatedTasks: null });
     writeAuditLine('dry-doc', 1); // expected 2, stored 1 → skew
     await seedLocalFile('dry-gone', join(tempDir, 'deleted', 'gone.md'));
 
@@ -245,6 +250,8 @@ describe('runDocsDoctor — apply (T13447)', () => {
     await seedSlug('fix-skew', '# Doc\n\nv1.\n');
     writeAuditLine('fix-skew', 2); // expected 3
     await seedSlug('fix-prov', '# Note\n\nSee T12345 and T67890.\n');
+    // Legacy-row shape (pre-T13357): the write path derived these on put.
+    await patchRow('fix-prov', { topics: null, relatedTasks: null });
     await seedLocalFile('fix-gone', join(tempDir, 'deleted', 'gone.md'));
 
     const res = await doctor({ apply: true, receipt: makeReceipt() });

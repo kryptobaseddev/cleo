@@ -51,7 +51,7 @@ import { eq } from 'drizzle-orm';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
-import { attachments } from '../store/tasks-schema.js';
+import { docsAttachments } from '../store/tasks-schema.js';
 import { deriveDocLinks, isScannableTextMime, linksJsonOrNull } from './derive-links.js';
 import { DOCS_VERSIONING_AUDIT_FILE } from './docs-update.js';
 import { deriveWikilinkEdges, rebuildDocsWikilinks } from './wikilinks.js';
@@ -322,6 +322,7 @@ function checkBackupReceipt(
 ): { code: string; message: string } | null {
   if (receiptPath === undefined || receiptPath.length === 0) {
     return {
+      // @sync-invariant none:input-shape a precondition refusal before any repair write; nothing was written
       code: 'E_DOCS_DOCTOR_BACKUP_REQUIRED',
       message:
         'docs doctor --apply requires a backup receipt created within the last ' +
@@ -334,12 +335,14 @@ function checkBackupReceipt(
     mtimeMs = statSync(receiptPath).mtimeMs;
   } catch {
     return {
+      // @sync-invariant none:input-shape a precondition refusal before any repair write; nothing was written
       code: 'E_DOCS_DOCTOR_BACKUP_REQUIRED',
       message: `backup receipt not found: ${receiptPath}`,
     };
   }
   if (Date.now() - mtimeMs > DOCS_DOCTOR_BACKUP_MAX_AGE_MS) {
     return {
+      // @sync-invariant none:input-shape a precondition refusal before any repair write; nothing was written
       code: 'E_DOCS_DOCTOR_BACKUP_STALE',
       message:
         `backup receipt is older than ${DOCS_DOCTOR_BACKUP_MAX_AGE_MS / 60000} minutes: ` +
@@ -394,6 +397,7 @@ async function fetchRowContent(
  * @returns The structured report, or a backup-gate refusal.
  * @task T13447
  */
+// @sync-invariant docs.lifecycle.transitions the only lifecycle write is draft→archived for dangling rows, a legal matrix transition
 export async function runDocsDoctor(
   projectRoot: string,
   opts: DocsDoctorOptions = {},
@@ -407,7 +411,7 @@ export async function runDocsDoctor(
   }
 
   const db = await getDb(projectRoot);
-  const rows: readonly DoctorRow[] = await db.select().from(attachments).all();
+  const rows: readonly DoctorRow[] = await db.select().from(docsAttachments).all();
   const payloadById = new Map<string, Record<string, unknown> | null>();
   for (const row of rows) payloadById.set(row.id, parseAttachmentJson(row.attachmentJson));
 
@@ -639,28 +643,28 @@ export async function runDocsDoctor(
   if (apply) {
     for (const { row, expected } of skewed) {
       await db
-        .update(attachments)
+        .update(docsAttachments)
         .set({ docVersion: expected })
-        .where(eq(attachments.id, row.id))
+        .where(eq(docsAttachments.id, row.id))
         .run();
     }
     for (const { row, content, labels } of backfillable) {
       const derived = deriveDocLinks(content, labels);
       if (derived.topics.length + derived.relatedTasks.length === 0) continue;
       await db
-        .update(attachments)
+        .update(docsAttachments)
         .set({
           topics: linksJsonOrNull(derived.topics),
           relatedTasks: linksJsonOrNull(derived.relatedTasks),
         })
-        .where(eq(attachments.id, row.id))
+        .where(eq(docsAttachments.id, row.id))
         .run();
     }
     for (const { row } of archivable) {
       await db
-        .update(attachments)
+        .update(docsAttachments)
         .set({ lifecycleStatus: 'archived' })
-        .where(eq(attachments.id, row.id))
+        .where(eq(docsAttachments.id, row.id))
         .run();
     }
     if (missingEdges.length > 0) {
