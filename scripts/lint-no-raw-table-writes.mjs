@@ -386,9 +386,9 @@ export const EXEMPT = {
       reason: `${SEALER}; the retire control transaction is written as a sealed transaction of the successor (§1.5, T13278)`,
     },
     _sync_retired: {
-      count: 1,
+      count: 2,
       reason:
-        'retired replicas (local-only): every retire a stream carries is recorded at its seq, rebuilt from the stream by each receiver (T13278)',
+        'retired replicas (local-only): every retire a stream carries is recorded at its seq, rebuilt from the stream by each receiver (T13278), and confirmed from the server record (T13366)',
     },
   },
   'packages/core/src/store/sync/remap.ts': {

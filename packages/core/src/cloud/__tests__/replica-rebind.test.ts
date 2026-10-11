@@ -19,6 +19,7 @@ import {
 } from '../../store/dual-scope-db.js';
 import { setSyncFlag } from '../../store/sync/flags.js';
 import { type PendingRebind, pendingRebind, REBIND_PENDING_KEY } from '../../store/sync/rebind.js';
+import { recordRetirement, retiredReplicas } from '../../store/sync/retire.js';
 import { generateEd25519, verifyEd25519 } from '../crypto.js';
 import { NexusError } from '../http.js';
 import { nexusLinkPath, readNexusProjectLink } from '../nexus-link.js';
@@ -63,6 +64,15 @@ async function storeWith(pending: PendingRebind | null): Promise<DatabaseSync> {
       JSON.stringify(pending),
       pending.at,
     );
+    // The rebind recorded its own retire, unconfirmed until the server's answer.
+    recordRetirement(db, pending.stream, {
+      replica: pending.from,
+      successor: pending.to,
+      lastReplicaSeq: pending.lastReplicaSeq,
+      txn: pending.retireTxn ?? `${pending.to}:0`,
+      hlc: '0000000000001-0000-b',
+      seq: null,
+    });
   }
   return db;
 }
@@ -184,6 +194,8 @@ describe('completeServerRebind (T13278)', () => {
       nexusDeviceId: DEVICE,
     });
     expect(pendingRebind(db)).toBeNull();
+    // The server's stored retirement confirms the store's own retire (T13366).
+    expect(retiredReplicas(db, STREAM).get(FROM)?.confirmedAt).toBe('2026-10-09T00:00:01.000Z');
   });
 
   it('a refused retirement keeps the rebind pending and names the server reason', async () => {
@@ -202,6 +214,7 @@ describe('completeServerRebind (T13278)', () => {
       message: expect.stringContaining('retire-below-head'),
     });
     expect(pendingRebind(db)).toEqual(PENDING);
+    expect(retiredReplicas(db, STREAM).has(FROM)).toBe(false);
   });
 
   it('a refused attach retires nothing and keeps it pending', async () => {
