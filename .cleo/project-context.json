@@ -84,7 +84,8 @@
               "Arch Gates / Merge-Bar Aggregate Gate Lint (T11955)"
             ]
           },
-          { "paths": [".cleo/project-context.json"], "jobs": ["Lint & Format"] }
+          { "paths": [".cleo/project-context.json"], "jobs": ["Lint & Format"] },
+          { "paths": [".gitignore"], "jobs": ["Lint & Format"] }
         ],
         "qa": [
           { "paths": ["scripts/**"], "jobs": ["Lint & Format"] },
@@ -99,7 +100,8 @@
               "Arch Gates / Merge-Bar Aggregate Gate Lint (T11955)"
             ]
           },
-          { "paths": [".cleo/project-context.json"], "jobs": ["Lint & Format"] }
+          { "paths": [".cleo/project-context.json"], "jobs": ["Lint & Format"] },
+          { "paths": [".gitignore"], "jobs": ["Lint & Format"] }
         ]
       }
     }
