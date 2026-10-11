@@ -675,6 +675,18 @@
         }
       }
     },
+    "cloud": {
+      "type": "object",
+      "description": "Cleo Nexus cloud sync behaviour on this device.",
+      "additionalProperties": false,
+      "properties": {
+        "autoSync": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start a background push/pull from normal commands in a linked project, at most once per CLEO_AUTO_SYNC_INTERVAL_MIN (T13553). false turns it off; CLEO_DISABLE_AUTO_SYNC=1 does the same per shell."
+        }
+      }
+    },
     "contextAlerts": {
       "type": "object",
       "description": "Context window alert configuration. Controls when and how users are alerted about context window usage approaching thresholds.",
