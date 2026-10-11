@@ -2282,6 +2282,7 @@
       "tier",
       "transport_config",
       "transport_type",
+      "uid",
       "updated_at",
       "webhook_secret"
     ],
@@ -2752,6 +2753,9 @@
       "uid",
       "weight_after",
       "weight_before"
+    ],
+    "cleo_trigger_suspend": [
+      "scope"
     ],
     "models_catalog": [
       "attachment",

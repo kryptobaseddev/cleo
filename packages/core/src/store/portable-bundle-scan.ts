@@ -18,6 +18,7 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import type { PortableExclusion, PortableSymlinkEntry } from '@cleocode/contracts';
 import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
 import { resolveDualScopeDbPath } from './dual-scope-db.js';
+import { RESTORE_MARKER_SUFFIX } from './restore-marker.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { TRIGGER_SUSPEND_TABLE, withTriggersSuspended } from './sync/trigger-classes.js';
 
@@ -42,8 +43,9 @@ export const PRIMARY_STORE_BASENAME = path.basename(
 
 /**
  * Pre-E6 per-domain database basenames that sit directly in a root, by tier.
- * Derived from `DB_INVENTORY` (whose templates still describe the pre-E6
- * layout): any inventory file at the top of `.cleo/` or `<cleoHome>/`.
+ * Derived from `DB_INVENTORY`: each role's pre-consolidation file
+ * (`legacyFilePathTemplate`, else `filePathTemplate`) at the top of `.cleo/`
+ * or `<cleoHome>/`. The live store (`cleo.db`) is never one of them (T13245).
  */
 export const LEGACY_STORE_BASENAMES: Readonly<Record<'project' | 'global', ReadonlySet<string>>> = {
   project: legacyBasenames('<projectRoot>/.cleo/'),
@@ -53,9 +55,10 @@ export const LEGACY_STORE_BASENAMES: Readonly<Record<'project' | 'global', Reado
 function legacyBasenames(prefix: string): ReadonlySet<string> {
   const names = new Set<string>();
   for (const entry of DB_INVENTORY) {
-    if (!entry.filePathTemplate.startsWith(prefix)) continue;
-    const rest = entry.filePathTemplate.slice(prefix.length);
-    if (!rest.includes('/')) names.add(rest);
+    const template = entry.legacyFilePathTemplate ?? entry.filePathTemplate;
+    if (!template.startsWith(prefix)) continue;
+    const rest = template.slice(prefix.length);
+    if (!rest.includes('/') && rest !== PRIMARY_STORE_BASENAME) names.add(rest);
   }
   return names;
 }
@@ -89,6 +92,10 @@ const EXCLUDED_FILE_SUFFIXES: ReadonlyArray<readonly [string, string]> = [
   ['.lock', 'lock file (machine-local runtime state)'],
   ['.sock', 'socket (machine-local runtime state)'],
   ['.tmp', 'temporary file'],
+  [
+    RESTORE_MARKER_SUFFIX,
+    'restore or genesis marker of a live store (machine-local runtime state; T13370)',
+  ],
 ];
 
 const IDENTITY_REMEDY =

@@ -95,8 +95,9 @@ export const doctorSupersededStoreCommand = defineCommand({
     rollback: {
       type: 'string',
       description:
-        'Undo a reconciled run from its receipt: the run directory (exodus-reconcile-<iso> under ' +
-        '.cleo). Refused if any row the run inserted has changed since.',
+        'Undo a reconciled run, or a refused run whose own revert failed, from its receipt: the ' +
+        'run directory (exodus-reconcile-<iso> under .cleo). Refused if any row the run inserted ' +
+        'has changed since, or a copied session is claimed by a task.',
     },
     json: { type: 'boolean', description: 'Output as JSON' },
     human: { type: 'boolean', description: 'Force human-readable output' },

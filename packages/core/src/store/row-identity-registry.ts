@@ -431,6 +431,16 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       keyRefs: [{ column: 'sticky_id', table: 'brain_sticky_notes' }],
       task: 'T12895',
     },
+    {
+      // T12915: one agent per slug (`agent_id`, UNIQUE), and seed-install creates
+      // the same slug on every machine, so the slug is the natural key. The
+      // random text `id` is minted per device: a local key that never travels.
+      table: 'agent_registry_agents',
+      kind: 'natural',
+      key: ['agent_id'],
+      localKey: 'id',
+      task: 'T12915',
+    },
   ],
 };
 
@@ -650,19 +660,7 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
   global: {
     ...BRAIN_EXEMPT,
     ...exempt(
-      [
-        'accounts',
-        'agent_registry_accounts',
-        'agent_registry_agent_capabilities',
-        'agent_registry_agent_skills',
-        'agent_registry_agents',
-        'agent_registry_capabilities',
-        'agent_registry_org_agent_keys',
-        'agent_registry_skills',
-        'agent_service_grants',
-        'service_configs',
-        'service_connections',
-      ],
+      ['accounts', 'agent_service_grants', 'service_configs', 'service_connections'],
       AGENT_ACCOUNTS_SERVICE,
     ),
     ...exempt(
@@ -693,7 +691,8 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  *
  * Since T12894 declared the brain text-keyed tables (11 project, 12 global),
  * T12895 the brain natural-key tables (3 project, 3 global) and T12896 the
- * brain integer-keyed tables (6 project, 6 global)
+ * brain integer-keyed tables (6 project, 6 global), and T12915 declared the
+ * agent registry (1 global; 6 more reclassified derived or local-only)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
@@ -703,20 +702,20 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned              | T12896 | 2       | 1      |
  * | planned (conduit)    | T12913 | 12      | 0      |
  * | planned (lifecycle…) | T12914 | 16      | 0      |
- * | planned (agents…)    | T12915 | 0       | 11     |
+ * | planned (agents…)    | T12915 | 0       | 4      |
  * | planned (nexus)      | T12916 | 0       | 8      |
  * | planned (skills)     | T12917 | 0       | 4      |
  * | planned (docs)       | T12919 | 3       | 0      |
  * | planned (misc)       | T12920 | 12      | 0      |
  * | twin-collapse        | T12535 | 30      | 0      |
  * | not-row-replicated   | T12918 | 1       | 1      |
- * | total                |        | 76      | 25     |
+ * | total                |        | 76      | 18     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
   project: 74,
-  global: 24,
+  global: 17,
 };
 
 /**
@@ -729,7 +728,7 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
   project: '55f330a07c43d1b1af86579902b8d2efad2d5a5bbc713d2fd785705d36c8126b',
-  global: '4ee7720276c8b8f83e64918291d6ebb8330513d4876cd05ae531febaff2313b0',
+  global: '60877c1f83b6b1e87bbce6f6e911720853337aa2b10eed7404c06a47e9bffd5c',
 };
 
 /**

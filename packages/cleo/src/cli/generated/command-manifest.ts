@@ -459,6 +459,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorHeavyCommandHookCommand as CommandDef,
   },
   {
+    exportName: 'doctorHooksCommand',
+    name: 'hooks',
+    description:
+      'Inspect hook attribution, activation, drift and provider trust; --fix repairs eligible managed entries',
+    load: async () =>
+      (await import('../commands/doctor-hooks.js')).doctorHooksCommand as CommandDef,
+  },
+  {
     exportName: 'doctorLegacyBackupsCommand',
     name: 'legacy-backups',
     description:
@@ -605,6 +613,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       "Check the project store's triggers: the suspension table, owned guard triggers, capture ",
     load: async () =>
       (await import('../commands/doctor-sync-triggers.js')).doctorSyncTriggersCommand as CommandDef,
+  },
+  {
+    exportName: 'doctorSystemCommand',
+    name: 'system',
+    description:
+      'Assess machine + project health (memory/swap, MCP fan-out, heavy jobs outside cleo run, ',
+    load: async () =>
+      (await import('../commands/doctor-system.js')).doctorSystemCommand as CommandDef,
   },
   {
     exportName: 'doctorToolLocksCommand',

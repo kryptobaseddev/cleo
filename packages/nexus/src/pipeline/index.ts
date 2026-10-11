@@ -188,7 +188,7 @@ import {
   encodeParseCacheEntry,
   type FileExtraction,
 } from './parse-cache.js';
-import { runParseLoop } from './parse-loop.js';
+import { oversizedFileCoverage, runParseLoop } from './parse-loop.js';
 import { detectProcesses } from './process-processor.js';
 import { type ExtractedAccess, resolveAccesses } from './processors/access-processor.js';
 import { createResolutionContext } from './resolution-context.js';
@@ -221,6 +221,13 @@ export interface PipelineOptions {
   incremental?: boolean;
   /** Owner-supplied reason reported when `incremental` is false (e.g. `--full`). */
   fullReason?: string;
+  /**
+   * Refuse, before anything is built, a run that would be a full rebuild
+   * (T13523: a read query's inline refresh never parses the whole repository).
+   *
+   * @default false
+   */
+  requireIncremental?: boolean;
   /**
    * Share of files that may change before an incremental run falls back to a
    * full rebuild. Above it, reuse saves little and a clean rebuild also sheds
@@ -615,7 +622,15 @@ export async function runPipeline(
   const files = await walkRepositoryPaths(
     repoPath,
     onProgress,
-    (report) => reports.set(report.path, report),
+    // T13380: an oversized file is never read, so its report gets path-based
+    // provenance here instead of reaching coverage as a "legacy" report.
+    (report) =>
+      reports.set(
+        report.path,
+        report.status === 'oversized' && !report.capabilities
+          ? { ...report, capabilities: oversizedFileCoverage(report.path) }
+          : report,
+      ),
     options?.includedRepositories,
   );
   const scannedFiles = new Map(files.map((file) => [file.path, file]));
@@ -740,6 +755,8 @@ export async function runPipeline(
     );
     endPhase('compare');
   }
+  if (options?.requireIncremental && mode === 'full')
+    throw new Error(`a full rebuild is required (${reason}); run cleo nexus analyze`);
 
   // Phase 2: Build File + Folder nodes with CONTAINS edges
   // Include all files so the replacement graph has complete structure.

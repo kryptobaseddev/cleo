@@ -155,3 +155,61 @@ describe('--run cannot be combined with a write (T12308)', () => {
     }
   });
 });
+
+describe('--run --req selects typed gates (T13486)', () => {
+  it('passes the REQ-IDs to check.gate.run', async () => {
+    const captured = await runVerifyCommand({
+      taskId: 'T489',
+      run: true,
+      req: 'REQ-A,REQ-B',
+      value: 'true',
+    });
+    expect(captured?.operation).toBe('gate.run');
+    expect(captured?.params.req).toBe('REQ-A,REQ-B');
+  });
+
+  it('refuses --req without --run, naming the command that works', async () => {
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const originalExitCode = process.exitCode;
+    try {
+      const captured = await runVerifyCommand({ taskId: 'T489', req: 'REQ-A', value: 'true' });
+      expect(captured).toBeNull();
+      expect(process.exitCode).toBe(ExitCode.VALIDATION_ERROR);
+      const written = [...stdout.mock.calls, ...stderr.mock.calls]
+        .map((c) => String(c[0]))
+        .join('');
+      const envelope = JSON.parse(written.trim().split('\n').pop() as string);
+      expect(envelope.success).toBe(false);
+      expect(written).toContain('cleo verify T489 --run --req REQ-A');
+    } finally {
+      process.exitCode = originalExitCode;
+      stdout.mockRestore();
+      stderr.mockRestore();
+    }
+  });
+});
+
+describe('--run-typed opts a write into executing typed gates (T13521)', () => {
+  it('passes runTyped on a write', async () => {
+    const captured = await runVerifyCommand({
+      taskId: 'T489',
+      gate: 'implemented',
+      evidence: 'note:x',
+      'run-typed': true,
+      value: 'true',
+    });
+    expect(captured?.operation).toBe('gate.set');
+    expect(captured?.params.runTyped).toBe(true);
+  });
+
+  it('a plain write carries no runTyped (cache-only)', async () => {
+    const captured = await runVerifyCommand({
+      taskId: 'T489',
+      gate: 'implemented',
+      evidence: 'note:x',
+      value: 'true',
+    });
+    expect(captured?.params.runTyped).toBeUndefined();
+  });
+});

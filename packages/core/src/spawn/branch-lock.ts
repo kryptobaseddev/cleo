@@ -22,14 +22,15 @@
 
 import { execFileSync } from 'node:child_process';
 import {
+  accessSync,
   appendFileSync,
   chmodSync,
+  constants,
   existsSync,
   mkdirSync,
   readFileSync,
   realpathSync,
   rmSync,
-  writeFileSync,
 } from 'node:fs';
 import { platform } from 'node:os';
 import { dirname, isAbsolute, join, relative } from 'node:path';
@@ -42,7 +43,7 @@ import type {
   WorktreeMergeResult,
   WorktreeSpawnResult,
 } from '@cleocode/contracts';
-import { installGitShimLaunchers } from '@cleocode/git-shim';
+import { installGitShimLaunchers, resolveShimBinPath } from '@cleocode/git-shim';
 import {
   computeProjectHash,
   findOnPath,
@@ -207,7 +208,9 @@ function shellQuote(value: string): string {
  * env block and prompt preamble that bind the agent to its worktree.
  *
  * @param worktree - The created worktree state.
- * @param shimDir - Directory containing the git shim symlink.
+ * @param shim - The {@link ensureGitShimDir} result; strict protection and the
+ *   PATH entry apply only when it is installed (T13522). A bare directory
+ *   string is taken as installed (legacy callers).
  * @param identity - Per-agent session + agent identity to inject (T11343).
  *   `sessionId` → `CLEO_SESSION_ID`, `agentId` → `CLEO_AGENT_ID`. Only set
  *   when non-empty so an unallocated identity never clobbers an inherited env.
@@ -220,22 +223,28 @@ function shellQuote(value: string): string {
  */
 export function buildWorktreeSpawnResult(
   worktree: AgentWorktreeState,
-  shimDir: string,
+  shim: string | GitShimInstall,
   identity: { sessionId?: string | null; agentId?: string | null } = {},
 ): WorktreeSpawnResult {
   const pathKey = pathEnvKey();
+  const shimDir = typeof shim === 'string' ? shim : shim.dir;
+  const shimActive = typeof shim === 'string' || shim.installed;
   const envVars: Record<string, string> = {
     CLEO_AGENT_ROLE: 'worker',
     CLEO_AGENT_CWD: worktree.path,
     CLEO_WORKTREE_ROOT: worktree.path,
     CLEO_WORKTREE_BRANCH: worktree.branch,
     CLEO_PROJECT_HASH: worktree.projectHash,
-    CLEO_BRANCH_PROTECTION: 'strict',
-    CLEO_SHIM_MARKER: '.cleo/bin/git-shim',
-    // Prepend the shim directory so `git` resolves to the shim. The platform
-    // delimiter matters: `${shimDir}:${PATH}` on Windows fuses the shim dir
-    // with the first real entry and loses both (T12605).
-    [pathKey]: prependPathEntry(shimDir, process.env[pathKey]),
+    CLEO_BRANCH_PROTECTION: shimActive ? 'strict' : 'unavailable',
+    ...(shimActive
+      ? {
+          CLEO_SHIM_MARKER: '.cleo/bin/git-shim',
+          // Prepend the shim directory so `git` resolves to the shim. The platform
+          // delimiter matters: `${shimDir}:${PATH}` on Windows fuses the shim dir
+          // with the first real entry and loses both (T12605).
+          [pathKey]: prependPathEntry(shimDir, process.env[pathKey]),
+        }
+      : {}),
   };
 
   // T11343 — bind the spawned agent's OWN session + identity into the worker
@@ -262,7 +271,9 @@ export function buildWorktreeSpawnResult(
     '  git checkout, git switch, git branch -b/-D, git reset --hard,',
     '  git worktree add/remove, git rebase, git stash pop, git push --force',
     '',
-    'A git shim is active on your PATH that will exit 77 if you attempt these.',
+    shimActive
+      ? 'A git shim is active on your PATH that will exit 77 if you attempt these, or a push to main.'
+      : 'No git shim could be installed for this worktree: these rules are NOT enforced, so follow them yourself.',
     `Your working directory is: ${worktree.path}`,
     'All your commits must land on YOUR branch only.',
     '',
@@ -1193,77 +1204,66 @@ export function completeAgentWorktreeIntegration(
 // L2 — Shim materialisation
 // ---------------------------------------------------------------------------
 
-/** Minimal stub shim script content for when the package isn't installed. */
-const STUB_SHIM_CONTENT = `#!/usr/bin/env node
-// git-shim stub (install @cleocode/git-shim for the full binary)
-import { spawnSync } from 'node:child_process';
-const RESTRICTED = new Set(['worker','lead','subagent']);
-const BLOCKED = new Set(['checkout','switch','rebase']);
-const role = process.env['CLEO_AGENT_ROLE'];
-const sub = process.argv[2];
-if (role && RESTRICTED.has(role) && sub && BLOCKED.has(sub) && !process.env['CLEO_ALLOW_BRANCH_OPS']) {
-  process.stderr.write('[git-shim] BLOCKED: ' + sub + ' is not allowed for role ' + role + '\\n');
-  process.exit(77);
+/** Result of {@link ensureGitShimDir}. */
+export interface GitShimInstall {
+  /** Directory to prepend to a worker's PATH. */
+  readonly dir: string;
+  /** True only when an executable `git` launcher now points at the real shim. */
+  readonly installed: boolean;
+  /** The shim entry point used, when one was found. */
+  readonly shimBinPath: string | null;
+  /** Why the shim is not installed. */
+  readonly reason?: string;
 }
-const git = process.env['CLEO_REAL_GIT_PATH'] || '/usr/bin/git';
-const r = spawnSync(git, process.argv.slice(2), { stdio: 'inherit' });
-process.exit(r.status ?? 0);
-`;
 
 /**
- * Ensure the git shim symlink exists in the project's `.cleo/bin/git-shim/` dir.
+ * Install the git shim launcher in the project's `.cleo/bin/git-shim/` dir
+ * (T1118, wired in by T13522). Idempotent.
  *
- * The shim directory is prepended to PATH in agent spawn env. Idempotent.
+ * The shim is resolved from the `@cleocode/git-shim` package the running CLI
+ * was installed with, not from the project's node_modules, so a standalone
+ * project gets it too. When it cannot be found or the launcher cannot be
+ * written, nothing is installed and `installed` is `false`: callers then
+ * advertise `CLEO_BRANCH_PROTECTION=unavailable` rather than a fence that is
+ * not there.
  *
  * @param projectRoot - Absolute path to the project root.
- * @returns Absolute path to the shim directory (to prepend to PATH).
- *
+ * @param shimBinPath - The shim entry point (tests); defaults to the installed package's.
+ * @returns Where the shim lives and whether it is installed.
  * @task T1118
- * @task T1121
+ * @task T13522
  */
-export function ensureGitShimDir(projectRoot: string): string {
-  const shimDir = join(projectRoot, '.cleo', 'bin', 'git-shim');
-  mkdirSync(shimDir, { recursive: true });
-
-  // Resolve the shim binary from @cleocode/git-shim package.
-  let shimBinPath: string | null = null;
+export function ensureGitShimDir(
+  projectRoot: string,
+  shimBinPath: string = resolveShimBinPath(),
+): GitShimInstall {
+  const dir = join(projectRoot, '.cleo', 'bin', 'git-shim');
+  if (!existsSync(shimBinPath)) {
+    return {
+      dir,
+      installed: false,
+      shimBinPath: null,
+      reason: `git shim not found at ${shimBinPath}`,
+    };
+  }
   try {
-    // Node.js require.resolve to find the installed package binary.
-    // We use a dynamic import approach compatible with ESM.
-    const candidatePaths = [
-      join(projectRoot, 'node_modules', '@cleocode', 'git-shim', 'dist', 'shim.js'),
-      join(projectRoot, '..', '..', 'node_modules', '@cleocode', 'git-shim', 'dist', 'shim.js'),
-    ];
-    for (const p of candidatePaths) {
-      if (existsSync(p)) {
-        shimBinPath = p;
-        break;
-      }
+    // A symlink on POSIX; on Windows a `git.cmd` + sh launcher, since PATHEXT
+    // ignores extensionless files and file symlinks need privileges (T12605).
+    const launchers = installGitShimLaunchers(dir, shimBinPath);
+    // Windows has no execute bit: there the launcher existing is the check.
+    for (const launcher of launchers) {
+      accessSync(launcher, process.platform === 'win32' ? constants.F_OK : constants.X_OK);
     }
-  } catch {
-    // ignore
+    return { dir, installed: true, shimBinPath };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      dir,
+      installed: false,
+      shimBinPath,
+      reason: `git shim launcher not installed: ${reason}`,
+    };
   }
-
-  if (!shimBinPath) {
-    // Write a minimal stub shim.
-    shimBinPath = join(shimDir, '_shim_bin.cjs');
-    try {
-      writeFileSync(shimBinPath, STUB_SHIM_CONTENT, { encoding: 'utf-8', mode: 0o755 });
-    } catch {
-      // ignore — best effort
-    }
-  }
-
-  // Create/update the `git` launcher: a symlink on POSIX; on Windows a
-  // `git.cmd` + sh launcher, since PATHEXT ignores extensionless files and
-  // file symlinks need privileges (T12605).
-  try {
-    installGitShimLaunchers(shimDir, shimBinPath);
-  } catch {
-    // Launcher install may fail on some filesystems — non-fatal.
-  }
-
-  return shimDir;
 }
 
 // ---------------------------------------------------------------------------

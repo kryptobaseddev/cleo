@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.24.7 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.24.11 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -239,7 +239,7 @@ Starters (`@cleocode/playbooks`): `rcasd`, `ivtr`, `release`.
 | List valid doc kinds | `cleo docs list-types` |
 | Generate llms.txt summary | `cleo docs generate --for <taskId>` |
 
-Use current repo-relative paths, never arbitrary external absolute paths (`/tmp`, other checkouts). Publish: `cleo docs publish --for <ownerId> --to <repo-relative-path>`. Runtime kinds: `cleo docs list-types` / `DocKindRegistry`, not stale lists. Document storage success is separate from optional projection verification. Read `data.projection` after `cleo docs add`: retain coverage, diagnostics, captured project identity, deadline, and any job/receipt reference. Pending work can have an unresolved committed outcome; inspect it before explicit resume, never repeat the add blindly. One two-second maintenance budget covers preparation through verification; timer expiry does not preempt synchronous SQLite. Verify exact bytes with `cleo docs fetch <slug>` JSON `data.bytesBase64` and `data.metadata.sha256`; rendered content can add a newline.
+Use current repo-relative paths, never arbitrary external absolute paths (`/tmp`, other checkouts). Publish: `cleo docs publish --for <ownerId> --to <repo-relative-path>`. Runtime kinds: `cleo docs list-types` / `DocKindRegistry`, not stale lists. Document storage success is separate from optional projection verification. Read `data.projection` after `cleo docs add`: retain coverage, diagnostics, captured project identity, deadline, and any job/receipt reference. Pending work can have an unresolved committed outcome; inspect it before explicit resume, never repeat the add blindly. One two-second maintenance budget covers preparation through verification; timer expiry does not preempt synchronous SQLite. Verify exact bytes with `cleo docs fetch <slug>` JSON `data.content` (decoded UTF-8 for text docs, T13352; binary docs carry `data.bytesBase64`) and `data.metadata.sha256`; rendered content can add a newline.
 <!-- /CLEO-INJECTION:section=documents -->
 
 <!-- CLEO-INJECTION:section=human-render -->
@@ -277,13 +277,15 @@ A merged PR and green CI provide provenance. For `implemented`, pair `pr:<number
 
 ### Typed acceptance gates — observe before you attest
 
-Typed gates (`cleo req add <id> --gate '<json>'`) EXECUTE during any `cleo verify … --gate … --evidence …` write on a task that carries them. To run them without recording anything:
+Typed gates (`cleo req add <id> --gate '<json>'`) execute ONLY through `cleo verify <id> --run` (owner decision, T13521). Evidence writes (`cleo verify … --gate … --evidence …`), `cleo done`, `cleo verify --auto` and `cleo complete` read cached passes and execute no typed gate command:
 
 ```bash
-cleo verify T### --run          # executes typed gates, records no verification, caches passes
+cleo verify T### --run                    # executes the typed gates, records no verification, caches passes
+cleo verify T### --run --req REQ-A,REQ-B  # executes only the named gates; the others keep their cached passes
+cleo verify T### --gate testsPassed --evidence "<atoms>"   # reads the cached passes; executes nothing
 ```
 
-`--run` records no verification and cannot be combined with `--gate`/`--all`/`--reset`. Passes are cached (HMAC-sealed per machine) by gate + HEAD + dirty tree + inputs, so the next write reuses them, marked `source: cache` on the result and receipt; add `--no-run` to forbid execution. `evidence.allowCachedGates: false` in `.cleo/project-context.json` disables reuse. A `test` gate with `minCount` needs its OWN command to emit a machine-readable report (`--reporter=json` for vitest, `--json` for jest); an exit code carries no count, and a report file from a separate invocation is not bound to this run — record that as `test-run:<path>` evidence instead.
+`--run` records no verification and cannot be combined with `--gate`/`--all`/`--reset`. Passes are cached (HMAC-sealed per machine) by gate + HEAD + dirty tree + inputs; a write reuses them, marked `source: cache` on the result and receipt. A typed gate the write links (`satisfies:`) with no cached pass refuses the write with `E_GATE_NOT_CACHED`, naming the `--run` command; an unlinked one is recorded as not run, and `cleo complete` still requires it. `--run-typed` on a write (or on `cleo done`) opts back into executing uncached typed gates there. `evidence.allowCachedGates: false` in `.cleo/project-context.json` disables reuse, so writes then need `--run-typed`. Replace a gate's command in place with `cleo req replace <id> <REQ-ID> --gate '<json>'`; prefer a repo-relative command and `cwd`. A `test` gate with `minCount` needs its OWN command to emit a machine-readable report (`--reporter=json` for vitest, `--json` for jest); an exit code carries no count, and a report file from a separate invocation is not bound to this run — record that as `test-run:<path>` evidence instead.
 
 ### Emergency override (audited)
 

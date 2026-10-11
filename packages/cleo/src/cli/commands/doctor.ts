@@ -40,6 +40,7 @@ import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorFkCheckCommand } from './doctor-fk-check.js';
 import { doctorGlobalDeliveryCommand } from './doctor-global-delivery.js';
 import { doctorHeavyCommandHookCommand } from './doctor-heavy-command-hook.js';
+import { doctorHooksCommand } from './doctor-hooks.js';
 import { doctorKnowledgeSubcommand } from './doctor-knowledge.js';
 import { doctorLegacyBackupsCommand } from './doctor-legacy-backups.js';
 import { doctorLegacyReaperCommand } from './doctor-legacy-reaper.js';
@@ -59,6 +60,7 @@ import { doctorSplitBrainCommand } from './doctor-split-brain.js';
 import { doctorSupersededStoreCommand } from './doctor-superseded-store.js';
 import { doctorSyncJournalCommand } from './doctor-sync-journal.js';
 import { doctorSyncTriggersCommand } from './doctor-sync-triggers.js';
+import { doctorSystemCommand } from './doctor-system.js';
 import { doctorToolLocksCommand } from './doctor-tool-locks.js';
 import { doctorTwinCollapseCommand } from './doctor-twin-collapse.js';
 import { doctorWorktreeStoresCommand } from './doctor-worktree-stores.js';
@@ -277,8 +279,11 @@ export const doctorCommand = defineCommand({
     'worktree-stores': doctorWorktreeStoresCommand,
     // T12097 — machine-wide guard for test runs started OUTSIDE cleo verify
     'memory-guard': doctorMemoryGuardCommand,
+    // T13435 — machine + project health: ranked findings with exact remedies (read-only)
+    system: doctorSystemCommand,
     // T13124 — the heavy-command hook per agent harness in use (+ --fix installs it)
     'heavy-command-hook': doctorHeavyCommandHookCommand,
+    hooks: doctorHooksCommand,
     // T12353 · T12716 — tracked .cleo/project.json / project-id vs project-info.json (+ --resolve migrate / re-key)
     'project-identity': doctorProjectIdentityCommand,
     // T12596 · T12598 — ~/.cleo, the global hub and every harness skill install must resolve
