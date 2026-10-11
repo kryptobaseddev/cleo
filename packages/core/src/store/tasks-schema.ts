@@ -85,6 +85,7 @@ export type {
 } from './schema/cleo-project/docs.js';
 export {
   docsAttachmentRefs as attachmentRefs,
+  docsAttachments,
   docsAttachments as attachments,
 } from './schema/cleo-project/docs.js';
 export type {

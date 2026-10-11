@@ -711,7 +711,15 @@ export async function runUpgrade(
   // ── Step 6: Project context re-detection ────────────────────────
   try {
     const projectRootForContext = getProjectRoot(options.cwd);
-    if (isDryRun) {
+    // T13489: an existing project-context.json is the project's tracked file;
+    // only `cleo upgrade --detect` re-detects it (keys and order kept).
+    if (existsSync(join(cleoDir, 'project-context.json')) && !options.forceDetect) {
+      actions.push({
+        action: 'project_context_detection',
+        status: 'skipped',
+        details: 'project-context.json exists; left unchanged (re-detect: cleo upgrade --detect)',
+      });
+    } else if (isDryRun) {
       const contextPath = join(cleoDir, 'project-context.json');
       if (!existsSync(contextPath)) {
         actions.push({

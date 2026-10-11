@@ -93,4 +93,11 @@ describe('cleo verify --fresh (T12964)', () => {
   it('documents tool:test-affected in the --evidence help', () => {
     expect(verifyCommand.args?.evidence?.description).toMatch(/tool:test-affected/);
   });
+
+  it('says in the --all help that --evidence is required (gh#1343)', () => {
+    const desc = verifyCommand.args?.all?.description ?? '';
+    expect(desc).toMatch(/--evidence/);
+    expect(desc).toMatch(/ADR-051/);
+    expect(desc).not.toMatch(/Mark all required gates as passed/);
+  });
 });

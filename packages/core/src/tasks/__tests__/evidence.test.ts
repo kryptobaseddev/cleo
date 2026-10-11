@@ -546,6 +546,8 @@ describe('validateAtom - tool (T832 / T1534, project-agnostic resolver)', () => 
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.codeName).toBe('E_EVIDENCE_TOOL_FAILED');
+      // gh#1445: name the resolved command and its source, like the sibling reasons.
+      expect(r.reason).toMatch(/^Tool "test" → false \(project-context\) exited with code 1/);
     }
   });
 });

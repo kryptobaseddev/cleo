@@ -101,6 +101,66 @@ export const OPERATIONS: OperationDef[] = [
     },
   },
   {
+    gateway: 'mutate',
+    domain: 'tasks',
+    operation: 'req.replace',
+    description:
+      "Replace a typed requirement gate's definition in place, keeping its AC row and REQ-ID; the superseded gate is kept in AC history (T12988)",
+    tier: 1,
+    idempotent: true,
+    sessionRequired: true,
+    requiredParams: ['taskId', 'req', 'gate'],
+    params: [
+      requirementTaskParam,
+      {
+        name: 'req',
+        type: 'string',
+        required: true,
+        description: 'REQ-ID of the gate to replace',
+        cli: { positional: true },
+      },
+      {
+        name: 'gate',
+        type: 'string',
+        required: true,
+        description: 'Replacement AcceptanceGate JSON; its req must be absent or equal the REQ-ID',
+        cli: { flag: 'gate' },
+      },
+      {
+        name: 'reason',
+        type: 'string',
+        required: false,
+        description: 'Why the gate changes; required once the task is in a locked pipeline stage',
+        cli: { flag: 'reason' },
+      },
+    ],
+    inputSchema: {
+      operation: 'tasks.req.replace',
+      schema: {
+        type: 'object',
+        required: ['taskId', 'req', 'gate'],
+        additionalProperties: false,
+        properties: {
+          taskId: { type: 'string', minLength: 1 },
+          req: { type: 'string', minLength: 1 },
+          gate: { type: 'string', minLength: 1 },
+          reason: { type: 'string', minLength: 1 },
+        },
+      },
+      examples: [
+        {
+          name: 'repo-relative test gate',
+          value: {
+            taskId: 'T121',
+            req: 'PARTNER-121',
+            gate: '{"kind":"test","command":"pnpm","args":["--filter","app","exec","vitest","run","src/a.test.ts"],"expect":"pass","description":"Task tests pass","req":"PARTNER-121"}',
+            reason: 'gate pointed at a removed worktree',
+          },
+        },
+      ],
+    },
+  },
+  {
     gateway: 'query',
     domain: 'tasks',
     operation: 'req.list',
@@ -1848,6 +1908,14 @@ export const OPERATIONS: OperationDef[] = [
         type: 'string',
         required: false,
         description: 'Actor attribution recorded on each gate result',
+      },
+      {
+        name: 'req',
+        type: 'string',
+        required: false,
+        description:
+          'Comma-separated REQ-IDs: run and cache only these typed gates; the others are not run (T13486)',
+        cli: { flag: 'req' },
       },
     ] satisfies ParamDef[],
   },
@@ -8507,6 +8575,56 @@ export const OPERATIONS: OperationDef[] = [
         type: 'boolean' as const,
         required: false,
         description: 'Verify the full audit chain',
+      },
+    ],
+  },
+  // ── docs.doctor (T13447 — Epic T13340 / Saga T13339) ──────────────────────
+  {
+    gateway: 'query',
+    domain: 'docs',
+    operation: 'doctor',
+    description:
+      'docs.doctor (query) — docs store health diagnostics (dry-run): dangling local-file ' +
+      'pointers, docVersion skew vs the audit log, empty topics/related_tasks provenance, ' +
+      'docs_wikilinks drift, legacy store surfaces, stale drafts. Reports a repair plan.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'olderThanDays',
+        type: 'number' as const,
+        required: false,
+        description: 'Age threshold in days for the stale-drafts check (default 30)',
+      },
+    ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'doctor',
+    description:
+      'docs.doctor (mutate) — apply the docs doctor repairs: set docVersion from the audit ' +
+      'log, backfill topics/related_tasks from content, archive dangling local-file rows, ' +
+      'rebuild docs_wikilinks. The dispatch layer creates a fresh backup (cleo backup add ' +
+      'path) and requires its receipt before any write.',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'apply',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Execute repairs (default false — dry-run plan only)',
+      },
+      {
+        name: 'olderThanDays',
+        type: 'number' as const,
+        required: false,
+        description: 'Age threshold in days for the stale-drafts check (default 30)',
       },
     ],
   },

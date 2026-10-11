@@ -32,7 +32,9 @@ import type { EngineResult } from '../engine-result.js';
 import { readCiSatisfies } from '../release/ci-evidence.js';
 import type { GateVerifyParams, GateVerifyResult } from '../validation/engine-ops.js';
 import {
+  hasTreeBoundQaRun,
   type MergeProbeDeps,
+  qaRunTreeMismatchReason,
   type TaskMergeInfo,
   taskChangeMergeState,
   testsPassedSupersededReason,
@@ -95,6 +97,8 @@ export type MergedCiOutcome =
       kind: 'skipped';
       /** Why the recorded testsPassed no longer stands, when it does not. */
       testsPassedReason: string | null;
+      /** Why the recorded qaPassed no longer stands (a qa-run whose tree moved, T13427). */
+      qaPassedReason: string | null;
       /** Why merged CI could not stand in, when it was tried. */
       ciUnavailable?: string;
     };
@@ -184,7 +188,8 @@ export async function satisfyGatesFromMergedCi(
   deps: MergedCiDeps = {},
 ): Promise<MergedCiOutcome> {
   const ciGates = CI_GATES.filter((g) => requiredGates.includes(g));
-  if (ciGates.length === 0) return { kind: 'skipped', testsPassedReason: null };
+  if (ciGates.length === 0)
+    return { kind: 'skipped', testsPassedReason: null, qaPassedReason: null };
 
   let merge: TaskMergeInfo | undefined;
   const mergeInfo = async (): Promise<TaskMergeInfo> => {
@@ -199,17 +204,29 @@ export async function satisfyGatesFromMergedCi(
           currentTree: () => (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
         })
       : null;
+  const qaAtoms = task.verification?.evidence?.qaPassed?.atoms ?? [];
+  const qaPassedReason =
+    task.verification?.gates?.qaPassed === true &&
+    ciGates.includes('qaPassed') &&
+    hasTreeBoundQaRun(qaAtoms)
+      ? qaRunTreeMismatchReason(
+          qaAtoms,
+          await (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
+        )
+      : null;
   const needs = ciGates.filter(
     (g) =>
-      task.verification?.gates?.[g] !== true || (g === 'testsPassed' && testsPassedReason !== null),
+      task.verification?.gates?.[g] !== true ||
+      (g === 'testsPassed' && testsPassedReason !== null) ||
+      (g === 'qaPassed' && qaPassedReason !== null),
   );
-  if (needs.length === 0) return { kind: 'skipped', testsPassedReason: null };
+  if (needs.length === 0) return { kind: 'skipped', testsPassedReason: null, qaPassedReason: null };
   if (!(deps.ciSatisfies ?? readCiSatisfies)(storeRoot)) {
-    return { kind: 'skipped', testsPassedReason };
+    return { kind: 'skipped', testsPassedReason, qaPassedReason };
   }
 
   const { state, prRef, changeSet, unproven, lookupFailed } = await mergeInfo();
-  if (state !== 'merged') return { kind: 'skipped', testsPassedReason };
+  if (state !== 'merged') return { kind: 'skipped', testsPassedReason, qaPassedReason };
   if (prRef === null && lookupFailed !== undefined) {
     // T12959 review: a lookup failed, so which PR carries the change is
     // unknown — not "CI concluded without proving it". Never tell the agent to
@@ -217,6 +234,7 @@ export async function satisfyGatesFromMergedCi(
     return {
       kind: 'skipped',
       testsPassedReason,
+      qaPassedReason,
       ciUnavailable: `the change has merged, but which merged PR carries it cannot be determined (${lookupFailed}); retry, or record tool:test`,
     };
   }
@@ -244,6 +262,7 @@ export async function satisfyGatesFromMergedCi(
       return {
         kind: 'skipped',
         testsPassedReason,
+        qaPassedReason,
         ciUnavailable: `merged CI could record ${gate}, but no criterion link is on record to carry over: cleo verify ${task.id} --gate ${gate} --evidence "ci:${prRef};satisfies:${task.id}#AC<n>"`,
       };
     }
@@ -254,10 +273,25 @@ export async function satisfyGatesFromMergedCi(
     taskId: task.id,
     gateEvidence,
     agent: 'cleo-complete',
+    // T13515: `cleo complete` never executes a typed gate command. A gate
+    // write runs uncached typed gates unless `noRun` is set; here only cached
+    // passes may be used, and a missing one leaves merged CI unable to stand in.
+    noRun: true,
   });
   if (written.success) return { kind: 'recorded', pr: prRef, gates: needs };
   const code = written.error?.code ?? 'E_INTERNAL';
   const message = written.error?.message ?? 'unknown error';
   if (code === 'E_EVIDENCE_TESTS_FAILED') return ciRefusal(`ci:${prRef} does not hold: ${message}`);
-  return { kind: 'skipped', testsPassedReason, ciUnavailable: `ci:${prRef} (${code}): ${message}` };
+  // T13516: complete's write is cache-only (T13515), so a typed-gate cache
+  // refusal means the gates were never run here, not that the user passed
+  // --no-run: name the command that runs them.
+  const typedCache = code === 'E_GATE_CACHE_DISABLED' || code === 'E_GATE_NOT_CACHED';
+  return {
+    kind: 'skipped',
+    testsPassedReason,
+    qaPassedReason,
+    ciUnavailable: typedCache
+      ? `ci:${prRef} could not be recorded because cleo complete never executes typed gates and a typed gate has no usable cached pass (${code}); run cleo verify ${task.id} --run, then cleo complete ${task.id}`
+      : `ci:${prRef} (${code}): ${message}`,
+  };
 }
