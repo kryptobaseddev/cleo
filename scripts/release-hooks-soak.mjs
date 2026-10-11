@@ -29,18 +29,9 @@ export async function probeInstalledHooks({ bin, project, installDir, env }) {
       'Installed SDK hook probe requires a process launched with the isolated environment',
     );
   const require = createRequire(join(installDir, 'package.json'));
-  // Check the installed public asset directly: CLI bootstrap fail-open can hide missing delivery code.
-  const heavy = await import(
-    pathToFileURL(require.resolve('@cleocode/adapters/heavy-command-hook')).href
-  );
-  if (
-    typeof heavy.inspectProjectHeavyCommandHooks !== 'function' ||
-    typeof heavy.syncProjectHeavyCommandHooks !== 'function'
-  )
-    throw new Error('Installed heavy-command hook delivery API is missing');
-  const call = (file, args, input, expected = 0) => {
+  const call = (file, args, input, expected = 0, cwd = project) => {
     const result = spawnSync(file, args, {
-      cwd: project,
+      cwd,
       env,
       encoding: 'utf8',
       input,
@@ -53,6 +44,18 @@ export async function probeInstalledHooks({ bin, project, installDir, env }) {
       );
     return result.stdout;
   };
+  // Resolve the import-only public export using Node ESM from the actual installation.
+  call(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      'const heavy = await import("@cleocode/adapters/heavy-command-hook"); if (typeof heavy.inspectProjectHeavyCommandHooks !== "function" || typeof heavy.syncProjectHeavyCommandHooks !== "function") throw new Error("Installed heavy-command hook delivery API is missing");',
+    ],
+    undefined,
+    0,
+    installDir,
+  );
   const envelope = (args) => {
     const result = JSON.parse(call(bin, args));
     if (result.success !== true) throw new Error('Installed hook command returned failure');
