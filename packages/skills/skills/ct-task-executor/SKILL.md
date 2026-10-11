@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.7.9
+version: 2.7.10
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.7.9
+  version: 2.7.10
   tier: core
   install: harness
   covers:
@@ -127,8 +127,10 @@ Context injection for implementation tasks spawned via cleo-subagent. Provides d
 ### Post-Execution
 
 1. **Verify against criteria** - Check each acceptance criterion. `cleo verify <id> --run`
-   executes the typed gates; `--run --req REQ-A,REQ-B` runs only those gates and leaves
-   the other gates' cached passes as they are. A typed gate whose command is wrong (an
+   is the only command that executes the typed gates; evidence writes, `cleo done` and
+   `cleo complete` read the cached passes and execute nothing (pass `--run-typed` to opt
+   in). `--run --req REQ-A,REQ-B` runs only those gates and leaves the other gates'
+   cached passes as they are. A typed gate whose command is wrong (an
    absolute path into a removed worktree, say) is fixed in place with
    `cleo req replace <id> <REQ-ID> --gate '<json>'`. Prefer a repo-relative command and
    `cwd`; a locked stage also needs `--reason`. Then verify that gate again.

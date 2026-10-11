@@ -98,6 +98,11 @@ export const verifyCommand = defineCommand({
       description:
         "Execute the task's typed acceptance gates and report the results. Records no verification, so use `--evidence` to attest (T12308); passing results are cached so the attesting write reuses them instead of re-running (T12621). With a write, `--no-run` executes no typed gate and uses only cached passes, refusing with E_GATE_NOT_CACHED when one is missing.",
     },
+    'run-typed': {
+      type: 'boolean',
+      description:
+        "With a write (--gate/--all/--evidence) or --auto: execute the task's uncached typed gates during this write. Without it a write executes no typed gate command: it reads passes cached by `cleo verify --run` and refuses a linked gate that has none (T13521).",
+    },
     req: {
       type: 'string',
       description:
@@ -164,6 +169,7 @@ export const verifyCommand = defineCommand({
           projectRoot: getProjectRoot(),
           ...parsed.options,
           ...(args.agent ? { agent: args.agent as string } : {}),
+          ...(args['run-typed'] === true ? { runTyped: true } : {}),
         });
         if (!r.success) {
           cliError(r.error.message, r.error.code, { fix: r.error.fix, details: r.error.details });
@@ -246,6 +252,7 @@ export const verifyCommand = defineCommand({
           sharedEvidence: (args['shared-evidence'] as boolean | undefined) ?? false,
           // T12621: citty turns `--no-run` into `run: false`; read it through the helper.
           ...(isWrite && negatedFlag(args, 'run') ? { noRun: true } : {}),
+          ...(isWrite && args['run-typed'] === true ? { runTyped: true } : {}),
         },
         { command: 'verify' },
       );
