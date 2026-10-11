@@ -216,7 +216,8 @@ describe('normalized implementation digest', () => {
     write('packages/core/package.json', {
       name: '@cleocode/core',
       version: VERSION,
-      cleo: { channel: 'canary', hotfix: true },
+      // The hooks-v1 promotion stamp is release-owned too (T13557).
+      cleo: { channel: 'canary', hotfix: true, releasedFeatures: ['hooks-v1'] },
     });
     expect(implementationSourceDigest(root)).toEqual(before);
     write('packages/core/package.json', {

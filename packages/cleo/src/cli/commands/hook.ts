@@ -62,7 +62,17 @@ const syncSubcommand = defineCommand({
       return;
     }
     const state = await import('@cleocode/core/hooks/project-state');
-    if (args.activate === true) await state.activateProjectHooks(process.cwd());
+    if (args.activate === true) {
+      try {
+        await state.activateProjectHooks(process.cwd());
+      } catch (error) {
+        // T13557: a build without hooks-v1 refuses activation by name.
+        if (!(error instanceof state.HooksV1UnreleasedError)) throw error;
+        cliError(error.message, error.code, undefined, { operation: 'hook.sync' });
+        process.exitCode = 1;
+        return;
+      }
+    }
     if (args.disable === true) await state.disableProjectHooks(process.cwd());
     const inspection = await state.inspectProjectHooks(process.cwd());
     const { syncProjectHookProviders, hasUnsupportedProjectHookDelivery } = await import(
