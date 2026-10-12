@@ -678,12 +678,12 @@ describe('#1779 round 2 (T13035–T13037)', () => {
     expect(r.pending[0]?.reason).toMatch(/rebase frames wait/);
   });
 
-  it('a persisted sync.seal is refused while the flag is unreleased (T13037)', async () => {
+  it('a persisted sync.seal seals without the opt-in once released (T13549)', async () => {
     const db = await store();
     framed(db, () => addTask(db, 'T1'));
     const r = sealPending(db, { scope: 'project', replica: REPLICA, env: {} });
-    expect(r.refused).toMatch(/unreleased/);
-    expect(liveCaptures(db)).toBeGreaterThan(0);
+    expect(r.refused).toBeNull();
+    expect(r.txns).toBeGreaterThan(0);
   });
 
   it('the local column a stored ref uid comes from (ac_id) neither travels nor hashes (T13037)', async () => {
@@ -707,7 +707,7 @@ describe('#1779 round 2 (T13035–T13037)', () => {
     expect(rowChash(db, 'project', def, 'uid-H1')).toBe(before);
   });
 
-  it('doctor reports the backlog head, quarantined tables and a persisted unreleased flag (T13036)', async () => {
+  it('doctor reports the backlog head and quarantined tables (T13036)', async () => {
     const db = await store();
     framed(db, () => addTask(db, 'T1', null)); // waits for the fill
     db.prepare(
@@ -721,7 +721,7 @@ describe('#1779 round 2 (T13035–T13037)', () => {
     const row = syncSealerDoctorCheck(join(dir, 'project'));
     expect(row.status).toBe('warning');
     expect(row.message).toMatch(/not_a_sync_table \(1\)/);
-    expect(row.message).toMatch(/sync\.seal/);
+    expect(row.message).not.toMatch(/unreleased/);
     expect(row.message).toMatch(/2 capture\(s\) waiting, head seq/);
   });
 });

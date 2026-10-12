@@ -53,6 +53,7 @@ import {
   shellQuoteWord,
 } from './nexus-project-names.js';
 import {
+  enableSyncPush,
   type NexusVaultCommandOptions,
   type NexusVaultRestoreOptions,
   pushNexusVault,
@@ -83,6 +84,9 @@ export const W_NEXUS_FIRST_RUN_PROJECTS = 'W_NEXUS_FIRST_RUN_PROJECTS';
 
 /** Warning code: a non-fatal problem the link reported. */
 export const W_NEXUS_FIRST_RUN_LINK_NOTE = 'W_NEXUS_FIRST_RUN_LINK_NOTE';
+
+/** Turning sync on after the link failed for a scope (T13549); the login still succeeds. */
+export const W_NEXUS_FIRST_RUN_SYNC = 'W_NEXUS_FIRST_RUN_SYNC';
 
 /**
  * Whether the first run may act: `yes` does it, `prompt` asks through
@@ -132,6 +136,10 @@ export interface NexusFirstRunOptions extends NexusVaultOptions {
   cloudBackup?: (query: NexusCloudBackupQuery) => Promise<boolean>;
   /** Project list (tests); defaults to {@link listNexusNamedProjects}. */
   listProjects?: (opts: NexusNamedProjectsOptions) => Promise<NexusNamedProjectsResult>;
+  /** Sync enable (tests); defaults to {@link enableSyncPush}. */
+  enableSync?: (opts: NexusVaultCommandOptions) => Promise<unknown>;
+  /** The `cloud.autoSync` config opt-out (tests); defaults to the config registry. */
+  readAutoSync?: (projectRoot: string) => Promise<boolean | undefined>;
 }
 
 /**
@@ -483,17 +491,62 @@ export async function runNexusFirstRun(opts: NexusFirstRunOptions): Promise<Nexu
     restore,
     cloudBackup,
     listProjects,
+    enableSync,
+    readAutoSync,
     ...rest
   } = opts;
   const apiUrl = resolveNexusApiUrl(opts.apiUrl);
   const vault = { ...rest, apiUrl };
   const project = currentNexusCloudProject(apiUrl, opts.projectRoot);
   if (project === null) return listProjectsStep(opts, vault);
-  if (attachedHere(project.link, deviceId ?? null)) {
-    return nexusFirstRunResult('already-linked', {
-      projectRoot: project.root,
-      link: project.link,
+  const result = attachedHere(project.link, deviceId ?? null)
+    ? nexusFirstRunResult('already-linked', { projectRoot: project.root, link: project.link })
+    : await offerInProject(opts, vault, project);
+  return withSyncOn(opts, vault, result);
+}
+
+/**
+ * After a link that holds (backed up, restored or already linked), turn sync
+ * on for the project and the account's home stream, so login leaves the
+ * project syncing with no enable step (T13549). Skipped when consent is
+ * `never` (CI and redirected stderr only print), and by the opt-outs
+ * `CLEO_DISABLE_AUTO_SYNC=1` or `cloud.autoSync: false`. A failure warns;
+ * the login result stands.
+ */
+async function withSyncOn(
+  opts: NexusFirstRunOptions,
+  vault: NexusVaultOptions & { apiUrl: string },
+  result: NexusFirstRunResult,
+): Promise<NexusFirstRunResult> {
+  const linked =
+    result.state === 'backed-up' ||
+    result.state === 'restored' ||
+    result.state === 'already-linked';
+  if (!linked || result.projectRoot === null || opts.consent === 'never') return result;
+  if (process.env['CLEO_DISABLE_AUTO_SYNC'] === '1') return result;
+  const projectRoot = result.projectRoot;
+  const readAutoSync =
+    opts.readAutoSync ??
+    (async (root: string) => {
+      const { getConfigValue } = await import('../config/registry.js');
+      return getConfigValue<boolean>('cloud.autoSync', { projectRoot: root });
     });
+  try {
+    if ((await readAutoSync(projectRoot)) === false) return result;
+  } catch {
+    // An unreadable config is not an opt-out.
   }
-  return offerInProject(opts, vault, project);
+  const enable = opts.enableSync ?? enableSyncPush;
+  const warnings = [...result.warnings];
+  for (const scope of ['project', 'global'] as const) {
+    try {
+      await enable({ ...vault, projectRoot, scope });
+    } catch (err) {
+      warnings.push({
+        code: W_NEXUS_FIRST_RUN_SYNC,
+        message: `sync is not on for the ${scope} store: ${describeFailure(err)}; run \`cleo sync enable push --scope ${scope}\``,
+      });
+    }
+  }
+  return { ...result, warnings };
 }

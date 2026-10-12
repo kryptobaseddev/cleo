@@ -39,9 +39,14 @@ const released = new Set<string>();
 describe('startCommandAutoSync (T13553)', () => {
   it('is inert while sync.push and sync.pull are unreleased: no stamp, no spawn', () => {
     const spawnWorker = vi.fn();
-    expect(startCommandAutoSync({ projectRoot: project, cleoHome: home, spawnWorker })).toBe(
-      'disabled',
-    );
+    expect(
+      startCommandAutoSync({
+        projectRoot: project,
+        cleoHome: home,
+        spawnWorker,
+        unreleasedFlags: new Set(['sync.push', 'sync.pull']),
+      }),
+    ).toBe('disabled');
     expect(spawnWorker).not.toHaveBeenCalled();
     expect(existsSync(join(home, 'auto-sync-command.stamp'))).toBe(false);
   });
@@ -142,13 +147,13 @@ describe('runCommandAutoSync (T13553)', () => {
     );
   });
 
-  it('the real child makes no network call: inert while the flags are unreleased', async () => {
+  it('the real child makes no network call when no store syncs (T13549)', async () => {
     const fetchSpy = vi.fn(async () => {
       throw new Error('no network in this test');
     });
     vi.stubGlobal('fetch', fetchSpy);
     expect(await runCommandAutoSync(project, { readConfig: async () => undefined })).toBe(
-      'disabled',
+      'skipped',
     );
     expect(fetchSpy).not.toHaveBeenCalled();
   });

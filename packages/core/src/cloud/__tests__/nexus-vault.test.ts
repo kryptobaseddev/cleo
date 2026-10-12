@@ -4645,6 +4645,8 @@ describe('guided first run against the fake server (T13102)', () => {
         consent: 'yes',
         deviceId: DEVICE_B,
         link: sameIdLinkResult(b),
+        // The restore alone; login's sync step (T13549) is covered in nexus-first-run.test.
+        readAutoSync: async () => false,
       }),
     );
     expect(result.state).toBe('restored');
@@ -5343,7 +5345,10 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
    * A machine whose project store is a real cleo.db with capture and seal on, bound and linked.
    * Device A by default; device B attaches to the project A registered.
    */
-  async function journalMachine(device: 'a' | 'b' = 'a'): Promise<{ m: Machine; dbPath: string }> {
+  async function journalMachine(
+    device: 'a' | 'b' = 'a',
+    { bare = false }: { bare?: boolean } = {},
+  ): Promise<{ m: Machine; dbPath: string }> {
     const m =
       device === 'a'
         ? await machine('a', DEVICE_A, REPLICA_A)
@@ -5366,8 +5371,10 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       db.prepare(
         `INSERT INTO ${ROW_IDENTITY_META_TABLE} (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
       ).run(ROW_IDENTITY_RECIPE_KEY, ROW_IDENTITY_RECIPE);
-      setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_JOURNAL });
-      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+      if (!bare) {
+        setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_JOURNAL });
+        setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+      }
       return ensureProjectReplica(db, { dbPath, mode: 'live' }).replicaId;
     });
     m.replicaId = replicaId;
@@ -5398,6 +5405,56 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     link(b);
     return { b, bDb };
   }
+
+  it('released (T13549): login leaves a linked project syncing on A, and a second device that logs in joins', async () => {
+    const { m: a, dbPath: aDb } = await journalMachine('a', { bare: true });
+    const ra = await on(a, () =>
+      runNexusFirstRun({ ...vopts(a), consent: 'unattended', deviceId: DEVICE_A }),
+    );
+    expect(ra.state).toBe('already-linked');
+    const projectSyncWarning = (r: typeof ra) =>
+      r.warnings.filter(
+        (w) => w.code === 'W_NEXUS_FIRST_RUN_SYNC' && /project store/.test(w.message),
+      );
+    expect(projectSyncWarning(ra)).toEqual([]);
+    expect(fake.stream(STREAM).checkpoints).toHaveLength(1);
+    await on(a, async () => {
+      const db = await storeOf(aDb);
+      expect(genesisCutOf(db, STREAM)).toBeDefined();
+      expect(isSyncFlagOn(db, 'sync.push', {})).toBe(true);
+      expect(isSyncFlagOn(db, 'sync.pull', {})).toBe(true);
+    });
+    const { m: b, dbPath: bDb } = await journalMachine('b', { bare: true });
+    const rb = await on(b, () =>
+      runNexusFirstRun({ ...vopts(b), consent: 'unattended', deviceId: DEVICE_B }),
+    );
+    expect(rb.state).toBe('already-linked');
+    expect(projectSyncWarning(rb)).toEqual([]);
+    // One stream, one genesis: B joined A's checkpoint instead of cutting its own.
+    expect(fake.stream(STREAM).checkpoints).toHaveLength(1);
+    await on(b, async () => {
+      const db = await storeOf(bDb);
+      expect(isSyncFlagOn(db, 'sync.push', {})).toBe(true);
+      expect(isSyncFlagOn(db, 'sync.pull', {})).toBe(true);
+    });
+  });
+
+  it('released (T13549): enable push on a store with no sync flag turns capture, seal, push and pull on with its cut', async () => {
+    const { m, dbPath } = await journalMachine('a', { bare: true });
+    await on(m, async () => {
+      expect(isSyncFlagOn(await storeOf(dbPath), 'sync.capture', {})).toBe(false);
+    });
+    const r = await on(m, () => enableSyncPush(vopts(m)));
+    expect(r.status).toBe('enabled');
+    expect(fake.stream(STREAM).checkpoints).toHaveLength(1);
+    await on(m, async () => {
+      const db = await storeOf(dbPath);
+      expect(genesisCutOf(db, STREAM)).toBe(r.cut);
+      for (const flag of ['sync.capture', 'sync.seal', 'sync.push', 'sync.pull'] as const) {
+        expect(isSyncFlagOn(db, flag, {})).toBe(true);
+      }
+    });
+  });
 
   it('cuts the store and pushes a checkpoint/v3 genesis the server accepts; push turns on and the vault steps aside', async () => {
     const { m, dbPath } = await journalMachine();
@@ -6175,11 +6232,8 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     }
   });
 
-  it('refuses without the unreleased opt-in, on a journaled stream, and when the store and link name different replicas', async () => {
+  it('refuses when the store and link name different replicas', async () => {
     const { m } = await journalMachine();
-    expect((await failure(on(m, () => enableSyncPush(vopts(m))))).code).toBe(
-      'E_NEXUS_SYNC_REFUSED',
-    );
     const realReplica = m.replicaId;
     m.replicaId = REPLICA_A;
     fake.addProject(REMOTE_PROJECT, { [REPLICA_A]: DEVICE_A });

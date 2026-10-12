@@ -49,15 +49,10 @@ const ALL_OFF: SyncFlagState = Object.freeze(
 
 /**
  * Flags whose slices are not finished: turning one on is refused unless a
- * test opts in (`allowUnreleased`). `sync.seal` stays here until S3b–S3d land
- * (T13032); remove a flag when its slice ships.
+ * test opts in (`allowUnreleased`). Empty since T13549 released sync.seal,
+ * push, pull and strict; a future unfinished flag goes here until it ships.
  */
-export const UNRELEASED_FLAGS: ReadonlySet<SyncFlag> = new Set([
-  'sync.seal',
-  'sync.push',
-  'sync.pull',
-  'sync.strict',
-]);
+export const UNRELEASED_FLAGS: ReadonlySet<SyncFlag> = new Set<SyncFlag>([]);
 
 /** The environment kill switch for a flag: `sync.push` → `CLEO_SYNC_PUSH`. */
 export function killSwitchVar(flag: SyncFlag): string {

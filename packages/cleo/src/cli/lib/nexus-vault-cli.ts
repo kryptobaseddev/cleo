@@ -95,8 +95,8 @@ export async function runCloudPush(args: Args): Promise<void> {
 
 /**
  * `cleo sync enable push [--scope]`: record the store's genesis cut and push
- * its genesis checkpoint (T12343 S4-1b). Refused while `sync.push` is
- * unreleased: this CLI never opts in.
+ * its genesis checkpoint (T12343 S4-1b), turning capture, sealing and pull
+ * on with it (T13549).
  *
  * @param args - Parsed args.
  */
