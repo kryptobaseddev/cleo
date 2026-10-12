@@ -47,11 +47,11 @@ function makeDecisionLinkCommand(name: 'link-decision' | 'unlink-decision', desc
 /** `cleo docs link-decision` (T13598). */
 export const linkDecisionCommand = makeDecisionLinkCommand(
   'link-decision',
-  'Link a D#### decision to the ADR doc that ratifies it; repeating is a no-op, and a revoked pair is refused.',
+  'Link a stored D#### decision to an existing ADR doc that ratifies it; repeating is a no-op, and a revoked pair is refused.',
 );
 
 /** `cleo docs unlink-decision` (T13598). */
 export const unlinkDecisionCommand = makeDecisionLinkCommand(
   'unlink-decision',
-  'Revoke a decision-to-ADR link as a permanent tombstone; the pair can never be re-linked.',
+  'Revoke a decision-to-ADR link. This cannot be undone: the revoke is a permanent tombstone and the pair can never be re-linked.',
 );

@@ -33,6 +33,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { BlobAttachment } from '@cleocode/contracts';
 import { DocKindRegistry } from '@cleocode/contracts/docs-taxonomy.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type {
   DocsAddParams,
   DocsAddResult,
@@ -476,17 +477,6 @@ function compareByOrderBy(
 // ─── Typed inner handler ──────────────────────────────────────────────────────
 
 /**
- * Typed inner handler for the docs domain.
- *
- * All per-op logic lives here with fully-narrowed params (no `as string` casts).
- * The outer {@link DocsHandler} class delegates to this via `typedDispatch` +
- * {@link docsEnvelopeToResponse} so the registry sees the expected
- * `query`/`mutate` interface while every param access is type-safe.
- *
- * @see ADR-058 — typed-dispatch migration
- * @task T1529 — docs typed-dispatch migration (P0)
- */
-/**
  * Run a decision-link write and keep the accessor's refusal code (T13598).
  *
  * @param op - The operation name for the envelope.
@@ -509,6 +499,17 @@ async function decisionLinkResponse(
   }
 }
 
+/**
+ * Typed inner handler for the docs domain.
+ *
+ * All per-op logic lives here with fully-narrowed params (no `as string` casts).
+ * The outer {@link DocsHandler} class delegates to this via `typedDispatch` +
+ * {@link docsEnvelopeToResponse} so the registry sees the expected
+ * `query`/`mutate` interface while every param access is type-safe.
+ *
+ * @see ADR-058 — typed-dispatch migration
+ * @task T1529 — docs typed-dispatch migration (P0)
+ */
 const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
   // ── docs.list ──────────────────────────────────────────────────────────────
 
@@ -1939,6 +1940,15 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       );
     }
     return decisionLinkResponse('link-decision', async () => {
+      // The table is append-only: a link to a typo would be permanent, so both
+      // ends must exist before the write (T13598 review).
+      if ((await createDocsReadModel().resolveLatest(adrSlug)) === null)
+        // @sync-invariant none:input-shape a link to an unknown doc slug is refused before any write
+        throw new CleoError(ExitCode.NOT_FOUND, `no doc has the slug '${adrSlug}'`);
+      const { recallDecision } = await import('@cleocode/core/memory/decisions');
+      if ((await recallDecision(getProjectRoot(), decisionId)) === null)
+        // @sync-invariant none:input-shape a link to a decision missing from the ledger is refused before any write
+        throw new CleoError(ExitCode.NOT_FOUND, `no stored decision has the id '${decisionId}'`);
       const { inserted } = await linkDecisionToAdr(getProjectRoot(), {
         decisionId,
         adrSlug,
