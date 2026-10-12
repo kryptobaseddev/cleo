@@ -476,13 +476,16 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     ['REL-2', 'REL-3', 'REL-4', 'REL-5', 'REL-6', 'REL-7', 'REL-8'],
     'shipped release statuses are absorbing',
   ),
-  rule(
-    'playbook.approval.once',
-    'T12944',
-    'tasks_playbook_approvals',
-    ['status'],
-    ['PB-1', 'PB-4', 'PB-7', 'P33'],
-    'an approval goes pending→decided once',
+  implemented(
+    rule(
+      'playbook.approval.once',
+      'T12944',
+      'tasks_playbook_approvals',
+      ['status'],
+      ['PB-1', 'PB-4', 'PB-7', 'P33'],
+      'an approval goes pending→decided once',
+      ['tasks_playbook_approvals', 'playbook_approvals'],
+    ),
   ),
   rule(
     'docs.lifecycle.transitions',

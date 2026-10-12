@@ -79,7 +79,7 @@ export const TASK_STAGE_MERGE_ORDER: readonly string[] = [
  * `task.status.absorbing` (T12937), `task.pipeline-stage.max` (T12938),
  * `task.verification.frozen-on-done` (T12939),
  * `docs.decision-adr-links.revoke-monotonic` (T13597),
- * `audit.immutable` (T12941, table-level).
+ * `audit.immutable` (T12941, table-level), `playbook.approval.once` (T12944).
  */
 export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
   tasks_tasks: {
@@ -120,6 +120,37 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
   // Audit rows are immutable once written (T12941, SA3), on both twins.
   tasks_audit_log: { immutable: 'audit.immutable' },
   audit_log: { immutable: 'audit.immutable' },
+  tasks_playbook_approvals: {
+    // A decision and its stamps move together (PB-1).
+    groups: [['status', 'approved_at', 'approver', 'reason']],
+    rules: {
+      // pending → approved | rejected once (T12944); no command reopens a
+      // decision. Two devices deciding differently resolve by LWW and record
+      // the divergent decision as a conflict.
+      status: {
+        kind: 'absorbing',
+        id: 'playbook.approval.once',
+        states: ['approved', 'rejected'],
+        leaveOps: [],
+      },
+    },
+  },
+  // The live writers (playbooks/src) write the bare twin; both sync (T12944).
+  playbook_approvals: {
+    // A decision and its stamps move together (PB-1).
+    groups: [['status', 'approved_at', 'approver', 'reason']],
+    rules: {
+      // pending → approved | rejected once (T12944); no command reopens a
+      // decision. Two devices deciding differently resolve by LWW and record
+      // the divergent decision as a conflict.
+      status: {
+        kind: 'absorbing',
+        id: 'playbook.approval.once',
+        states: ['approved', 'rejected'],
+        leaveOps: [],
+      },
+    },
+  },
   decision_adr_links: {
     // The revoke and its author move together, taken from the winning op.
     groups: [['status', 'revoked_by']],
@@ -145,7 +176,7 @@ export function implementedMergeRuleIds(): string[] {
     for (const rule of Object.values(set.rules ?? {})) ids.push(rule.id);
     if (set.immutable !== undefined) ids.push(set.immutable);
   }
-  // One invariant may cover several tables or columns.
+  // One invariant may cover several tables (a twin pair) or columns.
   return [...new Set(ids)].sort();
 }
 
