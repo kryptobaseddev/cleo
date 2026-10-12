@@ -599,9 +599,11 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     if (childPid === undefined || now - treeSampledAtMs < TREE_SAMPLE_MS) return;
     treeSampledAtMs = now;
     const usage = d.treeUsage(childPid);
+    // A pause still in progress is not run time either (T13570).
+    const pausedMs = pausedTotalMs + (pausedAtMs !== null ? now - pausedAtMs : 0);
     const step = watchRun(
       watch,
-      { nowMs: now, startedAtMs, pausedTotalMs, paused: pausedAtMs !== null, usage },
+      { nowMs: now, startedAtMs, pausedTotalMs: pausedMs, paused: pausedAtMs !== null, usage },
       limits,
     );
     watch = step.next;
@@ -609,7 +611,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     for (const event of step.events) {
       if (event === 'overdue')
         notice(
-          `overdue: running ${minutes(now - startedAtMs - pausedTotalMs)} min, past the ${opts.cls} limit of ${minutes(limits.maxWallMs ?? 0)} min (pid ${childPid}, ${command}). It keeps its reservation until it exits; check it or stop it.`,
+          `overdue: running ${minutes(now - startedAtMs - pausedMs)} min, past the ${opts.cls} limit of ${minutes(limits.maxWallMs ?? 0)} min (pid ${childPid}, ${command}). It keeps its reservation until it exits; check it or stop it.`,
           'warn',
         );
       else if (event === 'hung')
