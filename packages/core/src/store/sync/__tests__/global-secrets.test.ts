@@ -371,7 +371,7 @@ describe('global secrets travel sealed on the home stream (T13467)', () => {
     expect(warnings).toEqual([
       expect.objectContaining({
         code: 'W_SYNC_SECRET_UNREADABLE',
-        message: expect.stringContaining(`accounts ${homeUid} secret_enc`),
+        message: expect.stringContaining(`credential account:openai:home (accounts ${homeUid})`),
       }),
     ]);
     const out = await push(a, stream, secrets);
@@ -382,6 +382,58 @@ describe('global secrets travel sealed on the home stream (T13467)', () => {
     expect(accountRow(b, 'anthropic', 'work')).toBeDefined();
     expect(accountRow(b, 'openai', 'home')).toBeUndefined();
     expect(stream.text()).not.toContain('other-secret');
+  });
+
+  it('a held credential written FIRST never stalls later changes; re-entered, it syncs (T13534)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    // First in capture order: a row whose ciphertext only B's machine key opens.
+    const foreign = await encryptGlobal('other-secret', 'account:openai:home', {
+      cleoHome: b.home,
+    });
+    write(
+      a.db,
+      `INSERT INTO accounts (provider, label, auth_type, secret_enc, refresh_enc, priority, created_at, updated_at)
+       VALUES ('openai', 'home', 'api-key', ?, ?, 1, '2026-10-11T00:00:00.000Z', '2026-10-11T00:00:00.000Z')`,
+      foreign,
+      foreign,
+    );
+    // Later: another account and an unrelated brain write.
+    await addAccount(a, 'anthropic', 'work', SECRET);
+    write(
+      a.db,
+      "INSERT INTO brain_observations (id, type, title, created_at, valid_at) VALUES ('O-t13534a', 'discovery', 'after the held row', '2026-10-11T00:00:01.000Z', '2026-10-11 00:00:01')",
+    );
+    const warnings: Array<{ code: string; message: string }> = [];
+    const secrets = await prepareSecretSeals(a.db, 'global', secretKey, {
+      cleoHome: a.home,
+      warn: (w) => warnings.push(w),
+    });
+    // One warning for the row (two unreadable columns), naming the credential.
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.message).toContain('credential account:openai:home');
+    const out = await push(a, stream, secrets);
+    expect(out.held).toHaveLength(1);
+    await pull(b, stream);
+    expect(accountRow(b, 'anthropic', 'work')).toBeDefined();
+    expect(
+      b.db.prepare("SELECT title FROM brain_observations WHERE id = 'O-t13534a'").get(),
+    ).toEqual({ title: 'after the held row' });
+    expect(accountRow(b, 'openai', 'home')).toBeUndefined();
+
+    // Re-entered on A under A's key: the held row is retried and syncs.
+    const fresh = await encryptGlobal('re-entered', 'account:openai:home', { cleoHome: a.home });
+    write(
+      a.db,
+      "UPDATE accounts SET secret_enc = ?, refresh_enc = NULL WHERE provider = 'openai' AND label = 'home'",
+      fresh,
+    );
+    expect((await push(a, stream, await sealsOf(a))).held).toEqual([]);
+    await pull(b, stream);
+    const home = accountRow(b, 'openai', 'home');
+    expect(
+      await decryptGlobal(home?.secret_enc ?? '', 'account:openai:home', { cleoHome: b.home }),
+    ).toBe('re-entered');
   });
 
   it('a receiver that cannot open the secrets holds the op, never writes a row without them', async () => {

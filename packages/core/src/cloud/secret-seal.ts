@@ -106,6 +106,8 @@ export async function prepareSecretSeals(
 ): Promise<SecretSeals> {
   const out = new Map<string, SecretSeal>();
   for (const row of pendingSecretRows(db, scope)) {
+    // T13534: one warning per row per call, naming the credential.
+    let warned = false;
     for (const [col, value] of Object.entries(row.values)) {
       const live = canonicalJson(value);
       if (value === null) {
@@ -119,10 +121,13 @@ export async function prepareSecretSeals(
           plaintext = await decryptGlobal(String(value), id, { cleoHome: opts.cleoHome });
         } catch {
           // The cause is not echoed: a warning never carries secret material.
-          opts.warn?.({
-            code: 'W_SYNC_SECRET_UNREADABLE',
-            message: `${row.table} ${row.uid} ${col}: this machine's key cannot decrypt the stored secret, so the row stays unsent until it is re-entered`,
-          });
+          if (!warned) {
+            warned = true;
+            opts.warn?.({
+              code: 'W_SYNC_SECRET_UNREADABLE',
+              message: `credential ${id} (${row.table} ${row.uid}): this machine's key cannot decrypt the stored secret, so the row stays unsent until it is re-entered; every other change still syncs`,
+            });
+          }
           continue;
         }
       }
