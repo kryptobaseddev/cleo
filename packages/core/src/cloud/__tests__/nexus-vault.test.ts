@@ -6625,7 +6625,7 @@ describe('the main brain stream through cloud sync (T13370)', () => {
   });
 
   /** A cuts home:<user> with two credentials; B (never synced) holds its own for one of them (T13544). */
-  const credentialBrains = async () => {
+  const credentialBrains = async (beforeCut?: (a: Machine) => Promise<void>) => {
     const a = await machine('a', DEVICE_A, REPLICA_A);
     const b = await machine('b', DEVICE_B, REPLICA_B);
     const account = async (m: Machine, id: number, label: string, secret: string) =>
@@ -6635,6 +6635,7 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     await onM(a, async () => {
       await account(a, 1, 'work', 'sk-A-work');
       await account(a, 2, 'team', 'sk-A-team');
+      await beforeCut?.(a);
       const db = await globalStore(a);
       setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_JOURNAL });
       setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
@@ -6703,6 +6704,44 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     expect(joined.status).toBe('joined');
     expect(await secretOn('team')).toBe('sk-A-team-rotated');
     expect(await secretOn('work')).toBe('sk-B-work');
+  });
+
+  it('a merge join keeps a credential A revoked after the cut revoked, never re-filled from the checkpoint (T13593)', async () => {
+    // A connects a service before the cut, so the checkpoint carries its sealed credential.
+    const { a, b } = await credentialBrains(async (m) => {
+      const blob = await encryptGlobal('{"access_token":"tok"}', 'service:github:personal', {
+        cleoHome: m.home,
+      });
+      (await globalStore(m))
+        .prepare(
+          "INSERT INTO service_connections (id, provider, label, status, credentials_enc) VALUES (1, 'github', 'personal', 'active', ?)",
+        )
+        .run(blob);
+    });
+    // After the cut, A revokes it the way revokeConnection does, and syncs.
+    await onM(a, async () => {
+      (await globalStore(a)).exec(
+        "UPDATE service_connections SET status = 'revoked', credentials_enc = NULL WHERE provider = 'github' AND label = 'personal'",
+      );
+    });
+    const pushed = await onM(a, () =>
+      cloudSync(vopts(a, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(pushed.streams[0]?.refused ?? null).toBeNull();
+
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    expect(
+      await onM(b, async () =>
+        (await globalStore(b))
+          .prepare(
+            "SELECT status, credentials_enc FROM service_connections WHERE provider = 'github'",
+          )
+          .get(),
+      ),
+    ).toEqual({ status: 'revoked', credentials_enc: null });
   });
 
   it('a merge join whose credential fill fails changes nothing, and the next attempt joins with them (T13544)', async () => {

@@ -2185,7 +2185,18 @@ async function withMergedScratch<T>(
       // The scratch replays the stream; it never seals or pushes. The store
       // it reconciles already has its sync flags, so the release gate holds.
       setSyncFlag(scratch, 'sync.pull', true, { allowUnreleased: true });
-      const { prepareSecretOpens, secretValuesKey } = await import('./secret-seal.js');
+      const { openSnapshotCredentials, prepareSecretOpens, secretValuesKey } = await import(
+        './secret-seal.js'
+      );
+      // The checkpoint's sealed credential cells fill the scratch at the checkpoint's
+      // state, under this machine's key (T13544), BEFORE the pull: a post-cut op then
+      // applies on top, so a revoked (cleared) credential stays cleared (T13593). A
+      // failure aborts the merge: the reconcile stays due and the next sync retries.
+      if (t.scope === 'global') {
+        await openSnapshotCredentials(scratchPath, secretValuesKey(key.masterKey), {
+          cleoHome: t.storeRoot,
+        });
+      }
       // Soft and project-aware like the live pull (T13551): a failed listing confirms none, never aborts.
       const serverRetirements = await confirmableRetirements(conn, t.scope, t.projectId);
       const merged = await pullStream(scratch, {
@@ -2222,15 +2233,6 @@ async function withMergedScratch<T>(
           `the merged state this store reconciles against stopped short of ${t.streamId}'s head: ${merged.refused}`,
           'nothing was pushed or pulled; run `cleo cloud sync` again',
         );
-      }
-      // The checkpoint's sealed credential cells fill what the scratch lacks,
-      // under this machine's key, before anything is adopted from it (T13544).
-      // A failure aborts the merge: the reconcile stays due and the next sync retries.
-      if (t.scope === 'global') {
-        const { openSnapshotCredentials } = await import('./secret-seal.js');
-        await openSnapshotCredentials(scratchPath, secretValuesKey(key.masterKey), {
-          cleoHome: t.storeRoot,
-        });
       }
       return await fn(
         scratch,

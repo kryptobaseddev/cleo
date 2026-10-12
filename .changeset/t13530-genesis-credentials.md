@@ -27,3 +27,5 @@ the owed reconcile, which the next attempt retries.
 The merge scratch's pull also opens sealed secrets written after the cut, as a
 live pull does (T13592), so a merge-joined store takes a credential's newest
 value rather than the checkpoint's; one it cannot open stays pending.
+The scratch is filled at the checkpoint's state before that pull (T13593), so a
+credential revoked after the cut stays revoked on the joining device.
