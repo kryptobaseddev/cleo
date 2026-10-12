@@ -75,6 +75,11 @@ import { gitToplevel } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { truncateString } from '../render/helpers.js';
+import {
+  ADMISSION_ENV,
+  footprintForClass,
+  planRunFootprint,
+} from '../resources/admission-ledger.js';
 import { captureWrapped } from '../resources/spawn-wrapper.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { registerTeardownAbort } from '../teardown-signal.js';
@@ -91,6 +96,7 @@ import {
   sealGateCacheEntry,
 } from './gate-result-cache.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
+import { acquireGlobalSlot } from './tool-semaphore.js';
 import { resolveSpawnTimeoutMs } from './tool-cache.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -1456,25 +1462,49 @@ async function runOneGate(
 
 // ─── Test gate ────────────────────────────────────────────────────────────────
 
-/** Execute a process gate through the existing captured resource service. */
+/**
+ * Execute a process gate through the existing captured resource service,
+ * admitted first through the machine-wide ledger (T13573).
+ *
+ * A typed gate is charged what `cleo run` would charge the same command
+ * ({@link planRunFootprint} for its class) and waits on the same ledger and
+ * pressure predicate as `cleo run` and `tool:` evidence, so a gate cannot run
+ * while the budget is full. The wait ends {@link TYPED_GATE_BOOKKEEPING_MS}
+ * before the shared deadline, so a refusal (the admission's own error, naming
+ * the holders) is recorded as the gate's result. The child inherits the admission
+ * token, so a governed command it starts is not charged twice.
+ */
 async function captureGateCommand(
   command: string,
   args: readonly string[],
   cwd: string,
   timeoutMs: number,
+  cls: 'test-run' | 'scoped-build',
   context: ProcessCaptureOptions,
   overlay?: Readonly<Record<string, string>>,
 ): Promise<ProcessCaptureResult> {
   const env = gateEnvironment(context.env ?? process.env, overlay);
-  return captureWrapped(command, args, {
-    ...context,
-    cwd,
-    env,
-    execution: {
-      ...context.execution,
-      deadlineAt: Math.min(context.execution.deadlineAt, Date.now() + timeoutMs),
-    },
+  const footprintBytes =
+    planRunFootprint(cls, [command, ...args], env).footprintBytes ?? footprintForClass(cls);
+  const release = await acquireGlobalSlot(cls === 'test-run' ? 'test' : 'lint', {
+    label: `gate:${cls === 'test-run' ? 'test' : 'command'}`,
+    footprintBytes,
+    // End the wait while the bookkeeping budget remains, so the refusal is recorded.
+    timeoutMs: Math.max(0, context.execution.deadlineAt - Date.now() - TYPED_GATE_BOOKKEEPING_MS),
   });
+  try {
+    return await captureWrapped(command, args, {
+      ...context,
+      cwd,
+      env: release.admission ? { ...env, [ADMISSION_ENV]: release.admission } : env,
+      execution: {
+        ...context.execution,
+        deadlineAt: Math.min(context.execution.deadlineAt, Date.now() + timeoutMs),
+      },
+    });
+  } finally {
+    await release();
+  }
 }
 
 /** Preserve target failure independently from launch, cancellation and cleanup failures. */
@@ -1660,6 +1690,7 @@ async function runTestGate(
     invocation.args,
     invocation.cwd,
     timeoutMs,
+    'test-run',
     context,
     gate.env,
   );
@@ -1908,6 +1939,7 @@ async function runCommandGate(
     invocation.args,
     invocation.cwd,
     timeoutMs,
+    'scoped-build',
     context,
     gate.env,
   );
@@ -1954,6 +1986,7 @@ async function runLintGate(
     invocation.args,
     invocation.cwd,
     timeoutMs,
+    'scoped-build',
     context,
   );
   const passed =

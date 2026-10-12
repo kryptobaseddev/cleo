@@ -27,6 +27,8 @@ import type {
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _forceSystemdRunAvailable } from '../../resources/spawn-wrapper.js';
 import { createOperationExecutionContext } from '../../store/background-ops.js';
+import { admissionCapacityBytes } from '../heavy-tool-env.js';
+import { acquireGlobalSlot } from '../tool-semaphore.js';
 import { acItemToText, acTextHash, buildFreshAcRows } from '../ac-table.js';
 import {
   createTaskGateReceipt,
@@ -1535,4 +1537,136 @@ describe('expect pass reads runner summaries, not the word "fail" (T13511)', () 
     );
     expect(result?.result).toBe('fail');
   });
+});
+
+describe('typed process gates admit through the machine ledger (T13573)', () => {
+  beforeEach(() => _forceSystemdRunAvailable(false));
+  afterEach(() => _forceSystemdRunAvailable(undefined));
+
+  it('with a full ledger a typed test gate does not spawn until it is admitted', async () => {
+    const marker = join(projectRoot, 't13573-ran');
+    await writeFile(
+      join(projectRoot, 't13573-gate.mjs'),
+      `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'ran');`,
+    );
+    const task: Task = {
+      id: 'T173',
+      title: 'admitted gate',
+      description: 'typed gate admission fixture',
+      status: 'active',
+      type: 'task',
+      priority: 'medium',
+      createdAt: '2026-10-12T00:00:00.000Z',
+      acceptance: [
+        {
+          kind: 'test',
+          command: process.execPath,
+          args: ['t13573-gate.mjs'],
+          expect: 'exit0',
+          req: 'ADMIT-1',
+          description: 'waits for admission',
+        },
+      ],
+    };
+    const rows: AcRow[] = buildFreshAcRows(task.id, task.acceptance).map((row) => ({
+      ...row,
+      kind: row.kind ?? 'text',
+      sourceKey: row.sourceKey ?? '',
+      projection: row.projection ?? 'legacy',
+      targetTaskId: row.targetTaskId ?? null,
+      contentHash: row.contentHash ?? null,
+      createdAt: task.createdAt,
+      updatedAt: null,
+    }));
+    // Another run holds the whole machine budget.
+    const holder = await acquireGlobalSlot('test', {
+      footprintBytes: admissionCapacityBytes(),
+      label: 'holder',
+    });
+    const execution = createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'admission-agent',
+        operation: 'check.gate.verify',
+        idempotencyKey: 't13573-admission',
+      },
+      { budgetMs: 30_000 },
+    );
+    try {
+      const run = runTaskGates(task, rows, { execution });
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await expect(readFile(marker, 'utf8')).rejects.toThrow();
+      await holder();
+      const [result] = await run;
+      expect(result?.result, result?.errorMessage).toBe('pass');
+      expect(await readFile(marker, 'utf8')).toBe('ran');
+    } finally {
+      await holder();
+      execution.close();
+    }
+  }, 30_000);
+
+  it('refuses with the admission reason, never spawning, when the budget stays full past the gate deadline', async () => {
+    const marker = join(projectRoot, 't13573-refused');
+    await writeFile(
+      join(projectRoot, 't13573-refuse.mjs'),
+      `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'ran');`,
+    );
+    const task: Task = {
+      id: 'T174',
+      title: 'refused gate',
+      description: 'typed gate admission refusal fixture',
+      status: 'active',
+      type: 'task',
+      priority: 'medium',
+      createdAt: '2026-10-12T00:00:00.000Z',
+      acceptance: [
+        {
+          kind: 'test',
+          command: process.execPath,
+          args: ['t13573-refuse.mjs'],
+          expect: 'exit0',
+          req: 'ADMIT-2',
+          description: 'refused while the budget is full',
+          timeoutMs: 1_500,
+        },
+      ],
+    };
+    const rows: AcRow[] = buildFreshAcRows(task.id, task.acceptance).map((row) => ({
+      ...row,
+      kind: row.kind ?? 'text',
+      sourceKey: row.sourceKey ?? '',
+      projection: row.projection ?? 'legacy',
+      targetTaskId: row.targetTaskId ?? null,
+      contentHash: row.contentHash ?? null,
+      createdAt: task.createdAt,
+      updatedAt: null,
+    }));
+    const holder = await acquireGlobalSlot('test', {
+      footprintBytes: admissionCapacityBytes(),
+      label: 'holder',
+    });
+    const execution = createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'admission-agent',
+        operation: 'check.gate.verify',
+        idempotencyKey: 't13573-refusal',
+      },
+      { budgetMs: 4_000 },
+    );
+    try {
+      const outcome = await runTaskGates(task, rows, { execution }).then(
+        ([result]) => result?.errorMessage ?? result?.result ?? '',
+        (error: Error) => error.message,
+      );
+      expect(outcome).toMatch(/Timed out waiting for admission of a 'test' run/);
+      await expect(readFile(marker, 'utf8')).rejects.toThrow();
+    } finally {
+      await holder();
+      execution.close();
+    }
+  }, 30_000);
 });
