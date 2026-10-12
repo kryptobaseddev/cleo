@@ -214,6 +214,55 @@ export function renamedTables(statements: readonly string[]): Map<string, string
   return out;
 }
 
+/** An `ALTER TABLE` form after which SQLite re-validates every view and trigger in the schema. */
+const SCHEMA_CHECKING_ALTER = /\bALTER\s+TABLE\b[^;]*\b(?:RENAME|DROP\s+COLUMN)\b/i;
+
+/** SQLite's rename-check error for a view or trigger whose table or column is gone. */
+const ORPHAN_OBJECT_ERROR =
+  /^error in (view|trigger) (\S+?)(?: after \w+)?: no such (?:table|column)\b/;
+
+/**
+ * Drop every view and trigger that can never compile because a table or column
+ * it reads no longer exists, so a migration's `RENAME` / `DROP COLUMN` is not
+ * refused for a schema object nothing can use (T13631: a store whose stamped
+ * T9686-B2 never dropped `releases_view` kept it over the dropped
+ * `release_manifests`, and 2026.10.10's first table rebuild failed every open).
+ *
+ * The check is SQLite's own: a throwaway rename inside a savepoint reports the
+ * first object that fails validation. Only a missing-dependency error drops an
+ * object; any other error leaves the schema as is for the migration to report.
+ * Call inside the migration's transaction, so a failed migration restores the
+ * dropped objects too.
+ *
+ * @param db - The store handle, inside an open transaction.
+ * @returns The dropped objects, as `view <name>` / `trigger <name>`.
+ */
+export function dropOrphanSchemaObjects(db: DatabaseSync): string[] {
+  const dropped: string[] = [];
+  const { n } = db
+    .prepare(`SELECT count(*) AS n FROM main.sqlite_master WHERE type IN ('view', 'trigger')`)
+    .get() as { n: number };
+  for (let i = 0; i <= n; i++) {
+    let message = '';
+    db.exec('SAVEPOINT cleo_orphan_probe');
+    try {
+      db.exec('CREATE TABLE main."__cleo_rename_probe" (x)');
+      db.exec('ALTER TABLE main."__cleo_rename_probe" RENAME TO "__cleo_rename_probe2"');
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    db.exec('ROLLBACK TO cleo_orphan_probe');
+    db.exec('RELEASE cleo_orphan_probe');
+    const m = ORPHAN_OBJECT_ERROR.exec(message);
+    if (!m) break;
+    const kind = m[1] as string;
+    const name = m[2] as string;
+    db.exec(`DROP ${kind.toUpperCase()} IF EXISTS main."${name.replace(/"/g, '""')}"`);
+    dropped.push(`${kind} ${name}`);
+  }
+  return dropped;
+}
+
 /** The tables a migration's DML writes (INSERT / UPDATE / DELETE / REPLACE). */
 export function dmlTables(statements: readonly string[]): string[] {
   const out = new Set<string>();
@@ -508,6 +557,15 @@ function migrationBracket(
       ? foreignKeyViolations(nativeDb, foreignKeyScope(nativeDb, scopeTables))
       : new Map<string, number>();
     hooks.suspendCapture?.(nativeDb);
+    if (statements.some((s) => SCHEMA_CHECKING_ALTER.test(code(s)))) {
+      const orphans = dropOrphanSchemaObjects(nativeDb);
+      if (orphans.length > 0) {
+        getLogger('migration-runner').warn(
+          { migration: migration.name, dropped: orphans },
+          'Dropped views/triggers over missing tables or columns before a schema-checking ALTER',
+        );
+      }
+    }
     for (const stmt of statements) nativeDb.prepare(stmt).run();
     nativeDb
       .prepare(

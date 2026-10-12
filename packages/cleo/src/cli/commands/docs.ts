@@ -47,6 +47,8 @@ import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
 import { assertKnownFlags, UnknownFlagError } from '../lib/strict-args.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 import { auditCommand } from './docs/audit.js';
+// T13598 — decision_adr_links writer verbs (`link-decision` / `unlink-decision`).
+import { linkDecisionCommand, unlinkDecisionCommand } from './docs/decision-link.js';
 // T10164 — DocProvenanceResponse-typed graph verb (`--root <slug>|<taskId>`).
 import { graphCommand as provenanceGraphCommand } from './docs/graph.js';
 // T11875 — display-alias assignment verb (`set-alias <slug> <number>`).
@@ -2959,6 +2961,9 @@ export const docsCommand = defineCommand({
     graph: provenanceGraphCommand,
     // T11875 — display-alias assignment (`set-alias <slug> <number>`), decoupled from slug.
     'set-alias': setAliasCommand,
+    // T13598 — decision_adr_links writers (ADR ↔ D#### trace).
+    'link-decision': linkDecisionCommand,
+    'unlink-decision': unlinkDecisionCommand,
     // Legacy aliases (use `query` for new work — retained for backward compatibility)
     search: searchCommand,
     find: findCommand,

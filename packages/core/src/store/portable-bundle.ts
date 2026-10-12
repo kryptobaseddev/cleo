@@ -85,6 +85,7 @@ import {
   sha256File,
   vacuumSnapshot,
 } from './portable-bundle-scan.js';
+import { type SealedCredentialCell, writeSealedCredentials } from './vault-manifest.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -221,6 +222,13 @@ export interface ExportPortableBundleInput {
    * cloud vault leaves tracked files to git (T13019). Project scope only.
    */
   gitTrackedFiles?: ReadonlySet<string>;
+  /**
+   * Seal the primary store snapshot's credential cells before they are
+   * cleared; the sealed cells are written to the snapshot's
+   * sealed-credentials table (`vault-manifest.ts`). The cloud vault seals under the
+   * account key, so a joining device gets usable credentials (T13530).
+   */
+  sealCredentials?: (snapshotPath: string) => Promise<readonly SealedCredentialCell[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +367,8 @@ interface StagingState {
   clearTables: readonly string[] | null;
   /** Mark every staged project store's identity shared first ({@link ExportPortableBundleInput.sharesIdentity}). */
   sharesIdentity: boolean;
+  /** Seals the primary snapshot's credential cells ({@link ExportPortableBundleInput.sealCredentials}). */
+  sealCredentials: ((snapshotPath: string) => Promise<readonly SealedCredentialCell[]>) | null;
 }
 
 /** Credential tables whose rows {@link listCredentialsForReentry} enumerates, by store. */
@@ -489,6 +499,9 @@ async function stageSection(
       }
       continue;
     }
+    // Sealed BEFORE clearing, from the snapshot itself.
+    const sealed =
+      isPrimary && state.sealCredentials !== null ? await state.sealCredentials(staged) : [];
     if (!state.includeSecrets) {
       try {
         // Enumerate BEFORE clearing: afterwards the rows no longer say which
@@ -539,6 +552,7 @@ async function stageSection(
         );
       }
     }
+    writeSealedCredentials(staged, sealed);
     const counts = countRows(staged);
     const entry: PortableDatabaseEntry = {
       relPath,
@@ -767,6 +781,7 @@ export async function exportPortableBundle(
     stripColumns: input.stripColumns ?? null,
     clearTables: input.clearTables ?? null,
     sharesIdentity: input.sharesIdentity !== false,
+    sealCredentials: input.sealCredentials ?? null,
   };
 
   try {
