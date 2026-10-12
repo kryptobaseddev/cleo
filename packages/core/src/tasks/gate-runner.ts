@@ -1261,42 +1261,92 @@ async function packageStoreRealPath(root: string, path: string): Promise<string>
 /** bun subcommands: the word after `bun` that is not a script (T13566). */
 const BUN_SUBCOMMANDS: ReadonlySet<string> = new Set(['test', 'run', 'x', 'exec', 'build']);
 
+/** bun options whose next argument is their value, never a script or input (T13574). */
+const BUN_VALUE_FLAGS: ReadonlySet<string> = new Set([
+  '-c',
+  '--config',
+  '--cwd',
+  '-r',
+  '--preload',
+  '--env-file',
+  '--tsconfig-override',
+]);
+
+/** Flags that make an interpreter evaluate inline code, so it runs no script file. */
+function evalFlags(command: string): readonly string[] {
+  // bun's `-c` is `--config` (T13574); for python, bash and sh it is inline code.
+  return command === 'bun' || command === 'bunx'
+    ? ['-e', '--eval', '-p', '--print']
+    : ['-e', '--eval', '-c', '--print', '-p'];
+}
+
 /**
- * The script an interpreter invocation runs, and the argument indexes that are
- * never inputs (T13566). The first positional argument is the script —
- * `node a.js`, `bun a.ts` — except where bun names a subcommand: `bun test
- * a.test.ts b.test.ts` and `bun run file.ts` have no implicit script (the
- * named files are captured as file-like arguments), and the package that
- * `bun x <pkg>` / `bunx <pkg>` runs is not a file of this project.
+ * The script an interpreter invocation runs, the argument indexes that are
+ * never inputs, and the directory its file arguments resolve from (T13566,
+ * T13574). The first positional argument is the script — `node a.js` — with
+ * bun's exceptions:
+ *  - a subcommand (`bun test a.test.ts b.test.ts`, `bun run file.ts`) leaves no
+ *    implicit script; the named files are captured as file-like arguments, and
+ *    the package `bun x <pkg>` / `bunx <pkg>` runs is not a project file;
+ *  - otherwise the first positional is the script only when it is an existing
+ *    regular file (`bun a.ts`); any other word (`install`, `add`, `pm`,
+ *    `create`, …) is a subcommand whose arguments name packages, not inputs;
+ *  - the values of bun's value flags (`-c bunfig.toml`, `--cwd dir`) are never
+ *    the script or an input, and `--cwd` moves where file arguments resolve.
  *
  * @param command - Basename of the interpreter.
  * @param args - Its arguments.
- * @returns The implicit script, if any, and the indexes to leave out.
+ * @param cwd - The invocation's working directory.
+ * @returns The implicit script, the indexes to leave out, and the resolution base.
  */
-function interpreterScript(
+async function interpreterScript(
   command: string,
   args: readonly string[],
-): { script: string | undefined; notInputs: ReadonlySet<number> } {
-  const positional = args.flatMap((arg, index) => (arg.startsWith('-') ? [] : [index]));
+  cwd: string,
+): Promise<{ script: string | undefined; notInputs: ReadonlySet<number>; base: string }> {
+  const bun = command === 'bun' || command === 'bunx';
+  const notInputs = new Set<number>();
+  let base = cwd;
+  if (bun) {
+    args.forEach((arg, index) => {
+      if (!BUN_VALUE_FLAGS.has(arg) || index + 1 >= args.length) return;
+      notInputs.add(index + 1);
+      if (arg === '--cwd') base = resolve(cwd, args[index + 1] ?? '');
+    });
+    const inline = args.find((arg) => arg.startsWith('--cwd='));
+    if (inline) base = resolve(cwd, inline.slice('--cwd='.length));
+  }
+  const positional = args.flatMap((arg, index) =>
+    arg.startsWith('-') || notInputs.has(index) ? [] : [index],
+  );
   const word = (n: number): string | undefined => {
     const index = positional[n];
     return index === undefined ? undefined : args[index];
   };
-  const notInputs = new Set<number>();
   const exclude = (n: number): void => {
     const index = positional[n];
     if (index !== undefined) notInputs.add(index);
   };
   if (command === 'bunx') {
     exclude(0);
-    return { script: undefined, notInputs };
+    return { script: undefined, notInputs, base };
   }
-  if (command === 'bun' && BUN_SUBCOMMANDS.has(word(0) ?? '')) {
+  if (command !== 'bun') return { script: word(0), notInputs, base };
+  const first = word(0);
+  if (first !== undefined && BUN_SUBCOMMANDS.has(first)) {
     exclude(0);
-    if (word(0) === 'x') exclude(1);
-    return { script: undefined, notInputs };
+    if (first === 'x') exclude(1);
+    return { script: undefined, notInputs, base };
   }
-  return { script: word(0), notInputs };
+  const isFile =
+    first !== undefined &&
+    (await stat(resolve(base, first)).then(
+      (st) => st.isFile(),
+      () => false,
+    ));
+  if (isFile) return { script: first, notInputs, base };
+  for (const index of positional) notInputs.add(index);
+  return { script: undefined, notInputs, base };
 }
 
 /** Capture declared task inputs and an interpreter's explicit harness argument. */
@@ -1324,20 +1374,22 @@ async function snapshotGateInputs(
       basename(invocation.command),
     )
   ) {
-    if (!invocation.args.some((arg) => ['-e', '--eval', '-c', '--print', '-p'].includes(arg))) {
+    const command = basename(invocation.command);
+    if (!invocation.args.some((arg) => evalFlags(command).includes(arg))) {
       const scripts: string[] = [];
-      const { script, notInputs } = interpreterScript(
-        basename(invocation.command),
+      const { script, notInputs, base } = await interpreterScript(
+        command,
         invocation.args,
+        invocation.cwd,
       );
-      if (script) scripts.push(resolve(invocation.cwd, script));
+      if (script) scripts.push(resolve(base, script));
       invocation.args.forEach((arg, index) => {
         if (
           !notInputs.has(index) &&
           !arg.startsWith('-') &&
           (arg.includes('/') || /\.(?:[cm]?[jt]sx?|py|sh|rb|pl)$/.test(arg))
         )
-          scripts.push(resolve(invocation.cwd, arg));
+          scripts.push(resolve(base, arg));
       });
       for (const path of scripts) paths.add(await packageStoreRealPath(root, path));
     }

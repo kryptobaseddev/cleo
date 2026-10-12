@@ -982,6 +982,9 @@ describe("bun's subcommands are not the script (T13566)", () => {
     await writeFile(join(projectRoot, 'test', 'b.test.ts'), 'export {};\n');
     await mkdir(join(projectRoot, 'scripts'), { recursive: true });
     await writeFile(join(projectRoot, 'scripts', 'x.ts'), 'export {};\n');
+    await mkdir(join(projectRoot, 'sub'), { recursive: true });
+    await writeFile(join(projectRoot, 'sub', 'c.test.ts'), 'export {};\n');
+    await writeFile(join(projectRoot, 'bunfig.toml'), '');
   });
   beforeEach(() => _forceSystemdRunAvailable(false));
   afterEach(() => _forceSystemdRunAvailable(undefined));
@@ -1040,6 +1043,33 @@ describe("bun's subcommands are not the script (T13566)", () => {
     const named = await inputs(['run', 'build']);
     expect(named).not.toContain('run');
     expect(named).not.toContain('build');
+  });
+
+  it('other bun subcommands capture nothing: install, add, pm, create (T13574)', async () => {
+    for (const args of [
+      ['install'],
+      ['add', '@scope/pkg'],
+      ['pm', 'ls'],
+      ['create', 'user/repo', 'dest'],
+      ['upgrade'],
+    ]) {
+      const captured = await inputs(args);
+      for (const word of args) expect(captured).not.toContain(word);
+      expect(captured.every((path) => !path.startsWith('user/') && path !== 'dest')).toBe(true);
+    }
+  });
+
+  it('bun -c <file> is the config flag, not inline eval (T13574)', async () => {
+    const captured = await inputs(['-c', 'bunfig.toml', 'test', 'test/a.test.ts']);
+    expect(captured).toContain('test/a.test.ts');
+    expect(captured).not.toContain('bunfig.toml');
+  });
+
+  it('bun --cwd dir test resolves files in dir and never captures dir (T13574)', async () => {
+    const captured = await inputs(['--cwd', 'sub', 'test', 'c.test.ts']);
+    expect(captured).toContain('sub/c.test.ts');
+    expect(captured).not.toContain('sub');
+    expect(await inputs(['--cwd=sub', 'test', 'c.test.ts'])).toContain('sub/c.test.ts');
   });
 
   it('bun x <pkg> and bunx <pkg> never capture the package as a file', async () => {
