@@ -56,6 +56,7 @@ import {
 } from './portable-bundle-relocate.js';
 import { countRows, integrityCheck, KEY_COUNT_TABLES, sha256File } from './portable-bundle-scan.js';
 import { ensureTriggerSuspendTableAtPath } from './sync/trigger-suspend-at-path.js';
+import { dropSealedCredentialsSidecar } from './vault-manifest.js';
 import { installSchemaWriteGuard } from './worktree-build-guard.js';
 import { assertOwnerStoreRewriteConfirmed } from './worktree-isolation-guard.js';
 
@@ -720,6 +721,8 @@ export async function importPortableBundle(
       for (const d of plan.section.databases) {
         if (path.basename(d.relPath) === 'cleo.db') {
           ensureTriggerSuspendTableAtPath(path.join(plan.destDir, d.relPath));
+          // T13545: a vault bundle's sealed-credential sidecar never stays in a live store.
+          dropSealedCredentialsSidecar(path.join(plan.destDir, d.relPath));
           // T13305: a placed project store carrying row uids records that it
           // received them (bundles made before T13250 carry no marker), so a
           // later refill never re-derives uids the bundle shares.
