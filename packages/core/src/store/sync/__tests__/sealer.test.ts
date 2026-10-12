@@ -533,6 +533,25 @@ describe('#1779 review fixes (T13029–T13033)', () => {
     expect(u).toMatchObject({ u: 'uid-T1', bfp: 'fp-T1' });
   });
 
+  it.each([
+    ['in the same batch as the K', undefined],
+    ['alone, before the K is read', 1],
+  ] as const)('a U whose row was re-keyed before sealing still carries its bfp, sealed %s (probe G, T13030)', async (_case, budget) => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    seal(db);
+    framed(db, () => db.prepare("UPDATE tasks_tasks SET title = 'x' WHERE id = 'T1'").run());
+    // The re-key moves the row to a new uid and birth_fp before the U is sealed.
+    db.exec('BEGIN IMMEDIATE');
+    rekeyRowUid(db, 'tasks_tasks', 'uid-T1', { loserBirthFp: 'fp-T1', winnerBirthFp: 'fp-T0' });
+    db.exec('COMMIT');
+    expect(db.prepare("SELECT uid FROM tasks_tasks WHERE uid = 'uid-T1'").get()).toBeUndefined();
+    seal(db, budget);
+    const u = opsOf(db, 'tasks_tasks').find((o) => o.o === 'U');
+    // The U belongs to the row as it was when written: its old uid and birth_fp.
+    expect(u).toMatchObject({ u: 'uid-T1', bfp: 'fp-T1', a: { title: 'x' } });
+  });
+
   it('chash hashes the wire image: the same row under another display id hashes alike (T13031)', async () => {
     const db = await store();
     addTask(db, 'T1');
