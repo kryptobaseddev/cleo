@@ -477,13 +477,15 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     ['PB-1', 'PB-4', 'PB-7', 'P33'],
     'an approval goes pending→decided once',
   ),
-  rule(
-    'docs.lifecycle.transitions',
-    'T12945',
-    'docs_attachments',
-    ['lifecycle_status'],
-    ['D04', 'D05', 'D31', 'D32', 'D39', 'D50'],
-    'superseded is sticky; lifecycle transitions follow a matrix',
+  implemented(
+    rule(
+      'docs.lifecycle.transitions',
+      'T12945',
+      'docs_attachments',
+      ['lifecycle_status'],
+      ['D04', 'D05', 'D31', 'D32', 'D39', 'D50'],
+      'superseded is sticky; lifecycle transitions follow a matrix',
+    ),
   ),
   // T13354 (D11165) — CleoDocs re-keyed history family; the typed merge rules
   // land with the write path (T13355).

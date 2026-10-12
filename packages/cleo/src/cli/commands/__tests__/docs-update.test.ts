@@ -293,7 +293,8 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     expect(addRes.status, `add failed; stdout=${addRes.stdout}`).toBe(0);
     const originalSha = parseEnvelope<AddResultShape>(addRes.stdout).data?.sha256;
 
-    for (const status of advertised) {
+    // superseded is sticky (T12945), so it is applied last.
+    for (const status of [...advertised.filter((s) => s !== 'superseded'), 'superseded']) {
       const res = runCli(['docs', 'update', 't12654-doc-k', '--status', status], projectRoot);
       expect(res.status, `--status ${status}: stdout=${res.stdout} stderr=${res.stderr}`).toBe(0);
       const data = parseEnvelope<UpdateResultShape>(res.stdout).data;

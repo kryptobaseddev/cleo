@@ -78,7 +78,8 @@ export const TASK_STAGE_MERGE_ORDER: readonly string[] = [
  * The typed merge rules by sync-set table. Implemented rule ids:
  * `task.status.absorbing` (T12937), `task.pipeline-stage.max` (T12938),
  * `task.verification.frozen-on-done` (T12939),
- * `docs.decision-adr-links.revoke-monotonic` (T13597).
+ * `docs.decision-adr-links.revoke-monotonic` (T13597),
+ * `docs.lifecycle.transitions` (T12945).
  */
 export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
   tasks_tasks: {
@@ -113,6 +114,21 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
         column: 'status',
         values: ['done'],
         unfreezeOps: TASK_STATUS_LEAVE_OPS,
+      },
+    },
+  },
+  docs_attachments: {
+    // A supersession writes the status and its successor together (D04).
+    groups: [['lifecycle_status', 'superseded_by']],
+    rules: {
+      // superseded is sticky (T12945): no command leaves it — the local docs
+      // domain refuses a status change or content edit of a superseded doc,
+      // so origin and receivers agree. Other statuses merge by LWW.
+      lifecycle_status: {
+        kind: 'absorbing',
+        id: 'docs.lifecycle.transitions',
+        states: ['superseded'],
+        leaveOps: [],
       },
     },
   },
