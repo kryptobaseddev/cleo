@@ -41,7 +41,7 @@ import {
   taskChangeMergeState,
   testsPassedSupersededReason,
 } from './affected-scope.js';
-import { resolveChangeSetRoot } from './change-set.js';
+import { isLandedOnOriginDefault, resolveChangeSetRoot } from './change-set.js';
 import { captureTreeHash } from './tool-cache.js';
 
 /** Gates merged CI can attest (D11149). */
@@ -59,6 +59,8 @@ export interface MergedCiDeps {
    * and the `test-run:` binding use (T12965 review M2).
    */
   currentTree?: (storeRoot: string, taskId: string) => Promise<string | null> | string | null;
+  /** Whether a commit has landed on origin's default branch; defaults to `isLandedOnOriginDefault` (T13627). */
+  landed?: (root: string, sha: string) => boolean;
   /** Canonical acceptance criteria of the task; defaults to the task store. */
   acRows?: (storeRoot: string, taskId: string) => Promise<readonly AcRow[]>;
   /** The gate write; defaults to `validateGateVerify`. */
@@ -239,6 +241,7 @@ export async function satisfyGatesFromMergedCi(
         task.verification?.evidence?.testsPassed?.atoms ?? [],
         changeSet ?? null,
         await (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
+        deps.landed ?? isLandedOnOriginDefault,
       );
       const rest = needs.filter((g) => g !== 'testsPassed');
       if (stands.ok && rest.length === 0)

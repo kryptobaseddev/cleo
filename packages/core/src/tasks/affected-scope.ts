@@ -302,8 +302,10 @@ export function scopedRunCarriedAcrossMerge(
  * only they name the test files they ran:
  *  - the merge commit is known, and the change lists files;
  *  - every report carries the HEAD and tree it was bound to, that HEAD
- *    descends from the merge commit, and the tree is still the current one
- *    (a report that predates a later edit of any file is refused);
+ *    descends from the merge commit AND has landed on origin's default
+ *    branch (a branch that merged main and added its own fix proves nothing
+ *    about main, T13627), and the tree is still the current one (a report
+ *    that predates a later edit of any file is refused);
  *  - the reports together cover the change's own files the way a
  *    pre-merge report must cover a branch ({@link testRunCoversChange}), and
  *    ran every test file the change added or edited that still exists.
@@ -311,13 +313,18 @@ export function scopedRunCarriedAcrossMerge(
  * @param atoms - Recorded `testsPassed` atoms.
  * @param changeSet - The merged change set (its merge commit, files and root).
  * @param current - The current tree hash of that root, or null.
+ * @param landed - Whether a commit has landed on origin's default branch
+ *   (`isLandedOnOriginDefault`; passed in so this module keeps loading
+ *   change-set lazily).
  * @returns `ok`, or why the recorded run does not stand in.
  * @task T13623
+ * @task T13627
  */
 export function scopedRunStandsAfterRedCi(
   atoms: ReadonlyArray<EvidenceAtom>,
   changeSet: Pick<TaskChangeSet, 'mergeCommitSha' | 'files' | 'executionRoot'> | null,
   current: string | null,
+  landed: (root: string, sha: string) => boolean,
 ): { ok: true } | { ok: false; why: string } {
   const merge = changeSet?.mergeCommitSha;
   if (!changeSet || !merge) return { ok: false, why: 'the merge commit is not known here' };
@@ -351,6 +358,11 @@ export function scopedRunStandsAfterRedCi(
         why: `test-run:${run.path} was recorded at ${run.headSha.slice(0, 12)}, which does not descend from merge commit ${merge.slice(0, 12)}`,
       };
     }
+    if (!landed(root, run.headSha))
+      return {
+        ok: false,
+        why: `test-run:${run.path} was recorded at ${run.headSha.slice(0, 12)}, which is not on origin's default branch; run it on the default branch`,
+      };
   }
   const ran = [...new Set(runs.flatMap((r) => r.testFiles ?? []))];
   const covered = testRunCoversChange(root, changeSet.files, ran);

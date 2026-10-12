@@ -22,7 +22,7 @@ import {
   testRunTreeMismatchReason,
   testsPassedSupersededReason,
 } from '../affected-scope.js';
-import { type ChangeSetDeps, hasPatchEquivalent } from '../change-set.js';
+import { type ChangeSetDeps, hasPatchEquivalent, isLandedOnOriginDefault } from '../change-set.js';
 
 const affected: EvidenceAtom = {
   kind: 'tool',
@@ -831,12 +831,13 @@ describe('T13623: a test-run on main after the merge stands in for red merged CI
     git('commit', '-q', '-am', 'a later PR');
     const head = git('rev-parse', 'HEAD');
     const tree = git('rev-parse', 'HEAD^{tree}');
+    git('update-ref', 'refs/remotes/origin/main', head);
     const changeSet = {
       mergeCommitSha: merge,
       files: ['src/a.ts', 'src/a.test.ts'],
       executionRoot: root,
     };
-    return { root, head, tree, branchHead, changeSet };
+    return { root, git, head, tree, branchHead, changeSet };
   }
 
   const run = (o: Partial<Extract<EvidenceAtom, { kind: 'test-run' }>>): EvidenceAtom => ({
@@ -854,7 +855,12 @@ describe('T13623: a test-run on main after the merge stands in for red merged CI
     const { root, head, tree, changeSet } = landed();
     try {
       expect(
-        scopedRunStandsAfterRedCi([run({ headSha: head, treeHash: tree })], changeSet, tree),
+        scopedRunStandsAfterRedCi(
+          [run({ headSha: head, treeHash: tree })],
+          changeSet,
+          tree,
+          isLandedOnOriginDefault,
+        ),
       ).toEqual({ ok: true });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -865,7 +871,7 @@ describe('T13623: a test-run on main after the merge stands in for red merged CI
     const { root, head, tree, branchHead, changeSet } = landed();
     try {
       const judge = (atoms: EvidenceAtom[], current = tree) =>
-        scopedRunStandsAfterRedCi(atoms, changeSet, current);
+        scopedRunStandsAfterRedCi(atoms, changeSet, current, isLandedOnOriginDefault);
       expect(judge([run({ headSha: head, treeHash: tree })], 'f'.repeat(40))).toMatchObject({
         ok: false,
         why: expect.stringMatching(/but the tree is now/),
@@ -886,8 +892,33 @@ describe('T13623: a test-run on main after the merge stands in for red merged CI
         why: expect.stringMatching(/only test-run reports/),
       });
       expect(
-        scopedRunStandsAfterRedCi([run({ headSha: head, treeHash: tree })], null, tree),
+        scopedRunStandsAfterRedCi(
+          [run({ headSha: head, treeHash: tree })],
+          null,
+          tree,
+          isLandedOnOriginDefault,
+        ),
       ).toMatchObject({ ok: false, why: expect.stringMatching(/merge commit is not known/) });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('refuses a run on a branch that merged main and added its own fix (T13627)', () => {
+    const { root, git, changeSet } = landed();
+    try {
+      git('switch', '-q', '-c', 'feature/fix-the-red-test');
+      writeFileSync(join(root, 'src/a.test.ts'), "import './a.js'; // fixed only here\n");
+      git('commit', '-q', '-am', 'fix the test only on this branch');
+      const branchHead = git('rev-parse', 'HEAD');
+      const branchTree = git('rev-parse', 'HEAD^{tree}');
+      expect(
+        scopedRunStandsAfterRedCi(
+          [run({ headSha: branchHead, treeHash: branchTree })],
+          changeSet,
+          branchTree,
+          isLandedOnOriginDefault,
+        ),
+      ).toMatchObject({ ok: false, why: expect.stringMatching(/not on origin's default branch/) });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
