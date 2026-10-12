@@ -316,6 +316,30 @@ describe('resolveCiEvidenceAtom', () => {
     });
   });
 
+  it('a scheduled run on the merge commit never decides its verdict (T13623)', async () => {
+    writeContext(optedIn);
+    const nightly = [
+      check('CI', {
+        source: 'workflow-run',
+        workflowPath: '.github/workflows/ci.yml',
+        event: 'schedule',
+        id: 50,
+        conclusion: 'failure',
+      }),
+      check('Unit Tests (ubuntu-latest, shard 1)', {
+        workflowPath: '.github/workflows/ci.yml',
+        event: 'schedule',
+        id: 51,
+        conclusion: 'failure',
+      }),
+    ];
+    const r = await resolve({
+      context: context('T1', ['testsPassed', 'qaPassed']),
+      fetchChecks: async () => ({ ok: true, checks: [...allGreen, ...nightly] }),
+    });
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+  });
+
   it('refuses an unmerged PR through the pr: provenance result', async () => {
     writeContext(optedIn);
     const r = await resolve({

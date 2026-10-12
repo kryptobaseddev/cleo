@@ -644,7 +644,7 @@ export async function completeTask(
           fix:
             mergedCi.kind === 'wait-for-ci'
               ? `Wait for the PR's required CI to finish on the merge commit, then re-run 'cleo complete ${options.taskId}'. Do not run the test suite locally — merged CI is the evidence.`
-              : `Merged CI concluded without proving the gates: fix CI (re-run or fix the red/skipped required check), or record a full local run: cleo verify ${options.taskId} --gate testsPassed --evidence "tool:test" and --gate qaPassed --evidence "tool:lint;tool:typecheck".`,
+              : `Merged CI concluded without proving the gates: fix CI (re-run or fix the red/skipped required check), or, on the default branch after the merge, run the change's tests and record them: cleo verify ${options.taskId} --gate testsPassed --evidence "test-run:<vitest json>" (it must cover every file of the change, T13623), plus --gate qaPassed --evidence "qa-run:<typecheck receipt>;qa-run:<lint receipt>".`,
         },
       );
     }

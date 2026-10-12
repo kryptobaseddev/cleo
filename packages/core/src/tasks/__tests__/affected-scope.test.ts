@@ -7,7 +7,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EvidenceAtom, Task, TaskChangeSet } from '@cleocode/contracts';
@@ -16,6 +16,7 @@ import {
   isScopedOnly,
   mergeStateOfChangeSet,
   scopedRunCarriedAcrossMerge,
+  scopedRunStandsAfterRedCi,
   scopedRunSupersededReason,
   taskChangeMergeState,
   testRunTreeMismatchReason,
@@ -795,6 +796,98 @@ describe('T13608: a scoped run after a fast-forward or direct landing (no merge 
       expect(await reason(root, impl)).toMatch(
         new RegExp(`files at merge commit ${impl.slice(0, 12)} differ`),
       );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('T13623: a test-run on main after the merge stands in for red merged CI', () => {
+  /** A standalone project: the change edits src/a.ts and its test, merges, then main moves on. */
+  function landed() {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'red-ci-')));
+    const git = (...a: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+        cwd: root,
+        encoding: 'utf-8',
+      }).trim();
+    git('init', '-q', '-b', 'main');
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'package.json'), '{"name":"x","type":"module"}\n');
+    writeFileSync(join(root, 'src/a.ts'), 'export const a = 1;\n');
+    writeFileSync(join(root, 'src/a.test.ts'), "import './a.js';\n");
+    writeFileSync(join(root, 'src/other.ts'), 'export const o = 1;\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'init');
+    git('switch', '-q', '-c', 'task/T1');
+    writeFileSync(join(root, 'src/a.ts'), 'export const a = 2;\n');
+    writeFileSync(join(root, 'src/a.test.ts'), "import './a.js'; // 2\n");
+    git('commit', '-q', '-am', 'T1');
+    const branchHead = git('rev-parse', 'HEAD');
+    git('switch', '-q', 'main');
+    git('merge', '-q', '--no-ff', '-m', 'Merge #5', 'task/T1');
+    const merge = git('rev-parse', 'HEAD');
+    writeFileSync(join(root, 'src/other.ts'), 'export const o = 2;\n');
+    git('commit', '-q', '-am', 'a later PR');
+    const head = git('rev-parse', 'HEAD');
+    const tree = git('rev-parse', 'HEAD^{tree}');
+    const changeSet = {
+      mergeCommitSha: merge,
+      files: ['src/a.ts', 'src/a.test.ts'],
+      executionRoot: root,
+    };
+    return { root, head, tree, branchHead, changeSet };
+  }
+
+  const run = (o: Partial<Extract<EvidenceAtom, { kind: 'test-run' }>>): EvidenceAtom => ({
+    kind: 'test-run',
+    path: 'r.json',
+    sha256: 'c'.repeat(64),
+    passCount: 1,
+    failCount: 0,
+    skipCount: 0,
+    testFiles: ['src/a.test.ts'],
+    ...o,
+  });
+
+  it('stands when it ran on a descendant of the merge, on the current tree, covering the change', () => {
+    const { root, head, tree, changeSet } = landed();
+    try {
+      expect(
+        scopedRunStandsAfterRedCi([run({ headSha: head, treeHash: tree })], changeSet, tree),
+      ).toEqual({ ok: true });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed: a moved tree, a pre-merge HEAD, an uncovered test file, no pin, or an affected tool run', () => {
+    const { root, head, tree, branchHead, changeSet } = landed();
+    try {
+      const judge = (atoms: EvidenceAtom[], current = tree) =>
+        scopedRunStandsAfterRedCi(atoms, changeSet, current);
+      expect(judge([run({ headSha: head, treeHash: tree })], 'f'.repeat(40))).toMatchObject({
+        ok: false,
+        why: expect.stringMatching(/but the tree is now/),
+      });
+      expect(judge([run({ headSha: branchHead, treeHash: tree })])).toMatchObject({
+        ok: false,
+        why: expect.stringMatching(/does not descend from merge commit/),
+      });
+      expect(judge([run({ headSha: head, treeHash: tree, testFiles: [] })])).toMatchObject({
+        ok: false,
+      });
+      expect(judge([run({ treeHash: tree })])).toMatchObject({
+        ok: false,
+        why: expect.stringMatching(/records no HEAD and tree/),
+      });
+      expect(judge([run({ headSha: head, treeHash: tree }), affected])).toMatchObject({
+        ok: false,
+        why: expect.stringMatching(/only test-run reports/),
+      });
+      expect(
+        scopedRunStandsAfterRedCi([run({ headSha: head, treeHash: tree })], null, tree),
+      ).toMatchObject({ ok: false, why: expect.stringMatching(/merge commit is not known/) });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
