@@ -12,8 +12,13 @@
  * `--remove <id>` drops one entry whatever its liveness, for a holder the
  * probes cannot identify but the operator knows is gone.
  *
+ * Each `cleo run` holder also shows what it measures against what it is
+ * charged, how long it has run and idled, and whether it is overdue or hung
+ * (T13563).
+ *
  * @task T12113 (gh#1222)
  * @task T13133
+ * @task T13563
  */
 
 import {
@@ -24,6 +29,7 @@ import {
   reapLedger,
   removeLedgerEntry,
 } from '@cleocode/core/resources/admission-ledger.js';
+import { listRunJobs } from '@cleocode/core/resources/run-admission.js';
 import { CANONICAL_TOOLS } from '@cleocode/core/tasks/tool-resolver.js';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
@@ -83,6 +89,8 @@ export const doctorToolLocksCommand = defineCommand({
 
     // Report state AFTER any reap, so what is shown is what is actually in force.
     const now = Date.now();
+    // T13563: the runner's own record carries the measured tree and the watchdog's verdicts.
+    const runs = new Map(listRunJobs().map((j) => [j.pid, j]));
     const entries = readLedger()
       .filter((e) => requested === null || e.label === `tool:${requested}`)
       .map((e) => {
@@ -106,6 +114,20 @@ export const doctorToolLocksCommand = defineCommand({
           toolGroups: e.toolGroups,
           alive,
           orphaned: !alive,
+          run: ((r) =>
+            r === undefined
+              ? null
+              : {
+                  sessionId: r.sessionId,
+                  childPid: r.childPid,
+                  chargedBytes: e.footprintBytes,
+                  measuredRssBytes: r.measuredRssBytes ?? null,
+                  cpuMs: r.cpuMs ?? null,
+                  elapsedMs: now - r.startedAtMs,
+                  idleMs: typeof r.idleSinceMs === 'number' ? now - r.idleSinceMs : 0,
+                  overdue: typeof r.overdueAtMs === 'number',
+                  hung: typeof r.hungAtMs === 'number',
+                })(runs.get(e.pid)),
         };
       });
     const orphaned = entries.filter((e) => e.orphaned);
@@ -121,6 +143,8 @@ export const doctorToolLocksCommand = defineCommand({
         heldCount: held.length,
         waitingCount: entries.length - held.length,
         orphanedCount: orphaned.length,
+        overdueCount: entries.filter((e) => e.run?.overdue === true).length,
+        hungCount: entries.filter((e) => e.run?.hung === true).length,
         foreignEntries,
         reaped,
         reapApplied: args.reap === true,

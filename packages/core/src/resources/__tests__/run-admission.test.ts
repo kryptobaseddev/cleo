@@ -31,15 +31,20 @@ import {
   looksHeavy,
   MAX_PAUSE_MS,
   parentRunJob,
+  parsePsTime,
   processAncestors,
+  RUN_WATCH_START,
   type RunJob,
   reapOrphans,
   redactCommand,
   resolveRunClass,
   runnerState,
   runningEntries,
+  runWatchLimits,
   signalGroup,
   signalPid,
+  treeUsageFromTable,
+  watchRun,
   writeRunJob,
 } from '../run-admission.js';
 
@@ -843,5 +848,85 @@ describe('buildRunDeferral / runningEntries', () => {
     });
     expect(alternatives[0]?.command).toContain('--filter');
     expect(alternatives.some((a) => a.command.includes('ci:'))).toBe(false);
+  });
+});
+
+describe('process-tree watchdog (T13563)', () => {
+  it('parses ps cpu time on macOS and Linux', () => {
+    expect(parsePsTime('0:01.50')).toBe(1500);
+    expect(parsePsTime('01:02:03')).toBe(3_723_000);
+    expect(parsePsTime('2-00:00:01')).toBe(172_801_000);
+    expect(Number.isNaN(parsePsTime('junk'))).toBe(true);
+  });
+
+  it('sums a tree from one ps table, ignoring other processes', () => {
+    const table = [
+      '  10     1   0:05.00  1000',
+      '  11    10   0:01.00   500',
+      '  12    11   0:00.50   250',
+      '  99     1   9:00.00  9999',
+    ].join('\n');
+    expect(treeUsageFromTable(table, 10)).toEqual({
+      cpuMs: 6500,
+      rssBytes: 1750 * 1024,
+      processes: 3,
+    });
+    expect(treeUsageFromTable(table, 42)).toBeNull();
+  });
+
+  it('flags hung after the idle window, clears it when CPU moves, and never counts a paused run as idle', () => {
+    const limits = { maxWallMs: null, idleWindowMs: 60_000 };
+    const usage = (cpuMs: number) => ({ cpuMs, rssBytes: 1, processes: 1 });
+    const at = (nowMs: number, cpuMs: number, paused = false) => ({
+      nowMs,
+      startedAtMs: 0,
+      pausedTotalMs: 0,
+      paused,
+      usage: usage(cpuMs),
+    });
+    let s = watchRun(RUN_WATCH_START, at(0, 100), limits);
+    s = watchRun(s.next, at(30_000, 100), limits);
+    expect(s.events).toEqual([]);
+    s = watchRun(s.next, at(90_000, 100), limits);
+    expect(s.events).toEqual(['hung']);
+    s = watchRun(s.next, at(120_000, 100), limits);
+    expect(s.events).toEqual([]);
+    s = watchRun(s.next, at(150_000, 5_000), limits);
+    expect(s.events).toEqual(['active-again']);
+    expect(s.next.hungAtMs).toBeNull();
+    // Paused: idle never accrues.
+    let p = watchRun(RUN_WATCH_START, at(0, 100), limits);
+    p = watchRun(p.next, at(600_000, 100, true), limits);
+    expect(p.events).toEqual([]);
+    expect(p.next.idleSinceMs).toBeNull();
+  });
+
+  it('flags overdue once past the unpaused maximum wall time', () => {
+    const limits = { maxWallMs: 60_000, idleWindowMs: 10 * 60_000 };
+    const at = (nowMs: number, pausedTotalMs = 0) => ({
+      nowMs,
+      startedAtMs: 0,
+      pausedTotalMs,
+      paused: false,
+      usage: null,
+    });
+    expect(watchRun(RUN_WATCH_START, at(90_000, 40_000), limits).events).toEqual([]);
+    const first = watchRun(RUN_WATCH_START, at(90_000), limits);
+    expect(first.events).toEqual(['overdue']);
+    expect(watchRun(first.next, at(120_000), limits).events).toEqual([]);
+  });
+
+  it('reads per-run limits from the environment, else the class defaults', () => {
+    expect(runWatchLimits('test-run', {})).toEqual({
+      maxWallMs: 60 * 60_000,
+      idleWindowMs: 10 * 60_000,
+    });
+    expect(
+      runWatchLimits('test-run', { CLEO_RUN_MAX_WALL_MIN: '5', CLEO_RUN_IDLE_MIN: '2' }),
+    ).toEqual({
+      maxWallMs: 5 * 60_000,
+      idleWindowMs: 2 * 60_000,
+    });
+    expect(runWatchLimits('interactive-cli', {}).maxWallMs).toBeNull();
   });
 });
