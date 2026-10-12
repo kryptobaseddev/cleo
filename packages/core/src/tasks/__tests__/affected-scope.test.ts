@@ -709,3 +709,94 @@ describe('a tree-pinned scoped run carries across the merge (T13495)', () => {
     );
   });
 });
+
+describe('T13608: a scoped run after a fast-forward or direct landing (no merge commit)', () => {
+  const sh = (cwd: string, args: string[]): string =>
+    execFileSync('git', args, {
+      cwd,
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@example.invalid',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@example.invalid',
+        GIT_CONFIG_NOSYSTEM: '1',
+      },
+    }).trim();
+  const noChangeSet: TaskChangeSet = {
+    source: 'none',
+    executionRoot: '/repo',
+    rootSource: 'store',
+    files: [],
+    deletedFiles: [],
+    docs: [],
+    decisions: [],
+    candidates: [],
+    implementedEvidence: '',
+    blockers: [],
+    warnings: [],
+  };
+  const run = (treeHash: string): EvidenceAtom => ({
+    kind: 'test-run',
+    path: 'reports/r.json',
+    sha256: 'c'.repeat(64),
+    passCount: 1,
+    failCount: 0,
+    skipCount: 0,
+    treeHash,
+  });
+
+  /** A repo whose implementing commit is fast-forwarded onto main. */
+  function landed(): { root: string; impl: string } {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t13608-')));
+    sh(root, ['init', '-q', '-b', 'main']);
+    writeFileSync(join(root, 'a.ts'), 'export const a = 1;\n');
+    writeFileSync(join(root, 'b.ts'), 'export const b = 1;\n');
+    sh(root, ['add', '.']);
+    sh(root, ['commit', '-q', '-m', 'base']);
+    writeFileSync(join(root, 'a.ts'), 'export const a = 2;\n');
+    sh(root, ['commit', '-q', '-am', 'T9001: implement']);
+    return { root, impl: sh(root, ['rev-parse', 'HEAD']) };
+  }
+
+  async function reason(root: string, impl: string): Promise<string | null> {
+    const tree = sh(root, ['rev-parse', 'HEAD^{tree}']);
+    const t = task([run(tree)], [{ kind: 'commit', sha: impl, shortSha: impl.slice(0, 7) }]);
+    const info = await taskChangeMergeState(t, root, {
+      derived: { ...noChangeSet, executionRoot: root },
+      executionRoot: root,
+      isLanded: () => true,
+      changeSet: { viewPr: async () => null, listPrsForCommit: async () => [] },
+    });
+    return testsPassedSupersededReason(t.verification?.evidence?.testsPassed?.atoms ?? [], {
+      mergeState: () => info,
+      currentTree: () => tree,
+    });
+  }
+
+  it('stands: the run tested the landed commit, and later unrelated main commits do not matter', async () => {
+    const { root, impl } = landed();
+    try {
+      expect(await reason(root, impl)).toBeNull();
+      writeFileSync(join(root, 'b.ts'), 'export const b = 2;\n');
+      sh(root, ['commit', '-q', '-am', 'unrelated']);
+      expect(await reason(root, impl)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses once main edits a file the implementing commit changed', async () => {
+    const { root, impl } = landed();
+    try {
+      writeFileSync(join(root, 'a.ts'), 'export const a = 3;\n');
+      sh(root, ['commit', '-q', '-am', 'later edit']);
+      expect(await reason(root, impl)).toMatch(
+        new RegExp(`files at merge commit ${impl.slice(0, 12)} differ`),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
