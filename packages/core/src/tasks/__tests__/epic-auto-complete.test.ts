@@ -211,6 +211,59 @@ describe('epic auto-complete', () => {
     expect(epic?.status).toBe('done');
   });
 
+  it('a SQLITE_BUSY retry recomputes the rollup: a parent made ineligible meanwhile stays open (T13614)', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Epic',
+        type: 'epic',
+        status: 'active',
+        priority: 'medium',
+        acceptance: ['AC1'],
+      },
+      {
+        id: 'T002',
+        title: 'Sub 1',
+        type: 'task',
+        status: 'done',
+        priority: 'medium',
+        parentId: 'T001',
+        acceptance: ['AC1'],
+        completedAt: new Date().toISOString(),
+      },
+      {
+        id: 'T003',
+        title: 'Sub 2',
+        type: 'task',
+        status: 'active',
+        priority: 'medium',
+        parentId: 'T001',
+        acceptance: ['AC1'],
+      },
+    ]);
+    const epic = (await accessor.loadSingleTask('T001'))!;
+    // The accessor retries a transaction that fails with SQLITE_BUSY. Attempt 1
+    // rolls the epic up, then fails; before attempt 2 a concurrent writer opts
+    // the epic out of auto-completion.
+    let attempt = 0;
+    const retrying: DataAccessor = {
+      ...accessor,
+      transaction: (fn) =>
+        accessor.transaction(async (tx) => {
+          attempt += 1;
+          if (attempt === 2) await tx.upsertSingleTask({ ...epic, noAutoComplete: true });
+          const result = await fn(tx);
+          if (attempt === 1) throw new Error('database is locked');
+          return result;
+        }),
+    };
+    const result = await completeTask({ taskId: 'T003' }, env.tempDir, retrying);
+    expect(attempt).toBe(2);
+    expect(result.task.status).toBe('done');
+    expect(result.autoCompleted ?? []).not.toContain('T001');
+    expect((await accessor.loadSingleTask('T001'))?.status).toBe('active');
+  });
+
   it('does NOT auto-complete epic when remaining subtask is blocked (not terminal)', async () => {
     await seedTasks(accessor, [
       {
