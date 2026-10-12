@@ -117,7 +117,8 @@ export async function prepareSecretSeals(
     for (const [col, value] of Object.entries(row.values)) {
       const live = canonicalJson(value);
       if (value === null) {
-        out.set(secretSealKey(row.table, row.uid, col), { live, sealed: null });
+        for (const uid of [row.uid, ...row.capturedUids])
+          out.set(secretSealKey(row.table, uid, col), { live, sealed: null });
         continue;
       }
       const id = CREDENTIAL_IDS[row.table]?.[col]?.(row.key);
@@ -137,13 +138,16 @@ export async function prepareSecretSeals(
           continue;
         }
       }
-      const sealed = seal(
-        secretKey,
-        Buffer.from(plaintext, 'utf8'),
-        SECRET_SEAL_PURPOSE,
-        secretSealKey(row.table, row.uid, col),
-      ).toString('base64');
-      out.set(secretSealKey(row.table, row.uid, col), { live, sealed });
+      // Under the live uid, and under any older uid a held capture still carries (T13603).
+      for (const uid of [row.uid, ...row.capturedUids]) {
+        const sealed = seal(
+          secretKey,
+          Buffer.from(plaintext, 'utf8'),
+          SECRET_SEAL_PURPOSE,
+          secretSealKey(row.table, uid, col),
+        ).toString('base64');
+        out.set(secretSealKey(row.table, uid, col), { live, sealed });
+      }
     }
   }
   return out;

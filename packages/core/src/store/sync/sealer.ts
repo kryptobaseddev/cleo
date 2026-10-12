@@ -247,6 +247,11 @@ export interface PendingSecretRow {
   readonly key: Readonly<Record<string, WireValue>>;
   /** Every secret column's live wire value. */
   readonly values: Readonly<Record<string, WireValue>>;
+  /**
+   * Other uids the row's live captures still carry (T13603): a held insert
+   * captured before a re-key keeps its old uid, so phase A seals under it too.
+   */
+  readonly capturedUids: readonly string[];
 }
 
 /** The two identity columns an op carries as `u` / `bfp` instead of in its images. */
@@ -807,7 +812,13 @@ export function pendingSecretRows(db: DatabaseSync, scope: TableScope): PendingS
     def.key.forEach((k, i) => {
       key[k] = parts[i] ?? null;
     });
-    out.push({ table: c.tbl, uid: row.uid, key, values });
+    const captured = ctx
+      .stmt(
+        `SELECT DISTINCT uid FROM _sync_capture
+         WHERE state = 'live' AND tbl = ? AND rk = ? AND uid IS NOT NULL AND uid IS NOT ?`,
+      )
+      .all(c.tbl, c.rk, row.uid) as Array<{ uid: string }>;
+    out.push({ table: c.tbl, uid: row.uid, key, values, capturedUids: captured.map((r) => r.uid) });
   }
   return out;
 }
