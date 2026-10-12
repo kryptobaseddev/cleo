@@ -371,6 +371,15 @@ export interface DocsFetchResult {
   inlined: boolean;
   /** Current attachment backend in use. */
   attachmentBackend?: AttachmentBackend;
+  /**
+   * `D####` brain ledger decisions linked to this ADR doc through
+   * `decision_adr_links` (T13359, spec `cleodocs-rearch-design` §4/§10,
+   * D11165) — the ADR→decision direction of the two-way trace. Present only
+   * for fetched docs that have live (non-revoked) links; the ledger stays
+   * the operational authority, so an ADR always names the decisions it
+   * ratifies.
+   */
+  linkedDecisions?: string[];
 }
 
 // --------------------------------------------------------------------------

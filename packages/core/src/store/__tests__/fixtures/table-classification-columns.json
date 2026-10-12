@@ -872,6 +872,16 @@
       "name",
       "wave_id"
     ],
+    "decision_adr_links": [
+      "adr_slug",
+      "created_at",
+      "decision_id",
+      "linked_by",
+      "revoked_by",
+      "status",
+      "uid",
+      "updated_at"
+    ],
     "deriver_queue": [
       "claimed_at",
       "claimed_by",

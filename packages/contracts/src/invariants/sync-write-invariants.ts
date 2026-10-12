@@ -519,6 +519,16 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     [],
     'the projection keeps the max-HLC head; a losing concurrent head is recorded (conflict_count/last_conflict_json), never silently shadowed',
   ),
+  // T13359 (D11165) — decisions-vs-ADRs link table; the natural composite key
+  // makes identical links merge to one row, and the revoke is a one-way latch.
+  rule(
+    'docs.decision-adr-links.revoke-monotonic',
+    'T13359',
+    'decision_adr_links',
+    ['status', 'revoked_by', 'updated_at'],
+    [],
+    'status flips linked→revoked exactly once (the row is the tombstone, never DELETEd); a revoked pair is never re-linked, so no merge rule fires',
+  ),
 
   // §3.6.0 identity-layer rows.
   {
