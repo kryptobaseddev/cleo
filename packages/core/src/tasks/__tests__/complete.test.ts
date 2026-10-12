@@ -38,6 +38,35 @@ vi.mock('../../release/ci-evidence.js', async (importOriginal) => {
   };
 });
 
+/** T13613: slow a pre-check or the typed revalidation, and count revalidations. */
+const slow = vi.hoisted(() => ({ preCheckMs: 0, revalidateMs: 0, revalidations: 0 }));
+const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+
+vi.mock('../nexus-impact-gate.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../nexus-impact-gate.js')>();
+  return {
+    ...actual,
+    validateNexusImpactGate: async (...args: Parameters<typeof actual.validateNexusImpactGate>) => {
+      if (slow.preCheckMs > 0) await sleep(slow.preCheckMs);
+      return actual.validateNexusImpactGate(...args);
+    },
+  };
+});
+
+vi.mock('../gate-runner.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../gate-runner.js')>();
+  return {
+    ...actual,
+    validateTaskGateCompletion: async (
+      ...args: Parameters<typeof actual.validateTaskGateCompletion>
+    ) => {
+      slow.revalidations += 1;
+      if (slow.revalidateMs > 0) await sleep(slow.revalidateMs);
+      return actual.validateTaskGateCompletion(...args);
+    },
+  };
+});
+
 describe('completeTask', () => {
   let env: TestDbEnv;
   let accessor: DataAccessor;
@@ -62,6 +91,8 @@ describe('completeTask', () => {
   };
 
   afterEach(async () => {
+    Object.assign(slow, { preCheckMs: 0, revalidateMs: 0, revalidations: 0 });
+    vi.unstubAllEnvs();
     _forceSystemdRunAvailable(undefined);
     delete process.env['CLEO_DIR'];
     resetDbState();
@@ -404,6 +435,35 @@ describe('completeTask', () => {
     expect(persistedCompletion('SELECT * FROM tasks_evidence_ac_bindings')).toBe(bindings);
     expect(persistedCompletion('SELECT * FROM tasks_audit_log')).toBe(receipts);
   });
+
+  it('typed completion survives pre-checks slower than the old entry-anchored 2 s, revalidating once (T13613)', async () => {
+    await typedFixture();
+    await verifyTypedFixture();
+    slow.revalidations = 0;
+    slow.preCheckMs = 2_500;
+    await completeTask({ taskId: 'T001' }, env.tempDir, accessor);
+    expect(persistedCompletion("SELECT status FROM tasks_tasks WHERE id='T001'")).toBe(
+      '[{"status":"done"}]',
+    );
+    expect(slow.revalidations).toBe(1);
+  }, 30_000);
+
+  it('a typed revalidation past its own budget is a named timeout, not E_INTERNAL (T13613)', async () => {
+    await typedFixture();
+    await verifyTypedFixture();
+    // Budget = the gate's tool deadline (1 ms here) + 2 s of bookkeeping.
+    vi.stubEnv('CLEO_GATE_TIMEOUT_MS', '1');
+    slow.revalidateMs = 2_500;
+    await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toMatchObject({
+      code: 1,
+      message: expect.stringMatching(
+        /revalidation for T001 did not finish within its 2001 ms budget/,
+      ),
+    });
+    expect(persistedCompletion("SELECT status FROM tasks_tasks WHERE id='T001'")).toBe(
+      '[{"status":"pending"}]',
+    );
+  }, 30_000);
 
   it('typed completion retains captured cancellation through the final native write transaction', async () => {
     await typedFixture();
