@@ -9,7 +9,13 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runCommandAutoSync, startCommandAutoSync } from '../auto-sync-command.js';
+import {
+  autoSyncSuppressedBy,
+  autoSyncSuppressedWarning,
+  runCommandAutoSync,
+  startCommandAutoSync,
+  W_AUTO_SYNC_SUPPRESSED,
+} from '../auto-sync-command.js';
 
 let dir: string;
 let home: string;
@@ -182,5 +188,20 @@ describe('runCommandAutoSync (T13553)', () => {
       'disabled',
     );
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('cleo cloud status names what suppresses auto-sync (T13602)', () => {
+  it('CI=true: the warning names CI', () => {
+    const w = autoSyncSuppressedWarning({ CI: 'true' }, released);
+    expect(w?.code).toBe(W_AUTO_SYNC_SUPPRESSED);
+    expect(w?.message).toContain('CI is set');
+  });
+
+  it('names VITEST and NODE_ENV=test; nothing for CI=false or while unreleased', () => {
+    expect(autoSyncSuppressedBy({ VITEST: 'true' })).toBe('VITEST');
+    expect(autoSyncSuppressedBy({ NODE_ENV: 'test' })).toBe('NODE_ENV=test');
+    expect(autoSyncSuppressedWarning({ CI: 'false' }, released)).toBeNull();
+    expect(autoSyncSuppressedWarning({ CI: 'true' })).toBeNull();
   });
 });

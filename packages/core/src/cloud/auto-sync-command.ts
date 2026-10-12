@@ -25,6 +25,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import type { CloudWarning } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
 import {
   type AutoSyncOutcome,
@@ -36,20 +37,43 @@ import {
 /** Environment switch that turns the command piggyback off (`1`). */
 export const AUTO_SYNC_DISABLE_ENV = 'CLEO_DISABLE_AUTO_SYNC';
 
+/** The `cleo cloud status` warning code while a test runner or CI suppresses auto-sync (T13602). */
+export const W_AUTO_SYNC_SUPPRESSED = 'W_AUTO_SYNC_SUPPRESSED';
+
 /**
- * Whether the environment is a test runner or CI: `VITEST` set, `NODE_ENV=test`,
- * or `CI` set to anything but empty, `0` or `false`.
+ * The test-runner or CI variable that suppresses the piggyback: `VITEST` set,
+ * `NODE_ENV=test`, or `CI` set to anything but empty, `0` or `false`. The one
+ * predicate the spawn guard and `cleo cloud status` both read (T13602).
  *
  * @param env - The environment.
- * @returns True when the piggyback must not spawn.
+ * @returns `VITEST`, `NODE_ENV=test` or `CI`, or `null` when none applies.
  */
-export function isTestOrCiEnv(env: NodeJS.ProcessEnv): boolean {
+export function autoSyncSuppressedBy(env: NodeJS.ProcessEnv): string | null {
   const ci = (env['CI'] ?? '').trim().toLowerCase();
-  return (
-    Boolean(env['VITEST']) ||
-    env['NODE_ENV'] === 'test' ||
-    (ci !== '' && ci !== '0' && ci !== 'false')
-  );
+  if (env['VITEST']) return 'VITEST';
+  if (env['NODE_ENV'] === 'test') return 'NODE_ENV=test';
+  if (ci !== '' && ci !== '0' && ci !== 'false') return 'CI';
+  return null;
+}
+
+/**
+ * The `cleo cloud status` warning while a test runner or CI suppresses the
+ * background sync. Absent while sync is unreleased: nothing would run anyway.
+ *
+ * @param env - The environment. @defaultValue process.env
+ * @param unreleasedFlags - The unreleased flags; test seam. @defaultValue UNRELEASED_FLAGS
+ * @returns The warning naming the variable, or `null`.
+ */
+export function autoSyncSuppressedWarning(
+  env: NodeJS.ProcessEnv = process.env,
+  unreleasedFlags?: ReadonlySet<string>,
+): CloudWarning | null {
+  const by = autoSyncSuppressedBy(env);
+  if (by === null || !autoSyncReleased(unreleasedFlags)) return null;
+  return {
+    code: W_AUTO_SYNC_SUPPRESSED,
+    message: `background auto-sync is suppressed: ${by} is set (test runner or CI), so commands start no sync; run \`cleo cloud sync\` to sync`,
+  };
 }
 
 /** Root verbs that never piggyback: heavy/evidence runs and explicit cloud commands. */
@@ -104,7 +128,7 @@ export function startCommandAutoSync(opts: CommandAutoSyncOptions): CommandAutoS
     if (env[AUTO_SYNC_DISABLE_ENV] === '1') return 'disabled';
     // Inert until T13549 releases sync.push/sync.pull: no stamp, no spawn.
     if (!autoSyncReleased(opts.unreleasedFlags)) return 'disabled';
-    if (env['CLEO_RUN_CLASS'] !== undefined || isTestOrCiEnv(env)) return 'skipped';
+    if (env['CLEO_RUN_CLASS'] !== undefined || autoSyncSuppressedBy(env) !== null) return 'skipped';
     if (opts.verb !== undefined && SKIP_VERBS.has(opts.verb)) return 'skipped';
     const gap = autoSyncIntervalMs();
     if (gap === null) return 'disabled';
