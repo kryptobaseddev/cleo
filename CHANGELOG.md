@@ -1,5 +1,11 @@
 # Changelog
 
+## [2026.10.10-canary.1] (2026-10-12)
+
+### Added
+
+- Share project hook rules across Git, coding agents and worktree setup with explicit activation and ownership diagnostics. _(provenance: [T13342](https://github.com/kryptobaseddev/cleo/search?q=T13342&type=commits), [T13343](https://github.com/kryptobaseddev/cleo/search?q=T13343&type=commits), [T13344](https://github.com/kryptobaseddev/cleo/search?q=T13344&type=commits), [T13345](https://github.com/kryptobaseddev/cleo/search?q=T13345&type=commits), [T13346](https://github.com/kryptobaseddev/cleo/search?q=T13346&type=commits))_
+
 ## [2026.10.9] (2026-10-11)
 
 > **Upgrading:** from 2026.10.7 or later, `cleo self-update` is safe. This release contains a breaking change to evidence writes (see BREAKING CHANGES): run typed gates with `cleo verify <id> --run` before recording evidence. Cross-device journal sync, automatic sync and project hooks ship inert: sync stays off until the Stage C exit gate releases its flags, and hooks-v1 stays off on stable builds until its promotion.
