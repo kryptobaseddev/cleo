@@ -615,6 +615,60 @@ describe('releasePlan — hooks-v1 gate opened by source (T13555)', () => {
   });
 });
 
+describe('releasePlan — a shipped version is immutable (T13619)', () => {
+  it.each([
+    'committed',
+    'tagged',
+    'pushed',
+    'published',
+    'reconciled',
+    'rolled_back',
+  ] as const)('refuses to re-plan a version whose row is %s, writing nothing', async (status) => {
+    await seedEpicWithChildren('T9999', 1);
+    const db = await getDb(testDir);
+    await db.insert(schema.releases).values({
+      id: 'testhash00000:v2026.6.0',
+      version: 'v2026.6.0',
+      channel: 'latest',
+      status,
+    });
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.code).toBe('E_INVALID_STATE');
+    expect(result.error.message).toContain('v2026.6.0');
+    // The origin keeps the shipped status, exactly as every synced peer does.
+    const rows = await db.select().from(schema.releases).all();
+    expect(rows.map((r) => [r.version, r.status])).toEqual([['v2026.6.0', status]]);
+    expect(existsSync(join(testDir, '.cleo/release/v2026.6.0.plan.json'))).toBe(false);
+  });
+
+  it('still re-plans a version that has not shipped', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    const db = await getDb(testDir);
+    await db.insert(schema.releases).values({
+      id: 'testhash00000:v2026.6.0',
+      version: 'v2026.6.0',
+      channel: 'latest',
+      status: 'pr-opened',
+    });
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
 describe('releasePlan — error envelopes', () => {
   it('returns E_EPIC_NOT_FOUND when the epic does not exist', async () => {
     const result = await releasePlan({
