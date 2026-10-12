@@ -5,11 +5,17 @@
  * @task T13553
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runCommandAutoSync, startCommandAutoSync } from '../auto-sync-command.js';
+import { autoSyncSuppressedBy } from '../auto-sync.js';
+import {
+  autoSyncSuppressedWarning,
+  runCommandAutoSync,
+  startCommandAutoSync,
+  W_AUTO_SYNC_SUPPRESSED,
+} from '../auto-sync-command.js';
 
 let dir: string;
 let home: string;
@@ -24,6 +30,10 @@ beforeEach(() => {
   vi.stubEnv('CLEO_AUTO_SYNC_INTERVAL_MIN', '');
   vi.stubEnv('CLEO_DISABLE_AUTO_SYNC', '');
   vi.stubEnv('CLEO_RUN_CLASS', undefined);
+  // The guard under test treats vitest and CI as no-spawn; these tests exercise the logic outside them.
+  vi.stubEnv('VITEST', undefined);
+  vi.stubEnv('CI', undefined);
+  vi.stubEnv('NODE_ENV', undefined);
 });
 
 afterEach(() => {
@@ -130,6 +140,33 @@ describe('startCommandAutoSync (T13553)', () => {
   });
 });
 
+describe('the test/CI guard (T13553)', () => {
+  it('a linked fixture spawns nothing under vitest, NODE_ENV=test or CI, flags released or not', () => {
+    // A linked project, as the CLI hook sees it.
+    mkdirSync(join(project, '.cleo'), { recursive: true });
+    writeFileSync(join(project, '.cleo', 'nexus-link.json'), '{}');
+    const spawnWorker = vi.fn();
+    const base = { projectRoot: project, verb: 'show', cleoHome: home, spawnWorker };
+    for (const [key, value] of [
+      ['VITEST', 'true'],
+      ['NODE_ENV', 'test'],
+      ['CI', 'true'],
+      ['CI', '1'],
+    ] as const) {
+      vi.stubEnv(key, value);
+      expect(startCommandAutoSync({ ...base, unreleasedFlags: released }), `${key}=${value}`).toBe(
+        'skipped',
+      );
+      vi.stubEnv(key, undefined);
+    }
+    expect(spawnWorker).not.toHaveBeenCalled();
+    expect(existsSync(join(home, 'auto-sync-command.stamp'))).toBe(false);
+    // CI=false is not CI.
+    vi.stubEnv('CI', 'false');
+    expect(startCommandAutoSync({ ...base, unreleasedFlags: released })).toBe('spawned');
+  });
+});
+
 describe('runCommandAutoSync (T13553)', () => {
   it('the config opt-out cloud.autoSync: false skips the sync', async () => {
     const sync = vi.fn(async () => 'synced' as const);
@@ -151,5 +188,20 @@ describe('runCommandAutoSync (T13553)', () => {
       'disabled',
     );
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('cleo cloud status names what suppresses auto-sync (T13602)', () => {
+  it('CI=true: the warning names CI', () => {
+    const w = autoSyncSuppressedWarning({ CI: 'true' }, released);
+    expect(w?.code).toBe(W_AUTO_SYNC_SUPPRESSED);
+    expect(w?.message).toContain('CI is set');
+  });
+
+  it('names VITEST and NODE_ENV=test; nothing for CI=false or while unreleased', () => {
+    expect(autoSyncSuppressedBy({ VITEST: 'true' })).toBe('VITEST');
+    expect(autoSyncSuppressedBy({ NODE_ENV: 'test' })).toBe('NODE_ENV=test');
+    expect(autoSyncSuppressedWarning({ CI: 'false' }, released)).toBeNull();
+    expect(autoSyncSuppressedWarning({ CI: 'true' })).toBeNull();
   });
 });

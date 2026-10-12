@@ -226,7 +226,12 @@ export async function testsPassedSupersededReason(
   // T13495: a tree-pinned scoped result carries across the merge when the
   // change it tested reached the default branch byte for byte.
   if (verdict.state === 'merged') {
-    const carried = scopedRunCarriedAcrossMerge(atoms, verdict.changeSet ?? null);
+    // T13608: a fast-forward or direct landing has no merge commit; judge
+    // against the landed implementing commit instead.
+    const target = verdict.changeSet?.mergeCommitSha
+      ? verdict.changeSet
+      : (verdict.landing ?? verdict.changeSet ?? null);
+    const carried = scopedRunCarriedAcrossMerge(atoms, target);
     if (carried.ok) return null;
     return scopedRunSupersededReason(atoms, verdict.state, verdict.lookupFailed, carried.why);
   }
@@ -292,7 +297,53 @@ export function scopedRunCarriedAcrossMerge(
  * ({@link TaskMergeInfo} carries it), so a scoped result can be compared with
  * the merge commit (T13495).
  */
-export type MergedVerdict = MergeVerdict & { changeSet?: TaskChangeSet | null };
+export type MergedVerdict = MergeVerdict & {
+  changeSet?: TaskChangeSet | null;
+  landing?: LandedCarryTarget | null;
+};
+
+/**
+ * What a scoped result is compared with when the change landed on the default
+ * branch with no merge commit (fast-forward or direct push, T13608): the newest
+ * landed implementing commit, and every file the implementing commits changed.
+ */
+export type LandedCarryTarget = Pick<
+  TaskChangeSet,
+  'mergeCommitSha' | 'files' | 'deletedFiles' | 'executionRoot'
+>;
+
+/**
+ * The carry target of commits that reached the default branch themselves.
+ * Fails closed: no single newest commit, or a git failure, gives `null`.
+ *
+ * @param root - Repository the commits live in.
+ * @param commits - The task's implementing commits, all landed.
+ * @param contains - Whether `ancestor` is contained in `descendant`.
+ * @returns The newest commit and the files the commits changed, or null.
+ * @task T13608
+ */
+export function landedCarryTarget(
+  root: string,
+  commits: readonly string[],
+  contains: (root: string, ancestor: string, descendant: string) => boolean,
+): LandedCarryTarget | null {
+  const newest = commits.find((c) => commits.every((o) => o === c || contains(root, o, c)));
+  if (!newest) return null;
+  const files = new Set<string>();
+  try {
+    for (const sha of commits) {
+      const out = execFileSync(
+        'git',
+        ['diff-tree', '--no-commit-id', '--name-only', '--no-renames', '-r', '--root', sha],
+        { cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] },
+      );
+      for (const line of out.split('\n')) if (line) files.add(line);
+    }
+  } catch {
+    return null;
+  }
+  return { mergeCommitSha: newest, files: [...files], deletedFiles: [], executionRoot: root };
+}
 
 /** Git and `gh` probes {@link taskChangeMergeState} uses; injectable for tests. */
 export interface MergeProbeDeps {
@@ -344,6 +395,8 @@ export interface TaskMergeInfo extends MergeVerdict {
    * merged PR is named — every lookup answered, and none carries the change.
    */
   unproven?: string;
+  /** The carry target when the commits landed with no merge commit (T13608). */
+  landing?: LandedCarryTarget | null;
 }
 
 function prRefOf(pr: { prNumber: number; componentPrNumber?: number }): string {
@@ -592,12 +645,15 @@ export async function taskChangeMergeState(
 
   const isLanded = deps.isLanded ?? cs.isLandedOnOriginDefault;
   if (commits.every((sha) => isLanded(at, sha))) {
+    const landing = landedCarryTarget(at, commits, probes.contains);
     // T12959 review: with a failed lookup the carrier is unknown, not absent.
-    if (failures.length > 0) return { state: 'merged', changeSet, prRef: null, ...lookupFailed() };
+    if (failures.length > 0)
+      return { state: 'merged', changeSet, prRef: null, landing, ...lookupFailed() };
     return {
       state: 'merged',
       changeSet,
       prRef: null,
+      landing,
       unproven:
         `implementation commit(s) ${shortShas(commits)} reached the default branch, but no merged PR is known to carry them` +
         (derivedRef !== null ? ` (PR #${derivedRef}, which cites ${task.id}, does not)` : ''),

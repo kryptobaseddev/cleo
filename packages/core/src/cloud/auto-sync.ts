@@ -88,6 +88,25 @@ export interface AutoSyncOptions {
   ) => Promise<{ release: () => Promise<void>; abandon?: () => Promise<void> }>;
   /** The unreleased flags; test seam. @defaultValue UNRELEASED_FLAGS */
   unreleasedFlags?: ReadonlySet<string>;
+  /** Environment read by {@link autoSyncSuppressedBy}. @defaultValue process.env */
+  env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * The test-runner or CI variable that suppresses every automatic sync: `VITEST` set,
+ * `NODE_ENV=test`, or `CI` set to anything but empty, `0` or `false`. The one
+ * predicate {@link autoCloudSync}, the command piggyback and `cleo cloud status`
+ * read (T13602, T13606); an explicit `cleo cloud sync` is unaffected.
+ *
+ * @param env - The environment.
+ * @returns `VITEST`, `NODE_ENV=test` or `CI`, or `null` when none applies.
+ */
+export function autoSyncSuppressedBy(env: NodeJS.ProcessEnv): string | null {
+  const ci = (env['CI'] ?? '').trim().toLowerCase();
+  if (env['VITEST']) return 'VITEST';
+  if (env['NODE_ENV'] === 'test') return 'NODE_ENV=test';
+  if (ci !== '' && ci !== '0' && ci !== 'false') return 'CI';
+  return null;
 }
 
 /**
@@ -219,6 +238,8 @@ export async function autoCloudSync(
   try {
     // Inert until T13549 releases sync.push/sync.pull: no state read, no network.
     if (!autoSyncReleased(opts.unreleasedFlags)) return 'disabled';
+    // T13606: no automatic trigger syncs under a test runner or CI.
+    if (autoSyncSuppressedBy(opts.env ?? process.env) !== null) return 'disabled';
     const gap = reason === 'session-end' ? AUTO_SYNC_SESSION_END_MIN_MS : autoSyncIntervalMs();
     if (gap === null) return 'disabled';
     const due = (): boolean => {

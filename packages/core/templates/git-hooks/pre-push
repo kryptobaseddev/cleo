@@ -43,6 +43,9 @@ check_subject() {
     'fixup! '*) return 0 ;;
     'squash! '*) return 0 ;;
     'amend! '*) return 0 ;;
+    # T13577: the empty commit `cleo init` makes so HEAD resolves. Exact
+    # subject only, never a prefix, so it opens no general bypass.
+    'initial: cleo init') return 0 ;;
   esac
   if printf '%s' "$subject" | grep -Eq 'T[0-9]+'; then
     return 0

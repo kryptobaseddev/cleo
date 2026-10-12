@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.17
+version: 3.1.18
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.17
+  version: 3.1.18
   tier: core
   install: harness
   covers:
@@ -26,7 +26,7 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-10-11
+  lastReviewed: 2026-10-12
   stability: stable
 ---
 
@@ -101,6 +101,10 @@ reviewing the tracked destination; this opt-in still preserves foreign and
 customized hooks. Init warnings carry the exact opt-in command.
 
 The pre-push wrapper spools Git stdin once for task IDs and shared project checks.
+Besides Merge/Revert/fixup!/squash!/amend!, commit-msg and pre-push accept the exact
+subject `initial: cleo init` (the empty commit `cleo init` makes so HEAD resolves; T13577);
+any longer or different subject still needs a task ID. A template change adds the
+previously shipped hash to `legacy-hashes.json` so installed copies refresh.
 It probes CLEO_PROJECT_HOOK_V1 before invoking the implemented CLI adapter;
 missing or incompatible runners warn and allow. Verify nested checkout paths, linked
 worktrees, custom hook paths, historical release bodies and corrupt receipts
