@@ -2252,6 +2252,7 @@
       "secret_enc",
       "source",
       "status",
+      "uid",
       "updated_at"
     ],
     "agent_registry_accounts": [
@@ -2419,6 +2420,7 @@
       "created_at",
       "service_connection_id",
       "session_policy",
+      "uid",
       "updated_at"
     ],
     "brain_attention": [
@@ -3067,6 +3069,7 @@
       "id",
       "provider",
       "settings",
+      "uid",
       "updated_at"
     ],
     "service_connections": [
@@ -3079,6 +3082,7 @@
       "provider",
       "scopes",
       "status",
+      "uid",
       "updated_at"
     ],
     "session_manifest": [

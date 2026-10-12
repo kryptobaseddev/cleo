@@ -588,6 +588,11 @@ describe('carryMachineState keys rows by a stable key, never a machine-minted id
       CREATE TABLE agent_service_grants (agent_id TEXT NOT NULL, service_connection_id INTEGER NOT NULL,
         scope TEXT, PRIMARY KEY (agent_id, service_connection_id));
       ${seed}
+      -- T13467: row uids, still unfilled on a live store (filled at open).
+      ALTER TABLE accounts ADD COLUMN uid TEXT;
+      CREATE UNIQUE INDEX uq_accounts_uid ON accounts (uid);
+      ALTER TABLE agent_service_grants ADD COLUMN uid TEXT;
+      CREATE UNIQUE INDEX uq_agent_service_grants_uid ON agent_service_grants (uid);
     `);
     db.close();
     return file;
@@ -653,10 +658,11 @@ describe('carryMachineState keys rows by a stable key, never a machine-minted id
     expect(read(staged, "SELECT id FROM accounts WHERE provider = 'anthropic'")).toEqual([
       { id: 2 },
     ]);
-    // agent_service_grants has no stable key (its key holds a machine-minted id): kept whole from live.
+    // agent_service_grants has no stable key (its key holds a machine-minted id, and its
+    // uid index is unfilled on a live store, T13467): kept whole from live.
     expect(out.preserved).toContain('agent_service_grants');
     expect(read(staged, 'SELECT * FROM agent_service_grants')).toEqual([
-      { agent_id: 'ag', service_connection_id: 5, scope: 'live' },
+      { agent_id: 'ag', service_connection_id: 5, scope: 'live', uid: null },
     ]);
     expect(out.scrubbed).toEqual([{ table: 'skills_skills', rows: 1 }]);
     expect(out.lost).toEqual([]);
