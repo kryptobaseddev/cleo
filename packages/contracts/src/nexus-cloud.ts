@@ -145,6 +145,10 @@ export const nexusCloudReplicaSchema = z.object({
   lastSyncAt: isoTime.nullable(),
   presence: nexusCloudPresenceSchema.nullable(),
   presenceAt: isoTime.nullable(),
+  /** When the replica was retired (cleo-nexus T123), else null. Absent from servers older than retirement. */
+  retiredAt: isoTime.nullable().optional(),
+  /** The retired replica's named successor, else null (not retired, or retired with none). */
+  successor: z.string().nullable().optional(),
 });
 
 /** `DeviceCounts` (§4.1): distinct devices holding a replica. */

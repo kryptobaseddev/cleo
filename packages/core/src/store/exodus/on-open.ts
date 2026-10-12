@@ -234,8 +234,14 @@ async function rollbackBothScopes(plan: ExodusPlan): Promise<ExodusRecoveryResul
     try {
       handle =
         scope === 'project'
-          ? await openDualScopeDbAtPath('project', dbPath, undefined, { dedicated: true })
-          : await openDualScopeDbAtPath('global', dbPath, undefined, { dedicated: true });
+          ? await openDualScopeDbAtPath('project', dbPath, undefined, {
+              dedicated: true,
+              syncMode: 'off',
+            })
+          : await openDualScopeDbAtPath('global', dbPath, undefined, {
+              dedicated: true,
+              syncMode: 'off',
+            });
       const native = getDualScopeNativeDb(handle);
       const rowsReverted = rollbackExodusReceipts(native, plan.stagingDir);
       scopes.push({ scope, dbPath, status: 'rolled_back', rowsReverted });
@@ -269,8 +275,14 @@ async function sealTargets(
     const path = scope === 'project' ? plan.projectDbPath : plan.globalDbPath;
     const handle =
       scope === 'project'
-        ? await openDualScopeDbAtPath('project', path, undefined, { dedicated: true })
-        : await openDualScopeDbAtPath('global', path, undefined, { dedicated: true });
+        ? await openDualScopeDbAtPath('project', path, undefined, {
+            dedicated: true,
+            syncMode: 'off',
+          })
+        : await openDualScopeDbAtPath('global', path, undefined, {
+            dedicated: true,
+            syncMode: 'off',
+          });
     try {
       identities[scope] = sealExodusDatabase(getDualScopeNativeDb(handle));
     } finally {

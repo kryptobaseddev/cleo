@@ -631,6 +631,13 @@ export interface OrchestrateSpawnResult {
    */
   sessionId: string | null;
   /**
+   * The worktree's dependency install outcome (`skipped` under `--no-install`,
+   * `deferred` when the heavy-work budget was busy, with the command the
+   * worker runs instead), or `null` without a worktree.
+   * @task T13524
+   */
+  install?: import('./worktree.js').WorktreeInstallOutcome | null;
+  /**
    * Legacy mirror of the prompt/protocolType/tier bundle for readers that
    * still consume `spawnContext.*`.
    * @task T963

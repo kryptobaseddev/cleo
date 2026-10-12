@@ -169,7 +169,10 @@ async function materializeBareTables(
 async function buildFreshProjectStore(path: string): Promise<string> {
   const { getDualScopeNativeDb, openDualScopeDbAtPath } = await import('../dual-scope-db.js');
   const { ensureTasksDomainTables, seedTasksMeta } = await import('../sqlite.js');
-  const handle = await openDualScopeDbAtPath('project', path, undefined, { dedicated: true });
+  const handle = await openDualScopeDbAtPath('project', path, undefined, {
+    dedicated: true,
+    syncMode: 'off',
+  });
   try {
     const native = getDualScopeNativeDb(handle);
     ensureTasksDomainTables(native, path);

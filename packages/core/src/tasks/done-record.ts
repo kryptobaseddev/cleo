@@ -9,13 +9,15 @@
  *  2. tools — `lint` and `typecheck` in parallel, then `test`, each through the
  *     ADR-061 resolver and cache (`runToolCached`, under its global semaphore
  *     and memory caps); a cached result is reused, a failure stops here;
- *  3. typed gates — executed once by `previewTaskGates`, which caches each pass
- *     (T12621); a failure stops here;
+ *  3. typed gates — executed once by `previewTaskGates` (which caches each
+ *     pass, T12621) ONLY with `--run-typed`; since T13521 (owner decision)
+ *     `cleo done` otherwise executes no typed gate command; a failure stops here;
  *  4. write — ONE `validateGateVerify` call with per-gate evidence
  *     (`gateEvidence`), which parses and validates every atom through the
  *     existing `parseEvidence` → `validateAtom` → gate minimum →
  *     `checkTaskEvidenceContext` path, serves the typed gates from the cache
- *     (`noRun`), and persists all gates in a single transaction.
+ *     (cache-only by default; a linked gate with no cached pass refuses with
+ *     `E_GATE_NOT_CACHED`), and persists all gates in a single transaction.
  *
  * Tool atoms re-enter `validateAtom` at step 4, where they hit the cache entry
  * step 2 wrote — the same key, because the tools ran in the same execution
@@ -73,7 +75,8 @@ export type DoneGateWriter = (
   params: {
     taskId: string;
     gateEvidence: Partial<Record<VerificationGate, string | readonly string[]>>;
-    noRun: boolean;
+    /** Execute uncached typed gates in the write (`--run-typed` with the cache off). */
+    runTyped?: boolean;
     sessionId?: string;
     agent?: string;
   },
@@ -98,6 +101,13 @@ export interface RecordTaskDoneOptions extends DeriveTaskEvidenceOptions {
    * @task T12503
    */
   expectedUpdatedAt?: string;
+  /**
+   * `cleo done --run-typed` (T13521): execute the task's typed gates (via
+   * `previewTaskGates`, which caches each pass) before the write. Without it
+   * `cleo done` executes no typed gate command: the write reads passes cached
+   * by `cleo verify --run` and refuses a linked gate that has none.
+   */
+  runTyped?: boolean;
 }
 
 /**
@@ -300,9 +310,11 @@ export async function recordTaskDone(
   const tools = await runPlannedTools(plan, storeRoot, steps.runTool ?? defaultRunTool);
   if (tools.blocker) return blocked(plan, tools.blocker);
 
-  const typed = plan.typedGates.length
-    ? await (steps.runTypedGates ?? defaultRunTypedGates)(storeRoot, taskId)
-    : { gateCount: 0, passed: true, failing: [] };
+  // T13521 (owner decision): typed gates execute only on request.
+  const typed =
+    plan.typedGates.length && opts.runTyped === true
+      ? await (steps.runTypedGates ?? defaultRunTypedGates)(storeRoot, taskId)
+      : { gateCount: 0, passed: true, failing: [] };
   if (!typed.passed) {
     return blocked(plan, {
       code: 'typed-gate-failed',
@@ -341,18 +353,27 @@ export async function recordTaskDone(
     const written = await (steps.write ?? defaultWrite)(storeRoot, {
       taskId,
       gateEvidence,
-      noRun: typed.gateCount > 0 && readAllowCachedGates(storeRoot),
+      // The write itself is cache-only; with --run-typed and the cache turned
+      // off, the gates must execute in the write (nothing was cached above).
+      ...(opts.runTyped === true && !readAllowCachedGates(storeRoot) ? { runTyped: true } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(opts.agent ? { agent: opts.agent } : {}),
     });
     if (!written.success) {
+      // T13521: a typed gate with no cached pass names the command that runs it.
+      const notCached = written.error.code === 'E_GATE_NOT_CACHED';
       return blocked(plan, {
         code: 'evidence-refused',
         message: written.error.message,
-        next: {
-          command: `cleo done ${taskId} --plan`,
-          why: 'The validators refused the derived evidence; the plan shows what changed.',
-        },
+        next: notCached
+          ? {
+              command: `cleo verify ${taskId} --run && cleo done ${taskId}`,
+              why: 'cleo done executes no typed gate: run them with cleo verify --run (it caches each pass), or pass --run-typed.',
+            }
+          : {
+              command: `cleo done ${taskId} --plan`,
+              why: 'The validators refused the derived evidence; the plan shows what changed.',
+            },
         cause: written.error.code,
       });
     }

@@ -17,8 +17,8 @@ import {
   ensureNexusIndexFresh,
   judgeSymbolFiles,
   querySymbolFiles,
+  runRefreshInChild,
   runRefreshInProcess,
-  runRefreshInWorker,
 } from '../freshness.js';
 
 vi.mock('../../store/nexus-sqlite.js', async () => ({
@@ -34,6 +34,12 @@ vi.mock('@cleocode/core/internal', () => ({
 vi.mock('@cleocode/core/nexus', () => ({
   runGitLogTaskLinker: async () => ({ commitsProcessed: 0 }),
 }));
+
+// The real owned-process port: the mock above only keeps analysis parsing in-process.
+const { createParserExecutionPort } = await vi.importActual<
+  typeof import('../../resources/spawn-wrapper.js')
+>('../../resources/spawn-wrapper.js');
+const port = createParserExecutionPort();
 
 let native: DatabaseSync;
 let repo: string;
@@ -213,9 +219,9 @@ describe('index freshness (T12316)', () => {
   it('a refresh that exceeds its heap bound answers from the stale index; the process survives (T13537)', async () => {
     await runNexusAnalysis({ repoPath: repo });
     await put('src/a.ts', 'export const a4 = 1;\n');
-    const hog = new URL('./fixtures/heap-hog-worker.mjs', import.meta.url);
+    const hog = new URL('./fixtures/heap-hog-child.mjs', import.meta.url);
     const { freshness } = await ensureNexusIndexFresh(repo, ON, (input) =>
-      runRefreshInWorker(input, { entry: hog, heapMb: 32 }),
+      runRefreshInChild(input, { entry: hog, heapMb: 32, port }),
     );
     expect(freshness.status).toBe('stale');
     expect(freshness.autoRefresh?.refreshed).toBe(false);
@@ -232,9 +238,65 @@ describe('index freshness (T12316)', () => {
     const { freshness } = await assessNexusFreshnessForQuery(repo);
     expect(freshness.status).toBe('stale');
     expect(freshness.autoRefresh?.reason).toMatch(
-      /no bounded refresh worker at .*refresh-worker\.js/,
+      /no bounded refresh process at .*refresh-child\.js/,
     );
   });
+
+  it('resolves on the worker result even when the worker keeps a handle open (T13539)', async () => {
+    const started = Date.now();
+    const summary = await runRefreshInChild(
+      { projectRoot: repo, repoPath: repo, budgetMs: 60_000 },
+      { entry: new URL('./fixtures/hold-open-child.mjs', import.meta.url), port },
+    );
+    expect(summary).toEqual({ mode: 'incremental', reason: 'posted, then held open' });
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it('terminates a synchronously stalled worker after the budget plus a margin (T13539)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    await put('src/a.ts', 'export const a6 = 1;\n');
+    const stall = new URL('./fixtures/stall-child.mjs', import.meta.url);
+    const started = Date.now();
+    const { freshness } = await ensureNexusIndexFresh(repo, { ...ON, budgetMs: 3_000 }, (input) =>
+      runRefreshInChild(input, { entry: stall, port }),
+    );
+    expect(Date.now() - started).toBeLessThan(8_000);
+    expect(freshness.status).toBe('stale');
+    expect(freshness.autoRefresh?.reason).toMatch(
+      /refresh failed, previous graph retained: the refresh did not finish within 4000 ms; run cleo nexus analyze/,
+    );
+  }, 15_000);
+
+  it('a timer kill mid-publish releases the write lock: a later write does not wait (T13548)', async () => {
+    const file = join(repo, 'lock.db');
+    const setup = new DatabaseSync(file);
+    setup.exec('PRAGMA journal_mode = WAL; CREATE TABLE t (v INTEGER);');
+    setup.close();
+    const refresh = runRefreshInChild(
+      { projectRoot: repo, repoPath: file, budgetMs: 1_000 },
+      { entry: new URL('./fixtures/lock-holder-child.mjs', import.meta.url), port },
+    );
+    const refused = expect(refresh).rejects.toThrow(/did not finish within 2000 ms/);
+    // While the child lives it holds the write lock.
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const during = new DatabaseSync(file);
+    try {
+      expect(() => during.exec('INSERT INTO t VALUES (9)')).toThrow(/locked|busy/i);
+    } finally {
+      during.close();
+    }
+    await refused;
+    const after = new DatabaseSync(file);
+    try {
+      after.exec('PRAGMA busy_timeout = 10000');
+      const started = Date.now();
+      after.exec('INSERT INTO t VALUES (2)');
+      expect(Date.now() - started).toBeLessThan(1_000);
+      expect(after.prepare('SELECT COUNT(*) AS n FROM t').get()).toEqual({ n: 1 });
+    } finally {
+      after.close();
+    }
+  }, 20_000);
 
   it('judges symbol files identified only after the query ran', async () => {
     await runNexusAnalysis({ repoPath: repo });

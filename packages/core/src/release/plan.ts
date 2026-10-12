@@ -51,7 +51,7 @@ import {
   E_RELEASE_PLAN_INVALID,
   ExitCode,
 } from '@cleocode/contracts/exit-codes.js';
-import { parseReleasePlan } from '@cleocode/contracts/release/plan.js';
+import { parseReleasePlan, RELEASE_PERSISTED_CHANNEL } from '@cleocode/contracts/release/plan.js';
 import { desc, eq } from 'drizzle-orm';
 
 import { parseChangesetDir } from '../changesets/index.js';
@@ -137,6 +137,8 @@ export interface ReleasePlanOptions {
   channel?: ReleasePlanChannel;
   /** When true, the release is marked `release_kind='hotfix'`. */
   hotfix?: boolean;
+  /** Require retained pilot evidence for this hooks-v1 stable promotion. */
+  hooksV1Promotion?: boolean;
   /** Dry-run flag — equivalent to `CLEO_DRY_RUN=1`. Reads only; no writes. */
   dryRun?: boolean;
   /**
@@ -338,15 +340,7 @@ function mapPlanChannelToDbChannel(
   releaseKind: ReleaseKind,
 ): 'latest' | 'beta' | 'dev' | 'hotfix' {
   if (releaseKind === 'hotfix') return 'hotfix';
-  switch (channel) {
-    case 'latest':
-      return 'latest';
-    case 'beta':
-    case 'rc':
-      return 'beta';
-    case 'alpha':
-      return 'dev';
-  }
+  return RELEASE_PERSISTED_CHANNEL[channel];
 }
 
 /**
@@ -359,6 +353,15 @@ function validateChannelScheme(
   scheme: ReleaseScheme,
   version: string,
 ): { ok: true } | { ok: false; reason: string } {
+  if (channel === 'canary' && !/-canary\.\d+$/.test(version)) {
+    return { ok: false, reason: "channel='canary' requires a numbered -canary.N version." };
+  }
+  if (channel !== 'canary' && /-canary(?:\.|$)/.test(version)) {
+    return {
+      ok: false,
+      reason: 'A canary version requires --channel canary; it cannot target another dist-tag.',
+    };
+  }
   // `latest` requires NO pre-release suffix.
   if (channel === 'latest' && version.includes('-')) {
     return {
@@ -998,10 +1001,15 @@ async function resolvePreviousVersion(
   };
 }
 
+/** A version-shaped release tag: `v` + 2-4 numeric parts, optional `-prerelease` (T13543). */
+const RELEASE_TAG = /^v\d+(\.\d+){1,3}(-.*)?$/;
+
 /**
- * The newest `v*` tag reachable from HEAD (`git tag --merged HEAD`), by
- * version, excluding the version being planned; on the `latest` channel,
- * prerelease tags (`-beta.1`) are skipped. Ties on one commit resolve to the
+ * The newest release tag reachable from HEAD (`git tag --merged HEAD`), by
+ * version, below the version being planned (T13543: a back-dated or hotfix
+ * plan never names a newer tag). Only version-shaped tags count
+ * ({@link RELEASE_TAG}; a stray `vv2026.5.106` or `vendor-2099.1` does not);
+ * on the `latest` channel, prerelease tags (`-beta.1`) are skipped. Ties on one commit resolve to the
  * highest version, which `git describe` would leave ambiguous. `null` when
  * there is none or git fails.
  *
@@ -1026,7 +1034,7 @@ function newestReachableReleaseTag(
   const tags = raw
     .split('\n')
     .map((s) => s.trim())
-    .filter((t) => t !== '' && t !== plannedVersion)
+    .filter((t) => RELEASE_TAG.test(t) && compareVersionStrings(t, plannedVersion) < 0)
     .filter((t) => channel !== 'latest' || !t.includes('-'));
   tags.sort((a, b) => compareVersionStrings(b, a));
   return tags[0] ?? null;
@@ -1112,7 +1120,8 @@ function compareVersionStrings(a: string, b: string): number {
     const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
     if (diff !== 0) return diff;
   }
-  return a.localeCompare(b);
+  // Numeric, so a prerelease `beta.10` sorts after `beta.9` (T13543).
+  return a.localeCompare(b, undefined, { numeric: true });
 }
 
 function parseVersionParts(version: string): number[] {
@@ -1898,6 +1907,7 @@ export async function releasePlan(
     channel,
     epicId: resolvedEpicId,
     releaseKind,
+    hooksV1Promotion: opts.hooksV1Promotion === true,
     createdAt,
     createdBy: opts.createdBy ?? process.env['USER'] ?? 'cleo-agent',
     previousVersion: prior.previousVersion,
