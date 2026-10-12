@@ -6680,6 +6680,31 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     ).toEqual([]);
   });
 
+  it('a merge join takes a credential A changed after the cut, not the stale checkpoint value (T13592)', async () => {
+    const { a, b, secretOn } = await credentialBrains();
+    // After the cut, A rotates its team key; cloud sync seals and pushes the change.
+    await onM(a, async () => {
+      (await globalStore(a))
+        .prepare(
+          "UPDATE accounts SET secret_enc = ? WHERE provider = 'anthropic' AND label = 'team'",
+        )
+        .run(
+          await encryptGlobal('sk-A-team-rotated', 'account:anthropic:team', { cleoHome: a.home }),
+        );
+    });
+    const pushed = await onM(a, () =>
+      cloudSync(vopts(a, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(pushed.streams[0]?.refused ?? null).toBeNull();
+
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    expect(await secretOn('team')).toBe('sk-A-team-rotated');
+    expect(await secretOn('work')).toBe('sk-B-work');
+  });
+
   it('a merge join whose credential fill fails changes nothing, and the next attempt joins with them (T13544)', async () => {
     const { b, secretOn } = await credentialBrains();
     // B's machine key cannot be read: re-encrypting A's credential fails.

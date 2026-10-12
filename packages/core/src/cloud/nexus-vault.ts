@@ -2185,6 +2185,7 @@ async function withMergedScratch<T>(
       // The scratch replays the stream; it never seals or pushes. The store
       // it reconciles already has its sync flags, so the release gate holds.
       setSyncFlag(scratch, 'sync.pull', true, { allowUnreleased: true });
+      const { prepareSecretOpens, secretValuesKey } = await import('./secret-seal.js');
       // Soft and project-aware like the live pull (T13551): a failed listing confirms none, never aborts.
       const serverRetirements = await confirmableRetirements(conn, t.scope, t.projectId);
       const merged = await pullStream(scratch, {
@@ -2196,6 +2197,23 @@ async function withMergedScratch<T>(
         pull: journalPuller(journal, key),
         verify: txnVerifier(key, t.streamId),
         seal: () => {},
+        // Sealed secrets written after the cut open as the live pull opens them, so the
+        // merged state holds their newest values, not the checkpoint's (T13592). One this
+        // machine cannot open stays pending, as on the live pull.
+        ...(t.scope === 'global'
+          ? {
+              openSecrets: () =>
+                prepareSecretOpens(
+                  scratch,
+                  tableScopeOf(t),
+                  t.streamId,
+                  secretValuesKey(key.masterKey),
+                  {
+                    cleoHome: t.storeRoot,
+                  },
+                ),
+            }
+          : {}),
         ...(serverRetirements !== undefined ? { serverRetirements } : {}),
       });
       if (merged.refused !== null) {
@@ -2209,7 +2227,7 @@ async function withMergedScratch<T>(
       // under this machine's key, before anything is adopted from it (T13544).
       // A failure aborts the merge: the reconcile stays due and the next sync retries.
       if (t.scope === 'global') {
-        const { openSnapshotCredentials, secretValuesKey } = await import('./secret-seal.js');
+        const { openSnapshotCredentials } = await import('./secret-seal.js');
         await openSnapshotCredentials(scratchPath, secretValuesKey(key.masterKey), {
           cleoHome: t.storeRoot,
         });

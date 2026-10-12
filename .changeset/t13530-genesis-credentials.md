@@ -23,3 +23,7 @@ same sealed cells into its scratch copy of the checkpoint before it adopts any
 row, and adopts an adopted row's secret columns with it. A row the joining
 store already holds keeps its own secrets. A fill that fails aborts the join or
 the owed reconcile, which the next attempt retries.
+
+The merge scratch's pull also opens sealed secrets written after the cut, as a
+live pull does (T13592), so a merge-joined store takes a credential's newest
+value rather than the checkpoint's; one it cannot open stays pending.
