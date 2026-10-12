@@ -1706,6 +1706,11 @@ export interface TasksCompleteQueryParams {
    */
   waiveDependsReason?: string;
   /**
+   * The PR `cleo done --pr <n>` named, so completion judges the change through
+   * the same carrier the plan did (T13637).
+   */
+  prNumber?: number;
+  /**
    * Optimistic-concurrency guard (`--if-match`): the task `updatedAt` the
    * caller read. When the stored version differs, completion fails with
    * `E_CONFLICT` carrying the current version and the changed fields, or

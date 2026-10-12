@@ -284,13 +284,32 @@ export function scopedRunCarriedAcrossMerge(
         };
       identical = false;
     }
-    if (!identical)
+    if (!identical) {
+      const differing = differingPaths(changeSet.executionRoot, tree, merge, paths);
       return {
         ok: false,
-        why: `the change's files at merge commit ${merge.slice(0, 12)} differ from the tree the scoped run tested (${tree.slice(0, 12)})`,
+        why: `the change's files at merge commit ${merge.slice(0, 12)} differ from the tree the scoped run tested (${tree.slice(0, 12)})${differing}`,
       };
+    }
   }
   return { ok: true };
+}
+
+/** `: a, b, …` naming the compared paths that differ, or '' when git cannot say (T13637). */
+function differingPaths(root: string, tree: string, merge: string, paths: string[]): string {
+  try {
+    const out = execFileSync(
+      'git',
+      ['diff', '--name-only', '--no-renames', tree, merge, '--', ...paths],
+      { cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    const names = out.split('\n').filter(Boolean);
+    return names.length === 0
+      ? ''
+      : `: ${names.slice(0, 5).join(', ')}${names.length > 5 ? ', …' : ''}`;
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -488,21 +507,63 @@ export interface TaskMergeInfo extends MergeVerdict {
 }
 
 /**
+ * The carry target of a merge commit: the commit and every file it changed
+ * against its first parent, which for a squash or merge commit is exactly the
+ * PR's change (T13636). Fails closed: an unknown commit, a root commit, a git
+ * failure or an empty diff gives null.
+ *
+ * @param root - Repository the merge commit lives in.
+ * @param merge - The merge (or squash) commit.
+ * @returns The commit and the files it changed and deleted, or null.
+ * @task T13636
+ * @task T13637
+ */
+export function mergeCarryTarget(
+  root: string,
+  merge: string | null | undefined,
+): LandedCarryTarget | null {
+  if (!merge) return null;
+  let out: string;
+  try {
+    out = execFileSync('git', ['diff', '--name-status', '--no-renames', `${merge}^1`, merge], {
+      cwd: root,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return null;
+  }
+  const files: string[] = [];
+  const deletedFiles: string[] = [];
+  for (const line of out.split('\n')) {
+    const [status, path] = line.split('\t');
+    if (!status || !path) continue;
+    (status === 'D' ? deletedFiles : files).push(path);
+  }
+  if (files.length + deletedFiles.length === 0) return null;
+  return { mergeCommitSha: merge, files, deletedFiles, executionRoot: root };
+}
+
+/**
  * The carry target a recorded `pr:` atom names: its merge commit and the files
- * the PR changed (its own inventory, else the task's `files:` atoms). Without a
+ * the PR changed — its own inventory, else the merge commit's real diff (never
+ * the task's `files:` atoms, which may list fewer files, T13636). Without a
  * merge commit or any file there is nothing to compare, so null (T13634).
  */
 function prCarryTarget(
   pr: Extract<EvidenceAtom, { kind: 'pr' }>,
-  implemented: ReadonlyArray<EvidenceAtom>,
   root: string,
 ): LandedCarryTarget | null {
-  const files =
-    pr.changedPaths ??
-    implemented.flatMap((a) => (a.kind === 'files' ? a.files.map((f) => f.path) : []));
+  if (!pr.mergeCommitSha) return null;
+  if (!pr.changedPaths) return mergeCarryTarget(root, pr.mergeCommitSha);
   const deletedFiles = pr.deletedPaths ?? [];
-  if (!pr.mergeCommitSha || files.length + deletedFiles.length === 0) return null;
-  return { mergeCommitSha: pr.mergeCommitSha, files, deletedFiles, executionRoot: root };
+  if (pr.changedPaths.length + deletedFiles.length === 0) return null;
+  return {
+    mergeCommitSha: pr.mergeCommitSha,
+    files: pr.changedPaths,
+    deletedFiles,
+    executionRoot: root,
+  };
 }
 
 function prRefOf(pr: { prNumber: number; componentPrNumber?: number }): string {
@@ -694,7 +755,7 @@ export async function taskChangeMergeState(
         state: 'merged',
         changeSet: null,
         prRef: prRefOf(newest),
-        landing: prCarryTarget(newest, implemented, at),
+        landing: prCarryTarget(newest, at),
       };
     const changeSet = await derive();
     derivedFailure(changeSet);
@@ -723,7 +784,7 @@ export async function taskChangeMergeState(
         state: 'merged',
         changeSet: null,
         prRef: prRefOf(pr),
-        landing: prCarryTarget(pr, implemented, at),
+        landing: prCarryTarget(pr, at),
       };
   }
   const changeSet = await derive();
@@ -759,7 +820,15 @@ export async function taskChangeMergeState(
   );
   if (github.failed !== null) failures.push(github.failed);
   for (const pr of github.prs) {
-    if (await carries(pr)) return { state: 'merged', changeSet, prRef: prRefOf(pr) };
+    // T13637: a commit-backed GitHub carrier names its merge commit, so a
+    // scoped run can be compared with the change that merged.
+    if (await carries(pr))
+      return {
+        state: 'merged',
+        changeSet,
+        prRef: prRefOf(pr),
+        landing: mergeCarryTarget(at, pr.mergeCommitSha),
+      };
   }
 
   const isLanded = deps.isLanded ?? cs.isLandedOnOriginDefault;
