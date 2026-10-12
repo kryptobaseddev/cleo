@@ -16,9 +16,10 @@
  *     - the newest working-tree modification of any path the branch changed
  *       against origin's default branch (committed, uncommitted or untracked;
  *       the report itself excluded) — or, with no origin to diff against, any
- *       uncommitted tracked edit — counting only a path whose content also
- *       differs from HEAD as of the run, so a rewrite with identical bytes
- *       does not stale it (T13567);
+ *       uncommitted tracked edit — except a path that a checkout or merge
+ *       after the run rewrote with identical bytes (HEAD moved and the file
+ *       equals its blob at both HEADs; T13567, T13569). A bare touch still
+ *       stales: without a run-time fingerprint it looks like a revert;
  *     - for each uncommitted deletion (a rename's old path included, since a
  *       move keeps the file's own mtime), the modification time of the
  *       nearest existing directory it was removed from.
@@ -237,18 +238,19 @@ function newestModified(
 }
 
 /**
- * The most recently modified of `paths` that was modified after the run AND
- * whose content differs from what HEAD held when the tests ran (T13567). A
- * checkout, merge or `touch` that rewrites a file with identical bytes moves
- * its mtime, not the content the run saw, so it no longer stales the report.
+ * The most recently modified of `paths` modified after the run, leaving out a
+ * path that a checkout or merge after the run rewrote with the same bytes
+ * (T13567, narrowed by T13569).
  *
- * The content baseline is HEAD as of the run ({@link headAtRun}): a path's
- * current blob is compared with its blob there (`git hash-object` vs
- * `rev-parse <commit>:./<path>`), so an untracked or newly added path, which
- * has no blob there, still counts. When the reflog does not reach the run,
- * every mtime after the run counts, as before. A file that was dirty when the
- * run started differs from that baseline and keeps counting (a refusal, never
- * a false pass).
+ * A path is left out only when all hold: HEAD moved after the run (HEAD as of
+ * the run, {@link headAtRun}, is not HEAD now), and the file's current blob
+ * (`git hash-object`) equals its blob both at HEAD now and at HEAD as of the
+ * run — the move rewrote it without changing it. Nothing else is exempt: a
+ * bare `touch`, or a file that was dirty during the run and reverted to HEAD
+ * afterwards, cannot be told apart without a run-time content fingerprint, and
+ * a false pass is worse than a needless re-run, so its newer mtime still
+ * stales the report. When the reflog does not reach the run, every mtime after
+ * it counts.
  */
 function modifiedAfterRun(
   root: string,
@@ -260,15 +262,16 @@ function modifiedAfterRun(
     .filter((p): p is { path: string; at: number } => p.at !== null && clock.after(p.at))
     .sort((a, b) => b.at - a.at);
   if (after.length === 0) return null;
-  const atRun = headAtRun(root, clock.after);
-  if (atRun === null) return after[0] ?? null;
   const blob = (args: readonly string[]): string | null => git(root, args)?.trim() || null;
+  const atRun = headAtRun(root, clock.after);
+  const head = blob(['rev-parse', 'HEAD']);
+  if (atRun === null || head === null || head === atRun) return after[0] ?? null;
   return (
     after.find((p) => {
       const now = blob(['hash-object', '--', p.path]);
-      return (
-        now === null || now !== blob(['rev-parse', '--verify', '--quiet', `${atRun}:./${p.path}`])
-      );
+      const at = (commit: string): string | null =>
+        blob(['rev-parse', '--verify', '--quiet', `${commit}:./${p.path}`]);
+      return now === null || now !== at(head) || now !== at(atRun);
     }) ?? null
   );
 }
