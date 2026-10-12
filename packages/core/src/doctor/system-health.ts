@@ -521,44 +521,94 @@ function memoryFindings(s: SystemSnapshot, rows: readonly ProcessRow[]): Finding
 /** Servers with at least this many copies are flagged. */
 const MCP_FANOUT_WARN = 6;
 
+/**
+ * Servers whose owners asked for a specific remedy instead of the generic
+ * "scope it to projects" one. agentmbx: its leases are tied to the processes,
+ * so never suggest killing them (agentmbx-lead, 2026-10-10; their T487/T488).
+ */
+const KNOWN_MCP_REMEDIES: Readonly<
+  Record<string, { remedy: SystemRemedy; needsOwnerChoice: boolean }>
+> = {
+  agentmbx: {
+    remedy: {
+      command: 'agentmbx doctor',
+      description:
+        'One stdio agentmbx per session is by design, and its leases are tied to those processes: never kill them. ' +
+        'Upgrade agentmbx to the release that ships T487/T488 (pending), which removes duplicate and orphaned processes. ' +
+        '`agentmbx doctor` reports stale MCP rows. Restart idle harness sessions you no longer need.',
+    },
+    // upgrading and restarting sessions are the owner's actions
+    needsOwnerChoice: true,
+  },
+};
+
+/**
+ * Whether an MCP outside every session was left behind: re-parented to init
+ * (pid 1, launchd) or to a Linux user manager (`systemd --user`) once its
+ * session exited.
+ */
+function isOrphanParent(parent: ProcessRow | undefined, ppid: number): boolean {
+  if (ppid <= 1 || parent === undefined) return true;
+  return /^(systemd|launchd|init)$/.test(commandWords(parent.argv)[0] ?? '');
+}
+
 function mcpFindings(tree: Tree, rows: readonly ProcessRow[]): Finding[] {
-  const groups = new Map<string, { count: number; rss: number; pids: number[] }>();
+  const sessions = harnessSessions(rows);
+  const sessionOf = new Map<number, number>();
+  for (const sess of sessions) for (const r of subtree(tree, sess)) sessionOf.set(r.pid, sess.pid);
+  const groups = new Map<
+    string,
+    { count: number; rss: number; pids: number[]; sessions: Set<number>; orphans: number }
+  >();
   for (const r of rows) {
     const name = mcpServerName(r);
     if (name === null) continue;
     // Count a wrapper (`npm exec` → `node … mcp`) once: skip a server under another server.
     const parent = tree.byPid.get(r.ppid);
     if (parent && mcpServerName(parent) !== null) continue;
-    const g = groups.get(name) ?? { count: 0, rss: 0, pids: [] };
+    const g = groups.get(name) ?? { count: 0, rss: 0, pids: [], sessions: new Set(), orphans: 0 };
     g.count++;
     g.rss += sumRss(subtree(tree, r));
     if (g.pids.length < 10) g.pids.push(r.pid);
+    const sess = sessionOf.get(r.pid);
+    if (sess !== undefined) g.sessions.add(sess);
+    else if (isOrphanParent(tree.byPid.get(r.ppid), r.ppid)) g.orphans++;
     groups.set(name, g);
   }
   const out: Finding[] = [];
   for (const [name, g] of groups) {
     if (g.count < MCP_FANOUT_WARN) continue;
+    const everySession = sessions.length >= 2 && g.sessions.size === sessions.length;
+    const known = KNOWN_MCP_REMEDIES[name];
     out.push({
       id: `mcp-fanout:${name}`,
       category: 'mcp-fanout',
       severity: g.count >= 20 || g.rss >= 2 * GIB ? 'warning' : 'info',
-      title: `${g.count} copies of MCP server ${name} (${mib(g.rss)} MiB): one per harness session`,
+      title:
+        `${g.count} copies of MCP server ${name} (${mib(g.rss)} MiB) in ${g.sessions.size} of ${sessions.length} sessions` +
+        (g.orphans > 0 ? `, ${g.orphans} orphaned` : ''),
       evidence: {
         server: name,
         processes: g.count,
         rssMib: mib(g.rss),
+        perProcessMib: mib(g.rss / g.count),
+        sessionsWithServer: g.sessions.size,
+        sessionsTotal: sessions.length,
+        inEverySession: everySession,
+        orphans: g.orphans,
         samplePids: g.pids.map(String),
       },
       impactBytes: g.rss,
-      remedy: {
+      remedy: known?.remedy ?? {
         command: `claude mcp remove ${name} --scope user`,
         description:
-          `Each harness session starts its own stdio copy. If ${name} is not needed in every session, ` +
-          'remove it from user scope and add it to only the projects that use it (`claude mcp add … --scope project`); ' +
-          'the name may differ in the harness config (`claude mcp list`). Restarting sessions applies it. ' +
-          'Servers with a shared-daemon mode should use one daemon per machine instead.',
+          `${everySession ? 'Every' : 'Each'} harness session starts its own stdio copy, whether or not it calls the server ` +
+          '(the doctor cannot see tool calls). ' +
+          `If ${name} is not needed in every session, remove it from user scope and add it to only the projects that use it ` +
+          '(`claude mcp add … --scope project`); the name may differ in the harness config (`claude mcp list`). ' +
+          'Restarting sessions applies it. Servers with a shared-daemon mode should use one daemon per machine instead.',
       },
-      needsOwnerChoice: true,
+      needsOwnerChoice: known?.needsOwnerChoice ?? true,
     });
   }
   return out;
