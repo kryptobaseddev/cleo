@@ -14,7 +14,9 @@
  * this, session end and the sentient tick from syncing twice.
  *
  * Never spawned for heavy or evidence runs (`CLEO_RUN_CLASS` is set in every
- * governed child), for `cleo run` / `cleo verify` / `cleo cloud`, or when
+ * governed child), for `cleo run` / `cleo verify` / `cleo cloud`, under a
+ * test runner or CI (`VITEST`, `NODE_ENV=test`, `CI`: a linked fixture must
+ * never start detached syncs that load the machine), or when
  * `CLEO_DISABLE_AUTO_SYNC=1` or `CLEO_AUTO_SYNC_INTERVAL_MIN=0`.
  *
  * @task T13553
@@ -25,16 +27,41 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import type { CloudWarning } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
 import {
   type AutoSyncOutcome,
   autoCloudSync,
   autoSyncIntervalMs,
   autoSyncReleased,
+  autoSyncSuppressedBy,
 } from './auto-sync.js';
 
 /** Environment switch that turns the command piggyback off (`1`). */
 export const AUTO_SYNC_DISABLE_ENV = 'CLEO_DISABLE_AUTO_SYNC';
+
+/** The `cleo cloud status` warning code while a test runner or CI suppresses auto-sync (T13602). */
+export const W_AUTO_SYNC_SUPPRESSED = 'W_AUTO_SYNC_SUPPRESSED';
+
+/**
+ * The `cleo cloud status` warning while a test runner or CI suppresses the
+ * background sync. Absent while sync is unreleased: nothing would run anyway.
+ *
+ * @param env - The environment. @defaultValue process.env
+ * @param unreleasedFlags - The unreleased flags; test seam. @defaultValue UNRELEASED_FLAGS
+ * @returns The warning naming the variable, or `null`.
+ */
+export function autoSyncSuppressedWarning(
+  env: NodeJS.ProcessEnv = process.env,
+  unreleasedFlags?: ReadonlySet<string>,
+): CloudWarning | null {
+  const by = autoSyncSuppressedBy(env);
+  if (by === null || !autoSyncReleased(unreleasedFlags)) return null;
+  return {
+    code: W_AUTO_SYNC_SUPPRESSED,
+    message: `background auto-sync is suppressed: ${by} is set (test runner or CI), so no command, session end or tick starts a sync; run \`cleo cloud sync\` to sync`,
+  };
+}
 
 /** Root verbs that never piggyback: heavy/evidence runs and explicit cloud commands. */
 const SKIP_VERBS: ReadonlySet<string> = new Set(['run', 'verify', 'cloud']);
@@ -117,7 +144,7 @@ export function startCommandAutoSync(opts: CommandAutoSyncOptions): CommandAutoS
     if (env[AUTO_SYNC_DISABLE_ENV] === '1') return 'disabled';
     // Inert until T13549 releases sync.push/sync.pull: no stamp, no spawn.
     if (!autoSyncReleased(opts.unreleasedFlags)) return 'disabled';
-    if (env['CLEO_RUN_CLASS'] !== undefined) return 'skipped';
+    if (env['CLEO_RUN_CLASS'] !== undefined || autoSyncSuppressedBy(env) !== null) return 'skipped';
     if (opts.verb !== undefined && SKIP_VERBS.has(opts.verb)) return 'skipped';
     const gap = autoSyncIntervalMs();
     if (gap === null) return 'disabled';

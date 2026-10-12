@@ -9478,6 +9478,13 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Require the unified-hooks pilot for this stable promotion',
       },
       {
+        name: 'hooksV1Waiver',
+        type: 'string',
+        required: false,
+        description:
+          'Audited reason to ship a source change that opens the hooks-v1 gate without the promotion',
+      },
+      {
         name: 'dryRun',
         type: 'boolean',
         required: false,

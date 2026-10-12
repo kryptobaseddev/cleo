@@ -460,6 +460,15 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['attachment_uid'],
       task: 'T13354',
     },
+    {
+      // Natural over the pair (spec §10): both devices derive one uid for one
+      // link, so concurrent identical links coalesce on apply. The revoke is
+      // a one-way tombstone latch on the same row, never a second row.
+      table: 'decision_adr_links',
+      kind: 'natural',
+      key: ['decision_id', 'adr_slug'],
+      task: 'T13359',
+    },
   ],
   global: [
     ...brainTextKeyed(),

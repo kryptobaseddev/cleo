@@ -93,6 +93,7 @@ import {
   createAttachmentStore,
   SlugCollisionError,
 } from '@cleocode/core/store/attachment-store';
+import { listDecisionLinksForAdr } from '@cleocode/core/store/decision-adr-links.js';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
@@ -808,6 +809,14 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     const backend: AttachmentBackend = await currentAttachmentBackend();
 
+    // T13359 — surface the D#### decisions this ADR doc ratifies, the
+    // ADR→decision direction of the two-way trace (spec §4, D11165). The
+    // ledger stays the operational authority; the field is omitted when the
+    // doc has no live (non-revoked) links.
+    const linkedDecisions = doc.slug
+      ? (await listDecisionLinksForAdr(getProjectRoot(), doc.slug)).map((link) => link.decisionId)
+      : undefined;
+
     // T13352 — the shared builder surfaces decoded text by default, the real
     // refCount, and a storage path resolved against the doc's actual store.
     return lafsSuccess<DocsFetchResult>(
@@ -816,6 +825,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         content,
         projectRoot: getProjectRoot(),
         attachmentBackend: backend,
+        ...(linkedDecisions !== undefined ? { linkedDecisions } : {}),
       }),
       'fetch',
     );
@@ -1760,6 +1770,16 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         '--file and --content are mutually exclusive',
         'update',
         'Use `cleo docs update <slug> --file ./new.md` OR `cleo docs update <slug> --content "..."`.',
+      );
+    }
+    // T13564: an empty or bare '-' body is a missed stdin read, never a doc; storing
+    // it would silently replace the canonical content.
+    if (hasContent && ['', '-'].includes((inlineContent as string).trim())) {
+      return lafsError(
+        'E_INVALID_INPUT', // @sync-invariant none:input-shape an empty or bare '-' body is refused before any write
+        `--content is ${(inlineContent as string).trim() === '' ? 'empty' : "a bare '-'"}; refusing to replace the document body`,
+        'update',
+        'Pipe the body with `cat new.md | cleo docs update <slug> --content -`, or use `--file ./new.md`.',
       );
     }
     if (statusOnly && rawStatus === undefined) {

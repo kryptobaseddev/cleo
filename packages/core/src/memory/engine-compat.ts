@@ -282,6 +282,12 @@ export async function memoryDecisionFind(
     const accessor = await getBrainAccessor(root);
     const includeAgentDispatch = params.includeAgentDispatch === true;
 
+    // T13359 — attach each D#### decision's linked ADR slugs (spec §4: the
+    // decision lookup surfaces the curated ADR records). Dynamic import, the
+    // neighboring store access pattern; a link row is a cleo.db fact, the
+    // decisions themselves live in brain.db.
+    const { attachLinkedAdrs } = await import('../store/decision-adr-links.js');
+
     if (params.query) {
       const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
       await getBrainDb(root);
@@ -344,7 +350,13 @@ export async function memoryDecisionFind(
           .all(likePattern, likePattern, limit);
       }
 
-      return { success: true, data: { decisions: rows, total: rows.length } };
+      const shaped = rows.filter(
+        (row): row is Record<string, unknown> => typeof row === 'object' && row !== null,
+      );
+      return {
+        success: true,
+        data: { decisions: await attachLinkedAdrs(root, shaped), total: shaped.length },
+      };
     }
 
     const decisions = await accessor.findDecisions({
@@ -353,7 +365,10 @@ export async function memoryDecisionFind(
       includeAgentDispatch,
     });
 
-    return { success: true, data: { decisions, total: decisions.length } };
+    return {
+      success: true,
+      data: { decisions: await attachLinkedAdrs(root, decisions), total: decisions.length },
+    };
   } catch (error) {
     return {
       success: false,

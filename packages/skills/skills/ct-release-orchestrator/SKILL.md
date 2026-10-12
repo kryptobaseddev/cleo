@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.2.4
+  version: 3.2.5
   tier: on-demand
   install: harness
   covers:
@@ -34,6 +34,12 @@ That plan also makes `scripts/mark-hotfix-release.mjs` stamp
 hooks-v1 runtime gate on the stable build (T13557); stable candidates without it
 prove the runtime inert. Remove `hooks-v1` from `UNRELEASED_HOOK_FEATURES` in a
 normal PR after the promotion, before the next stable release.
+`cleo release plan` refuses a stable plan whose source opens that gate since the
+previous tag (`hooks-v1` leaving the set, a changed `hooksV1Released`, a deleted
+gate) with `E_HOOKS_V1_PROMOTION_REQUIRED`, unless it is the promotion or passes
+`--hooks-v1-waiver "<reason>"`, which the plan and `.cleo/audit/hooks-v1-waiver.jsonl`
+record (T13555). A release right after the promotion (its committed plan sets
+`hooksV1Promotion`) is exempt, so the post-promotion removal needs no waiver.
 The unified-hooks pilot must first supply hosted VidaPeps CI, read-only database
 verification and live harness evidence bound to the exact canary source digest.
 Source changes require fresh pilot evidence. Do not move npm tags manually.

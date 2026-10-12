@@ -136,6 +136,9 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     conduit_attachment_approvals: ['created_at', 'updated_at'],
     conduit_doc_slug_aliases: ['created_at'],
     conduit_doc_heads: ['updated_at'],
+    // T13359 (decisions vs ADRs): created_at is the birth, updated_at moves
+    // exactly once — the revoke tombstone latch.
+    decision_adr_links: ['created_at', 'updated_at'],
   },
   global: {
     brain_decisions: ['created_at', 'updated_at', 'valid_at', 'invalid_at', 'tier_promoted_at'],
