@@ -433,3 +433,22 @@ export class SectionLeaseManager {
 export function isStaleSectionLease(lease: SectionLease, nowMs: number): boolean {
   return isExpired(lease, nowMs);
 }
+
+/**
+ * List the LIVE (unexpired) section leases of one doc. Expired leases are
+ * omitted: they are stale, and the next acquire takes them over.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param slug - The doc's live slug.
+ * @returns The live leases, in file order.
+ */
+export async function listSectionLeases(
+  projectRoot: string,
+  slug: string,
+): Promise<SectionLease[]> {
+  const file = readLeaseFile(projectRoot);
+  const nowMs = Date.now();
+  return Object.values(file.leases).filter(
+    (lease) => lease.slug === slug && !isExpired(lease, nowMs),
+  );
+}
