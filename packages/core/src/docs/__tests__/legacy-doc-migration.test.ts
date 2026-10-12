@@ -183,6 +183,34 @@ describe('legacy docs migration (T13360)', () => {
       versionsImported: 1,
     });
 
+    // Native conduit doc sharing a legacy slug → explicit native-conflict
+    // skip: never clobbered, no ledger receipt, counted separately (T13633).
+    const nativeBytes = Buffer.from('# Native doc G');
+    const store0 = await getDb(env.tempDir);
+    await store0
+      .insert(conduitAttachments)
+      .values({
+        slug: 'doc-g',
+        conversationId: 'conv-native',
+        fromAgentId: 'agent-native',
+        content: nativeBytes,
+        originalSize: nativeBytes.length,
+        compressedSize: nativeBytes.length,
+        contentHash: 'sha-native-g',
+        format: 'markdown',
+        tokens: 3,
+        versionCount: 1,
+        currentVersion: 1,
+        createdAt: '2026-08-01T00:00:00.000Z',
+        uid: 'uid-native-g',
+      })
+      .run();
+    await seedLegacyDoc({
+      slug: 'doc-g',
+      sha256: 'e'.repeat(64), // never read — the native-conflict skip fires first
+      payload: { kind: 'blob', mime: MIME },
+    });
+
     // ── run 1 ──
     const result = await runLegacyDocMigration({
       projectRoot: env.tempDir,
@@ -198,6 +226,7 @@ describe('legacy docs migration (T13360)', () => {
     expect(result.counts.toCapture).toBe(4); // a, b, c, e
     expect(result.counts.toMarkDangling).toBe(1); // d
     expect(result.counts.toSkip).toBe(1); // f
+    expect(result.counts.nativeConflicts).toBe(1); // g
     rmSync(tmpPointer, { force: true }); // ephemeral fixture served its purpose
 
     // ── AC1: every imported history row is labeled origin:migrated ──
@@ -228,7 +257,7 @@ describe('legacy docs migration (T13360)', () => {
 
     // ── doc rows: content captured, uid resolvable ──
     const docs = await store.select().from(conduitAttachments).all();
-    expect(docs.map((d) => d.slug).sort()).toEqual(['doc-a', 'doc-b', 'doc-c', 'doc-e']);
+    expect(docs.map((d) => d.slug).sort()).toEqual(['doc-a', 'doc-b', 'doc-c', 'doc-e', 'doc-g']);
     const docA = docs.find((d) => d.slug === 'doc-a');
     expect(docA?.content?.toString('utf-8')).toBe(v2Bytes.toString('utf-8'));
     expect(docA?.versionCount).toBe(2);
@@ -264,6 +293,12 @@ describe('legacy docs migration (T13360)', () => {
       'doc-e',
       'doc-f',
     ]);
+    // The native doc-g row is untouched and received NO ledger receipt.
+    const nativeDoc = db
+      .prepare(`SELECT uid, from_agent_id FROM conduit_attachments WHERE slug = 'doc-g'`)
+      .get() as { uid: string; from_agent_id: string };
+    expect(nativeDoc.uid).toBe('uid-native-g');
+    expect(nativeDoc.from_agent_id).toBe('agent-native');
     const d = ledger.find((l) => l.slug === 'doc-d');
     expect(d?.status).toBe('dangling');
     expect(d?.reason).toBe('path-missing');
@@ -296,6 +331,7 @@ describe('legacy docs migration (T13360)', () => {
     expect(rerun.counts.toCapture).toBe(0);
     expect(rerun.counts.toMarkDangling).toBe(0);
     expect(rerun.counts.toSkip).toBe(6);
+    expect(rerun.counts.nativeConflicts).toBe(1); // g is a native skip on every run
     const rerunStep = rerun.report.steps[0];
     expect(rerunStep?.transaction).toBe('committed');
     expect(fingerprintTable(db, 'conduit_attachments')).toEqual(before.docs);

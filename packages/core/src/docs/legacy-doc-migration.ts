@@ -35,8 +35,21 @@
  * `docs.migrate`); it takes its own pre-step VACUUM INTO backup through the
  * harness and needs no `--force` (it is additive — nothing is deleted).
  *
+ * Cross-device caveat (T13633): the audit log (`docs-audit.jsonl`) is a
+ * DEVICE-LOCAL file — it never syncs. A legacy doc migrated on two devices
+ * therefore derives DIFFERENT natural version uids for the same logical
+ * audit events (`evt-<i>` is position i in each device's own log): the rows
+ * carry the same real content hashes but distinct uids, and the Stage C
+ * merge treats them as distinct versions. That is an accepted v1
+ * consequence of deriving identity from device-local provenance rather than
+ * inventing cross-device keys; dedup by content hash is a follow-up if the
+ * pilot shows it matters. The doc uid, the ledger receipt, and the head
+ * projection are all device-independent.
+ *
  * @module
  * @task T13360
+ * @task T13633 — review round 2: leaf HLC constant, native-conflict count,
+ *   cross-device caveat
  * @epic T13340
  * @saga T13339
  */
@@ -57,7 +70,6 @@ import {
   recordConduitDocMigration,
   upsertConduitDocHead,
 } from '../store/conduit-doc-history.js';
-import { PRE_HLC_REPLICA } from '../store/display-id-alias.js';
 import {
   type MigrationRunReport,
   type MigrationStep,
@@ -67,7 +79,7 @@ import {
 } from '../store/migration-safety.js';
 import { conduitAttachments } from '../store/schema/cleo-project/conduit.js';
 import { getDb } from '../store/sqlite.js';
-import { encodeHlc } from '../store/sync/hlc.js';
+import { encodeHlc, PRE_HLC_REPLICA } from '../store/sync/hlc.js';
 import { docsAttachments } from '../store/tasks-schema.js';
 import { readAuditLog } from './docs-audit.js';
 
@@ -130,7 +142,15 @@ export interface LegacyMigrationPlan {
   readonly counts: {
     readonly toCapture: number;
     readonly toMarkDangling: number;
+    /** Docs already receipted by an earlier run (idempotency skips). */
     readonly toSkip: number;
+    /**
+     * Legacy slugs that already exist NATIVELY in `conduit_attachments` — the
+     * migration never clobbers a native doc, and these are counted
+     * explicitly (not silently lumped into `toSkip`) so the operator can
+     * reconcile them by hand (T13633).
+     */
+    readonly nativeConflicts: number;
     readonly versions: number;
   };
 }
@@ -206,6 +226,7 @@ function formatFromMime(mime: string | undefined, slug: string): string {
 export async function deriveLegacyDocMigrationPlan(projectRoot: string): Promise<{
   docs: PlannedDoc[];
   skipped: number;
+  nativeConflicts: number;
   expectedDelta: Record<string, number>;
 }> {
   const cleoDir = getCleoDir(projectRoot);
@@ -215,6 +236,7 @@ export async function deriveLegacyDocMigrationPlan(projectRoot: string): Promise
 
   const docs: PlannedDoc[] = [];
   let skipped = 0;
+  let nativeConflicts = 0;
   for (const row of rows) {
     const slug = row.slug as string;
     // Idempotency: a doc already receipted (captured or dangling) is done.
@@ -222,14 +244,15 @@ export async function deriveLegacyDocMigrationPlan(projectRoot: string): Promise
       skipped += 1;
       continue;
     }
-    // Never clobber a native conduit doc that happens to share the slug.
+    // Never clobber a native conduit doc that happens to share the slug —
+    // counted explicitly so the operator can reconcile it (T13633).
     const existing = await db
       .select({ slug: conduitAttachments.slug })
       .from(conduitAttachments)
       .where(eq(conduitAttachments.slug, slug))
       .get();
     if (existing !== undefined && existing !== null) {
-      skipped += 1;
+      nativeConflicts += 1;
       continue;
     }
 
@@ -373,7 +396,7 @@ export async function deriveLegacyDocMigrationPlan(projectRoot: string): Promise
       expectedDelta['conduit_doc_heads'] += 1;
     }
   }
-  return { docs, skipped, expectedDelta };
+  return { docs, skipped, nativeConflicts, expectedDelta };
 }
 
 /**
@@ -477,7 +500,8 @@ export async function planLegacyDocMigration(opts: {
       }
       log(
         `legacy docs migration applied: ${plan.docs.filter((d) => d.status === 'captured').length} captured, ` +
-          `${plan.docs.filter((d) => d.status === 'dangling').length} dangling, ${plan.skipped} already migrated`,
+          `${plan.docs.filter((d) => d.status === 'dangling').length} dangling, ` +
+          `${plan.skipped} already migrated, ${plan.nativeConflicts} native-conflict skips`,
       );
     },
   };
@@ -489,6 +513,7 @@ export async function planLegacyDocMigration(opts: {
       toCapture: derived.docs.filter((d) => d.status === 'captured').length,
       toMarkDangling: derived.docs.filter((d) => d.status === 'dangling').length,
       toSkip: derived.skipped,
+      nativeConflicts: derived.nativeConflicts,
       versions: derived.docs.reduce((n, d) => n + d.versions.length, 0),
     },
   };

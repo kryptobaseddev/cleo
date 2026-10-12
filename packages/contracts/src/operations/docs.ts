@@ -1079,6 +1079,12 @@ export interface DocsMigrateResult {
   readonly dangling: number;
   /** Docs already migrated by an earlier run (idempotency, AC4). */
   readonly skipped: number;
+  /**
+   * Legacy slugs that already exist natively in `conduit_attachments` — the
+   * migration never clobbers a native doc; counted explicitly so the
+   * operator can reconcile them (T13633).
+   */
+  readonly nativeConflicts: number;
   /** History rows imported across all captured docs. */
   readonly versionsImported: number;
   /** First failure when halted/refused. */

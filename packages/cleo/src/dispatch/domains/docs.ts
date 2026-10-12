@@ -941,7 +941,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     const summary =
       result.report.status === 'completed'
         ? `legacy docs migration: ${result.counts.toCapture} captured, ` +
-          `${result.counts.toMarkDangling} dangling, ${result.counts.toSkip} already migrated ` +
+          `${result.counts.toMarkDangling} dangling, ${result.counts.toSkip} already migrated, ` +
+          `${result.counts.nativeConflicts} native-conflict skips ` +
           `(${result.counts.versions} history rows)`
         : `legacy docs migration ${result.report.status}: ${result.report.failure ?? 'step failed'}`;
     return lafsSuccess<DocsMigrateResult>(
@@ -950,6 +951,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         captured: result.counts.toCapture,
         dangling: result.counts.toMarkDangling,
         skipped: result.counts.toSkip,
+        nativeConflicts: result.counts.nativeConflicts,
         versionsImported: result.counts.versions,
         failure: result.report.failure,
         backupId: step?.backup?.backupId ?? null,

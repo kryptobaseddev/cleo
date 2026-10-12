@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS `conduit_doc_migration_ledger` (
 	`migrated_at` text DEFAULT (datetime('now')) NOT NULL,
 	`uid` text,
 	CONSTRAINT `conduit_doc_migration_ledger_pk` PRIMARY KEY(`slug`),
-	CHECK ("status" IN ('captured','dangling')),
+	CHECK ("status" IN ('captured', 'dangling')),
 	CHECK ("migrated_at" IS NULL OR "migrated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')
 );
 --> statement-breakpoint
