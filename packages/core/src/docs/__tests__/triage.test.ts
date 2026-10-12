@@ -461,6 +461,10 @@ describe('triageDocs', () => {
     expect(edges.map((e) => [e.toId, e.edgeType])).toEqual([
       [`llmtxt:${doc?.sha256}`, 'references'],
     ]);
+    // Neither end dangles, although autoCapture is off (T13600).
+    const accessor = await getBrainAccessor(projectDir);
+    expect((await accessor.getPageNode(`llmtxt:${doc?.sha256}`))?.nodeType).toBe('llmtxt');
+    expect((await accessor.getPageNode(`decision:${decisionId}`))?.nodeType).toBe('decision');
   });
 
   it('without --record nothing is persisted', async () => {

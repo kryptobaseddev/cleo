@@ -99,6 +99,25 @@ async function graphWriteEnabled(
 // ---------------------------------------------------------------------------
 
 /**
+ * Options for a graph write the user asked for explicitly (T13600).
+ * @example
+ * ```ts
+ * await addGraphEdge(root, 'decision:D1', 'llmtxt:abc', 'references', 1, 'manual', undefined, {
+ *   explicit: true,
+ * });
+ * ```
+ */
+export interface GraphWriteOptions {
+  /**
+   * Write even when `brain.autoCapture` is off, and throw on failure instead of
+   * logging: that gate governs automatic capture, not an explicit request.
+   */
+  readonly explicit?: boolean;
+  /** Create the node only when absent; an existing node is left unchanged (nodes only). */
+  readonly ifAbsent?: boolean;
+}
+
+/**
  * Upsert a graph node for a typed table entry.
  *
  * Uses INSERT OR REPLACE to handle both new and existing entries. If the
@@ -120,6 +139,7 @@ async function graphWriteEnabled(
  * @param content - Canonical text used to derive the content hash.
  * @param metadata - Optional type-specific metadata blob.
  * @param context - Captured scope; when supplied, failures throw and writes check cancellation.
+ * @param options - An explicit write skips the capture gate and throws; `ifAbsent` keeps an existing node.
  *
  * @remarks Scoped calls pin storage routing and refuse to join an unowned transaction.
  * @example
@@ -137,10 +157,11 @@ export async function upsertGraphNode(
   content: string,
   metadata?: Record<string, unknown>,
   context?: OperationExecutionContext,
+  options: GraphWriteOptions = {},
 ): Promise<void> {
   const write = async (): Promise<void> => {
     try {
-      if (!(await graphWriteEnabled(projectRoot, context))) return;
+      if (!options.explicit && !(await graphWriteEnabled(projectRoot, context))) return;
 
       context?.assertActive();
       const db = await getBrainDb(projectRoot);
@@ -154,29 +175,29 @@ export async function upsertGraphNode(
         ? createHash('sha256').update(trimmed).digest('hex').substring(0, 16)
         : null;
 
-      const query = db
-        .insert(brainPageNodes)
-        .values({
-          id: nodeId,
-          nodeType,
-          label: label.substring(0, 200),
-          qualityScore,
-          contentHash,
-          metadataJson: metadata ? JSON.stringify(metadata) : null,
-          lastActivityAt: now,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: brainPageNodes.id,
-          set: {
-            label: label.substring(0, 200),
-            qualityScore,
-            lastActivityAt: now,
-            updatedAt: now,
-            metadataJson: metadata ? JSON.stringify(metadata) : null,
-          },
-        });
+      const insert = db.insert(brainPageNodes).values({
+        id: nodeId,
+        nodeType,
+        label: label.substring(0, 200),
+        qualityScore,
+        contentHash,
+        metadataJson: metadata ? JSON.stringify(metadata) : null,
+        lastActivityAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const query = options.ifAbsent
+        ? insert.onConflictDoNothing()
+        : insert.onConflictDoUpdate({
+            target: brainPageNodes.id,
+            set: {
+              label: label.substring(0, 200),
+              qualityScore,
+              lastActivityAt: now,
+              updatedAt: now,
+              metadataJson: metadata ? JSON.stringify(metadata) : null,
+            },
+          });
       if (context) {
         db.transaction((tx) => {
           assertOperationWriteFence(tx, context);
@@ -186,7 +207,7 @@ export async function upsertGraphNode(
         query.run();
       }
     } catch (err) {
-      if (context) throw err;
+      if (context || options.explicit) throw err;
       // Log but never surface — this is a best-effort side effect.
       log.warn({ err }, 'upsertGraphNode failed');
     }
@@ -220,6 +241,7 @@ export async function upsertGraphNode(
  * @param weight - Edge confidence/weight (0.0–1.0). Defaults to 1.0.
  * @param provenance - Human-readable note on why this edge was emitted.
  * @param context - Captured scope; when supplied, failures throw and writes check cancellation.
+ * @param options - An explicit write skips the capture gate and throws on failure.
  *
  * @remarks Scoped calls pin storage routing and refuse to join an unowned transaction.
  * @example
@@ -236,10 +258,11 @@ export async function addGraphEdge(
   weight = 1.0,
   provenance?: string,
   context?: OperationExecutionContext,
+  options: GraphWriteOptions = {},
 ): Promise<void> {
   const write = async (): Promise<void> => {
     try {
-      if (!(await graphWriteEnabled(projectRoot, context))) return;
+      if (!options.explicit && !(await graphWriteEnabled(projectRoot, context))) return;
 
       context?.assertActive();
       const db = await getBrainDb(projectRoot);
@@ -266,7 +289,7 @@ export async function addGraphEdge(
         query.run();
       }
     } catch (err) {
-      if (context) throw err;
+      if (context || options.explicit) throw err;
       log.warn({ err }, 'addGraphEdge failed');
     }
   };

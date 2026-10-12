@@ -601,8 +601,7 @@ export async function triageDocs(opts: TriageDocsOptions = {}): Promise<DocsTria
 
   if (opts.record === true && proposals.length > 0) {
     const { storeDecision } = await import('../memory/decisions.js');
-    const { getBrainDb } = await import('../store/memory-sqlite.js');
-    const { brainPageEdges } = await import('../store/schema/memory-schema.js');
+    const { addGraphEdge, upsertGraphNode } = await import('../memory/graph-auto-populate.js');
     for (const [i, proposal] of proposals.entries()) {
       const ownerId = candidates[i]?.ownerId ?? null;
       const handle = proposal.slug ?? proposal.attachmentId;
@@ -623,21 +622,46 @@ export async function triageDocs(opts: TriageDocsOptions = {}): Promise<DocsTria
         confirmationState: 'proposed',
         decidedBy: 'agent',
       });
-      // Structured doc link (T13575). --record is an explicit opt-in, so it is written
-      // directly: the brain.autoCapture gate governs automatic capture only.
+      // Structured doc link (T13575). --record is an explicit opt-in, so it skips the
+      // brain.autoCapture gate (automatic capture only); both ends exist first (T13600).
       const sha256 = candidates[i]?.sha256;
-      if (sha256)
-        (await getBrainDb(projectRoot))
-          .insert(brainPageEdges)
-          .values({
-            fromId: `decision:${row.id}`,
-            toId: `llmtxt:${sha256}`,
-            edgeType: 'references',
-            weight: 1,
-            provenance: 'auto:docs-triage',
-          })
-          .onConflictDoNothing()
-          .run();
+      if (sha256) {
+        const explicit = { explicit: true, ifAbsent: true } as const;
+        const fromId = `decision:${row.id}`;
+        const toId = `llmtxt:${sha256}`;
+        await upsertGraphNode(
+          projectRoot,
+          fromId,
+          'decision',
+          row.decision,
+          0.5,
+          row.decision,
+          undefined,
+          undefined,
+          explicit,
+        );
+        await upsertGraphNode(
+          projectRoot,
+          toId,
+          'llmtxt',
+          handle,
+          0.8,
+          sha256,
+          { sha256 },
+          undefined,
+          explicit,
+        );
+        await addGraphEdge(
+          projectRoot,
+          fromId,
+          toId,
+          'references',
+          1,
+          'auto:docs-triage',
+          undefined,
+          explicit,
+        );
+      }
       recorded += 1;
       proposals[i] = { ...proposal, decisionId: row.id };
     }
