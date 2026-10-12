@@ -276,9 +276,163 @@ describe('runDocsDoctor — apply (T13447)', () => {
       // nothing derivable (planned-but-noop entry).
       'empty-provenance:backfill-provenance',
       'empty-provenance:backfill-provenance',
+      // Chained after the applied backfill: the derived edge set changes even
+      // though the pre-repair drift was zero (T13561).
+      'wikilinks-drift:rebuild-wikilinks',
     ]);
     const provRepairs = res.report.repairs.filter((r) => r.kind === 'empty-provenance');
     expect(provRepairs.filter((r) => r.applied)).toHaveLength(1);
+  });
+
+  it('apply envelope diagnostics reflect POST-repair state (T13560)', async () => {
+    await seedSlug('post-skew', '# Doc\n\nSee T99999.\n');
+    writeAuditLine('post-skew', 1); // expected 2, stored 1 → skew
+    await seedSlug('post-prov', '# Note\n\nSee T12345.\n');
+    // Legacy-row shape (pre-T13357): the write path derived these on put.
+    await patchRow('post-prov', { topics: null, relatedTasks: null });
+    await seedLocalFile('post-gone', join(tempDir, 'deleted', 'gone.md'));
+
+    const res = await doctor({ apply: true, receipt: makeReceipt() });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+
+    // The archived/skewed/backfilled offenders must NOT echo in the apply
+    // envelope's diagnostics — they describe the state AFTER the repairs.
+    expect(diagnostic(res.report, 'dangling-pointers').count).toBe(0);
+    expect(diagnostic(res.report, 'doc-version-skew').count).toBe(0);
+    expect(diagnostic(res.report, 'empty-provenance').count).toBe(0);
+    expect(diagnostic(res.report, 'wikilinks-drift').count).toBe(0);
+    expect(res.report.summary).toContain('finding(s) remain post-repair');
+
+    // And the envelope must agree with a follow-up dry run on the live store.
+    const followUp = await doctor();
+    expect(followUp.ok).toBe(true);
+    if (!followUp.ok) return;
+    for (const d of res.report.diagnostics) {
+      expect(diagnostic(followUp.report, d.kind).count).toBe(d.count);
+    }
+  });
+
+  it('backfill-provenance also writes docs_wikilinks edges (T13561)', async () => {
+    await seedSlug('wl-doc', '# Note\n\nSee T55555 for the details.\n');
+    // Simulate the pre-T13357 legacy state: columns empty AND no edge rows,
+    // so the pre-repair wikilinks-drift is zero while the backfill changes
+    // the derived edge set.
+    await patchRow('wl-doc', { topics: null, relatedTasks: null });
+    const { eq } = await import('drizzle-orm');
+    const { getDb } = await import('../../store/sqlite.js');
+    const { docsWikilinks } = await import('../../store/schema/attachments.js');
+    const db = await getDb(tempDir);
+    await db.delete(docsWikilinks).where(eq(docsWikilinks.fromSlug, 'wl-doc')).run();
+
+    const pre = await doctor();
+    expect(pre.ok).toBe(true);
+    if (!pre.ok) return;
+    expect(diagnostic(pre.report, 'wikilinks-drift').count).toBe(0);
+
+    const res = await doctor({ apply: true, receipt: makeReceipt() });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(
+      res.report.repairs.some(
+        (r) => r.kind === 'wikilinks-drift' && r.action === 'rebuild-wikilinks' && r.applied,
+      ),
+    ).toBe(true);
+
+    const edges = await db
+      .select()
+      .from(docsWikilinks)
+      .where(eq(docsWikilinks.fromSlug, 'wl-doc'))
+      .all();
+    expect(edges).toHaveLength(1);
+    expect(edges[0]).toMatchObject({ toSlug: 'T55555', relation: 'related-task' });
+
+    // Re-run: the drift the backfill created is fully repaired.
+    const post = await doctor();
+    expect(post.ok).toBe(true);
+    if (!post.ok) return;
+    expect(diagnostic(post.report, 'wikilinks-drift').count).toBe(0);
+  });
+
+  it('excludes archived rows from the dangling-pointers count (T13562a)', async () => {
+    await seedLocalFile('archived-gone', join(tempDir, 'deleted', 'gone.md'));
+    await seedLocalFile('live-gone', join(tempDir, 'deleted', 'gone-2.md'));
+    await patchRow('archived-gone', { lifecycleStatus: 'archived' });
+
+    const res = await doctor();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(diagnostic(res.report, 'dangling-pointers').count).toBe(1);
+    expect(res.report.repairs.filter((r) => r.kind === 'dangling-pointers')).toHaveLength(1);
+
+    // Post-apply the archived offender stays excluded — the count drops to
+    // zero instead of echoing the pre-repair 2.
+    const applied = await doctor({ apply: true, receipt: makeReceipt() });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    expect(diagnostic(applied.report, 'dangling-pointers').count).toBe(0);
+  });
+
+  it('clears the stale legacy path on blob rows whose content is alive (T13562b)', async () => {
+    await seedSlug('blob-stale', '# Blob doc\n\nBody.\n');
+    const row = await rowBySlug('blob-stale');
+    expect(row).toBeDefined();
+    // Inject the legacy shape: a blob payload carrying a stale source path
+    // (e.g. a Linux path recorded on another machine).
+    const payload = {
+      ...(JSON.parse(row?.attachmentJson ?? '{}') as Record<string, unknown>),
+      path: '/mnt/projects/other/deleted.md',
+    };
+    await patchRow('blob-stale', { attachmentJson: JSON.stringify(payload) });
+
+    const res = await doctor({ apply: true, receipt: makeReceipt() });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const clears = res.report.repairs.filter(
+      (r) => r.kind === 'dangling-pointers' && r.action === 'clear-stale-path',
+    );
+    expect(clears).toHaveLength(1);
+    expect(clears[0]?.applied).toBe(true);
+    expect(diagnostic(res.report, 'dangling-pointers').count).toBe(0);
+
+    const fixed = await rowBySlug('blob-stale');
+    const fixedPayload = JSON.parse(fixed?.attachmentJson ?? '{}') as Record<string, unknown>;
+    expect(fixedPayload['path']).toBeUndefined();
+    expect(fixedPayload['kind']).toBe('blob');
+    // Re-point, not archive — the doc stays live.
+    expect(fixed?.lifecycleStatus).toBe('draft');
+  });
+
+  it('plans no re-point repair for a blob row whose content is gone (T13562b)', async () => {
+    await seedSlug('blob-dead', '# Dead blob\n\nBody.\n');
+    const row = await rowBySlug('blob-dead');
+    const payload = {
+      ...(JSON.parse(row?.attachmentJson ?? '{}') as Record<string, unknown>),
+      path: '/mnt/projects/other/deleted.md',
+    };
+    await patchRow('blob-dead', { attachmentJson: JSON.stringify(payload) });
+    // Remove the bytes from the content-addressed store (primary + keep-link).
+    const { getDb } = await import('../../store/sqlite.js');
+    const db = await getDb(tempDir);
+    const sha = (await rowBySlug('blob-dead'))?.sha256 ?? '';
+    const { rmSync, existsSync } = await import('node:fs');
+    for (const p of [
+      join(tempDir, '.cleo', 'attachments', 'sha256', sha.slice(0, 2), `${sha.slice(2)}.md`),
+      join(tempDir, '.cleo', 'attachments', 'keep', sha.slice(0, 2), sha.slice(2)),
+    ]) {
+      if (existsSync(p)) rmSync(p);
+    }
+    void db;
+
+    const res = await doctor();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(diagnostic(res.report, 'dangling-pointers').count).toBe(1);
+    expect(
+      res.report.repairs.some(
+        (r) => r.kind === 'dangling-pointers' && r.action === 'clear-stale-path',
+      ),
+    ).toBe(false);
   });
 
   it('rebuilds docs_wikilinks when edges drifted', async () => {

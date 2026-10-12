@@ -6,11 +6,18 @@
  * invoked with `apply: true`, performs the repairs that are safe to run
  * in-place:
  *
- *   - `dangling-pointers`   — `local-file` rows whose path is gone from disk
- *                             or lives inside a worktree/tmp directory. Repair
- *                             archives the row (`lifecycle_status = 'archived'`)
- *                             when the file is gone; existing files are left
- *                             alone (content capture is T13360's scope).
+ *   - `dangling-pointers`   — rows whose recorded local `path` is gone from
+ *                             disk or lives inside a worktree/tmp directory.
+ *                             Rows already `lifecycle_status = 'archived'`
+ *                             are excluded (T13562). Repair for a missing
+ *                             `local-file` target archives the row; a
+ *                             `blob`-kind payload carrying a stale legacy
+ *                             `path` whose content still resolves in the
+ *                             content-addressed blob store is re-pointed
+ *                             instead — the stale `path` field is cleared
+ *                             (`clear-stale-path`, T13562) since the bytes
+ *                             are alive. Existing files are left alone
+ *                             (content capture is T13360's scope).
  *   - `doc-version-skew`    — slugged rows whose `docVersion` trails the
  *                             revision count in `.cleo/audit/docs-versioning.jsonl`
  *                             (the T13351 bug left historical rows at 1). Repair
@@ -48,13 +55,20 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { eq } from 'drizzle-orm';
+import { resolveCleoDir } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
+import { blobContentExists } from '../store/blob-keep.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
 import { docsAttachments } from '../store/tasks-schema.js';
-import { deriveDocLinks, isScannableTextMime, linksJsonOrNull } from './derive-links.js';
+import {
+  type DerivedDocLinks,
+  deriveDocLinks,
+  isScannableTextMime,
+  linksJsonOrNull,
+} from './derive-links.js';
 import { DOCS_VERSIONING_AUDIT_FILE } from './docs-update.js';
-import { deriveWikilinkEdges, rebuildDocsWikilinks } from './wikilinks.js';
+import { deriveWikilinkEdges, rebuildDocsWikilinks, type WikilinkEdge } from './wikilinks.js';
 
 /**
  * Maximum age of the backup receipt accepted before an `apply` run.
@@ -253,6 +267,47 @@ function asLocalFile(payload: Record<string, unknown>): LocalFilePayload | null 
 }
 
 /**
+ * A `blob`-kind payload carrying a legacy `path` field.
+ *
+ * Historical write paths recorded the source file on blob payloads; the
+ * current {@link BlobAttachment} contract has no `path` (content lives
+ * content-addressed under `.cleo/attachments/sha256/`). Rows whose legacy
+ * `path` went stale dangle even though the bytes are retrievable by sha256.
+ */
+interface BlobWithPathPayload {
+  readonly kind: 'blob';
+  readonly path: string;
+}
+
+/**
+ * Narrow a parsed payload to the legacy `blob`-with-`path` shape. The current
+ * contract never writes `path` on a blob payload, so any hit is legacy data.
+ * @internal
+ */
+function asBlobWithPath(payload: Record<string, unknown>): BlobWithPathPayload | null {
+  if (payload['kind'] !== 'blob') return null;
+  const path = payload['path'];
+  if (typeof path !== 'string' || path.length === 0) return null;
+  return { kind: 'blob', path };
+}
+
+/**
+ * True when the row's content is retrievable from the content-addressed blob
+ * store right now (primary file or a live keep-link). Read-only — safe in a
+ * dry-run planning pass.
+ * @internal
+ */
+function blobRowContentAlive(
+  row: DoctorRow,
+  payload: Record<string, unknown>,
+  projectRoot: string,
+): boolean {
+  const mimeRaw = payload['mime'];
+  const mime = typeof mimeRaw === 'string' ? mimeRaw : 'application/octet-stream';
+  return blobContentExists(resolveCleoDir(projectRoot), row.sha256, mime);
+}
+
+/**
  * True when `absPath` points inside a worktree or temp directory:
  * the canonical CLEO worktrees root, a `.claude/worktrees/` agent spawn, or
  * the OS temp dir. Such paths are ephemeral — a `local-file` pointer into
@@ -383,57 +438,91 @@ async function fetchRowContent(
   }
 }
 
+/** One empty-provenance backfill candidate with its derived links. */
+interface BackfillCandidate {
+  readonly row: DoctorRow;
+  readonly content: string;
+  readonly labels: readonly string[] | undefined;
+  readonly derived: DerivedDocLinks;
+}
+
+/** Inputs for the dangling-pointers repairs. */
+interface DanglingScan {
+  /** Rows whose missing local-file target gets archived. */
+  readonly archivable: ReadonlyArray<{ row: DoctorRow; path: string }>;
+  /** Blob rows with a stale legacy `path` whose content is alive in the store. */
+  readonly clearable: ReadonlyArray<{
+    row: DoctorRow;
+    path: string;
+    payload: Record<string, unknown>;
+  }>;
+}
+
+/** Result of one full diagnostic scan over the current store state. */
+interface DoctorScan {
+  readonly diagnostics: DocsDoctorDiagnostic[];
+  readonly dangling: DanglingScan;
+  readonly skewed: ReadonlyArray<{ row: DoctorRow; expected: number }>;
+  readonly backfillable: readonly BackfillCandidate[];
+  /** Edges expected from the CURRENT columns but absent from docs_wikilinks. */
+  readonly missingEdges: readonly WikilinkEdge[];
+  /**
+   * Whether an apply run must rebuild docs_wikilinks: either drift already
+   * exists, or a provenance backfill will change the derived edge set (T13561).
+   */
+  readonly needsWikilinksRebuild: boolean;
+}
+
 /**
- * Run the docs store health check.
+ * Scan the store and compute diagnostics + repair inputs in one pass.
  *
- * Dry run (default): every diagnostic is reported and every repair is
- * listed as a plan item with `applied: false` — nothing is written.
- * Apply: the backup gate runs first, then repairs execute in dependency
- * order (doc-version-skew, empty-provenance, dangling-pointers, and finally
- * the wikilinks rebuild, which re-derives from the freshly repaired columns).
+ * The function is pure with respect to the database — it is called twice on
+ * an apply run (before repairs, to build the plan; after repairs, so the
+ * report's diagnostics reflect POST-repair state, T13560).
  *
- * @param projectRoot - Absolute path to the CLEO project root.
- * @param opts - Apply flag, stale-draft threshold, backup receipt.
- * @returns The structured report, or a backup-gate refusal.
- * @task T13447
+ * @internal
  */
-// @sync-invariant docs.lifecycle.transitions the only lifecycle write is draft→archived for dangling rows, a legal matrix transition
-export async function runDocsDoctor(
+async function scanStore(
   projectRoot: string,
-  opts: DocsDoctorOptions = {},
-): Promise<RunDocsDoctorResult> {
-  const apply = opts.apply === true;
-  const olderThanDays = opts.olderThanDays ?? DOCS_DOCTOR_DEFAULT_OLDER_THAN_DAYS;
-
-  if (apply) {
-    const refusal = checkBackupReceipt(opts.backupReceiptPath);
-    if (refusal) return { ok: false, error: refusal };
-  }
-
-  const db = await getDb(projectRoot);
+  db: Awaited<ReturnType<typeof getDb>>,
+  olderThanDays: number,
+): Promise<DoctorScan> {
   const rows: readonly DoctorRow[] = await db.select().from(docsAttachments).all();
   const payloadById = new Map<string, Record<string, unknown> | null>();
   for (const row of rows) payloadById.set(row.id, parseAttachmentJson(row.attachmentJson));
-
-  const repairs: DocsDoctorRepairAction[] = [];
 
   // ── dangling-pointers ──────────────────────────────────────────────────────
   const danglingItems: Record<string, unknown>[] = [];
   let danglingCount = 0;
   const archivable: Array<{ row: DoctorRow; path: string }> = [];
+  const clearable: Array<{ row: DoctorRow; path: string; payload: Record<string, unknown> }> = [];
   for (const row of rows) {
+    // Archived rows already had their repair — counting them again would make
+    // the post-apply count unchanged (T13562a).
+    if (row.lifecycleStatus === 'archived') continue;
     const payload = payloadById.get(row.id) ?? null;
     const localFile = payload === null ? null : asLocalFile(payload);
-    if (!localFile) continue;
-    const absPath = isAbsolute(localFile.path)
-      ? localFile.path
-      : resolve(projectRoot, localFile.path);
+    const blobWithPath = payload === null ? null : asBlobWithPath(payload);
+    const pointer = localFile ?? blobWithPath;
+    if (!pointer) continue;
+    const absPath = isAbsolute(pointer.path) ? pointer.path : resolve(projectRoot, pointer.path);
     const exists = existsSync(absPath);
     const ephemeral = isWorktreeOrTmpPath(absPath);
     if (exists && ephemeral === null) continue;
     danglingCount += 1;
     const reason = !exists ? 'missing' : (ephemeral ?? 'missing');
-    if (!exists) archivable.push({ row, path: absPath });
+    if (localFile && !exists) {
+      archivable.push({ row, path: absPath });
+    } else if (
+      blobWithPath &&
+      !exists &&
+      payload !== null &&
+      blobRowContentAlive(row, payload, projectRoot)
+    ) {
+      // The blob bytes are retrievable by sha256 — re-point the metadata at
+      // the content-addressed store by clearing the stale path (T13562b).
+      clearable.push({ row, path: absPath, payload });
+    }
     if (danglingItems.length < DOCS_DOCTOR_MAX_DETAIL_ITEMS) {
       danglingItems.push({
         attachmentId: row.id,
@@ -441,18 +530,9 @@ export async function runDocsDoctor(
         path: absPath,
         exists,
         reason,
+        ...(blobWithPath ? { kind: 'blob' } : {}),
       });
     }
-  }
-  for (const { row, path } of archivable) {
-    repairs.push({
-      kind: 'dangling-pointers',
-      action: 'archive-dangling',
-      applied: apply,
-      attachmentId: row.id,
-      ...(row.slug !== null ? { slug: row.slug } : {}),
-      detail: `marked-dangling: local-file target missing (${path}) → lifecycle_status = 'archived'`,
-    });
   }
 
   // ── doc-version-skew ───────────────────────────────────────────────────────
@@ -475,25 +555,11 @@ export async function runDocsDoctor(
       });
     }
   }
-  for (const { row, expected } of skewed) {
-    repairs.push({
-      kind: 'doc-version-skew',
-      action: 'set-doc-version',
-      applied: apply,
-      attachmentId: row.id,
-      ...(row.slug !== null ? { slug: row.slug } : {}),
-      detail: `audit-note: docVersion ${row.docVersion} → ${expected} (audit log revisions + 1)`,
-    });
-  }
 
   // ── empty-provenance ───────────────────────────────────────────────────────
   const provItems: Record<string, unknown>[] = [];
   let provCount = 0;
-  const backfillable: Array<{
-    row: DoctorRow;
-    content: string;
-    labels: readonly string[] | undefined;
-  }> = [];
+  const backfillable: BackfillCandidate[] = [];
   for (const row of rows) {
     if (row.slug === null) continue;
     if (!isEmptyJsonArray(row.topics) || !isEmptyJsonArray(row.relatedTasks)) continue;
@@ -505,25 +571,10 @@ export async function runDocsDoctor(
       ? labelsRaw.filter((l): l is string => typeof l === 'string')
       : undefined;
     provCount += 1;
-    backfillable.push({ row, content, labels });
+    backfillable.push({ row, content, labels, derived: deriveDocLinks(content, labels) });
     if (provItems.length < DOCS_DOCTOR_MAX_DETAIL_ITEMS) {
       provItems.push({ attachmentId: row.id, slug: row.slug });
     }
-  }
-  for (const { row, content, labels } of backfillable) {
-    const derived = deriveDocLinks(content, labels);
-    const derivedCount = derived.topics.length + derived.relatedTasks.length;
-    repairs.push({
-      kind: 'empty-provenance',
-      action: 'backfill-provenance',
-      applied: apply && derivedCount > 0,
-      attachmentId: row.id,
-      ...(row.slug !== null ? { slug: row.slug } : {}),
-      detail:
-        derivedCount > 0
-          ? `derived topics=[${derived.topics.join(',')}] related_tasks=[${derived.relatedTasks.join(',')}]`
-          : 'no derivable topics or task mentions — columns stay NULL',
-    });
   }
 
   // ── wikilinks-drift ────────────────────────────────────────────────────────
@@ -557,14 +608,13 @@ export async function runDocsDoctor(
   const driftItems = missingEdges
     .slice(0, DOCS_DOCTOR_MAX_DETAIL_ITEMS)
     .map((e) => ({ fromSlug: e.fromSlug, toSlug: e.toSlug, relation: e.relation }));
-  if (missingEdges.length > 0) {
-    repairs.push({
-      kind: 'wikilinks-drift',
-      action: 'rebuild-wikilinks',
-      applied: apply,
-      detail: `${missingEdges.length} expected edge(s) absent from docs_wikilinks → full re-derivation`,
-    });
-  }
+
+  // A backfill changes the topics/related_tasks columns, so the derived edge
+  // set changes even when the pre-repair drift is zero — the rebuild must be
+  // planned whenever a backfill will actually write columns (T13561).
+  const backfillChangesLinks = backfillable.some(
+    (b) => b.derived.topics.length + b.derived.relatedTasks.length > 0,
+  );
 
   // ── legacy-store-present ───────────────────────────────────────────────────
   const legacyCandidates = [
@@ -639,17 +689,118 @@ export async function runDocsDoctor(
     },
   ];
 
+  return {
+    diagnostics,
+    dangling: { archivable, clearable },
+    skewed,
+    backfillable,
+    missingEdges,
+    needsWikilinksRebuild: missingEdges.length > 0 || backfillChangesLinks,
+  };
+}
+
+/**
+ * Run the docs store health check.
+ *
+ * Dry run (default): every diagnostic is reported and every repair is
+ * listed as a plan item with `applied: false` — nothing is written.
+ * Apply: the backup gate runs first, then repairs execute in dependency
+ * order (doc-version-skew, empty-provenance, dangling-pointers, and finally
+ * the wikilinks rebuild, which re-derives from the freshly repaired columns).
+ * On apply the report's diagnostics are re-scanned AFTER the repairs so the
+ * envelope reflects POST-repair state and the summary counts match it
+ * (T13560); a dry run reports the pre-repair state unchanged.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param opts - Apply flag, stale-draft threshold, backup receipt.
+ * @returns The structured report, or a backup-gate refusal.
+ * @task T13447
+ */
+// @sync-invariant docs.lifecycle.transitions the only lifecycle write is draft→archived for dangling rows, a legal matrix transition
+export async function runDocsDoctor(
+  projectRoot: string,
+  opts: DocsDoctorOptions = {},
+): Promise<RunDocsDoctorResult> {
+  const apply = opts.apply === true;
+  const olderThanDays = opts.olderThanDays ?? DOCS_DOCTOR_DEFAULT_OLDER_THAN_DAYS;
+
+  if (apply) {
+    const refusal = checkBackupReceipt(opts.backupReceiptPath);
+    if (refusal) return { ok: false, error: refusal };
+  }
+
+  const db = await getDb(projectRoot);
+  const pre = await scanStore(projectRoot, db, olderThanDays);
+
+  const repairs: DocsDoctorRepairAction[] = [];
+  for (const { row, path } of pre.dangling.archivable) {
+    repairs.push({
+      kind: 'dangling-pointers',
+      action: 'archive-dangling',
+      applied: apply,
+      attachmentId: row.id,
+      ...(row.slug !== null ? { slug: row.slug } : {}),
+      detail: `marked-dangling: local-file target missing (${path}) → lifecycle_status = 'archived'`,
+    });
+  }
+  for (const { row, path } of pre.dangling.clearable) {
+    repairs.push({
+      kind: 'dangling-pointers',
+      action: 'clear-stale-path',
+      applied: apply,
+      attachmentId: row.id,
+      ...(row.slug !== null ? { slug: row.slug } : {}),
+      detail:
+        `cleared stale legacy path (${path}) — content alive in the blob store ` +
+        `(sha256 ${row.sha256.slice(0, 12)}…)`,
+    });
+  }
+  for (const { row, expected } of pre.skewed) {
+    repairs.push({
+      kind: 'doc-version-skew',
+      action: 'set-doc-version',
+      applied: apply,
+      attachmentId: row.id,
+      ...(row.slug !== null ? { slug: row.slug } : {}),
+      detail: `audit-note: docVersion ${row.docVersion} → ${expected} (audit log revisions + 1)`,
+    });
+  }
+  for (const { row, derived } of pre.backfillable) {
+    const derivedCount = derived.topics.length + derived.relatedTasks.length;
+    repairs.push({
+      kind: 'empty-provenance',
+      action: 'backfill-provenance',
+      applied: apply && derivedCount > 0,
+      attachmentId: row.id,
+      ...(row.slug !== null ? { slug: row.slug } : {}),
+      detail:
+        derivedCount > 0
+          ? `derived topics=[${derived.topics.join(',')}] related_tasks=[${derived.relatedTasks.join(',')}]`
+          : 'no derivable topics or task mentions — columns stay NULL',
+    });
+  }
+  if (pre.needsWikilinksRebuild) {
+    repairs.push({
+      kind: 'wikilinks-drift',
+      action: 'rebuild-wikilinks',
+      applied: apply,
+      detail:
+        pre.missingEdges.length > 0
+          ? `${pre.missingEdges.length} expected edge(s) absent from docs_wikilinks → full re-derivation`
+          : 'provenance backfill changes derived edges → full re-derivation',
+    });
+  }
+
   // ── Apply repairs (backup gate already passed) ─────────────────────────────
   if (apply) {
-    for (const { row, expected } of skewed) {
+    for (const { row, expected } of pre.skewed) {
       await db
         .update(docsAttachments)
         .set({ docVersion: expected })
         .where(eq(docsAttachments.id, row.id))
         .run();
     }
-    for (const { row, content, labels } of backfillable) {
-      const derived = deriveDocLinks(content, labels);
+    for (const { row, derived } of pre.backfillable) {
       if (derived.topics.length + derived.relatedTasks.length === 0) continue;
       await db
         .update(docsAttachments)
@@ -660,21 +811,34 @@ export async function runDocsDoctor(
         .where(eq(docsAttachments.id, row.id))
         .run();
     }
-    for (const { row } of archivable) {
+    for (const { row } of pre.dangling.archivable) {
       await db
         .update(docsAttachments)
         .set({ lifecycleStatus: 'archived' })
         .where(eq(docsAttachments.id, row.id))
         .run();
     }
-    if (missingEdges.length > 0) {
+    for (const { row, payload } of pre.dangling.clearable) {
+      const cleaned: Record<string, unknown> = { ...payload };
+      delete cleaned['path'];
+      await db
+        .update(docsAttachments)
+        .set({ attachmentJson: JSON.stringify(cleaned) })
+        .where(eq(docsAttachments.id, row.id))
+        .run();
+    }
+    if (pre.needsWikilinksRebuild) {
       await rebuildDocsWikilinks({ projectRoot });
     }
   }
 
-  const findings = diagnostics.reduce((sum, d) => sum + d.count, 0);
+  // T13560: on apply, re-scan so the envelope's diagnostics (and the summary
+  // computed from them) describe POST-repair state, consistent with a
+  // follow-up dry run. Dry runs keep the pre-repair scan.
+  const post = apply ? await scanStore(projectRoot, db, olderThanDays) : pre;
+  const findings = post.diagnostics.reduce((sum, d) => sum + d.count, 0);
   const summary = apply
-    ? `docs doctor applied ${repairs.filter((r) => r.applied).length} repair(s) across ${findings} finding(s)`
+    ? `docs doctor applied ${repairs.filter((r) => r.applied).length} repair(s); ${findings} finding(s) remain post-repair`
     : `docs doctor found ${findings} finding(s); ${repairs.length} repair(s) planned (dry-run — pass --apply to execute)`;
 
   return {
@@ -683,7 +847,7 @@ export async function runDocsDoctor(
       applied: apply,
       olderThanDays,
       backupReceiptPath: apply ? (opts.backupReceiptPath ?? null) : null,
-      diagnostics,
+      diagnostics: post.diagnostics,
       repairs,
       summary,
     },
