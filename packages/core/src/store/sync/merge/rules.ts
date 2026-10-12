@@ -78,7 +78,8 @@ export const TASK_STAGE_MERGE_ORDER: readonly string[] = [
  * The typed merge rules by sync-set table. Implemented rule ids:
  * `task.status.absorbing` (T12937), `task.pipeline-stage.max` (T12938),
  * `task.verification.frozen-on-done` (T12939),
- * `docs.decision-adr-links.revoke-monotonic` (T13597).
+ * `docs.decision-adr-links.revoke-monotonic` (T13597),
+ * `playbook.approval.once` (T12944).
  */
 export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
   tasks_tasks: {
@@ -113,6 +114,21 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
         column: 'status',
         values: ['done'],
         unfreezeOps: TASK_STATUS_LEAVE_OPS,
+      },
+    },
+  },
+  tasks_playbook_approvals: {
+    // A decision and its stamps move together (PB-1).
+    groups: [['status', 'approved_at', 'approver', 'reason']],
+    rules: {
+      // pending → approved | rejected once (T12944); no command reopens a
+      // decision. Two devices deciding differently resolve by LWW and record
+      // the divergent decision as a conflict.
+      status: {
+        kind: 'absorbing',
+        id: 'playbook.approval.once',
+        states: ['approved', 'rejected'],
+        leaveOps: [],
       },
     },
   },
