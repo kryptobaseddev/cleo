@@ -103,31 +103,6 @@ export const OWNER_DECISION_DECISION_SITE = {
   note: 'Escalate-only: may add requiresOwnerDecision, never clears it.',
 } as const satisfies DecisionSiteDefinition;
 
-/**
- * `docs.triage` — batch keep/update/supersede/archive verdicts over draft docs
- * (T13446). Proposals only: the site never mutates a doc; `--record` persists
- * each verdict as a `proposed` D#### decision for owner review.
- */
-export const DOC_TRIAGE_DECISION_SITE = {
-  id: 'docs.triage',
-  title: 'CleoDocs draft triage (keep/update/supersede/archive)',
-  files: ['packages/core/src/docs/triage.ts'],
-  questionType: 'choice',
-  primaryRung: 'system-one',
-  ladder: ['generative'],
-  fallback: 'rule',
-  floors: { '*': 0.6 },
-  ownerEscalation: 'below-floor',
-  modeKey: 'decide.sites.docTriage',
-  generativeKey: 'decide.generativeFallback.docTriage',
-  defaultMode: 'shadow',
-  llmSystemKey: 'consolidation',
-  writePath: false,
-  sends: ['memory-text'],
-  task: 'T13446',
-  note: 'Batch job over `cleo docs triage`; rule fallback is age/topics/link heuristics. Shadow until go-live evidence exists.',
-} as const satisfies DecisionSiteDefinition;
-
 /** `cli.decide-ask` — the `cleo decide ask` debug question (T12491). */
 export const DECIDE_ASK_DECISION_SITE = {
   id: 'cli.decide-ask',
@@ -166,6 +141,31 @@ export const DECIDE_BENCH_DECISION_SITE = {
   sends: ['task-text', 'memory-text'],
   task: 'T12495',
   note: 'Benchmark verb: replays the duplicate, observation-type and contradiction questions; answers are scored, never acted on.',
+} as const satisfies DecisionSiteDefinition;
+
+/**
+ * `docs.triage` — batch keep/update/supersede/archive verdicts over draft docs
+ * (T13446). Proposals only: the site never mutates a doc; `--record` persists
+ * each verdict as a `proposed` D#### decision for owner review.
+ */
+export const DOC_TRIAGE_DECISION_SITE = {
+  id: 'docs.triage',
+  title: 'CleoDocs draft triage (keep/update/supersede/archive)',
+  files: ['packages/core/src/docs/triage.ts'],
+  questionType: 'choice',
+  primaryRung: 'system-one',
+  ladder: ['generative'],
+  fallback: 'rule',
+  floors: { '*': 0.6 },
+  ownerEscalation: 'below-floor',
+  modeKey: 'decide.sites.docTriage',
+  generativeKey: 'decide.generativeFallback.docTriage',
+  defaultMode: 'shadow',
+  llmSystemKey: 'consolidation',
+  writePath: false,
+  sends: ['memory-text'],
+  task: 'T13446',
+  note: 'Batch job over `cleo docs triage`; rule fallback is age/topics/link heuristics. Shadow until go-live evidence exists.',
 } as const satisfies DecisionSiteDefinition;
 
 /**
