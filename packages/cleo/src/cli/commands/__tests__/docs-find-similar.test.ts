@@ -1,11 +1,15 @@
 /**
- * End-to-end tests for `cleo docs find --similar <slug>` (T10163).
+ * End-to-end tests for `cleo docs query --similar <slug>` (T10163).
+ *
+ * T13361 retired the `find` verb — `docs query --similar` is now the only
+ * surface for similar-doc discovery; these tests drive the query verb and
+ * assert the same T10163 envelope contract.
  *
  * Drives the compiled `cleo` CLI as a subprocess against an isolated tmp
  * `CLEO_PROJECT_ROOT` and verifies the AC contract from T10163:
  *
  *   (a) seeds 3 same-kind docs + 1 different-kind doc, then runs
- *       `cleo docs find --similar <seed> --limit 2` and asserts the
+ *       `cleo docs query --similar <seed> --limit 2` and asserts the
  *       envelope returns up to 2 ranked hits with the
  *       `{ slug, kind, score, summary, lifecycle_status }` shape, sorted
  *       descending by `score`, and that the seed itself is NEVER returned.
@@ -143,7 +147,7 @@ afterEach(async () => {
 // tmpdir, so allot generous per-test headroom.
 const TEST_TIMEOUT_MS = 300_000;
 
-describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs find --similar <slug>', () => {
+describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs query --similar <slug>', () => {
   it(
     '(a) ranks same-kind docs in descending score order, excludes the seed, honours --limit',
     async () => {
@@ -196,7 +200,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs find --similar <slug>
       const res = runCli(
         [
           'docs',
-          'find',
+          'query',
           '--similar',
           't10163-seed-release-pipeline',
           '--limit',
@@ -206,7 +210,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs find --similar <slug>
         ],
         projectRoot,
       );
-      expect(res.status, `find failed; stdout=${res.stdout} stderr=${res.stderr}`).toBe(0);
+      expect(res.status, `query failed; stdout=${res.stdout} stderr=${res.stderr}`).toBe(0);
 
       const env = parseEnvelope<FindResultShape>(res.stdout);
       expect(env.success).toBe(true);
@@ -268,10 +272,10 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs find --similar <slug>
 
       // Default — same-kind only.
       const defaultRes = runCli(
-        ['docs', 'find', '--similar', 't10163b-seed-architecture', '--threshold', '0'],
+        ['docs', 'query', '--similar', 't10163b-seed-architecture', '--threshold', '0'],
         projectRoot,
       );
-      expect(defaultRes.status, `default find failed; stdout=${defaultRes.stdout}`).toBe(0);
+      expect(defaultRes.status, `default query failed; stdout=${defaultRes.stdout}`).toBe(0);
       const defaultHits = parseEnvelope<FindResultShape>(defaultRes.stdout).data?.hits ?? [];
       for (const h of defaultHits) {
         expect(h.kind).toBe('note');
@@ -282,7 +286,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs find --similar <slug>
       const allRes = runCli(
         [
           'docs',
-          'find',
+          'query',
           '--similar',
           't10163b-seed-architecture',
           '--all-kinds',
@@ -291,7 +295,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs find --similar <slug>
         ],
         projectRoot,
       );
-      expect(allRes.status, `--all-kinds find failed; stdout=${allRes.stdout}`).toBe(0);
+      expect(allRes.status, `--all-kinds query failed; stdout=${allRes.stdout}`).toBe(0);
       const allHits = parseEnvelope<FindResultShape>(allRes.stdout).data?.hits ?? [];
       const kinds = new Set(allHits.map((h) => h.kind));
       // The fixture is deterministic enough that the spec doc must be a candidate.
@@ -319,10 +323,10 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs find --similar <slug>
       );
 
       const res = runCli(
-        ['docs', 'find', '--similar', 't10163c-seed', '--threshold', '0.999'],
+        ['docs', 'query', '--similar', 't10163c-seed', '--threshold', '0.999'],
         projectRoot,
       );
-      expect(res.status, `find failed; stdout=${res.stdout}`).toBe(0);
+      expect(res.status, `query failed; stdout=${res.stdout}`).toBe(0);
       const env = parseEnvelope<FindResultShape>(res.stdout);
       expect(env.success).toBe(true);
       expect(env.data?.hits ?? []).toHaveLength(0);
@@ -333,7 +337,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs find --similar <slug>
   );
 
   it('(d) --similar against an unknown slug returns E_DOCS_SLUG_NOT_FOUND', async () => {
-    const res = runCli(['docs', 'find', '--similar', 'no-such-slug'], projectRoot);
+    const res = runCli(['docs', 'query', '--similar', 'no-such-slug'], projectRoot);
     expect(res.status).not.toBe(0);
     const env = parseEnvelope(res.stdout);
     expect(env.success).toBe(false);
@@ -341,8 +345,8 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs find --similar <slug>
     expect(symbolic).toBe('E_DOCS_SLUG_NOT_FOUND');
   });
 
-  it('(e) --similar with missing value returns E_VALIDATION', async () => {
-    const res = runCli(['docs', 'find'], projectRoot);
+  it('(e) invoking query with no mode returns E_VALIDATION', async () => {
+    const res = runCli(['docs', 'query'], projectRoot);
     expect(res.status).not.toBe(0);
     const env = parseEnvelope(res.stdout);
     expect(env.success).toBe(false);
