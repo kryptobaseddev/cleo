@@ -17,3 +17,9 @@ still holds no plaintext and no machine-bound ciphertext. A restore opens each
 sealed cell, re-encrypts it under the restoring machine's key, and fills only
 the cells that machine does not already hold. A credential the pushing machine
 cannot decrypt is left cleared with a `W_SYNC_SECRET_UNREADABLE` warning.
+
+A merge join (a never-synced store joining without a restore, T13544) fills the
+same sealed cells into its scratch copy of the checkpoint before it adopts any
+row, and adopts an adopted row's secret columns with it. A row the joining
+store already holds keeps its own secrets. A fill that fails aborts the join or
+the owed reconcile, which the next attempt retries.

@@ -1681,6 +1681,8 @@ async function enableSyncPushImpl(
             stream: t.streamId,
             mergedCursor,
             baseline,
+            // The global scratch's credentials were filled under this machine's key (T13544).
+            adoptSecrets: t.scope === 'global',
           });
         } catch (err) {
           warnings.push({
@@ -2077,6 +2079,7 @@ async function reconcileOwedCopy(
         stream: t.streamId,
         mergedCursor,
         baseline,
+        adoptSecrets: t.scope === 'global',
       });
     } catch (err) {
       if (!(err instanceof MergeKeyCollisionError)) throw err;
@@ -2201,6 +2204,15 @@ async function withMergedScratch<T>(
           `the merged state this store reconciles against stopped short of ${t.streamId}'s head: ${merged.refused}`,
           'nothing was pushed or pulled; run `cleo cloud sync` again',
         );
+      }
+      // The checkpoint's sealed credential cells fill what the scratch lacks,
+      // under this machine's key, before anything is adopted from it (T13544).
+      // A failure aborts the merge: the reconcile stays due and the next sync retries.
+      if (t.scope === 'global') {
+        const { openSnapshotCredentials, secretValuesKey } = await import('./secret-seal.js');
+        await openSnapshotCredentials(scratchPath, secretValuesKey(key.masterKey), {
+          cleoHome: t.storeRoot,
+        });
       }
       return await fn(
         scratch,
