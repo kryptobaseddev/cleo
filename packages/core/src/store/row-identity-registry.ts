@@ -409,6 +409,57 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['brain_entry_id', 'release_id', 'link_type'],
       task: 'T12895',
     },
+    // CleoDocs schema re-key (T13354 · spec cleodocs-rearch-design §3/§10 ·
+    // D11165): the conduit history family keys on the immutable doc row uid.
+    {
+      table: 'conduit_attachments',
+      kind: 'minted',
+      key: ['slug'],
+      birth: 'created_at',
+      birthFacts: ['conversation_id', 'from_agent_id'],
+      task: 'T13354',
+    },
+    {
+      // Append-only: version identity is the uid + parent_version_uid DAG;
+      // the local UUIDv4 id never travels and cannot collide across devices.
+      table: 'conduit_attachment_versions',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['author_agent_id', 'content_hash'],
+      refs: [
+        { column: 'attachment_uid', table: 'conduit_attachments' },
+        { column: 'parent_version_uid', table: 'conduit_attachment_versions' },
+      ],
+      task: 'T13354',
+    },
+    {
+      // Append-only: a revoke is a new row (tombstone), never an UPDATE/DELETE.
+      table: 'conduit_attachment_approvals',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['reviewer_agent_id'],
+      refs: [
+        { column: 'attachment_uid', table: 'conduit_attachments' },
+        { column: 'version_uid', table: 'conduit_attachment_versions' },
+      ],
+      task: 'T13354',
+    },
+    {
+      // Natural over the pair: both devices derive one uid for one alias.
+      table: 'conduit_doc_slug_aliases',
+      kind: 'natural',
+      key: ['slug', 'doc_uid'],
+      task: 'T13354',
+    },
+    {
+      // One projection row per doc; the key column already holds the doc uid.
+      table: 'conduit_doc_heads',
+      kind: 'natural',
+      key: ['attachment_uid'],
+      task: 'T13354',
+    },
   ],
   global: [
     ...brainTextKeyed(),
@@ -602,10 +653,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
     },
     ...exempt(
       [
-        'conduit_attachment_approvals',
-        'conduit_attachment_contributors',
-        'conduit_attachment_versions',
-        'conduit_attachments',
         'conduit_conversations',
         'conduit_message_pins',
         'conduit_messages',
@@ -691,8 +738,10 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  *
  * Since T12894 declared the brain text-keyed tables (11 project, 12 global),
  * T12895 the brain natural-key tables (3 project, 3 global) and T12896 the
- * brain integer-keyed tables (6 project, 6 global), and T12915 declared the
- * agent registry (1 global; 6 more reclassified derived or local-only)
+ * brain integer-keyed tables (6 project, 6 global), T12915 declared the
+ * agent registry (1 global; 6 more reclassified derived or local-only), and
+ * T13354 declared the re-keyed conduit doc family (5 project, dropping 4
+ * exemptions — contributors became derived and not syncing)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
@@ -700,7 +749,7 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned              | T12894 | 0       | 0      |
  * | planned              | T12895 | 0       | 0      |
  * | planned              | T12896 | 2       | 1      |
- * | planned (conduit)    | T12913 | 12      | 0      |
+ * | planned (conduit)    | T12913 | 8       | 0      |
  * | planned (lifecycle…) | T12914 | 16      | 0      |
  * | planned (agents…)    | T12915 | 0       | 4      |
  * | planned (nexus)      | T12916 | 0       | 8      |
@@ -709,12 +758,12 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned (misc)       | T12920 | 12      | 0      |
  * | twin-collapse        | T12535 | 30      | 0      |
  * | not-row-replicated   | T12918 | 1       | 1      |
- * | total                |        | 76      | 18     |
+ * | total                |        | 70      | 17     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 74,
+  project: 70,
   global: 17,
 };
 
@@ -727,7 +776,7 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: '55f330a07c43d1b1af86579902b8d2efad2d5a5bbc713d2fd785705d36c8126b',
+  project: '03413c00c1a3a2be35c1b1c8729ceb8c89f28624e7919e6e12e2f06b5fba5ef6',
   global: '60877c1f83b6b1e87bbce6f6e911720853337aa2b10eed7404c06a47e9bffd5c',
 };
 

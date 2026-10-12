@@ -231,6 +231,10 @@ export const attachments = sqliteTable(
     versionCount: integer('version_count').notNull().default(1),
     currentVersion: integer('current_version').notNull().default(1),
     createdAt: integer('created_at').notNull(),
+    /** Row uid (T12341); the immutable doc id history tables reference (T13354). */
+    uid: text('uid'),
+    /** Birth fingerprint (T12341). */
+    birthFp: text('birth_fp'),
   },
   (table) => [
     index('conduit_attachments_conversation_idx').on(table.conversationId),
@@ -241,15 +245,30 @@ export const attachments = sqliteTable(
 /**
  * Version history for attachments (collaborative editing).
  *
+ * T13354: re-keyed to the document's immutable row uid (`conduit_attachments.uid`),
+ * no cascade delete, `slug` demoted to a nullable legacy/display column, and
+ * `version_number` is a display ordinal only (identity = uid + parent_version_uid
+ * DAG). Matches the physical shape created by
+ * `migrations/drizzle-cleo-project/20261011000000_t13354-conduit-history-rekey`.
+ *
  * @task T344
+ * @task T13354
  */
 export const attachmentVersions = sqliteTable(
   'conduit_attachment_versions',
   {
     id: text('id').primaryKey(),
-    slug: text('slug')
-      .notNull()
-      .references(() => attachments.slug, { onDelete: 'cascade' }),
+    /** Row uid (T12341); with `parent_version_uid` forms the version DAG (T13354). */
+    uid: text('uid'),
+    /** Birth fingerprint (T12341). */
+    birthFp: text('birth_fp'),
+    /** FK → `conduit_attachments.uid`. NO cascade delete. */
+    attachmentUid: text('attachment_uid'),
+    /** FK → parent version's `uid` (NULL for a root). NO cascade delete. */
+    parentVersionUid: text('parent_version_uid'),
+    /** Pre-rekey slug (legacy carry / display alias; no longer a key or FK). */
+    slug: text('slug'),
+    /** Display ordinal minted locally; collides across devices — never a key. */
     versionNumber: integer('version_number').notNull(),
     /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (revision author). Resolved by the conduit accessor; no DB-level FK. */
     authorAgentId: text('author_agent_id').notNull(),
@@ -267,8 +286,8 @@ export const attachmentVersions = sqliteTable(
     createdAt: integer('created_at').notNull(),
   },
   (table) => [
-    unique('conduit_attachment_versions_slug_version_unique').on(table.slug, table.versionNumber),
-    index('idx_conduit_attachment_versions_slug').on(table.slug),
+    index('idx_conduit_attachment_versions_attachment').on(table.attachmentUid),
+    index('idx_conduit_attachment_versions_parent').on(table.parentVersionUid),
     index('idx_conduit_attachment_versions_author').on(table.authorAgentId),
   ],
 );
@@ -276,43 +295,60 @@ export const attachmentVersions = sqliteTable(
 /**
  * Approval records for attachment content review.
  *
+ * T13354: keyed by version uid (+ optional section id), append-only — a revoke
+ * is a tombstone row, never an UPDATE/DELETE (the UNIQUE(slug, reviewer)
+ * constraint is gone). No cascade delete.
+ *
  * @task T344
+ * @task T13354
  */
 export const attachmentApprovals = sqliteTable(
   'conduit_attachment_approvals',
   {
     id: text('id').primaryKey(),
-    slug: text('slug')
-      .notNull()
-      .references(() => attachments.slug, { onDelete: 'cascade' }),
+    /** Row uid (T12341). */
+    uid: text('uid'),
+    /** Birth fingerprint (T12341). */
+    birthFp: text('birth_fp'),
+    /** FK → `conduit_attachments.uid`. NO cascade delete. */
+    attachmentUid: text('attachment_uid'),
+    /** FK → the reviewed version's `uid`. NO cascade delete. */
+    versionUid: text('version_uid'),
+    /** Section the verdict covers; NULL = whole document. */
+    sectionId: text('section_id'),
+    /** Pre-rekey slug (legacy carry / display alias; no longer a key or FK). */
+    slug: text('slug'),
     /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (reviewer). Resolved by the conduit accessor; no DB-level FK. */
     reviewerAgentId: text('reviewer_agent_id').notNull(),
     status: text('status').notNull().default('pending'),
     comment: text('comment'),
     versionReviewed: integer('version_reviewed').notNull(),
     createdAt: integer('created_at').notNull(),
+    /** Legacy carry (the pre-rekey table tracked edits in place); append-only since T13354. */
     updatedAt: integer('updated_at').notNull(),
   },
   (table) => [
-    unique('conduit_attachment_approvals_slug_reviewer_unique').on(
-      table.slug,
-      table.reviewerAgentId,
-    ),
-    index('idx_conduit_attachment_approvals_slug').on(table.slug),
+    index('idx_conduit_attachment_approvals_attachment').on(table.attachmentUid),
+    index('idx_conduit_attachment_approvals_version').on(table.versionUid),
   ],
 );
 
 /**
  * Contributor statistics per attachment (who edited, how much).
  *
+ * T13354: a DERIVED rollup keyed (attachment_uid, agent_id), rebuilt from
+ * `conduit_attachment_versions` after apply — never synced (D11165).
+ *
  * @task T344
+ * @task T13354
  */
 export const attachmentContributors = sqliteTable(
   'conduit_attachment_contributors',
   {
-    slug: text('slug')
-      .notNull()
-      .references(() => attachments.slug, { onDelete: 'cascade' }),
+    /** FK → `conduit_attachments.uid`. NO cascade delete. */
+    attachmentUid: text('attachment_uid'),
+    /** Pre-rekey slug (legacy carry / display alias; no longer a key or FK). */
+    slug: text('slug'),
     /** @cross-db signaldock-global.agents.agent_id — conduit→signaldock soft FK (contributor). Resolved by the conduit accessor; no DB-level FK. */
     agentId: text('agent_id').notNull(),
     versionCount: integer('version_count').notNull().default(0),
@@ -321,7 +357,7 @@ export const attachmentContributors = sqliteTable(
     firstContributionAt: integer('first_contribution_at').notNull(),
     lastContributionAt: integer('last_contribution_at').notNull(),
   },
-  (table) => [primaryKey({ columns: [table.slug, table.agentId] })],
+  (table) => [primaryKey({ columns: [table.attachmentUid, table.agentId] })],
 );
 
 // ---------------------------------------------------------------------------

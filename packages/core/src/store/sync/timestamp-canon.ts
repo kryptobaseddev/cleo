@@ -129,6 +129,13 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     brain_usage_log: ['created_at'],
     tasks_brain_release_links: ['created_at'],
     brain_task_observations: ['created_at'],
+    // T13354 (CleoDocs re-key): the re-keyed/new syncing tables of the doc
+    // history family.
+    conduit_attachments: ['created_at', 'expires_at'],
+    conduit_attachment_versions: ['created_at'],
+    conduit_attachment_approvals: ['created_at', 'updated_at'],
+    conduit_doc_slug_aliases: ['created_at'],
+    conduit_doc_heads: ['updated_at'],
   },
   global: {
     brain_decisions: ['created_at', 'updated_at', 'valid_at', 'invalid_at', 'tier_promoted_at'],
