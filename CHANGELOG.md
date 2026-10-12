@@ -1,5 +1,25 @@
 # Changelog
 
+## [2026.10.12] (2026-10-12)
+
+### Fixed
+
+- `cleo done` / `cleo complete` accept a scoped test run after its PR merges, in every carrier shape: a recorded `pr:` atom (T13634, #2203); a commit carried into a GitHub merge with no `pr:` atom (T13637); a `pr:` atom with no file list, whose files now come from the merge commit itself (T13636); and `cleo done --pr` now passes the PR to completion, not only to the plan (#2204). The real changed-file comparison is unchanged, and refusals now name the files that differ.
+
+### Also in this release (listed by hand)
+
+Merged since v2026.10.11. Their own PR CI was green and they were reviewed, but their task evidence wasn't recorded at planning time:
+
+- T13636, T13637 #2204: scoped-run carry for commit-only and no-file-list carriers
+- T13361 #2198: retire seven legacy `cleo docs` verbs (`docs status` and `docs sync` kept)
+- T12940 #2180: terminal session status is absorbing in the sync merge rules
+- T12997 #2189: `cleo cloud conflicts` resolve
+- T13603 #2167: re-keyed held seals
+- T13545 #2158: import keeps the sidecar
+- T13335 #2011: copy reconcile
+- T13623 #2191: a scoped test run can stand in after red merge CI only once it has landed on the default branch
+- T12944 #2182: playbook approvals apply once in the sync merge rules
+
 ## [2026.10.11] (2026-10-12)
 
 ### Added
