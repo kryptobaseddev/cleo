@@ -365,6 +365,31 @@ describe('the hung/overdue watchdog (T13563)', () => {
     expect(h.signals).toEqual([]);
   });
 
+  it('never flags a run overdue for a pause still in progress (T13570)', async () => {
+    vi.stubEnv('CLEO_RUN_MAX_WALL_MIN', '1');
+    writeRunJob(olderJob(), join(dir, 'jobs'));
+    const notices: string[] = [];
+    let seen: RunJob | null = null;
+    const h = harness({
+      // Backoff from the 2nd sample on: this younger job is paused and stays paused.
+      levels: ['ok', 'backoff'],
+      treeUsage: () => ({ cpuMs: 0, rssBytes: 1, processes: 1 }),
+      onSleep: (n, hh) => {
+        // The older job stays alive, so this one stays paused.
+        writeRunJob({ ...olderJob(), heartbeatAtMs: hh.clock.t }, join(dir, 'jobs'));
+        // 5 s ticks: well past the 1 min limit, nearly all of it paused.
+        if (n === 40) {
+          seen = recordOf(hh);
+          hh.exit(0);
+        }
+      },
+    });
+    await runGoverned(base(h, { notice: (line: string) => notices.push(line) }));
+    expect(h.signals.some(([, s]) => s === 'SIGSTOP')).toBe(true);
+    expect(notices.some((l) => l.startsWith('overdue:'))).toBe(false);
+    expect(seen?.overdueAtMs ?? null).toBeNull();
+  });
+
   it('flags a run past its maximum wall time as overdue once, and a busy tree is never hung', async () => {
     vi.stubEnv('CLEO_RUN_MAX_WALL_MIN', '1');
     vi.stubEnv('CLEO_RUN_IDLE_MIN', '1');

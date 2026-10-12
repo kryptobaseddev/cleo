@@ -5,9 +5,10 @@
  * piggybacks (T13289). No daemon, timer or server; the foreground command
  * never waits for the child.
  *
- * The check on the command's path is one `stat` of a stamp under the CLEO
- * home. The stamp is written before the spawn, so a failing child is retried
- * a window later, not on every command. Everything else (the config opt-out
+ * The check on the command's path is one `stat` of a per-project stamp under
+ * the CLEO home, so one busy project cannot starve another's sync (T13556).
+ * The stamp is written before the spawn, so a failing child is retried a
+ * window later, not on every command. Everything else (the config opt-out
  * `cloud.autoSync`, flags, login, the network) runs in the child, where
  * `autoCloudSync` adds its own throttle and the cross-process lock that keeps
  * this, session end and the sentient tick from syncing twice.
@@ -22,6 +23,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
@@ -87,6 +89,35 @@ export interface CommandAutoSyncOptions {
   unreleasedFlags?: ReadonlySet<string>;
 }
 
+/** The throttle stamp of a project root under the CLEO home (T13556). */
+function stampPath(cleoHome: string, projectRoot: string): string {
+  const key = createHash('sha256').update(projectRoot).digest('hex').slice(0, 16);
+  return join(cleoHome, 'auto-sync-command', `${key}.stamp`);
+}
+
+/** One `CLEO_DEBUG` line for a failure that would otherwise be silent (T13556). */
+function debugFailure(env: NodeJS.ProcessEnv, error: unknown): void {
+  if (env['CLEO_DEBUG'])
+    process.stderr.write(
+      `[cleo][debug] Piggyback sync not started: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+}
+
+/**
+ * The command's root verb: the first argv token naming a root command, so the
+ * value of a leading global option (`cleo --cwd x run`) is never taken for it.
+ *
+ * @param argv - The command's argv after the executable and script.
+ * @param commands - The root commands, keyed by name and alias.
+ * @returns The root verb, or `undefined` when no token names a root command.
+ */
+export function commandRootVerb(
+  argv: readonly string[],
+  commands: Readonly<Record<string, unknown>>,
+): string | undefined {
+  return argv.find((token) => !token.startsWith('-') && Object.hasOwn(commands, token));
+}
+
 function spawnDetachedWorker(projectRoot: string): void {
   const entry = createRequire(import.meta.url).resolve(WORKER_SPECIFIER);
   const child = spawn(process.execPath, [entry, projectRoot], {
@@ -96,7 +127,7 @@ function spawnDetachedWorker(projectRoot: string): void {
     env: process.env,
   });
   // A spawn failure is emitted asynchronously; never let it escape the command.
-  child.on('error', () => {});
+  child.on('error', (error) => debugFailure(process.env, error));
   child.unref();
 }
 
@@ -108,8 +139,8 @@ function spawnDetachedWorker(projectRoot: string): void {
  * @returns What happened on the command's path.
  */
 export function startCommandAutoSync(opts: CommandAutoSyncOptions): CommandAutoSyncOutcome {
+  const env = opts.env ?? process.env;
   try {
-    const env = opts.env ?? process.env;
     if (env[AUTO_SYNC_DISABLE_ENV] === '1') return 'disabled';
     // Inert until T13549 releases sync.push/sync.pull: no stamp, no spawn.
     if (!autoSyncReleased(opts.unreleasedFlags)) return 'disabled';
@@ -118,7 +149,7 @@ export function startCommandAutoSync(opts: CommandAutoSyncOptions): CommandAutoS
     const gap = autoSyncIntervalMs();
     if (gap === null) return 'disabled';
     const now = (opts.now ?? (() => new Date()))();
-    const stamp = join(opts.cleoHome ?? getCleoHome(), 'auto-sync-command.stamp');
+    const stamp = stampPath(opts.cleoHome ?? getCleoHome(), opts.projectRoot);
     try {
       if (now.getTime() - statSync(stamp).mtimeMs < gap) return 'throttled';
     } catch {
@@ -129,7 +160,8 @@ export function startCommandAutoSync(opts: CommandAutoSyncOptions): CommandAutoS
     utimesSync(stamp, now, now);
     (opts.spawnWorker ?? spawnDetachedWorker)(opts.projectRoot);
     return 'spawned';
-  } catch {
+  } catch (error) {
+    debugFailure(env, error);
     return 'failed';
   }
 }

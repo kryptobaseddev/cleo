@@ -38,6 +38,7 @@ import {
   planRunFootprint,
   readForeignEntries,
   readLedger,
+  readLedgerBudget,
   reapLedger,
   removeLedgerEntry,
   schedulePass,
@@ -207,6 +208,106 @@ describe('schedulePass', () => {
       { ...ctx, nowMs: LEDGER_RESERVATION_MS },
     );
     expect(admittedIds(out)).toEqual(['held']);
+  });
+
+  describe('the tiny reserve sits outside the pressure share (T13587)', () => {
+    const halved = {
+      capacityBytes: 48 * GIB,
+      share: 'half' as const,
+      lightShare: 'half' as const,
+      nowMs: LEDGER_RESERVATION_MS,
+    };
+    const holder = entry({ id: 'holder', state: 'admitted', footprintBytes: 24 * GIB });
+
+    it('a 24 GiB holder on a halved 48 GiB budget admits a 1 GiB head', () => {
+      const out = schedulePass(
+        [holder, entry({ id: 'fmt', enqueuedAtMs: 0, footprintBytes: GIB })],
+        halved,
+      );
+      expect(admittedIds(out).sort()).toEqual(['fmt', 'holder']);
+    });
+
+    it('only tiny runs use it, at most TINY_LANE_SLOTS of them', () => {
+      const out = schedulePass(
+        [
+          holder,
+          entry({ id: 'build', enqueuedAtMs: 0, footprintBytes: 2 * GIB }),
+          ...[1, 2, 3, 4].map((n) =>
+            entry({ id: `fmt${n}`, enqueuedAtMs: n, footprintBytes: GIB }),
+          ),
+        ],
+        halved,
+      );
+      expect(admittedIds(out).sort()).toEqual(['fmt1', 'fmt2', 'fmt3', 'holder']);
+    });
+
+    it('never starves a whole-capacity head behind steady tiny arrivals (T13591)', () => {
+      // One pass per 30 s: the oldest tiny run finishes and a new one arrives.
+      const step = 30_000;
+      let ledger: LedgerEntry[] = [
+        entry({ id: 'head', enqueuedAtMs: 0, footprintBytes: 48 * GIB }),
+        ...[0, 1, 2].map((k) =>
+          entry({ id: `t-${k}`, state: 'admitted', enqueuedAtMs: 1 + k, footprintBytes: GIB }),
+        ),
+      ];
+      let startedAt: number | null = null;
+      for (let n = 1; n <= 50 && startedAt === null; n++) {
+        const nowMs = LEDGER_RESERVATION_MS + n * step;
+        const oldest = ledger.find((e) => e.state === 'admitted' && e.id.startsWith('t'));
+        ledger = ledger.filter((e) => e !== oldest);
+        ledger.push(entry({ id: `t${n}`, enqueuedAtMs: nowMs, footprintBytes: GIB }));
+        ledger = schedulePass(ledger, { ...halved, nowMs });
+        if (ledger.find((e) => e.id === 'head')?.state === 'admitted') startedAt = n;
+      }
+      // The reserve stays shut for it, so the running tiny runs drain and it starts.
+      expect(startedAt).not.toBeNull();
+      expect(startedAt as number).toBeLessThanOrEqual(4);
+    });
+
+    it('a near-capacity head waits at most TINY_LANE_WINDOWS reservations behind steady tiny arrivals (T13591)', () => {
+      // 46 GiB: under the capacity, over the halved budget, so it starts only
+      // once nothing runs; the reserve must close for the tiny runs to drain.
+      const step = 30_000;
+      let ledger: LedgerEntry[] = [
+        entry({ id: 'head', enqueuedAtMs: 0, footprintBytes: 46 * GIB }),
+      ];
+      let startedAt: number | null = null;
+      for (let n = 1; n <= 80 && startedAt === null; n++) {
+        const nowMs = n * step;
+        const tinies = ledger.filter((e) => e.state === 'admitted' && e.id.startsWith('t'));
+        if (tinies.length >= 2) ledger = ledger.filter((e) => e !== tinies[0]);
+        ledger.push(entry({ id: `t${n}`, enqueuedAtMs: nowMs, footprintBytes: GIB }));
+        ledger = schedulePass(ledger, { ...halved, nowMs });
+        if (ledger.find((e) => e.id === 'head')?.state === 'admitted') startedAt = nowMs;
+      }
+      expect(startedAt).not.toBeNull();
+      expect(startedAt as number).toBeLessThanOrEqual(
+        LEDGER_RESERVATION_MS * TINY_LANE_WINDOWS + 4 * step,
+      );
+    });
+
+    it('the reserve never admits past a waiting whole-capacity head, even before its reservation (T13591)', () => {
+      const ledger = [
+        entry({ id: 'head', enqueuedAtMs: 0, footprintBytes: 48 * GIB }),
+        // Fills the halved budget: only the reserve could admit the formatter.
+        entry({ id: 'busy', state: 'admitted', footprintBytes: 24 * GIB }),
+        entry({ id: 'fmt', enqueuedAtMs: 10, footprintBytes: GIB }),
+      ];
+      const young = { ...halved, nowMs: 1_000 };
+      expect(admittedIds(schedulePass(ledger, young)).sort()).toEqual(['busy']);
+      // A head that fits under the capacity leaves the reserve open while it is young.
+      const partial = ledger.map((e) => (e.id === 'head' ? { ...e, footprintBytes: 20 * GIB } : e));
+      expect(admittedIds(schedulePass(partial, young))).toContain('fmt');
+    });
+
+    it('the memory gate (none) still admits nothing', () => {
+      const out = schedulePass([holder, entry({ id: 'fmt', footprintBytes: GIB })], {
+        ...halved,
+        share: 'none',
+        lightShare: 'none',
+      });
+      expect(admittedIds(out)).toEqual(['holder']);
+    });
   });
 
   it('a run larger than the capacity runs alone, never waiting forever on its size', () => {
@@ -666,6 +767,31 @@ describe('admit (one ledger, real critical section)', () => {
   });
 
   const base = { capacityBytes, sample: calm, env: {}, pollMs: 5 };
+
+  it('a half-share ledger names the narrowed budget and its share in the refusal and status (T13572)', async () => {
+    const halved = { ...base, sample: async () => sampleAt(15) };
+    const a = await admit(
+      { label: 'tool:test', footprintBytes: 4 * GIB },
+      { ...halved, dir, wait: false },
+    );
+    expect(a.admitted).toBe(true);
+    const b = await admit(
+      { label: 'tool:typecheck', footprintBytes: 2 * GIB },
+      { ...halved, dir, wait: false },
+    );
+    expect(b.admitted).toBe(false);
+    if (!b.admitted) {
+      expect(b.refusal.reason).toMatch(
+        /machine budget in use: 4\.0 GiB of 5\.0 GiB (light|heavy) budget \((light|heavy) share half from [a-zA-Z ]+pressure; capacity 10 GiB\)/,
+      );
+    }
+    expect(readLedgerBudget(dir, capacityBytes)).toMatchObject({
+      capacityBytes,
+      lightShare: 'half',
+      lightBudgetBytes: 5 * GIB,
+    });
+    if (a.admitted) await a.grant.release();
+  });
 
   it('admits within the budget, refuses beyond it with the holders, and frees on release', async () => {
     const a = await admit(

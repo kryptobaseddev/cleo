@@ -280,6 +280,27 @@ describe('T10488 — pre-push hook task-ID enforcement', () => {
     expect(r.stderr).not.toMatch(/initial: cleo init\n/);
   });
 
+  it('refuses the init subject on a commit that has a parent (T13582)', () => {
+    const { workDir } = makeRepoWithOrigin();
+    const seed = commit(workDir, 'T1: seed');
+    execFileSync('git', ['-C', workDir, 'push', '-q', '--no-verify', 'origin', 'main']);
+    execFileSync('git', [
+      '-C',
+      workDir,
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      'initial: cleo init',
+    ]);
+    const later = execFileSync('git', ['-C', workDir, 'rev-parse', 'HEAD'], {
+      encoding: 'utf-8',
+    }).trim();
+    const r = runHook(workDir, `refs/heads/main ${later} refs/heads/main ${seed}\n`);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain(later);
+  });
+
   it('handles branch-deletion push (local_sha = ZERO_SHA) gracefully', () => {
     const { workDir } = makeRepoWithOrigin();
     const initial = commit(workDir, 'T1: seed');
@@ -300,9 +321,20 @@ describe('T13577 — commit-msg accepts the cleo init commit by exact subject', 
     return spawnSync('/bin/sh', [COMMIT_MSG, file], { cwd: dir, encoding: 'utf-8' }).status ?? -1;
   };
 
-  it("accepts 'initial: cleo init' and refuses an untagged or longer subject", () => {
+  it("accepts 'initial: cleo init' as the first commit and refuses an untagged or longer subject", () => {
     expect(check('initial: cleo init')).toBe(0);
     expect(check('chore: no task id')).toBe(1);
     expect(check('initial: cleo init and more')).toBe(1);
+  });
+
+  it('refuses the init subject once HEAD exists: it is not the first commit (T13582)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 't13582-'));
+    execFileSync('git', ['init', '-q', '-b', 'main', dir]);
+    gitConfig(dir);
+    execFileSync('git', ['-C', dir, 'commit', '-q', '--allow-empty', '-m', 'T1: seed']);
+    const file = join(dir, 'MSG');
+    writeFileSync(file, 'initial: cleo init\n');
+    const r = spawnSync('/bin/sh', [COMMIT_MSG, file], { cwd: dir, encoding: 'utf-8' });
+    expect(r.status).toBe(1);
   });
 });

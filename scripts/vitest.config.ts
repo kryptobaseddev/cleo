@@ -46,5 +46,12 @@ export default defineConfig({
     root: __dirname,
     include: ['__tests__/*.test.mjs'],
     environment: 'node',
+    // #2186: `extends: true` does not carry the root's timeouts into this
+    // project (its own `root`), so every scripts test ran at vitest's 5 s
+    // default. A test that scans the whole repository (lint --check on the
+    // real tree) takes about 5 s on a loaded CI runner and timed out as a
+    // flake. Match the root config's budget explicitly.
+    testTimeout: 120_000,
+    hookTimeout: 120_000,
   },
 });

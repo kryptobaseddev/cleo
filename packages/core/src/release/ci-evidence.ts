@@ -1321,6 +1321,27 @@ function ghApi(path: string, cwd: string): unknown {
 }
 
 /**
+ * Drop runs a schedule started from every fetch (T13623). A nightly run that
+ * happens to land on a merge commit tests main at that hour, not the merge:
+ * only the merge commit's push run, a tree-equal PR head's pull_request run or
+ * a later main commit's push run (T12742) decides the verdict.
+ *
+ * @param fetchChecks - The underlying check fetch.
+ * @returns The same fetch, minus `schedule` runs and their check runs.
+ * @task T13623
+ */
+export function withoutScheduledRuns(
+  fetchChecks: NonNullable<ResolveCiEvidenceOptions['fetchChecks']>,
+): NonNullable<ResolveCiEvidenceOptions['fetchChecks']> {
+  return async (sha, cwd) => {
+    const fetched = await fetchChecks(sha, cwd);
+    return fetched.ok
+      ? { ok: true, checks: fetched.checks.filter((c) => c.event !== 'schedule') }
+      : fetched;
+  };
+}
+
+/**
  * Default {@link ResolveCiEvidenceOptions.fetchChecks}: check runs + workflow
  * runs for a SHA. Workflow runs carry their event and workflow file; a check
  * run inherits both from the workflow run of its check suite.
@@ -1638,7 +1659,7 @@ export async function resolveCiEvidenceAtom(
   const editedWorkflows = pinnedWorkflows.filter((w) => pr.changedPaths.includes(w));
   const mainOnly = editedWorkflows.length > 0;
 
-  const fetchChecks = opts.fetchChecks ?? defaultFetchChecks;
+  const fetchChecks = withoutScheduledRuns(opts.fetchChecks ?? defaultFetchChecks);
   const fetched = await fetchChecks(pr.mergeCommitSha, roots.executionRoot);
   if (!fetched.ok) return { ok: false, reason: fetched.reason, codeName: 'E_EVIDENCE_TOOL_FAILED' };
 

@@ -27,6 +27,7 @@ import type {
   CommitPr,
   PatchEquivalenceUnknown,
 } from './change-set.js';
+import { changedTestFiles, testRunCoversChange } from './test-run-binding.js';
 
 /** Whether the task's change has merged to the default branch. */
 export type ChangeMergeState = ChangeSetMergeState;
@@ -293,6 +294,89 @@ export function scopedRunCarriedAcrossMerge(
 }
 
 /**
+ * Whether a targeted `test-run:` recorded on the default branch after the
+ * change merged stands in for merged CI that concluded without proving the
+ * change — red, or its required jobs skipped (T13623). The run tested the
+ * merged code as it is now, so it speaks for the change when CI on the merge
+ * commit cannot. Fails closed, and only `test-run:` reports qualify, because
+ * only they name the test files they ran:
+ *  - the merge commit is known, and the change lists files;
+ *  - every report carries the HEAD and tree it was bound to, that HEAD
+ *    descends from the merge commit AND has landed on origin's default
+ *    branch (a branch that merged main and added its own fix proves nothing
+ *    about main, T13627), and the tree is still the current one (a report
+ *    that predates a later edit of any file is refused);
+ *  - the reports together cover the change's own files the way a
+ *    pre-merge report must cover a branch ({@link testRunCoversChange}), and
+ *    ran every test file the change added or edited that still exists.
+ *
+ * @param atoms - Recorded `testsPassed` atoms.
+ * @param changeSet - The merged change set (its merge commit, files and root).
+ * @param current - The current tree hash of that root, or null.
+ * @param landed - Whether a commit has landed on origin's default branch
+ *   (`isLandedOnOriginDefault`; passed in so this module keeps loading
+ *   change-set lazily).
+ * @returns `ok`, or why the recorded run does not stand in.
+ * @task T13623
+ * @task T13627
+ */
+export function scopedRunStandsAfterRedCi(
+  atoms: ReadonlyArray<EvidenceAtom>,
+  changeSet: Pick<TaskChangeSet, 'mergeCommitSha' | 'files' | 'executionRoot'> | null,
+  current: string | null,
+  landed: (root: string, sha: string) => boolean,
+): { ok: true } | { ok: false; why: string } {
+  const merge = changeSet?.mergeCommitSha;
+  if (!changeSet || !merge) return { ok: false, why: 'the merge commit is not known here' };
+  if (changeSet.files.length === 0)
+    return { ok: false, why: 'the merged change lists no files to cover' };
+  const runs = atoms.filter(
+    (a): a is Extract<EvidenceAtom, { kind: 'test-run' }> => a.kind === 'test-run',
+  );
+  if (runs.length === 0 || atoms.some((a) => a.kind === 'tool' && a.scope === 'affected'))
+    return {
+      ok: false,
+      why: 'only test-run reports, which name the test files they ran, can stand in',
+    };
+  const root = changeSet.executionRoot;
+  for (const run of runs) {
+    if (!run.headSha || !run.treeHash)
+      return { ok: false, why: `test-run:${run.path} records no HEAD and tree to judge` };
+    if (run.treeHash !== current)
+      return {
+        ok: false,
+        why: `test-run:${run.path} ran on tree ${run.treeHash.slice(0, 12)}, but the tree is now ${current?.slice(0, 12) ?? 'unknown'}`,
+      };
+    try {
+      execFileSync('git', ['merge-base', '--is-ancestor', merge, run.headSha], {
+        cwd: root,
+        stdio: 'ignore',
+      });
+    } catch {
+      return {
+        ok: false,
+        why: `test-run:${run.path} was recorded at ${run.headSha.slice(0, 12)}, which does not descend from merge commit ${merge.slice(0, 12)}`,
+      };
+    }
+    if (!landed(root, run.headSha))
+      return {
+        ok: false,
+        why: `test-run:${run.path} was recorded at ${run.headSha.slice(0, 12)}, which is not on origin's default branch; run it on the default branch`,
+      };
+  }
+  const ran = [...new Set(runs.flatMap((r) => r.testFiles ?? []))];
+  const covered = testRunCoversChange(root, changeSet.files, ran);
+  if (!covered.ok) return { ok: false, why: covered.reason };
+  const unrun = changedTestFiles(root, changeSet.files).filter((f) => !ran.includes(f));
+  if (unrun.length > 0)
+    return {
+      ok: false,
+      why: `the test-run did not run the change's test file(s) ${unrun.slice(0, 5).join(', ')}${unrun.length > 5 ? ', …' : ''}`,
+    };
+  return { ok: true };
+}
+
+/**
  * A merge verdict, with the merged change set when the caller derived one
  * ({@link TaskMergeInfo} carries it), so a scoped result can be compared with
  * the merge commit (T13495).
@@ -395,8 +479,30 @@ export interface TaskMergeInfo extends MergeVerdict {
    * merged PR is named — every lookup answered, and none carries the change.
    */
   unproven?: string;
-  /** The carry target when the commits landed with no merge commit (T13608). */
+  /**
+   * The carry target when no derived change set gives one: the commits landed
+   * with no merge commit (T13608), or a recorded `pr:` atom named the merge
+   * (T13634).
+   */
   landing?: LandedCarryTarget | null;
+}
+
+/**
+ * The carry target a recorded `pr:` atom names: its merge commit and the files
+ * the PR changed (its own inventory, else the task's `files:` atoms). Without a
+ * merge commit or any file there is nothing to compare, so null (T13634).
+ */
+function prCarryTarget(
+  pr: Extract<EvidenceAtom, { kind: 'pr' }>,
+  implemented: ReadonlyArray<EvidenceAtom>,
+  root: string,
+): LandedCarryTarget | null {
+  const files =
+    pr.changedPaths ??
+    implemented.flatMap((a) => (a.kind === 'files' ? a.files.map((f) => f.path) : []));
+  const deletedFiles = pr.deletedPaths ?? [];
+  if (!pr.mergeCommitSha || files.length + deletedFiles.length === 0) return null;
+  return { mergeCommitSha: pr.mergeCommitSha, files, deletedFiles, executionRoot: root };
 }
 
 function prRefOf(pr: { prNumber: number; componentPrNumber?: number }): string {
@@ -578,9 +684,18 @@ export async function taskChangeMergeState(
   const lookupFailed = (): Pick<MergeVerdict, 'lookupFailed'> =>
     failures.length > 0 ? { lookupFailed: [...new Set(failures)].join('; ') } : {};
 
+  // T12965 review M2: the same root `cleo done` reads the change set from.
+  const at = deps.executionRoot ?? cs.resolveChangeSetRoot(storeRoot, task.id).root;
+
   if (commits.length === 0) {
     const newest = prs[0];
-    if (newest) return { state: 'merged', changeSet: null, prRef: prRefOf(newest) };
+    if (newest)
+      return {
+        state: 'merged',
+        changeSet: null,
+        prRef: prRefOf(newest),
+        landing: prCarryTarget(newest, implemented, at),
+      };
     const changeSet = await derive();
     derivedFailure(changeSet);
     return {
@@ -591,8 +706,6 @@ export async function taskChangeMergeState(
     };
   }
 
-  // T12965 review M2: the same root `cleo done` reads the change set from.
-  const at = deps.executionRoot ?? cs.resolveChangeSetRoot(storeRoot, task.id).root;
   const probes: CarrierProbes = {
     contains: deps.contains ?? cs.isAncestorCommit,
     equivalent: deps.equivalent ?? cs.hasPatchEquivalent,
@@ -605,7 +718,13 @@ export async function taskChangeMergeState(
   };
 
   for (const pr of prs) {
-    if (await carries(pr)) return { state: 'merged', changeSet: null, prRef: prRefOf(pr) };
+    if (await carries(pr))
+      return {
+        state: 'merged',
+        changeSet: null,
+        prRef: prRefOf(pr),
+        landing: prCarryTarget(pr, implemented, at),
+      };
   }
   const changeSet = await derive();
   derivedFailure(changeSet);

@@ -39,6 +39,9 @@ export const ON_REMOTE_PARENT_DELETE: Readonly<Record<string, ParentDeletePolicy
   // only ever hard-deleted by the sticky purge, which deletes its tags first:
   // a purge, so every replica drops a concurrently added tag with ops.
   brain_sticky_notes: 'cascade-with-ops',
+  // A grant references its connection (NO ACTION, T13467): a remote delete of
+  // a connection still granted to an agent is a conflict, never a silent drop.
+  service_connections: 'conflict',
   // T13354 (CleoDocs re-key, D11165): the doc history family references the
   // doc's uid with ON DELETE NO ACTION, so no child ever cascades — exactly
   // the re-key's point (history survives the doc). A doc or version delete

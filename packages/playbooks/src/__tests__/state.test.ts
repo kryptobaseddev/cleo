@@ -218,6 +218,29 @@ describe('W4-8: playbook state CRUD', () => {
       expect(updated.reason).toBe('explicit human approval');
     });
 
+    it('updatePlaybookApproval refuses to change a decided gate, as transitionGate does (T12944)', () => {
+      const run = createPlaybookRun(db, { playbookName: 'p', playbookHash: 'h' });
+      const approval = createPlaybookApproval(db, {
+        runId: run.runId,
+        nodeId: 'approval-decided',
+        token: 'tok-decided-guard-00000000000000',
+      });
+      updatePlaybookApproval(db, approval.approvalId, { status: 'approved', approver: 'a' });
+      for (const status of ['pending', 'rejected'] as const) {
+        expect(() => updatePlaybookApproval(db, approval.approvalId, { status })).toThrow(
+          /E_APPROVAL_ALREADY_DECIDED/,
+        );
+      }
+      // The same decision and non-status fields still patch.
+      expect(
+        updatePlaybookApproval(db, approval.approvalId, { status: 'approved', reason: 'noted' })
+          .reason,
+      ).toBe('noted');
+      expect(getPlaybookApprovalByToken(db, 'tok-decided-guard-00000000000000')?.status).toBe(
+        'approved',
+      );
+    });
+
     it('listPlaybookApprovals returns rows in requestedAt order with stable secondary key', () => {
       const run = createPlaybookRun(db, {
         playbookName: 'p',

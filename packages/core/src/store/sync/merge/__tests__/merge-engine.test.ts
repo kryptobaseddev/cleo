@@ -494,6 +494,191 @@ describe('tasks_releases: shipped statuses are absorbing (T12943)', () => {
   });
 });
 
+// T12940 — a session's ended/orphaned status is terminal except on an explicit
+// resume or switch; status and ended_at travel as one group.
+describe('tasks_sessions: ended and orphaned are terminal (T12940)', () => {
+  const SESSION_COLUMNS = ['name', 'status', 'ended_at', 'notes_json'];
+  const SESSIONS: MergeContext = { table: mergeSpecFor('tasks_sessions', SESSION_COLUMNS) };
+  const sOp = (o: LedgerOp['o'], hlc: string, a?: Record<string, LedgerValue>): LedgerOp => ({
+    t: 'tasks_sessions',
+    u: 'uid-ses-1',
+    o,
+    h: hlc,
+    ...(a ? { a } : {}),
+  });
+  const start = sOp('I', h(10), {
+    name: 'work',
+    status: 'active',
+    ended_at: null,
+    notes_json: null,
+  });
+  const end = sOp('U', h(20), { status: 'ended', ended_at: '2026-10-12T01:00:00.000Z' });
+  /** Device B, unaware of the end, suspends the session: an ordinary write. */
+  const suspend = sOp('U', h(30, R2), { status: 'suspended', ended_at: null });
+
+  it('an ordinary newer write cannot leave ended, and the race converges in every order', () => {
+    const orders: Array<readonly LedgerOp[]> = [
+      [start, end, suspend],
+      [start, suspend, end],
+    ];
+    for (const ops of orders) {
+      let row = UNSEEN_ROW;
+      for (const o of ops) row = applyOp(row, o, SESSIONS).next;
+      expect(val(row, 'status')).toBe('ended');
+      expect(val(row, 'ended_at')).toBe('2026-10-12T01:00:00.000Z');
+    }
+    let ended = UNSEEN_ROW;
+    for (const o of [start, end]) ended = applyOp(ended, o, SESSIONS).next;
+    expect(applyOp(ended, suspend, SESSIONS).conflicts).toContainEqual(
+      expect.objectContaining({ kind: 'typed-rule', rule: 'session.status.terminal' }),
+    );
+  });
+
+  it('a resume (or switch) leaves ended, clearing ended_at with it', () => {
+    let row = UNSEEN_ROW;
+    for (const o of [start, end]) row = applyOp(row, o, SESSIONS).next;
+    for (const leave of ['session.resume', 'session.switch']) {
+      const out = applyOp(
+        row,
+        sOp('U', h(40, R2), { status: 'active', ended_at: null }),
+        as(SESSIONS, leave),
+      );
+      expect(val(out.next, 'status')).toBe('active');
+      expect(val(out.next, 'ended_at')).toBeNull();
+    }
+  });
+
+  it('orphaned is terminal too; orphaned to ended is an ordinary absorbing move', () => {
+    let row = UNSEEN_ROW;
+    for (const o of [start, sOp('U', h(20), { status: 'orphaned', ended_at: null })])
+      row = applyOp(row, o, SESSIONS).next;
+    expect(val(applyOp(row, suspend, SESSIONS).next, 'status')).toBe('orphaned');
+    const ended = applyOp(row, sOp('U', h(25), { status: 'ended', ended_at: 'X' }), SESSIONS);
+    expect(val(ended.next, 'status')).toBe('ended');
+  });
+});
+
+// T12944 — a playbook approval goes pending → decided once: nothing returns it
+// to pending, and two opposite decisions converge with a recorded conflict.
+describe('tasks_playbook_approvals: decided once (T12944)', () => {
+  const APPROVAL_COLUMNS = ['run_id', 'node_id', 'status', 'approved_at', 'approver', 'reason'];
+  const APPROVALS: MergeContext = {
+    table: mergeSpecFor('tasks_playbook_approvals', APPROVAL_COLUMNS),
+  };
+  const aOp = (
+    o: LedgerOp['o'],
+    hlc: string,
+    a: Record<string, LedgerValue>,
+    b?: Record<string, LedgerWireValue>,
+  ): LedgerOp => ({
+    t: 'tasks_playbook_approvals',
+    u: 'uid-ap-1',
+    o,
+    h: hlc,
+    a,
+    ...(b ? { b } : {}),
+  });
+  const decision = (status: string, approver: string | null, at: string | null) => ({
+    status,
+    approved_at: at,
+    approver,
+    reason: null,
+  });
+  const pending = decision('pending', null, null);
+  const request = aOp('I', h(10), { run_id: 'run-1', node_id: 'n1', ...pending });
+  const approve = aOp('U', h(20), decision('approved', 'alice', 'A'), pending);
+  const reject = aOp('U', h(30, R2), decision('rejected', 'bob', 'B'), pending);
+  /** A stale re-request writes pending again: an ordinary write. */
+  const rerequest = aOp('U', h(40, R2), pending, decision('approved', 'alice', 'A'));
+
+  it('a decided approval never returns to pending, in every order', () => {
+    for (const ops of [
+      [request, approve, rerequest],
+      [request, rerequest, approve],
+    ]) {
+      let row = UNSEEN_ROW;
+      for (const o of ops) row = applyOp(row, o, APPROVALS).next;
+      expect(val(row, 'status')).toBe('approved');
+      expect(val(row, 'approver')).toBe('alice');
+    }
+  });
+
+  it('the bare live twin playbook_approvals carries the same rule', () => {
+    expect(mergeSpecFor('playbook_approvals', APPROVAL_COLUMNS).rules?.['status']).toMatchObject({
+      kind: 'absorbing',
+      id: 'playbook.approval.once',
+    });
+  });
+
+  it('opposite decisions converge to one decision, with the other recorded as a conflict', () => {
+    const finals = [
+      [request, approve, reject],
+      [request, reject, approve],
+    ].map((ops) => {
+      let row = UNSEEN_ROW;
+      const conflicts: string[] = [];
+      for (const o of ops) {
+        const out = applyOp(row, o, APPROVALS);
+        row = out.next;
+        conflicts.push(...out.conflicts.map((c) => c.kind));
+      }
+      return { status: val(row, 'status'), approver: val(row, 'approver'), conflicts };
+    });
+    expect(finals[0]?.status).toBe(finals[1]?.status);
+    expect(finals[0]?.approver).toBe(finals[1]?.approver);
+    for (const f of finals) expect(f.conflicts.length).toBeGreaterThan(0);
+  });
+});
+
+// T12941 — audit rows are immutable: an edit of a written row is refused in
+// every order, and an identical re-delivery changes nothing.
+describe('audit tables: rows are immutable (T12941)', () => {
+  const AUDIT_COLUMNS = ['action', 'task_id', 'actor', 'details_json', 'timestamp'];
+  const row = {
+    action: 'task_completed',
+    task_id: 'T1',
+    actor: 'system',
+    details_json: '{"a":1}',
+    timestamp: '2026-10-12T00:00:00.000Z',
+  };
+  for (const table of ['tasks_audit_log', 'audit_log']) {
+    const AUDIT: MergeContext = { table: mergeSpecFor(table, AUDIT_COLUMNS) };
+    const aOp = (o: LedgerOp['o'], hlc: string, a: Record<string, LedgerValue>): LedgerOp => ({
+      t: table,
+      u: 'uid-log-1',
+      o,
+      h: hlc,
+      a,
+    });
+    const insert = aOp('I', h(10), row);
+    const edit = aOp('U', h(20, R2), { details_json: '{"a":2}', actor: 'mallory' });
+
+    it(`${table}: a later edit is refused in every order, as a typed-rule conflict`, () => {
+      for (const ops of [
+        [insert, edit],
+        [edit, insert],
+      ]) {
+        let r = UNSEEN_ROW;
+        for (const o of ops) r = applyOp(r, o, AUDIT).next;
+        expect(val(r, 'details_json')).toBe('{"a":1}');
+        expect(val(r, 'actor')).toBe('system');
+      }
+      const out = applyOp(applyOp(UNSEEN_ROW, insert, AUDIT).next, edit, AUDIT);
+      expect(out.status).toBe('void');
+      expect(out.conflicts).toContainEqual(
+        expect.objectContaining({ kind: 'typed-rule', rule: 'audit.immutable' }),
+      );
+    });
+
+    it(`${table}: an identical re-delivery and a same-uid identical insert change nothing`, () => {
+      const live = applyOp(UNSEEN_ROW, insert, AUDIT).next;
+      const again = applyOp(live, aOp('I', h(30, R2), row), AUDIT);
+      expect(again.conflicts).toEqual([]);
+      expect(val(again.next, 'details_json')).toBe('{"a":1}');
+    });
+  }
+});
+
 describe('review #1867: groups travel whole (T13222)', () => {
   const base = live(grp('active'), h(1));
   const done = op('U', h(3), grp('done', { completed_at: 'X' }), grp('active'));
@@ -640,13 +825,24 @@ describe('the merge-rule registry matches the write-invariant registry', () => {
       for (const [column, rule] of Object.entries(set.rules ?? {})) {
         const entry = entries.find((e) => e.id === rule.id);
         expect(entry, `${rule.id} is not in SYNC_WRITE_INVARIANTS`).toBeDefined();
-        expect(entry?.mergeRule?.table).toBe(table);
+        // A rule on a twin pair names the canonical table; the twin is in `tables`.
+        if (entry?.mergeRule?.table !== table) expect(entry?.tables).toContain(table);
         expect(entry?.mergeRule?.columns).toContain(column);
       }
     }
+    for (const [table, set] of Object.entries(SYNC_MERGE_RULES)) {
+      if (set.immutable === undefined) continue;
+      const entry = entries.find((e) => e.id === set.immutable);
+      expect(entry, `${set.immutable} is not in SYNC_WRITE_INVARIANTS`).toBeDefined();
+      expect(entry?.tables).toContain(table);
+      expect(entry?.mergeRule?.columns).toEqual(['*']);
+    }
     expect(implementedMergeRuleIds()).toEqual([
+      'audit.immutable',
       'docs.decision-adr-links.revoke-monotonic',
+      'playbook.approval.once',
       'release.status.absorbing',
+      'session.status.terminal',
       'task.pipeline-stage.max',
       'task.status.absorbing',
       'task.verification.frozen-on-done',

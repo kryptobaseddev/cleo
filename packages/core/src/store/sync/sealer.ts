@@ -20,7 +20,11 @@
  *    transaction. Across transactions, the dead incarnation of a row that
  *    never got a uid (its captures up to its delete) is dropped whole
  *    (T13036). A minted row with no uid or `birth_fp` keeps its group
- *    pending, and nothing after it seals first (§2.9).
+ *    pending, and nothing after it seals first (§2.9). A group held for a
+ *    secret phase A could not seal (an unreadable credential, or no master key)
+ *    is not such a stall (T13534): it stays pending and is retried on the next
+ *    pass, a later group touching or referencing one of its rows waits behind
+ *    it, and every unrelated group still seals.
  * 4. **HLC.** `tick(at_ms)` per op in order, at its last capture's time; the
  *    transaction's HLC is its maximum.
  * 5. **Write.** `_sync_txn`, `_sync_op`; `_sync_row_meta` upserted per op
@@ -76,7 +80,13 @@ import {
   UNRELEASED_FLAGS,
 } from './flags.js';
 import { mergeGroupsOf } from './merge/rules.js';
-import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './netting.js';
+import {
+  type DraftOp,
+  type MetaFacts,
+  type NetResult,
+  type NettedOp,
+  netTransaction,
+} from './netting.js';
 import { encText, remapCapture, remapPending } from './remap.js';
 import { activeReplica } from './replica.js';
 import { compressFieldHlcs, nextFhlc, type RowMetaRow, upsertRowMeta } from './row-meta.js';
@@ -190,6 +200,58 @@ export interface SealOptions {
    * from user input.
    */
   readonly allowUnreleased?: boolean;
+  /**
+   * Phase A's sealed secret values (§2.5, §2.7; T13467), keyed by
+   * {@link secretSealKey}. Without one, a group writing a secret column of a
+   * {@link SEALED_SECRET_TABLES} table stays pending: the open-time sealer never
+   * sends a credential row without its secret, and only `cloud sync` (which
+   * holds the master key) runs phase A.
+   */
+  readonly secrets?: SecretSeals;
+}
+
+/**
+ * Tables whose secret columns travel sealed on the home stream (§2.7, T13467;
+ * owner decision `t13467-global-secrets-sync-design`). Every other secret
+ * column is dropped at seal and never travels (an agent's API key is
+ * per-machine).
+ */
+export const SEALED_SECRET_TABLES: ReadonlySet<string> = new Set([
+  'accounts',
+  'service_connections',
+  'service_configs',
+  'agent_service_grants',
+]);
+
+/** One secret column value prepared by phase A (§2.5). */
+export interface SecretSeal {
+  /** Canonical JSON of the column's live wire value when phase A read it. */
+  readonly live: string;
+  /** The sealed envelope (base64), or null when the live value was NULL. */
+  readonly sealed: string | null;
+}
+
+/** Phase A's output, keyed by {@link secretSealKey}. */
+export type SecretSeals = ReadonlyMap<string, SecretSeal>;
+
+/** The key of one secret column value: its table, row uid and column (the seal's AAD). */
+export function secretSealKey(table: string, uid: string, column: string): string {
+  return `${table}\n${uid}\n${column}`;
+}
+
+/** A row of a sealed-secret table with live captures waiting for phase A. */
+export interface PendingSecretRow {
+  readonly table: string;
+  readonly uid: string;
+  /** The row's natural key, as local values (the credential id is derived from it). */
+  readonly key: Readonly<Record<string, WireValue>>;
+  /** Every secret column's live wire value. */
+  readonly values: Readonly<Record<string, WireValue>>;
+  /**
+   * Other uids the row's live captures still carry (T13603): a held insert
+   * captured before a re-key keeps its old uid, so phase A seals under it too.
+   */
+  readonly capturedUids: readonly string[];
 }
 
 /** The two identity columns an op carries as `u` / `bfp` instead of in its images. */
@@ -382,7 +444,12 @@ function columnValue(
   col: string,
   raw: unknown,
 ): WireValue | undefined {
-  if (def.secret.has(col)) return undefined;
+  if (def.secret.has(col)) {
+    // T13467: a sealed-secret table keeps the marker for phase B to replace
+    // with phase A's sealed value; a NULL travels as NULL. Others drop it.
+    if (!SEALED_SECRET_TABLES.has(def.table)) return undefined;
+    return raw === SECRET_MARKER ? SECRET_MARKER : raw === 'NULL' ? null : undefined;
+  }
   if (Array.isArray(raw)) {
     const [localKey, uid] = raw as [unknown, unknown];
     if (typeof uid === 'string') return uid;
@@ -613,7 +680,7 @@ function buildDraft(
           unknownBefore = true;
           continue;
         }
-        const ov = columnValue(ctx, def, col, before);
+        const ov = def.secret.has(col) ? undefined : columnValue(ctx, def, col, before);
         if (ov !== undefined) b[col] = ov;
       }
       const bfp = minted ? resolveBirthFp(ctx, births, c.tbl, uid) : undefined;
@@ -637,10 +704,123 @@ function buildDraft(
         u: uid,
         ...(bfp ? { bfp } : {}),
         ...natural,
-        b: imageValues(ctx, def, img, true),
+        b: withoutSecrets(def, imageValues(ctx, def, img, true)),
       };
     }
   }
+}
+
+/** A before-image without secret columns (§2.7: before-images never hold secret values). */
+function withoutSecrets(
+  def: CaptureTableDef,
+  img: Record<string, WireValue>,
+): Record<string, WireValue> {
+  if (def.secret.size === 0) return img;
+  const out: Record<string, WireValue> = {};
+  for (const [col, v] of Object.entries(img)) if (!def.secret.has(col)) out[col] = v;
+  return out;
+}
+
+/** A column's live wire value by row uid, or undefined when the row is gone. */
+function liveWire(
+  ctx: TableContext,
+  table: string,
+  uid: string,
+  col: string,
+): WireValue | undefined {
+  const row = ctx
+    .stmt(`SELECT ${enc(q(col))} AS v FROM main.${q(table)} WHERE ${q(UID_COLUMN)} = ?`)
+    .get(uid) as { v: string } | undefined;
+  if (!row) return undefined;
+  return wireTimestamp(ctx.timestamps(table), col, decodeEnc(row.v));
+}
+
+/**
+ * Phase B for secret columns (§2.5, §2.7; T13467): every `<changed>` marker a
+ * sealed-secret op carries becomes phase A's sealed value. A marker with no
+ * prepared value, or whose live value changed since phase A read it, holds
+ * the group (the reason is returned) until the next `cloud sync`.
+ */
+function sealSecretOps(
+  ctx: TableContext,
+  ops: readonly NettedOp[],
+  secrets: SecretSeals | undefined,
+): NettedOp[] | string {
+  const out: NettedOp[] = [];
+  for (const op of ops) {
+    if (!op.a || !SEALED_SECRET_TABLES.has(op.t) || !Object.values(op.a).includes(SECRET_MARKER)) {
+      out.push(op);
+      continue;
+    }
+    const a = { ...op.a };
+    for (const [col, v] of Object.entries(op.a)) {
+      if (v !== SECRET_MARKER) continue;
+      const s = op.u === null ? undefined : secrets?.get(secretSealKey(op.t, op.u, col));
+      if (op.u === null || s === undefined)
+        return `${op.t} seq ${op.seq}: secret ${col} waits for cloud sync to seal it (§2.5 phase A)`;
+      const live = liveWire(ctx, op.t, op.u, col);
+      if (live !== undefined && canonicalJson(live) !== s.live)
+        return `${op.t} seq ${op.seq}: secret ${col} changed since phase A sealed it`;
+      a[col] = s.sealed;
+    }
+    out.push({ ...op, a });
+  }
+  return out;
+}
+
+/**
+ * The rows of {@link SEALED_SECRET_TABLES} with live captures, and each secret
+ * column's live wire value: what phase A (§2.5) must seal before phase B can
+ * send them (T13467). Read-only and synchronous; phase A itself (the machine-
+ * key decrypt and the seal) is async and runs only inside `cloud sync`.
+ *
+ * @param db - The store.
+ * @param scope - Its scope.
+ * @returns One entry per live row, in capture order.
+ */
+export function pendingSecretRows(db: DatabaseSync, scope: TableScope): PendingSecretRow[] {
+  const ctx = new TableContext(db, scope);
+  const names = [...SEALED_SECRET_TABLES];
+  const caps = db
+    .prepare(
+      `SELECT tbl, rk, min(seq) AS first FROM _sync_capture
+       WHERE state = 'live' AND tbl IN (${names.map(() => '?').join(', ')})
+       GROUP BY tbl, rk ORDER BY first`,
+    )
+    .all(...names) as Array<{ tbl: string; rk: string }>;
+  const out: PendingSecretRow[] = [];
+  for (const c of caps) {
+    const def = captureTableDef(db, scope, c.tbl);
+    if (!def) continue;
+    const parts = (JSON.parse(c.rk) as string[]).map((p) => decodeEnc(p));
+    const cols = [...def.secret].filter((col) => !OP_IDENTITY.has(col));
+    const row = ctx
+      .stmt(
+        `SELECT ${q(UID_COLUMN)} AS uid, ${chunkedObject(cols.map((col) => [col, enc(q(col))] as const))} AS img
+         FROM main.${q(c.tbl)} WHERE ${def.key.map((k) => `${q(k)} IS ?`).join(' AND ')}`,
+      )
+      .get(...(parts as Array<string | number | null>)) as
+      | { uid: string | null; img: string }
+      | undefined;
+    if (!row?.uid) continue;
+    const stamps = ctx.timestamps(c.tbl);
+    const values: Record<string, WireValue> = {};
+    for (const [col, raw] of Object.entries(JSON.parse(row.img) as Record<string, string>)) {
+      values[col] = wireTimestamp(stamps, col, decodeEnc(raw));
+    }
+    const key: Record<string, WireValue> = {};
+    def.key.forEach((k, i) => {
+      key[k] = parts[i] ?? null;
+    });
+    const captured = ctx
+      .stmt(
+        `SELECT DISTINCT uid FROM _sync_capture
+         WHERE state = 'live' AND tbl = ? AND rk = ? AND uid IS NOT NULL AND uid IS NOT ?`,
+      )
+      .all(c.tbl, c.rk, row.uid) as Array<{ uid: string }>;
+    out.push({ table: c.tbl, uid: row.uid, key, values, capturedUids: captured.map((r) => r.uid) });
+  }
+  return out;
 }
 
 /** Why a netted op cannot be sealed yet, or null. */
@@ -1283,6 +1463,31 @@ function sealInTransaction(
   const pointedAt = new Map<number, string>();
   let dropped = 0;
   const quarantined: Array<{ seq: number; tbl: string; reason: string }> = [];
+  // T13534: rows held because their secret could not be sealed, by uid. A later
+  // group touching or referencing one waits behind it (§2.9 order for related
+  // rows); every unrelated group still seals, so one held credential never
+  // stalls the outbox.
+  // A dropped re-key of a held row (its I never sealed, so netting drops the K
+  // and leaves the old uid only in `renames`) is related too: both ends count,
+  // or the re-keyed row's later change would seal ahead of its insert (T13601).
+  const heldUids = new Set<string>();
+  const holds = (n: NetResult): boolean =>
+    heldUids.size > 0 &&
+    (n.renames.some((r) => heldUids.has(r.from) || heldUids.has(r.to)) ||
+      n.ops.some(
+        (op) =>
+          (op.u !== null && heldUids.has(op.u)) ||
+          [...Object.values(op.a ?? {}), ...Object.values(op.k ?? {})].some(
+            (v) => typeof v === 'string' && heldUids.has(v),
+          ),
+      ));
+  const hold = (n: NetResult): void => {
+    for (const op of n.ops) if (op.u !== null) heldUids.add(op.u);
+    for (const r of n.renames) {
+      heldUids.add(r.from);
+      heldUids.add(r.to);
+    }
+  };
 
   for (const [gi, g] of groups.entries()) {
     // Bound the time this transaction holds the write lock (T13032).
@@ -1377,6 +1582,18 @@ function sealInTransaction(
       pending.push({ firstSeq: head, reason: wait });
       break;
     }
+    if (holds(netted)) {
+      pending.push({ firstSeq: head, reason: 'waits behind a held credential row it touches' });
+      hold(netted);
+      continue;
+    }
+    const withSecrets = sealSecretOps(ctx, netted.ops, opts.secrets);
+    if (typeof withSecrets === 'string') {
+      // T13534: held, but never a head-of-line stall; retried on the next pass.
+      pending.push({ firstSeq: head, reason: withSecrets });
+      hold(netted);
+      continue;
+    }
     // Dropped re-keys (no sealed op carried the old uid): the meta follows the row.
     for (const r of netted.renames) {
       meta.remove.run(r.t, r.to);
@@ -1386,7 +1603,7 @@ function sealInTransaction(
     // every reference to it that is still pending moves to the new uid: the
     // other ops of this transaction, the captures still waiting (in this
     // batch and in the store), and sealed ops not yet in a segment.
-    let txnOps = netted.ops;
+    let txnOps = withSecrets;
     if (netted.renames.length > 0) {
       const renamed = new Map(netted.renames.map((r) => [r.from, r.to] as const));
       const swap = <V>(vals: Record<string, V>): Record<string, V> => {

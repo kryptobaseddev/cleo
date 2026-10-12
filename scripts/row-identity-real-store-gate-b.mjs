@@ -71,7 +71,7 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite'; // db-open-allowed: sandbox copies only (raw.db, vacuumed copies, the scratch prep)
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -92,52 +92,6 @@ const PROJECT_ID_STUB = '00000000-0000-4000-8000-000000000001';
 const META_TABLE = 'tasks_row_identity_meta';
 const RECIPE_KEY = 'row_identity_recipe';
 const SYNCED_KEY = 'row_identity_synced';
-
-const { values } = parseArgs({
-  options: {
-    label: { type: 'string' },
-    backup: { type: 'string' },
-    'project-id': { type: 'string' },
-    'project-id-stub': { type: 'boolean', default: false },
-    work: { type: 'string' },
-    report: { type: 'string' },
-    'timeout-ms': { type: 'string', default: '900000' },
-  },
-  strict: true,
-});
-
-for (const required of ['label', 'backup', 'work', 'report']) {
-  if (!values[required]) {
-    process.stderr.write(`row-identity-real-store-gate-b: --${required} is required\n`);
-    process.exit(2);
-  }
-}
-if (!values['project-id'] === !values['project-id-stub']) {
-  process.stderr.write(
-    'row-identity-real-store-gate-b: pass --project-id <file> or --project-id-stub\n',
-  );
-  process.exit(2);
-}
-if (!existsSync(join(CORE_DIST, 'store', 'dual-scope-db.js'))) {
-  process.stderr.write(
-    'row-identity-real-store-gate-b: build first (packages/core/dist missing)\n',
-  );
-  process.exit(2);
-}
-const timeoutMs = Number(values['timeout-ms']);
-
-const label = values.label;
-const work = resolve(values.work, label);
-rmSync(work, { recursive: true, force: true });
-mkdirSync(work, { recursive: true });
-const home = join(work, 'home');
-mkdirSync(home, { recursive: true });
-const keyFile = join(work, 'compare.key');
-writeFileSync(keyFile, randomBytes(32).toString('hex'), { mode: 0o600 });
-
-// Every read below is of a copy: the operator's backup file is copied once.
-const raw = join(work, 'raw.db');
-copyFileSync(resolve(values.backup), raw);
 
 /** The child that opens one copy through the runtime path, then VACUUMs it. */
 const OPENER = `
@@ -186,7 +140,7 @@ function readMeta(db, key) {
  *
  * @param {string} file - A sandbox copy, opened read-only.
  */
-function identityStats(file) {
+export function identityStats(file) {
   const db = new DatabaseSync(file, { readOnly: true });
   try {
     const tables = {};
@@ -241,7 +195,7 @@ function identityStats(file) {
  *
  * @param {string} file - The copy to prepare.
  */
-function nullIdentity(file) {
+export function nullIdentity(file) {
   const db = new DatabaseSync(file);
   try {
     // The copy comes from the migrated `base` open, so the suspend table exists;
@@ -271,53 +225,16 @@ function nullIdentity(file) {
 }
 
 /**
- * Lay out one copy, optionally prepare it, and open it.
+ * Fingerprint one quiescent copy.
  *
- * @param {string} name - Copy name.
- * @param {{ fill: boolean, tz: string, prepare?: (file: string) => void, source?: string }} opts
- *   `source` defaults to `raw.db`; `scratch` starts from the migrated `base` copy.
- * @returns {{ name: string, file: string, openMs: number }}
+ * @param {{ name: string, file: string }} copy - The copy and its file.
+ * @param {'source' | 'replica'} role - Fingerprint role.
+ * @param {boolean} omitIdentity - Pass `--omit-row-identity`.
+ * @param {{ label: string, outDir: string, keyFile: string, timeoutMs: number }} ctx
+ * @returns {string} The fingerprint file.
  */
-function openCopy(name, { fill, tz, prepare, source = raw }) {
-  const projectDir = join(work, name);
-  const cleoDir = join(projectDir, '.cleo');
-  mkdirSync(cleoDir, { recursive: true });
-  copyFileSync(source, join(cleoDir, 'cleo.db'));
-  prepare?.(join(cleoDir, 'cleo.db'));
-  if (values['project-id'])
-    copyFileSync(resolve(values['project-id']), join(cleoDir, 'project-id'));
-  else writeFileSync(join(cleoDir, 'project-id'), `${PROJECT_ID_STUB}\n`);
-  const out = join(work, `${name}.db`);
-  const env = {
-    PATH: process.env.PATH,
-    HOME: home,
-    CLEO_HOME: join(home, '.cleo'),
-    TZ: tz,
-    CLEO_ROW_UID_FILL: fill ? '1' : '0',
-    // The copy is a sandbox file this build may migrate (T12687 guard).
-    CLEO_ALLOW_WORKTREE_BUILD_MIGRATIONS: '1',
-    CLEO_LOG_LEVEL: 'silent',
-  };
-  const r = spawnSync(
-    process.execPath,
-    ['--input-type=module', '-e', OPENER, pathToFileURL(`${CORE_DIST}/`).href, projectDir, out],
-    { cwd: projectDir, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs },
-  );
-  if (r.error?.code === 'ETIMEDOUT' || r.signal === 'SIGTERM') {
-    throw new Error(`open ${name} timed out after ${timeoutMs} ms`);
-  }
-  if (r.status !== 0) {
-    throw new Error(`open ${name} failed (exit ${r.status}): ${(r.stderr ?? '').slice(-2000)}`);
-  }
-  // The fingerprint reads project-id beside the store file.
-  copyFileSync(join(cleoDir, 'project-id'), join(work, 'project-id'));
-  const line = r.stdout.trim().split('\n').pop();
-  return { name, file: out, ...JSON.parse(line) };
-}
-
-/** Fingerprint one quiescent copy. */
-function fingerprint(copy, role, omitIdentity) {
-  const out = join(work, 'fp', `${copy.name}${omitIdentity ? '.omit' : ''}.${role}.json`);
+export function fingerprint(copy, role, omitIdentity, ctx) {
+  const out = join(ctx.outDir, `${copy.name}${omitIdentity ? '.omit' : ''}.${role}.json`);
   mkdirSync(dirname(out), { recursive: true });
   execFileSync(
     process.execPath,
@@ -326,26 +243,43 @@ function fingerprint(copy, role, omitIdentity) {
       '--db',
       copy.file,
       '--label',
-      `${label}-${copy.name}`,
+      `${ctx.label}-${copy.name}`,
       '--out',
       out,
       '--role',
       role,
       '--key-file',
-      keyFile,
+      ctx.keyFile,
       ...(omitIdentity ? ['--omit-row-identity'] : []),
     ],
-    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs },
+    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: ctx.timeoutMs },
   );
   return out;
 }
 
-/** Compare two fingerprints in replay mode. */
-function replay(check, source, replica) {
+/**
+ * Compare two fingerprints in replay mode: the check passes when they replay.
+ *
+ * @param {string} check - Check name.
+ * @param {string} source - Source fingerprint file.
+ * @param {string} replica - Replica fingerprint file.
+ * @param {{ keyFile: string, timeoutMs: number }} ctx
+ */
+export function replay(check, source, replica, ctx) {
   const r = spawnSync(
     process.execPath,
-    [COMPARE, '--source', source, '--replica', replica, '--mode', 'replay', '--key-file', keyFile],
-    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs },
+    [
+      COMPARE,
+      '--source',
+      source,
+      '--replica',
+      replica,
+      '--mode',
+      'replay',
+      '--key-file',
+      ctx.keyFile,
+    ],
+    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: ctx.timeoutMs },
   );
   const verdict = (r.stdout.trim().split('\n').pop() ?? '').trim();
   return {
@@ -356,82 +290,33 @@ function replay(check, source, replica) {
   };
 }
 
-const checks = [];
-const opens = {};
-const stats = { raw: identityStats(raw) };
-let failure = null;
-try {
-  const base = openCopy('base', { fill: false, tz: 'UTC' });
-  const postUtc = openCopy('post-utc', { fill: true, tz: 'UTC' });
-  const postUtc2 = openCopy('post-utc-2', { fill: true, tz: 'UTC' });
-  const postLa = openCopy('post-la', { fill: true, tz: 'America/Los_Angeles' });
-  const synced = stats.raw.synced !== null;
-  const scratch = synced
-    ? null
-    : openCopy('scratch', { fill: true, tz: 'UTC', prepare: nullIdentity, source: base.file });
-  for (const c of [base, postUtc, postUtc2, postLa, scratch]) {
-    if (!c) continue;
-    opens[c.name] = { openMs: c.openMs };
-    stats[c.name] = identityStats(c.file);
-  }
-
-  checks.push(
-    replay(
-      'replay (fill-off vs fill-on, --omit-row-identity)',
-      fingerprint(base, 'source', true),
-      fingerprint(postUtc, 'replica', true),
-    ),
-  );
-  checks.push(
-    replay(
-      'determinism (two fills, identity hashed)',
-      fingerprint(postUtc, 'source', false),
-      fingerprint(postUtc2, 'replica', false),
-    ),
-  );
-  checks.push(
-    replay(
-      'timezone (UTC vs America/Los_Angeles, identity hashed)',
-      fingerprint(postUtc, 'source', false),
-      fingerprint(postLa, 'replica', false),
-    ),
-  );
-  // Negative control: with identity hashed, the fill-off baseline must NOT
-  // replay the filled copy. A PASS here would mean the fingerprint does not see
-  // the identity columns, and checks 2, 3 and 5 would prove nothing.
-  const control = replay(
-    'control (fill-off vs fill-on, identity hashed, must FAIL)',
-    fingerprint(base, 'source', false),
-    fingerprint(postUtc, 'replica', false),
-  );
-  checks.push({
+/**
+ * Check 4: the negative control passes only when its replay FAILED. A replay
+ * that passes means the fingerprint does not see the identity columns, so
+ * checks 2, 3 and 5 would prove nothing.
+ *
+ * @param {{ check: string, pass: boolean, verdict: string, findings: string[] }} control
+ */
+export function controlCheck(control) {
+  return {
     ...control,
     pass: !control.pass,
     // The control's findings are the expected identity differences; keep the count only.
     findings: [`${control.findings.length} identity difference(s), as expected`],
-  });
-  if (scratch) {
-    checks.push(
-      replay(
-        'from scratch (identity nulled + marker removed, then filled, vs post-utc; identity hashed)',
-        fingerprint(scratch, 'source', false),
-        fingerprint(postUtc, 'replica', false),
-      ),
-    );
-  } else {
-    checks.push({
-      check: 'from scratch',
-      pass: true,
-      skipped: true,
-      verdict: `skipped: the store's identity has synced (${SYNCED_KEY}=${stats.raw.synced}); its values are authoritative as received`,
-      findings: [],
-    });
-  }
+  };
+}
 
-  // Completeness over every declared table (T13220).
+/**
+ * Check 6 (T13220): in the filled copy, no row of any declared table lacks its
+ * uid and no row of a minted table lacks its birth fingerprint. NULL stored
+ * reference facts are reported, not failed.
+ *
+ * @param {ReturnType<typeof identityStats>} filled - Stats of `post-utc`.
+ */
+export function completenessCheck(filled) {
   const missing = [];
   const refNulls = {};
-  for (const [table, t] of Object.entries(stats['post-utc'].tables)) {
+  for (const [table, t] of Object.entries(filled.tables)) {
     if (t.columns[UID_COLUMN].nulls > 0)
       missing.push(`${table}.${UID_COLUMN}=${t.columns[UID_COLUMN].nulls}`);
     if (t.kind === 'minted' && t.columns[BIRTH_FP_COLUMN].nulls > 0) {
@@ -443,7 +328,7 @@ try {
       }
     }
   }
-  checks.push({
+  return {
     check: 'completeness (every declared table: no NULL uid; minted: no NULL birth_fp)',
     pass: missing.length === 0,
     verdict: missing.length === 0 ? 'complete' : `missing ${missing.join(', ')}`,
@@ -451,63 +336,258 @@ try {
       Object.keys(refNulls).length > 0
         ? [`NULL stored reference facts (reported, not failed): ${JSON.stringify(refNulls)}`]
         : [],
-  });
+  };
+}
 
-  // The fill-off open writes nothing: value digests per column (T13220, LOW-1).
+/**
+ * Check 7 (T13220): the fill-off open wrote no identity value — every
+ * identity column's value digest in `base` equals the backup's.
+ *
+ * @param {ReturnType<typeof identityStats>} raw - Stats of `raw.db`.
+ * @param {ReturnType<typeof identityStats>} base - Stats of the fill-off copy.
+ */
+export function fillOffCheck(raw, base) {
   const changed = [];
-  for (const [table, t] of Object.entries(stats.raw.tables)) {
+  for (const [table, t] of Object.entries(raw.tables)) {
     for (const [column, c] of Object.entries(t.columns)) {
-      const after = stats.base.tables[table]?.columns[column];
+      const after = base.tables[table]?.columns[column];
       if (!after || after.digest !== c.digest) changed.push(`${table}.${column}`);
     }
   }
-  checks.push({
+  return {
     check: 'fill-off open writes no identity value (per-column value digests equal raw.db)',
     pass: changed.length === 0,
     verdict: changed.length === 0 ? 'unchanged' : `changed ${changed.join(', ')}`,
     findings: [],
-  });
-} catch (err) {
-  failure = err instanceof Error ? err.message : String(err);
-  checks.push({ check: 'harness', pass: false, verdict: failure, findings: [] });
+  };
 }
 
-const markers = Object.fromEntries(
-  Object.entries(stats).map(([name, s]) => [name, { recipe: s.recipe, synced: s.synced }]),
-);
-const report = {
-  label,
-  backup: resolve(values.backup),
-  projectId: values['project-id'] ? 'file' : 'stub',
-  build: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim(),
-  ranAt: new Date().toISOString(),
-  opens,
-  markers,
-  tables: Object.fromEntries(
-    Object.entries(stats.raw.tables).map(([table, t]) => [
-      table,
-      {
-        rows: t.rows,
-        nullsInBackup: Object.fromEntries(Object.entries(t.columns).map(([c, v]) => [c, v.nulls])),
-        nullsAfterFill: Object.fromEntries(
-          Object.entries(stats['post-utc']?.tables[table]?.columns ?? {}).map(([c, v]) => [
-            c,
-            v.nulls,
-          ]),
+/**
+ * Run Gate B on one backup (see the module doc).
+ *
+ * @returns {number} The exit code: 0 when every check passes, 1 when one fails, 2 on bad usage.
+ */
+export function main() {
+  const { values } = parseArgs({
+    options: {
+      label: { type: 'string' },
+      backup: { type: 'string' },
+      'project-id': { type: 'string' },
+      'project-id-stub': { type: 'boolean', default: false },
+      work: { type: 'string' },
+      report: { type: 'string' },
+      'timeout-ms': { type: 'string', default: '900000' },
+    },
+    strict: true,
+  });
+
+  for (const required of ['label', 'backup', 'work', 'report']) {
+    if (!values[required]) {
+      process.stderr.write(`row-identity-real-store-gate-b: --${required} is required\n`);
+      return 2;
+    }
+  }
+  if (!values['project-id'] === !values['project-id-stub']) {
+    process.stderr.write(
+      'row-identity-real-store-gate-b: pass --project-id <file> or --project-id-stub\n',
+    );
+    return 2;
+  }
+  if (!existsSync(join(CORE_DIST, 'store', 'dual-scope-db.js'))) {
+    process.stderr.write(
+      'row-identity-real-store-gate-b: build first (packages/core/dist missing)\n',
+    );
+    return 2;
+  }
+  const timeoutMs = Number(values['timeout-ms']);
+
+  const label = values.label;
+  const work = resolve(values.work, label);
+  rmSync(work, { recursive: true, force: true });
+  mkdirSync(work, { recursive: true });
+  const home = join(work, 'home');
+  mkdirSync(home, { recursive: true });
+  const keyFile = join(work, 'compare.key');
+  writeFileSync(keyFile, randomBytes(32).toString('hex'), { mode: 0o600 });
+
+  // Every read below is of a copy: the operator's backup file is copied once.
+  const raw = join(work, 'raw.db');
+  copyFileSync(resolve(values.backup), raw);
+
+  const ctx = { label, outDir: join(work, 'fp'), keyFile, timeoutMs };
+
+  /**
+   * Lay out one copy, optionally prepare it, and open it.
+   *
+   * @param {string} name - Copy name.
+   * @param {{ fill: boolean, tz: string, prepare?: (file: string) => void, source?: string }} opts
+   *   `source` defaults to `raw.db`; `scratch` starts from the migrated `base` copy.
+   * @returns {{ name: string, file: string, openMs: number }}
+   */
+  function openCopy(name, { fill, tz, prepare, source = raw }) {
+    const projectDir = join(work, name);
+    const cleoDir = join(projectDir, '.cleo');
+    mkdirSync(cleoDir, { recursive: true });
+    copyFileSync(source, join(cleoDir, 'cleo.db'));
+    prepare?.(join(cleoDir, 'cleo.db'));
+    if (values['project-id'])
+      copyFileSync(resolve(values['project-id']), join(cleoDir, 'project-id'));
+    else writeFileSync(join(cleoDir, 'project-id'), `${PROJECT_ID_STUB}\n`);
+    const out = join(work, `${name}.db`);
+    const env = {
+      PATH: process.env.PATH,
+      HOME: home,
+      CLEO_HOME: join(home, '.cleo'),
+      TZ: tz,
+      CLEO_ROW_UID_FILL: fill ? '1' : '0',
+      // The copy is a sandbox file this build may migrate (T12687 guard).
+      CLEO_ALLOW_WORKTREE_BUILD_MIGRATIONS: '1',
+      CLEO_LOG_LEVEL: 'silent',
+    };
+    const r = spawnSync(
+      process.execPath,
+      ['--input-type=module', '-e', OPENER, pathToFileURL(`${CORE_DIST}/`).href, projectDir, out],
+      { cwd: projectDir, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs },
+    );
+    if (r.error?.code === 'ETIMEDOUT' || r.signal === 'SIGTERM') {
+      throw new Error(`open ${name} timed out after ${timeoutMs} ms`);
+    }
+    if (r.status !== 0) {
+      throw new Error(`open ${name} failed (exit ${r.status}): ${(r.stderr ?? '').slice(-2000)}`);
+    }
+    // The fingerprint reads project-id beside the store file.
+    copyFileSync(join(cleoDir, 'project-id'), join(work, 'project-id'));
+    const line = r.stdout.trim().split('\n').pop();
+    return { name, file: out, ...JSON.parse(line) };
+  }
+
+  const checks = [];
+  const opens = {};
+  const stats = { raw: identityStats(raw) };
+  let failure = null;
+  try {
+    const base = openCopy('base', { fill: false, tz: 'UTC' });
+    const postUtc = openCopy('post-utc', { fill: true, tz: 'UTC' });
+    const postUtc2 = openCopy('post-utc-2', { fill: true, tz: 'UTC' });
+    const postLa = openCopy('post-la', { fill: true, tz: 'America/Los_Angeles' });
+    const synced = stats.raw.synced !== null;
+    const scratch = synced
+      ? null
+      : openCopy('scratch', { fill: true, tz: 'UTC', prepare: nullIdentity, source: base.file });
+    for (const c of [base, postUtc, postUtc2, postLa, scratch]) {
+      if (!c) continue;
+      opens[c.name] = { openMs: c.openMs };
+      stats[c.name] = identityStats(c.file);
+    }
+
+    checks.push(
+      replay(
+        'replay (fill-off vs fill-on, --omit-row-identity)',
+        fingerprint(base, 'source', true, ctx),
+        fingerprint(postUtc, 'replica', true, ctx),
+        ctx,
+      ),
+    );
+    checks.push(
+      replay(
+        'determinism (two fills, identity hashed)',
+        fingerprint(postUtc, 'source', false, ctx),
+        fingerprint(postUtc2, 'replica', false, ctx),
+        ctx,
+      ),
+    );
+    checks.push(
+      replay(
+        'timezone (UTC vs America/Los_Angeles, identity hashed)',
+        fingerprint(postUtc, 'source', false, ctx),
+        fingerprint(postLa, 'replica', false, ctx),
+        ctx,
+      ),
+    );
+    // Negative control: with identity hashed, the fill-off baseline must NOT
+    // replay the filled copy. A PASS here would mean the fingerprint does not see
+    // the identity columns, and checks 2, 3 and 5 would prove nothing.
+    checks.push(
+      controlCheck(
+        replay(
+          'control (fill-off vs fill-on, identity hashed, must FAIL)',
+          fingerprint(base, 'source', false, ctx),
+          fingerprint(postUtc, 'replica', false, ctx),
+          ctx,
         ),
-      },
-    ]),
-  ),
-  checks,
-  pass: checks.every((c) => c.pass),
-};
-writeFileSync(resolve(values.report), `${JSON.stringify(report, null, 2)}\n`);
-for (const c of checks) {
-  process.stdout.write(
-    `${c.skipped ? 'SKIP' : c.pass ? 'PASS' : 'FAIL'}  ${c.check}: ${c.verdict}\n`,
+      ),
+    );
+    if (scratch) {
+      checks.push(
+        replay(
+          'from scratch (identity nulled + marker removed, then filled, vs post-utc; identity hashed)',
+          fingerprint(scratch, 'source', false, ctx),
+          fingerprint(postUtc, 'replica', false, ctx),
+          ctx,
+        ),
+      );
+    } else {
+      checks.push({
+        check: 'from scratch',
+        pass: true,
+        skipped: true,
+        verdict: `skipped: the store's identity has synced (${SYNCED_KEY}=${stats.raw.synced}); its values are authoritative as received`,
+        findings: [],
+      });
+    }
+
+    // Completeness over every declared table, and the fill-off open writes nothing (T13220).
+    checks.push(completenessCheck(stats['post-utc']));
+    checks.push(fillOffCheck(stats.raw, stats.base));
+  } catch (err) {
+    failure = err instanceof Error ? err.message : String(err);
+    checks.push({ check: 'harness', pass: false, verdict: failure, findings: [] });
+  }
+
+  const markers = Object.fromEntries(
+    Object.entries(stats).map(([name, s]) => [name, { recipe: s.recipe, synced: s.synced }]),
   );
-  for (const f of c.findings ?? []) process.stdout.write(`      ${f}\n`);
+  const report = {
+    label,
+    backup: resolve(values.backup),
+    projectId: values['project-id'] ? 'file' : 'stub',
+    build: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim(),
+    ranAt: new Date().toISOString(),
+    opens,
+    markers,
+    tables: Object.fromEntries(
+      Object.entries(stats.raw.tables).map(([table, t]) => [
+        table,
+        {
+          rows: t.rows,
+          nullsInBackup: Object.fromEntries(
+            Object.entries(t.columns).map(([c, v]) => [c, v.nulls]),
+          ),
+          nullsAfterFill: Object.fromEntries(
+            Object.entries(stats['post-utc']?.tables[table]?.columns ?? {}).map(([c, v]) => [
+              c,
+              v.nulls,
+            ]),
+          ),
+        },
+      ]),
+    ),
+    checks,
+    pass: checks.every((c) => c.pass),
+  };
+  writeFileSync(resolve(values.report), `${JSON.stringify(report, null, 2)}\n`);
+  for (const c of checks) {
+    process.stdout.write(
+      `${c.skipped ? 'SKIP' : c.pass ? 'PASS' : 'FAIL'}  ${c.check}: ${c.verdict}\n`,
+    );
+    for (const f of c.findings ?? []) process.stdout.write(`      ${f}\n`);
+  }
+  process.stdout.write(`markers: ${JSON.stringify(markers)}\n`);
+  process.stdout.write(`${report.pass ? 'GATE B PASS' : 'GATE B FAIL'} ${label}\n`);
+  return report.pass ? 0 : 1;
 }
-process.stdout.write(`markers: ${JSON.stringify(markers)}\n`);
-process.stdout.write(`${report.pass ? 'GATE B PASS' : 'GATE B FAIL'} ${label}\n`);
-process.exit(report.pass ? 0 : 1);
+
+// Run only as a script, not when a test imports the checks (realpath: Node resolves the main module).
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  process.exit(main());
+}

@@ -22,11 +22,12 @@ import type {
 } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// The fire-and-forget symbol cross-link in storeDecision (decision-cross-link.ts)
-// does heavy code-index work when the rationale carries symbol-like text (the
-// docs.triage rationales do); in a one-process test run it blocks a following
-// test's doc writes for the full busy timeout. The cross-link is orthogonal to
-// what these tests assert, so it is stubbed out.
+// The symbol cross-link in storeDecision (decision-cross-link.ts) is awaited
+// since T13565, but with brain.autoCapture enabled it still writes applies_to
+// edges for symbol-like rationale text (the docs.triage rationales carry
+// symbol matches), which would make the exact edge-set assertions below
+// (T13575/T13600) depend on the ambient autoCapture config. The cross-link is
+// orthogonal to what these tests assert, so it stays stubbed out.
 vi.mock('../../memory/decision-cross-link.js', () => ({
   autoCrossLinkDecision: vi.fn(async () => {}),
 }));
