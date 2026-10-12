@@ -88,8 +88,10 @@ export async function nexusCloudConflicts(
     ...conflictCounts(db, opts.stream),
     conflicts: rows.map((c) => {
       const d = conflictDetail(db, scope, c);
+      // `local` is shown per field (as mine), not as its own key.
+      const { local: _local, ...record } = c;
       return {
-        ...c,
+        ...record,
         columns: [...c.columns],
         humanId: d.humanId,
         deviceId: d.deviceId,

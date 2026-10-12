@@ -3,11 +3,16 @@
  * conflict by keeping this store's values, the incoming op's, or a choice
  * per column.
  *
- * Keeping this store's value writes nothing: every receiver merges the same
- * ops to the same result, so the current value is already what the peers
- * hold. Keeping the incoming value is an ORDINARY local write (a `write`
- * capture frame, actor op `cloud.conflicts.resolve`): it is captured,
- * sealed and synced like any command's write, and wins by its fresh HLC.
+ * Where the merge DROPPED the incoming value, keeping mine writes nothing:
+ * every receiver merges the same ops to the same result, so this store's
+ * value is what the peers hold. Where the merge APPLIED it, every device
+ * converged on theirs, so keeping mine re-asserts the pre-merge value the
+ * conflict recorded (T13624), or is refused when none was recorded; it is
+ * never a silent no-op. Every write a resolution makes is an ORDINARY local
+ * write (a `write` capture frame, actor op `cloud.conflicts.resolve`): it is
+ * captured, sealed and synced like any command's write, and wins by its
+ * fresh HLC. The whole resolution (checks and write) runs in one immediate
+ * transaction, so a peer op applied meanwhile cannot make a check stale.
  *
  * A resolution obeys the typed merge rules like any write: it is not a leave
  * op. Before writing, the would-be op is merged against the row exactly as a
@@ -43,7 +48,7 @@ export type ConflictKeep = 'mine' | 'theirs' | Readonly<Record<string, 'mine' | 
 /** What a resolution did. */
 export interface ConflictResolution {
   readonly id: number;
-  /** Columns written with the incoming value (empty: nothing to write). */
+  /** Columns written (theirs, or mine re-asserted); empty when nothing had to change. */
   readonly written: readonly string[];
 }
 
@@ -61,11 +66,9 @@ export class ConflictResolveError extends Error {
 
 /** The command that may leave each typed rule's protected state, for the refusal. */
 const RULE_LEAVE_HINTS: Readonly<Record<string, string>> = {
-  'task.status.absorbing':
-    'reopen it first with `cleo reopen <id>` (done) or `cleo restore <id>` (cancelled)',
-  'task.pipeline-stage.max':
-    'a stage only moves back through `cleo reopen <id>` or `cleo restore <id>`',
-  'task.verification.frozen-on-done': 'reopen the task first with `cleo reopen <id>`',
+  'task.status.absorbing': 'restore the task first with `cleo restore task <id>`',
+  'task.pipeline-stage.max': 'a stage only moves back through `cleo restore task <id>`',
+  'task.verification.frozen-on-done': 'restore the task first with `cleo restore task <id>`',
   'session.status.terminal': 'resume the session with `cleo session resume <id>`',
   'release.status.absorbing': 'a shipped release stays shipped: plan a new version',
   'playbook.approval.once': 'a decided approval stays decided: start a new run',
@@ -79,7 +82,7 @@ const sameValue = (a: LedgerWireValue | undefined, b: LedgerWireValue | undefine
 
 /**
  * Resolve one open conflict by keeping a side per column, then mark it
- * resolved, in one transaction.
+ * resolved, all in one immediate transaction.
  *
  * @param db - The store.
  * @param scope - The store's scope.
@@ -88,10 +91,20 @@ const sameValue = (a: LedgerWireValue | undefined, b: LedgerWireValue | undefine
  * @param nowIso - The time.
  * @returns The columns written.
  * @throws {ConflictResolveError} When there is no such open conflict, a column
- *   is not the conflict's, the incoming value is unknown or cannot be written,
- *   or a typed rule would refuse the write on a receiver.
+ *   is not the conflict's, a kept value is unknown or cannot be written, or a
+ *   typed rule would refuse the write on a receiver.
  */
 export function resolveConflictKeeping(
+  db: DatabaseSync,
+  scope: TableScope,
+  id: number,
+  keep: ConflictKeep,
+  nowIso: string,
+): ConflictResolution {
+  return withImmediateTransaction(db, () => resolveInTxn(db, scope, id, keep, nowIso));
+}
+
+function resolveInTxn(
   db: DatabaseSync,
   scope: TableScope,
   id: number,
@@ -120,32 +133,35 @@ export function resolveConflictKeeping(
       );
     }
   }
-  const theirsCols = c.columns.filter((col) => side(col) === 'theirs');
-  if (theirsCols.length === 0) {
+  const refuse = (message: string, fix: string): never => {
+    // @sync-invariant none:input-shape a resolution whose kept value cannot be written is refused before any write
+    throw new ConflictResolveError('E_INVALID_STATE', `conflict ${id}: ${message}`, fix);
+  };
+  const applied = c.resolution === 'incoming-applied';
+  // Mine needs no write where the merge dropped theirs: this value is the peers' too.
+  const toWrite = c.columns.filter((col) => side(col) === 'theirs' || applied);
+  if (toWrite.length === 0) {
     resolveConflict(db, id, nowIso);
     return { id, written: [] };
   }
 
   const def = captureTableDef(db, scope, c.table);
+  if (!def)
+    return refuse(`${c.table} is not synced by this store`, 'acknowledge it without --keep');
   const { op } = conflictIncomingOp(db, c);
-  const refuse = (message: string, fix: string): never => {
-    // @sync-invariant none:input-shape a resolution whose incoming value cannot be written is refused before any write
-    throw new ConflictResolveError('E_INVALID_STATE', `conflict ${id}: ${message}`, fix);
-  };
-  if (!def) return refuse(`${c.table} is not synced by this store`, 'keep mine');
   if (!op) {
     return refuse(
       'the incoming op is no longer in the inbox (pruned after a checkpoint)',
-      'keep mine, or write the value with the command that owns it',
+      'set the value with the command that owns it, then acknowledge the conflict',
     );
   }
-  const secret = theirsCols.filter((col) => def.secret.has(col));
+  const secret = toWrite.filter((col) => def.secret.has(col));
   if (secret.length > 0) {
-    return refuse(`${secret.join(', ')} is secret`, 'keep mine, or set it with its own command');
+    return refuse(`${secret.join(', ')} is secret`, 'set it with its own command');
   }
   const api = createApplyWriteApi(db, scope, null, () => {});
   if (api.readRow(c.table, c.uid) === null) {
-    return refuse('the row is gone here', 'keep mine, or re-create it with its own command');
+    return refuse('the row is gone here', 're-create it with its own command');
   }
   const replica = activeReplica(db, scope)?.replicaId;
   if (!replica) return refuse('this store is not attached to a stream', 'keep mine');
@@ -154,12 +170,30 @@ export function resolveConflictKeeping(
   // The op as it travels (references as uids), and as written here (local keys).
   const wire: Record<string, LedgerWireValue> = {};
   const local: Record<string, LedgerWireValue> = {};
-  for (const col of theirsCols) {
-    const value = op.a?.[col] ?? op.k?.[col] ?? null;
-    if (value !== null && typeof value === 'object' && '$inc' in value) {
-      return refuse(`${col} is a counter`, 'keep mine: counters merge by summing');
+  for (const col of toWrite) {
+    const incoming = op.a?.[col] ?? op.k?.[col] ?? null;
+    if (incoming !== null && typeof incoming === 'object' && '$inc' in incoming) {
+      return refuse(`${col} is a counter`, 'acknowledge it: counters merge by summing');
     }
-    if (sameValue(before.fields[col]?.value, value)) continue;
+    const current = before.fields[col]?.value;
+    let value: LedgerWireValue = incoming;
+    if (side(col) === 'mine') {
+      const kept = c.local?.[col];
+      if (kept === undefined) {
+        return refuse(
+          `your ${col} was overwritten by the incoming op and this store kept no copy of it`,
+          `set ${col} explicitly with the command that owns ${c.table}`,
+        );
+      }
+      if (!sameValue(current, incoming)) {
+        return refuse(
+          `${col} changed again after the conflict`,
+          `set ${col} explicitly with the command that owns ${c.table}`,
+        );
+      }
+      value = kept;
+    }
+    if (sameValue(current, value)) continue;
     wire[col] = value;
     const ref = def.refs.get(col);
     if (!ref || typeof value !== 'string') {
@@ -168,7 +202,10 @@ export function resolveConflictKeeping(
     }
     const target = resolveRef(db, ref, value);
     if (target.kind !== 'row') {
-      return refuse(`${col} references a row this store does not hold`, 'keep mine');
+      return refuse(
+        `${col} references a row this store does not hold`,
+        'set it with its own command',
+      );
     }
     local[col] = target.key;
   }
@@ -206,22 +243,16 @@ export function resolveConflictKeeping(
     // @sync-invariant none:input-shape the merge engine's own typed rules decide it; a receiver would refuse the same write
     throw new ConflictResolveError(
       'E_INVALID_STATE',
-      `conflict ${id}: keeping the incoming ${theirsCols.join(', ')} would break the typed rule ${ruled}; every synced device would refuse it`,
-      `${RULE_LEAVE_HINTS[ruled] ?? 'this rule has no leave command'}, or keep mine`,
+      `conflict ${id}: keeping ${written.join(', ')} as chosen would break the typed rule ${ruled}; every synced device would refuse it`,
+      `${RULE_LEAVE_HINTS[ruled] ?? 'this rule has no leave command'}, or acknowledge the conflict without --keep`,
     );
   }
   if (out.status !== 'applied') {
-    return refuse(
-      `the merge would not apply it (${out.status})`,
-      'keep mine, or write it with its own command',
-    );
+    return refuse(`the merge would not apply it (${out.status})`, 'set it with its own command');
   }
-
-  return withImmediateTransaction(db, () => {
-    const frame = openCaptureFrame(db, 'write', JSON.stringify({ op: CONFLICT_RESOLVE_OP }));
-    api.writeFields(c.table, c.uid, local);
-    finishCaptureFrame(db, frame);
-    resolveConflict(db, id, nowIso);
-    return { id, written };
-  });
+  const frame = openCaptureFrame(db, 'write', JSON.stringify({ op: CONFLICT_RESOLVE_OP }));
+  api.writeFields(c.table, c.uid, local);
+  finishCaptureFrame(db, frame);
+  resolveConflict(db, id, nowIso);
+  return { id, written };
 }

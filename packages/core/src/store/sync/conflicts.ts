@@ -14,12 +14,17 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
-import { type LedgerOp, LedgerTxn, type LedgerValue } from '@cleocode/contracts/ledger';
+import {
+  type LedgerOp,
+  LedgerTxn,
+  type LedgerValue,
+  type LedgerWireValue,
+} from '@cleocode/contracts/ledger';
 import { type CaptureTableDef, captureTableDef, enc } from './capture.js';
 import type { InboxKey } from './inbox.js';
 import type { MergeConflict } from './merge/types.js';
 import { hasTable } from './schema.js';
-import { decodeEnc, type WireValue } from './sealer-values.js';
+import { canonicalJson, decodeEnc, type WireValue } from './sealer-values.js';
 
 /** Where a conflict arose: the inbox transaction and the op in it. */
 export interface ConflictSite extends InboxKey {
@@ -43,6 +48,11 @@ export interface ConflictRecord extends ConflictSite {
   readonly origin: string;
   readonly createdAt: string;
   readonly resolvedAt: string | null;
+  /**
+   * This store's pre-merge values of the conflicting, non-secret columns
+   * (references as uids), or null when unknown (T13624).
+   */
+  readonly local: Readonly<Record<string, LedgerWireValue>> | null;
 }
 
 type ConflictRow = {
@@ -62,6 +72,7 @@ type ConflictRow = {
   origin: string;
   created_at: string;
   resolved_at: string | null;
+  local_json?: string | null;
 };
 
 /**
@@ -72,6 +83,8 @@ type ConflictRow = {
  * @param conflicts - What the merge decided.
  * @param origin - The op's origin replica.
  * @param nowIso - The time.
+ * @param local - This store's pre-merge non-secret values of the row, kept for
+ *   each conflict's columns (T13624); omitted when unknown.
  */
 export function recordConflicts(
   db: DatabaseSync,
@@ -79,14 +92,18 @@ export function recordConflicts(
   conflicts: readonly MergeConflict[],
   origin: string,
   nowIso: string,
+  local?: Readonly<Record<string, LedgerWireValue>> | null,
 ): void {
   if (conflicts.length === 0) return;
   const ins = db.prepare(
     `INSERT INTO _sync_conflict (stream, seq, txn_idx, op_idx, kind, tbl, uid, columns_json,
-       rule, resolution, op_hlc, local_hlc, origin, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       rule, resolution, op_hlc, local_hlc, origin, created_at, local_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const c of conflicts) {
+    const kept = local
+      ? Object.fromEntries(c.columns.filter((col) => col in local).map((col) => [col, local[col]]))
+      : null;
     ins.run(
       site.stream,
       site.seq,
@@ -102,6 +119,7 @@ export function recordConflicts(
       c.localHlc ?? null,
       origin,
       nowIso,
+      kept && Object.keys(kept).length > 0 ? canonicalJson(kept) : null,
     );
   }
 }
@@ -176,6 +194,7 @@ export function listConflicts(
     origin: r.origin,
     createdAt: r.created_at,
     resolvedAt: r.resolved_at,
+    local: r.local_json ? (JSON.parse(r.local_json) as Record<string, LedgerWireValue>) : null,
   }));
 }
 
@@ -342,6 +361,16 @@ function currentRow(
 function localKeyOf(
   db: DatabaseSync,
   ref: { table: string; key: string },
+  uid: LedgerWireValue,
+): LedgerWireValue;
+function localKeyOf(
+  db: DatabaseSync,
+  ref: { table: string; key: string },
+  uid: LedgerValue,
+): LedgerValue;
+function localKeyOf(
+  db: DatabaseSync,
+  ref: { table: string; key: string },
   uid: LedgerValue,
 ): LedgerValue {
   if (typeof uid !== 'string' || !hasTable(db, ref.table)) return uid;
@@ -379,10 +408,17 @@ export function conflictDetail(
     if (def?.secret.has(column)) return { column, theirs: null, mine: null, withheld: true };
     const raw = op?.a?.[column] ?? op?.k?.[column] ?? null;
     const ref = def?.refs.get(column);
+    // Mine is what this store held before the merge (T13624), else its current value.
+    const kept = c.local?.[column];
     return {
       column,
       theirs: raw !== null && ref ? localKeyOf(db, ref, raw) : raw,
-      mine: row?.get(column) ?? null,
+      mine:
+        kept === undefined
+          ? (row?.get(column) ?? null)
+          : kept !== null && ref
+            ? localKeyOf(db, ref, kept)
+            : kept,
       withheld: false,
     };
   });

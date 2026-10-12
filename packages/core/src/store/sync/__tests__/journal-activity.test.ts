@@ -534,7 +534,7 @@ describe('cloud conflicts resolve --keep (T12997)', () => {
     if (err instanceof ConflictResolveError) {
       expect(err.code).toBe('E_INVALID_STATE');
       expect(err.message).toContain('task.status.absorbing');
-      expect(err.fix).toContain('cleo reopen');
+      expect(err.fix).toContain('cleo restore task');
     }
     // Refused before any write: the row and the conflict are as they were.
     expect(statusOf(a).status).toBe('done');
@@ -593,6 +593,76 @@ describe('cloud conflicts resolve --keep (T12997)', () => {
     await pull(b, stream);
     expect(statusOf(a).title).toBe('A title');
     expect(statusOf(b).title).toBe('A title');
+  });
+
+  it('keep mine on an incoming-applied conflict re-asserts the overwritten value, and it syncs (T13624)', async () => {
+    const { a, b, stream } = await shared();
+    // A renames and its echo lands; B, not having pulled it, renames later.
+    // A applies B's newer rename over its own: incoming-applied, A's value lost.
+    write(
+      a.db,
+      "UPDATE tasks_tasks SET title = 'A title' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(a, stream);
+    await pull(a, stream);
+    spin();
+    write(
+      b.db,
+      "UPDATE tasks_tasks SET title = 'B title' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(b, stream);
+    await pull(a, stream);
+    const held = listConflicts(a.db, { open: true }).find(
+      (c) => c.kind === 'field' && c.resolution === 'incoming-applied',
+    );
+    if (!held) throw new Error('no applied title conflict recorded');
+    expect(statusOf(a).title).toBe('B title');
+    // Mine is what A held before the merge, not the current (overwritten) value.
+    expect(conflictDetail(a.db, 'project', held).fields).toEqual([
+      { column: 'title', theirs: 'B title', mine: 'A title', withheld: false },
+    ]);
+
+    expect(
+      resolveConflictKeeping(a.db, 'project', held.id, 'mine', new Date().toISOString()),
+    ).toEqual({ id: held.id, written: ['title'] });
+    expect(statusOf(a).title).toBe('A title');
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream);
+    expect(statusOf(b).title).toBe('A title');
+    expect(statusOf(a).title).toBe('A title');
+  });
+
+  it('keep mine is refused when this store kept no copy of an overwritten value', async () => {
+    const { a, b, stream } = await shared();
+    write(
+      a.db,
+      "UPDATE tasks_tasks SET title = 'A title' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(a, stream);
+    await pull(a, stream);
+    spin();
+    write(
+      b.db,
+      "UPDATE tasks_tasks SET title = 'B title' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(b, stream);
+    await pull(a, stream);
+    const held = listConflicts(a.db, { open: true }).find(
+      (c) => c.kind === 'field' && c.resolution === 'incoming-applied',
+    );
+    if (!held) throw new Error('no applied title conflict recorded');
+    // A conflict recorded before T13624 has no local copy.
+    a.db.prepare('UPDATE _sync_conflict SET local_json = NULL WHERE id = ?').run(held.id);
+    expect(() =>
+      resolveConflictKeeping(a.db, 'project', held.id, 'mine', new Date().toISOString()),
+    ).toThrow(/overwritten by the incoming op and this store kept no copy/);
+    expect(statusOf(a).title).toBe('B title');
+    expect(listConflicts(a.db, { open: true }).some((c) => c.id === held.id)).toBe(true);
   });
 
   it('parses --keep: mine, theirs, or column=side pairs', () => {

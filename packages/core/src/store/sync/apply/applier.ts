@@ -670,7 +670,17 @@ function effect(
     recordFieldLeaves(db, op.t, op.u, leaves);
     setFieldFrontiers(db, op.t, op.u, frontiers);
   }
-  if (!quiet) recordConflicts(db, { ...st.key, opIdx }, out.conflicts, st.replicaId, nowIso);
+  if (!quiet) {
+    // The pre-merge values, so `--keep mine` can re-assert what an applied op overwrote (T13624).
+    const local = before.live
+      ? Object.fromEntries(
+          Object.entries(before.fields)
+            .filter(([col]) => !def.secret.has(col))
+            .map(([col, f]) => [col, f.value]),
+        )
+      : null;
+    recordConflicts(db, { ...st.key, opIdx }, out.conflicts, st.replicaId, nowIso, local);
+  }
   return out.conflicts.length;
 }
 
