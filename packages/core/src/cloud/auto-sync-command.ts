@@ -32,6 +32,7 @@ import {
   autoCloudSync,
   autoSyncIntervalMs,
   autoSyncReleased,
+  autoSyncSuppressedBy,
 } from './auto-sync.js';
 
 /** Environment switch that turns the command piggyback off (`1`). */
@@ -39,22 +40,6 @@ export const AUTO_SYNC_DISABLE_ENV = 'CLEO_DISABLE_AUTO_SYNC';
 
 /** The `cleo cloud status` warning code while a test runner or CI suppresses auto-sync (T13602). */
 export const W_AUTO_SYNC_SUPPRESSED = 'W_AUTO_SYNC_SUPPRESSED';
-
-/**
- * The test-runner or CI variable that suppresses the piggyback: `VITEST` set,
- * `NODE_ENV=test`, or `CI` set to anything but empty, `0` or `false`. The one
- * predicate the spawn guard and `cleo cloud status` both read (T13602).
- *
- * @param env - The environment.
- * @returns `VITEST`, `NODE_ENV=test` or `CI`, or `null` when none applies.
- */
-export function autoSyncSuppressedBy(env: NodeJS.ProcessEnv): string | null {
-  const ci = (env['CI'] ?? '').trim().toLowerCase();
-  if (env['VITEST']) return 'VITEST';
-  if (env['NODE_ENV'] === 'test') return 'NODE_ENV=test';
-  if (ci !== '' && ci !== '0' && ci !== 'false') return 'CI';
-  return null;
-}
 
 /**
  * The `cleo cloud status` warning while a test runner or CI suppresses the
@@ -72,7 +57,7 @@ export function autoSyncSuppressedWarning(
   if (by === null || !autoSyncReleased(unreleasedFlags)) return null;
   return {
     code: W_AUTO_SYNC_SUPPRESSED,
-    message: `background auto-sync is suppressed: ${by} is set (test runner or CI), so commands start no sync; run \`cleo cloud sync\` to sync`,
+    message: `background auto-sync is suppressed: ${by} is set (test runner or CI), so no command, session end or tick starts a sync; run \`cleo cloud sync\` to sync`,
   };
 }
 
