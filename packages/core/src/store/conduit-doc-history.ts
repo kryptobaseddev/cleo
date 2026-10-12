@@ -115,6 +115,12 @@ export interface ConduitDocHeadConflict {
   readonly hlc: string;
   /** ISO-8601 instant the conflict was recorded. */
   readonly recordedAt: string;
+  /**
+   * The winning head's version uid at recording time — both sides of the
+   * conflict are named on the row (head `head_version_uid` + this).
+   * (T13595)
+   */
+  readonly winnerVersionUid?: string;
 }
 
 /**
@@ -360,6 +366,36 @@ export async function appendConduitAttachmentVersion(
     );
   }
   return row;
+}
+
+/**
+ * The set of content hashes the conduit doc-history family references.
+ *
+ * The blob sweep (`attachment-repair.ts`) only consulted the legacy
+ * attachments tables, the publications ledger and the blobs manifest, so a
+ * version/merged-text blob this family references could be garbage-collected
+ * as "unreferenced" (T13596). The sweep callers consult this set; it covers
+ * the version rows' `content_hash` (the merged-text blobs) and the adopted
+ * docs' `content_hash`.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @returns Every `content_hash` named by `conduit_attachment_versions` or
+ *   `conduit_attachments`.
+ */
+export async function listConduitHistorySha256Set(projectRoot: string): Promise<Set<string>> {
+  const db = await getDb(projectRoot);
+  const versionRows = await db
+    .select({ contentHash: conduitAttachmentVersions.contentHash })
+    .from(conduitAttachmentVersions)
+    .all();
+  const docRows = await db
+    .select({ contentHash: conduitAttachments.contentHash })
+    .from(conduitAttachments)
+    .all();
+  const set = new Set<string>();
+  for (const row of versionRows) set.add(row.contentHash);
+  for (const row of docRows) set.add(row.contentHash);
+  return set;
 }
 
 /**
@@ -641,6 +677,7 @@ export async function upsertConduitDocHead(
       versionUid: input.headVersionUid,
       hlc: input.headHlc,
       recordedAt: now,
+      winnerVersionUid: existing.headVersionUid,
     };
     await db
       .update(conduitDocHeads)

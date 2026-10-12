@@ -136,20 +136,6 @@ export function sectionStateText(state: Buffer): string {
 }
 
 /**
- * Length of the longest common prefix of two texts (character-wise).
- *
- * @param a - First text.
- * @param b - Second text.
- * @returns The common prefix length.
- */
-function commonPrefixLength(a: string, b: string): number {
-  const n = Math.min(a.length, b.length);
-  let i = 0;
-  while (i < n && a.charCodeAt(i) === b.charCodeAt(i)) i += 1;
-  return i;
-}
-
-/**
  * Apply one section's new text to its stored snapshot.
  *
  * The caller discriminates single-writer from concurrent edits by comparing
@@ -160,8 +146,18 @@ function commonPrefixLength(a: string, b: string): number {
  * section is re-seeded from the input and projects EXACTLY (mid-text
  * replaces and deletions apply verbatim, never a fabricated concatenation —
  * T13589). When the stored state differs from the head's text it genuinely
- * carries a concurrent edit, and the incoming edit is composed onto it via
- * Loro so BOTH survive (T13585).
+ * carries a concurrent edit (T13595):
+ *
+ *   - an incoming edit that is a pure APPEND relative to the common base
+ *     (`nextText` extends `headText`) composes onto the stored state, so
+ *     both tails survive — this is never a fabrication;
+ *   - any NON-append incoming edit (a replace or delete relative to the
+ *     base) CANNOT be expressed with append-only primitives without
+ *     inventing text, so the function reports `conflicted: true` and keeps
+ *     the stored state untouched. The write path lands the incoming edit as
+ *     its own append-only version row, keeps the stored projection as the
+ *     head, and records the conflict on the head — both versions preserved,
+ *     nothing fabricated.
  *
  * Semantics:
  *
@@ -173,44 +169,54 @@ function commonPrefixLength(a: string, b: string): number {
  *     single-writer assumption; re-seed from the new text (exact).
  *   - The stored text equals `headText` (single writer): re-seed from the
  *     new text — the input projects exactly, deletions included.
- *   - The stored text differs from `headText` (concurrent edit unlanded in
- *     the head): compose the incoming tail beyond the longest common prefix
- *     onto the stored state via `crdt_apply_update`, so the stored
- *     (concurrent) edit and the incoming edit both survive. A strict
- *     deletion in this mode is not expressible as an append and keeps the
- *     stored state (the documented v1+ two-way-editing limitation).
+ *   - The stored text differs from `headText` and the incoming text equals
+ *     `headText`: the writer authored nothing new; no-op.
+ *   - The stored text differs from `headText` and the incoming text extends
+ *     `headText` (append): compose the incoming tail onto the stored state;
+ *     both edits survive, `conflicted: false`.
+ *   - The stored text differs from `headText` and the incoming edit is a
+ *     non-append relative to `headText`: `conflicted: true`, stored state
+ *     kept — the write path records the conflict and lands both versions.
  *
  * @param stored - The section's stored snapshot, or `null` when none exists.
  * @param nextText - The section's new full text.
  * @param headText - The section's text in the previous head version, or
  *   `null` when no head text is available.
- * @returns The resulting snapshot and whether it changed.
+ * @returns The resulting snapshot, whether it changed, and whether the edit
+ *   is a non-append concurrent edit the caller must record as a conflict.
  */
 export function applySectionTextEdit(
   stored: Buffer | null,
   nextText: string,
   headText: string | null,
-): { snapshot: Buffer; changed: boolean } {
+): { snapshot: Buffer; changed: boolean; conflicted: boolean } {
   if (stored === null) {
-    return { snapshot: seedSectionState(nextText), changed: true };
+    return { snapshot: seedSectionState(nextText), changed: true, conflicted: false };
   }
   const current = sectionStateText(stored);
   if (current === nextText) {
-    return { snapshot: stored, changed: false };
+    return { snapshot: stored, changed: false, conflicted: false };
   }
   if (headText === null || current === headText) {
     // Single-writer edit: project the input EXACTLY. The primitives can only
     // append, so a re-seed is the honest encoding of a replace/delete — it
     // never fabricates a concatenation no writer authored (T13589).
-    return { snapshot: seedSectionState(nextText), changed: true };
+    return { snapshot: seedSectionState(nextText), changed: true, conflicted: false };
   }
-  // Concurrent edit in the stored state: compose so both survive (T13585).
-  const prefix = commonPrefixLength(current, nextText);
-  if (prefix === nextText.length) {
-    // A strict deletion in concurrent mode: not expressible as an append;
-    // keep the stored state (the v1+ two-way-editing limitation).
-    return { snapshot: stored, changed: false };
+  if (nextText === headText) {
+    // The writer authored nothing beyond the base; the stored (concurrent)
+    // edit stands.
+    return { snapshot: stored, changed: false, conflicted: false };
   }
-  const update = makeSectionEditUpdate(stored, nextText.slice(prefix));
-  return { snapshot: mergeSectionUpdates(stored, [update]), changed: true };
+  if (nextText.startsWith(headText)) {
+    // Concurrent append-append: compose the incoming tail onto the stored
+    // state. Both tails survive and nothing is fabricated (T13585).
+    const update = makeSectionEditUpdate(stored, nextText.slice(headText.length));
+    return { snapshot: mergeSectionUpdates(stored, [update]), changed: true, conflicted: false };
+  }
+  // Non-append concurrent edit (replace/delete relative to the base): not
+  // expressible with append-only primitives without inventing text — keep
+  // the stored state and let the write path record the conflict, landing
+  // the incoming edit as its own version row (T13595).
+  return { snapshot: stored, changed: false, conflicted: true };
 }

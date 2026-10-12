@@ -14,9 +14,10 @@
  *      (`section-merge.ts`): while the stored state equals the head's text
  *      the input projects EXACTLY (re-seed; replaces and deletions apply
  *      verbatim — the primitives can only append, so re-seeding is the
- *      honest encoding); when the stored state differs from the head's text
- *      it carries a concurrent edit and the incoming edit composes onto it
- *      via sequential `crdt_apply_update` so both survive (T13585).
+ *      honest encoding); a concurrent edit that is a pure append composes
+ *      onto the stored state so both survive (T13585); a concurrent
+ *      NON-append edit is never fabricated into a merge — it is landed as
+ *      its own version row and recorded as a head conflict (T13595).
  *   4. Read the MERGED text back out of the merged Loro states — never out
  *      of the input — and write its content-addressed blob so the version
  *      row's `storage_key` resolves.
@@ -114,6 +115,23 @@ export interface ProjectDocUpdateResult {
   readonly version: ConduitAttachmentVersionRow;
   /** The head upsert outcome (advanced vs. conflict recorded). */
   readonly head: UpsertConduitDocHeadResult;
+  /**
+   * Non-append concurrent section edits recorded as conflicts (T13595): the
+   * incoming edit could not be composed without fabricating text, so it was
+   * landed as its own version row (append-only history preserves both) while
+   * the head keeps the stored projection.
+   */
+  readonly conflicts: readonly SectionConflict[];
+}
+
+/** One recorded non-append concurrent section edit (T13595). */
+export interface SectionConflict {
+  /** The section that could not be merged. */
+  readonly sectionId: string;
+  /** The version row carrying the incoming (authored) edit — the loser. */
+  readonly incomingVersionUid: string;
+  /** The projection version row the head kept — the winner. */
+  readonly projectionVersionUid: string;
 }
 
 /**
@@ -262,10 +280,11 @@ export async function projectDocUpdateThroughSections(
     const sections = splitDocIntoSections(input.content);
     const mergedSections: string[] = [];
     const sectionsModified: string[] = [];
+    const conflictedSections: string[] = [];
     for (const [index, text] of sections.entries()) {
       const id = sectionId(index);
       const stored = await readSectionCrdtState(projectRoot, docUid, id);
-      const { snapshot, changed } = applySectionTextEdit(
+      const { snapshot, changed, conflicted } = applySectionTextEdit(
         stored?.snapshot ?? null,
         text,
         headSections?.[index] ?? null,
@@ -279,6 +298,7 @@ export async function projectDocUpdateThroughSections(
         });
       }
       if (changed) sectionsModified.push(id);
+      if (conflicted) conflictedSections.push(id);
       mergedSections.push(sectionStateText(snapshot));
     }
     const mergedText = joinSections(mergedSections);
@@ -320,6 +340,51 @@ export async function projectDocUpdateThroughSections(
       headHlc,
     });
 
+    // T13595: a non-append concurrent section edit cannot be merged without
+    // fabricating text (the primitives are append-only), so land the incoming
+    // edit as its OWN version row — append-only history already preserves
+    // both — keep the stored projection as the head, and record the conflict
+    // on the head, mirroring the docs.head.max-hlc semantics. The conflict
+    // upsert uses the previous head's HLC, which is strictly below the
+    // projection HLC in the local-mint path, so the incoming version always
+    // loses honestly. (With an explicit `hlc` at or below the previous
+    // head's, the projection itself loses first and the incoming version
+    // records a second conflict — both stay visible, nothing is invented.)
+    const conflicts: SectionConflict[] = [];
+    if (conflictedSections.length > 0) {
+      const incomingHash = createHash('sha256').update(input.content, 'utf-8').digest('hex');
+      const incomingKey = `${incomingHash.slice(0, 2)}/${incomingHash.slice(2)}.md`;
+      writeMergedBlob(projectRoot, incomingKey, input.content);
+      const incoming = await appendConduitAttachmentVersion(projectRoot, {
+        attachmentUid: docUid,
+        parentVersionUid,
+        authorAgentId: input.authorAgentId,
+        storageKey: incomingKey,
+        contentHash: incomingHash,
+        originalSize: Buffer.byteLength(input.content, 'utf-8'),
+        compressedSize: Buffer.byteLength(input.content, 'utf-8'),
+        tokens: countTokens(input.content),
+        changeType: 'patch',
+        changeSummary: `concurrent non-append edit on ${conflictedSections.join(', ')} — conflict recorded, not merged`,
+        sectionsModified: conflictedSections,
+        tokensAdded: countTokens(input.content),
+      });
+      if (previousHead !== null && incoming.uid) {
+        await upsertConduitDocHead(projectRoot, {
+          attachmentUid: docUid,
+          headVersionUid: incoming.uid,
+          headHlc: previousHead.headHlc,
+        });
+        for (const sectionId of conflictedSections) {
+          conflicts.push({
+            sectionId,
+            incomingVersionUid: incoming.uid,
+            projectionVersionUid: version.uid ?? '',
+          });
+        }
+      }
+    }
+
     // A landed version rebases the local section states; the derived
     // contributors rollup is rebuilt from the versions table.
     if (version.uid) {
@@ -327,6 +392,6 @@ export async function projectDocUpdateThroughSections(
     }
     await rebuildConduitAttachmentContributors(projectRoot, docUid);
 
-    return { docUid, adopted, mergedText, sectionsModified, version, head };
+    return { docUid, adopted, mergedText, sectionsModified, version, head, conflicts };
   });
 }

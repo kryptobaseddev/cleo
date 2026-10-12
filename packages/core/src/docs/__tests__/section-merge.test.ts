@@ -209,22 +209,47 @@ describe('applySectionTextEdit (AC3)', () => {
     expect(mergedText.startsWith(storedText)).toBe(true);
   });
 
-  it('a concurrent full-section replace composes onto the stored edit, preserving both', () => {
-    // Stored text != head text: the stored state genuinely carries a
-    // concurrent edit, so the incoming text is composed onto it via the
-    // common-prefix tail — both survive (T13585).
+  it('T13595: a concurrent NON-append edit (replace relative to the base) is reported as a conflict, never fabricated', () => {
+    // Stored state carries a concurrent edit (stored != head text) and the
+    // incoming edit is a replace relative to the base. Append-only
+    // primitives cannot express it without inventing text, so the stored
+    // state must stand and the caller gets `conflicted: true`.
     const stored = seedSectionState('## Old\n\nold body');
-    const { snapshot, changed } = applySectionTextEdit(
+    const { snapshot, changed, conflicted } = applySectionTextEdit(
       stored,
       '## New\n\nnew body',
       '## Head\n\nhead text',
     );
-    expect(changed).toBe(true);
-    const mergedText = sectionStateText(snapshot);
-    expect(mergedText).toContain('old body');
-    expect(mergedText).toContain('new body');
-    // The stored content is a prefix of the merged state.
-    expect(mergedText.startsWith('## Old\n\nold body')).toBe(true);
+    expect(conflicted).toBe(true);
+    expect(changed).toBe(false);
+    expect(snapshot.equals(stored)).toBe(true);
+    expect(sectionStateText(snapshot)).not.toContain('new body');
+  });
+
+  it('T13595: a concurrent deletion relative to the base is reported as a conflict', () => {
+    const stored = seedSectionState('## S\n\nbody\n\ntail to delete');
+    const { snapshot, changed, conflicted } = applySectionTextEdit(
+      stored,
+      '## S\n\nbody',
+      '## Head\n\nhead text',
+    );
+    expect(conflicted).toBe(true);
+    expect(changed).toBe(false);
+    expect(snapshot.equals(stored)).toBe(true);
+  });
+
+  it('a concurrent no-op (incoming equals the base text) keeps the stored edit without conflict', () => {
+    const base = seedSectionState('## Alpha\n\nalpha body');
+    const updateA = makeSectionEditUpdate(base, '\n\nA1\n');
+    const storedAfterA = mergeSectionUpdates(base, [updateA]);
+    const { snapshot, changed, conflicted } = applySectionTextEdit(
+      storedAfterA,
+      '## Alpha\n\nalpha body',
+      '## Alpha\n\nalpha body',
+    );
+    expect(conflicted).toBe(false);
+    expect(changed).toBe(false);
+    expect(snapshot.equals(storedAfterA)).toBe(true);
   });
 
   it('two concurrent same-base section edits both survive through the edit application', () => {
@@ -236,25 +261,27 @@ describe('applySectionTextEdit (AC3)', () => {
     const storedAfterA = mergeSectionUpdates(base, [updateA]);
 
     const incomingB = '## Alpha\n\nalpha body\n\nB1\n';
-    const { snapshot, changed } = applySectionTextEdit(
+    const { snapshot, changed, conflicted } = applySectionTextEdit(
       storedAfterA,
       incomingB,
       '## Alpha\n\nalpha body',
     );
     expect(changed).toBe(true);
+    expect(conflicted).toBe(false);
     const mergedText = sectionStateText(snapshot);
     expect(mergedText).toContain('A1');
     expect(mergedText).toContain('B1');
     expect(mergedText.startsWith('## Alpha\n\nalpha body')).toBe(true);
   });
 
-  it('a strict deletion in CONCURRENT mode is the documented v1+ limitation: the stored state stands', () => {
+  it('a strict deletion in CONCURRENT mode is reported as a conflict: the stored state stands', () => {
     const stored = seedSectionState('## S\n\nbody\n\ntail to delete');
-    const { snapshot, changed } = applySectionTextEdit(
+    const { snapshot, changed, conflicted } = applySectionTextEdit(
       stored,
       '## S\n\nbody',
       '## Head\n\nhead text',
     );
+    expect(conflicted).toBe(true);
     expect(changed).toBe(false);
     expect(snapshot.equals(stored)).toBe(true);
   });

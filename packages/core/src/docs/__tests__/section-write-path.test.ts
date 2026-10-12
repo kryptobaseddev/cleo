@@ -359,6 +359,172 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
       'utf-8',
     );
     expect(headBlob).toBe(b.mergedText);
+    // A pure append composition is a merge, not a conflict.
+    expect(b.conflicts).toEqual([]);
+  });
+
+  it('T13595: a concurrent non-append edit lands as its own version with a recorded head conflict — never fabricated text', async () => {
+    const s0 = '# Plan\n\npreamble.';
+    const s1Base = '## Alpha\n\nalpha body';
+    const s2 = '## Beta\n\nbeta body';
+    const baseDoc = [s0, s1Base, s2].join('\n');
+    // The incoming writer REPLACES mid-text in s1 (a non-append edit
+    // relative to the base) while the stored state carries an unlanded
+    // concurrent edit.
+    const incomingDoc = [s0, '## Alpha\n\nalpha REPLACED body', s2].join('\n');
+
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-seed',
+      content: baseDoc,
+      hlc: hlcAt(1000),
+    });
+    const { seedSectionState } = await import('../section-merge.js');
+    const { readSectionCrdtState, writeSectionCrdtState, resolveConduitDocUid } = await import(
+      '../../store/conduit-doc-history.js'
+    );
+    const docUid = await resolveConduitDocUid(tempDir, 'plan-doc');
+    const stored = await readSectionCrdtState(tempDir, docUid as string, 's1');
+    await writeSectionCrdtState(tempDir, {
+      attachmentUid: docUid as string,
+      sectionId: 's1',
+      snapshot: seedSectionState(`${s1Base}\n\nA1`),
+      baseVersionUid: stored?.baseVersionUid ?? null,
+    });
+
+    const b = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-b',
+      content: incomingDoc,
+      hlc: hlcAt(2000),
+    });
+
+    // No fabricated concatenation: the head projection keeps the stored
+    // (concurrent) content — 'REPLACED' appears NOWHERE in it.
+    expect(b.mergedText).toBe([s0, `${s1Base}\n\nA1`, s2].join('\n'));
+    expect(b.mergedText).not.toContain('REPLACED');
+    expect(b.mergedText).toContain('A1');
+
+    // The conflict is recorded with both version refs.
+    expect(b.conflicts).toHaveLength(1);
+    const conflict = b.conflicts[0]!;
+    expect(conflict.sectionId).toBe('s1');
+    expect(conflict.projectionVersionUid).toBe(b.version.uid);
+    expect(conflict.incomingVersionUid).not.toBe(b.version.uid);
+
+    // The head kept the projection; the conflict names loser + winner. (The
+    // conflict upsert lands after the projection upsert, so read the head
+    // row fresh.)
+    expect(b.head.advanced).toBe(true);
+    const { getConduitDocHead } = await import('../../store/conduit-doc-history.js');
+    const headAfter = await getConduitDocHead(tempDir, b.docUid);
+    expect(headAfter?.headVersionUid).toBe(b.version.uid);
+    expect(headAfter?.conflictCount).toBe(1);
+    const headConflict = JSON.parse(headAfter?.lastConflictJson ?? '{}') as {
+      versionUid?: string;
+      winnerVersionUid?: string;
+    };
+    expect(headConflict.versionUid).toBe(conflict.incomingVersionUid);
+    expect(headConflict.winnerVersionUid).toBe(b.version.uid);
+
+    // BOTH versions survive in the append-only history, and the incoming
+    // (authored) edit is retrievable verbatim from its own version blob.
+    const { listConduitAttachmentVersions } = await import('../../store/conduit-doc-history.js');
+    const versions = await listConduitAttachmentVersions(tempDir, b.docUid);
+    expect(versions.map((v) => v.uid)).toEqual(
+      expect.arrayContaining([b.version.uid, conflict.incomingVersionUid]),
+    );
+    const incomingVersion = versions.find((v) => v.uid === conflict.incomingVersionUid);
+    expect(incomingVersion?.changeSummary).toContain('conflict recorded');
+    const { readFileSync } = await import('node:fs');
+    const { getCleoDirAbsolute } = await import('../../paths.js');
+    const { join: joinPath } = await import('node:path');
+    const incomingBlob = readFileSync(
+      joinPath(
+        getCleoDirAbsolute(tempDir),
+        'attachments',
+        'sha256',
+        incomingVersion?.storageKey ?? '',
+      ),
+      'utf-8',
+    );
+    expect(incomingBlob).toBe(incomingDoc);
+  });
+
+  it('T13596: the blob tombstone sweep does not remove a version blob a legacy doc shared bytes with', async () => {
+    // A legacy attachments row references the same bytes the projection
+    // writes as its version blob (same sha256 → same content-addressed
+    // path). The legacy row then goes (its tombstone/lifecycle end), and
+    // the sweep runs with no grace: the version blob must survive because
+    // the conduit doc-history family references it.
+    const text = '# Legacy\n\nshared bytes body';
+    const { getDb } = await import('../../store/sqlite.js');
+    const { attachments } = await import('../../store/tasks-schema.js');
+    const { eq } = await import('drizzle-orm');
+    const db = await getDb(tempDir);
+    const sha = (await import('node:crypto'))
+      .createHash('sha256')
+      .update(text, 'utf-8')
+      .digest('hex');
+    await db
+      .insert(attachments)
+      .values({
+        id: 'legacy-1',
+        sha256: sha,
+        attachmentJson: JSON.stringify({
+          kind: 'blob',
+          sha256: sha,
+          storageKey: `${sha.slice(0, 2)}/${sha.slice(2)}.txt`,
+          mime: 'text/plain',
+          size: Buffer.byteLength(text, 'utf-8'),
+        }),
+        createdAt: new Date().toISOString(),
+        refCount: 0,
+        slug: 'legacy-doc',
+        lifecycleStatus: 'draft',
+        docVersion: 1,
+      })
+      .run();
+
+    // The projection writes the SAME bytes (identical content → same sha).
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'legacy-doc',
+      authorAgentId: 'agent-a',
+      content: text,
+      hlc: hlcAt(1000),
+    });
+
+    // The legacy row goes; nothing in the legacy tables names the sha now.
+    await db.delete(attachments).where(eq(attachments.id, 'legacy-1')).run();
+
+    // Age the blob past any grace period.
+    const { getCleoDirAbsolute } = await import('../../paths.js');
+    const { join: joinPath } = await import('node:path');
+    const blobPath = joinPath(
+      getCleoDirAbsolute(tempDir),
+      'attachments',
+      'sha256',
+      `${sha.slice(0, 2)}/${sha.slice(2)}.md`,
+    );
+    const { utimes } = await import('node:fs/promises');
+    const old = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    await utimes(blobPath, old, old);
+
+    const { repairAttachmentStore } = await import('../../store/attachment-repair.js');
+    const result = await repairAttachmentStore({ cwd: tempDir, gracePeriodMs: 0, dryRun: false });
+
+    // The version blob survived: the sweep skipped it as conduit-history
+    // referenced (and did NOT delete it).
+    const { existsSync } = await import('node:fs');
+    expect(existsSync(blobPath)).toBe(true);
+    expect(
+      result.actions.some(
+        (a) => a.kind === 'skip-referenced-blob' && a.sha256 === sha && /conduit/.test(a.reason),
+      ),
+    ).toBe(true);
+    expect(
+      result.actions.some((a) => a.kind === 'delete-unreferenced-blob' && a.sha256 === sha),
+    ).toBe(false);
   });
 
   it('T13589 regression: mid-text replace and tail deletion project byte-exactly through version and head rows', async () => {
