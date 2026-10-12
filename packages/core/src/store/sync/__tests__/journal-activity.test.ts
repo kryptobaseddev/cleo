@@ -24,6 +24,7 @@ import {
   JournalActivitySinceError,
   nexusJournalActivity,
 } from '../../../cloud/nexus-cloud-journal-activity.js';
+import { readStoreSyncStream } from '../../../cloud/nexus-cloud-status.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
@@ -36,6 +37,7 @@ import {
 } from '../../row-identity.js';
 import { JournalActivityCursorError, journalActivity } from '../activity.js';
 import { finishCaptureFrame, openCaptureFrame, setCaptureEnabled } from '../capture.js';
+import { conflictDetail, listConflicts } from '../conflicts.js';
 import { setSyncFlag } from '../flags.js';
 import { completeGenesis, cutGenesis, joinStream } from '../genesis.js';
 import { parseHlc } from '../hlc.js';
@@ -415,6 +417,61 @@ describe('journal activity lists what each device changed and when (T13369)', ()
     await expect(nexusJournalActivity({ since: 'yesterday-ish', offline: true })).rejects.toThrow(
       JournalActivitySinceError,
     );
+  });
+});
+
+describe('cloud conflicts shows what each conflict is about (T12997)', () => {
+  it('a task done on A and edited on B: human id, device, rule and both sides per field', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp)
+       VALUES ('T1', 'shared', 'task', 'pending', 'medium', 'uid-T1', 'fp-T1')`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    write(
+      a.db,
+      "UPDATE tasks_tasks SET status = 'done', pipeline_stage = 'contribution', completed_at = '2026-10-12T00:00:00.000Z' WHERE id = 'T1'",
+      '{"op":"tasks.complete"}',
+    );
+    // Sealed (HLC-stamped) and sent before B writes; B has not pulled it.
+    await push(a, stream);
+    const after = Date.now() + 5;
+    while (Date.now() < after) {
+      // spin: B's write must carry the later HLC
+    }
+    write(
+      b.db,
+      "UPDATE tasks_tasks SET status = 'active' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(b, stream);
+    await pull(a, stream);
+
+    const open = listConflicts(a.db, { open: true });
+    const held = open.find((c) => c.rule === 'task.status.absorbing');
+    expect(held).toBeDefined();
+    if (!held) return;
+    const d = conflictDetail(a.db, 'project', held);
+    expect(d.humanId).toBe('T1');
+    expect(d.deviceId).toBe('dev-b');
+    expect(d.opKnown).toBe(true);
+    expect(d.fields.find((f) => f.column === 'status')).toEqual({
+      column: 'status',
+      theirs: 'active',
+      mine: 'done',
+      withheld: false,
+    });
+    // cloud status counts the same open conflicts from the local log.
+    const st = await readStoreSyncStream(
+      a.db,
+      'project',
+      STREAM,
+      join(dir, 'a', '.cleo', 'cleo.db'),
+    );
+    expect(st.openConflicts).toEqual({ known: true, value: open.length });
   });
 });
 

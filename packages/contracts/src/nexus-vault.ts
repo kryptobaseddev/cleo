@@ -26,6 +26,7 @@
  */
 
 import { z } from 'zod';
+import type { LedgerValue, LedgerWireValue } from './ledger/index.js';
 import type { CloudWarning } from './nexus-cloud.js';
 
 const isoTime = z.iso.datetime({ offset: true });
@@ -587,6 +588,27 @@ export interface CloudConflict {
   origin: string;
   createdAt: string;
   resolvedAt: string | null;
+  /** The row's human id (a task id, a doc slug …) from its declared key, or null (T12997). */
+  humanId: string | null;
+  /** The Nexus device that wrote the op; null once its inbox row is pruned (T12997). */
+  deviceId: string | null;
+  /** That device's name from the account's device list; null offline or unknown (T12997). */
+  deviceName: string | null;
+  /** Whether the incoming op is still in the inbox; when false, `theirs` is null (T12997). */
+  opKnown: boolean;
+  /** Each conflicting column, both sides (T12997). */
+  fields: CloudConflictField[];
+}
+
+/** One conflicting column of a {@link CloudConflict}: the incoming op's value and this store's (T12997). */
+export interface CloudConflictField {
+  column: string;
+  /** The incoming op's value (a reference as the target's local key when held); null when unset or unknown. */
+  theirs: LedgerValue | null;
+  /** This store's current value; null when the row is gone. */
+  mine: LedgerWireValue | null;
+  /** A secret column: neither value is shown. */
+  withheld: boolean;
 }
 
 /** `cleo cloud conflicts`: the store's recorded sync conflicts. */
