@@ -461,13 +461,15 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     ['SK2', 'SK3', 'B24'],
     'active→{converted, archived} is one-way; converted_to_json is write-once',
   ),
-  rule(
-    'release.status.absorbing',
-    'T12943',
-    'tasks_releases',
-    ['status'],
-    ['REL-2', 'REL-3', 'REL-4', 'REL-5', 'REL-6', 'REL-7', 'REL-8'],
-    'shipped release statuses are absorbing',
+  implemented(
+    rule(
+      'release.status.absorbing',
+      'T12943',
+      'tasks_releases',
+      ['status'],
+      ['REL-2', 'REL-3', 'REL-4', 'REL-5', 'REL-6', 'REL-7', 'REL-8'],
+      'shipped release statuses are absorbing',
+    ),
   ),
   rule(
     'playbook.approval.once',

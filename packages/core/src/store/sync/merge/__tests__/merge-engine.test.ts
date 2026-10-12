@@ -10,7 +10,12 @@ import type { LedgerOp, LedgerValue, LedgerWireValue } from '@cleocode/contracts
 import { describe, expect, it } from 'vitest';
 import { encodeHlc } from '../../hlc.js';
 import { applyOp, checkSchemaVersion, MergeEngineError } from '../engine.js';
-import { implementedMergeRuleIds, mergeSpecFor, SYNC_MERGE_RULES } from '../rules.js';
+import {
+  implementedMergeRuleIds,
+  mergeSpecFor,
+  RELEASE_STATUS_GROUP,
+  SYNC_MERGE_RULES,
+} from '../rules.js';
 import { type MergeContext, type RowState, type TableMergeSpec, UNSEEN_ROW } from '../types.js';
 
 const R1 = '11111111-1111-4111-8111-111111111111';
@@ -424,6 +429,71 @@ describe('decision_adr_links: the revoke tombstone is absorbing (T13597)', () =>
   });
 });
 
+// T12943 — shipped release statuses are absorbing: a late re-plan (REL-8)
+// never regresses a reconciled release, whatever order the ops arrive in.
+describe('tasks_releases: shipped statuses are absorbing (T12943)', () => {
+  const REL_COLUMNS = ['version', ...RELEASE_STATUS_GROUP, 'workflow_run_url'];
+  const RELEASES: MergeContext = { table: mergeSpecFor('tasks_releases', REL_COLUMNS) };
+  /** A status write as the sealer emits it: the whole status-and-stamps group. */
+  const stamps = (
+    status: string,
+    set: Record<string, string> = {},
+  ): Record<string, LedgerValue> => {
+    const g: Record<string, LedgerValue> = {};
+    for (const c of RELEASE_STATUS_GROUP) g[c] = c === 'status' ? status : (set[c] ?? null);
+    return g;
+  };
+  const rOp = (o: LedgerOp['o'], hlc: string, a: Record<string, LedgerValue>): LedgerOp => ({
+    t: 'tasks_releases',
+    u: 'uid-rel-1',
+    o,
+    h: hlc,
+    a,
+  });
+  const plan = rOp('I', h(10), {
+    version: 'v1',
+    workflow_run_url: null,
+    ...stamps('planned', { planned_at: 'P' }),
+  });
+  const reconcile = rOp('U', h(20), stamps('reconciled', { planned_at: 'P', reconciled_at: 'R' }));
+  /** Device B re-plans the same version later (REL-8): an ordinary pre-ship write. */
+  const replan = rOp('U', h(30, R2), stamps('planned', { planned_at: 'P2' }));
+
+  it('a later re-plan never regresses a reconciled release, in every order', () => {
+    for (const ops of [
+      [plan, reconcile, replan],
+      [plan, replan, reconcile],
+    ]) {
+      let row = UNSEEN_ROW;
+      for (const o of ops) row = applyOp(row, o, RELEASES).next;
+      expect(val(row, 'status')).toBe('reconciled');
+      expect(val(row, 'reconciled_at')).toBe('R');
+      expect(val(row, 'planned_at')).toBe('P');
+    }
+  });
+
+  it('the refused re-plan is a typed-rule conflict; forward moves among shipped statuses apply', () => {
+    let row = UNSEEN_ROW;
+    for (const o of [plan, reconcile]) row = applyOp(row, o, RELEASES).next;
+    expect(applyOp(row, replan, RELEASES).conflicts).toContainEqual(
+      expect.objectContaining({ kind: 'typed-rule', rule: 'release.status.absorbing' }),
+    );
+    const rollback = rOp(
+      'U',
+      h(40),
+      stamps('rolled_back', { planned_at: 'P', reconciled_at: 'R' }),
+    );
+    expect(val(applyOp(row, rollback, RELEASES).next, 'status')).toBe('rolled_back');
+  });
+
+  it('a release that has not shipped still takes plain LWW (pre-ship moves are ordinary)', () => {
+    const open = rOp('U', h(20), stamps('pr-opened', { planned_at: 'P', pr_opened_at: 'O' }));
+    let row = applyOp(UNSEEN_ROW, plan, RELEASES).next;
+    row = applyOp(row, open, RELEASES).next;
+    expect(val(applyOp(row, replan, RELEASES).next, 'status')).toBe('planned');
+  });
+});
+
 describe('review #1867: groups travel whole (T13222)', () => {
   const base = live(grp('active'), h(1));
   const done = op('U', h(3), grp('done', { completed_at: 'X' }), grp('active'));
@@ -576,6 +646,7 @@ describe('the merge-rule registry matches the write-invariant registry', () => {
     }
     expect(implementedMergeRuleIds()).toEqual([
       'docs.decision-adr-links.revoke-monotonic',
+      'release.status.absorbing',
       'task.pipeline-stage.max',
       'task.status.absorbing',
       'task.verification.frozen-on-done',
