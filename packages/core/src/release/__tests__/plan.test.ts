@@ -20,6 +20,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Task } from '@cleocode/contracts';
 import {
   E_CHANNEL_MISMATCH,
@@ -33,6 +34,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDb, getDb, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import * as schema from '../../store/tasks-schema.js';
+import { parseHooksV1Gate } from '../hooks-v1-promotion.js';
 import { releasePlan } from '../plan.js';
 
 let testDir: string;
@@ -552,6 +554,32 @@ describe('releasePlan — hooks-v1 gate opened by source (T13555)', () => {
     git('add', '-f', '.cleo/release/v2026.5.1.plan.json');
     releaseThen(gate(''));
     expect((await plan()).success).toBe(true);
+  });
+
+  it('fails closed on a gate shape it cannot read', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    releaseThen(
+      'export const UNRELEASED_HOOK_FEATURES = loadFeatures();\n' +
+        'export function hooksV1Released(opts: HooksV1ReleaseOptions = {}): boolean {\n  return false;\n}\n',
+    );
+    const result = await plan();
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.details).toMatchObject({
+      changes: [
+        'packages/core/src/hooks/release-gate.ts has a gate shape the release guard cannot read',
+      ],
+    });
+  });
+
+  it('parses the real release-gate.ts: hooks-v1 unreleased and hooksV1Released found', () => {
+    const real = readFileSync(
+      fileURLToPath(new URL('../../hooks/release-gate.ts', import.meta.url)),
+      'utf-8',
+    );
+    const shape = parseHooksV1Gate(real);
+    expect(shape.unreleased).toBe(true);
+    expect(shape.released).toMatch(/^export function hooksV1Released\(/);
   });
 
   it('leaves an untouched gate alone', async () => {

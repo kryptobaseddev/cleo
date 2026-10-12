@@ -52,19 +52,33 @@ function promotedAt(projectRoot: string, tag: string): boolean {
   }
 }
 
-/** The `hooksV1Released` declaration through its closing brace, or `null`. */
-function releasedFunction(source: string): string | null {
-  return /export function hooksV1Released\([\s\S]*?\n\}\n/.exec(source)?.[0] ?? null;
+/** What {@link parseHooksV1Gate} recognised in a gate source; `null` where the shape is unrecognised. */
+export interface HooksV1GateShape {
+  /** Whether `UNRELEASED_HOOK_FEATURES` still lists `hooks-v1`. */
+  readonly unreleased: boolean | null;
+  /** The `hooksV1Released` declaration through its closing brace. */
+  readonly released: string | null;
 }
 
-/** True when the source keeps `hooks-v1` in `UNRELEASED_HOOK_FEATURES`. */
-function keepsHooksUnreleased(source: string): boolean {
-  const set = /UNRELEASED_HOOK_FEATURES\b[^=]*=\s*new Set\(\[([^\]]*)\]\)/.exec(source)?.[1];
-  return set !== undefined && /['"]hooks-v1['"]/.test(set);
+/**
+ * Recognise the two gate facts in a `release-gate.ts` source.
+ *
+ * @param source - The file's text.
+ * @returns Each fact, or `null` for a shape the detector does not recognise.
+ */
+export function parseHooksV1Gate(source: string): HooksV1GateShape {
+  const set = /UNRELEASED_HOOK_FEATURES\b[^=]*=\s*new Set(?:<[^>]*>)?\(\[([^\]]*)\]\)/.exec(
+    source,
+  )?.[1];
+  return {
+    unreleased: set === undefined ? null : /['"]hooks-v1['"]/.test(set),
+    released: /export function hooksV1Released\([\s\S]*?\n\}\n/.exec(source)?.[0] ?? null,
+  };
 }
 
 /**
  * How the source between a release tag and HEAD opens the hooks-v1 gate.
+ * Fails closed: a gate shape the detector cannot read counts as opening it.
  *
  * @param projectRoot - Repository root.
  * @param previousTag - The previous release tag.
@@ -78,11 +92,14 @@ export function hooksV1GateSourceChanges(projectRoot: string, previousTag: strin
   const after = fileAt(projectRoot, 'HEAD', HOOKS_V1_GATE_PATH);
   if (before === null && after === null) return [];
   if (after === null) return [`${HOOKS_V1_GATE_PATH} was deleted`];
+  const now = parseHooksV1Gate(after);
+  if (now.unreleased === null || now.released === null)
+    return [`${HOOKS_V1_GATE_PATH} has a gate shape the release guard cannot read`];
   const changes: string[] = [];
-  if (!keepsHooksUnreleased(after) && (before === null || keepsHooksUnreleased(before)))
+  const was = before === null ? null : parseHooksV1Gate(before);
+  if (!now.unreleased && was?.unreleased !== false)
     changes.push("'hooks-v1' left UNRELEASED_HOOK_FEATURES");
-  if (before !== null && releasedFunction(before) !== releasedFunction(after))
-    changes.push('hooksV1Released changed');
+  if (was !== null && was.released !== now.released) changes.push('hooksV1Released changed');
   return changes;
 }
 
