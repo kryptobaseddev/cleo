@@ -249,7 +249,9 @@ describe('T10488 — pre-push hook task-ID enforcement', () => {
     // The same step `cleo init` runs (ensure-dirs), not a hand-made look-alike.
     expect((await ensureProjectGitInitialCommit(workDir)).action).toBe('created');
     expect(
-      execFileSync('git', ['-C', workDir, 'log', '-1', '--pretty=%s'], { encoding: 'utf-8' }).trim(),
+      execFileSync('git', ['-C', workDir, 'log', '-1', '--pretty=%s'], {
+        encoding: 'utf-8',
+      }).trim(),
     ).toBe('initial: cleo init');
     const init = execFileSync('git', ['-C', workDir, 'rev-parse', 'HEAD'], {
       encoding: 'utf-8',
@@ -260,7 +262,15 @@ describe('T10488 — pre-push hook task-ID enforcement', () => {
 
   it('the init allowance is the exact subject only: an untagged commit or a longer subject is refused (T13577)', () => {
     const { workDir } = makeRepoWithOrigin();
-    execFileSync('git', ['-C', workDir, 'commit', '-q', '--allow-empty', '-m', 'initial: cleo init']);
+    execFileSync('git', [
+      '-C',
+      workDir,
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      'initial: cleo init',
+    ]);
     const untagged = commit(workDir, 'chore: no task id', 'b.txt');
     const lookalike = commit(workDir, 'initial: cleo init and more', 'c.txt');
     const r = runHook(workDir, `refs/heads/main ${lookalike} refs/heads/allowed ${ZERO_SHA}\n`);
