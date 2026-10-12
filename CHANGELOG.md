@@ -2,10 +2,6 @@
 
 ## [2026.10.12] (2026-10-12)
 
-_No changeset entries parsed for this release._
-
-_Add entries under `.changeset/*.md` and re-run `cleo release plan` to populate this section._
-
 ### Fixed
 
 - `cleo done` / `cleo complete` accept a scoped test run after its PR merges, in every carrier shape: a recorded `pr:` atom (T13634, #2203); a commit carried into a GitHub merge with no `pr:` atom (T13637); a `pr:` atom with no file list, whose files now come from the merge commit itself (T13636); and `cleo done --pr` now passes the PR to completion, not only to the plan (#2204). The real changed-file comparison is unchanged, and refusals now name the files that differ.
