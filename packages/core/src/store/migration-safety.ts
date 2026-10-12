@@ -14,18 +14,29 @@
  *      (`.cleo/backups/sqlite/cleo.db.<backupId>` plus its `<backupId>.meta.json`
  *      sidecar), so `cleo backup list` shows it and the per-type rotation
  *      applies. The sidecar is the step's **backup receipt**; its timestamp
- *      feeds the destructive-step guard.
- *   2. **Run** — the step's `run(ctx)` executes against the live native
- *      handle.
- *   3. **Verify** — machine-readable checks: per-table row counts before/after
+ *      feeds the destructive-step guard. Runs OUTSIDE the transaction
+ *      (`VACUUM INTO` requires it).
+ *   2. **`BEGIN IMMEDIATE`** (T13609) — single-writer exclusion for the whole
+ *      bracket: a concurrent writer can neither interleave between the
+ *      fingerprints, the run and the verify (masking or forging count/hash
+ *      results) nor be silently discarded by a later restore.
+ *   3. **Run** — the step's `run(ctx)` executes inside the transaction.
+ *      Table-rebuild recipes use `PRAGMA defer_foreign_keys = ON` (enforced
+ *      at COMMIT), never `PRAGMA foreign_keys = OFF` (a no-op in a
+ *      transaction).
+ *   4. **Verify** — machine-readable checks: per-table row counts before/after
  *      (matching, or explained by the step's declared `expectedDelta`),
  *      content-hash spot checks (an order-independent multiset hash over the
  *      table's rows, sampled to `sampleSize` rowids when the table is larger),
  *      and `PRAGMA foreign_key_check` (must return zero rows).
- *   4. **Report** — a JSON-serializable {@link MigrationStepReport} per step;
- *      a failed verification **halts** the runner, names the failed step, and
- *      leaves the rollback path ready ({@link rollbackMigrationStep} consumes
- *      exactly the report's backup receipt and before-fingerprints).
+ *   5. **Commit or roll back** (T13609) — only a fully verified step is
+ *      COMMITted; a refused, failed or throwing step is ROLLBACKed, so a
+ *      failed step is never visible in the live store. The restore path
+ *      remains the backstop for a commit that is later found bad.
+ *   6. **Report** — a JSON-serializable {@link MigrationStepReport} per step
+ *      (including the `transaction` outcome); a failed verification **halts**
+ *      the runner and names the failed step. {@link rollbackMigrationStep}
+ *      consumes exactly the report's backup receipt and before-fingerprints.
  *
  * **Destructive guard** — a step declared `destructive: true` refuses to run
  * unless the harness options pass `force: true` AND the step's backup receipt
@@ -70,7 +81,19 @@ export interface MigrationStepContext {
   readonly db: DatabaseSync;
   /** Absolute path of the project root whose store is being migrated. */
   readonly projectRoot: string;
-  /** Step-scoped log sink (defaults to the module logger). */
+  /** Absolute path of the store file behind {@link db} (the backup target). */
+  readonly dbPath: string;
+  /**
+   * Step-scoped log sink (defaults to the module logger).
+   *
+   * Transaction contract (T13609): `run` executes INSIDE the harness's
+   * `BEGIN IMMEDIATE … COMMIT` bracket. Never issue `BEGIN`/`COMMIT`/
+   * `ROLLBACK`, `VACUUM`, or checkpoint pragmas yourself — the harness owns
+   * the transaction. Table-rebuild recipes must use
+   * `PRAGMA defer_foreign_keys = ON` (enforced at COMMIT), not
+   * `PRAGMA foreign_keys = OFF` (a no-op inside a transaction). DDL is
+   * transactional: a failed verify rolls your changes back.
+   */
   readonly log: (message: string) => void;
 }
 
@@ -208,10 +231,34 @@ export interface MigrationStepReport {
   readonly removedTables: readonly string[];
   /** Rows returned by `PRAGMA foreign_key_check` after the step (0 = clean). */
   readonly foreignKeyViolations: number;
+  /**
+   * Extension-backed tables excluded from verification because they could not
+   * be read on this connection (e.g. `vec0` virtual tables without the
+   * sqlite-vec extension loaded). These are content-addressed caches, never
+   * the source of truth; every other read error still fails the step
+   * (fail-closed).
+   */
+  readonly unreadableTables: readonly UnreadableTable[];
+  /**
+   * Outcome of the step's write transaction (T13609): `committed` when the
+   * step verified and its writes are live; `rolled-back` when the step was
+   * refused, failed verification, threw, or its COMMIT failed — the failed
+   * step is then NEVER visible in the live store; `none` when no transaction
+   * was opened (the pre-step backup or BEGIN itself failed).
+   */
+  readonly transaction: 'committed' | 'rolled-back' | 'none';
   /** Human-readable failure reasons (empty when `completed`). */
   readonly failures: readonly string[];
   /** Error thrown by `run` (or by the pre-step backup), when that failed. */
   readonly runError: string | null;
+}
+
+/** A table excluded from verification because it could not be read. */
+export interface UnreadableTable {
+  /** Table name. */
+  readonly table: string;
+  /** Why it was unreadable (e.g. `no such module: vec0`). */
+  readonly reason: string;
 }
 
 /** Overall runner outcome. */
@@ -388,12 +435,17 @@ export function fingerprintTable(
   const digests: string[] = [];
   if (sample !== null) {
     const stmt = db.prepare(`SELECT * FROM ${quoted} WHERE rowid = ?`);
+    // Real stores carry integers beyond 2^53 (e.g. HLC timestamps); without
+    // big-int reads node:sqlite throws converting them to number.
+    stmt.setReadBigInts(true);
     for (const rowid of sample) {
       const row = stmt.get(rowid) as Record<string, unknown> | undefined;
       if (row !== undefined) digests.push(rowDigest(row));
     }
   } else {
-    const rows = db.prepare(`SELECT * FROM ${quoted}`).all() as Array<Record<string, unknown>>;
+    const rowsStmt = db.prepare(`SELECT * FROM ${quoted}`);
+    rowsStmt.setReadBigInts(true);
+    const rows = rowsStmt.all() as Array<Record<string, unknown>>;
     for (const row of rows) digests.push(rowDigest(row));
   }
   return { table, count, hash: combineDigests(digests), full, sampledRowids: sample ?? [] };
@@ -428,29 +480,58 @@ function listUserTables(db: DatabaseSync): string[] {
 }
 
 /**
+ * Error text meaning "this table needs a loadable SQLite extension that this
+ * connection does not have" (e.g. `vec0` virtual tables without sqlite-vec).
+ * Only this read error may skip verification — such tables are
+ * content-addressed caches, never the source of truth; anything else stays
+ * fail-closed.
+ */
+const NO_SUCH_MODULE = /no such module/i;
+
+/**
  * Capture the pre- or post-step fingerprint set for the tables in scope.
+ * Extension-backed unreadable tables (see {@link NO_SUCH_MODULE}) are
+ * returned as skipped, not fatal.
  */
 function captureFingerprints(
   db: DatabaseSync,
   tables: readonly string[] | undefined,
   sampleSize: number,
-): TableFingerprint[] {
+): { fingerprints: TableFingerprint[]; skipped: UnreadableTable[] } {
   const names = tables ?? listUserTables(db);
-  return names.map((table) => fingerprintTable(db, table, sampleSize));
+  const fingerprints: TableFingerprint[] = [];
+  const skipped: UnreadableTable[] = [];
+  for (const table of names) {
+    try {
+      fingerprints.push(fingerprintTable(db, table, sampleSize));
+    } catch (err) {
+      if (NO_SUCH_MODULE.test(messageOf(err))) {
+        skipped.push({ table, reason: messageOf(err) });
+        continue;
+      }
+      throw err;
+    }
+  }
+  return { fingerprints, skipped };
 }
 
 /**
- * Run migration steps inside the backup → migrate → verify → report bracket
- * (T13448). Never throws for verification failures, refusals, or step errors:
- * those are reported and halt the run (AC1, AC4). Throws only for invalid
- * invocation (no steps).
+ * Run migration steps inside the backup → BEGIN IMMEDIATE → migrate → verify
+ * → COMMIT/ROLLBACK → report bracket (T13448, T13609). Each step's writes are
+ * atomic and write-exclusive: a refused, failed or throwing step is rolled
+ * back and never becomes visible in the live store, and no concurrent writer
+ * can interleave between the before-fingerprints, the run and the verify.
+ * Never throws for verification failures, refusals, or step errors: those are
+ * reported and halt the run (AC1, AC4). Throws only for invalid invocation
+ * (no steps).
  *
  * @param steps - The registered steps, in execution order.
  * @param opts - The store handle, project, force flag and hooks.
  * @returns The machine-readable run report. On `halted`/`refused`, the last
  *   step report carries the backup receipt and before-fingerprints needed by
- *   {@link rollbackMigrationStep}.
+ *   {@link rollbackMigrationStep} (the backstop for a commit later found bad).
  * @task T13448
+ * @task T13609 — transactional bracket; failed steps are never visible
  */
 export async function runMigrationSteps(
   steps: readonly MigrationStep[],
@@ -472,18 +553,21 @@ export async function runMigrationSteps(
     const spec = step.verify ?? {};
     const skipHash = new Set(spec.skipHash ?? []);
     const stepSampleSize = spec.sampleSize ?? sampleSize;
-    const beforeTables = captureFingerprints(opts.db, spec.tables, stepSampleSize);
     const failures: string[] = [];
     let backup: StepBackupReceipt | null = null;
     let runError: string | null = null;
     let status: MigrationStepStatus = 'completed';
     const verifications: TableVerification[] = [];
+    let beforeTables: TableFingerprint[] = [];
+    let unreadableTables: UnreadableTable[] = [];
     let addedTables: string[] = [];
     let removedTables: string[] = [];
     let fkViolations = 0;
+    let transaction: MigrationStepReport['transaction'] = 'none';
 
     // 1. Pre-step VACUUM INTO backup, registered as a migration system
     //    backup whose sidecar is this step's receipt (T12535 machinery).
+    //    Runs OUTSIDE the transaction — VACUUM INTO requires it.
     try {
       const plan = planMigrationSnapshot(opts.db, dbPath);
       const snapshotPath = writeMigrationSnapshot(
@@ -502,8 +586,24 @@ export async function runMigrationSteps(
       runError = `pre-step backup failed: ${messageOf(err)}`;
     }
 
-    // 2. Destructive guard: refuse without force AND a receipt younger than
-    //    the step start (AC: owner directive 2026-10-10).
+    // 2. BEGIN IMMEDIATE (T13609): single-writer exclusion for the whole
+    //    fingerprint → run → verify bracket, so a concurrent writer can
+    //    neither interleave (masking or forging count/hash results) nor be
+    //    silently discarded by a later restore. Writers wait on
+    //    busy_timeout, then fail with SQLITE_BUSY.
+    if (status === 'completed') {
+      try {
+        opts.db.exec('BEGIN IMMEDIATE');
+        transaction = 'rolled-back'; // until COMMIT proves otherwise
+      } catch (err) {
+        status = 'failed';
+        runError = `BEGIN IMMEDIATE failed: ${messageOf(err)}`;
+      }
+    }
+
+    // 3. Destructive guard: refuse without force AND a receipt younger than
+    //    the step start (AC: owner directive 2026-10-10). Inside the lock,
+    //    before any fingerprint work.
     if (status === 'completed' && step.destructive === true) {
       const receiptFresh = backup !== null && Date.parse(backup.timestamp) >= stepStartMs;
       if (opts.force !== true || !receiptFresh) {
@@ -514,75 +614,120 @@ export async function runMigrationSteps(
       }
     }
 
-    // 3. Run the step.
+    // 4. Before-fingerprints, inside the lock (T13609): the store they will
+    //    be compared against cannot move underneath the bracket.
+    if (status === 'completed') {
+      try {
+        const captured = captureFingerprints(opts.db, spec.tables, stepSampleSize);
+        beforeTables = captured.fingerprints;
+        unreadableTables = captured.skipped;
+      } catch (err) {
+        status = 'failed';
+        runError = `before-fingerprint capture failed: ${messageOf(err)}`;
+      }
+    }
+
+    // 5. Run the step, inside the transaction.
     if (status === 'completed') {
       const log = (message: string): void => {
         logger.info({ step: step.name }, message);
       };
       try {
-        await step.run({ db: opts.db, projectRoot: opts.projectRoot, log });
+        await step.run({ db: opts.db, projectRoot: opts.projectRoot, dbPath, log });
       } catch (err) {
         status = 'failed';
         runError = messageOf(err);
       }
     }
 
-    // 4. Verify: counts (or declared deltas), content-hash spot checks, FK.
+    // 6. Verify: counts (or declared deltas), content-hash spot checks, FK.
     if (status === 'completed') {
-      fkViolations = countForeignKeyViolations(opts.db);
-      const beforeNames = new Set(beforeTables.map((fp) => fp.table));
-      const afterNames = new Set(listUserTables(opts.db));
-      addedTables = [...afterNames].filter((name) => !beforeNames.has(name));
-      removedTables = [...beforeNames].filter((name) => !afterNames.has(name));
-      for (const before of beforeTables) {
-        const expectedDelta = spec.expectedDelta?.[before.table] ?? 0;
-        if (!afterNames.has(before.table)) {
-          failures.push(`table ${before.table} was removed by the step`);
+      try {
+        fkViolations = countForeignKeyViolations(opts.db);
+        const beforeNames = new Set(beforeTables.map((fp) => fp.table));
+        const afterNames = new Set(listUserTables(opts.db));
+        addedTables = [...afterNames].filter((name) => !beforeNames.has(name));
+        removedTables = [...beforeNames].filter((name) => !afterNames.has(name));
+        for (const before of beforeTables) {
+          const expectedDelta = spec.expectedDelta?.[before.table] ?? 0;
+          if (!afterNames.has(before.table)) {
+            failures.push(`table ${before.table} was removed by the step`);
+            verifications.push({
+              table: before.table,
+              before,
+              after: null,
+              expectedDelta,
+              countOk: false,
+              hashOk: null,
+            });
+            continue;
+          }
+          const after = fingerprintTable(opts.db, before.table, stepSampleSize);
+          const countOk = after.count === before.count + expectedDelta;
+          // A non-zero declared delta legitimately reshapes the table: the
+          // count is the contract there, the hash check applies to carried
+          // (zero-delta, not skip-listed) tables.
+          const hashChecked = expectedDelta === 0 && !skipHash.has(before.table);
+          const hashOk = hashChecked ? after.hash === before.hash : null;
+          if (!countOk) {
+            failures.push(
+              `table ${before.table}: row count ${after.count} != ${before.count} + ${expectedDelta} (expected delta not explained)`,
+            );
+          }
+          if (hashOk === false) {
+            failures.push(
+              `table ${before.table}: content hash changed (carried-table spot check failed)`,
+            );
+          }
           verifications.push({
             table: before.table,
             before,
-            after: null,
+            after,
             expectedDelta,
-            countOk: false,
-            hashOk: null,
+            countOk,
+            hashOk,
           });
-          continue;
         }
-        const after = fingerprintTable(opts.db, before.table, stepSampleSize);
-        const countOk = after.count === before.count + expectedDelta;
-        // A non-zero declared delta legitimately reshapes the table: the
-        // count is the contract there, the hash check applies to carried
-        // (zero-delta, not skip-listed) tables.
-        const hashChecked = expectedDelta === 0 && !skipHash.has(before.table);
-        const hashOk = hashChecked ? after.hash === before.hash : null;
-        if (!countOk) {
+        if (removedTables.length > 0) {
+          failures.push(`tables removed by the step: ${removedTables.join(', ')}`);
+        }
+        if (fkViolations > 0) {
           failures.push(
-            `table ${before.table}: row count ${after.count} != ${before.count} + ${expectedDelta} (expected delta not explained)`,
+            `PRAGMA foreign_key_check returned ${fkViolations} violation(s) after the step`,
           );
         }
-        if (hashOk === false) {
-          failures.push(
-            `table ${before.table}: content hash changed (carried-table spot check failed)`,
-          );
+        if (failures.length > 0) status = 'failed';
+      } catch (err) {
+        status = 'failed';
+        runError = `verification failed: ${messageOf(err)}`;
+      }
+    }
+
+    // 7. Commit only a fully verified step; roll everything else back, so a
+    //    failed step is never visible in the live store (T13609 AC1/AC3). A
+    //    COMMIT error (e.g. a deferred foreign-key violation surfacing at
+    //    commit time) rolls back too.
+    if (transaction === 'rolled-back') {
+      if (status === 'completed') {
+        try {
+          opts.db.exec('COMMIT');
+          transaction = 'committed';
+        } catch (err) {
+          try {
+            opts.db.exec('ROLLBACK');
+          } catch {
+            // best effort — the transaction may already be closed
+          }
+          status = 'failed';
+          if (runError === null) runError = `COMMIT failed: ${messageOf(err)}`;
         }
-        verifications.push({
-          table: before.table,
-          before,
-          after,
-          expectedDelta,
-          countOk,
-          hashOk,
-        });
+      } else {
+        try {
+          opts.db.exec('ROLLBACK');
+        } catch {
+          // best effort — the step may have closed the transaction itself
+        }
       }
-      if (removedTables.length > 0) {
-        failures.push(`tables removed by the step: ${removedTables.join(', ')}`);
-      }
-      if (fkViolations > 0) {
-        failures.push(
-          `PRAGMA foreign_key_check returned ${fkViolations} violation(s) after the step`,
-        );
-      }
-      if (failures.length > 0) status = 'failed';
     }
 
     const report: MigrationStepReport = {
@@ -596,6 +741,8 @@ export async function runMigrationSteps(
       addedTables,
       removedTables,
       foreignKeyViolations: fkViolations,
+      unreadableTables,
+      transaction,
       failures,
       runError,
     };
@@ -604,12 +751,12 @@ export async function runMigrationSteps(
     if (status === 'completed') {
       logger.info(
         { step: step.name, backupId: backup?.backupId ?? null, tables: verifications.length },
-        'migration step verified (T13448)',
+        'migration step verified and committed (T13448)',
       );
     } else {
       logger.warn(
-        { step: step.name, status, failures, runError },
-        'migration step failed; run halted, rollback path ready (T13448)',
+        { step: step.name, status, failures, runError, transaction },
+        'migration step failed; transaction rolled back, store unchanged, restore path ready (T13448/T13609)',
       );
       return {
         status: status === 'refused' ? 'refused' : 'halted',
@@ -647,12 +794,18 @@ export interface RollbackTableResult {
   readonly table: string;
   /** The pre-step fingerprint the restore must reproduce. */
   readonly expected: TableFingerprint;
-  /** The fingerprint of the restored store (`null` when unreadable). */
+  /** The fingerprint of the restored store (`null` when unreadable/skipped). */
   readonly actual: TableFingerprint | null;
   /** Whether the restored row count matches the pre-step count. */
   readonly countOk: boolean;
   /** Whether the restored content hash matches the pre-step hash. */
   readonly hashOk: boolean;
+  /**
+   * `null` when the table was re-verified; otherwise the reason it was
+   * skipped (extension-backed table unreadable on the verifying connection,
+   * e.g. `no such module: vec0`). Skipped tables cannot fail the rollback.
+   */
+  readonly skipped: string | null;
 }
 
 /**
@@ -713,24 +866,31 @@ export async function rollbackMigrationStep(
   try {
     for (const expected of params.before) {
       let actual: TableFingerprint | null = null;
+      let skipped: string | null = null;
       try {
         actual = fingerprintTable(restored.db, expected.table, sampleSize);
-      } catch {
-        actual = null; // table absent from the restored store
+      } catch (err) {
+        if (NO_SUCH_MODULE.test(messageOf(err))) {
+          // Extension-backed cache table (e.g. vec0 without sqlite-vec on
+          // this read-only connection): nothing to compare, cannot fail.
+          skipped = messageOf(err);
+        } else {
+          actual = null; // table absent from (or unreadable in) the restored store
+        }
       }
-      const countOk = actual !== null && actual.count === expected.count;
-      const hashOk = actual !== null && actual.hash === expected.hash;
-      if (!countOk) {
+      const countOk = skipped !== null || (actual !== null && actual.count === expected.count);
+      const hashOk = skipped !== null || (actual !== null && actual.hash === expected.hash);
+      if (skipped === null && !countOk) {
         failures.push(
           `rollback verify: ${expected.table} row count ${actual?.count ?? 'unreadable'} != pre-step ${expected.count}`,
         );
       }
-      if (!hashOk) {
+      if (skipped === null && !hashOk) {
         failures.push(
           `rollback verify: ${expected.table} content hash differs from the pre-step snapshot`,
         );
       }
-      tables.push({ table: expected.table, expected, actual, countOk, hashOk });
+      tables.push({ table: expected.table, expected, actual, countOk, hashOk, skipped });
     }
   } finally {
     restored.close();

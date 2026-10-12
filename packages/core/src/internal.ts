@@ -1519,6 +1519,7 @@ export type {
   StepBackupReceipt,
   TableFingerprint,
   TableVerification,
+  UnreadableTable,
 } from './store/migration-safety.js';
 export {
   countForeignKeyViolations,

@@ -28,7 +28,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   countForeignKeyViolations,
@@ -191,44 +191,44 @@ function seedDocsHistory(fixture: DatabaseSync, cleoDir: string, scale: number):
   }
 }
 
-/** The T11649 no-op rebuild recipe, applied to one table. */
+/** The T11649 no-op rebuild recipe, applied to one table — inside the
+ * harness bracket, so it uses defer_foreign_keys (enforced at COMMIT); a raw
+ * foreign_keys=OFF would be a no-op inside the transaction (T13609). */
 function rebuildTableVerbatim(fixture: DatabaseSync, table: string, newTableSql: string): void {
-  fixture.exec('PRAGMA foreign_keys = OFF');
+  fixture.exec('PRAGMA defer_foreign_keys = ON');
   fixture.exec(newTableSql);
   fixture.exec(`INSERT INTO "__new_${table}" SELECT * FROM "${table}" ORDER BY rowid`);
   fixture.exec(`DROP TABLE "${table}"`);
   fixture.exec(`ALTER TABLE "__new_${table}" RENAME TO "${table}"`);
-  fixture.exec('PRAGMA foreign_keys = ON');
 }
 
-const VERSIONS_SCHEMA = `CREATE TABLE __new_conduit_attachment_versions (
-  id text PRIMARY KEY, uid text, birth_fp text, attachment_uid text,
-  parent_version_uid text, slug text, version_number integer NOT NULL,
-  author_agent_id text NOT NULL, change_type text DEFAULT 'patch' NOT NULL,
-  patch_text text, storage_key text NOT NULL, content_hash text NOT NULL,
-  original_size integer NOT NULL, compressed_size integer NOT NULL,
-  tokens integer NOT NULL, change_summary text,
-  sections_modified text DEFAULT '[]' NOT NULL, tokens_added integer DEFAULT 0 NOT NULL,
-  tokens_removed integer DEFAULT 0 NOT NULL,
-  created_at text DEFAULT (datetime('now')) NOT NULL
+const CONTRIBUTORS_SCHEMA = `CREATE TABLE __new_conduit_attachment_contributors (
+  attachment_uid text, slug text, agent_id text NOT NULL,
+  version_count integer DEFAULT 0 NOT NULL,
+  total_tokens_added integer DEFAULT 0 NOT NULL,
+  total_tokens_removed integer DEFAULT 0 NOT NULL,
+  first_contribution_at text NOT NULL, last_contribution_at text NOT NULL,
+  CONSTRAINT conduit_attachment_contributors_pk PRIMARY KEY(attachment_uid, agent_id),
+  CONSTRAINT fk_conduit_attachment_contributors_attachment_uid
+    FOREIGN KEY (attachment_uid) REFERENCES conduit_attachments(uid) ON DELETE NO ACTION,
+  CHECK (first_contribution_at GLOB '[0-9][0-9][0-9][0-9]-*'),
+  CHECK (last_contribution_at GLOB '[0-9][0-9][0-9][0-9]-*')
 )`;
 
-/** A destructive demo step: no-op rebuild of the versions history table. */
-const rebuildVersionsStep: MigrationStep = {
-  name: 'rebuild-versions',
-  description: 'no-op T11649 rebuild of conduit_attachment_versions',
+/**
+ * A destructive demo step: no-op rebuild of the contributors table (a leaf —
+ * child of attachments, parent of nothing). Inside the harness bracket FKs
+ * cannot be turned OFF, and DROP of an FK-PARENT table records a sticky
+ * deferred violation at its implicit DELETE, so parent rebuilds must use the
+ * save/null/restore recipe for their referencing children; a leaf rebuild
+ * works with defer_foreign_keys alone.
+ */
+const rebuildContributorsStep: MigrationStep = {
+  name: 'rebuild-contributors',
+  description: 'no-op T11649 rebuild of conduit_attachment_contributors',
   destructive: true,
   run({ db: fixture }) {
-    rebuildTableVerbatim(fixture, 'conduit_attachment_versions', VERSIONS_SCHEMA);
-    // The T11649 recipe requires recreating every index (the real T13354
-    // migration does; without the uid unique index the approvals FK parent
-    // mismatches).
-    fixture.exec(
-      `CREATE UNIQUE INDEX uq_conduit_attachment_versions_uid ON conduit_attachment_versions (uid)`,
-    );
-    fixture.exec(
-      `CREATE INDEX idx_conduit_attachment_versions_attachment ON conduit_attachment_versions (attachment_uid)`,
-    );
+    rebuildTableVerbatim(fixture, 'conduit_attachment_contributors', CONTRIBUTORS_SCHEMA);
   },
 };
 
@@ -313,7 +313,7 @@ describe('runMigrationSteps (T13448)', () => {
       },
     };
 
-    const report = await runMigrationSteps([rebuildVersionsStep, insertStep], {
+    const report = await runMigrationSteps([rebuildContributorsStep, insertStep], {
       db,
       projectRoot: env.tempDir,
       cwd: env.tempDir,
@@ -363,12 +363,12 @@ describe('runMigrationSteps (T13448)', () => {
     const carried = rebuildReport.tables.find((t) => t.table === 'conduit_attachments');
     expect(carried?.hashOk).toBe(true);
     // …including the rebuilt table itself (the rebuild carries every row).
-    const versionsAfterRebuild = rebuildReport.tables.find(
-      (t) => t.table === 'conduit_attachment_versions',
+    const contributorsAfterRebuild = rebuildReport.tables.find(
+      (t) => t.table === 'conduit_attachment_contributors',
     );
-    expect(versionsAfterRebuild?.hashOk).toBe(true);
-    expect(versionsAfterRebuild?.before.hash).toBe(versionsAfterRebuild?.after?.hash);
-    expect(versionsAfterRebuild?.before.count).toBe(20 * SCALE.versionsPerAttachment);
+    expect(contributorsAfterRebuild?.hashOk).toBe(true);
+    expect(contributorsAfterRebuild?.before.hash).toBe(contributorsAfterRebuild?.after?.hash);
+    expect(contributorsAfterRebuild?.before.count).toBe(20 * SCALE.contributorsPerAttachment);
 
     // …and a declared-delta table is exempt from the hash check (AC2 contract).
     const insertReport = report.steps[1];
@@ -430,7 +430,10 @@ describe('runMigrationSteps (T13448)', () => {
       name: 'orphan-version',
       verify: { expectedDelta: { conduit_attachment_versions: 1 } },
       run({ db: fixture }) {
-        fixture.exec('PRAGMA foreign_keys = OFF');
+        // Deferred FKs (T13609): the orphan insert succeeds inside the
+        // transaction and is caught by the harness's foreign_key_check (and
+        // would fail COMMIT) — then the whole step is rolled back.
+        fixture.exec('PRAGMA defer_foreign_keys = ON');
         fixture
           .prepare(
             `INSERT INTO conduit_attachment_versions
@@ -440,7 +443,6 @@ describe('runMigrationSteps (T13448)', () => {
                    'agent-x', 'k', 'h', 1, 1, 1, '2026-01-01T00:00:00.000Z')`,
           )
           .run();
-        fixture.exec('PRAGMA foreign_keys = ON');
       },
     };
     const report = await runMigrationSteps([orphan], {
@@ -450,12 +452,131 @@ describe('runMigrationSteps (T13448)', () => {
     });
     expect(report.status).toBe('halted');
     const step = lastStep(report);
+    expect(step.transaction).toBe('rolled-back');
     expect(step.foreignKeyViolations).toBeGreaterThanOrEqual(1);
     expect(step.failures.join('\n')).toContain('foreign_key_check');
     // The count delta WAS declared, so the failure is the FK check alone.
     expect(step.tables.find((t) => t.table === 'conduit_attachment_versions')?.countOk).toBe(true);
-    // Sanity: the harness agrees with a direct read.
-    expect(countForeignKeyViolations(db)).toBeGreaterThanOrEqual(1);
+    // T13609: the failed step was rolled back — the live store is clean again
+    // with no explicit rollback call.
+    expect(countForeignKeyViolations(db)).toBe(0);
+    const versions = db
+      .prepare(`SELECT COUNT(*) AS n FROM conduit_attachment_versions WHERE id = 'ver-orphan'`)
+      .get() as { n: number };
+    expect(versions.n).toBe(0);
+  });
+
+  it('T13609 AC1/AC3: a failed step is never visible — the live store is unchanged with no rollback call', async () => {
+    seedDocsHistory(db, env.cleoDir, 15);
+    // A checkpointed WAL so file-byte equality is meaningful.
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    const liveStore = join(env.cleoDir, 'cleo.db');
+    const preBytes = fileSha256(liveStore);
+    const preVersions = fingerprintTable(db, 'conduit_attachment_versions');
+    const preTasks = fingerprintTable(db, 'tasks_tasks');
+    const preCount = (
+      db.prepare(`SELECT COUNT(*) AS n FROM conduit_attachment_versions`).get() as { n: number }
+    ).n;
+
+    // A half-migration: destructive deletes plus new rows, then a verify
+    // failure (unexplained count delta). No explicit rollback call anywhere.
+    const failing: MigrationStep = {
+      name: 'half-migrated-step',
+      run({ db: fixture }) {
+        fixture.exec(`DELETE FROM conduit_attachment_versions WHERE rowid <= 40`);
+        fixture
+          .prepare(
+            `INSERT INTO conduit_attachment_versions
+               (id, uid, attachment_uid, slug, version_number, author_agent_id, storage_key,
+                content_hash, original_size, compressed_size, tokens, created_at)
+             VALUES ('ver-half', 'uid-ver-half', 'uid-doc-0', 'doc-0', 777, 'agent-x',
+                     'k', 'h', 1, 1, 1, '2026-01-01T00:00:00.000Z')`,
+          )
+          .run();
+      },
+    };
+    const report = await runMigrationSteps([failing], {
+      db,
+      projectRoot: env.tempDir,
+      cwd: env.tempDir,
+    });
+
+    expect(report.status).toBe('halted');
+    expect(report.haltedStep).toBe('half-migrated-step');
+    const step = lastStep(report);
+    expect(step.transaction).toBe('rolled-back');
+
+    // The store the runner left live IS the pre-step store.
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    expect(fileSha256(liveStore)).toBe(preBytes);
+    expect(fingerprintTable(db, 'conduit_attachment_versions')).toEqual(preVersions);
+    expect(fingerprintTable(db, 'tasks_tasks')).toEqual(preTasks);
+    const postCount = (
+      db.prepare(`SELECT COUNT(*) AS n FROM conduit_attachment_versions`).get() as { n: number }
+    ).n;
+    expect(postCount).toBe(preCount);
+    const half = db
+      .prepare(`SELECT COUNT(*) AS n FROM conduit_attachment_versions WHERE id = 'ver-half'`)
+      .get() as { n: number };
+    expect(half.n).toBe(0);
+  });
+
+  it('T13609 AC1/AC3: a throwing step leaves the live store unchanged', async () => {
+    seedDocsHistory(db, env.cleoDir, 8);
+    const preVersions = fingerprintTable(db, 'conduit_attachment_versions');
+    const exploding: MigrationStep = {
+      name: 'throws-mid-write',
+      run({ db: fixture }) {
+        fixture.exec(`DELETE FROM conduit_attachment_approvals WHERE rowid <= 3`);
+        throw new Error('mid-step explosion after destructive writes');
+      },
+    };
+    const report = await runMigrationSteps([exploding], {
+      db,
+      projectRoot: env.tempDir,
+      cwd: env.tempDir,
+    });
+    expect(report.status).toBe('halted');
+    const step = lastStep(report);
+    expect(step.transaction).toBe('rolled-back');
+    expect(step.runError).toContain('mid-step explosion');
+    expect(fingerprintTable(db, 'conduit_attachment_versions')).toEqual(preVersions);
+    const approvals = db
+      .prepare(`SELECT COUNT(*) AS n FROM conduit_attachment_approvals`)
+      .get() as { n: number };
+    expect(approvals.n).toBe(8 * SCALE.approvalsPerAttachment);
+  });
+
+  it('T13609 AC2: a concurrent writer cannot interleave with the bracket', async () => {
+    db.exec(`CREATE TABLE wt_probe (id INTEGER PRIMARY KEY, note TEXT)`);
+    db.exec(`INSERT INTO wt_probe VALUES (1, 'carried')`);
+    const probe: MigrationStep = {
+      name: 'write-exclusion-probe',
+      run({ dbPath }) {
+        // A second connection on the same store file. The harness holds
+        // BEGIN IMMEDIATE on the live handle for the whole fingerprint → run
+        // → verify bracket, so this write must wait out busy_timeout and
+        // fail — never land between the fingerprints and the verify.
+        const other = new DatabaseSync(dbPath);
+        try {
+          other.exec('PRAGMA busy_timeout = 500');
+          expect(() => other.exec(`INSERT INTO wt_probe VALUES (2, 'interleaved')`)).toThrow(
+            /BUSY|locked/i,
+          );
+        } finally {
+          other.close();
+        }
+      },
+    };
+    const report = await runMigrationSteps([probe], {
+      db,
+      projectRoot: env.tempDir,
+      cwd: env.tempDir,
+    });
+    expect(report.status).toBe('completed');
+    expect(lastStep(report).transaction).toBe('committed');
+    const n = (db.prepare(`SELECT COUNT(*) AS n FROM wt_probe`).get() as { n: number }).n;
+    expect(n).toBe(1);
   });
 
   it('refuses destructive steps without force, even with a fresh receipt', async () => {
@@ -476,6 +597,7 @@ describe('runMigrationSteps (T13448)', () => {
     expect(spy).not.toHaveBeenCalled();
     const step = lastStep(report);
     expect(step.status).toBe('refused');
+    expect(step.transaction).toBe('rolled-back');
     expect(step.failures.join('\n')).toContain('force');
     // The refusal itself was backed up first: the receipt exists.
     expect(step.backup).not.toBeNull();
@@ -483,7 +605,7 @@ describe('runMigrationSteps (T13448)', () => {
 
   it('runs destructive steps when force is given (receipt is fresh by construction)', async () => {
     seedDocsHistory(db, env.cleoDir, 5);
-    const report = await runMigrationSteps([rebuildVersionsStep], {
+    const report = await runMigrationSteps([rebuildContributorsStep], {
       db,
       projectRoot: env.tempDir,
       cwd: env.tempDir,
@@ -674,7 +796,7 @@ describe('AC5 — harness against a real-shaped store at scale', () => {
     const liveStore = join(env.cleoDir, 'cleo.db');
     const preRunBytes = fileSha256(liveStore);
 
-    const run = await runMigrationSteps([rebuildVersionsStep], {
+    const run = await runMigrationSteps([rebuildContributorsStep], {
       db,
       projectRoot: env.tempDir,
       cwd: env.tempDir,
@@ -703,9 +825,11 @@ describe('AC5 — harness against a real-shaped store at scale', () => {
 
     // The migration itself worked: the rebuilt table still answers queries.
     const stillThere = db
-      .prepare(`SELECT COUNT(*) AS n FROM conduit_attachment_versions WHERE slug = 'doc-299'`)
+      .prepare(
+        `SELECT COUNT(*) AS n FROM conduit_attachment_contributors WHERE attachment_uid = 'uid-doc-299'`,
+      )
       .get() as { n: number };
-    expect(stillThere.n).toBe(SCALE.versionsPerAttachment);
+    expect(stillThere.n).toBe(SCALE.contributorsPerAttachment);
 
     // rollback → byte/count equality
     const rollback = await rollbackMigrationStep({
