@@ -802,6 +802,105 @@ describe('T13608: a scoped run after a fast-forward or direct landing (no merge 
   });
 });
 
+describe('T13634: a recorded pr: atom gives the scoped run its merge commit to compare', () => {
+  const git = (cwd: string, ...a: string[]): string =>
+    execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+      cwd,
+      encoding: 'utf-8',
+    }).trim();
+  const run = (treeHash: string): EvidenceAtom => ({
+    kind: 'test-run',
+    path: 'r.json',
+    sha256: 'c'.repeat(64),
+    passCount: 1,
+    failCount: 0,
+    skipCount: 0,
+    treeHash,
+  });
+
+  /** A branch change to a.ts squash-merged onto main, recorded as `pr:` evidence. */
+  function merged(alterAtMerge = false) {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t13634-')));
+    git(root, 'init', '-q', '-b', 'main');
+    writeFileSync(join(root, 'a.ts'), 'export const a = 1;\n');
+    git(root, 'add', '.');
+    git(root, 'commit', '-q', '-m', 'init');
+    git(root, 'switch', '-q', '-c', 'task/T9001');
+    writeFileSync(join(root, 'a.ts'), 'export const a = 2;\n');
+    git(root, 'commit', '-q', '-am', 'T9001');
+    const impl = git(root, 'rev-parse', 'HEAD');
+    const tested = git(root, 'rev-parse', 'HEAD^{tree}');
+    git(root, 'switch', '-q', 'main');
+    git(root, 'merge', '-q', '--squash', 'task/T9001');
+    if (alterAtMerge) writeFileSync(join(root, 'a.ts'), 'export const a = 3;\n');
+    git(root, 'add', '.');
+    git(root, 'commit', '-q', '-m', 'T9001 (#7)');
+    const pr: EvidenceAtom = {
+      kind: 'pr',
+      prNumber: 7,
+      mergeCommitSha: git(root, 'rev-parse', 'HEAD'),
+      mergedAt: '2026-10-12T00:00:00Z',
+      successCount: 1,
+      totalChecks: 1,
+      changedPaths: ['a.ts'],
+    };
+    return { root, impl, tested, pr };
+  }
+
+  async function reason(t: Task, root: string, tree: string): Promise<string | null> {
+    const info = await taskChangeMergeState(t, root, { executionRoot: root, contains: () => true });
+    return testsPassedSupersededReason(t.verification?.evidence?.testsPassed?.atoms ?? [], {
+      mergeState: () => info,
+      currentTree: () => tree,
+    });
+  }
+
+  it('stands with only a pr: atom (no commit atoms) when the merged files match', async () => {
+    const { root, tested, pr } = merged();
+    try {
+      expect(await reason(task([run(tested)], [pr]), root, tested)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('stands when a recorded pr: atom carries the commit atoms and the merged files match', async () => {
+    const { root, impl, tested, pr } = merged();
+    try {
+      const t = task(
+        [run(tested)],
+        [{ kind: 'commit', sha: impl, shortSha: impl.slice(0, 7) }, pr],
+      );
+      expect(await reason(t, root, tested)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the files: atoms when the pr: atom has no file inventory', async () => {
+    const { root, tested, pr } = merged();
+    try {
+      const { changedPaths: _omit, ...bare } = pr as Extract<EvidenceAtom, { kind: 'pr' }>;
+      const files: EvidenceAtom = {
+        kind: 'files',
+        files: [{ path: 'a.ts', sha256: 'd'.repeat(64) }],
+      };
+      expect(await reason(task([run(tested)], [bare, files]), root, tested)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('still refuses when the merge changed a file the scoped run tested', async () => {
+    const { root, tested, pr } = merged(true);
+    try {
+      expect(await reason(task([run(tested)], [pr]), root, tested)).toMatch(/differ from the tree/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('T13623: a test-run on main after the merge stands in for red merged CI', () => {
   /** A standalone project: the change edits src/a.ts and its test, merges, then main moves on. */
   function landed() {

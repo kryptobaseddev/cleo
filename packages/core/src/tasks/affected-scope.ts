@@ -479,8 +479,30 @@ export interface TaskMergeInfo extends MergeVerdict {
    * merged PR is named — every lookup answered, and none carries the change.
    */
   unproven?: string;
-  /** The carry target when the commits landed with no merge commit (T13608). */
+  /**
+   * The carry target when no derived change set gives one: the commits landed
+   * with no merge commit (T13608), or a recorded `pr:` atom named the merge
+   * (T13634).
+   */
   landing?: LandedCarryTarget | null;
+}
+
+/**
+ * The carry target a recorded `pr:` atom names: its merge commit and the files
+ * the PR changed (its own inventory, else the task's `files:` atoms). Without a
+ * merge commit or any file there is nothing to compare, so null (T13634).
+ */
+function prCarryTarget(
+  pr: Extract<EvidenceAtom, { kind: 'pr' }>,
+  implemented: ReadonlyArray<EvidenceAtom>,
+  root: string,
+): LandedCarryTarget | null {
+  const files =
+    pr.changedPaths ??
+    implemented.flatMap((a) => (a.kind === 'files' ? a.files.map((f) => f.path) : []));
+  const deletedFiles = pr.deletedPaths ?? [];
+  if (!pr.mergeCommitSha || files.length + deletedFiles.length === 0) return null;
+  return { mergeCommitSha: pr.mergeCommitSha, files, deletedFiles, executionRoot: root };
 }
 
 function prRefOf(pr: { prNumber: number; componentPrNumber?: number }): string {
@@ -662,9 +684,18 @@ export async function taskChangeMergeState(
   const lookupFailed = (): Pick<MergeVerdict, 'lookupFailed'> =>
     failures.length > 0 ? { lookupFailed: [...new Set(failures)].join('; ') } : {};
 
+  // T12965 review M2: the same root `cleo done` reads the change set from.
+  const at = deps.executionRoot ?? cs.resolveChangeSetRoot(storeRoot, task.id).root;
+
   if (commits.length === 0) {
     const newest = prs[0];
-    if (newest) return { state: 'merged', changeSet: null, prRef: prRefOf(newest) };
+    if (newest)
+      return {
+        state: 'merged',
+        changeSet: null,
+        prRef: prRefOf(newest),
+        landing: prCarryTarget(newest, implemented, at),
+      };
     const changeSet = await derive();
     derivedFailure(changeSet);
     return {
@@ -675,8 +706,6 @@ export async function taskChangeMergeState(
     };
   }
 
-  // T12965 review M2: the same root `cleo done` reads the change set from.
-  const at = deps.executionRoot ?? cs.resolveChangeSetRoot(storeRoot, task.id).root;
   const probes: CarrierProbes = {
     contains: deps.contains ?? cs.isAncestorCommit,
     equivalent: deps.equivalent ?? cs.hasPatchEquivalent,
@@ -689,7 +718,13 @@ export async function taskChangeMergeState(
   };
 
   for (const pr of prs) {
-    if (await carries(pr)) return { state: 'merged', changeSet: null, prRef: prRefOf(pr) };
+    if (await carries(pr))
+      return {
+        state: 'merged',
+        changeSet: null,
+        prRef: prRefOf(pr),
+        landing: prCarryTarget(pr, implemented, at),
+      };
   }
   const changeSet = await derive();
   derivedFailure(changeSet);
