@@ -35,7 +35,7 @@ import { closeDb, getDb, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import * as schema from '../../store/tasks-schema.js';
 import { parseHooksV1Gate } from '../hooks-v1-promotion.js';
-import { releasePlan } from '../plan.js';
+import { __test__ as planInternals, releasePlan } from '../plan.js';
 
 let testDir: string;
 
@@ -647,6 +647,26 @@ describe('releasePlan — a shipped version is immutable (T13619)', () => {
     const rows = await db.select().from(schema.releases).all();
     expect(rows.map((r) => [r.version, r.status])).toEqual([['v2026.6.0', status]]);
     expect(existsSync(join(testDir, '.cleo/release/v2026.6.0.plan.json'))).toBe(false);
+  });
+
+  it('the plan upsert never moves a row that shipped after the check back to planned', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('unreachable');
+    const plan = parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8')));
+    // A peer's shipped status lands between the shipped check and the upsert.
+    const db = await getDb(testDir);
+    await db.update(schema.releases).set({ status: 'tagged' }).run();
+    await planInternals.upsertReleasesRow(plan, 'latest', testDir);
+    const rows = await db.select().from(schema.releases).all();
+    expect(rows.map((r) => [r.version, r.status])).toEqual([['v2026.6.0', 'tagged']]);
   });
 
   it('still re-plans a version that has not shipped', async () => {

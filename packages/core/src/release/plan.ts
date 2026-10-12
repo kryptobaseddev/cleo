@@ -53,7 +53,7 @@ import {
   ExitCode,
 } from '@cleocode/contracts/exit-codes.js';
 import { parseReleasePlan, RELEASE_PERSISTED_CHANNEL } from '@cleocode/contracts/release/plan.js';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, notInArray } from 'drizzle-orm';
 
 import { parseChangesetDir } from '../changesets/index.js';
 import { WriterRegistry } from '../docs/writer-registry.js';
@@ -64,6 +64,7 @@ import { isSagaShape } from '../sagas/enforcement.js';
 import { resolveSagaMemberIds } from '../sagas/storage.js';
 import { atomicWrite } from '../store/atomic.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { RELEASE_STATUSES } from '../store/schema/provenance/releases.js';
 import { getDb } from '../store/sqlite.js';
 import { RELEASE_ABSORBING_STATUSES } from '../store/sync/merge/rules.js';
 import {
@@ -1453,6 +1454,12 @@ async function upsertReleasesRow(
         plannedAt: row.plannedAt,
         projectHash: row.projectHash,
       },
+      // T13619: the shipped check above is read-then-write; a peer's shipped
+      // status applied in between must still never be moved back to planned.
+      setWhere: notInArray(
+        releases.status,
+        RELEASE_STATUSES.filter((s) => RELEASE_ABSORBING_STATUSES.includes(s)),
+      ),
     })
     .run();
 }
