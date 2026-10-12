@@ -10,7 +10,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type {
@@ -966,6 +966,92 @@ describe('gate runner immutable lifetime and bounded evidence', () => {
     const [oversized] = await runGates([gate], { projectRoot, maxOutputBytes: 10 });
     expect(oversized?.result).toBe('error');
     expect(oversized?.errorMessage).toMatch(/byte limit/);
+  });
+});
+
+describe("bun's subcommands are not the script (T13566)", () => {
+  let fakeBun: string;
+  beforeAll(async () => {
+    // A stand-in `bun` that exits 0: the snapshot keys on the interpreter's name.
+    fakeBun = join(projectRoot, 'tools', 'bun');
+    await mkdir(dirname(fakeBun), { recursive: true });
+    await writeFile(fakeBun, '#!/bin/sh\nexit 0\n');
+    await chmod(fakeBun, 0o755);
+    await mkdir(join(projectRoot, 'test'), { recursive: true });
+    await writeFile(join(projectRoot, 'test', 'a.test.ts'), 'export {};\n');
+    await writeFile(join(projectRoot, 'test', 'b.test.ts'), 'export {};\n');
+    await mkdir(join(projectRoot, 'scripts'), { recursive: true });
+    await writeFile(join(projectRoot, 'scripts', 'x.ts'), 'export {};\n');
+  });
+  beforeEach(() => _forceSystemdRunAvailable(false));
+  afterEach(() => _forceSystemdRunAvailable(undefined));
+
+  async function inputs(args: string[], command = fakeBun): Promise<string[]> {
+    const task: Task = {
+      id: 'T166',
+      title: 'bun gate',
+      description: 'bun subcommand snapshot fixture',
+      status: 'active',
+      type: 'task',
+      priority: 'medium',
+      createdAt: '2026-10-11T00:00:00.000Z',
+      acceptance: [
+        { kind: 'test', command, args, expect: 'exit0', req: 'BUN-1', description: 'bun runs' },
+      ],
+    };
+    const rows: AcRow[] = buildFreshAcRows(task.id, task.acceptance).map((row) => ({
+      ...row,
+      kind: row.kind ?? 'text',
+      sourceKey: row.sourceKey ?? '',
+      projection: row.projection ?? 'legacy',
+      targetTaskId: row.targetTaskId ?? null,
+      contentHash: row.contentHash ?? null,
+      createdAt: task.createdAt,
+      updatedAt: null,
+    }));
+    const execution = createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'bun-agent',
+        operation: 'check.gate.verify',
+        idempotencyKey: `bun-${args.join('-')}`,
+      },
+      { budgetMs: 10_000 },
+    );
+    try {
+      const [result] = await runTaskGates(task, rows, { execution });
+      expect(result?.result, result?.errorMessage).toBe('pass');
+      return (result?.binding?.artifacts ?? []).map((a) => a.path.slice(projectRoot.length + 1));
+    } finally {
+      execution.close();
+    }
+  }
+
+  it('bun test <files...> captures both test files, never ./test', async () => {
+    const captured = await inputs(['test', 'test/a.test.ts', 'test/b.test.ts']);
+    expect(captured).toEqual(expect.arrayContaining(['test/a.test.ts', 'test/b.test.ts']));
+    expect(captured).not.toContain('test');
+  });
+
+  it('bun run file.ts and a bare bun file.ts capture the script', async () => {
+    expect(await inputs(['run', 'scripts/x.ts'])).toContain('scripts/x.ts');
+    expect(await inputs(['scripts/x.ts'])).toContain('scripts/x.ts');
+    const named = await inputs(['run', 'build']);
+    expect(named).not.toContain('run');
+    expect(named).not.toContain('build');
+  });
+
+  it('bun x <pkg> and bunx <pkg> never capture the package as a file', async () => {
+    const viaX = await inputs(['x', '@scope/tool', 'test/a.test.ts']);
+    expect(viaX).toContain('test/a.test.ts');
+    expect(viaX).not.toContain('@scope/tool');
+    const bunx = join(projectRoot, 'tools', 'bunx');
+    await writeFile(bunx, '#!/bin/sh\nexit 0\n');
+    await chmod(bunx, 0o755);
+    const viaBunx = await inputs(['@scope/tool', 'test/b.test.ts'], bunx);
+    expect(viaBunx).toContain('test/b.test.ts');
+    expect(viaBunx).not.toContain('@scope/tool');
   });
 });
 

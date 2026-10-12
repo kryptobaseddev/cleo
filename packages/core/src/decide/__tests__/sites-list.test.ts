@@ -94,7 +94,7 @@ describe('listDecisionSites (T12662)', () => {
     expect(rule.sites.map((s) => s.id)).toEqual(['orchestration.owner-decision']);
     const shadow = await listDecisionSites({ ...base, mode: 'shadow' });
     expect(shadow.sites.every((s) => s.effectiveMode === 'shadow')).toBe(true);
-    expect(shadow.sites.length).toBe(4);
+    expect(shadow.sites.length).toBe(5);
     const one = await listDecisionSites({ ...base, id: 'memory.observation-type' });
     expect(one.sites.map((s) => s.id)).toEqual(['memory.observation-type']);
     expect(one.total).toBe(DECISION_SITES.length);

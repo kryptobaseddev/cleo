@@ -82,6 +82,16 @@ const UID_MIGRATION = join(
   REPO_ROOT,
   'packages/core/migrations/drizzle-cleo-project/20260928120000_t12341-row-uids/migration.sql',
 );
+/**
+ * T13354: the conduit re-key migration rebuilds tables (the heal only ADDS
+ * identity columns to existing tables; it never recreates them) and creates
+ * the uid-keyed alias/head tables, so the migration pass must run it, not
+ * only the uid migration.
+ */
+const CONDUIT_REKEY_MIGRATION = join(
+  REPO_ROOT,
+  'packages/core/migrations/drizzle-cleo-project/20261011000000_t13354-conduit-history-rekey/migration.sql',
+);
 
 /** The stub the manual llmtxt run placed beside its copies (a valid portable id). */
 const STUB_PROJECT_ID = 'dfd4e5d8-080f-7449-81cd-ff8dcef1049c';
@@ -145,6 +155,23 @@ function seed(native: DatabaseSync, shape: Shape, fillBetween: boolean): void {
     INSERT INTO tasks_sessions (id, name, status, started_at) VALUES
       ('ses-1', 'first', 'ended', '2026-09-01 08:00:00'),
       ('ses-2', 'second', 'active', '2026-09-02T08:00:00.000Z');
+
+    -- T13354: the re-keyed CleoDocs family. The fixture carries every minted
+    -- table the recipe covers, so it seeds a doc, two root versions (the DAG
+    -- parent is exercised by the accessor tests, not the recipe) and an
+    -- approval. The uid-typed reference columns AND the post-rekey dimension
+    -- columns (section_id) stay NULL: the recipe does not fill them (no
+    -- storedRefUids on these tables), the re-key migration's rebuild carries
+    -- only the pre-rekey column set (a real old store has no others), and NULL
+    -- is the one value both the fill-on and fill-off builds produce, so the
+    -- replay and determinism comparisons agree.
+    INSERT INTO conduit_attachments (slug, conversation_id, from_agent_id, content, original_size, compressed_size, content_hash, created_at)
+      VALUES ('gate-b-doc', 'conv-gb', 'agent-gb', CAST('doc' AS BLOB), 3, 3, 'sha-gate-b-doc', '2026-09-01 09:00:00');
+    INSERT INTO conduit_attachment_versions (id, version_number, author_agent_id, storage_key, content_hash, original_size, compressed_size, tokens, created_at) VALUES
+      ('gbv-1', 1, 'agent-gb', 'blob/gb1', 'hash-gb1', 10, 10, 3, '2026-09-01 09:01:00'),
+      ('gbv-2', 2, 'agent-gb', 'blob/gb2', 'hash-gb2', 12, 12, 4, '2026-09-02 09:01:00');
+    INSERT INTO conduit_attachment_approvals (id, reviewer_agent_id, status, version_reviewed, created_at, updated_at) VALUES
+      ('gba-1', 'reviewer-gb', 'approved', 2, '2026-09-02 10:00:00', '2026-09-02 10:00:00');
   `);
   // llmtxt kept its audit events only in the bare twin; cleocode in both.
   const audit = shape === 'llmtxt' ? ['audit_log'] : ['audit_log', 'tasks_audit_log'];
@@ -204,8 +231,10 @@ function preMigrationCopy(shape: Shape, label: string, stub = true): string {
 function migrate(file: string): void {
   const conn = openRaw(file);
   try {
-    for (const stmt of readFileSync(UID_MIGRATION, 'utf8').split('--> statement-breakpoint')) {
-      conn.exec(stmt);
+    for (const migration of [UID_MIGRATION, CONDUIT_REKEY_MIGRATION]) {
+      for (const stmt of readFileSync(migration, 'utf8').split('--> statement-breakpoint')) {
+        conn.exec(stmt);
+      }
     }
     expect(prepareRowIdentity(conn, 'project')?.filled.tasks_tasks).toBeGreaterThan(0);
   } finally {

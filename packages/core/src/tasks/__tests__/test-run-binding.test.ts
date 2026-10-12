@@ -501,6 +501,61 @@ describe('relevance in a standalone single-package project (T13403)', () => {
     expect(r.ok && r.atom.kind === 'test-run' && r.atom.untestedPackages).toBeFalsy();
   });
 
+  it('a checkout after the run that rewrites a file with the same bytes keeps the report (T13567, T13569)', async () => {
+    // A side branch with the same content, made before the run.
+    git(root, ['switch', '-q', '-c', 'side']);
+    git(root, ['commit', '-q', '--allow-empty', '-m', 'same content']);
+    git(root, ['switch', '-q', 'task/T1']);
+    const ranAt = Date.now() + 5_000;
+    const path = report([file('src/a.test.ts')], ranAt);
+    const afterRun = { GIT_COMMITTER_DATE: `@${Math.floor((ranAt + 20_000) / 1000)} +0000` };
+
+    // A bare touch with the same bytes is indistinguishable from a revert of an
+    // edit made during the run, so it still stales (T13569).
+    touch(file('src/a.ts'), ranAt + 30_000);
+    const touched = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!touched.ok && touched.codeName, JSON.stringify(touched)).toBe('E_EVIDENCE_STALE');
+
+    // HEAD moves after the run (a checkout or merge) and the file equals its
+    // blob at both HEADs: the receipt stands.
+    git(root, ['switch', '-q', 'side'], afterRun);
+    writeFileSync(file('src/a.ts'), 'export const a = 2;\n');
+    touch(file('src/a.ts'), ranAt + 30_000);
+    const kept = await validateAtom({ kind: 'test-run', path }, root);
+    expect(kept.ok, JSON.stringify(kept)).toBe(true);
+
+    writeFileSync(file('src/a.ts'), 'export const a = 3;\n');
+    touch(file('src/a.ts'), ranAt + 30_000);
+    const edited = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!edited.ok && edited.codeName, JSON.stringify(edited)).toBe('E_EVIDENCE_STALE');
+    expect(!edited.ok && edited.reason).toMatch(/src\/a\.ts was modified/);
+  });
+
+  it('a checkout after the run to different content of the file stales the report (T13569)', async () => {
+    git(root, ['switch', '-q', '-c', 'other']);
+    writeFileSync(file('src/a.ts'), 'export const a = 7;\n');
+    git(root, ['commit', '-q', '-am', 'different a']);
+    git(root, ['switch', '-q', 'task/T1']);
+    const ranAt = Date.now() + 5_000;
+    const path = report([file('src/a.test.ts')], ranAt);
+    git(root, ['switch', '-q', 'other'], {
+      GIT_COMMITTER_DATE: `@${Math.floor((ranAt + 20_000) / 1000)} +0000`,
+    });
+    touch(file('src/a.ts'), ranAt + 30_000);
+    const moved = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!moved.ok && moved.codeName, JSON.stringify(moved)).toBe('E_EVIDENCE_STALE');
+  });
+
+  it('a file edited during the run and reverted afterwards still stales (T13569)', async () => {
+    writeFileSync(file('src/a.ts'), 'export const a = 99;\n');
+    const ranAt = Date.now() + 5_000;
+    const path = report([file('src/a.test.ts')], ranAt);
+    writeFileSync(file('src/a.ts'), 'export const a = 2;\n');
+    touch(file('src/a.ts'), ranAt + 30_000);
+    const reverted = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!reverted.ok && reverted.codeName, JSON.stringify(reverted)).toBe('E_EVIDENCE_STALE');
+  });
+
   it('red: an unrelated report (another test file of the package) is refused', async () => {
     const path = report([file('src/b.test.ts')], Date.now() + 5_000);
     const r = await validateAtom({ kind: 'test-run', path }, root);

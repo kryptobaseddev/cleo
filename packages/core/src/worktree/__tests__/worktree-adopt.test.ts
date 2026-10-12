@@ -18,7 +18,7 @@
  * @epic T9804
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -130,6 +130,43 @@ describe('adoptWorktree', () => {
     expect(auditEntry.branch).toBe('task/T9804');
     expect(auditEntry.taskId).toBe('T9804');
     expect(auditEntry.success).toBe(true);
+  });
+
+  it('seeds project-info.json from the adopting project, keeps a matching one, refuses another project (T13568)', async () => {
+    const { worktreeDir } = createFakeLinkedWorktree(tmpDir, { branch: 'task/T9804' });
+    const sentinelIndexPath = join(tmpDir, 'worktrees.json');
+    mkdirSync(join(tmpDir, '.cleo'), { recursive: true });
+    const parentInfo = JSON.stringify({ projectId: 'proj-a', projectHash: 'hash-a' });
+    writeFileSync(join(tmpDir, '.cleo', 'project-info.json'), parentInfo);
+    const adopt = () =>
+      adoptWorktree({ worktreePath: worktreeDir, projectRoot: tmpDir, sentinelIndexPath });
+
+    const seeded = await adopt();
+    expect(seeded.success && seeded.data.projectInfo).toBe('seeded');
+    expect(readFileSync(join(worktreeDir, '.cleo', 'project-info.json'), 'utf-8')).toBe(parentInfo);
+    const again = await adopt();
+    expect(again.success && again.data.projectInfo).toBe('present');
+
+    writeFileSync(
+      join(worktreeDir, '.cleo', 'project-info.json'),
+      JSON.stringify({ projectId: 'proj-b' }),
+    );
+    const refused = await adopt();
+    expect(refused.success).toBe(false);
+    if (refused.success) return;
+    expect(refused.error.code).toBe('E_WORKTREE_IDENTITY_MISMATCH');
+    expect(refused.error.message).toContain('proj-b');
+  });
+
+  it('skips seeding when the adopting project has no project-info.json', async () => {
+    const { worktreeDir } = createFakeLinkedWorktree(tmpDir, { branch: 'task/T9804' });
+    const result = await adoptWorktree({
+      worktreePath: worktreeDir,
+      projectRoot: tmpDir,
+      sentinelIndexPath: join(tmpDir, 'worktrees.json'),
+    });
+    expect(result.success && result.data.projectInfo).toBe('skipped');
+    expect(existsSync(join(worktreeDir, '.cleo', 'project-info.json'))).toBe(false);
   });
 
   it('happy path: primary checkout with .git directory', async () => {
