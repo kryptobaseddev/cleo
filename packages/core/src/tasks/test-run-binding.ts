@@ -16,7 +16,10 @@
  *     - the newest working-tree modification of any path the branch changed
  *       against origin's default branch (committed, uncommitted or untracked;
  *       the report itself excluded) — or, with no origin to diff against, any
- *       uncommitted tracked edit;
+ *       uncommitted tracked edit — except a path that a checkout or merge
+ *       after the run rewrote with identical bytes (HEAD moved and the file
+ *       equals its blob at both HEADs; T13567, T13569). A bare touch still
+ *       stales: without a run-time fingerprint it looks like a revert;
  *     - for each uncommitted deletion (a rename's old path included, since a
  *       move keeps the file's own mtime), the modification time of the
  *       nearest existing directory it was removed from.
@@ -232,6 +235,45 @@ function newestModified(
     if (at !== null && (newest === null || at > newest.at)) newest = { path, at };
   }
   return newest;
+}
+
+/**
+ * The most recently modified of `paths` modified after the run, leaving out a
+ * path that a checkout or merge after the run rewrote with the same bytes
+ * (T13567, narrowed by T13569).
+ *
+ * A path is left out only when all hold: HEAD moved after the run (HEAD as of
+ * the run, {@link headAtRun}, is not HEAD now), and the file's current blob
+ * (`git hash-object`) equals its blob both at HEAD now and at HEAD as of the
+ * run — the move rewrote it without changing it. Nothing else is exempt: a
+ * bare `touch`, or a file that was dirty during the run and reverted to HEAD
+ * afterwards, cannot be told apart without a run-time content fingerprint, and
+ * a false pass is worse than a needless re-run, so its newer mtime still
+ * stales the report. When the reflog does not reach the run, every mtime after
+ * it counts.
+ */
+function modifiedAfterRun(
+  root: string,
+  paths: readonly string[],
+  clock: RunClock,
+): { path: string; at: number } | null {
+  const after = paths
+    .map((path) => ({ path, at: mtimeOf(resolve(root, path)) }))
+    .filter((p): p is { path: string; at: number } => p.at !== null && clock.after(p.at))
+    .sort((a, b) => b.at - a.at);
+  if (after.length === 0) return null;
+  const blob = (args: readonly string[]): string | null => git(root, args)?.trim() || null;
+  const atRun = headAtRun(root, clock.after);
+  const head = blob(['rev-parse', 'HEAD']);
+  if (atRun === null || head === null || head === atRun) return after[0] ?? null;
+  return (
+    after.find((p) => {
+      const now = blob(['hash-object', '--', p.path]);
+      const at = (commit: string): string | null =>
+        blob(['rev-parse', '--verify', '--quiet', `${commit}:./${p.path}`]);
+      return now === null || now !== at(head) || now !== at(atRun);
+    }) ?? null
+  );
 }
 
 /**
@@ -461,9 +503,10 @@ export function reportFreshness(
     }
   }
   const changes = scopedChangedPaths(root);
-  const newest = newestModified(
+  const newest = modifiedAfterRun(
     root,
     (changes?.paths ?? dirtyTracked(root)).filter((p) => p !== clock.reportRel),
+    clock,
   );
   if (newest !== null && clock.after(newest.at)) {
     return stale(staleRefusal(ranAt, `${newest.path} was modified`, newest.at, rerun));
