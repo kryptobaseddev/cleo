@@ -227,6 +227,7 @@ export async function listTriageCandidates(
   const status = opts.status ?? 'draft';
   const limit = opts.limit ?? DOC_TRIAGE_DEFAULT_LIMIT;
   if (!(ATTACHMENT_LIFECYCLE_STATUSES as readonly string[]).includes(status)) {
+    // @sync-invariant none:input-shape an unknown --status filter is refused before any read or write
     throw new Error(
       `Invalid lifecycle status '${status}'. Valid: ${ATTACHMENT_LIFECYCLE_STATUSES.join(', ')}`,
     );
@@ -600,6 +601,8 @@ export async function triageDocs(opts: TriageDocsOptions = {}): Promise<DocsTria
 
   if (opts.record === true && proposals.length > 0) {
     const { storeDecision } = await import('../memory/decisions.js');
+    const { getBrainDb } = await import('../store/memory-sqlite.js');
+    const { brainPageEdges } = await import('../store/schema/memory-schema.js');
     for (const [i, proposal] of proposals.entries()) {
       const ownerId = candidates[i]?.ownerId ?? null;
       const handle = proposal.slug ?? proposal.attachmentId;
@@ -620,6 +623,21 @@ export async function triageDocs(opts: TriageDocsOptions = {}): Promise<DocsTria
         confirmationState: 'proposed',
         decidedBy: 'agent',
       });
+      // Structured doc link (T13575). --record is an explicit opt-in, so it is written
+      // directly: the brain.autoCapture gate governs automatic capture only.
+      const sha256 = candidates[i]?.sha256;
+      if (sha256)
+        (await getBrainDb(projectRoot))
+          .insert(brainPageEdges)
+          .values({
+            fromId: `decision:${row.id}`,
+            toId: `llmtxt:${sha256}`,
+            edgeType: 'references',
+            weight: 1,
+            provenance: 'auto:docs-triage',
+          })
+          .onConflictDoNothing()
+          .run();
       recorded += 1;
       proposals[i] = { ...proposal, decisionId: row.id };
     }
