@@ -19,11 +19,14 @@ describe('docsCommand (native citty)', () => {
     expect((meta as { description: string }).description).toContain('Canonical');
   });
 
-  it('has sync and gap-check subcommands', () => {
+  it('has sync and check subcommands', () => {
+    // T13361: gap-check retired (replaced by docs check); sync retained until
+    // the T9645 reingest workflow migrates off it.
     const subs = docsCommand.subCommands as Record<string, unknown> | undefined;
     expect(subs).toBeDefined();
     expect(subs?.['sync']).toBeDefined();
-    expect(subs?.['gap-check']).toBeDefined();
+    expect(subs?.['check']).toBeDefined();
+    expect(subs?.['gap-check']).toBeUndefined();
   });
 
   it('has add, list, fetch, remove subcommands', () => {
