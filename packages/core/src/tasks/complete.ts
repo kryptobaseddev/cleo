@@ -967,6 +967,7 @@ export async function completeTask(
       // Cancellation/deadline remains an operation failure, never a parent-rollup skip.
       capturedExecution?.assertActive();
       if (owned?.signal.aborted)
+        // @sync-invariant none:input-shape a typed revalidation past its own budget is refused before the completion write; nothing is written
         throw new CleoError(
           ExitCode.GENERAL_ERROR,
           `Typed requirement revalidation for ${candidate.id} did not finish within its ${budgetMs} ms budget (re-hashing the typed gates' inputs)`,
