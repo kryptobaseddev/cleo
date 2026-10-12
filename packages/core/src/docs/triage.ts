@@ -227,6 +227,7 @@ export async function listTriageCandidates(
   const status = opts.status ?? 'draft';
   const limit = opts.limit ?? DOC_TRIAGE_DEFAULT_LIMIT;
   if (!(ATTACHMENT_LIFECYCLE_STATUSES as readonly string[]).includes(status)) {
+    // @sync-invariant none:input-shape an unknown --status filter is refused before any read or write
     throw new Error(
       `Invalid lifecycle status '${status}'. Valid: ${ATTACHMENT_LIFECYCLE_STATUSES.join(', ')}`,
     );
