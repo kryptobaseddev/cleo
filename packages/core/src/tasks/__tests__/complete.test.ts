@@ -476,6 +476,42 @@ describe('completeTask', () => {
     expect(slow.revalidations).toBe(2);
   }, 30_000);
 
+  it('a SQLITE_BUSY retry appends completion notes once, not once per attempt (T13614)', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Notes on retry',
+        description: 'Completion notes survive one retry',
+        status: 'pending',
+        type: 'task',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    let busy = true;
+    const retrying: DataAccessor = {
+      ...accessor,
+      transaction: (fn) =>
+        accessor.transaction(async (tx) => {
+          const result = await fn(tx);
+          if (busy) {
+            busy = false;
+            throw new Error('database is locked');
+          }
+          return result;
+        }),
+    };
+    await completeTask(
+      { taskId: 'T001', notes: 'shipped', changeset: 'cs-1' },
+      env.tempDir,
+      retrying,
+    );
+    expect(busy).toBe(false);
+    const notes = (await accessor.loadSingleTask('T001'))?.notes ?? [];
+    expect(notes.filter((n) => n.endsWith(': shipped'))).toHaveLength(1);
+    expect(notes.filter((n) => n === 'Changeset: cs-1')).toHaveLength(1);
+  }, 30_000);
+
   it('a typed revalidation past its own budget is a named timeout, not E_INTERNAL (T13613)', async () => {
     await typedFixture();
     await verifyTypedFixture();

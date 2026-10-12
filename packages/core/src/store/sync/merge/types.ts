@@ -130,6 +130,13 @@ export interface TableMergeSpec {
    * so its value is a function of the merged status and candidates alone,
    * and converges.
    */
+  /**
+   * The typed rule id when every row of the table is immutable once written
+   * (audit rows, T12941): an op that would change a live row's value is
+   * refused whole as a typed-rule conflict, in every order; an identical
+   * re-delivery is a no-op. Inserts and deletes are unaffected.
+   */
+  readonly immutable?: string;
   readonly coupled?: ReadonlyArray<{
     readonly column: string;
     readonly status: string;

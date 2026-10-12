@@ -1,0 +1,399 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.10",
+  "resolvedVersion": "v2026.10.10",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-12T14:12:41.758Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.9",
+  "previousTag": "v2026.10.9",
+  "previousShippedAt": null,
+  "tasks": [
+    {
+      "id": "T13354",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "P2: Re-key conduit history tables to immutable doc id",
+      "evidenceAtoms": [
+        "commit:5f2fc8c9397994f4cc4555a19da1863af4f02967",
+        "files:packages/core/src/store/schema/cleo-project/conduit.ts,packages/core/src/store/schema/conduit-schema.ts,packages/core/src/store/conduit-doc-history.ts,packages/core/src/store/table-classification.ts,packages/core/src/store/row-identity-registry.ts,packages/contracts/src/invariants/sync-write-invariants.ts,packages/core/migrations/drizzle-cleo-project/20261011000000_t13354-conduit-history-rekey/migration.sql,packages/core/src/store/sync/apply/parent-delete.ts,packages/core/src/store/sync/timestamp-canon.ts",
+        "test-run:.cleo/t13354-test-run.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13359",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "P3: Implement the settled decisions-vs-ADRs methodology",
+      "evidenceAtoms": [
+        "commit:48fccd0da625a497e2ddd1f47b120656d6f68919",
+        "files:packages/core/src/store/decision-adr-links.ts,packages/core/src/store/schema/cleo-project/docs.ts,packages/cleo/src/dispatch/domains/docs.ts",
+        "note:AC3 conditional — ADR lifecycle unchanged in #2156, taxonomy/canon routing untouched",
+        "test-run:.cleo/t13359-merge-tests.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13446",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "P3: Jev API × cleo decide integration for document triage",
+      "evidenceAtoms": [
+        "commit:b76f73480982ea885f0d8e7c3c3c48ade52b2d58",
+        "files:packages/core/src/decide/sites/registry.ts,packages/core/src/docs/triage.ts,packages/cleo/src/cli/commands/docs/triage.ts,packages/cleo/src/cli/commands/docs.ts,packages/cleo/src/dispatch/domains/docs.ts,packages/contracts/src/dispatch/operations-registry.ts",
+        "test-run:.cleo/t13446-merge-tree-test-run.json",
+        "tool:lint",
+        "tool:typecheck"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13555",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Hooks-v1 promotion evidence gate should not be operator opt-in",
+      "evidenceAtoms": [
+        "pr:2165",
+        "files:.changeset/t13555-hooks-v1-gate-source-guard.md,packages/cleo/src/cli/commands/release.ts,packages/cleo/src/dispatch/domains/release.ts,packages/contracts/src/__tests__/__snapshots__/operations-registry.test.ts.snap,packages/contracts/src/dispatch/operations-registry.ts,packages/contracts/src/release/plan.ts,packages/core/src/release/__tests__/plan.test.ts,packages/core/src/release/hooks-v1-promotion.ts,packages/core/src/release/plan.ts,packages/skills/skills/ct-release-orchestrator/SKILL.md,packages/skills/skills/manifest.json,packages/skills/skills/manifest.json",
+        "ci:2165"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13560",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs doctor: apply envelope echoes pre-repair diagnostics (stale counts, misleading)",
+      "evidenceAtoms": [
+        "pr:2141",
+        "files:.changeset/t13560-doctor-hardening.md,packages/core/src/docs/__tests__/docs-doctor.test.ts,packages/core/src/docs/doctor.ts",
+        "ci:2141"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13561",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs doctor: provenance backfill creates wikilinks-drift (0→3797 on axiom-app); no repair action exists",
+      "evidenceAtoms": [
+        "pr:2141",
+        "files:.changeset/t13560-doctor-hardening.md,packages/core/src/docs/__tests__/docs-doctor.test.ts,packages/core/src/docs/doctor.ts",
+        "ci:2141"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13562",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs doctor: dangling detector counts archived rows; blob-kind dangling need re-point repair not archive",
+      "evidenceAtoms": [
+        "pr:2141",
+        "files:.changeset/t13560-doctor-hardening.md,packages/core/src/docs/__tests__/docs-doctor.test.ts,packages/core/src/docs/doctor.ts,packages/core/src/store/blob-keep.ts",
+        "ci:2141"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13564",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo docs update --content - stores a literal '-' instead of reading stdin",
+      "evidenceAtoms": [
+        "pr:2160",
+        "files:.changeset/t13564-docs-update-stdin.md,packages/cleo/src/cli/commands/__tests__/docs-update-stdin.cli.test.ts,packages/cleo/src/cli/commands/docs.ts,packages/cleo/src/dispatch/domains/__tests__/docs-add-content.test.ts,packages/cleo/src/dispatch/domains/docs.ts,packages/skills/skills/ct-documentor/SKILL.md,packages/skills/skills/manifest.json,packages/cleo/src/dispatch/domains/docs.ts,packages/skills/skills/manifest.json",
+        "ci:2160"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13566",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Typed gate input snapshot treats bun's 'test' subcommand as the script path",
+      "evidenceAtoms": [
+        "pr:2140",
+        "files:.changeset/t13566-bun-subcommands.md,packages/core/src/tasks/__tests__/gate-runner.test.ts,packages/core/src/tasks/gate-runner.ts",
+        "ci:2140"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13568",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Typed gates in a worktree not provisioned by CLEO fail ENOENT on .cleo/project-info.json",
+      "evidenceAtoms": [
+        "pr:2137",
+        "files:.changeset/t13568-worktree-project-info.md,packages/contracts/src/operations/worktree.ts,packages/core/src/project-scope.ts,packages/core/src/tasks/__tests__/worktree-project-info-T13568.test.ts,packages/core/src/worktree/__tests__/worktree-adopt.test.ts,packages/core/src/worktree/worktree-adopt.ts",
+        "ci:2137"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13575",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs triage --record: dedupe proposed decisions per (doc, verdict) and link the doc structurally (#2132 review LOW)",
+      "evidenceAtoms": [
+        "pr:2157",
+        "files:.changeset/t13575-triage-record-doc-ref.md,packages/core/src/docs/__tests__/triage.test.ts,packages/core/src/docs/triage.ts",
+        "ci:2157"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13581",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Main CI red since the canary bump: t12353-identity-doctor (upgrade receipts) and update-notice-cli (HOTFIX notice) fail when the repo version is a prerelease",
+      "evidenceAtoms": [
+        "pr:2150",
+        "files:.changeset/t13581-canary-version-fixes.md,packages/cleo/src/cli/lib/__tests__/update-notice.test.ts,packages/cleo/src/cli/lib/update-notice.ts,packages/core/schemas/project-info.schema.json",
+        "ci:2150"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13590",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Flaky: t12353-identity-doctor dry-run test hits 'Shared operation deadline reached' under parallel load",
+      "evidenceAtoms": [
+        "pr:2155",
+        "files:.changeset/t13590-encounter-cold-open-budget.md,packages/core/src/__tests__/t12353-identity-doctor.test.ts,packages/core/src/paths.ts",
+        "ci:2155"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13600",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs triage --record: one brain_page_edges writer and no dangling llmtxt edge (#2157 review LOWs)",
+      "evidenceAtoms": [
+        "pr:2162",
+        "files:.changeset/t13600-triage-graph-writer.md,packages/core/src/docs/__tests__/triage.test.ts,packages/core/src/docs/triage.ts,packages/core/src/memory/graph-auto-populate.ts",
+        "ci:2162"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13602",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cloud status should say when background auto-sync is suppressed by CI/VITEST/NODE_ENV=test (#2163 review LOW)",
+      "evidenceAtoms": [
+        "pr:2166",
+        "files:.changeset/t13602-cloud-status-autosync-suppressed.md,packages/core/src/cloud/__tests__/auto-sync-command.test.ts,packages/core/src/cloud/auto-sync-command.ts,packages/core/src/cloud/nexus-cloud-status.ts",
+        "ci:2166"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13606",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Session-end and sentient-tick auto-sync still run under CI/VITEST/NODE_ENV=test; apply autoSyncSuppressedBy to every auto-sync trigger (#2166 review LOW)",
+      "evidenceAtoms": [
+        "pr:2168",
+        "files:.changeset/t13606-autosync-suppress-all-triggers.md,packages/core/src/cloud/__tests__/auto-sync-command.test.ts,packages/core/src/cloud/__tests__/auto-sync.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/auto-sync-command.ts,packages/core/src/cloud/auto-sync.ts",
+        "ci:2168"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13608",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Scoped testsPassed refused after a fast-forward/direct landing: T13495 carry check requires a merge commit (blocks opencode-goal T090 on 10.9)",
+      "evidenceAtoms": [
+        "pr:2171",
+        "files:.changeset/t13608-ff-scoped-carry.md,packages/core/src/tasks/__tests__/affected-scope.test.ts,packages/core/src/tasks/affected-scope.ts",
+        "ci:2171"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13553",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Throttled piggyback sync on normal CLI commands (no daemon)",
+      "evidenceAtoms": [
+        "pr:2126",
+        "files:.changeset/t13553-piggyback-sync.md,packages/cleo/src/cli/index.ts,packages/core/schemas/config.schema.json,packages/core/src/cloud/__tests__/auto-sync-command.test.ts,packages/core/src/cloud/auto-sync-command-entry.ts,packages/core/src/cloud/auto-sync-command.ts,packages/core/src/cloud/auto-sync.ts",
+        "ci:2126"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "implementation"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13354",
+      "T13359",
+      "T13446",
+      "T13555",
+      "T13560",
+      "T13561",
+      "T13562",
+      "T13564",
+      "T13566",
+      "T13568",
+      "T13575",
+      "T13581",
+      "T13590",
+      "T13600",
+      "T13602",
+      "T13606",
+      "T13608",
+      "T13553"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-12T14:12:41.758Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-12T14:12:41.758Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-12T14:12:41.758Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-12T14:12:41.758Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-12T14:12:41.758Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-12T14:12:41.758Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 717 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.10 — 2026-10-12\n\n### Added\n\n- CleoDocs schema re-key — conduit history tables FK the immutable doc uid (no cascade delete), version DAG identity, per-version per-section approvals, derived contributors, slug aliases, max-HLC head projection, local-only section CRDT states. _(provenance: [T13354](https://github.com/kryptobaseddev/cleo/search?q=T13354&type=commits))_\n- Decisions-vs-ADRs methodology — decision_adr_links syncing link table with natural (decision_id, adr_slug) identity, one-way revoke tombstones, and two-way surfacing (docs fetch shows linked D#### decisions; decision.find shows linked ADR slugs). _(provenance: [T13359](https://github.com/kryptobaseddev/cleo/search?q=T13359&type=commits))_\n- cleo docs triage: batch Jev (System One) keep/update/supersede/archive verdicts over draft docs via the new docs.triage decide site (shadow mode, proposals only, --record persists proposed D#### decisions) _(provenance: [T13446](https://github.com/kryptobaseddev/cleo/search?q=T13446&type=commits))_\n- Normal commands in a linked project start a detached cloud sync at most once per window, with no daemon _(provenance: [T13553](https://github.com/kryptobaseddev/cleo/search?q=T13553&type=commits))_\n\n### Fixed\n\n- The piggyback auto-sync never spawns under a test runner or CI _(provenance: [T13553](https://github.com/kryptobaseddev/cleo/search?q=T13553&type=commits))_\n- release plan refuses a stable release that opens the hooks-v1 gate by source without the promotion _(provenance: [T13555](https://github.com/kryptobaseddev/cleo/search?q=T13555&type=commits))_\n- cleo docs doctor apply envelope reports post-repair state, provenance backfill chains a wikilinks rebuild, and dangling detection excludes archived rows plus re-points blob rows with live content _(provenance: [T13560](https://github.com/kryptobaseddev/cleo/search?q=T13560&type=commits), [T13561](https://github.com/kryptobaseddev/cleo/search?q=T13561&type=commits), [T13562](https://github.com/kryptobaseddev/cleo/search?q=T13562&type=commits))_\n- cleo docs update --content - reads stdin instead of storing '-' _(provenance: [T13564](https://github.com/kryptobaseddev/cleo/search?q=T13564&type=commits))_\n- A typed gate's input snapshot recognises bun's subcommands: bun test a.ts b.ts captures both files, not ./test _(provenance: [T13566](https://github.com/kryptobaseddev/cleo/search?q=T13566&type=commits))_\n- Typed gates run in a git worktree CLEO did not provision; cleo worktree adopt seeds and verifies its project-info.json _(provenance: [T13568](https://github.com/kryptobaseddev/cleo/search?q=T13568&type=commits))_\n- docs triage --record links each proposed decision to its doc _(provenance: [T13575](https://github.com/kryptobaseddev/cleo/search?q=T13575&type=commits))_\n- A canary install writes a schema-valid project-info.json and gets update notices _(provenance: [T13581](https://github.com/kryptobaseddev/cleo/search?q=T13581&type=commits))_\n- Project registration no longer times out while the global store first opens _(provenance: [T13590](https://github.com/kryptobaseddev/cleo/search?q=T13590&type=commits))_\n- docs triage --record's doc link always has both graph nodes _(provenance: [T13600](https://github.com/kryptobaseddev/cleo/search?q=T13600&type=commits))_\n- cleo cloud status says when CI or a test runner suppresses background auto-sync _(provenance: [T13602](https://github.com/kryptobaseddev/cleo/search?q=T13602&type=commits))_\n- No automatic cloud sync runs under CI or a test runner, from any trigger _(provenance: [T13606](https://github.com/kryptobaseddev/cleo/search?q=T13606&type=commits))_\n- A scoped testsPassed now carries after a fast-forward or direct landing _(provenance: [T13608](https://github.com/kryptobaseddev/cleo/search?q=T13608&type=commits))_\n",
+    "changesetEntryCount": 17,
+    "changesetIds": [
+      "t13354-conduit-history-rekey",
+      "t13359-decision-adr-links",
+      "t13446-docs-triage-jev",
+      "t13553-autosync-test-guard",
+      "t13553-piggyback-sync",
+      "t13555-hooks-v1-gate-source-guard",
+      "t13560-doctor-hardening",
+      "t13564-docs-update-stdin",
+      "t13566-bun-subcommands",
+      "t13568-worktree-project-info",
+      "t13575-triage-record-doc-ref",
+      "t13581-canary-version-fixes",
+      "t13590-encounter-cold-open-budget",
+      "t13600-triage-graph-writer",
+      "t13602-cloud-status-autosync-suppressed",
+      "t13606-autosync-suppress-all-triggers",
+      "t13608-ff-scoped-carry"
+    ],
+    "taskIds": [
+      "T13354",
+      "T13359",
+      "T13446",
+      "T13555",
+      "T13560",
+      "T13561",
+      "T13562",
+      "T13564",
+      "T13566",
+      "T13568",
+      "T13575",
+      "T13581",
+      "T13590",
+      "T13600",
+      "T13602",
+      "T13606",
+      "T13608",
+      "T13553"
+    ]
+  }
+}
