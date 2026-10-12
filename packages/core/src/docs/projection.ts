@@ -36,7 +36,8 @@ import { getDb } from '../store/sqlite.js';
  * @param budgetMs - Shared foreground budget, defaulting to two seconds.
  * @returns Captured scope or explicit missing coverage; no guessed project identity.
  * @throws RangeError when the caller supplies an invalid foreground budget.
- * @remarks The metadata read is read-only. Its elapsed time is charged to the same
+ * @remarks The project store is opened before the deadline starts, so a cold open is
+ * not charged to it (T13594). The metadata read is read-only. Its elapsed time is charged to the same
  * deadline; slow filesystem I/O is not claimed to be synchronously preempted. Missing,
  * malformed or mismatched identity never prevents the independent canonical attachment write.
  * @example
@@ -52,6 +53,10 @@ export async function captureDocumentProjection(
 ): Promise<DocsProjectionCapture> {
   if (!Number.isSafeInteger(budgetMs) || budgetMs < 0)
     throw new RangeError('Document projection budget must be a nonnegative safe integer');
+  // The store's cold open (its schema pass) is a shared one-time cost, not this
+  // optional projection's: finish it before the deadline starts (T13594). A failed
+  // open is left to the projection's own open, which reports it under the deadline.
+  await getDb(projectRoot).catch(() => undefined);
   const deadlineAt = Date.now() + budgetMs;
   try {
     const info = await worktreeScope.run(

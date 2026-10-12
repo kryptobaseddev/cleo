@@ -9,6 +9,7 @@ import type { DocsProjectionSource } from '@cleocode/contracts/operations/docs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAttachmentStore } from '../../store/attachment-store.js';
 import { createOperationExecutionContext } from '../../store/background-ops.js';
+import * as sqliteModule from '../../store/sqlite.js';
 import { closeAllDatabases, closeDb, getNativeDb } from '../../store/sqlite.js';
 import {
   captureDocumentProjection,
@@ -414,6 +415,31 @@ describe('canonical projection identity capture', () => {
       captured.context.close();
     }
   });
+
+  it('a slow store cold open is not charged to the projection deadline (T13594)', async () => {
+    await writeFile(
+      join(root, '.cleo/project-info.json'),
+      JSON.stringify({ projectId: 'portable-A', projectRoot: root }),
+    );
+    await closeAllDatabases();
+    const original = sqliteModule.getDb;
+    let slow = true;
+    vi.spyOn(sqliteModule, 'getDb').mockImplementation(async (...args) => {
+      if (slow) {
+        slow = false;
+        await new Promise((done) => setTimeout(done, 2_500));
+      }
+      return original(...args);
+    });
+    const captured = await captureDocumentProjection(root, 'foreground', 'slow-open', 2000);
+    if (captured.status !== 'ready') throw new Error(captured.outcome.diagnostics.join(' '));
+    try {
+      const result = await projectDocumentAttachment(captured.context, source);
+      expect(result).toMatchObject({ status: 'completed', deadlineExceeded: false });
+    } finally {
+      captured.context.close();
+    }
+  }, 30_000);
 
   it('projects a doc after the project directory is moved (T12557)', async () => {
     await writeFile(
