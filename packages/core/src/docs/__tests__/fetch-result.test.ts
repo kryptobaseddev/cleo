@@ -119,4 +119,29 @@ describe('buildDocsFetchResult (T13352)', () => {
     expect(result.bytesBase64).toBeUndefined();
     expect(result.inlined).toBe(false);
   });
+
+  it('echoes linkedDecisions when the caller supplies them, omits them otherwise (T13359)', () => {
+    const withLinks = buildDocsFetchResult({
+      doc: makeDoc({ kind: 'adr', slug: 'adr-901-x' }),
+      content: 'body',
+      projectRoot: ROOT,
+      linkedDecisions: ['D11165', 'D11166'],
+    });
+    expect(withLinks.linkedDecisions).toEqual(['D11165', 'D11166']);
+
+    const without = buildDocsFetchResult({
+      doc: makeDoc({ kind: 'adr', slug: 'adr-902-y' }),
+      content: 'body',
+      projectRoot: ROOT,
+    });
+    expect(without.linkedDecisions).toBeUndefined();
+
+    const empty = buildDocsFetchResult({
+      doc: makeDoc({ kind: 'adr', slug: 'adr-903-z' }),
+      content: 'body',
+      projectRoot: ROOT,
+      linkedDecisions: [],
+    });
+    expect('linkedDecisions' in empty).toBe(false);
+  });
 });

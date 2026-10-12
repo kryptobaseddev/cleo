@@ -325,6 +325,105 @@ describe('typed rules (§3.6.6)', () => {
   });
 });
 
+// T13597 — the decision_adr_links revoke latch must hold at merge, not just at
+// the local accessor: 'revoked' is absorbing with no leave op, so a concurrent
+// same-uid link op cannot resurrect a tombstoned pair by per-field LWW.
+describe('decision_adr_links: the revoke tombstone is absorbing (T13597)', () => {
+  const LINK_COLUMNS = [
+    'decision_id',
+    'adr_slug',
+    'status',
+    'linked_by',
+    'revoked_by',
+    'created_at',
+    'updated_at',
+    'uid',
+  ];
+  const LINKS: MergeContext = { table: mergeSpecFor('decision_adr_links', LINK_COLUMNS) };
+
+  /** One link row as the sealer emits it: every column of the I op. */
+  const linkImage = (status: string, revokedBy: string | null): Record<string, LedgerValue> => ({
+    decision_id: 'D11165',
+    adr_slug: 'adr-059-decisions-vs-adrs',
+    status,
+    linked_by: 'agent-a',
+    revoked_by: revokedBy,
+    created_at: '2026-10-12T00:00:00.000Z',
+    updated_at: '2026-10-12T00:00:00.000Z',
+    uid: 'uid-link-1',
+  });
+
+  /** A link op on the decision_adr_links table (the shared helper is tasks-only). */
+  const linkOp = (o: LedgerOp['o'], hlc: string, a?: Record<string, LedgerValue>): LedgerOp => ({
+    t: 'decision_adr_links',
+    u: 'uid-link-1',
+    o,
+    h: hlc,
+    ...(a ? { a } : {}),
+  });
+
+  /** The op sequence of the race: link@10, revoke@20 (device A), link@30 (device B). */
+  const raceOps = (): LedgerOp[] => [
+    linkOp('I', h(10), linkImage('linked', null)),
+    // A revoke travels as the whole [status, revoked_by] group (T13222).
+    linkOp('U', h(20), { status: 'revoked', revoked_by: 'agent-reviewer' }),
+    linkOp('I', h(30, R2), linkImage('linked', null)),
+  ];
+
+  it('a concurrent NEWER link op is refused and cannot flip a revoked row back to linked', () => {
+    // Device A has already applied its own link and its revoke.
+    const revoked = live(
+      { ...linkImage('revoked', 'agent-reviewer'), updated_at: '2026-10-12T00:02:00.000Z' },
+      h(20),
+    );
+    const out = applyOp(revoked, raceOps()[2] as LedgerOp, LINKS);
+    expect(val(out.next, 'status')).toBe('revoked');
+    expect(val(out.next, 'revoked_by')).toBe('agent-reviewer');
+    expect(out.conflicts).toContainEqual(
+      expect.objectContaining({
+        kind: 'typed-rule',
+        rule: 'docs.decision-adr-links.revoke-monotonic',
+        resolution: 'incoming-dropped',
+      }),
+    );
+  });
+
+  it('the race converges to revoked in every op order', () => {
+    const [linkA, revokeA, linkB] = raceOps() as [LedgerOp, LedgerOp, LedgerOp];
+    const orders: Array<readonly LedgerOp[]> = [
+      [linkA, revokeA, linkB],
+      [linkA, linkB, revokeA],
+      [linkB, linkA, revokeA],
+    ];
+    const finals = orders.map((ops) => {
+      let row = UNSEEN_ROW;
+      for (const o of ops) row = applyOp(row, o, LINKS).next;
+      return row;
+    });
+    for (const final of finals) {
+      expect(val(final, 'status')).toBe('revoked');
+      expect(val(final, 'revoked_by')).toBe('agent-reviewer');
+    }
+  });
+
+  it('a revoke still wins when it is OLDER than the concurrent link (absorbing force)', () => {
+    // Device B applied its own link first; A's older revoke then lands: the
+    // absorbing state overrides the newer ordinary edit, recorded as a conflict.
+    const linked = applyOp(UNSEEN_ROW, linkOp('I', h(30, R2), linkImage('linked', null)), LINKS);
+    expect(linked.status).toBe('applied');
+    const out = applyOp(linked.next, raceOps()[1] as LedgerOp, LINKS);
+    expect(val(out.next, 'status')).toBe('revoked');
+    expect(val(out.next, 'revoked_by')).toBe('agent-reviewer');
+    expect(out.conflicts).toContainEqual(
+      expect.objectContaining({
+        kind: 'typed-rule',
+        rule: 'docs.decision-adr-links.revoke-monotonic',
+        resolution: 'incoming-applied',
+      }),
+    );
+  });
+});
+
 describe('review #1867: groups travel whole (T13222)', () => {
   const base = live(grp('active'), h(1));
   const done = op('U', h(3), grp('done', { completed_at: 'X' }), grp('active'));
@@ -476,6 +575,7 @@ describe('the merge-rule registry matches the write-invariant registry', () => {
       }
     }
     expect(implementedMergeRuleIds()).toEqual([
+      'docs.decision-adr-links.revoke-monotonic',
       'task.pipeline-stage.max',
       'task.status.absorbing',
       'task.verification.frozen-on-done',

@@ -77,7 +77,8 @@ export const TASK_STAGE_MERGE_ORDER: readonly string[] = [
 /**
  * The typed merge rules by sync-set table. Implemented rule ids:
  * `task.status.absorbing` (T12937), `task.pipeline-stage.max` (T12938),
- * `task.verification.frozen-on-done` (T12939).
+ * `task.verification.frozen-on-done` (T12939),
+ * `docs.decision-adr-links.revoke-monotonic` (T13597).
  */
 export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
   tasks_tasks: {
@@ -112,6 +113,22 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
         column: 'status',
         values: ['done'],
         unfreezeOps: TASK_STATUS_LEAVE_OPS,
+      },
+    },
+  },
+  decision_adr_links: {
+    // The revoke and its author move together, taken from the winning op.
+    groups: [['status', 'revoked_by']],
+    rules: {
+      // 'revoked' is absorbing with NO leave op (T13597): a concurrent
+      // same-uid link op from another device merges field by field and its
+      // status='linked' write is refused, so a tombstoned pair can never be
+      // resurrected by LWW, whatever order the ops arrive in.
+      status: {
+        kind: 'absorbing',
+        id: 'docs.decision-adr-links.revoke-monotonic',
+        states: ['revoked'],
+        leaveOps: [],
       },
     },
   },
