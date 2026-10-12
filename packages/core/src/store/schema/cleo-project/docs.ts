@@ -287,7 +287,10 @@ export const docsPipelineManifest = sqliteTable(
  *
  * An unlink never DELETEs (append-only): it flips `status` to 'revoked' —
  * a one-way monotonic latch, the row itself is the tombstone and survives
- * sync and restore. A revoked pair is never re-linked. Neither column is a
+ * sync and restore. A revoked pair is never re-linked. The latch is enforced
+ * at merge as well as at the accessor (T13597): `SYNC_MERGE_RULES` declares
+ * 'revoked' an absorbing state with no leave op, so a concurrent same-uid
+ * link op cannot resurrect the tombstone by LWW. Neither column is a
  * DB-level FK: `decision_id` is a cross-DB soft reference (the ledger lives
  * in brain.db), and `adr_slug` is a mutable doc alias (resolvable through
  * `conduit_doc_slug_aliases`).

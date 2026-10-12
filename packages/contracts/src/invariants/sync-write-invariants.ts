@@ -521,13 +521,18 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
   ),
   // T13359 (D11165) — decisions-vs-ADRs link table; the natural composite key
   // makes identical links merge to one row, and the revoke is a one-way latch.
-  rule(
-    'docs.decision-adr-links.revoke-monotonic',
-    'T13359',
-    'decision_adr_links',
-    ['status', 'revoked_by', 'updated_at'],
-    [],
-    'status flips linked→revoked exactly once (the row is the tombstone, never DELETEd); a revoked pair is never re-linked, so no merge rule fires',
+  // T13597: enforced at merge, not just by the local accessor — 'revoked' is an
+  // absorbing state with no leave op, so a concurrent same-uid link op cannot
+  // flip a tombstoned row back to 'linked' on any replica.
+  implemented(
+    rule(
+      'docs.decision-adr-links.revoke-monotonic',
+      'T13597',
+      'decision_adr_links',
+      ['status', 'revoked_by'],
+      [],
+      'status flips linked→revoked exactly once (the row is the tombstone, never DELETEd); the merge engine refuses a non-absorbing status write onto a revoked row, so a concurrent re-link can never resurrect the pair',
+    ),
   ),
 
   // §3.6.0 identity-layer rows.

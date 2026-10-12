@@ -14,8 +14,12 @@
 --   2. Append-only means no DELETE and no resurrection: an unlink is a
 --      one-way monotonic latch flipping `status` to 'revoked' (the row IS
 --      the tombstone and survives sync/restore); a revoked pair is never
---      re-linked. The `CHECK (status IN ('linked','revoked'))` freezes the
---      value set at the DDL layer.
+--      re-linked. The latch is enforced at merge, not just by the accessor
+--      (T13597): SYNC_MERGE_RULES declares 'revoked' an absorbing state with
+--      no leave op, so a concurrent same-uid link op is refused by the merge
+--      engine instead of resurrecting the tombstone by LWW. The
+--      `CHECK (status IN ('linked','revoked'))` freezes the value set at the
+--      DDL layer.
 --
 --   3. No FOREIGN keys: `decision_id` is a cross-DB soft reference (the
 --      ledger lives in brain.db, not this cleo.db), and `adr_slug` is a

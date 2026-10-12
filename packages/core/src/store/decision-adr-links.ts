@@ -22,6 +22,10 @@
  *     flipping `status` to 'revoked' — the row itself is the tombstone and
  *     survives sync/restore. A revoked pair is never re-linked (rejection,
  *     not resurrection), so the latch can never be observed half-flipped.
+ *     The latch is enforced at MERGE too (T13597): `SYNC_MERGE_RULES` marks
+ *     'revoked' absorbing with no leave op, so a concurrent same-uid link op
+ *     from another device is refused by the merge engine and cannot
+ *     resurrect the tombstone by LWW.
  *   - Neither column is a DB-level FK: `decision_id` is a cross-DB soft
  *     reference (the ledger lives in brain.db) and `adr_slug` is a mutable
  *     doc alias (old slugs resolve through `conduit_doc_slug_aliases`).
@@ -103,6 +107,7 @@ export interface LinkDecisionToAdrResult {
  * @param input - The link facts.
  * @returns The link row and whether it was inserted.
  */
+// @sync-invariant docs.decision-adr-links.revoke-monotonic the read of the existing row and the conditional insert are one causal step: the read refuses a tombstoned pair (no resurrection) and the natural uid + ON CONFLICT DO NOTHING makes a concurrent identical link coalesce into the same row
 export async function linkDecisionToAdr(
   projectRoot: string,
   input: LinkDecisionToAdrInput,
