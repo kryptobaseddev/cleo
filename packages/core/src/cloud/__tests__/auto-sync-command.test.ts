@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runCommandAutoSync, startCommandAutoSync } from '../auto-sync-command.js';
+import { commandRootVerb, runCommandAutoSync, startCommandAutoSync } from '../auto-sync-command.js';
 
 let dir: string;
 let home: string;
@@ -43,7 +43,7 @@ describe('startCommandAutoSync (T13553)', () => {
       'disabled',
     );
     expect(spawnWorker).not.toHaveBeenCalled();
-    expect(existsSync(join(home, 'auto-sync-command.stamp'))).toBe(false);
+    expect(existsSync(join(home, 'auto-sync-command'))).toBe(false);
   });
 
   it('two quick commands start exactly one background sync; the next window starts another', () => {
@@ -61,6 +61,54 @@ describe('startCommandAutoSync (T13553)', () => {
     expect(spawnWorker).toHaveBeenCalledWith(project);
     expect(startCommandAutoSync({ ...base, now: at(15 * 60_000 + 1) })).toBe('spawned');
     expect(spawnWorker).toHaveBeenCalledTimes(2);
+  });
+
+  it('throttles per project: a busy project does not starve another (T13556)', () => {
+    const spawnWorker = vi.fn();
+    const other = join(dir, 'other');
+    const base = { verb: 'show', cleoHome: home, spawnWorker, unreleasedFlags: released };
+    expect(startCommandAutoSync({ ...base, projectRoot: project, now: at(0) })).toBe('spawned');
+    expect(startCommandAutoSync({ ...base, projectRoot: project, now: at(1_000) })).toBe(
+      'throttled',
+    );
+    expect(startCommandAutoSync({ ...base, projectRoot: other, now: at(2_000) })).toBe('spawned');
+    expect(spawnWorker.mock.calls).toEqual([[project], [other]]);
+  });
+
+  it('logs one CLEO_DEBUG line when the worker cannot start, then throttles (T13556)', () => {
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const spawnWorker = vi.fn(() => {
+      throw new Error('worker entry not resolvable');
+    });
+    const base = {
+      projectRoot: project,
+      cleoHome: home,
+      spawnWorker,
+      unreleasedFlags: released,
+      env: { ...process.env, CLEO_DEBUG: '1' },
+    };
+    try {
+      expect(startCommandAutoSync({ ...base, now: at(0) })).toBe('failed');
+      expect(startCommandAutoSync({ ...base, now: at(1_000) })).toBe('throttled');
+      const lines = write.mock.calls.map(([line]) => String(line));
+      expect(lines.filter((line) => line.includes('Piggyback sync not started'))).toEqual([
+        '[cleo][debug] Piggyback sync not started: worker entry not resolvable\n',
+      ]);
+      write.mockClear();
+      expect(startCommandAutoSync({ ...base, env: { ...process.env }, now: at(16 * 60_000) })).toBe(
+        'failed',
+      );
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it('reads the root verb after leading global options (T13556)', () => {
+    const commands = { run: {}, show: {}, verify: {} };
+    expect(commandRootVerb(['--cwd', 'x', 'run'], commands)).toBe('run');
+    expect(commandRootVerb(['--output=id', 'show', 'T1'], commands)).toBe('show');
+    expect(commandRootVerb(['--json'], commands)).toBeUndefined();
   });
 
   it('returns at once: the foreground never awaits the child', () => {

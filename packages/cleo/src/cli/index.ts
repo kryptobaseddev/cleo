@@ -593,8 +593,10 @@ async function runMainWithLafsEnvelope(
         );
         startProjectPresenceRefresh({ projectRoot, cliVersion: CLI_VERSION });
         // T13553 — piggyback sync: a detached push/pull at most once per window.
-        const { startCommandAutoSync } = await import('@cleocode/core/cloud/auto-sync-command.js');
-        startCommandAutoSync({ projectRoot, verb: rawArgs.find((a) => !a.startsWith('-')) });
+        const { commandRootVerb, startCommandAutoSync } = await import(
+          '@cleocode/core/cloud/auto-sync-command.js'
+        );
+        startCommandAutoSync({ projectRoot, verb: commandRootVerb(rawArgs, subCommands) });
       }
     } catch (error) {
       if (process.env['CLEO_DEBUG'])
