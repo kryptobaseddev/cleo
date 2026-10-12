@@ -51,6 +51,8 @@ import { auditCommand } from './docs/audit.js';
 import { linkDecisionCommand, unlinkDecisionCommand } from './docs/decision-link.js';
 // T10164 — DocProvenanceResponse-typed graph verb (`--root <slug>|<taskId>`).
 import { graphCommand as provenanceGraphCommand } from './docs/graph.js';
+// T13360 — legacy docs migration into the re-keyed store (`migrate`, spec §5).
+import { migrateCommand } from './docs/migrate.js';
 // T11875 — display-alias assignment verb (`set-alias <slug> <number>`).
 import { setAliasCommand } from './docs/set-alias.js';
 // T13446 — docs.triage decision-site batch triage (`triage [--limit N] [--status S] [--record]`).
@@ -2974,6 +2976,8 @@ export const docsCommand = defineCommand({
     audit: auditCommand,
     // T13446 — docs.triage batch triage (proposals only; --record persists D#### verdicts)
     triage: triageCommand,
+    // T13360 — docs.migrate legacy docs import (harness-bracketed, idempotent)
+    migrate: migrateCommand,
     // Legacy/migration (use canonical verbs for new work)
     sync: syncCommand,
     status: statusCommand,
