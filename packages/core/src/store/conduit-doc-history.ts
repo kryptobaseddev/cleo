@@ -43,7 +43,53 @@ import {
   conduitDocSlugAliases,
   sectionCrdtStates,
 } from './schema/cleo-project/conduit.js';
-import { getDb } from './sqlite.js';
+import { getDb, getNativeDb } from './sqlite.js';
+
+/**
+ * Run one docs-projection write batch atomically (T13583).
+ *
+ * The section write path composes several accessors — section-state writes,
+ * the version append, the head upsert, the rebase and the derived
+ * contributors rebuild — and a failure halfway must not leave a non-head
+ * version behind for the next update to fork onto. The drizzle handle from
+ * {@link getDb} and the raw handle from {@link getNativeDb} are the same
+ * underlying `DatabaseSync`, so a `BEGIN IMMEDIATE` on the raw handle
+ * brackets every statement the accessors issue (the same pattern
+ * `docs-update.ts` uses for its slug transfer).
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param fn - The write batch; awaited between statements on this one
+ *   connection, so no other writer can interleave inside the transaction.
+ * @returns What `fn` returned.
+ */
+// @sync-invariant docs.head.max-hlc the version append, the head upsert and the rebase commit or roll back as one causal step; a half-landed projection cannot fork the next update
+export async function withConduitDocWriteTransaction<T>(
+  projectRoot: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  await getDb(projectRoot);
+  const native = getNativeDb(projectRoot);
+  if (!native) {
+    // @sync-invariant none:input-shape the projection requires an open project store; getDb above just opened it, so this is a broken environment, not row data — nothing was written
+    throw new CleoError(
+      ExitCode.GENERAL_ERROR,
+      'conduit doc write transaction requires an initialised project store',
+    );
+  }
+  native.prepare('BEGIN IMMEDIATE').run();
+  try {
+    const out = await fn();
+    native.prepare('COMMIT').run();
+    return out;
+  } catch (err) {
+    try {
+      native.prepare('ROLLBACK').run();
+    } catch {
+      /* Auto-rolled back by SQLite on most errors. */
+    }
+    throw err;
+  }
+}
 
 /** Row shape of `conduit_attachment_versions` as read back. */
 export type ConduitAttachmentVersionRow = typeof conduitAttachmentVersions.$inferSelect;
@@ -124,6 +170,10 @@ export async function resolveConduitDocUid(
  * the `cleodocs` sentinel (no FK — soft reference by design). Idempotent:
  * an existing live row (or alias-resolved uid) is returned with
  * `adopted: false`.
+ *
+ * The adopted row's uid is the schema's random UUIDv7 default — a
+ * single-device mint. Two devices adopting the same legacy slug concurrently
+ * mint two uids for one doc; deduping that is the filed follow-up (T13586).
  *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @param input - Slug, author and current full text of the doc.

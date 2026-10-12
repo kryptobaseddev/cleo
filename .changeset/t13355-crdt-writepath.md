@@ -1,7 +1,7 @@
 ---
 id: t13355-crdt-writepath
 tasks: [T13355]
-kind: feature
+kind: feat
 summary: Wire the llmtxt Loro CRDT merge into the docs update write path — section merge engine, head projection under docs.head.max-hlc, append-only DAG versions
 ---
 

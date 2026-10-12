@@ -10,15 +10,23 @@
  *   2. Split the new text into sections and apply each section's edit to
  *      its local Loro state (`section-merge.ts`); concurrent edits already
  *      in the stored state merge via sequential `crdt_apply_update`.
- *   3. Append the merged text as a DAG version row
+ *   3. Read the MERGED text back out of the merged Loro states — never out
+ *      of the input (T13585) — so concurrent same-base edits both survive
+ *      in the projection, not just in the pure engine.
+ *   4. Append the merged text as a DAG version row
  *      (`appendConduitAttachmentVersion`, parent = the previous head's
  *      version) — history is append-only.
- *   4. Project the merged text into the current-version row via
+ *   5. Project the merged text into the current-version row via
  *      {@link upsertConduitDocHead}: the max-HLC head wins and a losing
  *      concurrent head is recorded as a conflict, never silently shadowed
  *      (typed rule `docs.head.max-hlc`).
- *   5. Rebase the local section states onto the landed version and rebuild
+ *   6. Rebase the local section states onto the landed version and rebuild
  *      the derived contributors rollup.
+ *
+ * Steps 1–6 run inside ONE `BEGIN IMMEDIATE` transaction
+ * ({@link withConduitDocWriteTransaction}, T13583): a failure after the
+ * version append rolls everything back, so the next update cannot fork
+ * onto a half-landed projection.
  *
  * Loro owns LOCAL-ONLY section state; the syncing rows are owned by the
  * Stage C journal merge engine — one merge authority per table (§2).
@@ -41,6 +49,7 @@ import {
   resolveConduitDocUid,
   type UpsertConduitDocHeadResult,
   upsertConduitDocHead,
+  withConduitDocWriteTransaction,
   writeSectionCrdtState,
 } from '../store/conduit-doc-history.js';
 import { compareHlc, encodeHlc, genesisHlc, type Hlc, parseHlc, tick } from '../store/sync/hlc.js';
@@ -48,6 +57,7 @@ import {
   applySectionTextEdit,
   joinSections,
   sectionId,
+  sectionStateText,
   splitDocIntoSections,
 } from './section-merge.js';
 
@@ -82,7 +92,7 @@ export interface ProjectDocUpdateResult {
   readonly docUid: string;
   /** Whether this call adopted the doc into the conduit family. */
   readonly adopted: boolean;
-  /** The merged document text after the section merge. */
+  /** The merged document text, extracted from the merged Loro states. */
   readonly mergedText: string;
   /** Section ids whose state changed in this projection. */
   readonly sectionsModified: readonly string[];
@@ -144,6 +154,12 @@ function countTokens(text: string): number {
 /**
  * Project one docs update through the section CRDT merge layer.
  *
+ * The whole projection — adopt, section-state writes, version append, head
+ * upsert, rebase, contributors rebuild — is one transaction
+ * ({@link withConduitDocWriteTransaction}); the merged text is read back
+ * from the merged Loro states, so concurrent same-base section edits both
+ * survive into the version row and the head projection.
+ *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @param input - The update facts.
  * @returns The merge outcome.
@@ -152,76 +168,81 @@ export async function projectDocUpdateThroughSections(
   projectRoot: string,
   input: ProjectDocUpdateInput,
 ): Promise<ProjectDocUpdateResult> {
-  const resolved = await resolveConduitDocUid(projectRoot, input.slug);
-  const { uid: docUid, adopted } =
-    resolved !== null
-      ? { uid: resolved, adopted: false }
-      : await ensureConduitDoc(projectRoot, {
-          slug: input.slug,
-          authorAgentId: input.authorAgentId,
-          content: Buffer.from(input.content, 'utf-8'),
+  const existingUid = await resolveConduitDocUid(projectRoot, input.slug);
+  const contentBuffer = Buffer.from(input.content, 'utf-8');
+
+  return withConduitDocWriteTransaction(projectRoot, async () => {
+    const { uid: docUid, adopted } =
+      existingUid !== null
+        ? { uid: existingUid, adopted: false }
+        : await ensureConduitDoc(projectRoot, {
+            slug: input.slug,
+            authorAgentId: input.authorAgentId,
+            content: contentBuffer,
+          });
+
+    // Apply each section's edit onto its stored Loro state and read the
+    // MERGED text back out of the state — never out of the input (T13585).
+    const sections = splitDocIntoSections(input.content);
+    const mergedSections: string[] = [];
+    const sectionsModified: string[] = [];
+    for (const [index, text] of sections.entries()) {
+      const id = sectionId(index);
+      const stored = await readSectionCrdtState(projectRoot, docUid, id);
+      const { snapshot, changed } = applySectionTextEdit(stored?.snapshot ?? null, text);
+      if (changed || stored === null) {
+        await writeSectionCrdtState(projectRoot, {
+          attachmentUid: docUid,
+          sectionId: id,
+          snapshot,
+          baseVersionUid: stored?.baseVersionUid ?? null,
         });
-
-  // Apply each section's edit to its local Loro state (first write seeds;
-  // concurrent edits in the stored state merge losslessly).
-  const sections = splitDocIntoSections(input.content);
-  const mergedSections: string[] = [];
-  const sectionsModified: string[] = [];
-  for (const [index, text] of sections.entries()) {
-    const id = sectionId(index);
-    const stored = await readSectionCrdtState(projectRoot, docUid, id);
-    const { snapshot, changed } = applySectionTextEdit(stored?.snapshot ?? null, text);
-    if (changed || stored === null) {
-      await writeSectionCrdtState(projectRoot, {
-        attachmentUid: docUid,
-        sectionId: id,
-        snapshot,
-        baseVersionUid: stored?.baseVersionUid ?? null,
-      });
+      }
+      if (changed) sectionsModified.push(id);
+      mergedSections.push(sectionStateText(snapshot));
     }
-    if (changed) sectionsModified.push(id);
-    mergedSections.push(text);
-  }
-  const mergedText = joinSections(mergedSections);
+    const mergedText = joinSections(mergedSections);
 
-  // Append the DAG version row (parent = the previous head's version).
-  const previousHead = await getConduitDocHead(projectRoot, docUid);
-  const contentHash = createHash('sha256').update(mergedText, 'utf-8').digest('hex');
-  const size = Buffer.byteLength(mergedText, 'utf-8');
-  const parentVersionUid =
-    input.parentVersionUid !== undefined
-      ? input.parentVersionUid
-      : (previousHead?.headVersionUid ?? null);
-  const version = await appendConduitAttachmentVersion(projectRoot, {
-    attachmentUid: docUid,
-    parentVersionUid,
-    authorAgentId: input.authorAgentId,
-    storageKey: `${contentHash.slice(0, 2)}/${contentHash.slice(2)}.md`,
-    contentHash,
-    originalSize: size,
-    compressedSize: size,
-    tokens: countTokens(mergedText),
-    changeType: 'patch',
-    ...(input.changeSummary !== undefined ? { changeSummary: input.changeSummary } : {}),
-    sectionsModified,
-    tokensAdded: countTokens(input.content),
+    // Append the DAG version row (parent = the previous head's version).
+    const previousHead = await getConduitDocHead(projectRoot, docUid);
+    const contentHash = createHash('sha256').update(mergedText, 'utf-8').digest('hex');
+    const size = Buffer.byteLength(mergedText, 'utf-8');
+    const parentVersionUid =
+      input.parentVersionUid !== undefined
+        ? input.parentVersionUid
+        : (previousHead?.headVersionUid ?? null);
+    const version = await appendConduitAttachmentVersion(projectRoot, {
+      attachmentUid: docUid,
+      parentVersionUid,
+      authorAgentId: input.authorAgentId,
+      storageKey: `${contentHash.slice(0, 2)}/${contentHash.slice(2)}.md`,
+      contentHash,
+      originalSize: size,
+      compressedSize: size,
+      tokens: countTokens(mergedText),
+      changeType: 'patch',
+      ...(input.changeSummary !== undefined ? { changeSummary: input.changeSummary } : {}),
+      sectionsModified,
+      tokensAdded: countTokens(input.content),
+    });
+
+    // Project into the current-version row under the max-HLC rule. The
+    // version row survives even when a concurrent head wins, so nothing
+    // written above is lost.
+    const headHlc = input.hlc ?? mintHeadHlc(previousHead?.headHlc ?? null);
+    const head = await upsertConduitDocHead(projectRoot, {
+      attachmentUid: docUid,
+      headVersionUid: version.uid ?? '',
+      headHlc,
+    });
+
+    // A landed version rebases the local section states; the derived
+    // contributors rollup is rebuilt from the versions table.
+    if (version.uid) {
+      await rebaseSectionCrdtStates(projectRoot, docUid, version.uid);
+    }
+    await rebuildConduitAttachmentContributors(projectRoot, docUid);
+
+    return { docUid, adopted, mergedText, sectionsModified, version, head };
   });
-
-  // Project into the current-version row under the max-HLC rule. The version
-  // row survives even when a concurrent head wins, so nothing is lost.
-  const headHlc = input.hlc ?? mintHeadHlc(previousHead?.headHlc ?? null);
-  const head = await upsertConduitDocHead(projectRoot, {
-    attachmentUid: docUid,
-    headVersionUid: version.uid ?? '',
-    headHlc,
-  });
-
-  // A landed version rebases the local section states; the derived
-  // contributors rollup is rebuilt from the versions table.
-  if (version.uid) {
-    await rebaseSectionCrdtStates(projectRoot, docUid, version.uid);
-  }
-  await rebuildConduitAttachmentContributors(projectRoot, docUid);
-
-  return { docUid, adopted, mergedText, sectionsModified, version, head };
 }

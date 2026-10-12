@@ -235,6 +235,110 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     expect(await listConduitAttachmentVersions(tempDir, third.docUid)).toHaveLength(3);
   });
 
+  it('T13585: two concurrent updates from the same base both survive through the write path, even when the second loses the head race', async () => {
+    const s0 = '# Plan\n\npreamble.';
+    const s1Base = '## Alpha\n\nalpha body';
+    const s2 = '## Beta\n\nbeta body';
+    const baseDoc = [s0, s1Base, s2].join('\n');
+    // Agent A and agent B both edit section s1 from the SAME base, unaware
+    // of each other.
+    const docA = [s0, `${s1Base}\n\nA1`, s2].join('\n');
+    const docB = [s0, `${s1Base}\n\nB1`, s2].join('\n');
+
+    const v1 = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-seed',
+      content: baseDoc,
+      hlc: hlcAt(1000),
+    });
+    const a = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-a',
+      content: docA,
+      hlc: hlcAt(2000),
+    });
+    // B is concurrent with A but lands with a LOWER HLC: it must lose the
+    // head race honestly while its edit still survives the merge.
+    const b = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-b',
+      content: docB,
+      hlc: hlcAt(1500),
+    });
+
+    // Both concurrent edits survive in the merged text read back from the
+    // Loro state — the projection, not the input.
+    expect(b.mergedText).toContain('A1');
+    expect(b.mergedText).toContain('B1');
+    expect(b.mergedText).not.toBe(docB);
+
+    // The merge result is what the version row addresses.
+    const { createHash } = await import('node:crypto');
+    expect(b.version.contentHash).toBe(
+      createHash('sha256').update(b.mergedText, 'utf-8').digest('hex'),
+    );
+
+    // Head race: A's higher HLC keeps the head; B's loss is recorded, and
+    // B's version row survives in the append-only history.
+    expect(b.head.advanced).toBe(false);
+    expect(b.head.conflictRecorded).toBe(true);
+    expect(b.head.head.headVersionUid).toBe(a.version.uid);
+    const conflict = JSON.parse(b.head.head.lastConflictJson ?? '{}') as {
+      versionUid?: string;
+    };
+    expect(conflict.versionUid).toBe(b.version.uid);
+
+    const { listConduitAttachmentVersions } = await import('../../store/conduit-doc-history.js');
+    const versions = await listConduitAttachmentVersions(tempDir, b.docUid);
+    expect(versions.map((v) => v.uid)).toEqual(
+      expect.arrayContaining([v1.version.uid, a.version.uid, b.version.uid]),
+    );
+
+    // The stored section state is the merged state: both edits present.
+    const { readSectionCrdtState } = await import('../../store/conduit-doc-history.js');
+    const s1 = await readSectionCrdtState(tempDir, b.docUid, 's1');
+    const s1Text = sectionStateText(s1?.snapshot ?? Buffer.alloc(0));
+    expect(s1Text).toContain('A1');
+    expect(s1Text).toContain('B1');
+  });
+
+  it('T13583: a failure after the version append rolls the whole projection back — no forkable half-landed state', async () => {
+    const first = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-a',
+      content: DOC_V1,
+      hlc: hlcAt(1000),
+    });
+
+    // An empty explicit HLC passes the input layer but fails the head
+    // upsert's non-empty guard AFTER the version append and the section
+    // writes ran — the transaction must roll all of it back.
+    await expect(
+      projectDocUpdateThroughSections(tempDir, {
+        slug: 'plan-doc',
+        authorAgentId: 'agent-b',
+        content: DOC_V2,
+        hlc: '',
+      }),
+    ).rejects.toThrow(/headHlc/);
+
+    const { getConduitDocHead, listConduitAttachmentVersions, readSectionCrdtState } = await import(
+      '../../store/conduit-doc-history.js'
+    );
+    // No version row from the failed projection: the next update cannot
+    // fork onto a half-landed non-head version.
+    expect(await listConduitAttachmentVersions(tempDir, first.docUid)).toHaveLength(1);
+    // The head is untouched by the failed projection.
+    const head = await getConduitDocHead(tempDir, first.docUid);
+    expect(head?.headVersionUid).toBe(first.version.uid);
+    expect(head?.conflictCount).toBe(0);
+    // The failed call's section-state write rolled back too.
+    const s1 = await readSectionCrdtState(tempDir, first.docUid, 's1');
+    expect(sectionStateText(s1?.snapshot ?? Buffer.alloc(0))).not.toContain(
+      'an appended line from agent B.',
+    );
+  });
+
   it('a higher-HLC concurrent head advances the projection', async () => {
     const first = await projectDocUpdateThroughSections(tempDir, {
       slug: 'plan-doc',

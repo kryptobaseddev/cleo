@@ -35,6 +35,8 @@ import {
  * Deterministic section id for a split index. Section ids are positional
  * (`s0` is the H1 + preamble, `s1` the first `## ` block, …): stable across
  * devices for the same document shape and independent of heading text.
+ * Positional ids are a known simplification — heading-anchored ids are the
+ * filed follow-up (T13584).
  *
  * @param index - The section's position in {@link splitDocIntoSections}.
  * @returns The section id recorded in `sections_modified`.
@@ -134,23 +136,44 @@ export function sectionStateText(state: Buffer): string {
 }
 
 /**
+ * Length of the longest common prefix of two texts (character-wise).
+ *
+ * @param a - First text.
+ * @param b - Second text.
+ * @returns The common prefix length.
+ */
+function commonPrefixLength(a: string, b: string): number {
+  const n = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < n && a.charCodeAt(i) === b.charCodeAt(i)) i += 1;
+  return i;
+}
+
+/**
  * Apply one section's new text to its stored snapshot, merging when the
  * stored state already carries concurrent edits.
  *
- * Semantics, per the bundled append-shaped primitives:
+ * Semantics, per the bundled append-shaped primitives. The incoming edit is
+ * ALWAYS applied onto the stored Loro state and the result is read back
+ * from that state — concurrent edits already in the stored state survive
+ * every shape except a strict deletion:
  *
  *   - `stored === null` (first write of the section): seed a fresh state
  *     from the new text.
  *   - The stored text equals the new text: no-op (`changed: false`), the
  *     snapshot is returned untouched.
- *   - The stored text is a strict prefix of the new text (append-only
- *     growth): the tail is expressed as an incremental edit and merged onto
- *     the stored state — concurrent edits already in the stored state
- *     survive the merge.
- *   - Otherwise (a replace, not expressible as an append): the section is
- *     re-seeded from the new text. The bundled primitives cannot express
- *     mid-text replacement; full two-way Loro editing is the upgrade path
- *     (spec §2, live collaborative editing is an explicit non-goal of v1).
+ *   - Append-only growth (the new text extends the stored text): the tail
+ *     is expressed as an incremental edit and merged onto the stored state.
+ *   - Divergent tails — concurrent edits from one base, or a full-section
+ *     content replace: the incoming tail beyond the longest common prefix
+ *     is appended onto the stored state, so BOTH the stored (concurrent)
+ *     edit and the incoming edit survive in the merged state. This is the
+ *     shape that keeps two same-base writers lossless through the write
+ *     path (T13585).
+ *   - The new text is a strict prefix of the stored text (a deletion): the
+ *     append-shaped v1 primitives cannot express removal; the stored state
+ *     stands. Deletions / intra-section mid-text two-way editing are the
+ *     documented v1+ limitation (full Loro editing, spec §2 non-goal of v1).
  *
  * @param stored - The section's stored snapshot, or `null` when none exists.
  * @param nextText - The section's new full text.
@@ -167,9 +190,12 @@ export function applySectionTextEdit(
   if (current === nextText) {
     return { snapshot: stored, changed: false };
   }
-  if (nextText.startsWith(current)) {
-    const update = makeSectionEditUpdate(stored, nextText.slice(current.length));
-    return { snapshot: mergeSectionUpdates(stored, [update]), changed: true };
+  const prefix = commonPrefixLength(current, nextText);
+  if (prefix === nextText.length) {
+    // A strict deletion: not expressible as an append; keep the stored
+    // state (the v1+ two-way-editing limitation, see the doc comment).
+    return { snapshot: stored, changed: false };
   }
-  return { snapshot: seedSectionState(nextText), changed: true };
+  const update = makeSectionEditUpdate(stored, nextText.slice(prefix));
+  return { snapshot: mergeSectionUpdates(stored, [update]), changed: true };
 }

@@ -182,10 +182,41 @@ describe('applySectionTextEdit (AC3)', () => {
     expect(mergedText.startsWith(storedText)).toBe(true);
   });
 
-  it('a replace (not expressible as an append) re-seeds the section', () => {
+  it('divergent tails (concurrent same-base edits / a full-section replace) append the incoming tail, preserving the stored edit', () => {
+    // A full-section content replace: the incoming text neither equals nor
+    // extends the stored text. The write path expresses it as the tail
+    // beyond the common prefix applied ONTO the stored Loro state, so the
+    // stored (concurrent) edit and the incoming edit BOTH survive.
     const stored = seedSectionState('## Old\n\nold body');
     const { snapshot, changed } = applySectionTextEdit(stored, '## New\n\nnew body');
     expect(changed).toBe(true);
-    expect(sectionStateText(snapshot)).toBe('## New\n\nnew body');
+    const mergedText = sectionStateText(snapshot);
+    expect(mergedText).toContain('old body');
+    expect(mergedText).toContain('new body');
+    // The stored content is a prefix of the merged state.
+    expect(mergedText.startsWith('## Old\n\nold body')).toBe(true);
+  });
+
+  it('two concurrent same-base section edits both survive through the edit application', () => {
+    // The exact write-path shape (T13585): one writer lands first, the
+    // second edited from the same base and never saw the first's edit.
+    const base = seedSectionState('## Alpha\n\nalpha body');
+    const updateA = makeSectionEditUpdate(base, '\n\nA1\n');
+    const storedAfterA = mergeSectionUpdates(base, [updateA]);
+
+    const incomingB = '## Alpha\n\nalpha body\n\nB1\n';
+    const { snapshot, changed } = applySectionTextEdit(storedAfterA, incomingB);
+    expect(changed).toBe(true);
+    const mergedText = sectionStateText(snapshot);
+    expect(mergedText).toContain('A1');
+    expect(mergedText).toContain('B1');
+    expect(mergedText.startsWith('## Alpha\n\nalpha body')).toBe(true);
+  });
+
+  it('a strict deletion is the documented v1+ limitation: the stored state stands', () => {
+    const stored = seedSectionState('## S\n\nbody\n\ntail to delete');
+    const { snapshot, changed } = applySectionTextEdit(stored, '## S\n\nbody');
+    expect(changed).toBe(false);
+    expect(snapshot.equals(stored)).toBe(true);
   });
 });
