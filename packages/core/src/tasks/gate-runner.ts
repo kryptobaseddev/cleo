@@ -1261,16 +1261,23 @@ async function packageStoreRealPath(root: string, path: string): Promise<string>
 /** bun subcommands: the word after `bun` that is not a script (T13566). */
 const BUN_SUBCOMMANDS: ReadonlySet<string> = new Set(['test', 'run', 'x', 'exec', 'build']);
 
-/** bun options whose next argument is their value, never a script or input (T13574). */
-const BUN_VALUE_FLAGS: ReadonlySet<string> = new Set([
+/**
+ * bun options whose value names a file that changes what the gate runs (a
+ * preload, env file, bunfig, tsconfig): never the script, but captured as an
+ * input when it names an existing file, so editing it invalidates a cached
+ * pass (T13574 review).
+ */
+const BUN_FILE_FLAGS: ReadonlySet<string> = new Set([
   '-c',
   '--config',
-  '--cwd',
   '-r',
   '--preload',
   '--env-file',
   '--tsconfig-override',
 ]);
+
+/** bun options whose next argument is their value, never a script or a positional (T13574). */
+const BUN_VALUE_FLAGS: ReadonlySet<string> = new Set([...BUN_FILE_FLAGS, '--cwd']);
 
 /** Flags that make an interpreter evaluate inline code, so it runs no script file. */
 function evalFlags(command: string): readonly string[] {
@@ -1292,29 +1299,52 @@ function evalFlags(command: string): readonly string[] {
  *    regular file (`bun a.ts`); any other word (`install`, `add`, `pm`,
  *    `create`, …) is a subcommand whose arguments name packages, not inputs;
  *  - the values of bun's value flags (`-c bunfig.toml`, `--cwd dir`) are never
- *    the script or an input, and `--cwd` moves where file arguments resolve.
+ *    the script; a file flag's value (`--preload ./setup.ts`, `--env-file`,
+ *    `-c`, `--tsconfig-override`) is returned as an input when it names an
+ *    existing regular file, and `--cwd` moves where file arguments resolve.
  *
  * @param command - Basename of the interpreter.
  * @param args - Its arguments.
  * @param cwd - The invocation's working directory.
- * @returns The implicit script, the indexes to leave out, and the resolution base.
+ * @returns The implicit script, the indexes to leave out, the resolution base,
+ *   and the absolute paths of files named by bun's file flags.
  */
 async function interpreterScript(
   command: string,
   args: readonly string[],
   cwd: string,
-): Promise<{ script: string | undefined; notInputs: ReadonlySet<number>; base: string }> {
+): Promise<{
+  script: string | undefined;
+  notInputs: ReadonlySet<number>;
+  base: string;
+  flagFiles: readonly string[];
+}> {
   const bun = command === 'bun' || command === 'bunx';
   const notInputs = new Set<number>();
   let base = cwd;
+  const flagValues: string[] = [];
   if (bun) {
     args.forEach((arg, index) => {
-      if (!BUN_VALUE_FLAGS.has(arg) || index + 1 >= args.length) return;
-      notInputs.add(index + 1);
-      if (arg === '--cwd') base = resolve(cwd, args[index + 1] ?? '');
+      const eq = arg.indexOf('=');
+      const flag = arg.startsWith('--') && eq > 0 ? arg.slice(0, eq) : arg;
+      const inline = flag === arg ? undefined : arg.slice(eq + 1);
+      if (!BUN_VALUE_FLAGS.has(flag)) return;
+      const value = inline ?? args[index + 1];
+      if (value === undefined) return;
+      if (inline === undefined) notInputs.add(index + 1);
+      if (flag === '--cwd') base = resolve(cwd, value);
+      else flagValues.push(value);
     });
-    const inline = args.find((arg) => arg.startsWith('--cwd='));
-    if (inline) base = resolve(cwd, inline.slice('--cwd='.length));
+  }
+  const regularFile = (path: string): Promise<boolean> =>
+    stat(path).then(
+      (st) => st.isFile(),
+      () => false,
+    );
+  const flagFiles: string[] = [];
+  for (const value of flagValues) {
+    const path = resolve(base, value);
+    if (await regularFile(path)) flagFiles.push(path);
   }
   const positional = args.flatMap((arg, index) =>
     arg.startsWith('-') || notInputs.has(index) ? [] : [index],
@@ -1329,24 +1359,19 @@ async function interpreterScript(
   };
   if (command === 'bunx') {
     exclude(0);
-    return { script: undefined, notInputs, base };
+    return { script: undefined, notInputs, base, flagFiles };
   }
-  if (command !== 'bun') return { script: word(0), notInputs, base };
+  if (command !== 'bun') return { script: word(0), notInputs, base, flagFiles };
   const first = word(0);
   if (first !== undefined && BUN_SUBCOMMANDS.has(first)) {
     exclude(0);
     if (first === 'x') exclude(1);
-    return { script: undefined, notInputs, base };
+    return { script: undefined, notInputs, base, flagFiles };
   }
-  const isFile =
-    first !== undefined &&
-    (await stat(resolve(base, first)).then(
-      (st) => st.isFile(),
-      () => false,
-    ));
-  if (isFile) return { script: first, notInputs, base };
+  if (first !== undefined && (await regularFile(resolve(base, first))))
+    return { script: first, notInputs, base, flagFiles };
   for (const index of positional) notInputs.add(index);
-  return { script: undefined, notInputs, base };
+  return { script: undefined, notInputs, base, flagFiles };
 }
 
 /** Capture declared task inputs and an interpreter's explicit harness argument. */
@@ -1377,12 +1402,13 @@ async function snapshotGateInputs(
     const command = basename(invocation.command);
     if (!invocation.args.some((arg) => evalFlags(command).includes(arg))) {
       const scripts: string[] = [];
-      const { script, notInputs, base } = await interpreterScript(
+      const { script, notInputs, base, flagFiles } = await interpreterScript(
         command,
         invocation.args,
         invocation.cwd,
       );
       if (script) scripts.push(resolve(base, script));
+      scripts.push(...flagFiles);
       invocation.args.forEach((arg, index) => {
         if (
           !notInputs.has(index) &&

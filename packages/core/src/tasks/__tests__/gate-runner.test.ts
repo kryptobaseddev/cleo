@@ -990,6 +990,13 @@ describe("bun's subcommands are not the script (T13566)", () => {
   afterEach(() => _forceSystemdRunAvailable(undefined));
 
   async function inputs(args: string[], command = fakeBun): Promise<string[]> {
+    return (await artifactsOf(args, command)).map((a) => a.path);
+  }
+
+  async function artifactsOf(
+    args: string[],
+    command = fakeBun,
+  ): Promise<Array<{ path: string; sha256: string | null }>> {
     const task: Task = {
       id: 'T166',
       title: 'bun gate',
@@ -1025,7 +1032,10 @@ describe("bun's subcommands are not the script (T13566)", () => {
     try {
       const [result] = await runTaskGates(task, rows, { execution });
       expect(result?.result, result?.errorMessage).toBe('pass');
-      return (result?.binding?.artifacts ?? []).map((a) => a.path.slice(projectRoot.length + 1));
+      return (result?.binding?.artifacts ?? []).map((a) => ({
+        path: a.path.slice(projectRoot.length + 1),
+        sha256: a.sha256,
+      }));
     } finally {
       execution.close();
     }
@@ -1062,7 +1072,8 @@ describe("bun's subcommands are not the script (T13566)", () => {
   it('bun -c <file> is the config flag, not inline eval (T13574)', async () => {
     const captured = await inputs(['-c', 'bunfig.toml', 'test', 'test/a.test.ts']);
     expect(captured).toContain('test/a.test.ts');
-    expect(captured).not.toContain('bunfig.toml');
+    // The config file is an input the gate reads (T13574 review), not inline code.
+    expect(captured).toContain('bunfig.toml');
   });
 
   it('bun --cwd dir test resolves files in dir and never captures dir (T13574)', async () => {
@@ -1070,6 +1081,32 @@ describe("bun's subcommands are not the script (T13566)", () => {
     expect(captured).toContain('sub/c.test.ts');
     expect(captured).not.toContain('sub');
     expect(await inputs(['--cwd=sub', 'test', 'c.test.ts'])).toContain('sub/c.test.ts');
+  });
+
+  it('bun file-flag values are captured inputs, never the script: an edited preload changes the snapshot (T13574 review)', async () => {
+    await mkdir(join(projectRoot, 'setup'), { recursive: true });
+    await writeFile(join(projectRoot, 'setup', 'pre.ts'), 'export const v = 1;\n');
+    await writeFile(join(projectRoot, 'setup', '.env.test'), 'A=1\n');
+    const args = [
+      '--preload',
+      './setup/pre.ts',
+      '--env-file=setup/.env.test',
+      '-c',
+      'bunfig.toml',
+      'test',
+      'test/a.test.ts',
+    ];
+    const before = await artifactsOf(args);
+    const preload = before.find((a) => a.path === 'setup/pre.ts');
+    expect(preload?.sha256).toEqual(expect.any(String));
+    expect(before.map((a) => a.path)).toEqual(
+      expect.arrayContaining(['setup/.env.test', 'bunfig.toml', 'test/a.test.ts']),
+    );
+    await writeFile(join(projectRoot, 'setup', 'pre.ts'), 'export const v = 2;\n');
+    const after = await artifactsOf(args);
+    expect(after.find((a) => a.path === 'setup/pre.ts')?.sha256).not.toBe(preload?.sha256);
+    // --cwd's value is a directory, never an input.
+    expect(await inputs(['--cwd', 'sub', 'test', 'c.test.ts'])).not.toContain('sub');
   });
 
   it('bun x <pkg> and bunx <pkg> never capture the package as a file', async () => {
