@@ -101,8 +101,7 @@ export function hooksV1GateSourceChanges(projectRoot: string, previousTag: strin
   if (now.unreleased === null || now.released === null)
     return [`${HOOKS_V1_GATE_PATH} has a gate shape the release guard cannot read`];
   const changes: string[] = [];
-  if (!now.unreleased && was?.unreleased !== false)
-    changes.push("'hooks-v1' left UNRELEASED_HOOK_FEATURES");
+  if (!now.unreleased) changes.push("'hooks-v1' left UNRELEASED_HOOK_FEATURES");
   if (was !== null && was.released !== now.released) changes.push('hooksV1Released changed');
   return changes;
 }
