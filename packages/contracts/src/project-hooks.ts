@@ -241,8 +241,8 @@ export interface ProjectHookInspection {
   resolvedHooks: ProjectHookResolution[];
   /** Machine-local opt-in flag. */
   enabled: boolean;
-  /** Activation is absent, fresh or drifted. */
-  activation: 'disabled' | 'missing' | 'active' | 'drifted';
+  /** Activation is absent, fresh or drifted; `unreleased` while this build has not released hooks-v1 (T13557), whatever the receipt says. */
+  activation: 'disabled' | 'missing' | 'active' | 'drifted' | 'unreleased';
   /** Safe assessment codes. */
   diagnostics: string[];
   /** Native harness trust cannot be inferred from files on disk. */

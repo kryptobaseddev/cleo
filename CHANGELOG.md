@@ -1,5 +1,70 @@
 # Changelog
 
+## [2026.10.10-canary.1] (2026-10-12)
+
+### Added
+
+- Share project hook rules across Git, coding agents and worktree setup with explicit activation and ownership diagnostics. _(provenance: [T13342](https://github.com/kryptobaseddev/cleo/search?q=T13342&type=commits), [T13343](https://github.com/kryptobaseddev/cleo/search?q=T13343&type=commits), [T13344](https://github.com/kryptobaseddev/cleo/search?q=T13344&type=commits), [T13345](https://github.com/kryptobaseddev/cleo/search?q=T13345&type=commits), [T13346](https://github.com/kryptobaseddev/cleo/search?q=T13346&type=commits))_
+
+## [2026.10.9] (2026-10-11)
+
+> **Upgrading:** from 2026.10.7 or later, `cleo self-update` is safe. This release contains a breaking change to evidence writes (see BREAKING CHANGES): run typed gates with `cleo verify <id> --run` before recording evidence. Cross-device journal sync, automatic sync and project hooks ship inert: sync stays off until the Stage C exit gate releases its flags, and hooks-v1 stays off on stable builds until its promotion.
+
+> **Note:** T13342, T12915, T13324, T13455, T13543 and T13548 shipped code in this release, but their CLEO tasks stay open: merge-commit CI was red in a flaky-quarantine window, a scheduled run failed, or the PR delivered only part of the task. They are listed here by PR, not in the release plan's task set.
+
+### Added
+
+- Brain tables keyed by an autoincrement id get row uids; their local id never travels _(provenance: [T12896](https://github.com/kryptobaseddev/cleo/search?q=T12896&type=commits))_
+- Memory trees are recomputed per device; brain task-observation links sync with natural row uids _(provenance: [T12896](https://github.com/kryptobaseddev/cleo/search?q=T12896&type=commits))_
+- Add independent numbered canary releases and require validated hook pilot evidence for explicitly scoped hooks-v1 stable promotion. _(provenance: [T13350](https://github.com/kryptobaseddev/cleo/search?q=T13350&type=commits))_
+- cleo cloud activity --journal shows what each device changed and when, from this store's sync journal _(provenance: [T13369](https://github.com/kryptobaseddev/cleo/search?q=T13369&type=commits), [T13393](https://github.com/kryptobaseddev/cleo/search?q=T13393&type=commits))_
+- The main brain syncs end to end on home:<user>, and cloud status reports the home stream's cut, unsent ops and pull position _(provenance: [T13370](https://github.com/kryptobaseddev/cleo/search?q=T13370&type=commits))_
+- a project-stream pull confirms replica retires from the server's project replica listing _(provenance: [T13391](https://github.com/kryptobaseddev/cleo/search?q=T13391&type=commits))_
+- Sync re-mints a colliding display id (T####, D####, SN-###) when the origin settles a uid collision _(provenance: [T13405](https://github.com/kryptobaseddev/cleo/search?q=T13405&type=commits))_
+- `cleo doctor system` reports every agent session with its project, harness, age, terminal idle time and RSS: the owner's close list _(provenance: [T13438](https://github.com/kryptobaseddev/cleo/search?q=T13438&type=commits))_
+- Sync: a store that never synced with a journal stream joins it and keeps its own rows _(provenance: [T13466](https://github.com/kryptobaseddev/cleo/search?q=T13466&type=commits), [T13503](https://github.com/kryptobaseddev/cleo/search?q=T13503&type=commits), [T13504](https://github.com/kryptobaseddev/cleo/search?q=T13504&type=commits), [T13507](https://github.com/kryptobaseddev/cleo/search?q=T13507&type=commits), [T13508](https://github.com/kryptobaseddev/cleo/search?q=T13508&type=commits))_
+- Automatic main-brain sync at session end and while the sentient daemon runs _(provenance: [T13468](https://github.com/kryptobaseddev/cleo/search?q=T13468&type=commits))_
+- cloud activity --devices shows, per device, its presence, its newest journal change and its newest server event _(provenance: [T13482](https://github.com/kryptobaseddev/cleo/search?q=T13482&type=commits))_
+- Normal commands in a linked project start a detached cloud sync at most once per window, with no daemon _(provenance: [T13553](https://github.com/kryptobaseddev/cleo/search?q=T13553&type=commits))_
+- evidence.runtimePaths: tracked files a harness rewrites during a run stay out of the evidence tree hash, so the run cannot stale its own receipt _(provenance: [T13554](https://github.com/kryptobaseddev/cleo/search?q=T13554&type=commits))_
+
+- Unified opt-in project hooks across Git, coding agents and worktree setup, with explicit activation and ownership diagnostics. Inert on stable builds until the hooks-v1 promotion (T13557) _(provenance: [T13342](https://github.com/kryptobaseddev/cleo/search?q=T13342&type=commits), [#2008](https://github.com/kryptobaseddev/cleo/pull/2008); task still open, see note)_
+- Sync: the global agent registry gets row identity; derived and local-only skill/capability rows are rebuilt from the agent row _(provenance: [T12915](https://github.com/kryptobaseddev/cleo/search?q=T12915&type=commits), [#2092](https://github.com/kryptobaseddev/cleo/pull/2092); task still open, see note)_
+
+### Changed
+
+- Spawn's atomicity pre-check records no duplicate dispatch trace; the preflight install documents why its stdio stays piped _(provenance: [T13510](https://github.com/kryptobaseddev/cleo/search?q=T13510&type=commits), [T13493](https://github.com/kryptobaseddev/cleo/search?q=T13493&type=commits))_
+- The 13 session-binding and admission tests that failed on macOS locally (green in CI) now pass under any shell _(provenance: [T13517](https://github.com/kryptobaseddev/cleo/search?q=T13517&type=commits))_
+
+### Fixed
+
+- Sync: only canonical store opens run the sync open pass; copies, backups and exodus handles stay off _(provenance: [T13336](https://github.com/kryptobaseddev/cleo/search?q=T13336&type=commits), [T12753](https://github.com/kryptobaseddev/cleo/search?q=T12753&type=commits))_
+- a global pull survives a failed home replica listing; no retire is confirmed that round _(provenance: [T13395](https://github.com/kryptobaseddev/cleo/search?q=T13395&type=commits))_
+- cloud activity --journal names every device, including signed-out and revoked ones, and shows each device's last presence _(provenance: [T13465](https://github.com/kryptobaseddev/cleo/search?q=T13465&type=commits))_
+- orchestrate spawn refuses with a hand-off instead of handing a child the session a live worker is using _(provenance: [T13491](https://github.com/kryptobaseddev/cleo/search?q=T13491&type=commits))_
+- orchestrate spawn refuses an atomicity violation before allocating a session, claiming the task or provisioning a worktree _(provenance: [T13510](https://github.com/kryptobaseddev/cleo/search?q=T13510&type=commits))_
+- Worker worktrees install the git shim they advertise, block pushes to main, and say `unavailable` when the shim cannot be installed _(provenance: [T13522](https://github.com/kryptobaseddev/cleo/search?q=T13522&type=commits))_
+- Read-only nexus impact/context no longer starts an unbounded in-process refresh; --no-refresh and CLEO_NEXUS_AUTO_REFRESH opt out _(provenance: [T13523](https://github.com/kryptobaseddev/cleo/search?q=T13523&type=commits))_
+- Worktree dependency installs go through the machine-wide heavy queue or are deferred to the worker; `orchestrate spawn --no-install` skips them _(provenance: [T13524](https://github.com/kryptobaseddev/cleo/search?q=T13524&type=commits))_
+- cleo release plan records the newest reachable v* tag as previousTag/previousVersion, not a stale releases-table row _(provenance: [T13536](https://github.com/kryptobaseddev/cleo/search?q=T13536&type=commits))_
+- A graph query's inline nexus refresh runs in an owned, heap-limited child process, so it can never abort the CLI at its heap cap, and stopping it releases every database lock _(provenance: [T13537](https://github.com/kryptobaseddev/cleo/search?q=T13537&type=commits), [T13548](https://github.com/kryptobaseddev/cleo/search?q=T13548&type=commits))_
+- The nexus refresh worker cannot hang a read query: it resolves on its result and a hard timer ends a stall _(provenance: [T13539](https://github.com/kryptobaseddev/cleo/search?q=T13539&type=commits))_
+- Worktree installs always use the worktree's own pnpm store, a tracked .npmrc gets a --store-dir hint, and info/exclude no longer hides .npmrc in the main checkout _(provenance: [T13541](https://github.com/kryptobaseddev/cleo/search?q=T13541&type=commits))_
+- A store open no longer fails with another operation's expired deadline _(provenance: [T13552](https://github.com/kryptobaseddev/cleo/search?q=T13552&type=commits))_
+- Project hooks stay inert on stable builds until the hooks-v1 promotion _(provenance: [T13557](https://github.com/kryptobaseddev/cleo/search?q=T13557&type=commits))_
+
+- A vault restore settles the reconcile record against the restored bare tables (bare accounts carried) _(provenance: [T13324](https://github.com/kryptobaseddev/cleo/search?q=T13324&type=commits), [#1982](https://github.com/kryptobaseddev/cleo/pull/1982); task still open, see note)_
+- A twin-collapse retry that fails again restores the read shadows _(provenance: [T13455](https://github.com/kryptobaseddev/cleo/search?q=T13455&type=commits), [#2070](https://github.com/kryptobaseddev/cleo/pull/2070); task still open, see note)_
+- cleo release plan considers only version-shaped tags below the planned version for previousTag, and compares prerelease numbers numerically _(provenance: [T13543](https://github.com/kryptobaseddev/cleo/search?q=T13543&type=commits), [#2116](https://github.com/kryptobaseddev/cleo/pull/2116); task still open, see note)_
+
+### BREAKING CHANGES
+
+- evidence writes, cleo done, cleo verify --auto and cleo complete no longer execute typed gates; they read passes cached by cleo verify --run, and --run-typed opts a write back into executing _(provenance: [T13521](https://github.com/kryptobaseddev/cleo/search?q=T13521&type=commits))_
+
+  Migration:
+
+  Run typed gates with cleo verify <id> --run (or --run --req <REQ-IDs>) before recording evidence; a write that links a typed gate with no cached pass now refuses with E_GATE_NOT_CACHED. To keep executing typed gates during a write, cleo done or cleo verify --auto, add --run-typed. Projects with evidence.allowCachedGates false must pass --run-typed on writes for tasks with typed gates.
+
 ## [2026.10.8] (2026-10-11)
 
 > **Upgrading:** from 2026.10.6 or older, run `cleo self-update --no-auto-upgrade`, then `cleo upgrade`. From 2026.10.7, `cleo self-update` is safe. 2026.10.8 fixes a 2026.10.7 bug where `cleo complete` could wipe a task's cached typed-gate passes and then refuse them.

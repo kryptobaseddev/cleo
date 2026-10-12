@@ -42,6 +42,12 @@ export const ON_REMOTE_PARENT_DELETE: Readonly<Record<string, ParentDeletePolicy
   // A grant references its connection (NO ACTION, T13467): a remote delete of
   // a connection still granted to an agent is a conflict, never a silent drop.
   service_connections: 'conflict',
+  // T13354 (CleoDocs re-key, D11165): the doc history family references the
+  // doc's uid with ON DELETE NO ACTION, so no child ever cascades — exactly
+  // the re-key's point (history survives the doc). A doc or version delete
+  // with live children is a conflict, never a silent wipe.
+  conduit_attachments: 'conflict',
+  conduit_attachment_versions: 'conflict',
 };
 
 /**

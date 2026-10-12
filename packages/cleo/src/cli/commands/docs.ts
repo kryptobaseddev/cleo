@@ -51,6 +51,8 @@ import { auditCommand } from './docs/audit.js';
 import { graphCommand as provenanceGraphCommand } from './docs/graph.js';
 // T11875 — display-alias assignment verb (`set-alias <slug> <number>`).
 import { setAliasCommand } from './docs/set-alias.js';
+// T13446 — docs.triage decision-site batch triage (`triage [--limit N] [--status S] [--record]`).
+import { triageCommand } from './docs/triage.js';
 import { docsViewerSubcommands } from './docs-viewer.js';
 
 const docsOutputFlagHelp =
@@ -2928,6 +2930,7 @@ export const docsCommand = defineCommand({
       'LLM output: llm-output (replaces generate + export). ' +
       'Advanced: supersede, merge, graph, versions. ' +
       'Audit: audit (query the immutable docs audit trail). ' +
+      'Triage: triage (batch docs.triage verdicts — proposals only, --record persists D####) (T13446). ' +
       'Legacy/migration: search, find, rank, sync, status, gap-check, import (use query for new work). ' +
       'Viewer: viewer (start/stop/open/status). Utilities: schema (list-types → schema).',
   },
@@ -2962,6 +2965,8 @@ export const docsCommand = defineCommand({
     'publish-pr': publishPrCommand,
     // T11182 — unified docs audit trail
     audit: auditCommand,
+    // T13446 — docs.triage batch triage (proposals only; --record persists D#### verdicts)
+    triage: triageCommand,
     // Legacy/migration (use canonical verbs for new work)
     sync: syncCommand,
     status: statusCommand,

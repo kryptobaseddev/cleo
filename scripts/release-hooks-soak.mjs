@@ -19,6 +19,24 @@ import { readPublishedPackages } from './execute-payload.mjs';
 import { isMain } from './lib/is-main.mjs';
 import { sandboxEnvironment } from './lib/sandbox-env.mjs';
 
+/** The probe's result on a build where hooks-v1 is unreleased (T13557). */
+export const HOOKS_V1_INERT =
+  'hooks-v1 unreleased on this build: activation refused by name (E_HOOKS_V1_UNRELEASED) and runtime inert verified';
+
+/**
+ * Whether an installed `@cleocode/core` manifest released hooks-v1, by the
+ * same release metadata the runtime gate reads (core/src/hooks/release-gate.ts).
+ *
+ * @param {{ version?: string, cleo?: { releasedFeatures?: string[] } }} manifest - The installed core manifest.
+ * @returns {boolean} `true` for a canary build or a hooks-v1 promotion.
+ */
+export function hooksV1ReleasedIn(manifest) {
+  return (
+    /-canary\.\d+$/.test(manifest.version ?? '') ||
+    manifest.cleo?.releasedFeatures?.includes('hooks-v1') === true
+  );
+}
+
 /** Exercise installed CLI delivery, native protocol, actual pushes and worktree port.
  * @param {{bin:string,project:string,installDir:string,env:NodeJS.ProcessEnv}} options Sandbox paths and environment.
  * @returns {Promise<string>} Verified fixture scenarios.
@@ -101,6 +119,21 @@ const request=JSON.parse(text);if(request.source==='worktree')appendFileSync('ho
   git('add', '-f', 'canary-check.mjs', '.cleo/hooks.json');
   if (existsSync(join(project, '.cleo/project.json'))) git('add', '-f', '.cleo/project.json');
   git('-c', 'core.hooksPath=/dev/null', 'commit', '-m', 'test(T999): installed hooks fixture');
+  // T13557: a stable build without the hooks-v1 promotion stamp is inert. Prove
+  // the refusal and stop; canary and promoted builds run the full scenario.
+  const coreManifest = JSON.parse(
+    readFileSync(join(installDir, 'node_modules', '@cleocode', 'core', 'package.json'), 'utf8'),
+  );
+  if (!hooksV1ReleasedIn(coreManifest)) {
+    const refused = JSON.parse(
+      call(bin, ['hook', 'sync', '--activate', '--providers', 'codex,claude-code'], undefined, 1),
+    );
+    if (refused.success !== false || refused.error?.code !== 'E_HOOKS_V1_UNRELEASED')
+      throw new Error('Installed stable build did not refuse hooks-v1 activation by name');
+    if (envelope(['doctor', 'hooks', '--providers', 'codex,claude-code']).activation !== 'disabled')
+      throw new Error('Refused activation still enabled project hooks');
+    return HOOKS_V1_INERT;
+  }
   envelope(['hook', 'sync', '--activate', '--providers', 'codex,claude-code']);
   const after = envelope(['doctor', 'hooks', '--providers', 'codex,claude-code']);
   if (after.activation !== 'active' || after.nativeTrust !== 'unverified')

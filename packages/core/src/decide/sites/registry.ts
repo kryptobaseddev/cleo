@@ -144,6 +144,31 @@ export const DECIDE_BENCH_DECISION_SITE = {
 } as const satisfies DecisionSiteDefinition;
 
 /**
+ * `docs.triage` — batch keep/update/supersede/archive verdicts over draft docs
+ * (T13446). Proposals only: the site never mutates a doc; `--record` persists
+ * each verdict as a `proposed` D#### decision for owner review.
+ */
+export const DOC_TRIAGE_DECISION_SITE = {
+  id: 'docs.triage',
+  title: 'CleoDocs draft triage (keep/update/supersede/archive)',
+  files: ['packages/core/src/docs/triage.ts'],
+  questionType: 'choice',
+  primaryRung: 'system-one',
+  ladder: ['generative'],
+  fallback: 'rule',
+  floors: { '*': 0.6 },
+  ownerEscalation: 'below-floor',
+  modeKey: 'decide.sites.docTriage',
+  generativeKey: 'decide.generativeFallback.docTriage',
+  defaultMode: 'shadow',
+  llmSystemKey: 'consolidation',
+  writePath: false,
+  sends: ['memory-text'],
+  task: 'T13446',
+  note: 'Batch job over `cleo docs triage`; rule fallback is age/topics/link heuristics. Shadow until go-live evidence exists.',
+} as const satisfies DecisionSiteDefinition;
+
+/**
  * Generative and agent-rung sites that predate the ladder: registered so every
  * model call site is listed (spec §3.3). All `on`; none uses System One.
  */
@@ -394,6 +419,7 @@ export const DECISION_SITES: readonly DecisionSiteDefinition[] = [
   OWNER_DECISION_DECISION_SITE,
   DECIDE_ASK_DECISION_SITE,
   DECIDE_BENCH_DECISION_SITE,
+  DOC_TRIAGE_DECISION_SITE,
   ...GENERATIVE_SITES,
 ];
 

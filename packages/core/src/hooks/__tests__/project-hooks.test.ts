@@ -30,6 +30,14 @@ import {
   inspectProjectHooks,
   resolveProjectHookContext,
 } from '../project-state.js';
+import { HooksV1UnreleasedError } from '../release-gate.js';
+
+// The hooks-v1 gate (T13557) is open for these tests unless one closes it.
+const gate = vi.hoisted(() => ({ released: true }));
+vi.mock('../release-gate.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../release-gate.js')>();
+  return { ...mod, hooksV1Released: () => gate.released };
+});
 
 describe('activated project checks through actual child processes', () => {
   let root: string;
@@ -53,8 +61,66 @@ describe('activated project checks through actual child processes', () => {
     };
   });
   afterEach(async () => {
+    gate.released = true;
     vi.unstubAllEnvs();
     await rm(root, { recursive: true, force: true });
+  });
+
+  describe('while hooks-v1 is unreleased (T13557)', () => {
+    it('refuses activation by name and writes no receipt', async () => {
+      gate.released = false;
+      await expect(activateProjectHooks(root)).rejects.toBeInstanceOf(HooksV1UnreleasedError);
+      await expect(activateProjectHooks(root)).rejects.toMatchObject({
+        code: 'E_HOOKS_V1_UNRELEASED',
+      });
+      gate.released = true;
+      expect((await inspectProjectHooks(root)).activation).toBe('disabled');
+    });
+
+    it('never runs a matching receipt made earlier: skip locally, a blocking failure in CI, and no handler spawns', async () => {
+      await writeFile(
+        join(root, 'handler.mjs'),
+        `import{writeFileSync}from'node:fs';writeFileSync(${JSON.stringify(join(root, 'ran'))},'1');process.stdout.write(JSON.stringify({status:'pass'}));`,
+      );
+      await activateProjectHooks(root);
+      gate.released = false;
+      const inspection = await inspectProjectHooks(root);
+      expect(inspection.activation).toBe('unreleased');
+      expect(inspection.diagnostics).toContain('HOOKS_V1_UNRELEASED');
+      expect((await executeProjectHooks(invocation))[0]).toMatchObject({
+        status: 'skip',
+        blocks: false,
+        code: 'HOOKS_V1_UNRELEASED',
+      });
+      expect(
+        (
+          await executeProjectHooks(
+            { ...invocation, source: 'ci', event: 'check' },
+            'migration-check',
+          )
+        )[0],
+      ).toMatchObject({
+        status: 'infrastructure-error',
+        blocks: true,
+        code: 'HOOKS_V1_UNRELEASED',
+      });
+      const worktreeExecutor = createProjectHookExecutor(root);
+      expect((await worktreeExecutor.execute(invocation))[0]).toMatchObject({
+        code: 'HOOKS_V1_UNRELEASED',
+      });
+      await expect(readFile(join(root, 'ran'), 'utf8')).rejects.toThrow();
+      // Disable stays available while unreleased.
+      await disableProjectHooks(root);
+      expect((await inspectProjectHooks(root)).activation).toBe('disabled');
+    });
+
+    it('runs the same receipt once released', async () => {
+      await activateProjectHooks(root);
+      expect((await executeProjectHooks(invocation))[0]).toMatchObject({
+        status: 'pass',
+        blocks: false,
+      });
+    });
   });
 
   async function manifest(patch: Partial<ProjectHookDefinition> = {}): Promise<void> {

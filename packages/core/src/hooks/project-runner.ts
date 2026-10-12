@@ -24,6 +24,7 @@ import {
   resolveProjectHookFile,
   resolveProjectHookStateFile,
 } from './project-state.js';
+import { HOOKS_V1_UNRELEASED } from './release-gate.js';
 
 const MAX_INPUT_BYTES = 65536;
 const MAX_OUTPUT_BYTES = 65536;
@@ -259,6 +260,21 @@ export async function executeProjectHooks(
           },
         ];
       }
+    }
+    if (inspection.activation === 'unreleased') {
+      // T13557: inert on a build without hooks-v1; a required CI check still fails.
+      if (invocation.source === 'ci') return [fault(invocation, HOOKS_V1_UNRELEASED)];
+      return [
+        {
+          id: id ?? 'cleo.project-hooks',
+          status: 'skip',
+          blocks: false,
+          code: HOOKS_V1_UNRELEASED,
+          exitCode: null,
+          signal: null,
+          durationMs: 0,
+        },
+      ];
     }
     if (inspection.activation !== 'active') {
       if (invocation.source === 'ci')

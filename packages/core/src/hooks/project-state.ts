@@ -19,6 +19,9 @@ import {
 import { discoveryEnv } from '../git/work-tree.js';
 import { atomicWrite } from '../store/atomic.js';
 import { canonicalizePath, readFileText } from '../tools/fs.js';
+import { HOOKS_V1_UNRELEASED, HooksV1UnreleasedError, hooksV1Released } from './release-gate.js';
+
+export { HooksV1UnreleasedError } from './release-gate.js';
 
 const MAX_DEFINITION_BYTES = 262144;
 const MAX_ACTIVATION_BYTES = 1048576;
@@ -318,6 +321,12 @@ export async function inspectProjectHooks(
     nativeHookTrust: 'unverified',
   };
   if (!result.enabled) return result;
+  // T13557: a receipt is never effectively active on a build without hooks-v1.
+  if (!hooksV1Released()) {
+    result.activation = 'unreleased';
+    result.diagnostics.push(HOOKS_V1_UNRELEASED);
+    return result;
+  }
   if (!state.activation) {
     result.activation = 'missing';
     result.diagnostics.push('HOOK_ACTIVATION_MISSING');
@@ -333,6 +342,8 @@ export async function inspectProjectHooks(
 
 /** Explicitly activate the present definitions; does not install or grant harness trust. */
 export async function activateProjectHooks(cwd: string): Promise<ProjectHooksLocalState> {
+  // @sync-invariant none:local-only Refuse machine-local hook activation on a build without hooks-v1 (T13557); no synced rows are written.
+  if (!hooksV1Released()) throw new HooksV1UnreleasedError();
   const context = resolveProjectHookContext(cwd);
   const manifest = await readProjectHooksManifest(context);
   const activation = await computeHookActivation(context, manifest);

@@ -93,7 +93,9 @@ import {
   sqliteTable,
   text,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
+import { defaultRowUid } from '../../row-identity-flag.js';
 
 // ---------------------------------------------------------------------------
 // Conversations & messages
@@ -329,36 +331,82 @@ export const conduitAttachments = sqliteTable(
     currentVersion: integer('current_version').notNull().default(1),
     /** ISO-8601 UTC creation instant (was epoch seconds, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Row uid (T12341): the immutable document id. History tables reference
+     * THIS, never the slug — the slug is a mutable alias (T13354, D11165).
+     * New rows get a random UUIDv7 from `defaultRowUid`; existing rows are
+     * filled deterministically at open (`store/row-identity.ts`).
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12341): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
   (table) => [
     index('idx_conduit_attachments_conversation').on(table.conversationId),
     index('idx_conduit_attachments_agent').on(table.fromAgentId),
+    uniqueIndex('uq_conduit_attachments_uid').on(table.uid),
   ],
 );
 
 /**
  * `conduit_attachment_versions` — version history (collaborative editing).
  *
- * @task T11360 (target shape) · T344 (original)
+ * RE-KEYED (T13354, spec `cleodocs-rearch-design` §3/§10, D11165): the parent
+ * reference is the document's immutable row uid (`conduit_attachments.uid`),
+ * NOT the mutable slug, and there is NO cascade delete anywhere. Version
+ * identity is the row `uid` plus `parent_version_uid` — a DAG: two devices
+ * minting `version_number` N+1 collide, so the number survives only as a
+ * derived display ordinal and is NEVER a unique key. Rows are strictly
+ * append-only; large bodies travel as content-addressed blob refs
+ * (`storage_key` + `content_hash`, the T12918 precedent), never inline in ops.
+ *
+ * Legacy rows carried by the T13354 rebuild keep their pre-rekey slug in
+ * `slug` (now a nullable display alias, no longer a key or FK) with
+ * `attachment_uid` NULL until the doc resolves.
+ *
+ * @task T13354 (re-key) · T11360 (target shape) · T344 (original)
  */
 export const conduitAttachmentVersions = sqliteTable(
   'conduit_attachment_versions',
   {
-    /** Version row id (UUID v4). */
+    /** Version row id (UUID v4) — the LOCAL key; it never travels. */
     id: text('id').primaryKey(),
-    /** FK → `conduit_attachments.slug`. ON DELETE CASCADE. */
-    slug: text('slug')
-      .notNull()
-      .references((): AnySQLiteColumn => conduitAttachments.slug, { onDelete: 'cascade' }),
-    /** Monotonic version number. */
+    /**
+     * Row uid (T12341) — the version's identity on the wire. With
+     * `parent_version_uid` it forms the version DAG (T13354).
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12341). */
+    birthFp: text('birth_fp'),
+    /** FK → `conduit_attachments.uid` (immutable doc id). NO cascade delete. */
+    attachmentUid: text('attachment_uid').references(
+      (): AnySQLiteColumn => conduitAttachments.uid,
+      { onDelete: 'no action' },
+    ),
+    /**
+     * Soft self-reference to the parent version's `uid` (NULL for a root),
+     * indexed; NOT a hard FK: the rebuild idiom cannot carry a self-FK (at the
+     * INSERT the old table still occupies the name, so `uid` is not yet a
+     * unique parent key — "foreign key mismatch" when legacy rows exist). No
+     * cascade by construction: history survives the parent.
+     */
+    parentVersionUid: text('parent_version_uid'),
+    /** Pre-rekey slug (T13354 legacy carry / display alias). No longer a key,
+     * no longer an FK: the canonical old-slug lookup is
+     * `conduit_doc_slug_aliases`. Kept under its original name so the
+     * signaldock→conduit exodus column-intersection copy still carries it.
+     * The index survives the re-key: the t11363 consolidation's apply-probe
+     * looks for it on journal-rebuilt stores. */
+    slug: text('slug'),
+    /** Display ordinal minted locally; collides across devices — never a key. */
     versionNumber: integer('version_number').notNull(),
     /** Revision author agent id (cross-DB soft FK → signaldock). */
     authorAgentId: text('author_agent_id').notNull(),
     /** Change type (§5b non-conformer — bare TEXT pending exodus audit). */
     changeType: text('change_type').notNull().default('patch'),
-    /** Optional patch text. */
+    /** Optional patch text (small edits only; large bodies are blob refs). */
     patchText: text('patch_text'),
-    /** External storage key. */
+    /** Content-addressed blob ref (T12918 precedent) — never inline bytes. */
     storageKey: text('storage_key').notNull(),
     /** SHA content hash. */
     contentHash: text('content_hash').notNull(),
@@ -380,57 +428,115 @@ export const conduitAttachmentVersions = sqliteTable(
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   },
   (table) => [
-    unique('uq_conduit_attachment_versions_slug_version').on(table.slug, table.versionNumber),
-    index('idx_conduit_attachment_versions_slug').on(table.slug),
+    uniqueIndex('uq_conduit_attachment_versions_uid').on(table.uid),
+    index('idx_conduit_attachment_versions_attachment').on(table.attachmentUid),
+    index('idx_conduit_attachment_versions_parent').on(table.parentVersionUid),
     index('idx_conduit_attachment_versions_author').on(table.authorAgentId),
+    // Survives the re-key: the t11363 consolidation's apply-probe looks for it.
+    index('idx_conduit_attachment_versions_slug').on(table.slug),
   ],
 );
 
 /**
  * `conduit_attachment_approvals` — approval records for content review.
  *
- * @task T11360 (target shape) · T344 (original)
+ * RE-KEYED (T13354, spec §3/§10, D11165): keyed by VERSION uid plus an
+ * optional SECTION id — not by (slug, version_number). Strictly append-only:
+ * a revoke is a new row (`status: 'revoked'`), never an UPDATE or DELETE, so
+ * the pre-rekey UNIQUE(slug, reviewer) constraint is gone. No cascade delete.
+ *
+ * @task T13354 (re-key) · T11360 (target shape) · T344 (original)
  */
 export const conduitAttachmentApprovals = sqliteTable(
   'conduit_attachment_approvals',
   {
-    /** Approval row id (UUID v4). */
+    /** Approval row id (UUID v4) — the LOCAL key; it never travels. */
     id: text('id').primaryKey(),
-    /** FK → `conduit_attachments.slug`. ON DELETE CASCADE. */
-    slug: text('slug')
-      .notNull()
-      .references((): AnySQLiteColumn => conduitAttachments.slug, { onDelete: 'cascade' }),
+    /** Row uid (T12341) — the approval's identity on the wire. */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12341). */
+    birthFp: text('birth_fp'),
+    /** FK → `conduit_attachments.uid` (immutable doc id). NO cascade delete. */
+    attachmentUid: text('attachment_uid').references(
+      (): AnySQLiteColumn => conduitAttachments.uid,
+      { onDelete: 'no action' },
+    ),
+    /** FK → the reviewed version's `uid`. NO cascade delete. */
+    versionUid: text('version_uid').references(
+      (): AnySQLiteColumn => conduitAttachmentVersions.uid,
+      { onDelete: 'no action' },
+    ),
+    /** Section the verdict covers; NULL = whole document (T13354 AC3). */
+    sectionId: text('section_id'),
+    /**
+     * Pre-rekey slug (T13354 legacy carry / display alias). No longer a key,
+     * no longer an FK: the canonical old-slug lookup is
+     * `conduit_doc_slug_aliases`. Kept under its original name so the
+     * signaldock→conduit exodus column-intersection copy still carries it.
+     */
+    slug: text('slug'),
     /** Reviewer agent id (cross-DB soft FK → signaldock). */
     reviewerAgentId: text('reviewer_agent_id').notNull(),
-    /** Approval status (§5b non-conformer — bare TEXT pending exodus audit). */
+    /**
+     * Approval status (§5b non-conformer — bare TEXT pending exodus audit).
+     * A revoke is a NEW row with status 'revoked' (tombstone); rows are never
+     * updated or deleted.
+     */
     status: text('status').notNull().default('pending'),
     /** Optional reviewer comment. */
     comment: text('comment'),
-    /** Version number reviewed. */
+    /**
+     * Version number reviewed — pre-rekey legacy fact (display only; the
+     * authoritative reference is `version_uid`). New rows mirror the
+     * version's display ordinal.
+     */
     versionReviewed: integer('version_reviewed').notNull(),
     /** ISO-8601 UTC creation instant (was epoch seconds, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-    /** ISO-8601 UTC last-update instant (was epoch seconds, §4). */
+    /**
+     * Pre-rekey legacy carry (the old table tracked edits in place); rows
+     * written re-keyed leave it equal to `created_at`. Append-only since
+     * T13354 — nothing updates it anymore.
+     */
     updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
   },
   (table) => [
-    unique('uq_conduit_attachment_approvals_slug_reviewer').on(table.slug, table.reviewerAgentId),
+    uniqueIndex('uq_conduit_attachment_approvals_uid').on(table.uid),
+    index('idx_conduit_attachment_approvals_attachment').on(table.attachmentUid),
+    index('idx_conduit_attachment_approvals_version').on(table.versionUid),
+    // Survives the re-key: the t11363 consolidation's apply-probe looks for it.
     index('idx_conduit_attachment_approvals_slug').on(table.slug),
   ],
 );
 
 /**
- * `conduit_attachment_contributors` — contributor stats per attachment.
+ * `conduit_attachment_contributors` — contributor rollup per document.
  *
- * @task T11360 (target shape) · T344 (original)
+ * RE-KEYED (T13354, spec §3/§10, D11165): a DERIVED table — rebuilt from
+ * `conduit_attachment_versions` by `rebuildConduitAttachmentContributors`
+ * (store/conduit-doc-history.ts) after apply, never synced (syncing a
+ * recomputable table would double writes and create a second source of
+ * truth). The per-version, per-section facts it aggregates live on
+ * `versions.sections_modified` and `approvals.section_id`; this rollup is
+ * keyed (attachment_uid, agent_id). No cascade delete; `slug` (nullable, no
+ * longer a key or FK) carries the pre-rekey slug on migrated rows.
+ *
+ * @task T13354 (re-key) · T11360 (target shape) · T344 (original)
  */
 export const conduitAttachmentContributors = sqliteTable(
   'conduit_attachment_contributors',
   {
-    /** FK → `conduit_attachments.slug`. ON DELETE CASCADE. */
-    slug: text('slug')
-      .notNull()
-      .references((): AnySQLiteColumn => conduitAttachments.slug, { onDelete: 'cascade' }),
+    /** FK → `conduit_attachments.uid` (immutable doc id). NO cascade delete. */
+    attachmentUid: text('attachment_uid').references(
+      (): AnySQLiteColumn => conduitAttachments.uid,
+      { onDelete: 'no action' },
+    ),
+    /**
+     * Pre-rekey slug (T13354 legacy carry / display alias; see
+     * `conduit_doc_slug_aliases` for the canonical lookup). Kept under its
+     * original name so the exodus column-intersection copy still carries it.
+     */
+    slug: text('slug'),
     /** Contributor agent id (cross-DB soft FK → signaldock). */
     agentId: text('agent_id').notNull(),
     /** Number of versions contributed. */
@@ -444,7 +550,123 @@ export const conduitAttachmentContributors = sqliteTable(
     /** ISO-8601 UTC last-contribution instant (was epoch seconds, §4). */
     lastContributionAt: text('last_contribution_at').notNull(),
   },
-  (table) => [primaryKey({ columns: [table.slug, table.agentId] })],
+  (table) => [primaryKey({ columns: [table.attachmentUid, table.agentId] })],
+);
+
+// ---------------------------------------------------------------------------
+// Doc identity, head projection, and local CRDT state (T13354)
+// ---------------------------------------------------------------------------
+
+/**
+ * `conduit_doc_slug_aliases` — old slugs → immutable doc uid (T13354 AC2).
+ *
+ * The slug is an alias, not an identity (spec §3): when a doc's slug changes,
+ * an alias row records the old slug so pre-rename references keep resolving.
+ * Append-only syncing table; identity is NATURAL over (slug, doc_uid) so two
+ * devices that record the same alias derive the same uid and merge to one
+ * row. The composite primary key is the natural key itself (the
+ * `tasks_task_dependencies` pattern).
+ *
+ * @task T13354
+ */
+export const conduitDocSlugAliases = sqliteTable(
+  'conduit_doc_slug_aliases',
+  {
+    /** The old slug (several aliases may point at one doc over time). */
+    slug: text('slug').notNull(),
+    /** FK → `conduit_attachments.uid` (immutable doc id). NO cascade delete. */
+    docUid: text('doc_uid')
+      .notNull()
+      .references((): AnySQLiteColumn => conduitAttachments.uid, { onDelete: 'no action' }),
+    /** Why the alias exists (e.g. 'rename', 'rekey'); free text. */
+    reason: text('reason').notNull().default('rename'),
+    /** ISO-8601 UTC creation instant. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Natural row uid over (slug, doc_uid). Declared LAST on purpose: the
+     * row-identity heal appends a missing uid column at the end, and Gate B's
+     * replay compares column order between a rebuilt store and a written one.
+     */
+    uid: text('uid'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.slug, table.docUid] }),
+    index('idx_conduit_doc_slug_aliases_slug').on(table.slug),
+    uniqueIndex('uq_conduit_doc_slug_aliases_uid').on(table.uid),
+  ],
+);
+
+/**
+ * `conduit_doc_heads` — current-version projection, one row per doc (T13354).
+ *
+ * Syncing, whole-row merge (typed rule `docs.head.max-hlc`): the row keeps
+ * the head with the MAX HLC; a losing concurrent head is never silently
+ * shadowed — `conflict_count` increments and `last_conflict_json` records the
+ * loser (it survives in `conduit_attachment_versions`). Identity is NATURAL
+ * over `attachment_uid` (the primary key), so every device addresses the same
+ * row for a doc.
+ *
+ * @task T13354
+ */
+export const conduitDocHeads = sqliteTable(
+  'conduit_doc_heads',
+  {
+    /** FK → `conduit_attachments.uid` (the doc). NO cascade delete. */
+    attachmentUid: text('attachment_uid')
+      .primaryKey()
+      .references((): AnySQLiteColumn => conduitAttachments.uid, { onDelete: 'no action' }),
+    /** FK → the head version's `uid`. NO cascade delete. */
+    headVersionUid: text('head_version_uid')
+      .notNull()
+      .references((): AnySQLiteColumn => conduitAttachmentVersions.uid, { onDelete: 'no action' }),
+    /**
+     * HLC of the head version (journal wire form; lexical order IS tuple
+     * order — `store/sync/hlc.ts`). The merge keeps the max.
+     */
+    headHlc: text('head_hlc').notNull(),
+    /** Number of losing concurrent heads recorded (never reset). */
+    conflictCount: integer('conflict_count').notNull().default(0),
+    /** JSON of the last losing head: `{versionUid, hlc, recordedAt}`; NULL if none. */
+    lastConflictJson: text('last_conflict_json'),
+    /** ISO-8601 UTC instant the projection last moved. */
+    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Natural row uid over `attachment_uid` (T12341). Declared LAST on
+     * purpose: the row-identity heal appends a missing uid column at the
+     * end, and Gate B's replay compares column order between a rebuilt
+     * store and a written one.
+     */
+    uid: text('uid'),
+  },
+  (table) => [uniqueIndex('uq_conduit_doc_heads_uid').on(table.uid)],
+);
+
+/**
+ * `section_crdt_states` — local Loro state per document section (T13354).
+ *
+ * LOCAL-ONLY (spec §2 option b / §10): the Loro snapshot bytes are this
+ * device's editing state; content moves cross-device only through landed
+ * versions. Deliberately NO foreign key into a syncing table — an apply that
+ * lands a version resets/rebases this state instead, and a cascade delete
+ * from a syncing row must never reach local state (T12778).
+ *
+ * @task T13354
+ */
+export const sectionCrdtStates = sqliteTable(
+  'section_crdt_states',
+  {
+    /** Document uid (`conduit_attachments.uid`) — soft reference, no FK. */
+    attachmentUid: text('attachment_uid').notNull(),
+    /** Section id within the document. */
+    sectionId: text('section_id').notNull(),
+    /** Opaque Loro snapshot bytes (one Loro doc per section, root "content"). */
+    snapshot: blob('snapshot', { mode: 'buffer' }).notNull(),
+    /** Version uid the local state was last reset/rebased to; NULL = base. */
+    baseVersionUid: text('base_version_uid'),
+    /** ISO-8601 UTC instant the local state last changed. */
+    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [primaryKey({ columns: [table.attachmentUid, table.sectionId] })],
 );
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.15
+version: 3.1.17
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.15
+  version: 3.1.17
   tier: core
   install: harness
   covers:
@@ -26,7 +26,7 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-10-10
+  lastReviewed: 2026-10-11
   stability: stable
 ---
 
@@ -504,7 +504,13 @@ Provider delivery receives canonical SDK file reads and Git discovery through a 
 Adapters do not acquire a runtime dependency on core for these utilities.
 
 Project business rules live in tracked `.cleo/hooks.json`; generated provider entries
-are delivery outputs. Preview with `cleo hook sync --dry-run`; explicit local activation
+are delivery outputs. Until the hooks-v1 stable promotion, a stable build is inert (T13557):
+`cleo hook sync --activate` refuses with `E_HOOKS_V1_UNRELEASED`, existing receipts report
+`unreleased` and never run (a required `--ci` check fails), and `--disable` still works; a
+`-canary.N` build or the promotion's `cleo.releasedFeatures` stamp opens the gate
+(`core/src/hooks/release-gate.ts`). A source checkout carries a stable version, so hooks
+cannot be activated on main either; only code passing the gate's `allowUnreleased` option
+(tests) opts in. Preview with `cleo hook sync --dry-run`; explicit local activation
 uses `cleo hook sync --activate` and binds definitions, handlers and dependencies to
 current hashes. Source drift requires reactivation. Agent project checks are advisory;
 Git applies project verdicts. Native harness trust remains separately unverified.

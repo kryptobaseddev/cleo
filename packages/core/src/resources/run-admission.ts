@@ -207,6 +207,16 @@ export interface RunJob {
    * older builds, where only a nested run (`parentJob`) shares a group.
    */
   readonly leadsGroup?: boolean;
+  /** Resident memory of the child's process tree at the last sample (T13563). */
+  readonly measuredRssBytes?: number;
+  /** CPU time the child's process tree has used, at the last sample (T13563). */
+  readonly cpuMs?: number;
+  /** Since when the tree has used no CPU, else null (T13563). */
+  readonly idleSinceMs?: number | null;
+  /** When the run passed its class's maximum wall time, else null (T13563). */
+  readonly overdueAtMs?: number | null;
+  /** When the run was flagged hung (idle past the window), else null (T13563). */
+  readonly hungAtMs?: number | null;
 }
 
 /**
@@ -430,6 +440,204 @@ export function processGroupOf(pid: number): number | null {
   } catch {
     return null;
   }
+}
+
+/** CPU time and resident memory of a process and every descendant (T13563). */
+export interface ProcessTreeUsage {
+  /** Summed CPU time (user + system), ms. */
+  readonly cpuMs: number;
+  /** Summed resident set size, bytes. */
+  readonly rssBytes: number;
+  /** Processes in the tree. */
+  readonly processes: number;
+}
+
+/**
+ * A `ps` `time` value (`[[DD-]HH:]MM:SS[.ff]`, as macOS and procps print it)
+ * in ms, or NaN when malformed.
+ *
+ * @param value - The column text.
+ * @returns Milliseconds.
+ */
+export function parsePsTime(value: string): number {
+  const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$/.exec(value.trim());
+  if (!m) return Number.NaN;
+  const [, days = '0', hours = '0', minutes = '0', seconds = '0'] = m;
+  return (
+    ((Number(days) * 24 + Number(hours)) * 60 + Number(minutes)) * 60_000 +
+    Math.round(Number(seconds) * 1000)
+  );
+}
+
+/**
+ * The usage of `rootPid`'s tree from a `ps -A -o pid=,ppid=,time=,rss=` table
+ * (rss in KiB); null when the root is not in it.
+ *
+ * @param table - The `ps` output.
+ * @param rootPid - The tree's root.
+ * @returns The summed usage.
+ */
+export function treeUsageFromTable(table: string, rootPid: number): ProcessTreeUsage | null {
+  const rows = new Map<number, { ppid: number; cpuMs: number; rssKiB: number }>();
+  for (const line of table.split('\n')) {
+    const [pid, ppid, time, rss] = line.trim().split(/\s+/);
+    const row = { ppid: Number(ppid), cpuMs: parsePsTime(time ?? ''), rssKiB: Number(rss) };
+    if (Number.isInteger(Number(pid)) && Number.isFinite(row.cpuMs) && Number.isFinite(row.rssKiB))
+      rows.set(Number(pid), row);
+  }
+  if (!rows.has(rootPid)) return null;
+  const children = new Map<number, number[]>();
+  for (const [pid, r] of rows) children.set(r.ppid, [...(children.get(r.ppid) ?? []), pid]);
+  let cpuMs = 0;
+  let rssKiB = 0;
+  let processes = 0;
+  const seen = new Set<number>();
+  const stack = [rootPid];
+  while (stack.length > 0) {
+    const pid = stack.pop() as number;
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    const r = rows.get(pid);
+    if (!r) continue;
+    cpuMs += r.cpuMs;
+    rssKiB += r.rssKiB;
+    processes++;
+    stack.push(...(children.get(pid) ?? []));
+  }
+  return { cpuMs, rssBytes: rssKiB * 1024, processes };
+}
+
+/**
+ * The usage of `rootPid`'s process tree from ONE `ps` of the table; null when
+ * `ps` fails or the root is gone.
+ *
+ * @param rootPid - The run's child.
+ * @returns The summed usage.
+ */
+export function processTreeUsage(rootPid: number): ProcessTreeUsage | null {
+  try {
+    const out = execFileSync('/bin/ps', ['-A', '-o', 'pid=,ppid=,time=,rss='], {
+      encoding: 'utf-8',
+      timeout: 2000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: PS_ENV,
+    });
+    return treeUsageFromTable(out, rootPid);
+  } catch {
+    return null;
+  }
+}
+
+/** Default maximum wall time of an admitted run, per class (T13563). */
+export const RUN_MAX_WALL_MS: Readonly<Partial<Record<ResourceClass, number>>> = {
+  'test-run': 60 * 60_000,
+  'scoped-build': 30 * 60_000,
+  'full-build': 60 * 60_000,
+  'db-heavy': 60 * 60_000,
+};
+
+/** Default window of zero CPU after which an admitted run is flagged hung (T13563). */
+export const RUN_IDLE_WINDOW_MS = 10 * 60_000;
+
+/** The watchdog limits of a run (T13563). */
+export interface RunWatchLimits {
+  /** Maximum wall time, unpaused; null when the class has none. */
+  readonly maxWallMs: number | null;
+  /** Zero-CPU window before a run is flagged hung. */
+  readonly idleWindowMs: number;
+}
+
+/**
+ * The watchdog limits for `cls`: the defaults, overridden for every class by
+ * `CLEO_RUN_MAX_WALL_MIN` and `CLEO_RUN_IDLE_MIN` (positive minutes).
+ *
+ * @param cls - The run's class.
+ * @param env - Where the overrides are read. @defaultValue process.env
+ * @returns The limits.
+ */
+export function runWatchLimits(
+  cls: ResourceClass,
+  env: NodeJS.ProcessEnv = process.env,
+): RunWatchLimits {
+  const minutes = (v: string | undefined): number | null => {
+    const n = Number(v);
+    return v !== undefined && Number.isFinite(n) && n > 0 ? n * 60_000 : null;
+  };
+  return {
+    maxWallMs: minutes(env.CLEO_RUN_MAX_WALL_MIN) ?? RUN_MAX_WALL_MS[cls] ?? null,
+    idleWindowMs: minutes(env.CLEO_RUN_IDLE_MIN) ?? RUN_IDLE_WINDOW_MS,
+  };
+}
+
+/** What the watchdog knows between samples (T13563). */
+export interface RunWatchState {
+  readonly lastCpuMs: number | null;
+  readonly idleSinceMs: number | null;
+  readonly overdueAtMs: number | null;
+  readonly hungAtMs: number | null;
+}
+
+/** The watchdog's starting state. */
+export const RUN_WATCH_START: RunWatchState = {
+  lastCpuMs: null,
+  idleSinceMs: null,
+  overdueAtMs: null,
+  hungAtMs: null,
+};
+
+/** A watchdog transition to report once. */
+export type RunWatchEvent = 'overdue' | 'hung' | 'active-again';
+
+/**
+ * One watchdog step. Overdue: the unpaused run time passed the class's
+ * maximum (reported once). Hung: the tree used no CPU for the idle window
+ * (reported once per hang; `active-again` when it moves again). A paused run
+ * is never idle: SIGSTOP stops its CPU on purpose. Nothing here stops a run.
+ *
+ * @param prev - The state after the previous step.
+ * @param at - This step's clock, run times, pause state and tree usage (null: unmeasured).
+ * @param limits - The run's limits.
+ * @returns The next state and the transitions to report.
+ */
+export function watchRun(
+  prev: RunWatchState,
+  at: {
+    readonly nowMs: number;
+    readonly startedAtMs: number;
+    readonly pausedTotalMs: number;
+    readonly paused: boolean;
+    readonly usage: ProcessTreeUsage | null;
+  },
+  limits: RunWatchLimits,
+): { readonly next: RunWatchState; readonly events: RunWatchEvent[] } {
+  const events: RunWatchEvent[] = [];
+  let { lastCpuMs, idleSinceMs, overdueAtMs, hungAtMs } = prev;
+  const ranMs = at.nowMs - at.startedAtMs - at.pausedTotalMs;
+  if (overdueAtMs === null && limits.maxWallMs !== null && ranMs > limits.maxWallMs) {
+    overdueAtMs = at.nowMs;
+    events.push('overdue');
+  }
+  if (at.paused) {
+    idleSinceMs = null;
+  } else if (at.usage !== null) {
+    // Under a second of CPU between samples counts as idle (ps rounds to whole seconds on Linux).
+    const moved = lastCpuMs === null || at.usage.cpuMs - lastCpuMs >= 1000;
+    if (moved) {
+      idleSinceMs = null;
+      if (hungAtMs !== null) {
+        hungAtMs = null;
+        events.push('active-again');
+      }
+    } else {
+      idleSinceMs ??= at.nowMs;
+      if (hungAtMs === null && at.nowMs - idleSinceMs >= limits.idleWindowMs) {
+        hungAtMs = at.nowMs;
+        events.push('hung');
+      }
+    }
+    if (moved) lastCpuMs = at.usage.cpuMs;
+  }
+  return { next: { lastCpuMs, idleSinceMs, overdueAtMs, hungAtMs }, events };
 }
 
 /** Ancestry walks stop after this many parents (a cycle or a runaway table). */

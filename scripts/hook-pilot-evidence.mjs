@@ -69,7 +69,9 @@ function canonicalJson(value, cohort, packageJson = false) {
       Object.entries(value.cleo).filter(
         ([name, item]) =>
           !(name === 'hotfix' && typeof item === 'boolean') &&
-          !(name === 'channel' && item === 'canary'),
+          !(name === 'channel' && item === 'canary') &&
+          // The promotion's release stamp opens the hooks-v1 gate (T13557).
+          !(name === 'releasedFeatures' && Array.isArray(item)),
       ),
     );
     const { cleo: _releaseMetadata, ...manifest } = value;

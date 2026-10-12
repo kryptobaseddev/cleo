@@ -1034,4 +1034,10 @@ export interface AdoptWorktreeResult {
   isNew: boolean;
   /** ISO-8601 timestamp when the sentinel entry was written. */
   adoptedAt: string;
+  /**
+   * The worktree's `.cleo/project-info.json` (T13568): `seeded` from the
+   * adopting project, already `present` with a matching projectId, or
+   * `skipped` when the adopting project has none to copy.
+   */
+  projectInfo: 'seeded' | 'present' | 'skipped';
 }
