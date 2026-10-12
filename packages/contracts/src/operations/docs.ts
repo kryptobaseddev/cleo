@@ -1057,15 +1057,20 @@ export interface DocsAddUpdateMetrics {
  * store, the growth signal for the Council pilot (baseline ~751 axiom-app +
  * 1,265 admin-operations).
  *
+ * Counted files are GIT-TRACKED `*.md` outside the store (`git ls-files`),
+ * so the scan is gitignore-aware by construction; untracked loose files are
+ * intentionally out of scope.
+ *
  * @task T13363
  */
 export interface LooseMarkdownMetrics {
-  /** Number of `*.md` files found under the project root. */
+  /** Number of git-tracked `*.md` files outside the store. */
   readonly count: number;
-  /** Top-level directories that were scanned. */
+  /** Top-level directories contributing tracked loose markdown (`'(root)'`
+   *  for files at the project root). */
   readonly scannedDirs: readonly string[];
   /** Excluded directory names (dependency trees, VCS internals, the
-   *  CleoDocs store, and detected git worktrees). */
+   *  CleoDocs store). */
   readonly excludedDirs: readonly string[];
 }
 

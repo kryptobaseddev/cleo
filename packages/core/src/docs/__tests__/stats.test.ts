@@ -2,12 +2,15 @@
  * `docs.stats` metric computation (T13363) — seeded fixture store.
  *
  * Covers all four metrics: add:update ratio from the docs audit log,
- * loose-markdown count with scanned/excluded dirs, `docs_wikilinks` edge
- * count, and live `decision_adr_links` count (revoked tombstones excluded).
+ * loose-markdown count (git-tracked `*.md` outside the store, via
+ * `git ls-files` — untracked files are intentionally out of scope, T13629),
+ * `docs_wikilinks` edge count, and live `decision_adr_links` count (revoked
+ * tombstones excluded).
  *
  * @task T13363
  */
 
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,6 +24,17 @@ import { computeDocsStats, countLooseMarkdown } from '../stats.js';
 
 let env: TestDbEnv;
 
+/** Run a git command in `root`, discarding output. */
+function git(root: string, args: string[]): void {
+  execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+}
+
+/** Turn the fixture into a real git work tree and stage everything. */
+function initFixtureRepo(root: string): void {
+  git(root, ['init', '-q']);
+  git(root, ['add', '-A']);
+}
+
 beforeEach(async () => {
   env = await createTestDb();
 });
@@ -31,6 +45,31 @@ afterEach(async () => {
 
 describe('computeDocsStats (T13363)', () => {
   it('emits add:update ratio, loose-markdown count, wikilinks edges, and decisions linked', async () => {
+    // --- loose markdown: tracked files only, exclusions via .gitignore ---
+    writeFileSync(
+      join(env.tempDir, '.gitignore'),
+      ['node_modules/', '.cleo/', 'wt-nested/', ''].join('\n'),
+    );
+    writeFileSync(join(env.tempDir, 'README.md'), '# root doc');
+    mkdirSync(join(env.tempDir, 'notes'), { recursive: true });
+    writeFileSync(join(env.tempDir, 'notes', 'a.md'), 'a');
+    mkdirSync(join(env.tempDir, 'notes', 'sub'), { recursive: true });
+    writeFileSync(join(env.tempDir, 'notes', 'sub', 'b.md'), 'b');
+    // Ignored shapes: dependency tree, the store (incl. council-runs),
+    // a nested worktree checkout.
+    mkdirSync(join(env.tempDir, 'node_modules', 'pkg'), { recursive: true });
+    writeFileSync(join(env.tempDir, 'node_modules', 'pkg', 'x.md'), 'x');
+    mkdirSync(join(env.tempDir, '.cleo', 'council-runs'), { recursive: true });
+    writeFileSync(join(env.tempDir, '.cleo', 'council-runs', 'run.md'), 'r');
+    writeFileSync(join(env.tempDir, '.git', 'g.md'), 'g');
+    const nested = join(env.tempDir, 'wt-nested');
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(join(nested, '.git'), 'gitdir: /elsewhere');
+    writeFileSync(join(nested, 'inside.md'), 'i');
+    initFixtureRepo(env.tempDir);
+    // Written AFTER the add: untracked, so intentionally NOT counted.
+    writeFileSync(join(env.tempDir, 'notes', 'untracked.md'), 'u');
+
     // --- add:update activity via the audit-log accessor ---
     writeAuditEntry(env.tempDir, { op: 'docs.add', slug: 'a', summary: 'add a' });
     writeAuditEntry(env.tempDir, { op: 'docs.add', slug: 'b', summary: 'add b' });
@@ -57,35 +96,15 @@ describe('computeDocsStats (T13363)', () => {
     await linkDecisionToAdr(env.tempDir, { decisionId: 'D4', adrSlug: 'adr-002-y' });
     await revokeDecisionAdrLink(env.tempDir, { decisionId: 'D4', adrSlug: 'adr-002-y' });
 
-    // --- loose markdown: 3 counted, several excluded shapes ---
-    writeFileSync(join(env.tempDir, 'README.md'), '# root doc');
-    mkdirSync(join(env.tempDir, 'notes'), { recursive: true });
-    writeFileSync(join(env.tempDir, 'notes', 'a.md'), 'a');
-    mkdirSync(join(env.tempDir, 'notes', 'sub'), { recursive: true });
-    writeFileSync(join(env.tempDir, 'notes', 'sub', 'b.md'), 'b');
-    // Excluded: node_modules, the .cleo store (incl. .cleo/council-runs), .git.
-    mkdirSync(join(env.tempDir, 'node_modules', 'pkg'), { recursive: true });
-    writeFileSync(join(env.tempDir, 'node_modules', 'pkg', 'x.md'), 'x');
-    mkdirSync(join(env.tempDir, '.cleo', 'council-runs'), { recursive: true });
-    writeFileSync(join(env.tempDir, '.cleo', 'council-runs', 'run.md'), 'r');
-    writeFileSync(join(env.tempDir, '.git', 'g.md'), 'g');
-    // Excluded: a nested git worktree (gitlink `.git` FILE).
-    const nested = join(env.tempDir, 'wt-nested');
-    mkdirSync(nested, { recursive: true });
-    writeFileSync(join(nested, '.git'), 'gitdir: /elsewhere');
-    writeFileSync(join(nested, 'inside.md'), 'i');
-
     const stats = await computeDocsStats({ projectRoot: env.tempDir });
 
     // add:update ratio (3 adds, 1 update).
     expect(stats.addUpdate).toEqual({ adds: 3, updates: 1, ratio: 3 });
-    // loose markdown: README.md + notes/a.md + notes/sub/b.md.
+    // loose markdown: README.md + notes/a.md + notes/sub/b.md (tracked);
+    // untracked/ignored files are out of scope.
     expect(stats.looseMarkdown.count).toBe(3);
-    expect(stats.looseMarkdown.scannedDirs).toContain('notes');
-    expect(stats.looseMarkdown.scannedDirs).not.toContain('node_modules');
-    for (const excluded of ['node_modules', '.git', '.cleo', 'wt-nested']) {
-      expect(stats.looseMarkdown.excludedDirs).toContain(excluded);
-    }
+    expect(stats.looseMarkdown.scannedDirs).toEqual(['(root)', 'notes']);
+    expect(stats.looseMarkdown.excludedDirs).toEqual(['node_modules', '.git', '.cleo']);
     // wikilinks edge count.
     expect(stats.wikilinksEdges).toBe(2);
     // Live links only — the revoked D4 tombstone does not count.
@@ -103,26 +122,43 @@ describe('computeDocsStats (T13363)', () => {
   });
 
   it('reports a null ratio when there are no updates, and zeroes on an empty project', async () => {
+    initFixtureRepo(env.tempDir);
     const stats = await computeDocsStats({ projectRoot: env.tempDir });
     expect(stats.addUpdate).toEqual({ adds: 0, updates: 0, ratio: null });
     expect(stats.wikilinksEdges).toBe(0);
     expect(stats.decisionsLinked).toBe(0);
-    // createTestDb writes no markdown into the fixture root.
     expect(stats.looseMarkdown.count).toBe(0);
   });
 });
 
-describe('countLooseMarkdown (T13363)', () => {
-  it('counts only markdown, skips symlinks, and lists scanned dirs', () => {
+describe('countLooseMarkdown (T13363, T13629)', () => {
+  it('counts only tracked markdown and lists contributing top-level dirs', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleo-lm-'));
     try {
       writeFileSync(join(root, 'one.md'), '1');
       writeFileSync(join(root, 'two.txt'), '2'); // not markdown
       mkdirSync(join(root, 'docs'), { recursive: true });
       writeFileSync(join(root, 'docs', 'three.md'), '3');
+      git(root, ['init', '-q']);
+      git(root, ['add', '-A']);
+      // Untracked loose markdown is intentionally out of scope.
+      writeFileSync(join(root, 'untracked.md'), 'u');
       const result = countLooseMarkdown(root);
       expect(result.count).toBe(2);
-      expect(result.scannedDirs).toEqual(['docs']);
+      expect(result.scannedDirs).toEqual(['(root)', 'docs']);
+      expect(result.excludedDirs).toEqual(['node_modules', '.git', '.cleo']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('returns zero outside a git work tree', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleo-lm-'));
+    try {
+      writeFileSync(join(root, 'one.md'), '1');
+      const result = countLooseMarkdown(root);
+      expect(result.count).toBe(0);
+      expect(result.scannedDirs).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
