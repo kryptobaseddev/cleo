@@ -448,6 +448,34 @@ describe('completeTask', () => {
     expect(slow.revalidations).toBe(1);
   }, 30_000);
 
+  it('a SQLITE_BUSY retry of the completion transaction revalidates again (T13613 review)', async () => {
+    await typedFixture();
+    await verifyTypedFixture();
+    // The accessor retries a transaction that fails with SQLITE_BUSY (withWriteRetry):
+    // fail the first attempt after its body ran, so the body runs a second time.
+    let busy = true;
+    const retrying: DataAccessor = {
+      ...accessor,
+      transaction: (fn) =>
+        accessor.transaction(async (tx) => {
+          const result = await fn(tx);
+          if (busy) {
+            busy = false;
+            throw new Error('database is locked');
+          }
+          return result;
+        }),
+    };
+    slow.revalidations = 0;
+    await completeTask({ taskId: 'T001' }, env.tempDir, retrying);
+    expect(busy).toBe(false);
+    expect(persistedCompletion("SELECT status FROM tasks_tasks WHERE id='T001'")).toBe(
+      '[{"status":"done"}]',
+    );
+    // One revalidation per transaction attempt: the retry did not reuse the first.
+    expect(slow.revalidations).toBe(2);
+  }, 30_000);
+
   it('a typed revalidation past its own budget is a named timeout, not E_INTERNAL (T13613)', async () => {
     await typedFixture();
     await verifyTypedFixture();

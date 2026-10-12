@@ -916,7 +916,7 @@ export async function completeTask(
   // T13613: each typed task's revalidation owns a budget that starts when the
   // revalidation does, sized like the verify that produced the result; one
   // revalidation per task per completion. A caller-supplied execution keeps
-  // its own deadline.
+  // its own deadline. Cleared at the start of each transaction attempt.
   const revalidated = new Set<string>();
   const validateTypedCompletion = async (
     candidate: Task,
@@ -1002,6 +1002,9 @@ export async function completeTask(
     },
     async () =>
       withTaskWriteTransaction(acc, async (tx) => {
+        // A SQLITE_BUSY retry re-runs this callback in a new transaction: its
+        // revalidations must run again, never reuse a rolled-back attempt's.
+        revalidated.clear();
         // ---- T10509/T10595: AC-coverage gate (load-bearing IVTR closure) ----
         //
         // The coverage rows are read after BEGIN IMMEDIATE has acquired the
