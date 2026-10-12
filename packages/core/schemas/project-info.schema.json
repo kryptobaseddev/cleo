@@ -79,8 +79,8 @@
     },
     "cleoVersion": {
       "type": "string",
-      "pattern": "^\\d+\\.\\d+\\.\\d+$",
-      "description": "CLEO version that last modified this file (semver)."
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$",
+      "description": "CLEO version that last modified this file (semver, including a prerelease such as -canary.1)."
     },
     "createdAt": {
       "type": "string",
