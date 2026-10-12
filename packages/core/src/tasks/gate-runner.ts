@@ -96,8 +96,8 @@ import {
   sealGateCacheEntry,
 } from './gate-result-cache.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
-import { acquireGlobalSlot } from './tool-semaphore.js';
 import { resolveSpawnTimeoutMs } from './tool-cache.js';
+import { acquireGlobalSlot } from './tool-semaphore.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

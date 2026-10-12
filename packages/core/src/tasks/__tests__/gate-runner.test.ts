@@ -27,8 +27,6 @@ import type {
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _forceSystemdRunAvailable } from '../../resources/spawn-wrapper.js';
 import { createOperationExecutionContext } from '../../store/background-ops.js';
-import { admissionCapacityBytes } from '../heavy-tool-env.js';
-import { acquireGlobalSlot } from '../tool-semaphore.js';
 import { acItemToText, acTextHash, buildFreshAcRows } from '../ac-table.js';
 import {
   createTaskGateReceipt,
@@ -40,6 +38,8 @@ import {
   TYPED_GATE_BOOKKEEPING_MS,
   typedGateAdmissionMs,
 } from '../gate-runner.js';
+import { admissionCapacityBytes } from '../heavy-tool-env.js';
+import { acquireGlobalSlot } from '../tool-semaphore.js';
 
 // ─── Setup ────────────────────────────────────────────────────────────────
 
