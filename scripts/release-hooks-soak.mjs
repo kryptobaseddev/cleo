@@ -294,6 +294,10 @@ async function packedPreflight(repoRoot) {
   const project = env.CLEO_PROJECT_ROOT;
   setup('git', ['init', '--quiet'], project, 'git-init');
   const bin = join(installDir, 'node_modules', '.bin', 'cleo');
+  // T13577: run `cleo init` as the canary soak does, so its empty
+  // "initial: cleo init" commit rides the probe's pushes through CLEO's
+  // pre-push hook. Without this step the preflight never saw that commit.
+  setup(bin, ['init'], project, 'cleo-init');
   for (const entry of inventory) {
     const file = join(installDir, 'node_modules', entry.name, 'package.json');
     if (!existsSync(file) || JSON.parse(readFileSync(file, 'utf8')).version !== version)
