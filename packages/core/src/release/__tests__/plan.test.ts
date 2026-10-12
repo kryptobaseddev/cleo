@@ -582,6 +582,27 @@ describe('releasePlan — hooks-v1 gate opened by source (T13555)', () => {
     expect(shape.released).toMatch(/^export function hooksV1Released\(/);
   });
 
+  it('a later cleanup after the gate shipped open needs no waiver, whatever its shape', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    releaseThen(gate(''));
+    expect((await plan({ hooksV1Promotion: true })).success).toBe(true);
+    git('tag', 'v2026.5.2');
+    writeFileSync(
+      join(testDir, 'packages/core/src/hooks/release-gate.ts'),
+      'export const UNRELEASED_HOOK_FEATURES = new Set<HookFeature>();\n',
+    );
+    git('add', '-A', 'packages');
+    git('commit', '-q', '-m', 'cleanup');
+    expect((await plan()).success).toBe(true);
+  });
+
+  it('reads `new Set()` with no array literal as hooks-v1 released', () => {
+    expect(
+      parseHooksV1Gate('export const UNRELEASED_HOOK_FEATURES = new Set<HookFeature>();\n')
+        .unreleased,
+    ).toBe(false);
+  });
+
   it('leaves an untouched gate alone', async () => {
     await seedEpicWithChildren('T9999', 1);
     releaseThen(gate("'hooks-v1'"));
