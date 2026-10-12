@@ -70,8 +70,8 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function store(opts: { seal?: boolean } = {}): Promise<DatabaseSync> {
-  const handle = await openDualScopeDbAtPath('project', dbPath);
+async function store(opts: { seal?: boolean; path?: string } = {}): Promise<DatabaseSync> {
+  const handle = await openDualScopeDbAtPath('project', opts.path ?? dbPath);
   const db = handle.db.$client as DatabaseSync;
   setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA });
   if (opts.seal !== false) {
@@ -330,6 +330,31 @@ describe('sealPending', () => {
     expect(moved?.chash).toBe(was?.chash);
   });
 
+  it('a K keeps a non-null fhlc when it moves row meta (probe E, T13031)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    seal(db);
+    // A later U gives the row a per-field fhlc, so a move that cleared it would show.
+    framed(db, () => db.exec("UPDATE tasks_tasks SET title = 'renamed' WHERE id = 'T1'"));
+    seal(db);
+    db.exec("UPDATE _sync_row_meta SET sent = 1 WHERE uid = 'uid-T1'");
+    const was = meta(db, 'tasks_tasks', 'uid-T1');
+    expect(was?.fhlc).toBeTruthy();
+    db.exec('BEGIN IMMEDIATE');
+    rekeyRowUid(db, 'tasks_tasks', 'uid-T1', { loserBirthFp: 'fp-T1', winnerBirthFp: 'fp-T0' });
+    db.exec('COMMIT');
+    seal(db);
+    const newUid = ops(db).find((o) => o.o === 'K')?.nu as string;
+    expect(newUid).toBeTruthy();
+    const moved = meta(db, 'tasks_tasks', newUid);
+    expect(moved).toMatchObject({
+      hlc: was?.hlc,
+      fhlc: was?.fhlc,
+      version: was?.version,
+      chash: was?.chash,
+    });
+  });
+
   it('netting in a frame: I then U seals one I; an insert then delete seals nothing', async () => {
     const db = await store();
     framed(db, () => {
@@ -516,6 +541,34 @@ describe('#1779 review fixes (T13029–T13033)', () => {
     const before = rowChash(db, 'project', def, 'uid-T1');
     db.prepare("UPDATE tasks_tasks SET id = 'T777' WHERE id = 'T1'").run();
     expect(rowChash(db, 'project', def, 'uid-T1')).toBe(before);
+  });
+
+  it('two replicas holding the same logical row under different local keys compute the same chash (T13031)', async () => {
+    const a = await store();
+    const pathB = join(dir, 'replica-b', '.cleo', 'cleo.db');
+    mkdirSync(join(dir, 'replica-b', '.cleo'), { recursive: true });
+    const b = await store({ path: pathB });
+    /** The same logical rows: parent uid-P and child uid-C, under replica-local display ids. */
+    const seed = (db: DatabaseSync, parentId: string, childId: string) => {
+      const ins = db.prepare(
+        `INSERT INTO tasks_tasks (id, title, type, status, priority, parent_id, uid, birth_fp, created_at, updated_at)
+         VALUES (?, ?, ?, 'pending', 'medium', ?, ?, ?, '2026-10-12T00:00:00.000Z', '2026-10-12T00:00:00.000Z')`,
+      );
+      ins.run(parentId, 'parent', 'epic', null, 'uid-P', 'fp-P');
+      ins.run(childId, 'child', 'task', parentId, 'uid-C', 'fp-C');
+    };
+    seed(a, 'T1', 'T2');
+    seed(b, 'T901', 'T902');
+    const defA = captureTableDef(a, 'project', 'tasks_tasks');
+    const defB = captureTableDef(b, 'project', 'tasks_tasks');
+    if (!defA || !defB) throw new Error('no def');
+    // The child's reference hashes as the parent's uid, not its local id.
+    expect(rowChash(a, 'project', defA, 'uid-C')).toMatch(/^[0-9a-f]{64}$/);
+    expect(rowChash(a, 'project', defA, 'uid-C')).toBe(rowChash(b, 'project', defB, 'uid-C'));
+    expect(rowChash(a, 'project', defA, 'uid-P')).toBe(rowChash(b, 'project', defB, 'uid-P'));
+    // A real content difference still differs.
+    b.prepare("UPDATE tasks_tasks SET title = 'other' WHERE uid = 'uid-C'").run();
+    expect(rowChash(a, 'project', defA, 'uid-C')).not.toBe(rowChash(b, 'project', defB, 'uid-C'));
   });
 
   it('the transaction counter only rises: no txn id is reused after old rows are collected (T13033)', async () => {
