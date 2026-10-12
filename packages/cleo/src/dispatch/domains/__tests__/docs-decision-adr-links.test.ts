@@ -145,3 +145,84 @@ describe('decision↔ADR two-way surfacing (T13359)', () => {
     expect(tombstone?.revokedBy).toBe('agent-reviewer');
   });
 });
+
+describe('docs link-decision / unlink-decision verbs (T13598)', () => {
+  /** Store a ledger decision; returns its D#### id. */
+  async function decision(marker: string): Promise<string> {
+    const stored = await memoryHandler.mutate('decision.store', {
+      decision: `Verb fixture decision ${marker}`,
+      rationale: `Fixture rationale ${marker}`,
+    });
+    expect(stored.success, JSON.stringify(stored.error)).toBe(true);
+    const id = (stored.data as { id?: string }).id ?? '';
+    expect(id).toMatch(/^D\d+$/);
+    return id;
+  }
+
+  it('links through dispatch, revokes, and refuses to re-link the revoked pair', async () => {
+    await addAdr('adr-905-verbs');
+    const pair = { adrSlug: 'adr-905-verbs', decisionId: await decision('t13598-a') };
+
+    const linked = await docsHandler.mutate('link-decision', pair);
+    expect(linked.success, JSON.stringify(linked.error)).toBe(true);
+    expect(linked.data).toEqual({ ...pair, status: 'linked', changed: true });
+    const again = await docsHandler.mutate('link-decision', pair);
+    expect(again.data).toEqual({ ...pair, status: 'linked', changed: false });
+    const fetched = await docsHandler.query('fetch', { attachmentRef: 'adr-905-verbs' });
+    expect((fetched.data as DocsFetchResult).linkedDecisions).toEqual([pair.decisionId]);
+
+    const unlinked = await docsHandler.mutate('unlink-decision', pair);
+    expect(unlinked.data).toEqual({ ...pair, status: 'revoked', changed: true });
+    const after = await docsHandler.query('fetch', { attachmentRef: 'adr-905-verbs' });
+    expect('linkedDecisions' in (after.data as DocsFetchResult)).toBe(false);
+
+    const relink = await docsHandler.mutate('link-decision', pair);
+    expect(relink.success).toBe(false);
+    expect(relink.error?.code).toBe('E_CLEO_VALIDATION');
+    expect(relink.error?.message).toMatch(/revoked/);
+  });
+
+  it('refuses a link to a slug that is no doc, or a decision missing from the ledger; nothing is written', async () => {
+    await addAdr('adr-906-real');
+    const id = await decision('t13598-b');
+    const typo = await docsHandler.mutate('link-decision', {
+      adrSlug: 'adr-906-typo',
+      decisionId: id,
+    });
+    expect(typo.success).toBe(false);
+    expect(typo.error?.code).toBe('E_CLEO_NOT_FOUND');
+    expect(typo.error?.message).toMatch(/adr-906-typo/);
+    const ghost = await docsHandler.mutate('link-decision', {
+      adrSlug: 'adr-906-real',
+      decisionId: 'D99999999',
+    });
+    expect(ghost.success).toBe(false);
+    expect(ghost.error?.code).toBe('E_CLEO_NOT_FOUND');
+    expect(ghost.error?.message).toMatch(/D99999999/);
+    const { getDecisionAdrLink } = await import('@cleocode/core/store/decision-adr-links');
+    expect(await getDecisionAdrLink(tempDir, id, 'adr-906-typo')).toBeNull();
+    expect(await getDecisionAdrLink(tempDir, 'D99999999', 'adr-906-real')).toBeNull();
+  });
+
+  it('refuses to unlink a pair that was never linked', async () => {
+    const unknown = await docsHandler.mutate('unlink-decision', {
+      adrSlug: 'adr-906-none',
+      decisionId: 'D11165',
+    });
+    expect(unknown.success).toBe(false);
+    expect(unknown.error?.code).toBe('E_CLEO_NOT_FOUND');
+  });
+
+  it('a docs update keeps the ADR slug, so its links still show (T13599)', async () => {
+    await addAdr('adr-907-updated');
+    const id = await decision('t13598-c');
+    await docsHandler.mutate('link-decision', { adrSlug: 'adr-907-updated', decisionId: id });
+    const updated = await docsHandler.mutate('update', {
+      slug: 'adr-907-updated',
+      content: '# adr-907-updated\n\nRevised record.\n',
+    });
+    expect(updated.success, JSON.stringify(updated.error)).toBe(true);
+    const fetched = await docsHandler.query('fetch', { attachmentRef: 'adr-907-updated' });
+    expect((fetched.data as DocsFetchResult).linkedDecisions).toEqual([id]);
+  });
+});

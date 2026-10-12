@@ -33,9 +33,12 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { BlobAttachment } from '@cleocode/contracts';
 import { DocKindRegistry } from '@cleocode/contracts/docs-taxonomy.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type {
   DocsAddParams,
   DocsAddResult,
+  DocsDecisionLinkParams,
+  DocsDecisionLinkResult,
   DocsDoctorParams,
   DocsDoctorResult,
   DocsFetchParams,
@@ -75,6 +78,7 @@ import {
 import { consumeReservedSlug, releaseReservedSlug } from '@cleocode/core/docs/slug-allocator';
 import { SUPERSEDE_NOT_FOUND_CODE, SUPERSEDE_SAME_SLUG_CODE } from '@cleocode/core/docs/supersede';
 import { validateDocBody } from '@cleocode/core/docs/validate-body';
+import { CleoError } from '@cleocode/core/errors';
 import type {
   AttachmentBackend,
   AttachmentRef,
@@ -93,7 +97,11 @@ import {
   createAttachmentStore,
   SlugCollisionError,
 } from '@cleocode/core/store/attachment-store';
-import { listDecisionLinksForAdr } from '@cleocode/core/store/decision-adr-links.js';
+import {
+  linkDecisionToAdr,
+  listDecisionLinksForAdr,
+  revokeDecisionAdrLink,
+} from '@cleocode/core/store/decision-adr-links.js';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
@@ -273,6 +281,8 @@ type DocsTypedOps = {
   readonly remove: readonly [DocsRemoveParams, DocsRemoveResult];
   readonly update: readonly [DocsUpdateParams, DocsUpdateResult];
   readonly supersede: readonly [DocsSupersedeParams, DocsSupersedeResult];
+  readonly 'link-decision': readonly [DocsDecisionLinkParams, DocsDecisionLinkResult];
+  readonly 'unlink-decision': readonly [DocsDecisionLinkParams, DocsDecisionLinkResult];
   readonly doctor: readonly [DocsDoctorParams, DocsDoctorResult];
 };
 
@@ -465,6 +475,29 @@ function compareByOrderBy(
 }
 
 // ─── Typed inner handler ──────────────────────────────────────────────────────
+
+/**
+ * Run a decision-link write and keep the accessor's refusal code (T13598).
+ *
+ * @param op - The operation name for the envelope.
+ * @param write - The accessor call.
+ * @returns The success envelope, or the CleoError's LAFS code (revoked pair, unknown link).
+ */
+async function decisionLinkResponse(
+  op: 'link-decision' | 'unlink-decision',
+  write: () => Promise<DocsDecisionLinkResult>,
+) {
+  try {
+    return lafsSuccess<DocsDecisionLinkResult>(await write(), op);
+  } catch (err) {
+    if (!(err instanceof CleoError)) throw err;
+    return lafsError(
+      err.toLAFSError().code, // @sync-invariant docs.decision-adr-links.revoke-monotonic the accessor's refusal (re-link of a revoked pair, revoke of an unknown link) is surfaced unchanged
+      err.message,
+      op,
+    );
+  }
+}
 
 /**
  * Typed inner handler for the docs domain.
@@ -1903,6 +1936,58 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     );
   },
 
+  // ── docs.link-decision / docs.unlink-decision (T13598) ─────────────────────
+  // decision_adr_links writers through the canonical accessors; a revoked
+  // pair is never re-linked (the accessor's one-way tombstone latch).
+
+  'link-decision': async (params) => {
+    const { adrSlug, decisionId } = params;
+    if (typeof adrSlug !== 'string' || adrSlug.length === 0 || typeof decisionId !== 'string') {
+      return lafsError(
+        'E_INVALID_INPUT', // @sync-invariant none:input-shape a missing ADR slug or decision id is refused before any write
+        '<adrSlug> and <decisionId> are required',
+        'link-decision',
+      );
+    }
+    return decisionLinkResponse('link-decision', async () => {
+      // The table is append-only: a link to a typo would be permanent, so both
+      // ends must exist before the write (T13598 review).
+      if ((await createDocsReadModel().resolveLatest(adrSlug)) === null)
+        // @sync-invariant none:input-shape a link to an unknown doc slug is refused before any write
+        throw new CleoError(ExitCode.NOT_FOUND, `no doc has the slug '${adrSlug}'`);
+      const { recallDecision } = await import('@cleocode/core/memory/decisions');
+      if ((await recallDecision(getProjectRoot(), decisionId)) === null)
+        // @sync-invariant none:input-shape a link to a decision missing from the ledger is refused before any write
+        throw new CleoError(ExitCode.NOT_FOUND, `no stored decision has the id '${decisionId}'`);
+      const { inserted } = await linkDecisionToAdr(getProjectRoot(), {
+        decisionId,
+        adrSlug,
+        ...(process.env['CLEO_AGENT_ID'] ? { linkedBy: process.env['CLEO_AGENT_ID'] } : {}),
+      });
+      // A revoked pair throws, so a returned link is live.
+      return { adrSlug, decisionId, status: 'linked', changed: inserted };
+    });
+  },
+
+  'unlink-decision': async (params) => {
+    const { adrSlug, decisionId } = params;
+    if (typeof adrSlug !== 'string' || adrSlug.length === 0 || typeof decisionId !== 'string') {
+      return lafsError(
+        'E_INVALID_INPUT', // @sync-invariant none:input-shape a missing ADR slug or decision id is refused before any write
+        '<adrSlug> and <decisionId> are required',
+        'unlink-decision',
+      );
+    }
+    return decisionLinkResponse('unlink-decision', async () => {
+      const { revoked } = await revokeDecisionAdrLink(getProjectRoot(), {
+        decisionId,
+        adrSlug,
+        ...(process.env['CLEO_AGENT_ID'] ? { revokedBy: process.env['CLEO_AGENT_ID'] } : {}),
+      });
+      return { adrSlug, decisionId, status: 'revoked', changed: revoked };
+    });
+  },
+
   // ── docs.supersede ─────────────────────────────────────────────────────────
 
   supersede: async (params) => {
@@ -2071,6 +2156,8 @@ const MUTATE_OPS = new Set<string>([
   'remove',
   'update',
   'supersede',
+  'link-decision',
+  'unlink-decision',
   'publish',
   'publish-pr',
   'sync',
@@ -2422,6 +2509,8 @@ export class DocsHandler implements DomainHandler {
         'remove',
         'update',
         'supersede',
+        'link-decision',
+        'unlink-decision',
         'publish',
         'publish-pr',
         'sync',
