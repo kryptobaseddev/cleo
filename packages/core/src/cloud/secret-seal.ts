@@ -36,6 +36,12 @@ import {
   type SecretSeals,
   secretSealKey,
 } from '../store/sync/sealer.js';
+import {
+  fillSnapshotCredentials,
+  readSealedCredentials,
+  readSnapshotCredentialRows,
+  type SealedCredentialCell,
+} from '../store/vault-manifest.js';
 import { deriveKey, open, seal } from './crypto.js';
 
 /** The HKDF purpose of the secret-values key (§2.7). */
@@ -106,6 +112,8 @@ export async function prepareSecretSeals(
 ): Promise<SecretSeals> {
   const out = new Map<string, SecretSeal>();
   for (const row of pendingSecretRows(db, scope)) {
+    // T13534: one warning per row per call, naming the credential.
+    let warned = false;
     for (const [col, value] of Object.entries(row.values)) {
       const live = canonicalJson(value);
       if (value === null) {
@@ -119,10 +127,13 @@ export async function prepareSecretSeals(
           plaintext = await decryptGlobal(String(value), id, { cleoHome: opts.cleoHome });
         } catch {
           // The cause is not echoed: a warning never carries secret material.
-          opts.warn?.({
-            code: 'W_SYNC_SECRET_UNREADABLE',
-            message: `${row.table} ${row.uid} ${col}: this machine's key cannot decrypt the stored secret, so the row stays unsent until it is re-entered`,
-          });
+          if (!warned) {
+            warned = true;
+            opts.warn?.({
+              code: 'W_SYNC_SECRET_UNREADABLE',
+              message: `credential ${id} (${row.table} ${row.uid}): this machine's key cannot decrypt the stored secret, so the row stays unsent until it is re-entered; every other change still syncs`,
+            });
+          }
           continue;
         }
       }
@@ -188,4 +199,95 @@ export async function prepareSecretOpens(
     }
   }
   return out;
+}
+
+/** The credential columns a vault snapshot carries sealed: every column of {@link CREDENTIAL_IDS}. */
+const SNAPSHOT_CREDENTIAL_COLUMNS: Readonly<Record<string, readonly string[]>> = Object.fromEntries(
+  Object.entries(CREDENTIAL_IDS).map(([t, cols]) => [t, Object.keys(cols)]),
+);
+
+/**
+ * The vault snapshot's half (T13530): seal every credential cell of a staged
+ * snapshot under the secret-values key before the export clears it, so a
+ * device restoring the snapshot (a genesis join) gets usable credentials. Each
+ * value is decrypted with this machine's key and sealed with the AAD
+ * `table\nuid\ncolumn`, exactly as phase A seals it. A value this machine
+ * cannot decrypt is left out with a `W_SYNC_SECRET_UNREADABLE` warning.
+ *
+ * @param snapshotPath - The export's staged snapshot of the global store.
+ * @param secretKey - {@link secretValuesKey} of the account master key.
+ * @param opts - Machine-key options.
+ * @returns The sealed cells, for the snapshot's sealed-credentials table.
+ */
+export async function sealSnapshotCredentials(
+  snapshotPath: string,
+  secretKey: Uint8Array,
+  opts: SecretSealOptions = {},
+): Promise<SealedCredentialCell[]> {
+  const out: SealedCredentialCell[] = [];
+  for (const r of readSnapshotCredentialRows(snapshotPath, SNAPSHOT_CREDENTIAL_COLUMNS)) {
+    for (const [col, idOf] of Object.entries(CREDENTIAL_IDS[r.table] ?? {})) {
+      const value = r.row[col];
+      if (value === null || value === undefined) continue;
+      let plaintext: string;
+      try {
+        plaintext = await decryptGlobal(String(value), idOf(r.row), { cleoHome: opts.cleoHome });
+      } catch {
+        opts.warn?.({
+          code: 'W_SYNC_SECRET_UNREADABLE',
+          message: `${r.table} ${r.uid} ${col}: this machine's key cannot decrypt the stored secret, so the snapshot carries it cleared until it is re-entered`,
+        });
+        continue;
+      }
+      const sealed = seal(
+        secretKey,
+        Buffer.from(plaintext, 'utf8'),
+        SECRET_SEAL_PURPOSE,
+        secretSealKey(r.table, r.uid, col),
+      ).toString('base64');
+      out.push({ tbl: r.table, uid: r.uid, col, sealed });
+    }
+  }
+  return out;
+}
+
+/**
+ * The restore's half (T13530): open every sealed credential cell a staged
+ * vault snapshot carries, re-encrypt it under THIS machine's key, and fill
+ * the cells still NULL after the machine state was carried (a local value
+ * wins). The sealed-credentials table is dropped either way. A cell that does
+ * not open (another account's key) or names no credential column stays NULL.
+ * Any path that places a vault checkpoint's store calls this on its staged
+ * copy first: the vault restore does, and so must the merge join's scratch
+ * restore (#2080, `reconcileOwedCopy`).
+ *
+ * @param stagedDbPath - The restore's staged snapshot of the global store.
+ * @param secretKey - {@link secretValuesKey} of the account master key.
+ * @param opts - Machine-key options.
+ * @returns The cells filled.
+ */
+export async function openSnapshotCredentials(
+  stagedDbPath: string,
+  secretKey: Uint8Array,
+  opts: SecretSealOptions = {},
+): Promise<number> {
+  const values: Array<{ tbl: string; uid: string; col: string; value: string }> = [];
+  for (const c of readSealedCredentials(stagedDbPath)) {
+    const idOf = CREDENTIAL_IDS[c.tbl]?.[c.col];
+    if (idOf === undefined) continue;
+    let plaintext: string;
+    try {
+      plaintext = open(
+        secretKey,
+        Buffer.from(c.sealed, 'base64'),
+        SECRET_SEAL_PURPOSE,
+        secretSealKey(c.tbl, c.uid, c.col),
+      ).toString('utf8');
+    } catch {
+      continue;
+    }
+    const value = await encryptGlobal(plaintext, idOf(c.row), { cleoHome: opts.cleoHome });
+    values.push({ tbl: c.tbl, uid: c.uid, col: c.col, value });
+  }
+  return fillSnapshotCredentials(stagedDbPath, values);
 }

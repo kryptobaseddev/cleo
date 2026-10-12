@@ -1003,8 +1003,14 @@ export async function completeTask(
     async () =>
       withTaskWriteTransaction(acc, async (tx) => {
         // A SQLITE_BUSY retry re-runs this callback in a new transaction: its
-        // revalidations must run again, never reuse a rolled-back attempt's.
+        // revalidations and parent rollup must run again, never reuse a
+        // rolled-back attempt's.
         revalidated.clear();
+        // T13614: so is the rollup a rolled-back attempt computed, and the
+        // task it mutated (status, stage, appended notes).
+        autoCompleted.length = 0;
+        autoCompletedTasks.length = 0;
+        task = structuredClone(initialTask);
         // ---- T10509/T10595: AC-coverage gate (load-bearing IVTR closure) ----
         //
         // The coverage rows are read after BEGIN IMMEDIATE has acquired the

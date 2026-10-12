@@ -854,16 +854,27 @@ const VAULT_CLEARED_JOURNAL_TABLES = [
   '_sync_seen_floor',
 ] as const;
 
+/** The account key a global snapshot seals its credential cells under (T13530). */
+interface VaultCredentialSeal {
+  /** The account master key. */
+  masterKey: Uint8Array;
+  /** Receives a warning for each credential this machine cannot decrypt. */
+  warn: (w: CloudWarning) => void;
+}
+
 /**
- * Export the store the way the vault snapshots it: no secrets, no `strip`
- * columns (T13007), no local change journal (T13042), and for the global
- * store without machine-local state or the config home (T12968).
+ * Export the store the way the vault snapshots it: no plaintext secrets, no
+ * `strip` columns (T13007), no local change journal (T13042), and for the
+ * global store without machine-local state or the config home (T12968). A
+ * global snapshot carries its credential cells sealed under the account key
+ * when `seal` is given, so a device that restores it can use them (T13530).
  */
 async function exportVaultBundle(
   t: VaultTarget,
   outputPath: string,
   label: string,
   tracked: ReadonlySet<string>,
+  seal: VaultCredentialSeal | null,
 ): Promise<void> {
   await exportPortableBundle({
     scope: t.scope === 'global' ? 'global' : 'project',
@@ -874,6 +885,17 @@ async function exportVaultBundle(
     ...(t.scope === 'project' && tracked.size > 0 ? { gitTrackedFiles: tracked } : {}),
     stripColumns: vaultStripColumns(tableScopeOf(t)),
     clearTables: VAULT_CLEARED_JOURNAL_TABLES,
+    ...(t.scope === 'global' && seal !== null
+      ? {
+          sealCredentials: async (snapshotPath: string) => {
+            const { sealSnapshotCredentials, secretValuesKey } = await import('./secret-seal.js');
+            return sealSnapshotCredentials(snapshotPath, secretValuesKey(seal.masterKey), {
+              cleoHome: t.storeRoot,
+              warn: seal.warn,
+            });
+          },
+        }
+      : {}),
     outputPath,
     label,
   });
@@ -1013,6 +1035,7 @@ async function exportAndRead(
   work: string,
   label: string,
   tracked: ReadonlySet<string>,
+  seal: VaultCredentialSeal | null,
 ): Promise<{
   bundlePath: string;
   vault: VaultManifest;
@@ -1020,7 +1043,7 @@ async function exportAndRead(
   files: Map<string, string>;
 }> {
   const bundlePath = path.join(work, 'snapshot.cleobundle.tar.gz');
-  await exportVaultBundle(t, bundlePath, label, tracked);
+  await exportVaultBundle(t, bundlePath, label, tracked, seal);
   const extractDir = path.join(work, 'x');
   fs.mkdirSync(extractDir);
   await tarExtract({ file: bundlePath, cwd: extractDir });
@@ -1340,6 +1363,7 @@ async function pushNexusVaultImpl(
       work,
       `cloud-vault-${scope}`,
       trackedForPush(t, git, synced),
+      { masterKey: key.masterKey, warn: (w) => warnings.push(w) },
     );
     const names = await deviceNames(conn);
     // Nothing changed since the head: no lease, no upload (T12971). Against the
@@ -1657,6 +1681,8 @@ async function enableSyncPushImpl(
             stream: t.streamId,
             mergedCursor,
             baseline,
+            // The global scratch's credentials were filled under this machine's key (T13544).
+            adoptSecrets: t.scope === 'global',
           });
         } catch (err) {
           warnings.push({
@@ -1812,6 +1838,7 @@ async function enableSyncPushImpl(
               work,
               `sync-genesis-${t.scope}`,
               trackedForPush(t, git, synced),
+              { masterKey: key.masterKey, warn: (w) => warnings.push(w) },
             );
             snap.taken = {
               bundlePath: exported.bundlePath,
@@ -2052,6 +2079,7 @@ async function reconcileOwedCopy(
         stream: t.streamId,
         mergedCursor,
         baseline,
+        adoptSecrets: t.scope === 'global',
       });
     } catch (err) {
       if (!(err instanceof MergeKeyCollisionError)) throw err;
@@ -2157,6 +2185,18 @@ async function withMergedScratch<T>(
       // The scratch replays the stream; it never seals or pushes. The store
       // it reconciles already has its sync flags, so the release gate holds.
       setSyncFlag(scratch, 'sync.pull', true, { allowUnreleased: true });
+      const { openSnapshotCredentials, prepareSecretOpens, secretValuesKey } = await import(
+        './secret-seal.js'
+      );
+      // The checkpoint's sealed credential cells fill the scratch at the checkpoint's
+      // state, under this machine's key (T13544), BEFORE the pull: a post-cut op then
+      // applies on top, so a revoked (cleared) credential stays cleared (T13593). A
+      // failure aborts the merge: the reconcile stays due and the next sync retries.
+      if (t.scope === 'global') {
+        await openSnapshotCredentials(scratchPath, secretValuesKey(key.masterKey), {
+          cleoHome: t.storeRoot,
+        });
+      }
       // Soft and project-aware like the live pull (T13551): a failed listing confirms none, never aborts.
       const serverRetirements = await confirmableRetirements(conn, t.scope, t.projectId);
       const merged = await pullStream(scratch, {
@@ -2168,6 +2208,23 @@ async function withMergedScratch<T>(
         pull: journalPuller(journal, key),
         verify: txnVerifier(key, t.streamId),
         seal: () => {},
+        // Sealed secrets written after the cut open as the live pull opens them, so the
+        // merged state holds their newest values, not the checkpoint's (T13592). One this
+        // machine cannot open stays pending, as on the live pull.
+        ...(t.scope === 'global'
+          ? {
+              openSecrets: () =>
+                prepareSecretOpens(
+                  scratch,
+                  tableScopeOf(t),
+                  t.streamId,
+                  secretValuesKey(key.masterKey),
+                  {
+                    cleoHome: t.storeRoot,
+                  },
+                ),
+            }
+          : {}),
         ...(serverRetirements !== undefined ? { serverRetirements } : {}),
       });
       if (merged.refused !== null) {
@@ -3203,6 +3260,14 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
               }),
             ),
           );
+          // Credential cells the snapshot carries sealed fill what this
+          // machine does not hold, under its own key (T13530).
+          if (t.scope === 'global') {
+            const { openSnapshotCredentials, secretValuesKey } = await import('./secret-seal.js');
+            await openSnapshotCredentials(staged.dbPath, secretValuesKey(key.masterKey), {
+              cleoHome: t.storeRoot,
+            });
+          }
         },
       });
     let replica: CloudRestoreResult['replica'] = null;

@@ -13,8 +13,13 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
+import type { TableScope } from '@cleocode/contracts';
+import { type LedgerOp, LedgerTxn, type LedgerValue } from '@cleocode/contracts/ledger';
+import { type CaptureTableDef, captureTableDef, enc } from './capture.js';
 import type { InboxKey } from './inbox.js';
 import type { MergeConflict } from './merge/types.js';
+import { hasTable } from './schema.js';
+import { decodeEnc, type WireValue } from './sealer-values.js';
 
 /** Where a conflict arose: the inbox transaction and the op in it. */
 export interface ConflictSite extends InboxKey {
@@ -225,4 +230,142 @@ export function conflictCounts(db: DatabaseSync, stream?: string): { open: numbe
     stream === undefined ? db.prepare(sql).get() : db.prepare(`${sql} WHERE stream = ?`).get(stream)
   ) as { total: number; open: number };
   return { open: Number(row.open), total: Number(row.total) };
+}
+
+/** One conflicting column, both sides (T12997). */
+export interface ConflictFieldValues {
+  readonly column: string;
+  /**
+   * The incoming op's value (a reference as the target's local key when this
+   * store has it); null when the op did not set it or is no longer in the inbox.
+   */
+  readonly theirs: LedgerValue | null;
+  /** This store's current value; null when the row is gone. */
+  readonly mine: WireValue | null;
+  /** A secret column: neither value is shown. */
+  readonly withheld: boolean;
+}
+
+/** What a conflict is about, for `cleo cloud conflicts` (T12997). */
+export interface ConflictDetail {
+  /** The row's human id (a task id, a doc slug …) from its declared key, or null. */
+  readonly humanId: string | null;
+  /** The Nexus device that wrote the op; null once its inbox row is pruned. */
+  readonly deviceId: string | null;
+  /** Whether the incoming op is still in the inbox (applied rows are pruned after a checkpoint). */
+  readonly opKnown: boolean;
+  readonly fields: readonly ConflictFieldValues[];
+}
+
+const qi = (id: string): string => `"${id.replaceAll('"', '""')}"`;
+
+/** The op a conflict was recorded for, its split parts joined, or undefined. */
+function incomingOp(
+  db: DatabaseSync,
+  c: ConflictRecord,
+  row: { replica_id: string; txn_json: string },
+): LedgerOp | undefined {
+  const parse = (text: string): LedgerTxn | undefined => {
+    try {
+      const ok = LedgerTxn.safeParse(JSON.parse(text));
+      return ok.success ? ok.data : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const head = parse(row.txn_json);
+  if (!head) return undefined;
+  let ops = head.ops;
+  if (head.part) {
+    const parts = (
+      db
+        .prepare(
+          `SELECT txn_json FROM _sync_inbox WHERE stream = ? AND replica_id = ?
+             AND json_valid(txn_json) AND json_extract(txn_json, '$.txn') = ?`,
+        )
+        .all(c.stream, row.replica_id, head.txn) as Array<{ txn_json: string }>
+    )
+      .map((r) => parse(r.txn_json))
+      .filter((t): t is LedgerTxn => t !== undefined)
+      .sort((a, b) => (a.part?.[0] ?? 0) - (b.part?.[0] ?? 0));
+    ops = parts.flatMap((t) => t.ops);
+  }
+  const at = ops[c.opIdx];
+  if (at && at.t === c.table && at.u === c.uid) return at;
+  return ops.findLast((o) => o.t === c.table && o.u === c.uid);
+}
+
+/** The row's current values by uid, as wire values, or undefined when it is gone. */
+function currentRow(
+  db: DatabaseSync,
+  def: CaptureTableDef,
+  uid: string,
+): Map<string, WireValue> | undefined {
+  const cols = [...new Set([...def.key, ...def.columns])];
+  const r = db
+    .prepare(
+      `SELECT ${cols.map((col, i) => `${enc(qi(col))} AS c${i}`).join(', ')} FROM main.${qi(def.table)} WHERE uid = ?`,
+    )
+    .get(uid) as Record<string, string> | undefined;
+  return r ? new Map(cols.map((col, i) => [col, decodeEnc(String(r[`c${i}`]))])) : undefined;
+}
+
+/** A reference's uid as the target row's local key, when this store holds it. */
+function localKeyOf(
+  db: DatabaseSync,
+  ref: { table: string; key: string },
+  uid: LedgerValue,
+): LedgerValue {
+  if (typeof uid !== 'string' || !hasTable(db, ref.table)) return uid;
+  const r = db
+    .prepare(`SELECT ${enc(qi(ref.key))} AS k FROM main.${qi(ref.table)} WHERE uid = ?`)
+    .get(uid) as { k: string } | undefined;
+  return r ? decodeEnc(r.k) : uid;
+}
+
+const show = (v: LedgerValue | undefined): string | null =>
+  v === undefined || v === null ? null : typeof v === 'object' ? JSON.stringify(v) : String(v);
+
+/**
+ * Describe one recorded conflict: the row's human id, the device that wrote
+ * the incoming op, and each conflicting column's incoming and current
+ * values (secret columns withheld). Read-only.
+ *
+ * @param db - The store.
+ * @param scope - The store's scope.
+ * @param c - The conflict.
+ * @returns The detail.
+ */
+export function conflictDetail(
+  db: DatabaseSync,
+  scope: TableScope,
+  c: ConflictRecord,
+): ConflictDetail {
+  const inbox = hasTable(db, '_sync_inbox')
+    ? (db
+        .prepare(
+          'SELECT replica_id, device_id, txn_json FROM _sync_inbox WHERE stream = ? AND seq = ? AND txn_idx = ?',
+        )
+        .get(c.stream, c.seq, c.txnIdx) as
+        | { replica_id: string; device_id: string; txn_json: string }
+        | undefined)
+    : undefined;
+  const op = inbox ? incomingOp(db, c, inbox) : undefined;
+  const def = captureTableDef(db, scope, c.table);
+  const row = def ? currentRow(db, def, c.uid) : undefined;
+  const keyParts = (def?.key ?? []).map((k) => show(row?.get(k) ?? op?.k?.[k] ?? op?.a?.[k]));
+  const humanId =
+    keyParts.length > 0 && keyParts.every((p) => p !== null) ? keyParts.join('/') : null;
+  const fields = c.columns.map((column): ConflictFieldValues => {
+    if (def?.secret.has(column)) return { column, theirs: null, mine: null, withheld: true };
+    const raw = op?.a?.[column] ?? op?.k?.[column] ?? null;
+    const ref = def?.refs.get(column);
+    return {
+      column,
+      theirs: raw !== null && ref ? localKeyOf(db, ref, raw) : raw,
+      mine: row?.get(column) ?? null,
+      withheld: false,
+    };
+  });
+  return { humanId, deviceId: inbox?.device_id ?? null, opKnown: op !== undefined, fields };
 }

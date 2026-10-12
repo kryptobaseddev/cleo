@@ -20,7 +20,11 @@
  *    transaction. Across transactions, the dead incarnation of a row that
  *    never got a uid (its captures up to its delete) is dropped whole
  *    (T13036). A minted row with no uid or `birth_fp` keeps its group
- *    pending, and nothing after it seals first (§2.9).
+ *    pending, and nothing after it seals first (§2.9). A group held for a
+ *    secret phase A could not seal (an unreadable credential, or no master key)
+ *    is not such a stall (T13534): it stays pending and is retried on the next
+ *    pass, a later group touching or referencing one of its rows waits behind
+ *    it, and every unrelated group still seals.
  * 4. **HLC.** `tick(at_ms)` per op in order, at its last capture's time; the
  *    transaction's HLC is its maximum.
  * 5. **Write.** `_sync_txn`, `_sync_op`; `_sync_row_meta` upserted per op
@@ -76,7 +80,13 @@ import {
   UNRELEASED_FLAGS,
 } from './flags.js';
 import { mergeGroupsOf } from './merge/rules.js';
-import { type DraftOp, type MetaFacts, type NettedOp, netTransaction } from './netting.js';
+import {
+  type DraftOp,
+  type MetaFacts,
+  type NetResult,
+  type NettedOp,
+  netTransaction,
+} from './netting.js';
 import { encText, remapCapture, remapPending } from './remap.js';
 import { activeReplica } from './replica.js';
 import { compressFieldHlcs, nextFhlc, type RowMetaRow, upsertRowMeta } from './row-meta.js';
@@ -1442,6 +1452,31 @@ function sealInTransaction(
   const pointedAt = new Map<number, string>();
   let dropped = 0;
   const quarantined: Array<{ seq: number; tbl: string; reason: string }> = [];
+  // T13534: rows held because their secret could not be sealed, by uid. A later
+  // group touching or referencing one waits behind it (§2.9 order for related
+  // rows); every unrelated group still seals, so one held credential never
+  // stalls the outbox.
+  // A dropped re-key of a held row (its I never sealed, so netting drops the K
+  // and leaves the old uid only in `renames`) is related too: both ends count,
+  // or the re-keyed row's later change would seal ahead of its insert (T13601).
+  const heldUids = new Set<string>();
+  const holds = (n: NetResult): boolean =>
+    heldUids.size > 0 &&
+    (n.renames.some((r) => heldUids.has(r.from) || heldUids.has(r.to)) ||
+      n.ops.some(
+        (op) =>
+          (op.u !== null && heldUids.has(op.u)) ||
+          [...Object.values(op.a ?? {}), ...Object.values(op.k ?? {})].some(
+            (v) => typeof v === 'string' && heldUids.has(v),
+          ),
+      ));
+  const hold = (n: NetResult): void => {
+    for (const op of n.ops) if (op.u !== null) heldUids.add(op.u);
+    for (const r of n.renames) {
+      heldUids.add(r.from);
+      heldUids.add(r.to);
+    }
+  };
 
   for (const [gi, g] of groups.entries()) {
     // Bound the time this transaction holds the write lock (T13032).
@@ -1536,10 +1571,17 @@ function sealInTransaction(
       pending.push({ firstSeq: head, reason: wait });
       break;
     }
+    if (holds(netted)) {
+      pending.push({ firstSeq: head, reason: 'waits behind a held credential row it touches' });
+      hold(netted);
+      continue;
+    }
     const withSecrets = sealSecretOps(ctx, netted.ops, opts.secrets);
     if (typeof withSecrets === 'string') {
+      // T13534: held, but never a head-of-line stall; retried on the next pass.
       pending.push({ firstSeq: head, reason: withSecrets });
-      break;
+      hold(netted);
+      continue;
     }
     // Dropped re-keys (no sealed op carried the old uid): the meta follows the row.
     for (const r of netted.renames) {
