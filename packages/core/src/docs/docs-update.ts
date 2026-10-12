@@ -755,6 +755,27 @@ export async function updateDocBySlug(
     );
   }
 
+  // T13355: project the update through the section CRDT merge layer (spec
+  // `cleodocs-rearch-design` §2 option b). Inline text only — the agent
+  // write path; file-supplied updates stay on the whole-doc path for now.
+  // Best-effort: a projection failure must not fail the completed update —
+  // the whole-row write above is the fallback when no section state exists.
+  if (hasContent) {
+    try {
+      const { projectDocUpdateThroughSections } = await import('./section-write-path.js');
+      await projectDocUpdateThroughSections(projectRoot, {
+        slug,
+        authorAgentId: attachedBy,
+        content: buf.toString('utf-8'),
+        ...(params.message !== undefined ? { changeSummary: params.message } : {}),
+      });
+    } catch (projectionErr) {
+      process.emitWarning(
+        `docs section CRDT projection failed after update of slug '${slug}': ${projectionErr instanceof Error ? projectionErr.message : String(projectionErr)}`,
+      );
+    }
+  }
+
   return {
     ok: true,
     result: {

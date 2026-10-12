@@ -30,7 +30,7 @@
  * @saga T13339
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
@@ -107,6 +107,72 @@ export async function resolveConduitDocUid(
     .orderBy(desc(conduitDocSlugAliases.createdAt))
     .get();
   return alias?.docUid ?? null;
+}
+
+/**
+ * Adopt a document into the conduit family on first sight (T13355).
+ *
+ * The docs write path (`docs/section-write-path.ts`) projects every doc
+ * update through the section CRDT layer, whose history tables are keyed on
+ * `conduit_attachments.uid`; a doc that only exists in the legacy
+ * `attachments` registry has no conduit row yet, so this inserts one. The
+ * row is a thin identity shell: the bytes live in the blob store, so
+ * `content` carries an empty buffer and the sizes/hash describe nothing —
+ * the version rows carry the real content addressing.
+ *
+ * `conversation_id` is the NOT NULL transport owner; docs adopted here use
+ * the `cleodocs` sentinel (no FK — soft reference by design). Idempotent:
+ * an existing live row (or alias-resolved uid) is returned with
+ * `adopted: false`.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param input - Slug, author and current full text of the doc.
+ * @returns The doc's immutable uid and whether this call created the row.
+ */
+// @sync-invariant docs.doc.adopt-once the existence probe and the identity-shell insert are one causal step; the uid default makes a re-adopt conflict-free
+export async function ensureConduitDoc(
+  projectRoot: string,
+  input: { slug: string; authorAgentId: string; content: Buffer },
+): Promise<{ uid: string; adopted: boolean }> {
+  requireNonEmpty('slug', input.slug);
+  requireNonEmpty('authorAgentId', input.authorAgentId);
+  const existing = await resolveConduitDocUid(projectRoot, input.slug);
+  if (existing !== null) return { uid: existing, adopted: false };
+
+  const db = await getDb(projectRoot);
+  await db
+    .insert(conduitAttachments)
+    .values({
+      slug: input.slug,
+      conversationId: 'cleodocs',
+      fromAgentId: input.authorAgentId,
+      content: Buffer.alloc(0),
+      originalSize: input.content.length,
+      compressedSize: input.content.length,
+      contentHash: createHash('sha256').update(input.content).digest('hex'),
+      format: 'text',
+      title: input.slug,
+      tokens: input.content
+        .toString('utf-8')
+        .split(/\s+/)
+        .filter((w) => w.length > 0).length,
+    })
+    .onConflictDoNothing()
+    .run();
+
+  const row = await db
+    .select({ uid: conduitAttachments.uid })
+    .from(conduitAttachments)
+    .where(eq(conduitAttachments.slug, input.slug))
+    .get();
+  if (!row?.uid) {
+    // @sync-invariant docs.doc.adopt-once an adopt that cannot be read back means the store lost the write; fail loudly instead of returning a phantom
+    throw new CleoError(
+      ExitCode.GENERAL_ERROR,
+      `conduit doc adopt for slug '${input.slug}' could not be read back`,
+    );
+  }
+  return { uid: row.uid, adopted: true };
 }
 
 /**

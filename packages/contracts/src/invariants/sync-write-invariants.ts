@@ -511,14 +511,35 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     [],
     'alias rows carry natural identity over (slug, doc_uid); identical aliases merge to one row',
   ),
-  rule(
-    'docs.head.max-hlc',
-    'T13355',
-    'conduit_doc_heads',
-    ['*'],
-    [],
-    'the projection keeps the max-HLC head; a losing concurrent head is recorded (conflict_count/last_conflict_json), never silently shadowed',
-  ),
+  // T13355 (D11165): the write-path behavior is implemented at the writer
+  // chokepoint (`upsertConduitDocHead`, now reachable from the docs update
+  // write path); cross-device convergence rides the Stage C journal merge
+  // engine (T12344) and needs no second rule.
+  {
+    id: 'docs.head.max-hlc',
+    class: 'monotonic-merge-rule',
+    tables: ['conduit_doc_heads'],
+    sites: [],
+    mergeRule: { table: 'conduit_doc_heads', columns: ['*'] },
+    inventory: [],
+    runtimeGate: {
+      module: 'packages/core/src/store/conduit-doc-history.ts',
+      functionName: 'upsertConduitDocHead',
+    },
+    reason:
+      'the projection keeps the max-HLC head; a losing concurrent head is recorded (conflict_count/last_conflict_json), never silently shadowed',
+  },
+  // T13355 — the docs write path adopts a legacy doc into the conduit family
+  // once (identity shell keyed by the immutable uid); the read-back guard is
+  // a local write-confirmation, not a merge rule.
+  {
+    id: 'docs.doc.adopt-once',
+    class: 'not-sync-relevant',
+    tables: ['conduit_attachments'],
+    sites: [],
+    reason:
+      'adopting a legacy doc inserts one immutable-uid identity shell; losing the write is refused loudly at the writer, not merged',
+  },
 
   // §3.6.0 identity-layer rows.
   {
