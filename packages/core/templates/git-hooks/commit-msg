@@ -54,6 +54,8 @@ case "$SUBJECT" in
   'fixup! '*) exit 0 ;;
   'squash! '*) exit 0 ;;
   'amend! '*) exit 0 ;;
+  # T13577: the empty commit `cleo init` makes so HEAD resolves (exact subject).
+  'initial: cleo init') exit 0 ;;
 esac
 
 # Match `T` followed by 1+ digits anywhere in the subject.
