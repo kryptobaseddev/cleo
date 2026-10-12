@@ -27,6 +27,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -41,6 +42,9 @@ import {
 } from '../migration-safety.js';
 import { getDb, getNativeDb, resetDbState } from '../sqlite.js';
 import { createTestDb, seedTasks, type TestDbEnv } from './test-db-helper.js';
+
+/** node:sqlite-only loader for the sqlite-vec extension (ESM-safe, gate 34). */
+const _require = createRequire(import.meta.url);
 
 let env: TestDbEnv;
 let db: DatabaseSync;
@@ -577,6 +581,57 @@ describe('runMigrationSteps (T13448)', () => {
     expect(lastStep(report).transaction).toBe('committed');
     const n = (db.prepare(`SELECT COUNT(*) AS n FROM wt_probe`).get() as { n: number }).n;
     expect(n).toBe(1);
+  });
+
+  it('T13626: a step that drops a before-skipped (unreadable) table fails and rolls back', async () => {
+    // A vec0 virtual table created by a module-equipped SIDE connection. On
+    // the harness handle (no sqlite-vec loaded) it is unreadable — the
+    // before-capture records it in unreadableTables and never fingerprints
+    // it. That is the blind spot: a step that loads the module and drops the
+    // table would otherwise go undetected by the count/hash checks.
+    const side = new DatabaseSync(join(env.cleoDir, 'cleo.db'), { allowExtension: true });
+    try {
+      const sqliteVec = _require('sqlite-vec') as { load: (d: DatabaseSync) => void };
+      sqliteVec.load(side);
+      side.exec('CREATE VIRTUAL TABLE skipped_vec_probe USING vec0(embedding float[4])');
+      side.exec(`INSERT INTO skipped_vec_probe(rowid, embedding) VALUES (1, '[1,2,3,4]')`);
+    } finally {
+      side.close();
+    }
+
+    const dropping: MigrationStep = {
+      name: 'drops-skipped-cache',
+      run({ db: fixture }) {
+        // The step loads the extension and drops the previously-unreadable
+        // table — exactly what a "rebuild the cache" step would do.
+        const sqliteVec = _require('sqlite-vec') as { load: (d: DatabaseSync) => void };
+        sqliteVec.load(fixture);
+        fixture.exec('DROP TABLE skipped_vec_probe');
+      },
+    };
+
+    const report = await runMigrationSteps([dropping], {
+      db,
+      projectRoot: env.tempDir,
+      cwd: env.tempDir,
+    });
+
+    expect(report.status).toBe('halted');
+    expect(report.haltedStep).toBe('drops-skipped-cache');
+    const step = lastStep(report);
+    expect(step.transaction).toBe('rolled-back');
+    // The guard names the dropped, previously-skipped table.
+    expect(step.unreadableTables.map((t) => t.table)).toContain('skipped_vec_probe');
+    expect(step.failures.join('\n')).toContain('skipped_vec_probe');
+    // The step's drop was rolled back: the table is back in the live store.
+    const names = (
+      db
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'skipped_vec_probe'`,
+        )
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+    expect(names).toContain('skipped_vec_probe');
   });
 
   it('refuses destructive steps without force, even with a fresh receipt', async () => {
