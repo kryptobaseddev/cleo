@@ -374,6 +374,9 @@ export class ReleaseHandler implements DomainHandler {
                 : undefined,
             hotfix: typeof params?.hotfix === 'boolean' ? params.hotfix : false,
             hooksV1Promotion: params?.hooksV1Promotion === true,
+            ...(typeof params?.hooksV1Waiver === 'string'
+              ? { hooksV1Waiver: params.hooksV1Waiver }
+              : {}),
             dryRun: typeof params?.dryRun === 'boolean' ? params.dryRun : false,
             writeChangelog:
               typeof params?.writeChangelog === 'boolean' ? params.writeChangelog : true,

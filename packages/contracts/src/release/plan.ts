@@ -379,6 +379,8 @@ export const ReleasePlanSchema = z
     releaseKind: ReleaseKindSchema,
     /** Explicit hooks-v1 stable promotion; ordinary and hotfix releases are exempt. */
     hooksV1Promotion: z.boolean().optional(),
+    /** Audited reason for shipping a source change that opens the hooks-v1 gate without the promotion (T13555). */
+    hooksV1Waiver: NonEmptyString.optional(),
     /** ISO-8601 timestamp the plan was written. */
     createdAt: Iso8601,
     /** Identifier of the actor that wrote the plan (agent name or operator). */

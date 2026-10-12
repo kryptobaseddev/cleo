@@ -464,6 +464,96 @@ describe('releasePlan — happy path', () => {
 // Error envelopes
 // =============================================================================
 
+describe('releasePlan — hooks-v1 gate opened by source (T13555)', () => {
+  const gate = (set: string, released = 'return false;') =>
+    `export const UNRELEASED_HOOK_FEATURES: ReadonlySet<HookFeature> = new Set([${set}]);\n` +
+    `export function hooksV1Released(opts: HooksV1ReleaseOptions = {}): boolean {\n  ${released}\n}\n`;
+  const git = (...args: string[]) => execFileSync('git', ['-C', testDir, ...args]);
+  /** Tag a release with the gate closed, then commit `next` as the gate source. */
+  const releaseThen = (next: string | null) => {
+    const file = join(testDir, 'packages/core/src/hooks/release-gate.ts');
+    execFileSync('mkdir', ['-p', join(testDir, 'packages/core/src/hooks')]);
+    writeFileSync(file, gate("'hooks-v1'"));
+    git('add', '-A', 'packages');
+    git('commit', '-q', '-m', 'gate');
+    git('tag', 'v2026.5.1');
+    if (next === null) git('rm', '-q', file);
+    else {
+      writeFileSync(file, next);
+      git('add', '-A', 'packages');
+    }
+    git('commit', '-q', '--allow-empty', '-m', 'next');
+  };
+  const plan = (extra: { hooksV1Promotion?: boolean; hooksV1Waiver?: string } = {}) =>
+    releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+      ...extra,
+    });
+
+  it('refuses a stable plan that drops hooks-v1 from the unreleased set without the flag', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    releaseThen(gate(''));
+    const result = await plan();
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.code).toBe('E_HOOKS_V1_PROMOTION_REQUIRED');
+    expect(result.error.details).toMatchObject({
+      previousTag: 'v2026.5.1',
+      changes: ["'hooks-v1' left UNRELEASED_HOOK_FEATURES"],
+    });
+  });
+
+  it('refuses a changed hooksV1Released and a deleted gate', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    releaseThen(gate("'hooks-v1'", 'return true;'));
+    const changed = await plan();
+    expect(changed.success).toBe(false);
+    if (changed.success) throw new Error('unreachable');
+    expect(changed.error.details).toMatchObject({ changes: ['hooksV1Released changed'] });
+    git('rm', '-q', 'packages/core/src/hooks/release-gate.ts');
+    git('commit', '-q', '-m', 'delete');
+    const deleted = await plan();
+    expect(deleted.success).toBe(false);
+  });
+
+  it('accepts the promotion, an untouched gate, and an audited waiver', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    releaseThen(gate(''));
+    expect((await plan({ hooksV1Promotion: true })).success).toBe(true);
+    const waived = await plan({ hooksV1Waiver: 'owner approved without the pilot' });
+    expect(waived.success).toBe(true);
+    if (!waived.success) throw new Error('unreachable');
+    const written = parseReleasePlan(JSON.parse(readFileSync(waived.data.planPath, 'utf-8')));
+    expect(written.hooksV1Waiver).toBe('owner approved without the pilot');
+    const audit = readFileSync(join(testDir, '.cleo/audit/hooks-v1-waiver.jsonl'), 'utf-8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      version: 'v2026.6.0',
+      previousTag: 'v2026.5.1',
+      reason: 'owner approved without the pilot',
+      changes: ["'hooks-v1' left UNRELEASED_HOOK_FEATURES"],
+    });
+  });
+
+  it('leaves an untouched gate alone', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    releaseThen(gate("'hooks-v1'"));
+    const result = await plan();
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('unreachable');
+    expect(
+      parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8'))).hooksV1Waiver,
+    ).toBeUndefined();
+  });
+});
+
 describe('releasePlan — error envelopes', () => {
   it('returns E_EPIC_NOT_FOUND when the epic does not exist', async () => {
     const result = await releasePlan({
