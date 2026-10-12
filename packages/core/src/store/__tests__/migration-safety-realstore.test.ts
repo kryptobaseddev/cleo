@@ -6,9 +6,10 @@
  *
  *   1. The snapshot is taken OUT OF BAND with `cleo backup add` (a VACUUM
  *      INTO copy under `.cleo/backups/sqlite/`) — the live `.cleo/*.db` is
- *      never read directly. The snapshot file is gitignored, so a machine
- *      without one skips this suite (`CLEO_TEST_REAL_STORE_SNAPSHOT` points
- *      at an explicit copy).
+ *      never read directly. The suite runs ONLY when
+ *      `CLEO_TEST_REAL_STORE_SNAPSHOT` names an explicit snapshot copy; there
+ *      is no auto-discovery, so a machine without the env var skips the suite
+ *      (and never copies personal store data into tmp).
  *   2. The test copies the snapshot into a throwaway sandbox and runs the
  *      harness against the COPY only.
  *   3. It reports the table/row counts and content hashes it verified, runs
@@ -27,16 +28,14 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
   rmSync,
   statSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import {
   fingerprintTable,
@@ -48,50 +47,29 @@ import {
 /** node:sqlite is CJS-only; createRequire keeps this ESM test file loadable. */
 const _require = createRequire(import.meta.url);
 
-/** The repo root (worktree root here) — six levels above this test file. */
-function repoRoot(): string {
-  return dirname(dirname(dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))))));
-}
-
-/** A discovered real-store snapshot: the `cleo backup add` copy + its sidecar. */
+/** An explicitly-named real-store snapshot file (a `cleo backup add` copy). */
 interface RealStoreSnapshot {
-  /** Absolute path of the `cleo.db.<backupId>` snapshot file. */
+  /** Absolute path of the snapshot file. */
   readonly path: string;
-  /** The backup id from the `<backupId>.meta.json` sidecar. */
+  /** Snapshot label reported in the proof line (`'env'` for an env-named copy). */
   readonly backupId: string;
-  /** ISO-8601 snapshot time from the sidecar. */
+  /** ISO-8601 snapshot time when known, else `'unknown'`. */
   readonly timestamp: string;
 }
 
 /**
  * Resolve a real-store snapshot without ever touching a live `.cleo/*.db`:
- * an explicit env path first, then the newest `cleo backup add` snapshot in
- * `<repoRoot>/.cleo/backups/sqlite/` (sidecar + store file both present).
+ * ONLY an explicit `CLEO_TEST_REAL_STORE_SNAPSHOT` env path is honored. There
+ * is deliberately NO auto-discovery under `<repoRoot>/.cleo/backups/sqlite/` —
+ * that would silently run a heavy (~300 s) test and copy personal store data
+ * into tmp on any dev machine that happens to have a backup (#2169 review).
  */
 function resolveRealStoreSnapshot(): RealStoreSnapshot | null {
   const fromEnv = process.env['CLEO_TEST_REAL_STORE_SNAPSHOT'];
   if (fromEnv !== undefined && fromEnv.length > 0 && existsSync(fromEnv)) {
     return { path: fromEnv, backupId: 'env', timestamp: 'unknown' };
   }
-  const dir = join(repoRoot(), '.cleo', 'backups', 'sqlite');
-  if (!existsSync(dir)) return null;
-  let best: { id: string; mtimeMs: number } | null = null;
-  for (const name of readdirSync(dir)) {
-    if (!name.endsWith('.meta.json')) continue;
-    const id = name.slice(0, -'.meta.json'.length);
-    if (!existsSync(join(dir, `cleo.db.${id}`))) continue;
-    const mtimeMs = statSync(join(dir, name)).mtimeMs;
-    if (best === null || mtimeMs > best.mtimeMs) best = { id, mtimeMs };
-  }
-  if (best === null) return null;
-  const sidecar = JSON.parse(readFileSync(join(dir, `${best.id}.meta.json`), 'utf-8')) as {
-    timestamp?: string;
-  };
-  return {
-    path: join(dir, `cleo.db.${best.id}`),
-    backupId: best.id,
-    timestamp: sidecar.timestamp ?? 'unknown',
-  };
+  return null;
 }
 
 /** SHA-256 of a file (byte-equality assertions). */
@@ -103,7 +81,7 @@ const SNAPSHOT = resolveRealStoreSnapshot();
 if (SNAPSHOT === null) {
   process.stdout.write(
     '[migration-safety-realstore] no real-store snapshot found ' +
-      '(set CLEO_TEST_REAL_STORE_SNAPSHOT or run `cleo backup add`); suite skipped\n',
+      '(set CLEO_TEST_REAL_STORE_SNAPSHOT to an explicit snapshot copy); suite skipped\n',
   );
 }
 

@@ -235,8 +235,9 @@ export interface MigrationStepReport {
    * Extension-backed tables excluded from verification because they could not
    * be read on this connection (e.g. `vec0` virtual tables without the
    * sqlite-vec extension loaded). These are content-addressed caches, never
-   * the source of truth; every other read error still fails the step
-   * (fail-closed).
+   * the source of truth; a step that makes one of them MISSING fails
+   * verification (its removal would otherwise be invisible), and every other
+   * read error still fails the step (fail-closed).
    */
   readonly unreadableTables: readonly UnreadableTable[];
   /**
@@ -648,6 +649,17 @@ export async function runMigrationSteps(
         const afterNames = new Set(listUserTables(opts.db));
         addedTables = [...afterNames].filter((name) => !beforeNames.has(name));
         removedTables = [...beforeNames].filter((name) => !afterNames.has(name));
+        // A table skipped before the step (unreadable, e.g. a vec0 virtual
+        // table without its extension) must still EXIST afterwards: removal
+        // of a skipped table is invisible to the count/hash checks, so a
+        // step that drops one on this connection would go undetected.
+        for (const skipped of unreadableTables) {
+          if (!afterNames.has(skipped.table)) {
+            failures.push(
+              `table ${skipped.table} was unreadable before the step (${skipped.reason}) and is missing after it`,
+            );
+          }
+        }
         for (const before of beforeTables) {
           const expectedDelta = spec.expectedDelta?.[before.table] ?? 0;
           if (!afterNames.has(before.table)) {
@@ -690,6 +702,18 @@ export async function runMigrationSteps(
         }
         if (removedTables.length > 0) {
           failures.push(`tables removed by the step: ${removedTables.join(', ')}`);
+        }
+        // Guard for the blind spot: a table skipped in the before-capture
+        // (extension-backed, e.g. vec0 without sqlite-vec loaded) never made
+        // it into beforeTables, so the loop above cannot notice the step
+        // dropping it. Its absence afterwards is only explainable by the
+        // step — fail closed.
+        for (const unreadable of unreadableTables) {
+          if (!afterNames.has(unreadable.table)) {
+            failures.push(
+              `table ${unreadable.table} was removed by the step (skipped before: ${unreadable.reason})`,
+            );
+          }
         }
         if (fkViolations > 0) {
           failures.push(
