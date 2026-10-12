@@ -209,6 +209,47 @@ describe('schedulePass', () => {
     expect(admittedIds(out)).toEqual(['held']);
   });
 
+  describe('the tiny reserve sits outside the pressure share (T13587)', () => {
+    const halved = {
+      capacityBytes: 48 * GIB,
+      share: 'half' as const,
+      lightShare: 'half' as const,
+      nowMs: LEDGER_RESERVATION_MS,
+    };
+    const holder = entry({ id: 'holder', state: 'admitted', footprintBytes: 24 * GIB });
+
+    it('a 24 GiB holder on a halved 48 GiB budget admits a 1 GiB head', () => {
+      const out = schedulePass(
+        [holder, entry({ id: 'fmt', enqueuedAtMs: 0, footprintBytes: GIB })],
+        halved,
+      );
+      expect(admittedIds(out).sort()).toEqual(['fmt', 'holder']);
+    });
+
+    it('only tiny runs use it, at most TINY_LANE_SLOTS of them', () => {
+      const out = schedulePass(
+        [
+          holder,
+          entry({ id: 'build', enqueuedAtMs: 0, footprintBytes: 2 * GIB }),
+          ...[1, 2, 3, 4].map((n) =>
+            entry({ id: `fmt${n}`, enqueuedAtMs: n, footprintBytes: GIB }),
+          ),
+        ],
+        halved,
+      );
+      expect(admittedIds(out).sort()).toEqual(['fmt1', 'fmt2', 'fmt3', 'holder']);
+    });
+
+    it('the memory gate (none) still admits nothing', () => {
+      const out = schedulePass([holder, entry({ id: 'fmt', footprintBytes: GIB })], {
+        ...halved,
+        share: 'none',
+        lightShare: 'none',
+      });
+      expect(admittedIds(out)).toEqual(['holder']);
+    });
+  });
+
   it('a run larger than the capacity runs alone, never waiting forever on its size', () => {
     const huge = entry({ id: 'huge', footprintBytes: 99 * GIB });
     expect(admittedIds(schedulePass([huge], ctx))).toEqual(['huge']);

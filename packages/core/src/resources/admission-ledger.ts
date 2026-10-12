@@ -874,6 +874,11 @@ function charged(entry: LedgerEntry, capacityBytes: number): number {
  *   or less) that fit the memory budget (T13367). The lane is open only until
  *   the head has waited {@link TINY_LANE_WINDOWS} reservation windows, and
  *   never for a head that needs the whole budget (T13389).
+ * - Up to {@link TINY_LANE_SLOTS} tiny runs are admitted from a reserve outside
+ *   the pressure share, wherever they wait, while the capacity has room for
+ *   them (T13587): their bytes do not count against the share budget, and
+ *   other runs never use the reserve. The memory gate (`none`) still admits
+ *   nothing.
  *
  * @param entries - the ledger.
  * @param ctx - capacity, pressure share and clock.
@@ -906,21 +911,42 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   let exclusiveRunning = 0;
   // T13367: admitted tiny runs, for the tiny lane past a blocked head.
   let tinyRunning = 0;
+  // T13587: up to TINY_LANE_SLOTS tiny runs sit in a reserve outside the
+  // pressure share (never beyond the capacity). Their bytes are not `used`, so
+  // a holder that fills a halved budget exactly cannot starve a formatter.
+  let reserved = 0;
+  let reservedBytes = 0;
+  const reserveTakes = (e: LedgerEntry, cost: number): boolean =>
+    isTiny(e) &&
+    e.exclusive !== true &&
+    reserved < TINY_LANE_SLOTS &&
+    used + reservedBytes + cost <= ctx.capacityBytes;
   for (const e of entries) {
     if (e.state === 'admitted') {
-      used += charged(e, ctx.capacityBytes);
+      const cost = charged(e, ctx.capacityBytes);
+      if (isTiny(e)) tinyRunning++;
+      // A reserve run still counts as running: the oldest-starts-when-idle rule
+      // must not put a capacity-sized run beside it.
       running++;
+      if (reserveTakes(e, cost)) {
+        reserved++;
+        reservedBytes += cost;
+        continue;
+      }
+      used += cost;
       if (isHeavy(e)) heavyRunning++;
       if (e.exclusive === true) exclusiveRunning++;
-      if (isTiny(e)) tinyRunning++;
     }
   }
+  /** Whether `cost` more fits `budget`, and the capacity beside the tiny reserve. */
+  const within = (budget: number, cost: number): boolean =>
+    used + cost <= budget && used + reservedBytes + cost <= ctx.capacityBytes;
   const fits = (w: LedgerEntry, cost: number): boolean => {
     if (w.exclusive === true && exclusiveRunning > 0) return false;
-    if (!isHeavy(w)) return lightShare !== 'none' && used + cost <= lightBudget;
+    if (!isHeavy(w)) return lightShare !== 'none' && within(lightBudget, cost);
     if (ctx.share === 'none') return false;
     if (ctx.share === 'one' && heavyRunning > 0) return false;
-    return used + cost <= heavyBudget;
+    return within(heavyBudget, cost);
   };
   const waiting = entries
     .filter((e) => e.state === 'waiting')
@@ -944,6 +970,16 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   };
   for (const w of waiting) {
     const cost = charged(w, ctx.capacityBytes);
+    // T13587: the tiny reserve admits a tiny run wherever it waits; the memory
+    // gate (`none`) still admits nothing.
+    if (lightShare !== 'none' && reserveTakes(w, cost)) {
+      admit.add(w.id);
+      reserved++;
+      reservedBytes += cost;
+      tinyRunning++;
+      running++;
+      continue;
+    }
     if (headBlocked) {
       // Only the tiny lane passes a byte-blocked head: a formatter on two
       // files, within the memory budget, at most TINY_LANE_SLOTS at once.
@@ -952,7 +988,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
         tinyRunning < TINY_LANE_SLOTS &&
         w.exclusive !== true &&
         lightShare !== 'none' &&
-        used + cost <= lightBudget
+        within(lightBudget, cost)
       ) {
         take(w, cost);
       }
@@ -966,7 +1002,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
         !isHeavy(w) &&
         !(w.exclusive === true && exclusiveRunning > 0) &&
         lightShare !== 'none' &&
-        used + cost + reservedForHead <= lightBudget
+        within(lightBudget, cost + reservedForHead)
       ) {
         take(w, cost);
       }
@@ -988,13 +1024,13 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
         // delay it, so its bytes are reserved and light runs keep backfilling
         // around them (T13132, #1865 review MED-1).
         const cpuOnly =
-          isHeavy(w) && ctx.share === 'one' && heavyRunning > 0 && used + cost <= heavyBudget;
+          isHeavy(w) && ctx.share === 'one' && heavyRunning > 0 && within(heavyBudget, cost);
         // Likewise a head blocked only because another exclusive run holds
         // the slot (T13237): reserve its bytes, let light runs pass around it.
         const exclusiveOnly =
           w.exclusive === true &&
           exclusiveRunning > 0 &&
-          used + cost <= (isHeavy(w) ? heavyBudget : lightBudget);
+          within(isHeavy(w) ? heavyBudget : lightBudget, cost);
         if (!cpuOnly && !exclusiveOnly) {
           // T13367, #2005 review HIGH (T13389): the tiny lane may pass a
           // byte-blocked head only for a bounded window, and never a head that
