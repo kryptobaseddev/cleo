@@ -929,13 +929,18 @@ function backfillProjectHash(infoPath: string, expectedProjectId: unknown, hash:
  * {@link computeStableProjectHash}, persisted once (best effort) so the value
  * never changes afterwards.
  */
-function decodeProjectInfo(raw: string, projectRoot: string, infoPath: string): ProjectInfo {
+function decodeProjectInfo(
+  raw: string,
+  projectRoot: string,
+  infoPath: string,
+  hashRoot: string = projectRoot,
+): ProjectInfo {
   const data = JSON.parse(raw) as Record<string, unknown>;
   let projectHash: string;
   if (typeof data.projectHash === 'string' && data.projectHash.length > 0) {
     projectHash = data.projectHash;
   } else {
-    projectHash = computeStableProjectHash(projectRoot);
+    projectHash = computeStableProjectHash(hashRoot);
     backfillProjectHash(infoPath, data.projectId, projectHash);
   }
   // T12716: the tracked id wins over the cached `projectId` (the same order
@@ -955,6 +960,69 @@ function decodeProjectInfo(raw: string, projectRoot: string, infoPath: string): 
 }
 
 /**
+ * The primary checkout's `.cleo/project-info.json` for a git worktree that has
+ * none of its own (T13568): a worktree created outside CLEO never got the copy
+ * CLEO-provisioned ones get at create time (T11033). Resolved from files only —
+ * the worktree's `.git` file names its gitdir, whose `commondir` names the
+ * primary's `.git` — so this leaf spawns nothing. A CLEO root below the git top
+ * level maps to the same relative path in the primary checkout.
+ *
+ * @param projectRoot - The worktree's CLEO root.
+ * @returns The primary checkout's CLEO root and info file, or null when the
+ *   root is not a linked worktree or the primary has no info file.
+ */
+function primaryCheckoutProjectInfo(
+  projectRoot: string,
+): { root: string; infoPath: string } | null {
+  try {
+    let top = resolve(projectRoot);
+    let rel = '';
+    for (;;) {
+      const dotGit = join(top, '.git');
+      if (existsSync(dotGit)) {
+        if (statSync(dotGit).isDirectory()) return null;
+        const gitdir = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, 'utf-8'))?.[1]?.trim();
+        if (!gitdir) return null;
+        const gitDir = resolve(top, gitdir);
+        const commondir = join(gitDir, 'commondir');
+        if (!existsSync(commondir)) return null;
+        const common = resolve(gitDir, readFileSync(commondir, 'utf-8').trim());
+        // A bare repository's worktrees have no primary checkout to read.
+        if (basename(common) !== '.git') return null;
+        const root = join(dirname(common), rel);
+        const infoPath = join(root, '.cleo', 'project-info.json');
+        return root !== resolve(projectRoot) && existsSync(infoPath) ? { root, infoPath } : null;
+      }
+      const parent = dirname(top);
+      if (parent === top) return null;
+      rel = rel === '' ? basename(top) : join(basename(top), rel);
+      top = parent;
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where to read a root's project info: its own `.cleo/project-info.json`, or —
+ * for a worktree that has none — the primary checkout's (T13568). The worktree
+ * stays the identity's `projectRoot`; a legacy file without `projectHash` is
+ * hashed (and backfilled) against the primary root, never the worktree.
+ */
+function projectInfoSource(
+  projectRoot: string,
+  cleoDir: string,
+): { infoPath: string; hashRoot: string } {
+  const infoPath = join(cleoDir, 'project-info.json');
+  if (existsSync(infoPath) || resolve(cleoDir) !== join(resolve(projectRoot), '.cleo'))
+    return { infoPath, hashRoot: projectRoot };
+  const primary = primaryCheckoutProjectInfo(projectRoot);
+  return primary
+    ? { infoPath: primary.infoPath, hashRoot: primary.root }
+    : { infoPath, hashRoot: projectRoot };
+}
+
+/**
  * Read metadata from a directory already resolved by the canonical path policy.
  * @param projectRoot - Captured root used for the returned identity and name.
  * @param cleoDir - Explicit data directory owned by that root.
@@ -971,8 +1039,8 @@ export async function readProjectInfoAtDirectory(
   projectRoot: string,
   cleoDir: string,
 ): Promise<ProjectInfo> {
-  const infoPath = join(cleoDir, 'project-info.json');
-  return decodeProjectInfo(await readFile(infoPath, 'utf-8'), projectRoot, infoPath);
+  const { infoPath, hashRoot } = projectInfoSource(projectRoot, cleoDir);
+  return decodeProjectInfo(await readFile(infoPath, 'utf-8'), projectRoot, infoPath, hashRoot);
 }
 
 /**
@@ -982,12 +1050,13 @@ export async function readProjectInfoAtDirectory(
  * @returns Validated project information, retaining the legacy empty portable ID.
  * @throws When reading or JSON decoding fails.
  * @remarks Unlike the legacy public nullable wrapper, this preserves diagnostic failures.
+ * A git worktree with no info file reads its primary checkout's (T13568).
  * @example
  * ```ts
  * const info = readProjectInfoAtDirectorySync(root, join(root, '.cleo'));
  * ```
  */
 export function readProjectInfoAtDirectorySync(projectRoot: string, cleoDir: string): ProjectInfo {
-  const infoPath = join(cleoDir, 'project-info.json');
-  return decodeProjectInfo(readFileSync(infoPath, 'utf-8'), projectRoot, infoPath);
+  const { infoPath, hashRoot } = projectInfoSource(projectRoot, cleoDir);
+  return decodeProjectInfo(readFileSync(infoPath, 'utf-8'), projectRoot, infoPath, hashRoot);
 }
