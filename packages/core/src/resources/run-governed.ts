@@ -69,20 +69,26 @@ import {
   decidePause,
   isPausable,
   listRunJobs,
+  type ProcessTreeUsage,
   parentRunJob,
   processAncestors,
   processGroupOf,
   processStart,
+  processTreeUsage,
+  RUN_WATCH_START,
   type RunAlternative,
   type RunDeferralDetails,
   type RunJob,
+  type RunWatchState,
   reapOrphans,
   redactCommand,
   removeRunJob,
   runJobsDir,
   runningEntries,
+  runWatchLimits,
   signalGroup,
   signalPid,
+  watchRun,
   writeRunJob,
 } from './run-admission.js';
 import { trackToolGroup } from './tool-groups.js';
@@ -141,7 +147,12 @@ export interface RunGovernedDeps {
   readonly groupOf: (pid: number) => number | null;
   /** Ancestors of a pid, nearest first (one `ps` of the process table), or null when unknown. */
   readonly ancestorsOf: (pid: number) => readonly number[] | null;
+  /** CPU time and resident memory of a pid's process tree (one `ps`), or null when unknown (T13563). */
+  readonly treeUsage: (pid: number) => ProcessTreeUsage | null;
 }
+
+/** How often the watchdog measures the child's process tree (T13563). */
+export const TREE_SAMPLE_MS = 30_000;
 
 /** Options for {@link runGoverned}. */
 export interface RunGovernedOptions {
@@ -298,6 +309,7 @@ function defaultDeps(): RunGovernedDeps {
     pid: process.pid,
     groupOf: processGroupOf,
     ancestorsOf: processAncestors,
+    treeUsage: processTreeUsage,
   };
 }
 
@@ -579,6 +591,42 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
 
   // ---- 3. supervise (serialized: one tick at a time) ----------------------
   let state: PressureState = 'ok';
+  // T13563: an admitted run that overstays or hangs is reported, never killed.
+  const limits = runWatchLimits(opts.cls);
+  let watch: RunWatchState = RUN_WATCH_START;
+  let treeSampledAtMs = Number.NEGATIVE_INFINITY;
+  const watchdog = (now: number): void => {
+    if (childPid === undefined || now - treeSampledAtMs < TREE_SAMPLE_MS) return;
+    treeSampledAtMs = now;
+    const usage = d.treeUsage(childPid);
+    const step = watchRun(
+      watch,
+      { nowMs: now, startedAtMs, pausedTotalMs, paused: pausedAtMs !== null, usage },
+      limits,
+    );
+    watch = step.next;
+    const minutes = (ms: number) => Math.round(ms / 60_000);
+    for (const event of step.events) {
+      if (event === 'overdue')
+        notice(
+          `overdue: running ${minutes(now - startedAtMs - pausedTotalMs)} min, past the ${opts.cls} limit of ${minutes(limits.maxWallMs ?? 0)} min (pid ${childPid}, ${command}). It keeps its reservation until it exits; check it or stop it.`,
+          'warn',
+        );
+      else if (event === 'hung')
+        notice(
+          `hung? its process tree used no CPU for ${minutes(now - (watch.idleSinceMs ?? now))} min (pid ${childPid}, session ${opts.sessionId ?? 'unknown'}, ${command}). It still holds its reservation; check it or stop it.`,
+          'warn',
+        );
+      else notice('active again: its process tree is using CPU.', 'warn');
+    }
+    job = {
+      ...job,
+      ...(usage ? { measuredRssBytes: usage.rssBytes, cpuMs: usage.cpuMs } : {}),
+      idleSinceMs: watch.idleSinceMs,
+      overdueAtMs: watch.overdueAtMs,
+      hungAtMs: watch.hungAtMs,
+    };
+  };
   const stopTimers = new AbortController();
   void exit.then(() => stopTimers.abort());
   const supervise = async (): Promise<void> => {
@@ -588,6 +636,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         exit.then(() => 'exit' as const),
       ]);
       if (woke === 'exit' || exited || childPid === undefined) return;
+      // Before the pressure sample: a failed sample must not hide a hung run.
+      watchdog(d.now());
       let s: ResourceSample;
       try {
         s = await d.sample();
