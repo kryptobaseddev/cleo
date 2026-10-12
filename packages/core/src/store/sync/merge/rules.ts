@@ -53,6 +53,19 @@ export const TASK_STATUS_LEAVE_OPS: readonly string[] = [
   'tasks.unarchive',
 ];
 
+/**
+ * The `actor.op` values that may leave a terminal session status (T12940):
+ * resume, switch and a snapshot restore reactivate an ended or orphaned
+ * session. Each is emitted by core's own entry points (`sessionResume` — the
+ * `cleo session resume` path — and `resumeSession`, `switchSession`,
+ * `restoreSession`); a test keeps the two in sync.
+ */
+export const SESSION_STATUS_LEAVE_OPS: readonly string[] = [
+  'session.resume',
+  'session.switch',
+  'session.restore',
+];
+
 /** The `actor.op` values that may move `pipeline_stage` backwards. */
 export const TASK_STAGE_RESTORE_OPS: readonly string[] = ['tasks.restore', 'tasks.reopen'];
 
@@ -79,7 +92,8 @@ export const TASK_STAGE_MERGE_ORDER: readonly string[] = [
  * `task.status.absorbing` (T12937), `task.pipeline-stage.max` (T12938),
  * `task.verification.frozen-on-done` (T12939),
  * `docs.decision-adr-links.revoke-monotonic` (T13597),
- * `audit.immutable` (T12941, table-level), `playbook.approval.once` (T12944).
+ * `audit.immutable` (T12941, table-level), `playbook.approval.once` (T12944),
+ * `session.status.terminal` (T12940).
  */
 export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
   tasks_tasks: {
@@ -114,6 +128,18 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
         column: 'status',
         values: ['done'],
         unfreezeOps: TASK_STATUS_LEAVE_OPS,
+      },
+    },
+  },
+  tasks_sessions: {
+    // The status and its end stamp move together (a resume clears ended_at).
+    groups: [['status', 'ended_at']],
+    rules: {
+      status: {
+        kind: 'absorbing',
+        id: 'session.status.terminal',
+        states: ['ended', 'orphaned'],
+        leaveOps: SESSION_STATUS_LEAVE_OPS,
       },
     },
   },

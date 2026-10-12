@@ -10,6 +10,7 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { resolveBoundSession } from '../store/session-store.js';
+import { runWithWriteActorOp } from '../store/sync/write-actor.js';
 import { readFocusState, writeFocusState } from './focus-state-store.js';
 
 /**
@@ -67,7 +68,9 @@ export async function switchSession(projectRoot: string, sessionId: string): Pro
     await writeFocusState(accessor, sessionId, focus);
   }
 
-  await accessor.upsertSingleSession(targetSession);
+  // Reactivating an ended or orphaned session leaves a terminal status
+  // (T12940): its transaction names the command, so receivers accept it.
+  await runWithWriteActorOp('session.switch', () => accessor.upsertSingleSession(targetSession));
 
   return targetSession;
 }

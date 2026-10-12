@@ -441,13 +441,15 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
       'verification is frozen once done; otherwise merged per gate',
     ),
   ),
-  rule(
-    'session.status.terminal',
-    'T12940',
-    'tasks_sessions',
-    ['status', 'ended_at'],
-    ['S7', 'S8', 'S9', 'S10', 'S11', 'S17', 'S18', 'SC2', 'N1', 'SK5', 'P32'],
-    'ended and orphaned are terminal except on an explicit resume',
+  implemented(
+    rule(
+      'session.status.terminal',
+      'T12940',
+      'tasks_sessions',
+      ['status', 'ended_at'],
+      ['S7', 'S8', 'S9', 'S10', 'S11', 'S17', 'S18', 'SC2', 'N1', 'SK5', 'P32'],
+      'ended and orphaned are terminal except on an explicit resume',
+    ),
   ),
   implemented(
     rule(

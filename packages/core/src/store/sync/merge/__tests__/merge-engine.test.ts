@@ -424,6 +424,70 @@ describe('decision_adr_links: the revoke tombstone is absorbing (T13597)', () =>
   });
 });
 
+// T12940 — a session's ended/orphaned status is terminal except on an explicit
+// resume or switch; status and ended_at travel as one group.
+describe('tasks_sessions: ended and orphaned are terminal (T12940)', () => {
+  const SESSION_COLUMNS = ['name', 'status', 'ended_at', 'notes_json'];
+  const SESSIONS: MergeContext = { table: mergeSpecFor('tasks_sessions', SESSION_COLUMNS) };
+  const sOp = (o: LedgerOp['o'], hlc: string, a?: Record<string, LedgerValue>): LedgerOp => ({
+    t: 'tasks_sessions',
+    u: 'uid-ses-1',
+    o,
+    h: hlc,
+    ...(a ? { a } : {}),
+  });
+  const start = sOp('I', h(10), {
+    name: 'work',
+    status: 'active',
+    ended_at: null,
+    notes_json: null,
+  });
+  const end = sOp('U', h(20), { status: 'ended', ended_at: '2026-10-12T01:00:00.000Z' });
+  /** Device B, unaware of the end, suspends the session: an ordinary write. */
+  const suspend = sOp('U', h(30, R2), { status: 'suspended', ended_at: null });
+
+  it('an ordinary newer write cannot leave ended, and the race converges in every order', () => {
+    const orders: Array<readonly LedgerOp[]> = [
+      [start, end, suspend],
+      [start, suspend, end],
+    ];
+    for (const ops of orders) {
+      let row = UNSEEN_ROW;
+      for (const o of ops) row = applyOp(row, o, SESSIONS).next;
+      expect(val(row, 'status')).toBe('ended');
+      expect(val(row, 'ended_at')).toBe('2026-10-12T01:00:00.000Z');
+    }
+    let ended = UNSEEN_ROW;
+    for (const o of [start, end]) ended = applyOp(ended, o, SESSIONS).next;
+    expect(applyOp(ended, suspend, SESSIONS).conflicts).toContainEqual(
+      expect.objectContaining({ kind: 'typed-rule', rule: 'session.status.terminal' }),
+    );
+  });
+
+  it('a resume (or switch) leaves ended, clearing ended_at with it', () => {
+    let row = UNSEEN_ROW;
+    for (const o of [start, end]) row = applyOp(row, o, SESSIONS).next;
+    for (const leave of ['session.resume', 'session.switch']) {
+      const out = applyOp(
+        row,
+        sOp('U', h(40, R2), { status: 'active', ended_at: null }),
+        as(SESSIONS, leave),
+      );
+      expect(val(out.next, 'status')).toBe('active');
+      expect(val(out.next, 'ended_at')).toBeNull();
+    }
+  });
+
+  it('orphaned is terminal too; orphaned to ended is an ordinary absorbing move', () => {
+    let row = UNSEEN_ROW;
+    for (const o of [start, sOp('U', h(20), { status: 'orphaned', ended_at: null })])
+      row = applyOp(row, o, SESSIONS).next;
+    expect(val(applyOp(row, suspend, SESSIONS).next, 'status')).toBe('orphaned');
+    const ended = applyOp(row, sOp('U', h(25), { status: 'ended', ended_at: 'X' }), SESSIONS);
+    expect(val(ended.next, 'status')).toBe('ended');
+  });
+});
+
 // T12944 — a playbook approval goes pending → decided once: nothing returns it
 // to pending, and two opposite decisions converge with a recorded conflict.
 describe('tasks_playbook_approvals: decided once (T12944)', () => {
@@ -707,6 +771,7 @@ describe('the merge-rule registry matches the write-invariant registry', () => {
       'audit.immutable',
       'docs.decision-adr-links.revoke-monotonic',
       'playbook.approval.once',
+      'session.status.terminal',
       'task.pipeline-stage.max',
       'task.status.absorbing',
       'task.verification.frozen-on-done',
