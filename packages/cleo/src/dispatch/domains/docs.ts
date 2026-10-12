@@ -1868,6 +1868,11 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         docVersion: outcome.result.docVersion,
         squashed: outcome.result.squashed,
         summary: outcome.result.summary,
+        // T13604 — recorded CRDT section conflicts reach the envelope (AC1):
+        // the projection names the sections + both version refs.
+        ...(outcome.result.sectionConflicts !== undefined
+          ? { sectionConflicts: outcome.result.sectionConflicts }
+          : {}),
         // T11053 — surface which backend stored the updated blob so
         // observability consumers can confirm the V2 mirror succeeded.
         attachmentBackend: backend as DocsUpdateResult['attachmentBackend'],

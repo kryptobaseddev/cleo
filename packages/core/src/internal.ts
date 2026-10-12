@@ -373,6 +373,8 @@ export {
   tempWorktreeDirForSlug,
   validatePublishSlug,
 } from './docs/publish-pr.js';
+// Docs section CRDT merge engine (T13355) — seeding section states in harnesses.
+export { seedSectionState } from './docs/section-merge.js';
 // Docs slug-similarity check (T10361 — closes T10167)
 export type {
   CheckSlugSimilarityOptions,
@@ -1479,6 +1481,9 @@ export {
   isCleanupMarkerSet,
   setCleanupMarker,
 } from './store/cleanup-legacy.js';
+// Conduit doc-history accessors (T13354) — harness surface for docs tests that
+// drive the section CRDT write path (T13355+): state injection, uid resolution.
+export { resolveConduitDocUid, writeSectionCrdtState } from './store/conduit-doc-history.js';
 // DocsAccessor — unified llmtxt + manifest interface (T9063 · ADR-068 · ADR-069)
 export type { DocsAccessorImplOptions } from './store/docs-accessor-impl.js';
 export { createDocsAccessor, DocsAccessorImpl } from './store/docs-accessor-impl.js';
