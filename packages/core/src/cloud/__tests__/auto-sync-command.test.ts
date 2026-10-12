@@ -5,7 +5,7 @@
  * @task T13553
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,6 +24,10 @@ beforeEach(() => {
   vi.stubEnv('CLEO_AUTO_SYNC_INTERVAL_MIN', '');
   vi.stubEnv('CLEO_DISABLE_AUTO_SYNC', '');
   vi.stubEnv('CLEO_RUN_CLASS', undefined);
+  // The guard under test treats vitest and CI as no-spawn; these tests exercise the logic outside them.
+  vi.stubEnv('VITEST', undefined);
+  vi.stubEnv('CI', undefined);
+  vi.stubEnv('NODE_ENV', undefined);
 });
 
 afterEach(() => {
@@ -127,6 +131,33 @@ describe('startCommandAutoSync (T13553)', () => {
       ).toBe('skipped');
     }
     expect(spawnWorker).not.toHaveBeenCalled();
+  });
+});
+
+describe('the test/CI guard (T13553)', () => {
+  it('a linked fixture spawns nothing under vitest, NODE_ENV=test or CI, flags released or not', () => {
+    // A linked project, as the CLI hook sees it.
+    mkdirSync(join(project, '.cleo'), { recursive: true });
+    writeFileSync(join(project, '.cleo', 'nexus-link.json'), '{}');
+    const spawnWorker = vi.fn();
+    const base = { projectRoot: project, verb: 'show', cleoHome: home, spawnWorker };
+    for (const [key, value] of [
+      ['VITEST', 'true'],
+      ['NODE_ENV', 'test'],
+      ['CI', 'true'],
+      ['CI', '1'],
+    ] as const) {
+      vi.stubEnv(key, value);
+      expect(startCommandAutoSync({ ...base, unreleasedFlags: released }), `${key}=${value}`).toBe(
+        'skipped',
+      );
+      vi.stubEnv(key, undefined);
+    }
+    expect(spawnWorker).not.toHaveBeenCalled();
+    expect(existsSync(join(home, 'auto-sync-command.stamp'))).toBe(false);
+    // CI=false is not CI.
+    vi.stubEnv('CI', 'false');
+    expect(startCommandAutoSync({ ...base, unreleasedFlags: released })).toBe('spawned');
   });
 });
 

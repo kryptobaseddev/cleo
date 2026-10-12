@@ -13,7 +13,9 @@
  * this, session end and the sentient tick from syncing twice.
  *
  * Never spawned for heavy or evidence runs (`CLEO_RUN_CLASS` is set in every
- * governed child), for `cleo run` / `cleo verify` / `cleo cloud`, or when
+ * governed child), for `cleo run` / `cleo verify` / `cleo cloud`, under a
+ * test runner or CI (`VITEST`, `NODE_ENV=test`, `CI`: a linked fixture must
+ * never start detached syncs that load the machine), or when
  * `CLEO_DISABLE_AUTO_SYNC=1` or `CLEO_AUTO_SYNC_INTERVAL_MIN=0`.
  *
  * @task T13553
@@ -33,6 +35,22 @@ import {
 
 /** Environment switch that turns the command piggyback off (`1`). */
 export const AUTO_SYNC_DISABLE_ENV = 'CLEO_DISABLE_AUTO_SYNC';
+
+/**
+ * Whether the environment is a test runner or CI: `VITEST` set, `NODE_ENV=test`,
+ * or `CI` set to anything but empty, `0` or `false`.
+ *
+ * @param env - The environment.
+ * @returns True when the piggyback must not spawn.
+ */
+export function isTestOrCiEnv(env: NodeJS.ProcessEnv): boolean {
+  const ci = (env['CI'] ?? '').trim().toLowerCase();
+  return (
+    Boolean(env['VITEST']) ||
+    env['NODE_ENV'] === 'test' ||
+    (ci !== '' && ci !== '0' && ci !== 'false')
+  );
+}
 
 /** Root verbs that never piggyback: heavy/evidence runs and explicit cloud commands. */
 const SKIP_VERBS: ReadonlySet<string> = new Set(['run', 'verify', 'cloud']);
@@ -86,7 +104,7 @@ export function startCommandAutoSync(opts: CommandAutoSyncOptions): CommandAutoS
     if (env[AUTO_SYNC_DISABLE_ENV] === '1') return 'disabled';
     // Inert until T13549 releases sync.push/sync.pull: no stamp, no spawn.
     if (!autoSyncReleased(opts.unreleasedFlags)) return 'disabled';
-    if (env['CLEO_RUN_CLASS'] !== undefined) return 'skipped';
+    if (env['CLEO_RUN_CLASS'] !== undefined || isTestOrCiEnv(env)) return 'skipped';
     if (opts.verb !== undefined && SKIP_VERBS.has(opts.verb)) return 'skipped';
     const gap = autoSyncIntervalMs();
     if (gap === null) return 'disabled';
