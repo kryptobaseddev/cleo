@@ -877,8 +877,10 @@ function charged(entry: LedgerEntry, capacityBytes: number): number {
  * - Up to {@link TINY_LANE_SLOTS} tiny runs are admitted from a reserve outside
  *   the pressure share, wherever they wait, while the capacity has room for
  *   them (T13587): their bytes do not count against the share budget, and
- *   other runs never use the reserve. The memory gate (`none`) still admits
- *   nothing.
+ *   other runs never use the reserve. Like the tiny lane, the reserve closes
+ *   while the oldest non-tiny run waits past {@link TINY_LANE_WINDOWS}
+ *   reservation windows or needs the whole capacity (T13591). The memory gate
+ *   (`none`) still admits nothing.
  *
  * @param entries - the ledger.
  * @param ctx - capacity, pressure share and clock.
@@ -951,6 +953,15 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   const waiting = entries
     .filter((e) => e.state === 'waiting')
     .sort((a, b) => a.enqueuedAtMs - b.enqueuedAtMs || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // T13591: the reserve is bounded like the tiny lane (T13389). While the
+  // oldest non-tiny run waits, it stays open only for TINY_LANE_WINDOWS
+  // reservation windows, and never for a run charged the whole capacity: its
+  // bytes would keep that run out, and steady tiny arrivals would starve it.
+  const oldestHead = waiting.find((w) => !isTiny(w));
+  const reserveOpen =
+    oldestHead === undefined ||
+    (charged(oldestHead, ctx.capacityBytes) < ctx.capacityBytes &&
+      ctx.nowMs - oldestHead.enqueuedAtMs < reservationMs * TINY_LANE_WINDOWS);
   const admit = new Set<string>();
   let blocked = false;
   // Bytes held for a reserved heavy head that only the `one` rule blocks: light
@@ -972,7 +983,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
     const cost = charged(w, ctx.capacityBytes);
     // T13587: the tiny reserve admits a tiny run wherever it waits; the memory
     // gate (`none`) still admits nothing.
-    if (lightShare !== 'none' && reserveTakes(w, cost)) {
+    if (reserveOpen && lightShare !== 'none' && reserveTakes(w, cost)) {
       admit.add(w.id);
       reserved++;
       reservedBytes += cost;
