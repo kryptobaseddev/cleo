@@ -1326,15 +1326,15 @@ function ghApi(path: string, cwd: string): unknown {
  * only the merge commit's push run, a tree-equal PR head's pull_request run or
  * a later main commit's push run (T12742) decides the verdict.
  *
- * @param fetch - The underlying check fetch.
+ * @param fetchChecks - The underlying check fetch.
  * @returns The same fetch, minus `schedule` runs and their check runs.
  * @task T13623
  */
 export function withoutScheduledRuns(
-  fetch: NonNullable<ResolveCiEvidenceOptions['fetchChecks']>,
+  fetchChecks: NonNullable<ResolveCiEvidenceOptions['fetchChecks']>,
 ): NonNullable<ResolveCiEvidenceOptions['fetchChecks']> {
   return async (sha, cwd) => {
-    const fetched = await fetch(sha, cwd);
+    const fetched = await fetchChecks(sha, cwd);
     return fetched.ok
       ? { ok: true, checks: fetched.checks.filter((c) => c.event !== 'schedule') }
       : fetched;
