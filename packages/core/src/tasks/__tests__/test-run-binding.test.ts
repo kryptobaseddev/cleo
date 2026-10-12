@@ -501,6 +501,22 @@ describe('relevance in a standalone single-package project (T13403)', () => {
     expect(r.ok && r.atom.kind === 'test-run' && r.atom.untestedPackages).toBeFalsy();
   });
 
+  it('a newer mtime with identical content keeps the report; a content edit stales it (T13567)', async () => {
+    const ranAt = Date.now() + 5_000;
+    const path = report([file('src/a.test.ts')], ranAt);
+    // A merge or checkout rewrites the changed file with the same bytes after the run.
+    writeFileSync(file('src/a.ts'), 'export const a = 2;\n');
+    touch(file('src/a.ts'), ranAt + 30_000);
+    const kept = await validateAtom({ kind: 'test-run', path }, root);
+    expect(kept.ok, JSON.stringify(kept)).toBe(true);
+
+    writeFileSync(file('src/a.ts'), 'export const a = 3;\n');
+    touch(file('src/a.ts'), ranAt + 30_000);
+    const stale = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!stale.ok && stale.codeName, JSON.stringify(stale)).toBe('E_EVIDENCE_STALE');
+    expect(!stale.ok && stale.reason).toMatch(/src\/a\.ts was modified/);
+  });
+
   it('red: an unrelated report (another test file of the package) is refused', async () => {
     const path = report([file('src/b.test.ts')], Date.now() + 5_000);
     const r = await validateAtom({ kind: 'test-run', path }, root);
