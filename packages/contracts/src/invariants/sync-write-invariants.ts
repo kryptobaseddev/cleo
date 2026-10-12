@@ -449,10 +449,17 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     ['S7', 'S8', 'S9', 'S10', 'S11', 'S17', 'S18', 'SC2', 'N1', 'SK5', 'P32'],
     'ended and orphaned are terminal except on an explicit resume',
   ),
-  rule('audit.immutable', 'T12941', 'tasks_audit_log', ['*'], ['SA3'], 'audit rows are immutable', [
-    'tasks_audit_log',
-    'audit_log',
-  ]),
+  implemented(
+    rule(
+      'audit.immutable',
+      'T12941',
+      'tasks_audit_log',
+      ['*'],
+      ['SA3'],
+      'audit rows are immutable',
+      ['tasks_audit_log', 'audit_log'],
+    ),
+  ),
   rule(
     'sticky.status.one-way',
     'T12942',

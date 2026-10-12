@@ -424,6 +424,55 @@ describe('decision_adr_links: the revoke tombstone is absorbing (T13597)', () =>
   });
 });
 
+// T12941 — audit rows are immutable: an edit of a written row is refused in
+// every order, and an identical re-delivery changes nothing.
+describe('audit tables: rows are immutable (T12941)', () => {
+  const AUDIT_COLUMNS = ['action', 'task_id', 'actor', 'details_json', 'timestamp'];
+  const row = {
+    action: 'task_completed',
+    task_id: 'T1',
+    actor: 'system',
+    details_json: '{"a":1}',
+    timestamp: '2026-10-12T00:00:00.000Z',
+  };
+  for (const table of ['tasks_audit_log', 'audit_log']) {
+    const AUDIT: MergeContext = { table: mergeSpecFor(table, AUDIT_COLUMNS) };
+    const aOp = (o: LedgerOp['o'], hlc: string, a: Record<string, LedgerValue>): LedgerOp => ({
+      t: table,
+      u: 'uid-log-1',
+      o,
+      h: hlc,
+      a,
+    });
+    const insert = aOp('I', h(10), row);
+    const edit = aOp('U', h(20, R2), { details_json: '{"a":2}', actor: 'mallory' });
+
+    it(`${table}: a later edit is refused in every order, as a typed-rule conflict`, () => {
+      for (const ops of [
+        [insert, edit],
+        [edit, insert],
+      ]) {
+        let r = UNSEEN_ROW;
+        for (const o of ops) r = applyOp(r, o, AUDIT).next;
+        expect(val(r, 'details_json')).toBe('{"a":1}');
+        expect(val(r, 'actor')).toBe('system');
+      }
+      const out = applyOp(applyOp(UNSEEN_ROW, insert, AUDIT).next, edit, AUDIT);
+      expect(out.status).toBe('void');
+      expect(out.conflicts).toContainEqual(
+        expect.objectContaining({ kind: 'typed-rule', rule: 'audit.immutable' }),
+      );
+    });
+
+    it(`${table}: an identical re-delivery and a same-uid identical insert change nothing`, () => {
+      const live = applyOp(UNSEEN_ROW, insert, AUDIT).next;
+      const again = applyOp(live, aOp('I', h(30, R2), row), AUDIT);
+      expect(again.conflicts).toEqual([]);
+      expect(val(again.next, 'details_json')).toBe('{"a":1}');
+    });
+  }
+});
+
 describe('review #1867: groups travel whole (T13222)', () => {
   const base = live(grp('active'), h(1));
   const done = op('U', h(3), grp('done', { completed_at: 'X' }), grp('active'));
@@ -574,7 +623,15 @@ describe('the merge-rule registry matches the write-invariant registry', () => {
         expect(entry?.mergeRule?.columns).toContain(column);
       }
     }
+    for (const [table, set] of Object.entries(SYNC_MERGE_RULES)) {
+      if (set.immutable === undefined) continue;
+      const entry = entries.find((e) => e.id === set.immutable);
+      expect(entry, `${set.immutable} is not in SYNC_WRITE_INVARIANTS`).toBeDefined();
+      expect(entry?.tables).toContain(table);
+      expect(entry?.mergeRule?.columns).toEqual(['*']);
+    }
     expect(implementedMergeRuleIds()).toEqual([
+      'audit.immutable',
       'docs.decision-adr-links.revoke-monotonic',
       'task.pipeline-stage.max',
       'task.status.absorbing',
