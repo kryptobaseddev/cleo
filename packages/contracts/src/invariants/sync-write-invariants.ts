@@ -453,13 +453,15 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     'tasks_audit_log',
     'audit_log',
   ]),
-  rule(
-    'sticky.status.one-way',
-    'T12942',
-    'brain_sticky_notes',
-    ['status', 'converted_to_json'],
-    ['SK2', 'SK3', 'B24'],
-    'active→{converted, archived} is one-way; converted_to_json is write-once',
+  implemented(
+    rule(
+      'sticky.status.one-way',
+      'T12942',
+      'brain_sticky_notes',
+      ['status', 'converted_to_json'],
+      ['SK2', 'SK3', 'B24'],
+      'active→{converted, archived} is one-way; converted_to_json is write-once',
+    ),
   ),
   rule(
     'release.status.absorbing',
