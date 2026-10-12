@@ -1,5 +1,34 @@
 # Changelog
 
+## [2026.10.11] (2026-10-12)
+
+### Added
+
+- Sync checkpoints compute their replay pin - the ordered migration journal hash and a literal-safe trigger-set hash _(provenance: [T12343](https://github.com/kryptobaseddev/cleo/search?q=T12343&type=commits), [T13298](https://github.com/kryptobaseddev/cleo/search?q=T13298&type=commits))_
+
+### Fixed
+
+- **Hotfix for 2026.10.10:** opening a long-lived project store no longer fails with `error in view releases_view: no such table: main.release_manifests`. Before a migration renames a table or drops a column, the migration runner drops only views and triggers that SQLite reports are missing a table or column, inside the migration's transaction (T13631, #2199). 2026.10.10 should not be installed; upgrade straight to 2026.10.11.
+
+### Also in this release (listed by hand)
+
+Merged since v2026.10.10. Their own PR CI was green and they were reviewed, but their task evidence wasn't recorded at planning time:
+
+- T13565 #2197: awaiting the decision cross-link removes a 30 s store stall
+- T12941 #2185: audit log rows are immutable in the sync merge rules
+- T13448 #2169: migration safety harness (T13609, T13626)
+- T13587 #2149: tiny-lane admission reserve
+- T12997 #2188: sync conflicts listing
+- T13628 #2192: 120 s test and hook timeouts in nine package vitest configs
+- T13219 #2194: Gate B script is testable, with fixture-store tests
+- T13530 #2113: genesis credentials tests
+- T13534 #2161: unreadable secret no longer stalls
+- T13582 #2146: `cleo init` at the project root only
+- T13578 #2148: `verify --help` documents qa-run
+- T13614 #2176: autocomplete retry reset
+- T13031 #2178: sealer content-hash key move
+- T13030 #2179: birth fingerprint after rekey
+
 ## [2026.10.10] (2026-10-12)
 
 ### Added
