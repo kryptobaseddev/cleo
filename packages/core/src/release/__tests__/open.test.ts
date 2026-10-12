@@ -30,7 +30,7 @@ import {
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { closeDb, getDb, resetDbState } from '../../store/sqlite.js';
+import { closeDb, getDb, getNativeDb, resetDbState } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
 import { DEFAULT_OPEN_WORKFLOW, type ReleaseOpenRunner, releaseOpen } from '../open.js';
 
@@ -316,6 +316,39 @@ describe('releaseOpen — happy path', () => {
     expect(rows[0]?.status).toBe('pr-opened');
     expect(rows[0]?.workflowRunUrl).toMatch(/^https:\/\/github.com\//);
     expect(rows[0]?.prOpenedAt).toBeTruthy();
+  });
+});
+
+describe('releaseOpen — a shipped row is never moved back (T13619)', () => {
+  it('a row that ships while the workflow dispatches keeps its shipped status', async () => {
+    const version = 'v2026.6.0';
+    const planPath = writePlanFile(version, makePlan(version));
+    writeWorkflowFile();
+    await seedReleaseRow(version, 'planned');
+    attachRemote();
+    pushPlan(planPath);
+    const base = makeStubRunner();
+    // A synced peer's 'published' lands between the planned check and the UPDATE.
+    const runner: typeof base = {
+      ...base,
+      runGh: (args) => {
+        if (args[0] === 'workflow' && args[1] === 'run') {
+          getNativeDb(testDir)
+            ?.prepare("UPDATE tasks_releases SET status = 'published' WHERE version = ?")
+            .run(version);
+        }
+        return base.runGh(args);
+      },
+    };
+    const result = await releaseOpen({ version, projectRoot: testDir, commitPlan: false }, runner);
+    expect(result.success).toBe(true);
+    const rows = await (await getDb(testDir))
+      .select()
+      .from(schema.releases)
+      .where(eq(schema.releases.version, version))
+      .all();
+    // The origin agrees with the peers: still published, never pr-opened.
+    expect(rows[0]?.status).toBe('published');
   });
 });
 

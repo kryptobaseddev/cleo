@@ -43,11 +43,13 @@ import {
   ExitCode,
 } from '@cleocode/contracts/exit-codes.js';
 import { safeParseReleasePlan } from '@cleocode/contracts/release/plan.js';
-import { eq } from 'drizzle-orm';
+import { and, eq, notInArray } from 'drizzle-orm';
 
 import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
+import { RELEASE_STATUSES } from '../store/schema/provenance/releases.js';
 import { getDb } from '../store/sqlite.js';
+import { RELEASE_ABSORBING_STATUSES } from '../store/sync/merge/rules.js';
 import { releases } from '../store/tasks-schema.js';
 import { runGitWithLockRetry } from './engine-ops.js';
 import { decidePreflightSkips, type PreflightSkipDecision } from './preflight-skip.js';
@@ -399,7 +401,17 @@ async function updateReleaseRow(
       workflowRunUrl,
       prOpenedAt: new Date().toISOString(),
     })
-    .where(eq(releases.version, version))
+    // T13619: never move a shipped row back to pr-opened, even if it shipped
+    // (or a peer's shipped status was applied) after the planned check above.
+    .where(
+      and(
+        eq(releases.version, version),
+        notInArray(
+          releases.status,
+          RELEASE_STATUSES.filter((s) => RELEASE_ABSORBING_STATUSES.includes(s)),
+        ),
+      ),
+    )
     .run();
 }
 

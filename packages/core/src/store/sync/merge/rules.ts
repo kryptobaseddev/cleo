@@ -54,6 +54,39 @@ export const TASK_STATUS_LEAVE_OPS: readonly string[] = [
 ];
 
 /**
+ * Release statuses a sync merge never takes back (T12943, inventory REL-2..8):
+ * the shipped ones (committed, tagged, pushed, published, reconciled) and a
+ * rollback. A late `planned` from a re-plan (REL-8) or any other pre-ship
+ * write is refused once one of these is merged; moves among them (tagged →
+ * pushed, committed vs rolled_back) resolve by LWW. No command leaves them.
+ */
+export const RELEASE_ABSORBING_STATUSES: readonly string[] = [
+  'committed',
+  'tagged',
+  'pushed',
+  'published',
+  'reconciled',
+  'rolled_back',
+];
+
+/** A release's status stamps, which travel with the status (REL-7). */
+export const RELEASE_STATUS_GROUP: readonly string[] = [
+  'status',
+  'planned_at',
+  'pr_opened_at',
+  'pr_merged_at',
+  'published_at',
+  'reconciled_at',
+  'rolled_back_at',
+  'failed_at',
+  'cancelled_at',
+  'prepared_at',
+  'committed_at',
+  'tagged_at',
+  'pushed_at',
+];
+
+/**
  * The `actor.op` values that may leave a terminal session status (T12940):
  * resume, switch and a snapshot restore reactivate an ended or orphaned
  * session. Each is emitted by core's own entry points (`sessionResume` — the
@@ -93,7 +126,7 @@ export const TASK_STAGE_MERGE_ORDER: readonly string[] = [
  * `task.verification.frozen-on-done` (T12939),
  * `docs.decision-adr-links.revoke-monotonic` (T13597),
  * `audit.immutable` (T12941, table-level), `playbook.approval.once` (T12944),
- * `session.status.terminal` (T12940).
+ * `session.status.terminal` (T12940), `release.status.absorbing` (T12943).
  */
 export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
   tasks_tasks: {
@@ -128,6 +161,17 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
         column: 'status',
         values: ['done'],
         unfreezeOps: TASK_STATUS_LEAVE_OPS,
+      },
+    },
+  },
+  tasks_releases: {
+    groups: [RELEASE_STATUS_GROUP],
+    rules: {
+      status: {
+        kind: 'absorbing',
+        id: 'release.status.absorbing',
+        states: RELEASE_ABSORBING_STATUSES,
+        leaveOps: [],
       },
     },
   },
