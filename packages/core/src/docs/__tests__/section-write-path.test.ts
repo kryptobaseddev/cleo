@@ -14,7 +14,10 @@
  *   - a stale writer (explicit lower HLC) loses the head race honestly:
  *     the max-HLC head stands, the loser is recorded as a conflict, and its
  *     version row still survives in the append-only history;
- *   - section states rebase onto the landed version.
+ *   - section states rebase onto the landed version;
+ *   - T13604: recorded conflicts reach the caller — the docs.update
+ *     envelope carries `sectionConflicts` with a `W_DOC_SECTION_CONFLICT`
+ *     warning, and the docs.fetch envelope surfaces `headConflict`.
  *
  * Run: `npx vitest run packages/core/src/docs/__tests__/section-write-path.test.ts`
  *
@@ -25,6 +28,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ResolvedDoc } from '../docs-read-model.js';
+import { updateDocBySlug } from '../docs-update.js';
+import { buildDocsFetchResult } from '../fetch-result.js';
 import { sectionStateText } from '../section-merge.js';
 import { projectDocUpdateThroughSections } from '../section-write-path.js';
 
@@ -608,6 +614,155 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     expect(sectionStateText(s1?.snapshot ?? Buffer.alloc(0))).not.toContain(
       'an appended line from agent B.',
     );
+  });
+
+  it('T13604: updateDocBySlug threads section conflicts into the result envelope and emits a W_DOC_SECTION_CONFLICT warning', async () => {
+    // Seed the legacy row so updateDocBySlug finds the slug.
+    const v0 = '# Plan\n\nv0 body';
+    const { getDb } = await import('../../store/sqlite.js');
+    const { attachments } = await import('../../store/tasks-schema.js');
+    const db = await getDb(tempDir);
+    const sha0 = (await import('node:crypto'))
+      .createHash('sha256')
+      .update(v0, 'utf-8')
+      .digest('hex');
+    await db
+      .insert(attachments)
+      .values({
+        id: 'legacy-plan',
+        sha256: sha0,
+        attachmentJson: JSON.stringify({ kind: 'blob', sha256: sha0 }),
+        createdAt: new Date().toISOString(),
+        refCount: 0,
+        slug: 'plan-doc',
+        lifecycleStatus: 'draft',
+        docVersion: 1,
+      })
+      .run();
+
+    const s0 = '# Plan\n\npreamble.';
+    const s1Base = '## Alpha\n\nalpha body';
+    const s2 = '## Beta\n\nbeta body';
+    const baseDoc = [s0, s1Base, s2].join('\n');
+
+    const first = await updateDocBySlug(tempDir, { slug: 'plan-doc', content: baseDoc });
+    expect(first.ok).toBe(true);
+
+    // Inject an unlanded concurrent edit into s1, then update with a
+    // non-append edit on the same section through the docs update path.
+    const { seedSectionState } = await import('../section-merge.js');
+    const { readSectionCrdtState, writeSectionCrdtState, resolveConduitDocUid } = await import(
+      '../../store/conduit-doc-history.js'
+    );
+    const docUid = await resolveConduitDocUid(tempDir, 'plan-doc');
+    const stored = await readSectionCrdtState(tempDir, docUid as string, 's1');
+    await writeSectionCrdtState(tempDir, {
+      attachmentUid: docUid as string,
+      sectionId: 's1',
+      snapshot: seedSectionState(`${s1Base}\n\nA1`),
+      baseVersionUid: stored?.baseVersionUid ?? null,
+    });
+    const incomingDoc = [s0, '## Alpha\n\nalpha REPLACED body', s2].join('\n');
+
+    const second = await updateDocBySlug(tempDir, { slug: 'plan-doc', content: incomingDoc });
+    expect(second.ok).toBe(true);
+    if (!second.ok) throw new Error('expected a successful update');
+    // The envelope carries the conflict with both version refs…
+    expect(second.result.changed).toBe(true);
+    expect(second.result.sectionConflicts).toHaveLength(1);
+    expect(second.result.sectionConflicts?.[0]?.sectionId).toBe('s1');
+    expect(second.result.sectionConflicts?.[0]?.incomingVersionUid).toBeTruthy();
+    expect(second.result.sectionConflicts?.[0]?.projectionVersionUid).toBeTruthy();
+    // …and a stderr warning names the section (stdout stays clean, ADR-086).
+    const { drainWarnings } = await import('../../output.js');
+    const warnings = drainWarnings() ?? [];
+    const conflictWarning = warnings.find((w) => w.code === 'W_DOC_SECTION_CONFLICT');
+    expect(conflictWarning).toBeDefined();
+    expect(conflictWarning?.message).toContain("'s1'");
+    expect(conflictWarning?.message).toContain('plan-doc');
+  });
+
+  it('T13604: the docs fetch envelope surfaces headConflict and stays clean without conflicts', async () => {
+    const s0 = '# Plan\n\npreamble.';
+    const s1Base = '## Alpha\n\nalpha body';
+    const s2 = '## Beta\n\nbeta body';
+    const baseDoc = [s0, s1Base, s2].join('\n');
+
+    const makeResolvedDoc = (slug: string): ResolvedDoc => ({
+      id: 'att-x',
+      sha256: 'a'.repeat(64),
+      kind: 'spec',
+      title: null,
+      slug,
+      displayNumber: null,
+      ownerId: 'T1',
+      ownerType: 'task',
+      blobName: null,
+      sizeBytes: Buffer.byteLength(baseDoc, 'utf-8'),
+      refCount: 0,
+      mimeType: 'text/markdown',
+      summary: null,
+      lifecycleStatus: 'draft',
+      createdAt: '2026-10-12T00:00:00.000Z',
+      publishedPath: null,
+      publishedAt: null,
+      lastPublishedBlobSha: null,
+      publicationDrift: 'unpublished',
+      source: 'tasks-db',
+    });
+
+    // No-conflict doc: the envelope carries no headConflict field.
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'clean-doc',
+      authorAgentId: 'agent-a',
+      content: baseDoc,
+      hlc: hlcAt(1000),
+    });
+    const cleanResult = await buildDocsFetchResult({
+      doc: makeResolvedDoc('clean-doc'),
+      content: baseDoc,
+      projectRoot: tempDir,
+    });
+    expect(cleanResult.headConflict).toBeUndefined();
+
+    // Conflicted doc: a recorded non-append concurrent edit shows up.
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'conflicted-doc',
+      authorAgentId: 'agent-a',
+      content: baseDoc,
+      hlc: hlcAt(1000),
+    });
+    const { seedSectionState } = await import('../section-merge.js');
+    const { readSectionCrdtState, writeSectionCrdtState, resolveConduitDocUid } = await import(
+      '../../store/conduit-doc-history.js'
+    );
+    const docUid = await resolveConduitDocUid(tempDir, 'conflicted-doc');
+    const stored = await readSectionCrdtState(tempDir, docUid as string, 's1');
+    await writeSectionCrdtState(tempDir, {
+      attachmentUid: docUid as string,
+      sectionId: 's1',
+      snapshot: seedSectionState(`${s1Base}\n\nA1`),
+      baseVersionUid: stored?.baseVersionUid ?? null,
+    });
+    const incomingDoc = [s0, '## Alpha\n\nalpha REPLACED body', s2].join('\n');
+    const conflicted = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'conflicted-doc',
+      authorAgentId: 'agent-b',
+      content: incomingDoc,
+      hlc: hlcAt(2000),
+    });
+    expect(conflicted.conflicts).toHaveLength(1);
+
+    const fetchResult = await buildDocsFetchResult({
+      doc: makeResolvedDoc('conflicted-doc'),
+      content: conflicted.mergedText,
+      projectRoot: tempDir,
+    });
+    expect(fetchResult.headConflict?.conflictCount).toBe(1);
+    expect(fetchResult.headConflict?.lastConflict?.versionUid).toBe(
+      conflicted.conflicts[0]?.incomingVersionUid,
+    );
+    expect(fetchResult.headConflict?.lastConflict?.winnerVersionUid).toBe(conflicted.version.uid);
   });
 
   it('a higher-HLC concurrent head advances the projection', async () => {

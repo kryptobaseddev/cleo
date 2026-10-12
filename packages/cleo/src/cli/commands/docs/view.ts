@@ -131,7 +131,7 @@ const viewCommand = defineCommand({
     if (renderMode === 'json') {
       // T13352 — same shared builder as docs.fetch: decoded text by default,
       // real refCount, storage path against the doc's actual store.
-      const result = buildDocsFetchResult({ doc, content, projectRoot: getProjectRoot() });
+      const result = await buildDocsFetchResult({ doc, content, projectRoot: getProjectRoot() });
       cliOutput(result, {
         command: 'docs view',
         operation: 'docs.view',

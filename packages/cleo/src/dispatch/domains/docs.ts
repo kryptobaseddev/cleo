@@ -811,7 +811,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     // T13352 — the shared builder surfaces decoded text by default, the real
     // refCount, and a storage path resolved against the doc's actual store.
     return lafsSuccess<DocsFetchResult>(
-      buildDocsFetchResult({
+      await buildDocsFetchResult({
         doc,
         content,
         projectRoot: getProjectRoot(),

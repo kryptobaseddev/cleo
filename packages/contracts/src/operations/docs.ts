@@ -347,6 +347,50 @@ export interface DocsFetchParams {
 }
 
 /**
+ * One recorded non-append concurrent section edit on the CRDT write path
+ * (T13595, surfaced T13604): the incoming edit landed as its own version
+ * row (append-only history preserves both) while the head kept the stored
+ * projection. Never invented text — a true merge is not expressible with
+ * the append-only llmtxt primitives.
+ */
+export interface DocsSectionConflict {
+  /** The section that could not be merged. */
+  sectionId: string;
+  /** Version row carrying the incoming (authored) edit — the loser. */
+  incomingVersionUid: string;
+  /** Projection version row the head kept — the winner. */
+  projectionVersionUid: string;
+}
+
+/**
+ * The most recent recorded head conflict of a conduit doc (T13604), parsed
+ * from `conduit_doc_heads.last_conflict_json`.
+ */
+export interface DocsHeadConflictEntry {
+  /** The losing version's uid. */
+  versionUid: string;
+  /** The losing head's HLC. */
+  hlc: string;
+  /** ISO-8601 instant the conflict was recorded. */
+  recordedAt: string;
+  /** The winning head's version uid at recording time, when recorded. */
+  winnerVersionUid?: string;
+}
+
+/**
+ * Head-conflict summary surfaced on `docs.fetch` when a doc's conduit head
+ * carries recorded conflicts (T13604). The content returned is the winning
+ * (head) projection; the losing edits survive in the append-only version
+ * history.
+ */
+export interface DocsHeadConflictInfo {
+  /** Total recorded conflicts (`conduit_doc_heads.conflict_count`). */
+  conflictCount: number;
+  /** The most recently recorded conflict, when any. */
+  lastConflict?: DocsHeadConflictEntry;
+}
+
+/**
  * Result of `docs.fetch`.
  */
 export interface DocsFetchResult {
@@ -371,6 +415,12 @@ export interface DocsFetchResult {
   inlined: boolean;
   /** Current attachment backend in use. */
   attachmentBackend?: AttachmentBackend;
+  /**
+   * Present when the doc's conduit head carries recorded CRDT merge
+   * conflicts (T13604): the fetched content is the winning projection, and
+   * the losing edits survive in the append-only version history.
+   */
+  headConflict?: DocsHeadConflictInfo;
 }
 
 // --------------------------------------------------------------------------
@@ -811,6 +861,14 @@ export interface DocsUpdateResult {
    * `llmtxt` when the V2 mirror write succeeded; `legacy` otherwise.
    */
   attachmentBackend?: AttachmentBackend;
+  /**
+   * Non-append concurrent section edits recorded during the CRDT projection
+   * (T13604): the incoming edit is NOT in the returned conduit head — it
+   * landed as its own version row while the head kept the stored projection.
+   * Absent when nothing conflicted. A `W_DOC_SECTION_CONFLICT` warning names
+   * the same sections.
+   */
+  sectionConflicts?: DocsSectionConflict[];
 }
 
 // --------------------------------------------------------------------------

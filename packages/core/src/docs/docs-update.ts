@@ -25,7 +25,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { DocsLifecycleStatus, DocsUpdateParams } from '@cleocode/contracts';
+import type {
+  DocsLifecycleStatus,
+  DocsSectionConflict,
+  DocsUpdateParams,
+} from '@cleocode/contracts';
 import { blobAttachmentSchema } from '@cleocode/contracts/attachment-schema.js';
 import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js';
 import { and, eq } from 'drizzle-orm';
@@ -108,6 +112,13 @@ export interface DocsUpdateOk {
    * @task T11055
    */
   summary: string;
+  /**
+   * Non-append concurrent section edits recorded by the CRDT projection
+   * (T13604): the incoming edit landed as its own version row while the
+   * head kept the stored projection. Absent when nothing conflicted; a
+   * `W_DOC_SECTION_CONFLICT` warning names the same sections.
+   */
+  sectionConflicts?: DocsSectionConflict[];
   dryRun?: true;
   wouldWrite?: boolean;
   wouldChange?: boolean;
@@ -760,15 +771,38 @@ export async function updateDocBySlug(
   // write path; file-supplied updates stay on the whole-doc path for now.
   // Best-effort: a projection failure must not fail the completed update —
   // the whole-row write above is the fallback when no section state exists.
+  // T13604: a recorded conflict is threaded into the result envelope and a
+  // stderr warning names the sections — the update reports changed:true, so
+  // without this the caller would never learn their edit is not in the head.
+  let sectionConflicts: DocsSectionConflict[] | undefined;
   if (hasContent) {
     try {
       const { projectDocUpdateThroughSections } = await import('./section-write-path.js');
-      await projectDocUpdateThroughSections(projectRoot, {
+      const projection = await projectDocUpdateThroughSections(projectRoot, {
         slug,
         authorAgentId: attachedBy,
         content: buf.toString('utf-8'),
         ...(params.message !== undefined ? { changeSummary: params.message } : {}),
       });
+      if (projection.conflicts.length > 0) {
+        sectionConflicts = projection.conflicts.map((c) => ({
+          sectionId: c.sectionId,
+          incomingVersionUid: c.incomingVersionUid,
+          projectionVersionUid: c.projectionVersionUid,
+        }));
+        pushWarning({
+          // @sync-invariant none:input-shape the warning only NAMES a conflict the CRDT projection already recorded (docs.head.max-hlc); it rejects nothing and writes nothing
+          code: 'W_DOC_SECTION_CONFLICT',
+          message:
+            `concurrent section edit(s) on slug '${slug}' did not merge into the conduit head: ` +
+            projection.conflicts
+              .map(
+                (c) =>
+                  `section '${c.sectionId}' (incoming version ${c.incomingVersionUid} kept in history; head keeps projection version ${c.projectionVersionUid})`,
+              )
+              .join('; '),
+        });
+      }
     } catch (projectionErr) {
       process.emitWarning(
         `docs section CRDT projection failed after update of slug '${slug}': ${projectionErr instanceof Error ? projectionErr.message : String(projectionErr)}`,
@@ -793,6 +827,7 @@ export async function updateDocBySlug(
       summary: `slug '${slug}' was changed — content replaced${params.message ? ` ("${params.message}")` : ''}`,
       ownerVersion: getCanonicalCleoVersion(projectRoot),
       docVersion: oldRow.docVersion + 1,
+      ...(sectionConflicts !== undefined ? { sectionConflicts } : {}),
     },
   };
 }
