@@ -132,6 +132,22 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
       },
     },
   },
+  // The live writers (playbooks/src) write the bare twin; both sync (T12944).
+  playbook_approvals: {
+    // A decision and its stamps move together (PB-1).
+    groups: [['status', 'approved_at', 'approver', 'reason']],
+    rules: {
+      // pending → approved | rejected once (T12944); no command reopens a
+      // decision. Two devices deciding differently resolve by LWW and record
+      // the divergent decision as a conflict.
+      status: {
+        kind: 'absorbing',
+        id: 'playbook.approval.once',
+        states: ['approved', 'rejected'],
+        leaveOps: [],
+      },
+    },
+  },
   decision_adr_links: {
     // The revoke and its author move together, taken from the winning op.
     groups: [['status', 'revoked_by']],
@@ -156,7 +172,8 @@ export function implementedMergeRuleIds(): string[] {
   for (const set of Object.values(SYNC_MERGE_RULES)) {
     for (const rule of Object.values(set.rules ?? {})) ids.push(rule.id);
   }
-  return ids.sort();
+  // One invariant may cover several tables (a twin pair) or columns.
+  return [...new Set(ids)].sort();
 }
 
 /**

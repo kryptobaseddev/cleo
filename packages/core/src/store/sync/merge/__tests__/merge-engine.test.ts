@@ -469,6 +469,13 @@ describe('tasks_playbook_approvals: decided once (T12944)', () => {
     }
   });
 
+  it('the bare live twin playbook_approvals carries the same rule', () => {
+    expect(mergeSpecFor('playbook_approvals', APPROVAL_COLUMNS).rules?.['status']).toMatchObject({
+      kind: 'absorbing',
+      id: 'playbook.approval.once',
+    });
+  });
+
   it('opposite decisions converge to one decision, with the other recorded as a conflict', () => {
     const finals = [
       [request, approve, reject],
@@ -635,7 +642,8 @@ describe('the merge-rule registry matches the write-invariant registry', () => {
       for (const [column, rule] of Object.entries(set.rules ?? {})) {
         const entry = entries.find((e) => e.id === rule.id);
         expect(entry, `${rule.id} is not in SYNC_WRITE_INVARIANTS`).toBeDefined();
-        expect(entry?.mergeRule?.table).toBe(table);
+        // A rule on a twin pair names the canonical table; the twin is in `tables`.
+        if (entry?.mergeRule?.table !== table) expect(entry?.tables).toContain(table);
         expect(entry?.mergeRule?.columns).toContain(column);
       }
     }
