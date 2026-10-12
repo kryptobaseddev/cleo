@@ -25,10 +25,10 @@ export const HOOKS_V1_GATE_PATH = 'packages/core/src/hooks/release-gate.ts';
 /** Append-only audit of every hooks-v1 waiver a plan used. */
 export const HOOKS_V1_WAIVER_AUDIT_FILE = '.cleo/audit/hooks-v1-waiver.jsonl';
 
-/** The gate file at a revision, or `null` when it does not exist there. */
-function gateSourceAt(projectRoot: string, rev: string): string | null {
+/** A tracked file at a revision, or `null` when it does not exist there. */
+function fileAt(projectRoot: string, rev: string, path: string): string | null {
   try {
-    return runGitWithLockRetry(['show', `${rev}:${HOOKS_V1_GATE_PATH}`], {
+    return runGitWithLockRetry(['show', `${rev}:${path}`], {
       cwd: projectRoot,
       encoding: 'utf-8',
       stdio: 'pipe',
@@ -36,6 +36,19 @@ function gateSourceAt(projectRoot: string, rev: string): string | null {
     });
   } catch {
     return null;
+  }
+}
+
+/** True when the release at `tag` was the hooks-v1 promotion, per its committed plan. */
+function promotedAt(projectRoot: string, tag: string): boolean {
+  const plan = fileAt(projectRoot, tag, `.cleo/release/${tag}.plan.json`);
+  try {
+    return (
+      plan !== null &&
+      (JSON.parse(plan) as { hooksV1Promotion?: unknown }).hooksV1Promotion === true
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -55,11 +68,14 @@ function keepsHooksUnreleased(source: string): boolean {
  *
  * @param projectRoot - Repository root.
  * @param previousTag - The previous release tag.
- * @returns One line per gate-opening change; empty when the gate is untouched.
+ * @returns One line per gate-opening change; empty when the gate is untouched or
+ * `previousTag` was the promotion (its committed plan sets `hooksV1Promotion`).
  */
 export function hooksV1GateSourceChanges(projectRoot: string, previousTag: string): string[] {
-  const before = gateSourceAt(projectRoot, previousTag);
-  const after = gateSourceAt(projectRoot, 'HEAD');
+  // After the promotion the gate is open by release metadata; removing it is the cleanup.
+  if (promotedAt(projectRoot, previousTag)) return [];
+  const before = fileAt(projectRoot, previousTag, HOOKS_V1_GATE_PATH);
+  const after = fileAt(projectRoot, 'HEAD', HOOKS_V1_GATE_PATH);
   if (before === null && after === null) return [];
   if (after === null) return [`${HOOKS_V1_GATE_PATH} was deleted`];
   const changes: string[] = [];

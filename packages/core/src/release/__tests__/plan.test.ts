@@ -542,6 +542,18 @@ describe('releasePlan — hooks-v1 gate opened by source (T13555)', () => {
     });
   });
 
+  it('exempts the release after the promotion: removing hooks-v1 is the cleanup', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    execFileSync('mkdir', ['-p', join(testDir, '.cleo/release')]);
+    writeFileSync(
+      join(testDir, '.cleo/release/v2026.5.1.plan.json'),
+      JSON.stringify({ hooksV1Promotion: true }),
+    );
+    git('add', '-f', '.cleo/release/v2026.5.1.plan.json');
+    releaseThen(gate(''));
+    expect((await plan()).success).toBe(true);
+  });
+
   it('leaves an untouched gate alone', async () => {
     await seedEpicWithChildren('T9999', 1);
     releaseThen(gate("'hooks-v1'"));
