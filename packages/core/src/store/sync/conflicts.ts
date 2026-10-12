@@ -295,6 +295,34 @@ function incomingOp(
   return ops.findLast((o) => o.t === c.table && o.u === c.uid);
 }
 
+/**
+ * The op a conflict was recorded for (its split parts joined) and the Nexus
+ * device that wrote it, from the inbox; both absent once the inbox row is
+ * pruned after a checkpoint.
+ *
+ * @param db - The store.
+ * @param c - The conflict.
+ * @returns The op and the device id.
+ */
+export function conflictIncomingOp(
+  db: DatabaseSync,
+  c: ConflictRecord,
+): { op: LedgerOp | undefined; deviceId: string | null } {
+  const inbox = hasTable(db, '_sync_inbox')
+    ? (db
+        .prepare(
+          'SELECT replica_id, device_id, txn_json FROM _sync_inbox WHERE stream = ? AND seq = ? AND txn_idx = ?',
+        )
+        .get(c.stream, c.seq, c.txnIdx) as
+        | { replica_id: string; device_id: string; txn_json: string }
+        | undefined)
+    : undefined;
+  return {
+    op: inbox ? incomingOp(db, c, inbox) : undefined,
+    deviceId: inbox?.device_id ?? null,
+  };
+}
+
 /** The row's current values by uid, as wire values, or undefined when it is gone. */
 function currentRow(
   db: DatabaseSync,
@@ -341,16 +369,7 @@ export function conflictDetail(
   scope: TableScope,
   c: ConflictRecord,
 ): ConflictDetail {
-  const inbox = hasTable(db, '_sync_inbox')
-    ? (db
-        .prepare(
-          'SELECT replica_id, device_id, txn_json FROM _sync_inbox WHERE stream = ? AND seq = ? AND txn_idx = ?',
-        )
-        .get(c.stream, c.seq, c.txnIdx) as
-        | { replica_id: string; device_id: string; txn_json: string }
-        | undefined)
-    : undefined;
-  const op = inbox ? incomingOp(db, c, inbox) : undefined;
+  const { op, deviceId } = conflictIncomingOp(db, c);
   const def = captureTableDef(db, scope, c.table);
   const row = def ? currentRow(db, def, c.uid) : undefined;
   const keyParts = (def?.key ?? []).map((k) => show(row?.get(k) ?? op?.k?.[k] ?? op?.a?.[k]));
@@ -367,5 +386,5 @@ export function conflictDetail(
       withheld: false,
     };
   });
-  return { humanId, deviceId: inbox?.device_id ?? null, opKnown: op !== undefined, fields };
+  return { humanId, deviceId, opKnown: op !== undefined, fields };
 }

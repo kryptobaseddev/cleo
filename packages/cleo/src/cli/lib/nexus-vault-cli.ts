@@ -506,14 +506,31 @@ export async function runCloudConflicts(args: Args): Promise<void> {
         'cloud.conflicts.resolve',
       );
     }
+    const keepText = stringArg(args, 'keep');
     await runCloudRead<CloudConflictResolveResult>(
       'cloud.conflicts.resolve',
-      async () =>
-        (await conflicts()).resolveNexusCloudConflict({
+      async () => {
+        const mod = await conflicts();
+        const keep = keepText === undefined ? undefined : mod.parseConflictKeep(keepText);
+        if (keep === null) {
+          throw Object.assign(
+            new Error(`--keep is not mine, theirs or column=side: '${keepText}'`),
+            {
+              code: 'E_VALIDATION',
+              fix: 'use --keep mine, --keep theirs or --keep status=theirs,title=mine',
+            },
+          );
+        }
+        return mod.resolveNexusCloudConflict({
           id,
           scope: scopeArg(args, 'cloud.conflicts.resolve'),
-        }),
-      (r) => (r.resolved ? `Conflict ${r.id} resolved.` : `No open conflict ${r.id}.`),
+          ...(keep !== undefined ? { keep } : {}),
+        });
+      },
+      (r) =>
+        r.resolved
+          ? `Conflict ${r.id} resolved${r.written.length ? `: kept the incoming ${r.written.join(', ')} (syncs as a new write)` : ''}.`
+          : `No open conflict ${r.id}.`,
     );
     return;
   }

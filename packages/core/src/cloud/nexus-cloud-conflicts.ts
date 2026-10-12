@@ -24,6 +24,7 @@ import type {
   CloudWarning,
 } from '@cleocode/contracts';
 import { getDualScopeNativeDb, openDualScopeDb } from '../store/dual-scope-db.js';
+import { type ConflictKeep, resolveConflictKeeping } from '../store/sync/apply/resolve-conflict.js';
 import {
   conflictCounts,
   conflictDetail,
@@ -102,22 +103,54 @@ export async function nexusCloudConflicts(
 }
 
 /**
- * Acknowledge one open conflict (mark it resolved). It does not replay or
- * revive the voided transaction: the resolution is an ordinary write.
+ * Parse `--keep`: `mine`, `theirs`, or `column=mine|theirs,...`.
  *
- * @param opts - Store, scope and the conflict id.
- * @returns Whether an open conflict had that id.
+ * @param text - The flag value.
+ * @returns The choice, or null when it is not one of those forms.
+ */
+export function parseConflictKeep(text: string): ConflictKeep | null {
+  if (text === 'mine' || text === 'theirs') return text;
+  const out: Record<string, 'mine' | 'theirs'> = {};
+  for (const part of text.split(',')) {
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(mine|theirs)\s*$/.exec(part);
+    if (!m?.[1] || !m[2]) return null;
+    out[m[1]] = m[2] === 'mine' ? 'mine' : 'theirs';
+  }
+  return out;
+}
+
+/**
+ * Resolve one open conflict. Without `keep` it is acknowledged (marked
+ * resolved). With `keep`, the chosen side per column is kept: mine writes
+ * nothing, theirs is an ordinary local write that syncs, refused when a
+ * typed rule would refuse it on a receiver (T12997). It never replays or
+ * revives the voided transaction.
+ *
+ * @param opts - Store, scope, the conflict id and the side to keep.
+ * @returns Whether an open conflict had that id, and the columns written.
+ * @throws {ConflictResolveError} When `keep` cannot be applied.
  */
 export async function resolveNexusCloudConflict(opts: {
   readonly cwd?: string;
   readonly scope?: CloudVaultScope;
   readonly id: number;
+  readonly keep?: ConflictKeep;
 }): Promise<CloudConflictResolveResult> {
   const scope = opts.scope ?? 'project';
   const db = await storeOf(scope, opts.cwd);
   if (!hasTable(db, '_sync_conflict')) {
-    return { scope, id: opts.id, resolved: false, warnings: [NOT_SYNCING] };
+    return { scope, id: opts.id, resolved: false, written: [], warnings: [NOT_SYNCING] };
   }
-  const resolved = resolveConflict(db, opts.id, new Date().toISOString());
-  return { scope, id: opts.id, resolved, warnings: [] };
+  const nowIso = new Date().toISOString();
+  if (opts.keep === undefined) {
+    return {
+      scope,
+      id: opts.id,
+      resolved: resolveConflict(db, opts.id, nowIso),
+      written: [],
+      warnings: [],
+    };
+  }
+  const { written } = resolveConflictKeeping(db, scope, opts.id, opts.keep, nowIso);
+  return { scope, id: opts.id, resolved: true, written: [...written], warnings: [] };
 }
