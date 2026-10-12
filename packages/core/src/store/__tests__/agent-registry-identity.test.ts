@@ -99,6 +99,8 @@ describe('agent registry identity (T12915)', () => {
       db.exec("UPDATE agent_registry_agents SET uid = 'x' WHERE agent_id = 'cleo-lead'"),
     ).toThrow(/UNIQUE/);
     db.exec('DROP TRIGGER IF EXISTS temp."trg_row_uid_agent_registry_agents"');
+    // The grants' uid trigger reads the agent uid (a key reference, T13467).
+    db.exec('DROP TRIGGER IF EXISTS temp."trg_row_uid_agent_service_grants"');
     db.exec('DROP INDEX IF EXISTS main."uq_agent_registry_agents_uid"');
     db.exec('ALTER TABLE main.agent_registry_agents DROP COLUMN uid');
     expect(missingRowIdentitySchema(db, 'global')).toContain('index uq_agent_registry_agents_uid');

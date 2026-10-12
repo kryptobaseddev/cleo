@@ -14,7 +14,7 @@ exports[`T11578 AC4 — conduit DDL snapshot (post-cutover prefixed shape + FTS5
   },
   {
     "name": "conduit_attachment_versions",
-    "sql": "CREATE TABLE "conduit_attachment_versions" ( \`id\` text PRIMARY KEY, \`uid\` text, \`birth_fp\` text, \`attachment_uid\` text, \`parent_version_uid\` text, \`slug\` text, \`version_number\` integer NOT NULL, \`author_agent_id\` text NOT NULL, \`change_type\` text DEFAULT 'patch' NOT NULL, \`patch_text\` text, \`storage_key\` text NOT NULL, \`content_hash\` text NOT NULL, \`original_size\` integer NOT NULL, \`compressed_size\` integer NOT NULL, \`tokens\` integer NOT NULL, \`change_summary\` text, \`sections_modified\` text DEFAULT '[]' NOT NULL, \`tokens_added\` integer DEFAULT 0 NOT NULL, \`tokens_removed\` integer DEFAULT 0 NOT NULL, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, CONSTRAINT \`fk_conduit_attachment_versions_attachment_uid\` FOREIGN KEY (\`attachment_uid\`) REFERENCES \`conduit_attachments\`(\`uid\`) ON DELETE NO ACTION, CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "sql": "CREATE TABLE "conduit_attachment_versions" ( \`id\` text PRIMARY KEY, \`uid\` text, \`birth_fp\` text, \`attachment_uid\` text, \`parent_version_uid\` text, \`slug\` text, \`version_number\` integer NOT NULL, \`author_agent_id\` text NOT NULL, \`change_type\` text DEFAULT 'patch' NOT NULL, \`patch_text\` text, \`storage_key\` text NOT NULL, \`content_hash\` text NOT NULL, \`original_size\` integer NOT NULL, \`compressed_size\` integer NOT NULL, \`tokens\` integer NOT NULL, \`change_summary\` text, \`sections_modified\` text DEFAULT '[]' NOT NULL, \`tokens_added\` integer DEFAULT 0 NOT NULL, \`tokens_removed\` integer DEFAULT 0 NOT NULL, \`created_at\` text DEFAULT (datetime('now')) NOT NULL, \`origin\` text, CONSTRAINT \`fk_conduit_attachment_versions_attachment_uid\` FOREIGN KEY (\`attachment_uid\`) REFERENCES \`conduit_attachments\`(\`uid\`) ON DELETE NO ACTION, CHECK ("created_at" IS NULL OR "created_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
     "type": "table",
   },
   {
@@ -40,6 +40,11 @@ exports[`T11578 AC4 — conduit DDL snapshot (post-cutover prefixed shape + FTS5
   {
     "name": "conduit_doc_heads",
     "sql": "CREATE TABLE \`conduit_doc_heads\` ( \`attachment_uid\` text PRIMARY KEY, \`head_version_uid\` text NOT NULL, \`head_hlc\` text NOT NULL, \`conflict_count\` integer DEFAULT 0 NOT NULL, \`last_conflict_json\` text, \`updated_at\` text DEFAULT (datetime('now')) NOT NULL, \`uid\` text, CONSTRAINT \`fk_conduit_doc_heads_attachment_uid\` FOREIGN KEY (\`attachment_uid\`) REFERENCES \`conduit_attachments\`(\`uid\`) ON DELETE NO ACTION, CONSTRAINT \`fk_conduit_doc_heads_head_version_uid\` FOREIGN KEY (\`head_version_uid\`) REFERENCES \`conduit_attachment_versions\`(\`uid\`) ON DELETE NO ACTION, CHECK ("updated_at" IS NULL OR "updated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
+    "type": "table",
+  },
+  {
+    "name": "conduit_doc_migration_ledger",
+    "sql": "CREATE TABLE \`conduit_doc_migration_ledger\` ( \`slug\` text NOT NULL, \`doc_uid\` text, \`status\` text DEFAULT 'captured' NOT NULL, \`reason\` text NOT NULL DEFAULT '', \`legacy_path\` text, \`legacy_sha256\` text, \`versions_imported\` integer DEFAULT 0 NOT NULL, \`migrated_at\` text DEFAULT (datetime('now')) NOT NULL, \`uid\` text, CONSTRAINT \`conduit_doc_migration_ledger_pk\` PRIMARY KEY(\`slug\`), CHECK ("status" IN ('captured', 'dangling')), CHECK ("migrated_at" IS NULL OR "migrated_at" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*') )",
     "type": "table",
   },
   {

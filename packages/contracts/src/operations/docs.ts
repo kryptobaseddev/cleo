@@ -1049,7 +1049,53 @@ export type DocsOps =
   | { op: 'docs.supersede'; params: DocsSupersedeParams; result: DocsSupersedeResult }
   | { op: 'docs.link-decision'; params: DocsDecisionLinkParams; result: DocsDecisionLinkResult }
   | { op: 'docs.unlink-decision'; params: DocsDecisionLinkParams; result: DocsDecisionLinkResult }
-  | { op: 'docs.doctor'; params: DocsDoctorParams; result: DocsDoctorResult };
+  | { op: 'docs.doctor'; params: DocsDoctorParams; result: DocsDoctorResult }
+  | { op: 'docs.migrate'; params: DocsMigrateParams; result: DocsMigrateResult };
+
+/**
+ * Parameters for `docs.migrate` — the T13360 legacy docs migration (spec §5).
+ * No params: the migration derives everything from the legacy store state.
+ *
+ * @task T13360 (Epic T13340 / Saga T13339)
+ */
+export interface DocsMigrateParams {
+  /** Reserved for future options; currently unused. */
+  readonly _future?: never;
+}
+
+/**
+ * Result of `docs.migrate` — the honest legacy docs import (T13360). The
+ * migration runs inside the T13448 safety harness; `backupId`/`transaction`
+ * expose the harness receipt so operators can audit (or undo) the run.
+ *
+ * @task T13360
+ */
+export interface DocsMigrateResult {
+  /** Harness outcome: completed, or halted/refused (with `failure`). */
+  readonly status: 'completed' | 'halted' | 'refused';
+  /** Docs whose bytes were content-captured into the re-keyed store. */
+  readonly captured: number;
+  /** Dangling-pointer docs recorded in the migration ledger (AC3). */
+  readonly dangling: number;
+  /** Docs already migrated by an earlier run (idempotency, AC4). */
+  readonly skipped: number;
+  /**
+   * Legacy slugs that already exist natively in `conduit_attachments` — the
+   * migration never clobbers a native doc; counted explicitly so the
+   * operator can reconcile them (T13633).
+   */
+  readonly nativeConflicts: number;
+  /** History rows imported across all captured docs. */
+  readonly versionsImported: number;
+  /** First failure when halted/refused. */
+  readonly failure: string | null;
+  /** The harness pre-step backup id (null only when the backup itself failed). */
+  readonly backupId: string | null;
+  /** Harness transaction outcome for the step. */
+  readonly transaction: 'committed' | 'rolled-back' | 'none';
+  /** One-line human summary. */
+  readonly summary: string;
+}
 
 /**
  * Enumeration of all docs domain operation names.
@@ -1069,4 +1115,5 @@ export type DocsOp =
   | 'docs.supersede'
   | 'docs.link-decision'
   | 'docs.unlink-decision'
-  | 'docs.doctor';
+  | 'docs.doctor'
+  | 'docs.migrate';

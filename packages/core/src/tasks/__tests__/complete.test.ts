@@ -476,6 +476,42 @@ describe('completeTask', () => {
     expect(slow.revalidations).toBe(2);
   }, 30_000);
 
+  it('a SQLITE_BUSY retry appends completion notes once, not once per attempt (T13614)', async () => {
+    await seedTasks(accessor, [
+      {
+        id: 'T001',
+        title: 'Notes on retry',
+        description: 'Completion notes survive one retry',
+        status: 'pending',
+        type: 'task',
+        priority: 'medium',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    let busy = true;
+    const retrying: DataAccessor = {
+      ...accessor,
+      transaction: (fn) =>
+        accessor.transaction(async (tx) => {
+          const result = await fn(tx);
+          if (busy) {
+            busy = false;
+            throw new Error('database is locked');
+          }
+          return result;
+        }),
+    };
+    await completeTask(
+      { taskId: 'T001', notes: 'shipped', changeset: 'cs-1' },
+      env.tempDir,
+      retrying,
+    );
+    expect(busy).toBe(false);
+    const notes = (await accessor.loadSingleTask('T001'))?.notes ?? [];
+    expect(notes.filter((n) => n.endsWith(': shipped'))).toHaveLength(1);
+    expect(notes.filter((n) => n === 'Changeset: cs-1')).toHaveLength(1);
+  }, 30_000);
+
   it('a typed revalidation past its own budget is a named timeout, not E_INTERNAL (T13613)', async () => {
     await typedFixture();
     await verifyTypedFixture();
@@ -968,7 +1004,7 @@ describe('completeTask', () => {
         expect((await accessor.loadSingleTask('T001'))?.status).toBe('active');
       });
 
-      it('a final red CI refuses with fix-CI-or-run-full, never a wait', async () => {
+      it('a final red CI refuses with fix-CI-or-a-covering-test-run, never a wait', async () => {
         ciResolver.impl = async () => ({
           ok: false,
           codeName: 'E_EVIDENCE_TESTS_FAILED',
@@ -976,9 +1012,9 @@ describe('completeTask', () => {
         });
         await seedMerged([affected]);
         const refusal = completeTask({ taskId: 'T001' }, env.tempDir, accessor);
-        await expect(refusal).rejects.toThrow(/ci:42 does not hold.*CI: failure/s);
+        await expect(refusal).rejects.toThrow(/ci:42 does not hold.*CI: failure.*can stand in/s);
         await expect(refusal).rejects.toMatchObject({
-          fix: expect.stringMatching(/fix CI .*tool:test.*tool:lint;tool:typecheck/),
+          fix: expect.stringMatching(/fix CI .*test-run:.*cover every file of the change.*qa-run:/),
         });
       });
     });

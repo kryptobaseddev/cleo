@@ -711,6 +711,7 @@
       "content_hash",
       "created_at",
       "id",
+      "origin",
       "original_size",
       "parent_version_uid",
       "patch_text",
@@ -781,6 +782,17 @@
       "last_conflict_json",
       "uid",
       "updated_at"
+    ],
+    "conduit_doc_migration_ledger": [
+      "doc_uid",
+      "legacy_path",
+      "legacy_sha256",
+      "migrated_at",
+      "reason",
+      "slug",
+      "status",
+      "uid",
+      "versions_imported"
     ],
     "conduit_doc_slug_aliases": [
       "created_at",
@@ -2252,6 +2264,7 @@
       "secret_enc",
       "source",
       "status",
+      "uid",
       "updated_at"
     ],
     "agent_registry_accounts": [
@@ -2419,6 +2432,7 @@
       "created_at",
       "service_connection_id",
       "session_policy",
+      "uid",
       "updated_at"
     ],
     "brain_attention": [
@@ -3067,6 +3081,7 @@
       "id",
       "provider",
       "settings",
+      "uid",
       "updated_at"
     ],
     "service_connections": [
@@ -3079,6 +3094,7 @@
       "provider",
       "scopes",
       "status",
+      "uid",
       "updated_at"
     ],
     "session_manifest": [

@@ -50,6 +50,8 @@ import type {
   DocsListResult,
   DocsLlmOutputParams,
   DocsLlmOutputResult,
+  DocsMigrateParams,
+  DocsMigrateResult,
   DocsRemoveParams,
   DocsRemoveResult,
   DocsSupersedeParams,
@@ -169,6 +171,15 @@ const supersedeDoc = lazyOperation(
 const triageDocs = lazyOperation(
   async () => (await import('@cleocode/core/docs/triage')).triageDocs,
 );
+const runLegacyDocMigration = lazyOperation(
+  async () => (await import('@cleocode/core/docs/legacy-doc-migration')).runLegacyDocMigration,
+);
+/** Memoized sqlite module import (lazyOperation only wraps functions). */
+let sqliteModuleForMigration: typeof import('@cleocode/core/store/sqlite.js') | null = null;
+async function sqliteForMigration(): Promise<typeof import('@cleocode/core/store/sqlite.js')> {
+  sqliteModuleForMigration ??= await import('@cleocode/core/store/sqlite.js');
+  return sqliteModuleForMigration;
+}
 const syncFromGit = lazyOperation(
   async () => (await import('@cleocode/core/docs/docs-ops')).syncFromGit,
 );
@@ -284,6 +295,7 @@ type DocsTypedOps = {
   readonly 'link-decision': readonly [DocsDecisionLinkParams, DocsDecisionLinkResult];
   readonly 'unlink-decision': readonly [DocsDecisionLinkParams, DocsDecisionLinkResult];
   readonly doctor: readonly [DocsDoctorParams, DocsDoctorResult];
+  readonly migrate: readonly [DocsMigrateParams, DocsMigrateResult];
 };
 
 // ─── Owner type inference ─────────────────────────────────────────────────────
@@ -902,6 +914,52 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       return lafsError(result.error.code, result.error.message, 'doctor');
     }
     return lafsSuccess<DocsDoctorResult>(result.report, 'doctor');
+  },
+
+  // ── docs.migrate (T13360 — spec §5 honest legacy docs import) ─────────────
+
+  migrate: async (_params) => {
+    const projectRoot = getProjectRoot();
+    // The T13448 harness needs the live native handle; opening through the
+    // chokepoint also ensures migrations are reconciled before we read.
+    const { getDb, getNativeDb } = await sqliteForMigration();
+    await getDb(projectRoot);
+    const native = getNativeDb(projectRoot);
+    if (native === null) {
+      return lafsError(
+        'E_DOCS_MIGRATE_NO_STORE', // @sync-invariant none:input-shape the project store could not be opened; nothing was written
+        'docs migrate requires an open project store — the migration wrote nothing',
+        'migrate',
+      );
+    }
+    const result = await runLegacyDocMigration({
+      projectRoot,
+      db: native,
+      cwd: projectRoot,
+    });
+    const step = result.report.steps[0];
+    const summary =
+      result.report.status === 'completed'
+        ? `legacy docs migration: ${result.counts.toCapture} captured, ` +
+          `${result.counts.toMarkDangling} dangling, ${result.counts.toSkip} already migrated, ` +
+          `${result.counts.nativeConflicts} native-conflict skips ` +
+          `(${result.counts.versions} history rows)`
+        : `legacy docs migration ${result.report.status}: ${result.report.failure ?? 'step failed'}`;
+    return lafsSuccess<DocsMigrateResult>(
+      {
+        status: result.report.status,
+        captured: result.counts.toCapture,
+        dangling: result.counts.toMarkDangling,
+        skipped: result.counts.toSkip,
+        nativeConflicts: result.counts.nativeConflicts,
+        versionsImported: result.counts.versions,
+        failure: result.report.failure,
+        backupId: step?.backup?.backupId ?? null,
+        transaction: step?.transaction ?? 'none',
+        summary,
+      },
+      'migrate',
+    );
   },
 
   // ── docs.add ───────────────────────────────────────────────────────────────
@@ -2163,6 +2221,7 @@ const MUTATE_OPS = new Set<string>([
   'sync',
   'import',
   'doctor',
+  'migrate',
 ]);
 
 async function dispatchDocsLegacyQuery(
@@ -2516,6 +2575,7 @@ export class DocsHandler implements DomainHandler {
         'sync',
         'import',
         'doctor',
+        'migrate',
       ],
     };
   }

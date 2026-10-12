@@ -171,6 +171,72 @@ describe('a local reopen names its command (T13229)', () => {
     await accessor.close();
   });
 
+  it('`cleo session resume` (core sessionResume) of an ended session names session.resume and applies on a receiver (T12940)', async () => {
+    const authorRoot = join(dir, 'author');
+    const accessor = await createSqliteDataAccessor(authorRoot);
+    const { getNativeDb } = await import('../../../sqlite.js');
+    const author = getNativeDb(authorRoot);
+    if (!author) throw new Error('author store not open');
+    enableSync(author);
+    const now = new Date().toISOString();
+    const session = {
+      id: 'ses_t12940',
+      name: 'leave test',
+      status: 'active' as const,
+      scope: { type: 'global' as const },
+      taskWork: { taskId: null, setAt: null },
+      startedAt: now,
+    };
+    await accessor.upsertSingleSession(session);
+    await accessor.upsertSingleSession({ ...session, status: 'ended', endedAt: now });
+    seal(author, AUTHOR);
+
+    const { sessionResume } = await import('../../../../session/engine-ops.js');
+    const r = await sessionResume(authorRoot, 'ses_t12940');
+    expect(r.success, JSON.stringify(r)).toBe(true);
+    seal(author, AUTHOR);
+    const txns = sealedTxns(author);
+    const resumeTxn = txns.find((t) =>
+      t.ops.some((o) => o.t === 'tasks_sessions' && o.a?.['status'] === 'active' && o.o === 'U'),
+    );
+    expect(resumeTxn?.actor).toMatchObject({ op: 'session.resume' });
+
+    const receiver = getDualScopeNativeDb(
+      await openDualScopeDbAtPath('project', join(dir, 'receiver', '.cleo', 'cleo.db')),
+    );
+    enableSync(receiver);
+    stageTxns(
+      receiver,
+      STREAM,
+      {
+        seq: 1,
+        replicaId: AUTHOR,
+        replicaSeq: 1,
+        deviceId: 'dev-author',
+        schemaVersion: SYNC_SCHEMA_VERSION,
+        txns,
+      },
+      now,
+    );
+    applyStagedTxns(receiver, {
+      scope: 'project',
+      stream: STREAM,
+      replica: RECEIVER,
+      seal: () => seal(receiver, RECEIVER),
+    });
+    expect(listConflicts(receiver).filter((c) => c.table === 'tasks_sessions')).toEqual([]);
+    // Origin and receiver agree.
+    expect(
+      receiver.prepare("SELECT status FROM tasks_sessions WHERE id = 'ses_t12940'").get(),
+    ).toEqual({ status: 'active' });
+    expect(
+      author.prepare("SELECT status FROM tasks_sessions WHERE id = 'ses_t12940'").get(),
+    ).toEqual({
+      status: 'active',
+    });
+    await accessor.close();
+  });
+
   it('a reopen through core (no dispatcher) still names its command', async () => {
     const authorRoot = join(dir, 'author');
     const accessor = await createSqliteDataAccessor(authorRoot);

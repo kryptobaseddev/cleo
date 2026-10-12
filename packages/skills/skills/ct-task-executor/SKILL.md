@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.8.3
+version: 2.8.5
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.8.3
+  version: 2.8.5
   tier: core
   install: harness
   covers:
@@ -29,7 +29,7 @@ metadata:
     - packages/core/src/validation/protocols/cant/implementation.cant
     - packages/core/src/validation/protocols/protocols-markdown/implementation.md
   loomStage: implementation
-  lastReviewed: 2026-10-11
+  lastReviewed: 2026-10-12
   stability: stable
 ---
 
@@ -145,7 +145,9 @@ A database or service started for a test run must not outlive it. A `docker run`
    `cwd`; a locked stage also needs `--reason`. Then verify that gate again.
 2. **Document completion** - Write detailed output file
 3. **Update manifest** - Append summary entry
-4. **Complete task** - Mark task done in task system
+4. **Complete task** - Mark task done in task system. `cleo done <id> --pr <n>` completes
+   through PR `<n>`: the plan and the completion judge a scoped test run against the same
+   merge commit, so a ready plan is not refused by a different carrier.
 
 ---
 
@@ -211,7 +213,7 @@ Record it with `cleo docs add {{TASK_ID}} --content - --type note --slug {{TOPIC
 
 ## Acceptance Criteria Verification
 
-Record each criterion's changed artifacts and actual verification results. A merged PR with green CI provides provenance; it cannot automatically satisfy implementation, testing and review. Use `pr:<number>;files:<changed-path>` for implementation (`pr:<component>@<integration>` when your PR merged into an integration branch) and actual result atoms for test/review gates, with explicit `satisfies:T1234#AC1` links for canonical criteria. The PR must relate to the task; documentation-only changes cannot prove a code fix. Research and documentation tasks may use appropriately scoped documentary evidence. Fetch the merge commit before claiming its artifact bytes were inspected. Criterion edits require fresh evidence. A completed child does not establish that its parent's independent criteria were met. `cleo verify <id> --all` sets every required gate at once and still requires `--evidence`; bare `--all` is rejected with `E_EVIDENCE_MISSING`. A failing `tool:<name>` reason names the resolved command and its source, so check that command before retrying.
+Record each criterion's changed artifacts and actual verification results. A merged PR with green CI provides provenance; it cannot automatically satisfy implementation, testing and review. Use `pr:<number>;files:<changed-path>` for implementation (`pr:<component>@<integration>` when your PR merged into an integration branch) and actual result atoms for test/review gates, with explicit `satisfies:T1234#AC1` links for canonical criteria. The PR must relate to the task; documentation-only changes cannot prove a code fix. Research and documentation tasks may use appropriately scoped documentary evidence. Fetch the merge commit before claiming its artifact bytes were inspected. Criterion edits require fresh evidence. A completed child does not establish that its parent's independent criteria were met. `cleo verify <id> --all` sets every required gate at once and still requires `--evidence`; bare `--all` is rejected with `E_EVIDENCE_MISSING`. A failing `tool:<name>` reason names the resolved command and its source, so check that command before retrying. To adopt a native typecheck or lint run for `qaPassed` without re-running it, record one `qa-run:<receipt.json>` per check (`cleo verify --help` lists the receipt shape).
 
 
 | Criterion | Status | Notes |

@@ -1,0 +1,136 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.11",
+  "resolvedVersion": "v2026.10.11",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-12T18:05:22.192Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.10",
+  "previousTag": "v2026.10.10",
+  "previousShippedAt": null,
+  "tasks": [
+    {
+      "id": "T13631",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "P0: 10.10 migration fails on stores with an orphan view (releases_view -> missing release_manifests)",
+      "evidenceAtoms": [
+        "pr:2199",
+        "files:packages/core/src/store/__tests__/migration-runner-orphan-view.test.ts,packages/core/src/store/migration-runner.ts",
+        "ci:2199"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13298",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Replay pin: triggerSetHash hashes device-local main triggers (t12535 docs freeze/track), so devices disagree",
+      "evidenceAtoms": [
+        "commit:aa68b99230b2cb9e4f161a14fe659be5d53a1728",
+        "files:packages/core/src/store/sync/replay-pin.ts,packages/core/src/store/sync/__tests__/replay-pin.test.ts",
+        "ci:1972"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "implementation"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13631",
+      "T13298"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-12T18:05:22.192Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-12T18:05:22.192Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-12T18:05:22.192Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-12T18:05:22.192Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-12T18:05:22.192Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-12T18:05:22.192Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 743 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.11 — 2026-10-12\n\n### Added\n\n- Sync checkpoints compute their replay pin - the ordered migration journal hash and a literal-safe trigger-set hash _(provenance: [T12343](https://github.com/kryptobaseddev/cleo/search?q=T12343&type=commits), [T13298](https://github.com/kryptobaseddev/cleo/search?q=T13298&type=commits))_\n",
+    "changesetEntryCount": 1,
+    "changesetIds": [
+      "t12343-replay-pin"
+    ],
+    "taskIds": [
+      "T13631",
+      "T13298"
+    ]
+  }
+}

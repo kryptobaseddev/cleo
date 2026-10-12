@@ -850,7 +850,10 @@ export async function storeDecision(
   }
 
   // Auto-populate graph node + edges for the new decision (best-effort, T537).
-  // All graph writes run fire-and-forget so they never block the return.
+  // All graph writes are awaited on the caller's still-bound connection —
+  // a fire-and-forget write here outlives the call and can re-bind the brain
+  // domain mid-teardown, stalling the next writer for the full busy_timeout
+  // (T13565). Errors are swallowed so the primary return never blocks.
   try {
     await upsertGraphNode(
       projectRoot,
@@ -889,10 +892,15 @@ export async function storeDecision(
     }
 
     // Cross-link decision → referenced file/symbol nodes (T626 phase 1).
-    // Fire-and-forget — autoCrossLinkDecision swallows its own errors.
-    autoCrossLinkDecision(projectRoot, saved.id, saved.decision, saved.rationale).catch(() => {
-      /* best-effort */
-    });
+    // Awaited (T13565): a fire-and-forget cross-link outlived the call, so at
+    // any handle teardown or concurrent write it re-bound the brain domain on
+    // a FRESH second connection to the same consolidated cleo.db and its
+    // cold-open writer-lease claim busy-waited the full busy_timeout (30 s)
+    // against the next writer's connection — stalling the next doc write for
+    // 30 s+. Awaiting keeps the cross-link on this caller's still-bound
+    // connection, sequential with the graph writes above.
+    // autoCrossLinkDecision swallows its own errors — never blocks the return.
+    await autoCrossLinkDecision(projectRoot, saved.id, saved.decision, saved.rationale);
   } catch {
     /* Graph population is best-effort — never block the primary return */
   }

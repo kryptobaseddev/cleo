@@ -55,7 +55,15 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  unique,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 
 /**
  * Legal `service_connections.status` values — the lifecycle of a connection.
@@ -120,8 +128,11 @@ export const serviceConnections = sqliteTable(
     connectedAt: text('connected_at').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC last-update instant. Defaults to write time; bumped on mutation. */
     updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T13467): a UUIDv8 over (`provider`, `label`), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_service_connections_uid').on(table.uid),
     // A label is unique within a provider — the natural unique key.
     unique('ux_service_connections_provider_label').on(table.provider, table.label),
     // Lookup index — resolve a provider's active connections.
@@ -171,8 +182,11 @@ export const serviceConfigs = sqliteTable(
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC last-update instant. Defaults to write time; bumped on mutation. */
     updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T13467): a UUIDv8 over `provider`, filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_service_configs_uid').on(table.uid),
     // One BYOC config per provider.
     unique('ux_service_configs_provider').on(table.provider),
   ],
@@ -219,8 +233,11 @@ export const agentServiceGrants = sqliteTable(
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC last-update instant. Defaults to write time; bumped on mutation. */
     updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T13467): a UUIDv8 over (`agent_id`, `service_connection_id`), with both references as uids, filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_agent_service_grants_uid').on(table.uid),
     // A grant is uniquely identified by (agent, connection).
     primaryKey({ columns: [table.agentId, table.serviceConnectionId] }),
     // Lookup index — resolve all grants for one agent.

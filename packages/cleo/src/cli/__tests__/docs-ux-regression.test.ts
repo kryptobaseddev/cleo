@@ -36,28 +36,33 @@ const CLI_DIST_AVAILABLE = existsSync(CLI_DIST);
 const CANONICAL_SIX = ['add', 'update', 'fetch', 'list', 'remove', 'publish'] as const;
 
 /**
- * Verbs considered advanced / legacy that should remain discoverable but
- * not dominate the primary help surface. This includes the PR-publishing
- * variant, drift-detection surface, content-generation primitives,
- * taxonomy discovery, import, and viewer subcommands.
+ * Non-canonical verbs that remain registered after the T13361 retirement.
+ * T13361 removed search/find/rank (→ `query`), generate/export (→
+ * `llm-output`), gap-check (→ `check`), and `import` per
+ * `cleodocs-rearch-design` §6; `sync` stays until the T9645 reingest
+ * workflow migrates, `status` stays agent-facing per the same §6.
  */
 const LEGACY_VERBS = [
   'supersede',
-  'generate',
-  'export',
-  'find',
-  'search',
   'merge',
   'graph',
-  'rank',
   'versions',
   'publish-pr',
   'sync',
   'status',
-  'gap-check',
-  'import',
   'schema',
   'list-types',
+] as const;
+
+/** Verbs T13361 retired — asserted ABSENT from the surface below. */
+const RETIRED_VERBS = [
+  'search',
+  'find',
+  'rank',
+  'generate',
+  'export',
+  'gap-check',
+  'import',
 ] as const;
 
 /** Viewer lifecycle verbs — grouped separately in help. */
@@ -264,9 +269,10 @@ describe('AC2: legacy verb discoverability', () => {
     it('legacy verbs have descriptions that reference migration or canonical alternatives', () => {
       const subs = docsCommand.subCommands as Record<string, { meta?: unknown }> | undefined;
 
-      // At least some legacy verbs should guide users toward canonical equivalents.
-      // We check a sample of verbs where migration guidance is expected.
-      const sampledLegacy = ['find', 'search', 'versions', 'sync', 'status', 'gap-check'];
+      // At least some remaining non-canonical verbs should guide users
+      // toward canonical equivalents. Sample only verbs that still exist
+      // after the T13361 retirement.
+      const sampledLegacy = ['versions', 'sync', 'status', 'schema', 'list-types', 'audit'];
       let migrationGuidanceCount = 0;
 
       for (const verb of sampledLegacy) {
@@ -290,12 +296,12 @@ describe('AC2: legacy verb discoverability', () => {
       ).toBeGreaterThanOrEqual(0);
     });
 
-    it('total subcommand count is at least 22 (all existing verbs preserved)', () => {
+    it('total subcommand count is at least 22 (canonical + advanced + viewer)', () => {
       const subs = docsCommand.subCommands as Record<string, unknown> | undefined;
       const count = Object.keys(subs ?? {}).length;
       expect(
         count,
-        'all existing subcommands must be preserved (canonical + legacy + viewer)',
+        'canonical six + advanced verbs + viewer spread must remain (T13361 retired 7 others)',
       ).toBeGreaterThanOrEqual(22);
     });
   });
@@ -560,7 +566,7 @@ describe('AC3: unknown-flag did-you-mean', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Cross-cutting: ensure the simplified surface doesn't break existing tests
+// Cross-cutting: surviving subcommands stay wired; T13361-retired verbs are gone
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('regression — existing subcommands still wired', () => {
@@ -575,30 +581,33 @@ describe('regression — existing subcommands still wired', () => {
     expect(subs?.['list-types']).toBeDefined();
   });
 
-  it('sync, status, gap-check are still wired (T4551 drift detection)', () => {
+  it('sync and status are still wired; gap-check is retired (T13361)', () => {
     const subs = docsCommand.subCommands as Record<string, unknown> | undefined;
     expect(subs?.['sync']).toBeDefined();
     expect(subs?.['status']).toBeDefined();
-    expect(subs?.['gap-check']).toBeDefined();
+    expect(subs?.['gap-check']).toBeUndefined();
   });
 
-  it('import is still wired (legacy .md migration)', () => {
+  it('query, llm-output and check are wired as the canonical replacement surfaces (T13361)', () => {
     const subs = docsCommand.subCommands as Record<string, unknown> | undefined;
-    expect(subs?.['import']).toBeDefined();
+    expect(subs?.['query']).toBeDefined();
+    expect(subs?.['llm-output']).toBeDefined();
+    expect(subs?.['check']).toBeDefined();
   });
 
-  it('generate and export are still wired (llmtxt primitives)', () => {
+  it('merge, graph, versions are still wired', () => {
     const subs = docsCommand.subCommands as Record<string, unknown> | undefined;
-    expect(subs?.['generate']).toBeDefined();
-    expect(subs?.['export']).toBeDefined();
-  });
-
-  it('search, find, merge, graph, rank are still wired', () => {
-    const subs = docsCommand.subCommands as Record<string, unknown> | undefined;
-    expect(subs?.['search']).toBeDefined();
-    expect(subs?.['find']).toBeDefined();
     expect(subs?.['merge']).toBeDefined();
     expect(subs?.['graph']).toBeDefined();
-    expect(subs?.['rank']).toBeDefined();
+    expect(subs?.['versions']).toBeDefined();
+  });
+});
+
+describe('T13361 — retired legacy verbs are absent from the surface', () => {
+  it.each(
+    RETIRED_VERBS as readonly string[],
+  )('docs %s is retired (cleodocs-rearch-design §6)', (verb) => {
+    const subs = docsCommand.subCommands as Record<string, unknown> | undefined;
+    expect(subs?.[verb], `docs ${verb} must be retired per T13361`).toBeUndefined();
   });
 });

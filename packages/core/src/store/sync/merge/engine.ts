@@ -483,6 +483,25 @@ function mergeFields(d: Draft, base: RowState, op: LedgerOp, ctx: MergeContext):
   const counters = ctx.table.counters ?? {};
   const rules = ctx.table.rules ?? {};
   const cols = Object.keys(after).sort();
+  if (ctx.table.immutable !== undefined) {
+    // An immutable row (T12941): any change to a live value is refused whole.
+    const changed = cols.filter((c) => {
+      const cur = d.fields[c];
+      const inc = after[c];
+      return inc !== undefined && (cur === undefined || !same(cur.value, plain(inc)));
+    });
+    for (const c of cols)
+      d.skipped.push({ column: c, reason: changed.length > 0 ? 'rule' : 'older' });
+    if (changed.length > 0) {
+      d.conflicts.push(
+        conflict(op, 'typed-rule', changed, 'incoming-dropped', { rule: ctx.table.immutable }),
+      );
+      d.refused++;
+    } else if (cols.length > 0) {
+      d.older++;
+    }
+    return;
+  }
   for (const unit of units(ctx, cols)) {
     const first = unit[0];
     if (unit.length === 1 && first !== undefined && first in counters) {

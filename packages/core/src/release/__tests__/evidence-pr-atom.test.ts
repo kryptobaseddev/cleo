@@ -40,6 +40,7 @@ import {
   branchProtectionCachePath,
   evaluateRollup,
   type FetchGhBranchProtection,
+  type FetchGhCommitCheckRuns,
   type FetchGhPrFilesPage,
   type FetchGhPrPayload,
   prCacheEntryPath,
@@ -1484,5 +1485,82 @@ describe('resolvePrEvidenceAtom — changed-file pagination (T12358)', () => {
       fetchGhPrFilesPage: pagedFetcher,
     });
     expect(pagedFetcher).not.toHaveBeenCalled();
+  });
+});
+
+describe('a merged PR whose own last check is stale-red: the merge commit decides (T13611)', () => {
+  /** The #2143 shape: the PR head's aggregate CI job re-ran red on a stale merge ref. */
+  const stalePr = () =>
+    makePrPayload({
+      statusCheckRollup: [
+        {
+          __typename: 'CheckRun',
+          name: 'CI',
+          workflowName: 'CI',
+          conclusion: 'FAILURE',
+          status: 'COMPLETED',
+        },
+        {
+          __typename: 'CheckRun',
+          name: 'Contracts Dep Lint',
+          workflowName: 'CI',
+          conclusion: 'SUCCESS',
+          status: 'COMPLETED',
+        },
+      ],
+    });
+  const run = (name: string, conclusion: string) => ({ name, status: 'COMPLETED', conclusion });
+  async function resolve(merge: Awaited<ReturnType<FetchGhCommitCheckRuns>>) {
+    process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR] = 'CI,Contracts Dep Lint';
+    fetchSpy.mockResolvedValue({ ok: true, payload: stalePr() });
+    const fetchMerge = vi.fn<FetchGhCommitCheckRuns>(async () => merge);
+    const r = await resolvePrEvidenceAtom(
+      2143,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      { fetchGhPrPayload: mockFetch, fetchGhCommitCheckRuns: fetchMerge },
+    );
+    return { r, fetchMerge };
+  }
+
+  it('accepts when every required check is green on the merge commit run', async () => {
+    const { r, fetchMerge } = await resolve({
+      ok: true,
+      checks: [run('CI', 'SUCCESS'), run('Contracts Dep Lint', 'SUCCESS')],
+    });
+    expect(r.ok, r.ok ? '' : r.reason).toBe(true);
+    expect(fetchMerge).toHaveBeenCalledWith('a'.repeat(40), projectRoot);
+  });
+
+  it('still refuses when the merge commit run is red', async () => {
+    const { r } = await resolve({
+      ok: true,
+      checks: [run('CI', 'FAILURE'), run('Contracts Dep Lint', 'SUCCESS')],
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.codeName).toBe('E_EVIDENCE_TESTS_FAILED');
+    expect(r.reason).toMatch(
+      /Required PR checks failed.*merge commit a{12} does not prove it either/s,
+    );
+  });
+
+  it('still refuses when the merge commit has no run, or it cannot be read', async () => {
+    const none = await resolve({ ok: true, checks: [] });
+    expect(none.r.ok).toBe(false);
+    const unreadable = await resolve({ ok: false, reason: 'gh unreachable' });
+    expect(unreadable.r.ok).toBe(false);
+    if (!unreadable.r.ok) expect(unreadable.r.reason).toMatch(/gh unreachable/);
+  });
+
+  it('never consults the merge commit when the PR itself is green', async () => {
+    fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
+    const fetchMerge = vi.fn<FetchGhCommitCheckRuns>();
+    const r = await resolvePrEvidenceAtom(
+      2144,
+      { storeRoot: projectRoot, executionRoot: projectRoot },
+      { fetchGhPrPayload: mockFetch, fetchGhCommitCheckRuns: fetchMerge },
+    );
+    expect(r.ok).toBe(true);
+    expect(fetchMerge).not.toHaveBeenCalled();
   });
 });

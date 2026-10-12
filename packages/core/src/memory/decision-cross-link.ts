@@ -271,8 +271,11 @@ export async function linkDecisionToTargets(
  * {@link linkDecisionToTargets} in one call.
  *
  * This is the function wired into {@link storeDecision} after a new decision
- * is saved.  It is always fire-and-forget: the caller should NOT await it
- * when used inside the decision write path.
+ * is saved. storeDecision AWAITS it (T13565): a fire-and-forget call outlived
+ * the decision write and could re-bind the brain domain on a fresh connection
+ * mid-teardown, stalling the next writer for the full busy_timeout. The
+ * function still swallows every error internally, so awaiting never surfaces
+ * a failure to the decision write path.
  *
  * @param projectRoot  - Absolute path to the project root directory.
  * @param decisionId   - The saved decision ID (e.g. `D001`).
