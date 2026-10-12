@@ -796,6 +796,8 @@ describe('T13608: a scoped run after a fast-forward or direct landing (no merge 
       expect(await reason(root, impl)).toMatch(
         new RegExp(`files at merge commit ${impl.slice(0, 12)} differ`),
       );
+      // T13637: the refusal names the file that moved, so it can be acted on.
+      expect(await reason(root, impl)).toMatch(/\): a\.ts/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -877,15 +879,96 @@ describe('T13634: a recorded pr: atom gives the scoped run its merge commit to c
     }
   });
 
-  it('falls back to the files: atoms when the pr: atom has no file inventory', async () => {
+  it('T13636: with no file inventory, the merge commit gives the PR files (files: atoms list receipts only)', async () => {
     const { root, tested, pr } = merged();
+    try {
+      const { changedPaths: _omit, ...bare } = pr as Extract<EvidenceAtom, { kind: 'pr' }>;
+      // T1770's shape: the files: atom binds a receipt, not the PR's source.
+      const files: EvidenceAtom = {
+        kind: 'files',
+        files: [{ path: 'receipt.json', sha256: 'd'.repeat(64) }],
+      };
+      expect(await reason(task([run(tested)], [bare, files]), root, tested)).toBeNull();
+      expect(await reason(task([run(tested)], [bare]), root, tested)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('T13636: the merge-commit file list cannot narrow — a merged file that moved still refuses', async () => {
+    const { root, tested, pr } = merged(true);
     try {
       const { changedPaths: _omit, ...bare } = pr as Extract<EvidenceAtom, { kind: 'pr' }>;
       const files: EvidenceAtom = {
         kind: 'files',
-        files: [{ path: 'a.ts', sha256: 'd'.repeat(64) }],
+        files: [{ path: 'receipt.json', sha256: 'd'.repeat(64) }],
       };
-      expect(await reason(task([run(tested)], [bare, files]), root, tested)).toBeNull();
+      expect(await reason(task([run(tested)], [bare, files]), root, tested)).toMatch(
+        /differ from the tree.*: a\.ts/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('T13637: a commit-backed GitHub carrier (no pr: atom) gives its merge commit to compare', async () => {
+    const { root, impl, tested, pr } = merged();
+    try {
+      const mergeSha = (pr as Extract<EvidenceAtom, { kind: 'pr' }>).mergeCommitSha as string;
+      const t = task(
+        [run(tested)],
+        [
+          { kind: 'commit', sha: impl, shortSha: impl.slice(0, 7) },
+          { kind: 'files', files: [{ path: 'a.ts', sha256: 'd'.repeat(64) }] },
+        ],
+      );
+      const info = await taskChangeMergeState(t, root, {
+        executionRoot: root,
+        derived: {
+          source: 'none',
+          executionRoot: root,
+          rootSource: 'store',
+          files: ['a.ts'],
+          deletedFiles: [],
+          docs: [],
+          decisions: [],
+          candidates: [],
+          implementedEvidence: '',
+          blockers: [],
+          warnings: [],
+        },
+        changeSet: {
+          listPrsForCommit: async () => [
+            {
+              number: 7,
+              mergedAt: '2026-10-12T00:00:00Z',
+              baseRefName: 'main',
+              mergeCommitSha: mergeSha,
+            },
+          ],
+          viewPr: async () => ({
+            number: 7,
+            title: 'T9001',
+            headRefName: 'task/T9001',
+            baseRefName: 'main',
+            state: 'MERGED',
+            mergedAt: '2026-10-12T00:00:00Z',
+            headRefOid: impl,
+            mergeCommitSha: mergeSha,
+            commits: [impl],
+          }),
+          defaultBranch: () => 'main',
+        },
+        contains: () => false,
+        equivalent: () => false,
+        isLanded: () => false,
+      });
+      expect(info).toMatchObject({ state: 'merged', prRef: '7' });
+      const why = await testsPassedSupersededReason(
+        t.verification?.evidence?.testsPassed?.atoms ?? [],
+        { mergeState: () => info, currentTree: () => tested },
+      );
+      expect(why).toBeNull();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
