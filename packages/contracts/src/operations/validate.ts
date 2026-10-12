@@ -229,6 +229,11 @@ export interface ValidateGateParams {
    */
   noRun?: boolean;
   /**
+   * `--run-typed` (T13521): execute uncached typed gates during this write.
+   * Without it a write reads cached passes only (owner decision).
+   */
+  runTyped?: boolean;
+  /**
    * `cleo verify --run --req A,B` (T13486): run and cache only the typed gates
    * with these REQ-IDs (comma-separated); the others are not run.
    */

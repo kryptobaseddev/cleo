@@ -61,9 +61,8 @@ export function shouldCheckNow(ageMs, sinceLastCheckMs) {
 /**
  * Compare two CalVer-ish version strings numerically, segment by segment.
  *
- * Used only to detect that the dist-tag has moved PAST the version under watch,
- * which means a later release superseded this one and the issue should close
- * rather than poll forever.
+ * Detects a later release superseding the watched dist-tag and validates forward
+ * hook-pilot promotion after the caller has checked the stable version format.
  *
  * @param {string} a
  * @param {string} b

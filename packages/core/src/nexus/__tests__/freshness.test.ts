@@ -11,11 +11,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { drainWarnings } from '../../output.js';
 import { runNexusAnalysis } from '../analyze-orchestrator.js';
 import {
+  assessNexusFreshnessForQuery,
   assessNexusIndexFreshness,
   discloseNexusFreshness,
   ensureNexusIndexFresh,
   judgeSymbolFiles,
   querySymbolFiles,
+  runRefreshInChild,
+  runRefreshInProcess,
 } from '../freshness.js';
 
 vi.mock('../../store/nexus-sqlite.js', async () => ({
@@ -31,6 +34,12 @@ vi.mock('@cleocode/core/internal', () => ({
 vi.mock('@cleocode/core/nexus', () => ({
   runGitLogTaskLinker: async () => ({ commitsProcessed: 0 }),
 }));
+
+// The real owned-process port: the mock above only keeps analysis parsing in-process.
+const { createParserExecutionPort } = await vi.importActual<
+  typeof import('../../resources/spawn-wrapper.js')
+>('../../resources/spawn-wrapper.js');
+const port = createParserExecutionPort();
 
 let native: DatabaseSync;
 let repo: string;
@@ -133,7 +142,7 @@ describe('index freshness (T12316)', () => {
   it('refreshes a few stale files inline and discloses it', async () => {
     await runNexusAnalysis({ repoPath: repo });
     await put('src/a.ts', 'export function alpha(): number { return 3; }\n');
-    const { freshness } = await ensureNexusIndexFresh(repo, ON);
+    const { freshness } = await ensureNexusIndexFresh(repo, ON, runRefreshInProcess);
     expect(freshness.status).toBe('fresh');
     expect(freshness.autoRefresh).toMatchObject({ refreshed: true, staleFiles: 1 });
     expect(freshness.autoRefresh?.reason).toMatch(/^incremental: 1 changed/);
@@ -152,6 +161,142 @@ describe('index freshness (T12316)', () => {
     // None of them touched the graph.
     expect((await assessNexusIndexFreshness(repo)).status).toBe('stale');
   });
+
+  it('a stale index with no run-cost row answers without running analysis (T13523)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    native.exec("DELETE FROM _nexus_meta WHERE key = 'graph_run_summary'");
+    await put('src/a.ts', 'export function alpha(): number { return 5; }\n');
+    // The impact/context path, with auto-refresh on by default.
+    const { freshness } = await assessNexusFreshnessForQuery(repo);
+    expect(freshness.status).toBe('stale');
+    expect(freshness.autoRefresh).toMatchObject({ refreshed: false, durationMs: 0 });
+    expect(freshness.autoRefresh?.reason).toMatch(/no previous analysis cost recorded/);
+    expect((await assessNexusIndexFreshness(repo)).status).toBe('stale');
+  });
+
+  it('--no-refresh and CLEO_NEXUS_AUTO_REFRESH=false answer from the stale index and say so (T13523)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    await put('src/a.ts', 'export function alpha(): number { return 6; }\n');
+    const flag = await assessNexusFreshnessForQuery(repo, { refresh: false });
+    expect(flag.freshness.status).toBe('stale');
+    expect(flag.freshness.autoRefresh?.reason).toMatch(/disabled \(--no-refresh\)/);
+    try {
+      for (const off of ['false', '0', 'no']) {
+        vi.stubEnv('CLEO_NEXUS_AUTO_REFRESH', off);
+        const env = await assessNexusFreshnessForQuery(repo);
+        expect(env.freshness.autoRefresh?.reason).toMatch(/disabled \(CLEO_NEXUS_AUTO_REFRESH\)/);
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect((await assessNexusIndexFreshness(repo)).status).toBe('stale');
+    // Without either, the same index refreshes inline.
+    const on = await ensureNexusIndexFresh(repo, undefined, runRefreshInProcess);
+    expect(on.freshness.status).toBe('fresh');
+  });
+
+  it('never runs a full rebuild inline: too many stale files, or a pipeline fallback (T13523)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    for (const name of ['a', 'd', 'e']) await put(`src/${name}.ts`, `export const ${name}2 = 1;\n`);
+    const many = await ensureNexusIndexFresh(repo, ON);
+    expect(many.freshness.autoRefresh).toMatchObject({ refreshed: false, durationMs: 0 });
+    expect(many.freshness.autoRefresh?.reason).toMatch(
+      /3 of 6 files are stale, which needs a full rebuild/,
+    );
+    // One stale file, but no parse cache: the pipeline would fall back to a full parse.
+    await runNexusAnalysis({ repoPath: repo });
+    native.exec('DELETE FROM _nexus_parse_cache');
+    await put('src/a.ts', 'export const a3 = 1;\n');
+    const fallback = await ensureNexusIndexFresh(repo, ON, runRefreshInProcess);
+    expect(fallback.freshness.status).toBe('stale');
+    expect(fallback.freshness.autoRefresh?.refreshed).toBe(false);
+    expect(fallback.freshness.autoRefresh?.reason).toMatch(
+      /a full rebuild is required \(no parse cache was committed.*\); run cleo nexus analyze/,
+    );
+    expect((await assessNexusIndexFreshness(repo)).status).toBe('stale');
+  });
+
+  it('a refresh that exceeds its heap bound answers from the stale index; the process survives (T13537)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    await put('src/a.ts', 'export const a4 = 1;\n');
+    const hog = new URL('./fixtures/heap-hog-child.mjs', import.meta.url);
+    const { freshness } = await ensureNexusIndexFresh(repo, ON, (input) =>
+      runRefreshInChild(input, { entry: hog, heapMb: 32, port }),
+    );
+    expect(freshness.status).toBe('stale');
+    expect(freshness.autoRefresh?.refreshed).toBe(false);
+    expect(freshness.autoRefresh?.reason).toMatch(
+      /refresh failed, previous graph retained: the refresh exceeded its 32 MB heap bound; run cleo nexus analyze/,
+    );
+    expect((await assessNexusIndexFreshness(repo)).status).toBe('stale');
+  });
+
+  it('never falls back to an unbounded in-process refresh when no worker is built (T13537)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    await put('src/a.ts', 'export const a5 = 1;\n');
+    // Tests run from TypeScript source, where no refresh-worker.js sits beside freshness.
+    const { freshness } = await assessNexusFreshnessForQuery(repo);
+    expect(freshness.status).toBe('stale');
+    expect(freshness.autoRefresh?.reason).toMatch(
+      /no bounded refresh process at .*refresh-child\.js/,
+    );
+  });
+
+  it('resolves on the worker result even when the worker keeps a handle open (T13539)', async () => {
+    const started = Date.now();
+    const summary = await runRefreshInChild(
+      { projectRoot: repo, repoPath: repo, budgetMs: 60_000 },
+      { entry: new URL('./fixtures/hold-open-child.mjs', import.meta.url), port },
+    );
+    expect(summary).toEqual({ mode: 'incremental', reason: 'posted, then held open' });
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it('terminates a synchronously stalled worker after the budget plus a margin (T13539)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    await put('src/a.ts', 'export const a6 = 1;\n');
+    const stall = new URL('./fixtures/stall-child.mjs', import.meta.url);
+    const started = Date.now();
+    const { freshness } = await ensureNexusIndexFresh(repo, { ...ON, budgetMs: 3_000 }, (input) =>
+      runRefreshInChild(input, { entry: stall, port }),
+    );
+    expect(Date.now() - started).toBeLessThan(8_000);
+    expect(freshness.status).toBe('stale');
+    expect(freshness.autoRefresh?.reason).toMatch(
+      /refresh failed, previous graph retained: the refresh did not finish within 4000 ms; run cleo nexus analyze/,
+    );
+  }, 15_000);
+
+  it('a timer kill mid-publish releases the write lock: a later write does not wait (T13548)', async () => {
+    const file = join(repo, 'lock.db');
+    const setup = new DatabaseSync(file);
+    setup.exec('PRAGMA journal_mode = WAL; CREATE TABLE t (v INTEGER);');
+    setup.close();
+    const refresh = runRefreshInChild(
+      { projectRoot: repo, repoPath: file, budgetMs: 1_000 },
+      { entry: new URL('./fixtures/lock-holder-child.mjs', import.meta.url), port },
+    );
+    const refused = expect(refresh).rejects.toThrow(/did not finish within 2000 ms/);
+    // While the child lives it holds the write lock.
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const during = new DatabaseSync(file);
+    try {
+      expect(() => during.exec('INSERT INTO t VALUES (9)')).toThrow(/locked|busy/i);
+    } finally {
+      during.close();
+    }
+    await refused;
+    const after = new DatabaseSync(file);
+    try {
+      after.exec('PRAGMA busy_timeout = 10000');
+      const started = Date.now();
+      after.exec('INSERT INTO t VALUES (2)');
+      expect(Date.now() - started).toBeLessThan(1_000);
+      expect(after.prepare('SELECT COUNT(*) AS n FROM t').get()).toEqual({ n: 1 });
+    } finally {
+      after.close();
+    }
+  }, 20_000);
 
   it('judges symbol files identified only after the query ran', async () => {
     await runNexusAnalysis({ repoPath: repo });

@@ -20,23 +20,17 @@ import type {
   CreateWorktreeOptions,
   CreateWorktreeResult,
   WorktreeHook,
-  WorktreeHookResult,
+  WorktreeInstallOutcome,
   WorktreeLockAcquisition,
 } from '@cleocode/contracts';
 
 /**
  * Extended result type including the bootstrap field.
  *
- * The contracts package will be updated separately to add this field to
- * {@link CreateWorktreeResult}; this local extension allows the implementation
- * to compile in the interim.
+ * Creation always supplies the canonical bootstrap result.
  */
 interface CreateWorktreeResultWithBootstrap extends CreateWorktreeResult {
-  bootstrap: {
-    copiedPaths: string[];
-    failedPaths: string[];
-    hookResults: WorktreeHookResult[];
-  };
+  bootstrap: NonNullable<CreateWorktreeResult['bootstrap']>;
   /** Glob patterns actually excluded via sparse-checkout (T9226). */
   appliedExcludePatterns: string[];
   /**
@@ -93,9 +87,13 @@ function assertCanonicalWorktreeLocation(targetPath: string): void {
   }
 }
 
-import { runWorktreeHooks } from './worktree-hooks.js';
+import { runProjectWorktreeHooks, runWorktreeHooks } from './worktree-hooks.js';
 import { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';
-import { installWorktreeDependencies } from './worktree-pnpm.js';
+import {
+  configureWorktreePnpmStore,
+  installWorktreeDependencies,
+  isNpmrcTracked,
+} from './worktree-pnpm.js';
 
 /**
  * Apply the T9226 spawn-clone-exclude filter to a newly created worktree.
@@ -233,6 +231,68 @@ function discardBranchName(gitRoot: string, branch: string, fallbackRef: string)
   process.stderr.write(
     `[worktree] preserved unmerged history of ${branch} as ${preserved} (never deleted)\n`,
   );
+}
+
+/**
+ * What a worker runs when provisioning did not install dependencies (T13524).
+ * It goes through the heavy queue and installs into the worktree's own store:
+ * concurrent installs into the shared global store corrupt `.pnpm/` with
+ * `@@`-prefixed directories (T9938, T13538), and deferral happens exactly when
+ * many spawns are in flight.
+ *
+ * @param worktreePath - The worktree the command installs into.
+ * @returns The shell command.
+ * @task T13524
+ * @task T13538
+ */
+export function workerInstallCommand(worktreePath: string): string {
+  return (
+    'cleo run --wait --class build -- pnpm install --frozen-lockfile --prefer-offline ' +
+    `--store-dir ${shellQuote(join(worktreePath, '.pnpm-store'))}`
+  );
+}
+
+/**
+ * Run the dependency install for a fresh worktree (T9938 / T11489), recording
+ * the paths in `copiedPaths` / `failedPaths` for the bootstrap envelope.
+ */
+function runWorktreeInstall(
+  worktreePath: string,
+  gitRoot: string,
+  appliedPatterns: readonly { pattern: string }[],
+  copiedPaths: string[],
+  failedPaths: string[],
+): WorktreeInstallOutcome {
+  // Both install paths use the worktree's own store: point its .npmrc there and
+  // exclude the store from git before pnpm creates it (T13542).
+  configureWorktreePnpmStore(worktreePath);
+  if (appliedPatterns.some((p) => p.pattern === 'pnpm-lock.yaml')) {
+    if (installWorktreeDependencies(worktreePath, gitRoot)) {
+      copiedPaths.push('node_modules/ (pnpm install)');
+      return { status: 'installed' };
+    }
+    failedPaths.push('pnpm install');
+    return {
+      status: 'failed',
+      reason: 'pnpm install failed',
+      command: workerInstallCommand(worktreePath),
+    };
+  }
+  // T11489 — DHQ-019: guarantee build-ready even when .worktreeinclude does not list pnpm-lock.yaml.
+  const status = ensureWorktreeBuildReady(worktreePath, gitRoot);
+  if (status.action === 'installed') {
+    copiedPaths.push('node_modules/ (pnpm install — auto build-ready)');
+    return { status: 'installed' };
+  }
+  if (status.action === 'install-failed') {
+    failedPaths.push(`pnpm install (auto build-ready): ${status.error ?? 'unknown'}`);
+    return {
+      status: 'failed',
+      reason: status.error ?? 'pnpm install failed',
+      command: workerInstallCommand(worktreePath),
+    };
+  }
+  return { status: 'not-needed', reason: status.action };
 }
 
 /**
@@ -484,6 +544,15 @@ async function provisionUnderLock(
       : null;
 
   // Run post-create hooks before returning the handle.
+  const postCreateProjectHookResults = reattached
+    ? []
+    : await runProjectWorktreeHooks(
+        options.projectHookExecutor,
+        hooks,
+        'post-create',
+        worktreePath,
+        taskId,
+      );
   const postCreateHookResults = reattached
     ? []
     : await runWorktreeHooks(hooks, 'post-create', worktreePath);
@@ -576,55 +645,92 @@ async function provisionUnderLock(
 
   // T9938 — Install dependencies with serialized pnpm lock to prevent
   // @@-prefixed doubled-directory corruption in .pnpm/ when multiple
-  // worktrees are provisioned concurrently. Only runs when pnpm-lock.yaml
-  // was included via .worktreeinclude (i.e. the project uses pnpm).
-  // Uses per-worktree pnpm store (.pnpm-store/) for full isolation.
+  // worktrees are provisioned concurrently. Uses per-worktree pnpm store
+  // (.pnpm-store/) for full isolation.
+  //
+  // T13524 — the install is heavy work: it runs only once the caller's
+  // `admitInstall` grants a slot in the machine-wide queue, is deferred to the
+  // worker when the budget is busy, and is skipped under `skipInstall`.
+  let install: WorktreeInstallOutcome;
   if (reattached) {
     // T12506: never install into (or otherwise mutate) a re-attached worktree.
-  } else if (appliedPatterns.some((p) => p.pattern === 'pnpm-lock.yaml')) {
-    const installed = installWorktreeDependencies(worktreePath, gitRoot);
-    if (installed) {
-      copiedPaths.push('node_modules/ (pnpm install)');
-    } else {
-      failedPaths.push('pnpm install');
-    }
+    install = { status: 'not-needed', reason: 're-attached worktree' };
+  } else if (
+    !existsSync(join(worktreePath, 'pnpm-lock.yaml')) ||
+    existsSync(join(worktreePath, 'node_modules'))
+  ) {
+    install = {
+      status: 'not-needed',
+      reason: 'no pnpm-lock.yaml, or node_modules already present',
+    };
+  } else if (options.skipInstall) {
+    configureWorktreePnpmStore(worktreePath);
+    install = {
+      status: 'skipped',
+      reason: '--no-install',
+      command: workerInstallCommand(worktreePath),
+    };
   } else {
-    // T11489 — DHQ-019: guarantee build-ready even when .worktreeinclude does
-    // not list pnpm-lock.yaml. ensureWorktreeBuildReady is a best-effort pass
-    // that detects pnpm-lock.yaml in the worktree and auto-installs rather than
-    // leaving the worktree non-functional. The structured InstallStatus is
-    // captured in copiedPaths/failedPaths for the spawn envelope.
-    const installStatus = ensureWorktreeBuildReady(worktreePath, gitRoot);
-    if (installStatus.action === 'installed') {
-      copiedPaths.push('node_modules/ (pnpm install — auto build-ready)');
-    } else if (installStatus.action === 'install-failed') {
-      failedPaths.push(`pnpm install (auto build-ready): ${installStatus.error ?? 'unknown'}`);
+    const release = options.admitInstall ? await options.admitInstall() : async () => {};
+    if (release === null) {
+      configureWorktreePnpmStore(worktreePath);
+      install = {
+        status: 'deferred',
+        reason: 'the machine-wide heavy-work budget is busy; install deferred to the worker',
+        command: workerInstallCommand(worktreePath),
+      };
+    } else {
+      try {
+        install = runWorktreeInstall(
+          worktreePath,
+          gitRoot,
+          appliedPatterns,
+          copiedPaths,
+          failedPaths,
+        );
+      } finally {
+        await release();
+      }
     }
-    // 'already-ready' and 'no-lockfile' require no action on copiedPaths/failedPaths.
   }
 
   // Run post-start hooks after copy-on-write bootstrap.
+  const postStartProjectHookResults = reattached
+    ? []
+    : await runProjectWorktreeHooks(
+        options.projectHookExecutor,
+        hooks,
+        'post-start',
+        worktreePath,
+        taskId,
+      );
   const postStartHookResults = reattached
     ? []
     : await runWorktreeHooks(hooks, 'post-start', worktreePath);
 
   // Build env vars for agent spawn.
   const pathKey = pathEnvKey();
-  const shimDir = join(projectRoot, '.cleo', 'bin', 'git-shim');
+  // T13522: advertise strict protection only when the caller installed the shim.
+  const shimActive = options.gitShim?.installed === true;
   const envVars: Record<string, string> = {
     CLEO_AGENT_ROLE: 'worker',
     CLEO_AGENT_CWD: worktreePath,
     CLEO_WORKTREE_ROOT: worktreePath,
     CLEO_WORKTREE_BRANCH: branch,
     CLEO_PROJECT_HASH: projectHash,
-    CLEO_BRANCH_PROTECTION: 'strict',
-    CLEO_SHIM_MARKER: '.cleo/bin/git-shim',
-    // Platform delimiter: ':' would fuse the shim dir with the first real
-    // Windows PATH entry and lose both (T12605).
-    [pathKey]: prependPathEntry(shimDir, process.env[pathKey]),
+    CLEO_BRANCH_PROTECTION: shimActive ? 'strict' : 'unavailable',
+    ...(shimActive && options.gitShim
+      ? {
+          CLEO_SHIM_MARKER: '.cleo/bin/git-shim',
+          // Platform delimiter: ':' would fuse the shim dir with the first real
+          // Windows PATH entry and lose both (T12605).
+          [pathKey]: prependPathEntry(options.gitShim.dir, process.env[pathKey]),
+        }
+      : {}),
   };
 
   // Build the preamble text for agent context isolation (per acceptance criterion).
+  const npmrcTracked = install.status === 'installed' && isNpmrcTracked(worktreePath);
   const preamble = [
     '## BRANCH ISOLATION PROTOCOL (MANDATORY)',
     '',
@@ -637,11 +743,28 @@ async function provisionUnderLock(
     '  git checkout, git switch, git branch -b/-D, git reset --hard,',
     '  git worktree add/remove, git rebase, git stash pop, git push --force',
     '',
-    'A git shim is active on your PATH that will exit 77 if you attempt these.',
+    shimActive
+      ? 'A git shim is active on your PATH that will exit 77 if you attempt these, or a push to main.'
+      : 'No git shim could be installed for this worktree: these rules are NOT enforced, so follow them yourself.',
     `Your working directory is: ${worktreePath}`,
     `You are authorized only within \`${worktreePath}\``,
     'All your commits must land on YOUR branch only.',
     '',
+    // T13524: tell the worker to install when provisioning did not.
+    ...(install.command
+      ? [
+          `Dependencies were NOT installed (${install.status}: ${install.reason ?? ''}).`,
+          `Before building or testing, run: ${install.command}`,
+          `Pass the same --store-dir to any other pnpm install/add here (this worktree has its own pnpm store).`,
+          '',
+        ]
+      : npmrcTracked && install.status === 'installed'
+        ? [
+            // T13541: a tracked .npmrc cannot name this worktree's store.
+            `This repo tracks .npmrc, so it cannot name this worktree's pnpm store: pass --store-dir ${shellQuote(join(worktreePath, '.pnpm-store'))} to any later pnpm install/add.`,
+            '',
+          ]
+        : []),
   ].join('\n');
 
   // T9805 AC3: Append audit log entry for every worktree creation.
@@ -670,6 +793,7 @@ async function provisionUnderLock(
     envVars,
     preamble,
     hookResults: postCreateHookResults,
+    projectHookResults: postCreateProjectHookResults,
     appliedPatterns,
     appliedExcludePatterns,
     appliedScope,
@@ -677,6 +801,8 @@ async function provisionUnderLock(
       copiedPaths,
       failedPaths,
       hookResults: postStartHookResults,
+      projectHookResults: postStartProjectHookResults,
     },
+    install,
   };
 }

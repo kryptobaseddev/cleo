@@ -166,6 +166,12 @@ export type MergeConflictKind =
    * onto a live uid is voided.
    */
   | 'uid-collision'
+  /**
+   * (applier) An insert's local key (a display id) is held here by a row of
+   * another uid (T12341 §6.4 step 7): the insert is held until a re-mint
+   * frees the key, never voided by the UNIQUE constraint.
+   */
+  | 'key-collision'
   /** (applier) A Gate C post-apply invariant broke: the whole transaction is voided. */
   | 'post-apply';
 

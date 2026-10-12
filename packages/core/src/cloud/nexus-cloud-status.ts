@@ -896,6 +896,10 @@ export async function getNexusCloudStatus(
     warnings,
   );
   const withSync = sync === undefined ? {} : { sync };
+  // T13468: a failed automatic sync shows here once, until one succeeds.
+  const { autoSyncWarning } = await import('./auto-sync.js');
+  const autoSync = autoSyncWarning();
+  if (autoSync) warnings.push(autoSync);
   const local: CloudStatusLocal = {
     apiUrl,
     signedIn: false,

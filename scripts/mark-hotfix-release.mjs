@@ -66,11 +66,19 @@ export function markHotfixRelease(root, version) {
   const manifest = JSON.parse(before);
   const meta = typeof manifest.cleo === 'object' && manifest.cleo !== null ? manifest.cleo : {};
   const hotfix = kind === 'hotfix';
+  const canary = /-canary\.\d+$/.test(version);
 
   if (hotfix) {
     manifest.cleo = { ...meta, hotfix: true };
   } else if ('hotfix' in meta) {
     const { hotfix: _stale, ...rest } = meta;
+    if (Object.keys(rest).length > 0) manifest.cleo = rest;
+    else delete manifest.cleo;
+  }
+  if (canary) {
+    manifest.cleo = { ...(manifest.cleo ?? {}), channel: 'canary' };
+  } else if (manifest.cleo?.channel === 'canary') {
+    const { channel: _canary, ...rest } = manifest.cleo;
     if (Object.keys(rest).length > 0) manifest.cleo = rest;
     else delete manifest.cleo;
   }

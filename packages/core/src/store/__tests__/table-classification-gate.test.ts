@@ -205,6 +205,10 @@ const SYNC_SEEN_FLOOR_DDL =
   'packages/core/migrations/sync-journal/20261009120000_t13318-seen-floor/migration.sql';
 const SYNC_RETIRE_DDL =
   'packages/core/migrations/sync-journal/20261009130000_t13278-replica-retire/migration.sql';
+const SYNC_UID_ALIAS_DDL =
+  'packages/core/migrations/sync-journal/20261010150000_t13397-uid-alias/migration.sql';
+const SYNC_REKEY_FOLLOW_DDL =
+  'packages/core/migrations/sync-journal/20261010160000_t13399-rekey-follow/migration.sql';
 const SYNC_JOURNAL_TABLES = {
   _sync_capture: { class: 'local-only', ddl: SYNC_CAPTURE_DDL },
   _sync_frame: { class: 'local-only', ddl: SYNC_CAPTURE_DDL },
@@ -227,6 +231,9 @@ const SYNC_JOURNAL_TABLES = {
   _sync_seen_txn: { class: 'local-only', ddl: SYNC_PULL_DDL },
   _sync_seen_floor: { class: 'local-only', ddl: SYNC_SEEN_FLOOR_DDL },
   _sync_retired: { class: 'local-only', ddl: SYNC_RETIRE_DDL },
+  _sync_uid_alias: { class: 'local-only', ddl: SYNC_UID_ALIAS_DDL },
+  _sync_uid_ref_alias: { class: 'local-only', ddl: SYNC_REKEY_FOLLOW_DDL },
+  _sync_authored: { class: 'local-only', ddl: SYNC_REKEY_FOLLOW_DDL },
   _sync_clock: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
   _sync_meta: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
   _sync_replica: { class: 'local-only', ddl: SYNC_JOURNAL_DDL },
@@ -652,8 +659,15 @@ describe('Gate A: two-tier policy', () => {
   ]);
   const FTS_SHADOW = /^[a-z_]+_fts(_(config|data|docsize|idx|content))?$/;
   const VEC_SHADOW = /^brain_embeddings_(chunks|info|rowids|vector_chunks[0-9]{2})$/;
+  /**
+   * Recomputed brain state (team-lead decision 2026-10-10, T12896): the
+   * surprisal pass truncates and rebuilds the tree every cycle on each device
+   * from the synced observations, so syncing it would only churn.
+   */
+  const RECOMPUTED_BRAIN = new Set(['brain_memory_trees']);
   const derivedAllowed = (t: string) =>
     NEXUS_CODE_GRAPH.has(t) ||
+    RECOMPUTED_BRAIN.has(t) ||
     AGENT_REGISTRY_JUNCTIONS.has(t) ||
     FTS_SHADOW.test(t) ||
     VEC_SHADOW.test(t);
@@ -678,12 +692,8 @@ describe('Gate A: two-tier policy', () => {
     'project',
     'global',
   ] as const)('%s: embeddings and LLM/sleep output are not derived', (scope) => {
-    for (const t of [
-      'brain_embeddings',
-      'brain_patterns',
-      'brain_page_edges',
-      'brain_memory_trees',
-    ]) {
+    // brain_memory_trees left this list on purpose (RECOMPUTED_BRAIN above).
+    for (const t of ['brain_embeddings', 'brain_patterns', 'brain_page_edges']) {
       const r = classifyTable(scope, t);
       expect(r.kind === 'entry' && r.class !== 'derived', `${scope}.${t}`).toBe(true);
     }

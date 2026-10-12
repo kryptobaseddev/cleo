@@ -196,8 +196,10 @@ export function typedGateAdmissionMs(
 }
 
 /**
- * Actionable refusal for `cache: 'only'` (`cleo verify --no-run`) when a gate
- * would have to execute. Names the gate and the command that fills the cache.
+ * Actionable refusal for `cache: 'only'` — every evidence write by default
+ * (T13521, owner decision: writes read the cache, `cleo verify --run` executes)
+ * and `--no-run` — when a gate would have to execute. Names the gate and the
+ * command that fills the cache.
  */
 function gateNotCachedMessage(
   gate: AcceptanceGate,
@@ -205,25 +207,30 @@ function gateNotCachedMessage(
   keyAvailable: boolean,
 ): string {
   const name = gate.req ?? gate.description;
+  const run = gate.req
+    ? `cleo verify <taskId> --run --req ${gate.req}`
+    : 'cleo verify <taskId> --run';
   if (gate.kind === 'http')
-    return `${GATE_NOT_CACHED_PREFIX} http gate "${name}" observes a live service and is never cached; drop --no-run to execute it`;
+    return `${GATE_NOT_CACHED_PREFIX} http gate "${name}" observes a live service and is never cached; pass --run-typed to execute it on this write`;
   if (!cacheable)
-    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached result because the project root is not a git checkout (results are keyed by HEAD + dirty-tree fingerprint); drop --no-run to execute it`;
+    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached result because the project root is not a git checkout (results are keyed by HEAD + dirty-tree fingerprint); pass --run-typed to execute it on this write`;
   if (!keyAvailable)
-    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" cannot use the cache because the machine key ${evidenceCacheKeyPath()} is unreadable; drop --no-run to execute it`;
+    return `${GATE_NOT_CACHED_PREFIX} gate "${name}" cannot use the cache because the machine key ${evidenceCacheKeyPath()} is unreadable; pass --run-typed to execute it on this write`;
   return (
     `${GATE_NOT_CACHED_PREFIX} gate "${name}" has no cached pass for the current HEAD, working tree and inputs. ` +
-    'Run `cleo verify <taskId> --run` first (it caches passing results), or drop --no-run to execute it now'
+    `Evidence writes do not execute typed gates: run \`${run}\` first (it caches passing results), ` +
+    'or pass --run-typed to execute it on this write'
   );
 }
 
 /**
  * Prefix of the `errorMessage` a gate carries when `cache: 'only'` refused to
- * execute it. The verifier matches it to refuse the whole write with
- * `E_GATE_NOT_CACHED` instead of recording an `error` result.
+ * execute it. The verifier matches it to refuse the write with
+ * `E_GATE_NOT_CACHED` (a gate the write links) or to record it as not run.
  * @task T12621
+ * @task T13521
  */
-export const GATE_NOT_CACHED_PREFIX = '--no-run:';
+export const GATE_NOT_CACHED_PREFIX = 'typed gate not cached:';
 
 /**
  * Prefix of the `errorMessage` a gate carries when `cache: 'only'` found an
@@ -231,7 +238,7 @@ export const GATE_NOT_CACHED_PREFIX = '--no-run:';
  * `E_GATE_CACHE_INVALID`: a forged or tampered pass is never recorded.
  * @task T12621
  */
-export const GATE_CACHE_INVALID_PREFIX = '--no-run [invalid cache entry]:';
+export const GATE_CACHE_INVALID_PREFIX = 'typed gate cache entry invalid:';
 
 /**
  * Load (creating on first use, mode 0600) the per-machine key that seals
@@ -490,7 +497,7 @@ export async function runGates(
             if (lookup.status === 'invalid' && cacheMode === 'only')
               throw new Error(
                 `${GATE_CACHE_INVALID_PREFIX} gate "${parsed.req ?? parsed.description}": ${lookup.reason}. ` +
-                  'It was not used. Drop --no-run to execute the gate (a pass replaces the entry)',
+                  'It was not used. Run `cleo verify <taskId> --run` (a pass replaces the entry), or pass --run-typed on this write',
               );
           }
           if (cacheMode === 'only' && TOOL_GATE_KINDS.has(parsed.kind))
@@ -814,6 +821,13 @@ export async function runTaskGates(
             })
           )[0]!;
       let result: AcceptanceGateResult = { ...observed, index, binding };
+      // T13525: a cache-only run must not wipe a stored pass that still proves
+      // this exact gate on these exact inputs (a commit moved HEAD, which keys
+      // the cache, but changed nothing the gate reads).
+      if (result.errorMessage?.startsWith(GATE_NOT_CACHED_PREFIX)) {
+        const reused = reusableStoredPass(options.priorResults, index, gate, binding);
+        if (reused) result = reused;
+      }
       try {
         // A gate whose inputs were never captured has nothing to compare.
         const after = snapshotRefusal
@@ -832,6 +846,46 @@ export async function runTaskGates(
     }
     return results;
   });
+}
+
+/**
+ * The stored pass for `index`, re-bound to this run, when it proves the same
+ * thing a cache entry would: same gate kind and REQ-ID, criterion id and text
+ * hash, gate definition hash, invocation and input bytes (T13525). Marked
+ * `source: 'cache'` with the original capture time, like a cache hit.
+ */
+function reusableStoredPass(
+  prior: readonly AcceptanceGateResult[] | undefined,
+  index: number,
+  gate: AcceptanceGate,
+  binding: AcceptanceGateBinding,
+): AcceptanceGateResult | null {
+  const stored = prior?.find((r) => r.index === index);
+  const was = stored?.binding;
+  if (
+    !stored ||
+    !was ||
+    stored.result !== 'pass' ||
+    stored.kind !== gate.kind ||
+    stored.req !== gate.req ||
+    was.taskId !== binding.taskId ||
+    was.criterionId !== binding.criterionId ||
+    was.criterionHash !== binding.criterionHash ||
+    was.gateHash !== binding.gateHash ||
+    !isDeepStrictEqual(was.invocation, binding.invocation) ||
+    !isDeepStrictEqual(was.artifacts, binding.artifacts)
+  )
+    return null;
+  const { binding: _old, source: _source, cachedAt: _cachedAt, ...observation } = stored;
+  // Re-dated to now, as a cache hit is: a bound result may not precede its capture.
+  return {
+    ...observation,
+    index,
+    binding,
+    checkedAt: new Date().toISOString(),
+    source: 'cache',
+    cachedAt: was.capturedAt,
+  };
 }
 
 /**

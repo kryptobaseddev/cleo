@@ -220,9 +220,31 @@ export interface CloudSyncPushEnableResult {
    * `enabled`: the cut was recorded and its genesis checkpoint stored; `resumed`: a cut recorded
    * by an earlier run whose checkpoint push failed was pushed now; `already`: push was already on;
    * `joined`: this store holds the stream's journal checkpoint another device cut, and now pushes its
-   * own writes and pulls the stream's after it, with no genesis of its own (T13312).
+   * own writes and pulls the stream's after it, with no genesis of its own (T13312). A store that
+   * never synced with the stream joins too, keeping its own rows (see `merged`, T13466).
    */
   status: 'enabled' | 'resumed' | 'already' | 'joined';
+  /**
+   * A merge join (T13466): stream rows adopted here, this store's own rows emitted as its first
+   * transactions, and stream rows not placed (an unresolved reference). `overwritten` lists fields of
+   * this store's own rows whose older value took the stream's newer one (T13503); `safetyBackup` is
+   * the bundle of the store as it was before the merge. Null when the reconcile is still due
+   * (`cleo cloud sync` finishes it); absent on any other status.
+   */
+  merged?: {
+    adopted: number;
+    emitted: number;
+    unresolved: number;
+    overwritten: Array<{ table: string; uid: string; column: string }>;
+    /**
+     * Fields of the stream's rows that took this store's newer value on every replica (T13507);
+     * column `*` is a whole row this store's newer edit restored over a stream delete (T13508).
+     */
+    replaced: Array<{ table: string; uid: string; column: string }>;
+    /** This store's own rows a newer stream delete removed; the safety bundle holds them (T13508). */
+    deleted: Array<{ table: string; uid: string }>;
+    safetyBackup: string;
+  } | null;
   /** The genesis cut: the highest capture seq the checkpoint carries. */
   cut: number;
   /** Transactions sealed before the cut, folded into the checkpoint, and rows given genesis row meta. */
@@ -427,6 +449,121 @@ export interface CloudActivityResult {
   warnings: CloudWarning[];
 }
 
+/** Per-table op counts of one journal transaction, by op kind. */
+export interface CloudJournalTableOps {
+  I: number;
+  U: number;
+  D: number;
+  K: number;
+}
+
+/**
+ * One transaction another device (or this one, echoed back) wrote, as this
+ * store's journal received it (`cleo cloud activity --journal`, T13369).
+ */
+export interface CloudJournalActivityItem {
+  /** The transaction id, `${replicaId}:${localSeq}`. */
+  txn: string;
+  stream: string;
+  /** The segment's stream sequence number and the transaction's index in it. */
+  seq: number;
+  txnIdx: number;
+  /** The replica (store) that wrote it. */
+  replicaId: string;
+  /** The Nexus device that signed its segment. */
+  deviceId: string;
+  /** The device's name from the account's device list; `null` offline or when unknown. */
+  deviceName: string | null;
+  /** Written by a replica this machine bound. */
+  thisDevice: boolean;
+  /** The transaction's HLC. */
+  hlc: string;
+  /** When it was written: the HLC's physical time, ISO-8601. */
+  at: string;
+  /** When this store staged it, and applied it (`null` until applied). */
+  stagedAt: string;
+  appliedAt: string | null;
+  /** Inbox status: `applied`, `void`, `conflict`, `staged`, `pending`, `held-skew`, `refused-schema`. */
+  status: string;
+  /** Why it is void, held or refused, when it is. */
+  reason: string | null;
+  /**
+   * Applied as inherited history (§1.5, T13278/T13366): its replica was
+   * retired by a server-confirmed retire at a lower stream position, so the
+   * merge recorded no conflict for it. Always `false` for an unconfirmed
+   * retire or a transaction that was not applied.
+   */
+  history: boolean;
+  /** `write`, `repair`, `retire`, … and how the writes reached the store. */
+  kind: string;
+  via: string;
+  /** The command, agent and session that wrote it, when recorded. */
+  actor: { agent?: string; session?: string; op?: string } | null;
+  /** The project the transaction is for (`null` for a global-scope txn). */
+  project: string | null;
+  /** Total ops, and op counts per table. */
+  ops: number;
+  tables: Record<string, CloudJournalTableOps>;
+}
+
+/** One device's share of the journal activity matching the filters. */
+export interface CloudJournalActivityDevice {
+  deviceId: string;
+  deviceName: string | null;
+  thisDevice: boolean;
+  /** Matching transactions, and the newest one's write time (ISO-8601). */
+  txns: number;
+  lastAt: string;
+  /** The device's last presence report from the account's device list; `null` offline or when unknown. */
+  lastSeenAt: string | null;
+}
+
+/** `cleo cloud activity --journal`: what each device changed and when, from the local journal. */
+export interface CloudJournalActivityResult {
+  scope: CloudVaultScope;
+  /** Newest first. */
+  items: CloudJournalActivityItem[];
+  /** Per device, over every matching transaction (not just this page). */
+  devices: CloudJournalActivityDevice[];
+  /** Pass as `--before` for the next older page; `null` at the end. */
+  nextBefore: string | null;
+  warnings: CloudWarning[];
+}
+
+/**
+ * One device in `cleo cloud activity --devices` (T13482): its presence, its
+ * newest journal change this store received, and its newest server event.
+ */
+export interface CloudDeviceOverviewRow {
+  deviceId: string;
+  /** From the account's device list; `null` offline or when unknown. */
+  deviceName: string | null;
+  thisDevice: boolean;
+  /** `active`, `signed-out` or `revoked`; `null` when not in the device list. */
+  state: string | null;
+  /** Presence reported within the freshness window; `null` offline or when unknown. */
+  online: boolean | null;
+  lastSeenAt: string | null;
+  /** Its journal transactions in this store, and the newest one; `null` when none. */
+  journal: {
+    txns: number;
+    lastAt: string;
+    /** Command (or txn kind), inbox status and tables of the newest transaction on the page read. */
+    last: { op: string; status: string; tables: string[] } | null;
+  } | null;
+  /** Its newest server event (snapshot, lease, enrolment …); `null` offline or when none. */
+  server: { at: string; action: string; target: string | null } | null;
+  /** The newest of its journal change, server event and presence. */
+  lastActivityAt: string | null;
+}
+
+/** `cleo cloud activity --devices`: one row per device, newest activity first (T13482). */
+export interface CloudDeviceOverviewResult {
+  scope: CloudVaultScope;
+  devices: CloudDeviceOverviewRow[];
+  warnings: CloudWarning[];
+}
+
 /** One conflict an apply recorded (`cleo cloud conflicts`, T12344 PR-6). */
 export interface CloudConflict {
   id: number;
@@ -435,7 +572,7 @@ export interface CloudConflict {
   txnIdx: number;
   /** Op index in the transaction; -1 for a whole-transaction (post-apply) conflict. */
   opIdx: number;
-  /** `field`, `typed-rule`, `edit-vs-delete`, `delete-vs-edit`, `dangling-ref`, `guard`, `delete-with-live-children`, `uid-collision`, `post-apply` … */
+  /** `field`, `typed-rule`, `edit-vs-delete`, `delete-vs-edit`, `dangling-ref`, `guard`, `delete-with-live-children`, `uid-collision`, `key-collision`, `post-apply` … */
   kind: string;
   table: string;
   uid: string;

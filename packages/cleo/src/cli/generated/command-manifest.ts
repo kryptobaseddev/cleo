@@ -459,6 +459,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorHeavyCommandHookCommand as CommandDef,
   },
   {
+    exportName: 'doctorHooksCommand',
+    name: 'hooks',
+    description:
+      'Inspect hook attribution, activation, drift and provider trust; --fix repairs eligible managed entries',
+    load: async () =>
+      (await import('../commands/doctor-hooks.js')).doctorHooksCommand as CommandDef,
+  },
+  {
     exportName: 'doctorLegacyBackupsCommand',
     name: 'legacy-backups',
     description:
@@ -769,7 +777,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'hookCommand',
     name: 'hook',
     description:
-      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command|ask-enforce --provider <harness>',
+      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command --provider claude-code|codex|kimi|opencode',
     load: async () => (await import('../commands/hook.js')).hookCommand as CommandDef,
   },
   {

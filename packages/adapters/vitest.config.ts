@@ -31,6 +31,7 @@ export default defineConfig({
     ],
     exclude: ['node_modules', 'dist', '**/node_modules/**', '**/e2e/**', '**/*.integration.test.ts', '**/*-integration.test.ts'],
     alias: withWorkspaceSubpathAliases({
+      '@cleocode/lafs': fileURLToPath(new URL('../lafs/src/index.ts', import.meta.url)),
       // T11762 (T11900): the harness-interop test resolves @cleocode/playbooks to
       // source, and the ST-2 runtime now imports @cleocode/core, which drags the
       // store/schema layer (tasks.ts / provenance/commits.ts / memory-schema.ts)

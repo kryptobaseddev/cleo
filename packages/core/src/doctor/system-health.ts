@@ -23,9 +23,9 @@
  */
 
 import { execFile } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { cpus, loadavg, totalmem } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { readLedger } from '../resources/admission-ledger.js';
 import type { ResourceSample } from '../resources/backend.js';
@@ -94,6 +94,53 @@ export interface SystemHealthReport {
   /** Worst first. */
   readonly findings: readonly SystemFinding[];
   readonly coverage: readonly SystemCoverage[];
+  /** Every agent session, quietest first (T13438). Quiet is not dead: ask, never close on it alone. */
+  readonly sessions: readonly SessionInfo[];
+}
+
+/** One agent session (a top-level harness process and its tree). */
+export interface SessionInfo {
+  readonly pid: number;
+  /** `claude`, `codex`, `opencode`, `kimi`, … */
+  readonly harness: string;
+  /** Git root of the session's working directory, or `null` when unknown. */
+  readonly project: string | null;
+  readonly cwd: string | null;
+  readonly elapsedSec: number;
+  /** RSS of the session and everything it started (MCP servers included), MiB. */
+  readonly rssMib: number;
+  /** The activity readings behind {@link quiet}; `null` where unmeasured. */
+  readonly signals: SessionSignals;
+  /**
+   * True only when EVERY signal is quiet: terminal silent, no CPU time used
+   * across a short second sample, no running child besides MCP servers, no
+   * recent writes in its directory (T13460). A quiet session may still be
+   * waiting on a plan or a person, so it is something to ask about, not close.
+   */
+  readonly quiet: boolean;
+}
+
+/** One session's activity readings (T13460). */
+export interface SessionSignals {
+  /** Seconds since its terminal last saw input or output; `null` without a tty. */
+  readonly ttySilentSec: number | null;
+  /** CPU seconds its process tree used between two samples; `null` when not sampled. */
+  readonly cpuDeltaSec: number | null;
+  /** Processes running under it other than MCP servers (tool calls, builds, shells). */
+  readonly activeChildren: number;
+  /** Seconds since the newest write in its cwd or git dir; `null` when unknown. */
+  readonly lastWriteSec: number | null;
+}
+
+/** Per-session facts the collector reads beyond `ps` (T13438, T13460). */
+export interface SessionContext {
+  readonly cwd: string | null;
+  readonly project: string | null;
+  readonly ttyIdleSec: number | null;
+  /** CPU seconds the session's tree used across the collector's two samples. */
+  readonly cpuDeltaSec?: number | null;
+  /** Seconds since the newest write in the session's cwd or git dir. */
+  readonly lastWriteSec?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,7 +178,7 @@ export interface SystemSnapshot {
   readonly sample: ResourceSample | null;
   /** Linux swap from `/proc/meminfo`; macOS carries it on `sample.darwinMemory`. */
   readonly linuxSwap: { readonly usedBytes: number; readonly totalBytes: number } | null;
-  /** `ps -A -o pid=,ppid=,pgid=,rss=,pcpu=,etime=,args=` output, `null` when ps failed. */
+  /** `ps -A -o pid=,ppid=,pgid=,rss=,pcpu=,etime=,tty=,args=` output, `null` when ps failed. */
   readonly ps: string | null;
   /** Process groups and pids `cleo run` holds (the admission ledger). */
   readonly governedPgids: readonly number[];
@@ -141,6 +188,8 @@ export interface SystemSnapshot {
   readonly indexing: IndexingSnapshot | null;
   /** Linux only. */
   readonly memoryGuard: MemoryGuardAudit | null;
+  /** Keyed by session pid; absent entries are reported with unknown project and activity. */
+  readonly sessionContext?: Readonly<Record<number, SessionContext>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +204,8 @@ export interface ProcessRow {
   readonly rssBytes: number;
   readonly pcpu: number;
   readonly elapsedSec: number;
+  /** Controlling terminal (`ttys003`, `pts/2`), `null` when none. */
+  readonly tty: string | null;
   readonly args: string;
   /** `args` split on whitespace (ps does not quote; good enough for recognition). */
   readonly argv: readonly string[];
@@ -170,13 +221,14 @@ export function parseEtime(etime: string): number {
   return Number.isFinite(total) ? total : 0;
 }
 
-/** Parse `ps -A -o pid=,ppid=,pgid=,rss=,pcpu=,etime=,args=` output. */
+/** Parse `ps -A -o pid=,ppid=,pgid=,rss=,pcpu=,etime=,tty=,args=` output. */
 export function parsePs(output: string): ProcessRow[] {
   const rows: ProcessRow[] = [];
   for (const line of output.split('\n')) {
-    const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s+(.+)$/.exec(line);
+    const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s+(\S+)\s+(.+)$/.exec(line);
     if (!m) continue;
-    const args = (m[7] as string).trim();
+    const args = (m[8] as string).trim();
+    const tty = m[7] as string;
     rows.push({
       pid: Number(m[1]),
       ppid: Number(m[2]),
@@ -184,6 +236,7 @@ export function parsePs(output: string): ProcessRow[] {
       rssBytes: Number(m[4]) * 1024,
       pcpu: Number(m[5]),
       elapsedSec: parseEtime(m[6] as string),
+      tty: /^(\?+|-)$/.test(tty) ? null : tty,
       args,
       argv: args.split(/\s+/),
     });
@@ -275,7 +328,7 @@ const gib = (bytes: number): number => Math.round((bytes / GIB) * 10) / 10;
 
 const HARNESSES = new Set(['claude', 'codex', 'opencode', 'kimi', 'kimi-code', 'gemini', 'aider']);
 /** Harness binaries started as helpers or servers, not as agent sessions. */
-const HARNESS_HELPER_ARGS = /--chrome-native-host|\bapp-server\b|\bserve\b|\bmcp\b/;
+const HARNESS_HELPER_ARGS = /--chrome-native-host|\b(app|exec)-server\b|\bserve\b|\bmcp\b/;
 
 /** An interactive agent session (claude, codex, opencode, kimi, …). */
 export function isHarnessSession(row: ProcessRow): boolean {
@@ -404,7 +457,7 @@ function memoryFindings(s: SystemSnapshot, rows: readonly ProcessRow[]): Finding
         remedy: {
           command: null,
           description:
-            'Free memory by acting on the findings below (idle sessions, MCP fan-out, ungoverned heavy jobs, containers), largest first.',
+            'Free memory by acting on the findings below (quiet sessions the owner no longer needs, MCP fan-out, ungoverned heavy jobs, containers), largest first.',
         },
         needsOwnerChoice: false,
       });
@@ -647,54 +700,143 @@ function containerFindings(s: SystemSnapshot, docker: DockerSnapshot): Finding[]
   return out;
 }
 
-/** A session using less CPU than this (percent) is reported idle. */
-const IDLE_PCPU = 1;
+/** Terminal silence and directory writes older than this count as quiet (T13438). */
+export const SESSION_QUIET_SEC = 3600;
+/** CPU seconds across the second sample above which a session is working. */
+const ACTIVE_CPU_DELTA_SEC = 0.05;
+/** Without a second sample, tree `%cpu` at or above this is working. */
+const ACTIVE_PCPU = 1;
 
-function sessionFindings(tree: Tree, rows: readonly ProcessRow[]): Finding[] {
-  const sessions = rows.filter(
-    (r) => isHarnessSession(r) && !ancestors(tree, r).some(isHarnessSession),
-  );
+/** Top-level agent sessions: harness processes with no harness above them. */
+export function harnessSessions(rows: readonly ProcessRow[]): ProcessRow[] {
+  const tree = buildTree(rows);
+  return rows.filter((r) => isHarnessSession(r) && !ancestors(tree, r).some(isHarnessSession));
+}
+
+/** Processes under `session` that are not MCP servers or inside one. */
+function activeChildren(tree: Tree, session: ProcessRow): number {
+  let count = 0;
+  const stack = [...(tree.children.get(session.pid) ?? [])];
+  const seen = new Set<number>([session.pid]);
+  while (stack.length > 0) {
+    const r = stack.pop() as ProcessRow;
+    // MCP servers, and wrappers that only launched one (`npm exec …` → `node … mcp`), are not work.
+    const wrapper = (tree.children.get(r.pid) ?? []).some((c) => mcpServerName(c) !== null);
+    if (seen.has(r.pid) || mcpServerName(r) !== null || wrapper) continue;
+    seen.add(r.pid);
+    count++;
+    stack.push(...(tree.children.get(r.pid) ?? []));
+  }
+  return count;
+}
+
+/** Quiet only when no signal shows activity; terminal silence alone never decides (T13460). */
+export function isQuiet(signals: SessionSignals, treePcpu: number): boolean {
+  const ttyQuiet = signals.ttySilentSec === null || signals.ttySilentSec >= SESSION_QUIET_SEC;
+  const cpuQuiet =
+    signals.cpuDeltaSec !== null
+      ? signals.cpuDeltaSec <= ACTIVE_CPU_DELTA_SEC
+      : treePcpu < ACTIVE_PCPU;
+  const writesQuiet = signals.lastWriteSec === null || signals.lastWriteSec >= SESSION_QUIET_SEC;
+  return ttyQuiet && cpuQuiet && signals.activeChildren === 0 && writesQuiet;
+}
+
+function describeSessions(
+  tree: Tree,
+  rows: readonly ProcessRow[],
+  context: Readonly<Record<number, SessionContext>>,
+): SessionInfo[] {
+  return harnessSessions(rows)
+    .map((r) => {
+      const all = subtree(tree, r);
+      const ctx = context[r.pid];
+      const signals: SessionSignals = {
+        ttySilentSec: ctx?.ttyIdleSec ?? null,
+        cpuDeltaSec: ctx?.cpuDeltaSec ?? null,
+        activeChildren: activeChildren(tree, r),
+        lastWriteSec: ctx?.lastWriteSec ?? null,
+      };
+      return {
+        pid: r.pid,
+        harness: commandWords(r.argv)[0] ?? '?',
+        project: ctx?.project ?? null,
+        cwd: ctx?.cwd ?? null,
+        elapsedSec: r.elapsedSec,
+        rssMib: mib(sumRss(all)),
+        signals,
+        quiet: isQuiet(
+          signals,
+          all.reduce((n, x) => n + x.pcpu, 0),
+        ),
+      };
+    })
+    .sort(
+      (a, b) =>
+        Number(b.quiet) - Number(a.quiet) ||
+        (b.signals.ttySilentSec ?? -1) - (a.signals.ttySilentSec ?? -1) ||
+        b.rssMib - a.rssMib,
+    );
+}
+
+const hours = (sec: number): string => `${Math.round((sec / 3600) * 10) / 10}h`;
+const projectName = (s: SessionInfo): string =>
+  s.project === null ? '(unknown project)' : basename(s.project);
+
+function describeSignals(m: SessionInfo): string {
+  const s = m.signals;
+  return [
+    s.ttySilentSec === null ? 'no tty' : `tty silent ${hours(s.ttySilentSec)}`,
+    s.cpuDeltaSec === null ? 'cpu unsampled' : `cpu ${s.cpuDeltaSec.toFixed(2)}s/sample`,
+    `${s.activeChildren} children`,
+    s.lastWriteSec === null ? 'writes unknown' : `last write ${hours(s.lastWriteSec)} ago`,
+  ].join(', ');
+}
+
+function sessionFindings(sessions: readonly SessionInfo[]): Finding[] {
   if (sessions.length === 0) return [];
-  const measured = sessions.map((r) => {
-    const all = subtree(tree, r);
-    return {
-      row: r,
-      rss: sumRss(all),
-      pcpu: all.reduce((n, x) => n + x.pcpu, 0),
-    };
-  });
-  const idle = measured.filter((m) => m.pcpu < IDLE_PCPU);
-  const totalRss = measured.reduce((n, m) => n + m.rss, 0);
-  const idleRss = idle.reduce((n, m) => n + m.rss, 0);
+  const quiet = sessions.filter((m) => m.quiet);
+  const totalMib = sessions.reduce((n, m) => n + m.rssMib, 0);
+  const quietMib = quiet.reduce((n, m) => n + m.rssMib, 0);
+  const byProject = new Map<string, { count: number; quiet: number; mib: number }>();
+  for (const m of sessions) {
+    const g = byProject.get(projectName(m)) ?? { count: 0, quiet: 0, mib: 0 };
+    g.count++;
+    g.quiet += m.quiet ? 1 : 0;
+    g.mib += m.rssMib;
+    byProject.set(projectName(m), g);
+  }
   const severity: SystemFindingSeverity =
-    idleRss >= 8 * GIB || idle.length >= 15 ? 'warning' : 'info';
+    quietMib >= 8 * 1024 || quiet.length >= 15 ? 'warning' : 'info';
   return [
     {
       id: 'sessions',
       category: 'sessions',
       severity,
-      title: `${sessions.length} agent sessions (${gib(totalRss)} GiB with their MCP servers); ${idle.length} idle hold ${gib(idleRss)} GiB`,
+      title: `${sessions.length} agent sessions across ${byProject.size} projects (${gib(totalMib * MIB)} GiB with their MCP servers); ${quiet.length} quiet hold ${gib(quietMib * MIB)} GiB`,
       evidence: {
         sessions: sessions.length,
-        idle: idle.length,
-        totalRssMib: mib(totalRss),
-        idleRssMib: mib(idleRss),
-        idleSessions: idle
-          .sort((a, b) => b.rss - a.rss)
-          .slice(0, 15)
+        quiet: quiet.length,
+        totalRssMib: totalMib,
+        quietRssMib: quietMib,
+        byProject: [...byProject]
+          .sort((a, b) => b[1].mib - a[1].mib)
+          .map(([name, g]) => `${name}: ${g.count} sessions (${g.quiet} quiet), ${g.mib} MiB`),
+        quietSessions: quiet
+          .slice(0, 20)
           .map(
             (m) =>
-              `${commandWords(m.row.argv)[0]} pid ${m.row.pid} up ${Math.round(m.row.elapsedSec / 3600)}h ${mib(m.rss)} MiB`,
+              `${projectName(m)} ${m.harness} pid ${m.pid} up ${hours(m.elapsedSec)}, ${m.rssMib} MiB (${describeSignals(m)})`,
           ),
       },
-      impactBytes: idleRss,
+      impactBytes: quietMib * MIB,
       remedy: {
         command: null,
         description:
-          'Close idle sessions the owner no longer needs from their own terminal or Orca pane: each one also frees its MCP servers. ' +
-          'Never kill them from another session.',
+          'Quiet is not dead: a session waiting on a plan, a reviewer or the owner looks the same. ' +
+          'Ask the owner (ask tool, one option per session) whether each quiet session in `sessions[]` is still needed; ' +
+          'they close any they no longer need from their own terminal or Orca pane. Nothing is closed automatically.',
       },
-      needsOwnerChoice: idle.length > 0,
+      needsOwnerChoice: quiet.length > 0,
     },
   ];
 }
@@ -821,11 +963,12 @@ export function assessSystemHealth(s: SystemSnapshot): SystemHealthReport {
       : { check: 'memory', status: 'ok' },
   );
 
+  const sessions = describeSessions(tree, rows, s.sessionContext ?? {});
   if (s.ps !== null) {
     findings.push(
       ...mcpFindings(tree, rows),
       ...heavyFindings(s, tree, rows),
-      ...sessionFindings(tree, rows),
+      ...sessionFindings(sessions),
     );
   }
   coverage.push(psCoverage('mcp-fanout'), psCoverage('heavy-ungoverned'), psCoverage('sessions'));
@@ -875,6 +1018,7 @@ export function assessSystemHealth(s: SystemSnapshot): SystemHealthReport {
     summary: { critical: count('critical'), warning: count('warning'), info: count('info') },
     findings,
     coverage,
+    sessions,
   };
 }
 
@@ -884,19 +1028,40 @@ export function assessSystemHealth(s: SystemSnapshot): SystemHealthReport {
 
 const execFileAsync = promisify(execFile);
 
-/** Run a read-only command, time-boxed. `null` on any failure (absent, timeout, non-zero). */
-async function run(cmd: string, args: readonly string[], timeoutMs = 5000): Promise<string | null> {
+/** The `ps` columns {@link parsePs} reads. */
+const PS_FORMAT = 'pid=,ppid=,pgid=,rss=,pcpu=,etime=,tty=,args=';
+
+/**
+ * Run a read-only command, time-boxed. `null` on any failure (absent, timeout,
+ * non-zero). With `keepStdoutOnExit`, a non-zero exit that still printed
+ * returns what it printed: `lsof -p a,b` exits 1 when one pid has vanished but
+ * still reports the others.
+ *
+ * @task T13435
+ */
+export async function runReadOnly(
+  cmd: string,
+  args: readonly string[],
+  opts: { readonly timeoutMs?: number; readonly keepStdoutOnExit?: boolean } = {},
+): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync(cmd, [...args], {
-      timeout: timeoutMs,
+      timeout: opts.timeoutMs ?? 5000,
       maxBuffer: 32 * MIB,
       encoding: 'utf8',
     });
     return stdout;
-  } catch {
-    return null;
+  } catch (err) {
+    const exited = err instanceof Error && 'code' in err && typeof err.code === 'number';
+    const stdout = err instanceof Error && 'stdout' in err ? err.stdout : undefined;
+    return opts.keepStdoutOnExit === true && exited && typeof stdout === 'string' && stdout !== ''
+      ? stdout
+      : null;
   }
 }
+
+const run = (cmd: string, args: readonly string[]): Promise<string | null> =>
+  runReadOnly(cmd, args);
 
 /** Linux swap from `/proc/meminfo`, `null` when unreadable. */
 export function parseLinuxSwap(meminfo: string): { usedBytes: number; totalBytes: number } | null {
@@ -948,7 +1113,7 @@ export async function collectSystemSnapshot(
   }
 
   const [ps, danglingVolumes, systemDf, containers] = await Promise.all([
-    run('ps', ['-A', '-o', 'pid=,ppid=,pgid=,rss=,pcpu=,etime=,args=']),
+    run('ps', ['-A', '-o', PS_FORMAT]),
     run('docker', ['volume', 'ls', '-q', '-f', 'dangling=true']),
     run('docker', ['system', 'df', '--format', '{{json .}}']),
     run('docker', [
@@ -975,6 +1140,8 @@ export async function collectSystemSnapshot(
     indexing = { projectRoot: opts.projectRoot, timeMachine, spotlightCount };
   }
 
+  const sessionContext = ps === null ? {} : await collectSessionContext(platform, parsePs(ps));
+
   return {
     platform,
     sampledAtMs: Date.now(),
@@ -989,5 +1156,136 @@ export async function collectSystemSnapshot(
     docker,
     indexing,
     memoryGuard: platform === 'linux' ? auditMemoryGuard() : null,
+    sessionContext,
   };
+}
+
+/** Nearest ancestor of `dir` (itself included) holding `.git`, or `null`. */
+export function gitRootOf(dir: string, exists: (p: string) => boolean = existsSync): string | null {
+  let cur = dir;
+  for (;;) {
+    if (exists(join(cur, '.git'))) return cur;
+    const up = dirname(cur);
+    if (up === cur) return null;
+    cur = up;
+  }
+}
+
+/** pid → cwd from `lsof -a -d cwd -p <pids> -Fpn` output. */
+export function parseLsofCwd(output: string): Map<number, string> {
+  const out = new Map<number, string>();
+  let pid: number | null = null;
+  for (const line of output.split('\n')) {
+    if (line.startsWith('p')) pid = Number(line.slice(1));
+    else if (line.startsWith('n') && pid !== null) out.set(pid, line.slice(1));
+  }
+  return out;
+}
+
+/** `ps` `time` (BSD `m:ss.cc`, procps `[dd-]hh:mm:ss`) to CPU seconds. */
+export function parseCpuTime(value: string): number {
+  const [days, rest] = value.includes('-') ? value.split('-', 2) : ['0', value];
+  const parts = (rest ?? '').split(':').map(Number);
+  const total = parts.reduce((acc, n) => acc * 60 + n, 0) + Number(days) * 86400;
+  return Number.isFinite(total) ? total : 0;
+}
+
+/** pid → CPU seconds from `ps -A -o pid=,time=`. */
+export function parsePsTimes(output: string): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const line of output.split('\n')) {
+    const m = /^\s*(\d+)\s+(\S+)\s*$/.exec(line);
+    if (m) out.set(Number(m[1]), parseCpuTime(m[2] as string));
+  }
+  return out;
+}
+
+/** Gap between the two CPU samples. */
+const CPU_SAMPLE_MS = 2000;
+
+/**
+ * Working directory, project and activity readings of each agent session:
+ * one `lsof` on macOS (`/proc/<pid>/cwd` on Linux), one `stat` per tty and
+ * per directory, and two CPU-time samples {@link CPU_SAMPLE_MS} apart.
+ */
+async function collectSessionContext(
+  platform: NodeJS.Platform,
+  rows: readonly ProcessRow[],
+): Promise<Record<number, SessionContext>> {
+  const sessions = harnessSessions(rows);
+  if (sessions.length === 0) return {};
+  const sampleStart = Date.now();
+  const cpuBefore = await run('ps', ['-A', '-o', 'pid=,time=']);
+  let cwds = new Map<number, string>();
+  if (platform === 'linux') {
+    for (const r of sessions) {
+      try {
+        cwds.set(r.pid, readlinkSync(`/proc/${r.pid}/cwd`));
+      } catch {
+        // gone or not ours
+      }
+    }
+  } else {
+    // A session that exits between ps and lsof makes lsof exit 1; keep the rest.
+    const out = await runReadOnly(
+      'lsof',
+      ['-a', '-d', 'cwd', '-p', sessions.map((r) => r.pid).join(','), '-Fpn'],
+      { keepStdoutOnExit: true },
+    );
+    cwds = out === null ? cwds : parseLsofCwd(out);
+  }
+  const now = Date.now();
+  const lastWrite = (cwd: string, project: string | null): number | null => {
+    let newest = Number.NEGATIVE_INFINITY;
+    for (const p of [
+      cwd,
+      project,
+      project && join(project, '.git'),
+      project && join(project, '.git', 'index'),
+    ]) {
+      if (!p) continue;
+      try {
+        newest = Math.max(newest, statSync(p).mtimeMs);
+      } catch {
+        // absent (a worktree's .git is a file; its index lives elsewhere)
+      }
+    }
+    return Number.isFinite(newest) ? Math.max(0, Math.round((now - newest) / 1000)) : null;
+  };
+  await new Promise((r) => setTimeout(r, Math.max(0, CPU_SAMPLE_MS - (Date.now() - sampleStart))));
+  const cpuAfter = await run('ps', ['-A', '-o', 'pid=,time=']);
+  const before = cpuBefore === null ? null : parsePsTimes(cpuBefore);
+  const after = cpuAfter === null ? null : parsePsTimes(cpuAfter);
+  const tree = buildTree(rows);
+  const context: Record<number, SessionContext> = {};
+  for (const r of sessions) {
+    const cwd = cwds.get(r.pid) ?? null;
+    let cpuDeltaSec: number | null = null;
+    if (before && after) {
+      cpuDeltaSec = 0;
+      for (const p of subtree(tree, r)) {
+        const a = after.get(p.pid);
+        const b = before.get(p.pid);
+        if (a !== undefined && b !== undefined) cpuDeltaSec += Math.max(0, a - b);
+      }
+    }
+    const project = cwd === null ? null : gitRootOf(cwd);
+    let ttyIdleSec: number | null = null;
+    if (r.tty !== null) {
+      try {
+        const st = statSync(`/dev/${r.tty}`);
+        ttyIdleSec = Math.max(0, Math.round((now - Math.max(st.atimeMs, st.mtimeMs)) / 1000));
+      } catch {
+        ttyIdleSec = null;
+      }
+    }
+    context[r.pid] = {
+      cwd,
+      project,
+      ttyIdleSec,
+      cpuDeltaSec,
+      lastWriteSec: cwd === null ? null : lastWrite(cwd, project),
+    };
+  }
+  return context;
 }
