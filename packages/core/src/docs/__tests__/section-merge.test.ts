@@ -153,28 +153,55 @@ describe('applySectionTextEdit (AC3)', () => {
   });
 
   it('null stored state seeds from the new text', () => {
-    const { snapshot, changed } = applySectionTextEdit(null, '## New\n\nbody');
+    const { snapshot, changed } = applySectionTextEdit(null, '## New\n\nbody', null);
     expect(changed).toBe(true);
     expect(sectionStateText(snapshot)).toBe('## New\n\nbody');
   });
 
   it('unchanged text is a no-op and keeps the same snapshot bytes', () => {
     const stored = seedSectionState('## Same\n\nbody');
-    const { snapshot, changed } = applySectionTextEdit(stored, '## Same\n\nbody');
+    const { snapshot, changed } = applySectionTextEdit(
+      stored,
+      '## Same\n\nbody',
+      '## Same\n\nbody',
+    );
     expect(changed).toBe(false);
     expect(snapshot.equals(stored)).toBe(true);
   });
 
-  it('append-only growth merges onto the stored state, preserving concurrent edits', () => {
-    // Stored state already carries another writer's concurrent edit; the
-    // incoming text (stored text + a new tail) merges without losing it.
+  it('T13589 single-writer mid-text replace projects the input EXACTLY', () => {
+    // The probed case: stored == head text, so this is an ordinary edit.
+    // The primitives can only append, so re-seeding is the honest encoding —
+    // the result must be byte-identical to the authored input, never a
+    // fabricated concatenation.
+    const current = '## Title\nabc XYZ def';
+    const stored = seedSectionState(current);
+    const authored = '## Title\nabc 123 def';
+    const { snapshot, changed } = applySectionTextEdit(stored, authored, current);
+    expect(changed).toBe(true);
+    expect(sectionStateText(snapshot)).toBe(authored);
+  });
+
+  it('T13589 single-writer tail deletion applies exactly', () => {
+    // The probed deletion case: stored == head text, so the deletion lands.
+    const current = '## Cut\n\nkeep this. remove this.';
+    const stored = seedSectionState(current);
+    const authored = '## Cut\n\nkeep this.';
+    const { snapshot, changed } = applySectionTextEdit(stored, authored, current);
+    expect(changed).toBe(true);
+    expect(sectionStateText(snapshot)).toBe(authored);
+  });
+
+  it('concurrent growth composes onto the stored state, preserving the concurrent edit', () => {
+    // Stored state carries another writer's concurrent edit (stored text !=
+    // head text); the incoming growth merges without losing it.
     const base = seedSectionState('## S\n\nbody');
     const concurrent = makeSectionEditUpdate(base, '\n\nconcurrent note\n');
     const stored = mergeSectionUpdates(base, [concurrent]);
     const storedText = sectionStateText(stored);
     const incoming = `${storedText}\n\nmy addition\n`;
 
-    const { snapshot, changed } = applySectionTextEdit(stored, incoming);
+    const { snapshot, changed } = applySectionTextEdit(stored, incoming, '## S\n\nbody');
     expect(changed).toBe(true);
     const mergedText = sectionStateText(snapshot);
     expect(mergedText).toContain('concurrent note');
@@ -182,13 +209,16 @@ describe('applySectionTextEdit (AC3)', () => {
     expect(mergedText.startsWith(storedText)).toBe(true);
   });
 
-  it('divergent tails (concurrent same-base edits / a full-section replace) append the incoming tail, preserving the stored edit', () => {
-    // A full-section content replace: the incoming text neither equals nor
-    // extends the stored text. The write path expresses it as the tail
-    // beyond the common prefix applied ONTO the stored Loro state, so the
-    // stored (concurrent) edit and the incoming edit BOTH survive.
+  it('a concurrent full-section replace composes onto the stored edit, preserving both', () => {
+    // Stored text != head text: the stored state genuinely carries a
+    // concurrent edit, so the incoming text is composed onto it via the
+    // common-prefix tail — both survive (T13585).
     const stored = seedSectionState('## Old\n\nold body');
-    const { snapshot, changed } = applySectionTextEdit(stored, '## New\n\nnew body');
+    const { snapshot, changed } = applySectionTextEdit(
+      stored,
+      '## New\n\nnew body',
+      '## Head\n\nhead text',
+    );
     expect(changed).toBe(true);
     const mergedText = sectionStateText(snapshot);
     expect(mergedText).toContain('old body');
@@ -198,14 +228,19 @@ describe('applySectionTextEdit (AC3)', () => {
   });
 
   it('two concurrent same-base section edits both survive through the edit application', () => {
-    // The exact write-path shape (T13585): one writer lands first, the
-    // second edited from the same base and never saw the first's edit.
+    // The exact write-path shape (T13585): one writer's edit is unlanded in
+    // the stored state (stored != head text); the second writer edited from
+    // the head and never saw the first's edit.
     const base = seedSectionState('## Alpha\n\nalpha body');
     const updateA = makeSectionEditUpdate(base, '\n\nA1\n');
     const storedAfterA = mergeSectionUpdates(base, [updateA]);
 
     const incomingB = '## Alpha\n\nalpha body\n\nB1\n';
-    const { snapshot, changed } = applySectionTextEdit(storedAfterA, incomingB);
+    const { snapshot, changed } = applySectionTextEdit(
+      storedAfterA,
+      incomingB,
+      '## Alpha\n\nalpha body',
+    );
     expect(changed).toBe(true);
     const mergedText = sectionStateText(snapshot);
     expect(mergedText).toContain('A1');
@@ -213,9 +248,13 @@ describe('applySectionTextEdit (AC3)', () => {
     expect(mergedText.startsWith('## Alpha\n\nalpha body')).toBe(true);
   });
 
-  it('a strict deletion is the documented v1+ limitation: the stored state stands', () => {
+  it('a strict deletion in CONCURRENT mode is the documented v1+ limitation: the stored state stands', () => {
     const stored = seedSectionState('## S\n\nbody\n\ntail to delete');
-    const { snapshot, changed } = applySectionTextEdit(stored, '## S\n\nbody');
+    const { snapshot, changed } = applySectionTextEdit(
+      stored,
+      '## S\n\nbody',
+      '## Head\n\nhead text',
+    );
     expect(changed).toBe(false);
     expect(snapshot.equals(stored)).toBe(true);
   });

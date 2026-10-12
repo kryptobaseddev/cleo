@@ -7,26 +7,35 @@
  *
  *   1. Resolve the doc's immutable uid, adopting a legacy doc into the
  *      conduit family on first sight ({@link ensureConduitDoc}).
- *   2. Split the new text into sections and apply each section's edit to
- *      its local Loro state (`section-merge.ts`); concurrent edits already
- *      in the stored state merge via sequential `crdt_apply_update`.
- *   3. Read the MERGED text back out of the merged Loro states — never out
- *      of the input (T13585) — so concurrent same-base edits both survive
- *      in the projection, not just in the pure engine.
- *   4. Append the merged text as a DAG version row
+ *   2. Split the new text into sections and resolve the previous head's
+ *      section texts from its version blob — the single-writer vs.
+ *      concurrent discriminator (T13589).
+ *   3. Apply each section's edit to its local Loro state
+ *      (`section-merge.ts`): while the stored state equals the head's text
+ *      the input projects EXACTLY (re-seed; replaces and deletions apply
+ *      verbatim — the primitives can only append, so re-seeding is the
+ *      honest encoding); when the stored state differs from the head's text
+ *      it carries a concurrent edit and the incoming edit composes onto it
+ *      via sequential `crdt_apply_update` so both survive (T13585).
+ *   4. Read the MERGED text back out of the merged Loro states — never out
+ *      of the input — and write its content-addressed blob so the version
+ *      row's `storage_key` resolves.
+ *   5. Append the merged text as a DAG version row
  *      (`appendConduitAttachmentVersion`, parent = the previous head's
  *      version) — history is append-only.
- *   5. Project the merged text into the current-version row via
+ *   6. Project the merged text into the current-version row via
  *      {@link upsertConduitDocHead}: the max-HLC head wins and a losing
  *      concurrent head is recorded as a conflict, never silently shadowed
  *      (typed rule `docs.head.max-hlc`).
- *   6. Rebase the local section states onto the landed version and rebuild
+ *   7. Rebase the local section states onto the landed version and rebuild
  *      the derived contributors rollup.
  *
- * Steps 1–6 run inside ONE `BEGIN IMMEDIATE` transaction
+ * Steps 1–7 run inside ONE `BEGIN IMMEDIATE` transaction
  * ({@link withConduitDocWriteTransaction}, T13583): a failure after the
  * version append rolls everything back, so the next update cannot fork
- * onto a half-landed projection.
+ * onto a half-landed projection. The body uses only sync-driver accessors
+ * and sync `node:fs` calls, so no real I/O yield can admit another writer
+ * on the connection mid-transaction (the documented constraint).
  *
  * Loro owns LOCAL-ONLY section state; the syncing rows are owned by the
  * Stage C journal merge engine — one merge authority per table (§2).
@@ -38,10 +47,15 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { getCleoDirAbsolute } from '../paths.js';
 import {
   appendConduitAttachmentVersion,
   type ConduitAttachmentVersionRow,
+  type ConduitDocHeadRow,
   ensureConduitDoc,
+  getConduitAttachmentVersion,
   getConduitDocHead,
   readSectionCrdtState,
   rebaseSectionCrdtStates,
@@ -152,6 +166,62 @@ function countTokens(text: string): number {
 }
 
 /**
+ * Resolve the on-disk path of a version row's content-addressed blob.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param storageKey - The version's `storage_key` (`<2>/<rest>.md`).
+ * @returns The absolute blob path.
+ */
+function versionBlobPath(projectRoot: string, storageKey: string): string {
+  return join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', storageKey);
+}
+
+/**
+ * Read the previous head version's merged text and split it into sections.
+ *
+ * This is the single-writer vs. concurrent discriminator (T13589): a
+ * section whose stored state text equals the head's section text holds no
+ * unlanded concurrent edit. Sync `node:fs` only — the caller runs inside
+ * the write transaction, which must not yield to real I/O.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param head - The current head row.
+ * @returns The head's sections in document order, or `null` when the head's
+ *   version or its blob is not resolvable locally (callers then take the
+ *   single-writer path — see {@link applySectionTextEdit}).
+ */
+async function readHeadSectionTexts(
+  projectRoot: string,
+  head: ConduitDocHeadRow,
+): Promise<string[] | null> {
+  const version = await getConduitAttachmentVersion(projectRoot, head.headVersionUid);
+  if (!version?.storageKey) return null;
+  try {
+    const text = readFileSync(versionBlobPath(projectRoot, version.storageKey), 'utf-8');
+    return splitDocIntoSections(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write the merged text's content-addressed blob so the version row's
+ * `storage_key` resolves. Sync `node:fs` only (transaction constraint, see
+ * {@link withConduitDocWriteTransaction}); content-addressed, so an existing
+ * file is reused and an orphan from a rolled-back transaction is harmless.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param storageKey - The version's `storage_key`.
+ * @param text - The merged text the key addresses.
+ */
+function writeMergedBlob(projectRoot: string, storageKey: string, text: string): void {
+  const path = versionBlobPath(projectRoot, storageKey);
+  if (existsSync(path)) return;
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, text, 'utf-8');
+}
+
+/**
  * Project one docs update through the section CRDT merge layer.
  *
  * The whole projection — adopt, section-state writes, version append, head
@@ -181,6 +251,12 @@ export async function projectDocUpdateThroughSections(
             content: contentBuffer,
           });
 
+    // Resolve the previous head's section texts FIRST — the single-writer
+    // vs. concurrent discriminator for every section below (T13589).
+    const previousHead = await getConduitDocHead(projectRoot, docUid);
+    const headSections =
+      previousHead !== null ? await readHeadSectionTexts(projectRoot, previousHead) : null;
+
     // Apply each section's edit onto its stored Loro state and read the
     // MERGED text back out of the state — never out of the input (T13585).
     const sections = splitDocIntoSections(input.content);
@@ -189,7 +265,11 @@ export async function projectDocUpdateThroughSections(
     for (const [index, text] of sections.entries()) {
       const id = sectionId(index);
       const stored = await readSectionCrdtState(projectRoot, docUid, id);
-      const { snapshot, changed } = applySectionTextEdit(stored?.snapshot ?? null, text);
+      const { snapshot, changed } = applySectionTextEdit(
+        stored?.snapshot ?? null,
+        text,
+        headSections?.[index] ?? null,
+      );
       if (changed || stored === null) {
         await writeSectionCrdtState(projectRoot, {
           attachmentUid: docUid,
@@ -204,9 +284,13 @@ export async function projectDocUpdateThroughSections(
     const mergedText = joinSections(mergedSections);
 
     // Append the DAG version row (parent = the previous head's version).
-    const previousHead = await getConduitDocHead(projectRoot, docUid);
     const contentHash = createHash('sha256').update(mergedText, 'utf-8').digest('hex');
     const size = Buffer.byteLength(mergedText, 'utf-8');
+    const storageKey = `${contentHash.slice(0, 2)}/${contentHash.slice(2)}.md`;
+    // Write the blob BEFORE the insert so a committed row never references
+    // missing bytes; a rollback only leaves a harmless content-addressed
+    // orphan (reused by a later identical projection).
+    writeMergedBlob(projectRoot, storageKey, mergedText);
     const parentVersionUid =
       input.parentVersionUid !== undefined
         ? input.parentVersionUid
@@ -215,7 +299,7 @@ export async function projectDocUpdateThroughSections(
       attachmentUid: docUid,
       parentVersionUid,
       authorAgentId: input.authorAgentId,
-      storageKey: `${contentHash.slice(0, 2)}/${contentHash.slice(2)}.md`,
+      storageKey,
       contentHash,
       originalSize: size,
       compressedSize: size,

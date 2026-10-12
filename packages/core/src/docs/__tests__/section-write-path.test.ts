@@ -235,7 +235,7 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     expect(await listConduitAttachmentVersions(tempDir, third.docUid)).toHaveLength(3);
   });
 
-  it('T13585: two concurrent updates from the same base both survive through the write path, even when the second loses the head race', async () => {
+  it('T13585+T13589: same-base writers project exactly; the head race is resolved by max-HLC with the loser kept in history', async () => {
     const s0 = '# Plan\n\npreamble.';
     const s1Base = '## Alpha\n\nalpha body';
     const s2 = '## Beta\n\nbeta body';
@@ -257,8 +257,9 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
       content: docA,
       hlc: hlcAt(2000),
     });
-    // B is concurrent with A but lands with a LOWER HLC: it must lose the
-    // head race honestly while its edit still survives the merge.
+    // A landed first: B's stored state equals the head's text, so B is a
+    // single-writer edit and must project EXACTLY (T13589) — no fabricated
+    // concatenation. B's HLC is lower, so it loses the head race honestly.
     const b = await projectDocUpdateThroughSections(tempDir, {
       slug: 'plan-doc',
       authorAgentId: 'agent-b',
@@ -266,17 +267,10 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
       hlc: hlcAt(1500),
     });
 
-    // Both concurrent edits survive in the merged text read back from the
-    // Loro state — the projection, not the input.
-    expect(b.mergedText).toContain('A1');
-    expect(b.mergedText).toContain('B1');
-    expect(b.mergedText).not.toBe(docB);
-
-    // The merge result is what the version row addresses.
+    // B's input is projected byte-exactly into the version row.
+    expect(b.mergedText).toBe(docB);
     const { createHash } = await import('node:crypto');
-    expect(b.version.contentHash).toBe(
-      createHash('sha256').update(b.mergedText, 'utf-8').digest('hex'),
-    );
+    expect(b.version.contentHash).toBe(createHash('sha256').update(docB, 'utf-8').digest('hex'));
 
     // Head race: A's higher HLC keeps the head; B's loss is recorded, and
     // B's version row survives in the append-only history.
@@ -294,12 +288,123 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
       expect.arrayContaining([v1.version.uid, a.version.uid, b.version.uid]),
     );
 
-    // The stored section state is the merged state: both edits present.
+    // A's content is the standing head: its version blob resolves to docA.
+    const { readFileSync } = await import('node:fs');
+    const { getCleoDirAbsolute } = await import('../../paths.js');
+    const { join: joinPath } = await import('node:path');
+    const headBlob = readFileSync(
+      joinPath(getCleoDirAbsolute(tempDir), 'attachments', 'sha256', a.version.storageKey),
+      'utf-8',
+    );
+    expect(headBlob).toBe(docA);
+  });
+
+  it('T13585: when stored state differs from the previous head, the merge path preserves BOTH writers', async () => {
+    const s0 = '# Plan\n\npreamble.';
+    const s1Base = '## Alpha\n\nalpha body';
+    const s2 = '## Beta\n\nbeta body';
+    const baseDoc = [s0, s1Base, s2].join('\n');
+    const docB = [s0, `${s1Base}\n\nB1`, s2].join('\n');
+
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-seed',
+      content: baseDoc,
+      hlc: hlcAt(1000),
+    });
+
+    // Simulate an UNLANDED concurrent edit in the stored state (the shape
+    // Stage C journal apply produces before the local head advances): A's
+    // edit sits in section_crdt_states but not in the head's text.
+    const { seedSectionState } = await import('../section-merge.js');
+    const { readSectionCrdtState, writeSectionCrdtState, resolveConduitDocUid } = await import(
+      '../../store/conduit-doc-history.js'
+    );
+    const docUid = await resolveConduitDocUid(tempDir, 'plan-doc');
+    expect(docUid).not.toBeNull();
+    const stored = await readSectionCrdtState(tempDir, docUid as string, 's1');
+    await writeSectionCrdtState(tempDir, {
+      attachmentUid: docUid as string,
+      sectionId: 's1',
+      snapshot: seedSectionState(`${s1Base}\n\nA1`),
+      baseVersionUid: stored?.baseVersionUid ?? null,
+    });
+
+    const b = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-b',
+      content: docB,
+      hlc: hlcAt(2000),
+    });
+
+    // Stored (A1) != head text (base) → merge path: BOTH edits survive in
+    // the projection, and the merged text — not the input — is what the
+    // version row and head address.
+    expect(b.mergedText).toContain('A1');
+    expect(b.mergedText).toContain('B1');
+    expect(b.mergedText).not.toBe(docB);
+    const { createHash } = await import('node:crypto');
+    expect(b.version.contentHash).toBe(
+      createHash('sha256').update(b.mergedText, 'utf-8').digest('hex'),
+    );
+    expect(b.head.advanced).toBe(true);
+    expect(b.head.head.headVersionUid).toBe(b.version.uid);
+
+    // The head version's blob is the merged text.
+    const { readFileSync } = await import('node:fs');
+    const { getCleoDirAbsolute } = await import('../../paths.js');
+    const { join: joinPath } = await import('node:path');
+    const headBlob = readFileSync(
+      joinPath(getCleoDirAbsolute(tempDir), 'attachments', 'sha256', b.version.storageKey),
+      'utf-8',
+    );
+    expect(headBlob).toBe(b.mergedText);
+  });
+
+  it('T13589 regression: mid-text replace and tail deletion project byte-exactly through version and head rows', async () => {
+    // The two probed cases from review, in ONE authored update.
+    const v1 = ['# Doc', '## Edit\n\nabc XYZ def', '## Cut\n\nkeep this. remove this.'].join('\n');
+    const v2 = ['# Doc', '## Edit\n\nabc 123 def', '## Cut\n\nkeep this.'].join('\n');
+
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-a',
+      content: v1,
+      hlc: hlcAt(1000),
+    });
+    const second = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-a',
+      content: v2,
+      hlc: hlcAt(2000),
+    });
+
+    // The projection is byte-identical to the authored input — no
+    // 'abc XYZ def123 def' concatenation, and the deletion applied.
+    expect(second.mergedText).toBe(v2);
+    expect(second.mergedText).not.toContain('XYZ');
+    expect(second.version.contentHash).toBe(
+      (await import('node:crypto')).createHash('sha256').update(v2, 'utf-8').digest('hex'),
+    );
+    expect(second.head.advanced).toBe(true);
+    expect(second.head.head.headVersionUid).toBe(second.version.uid);
+
+    // The head version row's blob IS the authored input.
+    const { readFileSync } = await import('node:fs');
+    const { getCleoDirAbsolute } = await import('../../paths.js');
+    const { join: joinPath } = await import('node:path');
+    const blob = readFileSync(
+      joinPath(getCleoDirAbsolute(tempDir), 'attachments', 'sha256', second.version.storageKey),
+      'utf-8',
+    );
+    expect(blob).toBe(v2);
+
+    // The section states hold the authored text exactly.
     const { readSectionCrdtState } = await import('../../store/conduit-doc-history.js');
-    const s1 = await readSectionCrdtState(tempDir, b.docUid, 's1');
-    const s1Text = sectionStateText(s1?.snapshot ?? Buffer.alloc(0));
-    expect(s1Text).toContain('A1');
-    expect(s1Text).toContain('B1');
+    const edit = await readSectionCrdtState(tempDir, second.docUid, 's1');
+    expect(sectionStateText(edit?.snapshot ?? Buffer.alloc(0))).toBe('## Edit\n\nabc 123 def');
+    const cut = await readSectionCrdtState(tempDir, second.docUid, 's2');
+    expect(sectionStateText(cut?.snapshot ?? Buffer.alloc(0))).toBe('## Cut\n\nkeep this.');
   });
 
   it('T13583: a failure after the version append rolls the whole projection back — no forkable half-landed state', async () => {

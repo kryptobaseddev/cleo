@@ -150,38 +150,46 @@ function commonPrefixLength(a: string, b: string): number {
 }
 
 /**
- * Apply one section's new text to its stored snapshot, merging when the
- * stored state already carries concurrent edits.
+ * Apply one section's new text to its stored snapshot.
  *
- * Semantics, per the bundled append-shaped primitives. The incoming edit is
- * ALWAYS applied onto the stored Loro state and the result is read back
- * from that state — concurrent edits already in the stored state survive
- * every shape except a strict deletion:
+ * The caller discriminates single-writer from concurrent edits by comparing
+ * the stored state against the section text of the PREVIOUS HEAD version
+ * (`headText`): while the stored state equals the head's text it holds no
+ * unlanded concurrent edit, and any difference the writer authored is an
+ * ordinary edit — which the append-shaped primitives cannot express, so the
+ * section is re-seeded from the input and projects EXACTLY (mid-text
+ * replaces and deletions apply verbatim, never a fabricated concatenation —
+ * T13589). When the stored state differs from the head's text it genuinely
+ * carries a concurrent edit, and the incoming edit is composed onto it via
+ * Loro so BOTH survive (T13585).
+ *
+ * Semantics:
  *
  *   - `stored === null` (first write of the section): seed a fresh state
  *     from the new text.
- *   - The stored text equals the new text: no-op (`changed: false`), the
- *     snapshot is returned untouched.
- *   - Append-only growth (the new text extends the stored text): the tail
- *     is expressed as an incremental edit and merged onto the stored state.
- *   - Divergent tails — concurrent edits from one base, or a full-section
- *     content replace: the incoming tail beyond the longest common prefix
- *     is appended onto the stored state, so BOTH the stored (concurrent)
- *     edit and the incoming edit survive in the merged state. This is the
- *     shape that keeps two same-base writers lossless through the write
- *     path (T13585).
- *   - The new text is a strict prefix of the stored text (a deletion): the
- *     append-shaped v1 primitives cannot express removal; the stored state
- *     stands. Deletions / intra-section mid-text two-way editing are the
- *     documented v1+ limitation (full Loro editing, spec §2 non-goal of v1).
+ *   - The stored text equals the new text: no-op (`changed: false`).
+ *   - `headText === null` (no head text available for this section — no
+ *     head yet, or the head version's blob is not resolvable locally): the
+ *     single-writer assumption; re-seed from the new text (exact).
+ *   - The stored text equals `headText` (single writer): re-seed from the
+ *     new text — the input projects exactly, deletions included.
+ *   - The stored text differs from `headText` (concurrent edit unlanded in
+ *     the head): compose the incoming tail beyond the longest common prefix
+ *     onto the stored state via `crdt_apply_update`, so the stored
+ *     (concurrent) edit and the incoming edit both survive. A strict
+ *     deletion in this mode is not expressible as an append and keeps the
+ *     stored state (the documented v1+ two-way-editing limitation).
  *
  * @param stored - The section's stored snapshot, or `null` when none exists.
  * @param nextText - The section's new full text.
+ * @param headText - The section's text in the previous head version, or
+ *   `null` when no head text is available.
  * @returns The resulting snapshot and whether it changed.
  */
 export function applySectionTextEdit(
   stored: Buffer | null,
   nextText: string,
+  headText: string | null,
 ): { snapshot: Buffer; changed: boolean } {
   if (stored === null) {
     return { snapshot: seedSectionState(nextText), changed: true };
@@ -190,10 +198,17 @@ export function applySectionTextEdit(
   if (current === nextText) {
     return { snapshot: stored, changed: false };
   }
+  if (headText === null || current === headText) {
+    // Single-writer edit: project the input EXACTLY. The primitives can only
+    // append, so a re-seed is the honest encoding of a replace/delete — it
+    // never fabricates a concatenation no writer authored (T13589).
+    return { snapshot: seedSectionState(nextText), changed: true };
+  }
+  // Concurrent edit in the stored state: compose so both survive (T13585).
   const prefix = commonPrefixLength(current, nextText);
   if (prefix === nextText.length) {
-    // A strict deletion: not expressible as an append; keep the stored
-    // state (the v1+ two-way-editing limitation, see the doc comment).
+    // A strict deletion in concurrent mode: not expressible as an append;
+    // keep the stored state (the v1+ two-way-editing limitation).
     return { snapshot: stored, changed: false };
   }
   const update = makeSectionEditUpdate(stored, nextText.slice(prefix));

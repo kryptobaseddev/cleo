@@ -57,6 +57,13 @@ import { getDb, getNativeDb } from './sqlite.js';
  * brackets every statement the accessors issue (the same pattern
  * `docs-update.ts` uses for its slug transfer).
  *
+ * Constraint (T13583): every statement inside `fn` must resolve without a
+ * real I/O yield — the docs projection satisfies this (sync-driver
+ * accessors, sync `node:fs` blob reads/writes), so no other async writer can
+ * interleave on this connection mid-transaction. A caller that awaits real
+ * I/O inside `fn` breaks that guarantee; per-handle writer serialization is
+ * the follow-up if such a caller appears.
+ *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @param fn - The write batch; awaited between statements on this one
  *   connection, so no other writer can interleave inside the transaction.
@@ -353,6 +360,27 @@ export async function appendConduitAttachmentVersion(
     );
   }
   return row;
+}
+
+/**
+ * Read one version row by its wire identity (`uid`).
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param versionUid - The version's `uid`.
+ * @returns The version row, or `null` when unknown.
+ */
+export async function getConduitAttachmentVersion(
+  projectRoot: string,
+  versionUid: string,
+): Promise<ConduitAttachmentVersionRow | null> {
+  requireNonEmpty('versionUid', versionUid);
+  const db = await getDb(projectRoot);
+  const row = await db
+    .select()
+    .from(conduitAttachmentVersions)
+    .where(eq(conduitAttachmentVersions.uid, versionUid))
+    .get();
+  return row ?? null;
 }
 
 /**
