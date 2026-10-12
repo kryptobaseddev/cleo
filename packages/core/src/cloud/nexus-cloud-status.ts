@@ -900,6 +900,10 @@ export async function getNexusCloudStatus(
   const { autoSyncWarning } = await import('./auto-sync.js');
   const autoSync = autoSyncWarning();
   if (autoSync) warnings.push(autoSync);
+  // T13602: say so when a test runner or CI suppresses the background sync.
+  const { autoSyncSuppressedWarning } = await import('./auto-sync-command.js');
+  const suppressed = autoSyncSuppressedWarning();
+  if (suppressed) warnings.push(suppressed);
   const local: CloudStatusLocal = {
     apiUrl,
     signedIn: false,

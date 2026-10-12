@@ -2105,7 +2105,8 @@ async function markEncounterOpened(cleoHome: string, projectId: string): Promise
  * @param infoProjectId - Existing immutable project identity, never inferred from similarity.
  * @returns Completion of the fully tracked operation, including any failure.
  * @remarks Lazy work obeys the existing transaction/queue boundary and shares the
- * original execution deadline. Registry writes never initialize the project graph.
+ * original execution deadline. An owned budget starts after the registry store's
+ * cold open, a shared one-time cost (T13590). Registry writes never initialize the project graph.
  * Cancellation is checked before the actual synchronous registry transaction commits.
  * @example
  * ```ts
@@ -2125,6 +2126,15 @@ export async function registerProjectOnEncounter(
   if (!infoProjectId.trim())
     throw new Error('Project encounter requires an existing immutable identity');
   const ownedExecution = !scope.execution;
+  if (ownedExecution) {
+    // The registry store's cold open (its schema pass) is a shared one-time cost,
+    // not this encounter's: finish it before the encounter's budget starts (T13590).
+    const opened = await trackBackgroundOp(async () => {
+      const { getNexusRegistryDb } = await import('./store/nexus-sqlite.js');
+      await getNexusRegistryDb(capturedHome);
+    });
+    if (opened.status === 'rejected') throw opened.reason;
+  }
   const execution =
     scope.execution ??
     createOperationExecutionContext({
