@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.20.0
+version: 3.21.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,7 +16,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.20.0
+  version: 3.21.0
   tier: core
   install: harness
   covers:
@@ -64,6 +64,17 @@ pointers, docVersion skew vs the audit log, empty topics/related_tasks,
 `docs_wikilinks` drift, legacy store surfaces, stale drafts — and with
 `--apply` repairs them after creating a backup automatically. Use it for
 store hygiene checks; it never edits doc content.
+
+`cleo docs migrate` (T13360) imports legacy docs + history into the re-keyed
+conduit store inside the migration safety harness (pre-step backup, verified
+rollback, COMMIT only on full verification). It is additive and idempotent:
+every imported history row is labeled `origin: migrated`, authors come from
+the legacy audit log (or the honest `system:migration` attribution — never
+invented), docs whose content pointers dangle are content-captured or
+recorded dangling in `conduit_doc_migration_ledger`, and a re-run is a
+verified no-op. Legacy slugs that already exist natively are counted as
+native-conflict skips, never clobbered. Run it once per project before the
+T13361/T13362 retirement lands; it needs no `--force`.
 
 For discovery (`find`, `search`, `schema`, `list-types`), prefer `cleo docs list`
 first — it returns slug + owner + type without forcing a filesystem walk. Use
