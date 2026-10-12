@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026.10.10-canary.2] (2026-10-12)
+
+### Fixed
+
+- A canary install writes a schema-valid project-info.json and gets update notices _(provenance: [T13581](https://github.com/kryptobaseddev/cleo/search?q=T13581&type=commits))_
+- CLEO's commit-msg and pre-push hooks accept the exact `initial: cleo init` commit, so a fresh `cleo init` project can push its first branch; ordinary untagged commits are still refused _(provenance: [T13577](https://github.com/kryptobaseddev/cleo/search?q=T13577&type=commits), #2143)_
+
+> T13577 is listed by hand: #2143 was admin-merged after its PR CI ran on a stale merge ref, so CLEO's `pr:`/`ci:` atoms refuse it (T13611). Its merge commit b61dbb04 passed main CI (run 38218525627) and a true-merge CI run (38215710944).
+
 ## [2026.10.10-canary.1] (2026-10-12)
 
 ### Added
