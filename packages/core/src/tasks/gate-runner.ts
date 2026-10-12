@@ -1258,6 +1258,47 @@ async function packageStoreRealPath(root: string, path: string): Promise<string>
   return path;
 }
 
+/** bun subcommands: the word after `bun` that is not a script (T13566). */
+const BUN_SUBCOMMANDS: ReadonlySet<string> = new Set(['test', 'run', 'x', 'exec', 'build']);
+
+/**
+ * The script an interpreter invocation runs, and the argument indexes that are
+ * never inputs (T13566). The first positional argument is the script —
+ * `node a.js`, `bun a.ts` — except where bun names a subcommand: `bun test
+ * a.test.ts b.test.ts` and `bun run file.ts` have no implicit script (the
+ * named files are captured as file-like arguments), and the package that
+ * `bun x <pkg>` / `bunx <pkg>` runs is not a file of this project.
+ *
+ * @param command - Basename of the interpreter.
+ * @param args - Its arguments.
+ * @returns The implicit script, if any, and the indexes to leave out.
+ */
+function interpreterScript(
+  command: string,
+  args: readonly string[],
+): { script: string | undefined; notInputs: ReadonlySet<number> } {
+  const positional = args.flatMap((arg, index) => (arg.startsWith('-') ? [] : [index]));
+  const word = (n: number): string | undefined => {
+    const index = positional[n];
+    return index === undefined ? undefined : args[index];
+  };
+  const notInputs = new Set<number>();
+  const exclude = (n: number): void => {
+    const index = positional[n];
+    if (index !== undefined) notInputs.add(index);
+  };
+  if (command === 'bunx') {
+    exclude(0);
+    return { script: undefined, notInputs };
+  }
+  if (command === 'bun' && BUN_SUBCOMMANDS.has(word(0) ?? '')) {
+    exclude(0);
+    if (word(0) === 'x') exclude(1);
+    return { script: undefined, notInputs };
+  }
+  return { script: word(0), notInputs };
+}
+
 /** Capture declared task inputs and an interpreter's explicit harness argument. */
 async function snapshotGateInputs(
   task: Task,
@@ -1279,21 +1320,25 @@ async function snapshotGateInputs(
   if (gate.kind === 'file' && gate.path) paths.add(resolve(root, gate.path));
   if (
     invocation &&
-    /^(node(?:\.exe)?|python[0-9.]*(?:\.exe)?|bun|deno|tsx|ts-node|bash|sh|ruby|perl)$/.test(
+    /^(node(?:\.exe)?|python[0-9.]*(?:\.exe)?|bun|bunx|deno|tsx|ts-node|bash|sh|ruby|perl)$/.test(
       basename(invocation.command),
     )
   ) {
     if (!invocation.args.some((arg) => ['-e', '--eval', '-c', '--print', '-p'].includes(arg))) {
       const scripts: string[] = [];
-      const script = invocation.args.find((arg) => !arg.startsWith('-'));
+      const { script, notInputs } = interpreterScript(
+        basename(invocation.command),
+        invocation.args,
+      );
       if (script) scripts.push(resolve(invocation.cwd, script));
-      for (const arg of invocation.args) {
+      invocation.args.forEach((arg, index) => {
         if (
+          !notInputs.has(index) &&
           !arg.startsWith('-') &&
           (arg.includes('/') || /\.(?:[cm]?[jt]sx?|py|sh|rb|pl)$/.test(arg))
         )
           scripts.push(resolve(invocation.cwd, arg));
-      }
+      });
       for (const path of scripts) paths.add(await packageStoreRealPath(root, path));
     }
   }

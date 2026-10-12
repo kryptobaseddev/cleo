@@ -1,0 +1,601 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.9",
+  "resolvedVersion": "v2026.10.9",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "createdAt": "2026-10-11T23:47:26.505Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.8",
+  "previousTag": "v2026.10.8",
+  "previousShippedAt": "2026-10-10T03:47:36.423Z",
+  "tasks": [
+    {
+      "id": "T13518",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Declare evidence.scopeExcludes for tool-state dirs (.opencode, .wrangler) blocking evidence runs",
+      "evidenceAtoms": [
+        "commit:557b1924d606c1564e3c46968ceeec339555a63f",
+        "commit:18df8775bb0b03b21113c1d9e5dd527eb2f6af93",
+        "files:.cleo/project-context.json,.gitignore",
+        "ci:2091",
+        "ci:2120"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13517",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Local full suite red on macOS: 13 env-sensitive failures in session-binding/orchestrate tests (CI green)",
+      "evidenceAtoms": [
+        "pr:2121",
+        "files:.changeset/t13517-mac-local-suite.md,packages/cleo/src/cli/__tests__/heavy-hook-admission.test.ts,packages/core/src/sessions/__tests__/vitest-setup-identity.test.ts,vitest.setup.ts",
+        "ci:2121"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13482",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "One owner-facing answer to what other devices changed and when, with presence",
+      "evidenceAtoms": [
+        "pr:2081",
+        "files:.changeset/t13482-device-overview.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-vault.ts,packages/core/src/cloud/nexus-cloud-device-overview.ts,packages/core/src/store/sync/__tests__/journal-activity.test.ts,packages/contracts/src/nexus-vault.ts",
+        "ci:2081"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13539",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Nexus refresh worker cannot hang a read query",
+      "evidenceAtoms": [
+        "pr:2115",
+        "files:.changeset/t13539-refresh-worker-no-hang.md,packages/core/src/nexus/__tests__/fixtures/hold-open-worker.mjs,packages/core/src/nexus/__tests__/fixtures/stall-worker.mjs,packages/core/src/nexus/__tests__/freshness.test.ts,packages/core/src/nexus/freshness.ts",
+        "ci:2115"
+      ],
+      "epicAncestor": "T12321",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13537",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Inline nexus refresh runs out of process or under a heap check",
+      "evidenceAtoms": [
+        "pr:2109",
+        "files:.changeset/t13537-refresh-heap-bound.md,packages/core/src/nexus/__tests__/fixtures/heap-hog-worker.mjs,packages/core/src/nexus/__tests__/freshness.test.ts,packages/core/src/nexus/freshness.ts,packages/core/src/nexus/refresh-worker.ts",
+        "ci:2109"
+      ],
+      "epicAncestor": "T12321",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13523",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Read-only nexus impact auto-refresh runs full analysis and aborts at the CLI heap cap",
+      "evidenceAtoms": [
+        "pr:2107",
+        "files:.changeset/t13523-nexus-refresh-bounded.md,packages/cleo/src/cli/commands/nexus.ts,packages/cleo/src/dispatch/domains/nexus.ts,packages/contracts/src/operations/nexus.ts,packages/core/src/config.ts,packages/core/src/nexus/__tests__/freshness.test.ts,packages/core/src/nexus/analyze-orchestrator.ts,packages/core/src/nexus/freshness.ts,packages/nexus/src/pipeline/index.ts,packages/skills/skills/ct-codebase-mapper/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2107"
+      ],
+      "epicAncestor": "T12321",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13370",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Global main brain stream end to end: home:<user> syncs the global store's brain tables",
+      "evidenceAtoms": [
+        "pr:2021",
+        "files:.changeset/t13370-home-brain-stream.md,packages/cleo/src/cli/lib/__tests__/nexus-cloud-cli-sync.test.ts,packages/cleo/src/cli/lib/nexus-cloud-cli.ts,packages/contracts/src/nexus-cloud.ts,packages/core/src/cloud/__tests__/cloud-sync-status.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/store/__tests__/portable-bundle-scan-restore-marker.test.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/sync/__tests__/home-brain-stream.test.ts",
+        "ci:2021"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13369",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cloud activity from the journal: what each device changed and when",
+      "evidenceAtoms": [
+        "pr:2014",
+        "files:.changeset/t13369-journal-activity.md,packages/cleo/src/cli/commands/cloud.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/index.ts,packages/contracts/src/nexus-vault.ts,packages/core/src/cloud/nexus-cloud-journal-activity.ts,packages/core/src/store/sync/__tests__/journal-activity.test.ts,packages/core/src/store/sync/activity.ts,packages/contracts/src/nexus-vault.ts",
+        "ci:2014"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13541",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Worktree with tracked .npmrc: show the --store-dir hint after an admitted install (T13524 follow-up)",
+      "evidenceAtoms": [
+        "pr:2110",
+        "files:.changeset/t13541-npmrc-hint.md,packages/worktree/src/__tests__/worktree-install-admission.test.ts,packages/worktree/src/worktree-create.ts,packages/worktree/src/worktree-pnpm.ts,packages/worktree/src/worktree-preflight.ts",
+        "ci:2110"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13336",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Sync: backup, snapshot, Gate B, exodus and bundle opens never install triggers or rebind (sync mode off, spec 1.5)",
+      "evidenceAtoms": [
+        "pr:2009",
+        "files:.changeset/t13336-sync-mode-off.md,.github/workflows/ci.yml,.github/workflows/macos-main.yml,packages/core/src/store/__tests__/store-sync-mode.test.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/exodus/bare-family.ts,packages/core/src/store/exodus/migrate.ts,packages/core/src/store/exodus/on-open.ts,packages/core/src/store/exodus/reconcile.ts,packages/core/src/store/sync/capture.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/sync/structural.ts,scripts/row-identity-real-store-gate-b.mjs,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/sync/capture.ts",
+        "ci:2009"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13491",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "orchestrate spawn succeeds embedding an existing active worker session the child cannot use (axiom T1544); must refuse with handoff",
+      "evidenceAtoms": [
+        "pr:2073",
+        "files:.changeset/t13491-spawn-live-worker.md,packages/core/src/spawn/agent-identity.ts,packages/core/src/task-work/__tests__/task-claims.test.ts",
+        "ci:2073"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13510",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "orchestrate spawn provisions the worktree and runs pnpm install before validating the task (E_ATOMICITY_NO_SCOPE)",
+      "evidenceAtoms": [
+        "pr:2089",
+        "files:.changeset/t13510-validate-before-provision.md,packages/core/src/orchestrate/__tests__/orchestrate-engine-composer.test.ts,packages/core/src/orchestrate/__tests__/spawn-supervisor.test.ts,packages/core/src/orchestrate/spawn-ops.ts",
+        "ci:2089"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13547",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "worktree-preflight test runs a real pnpm install and times out under parallel load",
+      "evidenceAtoms": [
+        "pr:2114",
+        "files:packages/worktree/src/__tests__/worktree-pnpm.test.ts,packages/worktree/src/__tests__/worktree-preflight.test.ts",
+        "ci:2114"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13468",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Main brain syncs without a manual command: run cloud sync automatically",
+      "evidenceAtoms": [
+        "pr:2075",
+        "files:.changeset/t13468-auto-brain-sync.md,packages/core/src/cloud/__tests__/auto-sync.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/auto-sync.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/sentient/daemon-entry.ts,packages/core/src/sessions/__tests__/session-end-worker-marker.test.ts,packages/core/src/sessions/session-end-snapshot-entry.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts",
+        "ci:2075"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13391",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Project-stream retires can never be confirmed: add a server read of project replica retirements (follow-up to #2007/T13366)",
+      "evidenceAtoms": [
+        "pr:2067",
+        "files:.changeset/t13391-project-retire-confirm.md,packages/contracts/src/nexus-cloud.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/store/sync/__tests__/rebind-at-head.test.ts,packages/contracts/src/nexus-cloud.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts",
+        "ci:2067"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13465",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cloud activity --journal: names every device (all pages, any state) and shows each device's last presence",
+      "evidenceAtoms": [
+        "pr:2063",
+        "files:.changeset/t13465-activity-device-presence.md,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/nexus-vault.ts,packages/core/src/cloud/nexus-cloud-journal-activity.ts,packages/core/src/store/sync/__tests__/journal-activity.test.ts,packages/core/src/store/sync/activity.ts,packages/contracts/src/nexus-vault.ts",
+        "ci:2063"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13521",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence writes read cached typed-gate results only; typed gates execute only via verify --run or an explicit --run-typed",
+      "evidenceAtoms": [
+        "pr:2096",
+        "files:.changeset/t13521-cache-only-gate-writes.md,packages/cleo/src/cli/commands/__tests__/verify-run.test.ts,packages/cleo/src/cli/commands/done.ts,packages/cleo/src/cli/commands/verify.ts,packages/cleo/src/dispatch/domains/check.ts,packages/contracts/src/operations/validate.ts,packages/core/src/tasks/__tests__/complete.test.ts,packages/core/src/tasks/__tests__/done-record.test.ts,packages/core/src/tasks/__tests__/req.tasks.test.ts,packages/core/src/tasks/done-record.ts,packages/core/src/tasks/gate-runner.ts,packages/core/src/validation/engine-ops.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/manifest.json,packages/skills/skills/manifest.json",
+        "ci:2096"
+      ],
+      "epicAncestor": "T12256",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13536",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo release plan records a stale previousVersion/previousTag (v2026.10.4 for 10.7 and 10.8)",
+      "evidenceAtoms": [
+        "pr:2111",
+        "files:.changeset/t13536-plan-previous-tag.md,packages/core/src/release/__tests__/plan.test.ts,packages/core/src/release/plan.ts",
+        "ci:2111"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13522",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Worker worktrees claim strict git protection but the shim is never installed",
+      "evidenceAtoms": [
+        "pr:2102",
+        "files:.changeset/t13522-git-shim-install.md,packages/contracts/src/branch-lock.ts,packages/contracts/src/operations/worktree.ts,packages/core/src/sentient/worktree-dispatch.ts,packages/core/src/spawn/__tests__/branch-lock-git-shim.test.ts,packages/core/src/spawn/__tests__/branch-lock-win32-path.test.ts,packages/core/src/spawn/branch-lock.ts,packages/git-shim/src/__tests__/denylist.test.ts,packages/git-shim/src/denylist.ts,packages/git-shim/src/index.ts,packages/git-shim/src/shim.ts,packages/worktree/src/__tests__/worktree-branch-reuse.test.ts,packages/worktree/src/worktree-create.ts",
+        "ci:2102"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13554",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence tree hash: declared runtime paths for tracked files a harness rewrites during a run",
+      "evidenceAtoms": [
+        "pr:2129",
+        "files:.changeset/t13554-evidence-runtime-paths.md,packages/contracts/src/project-context.ts,packages/contracts/src/task.ts,packages/core/schemas/project-context.schema.json,packages/core/src/tasks/__tests__/tool-cache-runtime-paths.test.ts,packages/core/src/tasks/affected-packages.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/tool-cache.ts",
+        "ci:2129"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13466",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "A device with its own main brain can join the home stream without losing it (merge-join)",
+      "evidenceAtoms": [
+        "pr:2080",
+        "files:.changeset/t13335-copy-reconcile.md,.changeset/t13337-retire-on-open-rebind.md,.changeset/t13466-merge-join.md,packages/contracts/src/nexus-vault.ts,packages/core/migrations/sync-journal/20261009150000_t13335-capture-pin/migration.sql,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/cloud/replica-rebind.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/portable-bundle-import.ts,packages/core/src/store/sync/__tests__/open-rebind-retire.test.ts,packages/core/src/store/sync/__tests__/reconcile-copy.test.ts,packages/core/src/store/sync/genesis.ts,packages/core/src/store/sync/push.ts,packages/core/src/store/sync/rebind.ts,packages/core/src/store/sync/reconcile-copy.ts,packages/core/src/store/sync/reconcile.ts,packages/core/src/store/sync/repair.ts,packages/core/src/store/sync/replica.ts,packages/core/src/store/sync/row-meta.ts,packages/core/src/store/sync/sealer.ts,scripts/lint-no-raw-table-writes.mjs",
+        "ci:2080"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13557",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Hard-gate hooks-v1 runtime activation behind an unreleased flag before any stable release",
+      "evidenceAtoms": [
+        "pr:2131",
+        "files:.changeset/t13557-hooks-v1-unreleased.md,packages/cleo/src/cli/commands/hook.ts,packages/contracts/src/project-hooks.ts,packages/core/src/__tests__/spawn-pipeline-worktree.test.ts,packages/core/src/hooks/__tests__/project-hooks.test.ts,packages/core/src/hooks/__tests__/release-gate.test.ts,packages/core/src/hooks/project-runner.ts,packages/core/src/hooks/project-state.ts,packages/core/src/hooks/release-gate.ts,packages/skills/skills/ct-dev-workflow/SKILL.md,packages/skills/skills/ct-release-orchestrator/SKILL.md,packages/skills/skills/manifest.json,scripts/__tests__/hook-pilot-evidence.test.mjs,scripts/__tests__/mark-hotfix-release.test.mjs,scripts/hook-pilot-evidence.mjs,scripts/mark-hotfix-release.mjs,scripts/release-canary-soak.mjs,scripts/release-hooks-soak.mjs",
+        "ci:2131"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13553",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Throttled piggyback sync on normal CLI commands (no daemon)",
+      "evidenceAtoms": [
+        "pr:2126",
+        "files:.changeset/t13553-piggyback-sync.md,packages/cleo/src/cli/index.ts,packages/core/schemas/config.schema.json,packages/core/src/cloud/__tests__/auto-sync-command.test.ts,packages/core/src/cloud/auto-sync-command-entry.ts,packages/core/src/cloud/auto-sync-command.ts,packages/core/src/cloud/auto-sync.ts",
+        "ci:2126"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13350",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Independent canary-only release channel and hooks artifact soak",
+      "evidenceAtoms": [
+        "commit:dbfac042c184fd0e4be56c5f02ab1595f86aa35a",
+        "files:.github/workflows/release.yml,.github/workflows/release-prepare.yml,packages/contracts/src/release/channel.ts,packages/contracts/src/release/plan.ts,packages/core/src/release/channel.ts,packages/core/src/release/plan.ts,packages/core/src/release/reconcile.ts,packages/cleo/src/cli/commands/release.ts,scripts/release-canary-soak.mjs,scripts/release-hooks-soak.mjs,scripts/hook-pilot-evidence.mjs",
+        "ci:2013"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T12896",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Sync coverage: AUTOINCREMENT brain tables (plasticity_events, weight_history, retrieval_log, usage_log, consolidation_events, memory_trees, modulators, task_observations)",
+      "evidenceAtoms": [
+        "pr:2034",
+        "files:.changeset/t12896b-brain-remaining.md,packages/core/migrations/drizzle-cleo-project/20261010170000_t12896b-brain-task-observations/migration.sql,packages/core/src/store/__tests__/fixtures/table-classification-columns.json,packages/core/src/store/__tests__/table-classification-gate.test.ts,packages/core/src/store/row-identity-registry.ts,packages/core/src/store/schema/cleo-project/provenance-orphans.ts,packages/core/src/store/sync/apply/__tests__/brain-remaining-identity.test.ts,packages/core/src/store/sync/timestamp-canon.ts,packages/core/src/store/table-classification.ts,scripts/.lint-no-raw-table-writes-baseline.json,scripts/.lint-sync-write-invariants-baseline.json,scripts/lint-no-raw-table-writes.mjs",
+        "ci:2034"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13552",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Runtime store open: a joining caller inherits the initializer's operation deadline (flaky-quarantine cluster)",
+      "evidenceAtoms": [
+        "pr:2125",
+        "files:.changeset/t13552-open-joiner-deadline.md,packages/core/src/store/__tests__/dual-scope-db.test.ts,packages/core/src/store/dual-scope-db.ts",
+        "ci:2125"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13524",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Worktree provisioning runs pnpm install outside the machine-wide heavy queue, with no opt-out",
+      "evidenceAtoms": [
+        "pr:2108",
+        "files:.changeset/t13524-worktree-install-admission.md,packages/cleo/src/cli/commands/orchestrate.ts,packages/cleo/src/dispatch/domains/orchestrate.ts,packages/contracts/src/index.ts,packages/contracts/src/operations/orchestrate.ts,packages/contracts/src/operations/worktree.ts,packages/core/src/orchestrate/spawn-ops.ts,packages/core/src/sentient/worktree-dispatch.ts,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/manifest.json,packages/worktree/src/__tests__/worktree-install-admission.test.ts,packages/worktree/src/index.ts,packages/worktree/src/worktree-create.ts,packages/worktree/src/worktree-pnpm.ts,packages/contracts/src/index.ts,packages/core/src/orchestrate/spawn-ops.ts",
+        "ci:2108"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13438",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Session hygiene: per-project idle harness session report for multi-project Orca workflows",
+      "evidenceAtoms": [
+        "pr:2046",
+        "files:.changeset/t13438-session-hygiene.md,packages/core/src/doctor/__tests__/system-health.test.ts,packages/core/src/doctor/system-health.ts",
+        "ci:2046"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13462",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Display re-mint follow-ups: no-meta row test, restore carries row meta",
+      "evidenceAtoms": [
+        "pr:2062",
+        "files:packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts",
+        "ci:2062"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13405",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Origin re-mints colliding display ids in the rekey frame (tasks, D####, SN-###)",
+      "evidenceAtoms": [
+        "pr:2037",
+        "files:.changeset/t13405-display-remint.md,packages/contracts/src/invariants/sync-write-invariants.ts,packages/core/src/store/sqlite-data-accessor.ts,packages/core/src/store/sync/apply/__tests__/collision-rekey.test.ts,packages/core/src/store/sync/apply/__tests__/uid-collision.test.ts,packages/core/src/store/sync/apply/applier.ts,packages/core/src/store/sync/collision-settle.ts",
+        "ci:2037"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "implementation"
+    },
+    {
+      "id": "T13395",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Global pull: a failed home-replica listing means no confirmations this round, not a failed pull",
+      "evidenceAtoms": [
+        "pr:2023",
+        "files:.changeset/t13395-retire-listing-soft.md,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts",
+        "ci:2023"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "implementation"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13518",
+      "T13517",
+      "T13482",
+      "T13539",
+      "T13537",
+      "T13523",
+      "T13370",
+      "T13369",
+      "T13541",
+      "T13336",
+      "T13491",
+      "T13510",
+      "T13547",
+      "T13468",
+      "T13391",
+      "T13465",
+      "T13521",
+      "T13536",
+      "T13522",
+      "T13554",
+      "T13466",
+      "T13557",
+      "T13553",
+      "T13350",
+      "T12896",
+      "T13552",
+      "T13524",
+      "T13438",
+      "T13462",
+      "T13405",
+      "T13395"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T23:47:26.505Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T23:47:26.505Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T23:47:26.505Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T23:47:26.505Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T23:47:26.505Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-11T23:47:26.505Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 670 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.9 — 2026-10-11\n\n### Added\n\n- Brain tables keyed by an autoincrement id get row uids; their local id never travels _(provenance: [T12896](https://github.com/kryptobaseddev/cleo/search?q=T12896&type=commits))_\n- Memory trees are recomputed per device; brain task-observation links sync with natural row uids _(provenance: [T12896](https://github.com/kryptobaseddev/cleo/search?q=T12896&type=commits))_\n- Add independent numbered canary releases and require validated hook pilot evidence for explicitly scoped hooks-v1 stable promotion. _(provenance: [T13350](https://github.com/kryptobaseddev/cleo/search?q=T13350&type=commits))_\n- cleo cloud activity --journal shows what each device changed and when, from this store's sync journal _(provenance: [T13369](https://github.com/kryptobaseddev/cleo/search?q=T13369&type=commits), [T13393](https://github.com/kryptobaseddev/cleo/search?q=T13393&type=commits))_\n- The main brain syncs end to end on home:<user>, and cloud status reports the home stream's cut, unsent ops and pull position _(provenance: [T13370](https://github.com/kryptobaseddev/cleo/search?q=T13370&type=commits))_\n- a project-stream pull confirms replica retires from the server's project replica listing _(provenance: [T13391](https://github.com/kryptobaseddev/cleo/search?q=T13391&type=commits))_\n- Sync re-mints a colliding display id (T####, D####, SN-###) when the origin settles a uid collision _(provenance: [T13405](https://github.com/kryptobaseddev/cleo/search?q=T13405&type=commits))_\n- `cleo doctor system` reports every agent session with its project, harness, age, terminal idle time and RSS: the owner's close list _(provenance: [T13438](https://github.com/kryptobaseddev/cleo/search?q=T13438&type=commits))_\n- Sync: a store that never synced with a journal stream joins it and keeps its own rows _(provenance: [T13466](https://github.com/kryptobaseddev/cleo/search?q=T13466&type=commits), [T13503](https://github.com/kryptobaseddev/cleo/search?q=T13503&type=commits), [T13504](https://github.com/kryptobaseddev/cleo/search?q=T13504&type=commits), [T13507](https://github.com/kryptobaseddev/cleo/search?q=T13507&type=commits), [T13508](https://github.com/kryptobaseddev/cleo/search?q=T13508&type=commits))_\n- Automatic main-brain sync at session end and while the sentient daemon runs _(provenance: [T13468](https://github.com/kryptobaseddev/cleo/search?q=T13468&type=commits))_\n- cloud activity --devices shows, per device, its presence, its newest journal change and its newest server event _(provenance: [T13482](https://github.com/kryptobaseddev/cleo/search?q=T13482&type=commits))_\n- Normal commands in a linked project start a detached cloud sync at most once per window, with no daemon _(provenance: [T13553](https://github.com/kryptobaseddev/cleo/search?q=T13553&type=commits))_\n- evidence.runtimePaths: tracked files a harness rewrites during a run stay out of the evidence tree hash, so the run cannot stale its own receipt _(provenance: [T13554](https://github.com/kryptobaseddev/cleo/search?q=T13554&type=commits))_\n\n### Changed\n\n- Spawn's atomicity pre-check records no duplicate dispatch trace; the preflight install documents why its stdio stays piped _(provenance: [T13510](https://github.com/kryptobaseddev/cleo/search?q=T13510&type=commits), [T13493](https://github.com/kryptobaseddev/cleo/search?q=T13493&type=commits))_\n- The 13 session-binding and admission tests that failed on macOS locally (green in CI) now pass under any shell _(provenance: [T13517](https://github.com/kryptobaseddev/cleo/search?q=T13517&type=commits))_\n\n### Fixed\n\n- Sync: only canonical store opens run the sync open pass; copies, backups and exodus handles stay off _(provenance: [T13336](https://github.com/kryptobaseddev/cleo/search?q=T13336&type=commits), [T12753](https://github.com/kryptobaseddev/cleo/search?q=T12753&type=commits))_\n- a global pull survives a failed home replica listing; no retire is confirmed that round _(provenance: [T13395](https://github.com/kryptobaseddev/cleo/search?q=T13395&type=commits))_\n- cloud activity --journal names every device, including signed-out and revoked ones, and shows each device's last presence _(provenance: [T13465](https://github.com/kryptobaseddev/cleo/search?q=T13465&type=commits))_\n- orchestrate spawn refuses with a hand-off instead of handing a child the session a live worker is using _(provenance: [T13491](https://github.com/kryptobaseddev/cleo/search?q=T13491&type=commits))_\n- orchestrate spawn refuses an atomicity violation before allocating a session, claiming the task or provisioning a worktree _(provenance: [T13510](https://github.com/kryptobaseddev/cleo/search?q=T13510&type=commits))_\n- Worker worktrees install the git shim they advertise, block pushes to main, and say `unavailable` when the shim cannot be installed _(provenance: [T13522](https://github.com/kryptobaseddev/cleo/search?q=T13522&type=commits))_\n- Read-only nexus impact/context no longer starts an unbounded in-process refresh; --no-refresh and CLEO_NEXUS_AUTO_REFRESH opt out _(provenance: [T13523](https://github.com/kryptobaseddev/cleo/search?q=T13523&type=commits))_\n- Worktree dependency installs go through the machine-wide heavy queue or are deferred to the worker; `orchestrate spawn --no-install` skips them _(provenance: [T13524](https://github.com/kryptobaseddev/cleo/search?q=T13524&type=commits))_\n- cleo release plan records the newest reachable v* tag as previousTag/previousVersion, not a stale releases-table row _(provenance: [T13536](https://github.com/kryptobaseddev/cleo/search?q=T13536&type=commits))_\n- A graph query's inline nexus refresh runs in a heap-limited worker, so it can never abort the CLI at its heap cap _(provenance: [T13537](https://github.com/kryptobaseddev/cleo/search?q=T13537&type=commits))_\n- The nexus refresh worker cannot hang a read query: it resolves on its result and a hard timer ends a stall _(provenance: [T13539](https://github.com/kryptobaseddev/cleo/search?q=T13539&type=commits))_\n- Worktree installs always use the worktree's own pnpm store, a tracked .npmrc gets a --store-dir hint, and info/exclude no longer hides .npmrc in the main checkout _(provenance: [T13541](https://github.com/kryptobaseddev/cleo/search?q=T13541&type=commits))_\n- A store open no longer fails with another operation's expired deadline _(provenance: [T13552](https://github.com/kryptobaseddev/cleo/search?q=T13552&type=commits))_\n- Project hooks stay inert on stable builds until the hooks-v1 promotion _(provenance: [T13557](https://github.com/kryptobaseddev/cleo/search?q=T13557&type=commits))_\n\n### BREAKING CHANGES\n\n- evidence writes, cleo done, cleo verify --auto and cleo complete no longer execute typed gates; they read passes cached by cleo verify --run, and --run-typed opts a write back into executing _(provenance: [T13521](https://github.com/kryptobaseddev/cleo/search?q=T13521&type=commits))_\n\n  Migration:\n\n  Run typed gates with cleo verify <id> --run (or --run --req <REQ-IDs>) before recording evidence; a write that links a typed gate with no cached pass now refuses with E_GATE_NOT_CACHED. To keep executing typed gates during a write, cleo done or cleo verify --auto, add --run-typed. Projects with evidence.allowCachedGates false must pass --run-typed on writes for tasks with typed gates.\n",
+    "changesetEntryCount": 30,
+    "changesetIds": [
+      "t12896-brain-integer-identity",
+      "t12896b-brain-remaining",
+      "t13336-sync-mode-off",
+      "t13350-hook-canary-promotion",
+      "t13369-journal-activity",
+      "t13370-home-brain-stream",
+      "t13391-project-retire-confirm",
+      "t13395-retire-listing-soft",
+      "t13405-display-remint",
+      "t13438-session-hygiene",
+      "t13465-activity-device-presence",
+      "t13466-merge-join",
+      "t13468-auto-brain-sync",
+      "t13482-device-overview",
+      "t13491-spawn-live-worker",
+      "t13510-followups",
+      "t13510-validate-before-provision",
+      "t13517-mac-local-suite",
+      "t13521-cache-only-gate-writes",
+      "t13522-git-shim-install",
+      "t13523-nexus-refresh-bounded",
+      "t13524-worktree-install-admission",
+      "t13536-plan-previous-tag",
+      "t13537-refresh-heap-bound",
+      "t13539-refresh-worker-no-hang",
+      "t13541-npmrc-hint",
+      "t13552-open-joiner-deadline",
+      "t13553-piggyback-sync",
+      "t13554-evidence-runtime-paths",
+      "t13557-hooks-v1-unreleased"
+    ],
+    "taskIds": [
+      "T13518",
+      "T13517",
+      "T13482",
+      "T13539",
+      "T13537",
+      "T13523",
+      "T13370",
+      "T13369",
+      "T13541",
+      "T13336",
+      "T13491",
+      "T13510",
+      "T13547",
+      "T13468",
+      "T13391",
+      "T13465",
+      "T13521",
+      "T13536",
+      "T13522",
+      "T13554",
+      "T13466",
+      "T13557",
+      "T13553",
+      "T13350",
+      "T12896",
+      "T13552",
+      "T13524",
+      "T13438",
+      "T13462",
+      "T13405",
+      "T13395"
+    ]
+  }
+}

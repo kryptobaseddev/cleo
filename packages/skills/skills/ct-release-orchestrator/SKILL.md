@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.2.3
+  version: 3.2.4
   tier: on-demand
   install: harness
   covers:
@@ -15,7 +15,7 @@ metadata:
     - packages/core/src/validation/protocols/protocols-markdown/release.md
     - packages/cleo/src/cli/commands/release.ts
   loomStage: release
-  lastReviewed: 2026-10-10
+  lastReviewed: 2026-10-11
   stability: stable
 ---
 
@@ -29,6 +29,11 @@ to `canary`, verifies registry convergence and soaks the installed package.
 It never continues to `latest`. Stable promotion is a separate normal release;
 use `--hooks-v1-promotion` on the stable promotion plan; ordinary releases and
 hotfixes are exempt. The promotion gate runs before GitHub Release creation.
+That plan also makes `scripts/mark-hotfix-release.mjs` stamp
+`cleo.releasedFeatures: ["hooks-v1"]` into `@cleocode/core`, which opens the
+hooks-v1 runtime gate on the stable build (T13557); stable candidates without it
+prove the runtime inert. Remove `hooks-v1` from `UNRELEASED_HOOK_FEATURES` in a
+normal PR after the promotion, before the next stable release.
 The unified-hooks pilot must first supply hosted VidaPeps CI, read-only database
 verification and live harness evidence bound to the exact canary source digest.
 Source changes require fresh pilot evidence. Do not move npm tags manually.

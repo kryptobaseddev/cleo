@@ -423,7 +423,11 @@ export const SOAK_CHECKS = Object.freeze([
       120000,
     ],
     verify: (result) => {
-      if (!result?.stdout.includes('executable drift verified'))
+      // A stable candidate proves hooks-v1 is inert (T13557); a canary runs every scenario.
+      if (
+        !result?.stdout.includes('executable drift verified') &&
+        !result?.stdout.includes('runtime inert verified')
+      )
         throw new Error('Installed project hook fixture did not cover every required scenario');
       return result.stdout.trim();
     },

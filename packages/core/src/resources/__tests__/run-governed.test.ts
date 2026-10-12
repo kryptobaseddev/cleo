@@ -124,6 +124,8 @@ function harness(opts: {
   childPid?: number;
   /** The ledger finds an enclosing admission: the run rides it (T13133). */
   ledgerNested?: boolean;
+  /** The child's tree usage (T13563). @defaultValue unmeasured */
+  treeUsage?: RunGovernedDeps['treeUsage'];
 }): Harness {
   const clock = { t: 1_000_000 };
   let calls = 0;
@@ -288,6 +290,7 @@ function harness(opts: {
     pid: process.pid, // alive for the registry's liveness probe
     groupOf: opts.groupOf ?? (() => null),
     ancestorsOf: opts.ancestorsOf ?? (() => []),
+    treeUsage: opts.treeUsage ?? (() => null),
   };
   return h;
 }
@@ -323,6 +326,70 @@ const base = (h: Harness, over: Record<string, unknown> = {}) => ({
   pollMs: 5000,
   deps: h.deps,
   ...over,
+});
+
+describe('the hung/overdue watchdog (T13563)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+  /** The job record as the runner last wrote it. */
+  const recordOf = (h: Harness) => {
+    const jobs = join(dir, 'jobs');
+    const file = readdirSync(jobs).find((f) => f.endsWith('.json'));
+    return file === undefined
+      ? null
+      : (JSON.parse(readFileSync(join(jobs, file), 'utf8')) as RunJob);
+  };
+
+  it('flags a run whose tree uses no CPU past the idle window as hung, without killing it', async () => {
+    vi.stubEnv('CLEO_RUN_IDLE_MIN', '1');
+    const notices: string[] = [];
+    let seen: RunJob | null = null;
+    const h = harness({
+      // A sleeping tree: the same CPU time at every sample.
+      treeUsage: () => ({ cpuMs: 4200, rssBytes: 300 * 1024 ** 2, processes: 3 }),
+      onSleep: (n, hh) => {
+        // 5 s ticks; samples every 30 s; idle from the 2nd sample, hung a minute later.
+        if (n === 30) {
+          seen = recordOf(hh);
+          hh.exit(0);
+        }
+      },
+    });
+    await runGoverned(base(h, { notice: (line: string) => notices.push(line) }));
+    expect(
+      notices.some((l) => l.startsWith('hung?') && l.includes('pid 500') && l.includes('ses_1')),
+    ).toBe(true);
+    expect(seen).toMatchObject({ measuredRssBytes: 300 * 1024 ** 2, cpuMs: 4200 });
+    expect(seen?.hungAtMs).toEqual(expect.any(Number));
+    expect(h.signals).toEqual([]);
+  });
+
+  it('flags a run past its maximum wall time as overdue once, and a busy tree is never hung', async () => {
+    vi.stubEnv('CLEO_RUN_MAX_WALL_MIN', '1');
+    vi.stubEnv('CLEO_RUN_IDLE_MIN', '1');
+    const notices: string[] = [];
+    let cpu = 0;
+    let seen: RunJob | null = null;
+    const h = harness({
+      treeUsage: () => {
+        cpu += 20_000;
+        return { cpuMs: cpu, rssBytes: 1024, processes: 1 };
+      },
+      onSleep: (n, hh) => {
+        if (n === 40) {
+          seen = recordOf(hh);
+          hh.exit(0);
+        }
+      },
+    });
+    await runGoverned(base(h, { notice: (line: string) => notices.push(line) }));
+    expect(notices.filter((l) => l.startsWith('overdue:'))).toHaveLength(1);
+    expect(notices.some((l) => l.startsWith('hung?'))).toBe(false);
+    expect(seen?.overdueAtMs).toEqual(expect.any(Number));
+    expect(seen?.hungAtMs).toBeNull();
+    expect(h.signals).toEqual([]);
+  });
 });
 
 describe('runGoverned', () => {

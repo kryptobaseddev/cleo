@@ -126,6 +126,26 @@ function keepPath(cleoDir: string, sha256: string): string {
 }
 
 /**
+ * Read-only probe: whether a blob's bytes are retrievable right now.
+ *
+ * True when the primary file exists or a live (non-tombstoned) keep-link
+ * holds the bytes. Unlike {@link restoreBlob} this never writes — the primary
+ * file is NOT re-created from the keep-link — so callers running in a
+ * dry-run/planning pass can use it without side effects.
+ *
+ * @param cleoDir - The project's `.cleo` directory.
+ * @param sha256 - The content hash.
+ * @param mime - The blob's MIME type (gives the primary file's extension).
+ * @returns Whether the content is on disk (primary or keep-link).
+ * @task T13562
+ */
+export function blobContentExists(cleoDir: string, sha256: string, mime: string): boolean {
+  if (existsSync(blobFilePath(cleoDir, sha256, mime))) return true;
+  const keep = keepPath(cleoDir, sha256);
+  return existsSync(keep) && !existsSync(`${keep}.tomb`);
+}
+
+/**
  * Hard-link (or copy) a blob's primary file to its keep-link. Idempotent and
  * best effort: a missing primary file or an unwritable keep directory is not
  * an error (the blob is then simply not protected).

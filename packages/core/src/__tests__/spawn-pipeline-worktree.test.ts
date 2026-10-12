@@ -34,9 +34,16 @@ import type {
   HookInvocation,
   ProjectHooksManifest,
 } from '@cleocode/contracts/project-hooks.js';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { activateProjectHooks } from '../hooks/project-state.js';
+
+// hooks-v1 is unreleased in source (T13557); this test exercises the released path.
+vi.mock('../hooks/release-gate.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../hooks/release-gate.js')>();
+  return { ...mod, hooksV1Released: () => true };
+});
+
 import { spawnWorktree, teardownWorktree } from '../sentient/worktree-dispatch.js';
 
 // ---------------------------------------------------------------------------
