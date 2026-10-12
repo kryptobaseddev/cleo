@@ -9,8 +9,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { autoSyncSuppressedBy } from '../auto-sync.js';
 import {
-  autoSyncSuppressedBy,
   autoSyncSuppressedWarning,
   runCommandAutoSync,
   startCommandAutoSync,
