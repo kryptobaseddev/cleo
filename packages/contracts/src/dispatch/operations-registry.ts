@@ -8169,6 +8169,61 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // ── docs.link-decision / docs.unlink-decision (T13598) ──────────────────
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'link-decision',
+    description:
+      'docs.link-decision (mutate) — link a D#### decision to the ADR doc that ratifies it (decision_adr_links); idempotent, refuses a revoked pair (T13598)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['adrSlug', 'decisionId'],
+    params: [
+      {
+        name: 'adrSlug',
+        type: 'string' as const,
+        required: true,
+        description: 'Slug of the ADR doc',
+        cli: { positional: true },
+      },
+      {
+        name: 'decisionId',
+        type: 'string' as const,
+        required: true,
+        description: 'The D#### brain ledger decision id the ADR ratifies',
+        cli: { positional: true },
+      },
+    ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'unlink-decision',
+    description:
+      'docs.unlink-decision (mutate) — revoke a decision-to-ADR link as a permanent tombstone; the pair can never be re-linked (T13598)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['adrSlug', 'decisionId'],
+    params: [
+      {
+        name: 'adrSlug',
+        type: 'string' as const,
+        required: true,
+        description: 'Slug of the ADR doc',
+        cli: { positional: true },
+      },
+      {
+        name: 'decisionId',
+        type: 'string' as const,
+        required: true,
+        description: 'The D#### brain ledger decision id to unlink',
+        cli: { positional: true },
+      },
+    ],
+  },
   // ── docs.supersede (T10162) ──────────────────────────────────────────────
   {
     gateway: 'mutate',
