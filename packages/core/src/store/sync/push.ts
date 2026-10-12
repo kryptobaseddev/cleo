@@ -36,7 +36,7 @@ import { genesisCutOf, genesisPending } from './genesis.js';
 import { reconcileDue, storeHwm } from './replica.js';
 import type { ReplicaRegistry } from './replica-registry.js';
 import { hasTable } from './schema.js';
-import { sealPending } from './sealer.js';
+import { type SecretSeals, sealPending } from './sealer.js';
 import {
   type BuildSegmentOptions,
   buildSegment,
@@ -88,6 +88,8 @@ export interface PushStreamOptions {
   readonly allowUnreleased?: boolean;
   /** Override {@link MAX_DRIFT_MS} (tests). */
   readonly maxDriftMs?: number;
+  /** Phase A's sealed secrets for the sealer (§2.5, T13467); without them secret groups stay pending. */
+  readonly secrets?: SecretSeals;
 }
 
 /**
@@ -125,6 +127,8 @@ export interface PushStreamReport {
   readonly duplicates: number;
   /** The server seq of the last segment stored, or null. */
   readonly lastServerSeq: number | null;
+  /** Groups the last seal pass held back, and why: nothing after one seals before it (§2.9). */
+  readonly held: ReadonlyArray<{ readonly firstSeq: number; readonly reason: string }>;
 }
 
 const empty = (stream: string, fields: Partial<PushStreamReport>): PushStreamReport => ({
@@ -137,6 +141,7 @@ const empty = (stream: string, fields: Partial<PushStreamReport>): PushStreamRep
   pushed: 0,
   duplicates: 0,
   lastServerSeq: null,
+  held: [],
   ...fields,
 });
 
@@ -226,6 +231,7 @@ export async function pushStream(
   }
 
   let sealed = 0;
+  let held: PushStreamReport['held'] = [];
   // Bounded: steady concurrent writers never keep the push from sending; the
   // next run seals the rest.
   for (let pass = 0; pass < SEAL_PASSES; pass++) {
@@ -235,8 +241,10 @@ export async function pushStream(
       now,
       env,
       ...(o.allowUnreleased ? { allowUnreleased: true } : {}),
+      ...(o.secrets ? { secrets: o.secrets } : {}),
     });
     sealed += r.txns;
+    held = r.pending;
     if (r.refused !== null || r.captures === 0 || r.pending.length > 0) break;
   }
   let built = 0;
@@ -273,5 +281,5 @@ export async function pushStream(
     if (stored.duplicate) duplicates += 1;
     lastServerSeq = stored.seq;
   }
-  return empty(o.stream, { sealed, built, pushed, duplicates, lastServerSeq });
+  return empty(o.stream, { sealed, built, pushed, duplicates, lastServerSeq, held });
 }

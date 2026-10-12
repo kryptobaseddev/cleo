@@ -96,6 +96,26 @@ describe('docs.add --content inline authoring (T10965)', () => {
     expect(response.error?.code).toBe('E_INVALID_INPUT');
   });
 
+  it.each([
+    '',
+    '-',
+    ' -\n',
+  ])('docs.update refuses an empty or bare "-" body (%j) and keeps the doc (T13564)', async (content) => {
+    const handler = new DocsHandler();
+    const added = await handler.mutate('add', {
+      ownerId: 'T962',
+      content: 'Canonical body\n',
+      slug: 'keep-body',
+      attachedBy: 'content-test',
+    });
+    expect(added.success).toBe(true);
+    const response = await handler.mutate('update', { slug: 'keep-body', content });
+    expect(response.success).toBe(false);
+    expect(response.error?.code).toBe('E_INVALID_INPUT');
+    const fetched = await handler.query('fetch', { attachmentRef: 'keep-body' });
+    expect((fetched.data as DocsFetchResult).content).toBe('Canonical body\n');
+  });
+
   it('rejects combining --content with a file source', async () => {
     const handler = new DocsHandler();
     const response = await handler.mutate('add', {

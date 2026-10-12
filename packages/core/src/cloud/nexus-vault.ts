@@ -2205,7 +2205,7 @@ async function pushWithSession(
   opts: { readonly allowUnreleased?: boolean },
 ): Promise<PushStreamReport> {
   const session = await withCompletedRebind(opened);
-  const { conn, t } = session;
+  const { conn, key, t } = session;
   const replicaId = t.replicaId;
   if (!replicaId) {
     throw vaultError(
@@ -2242,8 +2242,18 @@ async function pushWithSession(
       'nothing was sealed or sent; relink the project (`cleo project link`) so both name one replica',
     );
   }
+  // §2.5 phase A (T13467): seal the secret values the pending captures will
+  // send; only here, where the master key is held, never at store open.
+  const { prepareSecretSeals, secretValuesKey } = await import('./secret-seal.js');
+  const warn = (w: CloudWarning): void => {
+    conn.warnings.push(w);
+  };
+  const secrets = await prepareSecretSeals(db, tableScopeOf(t), secretValuesKey(key.masterKey), {
+    warn,
+  });
   try {
-    return await pushStream(db, {
+    const report = await pushStream(db, {
+      secrets,
       scope: tableScopeOf(t),
       stream: t.streamId,
       replica: replicaId,
@@ -2256,6 +2266,14 @@ async function pushWithSession(
       registry: ReplicaRegistry.forDevice(conn.deviceId),
       ...(opts.allowUnreleased ? { allowUnreleased: true } : {}),
     });
+    // A held group holds back every later capture (§2.9): name it, never stay silent.
+    for (const h of report.held) {
+      warn({
+        code: 'W_SYNC_CAPTURE_HELD',
+        message: `${t.streamId}: capture ${h.firstSeq} is held (${h.reason}); later changes wait behind it`,
+      });
+    }
+    return report;
   } catch (err) {
     // The server holds a different segment at this replicaSeq, or a later one
     // than this store has: the store is behind (§1.5, §2.9).
@@ -2427,6 +2445,17 @@ async function pullWithSession(opened: StreamSession): Promise<PullStreamReport>
     journal.verifyCheckpoint(from, key.signers);
     initialCursor = cursorFromCheckpoint(from);
   }
+  // §2.5 phase A and §2.7 (T13467): the sealer's secrets, and the opened
+  // staged secrets re-encrypted under this machine's key before the frame.
+  const { prepareSecretOpens, prepareSecretSeals, secretValuesKey } = await import(
+    './secret-seal.js'
+  );
+  const secretKey = secretValuesKey(key.masterKey);
+  const secrets = await prepareSecretSeals(db, tableScopeOf(t), secretKey, {
+    warn: (w) => {
+      conn.warnings.push(w);
+    },
+  });
   // Seen-txn rows below each origin's staged floor are pruned after every
   // pull (T13318): an origin's transactions are first delivered in local_seq
   // order, so one at or below the floor with no seen row is refused loudly
@@ -2445,8 +2474,9 @@ async function pullWithSession(opened: StreamSession): Promise<PullStreamReport>
     pull: journalPuller(journal, key),
     verify: txnVerifier(key, t.streamId),
     seal: () => {
-      sealPending(db, { scope: tableScopeOf(t), replica: replicaId });
+      sealPending(db, { scope: tableScopeOf(t), replica: replicaId, secrets });
     },
+    openSecrets: () => prepareSecretOpens(db, tableScopeOf(t), t.streamId, secretKey),
     // D5: a pull that reaches head runs the rebind the undo budget scheduled
     // (T13278). The canonical store's own binding: the stable device id.
     rebind: { dbPath: t.dbPath, mode: 'live' },

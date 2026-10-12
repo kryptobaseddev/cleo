@@ -134,6 +134,13 @@ export interface AcquireSlotOptions {
   scope?: AdmissionScope;
   /** The CLEO task the run is evidence for, shown in status (T13132). */
   task?: string;
+  /**
+   * The ledger label shown in status and holder reports (a typed gate is
+   * `gate:<kind>`, T13573).
+   *
+   * @defaultValue `tool:<canonical>`
+   */
+  label?: string;
 }
 
 /** The default {@link AcquireSlotOptions.notice}: one stderr line. */
@@ -255,7 +262,7 @@ export async function acquireGlobalSlot(
   const fixed = opts.pressureSample;
   const outcome = await admit(
     {
-      label: `tool:${canonical}`,
+      label: opts.label ?? `tool:${canonical}`,
       footprintBytes: opts.footprintBytes ?? footprintForTool(canonical, totalBytes, opts.heapMb),
       // T13237: an evidence build is the project's whole build (`pnpm run
       // build`): it takes the machine-wide full-build slot, like

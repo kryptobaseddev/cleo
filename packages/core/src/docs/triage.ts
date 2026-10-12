@@ -227,6 +227,7 @@ export async function listTriageCandidates(
   const status = opts.status ?? 'draft';
   const limit = opts.limit ?? DOC_TRIAGE_DEFAULT_LIMIT;
   if (!(ATTACHMENT_LIFECYCLE_STATUSES as readonly string[]).includes(status)) {
+    // @sync-invariant none:input-shape an unknown --status filter is refused before any read or write
     throw new Error(
       `Invalid lifecycle status '${status}'. Valid: ${ATTACHMENT_LIFECYCLE_STATUSES.join(', ')}`,
     );
@@ -600,6 +601,7 @@ export async function triageDocs(opts: TriageDocsOptions = {}): Promise<DocsTria
 
   if (opts.record === true && proposals.length > 0) {
     const { storeDecision } = await import('../memory/decisions.js');
+    const { addGraphEdge, upsertGraphNode } = await import('../memory/graph-auto-populate.js');
     for (const [i, proposal] of proposals.entries()) {
       const ownerId = candidates[i]?.ownerId ?? null;
       const handle = proposal.slug ?? proposal.attachmentId;
@@ -620,6 +622,46 @@ export async function triageDocs(opts: TriageDocsOptions = {}): Promise<DocsTria
         confirmationState: 'proposed',
         decidedBy: 'agent',
       });
+      // Structured doc link (T13575). --record is an explicit opt-in, so it skips the
+      // brain.autoCapture gate (automatic capture only); both ends exist first (T13600).
+      const sha256 = candidates[i]?.sha256;
+      if (sha256) {
+        const explicit = { explicit: true, ifAbsent: true } as const;
+        const fromId = `decision:${row.id}`;
+        const toId = `llmtxt:${sha256}`;
+        await upsertGraphNode(
+          projectRoot,
+          fromId,
+          'decision',
+          row.decision,
+          0.5,
+          row.decision,
+          undefined,
+          undefined,
+          explicit,
+        );
+        await upsertGraphNode(
+          projectRoot,
+          toId,
+          'llmtxt',
+          handle,
+          0.8,
+          sha256,
+          { sha256 },
+          undefined,
+          explicit,
+        );
+        await addGraphEdge(
+          projectRoot,
+          fromId,
+          toId,
+          'references',
+          1,
+          'auto:docs-triage',
+          undefined,
+          explicit,
+        );
+      }
       recorded += 1;
       proposals[i] = { ...proposal, decisionId: row.id };
     }

@@ -699,6 +699,9 @@ function stableKey(
     const cols = (
       db.prepare(`PRAGMA index_info(${quoteIdent(i.name)})`).all() as Array<{ name: string | null }>
     ).map((c) => c.name);
+    // A row uid is filled at open, so a live store's rows may still lack one
+    // (T13467): its unique index is no stable key to match rows by.
+    if (cols.includes('uid')) continue;
     if (cols.length > 0 && cols.every((c): c is string => c !== null && common.has(c))) {
       return { key: cols as string[], unstablePk };
     }

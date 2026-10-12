@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { ensureProjectGitInitialCommit } from '../scaffold/ensure-dirs.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -243,6 +244,42 @@ describe('T10488 — pre-push hook task-ID enforcement', () => {
     expect(r.status).toBe(0);
   });
 
+  it("pushes the history a real `cleo init` creates: its empty 'initial: cleo init' commit (T13577)", async () => {
+    const { workDir } = makeRepoWithOrigin();
+    // The same step `cleo init` runs (ensure-dirs), not a hand-made look-alike.
+    expect((await ensureProjectGitInitialCommit(workDir)).action).toBe('created');
+    expect(
+      execFileSync('git', ['-C', workDir, 'log', '-1', '--pretty=%s'], {
+        encoding: 'utf-8',
+      }).trim(),
+    ).toBe('initial: cleo init');
+    const init = execFileSync('git', ['-C', workDir, 'rev-parse', 'HEAD'], {
+      encoding: 'utf-8',
+    }).trim();
+    const r = runHook(workDir, `refs/heads/main ${init} refs/heads/allowed ${ZERO_SHA}\n`);
+    expect(r.status, r.stderr).toBe(0);
+  });
+
+  it('the init allowance is the exact subject only: an untagged commit or a longer subject is refused (T13577)', () => {
+    const { workDir } = makeRepoWithOrigin();
+    execFileSync('git', [
+      '-C',
+      workDir,
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      'initial: cleo init',
+    ]);
+    const untagged = commit(workDir, 'chore: no task id', 'b.txt');
+    const lookalike = commit(workDir, 'initial: cleo init and more', 'c.txt');
+    const r = runHook(workDir, `refs/heads/main ${lookalike} refs/heads/allowed ${ZERO_SHA}\n`);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain(untagged);
+    expect(r.stderr).toContain(lookalike);
+    expect(r.stderr).not.toMatch(/initial: cleo init\n/);
+  });
+
   it('handles branch-deletion push (local_sha = ZERO_SHA) gracefully', () => {
     const { workDir } = makeRepoWithOrigin();
     const initial = commit(workDir, 'T1: seed');
@@ -251,5 +288,21 @@ describe('T10488 — pre-push hook task-ID enforcement', () => {
     const stdin = `(delete) ${ZERO_SHA} refs/heads/feature ${initial}\n`;
     const r = runHook(workDir, stdin);
     expect(r.status).toBe(0);
+  });
+});
+
+describe('T13577 — commit-msg accepts the cleo init commit by exact subject', () => {
+  const COMMIT_MSG = join(dirname(HOOK_PATH), 'commit-msg');
+  const check = (subject: string): number => {
+    const dir = mkdtempSync(join(tmpdir(), 't13577-'));
+    const file = join(dir, 'MSG');
+    writeFileSync(file, `${subject}\n`);
+    return spawnSync('/bin/sh', [COMMIT_MSG, file], { cwd: dir, encoding: 'utf-8' }).status ?? -1;
+  };
+
+  it("accepts 'initial: cleo init' and refuses an untagged or longer subject", () => {
+    expect(check('initial: cleo init')).toBe(0);
+    expect(check('chore: no task id')).toBe(1);
+    expect(check('initial: cleo init and more')).toBe(1);
   });
 });

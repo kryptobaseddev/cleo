@@ -8,7 +8,8 @@
  *     - the committer time of HEAD and of every commit the branch adds over
  *       origin's default branch — unless the commits made after the run only
  *       recorded what was on disk when it ran: HEAD as of the run is in HEAD's
- *       reflog, and no path that differs between that commit and the working
+ *       reflog (that of the linked worktree holding the report, when it is
+ *       not the bound checkout; T13579), and no path that differs between that commit and the working
  *       tree was modified, deleted or moved after the run (edit, run the
  *       tests, commit, then verify). Any other commit after the run is
  *       refused — a rebase onto a newer base included, since it rewrites the
@@ -224,6 +225,31 @@ function headAtRun(root: string, after: (at: number) => boolean): string | null 
   return null;
 }
 
+/**
+ * The linked worktree of this repository that holds the report, when it is
+ * not `root`'s own checkout; else null (T13579). A HEAD reflog is per
+ * worktree, so a report produced in one worktree and verified from another
+ * must be judged against the reflog of the worktree that ran it.
+ */
+function reportWorktree(root: string, reportPath: string): string | null {
+  const dir = dirname(reportPath);
+  const top = (cwd: string): string | null =>
+    git(cwd, ['rev-parse', '--show-toplevel'])?.trim() || null;
+  const common = (cwd: string): string | null =>
+    git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'])?.trim() || null;
+  const reportTop = top(dir);
+  const rootTop = top(root);
+  if (reportTop === null || rootTop === null || realpathOr(reportTop) === realpathOr(rootTop))
+    return null;
+  const shared = common(dir);
+  return shared !== null && shared === common(root) ? reportTop : null;
+}
+
+/** HEAD as of the run, from the reflog of the worktree that ran it ({@link reportWorktree}). */
+function headAtRunFor(root: string, clock: RunClock): string | null {
+  return headAtRun(reportWorktree(root, clock.reportPath) ?? root, clock.after);
+}
+
 /** The most recently modified of `paths` that still exists. */
 function newestModified(
   root: string,
@@ -263,7 +289,7 @@ function modifiedAfterRun(
     .sort((a, b) => b.at - a.at);
   if (after.length === 0) return null;
   const blob = (args: readonly string[]): string | null => git(root, args)?.trim() || null;
-  const atRun = headAtRun(root, clock.after);
+  const atRun = headAtRunFor(root, clock);
   const head = blob(['rev-parse', 'HEAD']);
   if (atRun === null || head === null || head === atRun) return after[0] ?? null;
   return (
@@ -335,7 +361,7 @@ function deletedAfterRun(
  * working tree now is unmodified, and undeleted, since the run.
  */
 function committedAfterRunUnseen(root: string, clock: RunClock): string | null {
-  const atRun = headAtRun(root, clock.after);
+  const atRun = headAtRunFor(root, clock);
   if (atRun === null)
     return 'HEAD as of the run is not in the reflog, so what the run saw is unknown';
   const differing = git(root, ['diff', '--name-only', '--no-renames', atRun]);

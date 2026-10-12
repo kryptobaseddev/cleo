@@ -6345,6 +6345,8 @@ describe('the main brain stream through cloud sync (T13370)', () => {
           admit: async () => ({ release: async () => {} }),
           sync: () => cloudSync(vopts(m, { allowUnreleased: true })),
           unreleasedFlags: new Set(),
+          // As on a real machine: outside the test runner's VITEST/NODE_ENV (T13606).
+          env: {},
         }),
       );
     };

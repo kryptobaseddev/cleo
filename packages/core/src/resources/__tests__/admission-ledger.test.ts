@@ -38,6 +38,7 @@ import {
   planRunFootprint,
   readForeignEntries,
   readLedger,
+  readLedgerBudget,
   reapLedger,
   removeLedgerEntry,
   schedulePass,
@@ -766,6 +767,31 @@ describe('admit (one ledger, real critical section)', () => {
   });
 
   const base = { capacityBytes, sample: calm, env: {}, pollMs: 5 };
+
+  it('a half-share ledger names the narrowed budget and its share in the refusal and status (T13572)', async () => {
+    const halved = { ...base, sample: async () => sampleAt(15) };
+    const a = await admit(
+      { label: 'tool:test', footprintBytes: 4 * GIB },
+      { ...halved, dir, wait: false },
+    );
+    expect(a.admitted).toBe(true);
+    const b = await admit(
+      { label: 'tool:typecheck', footprintBytes: 2 * GIB },
+      { ...halved, dir, wait: false },
+    );
+    expect(b.admitted).toBe(false);
+    if (!b.admitted) {
+      expect(b.refusal.reason).toMatch(
+        /machine budget in use: 4\.0 GiB of 5\.0 GiB (light|heavy) budget \((light|heavy) share half from [a-zA-Z ]+pressure; capacity 10 GiB\)/,
+      );
+    }
+    expect(readLedgerBudget(dir, capacityBytes)).toMatchObject({
+      capacityBytes,
+      lightShare: 'half',
+      lightBudgetBytes: 5 * GIB,
+    });
+    if (a.admitted) await a.grant.release();
+  });
 
   it('admits within the budget, refuses beyond it with the holders, and frees on release', async () => {
     const a = await admit(

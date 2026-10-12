@@ -26,6 +26,7 @@ import {
   entryLiveness,
   readForeignEntries,
   readLedger,
+  readLedgerBudget,
   reapLedger,
   removeLedgerEntry,
 } from '@cleocode/core/resources/admission-ledger.js';
@@ -138,6 +139,8 @@ export const doctorToolLocksCommand = defineCommand({
     cliOutput(
       {
         capacityBytes: admissionCapacityBytes(),
+        // T13572: the share pressure leaves and the light/heavy budgets it sets.
+        budget: readLedgerBudget(),
         usedBytes: held.reduce((n, e) => n + e.footprintBytes, 0),
         entries,
         heldCount: held.length,

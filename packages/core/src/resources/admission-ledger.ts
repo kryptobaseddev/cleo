@@ -857,6 +857,87 @@ function charged(entry: LedgerEntry, capacityBytes: number): number {
 }
 
 /**
+ * What a pressure share leaves of the capacity: `half` halves it, `none`
+ * leaves nothing, `full` and `one` (one heavy run at a time) leave it whole.
+ *
+ * @param share - the share.
+ * @param capacityBytes - the machine budget.
+ * @returns the budget in bytes.
+ * @task T13572
+ */
+export function shareBudgetBytes(share: BudgetShare, capacityBytes: number): number {
+  return share === 'full' || share === 'one'
+    ? capacityBytes
+    : share === 'half'
+      ? capacityBytes / 2
+      : 0;
+}
+
+/** The budget pressure leaves, as the ledger last judged it (T13572). */
+export interface LedgerBudget {
+  /** The machine budget. */
+  readonly capacityBytes: number;
+  /** The share for heavy runs (memory and CPU pressure). */
+  readonly share: BudgetShare;
+  /** The share for light runs (memory pressure alone). */
+  readonly lightShare: BudgetShare;
+  /** What light runs may take. */
+  readonly lightBudgetBytes: number;
+  /** What heavy runs may take. */
+  readonly heavyBudgetBytes: number;
+  /** When the pressure behind the shares was sampled (epoch ms), or null when none is cached. */
+  readonly sampledAtMs: number | null;
+}
+
+/** {@link LedgerBudget} from a ledger doc's cached pressure verdict. */
+function ledgerBudget(pressure: CachedPressure | null, capacityBytes: number): LedgerBudget {
+  const share = pressure?.share ?? 'full';
+  const lightShare = pressure?.lightShare ?? share;
+  const lightBudgetBytes = shareBudgetBytes(lightShare, capacityBytes);
+  return {
+    capacityBytes,
+    share,
+    lightShare,
+    lightBudgetBytes,
+    heavyBudgetBytes: Math.min(lightBudgetBytes, shareBudgetBytes(share, capacityBytes)),
+    sampledAtMs: pressure?.sampledAtMs ?? null,
+  };
+}
+
+/**
+ * The budget pressure leaves right now, as the ledger last judged it, without
+ * the lock. For `cleo doctor tool-locks` (T13572).
+ *
+ * @param dir - the ledger directory. @defaultValue {@link admissionDir}
+ * @param capacityBytes - the machine budget. @defaultValue {@link admissionCapacityBytes}
+ * @returns the shares and the light/heavy budgets they leave.
+ */
+export function readLedgerBudget(
+  dir: string = admissionDir(),
+  capacityBytes: number = admissionCapacityBytes(),
+): LedgerBudget {
+  return ledgerBudget(readLedgerDoc(dir).pressure, capacityBytes);
+}
+
+/**
+ * The budget a waiting entry is held to, in words: the capacity when no share
+ * narrows it, else the narrowed budget with its share and the capacity, e.g.
+ * `24 GiB light budget (light share half from memory pressure; capacity 48 GiB)`.
+ */
+function budgetPhrase(entry: LedgerEntry, budget: LedgerBudget): string {
+  const heavy = isHeavy(entry);
+  const share = heavy ? budget.share : budget.lightShare;
+  const bytes = heavy ? budget.heavyBudgetBytes : budget.lightBudgetBytes;
+  if (bytes >= budget.capacityBytes && share !== 'one') return gib(budget.capacityBytes);
+  const kind = heavy ? 'heavy' : 'light';
+  const cause = heavy ? 'memory or CPU pressure' : 'memory pressure';
+  return (
+    `${gib(bytes)} ${kind} budget (${kind} share ${share}` +
+    `${share === 'one' ? ', one heavy run at a time' : ''} from ${cause}; capacity ${gib(budget.capacityBytes)})`
+  );
+}
+
+/**
  * One scheduling pass: admit every waiting entry the budget and the queue
  * order allow. Pure.
  *
@@ -895,12 +976,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   const lightShare = ctx.lightShare ?? ctx.share;
   if (ctx.share === 'none' && lightShare === 'none') return [...entries];
   const reservationMs = ctx.reservationMs ?? LEDGER_RESERVATION_MS;
-  const bytesFor = (share: BudgetShare): number =>
-    share === 'full' || share === 'one'
-      ? ctx.capacityBytes
-      : share === 'half'
-        ? ctx.capacityBytes / 2
-        : 0;
+  const bytesFor = (share: BudgetShare): number => shareBudgetBytes(share, ctx.capacityBytes);
   // Light runs see the memory budget. Heavy runs see the narrower of it and
   // their own share; `one` admits a single heavy run at a time.
   const lightBudget = bytesFor(lightShare);
@@ -1759,7 +1835,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
         : exclusiveHolder !== undefined
           ? `another full build holds the machine-wide full-build slot (${exclusiveHolder.label} pid ` +
             `${exclusiveHolder.pid}); one runs at a time, whatever its size${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`
-          : `machine budget in use: ${gib(load.bytes)} of ${gib(capacityBytes)} by ${load.runs} run(s); ` +
+          : `machine budget in use: ${gib(load.bytes)} of ${budgetPhrase(entry, ledgerBudget(doc.pressure, capacityBytes))} by ${load.runs} run(s); ` +
             `this run needs ${gib(charged(entry, capacityBytes))}${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`;
     return {
       reason,
@@ -1878,7 +1954,7 @@ function holderReport(
     (e) => e.state === 'waiting' && e.id !== mine.id && e.enqueuedAtMs <= mine.enqueuedAtMs,
   ).length;
   const lines = [
-    `still waiting after ${age(waitedMs)} for the machine budget (${gib(used)} of ${gib(capacityBytes)} in use, ` +
+    `still waiting after ${age(waitedMs)} for the machine budget (${gib(used)} of ${budgetPhrase(mine, ledgerBudget(doc.pressure, capacityBytes))} in use, ` +
       `${ahead} waiting ahead). Holders: ${describeLoad(doc, nowMs).join('; ') || 'none'}.`,
   ];
   const table = holders.length > 0 ? processTable() : null;

@@ -47,6 +47,8 @@ import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
 import { assertKnownFlags, UnknownFlagError } from '../lib/strict-args.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
 import { auditCommand } from './docs/audit.js';
+// T13598 — decision_adr_links writer verbs (`link-decision` / `unlink-decision`).
+import { linkDecisionCommand, unlinkDecisionCommand } from './docs/decision-link.js';
 // T10164 — DocProvenanceResponse-typed graph verb (`--root <slug>|<taskId>`).
 import { graphCommand as provenanceGraphCommand } from './docs/graph.js';
 // T11875 — display-alias assignment verb (`set-alias <slug> <number>`).
@@ -83,7 +85,7 @@ async function dispatchDocsRaw(
 }
 
 /**
- * Read a document body from stdin for `cleo docs add --content -` (T10965).
+ * Read a document body from stdin for `cleo docs add|update --content -` (T10965, T13564).
  *
  * Drains piped stdin fully and strips a single trailing newline (the shell
  * convention for here-docs / `echo`), preserving all internal whitespace so
@@ -1855,7 +1857,9 @@ const updateCommand = defineCommand({
 
     const slug = String(args.slug);
     const filePath = typeof args.file === 'string' ? args.file : undefined;
-    const inlineContent = typeof args.content === 'string' ? args.content : undefined;
+    let inlineContent = typeof args.content === 'string' ? args.content : undefined;
+    // T13564 — `--content -` reads stdin, as in `cleo docs add` (T10965).
+    if (inlineContent === '-') inlineContent = await readDocBodyFromStdin();
 
     if (filePath !== undefined && inlineContent !== undefined) {
       cliError('--file and --content are mutually exclusive', ExitCode.VALIDATION_ERROR, {
@@ -2957,6 +2961,9 @@ export const docsCommand = defineCommand({
     graph: provenanceGraphCommand,
     // T11875 — display-alias assignment (`set-alias <slug> <number>`), decoupled from slug.
     'set-alias': setAliasCommand,
+    // T13598 — decision_adr_links writers (ADR ↔ D#### trace).
+    'link-decision': linkDecisionCommand,
+    'unlink-decision': unlinkDecisionCommand,
     // Legacy aliases (use `query` for new work — retained for backward compatibility)
     search: searchCommand,
     find: findCommand,

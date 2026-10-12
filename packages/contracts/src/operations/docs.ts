@@ -371,6 +371,15 @@ export interface DocsFetchResult {
   inlined: boolean;
   /** Current attachment backend in use. */
   attachmentBackend?: AttachmentBackend;
+  /**
+   * `D####` brain ledger decisions linked to this ADR doc through
+   * `decision_adr_links` (T13359, spec `cleodocs-rearch-design` §4/§10,
+   * D11165) — the ADR→decision direction of the two-way trace. Present only
+   * for fetched docs that have live (non-revoked) links; the ledger stays
+   * the operational authority, so an ADR always names the decisions it
+   * ratifies.
+   */
+  linkedDecisions?: string[];
 }
 
 // --------------------------------------------------------------------------
@@ -900,6 +909,38 @@ export interface DocsSupersedeResult {
 }
 
 // --------------------------------------------------------------------------
+// docs.link-decision / docs.unlink-decision — decision_adr_links writers (T13598)
+// --------------------------------------------------------------------------
+
+/**
+ * Parameters for `docs.link-decision` and `docs.unlink-decision`.
+ *
+ * @task T13598
+ */
+export interface DocsDecisionLinkParams {
+  /** The ADR doc slug (`adr-NNN-…`). */
+  adrSlug: string;
+  /** The `D####` brain ledger decision id. */
+  decisionId: string;
+}
+
+/**
+ * Result of `docs.link-decision` and `docs.unlink-decision`.
+ *
+ * @task T13598
+ */
+export interface DocsDecisionLinkResult {
+  /** The ADR doc slug. */
+  adrSlug: string;
+  /** The `D####` decision id. */
+  decisionId: string;
+  /** The link's state after the call. */
+  status: 'linked' | 'revoked';
+  /** False for an idempotent repeat (already linked, or already revoked). */
+  changed: boolean;
+}
+
+// --------------------------------------------------------------------------
 // docs.doctor — store health diagnostics + safe repairs (T13447)
 // --------------------------------------------------------------------------
 
@@ -1006,6 +1047,8 @@ export type DocsOps =
   | { op: 'docs.remove'; params: DocsRemoveParams; result: DocsRemoveResult }
   | { op: 'docs.update'; params: DocsUpdateParams; result: DocsUpdateResult }
   | { op: 'docs.supersede'; params: DocsSupersedeParams; result: DocsSupersedeResult }
+  | { op: 'docs.link-decision'; params: DocsDecisionLinkParams; result: DocsDecisionLinkResult }
+  | { op: 'docs.unlink-decision'; params: DocsDecisionLinkParams; result: DocsDecisionLinkResult }
   | { op: 'docs.doctor'; params: DocsDoctorParams; result: DocsDoctorResult };
 
 /**
@@ -1024,4 +1067,6 @@ export type DocsOp =
   | 'docs.remove'
   | 'docs.update'
   | 'docs.supersede'
+  | 'docs.link-decision'
+  | 'docs.unlink-decision'
   | 'docs.doctor';
