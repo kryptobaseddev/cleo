@@ -1504,6 +1504,29 @@ export {
   migrateSignaldockToConduit,
   needsSignaldockToConduitMigration,
 } from './store/migrate-signaldock-to-conduit.js';
+export type {
+  MigrationHarnessOptions,
+  MigrationRollbackParams,
+  MigrationRollbackReport,
+  MigrationRunReport,
+  MigrationRunStatus,
+  MigrationStep,
+  MigrationStepContext,
+  MigrationStepReport,
+  MigrationStepStatus,
+  MigrationStepVerificationSpec,
+  RollbackTableResult,
+  StepBackupReceipt,
+  TableFingerprint,
+  TableVerification,
+} from './store/migration-safety.js';
+export {
+  countForeignKeyViolations,
+  DEFAULT_VERIFICATION_SAMPLE_SIZE,
+  fingerprintTable,
+  rollbackMigrationStep,
+  runMigrationSteps,
+} from './store/migration-safety.js';
 // T10162 (Saga T9855 · Epic T10157) — canonical DB-open chokepoint re-export
 // so dispatch + tests that need a project-scoped tasks.db handle can route
 // through `@cleocode/core/internal` without depending on the deep subpath
