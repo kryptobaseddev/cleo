@@ -436,6 +436,38 @@ describe('global secrets travel sealed on the home stream (T13467)', () => {
     ).toBe('re-entered');
   });
 
+  it('a later re-key of a held row waits behind it, so the receiver never sees a change before its insert (T13601)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    const foreign = await encryptGlobal('other-secret', 'account:openai:home', {
+      cleoHome: b.home,
+    });
+    write(
+      a.db,
+      `INSERT INTO accounts (provider, label, auth_type, secret_enc, priority, created_at, updated_at)
+       VALUES ('openai', 'home', 'api-key', ?, 1, '2026-10-11T00:00:00.000Z', '2026-10-11T00:00:00.000Z')`,
+      foreign,
+    );
+    // A later transaction re-keys the held row (its uid moves, as a collision
+    // re-key does); netting drops that K, leaving the old uid only in `renames`.
+    // A third changes the row under the new uid only.
+    write(
+      a.db,
+      "UPDATE accounts SET uid = '0192ffff-7f00-7000-8000-00000013601a' WHERE provider = 'openai'",
+    );
+    write(a.db, "UPDATE accounts SET priority = 2 WHERE provider = 'openai'");
+    await addAccount(a, 'anthropic', 'work', SECRET);
+    const out = await push(a, stream, await sealsOf(a));
+    // The insert, the re-key and the change under the new uid all wait; the
+    // unrelated account seals.
+    expect(out.held.map((h) => h.firstSeq)).toEqual([1, 2, 3]);
+    await pull(b, stream);
+    expect(accountRow(b, 'anthropic', 'work')).toBeDefined();
+    expect(accountRow(b, 'openai', 'home')).toBeUndefined();
+    // Nothing for the held row reached B ahead of its insert.
+    expect(pendingInbox(b)).toBe(0);
+  });
+
   it('a receiver that cannot open the secrets holds the op, never writes a row without them', async () => {
     const { a, b } = await twoDevices();
     const stream = fakeStream();
