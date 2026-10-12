@@ -53,6 +53,8 @@ import { linkDecisionCommand, unlinkDecisionCommand } from './docs/decision-link
 import { graphCommand as provenanceGraphCommand } from './docs/graph.js';
 // T11875 — display-alias assignment verb (`set-alias <slug> <number>`).
 import { setAliasCommand } from './docs/set-alias.js';
+// T13363 — per-project adoption metrics (`stats`, read-only).
+import { statsCommand } from './docs/stats.js';
 // T13446 — docs.triage decision-site batch triage (`triage [--limit N] [--status S] [--record]`).
 import { triageCommand } from './docs/triage.js';
 import { docsViewerSubcommands } from './docs-viewer.js';
@@ -2974,6 +2976,8 @@ export const docsCommand = defineCommand({
     audit: auditCommand,
     // T13446 — docs.triage batch triage (proposals only; --record persists D#### verdicts)
     triage: triageCommand,
+    // T13363 — docs.stats adoption metrics (read-only)
+    stats: statsCommand,
     // Legacy/migration (use canonical verbs for new work)
     sync: syncCommand,
     status: statusCommand,

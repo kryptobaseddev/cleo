@@ -169,6 +169,9 @@ const supersedeDoc = lazyOperation(
 const triageDocs = lazyOperation(
   async () => (await import('@cleocode/core/docs/triage')).triageDocs,
 );
+const computeDocsStats = lazyOperation(
+  async () => (await import('@cleocode/core/docs/stats')).computeDocsStats,
+);
 const syncFromGit = lazyOperation(
   async () => (await import('@cleocode/core/docs/docs-ops')).syncFromGit,
 );
@@ -2150,6 +2153,7 @@ const QUERY_OPS = new Set<string>([
   'audit',
   'doctor',
   'triage',
+  'stats',
 ]);
 const MUTATE_OPS = new Set<string>([
   'add',
@@ -2237,6 +2241,8 @@ async function dispatchDocsLegacyQuery(
         record: params['record'] === true,
         projectRoot,
       });
+    case 'stats':
+      return computeDocsStats({ projectRoot });
     default:
       throw new Error(`Unsupported docs query operation: ${operation}`);
   }
@@ -2503,6 +2509,7 @@ export class DocsHandler implements DomainHandler {
         'audit',
         'doctor',
         'triage',
+        'stats',
       ],
       mutate: [
         'add',
