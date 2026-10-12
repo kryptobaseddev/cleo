@@ -1268,41 +1268,116 @@ async function packageStoreRealPath(root: string, path: string): Promise<string>
 const BUN_SUBCOMMANDS: ReadonlySet<string> = new Set(['test', 'run', 'x', 'exec', 'build']);
 
 /**
- * The script an interpreter invocation runs, and the argument indexes that are
- * never inputs (T13566). The first positional argument is the script —
- * `node a.js`, `bun a.ts` — except where bun names a subcommand: `bun test
- * a.test.ts b.test.ts` and `bun run file.ts` have no implicit script (the
- * named files are captured as file-like arguments), and the package that
- * `bun x <pkg>` / `bunx <pkg>` runs is not a file of this project.
+ * bun options whose value names a file that changes what the gate runs (a
+ * preload, env file, bunfig, tsconfig): never the script, but captured as an
+ * input when it names an existing file, so editing it invalidates a cached
+ * pass (T13574 review).
+ */
+const BUN_FILE_FLAGS: ReadonlySet<string> = new Set([
+  '-c',
+  '--config',
+  '-r',
+  '--preload',
+  '--env-file',
+  '--tsconfig-override',
+]);
+
+/** bun options whose next argument is their value, never a script or a positional (T13574). */
+const BUN_VALUE_FLAGS: ReadonlySet<string> = new Set([...BUN_FILE_FLAGS, '--cwd']);
+
+/** Flags that make an interpreter evaluate inline code, so it runs no script file. */
+function evalFlags(command: string): readonly string[] {
+  // bun's `-c` is `--config` (T13574); for python, bash and sh it is inline code.
+  return command === 'bun' || command === 'bunx'
+    ? ['-e', '--eval', '-p', '--print']
+    : ['-e', '--eval', '-c', '--print', '-p'];
+}
+
+/**
+ * The script an interpreter invocation runs, the argument indexes that are
+ * never inputs, and the directory its file arguments resolve from (T13566,
+ * T13574). The first positional argument is the script — `node a.js` — with
+ * bun's exceptions:
+ *  - a subcommand (`bun test a.test.ts b.test.ts`, `bun run file.ts`) leaves no
+ *    implicit script; the named files are captured as file-like arguments, and
+ *    the package `bun x <pkg>` / `bunx <pkg>` runs is not a project file;
+ *  - otherwise the first positional is the script only when it is an existing
+ *    regular file (`bun a.ts`); any other word (`install`, `add`, `pm`,
+ *    `create`, …) is a subcommand whose arguments name packages, not inputs;
+ *  - the values of bun's value flags (`-c bunfig.toml`, `--cwd dir`) are never
+ *    the script; a file flag's value (`--preload ./setup.ts`, `--env-file`,
+ *    `-c`, `--tsconfig-override`) is returned as an input when it names an
+ *    existing regular file, and `--cwd` moves where file arguments resolve.
  *
  * @param command - Basename of the interpreter.
  * @param args - Its arguments.
- * @returns The implicit script, if any, and the indexes to leave out.
+ * @param cwd - The invocation's working directory.
+ * @returns The implicit script, the indexes to leave out, the resolution base,
+ *   and the absolute paths of files named by bun's file flags.
  */
-function interpreterScript(
+async function interpreterScript(
   command: string,
   args: readonly string[],
-): { script: string | undefined; notInputs: ReadonlySet<number> } {
-  const positional = args.flatMap((arg, index) => (arg.startsWith('-') ? [] : [index]));
+  cwd: string,
+): Promise<{
+  script: string | undefined;
+  notInputs: ReadonlySet<number>;
+  base: string;
+  flagFiles: readonly string[];
+}> {
+  const bun = command === 'bun' || command === 'bunx';
+  const notInputs = new Set<number>();
+  let base = cwd;
+  const flagValues: string[] = [];
+  if (bun) {
+    args.forEach((arg, index) => {
+      const eq = arg.indexOf('=');
+      const flag = arg.startsWith('--') && eq > 0 ? arg.slice(0, eq) : arg;
+      const inline = flag === arg ? undefined : arg.slice(eq + 1);
+      if (!BUN_VALUE_FLAGS.has(flag)) return;
+      const value = inline ?? args[index + 1];
+      if (value === undefined) return;
+      if (inline === undefined) notInputs.add(index + 1);
+      if (flag === '--cwd') base = resolve(cwd, value);
+      else flagValues.push(value);
+    });
+  }
+  const regularFile = (path: string): Promise<boolean> =>
+    stat(path).then(
+      (st) => st.isFile(),
+      () => false,
+    );
+  const flagFiles: string[] = [];
+  for (const value of flagValues) {
+    const path = resolve(base, value);
+    if (await regularFile(path)) flagFiles.push(path);
+  }
+  const positional = args.flatMap((arg, index) =>
+    arg.startsWith('-') || notInputs.has(index) ? [] : [index],
+  );
   const word = (n: number): string | undefined => {
     const index = positional[n];
     return index === undefined ? undefined : args[index];
   };
-  const notInputs = new Set<number>();
   const exclude = (n: number): void => {
     const index = positional[n];
     if (index !== undefined) notInputs.add(index);
   };
   if (command === 'bunx') {
     exclude(0);
-    return { script: undefined, notInputs };
+    return { script: undefined, notInputs, base, flagFiles };
   }
-  if (command === 'bun' && BUN_SUBCOMMANDS.has(word(0) ?? '')) {
+  if (command !== 'bun') return { script: word(0), notInputs, base, flagFiles };
+  const first = word(0);
+  if (first !== undefined && BUN_SUBCOMMANDS.has(first)) {
     exclude(0);
-    if (word(0) === 'x') exclude(1);
-    return { script: undefined, notInputs };
+    if (first === 'x') exclude(1);
+    return { script: undefined, notInputs, base, flagFiles };
   }
-  return { script: word(0), notInputs };
+  if (first !== undefined && (await regularFile(resolve(base, first))))
+    return { script: first, notInputs, base, flagFiles };
+  for (const index of positional) notInputs.add(index);
+  return { script: undefined, notInputs, base, flagFiles };
 }
 
 /** Capture declared task inputs and an interpreter's explicit harness argument. */
@@ -1330,20 +1405,23 @@ async function snapshotGateInputs(
       basename(invocation.command),
     )
   ) {
-    if (!invocation.args.some((arg) => ['-e', '--eval', '-c', '--print', '-p'].includes(arg))) {
+    const command = basename(invocation.command);
+    if (!invocation.args.some((arg) => evalFlags(command).includes(arg))) {
       const scripts: string[] = [];
-      const { script, notInputs } = interpreterScript(
-        basename(invocation.command),
+      const { script, notInputs, base, flagFiles } = await interpreterScript(
+        command,
         invocation.args,
+        invocation.cwd,
       );
-      if (script) scripts.push(resolve(invocation.cwd, script));
+      if (script) scripts.push(resolve(base, script));
+      scripts.push(...flagFiles);
       invocation.args.forEach((arg, index) => {
         if (
           !notInputs.has(index) &&
           !arg.startsWith('-') &&
           (arg.includes('/') || /\.(?:[cm]?[jt]sx?|py|sh|rb|pl)$/.test(arg))
         )
-          scripts.push(resolve(invocation.cwd, arg));
+          scripts.push(resolve(base, arg));
       });
       for (const path of scripts) paths.add(await packageStoreRealPath(root, path));
     }
